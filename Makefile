@@ -46,6 +46,16 @@ build: ## Build all Go binaries into ./bin.
 		CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$$b ./cmd/$$b || exit 1; \
 	done
 
+.PHONY: build-cross
+build-cross: ## Cross-compile every binary for linux amd64 + arm64 (smoke test).
+	@for arch in amd64 arm64; do \
+		for b in $(BINARIES); do \
+			echo ">> $$b linux/$$arch"; \
+			GOOS=linux GOARCH=$$arch CGO_ENABLED=0 $(GO) build -o /dev/null ./cmd/$$b || exit 1; \
+		done; \
+	done
+	@echo "cross-compile OK (linux/amd64, linux/arm64)"
+
 .PHONY: run
 run: ## Run the control-plane server locally.
 	$(GO) run ./cmd/netctl-control

@@ -115,6 +115,17 @@ material with the `internal/crypto` CA helpers. The `.proto` lives under
 `proto/netctl/agent/v1/`; regenerate Go with `make proto` (tools via
 `make proto-tools`).
 
+### netctl-agent (S5)
+
+The agent is configured by a YAML file (`-config` or `NETCTL_AGENT_CONFIG`); see
+[`deploy/agent/netctl-agent.example.yml`](../deploy/agent/netctl-agent.example.yml).
+Its tenant and id are derived from its client certificate's SPIFFE identity, not
+configured. `NETCTL_AGENT_GRPC_ADDR`, `NETCTL_AGENT_TLS_{CERT,KEY,CA}_FILE`,
+`NETCTL_AGENT_BUFFER_DIR`, and `NETCTL_AGENT_LOG_{LEVEL,FORMAT}` override the file.
+Results buffer to disk (`buffer.dir`, bounded by `max_records`) while the control
+plane is unreachable and drain on reconnect (at-least-once). Probing runs
+independently of connectivity, so an outage never blocks measurement.
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

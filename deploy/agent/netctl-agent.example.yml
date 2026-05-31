@@ -1,0 +1,33 @@
+# Example netctl-agent configuration.
+#
+#   netctl-agent -config /etc/netctl/agent.yml
+#
+# The agent's tenant and id are derived from its client certificate's SPIFFE
+# identity (spiffe://netctl/tenant/<t>/agent/<a>) — they are NOT configured here.
+# NETCTL_AGENT_* env vars override grpc_addr, the TLS files, and buffer.dir.
+
+control_plane:
+  grpc_addr: "control.netctl.local:9443"
+
+tls:
+  cert_file: /etc/netctl/agent.crt
+  key_file: /etc/netctl/agent.key
+  ca_file: /etc/netctl/ca.crt
+  # server_name to verify the control plane's certificate against (defaults to
+  # the grpc_addr host if your cert SANs match it).
+  server_name: "control.netctl.local"
+
+agent:
+  # hostname defaults to the OS hostname.
+  capabilities: ["noop"]
+  heartbeat_interval: 30s
+
+buffer:
+  # Disk-backed store-and-forward queue: results buffer here while the control
+  # plane is unreachable and drain on reconnect.
+  dir: /var/lib/netctl/agent/buffer
+  max_records: 10000
+
+canaries:
+  - type: noop
+    interval: 30s

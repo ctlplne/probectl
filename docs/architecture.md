@@ -116,5 +116,16 @@ StreamResults). The server requires and verifies a client certificate; the agent
 tenant and id are read from its certificate's tenant-bound SPIFFE identity
 (`spiffe://netctl/tenant/<t>/agent/<a>`), never from the request body — so an agent
 is bound to exactly one tenant and registration persists tenant-attributed (F50).
-The proto lives under `proto/netctl/agent/v1/` (versioned, additive-only). The
-agent binary itself is S5; result processing is S6.
+The proto lives under `proto/netctl/agent/v1/` (versioned, additive-only).
+
+## Agent runtime (S5)
+
+`netctl-agent` (`cmd/netctl-agent`, `internal/agent`) is a single, multi-arch,
+DB-free binary. A plugin **host** runs compiled-in canaries (`internal/canary`:
+the `Canary` interface + a no-op plugin; real probes from S7) on a schedule into a
+disk-backed, bounded **store-and-forward buffer** (append-only framed log,
+compacted on drain). A **forwarder** registers, heartbeats, and drains the buffer
+to the control plane over mTLS, reconnecting with backoff. Probing runs
+independently of connectivity, so results accumulate during an outage and drain
+on reconnect (at-least-once); every buffered/emitted result is stamped with the
+agent's tenant + id. Result processing (validate, bus, TSDB) is S6.

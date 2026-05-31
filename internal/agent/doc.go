@@ -1,6 +1,11 @@
-// Package agent provides the agent runtime, compiled-in canary plugin host, and disk-backed store-and-forward buffer (S5).
+// Package agent is the netctl agent runtime (S5): a plugin host that runs
+// compiled-in canaries on a schedule into a disk-backed, bounded store-and-forward
+// buffer, plus a forwarder that registers, heartbeats, and drains the buffer to
+// the control plane over mTLS (S4), reconnecting with backoff.
 //
-// S0 scaffold: this package is an intentionally empty placeholder so the
-// repository skeleton matches CLAUDE.md section 5. It carries no logic yet —
-// the implementing sprint noted above fills it in.
+// Probing runs independently of connectivity, so results accumulate during an
+// outage and drain on reconnect (at-least-once). The agent is tenant-bound: its
+// identity comes from its client certificate's SPIFFE id, and every result it
+// buffers/emits is stamped with that tenant + agent id (F50). It holds no database
+// connection — it is a thin, dependency-light client.
 package agent

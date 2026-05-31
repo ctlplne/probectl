@@ -2,8 +2,10 @@ package crypto
 
 import (
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -57,4 +59,29 @@ func SPIFFEIDFromCert(cert *x509.Certificate) (SPIFFEID, error) {
 		}
 	}
 	return SPIFFEID{}, fmt.Errorf("crypto: certificate has no SPIFFE URI SAN")
+}
+
+// SPIFFEIDFromCertFile reads the first certificate in a PEM file and returns its
+// SPIFFE identity. An agent uses this to learn its own tenant + id from its
+// client certificate.
+func SPIFFEIDFromCertFile(path string) (SPIFFEID, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return SPIFFEID{}, fmt.Errorf("crypto: read certificate: %w", err)
+	}
+	for {
+		var block *pem.Block
+		block, raw = pem.Decode(raw)
+		if block == nil {
+			return SPIFFEID{}, fmt.Errorf("crypto: no certificate in %s", path)
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			return SPIFFEID{}, fmt.Errorf("crypto: parse certificate: %w", err)
+		}
+		return SPIFFEIDFromCert(cert)
+	}
 }

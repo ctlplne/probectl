@@ -28,6 +28,7 @@ The repo is a `go.work` workspace with two modules:
 | Target              | What it does                                                  |
 | ------------------- | ------------------------------------------------------------ |
 | `make build`        | Build all binaries into `./bin` (ldflags-stamped version)    |
+| `make build-cross`  | Cross-compile every binary for linux amd64 + arm64 (smoke)   |
 | `make run`          | Run `netctl-control` locally                                 |
 | `make test`         | Unit tests across all workspace modules (`-race`)            |
 | `make test-isolation` | Cross-tenant isolation gate (`-tags=isolation`)            |

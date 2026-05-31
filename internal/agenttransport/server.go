@@ -21,6 +21,7 @@ type Server struct {
 	grpc   *grpc.Server
 	log    *slog.Logger
 	cancel context.CancelFunc
+	svc    *service
 }
 
 // New builds the agent-transport server with mTLS from the given cert/key/CA
@@ -33,10 +34,15 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, log *slog.Logger)
 	// srvCtx is canceled on shutdown so long-lived streaming handlers wind down
 	// and GracefulStop can complete.
 	srvCtx, cancel := context.WithCancel(context.Background())
+	svc := &service{pool: pool, log: log, shutdown: srvCtx.Done()}
 	gs := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)))
-	agentv1.RegisterAgentServiceServer(gs, &service{pool: pool, log: log, shutdown: srvCtx.Done()})
-	return &Server{grpc: gs, log: log, cancel: cancel}, nil
+	agentv1.RegisterAgentServiceServer(gs, svc)
+	return &Server{grpc: gs, log: log, cancel: cancel, svc: svc}, nil
 }
+
+// AcceptedResults returns the total number of results accepted via StreamResults
+// (self-observability; also used by tests).
+func (s *Server) AcceptedResults() uint64 { return s.svc.accepted.Load() }
 
 // Serve listens on addr and serves until ctx is canceled.
 func (s *Server) Serve(ctx context.Context, addr string) error {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
@@ -25,6 +26,7 @@ type service struct {
 	log      *slog.Logger
 	agents   store.Agents
 	shutdown <-chan struct{}
+	accepted atomic.Uint64 // results accepted across all StreamResults calls
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are
@@ -115,9 +117,11 @@ func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.Stre
 	for {
 		_, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
+			svc.accepted.Add(accepted)
 			return stream.SendAndClose(&agentv1.StreamResultsResponse{Accepted: accepted})
 		}
 		if err != nil {
+			svc.accepted.Add(accepted)
 			return err
 		}
 		accepted++
