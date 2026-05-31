@@ -1,0 +1,32 @@
+# Keep the image build context small, fast, and secret-free.
+# The Dockerfile builds a single binary from the root Go module, so it only
+# needs go.mod/go.sum + cmd/ + internal/ + pkg/. Everything else is excluded.
+.git/
+.github/
+.gitignore
+.dockerignore
+.editorconfig
+
+# Workspace + integration-test module are not needed to build a binary.
+go.work
+go.work.sum
+test/
+
+# Other components / docs / deploy assets.
+analyzer/
+web/
+docs/
+deploy/
+proto/
+buf.yaml
+buf.gen.yaml
+
+# Tests, markdown, local env, and any TLS material.
+**/*_test.go
+*.md
+.env*
+*.pem
+*.key
+*.crt
+bin/
+dist/

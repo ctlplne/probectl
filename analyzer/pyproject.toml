@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "netctl-analyzer"
+version = "0.0.0.dev0"
+description = "netctl BGP analyzer — ingests public BGP collector data and emits netctl.bgp.events."
+requires-python = ">=3.11"
+dependencies = [
+  "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+  "black>=24.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["netctl_analyzer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

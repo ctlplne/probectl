@@ -1,0 +1,46 @@
+# golangci-lint v2 configuration. See https://golangci-lint.run.
+version: "2"
+
+run:
+  timeout: 5m
+  # Lint code behind these build tags too (placeholder tests today; real
+  # suites in S2/S6). Keeps the isolation + integration files honest.
+  build-tags:
+    - isolation
+    - integration
+
+linters:
+  # "standard" = errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    - bodyclose
+    - gocritic
+    - misspell
+    - revive
+    - unconvert
+    - whitespace
+  settings:
+    misspell:
+      locale: US
+  exclusions:
+    # Sensible built-in exemptions, incl. std-error-handling (e.g. unchecked
+    # fmt.Print* / Close) and well-known false positives.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - internal/gen   # generated protobuf code (S4+)
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/imfeelingtheagi/netctl
+  exclusions:
+    paths:
+      - internal/gen

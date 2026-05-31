@@ -1,0 +1,160 @@
+# netctl — developer & CI tooling. Run `make help` for the target list.
+# See docs/development.md for details. No business logic lives here (S0).
+
+SHELL := /usr/bin/env bash
+.DEFAULT_GOAL := help
+
+# ---- configuration -------------------------------------------------------
+MODULE   := github.com/imfeelingtheagi/netctl
+GO       ?= go
+BIN_DIR  := bin
+BINARIES := netctl-control netctl-agent netctl-ebpf-agent netctl-endpoint netctl
+
+# Go modules in the workspace (each has its own go.mod).
+GO_MODULE_DIRS := . test
+
+# Build metadata, injected into internal/version via -ldflags.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
+COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS := -s -w \
+	-X $(MODULE)/internal/version.Version=$(VERSION) \
+	-X $(MODULE)/internal/version.Commit=$(COMMIT) \
+	-X $(MODULE)/internal/version.Date=$(DATE)
+
+# Container / dev-stack settings.
+IMAGE_REGISTRY ?= ghcr.io/imfeelingtheagi
+IMAGE_TAG      ?= $(VERSION)
+PLATFORMS      ?= linux/amd64,linux/arm64
+DOCKERFILE     := deploy/docker/Dockerfile
+COMPOSE_DEV    := deploy/compose/dev.yml
+
+# Pinned tool versions.
+GOLANGCI_LINT_VERSION ?= v2.12.2
+
+# ---- meta ----------------------------------------------------------------
+.PHONY: help
+help: ## Show this help.
+	@awk 'BEGIN{FS=":.*##"; print "netctl make targets:"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+# ---- build ---------------------------------------------------------------
+.PHONY: build
+build: ## Build all Go binaries into ./bin.
+	@mkdir -p $(BIN_DIR)
+	@for b in $(BINARIES); do \
+		echo ">> building $$b"; \
+		CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$$b ./cmd/$$b || exit 1; \
+	done
+
+.PHONY: run
+run: ## Run the control-plane server locally.
+	$(GO) run ./cmd/netctl-control
+
+# ---- test ----------------------------------------------------------------
+.PHONY: test
+test: ## Run unit tests across all workspace modules.
+	@for d in $(GO_MODULE_DIRS); do \
+		echo ">> go test ($$d)"; \
+		( cd $$d && $(GO) test -race -count=1 ./... ) || exit 1; \
+	done
+
+.PHONY: test-isolation
+test-isolation: ## Run the cross-tenant isolation gate (CLAUDE.md §7 guardrail 1).
+	$(GO) test -tags=isolation -race -count=1 ./...
+
+.PHONY: test-integration
+test-integration: ## Run integration tests (requires `make compose-up`).
+	cd test && $(GO) test -tags=integration -count=1 ./...
+
+.PHONY: test-python
+test-python: ## Run the Python analyzer test suite (pytest).
+	cd analyzer && python -m pytest
+
+.PHONY: cover
+cover: ## Run unit tests with a coverage profile.
+	$(GO) test -race -count=1 -coverprofile=coverage.out ./...
+	$(GO) tool cover -func=coverage.out | tail -1
+
+# ---- lint / format -------------------------------------------------------
+.PHONY: lint
+lint: lint-go lint-python ## Run all linters (Go + Python).
+
+.PHONY: lint-go
+lint-go: ## gofmt check + go vet + golangci-lint.
+	@files=$$(find . -name '*.go' -not -path '*/gen/*'); \
+		bad=$$(gofmt -l $$files); \
+		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
+	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
+	golangci-lint run
+
+.PHONY: lint-python
+lint-python: ## Lint the Python analyzer (ruff + black --check).
+	ruff check analyzer
+	black --check analyzer
+
+.PHONY: fmt
+fmt: ## Auto-format Go and Python.
+	gofmt -w $$(find . -name '*.go' -not -path '*/gen/*')
+	-ruff check --fix analyzer
+	-black analyzer
+
+.PHONY: tidy
+tidy: ## Tidy go.mod across modules.
+	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) mod tidy ); done
+
+# ---- codegen -------------------------------------------------------------
+.PHONY: proto
+proto: ## Generate Go from protobuf (no-op until the first .proto lands, S4/S6).
+	@if ls proto/*.proto >/dev/null 2>&1; then \
+		command -v buf >/dev/null 2>&1 || { echo "buf not installed: https://buf.build/docs/installation"; exit 1; }; \
+		buf generate; \
+	else \
+		echo "no .proto files yet — agent.proto lands in S4, result.proto in S6"; \
+	fi
+
+# ---- migrate -------------------------------------------------------------
+.PHONY: migrate
+migrate: ## Apply DB migrations (runner lands in S1; no migrations until S2).
+	@if ls migrations/*.sql >/dev/null 2>&1; then \
+		echo "run migrations via 'netctl-control migrate' (the runner is implemented in S1)"; \
+	else \
+		echo "no migrations yet — the first migration lands in S2"; \
+	fi
+
+# ---- security ------------------------------------------------------------
+.PHONY: vuln
+vuln: ## Scan Go dependencies for known vulnerabilities (govulncheck).
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+# ---- containers / dev stack ---------------------------------------------
+.PHONY: images
+images: ## Build multi-arch images for all components (Buildx).
+	@for b in $(BINARIES); do \
+		echo ">> buildx $$b ($(PLATFORMS))"; \
+		docker buildx build --platform $(PLATFORMS) \
+			-f $(DOCKERFILE) --build-arg COMPONENT=$$b \
+			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
+			-t $(IMAGE_REGISTRY)/$$b:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/$$b:latest \
+			. || exit 1; \
+	done
+
+.PHONY: compose-up
+compose-up: ## Start the local dev stack (Postgres/Kafka/ClickHouse/Prometheus).
+	docker compose -f $(COMPOSE_DEV) up -d --wait
+
+.PHONY: compose-down
+compose-down: ## Stop and remove the local dev stack.
+	docker compose -f $(COMPOSE_DEV) down -v
+
+# ---- housekeeping --------------------------------------------------------
+.PHONY: tools
+tools: ## Install pinned dev tools (golangci-lint) into GOPATH/bin.
+	curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+		| sh -s -- -b $$($(GO) env GOPATH)/bin $(GOLANGCI_LINT_VERSION)
+
+.PHONY: clean
+clean: ## Remove build output.
+	rm -rf $(BIN_DIR) dist coverage.out
+
+.PHONY: ci
+ci: lint test test-isolation ## Run the core CI gates locally.

@@ -1,0 +1,15 @@
+# <type>(<scope>): <subject>      ── max 100 chars, imperative, no trailing period
+#
+#   type:  feat | fix | docs | chore | test | refactor | perf | build | ci | style | revert
+#   scope: subsystem, e.g. canary, tenancy, control, agent, bus, ci
+#
+# Body (wrap ~72): what changed and why.
+#
+# Reference the sprint + requirement IDs, e.g.:  [S0]   or   [S7, F2]
+#
+# Footer (optional):
+#   BREAKING CHANGE: <description>
+#   Closes #<issue>
+#
+# Enable this template once with:
+#   git config commit.template .gitmessage

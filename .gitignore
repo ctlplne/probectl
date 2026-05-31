@@ -1,0 +1,49 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+
+# Coverage
+*.coverprofile
+coverage.txt
+coverage.out
+coverage.html
+coverage.xml
+
+# Python (analyzer/)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+
+# Node / frontend (web/ — framework chosen in S8a)
+node_modules/
+web/dist/
+web/.cache/
+
+# Local environment & secrets — never commit secrets (CLAUDE.md §7 guardrail 6)
+.env
+.env.*
+!.env.example
+*.local
+
+# Locally generated TLS material — never commit private keys (S3)
+*.pem
+*.key
+*.crt
+/deploy/compose/certs/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
