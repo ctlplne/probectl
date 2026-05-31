@@ -63,8 +63,11 @@ test-isolation: ## Run the cross-tenant isolation gate (CLAUDE.md §7 guardrail 
 	$(GO) test -tags=isolation -race -count=1 ./...
 
 .PHONY: test-integration
-test-integration: ## Run integration tests (requires `make compose-up`).
-	cd test && $(GO) test -tags=integration -count=1 ./...
+test-integration: ## Run integration tests across modules (needs a database / dev stack).
+	@for d in $(GO_MODULE_DIRS); do \
+		echo ">> integration tests ($$d)"; \
+		( cd $$d && $(GO) test -tags=integration -count=1 ./... ) || exit 1; \
+	done
 
 .PHONY: test-python
 test-python: ## Run the Python analyzer test suite (pytest).
@@ -114,12 +117,8 @@ proto: ## Generate Go from protobuf (no-op until the first .proto lands, S4/S6).
 
 # ---- migrate -------------------------------------------------------------
 .PHONY: migrate
-migrate: ## Apply DB migrations (runner lands in S1; no migrations until S2).
-	@if ls migrations/*.sql >/dev/null 2>&1; then \
-		echo "run migrations via 'netctl-control migrate' (the runner is implemented in S1)"; \
-	else \
-		echo "no migrations yet — the first migration lands in S2"; \
-	fi
+migrate: ## Apply DB migrations against NETCTL_DATABASE_URL.
+	$(GO) run ./cmd/netctl-control migrate
 
 # ---- security ------------------------------------------------------------
 .PHONY: vuln

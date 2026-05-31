@@ -1,6 +1,7 @@
 # Keep the image build context small, fast, and secret-free.
 # The Dockerfile builds a single binary from the root Go module, so it only
-# needs go.mod/go.sum + cmd/ + internal/ + pkg/. Everything else is excluded.
+# needs go.mod/go.sum + cmd/ + internal/ + pkg/ + migrations/ (embedded).
+# Everything else is excluded.
 .git/
 .github/
 .gitignore

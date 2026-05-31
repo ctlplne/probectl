@@ -8,11 +8,69 @@ documented here in the same PR (CLAUDE.md §6, §8).
 ## Conventions
 
 - **Control plane:** configured via environment variables with the `NETCTL_`
-  prefix (e.g. `NETCTL_HTTP_ADDR`). Keys land in S1.
+  prefix; the S1 keys are listed below.
 - **Agent:** configured via a YAML file or environment variables. Schema lands
   in S5.
 - **Secrets** are never hardcoded, logged, or placed in URLs/query strings;
   sensitive values at rest use envelope encryption (S3). See CLAUDE.md §7.
+
+## Control plane (`netctl-control`) — S1
+
+Subcommands: `netctl-control [serve]` (default), `netctl-control migrate` (apply
+migrations and exit), `netctl-control version`.
+
+| Variable                          | Default                                                              | Description                                  |
+| --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- |
+| `NETCTL_HTTP_ADDR`                | `:8080`                                                             | API listen address                           |
+| `NETCTL_HTTP_READ_TIMEOUT`        | `15s`                                                              | HTTP read timeout                            |
+| `NETCTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
+| `NETCTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
+| `NETCTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
+| `NETCTL_DATABASE_URL`             | `postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable`    | PostgreSQL DSN (`sslmode` controls TLS)      |
+| `NETCTL_DATABASE_MAX_CONNS`       | `10`                                                               | max pool connections (1–1000)                |
+| `NETCTL_DATABASE_MIN_CONNS`       | `0`                                                                | min pool connections                         |
+| `NETCTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
+| `NETCTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
+| `NETCTL_LOG_LEVEL`                | `info`                                                             | `debug` \| `info` \| `warn` \| `error`       |
+| `NETCTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
+| `NETCTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
+| `NETCTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
+
+Invalid values fail fast: `netctl-control` reports **all** configuration problems
+at once and exits non-zero. The database password is redacted from logs.
+
+### HTTP endpoints (S1)
+
+| Method & path      | Purpose                                                  |
+| ------------------ | -------------------------------------------------------- |
+| `GET /healthz`     | Liveness — `200` while the process is serving            |
+| `GET /readyz`      | Readiness — `200` when the database is reachable, else `503` |
+| `GET /version`     | Build and runtime metadata                               |
+| `GET /openapi.json`| The OpenAPI 3.1 document                                 |
+
+Every response carries an `X-Request-Id` (honoring an inbound one) and the
+security headers `Strict-Transport-Security` (when enabled) and
+`X-Content-Type-Options: nosniff`. Versioned resource routes under `/v1` arrive
+in S9+.
+
+### Error envelope
+
+All errors share one JSON shape and a stable domain-error → HTTP mapping:
+
+```json
+{ "error": { "code": "not_found", "message": "…", "request_id": "…" } }
+```
+
+| Domain kind   | Code           | HTTP |
+| ------------- | -------------- | ---- |
+| BadRequest    | `bad_request`  | 400  |
+| Unauthorized  | `unauthorized` | 401  |
+| Forbidden     | `forbidden`    | 403  |
+| NotFound      | `not_found`    | 404  |
+| Conflict      | `conflict`     | 409  |
+| Validation    | `validation`   | 422  |
+| Internal      | `internal`     | 500  |
+| Unavailable   | `unavailable`  | 503  |
 
 ## Local dev stack (`deploy/compose/dev.yml`)
 

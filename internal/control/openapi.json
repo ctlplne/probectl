@@ -1,0 +1,106 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "netctl control-plane API",
+    "version": "0.1.0",
+    "description": "Operational endpoints for the netctl control plane. Versioned resource endpoints are served under /v1 and are added by their sprints (S9+)."
+  },
+  "servers": [{ "url": "/" }],
+  "tags": [{ "name": "operational", "description": "Health, readiness, and build metadata." }],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getHealthz",
+        "summary": "Liveness probe",
+        "tags": ["operational"],
+        "responses": {
+          "200": {
+            "description": "Process is alive.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadyz",
+        "summary": "Readiness probe",
+        "description": "Returns 200 when dependencies (the database) are reachable, otherwise 503.",
+        "tags": ["operational"],
+        "responses": {
+          "200": {
+            "description": "Dependencies are reachable.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          },
+          "503": {
+            "description": "A dependency is not ready.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "operationId": "getVersion",
+        "summary": "Build metadata",
+        "tags": ["operational"],
+        "responses": {
+          "200": {
+            "description": "Build and runtime metadata.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Version" } } }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenAPI",
+        "summary": "This OpenAPI 3.1 document",
+        "tags": ["operational"],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document.",
+            "content": { "application/json": {} }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "examples": ["ok", "ready"] } },
+        "required": ["status"]
+      },
+      "Version": {
+        "type": "object",
+        "properties": {
+          "version": { "type": "string" },
+          "commit": { "type": "string" },
+          "date": { "type": "string" },
+          "go_version": { "type": "string" },
+          "os": { "type": "string" },
+          "arch": { "type": "string" }
+        },
+        "required": ["version", "commit", "date", "go_version", "os", "arch"]
+      },
+      "Error": {
+        "type": "object",
+        "description": "The standard error envelope returned by every endpoint.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "request_id": { "type": "string" }
+            },
+            "required": ["code", "message"]
+          }
+        },
+        "required": ["error"]
+      }
+    }
+  }
+}

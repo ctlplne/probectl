@@ -1,7 +1,7 @@
 # Minimal Prometheus config for the local dev stack (deploy/compose/dev.yml).
 # Remote-write is enabled on the server via --web.enable-remote-write-receiver so
-# the result pipeline (S6) can write metrics here. netctl-control exposes
-# /metrics from S1 — add a scrape job for it when it runs in-stack.
+# the result pipeline (S6) can write metrics here. Add a scrape job for
+# netctl-control once it exposes a /metrics endpoint (a later sprint).
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

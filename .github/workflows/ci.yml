@@ -79,6 +79,36 @@ jobs:
       - name: Cross-tenant isolation tests
         run: make test-isolation
 
+  integration:
+    name: integration
+    # Boots the control plane against a real Postgres and asserts migrations are
+    # idempotent and /readyz passes (S1 Done-when). Uses a service container
+    # rather than the full compose stack — only Postgres is needed yet.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: netctl
+          POSTGRES_PASSWORD: netctl
+          POSTGRES_DB: netctl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U netctl -d netctl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NETCTL_DATABASE_URL: postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Integration tests (migrations + readiness)
+        run: make test-integration
+
   dependency-scan:
     name: dependency-scan
     runs-on: ubuntu-latest

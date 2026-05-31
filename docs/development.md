@@ -36,7 +36,8 @@ The repo is a `go.work` workspace with two modules:
 | `make lint`         | `lint-go` + `lint-python`                                     |
 | `make fmt`          | Auto-format Go (`gofmt`) and Python (`ruff --fix`, `black`)   |
 | `make proto`        | `buf generate` (no-op until the first `.proto`, S4/S6)       |
-| `make migrate`      | Apply DB migrations (runner in S1; migrations from S2)        |
+| `make migrate`      | Apply DB migrations via `netctl-control migrate`             |
+| `make test-integration` | Integration tests across modules (needs a database)     |
 | `make vuln`         | `govulncheck` over Go dependencies                           |
 | `make images`       | Multi-arch (`amd64`/`arm64`) images for every component       |
 | `make compose-up` / `compose-down` | Start / stop the dev stack                    |
@@ -54,6 +55,7 @@ The job names are a **contract** introduced in S0:
 | `test-go`                | unit tests across modules                                   |
 | `test-python`            | analyzer `pytest`                                           |
 | `cross-tenant-isolation` | **permanent** tenant-isolation gate (CLAUDE.md §7 g.1)      |
+| `integration`            | migrations + readiness against a Postgres service container |
 | `dependency-scan`        | `govulncheck` + Trivy filesystem scan (vulns + secrets)     |
 | `build-images`           | multi-arch image build for every component (Buildx + QEMU)  |
 | `image-scan`             | Trivy image scan                                            |

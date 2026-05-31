@@ -17,8 +17,8 @@ ARG COMMIT=unknown
 ARG DATE=unknown
 WORKDIR /src
 
-# Cache dependencies first. (Only go.mod today — no third-party deps yet.)
-COPY go.mod ./
+# Cache dependencies first for faster rebuilds.
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
