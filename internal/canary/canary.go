@@ -39,14 +39,20 @@ type Config struct {
 
 // Result is one measurement. Identity (tenant/agent) is stamped by the agent
 // runtime when the result is buffered/emitted, so canaries stay identity-agnostic.
+//
+// Metrics are numeric series (promoted to TSDB samples). Attributes are
+// non-numeric, low-promotion context (e.g. the continuous-mode drop-timing
+// record) carried as OTel attributes on the result, not as metric labels — so
+// they never widen TSDB cardinality.
 type Result struct {
-	Type      string             `json:"type"`
-	Target    string             `json:"target"`
-	Success   bool               `json:"success"`
-	Error     string             `json:"error,omitempty"`
-	StartedAt time.Time          `json:"started_at"`
-	Duration  time.Duration      `json:"duration"`
-	Metrics   map[string]float64 `json:"metrics,omitempty"`
+	Type       string             `json:"type"`
+	Target     string             `json:"target"`
+	Success    bool               `json:"success"`
+	Error      string             `json:"error,omitempty"`
+	StartedAt  time.Time          `json:"started_at"`
+	Duration   time.Duration      `json:"duration"`
+	Metrics    map[string]float64 `json:"metrics,omitempty"`
+	Attributes map[string]string  `json:"attributes,omitempty"`
 }
 
 // Factory builds a canary instance from its configuration.

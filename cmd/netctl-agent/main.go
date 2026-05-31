@@ -54,9 +54,10 @@ func run() error {
 	log := logging.New(os.Stdout, envOr("NETCTL_AGENT_LOG_LEVEL", "info"), envOr("NETCTL_AGENT_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
 
-	// Compiled-in canary plugins. Real probes register here from S7+.
+	// Compiled-in canary plugins. More probe types register here from S8+.
 	reg := canary.NewRegistry()
 	reg.Register("noop", canary.NewNoop)
+	reg.Register("icmp", canary.NewICMP)
 
 	a, err := agent.New(cfg, reg, log)
 	if err != nil {

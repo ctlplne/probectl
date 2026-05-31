@@ -123,18 +123,31 @@ func TestAgentEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Run a real ICMP probe to loopback through the full pipeline when sockets are
+	// permitted; otherwise the e2e still validates the noop path.
+	icmpOK := loopbackICMPWorks(ctx)
+	caps := []string{"noop"}
+	canaries := []agent.CanaryConfig{{Type: "noop", Interval: agent.Duration(50 * time.Millisecond)}}
+	if icmpOK {
+		caps = append(caps, "icmp")
+		canaries = append(canaries, agent.CanaryConfig{
+			Type: "icmp", Target: "127.0.0.1", Interval: agent.Duration(100 * time.Millisecond),
+			Timeout: agent.Duration(time.Second), Params: map[string]string{"count": "2"},
+		})
+	}
 	cfg := &agent.Config{
 		ControlPlane: agent.ControlPlaneConfig{GRPCAddr: ln.Addr().String()},
 		TLS: agent.TLSConfig{
 			CertFile: write("client.crt", cc), KeyFile: write("client.key", ck),
 			CAFile: caFile, ServerName: "localhost",
 		},
-		Agent:    agent.Meta{Hostname: "e2e-host", Capabilities: []string{"noop"}, HeartbeatInterval: agent.Duration(time.Second)},
+		Agent:    agent.Meta{Hostname: "e2e-host", Capabilities: caps, HeartbeatInterval: agent.Duration(time.Second)},
 		Buffer:   agent.BufferConfig{Dir: filepath.Join(dir, "buffer"), MaxRecords: 1000},
-		Canaries: []agent.CanaryConfig{{Type: "noop", Interval: agent.Duration(50 * time.Millisecond)}},
+		Canaries: canaries,
 	}
 	reg := canary.NewRegistry()
 	reg.Register("noop", canary.NewNoop)
+	reg.Register("icmp", canary.NewICMP)
 	a, err := agent.New(cfg, reg, log)
 	if err != nil {
 		t.Fatalf("new agent: %v", err)
@@ -168,13 +181,56 @@ func TestAgentEndToEnd(t *testing.T) {
 	if srv.AcceptedResults() == 0 {
 		t.Fatal("no results were forwarded to the control plane")
 	}
-	// The forwarded result must be queryable in the TSDB, tenant-scoped, with the
-	// control plane having stamped the tenant from the agent's certificate.
-	series := mtsdb.Query("netctl_probe_success", map[string]string{"tenant_id": tn.ID})
-	if len(series) == 0 {
-		t.Fatal("no probe-success series reached the TSDB for the agent's tenant")
+	// The forwarded noop result must be queryable in the TSDB, tenant-scoped, with
+	// the control plane having stamped the tenant from the agent's certificate.
+	noop := mtsdb.Query("netctl_probe_success", map[string]string{"tenant_id": tn.ID, "canary_type": "noop"})
+	if len(noop) == 0 {
+		t.Fatal("no noop probe-success series reached the TSDB for the agent's tenant")
 	}
-	if series[0].Labels["agent_id"] != agentID || series[0].Labels["canary_type"] != "noop" {
-		t.Errorf("unexpected series labels: %+v", series[0].Labels)
+	if noop[0].Labels["agent_id"] != agentID {
+		t.Errorf("unexpected series labels: %+v", noop[0].Labels)
+	}
+
+	// The ICMP probe's loss/latency series must reach the TSDB (S7 Done-when).
+	if icmpOK {
+		waitForSeries(t, mtsdb, "netctl_probe_loss_ratio", tn.ID, "icmp", 10*time.Second)
+		loss := mtsdb.Query("netctl_probe_loss_ratio", map[string]string{"tenant_id": tn.ID, "canary_type": "icmp"})
+		if len(loss) == 0 || loss[0].Value != 0 {
+			t.Errorf("icmp loopback loss series = %+v, want one with value 0", loss)
+		}
+		if len(mtsdb.Query("netctl_probe_rtt_avg_ms", map[string]string{"tenant_id": tn.ID, "canary_type": "icmp"})) == 0 {
+			t.Error("no icmp rtt.avg series reached the TSDB")
+		}
+		if loss[0].Labels["server_address"] != "127.0.0.1" {
+			t.Errorf("icmp series server_address = %q, want 127.0.0.1", loss[0].Labels["server_address"])
+		}
+	} else {
+		t.Log("ICMP sockets unavailable; skipped the ICMP-to-TSDB assertions")
+	}
+}
+
+// loopbackICMPWorks reports whether an unprivileged/raw ICMP probe to loopback
+// succeeds in this environment.
+func loopbackICMPWorks(ctx context.Context) bool {
+	c, err := canary.NewICMP(canary.Config{
+		Type: "icmp", Target: "127.0.0.1", Timeout: time.Second,
+		Params: map[string]string{"count": "1"},
+	})
+	if err != nil {
+		return false
+	}
+	r, err := c.Run(ctx)
+	return err == nil && r.Success
+}
+
+// waitForSeries polls until a matching series appears or the timeout elapses.
+func waitForSeries(t *testing.T, w *tsdb.Memory, metric, tenantID, canaryType string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if len(w.Query(metric, map[string]string{"tenant_id": tenantID, "canary_type": canaryType})) > 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }

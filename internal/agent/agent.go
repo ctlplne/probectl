@@ -208,6 +208,7 @@ func envToResult(env *resultEnvelope) *resultv1.Result {
 		StartTimeUnixNano: unixNano(r.StartedAt),
 		DurationNano:      int64(r.Duration),
 		Metrics:           r.Metrics,
+		Attributes:        r.Attributes,
 	}
 }
 

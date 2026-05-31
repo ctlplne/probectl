@@ -150,6 +150,37 @@ for TLS in transit). Each probe emits `netctl_probe_success`,
 metric, labeled `tenant_id`, `agent_id`, `canary_type`, and `server_address`. The
 canonical signal→OTel mapping is in [`otel-mapping.md`](otel-mapping.md).
 
+### ICMP test (S7)
+
+The `icmp` canary measures echo **loss, latency, and jitter** to a `target`
+(IPv4 or IPv6). Configure it per-canary under `canaries:` (see
+[`netctl-agent.example.yml`](../deploy/agent/netctl-agent.example.yml)). The
+schedule `interval` and reply `timeout` are canary fields; the rest are `params`:
+
+| Param           | Default | Meaning                                                                 |
+| --------------- | ------- | ----------------------------------------------------------------------- |
+| `count`         | `5`     | echo requests per probe (continuous mode defaults to the interval in s) |
+| `payload_bytes` | `56`    | ICMP data bytes (minimum 8)                                             |
+| `dscp`          | `0`     | DSCP marking 0–63 on outgoing packets (best-effort by platform)         |
+| `mode`          | `batch` | `batch` (back-to-back) or `continuous` (1 packet/sec)                   |
+| `privileged`    | `false` | `true` prefers raw sockets; default is unprivileged datagram ICMP       |
+
+It emits `netctl_probe_loss_ratio`, `netctl_probe_rtt_{min,avg,max,stddev}_ms`,
+`netctl_probe_jitter_ms`, and `netctl_probe_packets_{sent,received}`. A probe with
+100% loss reports `success=false` (target unreachable); partial loss is a success
+with a non-zero loss ratio. **Continuous mode** records a per-second drop-timing
+record as result attributes (`icmp.dropped_seqs`, `icmp.drop_send_offsets_ms`) —
+carried as OTel attributes, not TSDB labels, so they don't widen cardinality.
+
+**Privileges.** By default the agent uses **unprivileged** datagram ICMP
+(`IPPROTO_ICMP`), which on Linux requires the agent's group to be within
+`net.ipv4.ping_group_range` (e.g. `sysctl -w net.ipv4.ping_group_range="0
+2147483647"`). Alternatively grant raw-socket capability
+(`setcap cap_net_raw+ep /usr/bin/netctl-agent`, or run with `CAP_NET_RAW`) and set
+`privileged: "true"`. The canary tries the preferred socket and falls back to the
+other; if neither can be opened it returns an internal error (the probe is not
+silently reported as loss).
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

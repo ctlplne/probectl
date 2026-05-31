@@ -19,7 +19,7 @@ tls:
 
 agent:
   # hostname defaults to the OS hostname.
-  capabilities: ["noop"]
+  capabilities: ["noop", "icmp"]
   heartbeat_interval: 30s
 
 buffer:
@@ -31,3 +31,16 @@ buffer:
 canaries:
   - type: noop
     interval: 30s
+
+  # ICMP echo: loss / latency / jitter. Uses unprivileged datagram ICMP by
+  # default (no CAP_NET_RAW); see docs/configuration.md for the privilege notes.
+  - type: icmp
+    target: "1.1.1.1"
+    interval: 30s
+    timeout: 3s
+    params:
+      count: "5" # echo requests per probe
+      payload_bytes: "56" # ICMP data bytes (>= 8)
+      dscp: "0" # 0-63; marks outgoing packets (best-effort)
+      # mode: "continuous"  # 1 packet/sec, averaged loss + per-second drop timing
+      # privileged: "true"  # prefer raw sockets (needs CAP_NET_RAW)
