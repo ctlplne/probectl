@@ -90,7 +90,7 @@ jobs:
       - name: govulncheck (Go dependencies)
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - name: Trivy filesystem scan (vulns + secrets)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -143,7 +143,7 @@ jobs:
           load: true
           tags: netctl/netctl-control:scan
       - name: Trivy image scan (vulns + secrets)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: netctl/netctl-control:scan
