@@ -35,6 +35,10 @@ migrations and exit), `netctl-control version`.
 | `NETCTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
 | `NETCTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
 | `NETCTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
+| `NETCTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; serves HTTPS when set with the key |
+| `NETCTL_TLS_KEY_FILE`             | (none)                                                            | PEM server private key (set together with the cert)        |
+| `NETCTL_ENVELOPE_KEY`             | (none)                                                            | base64-encoded 32-byte KEK for at-rest envelope encryption |
+| `NETCTL_ENVELOPE_KEY_ID`          | `dev`                                                             | identifier recorded with each sealed value                 |
 
 Invalid values fail fast: `netctl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
@@ -77,6 +81,25 @@ All errors share one JSON shape and a stable domain-error → HTTP mapping:
 | Validation    | `validation`   | 422  |
 | Internal      | `internal`     | 500  |
 | Unavailable   | `unavailable`  | 503  |
+
+### Transport security (S3)
+
+The API listens over TLS in two interchangeable ways:
+
+- **App-terminated TLS** — set `NETCTL_TLS_CERT_FILE` + `NETCTL_TLS_KEY_FILE`, and
+  the control plane serves **HTTPS only** (TLS 1.2+, prefer 1.3; plaintext is
+  refused).
+- **Ingress-terminated TLS** — leave them unset and serve HTTP behind a
+  TLS-terminating ingress (the shipped Helm/compose default). HSTS is set either
+  way, so the posture is correct end to end.
+
+All TLS and crypto policy lives in `internal/crypto`; a CI guard
+(`scripts/check_crypto_imports.sh`) forbids crypto-primitive imports elsewhere so
+a FIPS 140-3 module can be swapped in (F32). The **agent transport** (S4) uses
+mTLS with a tenant-bound SPIFFE identity (`spiffe://netctl/tenant/<t>/agent/<a>`);
+`internal/crypto` provides the CA/cert layout and verification. At-rest secrets
+use the envelope helper (a per-record data key wrapped by a KMS/HSM-pluggable KEK;
+the dev `StaticKeyProvider` reads `NETCTL_ENVELOPE_KEY`).
 
 ## Local dev stack (`deploy/compose/dev.yml`)
 

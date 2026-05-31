@@ -37,11 +37,19 @@ type Config struct {
 	LogLevel  string
 	LogFormat string
 
-	// Security posture. TLS terminates at the ingress until native TLS lands in
-	// S3 (CLAUDE.md §7 guardrail 12); HSTS is set now so it is correct the moment
-	// the API is served over HTTPS.
+	// Security posture / TLS. When TLSCertFile and TLSKeyFile are both set, the
+	// API serves HTTPS directly; otherwise TLS terminates at the ingress. HSTS is
+	// always set so it is correct the moment the API is served over HTTPS
+	// (CLAUDE.md §7 guardrail 12).
 	HSTSEnabled bool
 	HSTSMaxAge  time.Duration
+	TLSCertFile string
+	TLSKeyFile  string
+
+	// Envelope encryption (at rest). Optional; consumed by sensitive-column
+	// owners from S18. EnvelopeKey is a base64-encoded 32-byte KEK.
+	EnvelopeKey   string
+	EnvelopeKeyID string
 }
 
 // Load resolves configuration using the supplied getenv function (use
@@ -64,6 +72,14 @@ func Load(getenv func(string) string) (*Config, error) {
 		LogFormat:           l.enum("NETCTL_LOG_FORMAT", "json", "json", "text"),
 		HSTSEnabled:         l.boolean("NETCTL_HSTS_ENABLED", true),
 		HSTSMaxAge:          l.dur("NETCTL_HSTS_MAX_AGE", 365*24*time.Hour),
+		TLSCertFile:         l.str("NETCTL_TLS_CERT_FILE", ""),
+		TLSKeyFile:          l.str("NETCTL_TLS_KEY_FILE", ""),
+		EnvelopeKey:         l.str("NETCTL_ENVELOPE_KEY", ""),
+		EnvelopeKeyID:       l.str("NETCTL_ENVELOPE_KEY_ID", "dev"),
+	}
+
+	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
+		l.errf("NETCTL_TLS_CERT_FILE and NETCTL_TLS_KEY_FILE must be set together")
 	}
 
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
@@ -83,6 +99,10 @@ func Load(getenv func(string) string) (*Config, error) {
 // LoadFromEnv resolves configuration from the process environment.
 func LoadFromEnv() (*Config, error) { return Load(os.Getenv) }
 
+// TLSEnabled reports whether the API should serve HTTPS directly — both a
+// certificate and a key are configured. When false, TLS terminates at the ingress.
+func (c *Config) TLSEnabled() bool { return c.TLSCertFile != "" && c.TLSKeyFile != "" }
+
 // LogValue implements slog.LogValuer so the config can be logged at startup
 // without leaking the database password (CLAUDE.md §7 guardrail 6).
 func (c *Config) LogValue() slog.Value {
@@ -94,6 +114,7 @@ func (c *Config) LogValue() slog.Value {
 		slog.String("log_level", c.LogLevel),
 		slog.String("log_format", c.LogFormat),
 		slog.Bool("hsts_enabled", c.HSTSEnabled),
+		slog.Bool("tls", c.TLSEnabled()),
 	)
 }
 

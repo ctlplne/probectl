@@ -83,12 +83,13 @@ cover: ## Run unit tests with a coverage profile.
 lint: lint-go lint-python ## Run all linters (Go + Python).
 
 .PHONY: lint-go
-lint-go: ## gofmt check + go vet + golangci-lint.
+lint-go: ## gofmt check + go vet + golangci-lint + crypto-import guard.
 	@files=$$(find . -name '*.go' -not -path '*/gen/*'); \
 		bad=$$(gofmt -l $$files); \
 		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
 	golangci-lint run
+	./scripts/check_crypto_imports.sh
 
 .PHONY: lint-python
 lint-python: ## Lint the Python analyzer (ruff + black --check).

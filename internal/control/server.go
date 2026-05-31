@@ -3,10 +3,12 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/imfeelingtheagi/netctl/internal/config"
+	"github.com/imfeelingtheagi/netctl/internal/crypto"
 	"github.com/imfeelingtheagi/netctl/internal/store"
 )
 
@@ -57,10 +59,26 @@ func (s *Server) routes() http.Handler {
 // Run starts the server and blocks until ctx is canceled, then gracefully drains
 // in-flight requests within the configured ShutdownTimeout.
 func (s *Server) Run(ctx context.Context) error {
+	tlsEnabled := s.cfg.TLSEnabled()
+	if tlsEnabled {
+		// Apply the hardened TLS config (the only crypto routes through
+		// internal/crypto; control imports no crypto package directly).
+		if err := crypto.ConfigureServerTLS(s.http, s.cfg.TLSCertFile, s.cfg.TLSKeyFile); err != nil {
+			return fmt.Errorf("configure tls: %w", err)
+		}
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
-		s.log.Info("control-plane listening", "addr", s.cfg.HTTPAddr)
-		err := s.http.ListenAndServe()
+		s.log.Info("control-plane listening", "addr", s.cfg.HTTPAddr, "tls", tlsEnabled)
+		var err error
+		if tlsEnabled {
+			// Certificates live in TLSConfig, so the file arguments are empty.
+			// The server listens HTTPS only — plaintext is refused.
+			err = s.http.ListenAndServeTLS("", "")
+		} else {
+			err = s.http.ListenAndServe()
+		}
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 			return
