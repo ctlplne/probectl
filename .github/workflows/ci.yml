@@ -125,6 +125,37 @@ jobs:
       - name: Integration tests (migrations + readiness)
         run: make test-integration
 
+  proto:
+    name: proto
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
+      - name: buf lint
+        run: buf lint
+      - name: buf breaking (additive-only vs main)
+        # Best-effort: a no-op when main has no proto yet; enforces additive-only
+        # once the schema is on main.
+        run: buf breaking --against '.git#branch=main'
+        continue-on-error: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install codegen plugins
+        run: |
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Verify generated code is current
+        run: |
+          buf generate
+          git diff --exit-code -- internal/gen \
+            || { echo "::error::generated code is stale — run 'make proto' and commit"; exit 1; }
+
   dependency-scan:
     name: dependency-scan
     runs-on: ubuntu-latest

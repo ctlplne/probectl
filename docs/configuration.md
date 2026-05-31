@@ -39,6 +39,10 @@ migrations and exit), `netctl-control version`.
 | `NETCTL_TLS_KEY_FILE`             | (none)                                                            | PEM server private key (set together with the cert)        |
 | `NETCTL_ENVELOPE_KEY`             | (none)                                                            | base64-encoded 32-byte KEK for at-rest envelope encryption |
 | `NETCTL_ENVELOPE_KEY_ID`          | `dev`                                                             | identifier recorded with each sealed value                 |
+| `NETCTL_AGENT_GRPC_ADDR`          | (none)                                                            | agent gRPC listen address; enables the transport when set with mTLS |
+| `NETCTL_AGENT_TLS_CERT_FILE`      | (none)                                                            | agent-transport server certificate (PEM)                   |
+| `NETCTL_AGENT_TLS_KEY_FILE`       | (none)                                                            | agent-transport server private key (PEM)                   |
+| `NETCTL_AGENT_TLS_CA_FILE`        | (none)                                                            | CA bundle that signs agent client certificates (PEM)       |
 
 Invalid values fail fast: `netctl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
@@ -95,11 +99,21 @@ The API listens over TLS in two interchangeable ways:
 
 All TLS and crypto policy lives in `internal/crypto`; a CI guard
 (`scripts/check_crypto_imports.sh`) forbids crypto-primitive imports elsewhere so
-a FIPS 140-3 module can be swapped in (F32). The **agent transport** (S4) uses
-mTLS with a tenant-bound SPIFFE identity (`spiffe://netctl/tenant/<t>/agent/<a>`);
-`internal/crypto` provides the CA/cert layout and verification. At-rest secrets
-use the envelope helper (a per-record data key wrapped by a KMS/HSM-pluggable KEK;
-the dev `StaticKeyProvider` reads `NETCTL_ENVELOPE_KEY`).
+a FIPS 140-3 module can be swapped in (F32). At-rest secrets use the envelope
+helper (a per-record data key wrapped by a KMS/HSM-pluggable KEK; the dev
+`StaticKeyProvider` reads `NETCTL_ENVELOPE_KEY`).
+
+### Agent transport (S4)
+
+The agent gRPC transport (`netctl.agent.v1.AgentService`) runs when
+`NETCTL_AGENT_GRPC_ADDR` and the three `NETCTL_AGENT_TLS_*` files are set. It is
+**mTLS-only** (`RequireAndVerifyClientCert`): an agent's tenant and id come from
+its client certificate's tenant-bound SPIFFE identity
+(`spiffe://netctl/tenant/<t>/agent/<a>`), never from the request body, so every
+result it emits is tenant-attributable at the source (F50). Generate dev mTLS
+material with the `internal/crypto` CA helpers. The `.proto` lives under
+`proto/netctl/agent/v1/`; regenerate Go with `make proto` (tools via
+`make proto-tools`).
 
 ## Local dev stack (`deploy/compose/dev.yml`)
 

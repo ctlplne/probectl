@@ -108,13 +108,16 @@ tidy: ## Tidy go.mod across modules.
 
 # ---- codegen -------------------------------------------------------------
 .PHONY: proto
-proto: ## Generate Go from protobuf (no-op until the first .proto lands, S4/S6).
-	@if ls proto/*.proto >/dev/null 2>&1; then \
-		command -v buf >/dev/null 2>&1 || { echo "buf not installed: https://buf.build/docs/installation"; exit 1; }; \
-		buf generate; \
-	else \
-		echo "no .proto files yet — agent.proto lands in S4, result.proto in S6"; \
-	fi
+proto: ## Lint and generate Go (+ gRPC) from protobuf via buf.
+	@command -v buf >/dev/null 2>&1 || { echo "buf not installed — run 'make proto-tools'"; exit 1; }
+	buf lint
+	buf generate
+
+.PHONY: proto-tools
+proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bin.
+	$(GO) install github.com/bufbuild/buf/cmd/buf@latest
+	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # ---- migrate -------------------------------------------------------------
 .PHONY: migrate

@@ -50,6 +50,13 @@ type Config struct {
 	// owners from S18. EnvelopeKey is a base64-encoded 32-byte KEK.
 	EnvelopeKey   string
 	EnvelopeKeyID string
+
+	// Agent transport (gRPC). Enabled when the address and all three TLS files
+	// are set; the transport is mTLS-only (never plaintext).
+	AgentGRPCAddr    string
+	AgentTLSCertFile string
+	AgentTLSKeyFile  string
+	AgentTLSCAFile   string
 }
 
 // Load resolves configuration using the supplied getenv function (use
@@ -76,10 +83,17 @@ func Load(getenv func(string) string) (*Config, error) {
 		TLSKeyFile:          l.str("NETCTL_TLS_KEY_FILE", ""),
 		EnvelopeKey:         l.str("NETCTL_ENVELOPE_KEY", ""),
 		EnvelopeKeyID:       l.str("NETCTL_ENVELOPE_KEY_ID", "dev"),
+		AgentGRPCAddr:       l.str("NETCTL_AGENT_GRPC_ADDR", ""),
+		AgentTLSCertFile:    l.str("NETCTL_AGENT_TLS_CERT_FILE", ""),
+		AgentTLSKeyFile:     l.str("NETCTL_AGENT_TLS_KEY_FILE", ""),
+		AgentTLSCAFile:      l.str("NETCTL_AGENT_TLS_CA_FILE", ""),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("NETCTL_TLS_CERT_FILE and NETCTL_TLS_KEY_FILE must be set together")
+	}
+	if cfg.AgentGRPCAddr != "" && !cfg.AgentTransportEnabled() {
+		l.errf("NETCTL_AGENT_GRPC_ADDR requires mTLS: also set NETCTL_AGENT_TLS_CERT_FILE, NETCTL_AGENT_TLS_KEY_FILE, and NETCTL_AGENT_TLS_CA_FILE")
 	}
 
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
@@ -103,6 +117,12 @@ func LoadFromEnv() (*Config, error) { return Load(os.Getenv) }
 // certificate and a key are configured. When false, TLS terminates at the ingress.
 func (c *Config) TLSEnabled() bool { return c.TLSCertFile != "" && c.TLSKeyFile != "" }
 
+// AgentTransportEnabled reports whether the agent gRPC transport should run — an
+// address and the full mTLS material (cert, key, CA) are configured.
+func (c *Config) AgentTransportEnabled() bool {
+	return c.AgentGRPCAddr != "" && c.AgentTLSCertFile != "" && c.AgentTLSKeyFile != "" && c.AgentTLSCAFile != ""
+}
+
 // LogValue implements slog.LogValuer so the config can be logged at startup
 // without leaking the database password (CLAUDE.md §7 guardrail 6).
 func (c *Config) LogValue() slog.Value {
@@ -115,6 +135,7 @@ func (c *Config) LogValue() slog.Value {
 		slog.String("log_format", c.LogFormat),
 		slog.Bool("hsts_enabled", c.HSTSEnabled),
 		slog.Bool("tls", c.TLSEnabled()),
+		slog.Bool("agent_transport", c.AgentTransportEnabled()),
 	)
 }
 

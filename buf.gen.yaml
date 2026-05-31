@@ -1,10 +1,10 @@
 version: v2
-managed:
-  enabled: true
+# Local plugins (hermetic — no remote BSR calls), in keeping with netctl's
+# air-gap / sovereignty posture. Install them with `make proto-tools`.
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: internal/gen
     opt: paths=source_relative
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: internal/gen
     opt: paths=source_relative

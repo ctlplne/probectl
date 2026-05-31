@@ -107,3 +107,14 @@ Two append-only, hash-chained streams — the tenant stream (`audit_events`, one
 chain per tenant) and the provider stream (`provider_audit_events`). Each record
 chains over the previous record's hash via `internal/crypto`, so tampering,
 reordering, or deletion breaks verification (`internal/audit` Verify).
+
+## Agent transport (S4)
+
+Agents connect to the control plane over **gRPC + mTLS** (`internal/agenttransport`,
+`netctl.agent.v1.AgentService`: Register / Attest / Heartbeat / StreamConfig /
+StreamResults). The server requires and verifies a client certificate; the agent's
+tenant and id are read from its certificate's tenant-bound SPIFFE identity
+(`spiffe://netctl/tenant/<t>/agent/<a>`), never from the request body — so an agent
+is bound to exactly one tenant and registration persists tenant-attributed (F50).
+The proto lives under `proto/netctl/agent/v1/` (versioned, additive-only). The
+agent binary itself is S5; result processing is S6.

@@ -18,6 +18,9 @@ import (
 	"os/signal"
 	"syscall"
 
+	"golang.org/x/sync/errgroup"
+
+	"github.com/imfeelingtheagi/netctl/internal/agenttransport"
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/control"
 	"github.com/imfeelingtheagi/netctl/internal/logging"
@@ -79,7 +82,19 @@ func run(cmd string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	return control.New(cfg, log, db).Run(ctx)
+
+	// Run the HTTP API and (when configured) the agent gRPC transport together;
+	// a signal or a failure in either drains both.
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { return control.New(cfg, log, db).Run(gctx) })
+	if cfg.AgentTransportEnabled() {
+		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), log)
+		if err != nil {
+			return fmt.Errorf("agent transport: %w", err)
+		}
+		g.Go(func() error { return grpcSrv.Serve(gctx, cfg.AgentGRPCAddr) })
+	}
+	return g.Wait()
 }
 
 func runMigrations(ctx context.Context, db *store.DB, log *slog.Logger) error {

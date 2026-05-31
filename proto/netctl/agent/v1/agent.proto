@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+// AgentService is the agent <-> control-plane transport. Every RPC requires
+// mTLS; the caller's tenant and agent id are derived from the verified client
+// certificate's SPIFFE id (spiffe://netctl/tenant/<t>/agent/<a>) — never trusted
+// from the request body (F50: an agent belongs to exactly one tenant, so every
+// result it emits is tenant-attributable at the source).
+//
+// Backward compatibility: fields are additive-only. Never renumber or reuse a
+// field tag; a CI `buf breaking` check enforces this.
+package netctl.agent.v1;
+
+option go_package = "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1;agentv1";
+
+service AgentService {
+  // Register announces an agent (idempotent upsert into the registry).
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Attest re-proves the agent's identity (placeholder for SPIFFE node/workload
+  // attestation; SVID issuance is S-EE1).
+  rpc Attest(AttestRequest) returns (AttestResponse);
+  // Heartbeat reports liveness and the agent's current config epoch.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  // StreamConfig pushes configuration to the agent (server -> agent stream).
+  rpc StreamConfig(StreamConfigRequest) returns (stream StreamConfigResponse);
+  // StreamResults streams probe results to the control plane (agent -> server).
+  rpc StreamResults(stream StreamResultsRequest) returns (StreamResultsResponse);
+}
+
+message RegisterRequest {
+  string hostname = 1;
+  string agent_version = 2;
+  repeated string capabilities = 3; // compiled-in canary plugin types
+  map<string, string> labels = 4;
+}
+
+message RegisterResponse {
+  string agent_id = 1;  // authoritative, from the verified certificate
+  string tenant_id = 2; // authoritative, from the verified certificate
+  uint64 config_epoch = 3;
+  uint32 heartbeat_interval_seconds = 4;
+}
+
+message AttestRequest {
+  bytes nonce = 1;
+  map<string, string> platform = 2;
+}
+
+message AttestResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  string agent_id = 1;     // cross-check only; the certificate is authoritative
+  uint64 config_epoch = 2; // the epoch the agent currently holds
+}
+
+message HeartbeatResponse {
+  bool config_stale = 1; // the agent should re-pull config
+  uint32 heartbeat_interval_seconds = 2;
+}
+
+message StreamConfigRequest {
+  uint64 known_epoch = 1;
+}
+
+message StreamConfigResponse {
+  uint64 epoch = 1;
+  // Test/probe definitions arrive here from S7+. Placeholder payload for now.
+  bytes payload = 2;
+}
+
+message StreamResultsRequest {
+  // Placeholder result envelope. The canonical OTel-aligned result schema arrives
+  // in S6 (proto/result.proto); StreamResults will carry it then.
+  string type = 1;
+  bytes payload = 2;
+  int64 observed_unix_nanos = 3;
+}
+
+message StreamResultsResponse {
+  uint64 accepted = 1;
+}

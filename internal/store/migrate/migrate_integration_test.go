@@ -36,27 +36,21 @@ func TestApplyIsIdempotent(t *testing.T) {
 		t.Skipf("no database available: %v", err)
 	}
 
-	// Deterministic clean slate for the test.
-	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS schema_migrations, netctl_meta"); err != nil {
-		t.Fatalf("reset: %v", err)
-	}
-
 	runner := migrate.New(migrations.FS, nil)
 
-	applied1, err := runner.Apply(ctx, pool)
-	if err != nil {
+	// Apply serializes on a Postgres advisory lock, so this is safe to run
+	// concurrently with other packages migrating the same shared database. We do
+	// NOT drop the schema (that would race other appliers); instead we assert the
+	// invariant that matters: after a first apply, a second apply changes nothing.
+	if _, err := runner.Apply(ctx, pool); err != nil {
 		t.Fatalf("first apply: %v", err)
 	}
-	if len(applied1) == 0 {
-		t.Fatal("first apply should run the baseline migration")
-	}
-
-	applied2, err := runner.Apply(ctx, pool)
+	applied, err := runner.Apply(ctx, pool)
 	if err != nil {
 		t.Fatalf("second apply: %v", err)
 	}
-	if len(applied2) != 0 {
-		t.Fatalf("second apply must be a no-op, but applied %v", applied2)
+	if len(applied) != 0 {
+		t.Fatalf("second apply must be a no-op, but applied %v", applied)
 	}
 
 	var value string
