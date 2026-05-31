@@ -15,6 +15,14 @@ describe('accessibility', () => {
     expect(results).toHaveNoViolations()
   })
 
+  test('the admin/agents page has no axe violations', async () => {
+    const { container, findByRole } = renderApp('/admin')
+    await findByRole('heading', { name: /admin & settings/i })
+    await waitFor(() => expect(container.querySelector('tbody tr')).toBeTruthy())
+    const results = await axe(container)
+    expect(results).toHaveNoViolations()
+  })
+
   test('the design-system gallery has no axe violations', async () => {
     const { container, findByRole } = renderApp('/gallery')
     await findByRole('heading', { name: /design system/i })

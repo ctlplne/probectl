@@ -1,17 +1,16 @@
-// Command netctl is the netctl command-line interface (web-parity CLI/TUI).
+// Command netctl is the netctl command-line interface — a web-parity client for
+// the control-plane /v1 API (test/agent management). See `netctl help`.
 //
-// S0 scaffold: this entrypoint only reports build information. The CLI skeleton
-// (configuration, auth token, and the test/agent subcommands) is implemented in
-// S9.
+// Configuration comes from flags or NETCTL_API_URL / NETCTL_API_TOKEN /
+// NETCTL_TENANT. The implementation lives in internal/cli (so it is testable).
 package main
 
 import (
-	"fmt"
+	"os"
 
-	"github.com/imfeelingtheagi/netctl/internal/version"
+	"github.com/imfeelingtheagi/netctl/internal/cli"
 )
 
 func main() {
-	fmt.Printf("netctl %s\n", version.Get())
-	fmt.Println("S0 scaffold: the CLI command surface is implemented in S9.")
+	os.Exit(cli.Run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }

@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/crypto"
 	"github.com/imfeelingtheagi/netctl/internal/store"
@@ -18,13 +20,16 @@ type Server struct {
 	cfg    *config.Config
 	log    *slog.Logger
 	pinger store.Pinger
+	pool   *pgxpool.Pool
 	http   *http.Server
 }
 
-// New builds a Server. pinger backs the readiness probe (typically *store.DB);
-// it may be nil in tests that do not exercise readiness against a database.
-func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger) *Server {
-	s := &Server{cfg: cfg, log: log, pinger: pinger}
+// New builds a Server. pinger backs the readiness probe and pool backs the
+// tenant-scoped /v1 resource handlers (both typically the same *store.DB); pool
+// may be nil in unit tests that only exercise the operational endpoints or
+// request validation.
+func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpool.Pool) *Server {
+	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool}
 	s.http = &http.Server{
 		Addr:         cfg.HTTPAddr,
 		Handler:      s.routes(),
@@ -45,6 +50,12 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /readyz", apiHandler(s.handleReadyz))
 	mux.Handle("GET /version", apiHandler(s.handleVersion))
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
+
+	// Versioned resource routes (S9). Registered from one table so the
+	// OpenAPI-matches-handlers check has a single source of truth.
+	for _, rt := range s.apiRoutes() {
+		mux.Handle(rt.Method+" "+rt.Pattern, rt.Handler)
+	}
 
 	// Outermost first: security headers, then request context (id + logger),
 	// then access logging, with panic recovery closest to the handler.

@@ -226,6 +226,34 @@ Enable participation in the agent's `a2a` block: `enabled: true`,
 
 Sessions are brokered in-memory and triggered by the test API in a later sprint.
 
+### Resource API & CLI (S9)
+
+The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`):
+
+- `GET/POST /v1/tests`, `GET/PUT/DELETE /v1/tests/{id}` — synthetic-test CRUD.
+- `GET /v1/agents`, `GET/PATCH/DELETE /v1/agents/{id}` — agents register over
+  mTLS; the API lists, renames, and deregisters them.
+
+Every `/v1` route is **tenant-scoped** through `internal/tenancy` + Postgres RLS,
+so a request can never read or write across tenants. **Authentication is a dev
+stub in S9** (real SSO/SCIM + per-tenant IdP land in S18): the tenant is the
+seeded default, overridable with an `X-Netctl-Tenant: <tenant-uuid>` header for
+multi-tenant dev. A `Authorization: Bearer <token>` header is accepted but not
+yet verified. The `no undocumented routes` rule is enforced by a test that
+matches the route table against `openapi.json`.
+
+The **`netctl` CLI** is the web-parity client. Configure it with flags or
+environment: `NETCTL_API_URL` (default `http://localhost:8080`),
+`NETCTL_API_TOKEN` (sent as Bearer), `NETCTL_TENANT` (sent as `X-Netctl-Tenant`).
+
+```bash
+netctl test list
+netctl test create --name edge-dns --type icmp --target 1.1.1.1 --interval 30
+netctl test delete <id>
+netctl agent list
+netctl --json test list      # machine-readable output
+```
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

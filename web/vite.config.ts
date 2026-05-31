@@ -6,7 +6,12 @@ import react from '@vitejs/plugin-react'
 // build (sovereignty — guardrail 11).
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173 },
+  server: {
+    port: 5173,
+    // Dev convenience: proxy the versioned API to a locally-running control
+    // plane (no production behavior; prod serves same-origin behind the ingress).
+    proxy: { '/v1': 'http://localhost:8080' },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

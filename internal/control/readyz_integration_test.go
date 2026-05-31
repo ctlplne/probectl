@@ -39,7 +39,7 @@ func TestReadyzAgainstRealDatabase(t *testing.T) {
 	}
 
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour}
-	srv := New(cfg, logging.New(io.Discard, "error", "json"), db)
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool())
 
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))

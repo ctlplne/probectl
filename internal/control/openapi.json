@@ -3,10 +3,14 @@
   "info": {
     "title": "netctl control-plane API",
     "version": "0.1.0",
-    "description": "Operational endpoints for the netctl control plane. Versioned resource endpoints are served under /v1 and are added by their sprints (S9+)."
+    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Netctl-Tenant override) — real identity (SSO/SCIM, per-tenant IdP) lands in S18."
   },
   "servers": [{ "url": "/" }],
-  "tags": [{ "name": "operational", "description": "Health, readiness, and build metadata." }],
+  "tags": [
+    { "name": "operational", "description": "Health, readiness, and build metadata." },
+    { "name": "tests", "description": "Synthetic test definitions." },
+    { "name": "agents", "description": "Registered agents (created via mTLS registration; managed here)." }
+  ],
   "paths": {
     "/healthz": {
       "get": {
@@ -64,9 +68,166 @@
           }
         }
       }
+    },
+    "/v1/tests": {
+      "get": {
+        "operationId": "listTests",
+        "summary": "List synthetic tests",
+        "tags": ["tests"],
+        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "responses": {
+          "200": {
+            "description": "The tenant's tests.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestList" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTest",
+        "summary": "Create a synthetic test",
+        "tags": ["tests"],
+        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "The created test.",
+            "headers": { "Location": { "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Test" } } }
+          },
+          "409": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/v1/tests/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantHeader" },
+        { "$ref": "#/components/parameters/IdPath" }
+      ],
+      "get": {
+        "operationId": "getTest",
+        "summary": "Get a test",
+        "tags": ["tests"],
+        "responses": {
+          "200": {
+            "description": "The test.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Test" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "put": {
+        "operationId": "updateTest",
+        "summary": "Update a test",
+        "tags": ["tests"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated test.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Test" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "409": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteTest",
+        "summary": "Delete a test",
+        "tags": ["tests"],
+        "responses": {
+          "204": { "description": "Deleted." },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/v1/agents": {
+      "get": {
+        "operationId": "listAgents",
+        "summary": "List agents",
+        "tags": ["agents"],
+        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "responses": {
+          "200": {
+            "description": "The tenant's agents.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentList" } } }
+          }
+        }
+      }
+    },
+    "/v1/agents/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantHeader" },
+        { "$ref": "#/components/parameters/IdPath" }
+      ],
+      "get": {
+        "operationId": "getAgent",
+        "summary": "Get an agent",
+        "tags": ["agents"],
+        "responses": {
+          "200": {
+            "description": "The agent.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Agent" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "patch": {
+        "operationId": "patchAgent",
+        "summary": "Update an agent's display name",
+        "tags": ["agents"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated agent.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Agent" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAgent",
+        "summary": "Deregister an agent",
+        "tags": ["agents"],
+        "responses": {
+          "204": { "description": "Deleted." },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
     }
   },
   "components": {
+    "parameters": {
+      "TenantHeader": {
+        "name": "X-Netctl-Tenant",
+        "in": "header",
+        "required": false,
+        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted → the default tenant. Replaced by session-resolved identity in S18.",
+        "schema": { "type": "string", "format": "uuid" }
+      },
+      "IdPath": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "format": "uuid" }
+      }
+    },
+    "responses": {
+      "ErrorResponse": {
+        "description": "An error envelope.",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    },
     "schemas": {
       "Health": {
         "type": "object",
@@ -100,6 +261,67 @@
           }
         },
         "required": ["error"]
+      },
+      "TestRequest": {
+        "type": "object",
+        "description": "The mutable fields of a synthetic test.",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "type": { "type": "string", "enum": ["icmp", "tcp", "udp", "dns", "http", "a2a", "noop"] },
+          "target": { "type": "string", "description": "Required for all types except noop." },
+          "interval_seconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 60 },
+          "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 3 },
+          "params": { "type": "object", "additionalProperties": { "type": "string" } },
+          "enabled": { "type": "boolean", "default": true }
+        },
+        "required": ["name", "type"]
+      },
+      "Test": {
+        "allOf": [
+          { "$ref": "#/components/schemas/TestRequest" },
+          {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "tenant_id": { "type": "string", "format": "uuid" },
+              "created_at": { "type": "string", "format": "date-time" },
+              "updated_at": { "type": "string", "format": "date-time" }
+            },
+            "required": ["id", "tenant_id", "created_at", "updated_at"]
+          }
+        ]
+      },
+      "TestList": {
+        "type": "object",
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Test" } } },
+        "required": ["items"]
+      },
+      "Agent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "hostname": { "type": "string" },
+          "agent_version": { "type": "string" },
+          "status": { "type": "string", "enum": ["registered", "online", "offline"] },
+          "capabilities": { "type": "array", "items": { "type": "string" } },
+          "spiffe_id": { "type": "string" },
+          "registered_at": { "type": "string", "format": "date-time" },
+          "last_seen_at": { "type": "string", "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "tenant_id", "name", "status", "capabilities"]
+      },
+      "AgentPatch": {
+        "type": "object",
+        "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 } },
+        "required": ["name"]
+      },
+      "AgentList": {
+        "type": "object",
+        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Agent" } } },
+        "required": ["items"]
       }
     }
   }

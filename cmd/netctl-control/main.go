@@ -107,7 +107,7 @@ func run(cmd string) error {
 	// Run the HTTP API, the result-pipeline consumer, and (when configured) the
 	// agent gRPC transport together; a signal or a failure in any drains all.
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return control.New(cfg, log, db).Run(gctx) })
+	g.Go(func() error { return control.New(cfg, log, db, db.Pool()).Run(gctx) })
 	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
 	if cfg.AgentTransportEnabled() {
 		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)

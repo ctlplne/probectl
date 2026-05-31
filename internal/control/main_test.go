@@ -29,5 +29,5 @@ func testServer(pinger store.Pinger) *Server {
 		HSTSEnabled: true,
 		HSTSMaxAge:  time.Hour,
 	}
-	return New(cfg, logging.New(io.Discard, "error", "json"), pinger)
+	return New(cfg, logging.New(io.Discard, "error", "json"), pinger, nil)
 }

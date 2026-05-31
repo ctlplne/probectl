@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/imfeelingtheagi/netctl/internal/apierror"
 	"github.com/imfeelingtheagi/netctl/internal/tenancy"
 )
 
@@ -91,6 +92,30 @@ func (Agents) Get(ctx context.Context, s tenancy.Scope, id string) (*Agent, erro
 		return nil, notFound("agent", err)
 	}
 	return &a, nil
+}
+
+// Rename updates an agent's display name (the agent's id and tenant remain
+// certificate-derived; only the human label is editable via the API).
+func (Agents) Rename(ctx context.Context, s tenancy.Scope, id, name string) (*Agent, error) {
+	var a Agent
+	if err := scanAgent(s.Q.QueryRow(ctx,
+		`UPDATE agents SET name = $2 WHERE id = $1 RETURNING `+agentCols, id, name), &a); err != nil {
+		return nil, notFound("agent", err)
+	}
+	return &a, nil
+}
+
+// Delete deregisters an agent. The agent will re-create its registration if it
+// reconnects; this removes the current record (e.g. for a decommissioned host).
+func (Agents) Delete(ctx context.Context, s tenancy.Scope, id string) error {
+	tag, err := s.Q.Exec(ctx, `DELETE FROM agents WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return apierror.NotFound("agent not found")
+	}
+	return nil
 }
 
 // List returns the tenant's agents.
