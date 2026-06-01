@@ -37,6 +37,7 @@ awk -v mod="${MODULE}" '
     floor["internal/bgp"]            = 68
     floor["internal/crypto"]         = 67
     floor["internal/opendata"]       = 80
+    floor["internal/alert"]          = 75
     floor["internal/path"]           = 62
     floor["internal/cli"]            = 55
     floor["internal/store/tsdb"]     = 42

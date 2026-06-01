@@ -234,6 +234,83 @@
           "404": { "$ref": "#/components/responses/ErrorResponse" }
         }
       }
+    },
+    "/v1/alerts": {
+      "get": {
+        "operationId": "listAlerts",
+        "summary": "List alert rules",
+        "tags": ["alerts"],
+        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "responses": {
+          "200": {
+            "description": "The tenant's alert rules.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertList" } } }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAlert",
+        "summary": "Create an alert rule",
+        "tags": ["alerts"],
+        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "The created alert rule.",
+            "headers": { "Location": { "schema": { "type": "string" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRule" } } }
+          },
+          "409": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/v1/alerts/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantHeader" },
+        { "$ref": "#/components/parameters/IdPath" }
+      ],
+      "get": {
+        "operationId": "getAlert",
+        "summary": "Get an alert rule",
+        "tags": ["alerts"],
+        "responses": {
+          "200": {
+            "description": "The alert rule.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRule" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "put": {
+        "operationId": "updateAlert",
+        "summary": "Update an alert rule",
+        "tags": ["alerts"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated alert rule.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRule" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAlert",
+        "summary": "Delete an alert rule",
+        "tags": ["alerts"],
+        "responses": {
+          "204": { "description": "Deleted." },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
     }
   },
   "components": {
@@ -407,6 +484,63 @@
           "links": { "type": "array", "items": { "$ref": "#/components/schemas/Link" } }
         },
         "required": ["target", "mode", "hops", "links"]
+      },
+      "ChannelSpec": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": { "type": "string", "enum": ["webhook", "email"] },
+          "url": { "type": "string", "description": "Webhook endpoint (https)." },
+          "secret": { "type": "string", "description": "Webhook HMAC secret; redacted (***) in responses." },
+          "recipients": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "AlertRequest": {
+        "type": "object",
+        "required": ["name", "metric", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "metric": { "type": "string", "description": "TSDB metric, e.g. netctl_probe_loss_ratio." },
+          "match": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Label matchers." },
+          "type": { "type": "string", "enum": ["threshold", "baseline"] },
+          "comparison": { "type": "string", "enum": ["gt", "lt", "gte", "lte", "eq", "neq"] },
+          "threshold": { "type": "number" },
+          "window": { "type": "integer", "description": "Baseline history samples." },
+          "sensitivity": { "type": "number", "description": "Baseline deviation in std-devs." },
+          "for_n": { "type": "integer", "description": "Consecutive breaches before firing (debounce)." },
+          "renotify_seconds": { "type": "integer", "description": "Re-notify cadence while firing (0 = once)." },
+          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+          "channels": { "type": "array", "items": { "$ref": "#/components/schemas/ChannelSpec" } }
+        }
+      },
+      "AlertRule": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "tenant_id": { "type": "string" },
+          "name": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "metric": { "type": "string" },
+          "match": { "type": "object", "additionalProperties": { "type": "string" } },
+          "type": { "type": "string", "enum": ["threshold", "baseline"] },
+          "comparison": { "type": "string" },
+          "threshold": { "type": "number" },
+          "window": { "type": "integer" },
+          "sensitivity": { "type": "number" },
+          "for_n": { "type": "integer" },
+          "renotify_seconds": { "type": "integer" },
+          "severity": { "type": "string" },
+          "channels": { "type": "array", "items": { "$ref": "#/components/schemas/ChannelSpec" } },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AlertList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/AlertRule" } }
+        }
       }
     }
   }

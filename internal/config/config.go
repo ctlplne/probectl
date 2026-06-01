@@ -67,6 +67,9 @@ type Config struct {
 	TSDBMode   string
 	TSDBURL    string
 
+	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
+	AlertEvalInterval time.Duration
+
 	// Path store (S10/S11): where discovered network paths are persisted and
 	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
 	PathStoreMode string
@@ -107,6 +110,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		TSDBURL:             l.str("NETCTL_TSDB_URL", ""),
 		PathStoreMode:       l.enum("NETCTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
 		PathStoreURL:        l.str("NETCTL_PATHSTORE_URL", ""),
+		AlertEvalInterval:   l.dur("NETCTL_ALERT_EVAL_INTERVAL", 30*time.Second),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {

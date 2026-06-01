@@ -359,3 +359,50 @@ resale. Every external fetch is over TLS with certificate validation and treated
 as untrusted (guardrails 10, 12); per-IP and per-dataset caching shields
 rate-limited upstreams. MaxMind GeoLite2 is operator-supplied (not shipped);
 RIPE Atlas is an optional active-measurement hook, off (fail-closed) by default.
+
+## Alerting engine (S16)
+
+`internal/alert` evaluates **threshold** and **baseline (anomaly)** rules over the
+time-series the result pipeline writes, and delivers firing/resolved
+notifications to **webhook** and **email** channels. Rules are tenant-owned and
+CRUD'd via `/v1/alerts`.
+
+```mermaid
+flowchart LR
+    TSDB["TSDB<br/>netctl_probe_* series"] --> SRC["MetricSource<br/>(tenant-scoped, latest per series)"]
+    RULES["/v1/alerts<br/>rule store (RLS)"] --> EVAL["Evaluator<br/>tick every NETCTL_ALERT_EVAL_INTERVAL"]
+    SRC --> ENG["Engine<br/>threshold | baseline · ForN debounce · dedupe/renotify"]
+    EVAL --> ENG
+    ENG -->|firing / resolved| NOTIF["Notifier<br/>fan-out, degrade per channel"]
+    NOTIF -->|"POST signed payload<br/>(HMAC-SHA256)"| WH["webhook"]
+    NOTIF -->|SMTP| EM["email"]
+```
+
+**Two rule types.** A *threshold* rule fires when an aggregated value crosses a
+bound (`gt`/`lt`/…); a *baseline* rule fires when a value deviates from its recent
+rolling mean by more than N standard deviations — and **warms up on cold start**
+(no firing until the window is full — S16 watch-out). Evaluation is **per series**
+(per label set), so one rule covers many targets independently.
+
+**Storm avoidance.** State advances `ok → pending → firing`: a `for_n` debounce
+requires N consecutive breaches before firing, and while firing the engine
+**dedupes** (notifies once, then re-notifies only every `renotify_seconds`),
+emitting a single `resolved` notification on recovery.
+
+**Channels + delivery.** The `Notifier` fans an alert out to a rule's channels and
+**degrades per channel** — one failing/misconfigured channel never blocks the
+others. The **webhook** channel POSTs a stable JSON payload (`netctl.alert.v1`)
+over TLS and, when a secret is set, signs the body with **HMAC-SHA256** (via
+`internal/crypto`, FIPS-swappable) in `X-Netctl-Signature` so the receiver can
+verify the sender. The **email** channel sends via SMTP behind an injectable
+sender. Webhook secrets are **redacted (`***`) from API responses** (a follow-up
+envelope-encrypts them at rest — guardrail 6).
+
+**Wiring.** The control plane runs a background `Evaluator` that ticks every
+`NETCTL_ALERT_EVAL_INTERVAL`, loading each tenant's enabled rules through the RLS
+choke point and querying the TSDB **scoped to that tenant** (it can never read
+another tenant's metrics). The current wiring evaluates the default tenant over
+the in-process TSDB; a multi-tenant fan-out and a Prometheus query backend are
+follow-ups (the loop disables itself gracefully when no in-process query backend
+is available). Alerts are signals — netctl notifies, it does not act on the
+network.

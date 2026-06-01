@@ -47,6 +47,7 @@ migrations and exit), `netctl-control version`.
 | `NETCTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
 | `NETCTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
 | `NETCTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
+| `NETCTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
 
 Invalid values fail fast: `netctl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
@@ -381,6 +382,58 @@ its `Descriptor` — the matrix that gates MSP/commercial resale (not private or
 single-tenant OSS use). All fetches are over TLS with certificate validation and
 treated as untrusted (CLAUDE.md §7 guardrails 10, 12). Open data is ingested
 **once and shared**; enrichment is scoped per tenant by the consuming record.
+
+### Alerting (S16)
+
+The alerting engine (`internal/alert`) evaluates rules over the TSDB and notifies
+channels; see [`architecture.md`](architecture.md). Rules are CRUD'd via
+**`/v1/alerts`** (tenant-scoped) and the engine runs in the control plane, ticking
+every `NETCTL_ALERT_EVAL_INTERVAL` (default `30s`).
+
+A rule targets a metric series and is either a **threshold** or a **baseline**
+rule:
+
+| Field | Applies | Meaning |
+| ----- | ------- | ------- |
+| `metric` + `match` | both | the TSDB metric (e.g. `netctl_probe_loss_ratio`) and label matchers |
+| `type` | both | `threshold` \| `baseline` |
+| `comparison` + `threshold` | threshold | `gt`/`lt`/`gte`/`lte`/`eq`/`neq` vs a bound |
+| `window` + `sensitivity` | baseline | rolling-history size and deviation (in std-devs); warms up until the window fills |
+| `for_n` | both | consecutive breaching evals before firing (debounce) |
+| `renotify_seconds` | both | re-notify cadence while firing (`0` = notify once) |
+| `severity` | both | `info` \| `warning` \| `critical` |
+| `channels` | both | webhook / email destinations |
+
+A `channels` entry is `{"type":"webhook","url":...,"secret":...}` or
+`{"type":"email","recipients":[...]}`. The webhook **secret** is the HMAC key; it
+is **redacted (`***`) from API responses** and never returned. SMTP for email is
+configured at the deployment level (a follow-up exposes it as config).
+
+**Webhook payload (`netctl.alert.v1`).** On fire/resolve the webhook channel POSTs:
+
+```json
+{
+  "version": "netctl.alert.v1",
+  "state": "firing",
+  "rule": { "id": "…", "name": "loss-high" },
+  "tenant_id": "…",
+  "severity": "critical",
+  "metric": "netctl_probe_loss_ratio",
+  "labels": { "server_address": "1.1.1.1" },
+  "value": 0.9,
+  "threshold": 0.5,
+  "comparison": "gt",
+  "reason": "netctl_probe_loss_ratio=0.9 gt 0.5",
+  "fired_at": "2026-01-02T15:04:05Z"
+}
+```
+
+When the channel has a secret, the request carries
+`X-Netctl-Signature: sha256=<hex>` — the HMAC-SHA256 of the exact body — so the
+receiver can verify the sender. Each channel delivers independently: a failing
+channel is logged and skipped, never blocking the others. Alerts are **signals**;
+netctl notifies and does not act on the network (on-call/ITSM routing is S33,
+detection-as-code is S42).
 
 ### Resource API & CLI (S9)
 

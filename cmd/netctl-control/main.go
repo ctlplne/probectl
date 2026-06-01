@@ -22,6 +22,7 @@ import (
 
 	"github.com/imfeelingtheagi/netctl/internal/a2a"
 	"github.com/imfeelingtheagi/netctl/internal/agenttransport"
+	"github.com/imfeelingtheagi/netctl/internal/alert"
 	"github.com/imfeelingtheagi/netctl/internal/bus"
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/control"
@@ -31,6 +32,7 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
 	"github.com/imfeelingtheagi/netctl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/netctl/internal/tenancy"
 	"github.com/imfeelingtheagi/netctl/internal/version"
 	"github.com/imfeelingtheagi/netctl/migrations"
 )
@@ -116,6 +118,15 @@ func run(cmd string) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error { return control.New(cfg, log, db, db.Pool(), pathStore, nil).Run(gctx) })
 	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
+
+	// Alerting (S16): evaluate enabled rules over the TSDB and notify channels.
+	// Disabled gracefully when the TSDB has no in-process query backend.
+	if ev, ok := control.BuildAlertEvaluator(db.Pool(), tsdbWriter, alert.ChannelDeps{},
+		cfg.AlertEvalInterval, tenancy.DefaultTenantID, log); ok {
+		g.Go(func() error { ev.Run(gctx); return nil })
+	} else {
+		log.Info("alert evaluation disabled (no in-process TSDB query backend in this mode)")
+	}
 	if cfg.AgentTransportEnabled() {
 		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)
 		if err != nil {

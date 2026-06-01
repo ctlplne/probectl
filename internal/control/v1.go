@@ -34,6 +34,11 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/agents/{id}", s.handleGetAgent},
 		{http.MethodPatch, "/v1/agents/{id}", s.handlePatchAgent},
 		{http.MethodDelete, "/v1/agents/{id}", s.handleDeleteAgent},
+		{http.MethodGet, "/v1/alerts", s.handleListAlerts},
+		{http.MethodPost, "/v1/alerts", s.handleCreateAlert},
+		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert},
+		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert},
+		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert},
 	}
 }
 
