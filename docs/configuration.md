@@ -354,6 +354,34 @@ in memory); a down RPKI/collector source degrades gracefully (guardrail 10).
 RouteViews/RIS are open data — their AUP/provenance matters for MSP/commercial
 resale, not for private development or single-tenant OSS use.
 
+### Open-data enrichment (S15)
+
+`internal/opendata` annotates IPs with ASN / geo / IXP / allocation context from
+public datasets; see [`architecture.md`](architecture.md) and the source
+provenance/AUP matrix in [`opendata-aup.md`](opendata-aup.md). The framework is a
+library (wired into flow/test enrichment in later sprints); each source is
+pluggable and individually enable-able:
+
+| Source | Kind | Input it needs | Notes |
+| ------ | ---- | -------------- | ----- |
+| Team Cymru | `asn` | a DNS resolver | IP→ASN/prefix/registry/AS-name via the Cymru IP-to-ASN DNS service |
+| MaxMind GeoLite2 | `geo` | a `.mmdb` path (`OpenMMDB`) | country/city/lat-lon; **operator-supplied DB** (not shipped) |
+| PeeringDB | `ixp` | the ASN (from Cymru) | IXP/facility presence via the PeeringDB REST API; cached per ASN |
+| RIR delegated-stats | `allocation` | a delegated-extended stats file | RIR/country/status/date; parsed once into a sorted index |
+| RIPE Atlas (optional) | `measurement` | an API key + credits | active ping/traceroute scheduling hook; **off (fail-closed) by default** |
+
+The `Enricher` runs every **enabled** source over an IP and merges the results,
+**caching per IP** and **degrading gracefully**: a disabled / failing / slow /
+panicking source is logged, marked `degraded` or `disabled` in `Enricher.Status()`,
+and skipped — a partial enrichment is returned and a down dataset never breaks a
+core path. Sources run in registration order (register the ASN source before
+PeeringDB). Each contribution records `Provenance` (source + license + attribution
++ fields); a source's AUP (license, commercial-use permission, attribution) is on
+its `Descriptor` — the matrix that gates MSP/commercial resale (not private or
+single-tenant OSS use). All fetches are over TLS with certificate validation and
+treated as untrusted (CLAUDE.md §7 guardrails 10, 12). Open data is ingested
+**once and shared**; enrichment is scoped per tenant by the consuming record.
+
 ### Resource API & CLI (S9)
 
 The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`):

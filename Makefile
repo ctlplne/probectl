@@ -94,8 +94,8 @@ cover: ## Run unit tests with a coverage profile.
 COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/version/... \
 	./internal/config/... ./internal/a2a/... ./internal/canary/... ./internal/path/... \
 	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
-	./internal/cli/... ./internal/store/pathstore/... ./internal/store/tsdb/... \
-	./internal/store/migrate/...
+	./internal/cli/... ./internal/opendata/... ./internal/store/pathstore/... \
+	./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate
 cover-gate: ## Coverage profile (integration tag, service-free) + per-package floor gate.

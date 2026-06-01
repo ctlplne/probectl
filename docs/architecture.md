@@ -316,3 +316,46 @@ the outermost scope — F50/guardrail 1), translates it to the canonical
 External BGP data is ingested **once** and scoped per tenant by each tenant's
 monitoring configuration. RouteViews/RIS are open data; their AUP (and per-source
 provenance) is tracked for MSP/commercial resale, not for single-tenant OSS use.
+
+## Open-data enrichment (S15)
+
+`internal/opendata` annotates an IP with internet-wide context — ASN, geo, IXP
+presence, and RIR allocation — drawn from public datasets, without netctl owning
+any measurement fleet. It is a **pluggable** framework: each `Source` implements
+`Enrich(ctx, addr, *Enrichment)`, and the `Enricher` runs an IP through every
+enabled source and merges the result.
+
+```mermaid
+flowchart LR
+    subgraph Sources["Sources (each a plugin with provenance + AUP)"]
+        Cymru["Team Cymru<br/>IP→ASN (DNS)"]
+        Geo["MaxMind GeoLite2<br/>geo (MMDB)"]
+        PDB["PeeringDB<br/>IXP (REST)"]
+        RIR["RIR delegated-stats<br/>allocation (file)"]
+    end
+    Cymru --> EN["Enricher<br/>merge · cache by IP · degrade gracefully"]
+    Geo --> EN
+    PDB --> EN
+    RIR --> EN
+    EN -->|Enrichment + provenance| REC["flow / test record<br/>(tenant-scoped by the consumer)"]
+    Atlas["RIPE Atlas hook<br/>(optional, off by default)"] -.->|schedule active measurement| EXT["RIPE Atlas platform"]
+```
+
+**Shared once, scoped per tenant.** Open data is **not** tenant-owned: the Enricher
+is tenant-agnostic and returns plain data the caller attaches to a tenant-scoped
+record, so the tenant boundary is enforced where enrichment is *stored*, not in
+this package (PRD §3). Sources are registered in order, so an ASN-providing source
+(Team Cymru) runs before one keyed on the ASN (PeeringDB, which looks up IXP
+presence for `e.ASN`).
+
+**Graceful degradation is the contract.** A source that is disabled, errors, times
+out, or even panics is logged, marked `degraded`/`disabled` in `Enricher.Status()`,
+and skipped — enrichment returns a partial result and **a failing dataset never
+breaks a core path** (S15 Done-when). Each contributing source records
+`Provenance` (name + license + attribution + fields) on the `Enrichment`, and its
+**AUP** (license, commercial-use permission, attribution) travels on the
+`Descriptor` — the matrix in [`opendata-aup.md`](opendata-aup.md) that gates MSP
+resale. Every external fetch is over TLS with certificate validation and treated
+as untrusted (guardrails 10, 12); per-IP and per-dataset caching shields
+rate-limited upstreams. MaxMind GeoLite2 is operator-supplied (not shipped);
+RIPE Atlas is an optional active-measurement hook, off (fail-closed) by default.

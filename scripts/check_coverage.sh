@@ -36,13 +36,14 @@ awk -v mod="${MODULE}" '
     floor["internal/bus"]            = 70
     floor["internal/bgp"]            = 68
     floor["internal/crypto"]         = 67
+    floor["internal/opendata"]       = 80
     floor["internal/path"]           = 62
     floor["internal/cli"]            = 55
     floor["internal/store/tsdb"]     = 42
     floor["internal/store/pathstore"]= 35
     floor["internal/store/migrate"]  = 28
 
-    n = split("internal/ai internal/auth internal/billing internal/change internal/compliance internal/cost internal/ebpf internal/opendata internal/slo internal/threat internal/topology", ex, " ")
+    n = split("internal/ai internal/auth internal/billing internal/change internal/compliance internal/cost internal/ebpf internal/slo internal/threat internal/topology", ex, " ")
     for (i = 1; i <= n; i++) exempt[ex[i]] = 1
   }
   NR == 1 && $1 == "mode:" { next }
