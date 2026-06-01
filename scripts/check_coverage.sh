@@ -40,6 +40,7 @@ awk -v mod="${MODULE}" '
     floor["internal/opendata"]       = 80
     floor["internal/alert"]          = 75
     floor["internal/incident"]       = 72
+    floor["internal/auth"]           = 72
     # Raw-socket tracer paths need CAP_NET_RAW (skipped in CI); CI coverage is lower
     # than a privileged local run, so this floor reflects the CI-measured value.
     floor["internal/path"]           = 50
@@ -48,7 +49,7 @@ awk -v mod="${MODULE}" '
     floor["internal/store/pathstore"]= 35
     floor["internal/store/migrate"]  = 28
 
-    n = split("internal/ai internal/auth internal/billing internal/change internal/compliance internal/cost internal/ebpf internal/slo internal/threat internal/topology", ex, " ")
+    n = split("internal/ai internal/billing internal/change internal/compliance internal/cost internal/ebpf internal/slo internal/threat internal/topology", ex, " ")
     for (i = 1; i <= n; i++) exempt[ex[i]] = 1
   }
   NR == 1 && $1 == "mode:" { next }

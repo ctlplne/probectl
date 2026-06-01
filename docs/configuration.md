@@ -49,6 +49,12 @@ migrations and exit), `netctl-control version`.
 | `NETCTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `NETCTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
 | `NETCTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident (S17) |
+| `NETCTL_AUTH_MODE`                | `dev`                                                            | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (trusted-header dev principal — never in production) |
+| `NETCTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime (S18)                         |
+| `NETCTL_OIDC_ISSUER`              | (none)                                                           | OIDC issuer URL; SSO discovery is performed against it (S18) |
+| `NETCTL_OIDC_CLIENT_ID`          | (none)                                                           | OIDC client ID registered with the IdP (S18)               |
+| `NETCTL_OIDC_CLIENT_SECRET`      | (none)                                                           | OIDC client secret (kept out of logs/URLs; S18)            |
+| `NETCTL_OIDC_REDIRECT_URL`       | (none)                                                           | the control plane's `/auth/callback` URL registered with the IdP (S18) |
 
 Invalid values fail fast: `netctl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
@@ -460,6 +466,60 @@ The model is **extensible without schema churn**: a `Signal` carries a free-form
 change (S29), threat (S42), cost, and SLO planes as additional signal types onto
 the same `Incident`/timeline. AI root-cause analysis over the timeline is S24.
 
+### SSO & RBAC (S18)
+
+netctl authenticates users with **OIDC SSO** and authorizes them with **RBAC** over
+the S2 role model. The security order is the **two-level boundary** (CLAUDE.md §7
+guardrails 1, 5): a request resolves to **exactly one tenant first**, then RBAC
+decides whether the caller may perform the route's action within that tenant.
+
+**Login flow.** `GET /auth/login` (optionally `?tenant=<uuid>`) starts the OIDC
+authorization-code flow: it sets a short-lived, HttpOnly CSRF `state` cookie and
+redirects to the tenant's identity provider. The IdP redirects back to
+`GET /auth/callback`, which verifies the `state`, exchanges the code, verifies the
+ID token, **just-in-time provisions** the user within the tenant (a brand-new user
+gets **no roles** — a secure default; an admin grants access), mints a server-side
+session, and sets the session cookie. `POST /auth/logout` revokes the session.
+`GET /v1/me` returns the caller's tenant, identity, and effective permissions.
+
+**Sessions.** A session is a random, high-entropy opaque token. Only its **hash**
+is stored (table `sessions`), so a database read cannot mint a session (guardrail
+6). The session cookie is **HttpOnly + SameSite=Lax**, and **Secure** whenever the
+API serves HTTPS. `NETCTL_SESSION_TTL` (default `12h`) bounds its lifetime.
+
+**Per-tenant IdP.** Providers are resolved per tenant through a provider factory —
+the seam for a tenant bringing its own SSO. S18 ships the env-configured default
+(`NETCTL_OIDC_*`); DB-backed per-tenant IdP config is a later sprint. A login
+always resolves to a single tenant. Provider/MSP operators authenticate into the
+**provider domain** (S-T1), not into tenant data.
+
+**RBAC.** Every `/v1` route declares a required **permission key**; the wrapped
+handler returns **401** when unauthenticated and **403** when the principal lacks
+the permission — checked *before* the handler runs. Effective permissions are
+loaded per request from the user's role bindings (RLS-scoped to the tenant), so a
+role grant or revoke takes effect immediately. The permission catalog:
+
+| Permission        | Granted to (seeded roles)   | Guards |
+| ----------------- | --------------------------- | ------ |
+| `test.read`       | viewer, editor, admin       | `GET /v1/tests*`, `GET /v1/tests/{id}/path` |
+| `test.write`      | editor, admin               | `POST/PUT/DELETE /v1/tests*`, `POST .../path` |
+| `agent.read`      | viewer, editor, admin       | `GET /v1/agents*` |
+| `agent.write`     | admin                       | `PATCH/DELETE /v1/agents/{id}` |
+| `alert.read`      | viewer, editor, admin       | `GET /v1/alerts*` |
+| `alert.write`     | editor, admin               | `POST/PUT/DELETE /v1/alerts*` |
+| `incident.read`   | viewer, editor, admin       | `GET /v1/incidents*` |
+| `incident.write`  | editor, admin               | `PATCH /v1/incidents/{id}` |
+
+The seeded system roles for the default tenant are **admin** (all permissions),
+**editor** (read everything + manage tests/alerts/incidents), and **viewer**
+(read-only). `GET /v1/me` requires only authentication (no specific permission).
+
+**Dev mode.** `NETCTL_AUTH_MODE=dev` (the default for local work and the test
+suite) bypasses SSO and synthesizes an all-permissions principal for the default
+tenant, with the `X-Netctl-Tenant: <uuid>` override for multi-tenant dev. It is
+**never** for production — set `NETCTL_AUTH_MODE=session` and configure
+`NETCTL_OIDC_*` there.
+
 ### Resource API & CLI (S9)
 
 The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`):
@@ -472,12 +532,11 @@ The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`
   consumes this.
 
 Every `/v1` route is **tenant-scoped** through `internal/tenancy` + Postgres RLS,
-so a request can never read or write across tenants. **Authentication is a dev
-stub in S9** (real SSO/SCIM + per-tenant IdP land in S18): the tenant is the
-seeded default, overridable with an `X-Netctl-Tenant: <tenant-uuid>` header for
-multi-tenant dev. A `Authorization: Bearer <token>` header is accepted but not
-yet verified. The `no undocumented routes` rule is enforced by a test that
-matches the route table against `openapi.json`.
+so a request can never read or write across tenants. **Authentication and RBAC are
+real from S18** (see *SSO & RBAC* below): the caller's tenant and effective
+permissions come from an authenticated session, and each route requires a
+permission. The `no undocumented routes` rule is enforced by a test that matches
+the route table against `openapi.json`.
 
 The **`netctl` CLI** is the web-parity client. Configure it with flags or
 environment: `NETCTL_API_URL` (default `http://localhost:8080`),

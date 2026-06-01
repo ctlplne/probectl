@@ -444,3 +444,49 @@ transaction.
 on a signal with no tenant and only ever groups a tenant's own signals (guardrail
 1). This is the *foundation* — AI RCA (S24), and the change (S29) and threat (S42)
 overlays attach as additional signal planes onto the same model.
+
+## SSO & RBAC (S18)
+
+`internal/auth` is the identity + access foundation: **OIDC SSO**, server-side
+**sessions**, and **RBAC** over the S2 role model. It enforces the **two-level
+boundary** — resolve the **tenant first**, then check RBAC — on every `/v1` path.
+
+```mermaid
+flowchart TD
+    subgraph Login
+      U["browser"] -->|GET /auth/login| LOGIN["handleLogin<br/>state cookie + redirect"]
+      LOGIN -->|authz code flow| IDP["tenant OIDC IdP<br/>(per-tenant factory)"]
+      IDP -->|code + state| CB["handleCallback<br/>verify state · exchange · verify ID token"]
+      CB -->|JIT provision user<br/>in tenant| ISS["session Issue<br/>store only token HASH"]
+      ISS -->|Set-Cookie: HttpOnly+Secure+Lax| U
+    end
+    subgraph Request["every /v1 request"]
+      U2["browser<br/>(session cookie)"] --> MW["authenticate middleware"]
+      MW -->|Resolve session → load perms| PR["Principal<br/>tenant + permission set"]
+      PR --> T{"tenant<br/>resolved?"}
+      T -- no --> U401["401"]
+      T -- yes --> RB{"principal.Has(route perm)?"}
+      RB -- no --> F403["403"]
+      RB -- yes --> H["handler in tenant tx<br/>(RLS-scoped)"]
+    end
+    DEV["NETCTL_AUTH_MODE=dev<br/>synthesized all-perms principal"] -.-> MW
+```
+
+**Sessions (guardrail 6).** A session token is high-entropy random; only its
+**hash** is persisted (`sessions`, a global table looked up before any tenant
+context, since the row reveals the tenant). The cookie is **HttpOnly + SameSite=Lax**
+and **Secure** on HTTPS. Hashing + the RNG go through `internal/crypto` (FIPS
+enabler) — `auth` imports no crypto primitive, so the import guard stays green; ID
+token verification lives inside go-oidc / go-jose.
+
+**Per-tenant IdP.** A `ProviderFactory.For(tenant)` resolves the OIDC provider for
+a tenant — the seam for a tenant's own SSO. S18 ships the env-configured default;
+a login always resolves to exactly one tenant. Provider/MSP operators authenticate
+into the **provider domain** (S-T1), never into tenant data here.
+
+**RBAC.** Each route in the `apiRoute` table carries a required **permission key**;
+`requirePermission` returns **401** unauthenticated / **403** unauthorized *before*
+the handler. Effective permissions are loaded **per request** from the user's role
+bindings (RLS-scoped), so grants/revokes are immediate. New users are provisioned
+with **no roles** (secure default). The AI/MCP query layer (S24) reuses the same
+Principal — tenant first, then RBAC.

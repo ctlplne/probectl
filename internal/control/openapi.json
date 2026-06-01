@@ -360,6 +360,58 @@
           "422": { "$ref": "#/components/responses/ErrorResponse" }
         }
       }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "The authenticated caller's tenant, identity, and effective permissions",
+        "tags": ["auth"],
+        "responses": {
+          "200": {
+            "description": "The current principal.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Me" } } }
+          },
+          "401": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/auth/login": {
+      "get": {
+        "operationId": "ssoLogin",
+        "summary": "Begin OIDC SSO login (redirects to the tenant's identity provider)",
+        "tags": ["auth"],
+        "parameters": [
+          { "name": "tenant", "in": "query", "required": false, "description": "Tenant UUID to log into; omitted → the default tenant.", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "302": { "description": "Redirect to the identity provider's authorization endpoint." },
+          "503": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/auth/callback": {
+      "get": {
+        "operationId": "ssoCallback",
+        "summary": "OIDC redirect URI: completes login and sets the session cookie",
+        "tags": ["auth"],
+        "parameters": [
+          { "name": "code", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "302": { "description": "Session established; redirect to the app." },
+          "400": { "$ref": "#/components/responses/ErrorResponse" },
+          "401": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "ssoLogout",
+        "summary": "Revoke the current session and clear the session cookie",
+        "tags": ["auth"],
+        "responses": { "204": { "description": "Logged out." } }
+      }
     }
   },
   "components": {
@@ -634,6 +686,19 @@
         "required": ["status"],
         "properties": {
           "status": { "type": "string", "enum": ["resolved"] }
+        }
+      },
+      "Me": {
+        "type": "object",
+        "description": "The authenticated caller: the resolved tenant (always present), identity, and the effective RBAC permission keys within that tenant.",
+        "required": ["tenant_id", "user_id", "permissions"],
+        "properties": {
+          "tenant_id": { "type": "string", "format": "uuid" },
+          "user_id": { "type": "string" },
+          "email": { "type": "string" },
+          "display_name": { "type": "string" },
+          "mfa_satisfied": { "type": "boolean" },
+          "permissions": { "type": "array", "items": { "type": "string" } }
         }
       }
     }

@@ -43,6 +43,10 @@ web/.cache/
 *.key
 *.crt
 /deploy/compose/certs/
+# Exception: a static, throwaway RSA key used ONLY to sign tokens in the OIDC
+# mock-IdP unit test (S18). Not a real credential — it must be committed so the
+# test is self-contained.
+!internal/auth/testdata/oidc_test_key.pem
 
 # Editor / OS
 .DS_Store

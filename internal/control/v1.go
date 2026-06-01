@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/imfeelingtheagi/netctl/internal/apierror"
+	"github.com/imfeelingtheagi/netctl/internal/auth"
 	"github.com/imfeelingtheagi/netctl/internal/store"
 	"github.com/imfeelingtheagi/netctl/internal/tenancy"
 )
@@ -19,40 +20,47 @@ type apiRoute struct {
 	Method  string
 	Pattern string
 	Handler apiHandler
+	// Permission is the RBAC permission key the caller must hold (within its
+	// tenant) to reach the route. Empty means "authenticated, no specific
+	// permission" (e.g. /v1/me). The tenant boundary is always enforced first.
+	Permission string
 }
 
 func (s *Server) apiRoutes() []apiRoute {
 	return []apiRoute{
-		{http.MethodGet, "/v1/tests", s.handleListTests},
-		{http.MethodPost, "/v1/tests", s.handleCreateTest},
-		{http.MethodGet, "/v1/tests/{id}", s.handleGetTest},
-		{http.MethodPut, "/v1/tests/{id}", s.handleUpdateTest},
-		{http.MethodDelete, "/v1/tests/{id}", s.handleDeleteTest},
-		{http.MethodGet, "/v1/tests/{id}/path", s.handleGetPath},
-		{http.MethodPost, "/v1/tests/{id}/path", s.handleDiscoverPath},
-		{http.MethodGet, "/v1/agents", s.handleListAgents},
-		{http.MethodGet, "/v1/agents/{id}", s.handleGetAgent},
-		{http.MethodPatch, "/v1/agents/{id}", s.handlePatchAgent},
-		{http.MethodDelete, "/v1/agents/{id}", s.handleDeleteAgent},
-		{http.MethodGet, "/v1/alerts", s.handleListAlerts},
-		{http.MethodPost, "/v1/alerts", s.handleCreateAlert},
-		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert},
-		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert},
-		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert},
-		{http.MethodGet, "/v1/incidents", s.handleListIncidents},
-		{http.MethodGet, "/v1/incidents/{id}", s.handleGetIncident},
-		{http.MethodPatch, "/v1/incidents/{id}", s.handlePatchIncident},
+		{http.MethodGet, "/v1/tests", s.handleListTests, permTestRead},
+		{http.MethodPost, "/v1/tests", s.handleCreateTest, permTestWrite},
+		{http.MethodGet, "/v1/tests/{id}", s.handleGetTest, permTestRead},
+		{http.MethodPut, "/v1/tests/{id}", s.handleUpdateTest, permTestWrite},
+		{http.MethodDelete, "/v1/tests/{id}", s.handleDeleteTest, permTestWrite},
+		{http.MethodGet, "/v1/tests/{id}/path", s.handleGetPath, permTestRead},
+		{http.MethodPost, "/v1/tests/{id}/path", s.handleDiscoverPath, permTestWrite},
+		{http.MethodGet, "/v1/agents", s.handleListAgents, permAgentRead},
+		{http.MethodGet, "/v1/agents/{id}", s.handleGetAgent, permAgentRead},
+		{http.MethodPatch, "/v1/agents/{id}", s.handlePatchAgent, permAgentWrite},
+		{http.MethodDelete, "/v1/agents/{id}", s.handleDeleteAgent, permAgentWrite},
+		{http.MethodGet, "/v1/alerts", s.handleListAlerts, permAlertRead},
+		{http.MethodPost, "/v1/alerts", s.handleCreateAlert, permAlertWrite},
+		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert, permAlertRead},
+		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert, permAlertWrite},
+		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert, permAlertWrite},
+		{http.MethodGet, "/v1/incidents", s.handleListIncidents, permIncidentRead},
+		{http.MethodGet, "/v1/incidents/{id}", s.handleGetIncident, permIncidentRead},
+		{http.MethodPatch, "/v1/incidents/{id}", s.handlePatchIncident, permIncidentWrite},
+		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
 }
 
-// inTenant resolves the caller's tenant (stub auth → default) and runs fn inside
-// a tenant-scoped, RLS-enforced transaction.
+// inTenant runs fn inside the caller's tenant — resolved from the authenticated
+// principal (tenant boundary first) — in an RLS-enforced transaction. The auth
+// middleware has already injected the principal; a missing one is a 401.
 func (s *Server) inTenant(r *http.Request, fn func(context.Context, tenancy.Scope) error) error {
-	tid, err := s.resolveTenant(r)
-	if err != nil {
-		return err
+	p := auth.PrincipalFrom(r.Context())
+	if p == nil {
+		return apierror.Unauthorized("authentication required")
 	}
-	return tenancy.InTenant(tenancy.WithTenant(r.Context(), tid), s.pool, fn)
+	ctx := tenancy.WithTenant(r.Context(), tenancy.ID(p.TenantID))
+	return tenancy.InTenant(ctx, s.pool, fn)
 }
 
 // --- tests ---

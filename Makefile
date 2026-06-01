@@ -95,6 +95,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/version/...
 	./internal/config/... ./internal/a2a/... ./internal/canary/... ./internal/path/... \
 	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
+	./internal/auth/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate

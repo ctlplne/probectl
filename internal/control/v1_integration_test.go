@@ -39,7 +39,7 @@ func setupAPI(t *testing.T) (http.Handler, *store.DB) {
 		t.Fatalf("apply migrations: %v", err)
 	}
 	t.Cleanup(db.Close)
-	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour}
+	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev"}
 	return New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).Handler(), db
 }
 

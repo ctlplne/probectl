@@ -74,6 +74,15 @@ type Config struct {
 	// into one incident.
 	IncidentWindow time.Duration
 
+	// Identity & access (S18). AuthMode: "session" (real OIDC SSO + RBAC) or
+	// "dev" (trusted-header dev principal with all permissions — never in prod).
+	AuthMode         string
+	SessionTTL       time.Duration
+	OIDCIssuer       string
+	OIDCClientID     string
+	OIDCClientSecret string
+	OIDCRedirectURL  string
+
 	// Path store (S10/S11): where discovered network paths are persisted and
 	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
 	PathStoreMode string
@@ -116,6 +125,12 @@ func Load(getenv func(string) string) (*Config, error) {
 		PathStoreURL:        l.str("NETCTL_PATHSTORE_URL", ""),
 		AlertEvalInterval:   l.dur("NETCTL_ALERT_EVAL_INTERVAL", 30*time.Second),
 		IncidentWindow:      l.dur("NETCTL_INCIDENT_WINDOW", 10*time.Minute),
+		AuthMode:            l.enum("NETCTL_AUTH_MODE", "dev", "dev", "session"),
+		SessionTTL:          l.dur("NETCTL_SESSION_TTL", 12*time.Hour),
+		OIDCIssuer:          l.str("NETCTL_OIDC_ISSUER", ""),
+		OIDCClientID:        l.str("NETCTL_OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:    l.str("NETCTL_OIDC_CLIENT_SECRET", ""),
+		OIDCRedirectURL:     l.str("NETCTL_OIDC_REDIRECT_URL", ""),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {

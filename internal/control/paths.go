@@ -19,11 +19,11 @@ func (s *Server) handleGetPath(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	tid, err := s.resolveTenant(r)
+	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
 	}
-	p, found, err := s.pathStore.Latest(r.Context(), tid.String(), target)
+	p, found, err := s.pathStore.Latest(r.Context(), tid, target)
 	if err != nil {
 		return apierror.Internal("path lookup failed").Wrap(err)
 	}
@@ -40,7 +40,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return err
 	}
-	tid, err := s.resolveTenant(r)
+	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,7 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	if err != nil {
 		return apierror.Internal("path discovery failed").Wrap(err)
 	}
-	if err := s.pathStore.Save(r.Context(), tid.String(), p); err != nil {
+	if err := s.pathStore.Save(r.Context(), tid, p); err != nil {
 		return apierror.Internal("path save failed").Wrap(err)
 	}
 	writeJSON(w, http.StatusOK, p)

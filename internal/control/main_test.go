@@ -28,6 +28,7 @@ func testServer(pinger store.Pinger) *Server {
 		HTTPAddr:    ":0",
 		HSTSEnabled: true,
 		HSTSMaxAge:  time.Hour,
+		AuthMode:    "dev",
 	}
 	return New(cfg, logging.New(io.Discard, "error", "json"), pinger, nil, nil, nil)
 }

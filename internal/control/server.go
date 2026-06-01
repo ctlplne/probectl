@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/netctl/internal/auth"
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/crypto"
 	"github.com/imfeelingtheagi/netctl/internal/path"
@@ -29,6 +30,12 @@ type Server struct {
 	pathStore pathstore.Store
 	discover  Discoverer
 	http      *http.Server
+
+	// Identity & access (S18). sessions + authn are nil when pool is nil (unit
+	// tests of operational endpoints); providers is always set (the SSO seam).
+	sessions  *auth.Manager
+	authn     *auth.Authenticator
+	providers auth.ProviderFactory
 }
 
 // New builds a Server. pinger backs the readiness probe and pool backs the
@@ -44,6 +51,15 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		discover = path.Run
 	}
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover}
+
+	// Identity & access (S18). The SSO provider factory is always present; the
+	// session manager + authenticator need a DB (nil in operational-only tests).
+	s.providers = newOIDCFactory(cfg)
+	if pool != nil {
+		s.sessions = auth.NewManager(store.NewSessions(pool), cfg.SessionTTL, cfg.TLSEnabled())
+		s.authn = auth.NewAuthenticator(s.sessions, permLoader{pool: pool})
+	}
+
 	s.http = &http.Server{
 		Addr:         cfg.HTTPAddr,
 		Handler:      s.routes(),
@@ -65,19 +81,29 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /version", apiHandler(s.handleVersion))
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
 
-	// Versioned resource routes (S9). Registered from one table so the
-	// OpenAPI-matches-handlers check has a single source of truth.
+	// SSO login endpoints (S18) — public: they establish the session that the
+	// rest of the API requires.
+	mux.Handle("GET /auth/login", apiHandler(s.handleLogin))
+	mux.Handle("GET /auth/callback", apiHandler(s.handleCallback))
+	mux.Handle("POST /auth/logout", apiHandler(s.handleLogout))
+
+	// Versioned resource routes (S9). One table → routing + the
+	// OpenAPI-matches-handlers check + per-route RBAC enforcement (S18): the
+	// tenant boundary is checked first (the principal carries one tenant), then
+	// the route's required permission.
 	for _, rt := range s.apiRoutes() {
-		mux.Handle(rt.Method+" "+rt.Pattern, rt.Handler)
+		mux.Handle(rt.Method+" "+rt.Pattern, s.requirePermission(rt.Permission, rt.Handler))
 	}
 
-	// Outermost first: security headers, then request context (id + logger),
-	// then access logging, with panic recovery closest to the handler.
+	// Outermost first: security headers, request context (id + logger), access
+	// logging, panic recovery, then authentication closest to the mux so every
+	// handler sees a resolved principal in its context.
 	return chain(mux,
 		securityHeaders(s.cfg),
 		requestContext(s.log),
 		accessLog,
 		recoverer,
+		s.authenticate,
 	)
 }
 

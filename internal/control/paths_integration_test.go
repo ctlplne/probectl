@@ -65,7 +65,7 @@ func setupPathAPI(t *testing.T) (http.Handler, *store.DB, *fakeDiscoverer) {
 	}
 	t.Cleanup(db.Close)
 	disc := &fakeDiscoverer{}
-	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour}
+	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev"}
 	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), pathstore.NewMemory(), disc.run)
 	return srv.Handler(), db, disc
 }
