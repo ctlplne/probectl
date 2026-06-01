@@ -88,6 +88,28 @@ cover: ## Run unit tests with a coverage profile.
 	$(GO) test -race -count=1 -coverprofile=coverage.out ./...
 	$(GO) tool cover -func=coverage.out | tail -1
 
+# Packages the coverage gate floors: pure-logic / parser / probe code that needs
+# no external services. Stateful DB/transport packages are gated for correctness
+# by the integration + cross-tenant-isolation jobs instead (see check_coverage.sh).
+COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/version/... \
+	./internal/config/... ./internal/a2a/... ./internal/canary/... ./internal/path/... \
+	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
+	./internal/cli/... ./internal/store/pathstore/... ./internal/store/tsdb/... \
+	./internal/store/migrate/...
+
+.PHONY: cover-gate
+cover-gate: ## Coverage profile (integration tag, service-free) + per-package floor gate.
+	$(GO) test -tags=integration -covermode=atomic -coverprofile=coverage.out -count=1 $(COVER_PKGS)
+	$(GO) tool cover -func=coverage.out | tail -1
+	bash scripts/check_coverage.sh coverage.out
+
+.PHONY: fuzz-smoke
+fuzz-smoke: ## Run each fuzz target briefly to catch crashers (CI smoke).
+	$(GO) test -run=^$$ -fuzz=^FuzzParseICMPv4$$     -fuzztime=15s ./internal/path/
+	$(GO) test -run=^$$ -fuzz=^FuzzParseTimeExceeded$$ -fuzztime=15s ./internal/path/
+	$(GO) test -run=^$$ -fuzz=^FuzzEmbeddedEcho$$     -fuzztime=10s ./internal/path/
+	$(GO) test -run=^$$ -fuzz=^FuzzIngest$$           -fuzztime=15s ./internal/bgp/
+
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
 lint: lint-go lint-python ## Run all linters (Go + Python).

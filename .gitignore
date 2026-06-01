@@ -14,6 +14,8 @@ coverage.txt
 coverage.out
 coverage.html
 coverage.xml
+.coverage
+.hypothesis/
 
 # Python (analyzer/)
 __pycache__/

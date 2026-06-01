@@ -33,7 +33,9 @@ The repo is a `go.work` workspace with two modules:
 | `make test`         | Unit tests across all workspace modules (`-race`)            |
 | `make test-isolation` | Cross-tenant isolation gate (`-tags=isolation`)            |
 | `make test-integration` | Integration tests (`-tags=integration`; needs the dev stack) |
-| `make test-python`  | `pytest` for the analyzer                                     |
+| `make test-python`  | `pytest` for the analyzer (incl. Hypothesis property tests)  |
+| `make cover-gate`   | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`) |
+| `make fuzz-smoke`   | Run each Go fuzz target briefly to catch crashers            |
 | `make lint`         | `lint-go` + `lint-python`                                     |
 | `make fmt`          | Auto-format Go (`gofmt`) and Python (`ruff --fix`, `black`)   |
 | `make proto`        | `buf lint` + generate Go (+ gRPC) from `proto/`              |
@@ -54,8 +56,9 @@ The job names are a **contract** introduced in S0:
 | ------------------------ | ----------------------------------------------------------- |
 | `lint-go`                | `gofmt` + `go vet` + `golangci-lint`                        |
 | `lint-python`            | `ruff check` + `black --check`                              |
-| `test-go`                | unit tests across modules                                   |
-| `test-python`            | analyzer `pytest`                                           |
+| `test-go`                | unit tests + **fuzz smoke** (parsers must not crash)        |
+| `test-python`            | analyzer `pytest` (incl. Hypothesis property tests)         |
+| `coverage`               | per-package coverage floor on service-free packages         |
 | `cross-tenant-isolation` | **permanent** tenant-isolation gate (CLAUDE.md §7 g.1)      |
 | `integration`            | migrations + readiness + agent mTLS against a Postgres service |
 | `proto`                  | `buf lint` + breaking-change check + codegen drift          |
@@ -63,6 +66,27 @@ The job names are a **contract** introduced in S0:
 | `build-images`           | multi-arch image build for every component (Buildx + QEMU)  |
 | `image-scan`             | Trivy image scan                                            |
 | `commitlint`             | Conventional Commits on PRs                                 |
+
+## Testing layers
+
+- **Unit** (`make test`, `-race`) — hermetic, table-driven; the default fast path.
+- **Integration** (`make test-integration`, `-tags=integration`) — against real
+  Kafka (in-process kfake), Postgres, ClickHouse, and Prometheus, plus in-process
+  HTTPS/DNS servers and loopback sockets for the probes. The DNS/HTTP/TLS canary
+  behaviour (success / 5xx / slow / expired-cert / DNSSEC-bogus) lives here.
+- **Fuzz** (`make fuzz-smoke`) — Go `-fuzz` targets over the untrusted-input
+  parsers (ICMP/Time-Exceeded/MPLS in `internal/path`, the BGP-event ingest in
+  `internal/bgp`). The invariant is "never panic", and the bridge additionally
+  must never publish a tenant-less event under fuzzing (fail-closed, guardrail 1).
+  CI runs a short smoke; run longer locally with `-fuzztime`.
+- **Property** (Hypothesis, in the analyzer suite) — the MRT parser and RPKI
+  validator are checked over thousands of generated inputs (robustness +
+  round-trip + soundness), the Python counterpart to the Go fuzzers.
+- **Coverage gate** (`make cover-gate` → `coverage` CI job) — a per-package
+  statement-coverage **floor** on the service-free logic / parser / probe
+  packages (`scripts/check_coverage.sh`). The stateful DB/transport packages are
+  gated for correctness by the `integration` and `cross-tenant-isolation` jobs
+  instead — a stronger guarantee than a percentage — so they are not floored here.
 
 ## Commits
 

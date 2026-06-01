@@ -16,6 +16,7 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.6",
   "black>=24.0",
+  "hypothesis>=6.0",
 ]
 
 [tool.hatch.build.targets.wheel]
