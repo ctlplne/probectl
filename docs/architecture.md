@@ -8,21 +8,29 @@ subsystems land; the canonical **tenant-scoped data model** is documented here i
 
 ## Shape
 
-```
-Provider / Management Plane (MSP operators — a distinct privilege domain)
-        │  tenant lifecycle · fleet-across-tenants · metering/billing ·
-        │  white-label · audited break-glass (no implicit tenant-data access)
-        ▼  (tenant-scoped, isolated)
-Control Plane (Go, stateless, TENANT-AWARE)
-        REST (OpenAPI 3.1) · gRPC (agents, mTLS) · MCP · Webhooks/OTLP
-        Auth (SSO/RBAC/ABAC) · Audit · Tenant → Org → Team → Project
-        subsystems: tenancy · path · bgp · opendata · threat · change ·
-                    topology · cost · slo · compliance · ai · ...
-        ▲ gRPC(mTLS)         ▲ bus (tenant-tagged)      ▲ queries (tenant-first)
-   Agents (Go, single binary, tenant-bound)   Kafka/NATS    Postgres · ClickHouse ·
-   canary plugins · path engine · eBPF (P2)                 Prometheus/VM · graph · object
-        External (read-only, cached, degrade gracefully): RouteViews · RIPE RIS/Atlas ·
-        RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing
+```mermaid
+flowchart TB
+    Provider["Provider / Management Plane — MSP operators (distinct privilege domain)<br/>tenant lifecycle · fleet-across-tenants · metering/billing · white-label<br/>audited break-glass (no implicit tenant-data access)"]
+
+    subgraph CP["Control Plane — Go, stateless, TENANT-AWARE"]
+        Edge["REST (OpenAPI 3.1) · gRPC (agents, mTLS) · MCP · Webhooks/OTLP<br/>Auth (SSO/RBAC/ABAC) · Audit · Tenant → Org → Team → Project"]
+        Subsys["subsystems: tenancy · path · bgp · opendata · threat · change ·<br/>topology · cost · slo · compliance · ai · …"]
+    end
+
+    Agents["Agents — Go, single binary, tenant-bound<br/>canary plugins · path engine · eBPF (P2)"]
+    Analyzer["BGP analyzer (Python)<br/>RouteViews/RIS MRT + RIS Live"]
+    Bus["Bus — Kafka / NATS / in-process<br/>(tenant-tagged)"]
+    Stores["Postgres · ClickHouse · Prometheus/VM<br/>topology graph · object store"]
+    External["External (read-only, cached, degrade gracefully)<br/>RouteViews · RIPE RIS/Atlas · RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing"]
+
+    Provider -->|tenant-scoped, isolated| CP
+    Agents -->|gRPC mTLS| Edge
+    Analyzer -->|netctl.bgp.events| Bus
+    Agents -->|results, tenant-tagged| Bus
+    Bus --> Subsys
+    Subsys -->|queries, tenant-first| Stores
+    External -.->|ingest once, scope per tenant| Analyzer
+    External -.->|cached| Subsys
 ```
 
 Data flows agents → bus (tenant-tagged) → control-plane consumers → stores, all
@@ -259,3 +267,52 @@ keyboard-operable nodes that open a per-hop drill-down — backed by a
 visually-hidden hop table so assistive tech gets the same data. A **loss-by-hop**
 sparkline pinpoints where drops occur. Layout is O(nodes+links) for dense graphs;
 animation respects `prefers-reduced-motion`.
+
+## BGP / routing intelligence (S14)
+
+The BGP plane is the one netctl component written in **Python** (`analyzer/`) —
+the language with the richest BGP/MRT tooling — bridged into the Go control plane
+by `internal/bgp`. The analyzer ingests **public** collector data (no customer
+router peering): RouteViews/RIPE-RIS **MRT** dumps and the **RIS Live** websocket.
+It does per-prefix AS-path monitoring with **origin-change / possible-hijack /
+possible-leak** detection and **RPKI** (RFC 6811) validation, and emits
+`netctl.bgp.events`.
+
+```mermaid
+flowchart LR
+    RV["RouteViews / RIS<br/>bulk MRT (HTTP)"] --> MRT["mrt.py<br/>streaming parser"]
+    RL["RIS Live<br/>websocket (JSON)"] --> RIS["rislive.py<br/>reconnecting client"]
+    VRP["RPKI validator<br/>VRP set (rpki-client/Routinator)"] --> RPKI["rpki.py<br/>RFC 6811"]
+
+    MRT --> MON["monitor.py<br/>per-prefix baseline +<br/>origin/hijack/leak"]
+    RIS --> MON
+    RPKI --> MON
+    MON --> SINK["emit.py<br/>JSONL netctl.bgp.events"]
+
+    SINK -->|JSON Lines| BRIDGE["internal/bgp<br/>validate tenant → protobuf"]
+    BRIDGE -->|"netctl.bgp.v1.BGPEvent<br/>(tenant-keyed)"| BUS["bus<br/>netctl.bgp.events"]
+```
+
+**Streaming, never buffered.** `mrt.py` is a bounds-checked RFC 6396 reader that
+yields one route at a time (TABLE_DUMP_V2 RIB + BGP4MP UPDATE), so a multi-gigabyte
+dump never materializes a full RIB in memory (S14 watch-out). A malformed record
+is logged and skipped, not fatal. RIS Live's parsing core is transport-agnostic
+(replayable in tests); the live client owns the reconnect/backoff loop.
+
+**Detection is a signal, not an action** (guardrail 9). Each event carries a
+confidence and severity and is tunable/suppressible; netctl never acts on routing.
+Rules: an origin differing from the last sighting → `origin_change` (with old/new
+origin + AS path); an origin outside the configured allow-list → `possible_hijack`
+(a more-specific is a higher-confidence sub-prefix hijack); a configured
+no-transit AS appearing mid-path → `possible_leak`; an RFC 6811-invalid
+announcement → `rpki_invalid`. A down/absent RPKI source degrades to `unknown`
+rather than breaking analysis (guardrail 10).
+
+**The seam is a stable JSON schema.** The analyzer emits events as JSON Lines (the
+dependency-light, language-neutral contract); `internal/bgp` is the bridge that
+parses each line, **fails closed on any event missing a `tenant_id`** (tenant is
+the outermost scope — F50/guardrail 1), translates it to the canonical
+`netctl.bgp.v1.BGPEvent` protobuf, and publishes it on the bus **keyed by tenant**.
+External BGP data is ingested **once** and scoped per tenant by each tenant's
+monitoring configuration. RouteViews/RIS are open data; their AUP (and per-source
+provenance) is tracked for MSP/commercial resale, not for single-tenant OSS use.

@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+// BGPEvent is the canonical netctl.bgp.events schema (S14): a routing-security
+// signal produced by the Python BGP analyzer from public collector data
+// (RouteViews MRT, RIPE RIS / RIS Live) and bridged onto the bus by internal/bgp.
+//
+// Tenancy: tenant_id is the outermost scope (F50). External BGP data is ingested
+// once and scoped per tenant by the monitoring configuration (CLAUDE.md §7
+// guardrail 10); the bridge fails closed on an event with no tenant.
+//
+// Detection is a SIGNAL, not ground truth (guardrail 9): every event carries a
+// confidence and a severity and is tunable/suppressible downstream — netctl does
+// not act on routing automatically.
+//
+// Backward compatibility: fields are additive-only; never renumber or reuse tags.
+package netctl.bgp.v1;
+
+option go_package = "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1;bgpv1";
+
+// EventType classifies the routing observation.
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_ORIGIN_CHANGE = 1;   // the origin AS for a monitored prefix changed
+  EVENT_TYPE_POSSIBLE_HIJACK = 2; // an unexpected origin announced a monitored prefix (or a more-specific)
+  EVENT_TYPE_POSSIBLE_LEAK = 3;   // an AS-path anomaly suggesting a route leak
+  EVENT_TYPE_RPKI_INVALID = 4;    // the announcement is RPKI-invalid (RFC 6811)
+}
+
+// RpkiStatus is the RFC 6811 route-origin validation state.
+enum RpkiStatus {
+  RPKI_STATUS_UNSPECIFIED = 0;
+  RPKI_STATUS_VALID = 1;
+  RPKI_STATUS_INVALID = 2;
+  RPKI_STATUS_NOT_FOUND = 3; // no covering ROA / VRP
+  RPKI_STATUS_UNKNOWN = 4;   // validator unavailable (graceful degradation)
+}
+
+// Severity is the signal's triage level.
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_INFO = 1;
+  SEVERITY_WARNING = 2;
+  SEVERITY_CRITICAL = 3;
+}
+
+message BGPEvent {
+  // --- Resource identity ---
+  string tenant_id = 1; // outermost scope (F50); the bridge rejects an empty value
+
+  // --- Classification ---
+  EventType event_type = 2;
+  Severity severity = 3;
+  double confidence = 4; // 0.0 .. 1.0
+
+  // --- Subject ---
+  string prefix = 5; // the affected prefix in CIDR form (e.g. "192.0.2.0/24")
+
+  // --- Origin / path (4-byte ASNs) ---
+  uint32 new_origin_asn = 6;
+  uint32 old_origin_asn = 7;          // 0 when not applicable (e.g. first sighting)
+  repeated uint32 new_as_path = 8;    // left = nearest collector peer, right = origin
+  repeated uint32 old_as_path = 9;
+  repeated uint32 expected_origins = 10; // the configured allowed origins (context)
+
+  // --- Validation ---
+  RpkiStatus rpki_status = 11;
+
+  // --- Provenance ---
+  string collector = 12;   // e.g. "routeviews2", "rrc00"
+  uint32 peer_asn = 13;    // the collector peer that observed it
+  string peer_address = 14;
+
+  // --- Description + timing ---
+  string message = 15;               // human-readable summary
+  int64 detected_at_unix_nano = 16;  // OTel-style nanosecond timestamp
+}
+
+message BGPEventBatch {
+  repeated BGPEvent events = 1;
+}

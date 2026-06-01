@@ -319,6 +319,41 @@ endpoint, e.g. `http://localhost:8123`, partitioned by tenant). Scheduling path
 tests on agents and ingesting results lands with the S11 visualization that
 consumes them.
 
+### BGP routing intelligence (S14)
+
+The BGP plane is a Python analyzer (`analyzer/`) plus a Go bridge (`internal/bgp`);
+see [`architecture.md`](architecture.md). The analyzer ingests **public** collector
+data and emits `netctl.bgp.events`:
+
+```sh
+python -m netctl_analyzer --config config.json --mrt rib.mrt        # RouteViews/RIS dump
+python -m netctl_analyzer --config config.json --replay cap.jsonl   # recorded RIS Live
+python -m netctl_analyzer --config config.json --ris-live           # live RIS Live websocket
+```
+
+The JSON config is **per tenant** (`tenant_id` is required — every event carries
+it, and the bridge rejects any event without one):
+
+| Key | Meaning |
+| --- | ------- |
+| `tenant_id` | the owning tenant (outermost scope) |
+| `monitored_prefixes[].prefix` | a prefix to watch (a more-specific announcement is matched too) |
+| `monitored_prefixes[].expected_origins` | allowed origin ASNs — an origin outside this set raises `possible_hijack` |
+| `monitored_prefixes[].no_transit` | ASNs that must not transit this prefix — mid-path appearance raises `possible_leak` |
+| `collector` | collector label recorded on events (e.g. `rrc00`) |
+| `rpki_vrp_file` / `rpki_vrp_url` | a `rpki-client`/Routinator VRP JSON export for RFC 6811 validation (absent → `unknown`) |
+
+The analyzer emits `netctl.bgp.events` as **JSON Lines**; the Go bridge tails that
+stream, validates the tenant, and republishes each as the canonical
+`netctl.bgp.v1.BGPEvent` protobuf onto the bus (topic `netctl.bgp.events`, keyed by
+tenant). Event types: `origin_change` (old/new origin + AS path), `possible_hijack`,
+`possible_leak`, `rpki_invalid`; each carries an RPKI status (`valid` / `invalid` /
+`not_found` / `unknown`), a severity, and a confidence — they are **signals**, not
+actions (CLAUDE.md §7 guardrail 9). MRT dumps are **stream-processed** (no full RIB
+in memory); a down RPKI/collector source degrades gracefully (guardrail 10).
+RouteViews/RIS are open data — their AUP/provenance matters for MSP/commercial
+resale, not for private development or single-tenant OSS use.
+
 ### Resource API & CLI (S9)
 
 The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`):

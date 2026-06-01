@@ -10,6 +10,10 @@ import (
 // convention is netctl.<type>.results / netctl.<type>.events.
 const NetworkResultsTopic = "netctl.network.results"
 
+// BGPEventsTopic carries routing-security signals from the BGP analyzer bridge
+// (S14), tenant-tagged via the message key.
+const BGPEventsTopic = "netctl.bgp.events"
+
 // Message is one bus record. Key partitions the record (the tenant id, so a
 // tenant's results stay ordered and co-located — pooled tenant-tagging).
 type Message struct {
