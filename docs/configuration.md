@@ -246,6 +246,9 @@ The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`
 - `GET/POST /v1/tests`, `GET/PUT/DELETE /v1/tests/{id}` — synthetic-test CRUD.
 - `GET /v1/agents`, `GET/PATCH/DELETE /v1/agents/{id}` — agents register over
   mTLS; the API lists, renames, and deregisters them.
+- `GET/POST /v1/tests/{id}/path` (S11) — the latest discovered network path for a
+  test, and a trigger to discover it now. The path-viz hero UI (Path & Topology)
+  consumes this.
 
 Every `/v1` route is **tenant-scoped** through `internal/tenancy` + Postgres RLS,
 so a request can never read or write across tenants. **Authentication is a dev

@@ -147,6 +147,36 @@
         }
       }
     },
+    "/v1/tests/{id}/path": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantHeader" },
+        { "$ref": "#/components/parameters/IdPath" }
+      ],
+      "get": {
+        "operationId": "getTestPath",
+        "summary": "Latest discovered network path for a test (path-viz data)",
+        "tags": ["tests"],
+        "responses": {
+          "200": {
+            "description": "The merged multi-path.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Path" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "post": {
+        "operationId": "discoverTestPath",
+        "summary": "Run a path discovery for a test and return the path",
+        "tags": ["tests"],
+        "responses": {
+          "200": {
+            "description": "The freshly discovered path.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Path" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
+    },
     "/v1/agents": {
       "get": {
         "operationId": "listAgents",
@@ -322,6 +352,61 @@
         "type": "object",
         "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Agent" } } },
         "required": ["items"]
+      },
+      "MPLSLabel": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "integer" },
+          "tc": { "type": "integer" },
+          "s": { "type": "boolean" },
+          "ttl": { "type": "integer" }
+        }
+      },
+      "HopNode": {
+        "type": "object",
+        "description": "One responder at a TTL; multiple nodes at a TTL are ECMP branches.",
+        "properties": {
+          "ip": { "type": "string" },
+          "sent": { "type": "integer" },
+          "received": { "type": "integer" },
+          "loss_ratio": { "type": "number" },
+          "rtt_min_ms": { "type": "number" },
+          "rtt_avg_ms": { "type": "number" },
+          "rtt_max_ms": { "type": "number" },
+          "mpls": { "type": "array", "items": { "$ref": "#/components/schemas/MPLSLabel" } }
+        },
+        "required": ["ip"]
+      },
+      "Hop": {
+        "type": "object",
+        "properties": {
+          "ttl": { "type": "integer" },
+          "nodes": { "type": "array", "items": { "$ref": "#/components/schemas/HopNode" } }
+        },
+        "required": ["ttl", "nodes"]
+      },
+      "Link": {
+        "type": "object",
+        "properties": {
+          "ttl": { "type": "integer" },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        }
+      },
+      "Path": {
+        "type": "object",
+        "description": "A merged, multi-path traceroute result.",
+        "properties": {
+          "target": { "type": "string" },
+          "target_ip": { "type": "string" },
+          "mode": { "type": "string" },
+          "max_hops": { "type": "integer" },
+          "trace_count": { "type": "integer" },
+          "destination_reached": { "type": "boolean" },
+          "hops": { "type": "array", "items": { "$ref": "#/components/schemas/Hop" } },
+          "links": { "type": "array", "items": { "$ref": "#/components/schemas/Link" } }
+        },
+        "required": ["target", "mode", "hops", "links"]
       }
     }
   }

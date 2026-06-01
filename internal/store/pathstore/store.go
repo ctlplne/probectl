@@ -8,9 +8,11 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/path"
 )
 
-// Store persists discovered Paths, tenant-scoped.
+// Store persists and serves discovered Paths, tenant-scoped.
 type Store interface {
 	Save(ctx context.Context, tenantID string, p *path.Path) error
+	// Latest returns the most recently saved path to target for a tenant.
+	Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error)
 	Close() error
 }
 

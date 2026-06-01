@@ -189,7 +189,24 @@ multi-path merge is covered by fixtures; a loopback trace is the live test.
 
 Path data is high-cardinality time-series, so it is stored in **ClickHouse**
 (`internal/store/pathstore`) — a `memory` store for the lightweight mode/tests and
-a `clickhouse` adapter that writes hop/link rows over ClickHouse's **HTTP
+a `clickhouse` adapter that reads/writes hop/link rows over ClickHouse's **HTTP
 interface** (no native-driver dependency), partitioned by `tenant_id` so path
-data never crosses a tenant. The agent-scheduling + control-plane ingestion of
-path tests is wired with the S11 visualization that consumes them.
+data never crosses a tenant.
+
+## Path visualization (S11)
+
+The **path-viz data API** is `GET /v1/tests/{id}/path` (the latest stored path
+for a test) + `POST /v1/tests/{id}/path` (run a discovery now and store it); both
+are tenant-scoped through the test lookup, and the discoverer is injectable
+(default `path.Run`) so it is testable without a network. Path discovery runs
+from the control plane for now (operator-triggered); an agent-vantage scheduler
+is a later refinement.
+
+The **hero UI** (`web/src/viz`) renders the merged multi-path on the S8a design
+system: a pure `layoutPath` places hops in TTL columns with ECMP branches stacked
+and links from observed adjacencies; the SVG `PathGraph` draws nodes colored by
+loss (the lossy hop stands out), MPLS markers, hover/focus tooltips, and
+keyboard-operable nodes that open a per-hop drill-down — backed by a
+visually-hidden hop table so assistive tech gets the same data. A **loss-by-hop**
+sparkline pinpoints where drops occur. Layout is O(nodes+links) for dense graphs;
+animation respects `prefers-reduced-motion`.

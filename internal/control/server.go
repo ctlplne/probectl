@@ -11,25 +11,39 @@ import (
 
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/netctl/internal/path"
 	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/netctl/internal/store/pathstore"
 )
+
+// Discoverer runs a path discovery. The default is path.Run; tests inject a fake.
+type Discoverer func(ctx context.Context, cfg path.Config) (*path.Path, error)
 
 // Server is the netctl control-plane HTTP API server. It is stateless: all
 // durable state lives in the datastores, so instances are interchangeable.
 type Server struct {
-	cfg    *config.Config
-	log    *slog.Logger
-	pinger store.Pinger
-	pool   *pgxpool.Pool
-	http   *http.Server
+	cfg       *config.Config
+	log       *slog.Logger
+	pinger    store.Pinger
+	pool      *pgxpool.Pool
+	pathStore pathstore.Store
+	discover  Discoverer
+	http      *http.Server
 }
 
 // New builds a Server. pinger backs the readiness probe and pool backs the
 // tenant-scoped /v1 resource handlers (both typically the same *store.DB); pool
 // may be nil in unit tests that only exercise the operational endpoints or
-// request validation.
-func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpool.Pool) *Server {
-	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool}
+// request validation. pathStore and discover back the path-viz API; a nil
+// pathStore defaults to an in-memory store and a nil discover to path.Run.
+func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpool.Pool, pathStore pathstore.Store, discover Discoverer) *Server {
+	if pathStore == nil {
+		pathStore = pathstore.NewMemory()
+	}
+	if discover == nil {
+		discover = path.Run
+	}
+	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover}
 	s.http = &http.Server{
 		Addr:         cfg.HTTPAddr,
 		Handler:      s.routes(),

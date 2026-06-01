@@ -29,6 +29,7 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/pipeline"
 	"github.com/imfeelingtheagi/netctl/internal/store"
 	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
+	"github.com/imfeelingtheagi/netctl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/netctl/internal/version"
 	"github.com/imfeelingtheagi/netctl/migrations"
@@ -97,6 +98,12 @@ func run(cmd string) error {
 	}
 	defer tsdbWriter.Close()
 
+	pathStore, err := pathstore.New(cfg.PathStoreMode, cfg.PathStoreURL)
+	if err != nil {
+		return fmt.Errorf("path store: %w", err)
+	}
+	defer pathStore.Close()
+
 	// Brokers agent-to-agent measurement sessions; sessions are started by the
 	// test API in a later sprint.
 	a2aBroker := a2a.NewBroker()
@@ -107,7 +114,7 @@ func run(cmd string) error {
 	// Run the HTTP API, the result-pipeline consumer, and (when configured) the
 	// agent gRPC transport together; a signal or a failure in any drains all.
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error { return control.New(cfg, log, db, db.Pool()).Run(gctx) })
+	g.Go(func() error { return control.New(cfg, log, db, db.Pool(), pathStore, nil).Run(gctx) })
 	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
 	if cfg.AgentTransportEnabled() {
 		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)

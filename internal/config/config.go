@@ -66,6 +66,11 @@ type Config struct {
 	BusBrokers []string
 	TSDBMode   string
 	TSDBURL    string
+
+	// Path store (S10/S11): where discovered network paths are persisted and
+	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
+	PathStoreMode string
+	PathStoreURL  string
 }
 
 // Load resolves configuration using the supplied getenv function (use
@@ -100,6 +105,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		BusBrokers:          l.list("NETCTL_BUS_BROKERS"),
 		TSDBMode:            l.enum("NETCTL_TSDB_MODE", "memory", "memory", "prometheus"),
 		TSDBURL:             l.str("NETCTL_TSDB_URL", ""),
+		PathStoreMode:       l.enum("NETCTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
+		PathStoreURL:        l.str("NETCTL_PATHSTORE_URL", ""),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
@@ -113,6 +120,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	if cfg.TSDBMode == "prometheus" && cfg.TSDBURL == "" {
 		l.errf("NETCTL_TSDB_MODE=prometheus requires NETCTL_TSDB_URL")
+	}
+	if cfg.PathStoreMode == "clickhouse" && cfg.PathStoreURL == "" {
+		l.errf("NETCTL_PATHSTORE_MODE=clickhouse requires NETCTL_PATHSTORE_URL")
 	}
 
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {

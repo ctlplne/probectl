@@ -35,6 +35,31 @@ func TestMemoryStoreIsTenantScoped(t *testing.T) {
 	}
 }
 
+func TestMemoryLatest(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	old := samplePath()
+	old.TargetIP = "8.8.8.8-old"
+	newer := samplePath()
+	newer.TargetIP = "8.8.8.8-new"
+	_ = m.Save(ctx, "t1", old)
+	_ = m.Save(ctx, "t1", newer)
+
+	p, ok, err := m.Latest(ctx, "t1", "8.8.8.8")
+	if err != nil || !ok {
+		t.Fatalf("latest: ok=%v err=%v", ok, err)
+	}
+	if p.TargetIP != "8.8.8.8-new" {
+		t.Errorf("latest should be the newest save, got %q", p.TargetIP)
+	}
+	if _, ok, _ := m.Latest(ctx, "t1", "1.1.1.1"); ok {
+		t.Error("unknown target should not be found")
+	}
+	if _, ok, _ := m.Latest(ctx, "other-tenant", "8.8.8.8"); ok {
+		t.Error("another tenant must not see this tenant's path")
+	}
+}
+
 func TestNewModes(t *testing.T) {
 	if _, err := New("memory", ""); err != nil {
 		t.Errorf("memory: %v", err)

@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -128,8 +130,142 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	return nil
 }
 
+// Latest reconstructs the most recently saved path to target for a tenant from
+// the hop + link rows.
+func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error) {
+	meta, err := c.query(ctx, fmt.Sprintf(
+		`SELECT path_id, target_ip, mode FROM netctl_path_hops WHERE tenant_id=%s AND target=%s ORDER BY ts DESC LIMIT 1`,
+		chStr(tenantID), chStr(target)))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(meta) == 0 {
+		return nil, false, nil
+	}
+	pathID := chToString(meta[0]["path_id"])
+	p := &path.Path{Target: target, TargetIP: chToString(meta[0]["target_ip"]), Mode: chToString(meta[0]["mode"])}
+
+	hopRows, err := c.query(ctx, fmt.Sprintf(
+		`SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels
+		 FROM netctl_path_hops WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, responder`,
+		chStr(tenantID), chStr(pathID)))
+	if err != nil {
+		return nil, false, err
+	}
+	byTTL := map[int]*path.Hop{}
+	var order []int
+	maxTTL := 0
+	for _, r := range hopRows {
+		ttl := chToInt(r["ttl"])
+		h := byTTL[ttl]
+		if h == nil {
+			h = &path.Hop{TTL: ttl}
+			byTTL[ttl] = h
+			order = append(order, ttl)
+		}
+		node := path.HopNode{
+			IP: chToString(r["responder"]), Sent: chToInt(r["sent"]), Received: chToInt(r["received"]),
+			LossRatio: chToFloat(r["loss_ratio"]), RTTMinMs: chToFloat(r["rtt_min_ms"]),
+			RTTAvgMs: chToFloat(r["rtt_avg_ms"]), RTTMaxMs: chToFloat(r["rtt_max_ms"]),
+		}
+		for _, l := range chToUintSlice(r["mpls_labels"]) {
+			node.MPLS = append(node.MPLS, path.MPLSLabel{Label: l})
+		}
+		if node.IP == p.TargetIP {
+			p.DestinationReached = true
+		}
+		h.Nodes = append(h.Nodes, node)
+		if ttl > maxTTL {
+			maxTTL = ttl
+		}
+	}
+	sort.Ints(order)
+	for _, ttl := range order {
+		p.Hops = append(p.Hops, *byTTL[ttl])
+	}
+	p.MaxHops = maxTTL
+
+	linkRows, err := c.query(ctx, fmt.Sprintf(
+		`SELECT ttl, from_ip, to_ip FROM netctl_path_links WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, from_ip, to_ip`,
+		chStr(tenantID), chStr(pathID)))
+	if err != nil {
+		return nil, false, err
+	}
+	for _, r := range linkRows {
+		p.Links = append(p.Links, path.Link{TTL: chToInt(r["ttl"]), From: chToString(r["from_ip"]), To: chToString(r["to_ip"])})
+	}
+	return p, true, nil
+}
+
 // Close is a no-op (the HTTP client needs no teardown).
 func (c *ClickHouse) Close() error { return nil }
+
+// query runs a SELECT and parses the JSONEachRow response into row maps.
+func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, error) {
+	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("pathstore: clickhouse query: %w", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("pathstore: clickhouse query status %d: %s", resp.StatusCode, body)
+	}
+	var rows []map[string]any
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		var row map[string]any
+		if err := json.Unmarshal(line, &row); err != nil {
+			return nil, fmt.Errorf("pathstore: decode row: %w", err)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// chStr renders a ClickHouse string literal with the necessary escaping.
+func chStr(s string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
+}
+
+func chToString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func chToFloat(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case string:
+		f, _ := strconv.ParseFloat(n, 64)
+		return f
+	}
+	return 0
+}
+
+func chToInt(v any) int { return int(chToFloat(v)) }
+
+func chToUintSlice(v any) []uint32 {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]uint32, 0, len(arr))
+	for _, e := range arr {
+		out = append(out, uint32(chToFloat(e)))
+	}
+	return out
+}
 
 func (c *ClickHouse) exec(ctx context.Context, query string, body io.Reader) error {
 	u := c.base + "/?query=" + url.QueryEscape(query)

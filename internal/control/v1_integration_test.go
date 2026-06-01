@@ -40,7 +40,7 @@ func setupAPI(t *testing.T) (http.Handler, *store.DB) {
 	}
 	t.Cleanup(db.Close)
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour}
-	return New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool()).Handler(), db
+	return New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).Handler(), db
 }
 
 func apiReq(t *testing.T, h http.Handler, method, path, tenant string, body any) *httptest.ResponseRecorder {

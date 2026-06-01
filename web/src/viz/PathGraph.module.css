@@ -1,0 +1,172 @@
+.wrap {
+  position: relative;
+}
+
+.scroll {
+  position: relative;
+  width: 100%;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 1px 1px, var(--color-border) 1px, transparent 0) 0 0 / 24px 24px,
+    var(--color-bg);
+  padding: var(--space-2);
+}
+
+.svg {
+  display: block;
+}
+
+/* Edges */
+.edge {
+  fill: none;
+  stroke: var(--color-border-strong);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  opacity: 0.9;
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+  animation: draw var(--motion-slow) var(--easing-standard) forwards;
+}
+.edge.warning {
+  stroke: var(--color-warning);
+}
+.edge.danger {
+  stroke: var(--color-danger);
+  stroke-width: 2.25;
+}
+
+/* Nodes */
+.node {
+  cursor: pointer;
+  animation: fade var(--motion-normal) var(--easing-standard) both;
+}
+.node:focus {
+  outline: none;
+}
+
+.box {
+  fill: var(--color-surface);
+  stroke: var(--color-border-strong);
+  stroke-width: 1.5;
+  transition:
+    stroke var(--motion-fast) var(--easing-standard),
+    fill var(--motion-fast) var(--easing-standard);
+}
+.node:hover .box {
+  stroke: var(--color-accent);
+}
+.node:focus-visible .box {
+  stroke: var(--color-focus);
+  stroke-width: 2;
+}
+
+.warning .box {
+  stroke: var(--color-warning);
+  fill: var(--color-warning-soft);
+}
+.danger .box {
+  stroke: var(--color-danger);
+  fill: var(--color-danger-soft);
+}
+.destination .box {
+  stroke: var(--color-accent);
+  fill: var(--color-accent-soft);
+}
+.source .box {
+  fill: var(--color-surface-raised);
+  stroke-dasharray: 4 3;
+}
+.selected .box {
+  stroke: var(--color-focus);
+  stroke-width: 2;
+}
+
+.ip {
+  fill: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+.source .ip {
+  font-family: var(--font-sans);
+  fill: var(--color-text-muted);
+}
+.meta {
+  fill: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+}
+.danger .meta {
+  fill: var(--color-danger);
+}
+.mpls {
+  fill: var(--color-info);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+}
+
+/* Hover/focus tooltip */
+.tooltip {
+  position: absolute;
+  z-index: var(--z-overlay);
+  min-width: 180px;
+  padding: var(--space-3);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+.ttIp {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-2);
+}
+.ttList {
+  margin: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.ttList div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: var(--font-size-xs);
+}
+.ttList dt {
+  color: var(--color-text-subtle);
+}
+.ttList dd {
+  margin: 0;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edge {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .node {
+    animation: none;
+  }
+}

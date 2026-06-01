@@ -1,0 +1,23 @@
+.svg {
+  width: 100%;
+  height: 100%;
+}
+
+.bar {
+  transition: fill var(--motion-fast) var(--easing-standard);
+}
+.ok {
+  fill: var(--color-border-strong);
+}
+.warning {
+  fill: var(--color-warning);
+}
+.danger {
+  fill: var(--color-danger);
+}
+
+.label {
+  fill: var(--color-text-subtle);
+  font-family: var(--font-sans);
+  font-size: 0.625rem;
+}

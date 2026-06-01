@@ -1,0 +1,32 @@
+.detail {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.detail div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.detail dt {
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-subtle);
+}
+
+.detail dd {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+}
+
+.labels {
+  flex-wrap: wrap;
+}

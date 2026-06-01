@@ -25,6 +25,19 @@ func (m *Memory) Save(_ context.Context, tenantID string, p *path.Path) error {
 	return nil
 }
 
+// Latest returns the most recently saved path to target for the tenant.
+func (m *Memory) Latest(_ context.Context, tenantID, target string) (*path.Path, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	paths := m.saved[tenantID]
+	for i := len(paths) - 1; i >= 0; i-- {
+		if paths[i].Target == target {
+			return paths[i], true, nil
+		}
+	}
+	return nil, false, nil
+}
+
 // Close is a no-op.
 func (m *Memory) Close() error { return nil }
 

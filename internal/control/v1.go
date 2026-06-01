@@ -28,6 +28,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/tests/{id}", s.handleGetTest},
 		{http.MethodPut, "/v1/tests/{id}", s.handleUpdateTest},
 		{http.MethodDelete, "/v1/tests/{id}", s.handleDeleteTest},
+		{http.MethodGet, "/v1/tests/{id}/path", s.handleGetPath},
+		{http.MethodPost, "/v1/tests/{id}/path", s.handleDiscoverPath},
 		{http.MethodGet, "/v1/agents", s.handleListAgents},
 		{http.MethodGet, "/v1/agents/{id}", s.handleGetAgent},
 		{http.MethodPatch, "/v1/agents/{id}", s.handlePatchAgent},
