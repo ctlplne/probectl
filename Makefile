@@ -60,6 +60,16 @@ build-cross: ## Cross-compile every binary for linux amd64 + arm64 (smoke test).
 run: ## Run the control-plane server locally.
 	$(GO) run ./cmd/netctl-control
 
+.PHONY: ebpf-agent
+ebpf-agent: ## Build netctl-ebpf-agent WITH the live CO-RE loader (-tags ebpf; Linux + clang + bpftool + BTF; run `go get github.com/cilium/ebpf` once first).
+	@command -v clang   >/dev/null 2>&1 || { echo "ebpf-agent: clang required (e.g. apt install clang llvm libbpf-dev)"; exit 1; }
+	@command -v bpftool >/dev/null 2>&1 || { echo "ebpf-agent: bpftool required (e.g. apt install linux-tools-common)"; exit 1; }
+	@mkdir -p $(BIN_DIR)
+	bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
+	cd internal/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf l4flow ./bpf/l4flow.bpf.c -- -I./bpf
+	CGO_ENABLED=0 $(GO) build -tags ebpf -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/netctl-ebpf-agent ./cmd/netctl-ebpf-agent
+	@echo "built $(BIN_DIR)/netctl-ebpf-agent (eBPF loader enabled)"
+
 # ---- test ----------------------------------------------------------------
 .PHONY: test
 test: ## Run unit tests across all workspace modules.
@@ -95,7 +105,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/version/...
 	./internal/config/... ./internal/a2a/... ./internal/canary/... ./internal/path/... \
 	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
-	./internal/auth/... ./internal/perf/... \
+	./internal/auth/... ./internal/perf/... ./internal/ebpf/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate

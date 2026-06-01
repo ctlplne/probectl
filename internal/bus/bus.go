@@ -14,6 +14,10 @@ const NetworkResultsTopic = "netctl.network.results"
 // (S14), tenant-tagged via the message key.
 const BGPEventsTopic = "netctl.bgp.events"
 
+// EBPFFlowsTopic carries L3/L4 flow + service-edge batches from the eBPF host
+// agent (S20), tenant-tagged via the message key. Payload: ebpfv1.FlowBatch.
+const EBPFFlowsTopic = "netctl.ebpf.flows"
+
 // Message is one bus record. Key partitions the record (the tenant id, so a
 // tenant's results stay ordered and co-located — pooled tenant-tagging).
 type Message struct {

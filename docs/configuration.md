@@ -550,6 +550,32 @@ netctl agent list
 netctl --json test list      # machine-readable output
 ```
 
+### eBPF host agent (S20)
+
+The eBPF agent (`netctl-ebpf-agent`) is configured by a YAML file (`-config` or
+`NETCTL_EBPF_CONFIG`); see
+[`deploy/agent/netctl-ebpf-agent.example.yml`](../deploy/agent/netctl-ebpf-agent.example.yml)
+and [`ebpf-agent.md`](ebpf-agent.md). `NETCTL_EBPF_*` env vars override the file.
+The agent is **observe-only**; the CO-RE loader is compiled in only with
+`-tags ebpf` — otherwise set `fixture_path` for the no-kernel path.
+
+| Variable                     | Default     | Description                                                     |
+| ---------------------------- | ----------- | -------------------------------------------------------------- |
+| `NETCTL_EBPF_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)             |
+| `NETCTL_EBPF_TENANT_ID`      | (required)  | tenant every flow is stamped with (F50)                        |
+| `NETCTL_EBPF_HOST`           | OS hostname | observing host name                                            |
+| `NETCTL_EBPF_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                            |
+| `NETCTL_EBPF_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                     |
+| `NETCTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path) |
+| `NETCTL_EBPF_PROC_ROOT`      | `/proc`     | procfs root for process/cgroup enrichment                      |
+| `NETCTL_EBPF_FLUSH_INTERVAL` | `10s`       | how often flows + the service map are emitted                  |
+| `NETCTL_EBPF_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                         |
+| `NETCTL_EBPF_LOG_FORMAT`     | `json`      | `json` \| `text`                                               |
+
+Flows + service edges are published to `netctl.ebpf.flows` (`ebpfv1.FlowBatch`,
+tenant-keyed). The live loader needs a BTF Linux kernel (≥5.8) and
+`CAP_BPF`/`CAP_PERFMON`; see [`ebpf-agent.md`](ebpf-agent.md).
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

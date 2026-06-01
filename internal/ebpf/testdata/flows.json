@@ -1,0 +1,5 @@
+[
+  {"tenant_id":"00000000-0000-0000-0000-000000000001","agent_id":"agent-1","host":"node-1","source_address":"10.0.1.5","source_port":51002,"source_pid":4242,"destination_address":"10.0.2.9","destination_port":443,"network_transport":"tcp","network_type":"ipv4","bytes":2048,"packets":12,"direction":"egress","state":"established"},
+  {"tenant_id":"00000000-0000-0000-0000-000000000001","agent_id":"agent-1","host":"node-1","source_address":"10.0.1.5","source_port":51003,"source_pid":4242,"destination_address":"10.0.2.9","destination_port":443,"network_transport":"tcp","network_type":"ipv4","bytes":512,"packets":4,"direction":"egress","state":"established"},
+  {"tenant_id":"00000000-0000-0000-0000-000000000001","agent_id":"agent-1","host":"node-1","source_address":"10.0.1.5","source_port":51010,"source_pid":7777,"destination_address":"10.0.3.3","destination_port":5432,"network_transport":"tcp","network_type":"ipv4","bytes":8192,"packets":40,"direction":"egress","state":"established"}
+]

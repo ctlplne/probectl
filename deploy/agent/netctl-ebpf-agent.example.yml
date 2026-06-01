@@ -1,0 +1,27 @@
+# Example netctl-ebpf-agent configuration.
+#
+#   netctl-ebpf-agent -config /etc/netctl/ebpf-agent.yml
+#
+# The eBPF agent captures L3/L4 flows and builds a service map — observe-only
+# (CLAUDE.md §7 guardrail 8). The CO-RE loader is compiled in only with
+# `-tags ebpf` on Linux (clang + a BTF kernel + CAP_BPF; see docs/ebpf-agent.md).
+# On any build without it, set fixture_path to replay recorded flows (the
+# no-kernel path). Every key below is overridable via NETCTL_EBPF_* env vars.
+
+# Tenant the agent's flows belong to (F50). In production, derive this from the
+# agent's SPIFFE client-cert identity (like netctl-agent); the explicit field is
+# for the lightweight / single-tenant deploy.
+tenant_id: "00000000-0000-0000-0000-000000000001"
+# host: defaults to the OS hostname.
+
+bus:
+  mode: memory # memory | kafka
+  # brokers: ["kafka:9092"]    # required for kafka mode
+
+# Replay recorded flows instead of loading eBPF (CI / macOS / unprivileged).
+# Leave empty in production to use the live CO-RE source (requires -tags ebpf).
+# fixture_path: /etc/netctl/flows.json
+
+proc_root: /proc # procfs root for process/cgroup enrichment
+flush_interval: 10s # how often flows + the service map are emitted
+ring_buffer_bytes: 16777216 # 16 MiB kernel ring buffer (live source only)
