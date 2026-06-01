@@ -406,3 +406,41 @@ the in-process TSDB; a multi-tenant fan-out and a Prometheus query backend are
 follow-ups (the loop disables itself gracefully when no in-process query backend
 is available). Alerts are signals — netctl notifies, it does not act on the
 network.
+
+## Incident timeline + correlation (S17)
+
+`internal/incident` is the cross-plane triage home: related signals from any plane
+group into a single **Incident** with a coherent, time-ordered **timeline**.
+
+```mermaid
+flowchart LR
+    AL["alert engine<br/>(fired/resolved)"] -->|signalFromAlert| COR["Correlator<br/>time + target/prefix proximity"]
+    BG["netctl.bgp.events<br/>(bus consumer)"] -->|signalFromBGPEvent| COR
+    FUT["future planes<br/>threat / change / cost / SLO"] -.->|map to Signal| COR
+    COR -->|append + aggregate| INC["Incident + timeline<br/>(incidents · incident_signals, RLS)"]
+    INC --> API["/v1/incidents<br/>list · timeline · resolve"]
+    API --> UI["web: unified timeline"]
+```
+
+**Extensible by construction (S17 watch-out).** A `Signal` is a generic envelope —
+free-form `plane` and `kind`, a `target`/`prefix` for correlation, and an
+arbitrary `attributes` map — so a new plane contributes by mapping its native
+event onto a Signal (`signalFromAlert`, `signalFromBGPEvent`); neither the
+`incident` package nor the schema (`incident_signals.attributes` is jsonb) changes.
+The control plane already feeds the **network** plane (alert firings, via an engine
+sink) and the **BGP** plane (a `netctl.bgp.events` bus consumer).
+
+**Correlation grouping.** `Correlator.Ingest` places a signal into an open incident
+when it is both *close in time* (within `NETCTL_INCIDENT_WINDOW` of the incident's
+activity) and *related in target* — the same target, an IP inside the other's
+prefix (either direction), or overlapping prefixes. That cross-plane join is the
+core move: a network loss alert for `192.0.2.10` and a BGP possible-hijack for
+`192.0.2.0/24` land in **one** incident because the IP is inside the prefix. No
+match opens a new incident. An incident's severity is the max of its signals;
+`AppendSignal` updates last-seen/severity/count atomically in the tenant
+transaction.
+
+**Tenancy + scope.** Incidents are tenant-owned (RLS); the correlator fails closed
+on a signal with no tenant and only ever groups a tenant's own signals (guardrail
+1). This is the *foundation* — AI RCA (S24), and the change (S29) and threat (S42)
+overlays attach as additional signal planes onto the same model.

@@ -28,22 +28,37 @@ type Engine struct {
 	log      *slog.Logger
 	clock    func() time.Time
 
+	sink func(context.Context, Alert) // optional: every acted alert is forwarded here
+
 	mu     sync.Mutex
 	states map[string]*seriesState
 }
 
+// EngineOption configures an Engine.
+type EngineOption func(*Engine)
+
+// WithAlertSink forwards every fired/resolved alert to fn (in addition to channel
+// delivery) — used to feed alerts into the incident correlator (S17).
+func WithAlertSink(fn func(context.Context, Alert)) EngineOption {
+	return func(e *Engine) { e.sink = fn }
+}
+
 // NewEngine builds an engine. clock defaults to time.Now (overridable in tests).
-func NewEngine(source MetricSource, notifier *Notifier, log *slog.Logger) *Engine {
+func NewEngine(source MetricSource, notifier *Notifier, log *slog.Logger, opts ...EngineOption) *Engine {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Engine{
+	e := &Engine{
 		source:   source,
 		notifier: notifier,
 		log:      log,
 		clock:    time.Now,
 		states:   make(map[string]*seriesState),
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Evaluate evaluates one rule against the current samples and delivers
@@ -65,6 +80,9 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 		if notify {
 			if en.notifier != nil {
 				en.notifier.Deliver(ctx, rule, alert)
+			}
+			if en.sink != nil {
+				en.sink(ctx, alert)
 			}
 			acted = append(acted, alert)
 		}

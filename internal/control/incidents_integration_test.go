@@ -1,0 +1,120 @@
+//go:build integration
+
+package control
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+)
+
+func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+// TestIncidentCorrelationAndAPI proves the S17 Done-when end to end against
+// Postgres: a network alert signal and a BGP signal for the prefix that contains
+// its target group into ONE incident, which the timeline API returns with both
+// signals, and which PATCH resolves.
+func TestIncidentCorrelationAndAPI(t *testing.T) {
+	h, db := setupAPI(t)
+	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	ctx := context.Background()
+	tenant := tenancy.DefaultTenantID.String()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	i1, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenant, Plane: "network", Kind: "alert.firing", Severity: incident.SeverityWarning,
+		Title: "high loss to 192.0.2.10", Target: "192.0.2.10", OccurredAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i2, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenant, Plane: "bgp", Kind: "bgp.possible_hijack", Severity: incident.SeverityCritical,
+		Title: "possible hijack 192.0.2.0/24", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
+		OccurredAt: now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i1.ID != i2.ID {
+		t.Fatalf("network + BGP signals should be one incident, got %s and %s", i1.ID, i2.ID)
+	}
+
+	// List shows the incident with the correlated aggregates.
+	rec := apiReq(t, h, http.MethodGet, "/v1/incidents", "", nil)
+	var listed struct{ Items []incident.Incident }
+	mustJSON(t, rec, &listed)
+	var found *incident.Incident
+	for i := range listed.Items {
+		if listed.Items[i].ID == i1.ID {
+			found = &listed.Items[i]
+		}
+	}
+	if found == nil {
+		t.Fatal("correlated incident not in the list")
+	}
+	if found.SignalCount != 2 || found.Severity != incident.SeverityCritical {
+		t.Errorf("incident = count %d / severity %q, want 2 / critical", found.SignalCount, found.Severity)
+	}
+
+	// Get returns the unified, time-ordered timeline overlaying both planes.
+	rec = apiReq(t, h, http.MethodGet, "/v1/incidents/"+i1.ID, "", nil)
+	var got incident.Incident
+	mustJSON(t, rec, &got)
+	if len(got.Signals) != 2 || got.Signals[0].Plane != "network" || got.Signals[1].Plane != "bgp" {
+		t.Fatalf("timeline = %+v", got.Signals)
+	}
+
+	// Resolve.
+	rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, "", map[string]any{"status": "resolved"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("resolve = %d: %s", rec.Code, rec.Body)
+	}
+	var resolved incident.Incident
+	mustJSON(t, rec, &resolved)
+	if resolved.Status != incident.StatusResolved || resolved.ResolvedAt == nil {
+		t.Errorf("resolved = %+v", resolved)
+	}
+
+	// A bad PATCH status → 422.
+	if rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, "", map[string]any{"status": "open"}); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("invalid status = %d, want 422", rec.Code)
+	}
+}
+
+// TestIncidentsAPITenantIsolation proves an incident in tenant B is invisible to
+// the default tenant (RLS, end to end).
+func TestIncidentsAPITenantIsolation(t *testing.T) {
+	h, db := setupAPI(t)
+	tn, err := store.NewTenants(db.Pool()).Create(context.Background(),
+		fmt.Sprintf("inciso-%d", time.Now().UnixNano()), "Incident Isolation")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+
+	inc, err := c.Ingest(context.Background(), incident.Signal{
+		TenantID: tn.ID, Plane: "network", Title: "tenant B incident",
+		Target: "192.0.2.10", Severity: incident.SeverityWarning, OccurredAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Default tenant cannot fetch tenant B's incident (404).
+	if rec := apiReq(t, h, http.MethodGet, "/v1/incidents/"+inc.ID, "", nil); rec.Code != http.StatusNotFound {
+		t.Errorf("cross-tenant get = %d, want 404", rec.Code)
+	}
+	// Tenant B can.
+	if rec := apiReq(t, h, http.MethodGet, "/v1/incidents/"+inc.ID, tn.ID, nil); rec.Code != http.StatusOK {
+		t.Errorf("tenant B get = %d, want 200", rec.Code)
+	}
+}

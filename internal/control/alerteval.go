@@ -92,13 +92,20 @@ func (p tenantRuleProvider) Rules(ctx context.Context) ([]alert.Rule, error) {
 //
 // Single-tenant wiring: a multi-tenant deployment runs one evaluator per tenant
 // (a fan-out refinement); here the default tenant is evaluated.
+// A non-nil sink forwards every fired/resolved alert (e.g. into the incident
+// correlator, S17).
 func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
-	interval time.Duration, tenant tenancy.ID, log *slog.Logger) (*alert.Evaluator, bool) {
+	interval time.Duration, tenant tenancy.ID, sink func(context.Context, alert.Alert),
+	log *slog.Logger) (*alert.Evaluator, bool) {
 	q, ok := writer.(tsdbQuerier)
 	if !ok || pool == nil {
 		return nil, false
 	}
-	engine := alert.NewEngine(metricSource{q: q, tenant: tenant.String()}, alert.NewNotifier(deps, log), log)
+	var opts []alert.EngineOption
+	if sink != nil {
+		opts = append(opts, alert.WithAlertSink(sink))
+	}
+	engine := alert.NewEngine(metricSource{q: q, tenant: tenant.String()}, alert.NewNotifier(deps, log), log, opts...)
 	provider := tenantRuleProvider{pool: pool, tenant: tenant}
 	return alert.NewEvaluator(engine, provider, interval, log), true
 }

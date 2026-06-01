@@ -3,6 +3,7 @@ import { AppShell } from '../shell/AppShell'
 import { NAV } from '../nav/ia'
 import { AdminPage, NotFoundPage, PlaceholderPage, TargetsPage } from './pages'
 import { PathPage } from './PathPage'
+import { IncidentsPage } from './IncidentsPage'
 import { Gallery } from './Gallery'
 
 /** The route tree (kept separate from the router so tests can supply their own). */
@@ -13,8 +14,9 @@ export function AppRoutes() {
         <Route index element={<Navigate to="/targets" replace />} />
         <Route path="/targets" element={<TargetsPage />} />
         <Route path="/path" element={<PathPage />} />
+        <Route path="/incidents" element={<IncidentsPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        {NAV.filter((n) => !['/targets', '/path', '/admin'].includes(n.to)).map((n) => (
+        {NAV.filter((n) => !['/targets', '/path', '/incidents', '/admin'].includes(n.to)).map((n) => (
           <Route key={n.to} path={n.to} element={<PlaceholderPage to={n.to} />} />
         ))}
         <Route path="/gallery" element={<Gallery />} />

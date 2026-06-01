@@ -1,0 +1,232 @@
+package control
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/imfeelingtheagi/netctl/internal/alert"
+	"github.com/imfeelingtheagi/netctl/internal/apierror"
+	"github.com/imfeelingtheagi/netctl/internal/bus"
+	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
+	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+)
+
+// pgIncidentStore implements incident.Store over Postgres, scoping every
+// operation to the signal's tenant through the RLS choke point.
+type pgIncidentStore struct {
+	pool *pgxpool.Pool
+}
+
+func (p pgIncidentStore) OpenIncidents(ctx context.Context, tenant string) ([]*incident.Incident, error) {
+	var out []*incident.Incident
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			rs, e := store.Incidents{}.OpenIncidents(c, sc)
+			for i := range rs {
+				v := rs[i]
+				out = append(out, &v)
+			}
+			return e
+		})
+	return out, err
+}
+
+func (p pgIncidentStore) Create(ctx context.Context, inc *incident.Incident) (*incident.Incident, error) {
+	var created *incident.Incident
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(inc.TenantID)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			x, e := store.Incidents{}.Create(c, sc, *inc)
+			created = x
+			return e
+		})
+	return created, err
+}
+
+func (p pgIncidentStore) AppendSignal(ctx context.Context, tenant, incidentID string, sig incident.Signal) (*incident.Incident, error) {
+	var updated *incident.Incident
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			x, e := store.Incidents{}.AppendSignal(c, sc, incidentID, sig)
+			updated = x
+			return e
+		})
+	return updated, err
+}
+
+// BuildCorrelator constructs the Postgres-backed incident correlator.
+func BuildCorrelator(pool *pgxpool.Pool, window time.Duration, log *slog.Logger) *incident.Correlator {
+	return incident.NewCorrelator(pgIncidentStore{pool: pool}, window, log)
+}
+
+// --- signal mappers (plane-native event → generic Signal) ---
+
+// AlertSink returns an alert sink that correlates each fired/resolved alert into
+// an incident. A correlation failure is logged, never fatal.
+func AlertSink(c *incident.Correlator, log *slog.Logger) func(context.Context, alert.Alert) {
+	return func(ctx context.Context, a alert.Alert) {
+		if _, err := c.Ingest(ctx, signalFromAlert(a)); err != nil {
+			log.Warn("correlate alert into incident failed", "rule", a.RuleName, "error", err)
+		}
+	}
+}
+
+func signalFromAlert(a alert.Alert) incident.Signal {
+	return incident.Signal{
+		TenantID:   a.TenantID,
+		Plane:      "network",
+		Kind:       "alert." + string(a.State),
+		Severity:   incident.Severity(a.Severity),
+		Title:      fmt.Sprintf("%s %s", a.RuleName, a.State),
+		Summary:    a.Reason,
+		Target:     a.Labels["server_address"],
+		OccurredAt: a.At,
+		Attributes: map[string]string{
+			"metric":  a.Metric,
+			"rule_id": a.RuleID,
+			"value":   strconv.FormatFloat(a.Value, 'g', -1, 64),
+		},
+	}
+}
+
+func signalFromBGPEvent(e *bgpv1.BGPEvent) incident.Signal {
+	occurred := time.Now()
+	if ns := e.GetDetectedAtUnixNano(); ns > 0 {
+		occurred = time.Unix(0, ns)
+	}
+	return incident.Signal{
+		TenantID:   e.GetTenantId(),
+		Plane:      "bgp",
+		Kind:       "bgp." + bgpKind(e.GetEventType()),
+		Severity:   bgpSeverity(e.GetSeverity()),
+		Title:      e.GetMessage(),
+		Target:     e.GetPrefix(),
+		Prefix:     e.GetPrefix(),
+		OccurredAt: occurred,
+		Attributes: map[string]string{
+			"collector":      e.GetCollector(),
+			"new_origin_asn": strconv.FormatUint(uint64(e.GetNewOriginAsn()), 10),
+			"rpki_status":    e.GetRpkiStatus().String(),
+		},
+	}
+}
+
+func bgpKind(t bgpv1.EventType) string {
+	switch t {
+	case bgpv1.EventType_EVENT_TYPE_ORIGIN_CHANGE:
+		return "origin_change"
+	case bgpv1.EventType_EVENT_TYPE_POSSIBLE_HIJACK:
+		return "possible_hijack"
+	case bgpv1.EventType_EVENT_TYPE_POSSIBLE_LEAK:
+		return "possible_leak"
+	case bgpv1.EventType_EVENT_TYPE_RPKI_INVALID:
+		return "rpki_invalid"
+	default:
+		return "unknown"
+	}
+}
+
+func bgpSeverity(s bgpv1.Severity) incident.Severity {
+	switch s {
+	case bgpv1.Severity_SEVERITY_CRITICAL:
+		return incident.SeverityCritical
+	case bgpv1.Severity_SEVERITY_WARNING:
+		return incident.SeverityWarning
+	default:
+		return incident.SeverityInfo
+	}
+}
+
+// BGPIncidentConsumer subscribes to netctl.bgp.events and correlates each event
+// into an incident (the BGP plane feeding the unified timeline).
+type BGPIncidentConsumer struct {
+	bus        bus.Bus
+	correlator *incident.Correlator
+	log        *slog.Logger
+}
+
+// NewBGPIncidentConsumer builds the consumer.
+func NewBGPIncidentConsumer(b bus.Bus, c *incident.Correlator, log *slog.Logger) *BGPIncidentConsumer {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &BGPIncidentConsumer{bus: b, correlator: c, log: log}
+}
+
+// Run subscribes until ctx is canceled.
+func (cs *BGPIncidentConsumer) Run(ctx context.Context) error {
+	return cs.bus.Subscribe(ctx, bus.BGPEventsTopic, "incident-correlator",
+		func(ctx context.Context, msg bus.Message) error {
+			var ev bgpv1.BGPEvent
+			if err := proto.Unmarshal(msg.Value, &ev); err != nil {
+				cs.log.Warn("skipping malformed bgp event", "error", err)
+				return nil
+			}
+			if _, err := cs.correlator.Ingest(ctx, signalFromBGPEvent(&ev)); err != nil {
+				cs.log.Warn("correlate bgp event into incident failed", "error", err)
+			}
+			return nil
+		})
+}
+
+// --- /v1/incidents handlers ---
+
+func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) error {
+	var incs []incident.Incident
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		x, e := store.Incidents{}.List(ctx, sc)
+		incs = x
+		return e
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": incs})
+	return nil
+}
+
+func (s *Server) handleGetIncident(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	var inc *incident.Incident
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		x, e := store.Incidents{}.Get(ctx, sc, id)
+		inc = x
+		return e
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, inc)
+	return nil
+}
+
+type incidentPatch struct {
+	Status string `json:"status"`
+}
+
+func (s *Server) handlePatchIncident(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	var req incidentPatch
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	if req.Status != string(incident.StatusResolved) {
+		return apierror.Validation("status must be \"resolved\"")
+	}
+	var inc *incident.Incident
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		x, e := store.Incidents{}.Resolve(ctx, sc, id)
+		inc = x
+		return e
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, inc)
+	return nil
+}

@@ -119,10 +119,18 @@ func run(cmd string) error {
 	g.Go(func() error { return control.New(cfg, log, db, db.Pool(), pathStore, nil).Run(gctx) })
 	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
 
-	// Alerting (S16): evaluate enabled rules over the TSDB and notify channels.
-	// Disabled gracefully when the TSDB has no in-process query backend.
+	// Incident correlation (S17): related signals across planes group into one
+	// incident. Alerts feed it via a sink; BGP events via a bus consumer.
+	correlator := control.BuildCorrelator(db.Pool(), cfg.IncidentWindow, log)
+	g.Go(func() error {
+		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
+	})
+
+	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and
+	// correlate fired alerts into incidents. Disabled gracefully when the TSDB has
+	// no in-process query backend.
 	if ev, ok := control.BuildAlertEvaluator(db.Pool(), tsdbWriter, alert.ChannelDeps{},
-		cfg.AlertEvalInterval, tenancy.DefaultTenantID, log); ok {
+		cfg.AlertEvalInterval, tenancy.DefaultTenantID, control.AlertSink(correlator, log), log); ok {
 		g.Go(func() error { ev.Run(gctx); return nil })
 	} else {
 		log.Info("alert evaluation disabled (no in-process TSDB query backend in this mode)")

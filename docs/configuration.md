@@ -48,6 +48,7 @@ migrations and exit), `netctl-control version`.
 | `NETCTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
 | `NETCTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `NETCTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
+| `NETCTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident (S17) |
 
 Invalid values fail fast: `netctl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
@@ -434,6 +435,30 @@ receiver can verify the sender. Each channel delivers independently: a failing
 channel is logged and skipped, never blocking the others. Alerts are **signals**;
 netctl notifies and does not act on the network (on-call/ITSM routing is S33,
 detection-as-code is S42).
+
+### Incidents (S17)
+
+The incident correlator (`internal/incident`) groups related signals across planes
+into one **Incident** with a unified **timeline**; see [`architecture.md`](architecture.md).
+It runs in the control plane, fed by the alert engine (network plane) and a
+`netctl.bgp.events` consumer (BGP plane), and is exposed at **`/v1/incidents`**
+(tenant-scoped):
+
+- `GET /v1/incidents` — the tenant's incidents, most-recently-active first.
+- `GET /v1/incidents/{id}` — an incident with its time-ordered signal timeline.
+- `PATCH /v1/incidents/{id}` with `{"status":"resolved"}` — resolve an incident.
+
+Signals correlate into one incident when they are **close in time**
+(within `NETCTL_INCIDENT_WINDOW`, default `10m`) **and related in target** — the
+same target, an IP inside the other's prefix (either direction), or overlapping
+prefixes (so a network alert on `192.0.2.10` and a BGP event on `192.0.2.0/24`
+land together). An incident's severity is the **max** of its signals; a signal
+without a tenant is rejected (fail closed).
+
+The model is **extensible without schema churn**: a `Signal` carries a free-form
+`plane`/`kind` and an arbitrary `attributes` map, so later sprints attach the
+change (S29), threat (S42), cost, and SLO planes as additional signal types onto
+the same `Incident`/timeline. AI root-cause analysis over the timeline is S24.
 
 ### Resource API & CLI (S9)
 

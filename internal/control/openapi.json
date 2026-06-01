@@ -311,6 +311,55 @@
           "404": { "$ref": "#/components/responses/ErrorResponse" }
         }
       }
+    },
+    "/v1/incidents": {
+      "get": {
+        "operationId": "listIncidents",
+        "summary": "List incidents",
+        "tags": ["incidents"],
+        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "responses": {
+          "200": {
+            "description": "The tenant's incidents (most-recently-active first).",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IncidentList" } } }
+          }
+        }
+      }
+    },
+    "/v1/incidents/{id}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/TenantHeader" },
+        { "$ref": "#/components/parameters/IdPath" }
+      ],
+      "get": {
+        "operationId": "getIncident",
+        "summary": "Get an incident with its signal timeline",
+        "tags": ["incidents"],
+        "responses": {
+          "200": {
+            "description": "The incident and its time-ordered signals.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Incident" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      },
+      "patch": {
+        "operationId": "patchIncident",
+        "summary": "Resolve an incident",
+        "tags": ["incidents"],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IncidentPatch" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated incident.",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Incident" } } }
+          },
+          "404": { "$ref": "#/components/responses/ErrorResponse" },
+          "422": { "$ref": "#/components/responses/ErrorResponse" }
+        }
+      }
     }
   },
   "components": {
@@ -540,6 +589,51 @@
         "type": "object",
         "properties": {
           "items": { "type": "array", "items": { "$ref": "#/components/schemas/AlertRule" } }
+        }
+      },
+      "Signal": {
+        "type": "object",
+        "description": "One plane's observation on an incident timeline (extensible: plane/kind are free-form, attributes is arbitrary).",
+        "properties": {
+          "plane": { "type": "string", "description": "network | bgp | threat | change | ..." },
+          "kind": { "type": "string" },
+          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "target": { "type": "string" },
+          "prefix": { "type": "string" },
+          "attributes": { "type": "object", "additionalProperties": { "type": "string" } },
+          "occurred_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Incident": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "tenant_id": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "resolved"] },
+          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+          "title": { "type": "string" },
+          "target": { "type": "string" },
+          "prefix": { "type": "string" },
+          "started_at": { "type": "string", "format": "date-time" },
+          "last_seen_at": { "type": "string", "format": "date-time" },
+          "resolved_at": { "type": "string", "format": "date-time" },
+          "signal_count": { "type": "integer" },
+          "signals": { "type": "array", "items": { "$ref": "#/components/schemas/Signal" } }
+        }
+      },
+      "IncidentList": {
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Incident" } }
+        }
+      },
+      "IncidentPatch": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["resolved"] }
         }
       }
     }

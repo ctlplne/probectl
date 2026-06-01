@@ -70,6 +70,10 @@ type Config struct {
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
 
+	// Incidents (S17): the time window within which related signals correlate
+	// into one incident.
+	IncidentWindow time.Duration
+
 	// Path store (S10/S11): where discovered network paths are persisted and
 	// served. memory (default) or clickhouse (a ClickHouse HTTP URL).
 	PathStoreMode string
@@ -111,6 +115,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		PathStoreMode:       l.enum("NETCTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
 		PathStoreURL:        l.str("NETCTL_PATHSTORE_URL", ""),
 		AlertEvalInterval:   l.dur("NETCTL_ALERT_EVAL_INTERVAL", 30*time.Second),
+		IncidentWindow:      l.dur("NETCTL_INCIDENT_WINDOW", 10*time.Minute),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {

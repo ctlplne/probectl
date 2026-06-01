@@ -39,6 +39,9 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/alerts/{id}", s.handleGetAlert},
 		{http.MethodPut, "/v1/alerts/{id}", s.handleUpdateAlert},
 		{http.MethodDelete, "/v1/alerts/{id}", s.handleDeleteAlert},
+		{http.MethodGet, "/v1/incidents", s.handleListIncidents},
+		{http.MethodGet, "/v1/incidents/{id}", s.handleGetIncident},
+		{http.MethodPatch, "/v1/incidents/{id}", s.handlePatchIncident},
 	}
 }
 

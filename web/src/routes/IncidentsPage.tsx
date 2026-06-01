@@ -1,0 +1,160 @@
+import { useEffect, useState } from 'react'
+import styles from './incidents.module.css'
+import { Page } from './pages'
+import {
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  StatusDot,
+  Table,
+  type Column,
+} from '../components'
+import {
+  type Incident,
+  type Signal,
+  severityTone,
+  useIncident,
+  useIncidents,
+  useResolveIncident,
+} from '../api/incidents'
+
+function when(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
+/** Timeline overlays every plane's signals for one incident in time order. The
+ *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
+ *  appears here with no UI change. */
+function Timeline({ incidentId }: { incidentId: string }) {
+  const incident = useIncident(incidentId)
+  const resolve = useResolveIncident(incidentId)
+
+  if (incident.isLoading) return <LoadingState label="Loading incident…" />
+  if (incident.isError || !incident.data) return <ErrorState description="Could not load the incident." />
+
+  const inc = incident.data
+  const signals = inc.signals ?? []
+
+  return (
+    <Card>
+      <CardHeader
+        title={inc.title || inc.target || 'Incident'}
+        actions={
+          inc.status === 'open' ? (
+            <Button variant="secondary" onClick={() => resolve.mutate()} disabled={resolve.isPending}>
+              Resolve
+            </Button>
+          ) : (
+            <Badge tone="neutral">resolved</Badge>
+          )
+        }
+      />
+      <CardBody>
+        <dl className={styles.meta}>
+          <div>
+            <dt>Severity</dt>
+            <dd>
+              <Badge tone={severityTone(inc.severity)}>{inc.severity}</Badge>
+            </dd>
+          </div>
+          <div>
+            <dt>Target</dt>
+            <dd>{inc.target || inc.prefix || '—'}</dd>
+          </div>
+          <div>
+            <dt>Signals</dt>
+            <dd>{inc.signal_count}</dd>
+          </div>
+          <div>
+            <dt>Started</dt>
+            <dd>{when(inc.started_at)}</dd>
+          </div>
+        </dl>
+
+        <ol className={styles.timeline} aria-label="Incident timeline">
+          {signals.map((s: Signal, i) => (
+            <li key={`${s.plane}-${i}`} className={styles.event}>
+              <span className={styles.time}>{when(s.occurred_at)}</span>
+              <span className={styles.dot}>
+                <StatusDot tone={severityTone(s.severity)} label={s.severity} />
+              </span>
+              <div className={styles.body}>
+                <div className={styles.row}>
+                  <Badge tone="accent">{s.plane}</Badge>
+                  <code className={styles.kind}>{s.kind}</code>
+                </div>
+                <p className={styles.title}>{s.title || s.kind}</p>
+                {s.summary ? <p className={styles.summary}>{s.summary}</p> : null}
+                {s.target ? <p className={styles.target}>{s.target}</p> : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      </CardBody>
+    </Card>
+  )
+}
+
+export function IncidentsPage() {
+  const incidents = useIncidents()
+  const [selected, setSelected] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (selected === null && incidents.data && incidents.data.length > 0) {
+      setSelected(incidents.data[0].id)
+    }
+  }, [incidents.data, selected])
+
+  const columns: Column<Incident>[] = [
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (r) => <Badge tone={severityTone(r.severity)}>{r.severity}</Badge>,
+    },
+    {
+      key: 'title',
+      header: 'Incident',
+      render: (r) => (
+        <Button variant="ghost" onClick={() => setSelected(r.id)} aria-pressed={selected === r.id}>
+          {r.title || r.target || r.id}
+        </Button>
+      ),
+    },
+    { key: 'target', header: 'Target', render: (r) => r.target || r.prefix || '—' },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (r) => <StatusDot tone={r.status === 'open' ? 'warning' : 'success'} label={r.status} />,
+    },
+    { key: 'signals', header: 'Signals', numeric: true, render: (r) => r.signal_count },
+    { key: 'last_seen', header: 'Last activity', render: (r) => when(r.last_seen_at) },
+  ]
+
+  return (
+    <Page title="Incidents" subtitle="Related signals across planes, grouped into one timeline.">
+      {incidents.isLoading ? (
+        <LoadingState label="Loading incidents…" />
+      ) : incidents.isError ? (
+        <ErrorState description="Could not load incidents." />
+      ) : !incidents.data || incidents.data.length === 0 ? (
+        <EmptyState title="No incidents" description="Correlated signals will appear here as incidents." />
+      ) : (
+        <div className={styles.layout}>
+          <Table
+            caption="Incidents by severity and recent activity"
+            columns={columns}
+            rows={incidents.data}
+            rowKey={(r) => r.id}
+          />
+          {selected ? <Timeline incidentId={selected} /> : null}
+        </div>
+      )}
+    </Page>
+  )
+}
