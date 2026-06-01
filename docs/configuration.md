@@ -226,6 +226,19 @@ Enable participation in the agent's `a2a` block: `enabled: true`,
 
 Sessions are brokered in-memory and triggered by the test API in a later sprint.
 
+### Path discovery (S10)
+
+The ECMP/MPLS-aware path engine (`internal/path`) runs Paris-style traceroutes
+(ICMP and TCP) and merges per-flow traces into a multi-path result; see
+[`architecture.md`](architecture.md). A **full per-hop trace needs raw sockets**:
+grant `CAP_NET_RAW` (`setcap cap_net_raw+ep`, or run privileged) to capture
+intermediate hops + MPLS; unprivileged, only the destination is discovered.
+Discovered paths persist via `internal/store/pathstore` — `memory`
+(lightweight/tests) or `clickhouse` (writes hop/link rows to a ClickHouse HTTP
+endpoint, e.g. `http://localhost:8123`, partitioned by tenant). Scheduling path
+tests on agents and ingesting results lands with the S11 visualization that
+consumes them.
+
 ### Resource API & CLI (S9)
 
 The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`):

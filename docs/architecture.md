@@ -166,3 +166,30 @@ an endpoint — guardrail 1). The measurement is TWAMP-lite (T1 send, T2/T3
 responder recv/send, T4 recv), giving round-trip plus **forward and reverse
 one-way delay**; one-way delays assume NTP-synced clocks across hosts. Results
 from both agents flow through the same result pipeline into the TSDB.
+
+## Path discovery (S10)
+
+`internal/path` is the ECMP/MPLS-aware path engine — the substrate for the hero
+path visualization (S11). It runs **Paris-style traceroutes**: each trace fixes a
+flow identifier so a load-balancing router keeps that trace on one stable path,
+and different identifiers explore the ECMP branches. In ICMP mode the flow
+identifier is a **forced ICMP checksum** — the engine solves a 2-byte payload
+"balance" word so the checksum field equals a chosen value while the packet stays
+valid, so ECMP hashing is stable per flow. In TCP mode the flow is the fixed
+5-tuple. It detects **MPLS label stacks** (RFC 4884/4950) quoted on Time Exceeded
+responses, and merges `TraceCount` per-flow traces into one multi-path `Path`:
+each TTL is a hop whose multiple responders are **ECMP branches**, with per-node
+RTT/loss + MPLS and the **links** observed within individual flows (no adjacency
+is inferred across an unresponsive `*` hop).
+
+A full per-hop trace needs **raw sockets** (`CAP_NET_RAW`) to read intermediate
+Time Exceeded; unprivileged, the datagram-ICMP path still discovers the
+destination. The correctness of the checksum trick, the MPLS parsing, and the
+multi-path merge is covered by fixtures; a loopback trace is the live test.
+
+Path data is high-cardinality time-series, so it is stored in **ClickHouse**
+(`internal/store/pathstore`) — a `memory` store for the lightweight mode/tests and
+a `clickhouse` adapter that writes hop/link rows over ClickHouse's **HTTP
+interface** (no native-driver dependency), partitioned by `tenant_id` so path
+data never crosses a tenant. The agent-scheduling + control-plane ingestion of
+path tests is wired with the S11 visualization that consumes them.
