@@ -238,6 +238,46 @@ emits `netctl_probe_dns_query_ms` (total walk time) and
 attribute. DNS-exfiltration detection and open-data baselines are out of scope here
 (S42 / open-data sprints).
 
+### HTTP server tests (S13)
+
+The `http` canary measures **HTTP(S) availability** with a full **response-time
+breakdown** and captures **TLS handshake details** for the TLS-posture plane
+(S27). The `target` is the URL. Parameters:
+
+| Param | Values | Default | Meaning |
+| ----- | ------ | ------- | ------- |
+| `method` | `GET`, `HEAD`, `POST`, … | `GET` | request method |
+| `expect_status` | codes / classes / ranges | `2xx,3xx` | which statuses count as available |
+| `follow_redirects` | `true` \| `false` | `true` | follow 3xx redirects |
+| `insecure_skip_verify` | `true` \| `false` | `false` | capture TLS but don't fail on an invalid cert |
+| `ca_file` | path to a PEM bundle | — | extra trust anchor (private/internal CA) |
+| `body` | string | — | request body (e.g. for `POST`) |
+| `max_body_bytes` | integer | `10485760` | cap bytes read per probe (10 MiB) |
+
+`expect_status` is a comma list of exact codes (`200`), classes (`2xx`), and
+inclusive ranges (`200-204`); a response outside the set is `success=false` (the
+status is still reported). The probe emits the timing breakdown as metrics —
+`netctl_probe_http_dns_ms` (resolution), `netctl_probe_http_connect_ms` (TCP
+connect), `netctl_probe_http_tls_ms` (TLS handshake), `netctl_probe_http_ttfb_ms`
+(time to first byte), and `netctl_probe_http_total_ms` — plus
+`netctl_probe_http_status`, `netctl_probe_http_content_bytes`, and
+`netctl_probe_http_throughput_kbps`. A phase that does not occur (no DNS for an IP
+target, no TLS for `http://`) is omitted rather than reported as zero. The resolved
+server IP is captured as the `network.peer.address` attribute, which **correlates
+the result to path/traceroute data** for the same destination (S10).
+
+**TLS capture (for S27).** On HTTPS the canary records the negotiated
+`tls.protocol.version` and `tls.cipher`, the leaf certificate's
+`tls.server.{subject,issuer,not_before,not_after,san}`, the chain shape
+(`tls.server.chain`), and a `netctl_probe_http_tls_cert_expiry_days` metric
+(negative once expired). It verifies the chain itself (hostname + trust, honoring
+`ca_file`) **after** capturing the certificate, so the handshake details are
+recorded **even when the certificate is invalid or expired** — an invalid cert
+fails the probe but its details are still attached. Set `insecure_skip_verify:
+"true"` to capture posture without failing the availability check. netctl performs
+no TLS *posture analysis* here (issuer trust, weak-cipher/expiry policy, CT) — that
+is S27, which consumes these captured fields.
+
 ### Agent-to-agent tests (S8)
 
 An agent-to-agent (A2A) test measures **between two registered agents**, brokered

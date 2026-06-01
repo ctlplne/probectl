@@ -155,8 +155,9 @@ consumer converts each result to `netctl_probe_*` series labeled by
 
 Probes are compiled-in `Canary` plugins (`internal/canary`): `icmp` (loss/latency/
 jitter, S7), `tcp` (connect latency) + `udp` (echo round-trip) agent-to-server
-tests (S8), and `dns` (resolver/trace + DNSSEC, S12). All share one latency-stats
-core and emit through the S6 pipeline.
+tests (S8), `dns` (resolver/trace + DNSSEC, S12), and `http` (availability +
+timing breakdown + TLS capture, S13). All share one latency-stats core and emit
+through the S6 pipeline.
 
 **Agent-to-agent** (S8) measures between two registered agents, **brokered by the
 control plane** (`internal/a2a`). The broker assigns roles, rendezvouses the
@@ -190,6 +191,30 @@ forged answers are caught rather than trusted. The crypto lives entirely inside
 pure validator is fixture-tested with locally signed RRsets (secure / expired /
 tampered / no-key); in-process DNS servers cover the resolver, DoH, and DNSSEC
 paths hermetically, with skip-safe live DoT + trace tests.
+
+## HTTP server tests (S13)
+
+The `http` canary (`internal/canary/http.go`) measures HTTP(S) availability with a
+per-phase **response-time breakdown** captured via `net/http/httptrace`
+(`httptrace.go`): DNS, TCP connect, TLS handshake, time-to-first-byte, and total,
+plus status, content length, and throughput. Availability is decided by an
+`expect_status` matcher (codes / `Nxx` classes / ranges). The resolved peer IP is
+recorded as `network.peer.address`, the join key that **correlates an HTTP result
+to path/traceroute data** for the same destination (S10) without re-running a
+trace inside every probe.
+
+On HTTPS it **captures the TLS handshake** — version, cipher, and the leaf
+certificate's subject/issuer/validity/SANs plus the chain shape and a
+cert-expiry-days metric — as the forward contract the **S27 TLS-posture plane**
+consumes (sprint watch-out: capture now, analyze later). To capture the chain
+*even when it is invalid*, the canary sets `InsecureSkipVerify` and performs the
+standard chain + hostname verification **itself** in `VerifyConnection` (honoring a
+`ca_file` trust anchor), so an expired or untrusted cert still fails the probe
+while its details are attached for posture review. All crypto stays in
+`crypto/tls` + `crypto/x509` (FIPS-swappable; guardrail 3). Integration tests run a
+local HTTPS server through the required cases — success, 5xx, slow/timeout, and
+expired-cert (asserting the cert is captured despite the failure) — using
+`internal/crypto` to mint the test CA and (expired) leaf certs.
 
 ## Path discovery (S10)
 
