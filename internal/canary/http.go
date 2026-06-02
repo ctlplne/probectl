@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -133,9 +134,10 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	}
 
 	var (
-		tm       phaseTimer
-		peerAddr string
-		tlsState *tls.ConnectionState
+		tm          phaseTimer
+		peerAddr    string
+		tlsState    *tls.ConnectionState
+		tlsVerified *bool
 	)
 	trace := tm.clientTrace(start, &peerAddr)
 
@@ -159,7 +161,10 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 				if c.insecure {
 					return nil
 				}
-				return verifyPeer(cs, c.host, roots)
+				err := verifyPeer(cs, c.host, roots)
+				ok := err == nil
+				tlsVerified = &ok
+				return err
 			},
 		}
 	}
@@ -184,7 +189,7 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	resp, err := client.Do(req)
 	tm.attachTiming(&res)
 	attachPeer(&res, peerAddr)
-	attachTLS(&res, tlsState, start)
+	attachTLS(&res, tlsState, tlsVerified, start)
 
 	if err != nil {
 		// A network / TLS / timeout failure is a probe failure (availability),
@@ -336,13 +341,16 @@ func attachPeer(res *Result, peerAddr string) {
 	}
 }
 
-func attachTLS(res *Result, cs *tls.ConnectionState, start time.Time) {
+func attachTLS(res *Result, cs *tls.ConnectionState, verified *bool, start time.Time) {
 	if cs == nil {
 		return
 	}
 	res.Attributes["tls.protocol.version"] = tlsVersionName(cs.Version)
 	res.Attributes["tls.cipher"] = tls.CipherSuiteName(cs.CipherSuite)
 	res.Attributes["tls.resumed"] = strconv.FormatBool(cs.DidResume)
+	if verified != nil {
+		res.Attributes["tls.server.verified"] = strconv.FormatBool(*verified)
+	}
 	if len(cs.PeerCertificates) == 0 {
 		return
 	}
@@ -355,6 +363,9 @@ func attachTLS(res *Result, cs *tls.ConnectionState, start time.Time) {
 		res.Attributes["tls.server.san"] = strings.Join(leaf.DNSNames, ",")
 	}
 	res.Attributes["tls.server.chain"] = chainSummary(cs.PeerCertificates)
+	// Capture the leaf DER (base64) so the S27 TLS-posture observer can parse the
+	// full leaf (key type/size, self-signed) without re-handshaking.
+	res.Attributes["tls.server.cert"] = base64.StdEncoding.EncodeToString(leaf.Raw)
 	res.Metrics["http.tls.cert_expiry_days"] = round(leaf.NotAfter.Sub(start).Hours()/24, 2)
 }
 

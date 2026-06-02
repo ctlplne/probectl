@@ -142,6 +142,13 @@ func run(cmd string) error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
 
+	// TLS/cert posture (S27): analyze captured TLS from HTTPS synthetic results
+	// into threat-plane incidents (expiry/weakness + a certctl renewal handoff),
+	// reusing already-captured TLS — never re-handshaking.
+	g.Go(func() error {
+		return control.NewTLSPostureConsumer(resultBus, correlator, control.BuildTLSAnalyzer(cfg), log).Run(gctx)
+	})
+
 	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and
 	// correlate fired alerts into incidents. Disabled gracefully when the TSDB has
 	// no in-process query backend.

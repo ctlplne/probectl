@@ -1,6 +1,16 @@
-// Package threat hosts the detection engine and TLS/cert observability (S27, S42).
+// Package threat is netctl's security/threat subsystem. S27 implements TLS/cert
+// observability: it analyzes TLS posture from ALREADY-CAPTURED data — the HTTP
+// synthetic canary (S13) and eBPF L7 (S21) — so it never re-handshakes (S27
+// watch-out).
 //
-// S0 scaffold: this package is an intentionally empty placeholder so the
-// repository skeleton matches CLAUDE.md section 5. It carries no logic yet —
-// the implementing sprint noted above fills it in.
+// It parses the certificate chain (expiry, issuer, subject/SAN, key type/size),
+// reads the captured TLS version + cipher, optionally correlates against
+// Certificate Transparency logs for issuance anomalies, flags deprecated
+// protocols / weak ciphers / expired-or-expiring / self-signed / weak-key /
+// untrusted-chain, builds a certctl renewal handoff, and emits threat-plane
+// incident signals (feeding the unified timeline + alerting, S16/S17).
+//
+// Threat detections here are SIGNALS, not an IPS (CLAUDE.md §7 guardrail 9):
+// confidence-scored, surfaced, and exportable — netctl does not block traffic.
+// Malicious-cert / JA3 threat-intel correlation is deferred (S28/S42).
 package threat

@@ -49,6 +49,7 @@ awk -v mod="${MODULE}" '
     floor["internal/ai/mcp"]         = 72
     floor["internal/ai/author"]      = 80
     floor["internal/testspec"]       = 85
+    floor["internal/threat"]         = 80
     # The pooled driver (pooled.go) is exercised by the perf-smoke integration job
     # (needs Postgres) and skips in this service-free gate, so the floor covers the
     # no-DB drivers (metrics/ingest/baseline).
@@ -61,7 +62,7 @@ awk -v mod="${MODULE}" '
     floor["internal/store/pathstore"]= 35
     floor["internal/store/migrate"]  = 28
 
-    n = split("internal/billing internal/change internal/compliance internal/cost internal/slo internal/threat", ex, " ")
+    n = split("internal/billing internal/change internal/compliance internal/cost internal/slo", ex, " ")
     for (i = 1; i <= n; i++) exempt[ex[i]] = 1
   }
   NR == 1 && $1 == "mode:" { next }

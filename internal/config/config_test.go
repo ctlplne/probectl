@@ -245,3 +245,31 @@ func TestMCPConfig(t *testing.T) {
 		t.Errorf("MCP address without TLS should fail, got %v", err)
 	}
 }
+
+func TestThreatTLSConfig(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLSExpiryWarning <= 0 {
+		t.Error("the TLS expiry window should default to a positive duration")
+	}
+	if cfg.CTEnabled {
+		t.Error("CT correlation should be off by default (AUP / sovereignty)")
+	}
+	if cfg.CTEndpoint != "https://crt.sh" {
+		t.Errorf("CT endpoint default = %q, want https://crt.sh", cfg.CTEndpoint)
+	}
+
+	cfg, err = Load(envFunc(map[string]string{
+		"NETCTL_CERTCTL_URL":        "https://certctl.example",
+		"NETCTL_TLS_EXPIRY_WARNING": "240h",
+		"NETCTL_CT_ENABLED":         "true",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.CertctlURL != "https://certctl.example" || !cfg.CTEnabled || cfg.TLSExpiryWarning.Hours() != 240 {
+		t.Errorf("threat config = %+v", cfg)
+	}
+}

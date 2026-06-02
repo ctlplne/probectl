@@ -636,6 +636,22 @@ token from `NETCTL_MCP_TOKEN`). See [`mcp.md`](mcp.md).
 Setting `NETCTL_MCP_HTTP_ADDR` without the TLS files fails config validation — the
 MCP endpoint is never anonymous plaintext.
 
+### TLS / certificate observability (S27)
+
+The control plane analyzes TLS/cert posture from **already-captured** TLS (S13/S21)
+— it never re-handshakes — and correlates findings into threat-plane incidents.
+See [`tls-observability.md`](tls-observability.md).
+
+| Variable                    | Default        | Description                                                       |
+| --------------------------- | -------------- | ----------------------------------------------------------------- |
+| `NETCTL_CERTCTL_URL`        | (none)         | certctl base URL; enables a one-click renewal deep-link on findings |
+| `NETCTL_TLS_EXPIRY_WARNING` | `504h` (21d)   | expiring-soon window                                              |
+| `NETCTL_CT_ENABLED`         | `false`        | opt in to Certificate Transparency correlation (external fetch)   |
+| `NETCTL_CT_ENDPOINT`        | `https://crt.sh` | CT log API endpoint                                             |
+
+CT correlation is **off by default** (an external fetch — sovereignty / AUP /
+rate limits) and degrades gracefully when the CT source is down.
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext
