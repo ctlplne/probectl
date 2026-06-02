@@ -131,3 +131,47 @@ func TestLogValueRedactsPassword(t *testing.T) {
 		t.Errorf("expected redacted password marker; got: %s", out)
 	}
 }
+
+func TestOTLPConfig(t *testing.T) {
+	// Disabled by default.
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OTLPEnabled() {
+		t.Error("OTLP should be disabled by default")
+	}
+
+	// Fully configured: enabled, tokens parsed (whitespace trimmed).
+	cfg, err = Load(envFunc(map[string]string{
+		"NETCTL_OTLP_GRPC_ADDR":     ":4317",
+		"NETCTL_OTLP_HTTP_ADDR":     ":4318",
+		"NETCTL_OTLP_TLS_CERT_FILE": "/c.pem",
+		"NETCTL_OTLP_TLS_KEY_FILE":  "/k.pem",
+		"NETCTL_OTLP_TOKENS":        "tok1=tenant-a, tok2=tenant-b",
+	}))
+	if err != nil {
+		t.Fatalf("valid OTLP config rejected: %v", err)
+	}
+	if !cfg.OTLPEnabled() {
+		t.Error("OTLP should be enabled when address + TLS + tokens are all set")
+	}
+	if len(cfg.OTLPTokens) != 2 || cfg.OTLPTokens["tok1"] != "tenant-a" || cfg.OTLPTokens["tok2"] != "tenant-b" {
+		t.Errorf("OTLPTokens = %v, want 2 trimmed entries", cfg.OTLPTokens)
+	}
+
+	// An address without TLS + tokens fails closed.
+	if _, err := Load(envFunc(map[string]string{"NETCTL_OTLP_GRPC_ADDR": ":4317"})); err == nil || !strings.Contains(err.Error(), "OTLP") {
+		t.Errorf("OTLP address without TLS/tokens should fail, got %v", err)
+	}
+
+	// A malformed token entry is reported.
+	if _, err := Load(envFunc(map[string]string{
+		"NETCTL_OTLP_GRPC_ADDR":     ":4317",
+		"NETCTL_OTLP_TLS_CERT_FILE": "/c.pem",
+		"NETCTL_OTLP_TLS_KEY_FILE":  "/k.pem",
+		"NETCTL_OTLP_TOKENS":        "missing-equals",
+	})); err == nil || !strings.Contains(err.Error(), "NETCTL_OTLP_TOKENS") {
+		t.Errorf("a malformed OTLP token should fail with a tokens error, got %v", err)
+	}
+}
