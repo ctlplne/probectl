@@ -58,7 +58,13 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 	_, db := setupAPI(t)
 	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
 	ctx := context.Background()
-	tenant := tenancy.DefaultTenantID.String()
+	// A fresh tenant isolates this test from the shared integration DB (the default
+	// tenant's incidents are asserted on by TestIncidentCorrelationAndAPI).
+	tnA, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("mcpmain-%d", time.Now().UnixNano()), "MCP Main")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tenant := tnA.ID
 	now := time.Now().UTC().Truncate(time.Second)
 
 	inc, err := c.Ingest(ctx, incident.Signal{
@@ -125,7 +131,7 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 
 	// Token auth: a control-plane token resolves to its tenant + user.
 	var userID string
-	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.DefaultTenantID), db.Pool(), func(ctx context.Context, scp tenancy.Scope) error {
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), db.Pool(), func(ctx context.Context, scp tenancy.Scope) error {
 		u, e := store.Users{}.Create(ctx, scp, fmt.Sprintf("mcp-%d@example.com", time.Now().UnixNano()), "MCP User")
 		if e != nil {
 			return e

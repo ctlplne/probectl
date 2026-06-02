@@ -12,7 +12,6 @@ import (
 
 	"github.com/imfeelingtheagi/netctl/internal/incident"
 	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
 )
 
 // aiAnswer mirrors the /v1/ai/ask response for assertions.
@@ -39,7 +38,13 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	h, db := setupAPI(t)
 	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
 	ctx := context.Background()
-	tenant := tenancy.DefaultTenantID.String()
+	// A fresh tenant isolates this test's incident from the shared integration DB
+	// (the default tenant's incidents are asserted on by TestIncidentCorrelationAndAPI).
+	tnA, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("aimain-%d", time.Now().UnixNano()), "AI Main")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tenant := tnA.ID
 	now := time.Now().UTC().Truncate(time.Second)
 
 	if _, err := c.Ingest(ctx, incident.Signal{
@@ -50,7 +55,7 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	}
 
 	// Tenant A: a grounded, cited root cause naming the routing event.
-	rec := apiReq(t, h, http.MethodPost, "/v1/ai/ask", "", map[string]any{
+	rec := apiReq(t, h, http.MethodPost, "/v1/ai/ask", tenant, map[string]any{
 		"question": "why is 192.0.2.0/24 unreachable? any routing changes?",
 	})
 	if rec.Code != http.StatusOK {
@@ -77,7 +82,7 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	}
 
 	// Feedback persists, tenant-scoped → 204.
-	if rec := apiReq(t, h, http.MethodPost, "/v1/ai/feedback", "", map[string]any{
+	if rec := apiReq(t, h, http.MethodPost, "/v1/ai/feedback", tenant, map[string]any{
 		"answer_id": ans.ID, "rating": "up", "comment": "spot on",
 	}); rec.Code != http.StatusNoContent {
 		t.Errorf("feedback: status %d body %s", rec.Code, rec.Body)
