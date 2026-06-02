@@ -175,3 +175,39 @@ func TestOTLPConfig(t *testing.T) {
 		t.Errorf("a malformed OTLP token should fail with a tokens error, got %v", err)
 	}
 }
+
+func TestAIConfig(t *testing.T) {
+	// Default: the in-process, air-gapped built-in model (no external endpoint).
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AIModelProvider != "builtin" || cfg.AIModelEnabled() {
+		t.Errorf("default should be the air-gapped builtin model, got provider=%q enabled=%v", cfg.AIModelProvider, cfg.AIModelEnabled())
+	}
+	if cfg.AIMaxEvidence != 50 {
+		t.Errorf("AIMaxEvidence default = %d, want 50", cfg.AIMaxEvidence)
+	}
+
+	// A local Ollama endpoint enables the external-model path.
+	cfg, err = Load(envFunc(map[string]string{
+		"NETCTL_AI_MODEL_PROVIDER": "ollama",
+		"NETCTL_AI_MODEL_ENDPOINT": "http://localhost:11434",
+		"NETCTL_AI_MODEL_NAME":     "llama3.1",
+	}))
+	if err != nil {
+		t.Fatalf("valid ollama config rejected: %v", err)
+	}
+	if !cfg.AIModelEnabled() {
+		t.Error("ollama provider should enable an external model")
+	}
+
+	// A non-builtin provider without an endpoint fails closed.
+	if _, err := Load(envFunc(map[string]string{"NETCTL_AI_MODEL_PROVIDER": "openai"})); err == nil || !strings.Contains(err.Error(), "NETCTL_AI_MODEL_ENDPOINT") {
+		t.Errorf("provider without endpoint should fail, got %v", err)
+	}
+	// An unknown provider is rejected by the enum.
+	if _, err := Load(envFunc(map[string]string{"NETCTL_AI_MODEL_PROVIDER": "skynet"})); err == nil {
+		t.Error("unknown provider should be rejected")
+	}
+}

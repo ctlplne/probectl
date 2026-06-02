@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/netctl/internal/ai"
 	"github.com/imfeelingtheagi/netctl/internal/apierror"
 	"github.com/imfeelingtheagi/netctl/internal/audit"
 	"github.com/imfeelingtheagi/netctl/internal/auth"
@@ -29,6 +30,7 @@ const (
 	permIncidentRead  = "incident.read"
 	permIncidentWrite = "incident.write"
 	permAuditRead     = "audit.read"
+	permAIQuery       = "ai.query"
 )
 
 // allPermissionKeys is the full catalog — granted to the dev-mode principal so
@@ -39,6 +41,8 @@ var allPermissionKeys = []string{
 	permAlertRead, permAlertWrite,
 	permIncidentRead, permIncidentWrite,
 	permAuditRead,
+	permAIQuery,
+	ai.PermMetricsRead, ai.PermEventsRead, ai.PermEntitiesRead, ai.PermTopologyRead,
 }
 
 // OAuth transient cookies: a short-lived state (CSRF) + the tenant being logged

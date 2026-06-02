@@ -3,24 +3,45 @@
   "info": {
     "title": "netctl control-plane API",
     "version": "0.1.0",
-    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Netctl-Tenant override) — real identity (SSO/SCIM, per-tenant IdP) lands in S18."
+    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Netctl-Tenant override) \u2014 real identity (SSO/SCIM, per-tenant IdP) lands in S18."
   },
-  "servers": [{ "url": "/" }],
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
   "tags": [
-    { "name": "operational", "description": "Health, readiness, and build metadata." },
-    { "name": "tests", "description": "Synthetic test definitions." },
-    { "name": "agents", "description": "Registered agents (created via mTLS registration; managed here)." }
+    {
+      "name": "operational",
+      "description": "Health, readiness, and build metadata."
+    },
+    {
+      "name": "tests",
+      "description": "Synthetic test definitions."
+    },
+    {
+      "name": "agents",
+      "description": "Registered agents (created via mTLS registration; managed here)."
+    }
   ],
   "paths": {
     "/healthz": {
       "get": {
         "operationId": "getHealthz",
         "summary": "Liveness probe",
-        "tags": ["operational"],
+        "tags": [
+          "operational"
+        ],
         "responses": {
           "200": {
             "description": "Process is alive.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
           }
         }
       }
@@ -30,15 +51,29 @@
         "operationId": "getReadyz",
         "summary": "Readiness probe",
         "description": "Returns 200 when dependencies (the database) are reachable, otherwise 503.",
-        "tags": ["operational"],
+        "tags": [
+          "operational"
+        ],
         "responses": {
           "200": {
             "description": "Dependencies are reachable.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
           },
           "503": {
             "description": "A dependency is not ready.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -47,11 +82,19 @@
       "get": {
         "operationId": "getVersion",
         "summary": "Build metadata",
-        "tags": ["operational"],
+        "tags": [
+          "operational"
+        ],
         "responses": {
           "200": {
             "description": "Build and runtime metadata.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Version" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Version"
+                }
+              }
+            }
           }
         }
       }
@@ -60,11 +103,15 @@
       "get": {
         "operationId": "getOpenAPI",
         "summary": "This OpenAPI 3.1 document",
-        "tags": ["operational"],
+        "tags": [
+          "operational"
+        ],
         "responses": {
           "200": {
             "description": "The OpenAPI 3.1 document.",
-            "content": { "application/json": {} }
+            "content": {
+              "application/json": {}
+            }
           }
         }
       }
@@ -73,107 +120,211 @@
       "get": {
         "operationId": "listTests",
         "summary": "List synthetic tests",
-        "tags": ["tests"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "tests"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The tenant's tests.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestList" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestList"
+                }
+              }
+            }
           }
         }
       },
       "post": {
         "operationId": "createTest",
         "summary": "Create a synthetic test",
-        "tags": ["tests"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "tests"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          }
         },
         "responses": {
           "201": {
             "description": "The created test.",
-            "headers": { "Location": { "schema": { "type": "string" } } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Test" } } }
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Test"
+                }
+              }
+            }
           },
-          "409": { "$ref": "#/components/responses/ErrorResponse" },
-          "422": { "$ref": "#/components/responses/ErrorResponse" }
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
     "/v1/tests/{id}": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantHeader" },
-        { "$ref": "#/components/parameters/IdPath" }
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
       ],
       "get": {
         "operationId": "getTest",
         "summary": "Get a test",
-        "tags": ["tests"],
+        "tags": [
+          "tests"
+        ],
         "responses": {
           "200": {
             "description": "The test.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Test" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Test"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "put": {
         "operationId": "updateTest",
         "summary": "Update a test",
-        "tags": ["tests"],
+        "tags": [
+          "tests"
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TestRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "The updated test.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Test" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Test"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" },
-          "409": { "$ref": "#/components/responses/ErrorResponse" },
-          "422": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "delete": {
         "operationId": "deleteTest",
         "summary": "Delete a test",
-        "tags": ["tests"],
+        "tags": [
+          "tests"
+        ],
         "responses": {
-          "204": { "description": "Deleted." },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
     "/v1/tests/{id}/path": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantHeader" },
-        { "$ref": "#/components/parameters/IdPath" }
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
       ],
       "get": {
         "operationId": "getTestPath",
         "summary": "Latest discovered network path for a test (path-viz data)",
-        "tags": ["tests"],
+        "tags": [
+          "tests"
+        ],
         "responses": {
           "200": {
             "description": "The merged multi-path.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Path" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Path"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "post": {
         "operationId": "discoverTestPath",
         "summary": "Run a path discovery for a test and return the path",
-        "tags": ["tests"],
+        "tags": [
+          "tests"
+        ],
         "responses": {
           "200": {
             "description": "The freshly discovered path.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Path" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Path"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -181,57 +332,107 @@
       "get": {
         "operationId": "listAgents",
         "summary": "List agents",
-        "tags": ["agents"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The tenant's agents.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentList" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentList"
+                }
+              }
+            }
           }
         }
       }
     },
     "/v1/agents/{id}": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantHeader" },
-        { "$ref": "#/components/parameters/IdPath" }
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
       ],
       "get": {
         "operationId": "getAgent",
         "summary": "Get an agent",
-        "tags": ["agents"],
+        "tags": [
+          "agents"
+        ],
         "responses": {
           "200": {
             "description": "The agent.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Agent" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "patch": {
         "operationId": "patchAgent",
         "summary": "Update an agent's display name",
-        "tags": ["agents"],
+        "tags": [
+          "agents"
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AgentPatch" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentPatch"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "The updated agent.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Agent" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Agent"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" },
-          "422": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "delete": {
         "operationId": "deleteAgent",
         "summary": "Deregister an agent",
-        "tags": ["agents"],
+        "tags": [
+          "agents"
+        ],
         "responses": {
-          "204": { "description": "Deleted." },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -239,76 +440,154 @@
       "get": {
         "operationId": "listAlerts",
         "summary": "List alert rules",
-        "tags": ["alerts"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The tenant's alert rules.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertList" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertList"
+                }
+              }
+            }
           }
         }
       },
       "post": {
         "operationId": "createAlert",
         "summary": "Create an alert rule",
-        "tags": ["alerts"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "alerts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRequest"
+              }
+            }
+          }
         },
         "responses": {
           "201": {
             "description": "The created alert rule.",
-            "headers": { "Location": { "schema": { "type": "string" } } },
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRule" } } }
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
           },
-          "409": { "$ref": "#/components/responses/ErrorResponse" },
-          "422": { "$ref": "#/components/responses/ErrorResponse" }
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
     "/v1/alerts/{id}": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantHeader" },
-        { "$ref": "#/components/parameters/IdPath" }
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
       ],
       "get": {
         "operationId": "getAlert",
         "summary": "Get an alert rule",
-        "tags": ["alerts"],
+        "tags": [
+          "alerts"
+        ],
         "responses": {
           "200": {
             "description": "The alert rule.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRule" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "put": {
         "operationId": "updateAlert",
         "summary": "Update an alert rule",
-        "tags": ["alerts"],
+        "tags": [
+          "alerts"
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRequest" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertRequest"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "The updated alert rule.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AlertRule" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertRule"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" },
-          "422": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "delete": {
         "operationId": "deleteAlert",
         "summary": "Delete an alert rule",
-        "tags": ["alerts"],
+        "tags": [
+          "alerts"
+        ],
         "responses": {
-          "204": { "description": "Deleted." },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -316,48 +595,92 @@
       "get": {
         "operationId": "listIncidents",
         "summary": "List incidents",
-        "tags": ["incidents"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The tenant's incidents (most-recently-active first).",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IncidentList" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentList"
+                }
+              }
+            }
           }
         }
       }
     },
     "/v1/incidents/{id}": {
       "parameters": [
-        { "$ref": "#/components/parameters/TenantHeader" },
-        { "$ref": "#/components/parameters/IdPath" }
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
       ],
       "get": {
         "operationId": "getIncident",
         "summary": "Get an incident with its signal timeline",
-        "tags": ["incidents"],
+        "tags": [
+          "incidents"
+        ],
         "responses": {
           "200": {
             "description": "The incident and its time-ordered signals.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Incident" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Incident"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       },
       "patch": {
         "operationId": "patchIncident",
         "summary": "Resolve an incident",
-        "tags": ["incidents"],
+        "tags": [
+          "incidents"
+        ],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IncidentPatch" } } }
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentPatch"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
             "description": "The updated incident.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Incident" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Incident"
+                }
+              }
+            }
           },
-          "404": { "$ref": "#/components/responses/ErrorResponse" },
-          "422": { "$ref": "#/components/responses/ErrorResponse" }
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -365,19 +688,53 @@
       "get": {
         "operationId": "listAudit",
         "summary": "Read a page of the tenant's tamper-evident audit trail",
-        "tags": ["audit"],
+        "tags": [
+          "audit"
+        ],
         "parameters": [
-          { "$ref": "#/components/parameters/TenantHeader" },
-          { "name": "after", "in": "query", "required": false, "description": "Return events with seq greater than this cursor.", "schema": { "type": "integer", "format": "int64", "minimum": 0 } },
-          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 100 } }
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "description": "Return events with seq greater than this cursor.",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          }
         ],
         "responses": {
           "200": {
             "description": "A page of audit events plus the next cursor.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditList" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditList"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/ErrorResponse" },
-          "403": { "$ref": "#/components/responses/ErrorResponse" }
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -385,15 +742,31 @@
       "get": {
         "operationId": "verifyAudit",
         "summary": "Verify the integrity of the tenant's audit chain",
-        "tags": ["audit"],
-        "parameters": [{ "$ref": "#/components/parameters/TenantHeader" }],
+        "tags": [
+          "audit"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
         "responses": {
           "200": {
             "description": "The verification result; ok=false with a detail when the chain is broken.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditVerify" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditVerify"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/ErrorResponse" },
-          "403": { "$ref": "#/components/responses/ErrorResponse" }
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -401,13 +774,23 @@
       "get": {
         "operationId": "getMe",
         "summary": "The authenticated caller's tenant, identity, and effective permissions",
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "responses": {
           "200": {
             "description": "The current principal.",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Me" } } }
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
           },
-          "401": { "$ref": "#/components/responses/ErrorResponse" }
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -415,13 +798,28 @@
       "get": {
         "operationId": "ssoLogin",
         "summary": "Begin OIDC SSO login (redirects to the tenant's identity provider)",
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "parameters": [
-          { "name": "tenant", "in": "query", "required": false, "description": "Tenant UUID to log into; omitted → the default tenant.", "schema": { "type": "string", "format": "uuid" } }
+          {
+            "name": "tenant",
+            "in": "query",
+            "required": false,
+            "description": "Tenant UUID to log into; omitted \u2192 the default tenant.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
         ],
         "responses": {
-          "302": { "description": "Redirect to the identity provider's authorization endpoint." },
-          "503": { "$ref": "#/components/responses/ErrorResponse" }
+          "302": {
+            "description": "Redirect to the identity provider's authorization endpoint."
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -429,15 +827,37 @@
       "get": {
         "operationId": "ssoCallback",
         "summary": "OIDC redirect URI: completes login and sets the session cookie",
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "parameters": [
-          { "name": "code", "in": "query", "required": false, "schema": { "type": "string" } },
-          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } }
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "302": { "description": "Session established; redirect to the app." },
-          "400": { "$ref": "#/components/responses/ErrorResponse" },
-          "401": { "$ref": "#/components/responses/ErrorResponse" }
+          "302": {
+            "description": "Session established; redirect to the app."
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
         }
       }
     },
@@ -445,8 +865,109 @@
       "post": {
         "operationId": "ssoLogout",
         "summary": "Revoke the current session and clear the session cookie",
-        "tags": ["auth"],
-        "responses": { "204": { "description": "Logged out." } }
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "204": {
+            "description": "Logged out."
+          }
+        }
+      }
+    },
+    "/v1/ai/ask": {
+      "post": {
+        "operationId": "aiAsk",
+        "summary": "Ask the AI assistant (cited, RBAC-scoped root-cause analysis)",
+        "tags": [
+          "ai"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIAskRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A cited root-cause answer scoped to the caller's tenant and permissions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIAnswer"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid question.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The AI assistant is temporarily unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ai/feedback": {
+      "post": {
+        "operationId": "aiFeedback",
+        "summary": "Submit feedback (thumbs up/down) on an AI answer",
+        "tags": [
+          "ai"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Feedback recorded."
+          },
+          "400": {
+            "description": "Invalid feedback.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -456,39 +977,80 @@
         "name": "X-Netctl-Tenant",
         "in": "header",
         "required": false,
-        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted → the default tenant. Replaced by session-resolved identity in S18.",
-        "schema": { "type": "string", "format": "uuid" }
+        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted \u2192 the default tenant. Replaced by session-resolved identity in S18.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
       },
       "IdPath": {
         "name": "id",
         "in": "path",
         "required": true,
-        "schema": { "type": "string", "format": "uuid" }
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
       }
     },
     "responses": {
       "ErrorResponse": {
         "description": "An error envelope.",
-        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
       }
     },
     "schemas": {
       "Health": {
         "type": "object",
-        "properties": { "status": { "type": "string", "examples": ["ok", "ready"] } },
-        "required": ["status"]
+        "properties": {
+          "status": {
+            "type": "string",
+            "examples": [
+              "ok",
+              "ready"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "Version": {
         "type": "object",
         "properties": {
-          "version": { "type": "string" },
-          "commit": { "type": "string" },
-          "date": { "type": "string" },
-          "go_version": { "type": "string" },
-          "os": { "type": "string" },
-          "arch": { "type": "string" }
+          "version": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "go_version": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          }
         },
-        "required": ["version", "commit", "date", "go_version", "os", "arch"]
+        "required": [
+          "version",
+          "commit",
+          "date",
+          "go_version",
+          "os",
+          "arch"
+        ]
       },
       "Error": {
         "type": "object",
@@ -497,275 +1059,898 @@
           "error": {
             "type": "object",
             "properties": {
-              "code": { "type": "string" },
-              "message": { "type": "string" },
-              "request_id": { "type": "string" }
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              }
             },
-            "required": ["code", "message"]
+            "required": [
+              "code",
+              "message"
+            ]
           }
         },
-        "required": ["error"]
+        "required": [
+          "error"
+        ]
       },
       "TestRequest": {
         "type": "object",
         "description": "The mutable fields of a synthetic test.",
         "properties": {
-          "name": { "type": "string", "minLength": 1, "maxLength": 200 },
-          "type": { "type": "string", "enum": ["icmp", "tcp", "udp", "dns", "http", "a2a", "noop"] },
-          "target": { "type": "string", "description": "Required for all types except noop." },
-          "interval_seconds": { "type": "integer", "minimum": 1, "maximum": 86400, "default": 60 },
-          "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300, "default": 3 },
-          "params": { "type": "object", "additionalProperties": { "type": "string" } },
-          "enabled": { "type": "boolean", "default": true }
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "icmp",
+              "tcp",
+              "udp",
+              "dns",
+              "http",
+              "a2a",
+              "noop"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "description": "Required for all types except noop."
+          },
+          "interval_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "default": 60
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 300,
+            "default": 3
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
         },
-        "required": ["name", "type"]
+        "required": [
+          "name",
+          "type"
+        ]
       },
       "Test": {
         "allOf": [
-          { "$ref": "#/components/schemas/TestRequest" },
+          {
+            "$ref": "#/components/schemas/TestRequest"
+          },
           {
             "type": "object",
             "properties": {
-              "id": { "type": "string", "format": "uuid" },
-              "tenant_id": { "type": "string", "format": "uuid" },
-              "created_at": { "type": "string", "format": "date-time" },
-              "updated_at": { "type": "string", "format": "date-time" }
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "tenant_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              }
             },
-            "required": ["id", "tenant_id", "created_at", "updated_at"]
+            "required": [
+              "id",
+              "tenant_id",
+              "created_at",
+              "updated_at"
+            ]
           }
         ]
       },
       "TestList": {
         "type": "object",
-        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Test" } } },
-        "required": ["items"]
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Test"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
       },
       "Agent": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "format": "uuid" },
-          "tenant_id": { "type": "string", "format": "uuid" },
-          "name": { "type": "string" },
-          "hostname": { "type": "string" },
-          "agent_version": { "type": "string" },
-          "status": { "type": "string", "enum": ["registered", "online", "offline"] },
-          "capabilities": { "type": "array", "items": { "type": "string" } },
-          "spiffe_id": { "type": "string" },
-          "registered_at": { "type": "string", "format": "date-time" },
-          "last_seen_at": { "type": "string", "format": "date-time" },
-          "created_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "agent_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "registered",
+              "online",
+              "offline"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "spiffe_id": {
+            "type": "string"
+          },
+          "registered_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         },
-        "required": ["id", "tenant_id", "name", "status", "capabilities"]
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "status",
+          "capabilities"
+        ]
       },
       "AgentPatch": {
         "type": "object",
-        "properties": { "name": { "type": "string", "minLength": 1, "maxLength": 200 } },
-        "required": ["name"]
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "name"
+        ]
       },
       "AgentList": {
         "type": "object",
-        "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/Agent" } } },
-        "required": ["items"]
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Agent"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
       },
       "MPLSLabel": {
         "type": "object",
         "properties": {
-          "label": { "type": "integer" },
-          "tc": { "type": "integer" },
-          "s": { "type": "boolean" },
-          "ttl": { "type": "integer" }
+          "label": {
+            "type": "integer"
+          },
+          "tc": {
+            "type": "integer"
+          },
+          "s": {
+            "type": "boolean"
+          },
+          "ttl": {
+            "type": "integer"
+          }
         }
       },
       "HopNode": {
         "type": "object",
         "description": "One responder at a TTL; multiple nodes at a TTL are ECMP branches.",
         "properties": {
-          "ip": { "type": "string" },
-          "sent": { "type": "integer" },
-          "received": { "type": "integer" },
-          "loss_ratio": { "type": "number" },
-          "rtt_min_ms": { "type": "number" },
-          "rtt_avg_ms": { "type": "number" },
-          "rtt_max_ms": { "type": "number" },
-          "mpls": { "type": "array", "items": { "$ref": "#/components/schemas/MPLSLabel" } }
+          "ip": {
+            "type": "string"
+          },
+          "sent": {
+            "type": "integer"
+          },
+          "received": {
+            "type": "integer"
+          },
+          "loss_ratio": {
+            "type": "number"
+          },
+          "rtt_min_ms": {
+            "type": "number"
+          },
+          "rtt_avg_ms": {
+            "type": "number"
+          },
+          "rtt_max_ms": {
+            "type": "number"
+          },
+          "mpls": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MPLSLabel"
+            }
+          }
         },
-        "required": ["ip"]
+        "required": [
+          "ip"
+        ]
       },
       "Hop": {
         "type": "object",
         "properties": {
-          "ttl": { "type": "integer" },
-          "nodes": { "type": "array", "items": { "$ref": "#/components/schemas/HopNode" } }
+          "ttl": {
+            "type": "integer"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HopNode"
+            }
+          }
         },
-        "required": ["ttl", "nodes"]
+        "required": [
+          "ttl",
+          "nodes"
+        ]
       },
       "Link": {
         "type": "object",
         "properties": {
-          "ttl": { "type": "integer" },
-          "from": { "type": "string" },
-          "to": { "type": "string" }
+          "ttl": {
+            "type": "integer"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
         }
       },
       "Path": {
         "type": "object",
         "description": "A merged, multi-path traceroute result.",
         "properties": {
-          "target": { "type": "string" },
-          "target_ip": { "type": "string" },
-          "mode": { "type": "string" },
-          "max_hops": { "type": "integer" },
-          "trace_count": { "type": "integer" },
-          "destination_reached": { "type": "boolean" },
-          "hops": { "type": "array", "items": { "$ref": "#/components/schemas/Hop" } },
-          "links": { "type": "array", "items": { "$ref": "#/components/schemas/Link" } }
+          "target": {
+            "type": "string"
+          },
+          "target_ip": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "max_hops": {
+            "type": "integer"
+          },
+          "trace_count": {
+            "type": "integer"
+          },
+          "destination_reached": {
+            "type": "boolean"
+          },
+          "hops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Hop"
+            }
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            }
+          }
         },
-        "required": ["target", "mode", "hops", "links"]
+        "required": [
+          "target",
+          "mode",
+          "hops",
+          "links"
+        ]
       },
       "ChannelSpec": {
         "type": "object",
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "properties": {
-          "type": { "type": "string", "enum": ["webhook", "email"] },
-          "url": { "type": "string", "description": "Webhook endpoint (https)." },
-          "secret": { "type": "string", "description": "Webhook HMAC secret; redacted (***) in responses." },
-          "recipients": { "type": "array", "items": { "type": "string" } }
+          "type": {
+            "type": "string",
+            "enum": [
+              "webhook",
+              "email"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "Webhook endpoint (https)."
+          },
+          "secret": {
+            "type": "string",
+            "description": "Webhook HMAC secret; redacted (***) in responses."
+          },
+          "recipients": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "AlertRequest": {
         "type": "object",
-        "required": ["name", "metric", "type"],
+        "required": [
+          "name",
+          "metric",
+          "type"
+        ],
         "properties": {
-          "name": { "type": "string" },
-          "enabled": { "type": "boolean" },
-          "metric": { "type": "string", "description": "TSDB metric, e.g. netctl_probe_loss_ratio." },
-          "match": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Label matchers." },
-          "type": { "type": "string", "enum": ["threshold", "baseline"] },
-          "comparison": { "type": "string", "enum": ["gt", "lt", "gte", "lte", "eq", "neq"] },
-          "threshold": { "type": "number" },
-          "window": { "type": "integer", "description": "Baseline history samples." },
-          "sensitivity": { "type": "number", "description": "Baseline deviation in std-devs." },
-          "for_n": { "type": "integer", "description": "Consecutive breaches before firing (debounce)." },
-          "renotify_seconds": { "type": "integer", "description": "Re-notify cadence while firing (0 = once)." },
-          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
-          "channels": { "type": "array", "items": { "$ref": "#/components/schemas/ChannelSpec" } }
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "metric": {
+            "type": "string",
+            "description": "TSDB metric, e.g. netctl_probe_loss_ratio."
+          },
+          "match": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Label matchers."
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "threshold",
+              "baseline"
+            ]
+          },
+          "comparison": {
+            "type": "string",
+            "enum": [
+              "gt",
+              "lt",
+              "gte",
+              "lte",
+              "eq",
+              "neq"
+            ]
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "window": {
+            "type": "integer",
+            "description": "Baseline history samples."
+          },
+          "sensitivity": {
+            "type": "number",
+            "description": "Baseline deviation in std-devs."
+          },
+          "for_n": {
+            "type": "integer",
+            "description": "Consecutive breaches before firing (debounce)."
+          },
+          "renotify_seconds": {
+            "type": "integer",
+            "description": "Re-notify cadence while firing (0 = once)."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelSpec"
+            }
+          }
         }
       },
       "AlertRule": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "tenant_id": { "type": "string" },
-          "name": { "type": "string" },
-          "enabled": { "type": "boolean" },
-          "metric": { "type": "string" },
-          "match": { "type": "object", "additionalProperties": { "type": "string" } },
-          "type": { "type": "string", "enum": ["threshold", "baseline"] },
-          "comparison": { "type": "string" },
-          "threshold": { "type": "number" },
-          "window": { "type": "integer" },
-          "sensitivity": { "type": "number" },
-          "for_n": { "type": "integer" },
-          "renotify_seconds": { "type": "integer" },
-          "severity": { "type": "string" },
-          "channels": { "type": "array", "items": { "$ref": "#/components/schemas/ChannelSpec" } },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "match": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "threshold",
+              "baseline"
+            ]
+          },
+          "comparison": {
+            "type": "string"
+          },
+          "threshold": {
+            "type": "number"
+          },
+          "window": {
+            "type": "integer"
+          },
+          "sensitivity": {
+            "type": "number"
+          },
+          "for_n": {
+            "type": "integer"
+          },
+          "renotify_seconds": {
+            "type": "integer"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelSpec"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "AlertList": {
         "type": "object",
         "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/components/schemas/AlertRule" } }
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertRule"
+            }
+          }
         }
       },
       "Signal": {
         "type": "object",
         "description": "One plane's observation on an incident timeline (extensible: plane/kind are free-form, attributes is arbitrary).",
         "properties": {
-          "plane": { "type": "string", "description": "network | bgp | threat | change | ..." },
-          "kind": { "type": "string" },
-          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
-          "title": { "type": "string" },
-          "summary": { "type": "string" },
-          "target": { "type": "string" },
-          "prefix": { "type": "string" },
-          "attributes": { "type": "object", "additionalProperties": { "type": "string" } },
-          "occurred_at": { "type": "string", "format": "date-time" }
+          "plane": {
+            "type": "string",
+            "description": "network | bgp | threat | change | ..."
+          },
+          "kind": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "Incident": {
         "type": "object",
         "properties": {
-          "id": { "type": "string" },
-          "tenant_id": { "type": "string" },
-          "status": { "type": "string", "enum": ["open", "resolved"] },
-          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
-          "title": { "type": "string" },
-          "target": { "type": "string" },
-          "prefix": { "type": "string" },
-          "started_at": { "type": "string", "format": "date-time" },
-          "last_seen_at": { "type": "string", "format": "date-time" },
-          "resolved_at": { "type": "string", "format": "date-time" },
-          "signal_count": { "type": "integer" },
-          "signals": { "type": "array", "items": { "$ref": "#/components/schemas/Signal" } }
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "critical"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resolved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "signal_count": {
+            "type": "integer"
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Signal"
+            }
+          }
         }
       },
       "IncidentList": {
         "type": "object",
         "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Incident" } }
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Incident"
+            }
+          }
         }
       },
       "IncidentPatch": {
         "type": "object",
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "properties": {
-          "status": { "type": "string", "enum": ["resolved"] }
+          "status": {
+            "type": "string",
+            "enum": [
+              "resolved"
+            ]
+          }
         }
       },
       "Me": {
         "type": "object",
         "description": "The authenticated caller: the resolved tenant (always present), identity, and the effective RBAC permission keys within that tenant.",
-        "required": ["tenant_id", "user_id", "permissions"],
+        "required": [
+          "tenant_id",
+          "user_id",
+          "permissions"
+        ],
         "properties": {
-          "tenant_id": { "type": "string", "format": "uuid" },
-          "user_id": { "type": "string" },
-          "email": { "type": "string" },
-          "display_name": { "type": "string" },
-          "mfa_satisfied": { "type": "boolean" },
-          "permissions": { "type": "array", "items": { "type": "string" } }
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "mfa_satisfied": {
+            "type": "boolean"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
       "AuditEvent": {
         "type": "object",
         "description": "One record in the tenant's hash-chained, tamper-evident audit log.",
-        "required": ["seq", "actor", "action", "hash"],
+        "required": [
+          "seq",
+          "actor",
+          "action",
+          "hash"
+        ],
         "properties": {
-          "seq": { "type": "integer", "format": "int64" },
-          "actor": { "type": "string", "description": "Who performed the action (email or user id)." },
-          "action": { "type": "string", "description": "e.g. test.create, agent.delete, auth.login." },
-          "target": { "type": "string", "description": "The id of the affected resource." },
-          "data": { "type": "object", "additionalProperties": true },
-          "prev_hash": { "type": "string" },
-          "hash": { "type": "string" },
-          "created_at": { "type": "string", "format": "date-time" }
+          "seq": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "actor": {
+            "type": "string",
+            "description": "Who performed the action (email or user id)."
+          },
+          "action": {
+            "type": "string",
+            "description": "e.g. test.create, agent.delete, auth.login."
+          },
+          "target": {
+            "type": "string",
+            "description": "The id of the affected resource."
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "prev_hash": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "AuditList": {
         "type": "object",
-        "required": ["items", "next"],
+        "required": [
+          "items",
+          "next"
+        ],
         "properties": {
-          "items": { "type": "array", "items": { "$ref": "#/components/schemas/AuditEvent" } },
-          "next": { "type": "integer", "format": "int64", "description": "Cursor to pass as ?after= for the next page (0 when no more)." }
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
+            }
+          },
+          "next": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Cursor to pass as ?after= for the next page (0 when no more)."
+          }
         }
       },
       "AuditVerify": {
         "type": "object",
-        "required": ["ok"],
+        "required": [
+          "ok"
+        ],
         "properties": {
-          "ok": { "type": "boolean" },
-          "detail": { "type": "string", "description": "Present when ok=false: where and how the chain is broken." }
+          "ok": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Present when ok=false: where and how the chain is broken."
+          }
+        }
+      },
+      "AIAskRequest": {
+        "type": "object",
+        "required": [
+          "question"
+        ],
+        "properties": {
+          "question": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Natural-language question, e.g. \"why is api.example.com slow?\""
+          },
+          "subject": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional explicit subject pins (target, prefix, node)."
+          }
+        }
+      },
+      "AICitation": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AIFinding": {
+        "type": "object",
+        "properties": {
+          "statement": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AICitation"
+            }
+          }
+        }
+      },
+      "AIEvidence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "plane": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AIAnswer": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "root_cause": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AIFinding"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AIEvidence"
+            }
+          },
+          "model": {
+            "type": "string"
+          },
+          "insufficient_evidence": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AIFeedbackRequest": {
+        "type": "object",
+        "required": [
+          "answer_id",
+          "rating"
+        ],
+        "properties": {
+          "answer_id": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ]
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "question": {
+            "type": "string"
+          }
         }
       }
     }

@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // hardenedTLS returns a base TLS config: TLS 1.2 minimum (1.3 negotiated when
@@ -47,4 +48,28 @@ func ConfigureServerTLS(srv *http.Server, certFile, keyFile string) error {
 	}
 	srv.TLSConfig = cfg
 	return nil
+}
+
+// HardenedClientTLSConfig returns a hardened *tls.Config for OUTBOUND client
+// connections (TLS 1.2+, modern ciphers/curves). Certificate validation is ALWAYS
+// on — InsecureSkipVerify is never set (CLAUDE.md §7 guardrail 12). Used for
+// remote model endpoints and any other outbound fetch that needs the policy.
+func HardenedClientTLSConfig() *tls.Config { return hardenedTLS() }
+
+// HardenedHTTPClient returns an *http.Client whose transport validates server
+// certificates with the hardened TLS policy. timeout bounds the entire request
+// (a non-positive value leaves it unbounded — callers should pass a positive
+// timeout). The only crypto policy routes through internal/crypto, so callers
+// import no crypto package directly.
+func HardenedHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig:     hardenedTLS(),
+			ForceAttemptHTTP2:   true,
+			MaxIdleConns:        10,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
+	}
 }

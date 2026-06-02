@@ -100,6 +100,19 @@ type Config struct {
 	OTLPTLSCertFile string
 	OTLPTLSKeyFile  string
 	OTLPTokens      map[string]string // bearer token -> tenant id
+
+	// AI assistant (S24): the RCA model backend. Provider "builtin" (default) is
+	// the in-process, fully air-gapped synthesizer — no network, no phone-home.
+	// "ollama"/"openai"/"anthropic" call a model endpoint; a remote endpoint must
+	// be https (enforced when the adapter is built — guardrail 12), while loopback
+	// may be http for a co-located local model. AIMaxEvidence caps how many
+	// signals an answer may gather (cost guard).
+	AIModelProvider string
+	AIModelEndpoint string
+	AIModelName     string
+	AIModelToken    string
+	AIModelTimeout  time.Duration
+	AIMaxEvidence   int
 }
 
 // Load resolves configuration using the supplied getenv function (use
@@ -150,6 +163,12 @@ func Load(getenv func(string) string) (*Config, error) {
 		OTLPTLSCertFile:     l.str("NETCTL_OTLP_TLS_CERT_FILE", ""),
 		OTLPTLSKeyFile:      l.str("NETCTL_OTLP_TLS_KEY_FILE", ""),
 		OTLPTokens:          l.tokenMap("NETCTL_OTLP_TOKENS"),
+		AIModelProvider:     l.enum("NETCTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic"),
+		AIModelEndpoint:     l.str("NETCTL_AI_MODEL_ENDPOINT", ""),
+		AIModelName:         l.str("NETCTL_AI_MODEL_NAME", ""),
+		AIModelToken:        l.str("NETCTL_AI_MODEL_TOKEN", ""),
+		AIModelTimeout:      l.dur("NETCTL_AI_MODEL_TIMEOUT", 60*time.Second),
+		AIMaxEvidence:       l.intRange("NETCTL_AI_MAX_EVIDENCE", 50, 1, 1000),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
@@ -169,6 +188,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	if (cfg.OTLPGRPCAddr != "" || cfg.OTLPHTTPAddr != "") && !cfg.OTLPEnabled() {
 		l.errf("the OTLP receiver is TLS-only and authenticated: set NETCTL_OTLP_TLS_CERT_FILE, NETCTL_OTLP_TLS_KEY_FILE, and NETCTL_OTLP_TOKENS (token=tenant,...) alongside an address")
+	}
+	if cfg.AIModelEnabled() && cfg.AIModelEndpoint == "" {
+		l.errf("NETCTL_AI_MODEL_PROVIDER=%s requires NETCTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
 	}
 
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
@@ -204,6 +226,13 @@ func (c *Config) AgentTransportEnabled() bool {
 func (c *Config) OTLPEnabled() bool {
 	return (c.OTLPGRPCAddr != "" || c.OTLPHTTPAddr != "") &&
 		c.OTLPTLSCertFile != "" && c.OTLPTLSKeyFile != "" && len(c.OTLPTokens) > 0
+}
+
+// AIModelEnabled reports whether the AI assistant should call an external model
+// endpoint. False means the default in-process built-in synthesizer — fully
+// air-gapped, no network (CLAUDE.md §7 guardrail 2).
+func (c *Config) AIModelEnabled() bool {
+	return c.AIModelProvider != "" && c.AIModelProvider != "builtin"
 }
 
 // LogValue implements slog.LogValuer so the config can be logged at startup

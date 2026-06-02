@@ -597,6 +597,28 @@ Setting an address without the TLS files **and** at least one token fails config
 validation — the receiver is never anonymous plaintext. Ingested metrics are
 tenant-tagged and published to the `netctl.otlp.metrics` bus topic.
 
+### AI assistant (S24)
+
+The AI assistant (RCA / NL query) is on by default using the **built-in,
+in-process synthesizer** — fully air-gapped, no network, no phone-home. Point it
+at a model only if you want LLM-written prose; a remote endpoint must be `https`
+(a non-loopback `http` endpoint is refused — guardrail 12), while loopback may be
+`http` for a co-located local model. See [`ai-rca.md`](ai-rca.md).
+
+| Variable                   | Default   | Description                                                         |
+| -------------------------- | --------- | ------------------------------------------------------------------ |
+| `NETCTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped) \| `ollama` \| `openai` \| `anthropic`      |
+| `NETCTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
+| `NETCTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
+| `NETCTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |
+| `NETCTL_AI_MODEL_TIMEOUT`  | `60s`     | per-request timeout for the model endpoint                         |
+| `NETCTL_AI_MAX_EVIDENCE`   | `50`      | cost guard: max signals an answer may gather                       |
+
+A non-`builtin` provider without an endpoint fails config validation. Whatever
+the backend, every answer is tenant-and-RBAC-scoped by the S23 query layer and
+every claim is citation-checked before it reaches the user — a model can never
+see out-of-scope data or inject an ungrounded claim.
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext
