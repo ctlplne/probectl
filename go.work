@@ -9,6 +9,11 @@
 // added with `go work use ./<dir>` without disturbing existing imports.
 go 1.26
 
+// Pin the build toolchain to a patched Go (stdlib fixes for GO-2026-5037
+// crypto/x509 + GO-2026-5039 net/textproto). The `go` line above is the language
+// version; this is the minimum toolchain CI and dev builds resolve to.
+toolchain go1.26.4
+
 use (
 	.
 	./test

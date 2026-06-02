@@ -2,6 +2,10 @@ module github.com/imfeelingtheagi/netctl
 
 go 1.26
 
+// Patched toolchain (stdlib fixes: GO-2026-5037 crypto/x509, GO-2026-5039
+// net/textproto). govulncheck and all builds resolve to >= this.
+toolchain go1.26.4
+
 require (
 	github.com/cilium/ebpf v0.21.0
 	github.com/coreos/go-oidc/v3 v3.18.0
