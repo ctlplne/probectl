@@ -86,6 +86,13 @@ func (m *HTTPModel) Name() string {
 	return string(m.kind)
 }
 
+// Complete runs a single generic chat turn and returns the model's text. It is
+// the seam other AI tasks reuse — e.g. test authoring (S26) — without coupling to
+// the RCA-specific Synthesize prompt/parsing.
+func (m *HTTPModel) Complete(ctx context.Context, system, user string) (string, error) {
+	return m.chat(ctx, system, user)
+}
+
 // synthDTO is the structured answer netctl asks every remote model to return, so
 // citation integrity does not depend on the model's prose.
 type synthDTO struct {

@@ -969,6 +969,88 @@
           }
         }
       }
+    },
+    "/v1/ai/author": {
+      "post": {
+        "operationId": "aiAuthor",
+        "summary": "Author a test config from a natural-language request (schema-validated, pending confirmation)",
+        "tags": [
+          "ai"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A schema-valid test proposal \u2014 NOT created; apply via POST /v1/tests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestProposal"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Could not author a valid config from the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The authoring model is unavailable.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/ai/discover": {
+      "post": {
+        "operationId": "aiDiscover",
+        "summary": "Propose monitorable targets mined from observed telemetry (ranked, deduped; pending confirmation)",
+        "tags": [
+          "ai"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked discovery proposals \u2014 none are created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverProposalList"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1950,6 +2032,100 @@
           },
           "question": {
             "type": "string"
+          }
+        }
+      },
+      "AuthorRequest": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "e.g. \"check Salesforce login from every branch\""
+          }
+        }
+      },
+      "TestSpec": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "icmp",
+              "tcp",
+              "udp",
+              "dns",
+              "http",
+              "a2a",
+              "noop"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "interval_seconds": {
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "type": "integer"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "TestProposal": {
+        "type": "object",
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/TestSpec"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "heuristic or the model name"
+          }
+        }
+      },
+      "DiscoverProposal": {
+        "type": "object",
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/TestSpec"
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "DiscoverProposalList": {
+        "type": "object",
+        "properties": {
+          "proposals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscoverProposal"
+            }
           }
         }
       }

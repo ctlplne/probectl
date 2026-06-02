@@ -22,6 +22,7 @@ import {
   useToast,
 } from '../components'
 import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
+import { AuthoringPanel } from './AuthoringPanel'
 import { useAgents, type Agent } from '../api/agents'
 
 export function Page({
@@ -209,6 +210,8 @@ export function TargetsPage() {
           <Sparkline label="Packet loss, last 24 hours" data={[0, 0, 0, 1, 0, 0, 3, 8, 2, 0, 0, 0]} />
         </ChartShell>
       </div>
+
+      <AuthoringPanel />
 
       <Card>
         <CardHeader title="Tests" description="Live results land here once the metrics API ships (S23)." />

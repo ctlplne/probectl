@@ -47,6 +47,8 @@ awk -v mod="${MODULE}" '
     floor["internal/topology"]       = 80
     floor["internal/ai"]             = 72
     floor["internal/ai/mcp"]         = 72
+    floor["internal/ai/author"]      = 80
+    floor["internal/testspec"]       = 85
     # The pooled driver (pooled.go) is exercised by the perf-smoke integration job
     # (needs Postgres) and skips in this service-free gate, so the floor covers the
     # no-DB drivers (metrics/ingest/baseline).

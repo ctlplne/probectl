@@ -11,6 +11,7 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/auth"
 	"github.com/imfeelingtheagi/netctl/internal/store"
 	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/netctl/internal/testspec"
 )
 
 // apiRoute binds a method+pattern to a handler. This table is the single source
@@ -51,6 +52,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/audit/verify", s.handleVerifyAudit, permAuditRead},
 		{http.MethodPost, "/v1/ai/ask", s.handleAIAsk, permAIQuery},
 		{http.MethodPost, "/v1/ai/feedback", s.handleAIFeedback, permAIQuery},
+		{http.MethodPost, "/v1/ai/author", s.handleAIAuthor, permTestWrite},
+		{http.MethodPost, "/v1/ai/discover", s.handleAIDiscover, permTestWrite},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
 }
@@ -69,11 +72,6 @@ func (s *Server) inTenant(r *http.Request, fn func(context.Context, tenancy.Scop
 
 // --- tests ---
 
-var validTestTypes = map[string]bool{
-	"icmp": true, "tcp": true, "udp": true, "noop": true,
-	"dns": true, "http": true, "a2a": true,
-}
-
 type testRequest struct {
 	Name            string            `json:"name"`
 	Type            string            `json:"type"`
@@ -84,40 +82,33 @@ type testRequest struct {
 	Enabled         *bool             `json:"enabled"`
 }
 
+// toInput validates the request against the canonical test schema (shared with AI
+// authoring, S26) and maps it to a store input.
 func (req testRequest) toInput() (store.TestInput, error) {
-	name := strings.TrimSpace(req.Name)
-	if name == "" || len(name) > 200 {
-		return store.TestInput{}, apierror.Validation("name is required (1–200 characters)")
-	}
-	if !validTestTypes[req.Type] {
-		return store.TestInput{}, apierror.Validation("type must be one of icmp, tcp, udp, dns, http, a2a, noop")
-	}
-	target := strings.TrimSpace(req.Target)
-	if req.Type != "noop" && target == "" {
-		return store.TestInput{}, apierror.Validation("target is required")
-	}
-	interval := req.IntervalSeconds
-	if interval == 0 {
-		interval = 60
-	}
-	if interval < 1 || interval > 86400 {
-		return store.TestInput{}, apierror.Validation("interval_seconds must be between 1 and 86400")
-	}
-	timeout := req.TimeoutSeconds
-	if timeout == 0 {
-		timeout = 3
-	}
-	if timeout < 1 || timeout > 300 {
-		return store.TestInput{}, apierror.Validation("timeout_seconds must be between 1 and 300")
-	}
 	enabled := true
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	spec, err := testspec.Clean(testspec.Spec{
+		Name:            req.Name,
+		Type:            req.Type,
+		Target:          req.Target,
+		IntervalSeconds: req.IntervalSeconds,
+		TimeoutSeconds:  req.TimeoutSeconds,
+		Params:          req.Params,
+		Enabled:         enabled,
+	})
+	if err != nil {
+		return store.TestInput{}, apierror.Validation(err.Error())
+	}
 	return store.TestInput{
-		Name: name, Type: req.Type, Target: target,
-		IntervalSeconds: interval, TimeoutSeconds: timeout,
-		Params: req.Params, Enabled: enabled,
+		Name:            spec.Name,
+		Type:            spec.Type,
+		Target:          spec.Target,
+		IntervalSeconds: spec.IntervalSeconds,
+		TimeoutSeconds:  spec.TimeoutSeconds,
+		Params:          spec.Params,
+		Enabled:         spec.Enabled,
 	}, nil
 }
 

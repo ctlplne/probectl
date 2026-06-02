@@ -47,7 +47,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     await screen.findByRole('button', { name: /delete my-test/i })
 
     const postCall = fetchMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === 'POST',
+      ([url, init]) => String(url).endsWith('/v1/tests') && (init as RequestInit | undefined)?.method === 'POST',
     )
     expect(postCall).toBeTruthy()
     expect(String((postCall![1] as RequestInit).body)).toContain('"name":"my-test"')

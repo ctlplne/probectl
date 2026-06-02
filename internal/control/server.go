@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/netctl/internal/ai"
+	"github.com/imfeelingtheagi/netctl/internal/ai/author"
 	"github.com/imfeelingtheagi/netctl/internal/auth"
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/crypto"
@@ -41,6 +42,10 @@ type Server struct {
 	// AI assistant (S24). The RCA analyzer over the S23 query engine; always set
 	// (built-in air-gapped model + incidents evidence when a pool is present).
 	analyzer *ai.Analyzer
+
+	// AI test authoring + auto-discovery (S26). Always set (heuristic by default,
+	// model-backed when configured).
+	authorEngine *author.Engine
 }
 
 // New builds a Server. pinger backs the readiness probe and pool backs the
@@ -68,6 +73,9 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	// AI assistant (S24): RCA analyzer over the S23 query engine, grounded in the
 	// tenant-scoped incident store and synthesized by the configured model.
 	s.analyzer = buildAnalyzer(cfg, log, pool)
+
+	// AI test authoring (S26): heuristic by default, model-backed when configured.
+	s.authorEngine = buildAuthor(cfg, log)
 
 	s.http = &http.Server{
 		Addr:         cfg.HTTPAddr,
