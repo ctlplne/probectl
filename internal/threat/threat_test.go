@@ -143,7 +143,7 @@ func TestFromCanaryAttributes(t *testing.T) {
 func TestToSignals(t *testing.T) {
 	p := Posture{
 		Target: "x", Source: "http", TLSVersion: "1.0",
-		Findings:   []Finding{{FindingDeprecatedTLS, SeverityWarning, "deprecated TLS version 1.0"}},
+		Findings:   []Finding{{Kind: FindingDeprecatedTLS, Severity: SeverityWarning, Message: "deprecated TLS version 1.0"}},
 		Handoff:    &HandoffPayload{URL: "https://certctl.example/renew?domain=x"},
 		ObservedAt: time.Now(),
 	}

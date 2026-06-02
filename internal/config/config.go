@@ -132,6 +132,16 @@ type Config struct {
 	TLSExpiryWarning time.Duration
 	CTEnabled        bool
 	CTEndpoint       string
+
+	// Threat-intel enrichment (S28): match flows/connections/certs/JA3 against
+	// public IOC feeds. OFF by default — enabling it makes outbound fetches to the
+	// configured feeds (AUP / sovereignty / no-phone-home). ThreatIntelFeeds names
+	// the feeds to load (empty → all built-in feeds); ThreatIntelRefresh is the
+	// refresh cadence. Several feeds restrict commercial redistribution (MSP
+	// resale) — provenance/AUP is tracked per feed.
+	ThreatIntelEnabled bool
+	ThreatIntelRefresh time.Duration
+	ThreatIntelFeeds   []string
 }
 
 // Load resolves configuration using the supplied getenv function (use
@@ -196,6 +206,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		TLSExpiryWarning:    l.dur("NETCTL_TLS_EXPIRY_WARNING", 21*24*time.Hour),
 		CTEnabled:           l.boolean("NETCTL_CT_ENABLED", false),
 		CTEndpoint:          l.str("NETCTL_CT_ENDPOINT", "https://crt.sh"),
+		ThreatIntelEnabled:  l.boolean("NETCTL_THREATINTEL_ENABLED", false),
+		ThreatIntelRefresh:  l.dur("NETCTL_THREATINTEL_REFRESH", 6*time.Hour),
+		ThreatIntelFeeds:    l.list("NETCTL_THREATINTEL_FEEDS"),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {

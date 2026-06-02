@@ -652,6 +652,23 @@ See [`tls-observability.md`](tls-observability.md).
 CT correlation is **off by default** (an external fetch — sovereignty / AUP /
 rate limits) and degrades gracefully when the CT source is down.
 
+### Threat-intel enrichment (S28)
+
+The control plane can match peer IPs / hostnames / certs / JA3 against public
+threat-intel feeds, surfacing **confidence-scored, source-attributed** threat-plane
+signals (a **signal, not an IPS** — never blocks). See
+[`threat-intel.md`](threat-intel.md) for the feed/AUP matrix and caveats.
+
+| Variable                     | Default | Description                                                       |
+| ---------------------------- | ------- | ----------------------------------------------------------------- |
+| `NETCTL_THREATINTEL_ENABLED` | `false` | master switch (outbound feed fetches); off ⇒ no IOC code runs     |
+| `NETCTL_THREATINTEL_REFRESH` | `6h`    | feed refresh cadence                                              |
+| `NETCTL_THREATINTEL_FEEDS`   | (all)   | comma-separated feed names (`spamhaus_drop`, `feodo_tracker`, `sslbl`, `sslbl_ja3`, `urlhaus`, `tor_exit`, `firehol_level1`); empty ⇒ all |
+
+**Off by default** (an outbound fetch — sovereignty / no-phone-home). The
+refresher keeps each source's **last-good** indicators, so a feed outage degrades
+gracefully and never breaks a core path.
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

@@ -142,11 +142,29 @@ func run(cmd string) error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
 
+	// Threat-intel enrichment (S28): build the shared IOC store + refresher. OFF
+	// unless configured (enabling it makes outbound feed fetches). The store
+	// enriches BOTH the TLS/cert analyzer (malicious cert/JA3) and an IP/host
+	// consumer over network results; matches are confidence-scored signals.
+	iocStore, iocRefresher, intelOn := control.BuildThreatIntel(cfg, log)
+	if intelOn {
+		g.Go(func() error { return iocRefresher.Run(gctx) })
+		g.Go(func() error {
+			return control.NewIOCConsumer(resultBus, correlator, iocStore, log).Run(gctx)
+		})
+		log.Info("threat-intel enrichment enabled", "refresh", cfg.ThreatIntelRefresh)
+	}
+
 	// TLS/cert posture (S27): analyze captured TLS from HTTPS synthetic results
 	// into threat-plane incidents (expiry/weakness + a certctl renewal handoff),
-	// reusing already-captured TLS — never re-handshaking.
+	// reusing already-captured TLS — never re-handshaking. When threat-intel is on,
+	// the analyzer also scores the leaf cert SHA1 + JA3 against IOCs (S28).
+	tlsAnalyzer := control.BuildTLSAnalyzer(cfg)
+	if iocStore != nil {
+		tlsAnalyzer.WithIntel(iocStore)
+	}
 	g.Go(func() error {
-		return control.NewTLSPostureConsumer(resultBus, correlator, control.BuildTLSAnalyzer(cfg), log).Run(gctx)
+		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).Run(gctx)
 	})
 
 	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and

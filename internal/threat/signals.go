@@ -2,6 +2,7 @@ package threat
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/imfeelingtheagi/netctl/internal/incident"
@@ -30,9 +31,18 @@ func ToSignals(tenantID string, p Posture) []incident.Signal {
 
 	out := make([]incident.Signal, 0, len(p.Findings))
 	for _, f := range p.Findings {
-		attrs := make(map[string]string, len(base))
+		attrs := make(map[string]string, len(base)+3)
 		for k, v := range base {
 			attrs[k] = v
+		}
+		// Threat-intel provenance (S28): a match carries its feed + confidence so
+		// the analyst sees WHY it fired and can tune/suppress it (signal, not block).
+		if f.Source != "" {
+			attrs["intel.source"] = f.Source
+			attrs["intel.confidence"] = strconv.Itoa(f.Confidence)
+			if f.Indicator != "" {
+				attrs["intel.indicator"] = f.Indicator
+			}
 		}
 		out = append(out, incident.Signal{
 			TenantID:   tenantID,

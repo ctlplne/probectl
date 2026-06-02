@@ -67,13 +67,20 @@ const (
 	FindingDeprecatedTLS  FindingKind = "deprecated_protocol"
 	FindingWeakCipher     FindingKind = "weak_cipher"
 	FindingCTNotLogged    FindingKind = "ct_not_logged"
+	FindingMaliciousCert  FindingKind = "malicious_cert" // leaf SHA1 in a threat-intel feed (S28)
+	FindingMaliciousJA3   FindingKind = "malicious_ja3"  // client JA3 in a threat-intel feed (S28)
 )
 
-// Finding is one posture issue.
+// Finding is one posture issue. The Source/Confidence/Indicator fields are set
+// only on threat-intel IOC-match findings (S28) — a match is a confidence-scored
+// SIGNAL with source attribution, never an automatic block (guardrail 9).
 type Finding struct {
-	Kind     FindingKind `json:"kind"`
-	Severity Severity    `json:"severity"`
-	Message  string      `json:"message"`
+	Kind       FindingKind `json:"kind"`
+	Severity   Severity    `json:"severity"`
+	Message    string      `json:"message"`
+	Source     string      `json:"source,omitempty"`     // threat-intel feed name
+	Confidence int         `json:"confidence,omitempty"` // 0..100
+	Indicator  string      `json:"indicator,omitempty"`  // the matched IOC value
 }
 
 // HandoffPayload is the certctl renewal/replace handoff for a certificate finding.
