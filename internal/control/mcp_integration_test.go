@@ -77,8 +77,14 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 
 	cfg := &config.Config{AIMaxEvidence: 50}
 	srv := NewMCPServer(cfg, quietLog(), db.Pool(), pathstore.NewMemory(), 120)
+	// A fully-capable analyst: the direct-read perms (test/incident/events) PLUS the
+	// unified-query perms the AI engine enforces (entities/metrics/topology + ai.query),
+	// matching the grant set seeded for AI-capable roles in migration 0015. Without
+	// entities.read the engine's entities domain is forbidden and the RCA finds no
+	// evidence.
 	full := &auth.Principal{TenantID: tenant, Permissions: map[string]bool{
 		"test.read": true, "incident.read": true, "events.read": true, "ai.query": true,
+		"entities.read": true, "metrics.read": true, "topology.read": true,
 	}}
 
 	// tools/list shows the full read catalog to an all-perms caller.

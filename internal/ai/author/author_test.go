@@ -28,6 +28,9 @@ func TestHeuristicAuthoring(t *testing.T) {
 	}{
 		{"monitor https://api.example.com/health", "http", "api.example.com"},
 		{"ping 8.8.8.8 every minute", "icmp", "8.8.8.8"},
+		// An explicit reachability verb wins over an incidental "site" (agent site),
+		// so the IP target stays an ICMP test, not an HTTP one.
+		{"ping 9.9.9.9 from every site", "icmp", "9.9.9.9"},
 		{"check DNS resolution for example.com", "dns", "example.com"},
 		{"tcp connect to db.internal port 5432", "tcp", "db.internal:5432"},
 		{"is shop.example.com up?", "http", "shop.example.com"},

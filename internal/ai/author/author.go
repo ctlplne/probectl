@@ -108,6 +108,10 @@ func heuristicSpec(prompt string) (testspec.Spec, string, error) {
 		switch {
 		case port > 0:
 			typ, target = portType(lower), hostPort(ip, port)
+		// An explicit reachability verb wins over generic web-ish hints like "site"
+		// (e.g. "ping 9.9.9.9 from every site" is an ICMP test, not an HTTP one).
+		case containsAny(lower, "ping", "icmp", "reachab", "alive"):
+			typ, target = "icmp", ip
 		case containsAny(lower, "http", "https", "web", "login", "site"):
 			typ, target = "http", "http://"+ip
 		default:
