@@ -10,16 +10,23 @@ function when(iso?: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
 }
 
+function fmtVal(v: unknown): string {
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
 const EXAMPLES = [
   'Why is api.example.com slow?',
   'Did a routing change affect 192.0.2.0/24?',
   'What caused the latest incident?',
 ]
 
-/** The AI assistant surface (S24, design-led): an ask box and a cited,
- *  trust-cued root-cause answer, built on the S8a design system. PR1 establishes
- *  correctness + citations + the trust cues (confidence, provenance, citation
- *  chips); later PRs iterate the experience (streaming, evidence reading). */
+/** The AI assistant surface (S24, design-led). PR1 established correctness +
+ *  citations + trust cues; PR2 iterates the experience: citations jump to and
+ *  highlight the exact cited signal, evidence is grouped by plane with a "cited
+ *  by" backlink and expandable raw detail, the trust summary is sharper, and
+ *  feedback takes an optional note. Built on the S8a design system. */
 export function AskPage() {
   const [question, setQuestion] = useState('')
   const ask = useAsk()
@@ -82,8 +89,47 @@ export function AskPage() {
   )
 }
 
+interface PlaneGroup {
+  plane: string
+  items: Evidence[]
+}
+
 function AnswerView({ answer }: { answer: Answer }) {
   const feedback = useSubmitFeedback()
+  const [comment, setComment] = useState('')
+  const [highlighted, setHighlighted] = useState<string | null>(null)
+
+  // Bidirectional grounding: which findings cite each piece of evidence.
+  const citedBy = new Map<string, number[]>()
+  answer.findings.forEach((f, i) => {
+    f.citations.forEach((c) => {
+      const arr = citedBy.get(c.evidence_id) ?? []
+      arr.push(i + 1)
+      citedBy.set(c.evidence_id, arr)
+    })
+  })
+
+  // Group evidence by plane (recency-ordered within a plane) for readability.
+  const groups: PlaneGroup[] = []
+  const index = new Map<string, number>()
+  answer.evidence.forEach((e) => {
+    const plane = e.plane || e.domain || 'other'
+    let gi = index.get(plane)
+    if (gi === undefined) {
+      gi = groups.length
+      index.set(plane, gi)
+      groups.push({ plane, items: [] })
+    }
+    groups[gi].items.push(e)
+  })
+  groups.forEach((g) => g.items.sort((a, b) => (b.occurred_at ?? '').localeCompare(a.occurred_at ?? '')))
+  const planes = groups.map((g) => g.plane)
+
+  function focusEvidence(id: string) {
+    setHighlighted(id)
+    document.getElementById(`ev-${id}`)?.focus()
+  }
+
   return (
     <div className={styles.answer}>
       <Card>
@@ -97,7 +143,9 @@ function AnswerView({ answer }: { answer: Answer }) {
             <p className={styles.note}>netctl did not find enough evidence to name a confident root cause — it will not guess.</p>
           ) : null}
           <p className={styles.provenance}>
-            {`Synthesized by ${answer.model}, grounded in ${answer.evidence.length} signal(s) within your scope.`}
+            {`Synthesized by ${answer.model} · grounded in ${answer.evidence.length} signal(s) across ${planes.length} plane(s)${
+              planes.length ? ': ' + planes.join(', ') : ''
+            }.`}
           </p>
         </CardBody>
       </Card>
@@ -111,8 +159,17 @@ function AnswerView({ answer }: { answer: Answer }) {
                 <li key={i} className={styles.finding}>
                   <p className={styles.statement}>{f.statement}</p>
                   <p className={styles.cites}>
+                    <span className={styles.citeLabel}>Cited:</span>
                     {f.citations.map((c) => (
-                      <a key={c.evidence_id} href={`#ev-${c.evidence_id}`} className={styles.cite}>
+                      <a
+                        key={c.evidence_id}
+                        href={`#ev-${c.evidence_id}`}
+                        className={styles.cite}
+                        onClick={(ev) => {
+                          ev.preventDefault()
+                          focusEvidence(c.evidence_id)
+                        }}
+                      >
                         {c.evidence_id}
                       </a>
                     ))}
@@ -128,53 +185,94 @@ function AnswerView({ answer }: { answer: Answer }) {
         <Card>
           <CardHeader title="Evidence" />
           <CardBody>
-            <ul className={styles.evidence} aria-label="Evidence">
-              {answer.evidence.map((e: Evidence) => (
-                <li key={e.id} id={`ev-${e.id}`} className={styles.evItem}>
-                  <span className={styles.evId}>{e.id}</span>
-                  <div className={styles.evBody}>
-                    <div className={styles.evRow}>
-                      <Badge tone="accent">{e.plane || e.domain}</Badge>
-                      {e.severity ? <Badge tone="neutral">{e.severity}</Badge> : null}
-                      {e.occurred_at ? <span className={styles.evTime}>{when(e.occurred_at)}</span> : null}
-                    </div>
-                    <p className={styles.evTitle}>{e.title || e.ref || e.id}</p>
-                    {e.summary ? <p className={styles.evSummary}>{e.summary}</p> : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {groups.map((g) => (
+              <section key={g.plane} className={styles.planeGroup} aria-label={`${g.plane} signals`}>
+                <h3 className={styles.planeHeader}>{g.plane}</h3>
+                <ul className={styles.evidence}>
+                  {g.items.map((e) => {
+                    const cites = citedBy.get(e.id)
+                    return (
+                      <li
+                        key={e.id}
+                        id={`ev-${e.id}`}
+                        tabIndex={-1}
+                        className={[styles.evItem, highlighted === e.id ? styles.evHighlight : ''].filter(Boolean).join(' ')}
+                      >
+                        <span className={styles.evId}>{e.id}</span>
+                        <div className={styles.evBody}>
+                          <div className={styles.evRow}>
+                            {e.severity ? <Badge tone="neutral">{e.severity}</Badge> : null}
+                            {e.occurred_at ? <span className={styles.evTime}>{when(e.occurred_at)}</span> : null}
+                            {cites ? <span className={styles.citedBy}>{`Cited in finding ${cites.join(', ')}`}</span> : null}
+                          </div>
+                          <p className={styles.evTitle}>{e.title || e.ref || e.id}</p>
+                          {e.summary ? <p className={styles.evSummary}>{e.summary}</p> : null}
+                          {e.fields && Object.keys(e.fields).length > 0 ? (
+                            <details className={styles.raw}>
+                              <summary className={styles.rawSummary}>Raw signal</summary>
+                              <dl className={styles.rawFields}>
+                                {Object.entries(e.fields).map(([k, v]) => (
+                                  <div key={k} className={styles.rawRow}>
+                                    <dt>{k}</dt>
+                                    <dd>{fmtVal(v)}</dd>
+                                  </div>
+                                ))}
+                              </dl>
+                            </details>
+                          ) : null}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            ))}
           </CardBody>
         </Card>
       ) : null}
 
       <Card>
+        <CardHeader title="Feedback" />
         <CardBody>
-          <div className={styles.feedback}>
-            <span id="fb-label">Was this answer helpful?</span>
-            {feedback.isSuccess ? (
-              <span className={styles.thanks} role="status">
-                Thanks — your feedback improves future answers.
-              </span>
-            ) : (
-              <div className={styles.fbButtons} role="group" aria-labelledby="fb-label">
+          {feedback.isSuccess ? (
+            <p className={styles.thanks} role="status">
+              Thanks — your feedback improves future answers.
+            </p>
+          ) : (
+            <div className={styles.feedback}>
+              <label className={styles.fbCommentLabel} htmlFor="fb-comment">
+                Was this answer helpful? Add a note (optional).
+              </label>
+              <textarea
+                id="fb-comment"
+                className={styles.fbComment}
+                rows={2}
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="e.g. the real cause was the upstream peer"
+              />
+              <div className={styles.fbButtons} role="group" aria-label="Rate this answer">
                 <Button
                   variant="secondary"
-                  onClick={() => feedback.mutate({ answer_id: answer.id, rating: 'up', question: answer.question })}
+                  onClick={() =>
+                    feedback.mutate({ answer_id: answer.id, rating: 'up', comment: comment || undefined, question: answer.question })
+                  }
                   disabled={feedback.isPending}
                 >
                   Yes, helpful
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() => feedback.mutate({ answer_id: answer.id, rating: 'down', question: answer.question })}
+                  onClick={() =>
+                    feedback.mutate({ answer_id: answer.id, rating: 'down', comment: comment || undefined, question: answer.question })
+                  }
                   disabled={feedback.isPending}
                 >
                   No, not helpful
                 </Button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </CardBody>
       </Card>
     </div>

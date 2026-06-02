@@ -183,11 +183,30 @@
 
 .feedback {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
+  flex-direction: column;
+  gap: var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--color-text);
+}
+
+.fbCommentLabel {
+  font-weight: var(--font-weight-medium);
+}
+
+.fbComment {
+  width: 100%;
+  resize: vertical;
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.fbComment:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .fbButtons {
@@ -197,4 +216,73 @@
 
 .thanks {
   color: var(--color-success);
+}
+
+/* --- PR2: evidence reading --- */
+
+.citeLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.planeGroup {
+  margin-bottom: var(--space-4);
+}
+
+.planeHeader {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted);
+}
+
+.evHighlight {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-focus);
+}
+
+.evItem:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.citedBy {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+}
+
+.raw {
+  margin-top: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.rawSummary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+}
+
+.rawFields {
+  margin: var(--space-2) 0 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.rawRow {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.rawRow dt {
+  min-width: 8rem;
+  font-family: var(--font-mono);
+  color: var(--color-text-muted);
+}
+
+.rawRow dd {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--color-text);
+  word-break: break-word;
 }

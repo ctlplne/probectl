@@ -24,6 +24,7 @@ export interface Evidence {
   summary?: string
   ref?: string
   occurred_at?: string
+  fields?: Record<string, unknown>
 }
 
 export interface Answer {
