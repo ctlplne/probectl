@@ -82,3 +82,49 @@ func TestConsumerWritesToTSDB(t *testing.T) {
 		t.Errorf("result not queryable in TSDB: %+v", got)
 	}
 }
+
+// TestConsumerWritesEndpointResults proves the S37 follow-up: a DEM result
+// published on netctl.endpoint.results flows through the same pipeline into the
+// TSDB (the endpoint topic is no longer orphaned).
+func TestConsumerWritesEndpointResults(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	b := bus.NewMemory()
+	defer b.Close()
+	w := tsdb.NewMemory()
+	c := NewConsumer(b, w, "test", logging.New(io.Discard, "error", "json"))
+
+	done := make(chan struct{})
+	go func() { _ = c.Run(ctx); close(done) }()
+	time.Sleep(200 * time.Millisecond) // let both subscriptions establish
+
+	payload, err := proto.Marshal(&resultv1.Result{
+		TenantId: "t9", AgentId: "laptop-1", CanaryType: "endpoint.attribution", Success: false,
+		Attributes: map[string]string{"endpoint.cause": "wifi"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Publish(ctx, bus.EndpointResultsTopic, []byte("t9"), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(w.Query("netctl_probe_success", map[string]string{"tenant_id": "t9"})) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+
+	got := w.Query("netctl_probe_success", map[string]string{"tenant_id": "t9", "canary_type": "endpoint.attribution"})
+	if len(got) == 0 {
+		t.Fatalf("endpoint result not queryable in TSDB")
+	}
+	if got[0].Value != 0 { // Success=false → probe_success 0
+		t.Errorf("expected success=0 for the failed attribution, got %v", got[0].Value)
+	}
+}

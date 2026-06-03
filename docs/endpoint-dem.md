@@ -121,9 +121,10 @@ bus in a single-node dev deploy) with a tenant id.
 - **Architecture (flagged):** gateway health is derived from the first hop of the
   last-mile trace rather than a separate privileged ping — simpler, no raw
   sockets. A dedicated low-overhead gateway probe is a possible refinement.
-- **Emission:** the agent publishes to `netctl.endpoint.results`; wiring the
-  pipeline consumer to also subscribe to that topic (TSDB landing) is a small
-  follow-up, mirroring how the eBPF agent's topic consumer was incremental (S20).
+- **Emission → TSDB:** the agent publishes `resultv1.Result` to
+  `netctl.endpoint.results`, and the control-plane result pipeline consumer
+  subscribes to it (on its own consumer group) alongside `netctl.network.results`,
+  so DEM results land in the TSDB through the same path as every other canary.
 - **Out of scope (per sprint):** full real-user monitoring (RUM, S47b) and deep
   packet capture. For roaming devices behind NAT, a future option is to forward
   over the tenant-bound mTLS agent gRPC stream instead of the bus.

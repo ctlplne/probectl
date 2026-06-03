@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"sync"
 
 	"google.golang.org/protobuf/proto"
 
@@ -30,11 +31,54 @@ func NewConsumer(b bus.Bus, w tsdb.Writer, group string, log *slog.Logger) *Cons
 	return &Consumer{bus: b, tsdb: w, group: group, log: log}
 }
 
-// Run subscribes to the network-results topic and writes each result to the TSDB
-// until ctx is canceled. It blocks.
+// resultTopics are the bus topics carrying resultv1.Result that the pipeline
+// drains into the TSDB. Network-plane probe results (S6) and endpoint/DEM results
+// (S37) share the canonical result schema, so one handler serves both. Each topic
+// gets its own consumer group so their offsets are independent.
+func (c *Consumer) resultTopics() []topicGroup {
+	return []topicGroup{
+		{topic: bus.NetworkResultsTopic, group: c.group},
+		{topic: bus.EndpointResultsTopic, group: c.group + "-endpoint"},
+	}
+}
+
+type topicGroup struct{ topic, group string }
+
+// Run subscribes to every result topic and writes each result to the TSDB until
+// ctx is canceled. It blocks. The subscriptions run concurrently; a fatal error
+// on any one cancels the rest and is returned.
 func (c *Consumer) Run(ctx context.Context) error {
-	c.log.Info("result pipeline consumer starting", "topic", bus.NetworkResultsTopic, "group", c.group)
-	return c.bus.Subscribe(ctx, bus.NetworkResultsTopic, c.group, c.handle)
+	subs := c.resultTopics()
+	topics := make([]string, len(subs))
+	for i, s := range subs {
+		topics[i] = s.topic
+	}
+	c.log.Info("result pipeline consumer starting", "topics", topics, "group", c.group)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	errs := make(chan error, len(subs))
+	for _, s := range subs {
+		wg.Add(1)
+		go func(s topicGroup) {
+			defer wg.Done()
+			if err := c.bus.Subscribe(ctx, s.topic, s.group, c.handle); err != nil && ctx.Err() == nil {
+				c.log.Error("result subscription failed", "topic", s.topic, "error", err.Error())
+				errs <- err
+				cancel() // one topic's fatal error stops the others
+			}
+		}(s)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			return err // a clean ctx cancel pushes nothing → returns nil
+		}
+	}
+	return nil
 }
 
 // handle decodes one result and writes its series. Malformed messages and
