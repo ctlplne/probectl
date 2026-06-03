@@ -78,7 +78,7 @@ func writeTemp(t *testing.T, dir, name string, data []byte) string {
 	return p
 }
 
-func startTestServer(ctx context.Context, t *testing.T, pool *pgxpool.Pool) testServer {
+func startTestServer(ctx context.Context, t *testing.T, pool *pgxpool.Pool, opts ...func(*agenttransport.Server)) testServer {
 	t.Helper()
 	dir := t.TempDir()
 	ca, err := crypto.GenerateCA("netctl-test-ca", time.Hour)
@@ -95,6 +95,9 @@ func startTestServer(ctx context.Context, t *testing.T, pool *pgxpool.Pool) test
 		pool, bus.NewMemory(), nil, logging.New(io.Discard, "error", "json"))
 	if err != nil {
 		t.Fatalf("new server: %v", err)
+	}
+	for _, opt := range opts {
+		opt(srv)
 	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

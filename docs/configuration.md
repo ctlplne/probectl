@@ -127,6 +127,18 @@ material with the `internal/crypto` CA helpers. The `.proto` lives under
 `proto/netctl/agent/v1/`; regenerate Go with `make proto` (tools via
 `make proto-tools`).
 
+**Version-skew policy (S34).** At registration the control plane rejects agents
+outside the supported window, so a rolling upgrade never admits an incompatible
+agent. See [`lifecycle.md`](lifecycle.md).
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `NETCTL_AGENT_SKEW_WINDOW` | `1` | allowed minor-version skew on either side (N/N-1); the control plane at minor N accepts agents at N-1…N+1. `0` requires an exact minor match |
+| `NETCTL_AGENT_MIN_VERSION` | (none) | an explicit floor — agents older than this are rejected regardless of the window (force-retire a known-bad version) |
+
+A rejected agent gets a gRPC `FailedPrecondition` ("upgrade required"); a dev/unpinned
+build (`0.0.0-dev`) on either side skips the check.
+
 ### netctl-agent (S5)
 
 The agent is configured by a YAML file (`-config` or `NETCTL_AGENT_CONFIG`); see

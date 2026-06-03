@@ -18,6 +18,7 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/crypto"
 	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
 	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	"github.com/imfeelingtheagi/netctl/internal/lifecycle"
 	"github.com/imfeelingtheagi/netctl/internal/store"
 	"github.com/imfeelingtheagi/netctl/internal/tenancy"
 )
@@ -34,6 +35,12 @@ type service struct {
 	agents   store.Agents
 	shutdown <-chan struct{}
 	accepted atomic.Uint64 // results accepted across all StreamResults calls
+
+	// Version-skew policy (S34): the control plane is the authority on agent↔control
+	// compatibility. An agent outside the N/N-1 window is rejected at Register so a
+	// rolling upgrade never lets an incompatible agent into the fleet.
+	compat         lifecycle.Policy
+	controlVersion string
 }
 
 // Register upserts the agent into its tenant's registry. The id and tenant are
@@ -42,6 +49,16 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	id, err := identityFromContext(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
+	}
+	// Version-skew gate (S34): reject an agent outside the supported window before it
+	// joins the registry. FailedPrecondition signals "upgrade required" (retrying
+	// without upgrading won't help), distinct from a transient error.
+	if ok, reason := svc.compat.Check(svc.controlVersion, req.GetAgentVersion()); !ok {
+		svc.log.Warn("rejecting incompatible agent",
+			"tenant", id.TenantID, "agent", id.AgentID,
+			"agent_version", req.GetAgentVersion(), "control_version", svc.controlVersion, "reason", reason)
+		return nil, status.Errorf(codes.FailedPrecondition,
+			"agent version %q incompatible with control plane %q: %s", req.GetAgentVersion(), svc.controlVersion, reason)
 	}
 	name := req.GetHostname()
 	if name == "" {

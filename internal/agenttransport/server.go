@@ -15,6 +15,8 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/bus"
 	"github.com/imfeelingtheagi/netctl/internal/crypto"
 	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
+	"github.com/imfeelingtheagi/netctl/internal/lifecycle"
+	"github.com/imfeelingtheagi/netctl/internal/version"
 )
 
 // Server is the control-plane's agent-transport gRPC server. All connections are
@@ -39,10 +41,28 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 	// srvCtx is canceled on shutdown so long-lived streaming handlers wind down
 	// and GracefulStop can complete.
 	srvCtx, cancel := context.WithCancel(context.Background())
-	svc := &service{pool: pool, bus: b, broker: broker, log: log, shutdown: srvCtx.Done()}
+	svc := &service{
+		pool: pool, bus: b, broker: broker, log: log, shutdown: srvCtx.Done(),
+		compat: lifecycle.DefaultPolicy(), controlVersion: version.Get().Version,
+	}
 	gs := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)))
 	agentv1.RegisterAgentServiceServer(gs, svc)
 	return &Server{grpc: gs, log: log, cancel: cancel, svc: svc}, nil
+}
+
+// WithVersionPolicy sets the agent↔control version-skew policy (S34). The default
+// is the N/N-1 window with no explicit floor. Returns the server for chaining.
+func (s *Server) WithVersionPolicy(p lifecycle.Policy) *Server {
+	s.svc.compat = p
+	return s
+}
+
+// WithControlVersion overrides the control-plane version the skew check compares
+// against (defaults to version.Get().Version). Mainly for tests + version-pinned
+// deployments. Returns the server for chaining.
+func (s *Server) WithControlVersion(v string) *Server {
+	s.svc.controlVersion = v
+	return s
 }
 
 // AcceptedResults returns the total number of results accepted via StreamResults

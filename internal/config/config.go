@@ -58,6 +58,14 @@ type Config struct {
 	AgentTLSKeyFile  string
 	AgentTLSCAFile   string
 
+	// Version-skew policy (S34): the control plane rejects agents outside the
+	// supported window at registration, so a rolling upgrade never admits an
+	// incompatible agent. AgentSkewWindow is the allowed minor-version skew on
+	// either side (default 1 = N/N-1). AgentMinVersion, when set, is an explicit
+	// floor that retires older agents regardless of the window.
+	AgentSkewWindow int
+	AgentMinVersion string
+
 	// Result pipeline (S6): message bus + time-series writer. BusMode is memory
 	// (default, lightweight) or kafka; TSDBMode is memory (default) or prometheus
 	// (remote-write to TSDBURL). The control plane consumes the result bus and
@@ -230,6 +238,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		EnvelopeKey:         l.str("NETCTL_ENVELOPE_KEY", ""),
 		EnvelopeKeyID:       l.str("NETCTL_ENVELOPE_KEY_ID", "dev"),
 		AgentGRPCAddr:       l.str("NETCTL_AGENT_GRPC_ADDR", ""),
+		AgentSkewWindow:     l.intRange("NETCTL_AGENT_SKEW_WINDOW", 1, 0, 100),
+		AgentMinVersion:     l.str("NETCTL_AGENT_MIN_VERSION", ""),
 		AgentTLSCertFile:    l.str("NETCTL_AGENT_TLS_CERT_FILE", ""),
 		AgentTLSKeyFile:     l.str("NETCTL_AGENT_TLS_KEY_FILE", ""),
 		AgentTLSCAFile:      l.str("NETCTL_AGENT_TLS_CA_FILE", ""),

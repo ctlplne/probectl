@@ -97,6 +97,20 @@ jobs:
       - name: OpenAPI completeness gate
         run: make openapi-gate
 
+  migration-gate:
+    name: migration-gate
+    # S34, F28: zero-downtime upgrades require additive (expand/contract) migrations
+    # — release N's schema must work with N-1's code (rollback) and N's code. Rejects
+    # destructive/blocking changes (drop column, type change, rename, NOT NULL adds).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Migration expand/contract gate
+        run: make migration-gate
+
   helm-lint:
     name: helm-lint
     # S19: validate the shipped Helm chart renders for both single-tenant and

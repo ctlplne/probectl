@@ -106,7 +106,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/.
 	./internal/config/... ./internal/a2a/... ./internal/canary/... ./internal/path/... \
 	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
-	./internal/auth/... ./internal/perf/... ./internal/ebpf/... ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... \
+	./internal/auth/... ./internal/perf/... ./internal/ebpf/... ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... ./internal/lifecycle/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate
@@ -118,6 +118,10 @@ cover-gate: ## Coverage profile (integration tag, service-free) + per-package fl
 .PHONY: openapi-gate
 openapi-gate: ## OpenAPI completeness gate (S19): valid 3.1 spec + no undocumented routes.
 	GO=$(GO) bash scripts/check_openapi.sh
+
+.PHONY: migration-gate
+migration-gate: ## Migration expand/contract gate (S34): reject destructive/blocking schema changes.
+	$(GO) test -run 'TestMigrationsExpandContractCompat|TestCheckSQL|TestCheckSQLDollarQuoteNotSplit' ./internal/store/migrate/...
 
 .PHONY: perf-smoke
 perf-smoke: ## Load/perf smoke (S18a): ingest baseline (no DB) + pooled multi-tenant (needs Postgres).

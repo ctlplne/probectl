@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -56,6 +57,10 @@ type Server struct {
 	// WithDispatcher so the inbound status-sync webhook + the resolve handler can
 	// sync the operator's tooling.
 	dispatcher *notify.Dispatcher
+
+	// draining flips true at the start of a graceful shutdown so /readyz reports 503
+	// and the load balancer drains this replica before it exits (S34 zero-downtime).
+	draining atomic.Bool
 }
 
 // WithDispatcher attaches the on-call/ITSM dispatcher (S33) so the inbound
@@ -207,7 +212,10 @@ func (s *Server) Run(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
-		s.log.Info("shutting down", "timeout", s.cfg.ShutdownTimeout.String())
+		// Flip readiness to draining FIRST so the load balancer stops routing new
+		// requests here, then drain in-flight requests within the timeout (S34).
+		s.draining.Store(true)
+		s.log.Info("draining and shutting down", "timeout", s.cfg.ShutdownTimeout.String())
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 		defer cancel()
 		return s.http.Shutdown(shutdownCtx)

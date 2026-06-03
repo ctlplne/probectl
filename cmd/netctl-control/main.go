@@ -29,6 +29,7 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	"github.com/imfeelingtheagi/netctl/internal/control"
 	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/netctl/internal/lifecycle"
 	"github.com/imfeelingtheagi/netctl/internal/logging"
 	"github.com/imfeelingtheagi/netctl/internal/otel/otlp"
 	"github.com/imfeelingtheagi/netctl/internal/pipeline"
@@ -214,6 +215,9 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("agent transport: %w", err)
 		}
+		// Version-skew policy (S34): reject agents outside the N/N-1 window (or an
+		// explicit floor) at registration.
+		grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
 		g.Go(func() error { return grpcSrv.Serve(gctx, cfg.AgentGRPCAddr) })
 	}
 

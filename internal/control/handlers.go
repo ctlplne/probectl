@@ -16,8 +16,14 @@ func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) error {
 }
 
 // handleReadyz is the readiness probe: 200 when dependencies (the database) are
-// reachable, otherwise 503 via the Unavailable domain error.
+// reachable, otherwise 503 via the Unavailable domain error. During a graceful
+// shutdown it reports 503 "draining" FIRST (before in-flight requests finish), so
+// a load balancer stops routing new traffic to this replica — the key to a
+// zero-downtime rolling upgrade (S34): drain, then exit.
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
+	if s.draining.Load() {
+		return apierror.Unavailable("draining")
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if s.pinger != nil {
