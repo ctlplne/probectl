@@ -16,6 +16,7 @@ import (
 	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
 	"github.com/imfeelingtheagi/netctl/internal/incident"
 	"github.com/imfeelingtheagi/netctl/internal/opendata"
+	"github.com/imfeelingtheagi/netctl/internal/siem"
 )
 
 // BuildThreatIntel builds the S28 IOC store + refresher from config. It returns
@@ -48,6 +49,7 @@ type IOCConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	store      *opendata.IOCStore
+	siem       *siem.Forwarder
 	log        *slog.Logger
 }
 
@@ -58,6 +60,13 @@ func NewIOCConsumer(b bus.Bus, c *incident.Correlator, store *opendata.IOCStore,
 		log = slog.Default()
 	}
 	return &IOCConsumer{bus: b, correlator: c, store: store, log: log}
+}
+
+// WithSIEM forwards each IOC-match signal to the SIEM (S32) in addition to
+// correlating it into an incident. nil disables it (the default).
+func (cs *IOCConsumer) WithSIEM(fw *siem.Forwarder) *IOCConsumer {
+	cs.siem = fw
+	return cs
 }
 
 // Run subscribes to the network-results topic until ctx is canceled.
@@ -72,6 +81,11 @@ func (cs *IOCConsumer) Run(ctx context.Context) error {
 			for _, sig := range cs.signals(&r) {
 				if _, err := cs.correlator.Ingest(ctx, sig); err != nil {
 					cs.log.Warn("correlate ioc match into incident failed", "error", err)
+				}
+				if cs.siem != nil {
+					if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
+						cs.log.Warn("forward ioc match to siem failed", "error", err)
+					}
 				}
 			}
 			return nil

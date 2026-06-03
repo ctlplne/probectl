@@ -144,6 +144,20 @@ func run(cmd string) error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
 
+	// SIEM export (S32): forward the audit stream + threat-plane signals to the
+	// SOC's SIEM. OFF unless configured (an outbound connection to the operator's
+	// endpoint). One delivery worker drains a bounded buffer with retry; a poller
+	// streams each tenant's audit log from a durable per-tenant cursor so a restart
+	// neither drops nor re-floods. siemFwd is nil when disabled (WithSIEM no-op).
+	siemFwd, siemOn := control.BuildSIEM(cfg, log)
+	if siemOn {
+		g.Go(func() error { return siemFwd.Run(gctx) })
+		g.Go(func() error {
+			return control.NewSIEMAuditPoller(db.Pool(), siemFwd, cfg.SIEMRedactKeys, cfg.SIEMPollInterval, log).Run(gctx)
+		})
+		log.Info("siem export enabled", "preset", cfg.SIEMPreset, "poll", cfg.SIEMPollInterval)
+	}
+
 	// Threat-intel enrichment (S28): build the shared IOC store + refresher. OFF
 	// unless configured (enabling it makes outbound feed fetches). The store
 	// enriches BOTH the TLS/cert analyzer (malicious cert/JA3) and an IP/host
@@ -152,7 +166,7 @@ func run(cmd string) error {
 	if intelOn {
 		g.Go(func() error { return iocRefresher.Run(gctx) })
 		g.Go(func() error {
-			return control.NewIOCConsumer(resultBus, correlator, iocStore, log).Run(gctx)
+			return control.NewIOCConsumer(resultBus, correlator, iocStore, log).WithSIEM(siemFwd).Run(gctx)
 		})
 		log.Info("threat-intel enrichment enabled", "refresh", cfg.ThreatIntelRefresh)
 	}
@@ -166,7 +180,7 @@ func run(cmd string) error {
 		tlsAnalyzer.WithIntel(iocStore)
 	}
 	g.Go(func() error {
-		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).Run(gctx)
+		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).WithSIEM(siemFwd).Run(gctx)
 	})
 
 	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and

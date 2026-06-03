@@ -143,6 +143,22 @@ type Config struct {
 	ThreatIntelRefresh time.Duration
 	ThreatIntelFeeds   []string
 
+	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
+	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
+	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
+	// auth scheme (splunk/sentinel/elastic/chronicle/generic); SIEMFormat pins the
+	// wire format (syslog/cef/ecs/otlp; empty → the preset's native default).
+	// SIEMPollInterval is the audit-drain cadence; SIEMRedactKeys are audit data keys
+	// scrubbed before export (PII/secret governance) on top of the built-in denylist.
+	SIEMEnabled      bool
+	SIEMPreset       string
+	SIEMFormat       string
+	SIEMEndpoint     string
+	SIEMToken        string
+	SIEMPollInterval time.Duration
+	SIEMBufferSize   int
+	SIEMRedactKeys   []string
+
 	// Change intelligence (S29): inbound, per-provider-signed change webhooks. Each
 	// entry maps a public webhook id (the URL selector) to a tenant + provider +
 	// HMAC/token secret. The tenant is bound to the credential, never the payload,
@@ -225,6 +241,15 @@ func Load(getenv func(string) string) (*Config, error) {
 		ThreatIntelEnabled:  l.boolean("NETCTL_THREATINTEL_ENABLED", false),
 		ThreatIntelRefresh:  l.dur("NETCTL_THREATINTEL_REFRESH", 6*time.Hour),
 		ThreatIntelFeeds:    l.list("NETCTL_THREATINTEL_FEEDS"),
+
+		SIEMEnabled:      l.boolean("NETCTL_SIEM_ENABLED", false),
+		SIEMPreset:       l.enum("NETCTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),
+		SIEMFormat:       l.enum("NETCTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp"),
+		SIEMEndpoint:     l.str("NETCTL_SIEM_ENDPOINT", ""),
+		SIEMToken:        l.str("NETCTL_SIEM_TOKEN", ""),
+		SIEMPollInterval: l.dur("NETCTL_SIEM_POLL_INTERVAL", 30*time.Second),
+		SIEMBufferSize:   l.intRange("NETCTL_SIEM_BUFFER", 1024, 1, 1_000_000),
+		SIEMRedactKeys:   l.list("NETCTL_SIEM_REDACT_KEYS"),
 
 		ChangeWebhooks:          l.changeWebhooks("NETCTL_CHANGE_WEBHOOKS"),
 		ChangeCorrelationWindow: l.dur("NETCTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour),

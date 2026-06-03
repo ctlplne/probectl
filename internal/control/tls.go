@@ -11,6 +11,7 @@ import (
 	"github.com/imfeelingtheagi/netctl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
 	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/netctl/internal/siem"
 	"github.com/imfeelingtheagi/netctl/internal/threat"
 )
 
@@ -36,6 +37,7 @@ type TLSPostureConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	analyzer   *threat.Analyzer
+	siem       *siem.Forwarder
 	log        *slog.Logger
 }
 
@@ -45,6 +47,13 @@ func NewTLSPostureConsumer(b bus.Bus, c *incident.Correlator, a *threat.Analyzer
 		log = slog.Default()
 	}
 	return &TLSPostureConsumer{bus: b, correlator: c, analyzer: a, log: log}
+}
+
+// WithSIEM forwards each TLS/cert posture signal to the SIEM (S32) in addition to
+// correlating it into an incident. nil disables it (the default).
+func (cs *TLSPostureConsumer) WithSIEM(fw *siem.Forwarder) *TLSPostureConsumer {
+	cs.siem = fw
+	return cs
 }
 
 // Run subscribes until ctx is canceled.
@@ -59,6 +68,11 @@ func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
 			for _, sig := range cs.signals(ctx, &r) {
 				if _, err := cs.correlator.Ingest(ctx, sig); err != nil {
 					cs.log.Warn("correlate tls posture into incident failed", "error", err)
+				}
+				if cs.siem != nil {
+					if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
+						cs.log.Warn("forward tls posture to siem failed", "error", err)
+					}
 				}
 			}
 			return nil

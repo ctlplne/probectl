@@ -700,6 +700,29 @@ tenant-bound to the credential**; an unsigned or forged event is rejected before
 storage, and one tenant cannot inject another's changes. Webhook secrets are
 runtime config — inject them from a secret manager, never commit them.
 
+### SIEM export (S32)
+
+Forward the **audit stream** and **threat-plane signals** to a SOC's SIEM over
+hardened TLS. netctl is the **forwarder, not a SIEM** — events are rendered into a
+standard format and pushed; nothing is auto-blocked. See [`siem.md`](siem.md) for
+formats, delivery guarantees, and per-SIEM setup.
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `NETCTL_SIEM_ENABLED` | `false` | master switch (an outbound connection to your SIEM); off ⇒ no SIEM code runs |
+| `NETCTL_SIEM_PRESET` | `generic` | SIEM adapter: `generic`, `splunk`, `sentinel`, `elastic`, `chronicle` (sets the auth scheme + default format) |
+| `NETCTL_SIEM_FORMAT` | (preset) | wire format: `syslog` (RFC 5424), `cef`, `ecs`, `otlp`; empty ⇒ the preset's native default (Elastic⇒ecs, Chronicle⇒otlp, else cef) |
+| `NETCTL_SIEM_ENDPOINT` | (none) | HTTPS ingest URL (e.g. the Splunk HEC / Sentinel / Chronicle / Elasticsearch endpoint). Required when enabled |
+| `NETCTL_SIEM_TOKEN` | (none) | ingest credential (Splunk ⇒ `Splunk <tok>`, Elastic ⇒ `ApiKey <tok>`, others ⇒ `Bearer <tok>`). Inject from a secret manager |
+| `NETCTL_SIEM_POLL_INTERVAL` | `30s` | audit-stream drain cadence |
+| `NETCTL_SIEM_BUFFER` | `1024` | threat-signal buffer; full ⇒ producers block (backpressure, never drop) |
+| `NETCTL_SIEM_REDACT_KEYS` | (none) | extra audit `data` keys to scrub (on top of the built-in secret/PII denylist) |
+
+**Off by default** (an outbound connection — sovereignty / no-phone-home). Audit
+forwarding resumes from a **durable per-tenant cursor**, and delivery **retries
+without dropping** under a SIEM outage. Exported audit events are **PII/secret
+redacted** (built-in denylist + `NETCTL_SIEM_REDACT_KEYS`).
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext
