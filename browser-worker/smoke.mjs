@@ -15,6 +15,9 @@ function assert(cond, msg) {
 
 function startApp() {
   const srv = http.createServer((req, res) => {
+    // Serve real HTML so the browser builds a DOM (without a Content-Type the
+    // browser renders the markup as plain text and the form inputs never exist).
+    res.setHeader("content-type", "text/html; charset=utf-8");
     if (req.url.startsWith("/login")) {
       if (req.method === "GET") {
         res.end(`<form method=post action="/login">
