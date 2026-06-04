@@ -70,14 +70,14 @@ func TestFlowCapacityAndAnomalyAPI(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("capacity status = %d body=%s", rec.Code, rec.Body.String())
 	}
-	var cap struct {
+	var capResp struct {
 		Items []flowstore.CapacityPoint `json:"items"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &cap); err != nil || len(cap.Items) == 0 {
-		t.Fatalf("capacity decode: %v items=%d", err, len(cap.Items))
+	if err := json.Unmarshal(rec.Body.Bytes(), &capResp); err != nil || len(capResp.Items) == 0 {
+		t.Fatalf("capacity decode: %v items=%d", err, len(capResp.Items))
 	}
-	if cap.Items[0].Exporter != "r1" {
-		t.Errorf("capacity = %+v", cap.Items[0])
+	if capResp.Items[0].Exporter != "r1" {
+		t.Errorf("capacity = %+v", capResp.Items[0])
 	}
 
 	rec = do(srv, http.MethodGet, "/v1/flows/anomalies?window=1h&k=3")

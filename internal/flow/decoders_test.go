@@ -225,7 +225,9 @@ func TestNetFlow9Hostile(t *testing.T) {
 	// Cache cap: 8 templates max; the 9th evicts rather than grows.
 	for i := 0; i < 12; i++ {
 		tid := uint16(300 + i)
-		d.Decode(buildNF9Template(0, unix, 7, tid, [][2]uint16{{ieProtocol, 1}}), exporter, testTime)
+		if _, _, err := d.Decode(buildNF9Template(0, unix, 7, tid, [][2]uint16{{ieProtocol, 1}}), exporter, testTime); err != nil {
+			t.Fatalf("template %d: %v", tid, err)
+		}
 	}
 	if d.TemplateCount() > 8 {
 		t.Errorf("template cache grew past cap: %d", d.TemplateCount())

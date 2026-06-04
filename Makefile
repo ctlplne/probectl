@@ -160,11 +160,8 @@ perf-smoke: ## Load/perf smoke (S18a): ingest baseline (no DB) + pooled multi-te
 	$(GO) test -tags=integration -count=1 -v -run '^TestPooledMultiTenant$$' ./internal/perf/
 
 .PHONY: fuzz-smoke
-fuzz-smoke: ## Run each fuzz target briefly to catch crashers (CI smoke).
-	$(GO) test -run=^$$ -fuzz=^FuzzParseICMPv4$$     -fuzztime=15s ./internal/path/
-	$(GO) test -run=^$$ -fuzz=^FuzzParseTimeExceeded$$ -fuzztime=15s ./internal/path/
-	$(GO) test -run=^$$ -fuzz=^FuzzEmbeddedEcho$$     -fuzztime=10s ./internal/path/
-	$(GO) test -run=^$$ -fuzz=^FuzzIngest$$           -fuzztime=15s ./internal/bgp/
+fuzz-smoke: ## Run each fuzz target briefly to catch crashers (CI smoke; crasher-artifact-aware).
+	GO=$(GO) bash scripts/fuzz_smoke.sh
 
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
