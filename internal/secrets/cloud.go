@@ -94,9 +94,7 @@ func (s *AWSSource) Fetch(ctx context.Context, ref Ref) (string, error) {
 		"x-amz-date:" + amzDate + "\n" +
 		"x-amz-target:" + req.Header.Get("X-Amz-Target") + "\n"
 	if s.session != "" {
-		signed = append(signed, "x-amz-security-token")
-		canonHeaders += "x-amz-security-token:" + s.session + "\n"
-		// keep alphabetical order: content-type, host, x-amz-date, x-amz-security-token, x-amz-target
+		// alphabetical order: content-type, host, x-amz-date, x-amz-security-token, x-amz-target
 		signed = []string{"content-type", "host", "x-amz-date", "x-amz-security-token", "x-amz-target"}
 		canonHeaders = "content-type:" + req.Header.Get("Content-Type") + "\n" +
 			"host:" + host + "\n" +

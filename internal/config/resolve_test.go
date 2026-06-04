@@ -52,7 +52,7 @@ func TestResolveSecretRefs(t *testing.T) {
 }
 
 func TestResolveSecretRefsFailsClosed(t *testing.T) {
-	resolve := func(_ context.Context, raw string) (string, error) {
+	resolve := func(context.Context, string) (string, error) {
 		return "", fmt.Errorf("secrets: resolve vault:kv/sso#…: backend unavailable")
 	}
 	c := &Config{SIEMToken: "vault:kv/siem#token"}

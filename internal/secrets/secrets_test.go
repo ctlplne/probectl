@@ -169,7 +169,7 @@ func TestVaultKV2AndAppRole(t *testing.T) {
 			fmt.Fprint(w, `{"auth":{"client_token":"approle-tok","lease_duration":600}}`)
 		case r.URL.Path == "/v1/kv/data/netops/snmp":
 			if r.Header.Get("X-Vault-Token") != "approle-tok" {
-				http.Error(w, "forbidden", 403)
+				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 			if r.Header.Get("X-Vault-Namespace") != "team-a" {
@@ -312,7 +312,7 @@ func TestAzureKeyVault(t *testing.T) {
 	})
 	mux.HandleFunc("/secrets/cmdb-secret", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer az-tok" {
-			http.Error(w, "no auth", 401)
+			http.Error(w, "no auth", http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"value":"azure-s3cret"}`)
@@ -365,7 +365,7 @@ func TestGCPSecretManager(t *testing.T) {
 	})
 	mux.HandleFunc("/v1/projects/acme-prod/secrets/snmp/versions/latest:access", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer gcp-tok" {
-			http.Error(w, "no auth", 401)
+			http.Error(w, "no auth", http.StatusUnauthorized)
 			return
 		}
 		fmt.Fprint(w, `{"payload":{"data":"Z2NwLXMzY3JldA=="}}`) // "gcp-s3cret"
