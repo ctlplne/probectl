@@ -29,6 +29,13 @@ describe('accessibility', () => {
     expect(results).toHaveNoViolations()
   })
 
+  test('the endpoints page has no axe violations', async () => {
+    const { container, findByText } = renderApp('/endpoints')
+    await findByText(/Fleet \(/)
+    const results = await axe(container)
+    expect(results).toHaveNoViolations()
+  })
+
   test('the admin/agents page has no axe violations', async () => {
     const { container, findByRole } = renderApp('/admin')
     await findByRole('heading', { name: /admin & settings/i })

@@ -128,3 +128,20 @@ bus in a single-node dev deploy) with a tenant id.
 - **Out of scope (per sprint):** full real-user monitoring (RUM, S47b) and deep
   packet capture. For roaming devices behind NAT, a future option is to forward
   over the tenant-bound mTLS agent gRPC stream instead of the bus.
+
+## The fleet surface (S-FE4)
+
+Endpoint results are additionally retained as a tenant-scoped, in-memory
+**snapshot** (the latest result per signal type per endpoint, bounded per
+tenant + per-agent session targets) by the endpoint-view consumer, and served
+at `GET /v1/endpoints` (RBAC `agent.read` — endpoints are the DEM agents;
+`collector_running=false` distinguishes an unwired consumer from an empty
+fleet). The web surface lives at `/endpoints`: the fleet list (attribution
+verdict first — "slow: WiFi / ISP / network" — with WiFi strength, gateway and
+ISP-edge RTT, cause filter + search) and a per-endpoint detail (WiFi link,
+gateway/local network, last-mile segments, browser sessions, and the
+attribution layer scores). **Privacy display contract:** identifiers the agent
+withheld (SSID/BSSID/gateway IP/public hops) are absent from the results and
+the UI renders the absence honestly — "withheld (privacy)" — never a
+re-derived or fabricated value. The snapshot rebuilds from the stream after a
+restart; history stays in the TSDB series the S37 pipeline writes.

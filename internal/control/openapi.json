@@ -2418,6 +2418,83 @@
           }
         }
       }
+    },
+    "/v1/endpoints": {
+      "get": {
+        "operationId": "listEndpoints",
+        "summary": "Endpoint DEM fleet: WiFi/gateway/last-mile health + slowdown attribution",
+        "tags": [
+          "endpoints"
+        ],
+        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence \u2014 impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. collector_running=false distinguishes an unwired consumer from an empty fleet.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The fleet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "collector_running": {
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "agent_id": {
+                            "type": "string"
+                          },
+                          "last_seen_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "cause": {
+                            "type": "string"
+                          },
+                          "summary": {
+                            "type": "string"
+                          },
+                          "confidence": {
+                            "type": "number"
+                          },
+                          "slow": {
+                            "type": "boolean"
+                          },
+                          "attribution": {
+                            "type": "object"
+                          },
+                          "wifi": {
+                            "type": "object"
+                          },
+                          "gateway": {
+                            "type": "object"
+                          },
+                          "last_mile": {
+                            "type": "object"
+                          },
+                          "sessions": {
+                            "type": "array",
+                            "items": {
+                              "type": "object"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

@@ -2,6 +2,7 @@ import type { ReactNode, SVGProps } from 'react'
 
 export type IconName =
   | 'targets'
+  | 'endpoints'
   | 'path'
   | 'incidents'
   | 'security'
@@ -21,6 +22,14 @@ export type IconName =
   | 'info'
 
 const paths: Record<IconName, ReactNode> = {
+  endpoints: (
+    <>
+      <rect x="4" y="6" width="16" height="10" rx="1.5" />
+      <path d="M2 19h20" />
+      <path d="M9 12.5a4.2 4.2 0 0 1 6 0" />
+      <circle cx="12" cy="14.5" r="0.6" />
+    </>
+  ),
   targets: (
     <>
       <circle cx="12" cy="12" r="8" />

@@ -29,6 +29,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
+	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
@@ -205,6 +206,9 @@ func run(cmd string) error {
 	// Threat detections (S-FE3): IOC/NDR matches recorded by the threat
 	// consumers below; served at /v1/threat/detections.
 	detections := threat.NewDetectionStore(0)
+	// Endpoint DEM views (S-FE4): latest WiFi/gateway/last-mile/attribution per
+	// endpoint, fed by the endpoint-view consumer; served at /v1/endpoints.
+	endpointViews := endpoint.NewSnapshotStore(0)
 
 	srv := control.New(cfg, log, db, db.Pool(), pathStore, nil).
 		WithDispatcher(dispatcher).
@@ -212,7 +216,8 @@ func run(cmd string) error {
 		WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
 		WithCMDB(cmdbResolver).
 		WithTLSPosture(tlsPostures).
-		WithDetections(detections)
+		WithDetections(detections).
+		WithEndpointViews(endpointViews)
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
@@ -223,6 +228,8 @@ func run(cmd string) error {
 	g.Go(func() error { return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).Run(gctx) })
 	// Device pipeline (S39): probectl.device.metrics -> TSDB.
 	g.Go(func() error { return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).Run(gctx) })
+	// Endpoint DEM view (S-FE4): probectl.endpoint.results -> snapshot store.
+	g.Go(func() error { return control.NewEndpointViewConsumer(resultBus, endpointViews, log).Run(gctx) })
 
 	// SIEM export (S32): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF unless configured (an outbound connection to the operator's

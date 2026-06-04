@@ -16,6 +16,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/cmdb"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
 	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/promapi"
@@ -89,6 +90,10 @@ type Server struct {
 	// Threat detections (S-FE3): IOC/NDR matches recorded by the threat
 	// consumers. Set via WithDetections; nil reports detections_running=false.
 	detections *threat.DetectionStore
+
+	// Endpoint DEM views (S-FE4): the snapshot store the endpoint-view consumer
+	// maintains. Set via WithEndpointViews; nil reports collector_running=false.
+	endpointViews *endpoint.SnapshotStore
 
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
