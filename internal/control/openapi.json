@@ -2264,6 +2264,77 @@
           }
         }
       }
+    },
+    "/v1/tls/posture": {
+      "get": {
+        "operationId": "listTLSPosture",
+        "summary": "TLS/certificate posture inventory (latest analyzed posture per target)",
+        "tags": [
+          "tls"
+        ],
+        "description": "The caller's tenant's certificate inventory from the S27 posture pipeline: per-target leaf certificate, protocol/cipher, weakness/CT/threat-intel findings, severity, and the verbatim certctl handoff payload. collector_running=false distinguishes an unwired collector from an empty fleet.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The inventory.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "collector_running": {
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "target": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string"
+                          },
+                          "tls_version": {
+                            "type": "string"
+                          },
+                          "cipher": {
+                            "type": "string"
+                          },
+                          "leaf": {
+                            "type": "object"
+                          },
+                          "findings": {
+                            "type": "array",
+                            "items": {
+                              "type": "object"
+                            }
+                          },
+                          "severity": {
+                            "type": "string"
+                          },
+                          "handoff": {
+                            "type": "object"
+                          },
+                          "observed_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

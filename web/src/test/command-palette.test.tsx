@@ -27,7 +27,10 @@ describe('command palette (keyboard-first)', () => {
     await user.keyboard('{Enter}')
 
     await screen.findByRole('heading', { name: /^security$/i })
-    await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
+    // The PALETTE is closed (the page itself may legitimately contain selects).
+    await waitFor(() =>
+      expect(screen.queryByRole('combobox', { name: /search commands/i })).not.toBeInTheDocument(),
+    )
     expect(trigger).toHaveFocus()
   })
 

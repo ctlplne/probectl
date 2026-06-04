@@ -70,6 +70,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/grafana/api/v1/metadata", s.handlePromMetadata, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/prometheus/federate", s.handlePromFederate, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/prometheus/write", s.handlePromWrite, permMetricsWrite},
+		{http.MethodGet, "/v1/tls/posture", s.handleTLSPosture, permThreatRead},
 		{http.MethodGet, "/v1/cmdb/lookup", s.handleCMDBLookup, permCMDBRead},
 		{http.MethodGet, "/v1/incidents/{id}/cis", s.handleIncidentCIs, permIncidentRead},
 		{http.MethodGet, "/v1/agents/{id}/ci", s.handleAgentCI, permAgentRead},

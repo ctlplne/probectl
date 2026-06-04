@@ -56,3 +56,16 @@ synthetic path is unaffected.
 
 Malicious-cert / JA3 threat-intel correlation (S28 / S42 via SSLBL); full NDR
 detections (S42). JA3 / JA3S are surfaced as observed fields, not scored here.
+
+## The posture surface (S-FE2)
+
+The analyzed posture is retained as a tenant-scoped, in-memory **inventory**
+(latest posture per target, bounded per tenant, clean certs included) and
+served at `GET /v1/tls/posture` (RBAC `threat.read`, migration 0023;
+`collector_running=false` distinguishes an unwired collector from an empty
+fleet). The web surface lives at `/security`: the certificate inventory
+(filterable by issuer/SAN text and by flag — expired/expiring/weak/self-signed/
+CT/intel), an **expiring-soon worklist** (≤30 days, soonest first), and a
+per-cert detail view whose **certctl handoff is the S27 analyzer's payload
+verbatim** (copy JSON + deep link via the payload's own URL) — never re-derived
+client-side. The inventory rebuilds from the result stream after a restart.

@@ -23,6 +23,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/threat"
 )
 
 // Discoverer runs a path discovery. The default is path.Run; tests inject a fake.
@@ -80,6 +81,10 @@ type Server struct {
 	// evaluator engine. Set via WithAlertState; a missing tenant fails closed
 	// (empty list / 503 on actions).
 	alertState map[string]AlertStateSource
+
+	// TLS/cert posture inventory (S-FE2): the store the TLS consumer maintains.
+	// Set via WithTLSPosture; nil reports collector_running=false.
+	tlsPostures *threat.PostureStore
 
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).

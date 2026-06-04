@@ -34,6 +34,7 @@ func BuildTLSAnalyzer(cfg *config.Config) *threat.Analyzer {
 // posture findings — correlating each into a threat-plane incident (feeding the
 // unified timeline + alerting, S16/S17). It NEVER re-handshakes (S27 watch-out).
 type TLSPostureConsumer struct {
+	postures   *threat.PostureStore // optional inventory (S-FE2)
 	bus        bus.Bus
 	correlator *incident.Correlator
 	analyzer   *threat.Analyzer
@@ -51,6 +52,13 @@ func NewTLSPostureConsumer(b bus.Bus, c *incident.Correlator, a *threat.Analyzer
 
 // WithSIEM forwards each TLS/cert posture signal to the SIEM (S32) in addition to
 // correlating it into an incident. nil disables it (the default).
+// WithPostureStore retains every analyzed posture (clean ones included) as the
+// tenant's certificate inventory (S-FE2). nil is a no-op.
+func (cs *TLSPostureConsumer) WithPostureStore(ps *threat.PostureStore) *TLSPostureConsumer {
+	cs.postures = ps
+	return cs
+}
+
 func (cs *TLSPostureConsumer) WithSIEM(fw *siem.Forwarder) *TLSPostureConsumer {
 	cs.siem = fw
 	return cs
@@ -65,7 +73,7 @@ func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
 				cs.log.Warn("skipping malformed result", "error", err)
 				return nil
 			}
-			for _, sig := range cs.signals(ctx, &r) {
+			for _, sig := range cs.analyzeAndRecord(ctx, &r) {
 				if _, err := cs.correlator.Ingest(ctx, sig); err != nil {
 					cs.log.Warn("correlate tls posture into incident failed", "error", err)
 				}
@@ -79,9 +87,10 @@ func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
 		})
 }
 
-// signals analyzes one result's captured TLS into threat-plane signals — nil for
-// a non-HTTPS result or a clean posture.
-func (cs *TLSPostureConsumer) signals(ctx context.Context, r *resultv1.Result) []incident.Signal {
+// analyzeAndRecord analyzes one result's captured TLS, retains the posture in
+// the inventory (clean or not — S-FE2), and returns the threat-plane signals
+// (nil for a non-HTTPS result or a clean posture).
+func (cs *TLSPostureConsumer) analyzeAndRecord(ctx context.Context, r *resultv1.Result) []incident.Signal {
 	if r.GetCanaryType() != "http" {
 		return nil
 	}
@@ -89,5 +98,9 @@ func (cs *TLSPostureConsumer) signals(ctx context.Context, r *resultv1.Result) [
 	if !ok {
 		return nil
 	}
-	return threat.ToSignals(r.GetTenantId(), cs.analyzer.Analyze(ctx, obs))
+	posture := cs.analyzer.Analyze(ctx, obs)
+	if cs.postures != nil {
+		cs.postures.Record(r.GetTenantId(), posture)
+	}
+	return threat.ToSignals(r.GetTenantId(), posture)
 }

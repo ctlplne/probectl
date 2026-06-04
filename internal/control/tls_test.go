@@ -37,7 +37,7 @@ func TestTLSPostureConsumerSignals(t *testing.T) {
 			"tls.server.cert":      base64.StdEncoding.EncodeToString(der),
 		},
 	}
-	sigs := cs.signals(context.Background(), r)
+	sigs := cs.analyzeAndRecord(context.Background(), r)
 
 	var expired *incident.Signal
 	for i := range sigs {
@@ -55,7 +55,7 @@ func TestTLSPostureConsumerSignals(t *testing.T) {
 		t.Error("an expired-cert signal should carry a certctl handoff URL")
 	}
 
-	if cs.signals(context.Background(), &resultv1.Result{CanaryType: "icmp"}) != nil {
+	if cs.analyzeAndRecord(context.Background(), &resultv1.Result{CanaryType: "icmp"}) != nil {
 		t.Error("a non-HTTP result should yield no posture signals")
 	}
 }

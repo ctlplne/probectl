@@ -22,6 +22,13 @@ describe('accessibility', () => {
     expect(results).toHaveNoViolations()
   })
 
+  test('the security/certificates page has no axe violations', async () => {
+    const { container, findByText } = renderApp('/security')
+    await findByText('Certificate inventory')
+    const results = await axe(container)
+    expect(results).toHaveNoViolations()
+  })
+
   test('the admin/agents page has no axe violations', async () => {
     const { container, findByRole } = renderApp('/admin')
     await findByRole('heading', { name: /admin & settings/i })

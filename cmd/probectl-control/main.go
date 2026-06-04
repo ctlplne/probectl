@@ -41,6 +41,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/threat"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
@@ -197,11 +198,17 @@ func run(cmd string) error {
 		log.Info("alert evaluation disabled (no in-process TSDB query backend in this mode)")
 	}
 
+	// TLS/cert posture inventory (S-FE2): the latest analyzed posture per
+	// (tenant, target), bounded per tenant; written by the S27 consumer below
+	// and served at /v1/tls/posture.
+	tlsPostures := threat.NewPostureStore(0)
+
 	srv := control.New(cfg, log, db, db.Pool(), pathStore, nil).
 		WithDispatcher(dispatcher).
 		WithFlowStore(flowStore).
 		WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
-		WithCMDB(cmdbResolver)
+		WithCMDB(cmdbResolver).
+		WithTLSPosture(tlsPostures)
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
@@ -249,7 +256,10 @@ func run(cmd string) error {
 		tlsAnalyzer.WithIntel(iocStore)
 	}
 	g.Go(func() error {
-		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).WithSIEM(siemFwd).Run(gctx)
+		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).
+			WithSIEM(siemFwd).
+			WithPostureStore(tlsPostures). // certificate inventory (S-FE2)
+			Run(gctx)
 	})
 
 	if cfg.AgentTransportEnabled() {
