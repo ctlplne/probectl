@@ -1,5 +1,5 @@
 // Package scim implements the SCIM 2.0 (RFC 7643 schema / RFC 7644 protocol) wire
-// types and patch semantics for netctl's enterprise identity lifecycle (S31, F25).
+// types and patch semantics for probectl's enterprise identity lifecycle (S31, F25).
 // It is PURE — no datastore or HTTP-server dependency — so the schema mapping and
 // the (strict, IdP-sensitive) PATCH handling are independently testable. The
 // control plane maps these types to/from the tenant-scoped user/role store.
@@ -82,7 +82,7 @@ type Member struct {
 	Ref     string `json:"$ref,omitempty"`
 }
 
-// Group is a SCIM core Group resource (mapped to a netctl role).
+// Group is a SCIM core Group resource (mapped to a probectl role).
 type Group struct {
 	Schemas     []string `json:"schemas"`
 	ID          string   `json:"id,omitempty"`

@@ -6,9 +6,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 // fakeBus captures the last Publish for assertions (no timing/goroutines).

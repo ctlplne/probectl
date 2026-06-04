@@ -1,5 +1,5 @@
 version: v2
-# Local plugins (hermetic — no remote BSR calls), in keeping with netctl's
+# Local plugins (hermetic — no remote BSR calls), in keeping with probectl's
 # air-gap / sovereignty posture. Install them with `make proto-tools`.
 plugins:
   - local: protoc-gen-go

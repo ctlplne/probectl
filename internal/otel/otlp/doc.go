@@ -1,6 +1,6 @@
-// Package otlp is netctl's OpenTelemetry OTLP transport (S22): a TLS-only,
+// Package otlp is probectl's OpenTelemetry OTLP transport (S22): a TLS-only,
 // authenticated, tenant-scoped receiver that ingests external OTLP, an exporter
-// that emits netctl signals as OTLP, and the signal<->OTLP-metrics conversion.
+// that emits probectl signals as OTLP, and the signal<->OTLP-metrics conversion.
 //
 // The signal schema has been OTel-shaped since S6 (internal/otel), so this
 // package EXPOSES the canonical resource/attribute mapping rather than remapping

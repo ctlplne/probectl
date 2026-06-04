@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/alert"
-	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 )
 
 func TestAlertsCRUDAPI(t *testing.T) {
@@ -20,7 +20,7 @@ func TestAlertsCRUDAPI(t *testing.T) {
 
 	// Create a threshold rule with a webhook channel carrying a secret.
 	rec := apiReq(t, h, http.MethodPost, "/v1/alerts", "", map[string]any{
-		"name": name, "metric": "netctl_probe_loss_ratio", "type": "threshold",
+		"name": name, "metric": "probectl_probe_loss_ratio", "type": "threshold",
 		"comparison": "gt", "threshold": 0.5, "severity": "critical", "for_n": 2,
 		"channels": []map[string]any{{"type": "webhook", "url": "https://hooks/x", "secret": "sekret"}},
 	})
@@ -52,7 +52,7 @@ func TestAlertsCRUDAPI(t *testing.T) {
 
 	// Update to a baseline rule, disabled.
 	rec = apiReq(t, h, http.MethodPut, "/v1/alerts/"+created.ID, "", map[string]any{
-		"name": name, "metric": "netctl_probe_rtt_avg_ms", "type": "baseline",
+		"name": name, "metric": "probectl_probe_rtt_avg_ms", "type": "baseline",
 		"window": 20, "sensitivity": 3, "severity": "warning", "enabled": false,
 	})
 	if rec.Code != http.StatusOK {

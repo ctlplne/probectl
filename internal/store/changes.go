@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/change"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/change"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // ChangeEvents is the tenant-scoped change-event repository (S29, F39). RLS

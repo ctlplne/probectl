@@ -1,0 +1,126 @@
+syntax = "proto3";
+
+// AgentService is the agent <-> control-plane transport. Every RPC requires
+// mTLS; the caller's tenant and agent id are derived from the verified client
+// certificate's SPIFFE id (spiffe://probectl/tenant/<t>/agent/<a>) — never trusted
+// from the request body (F50: an agent belongs to exactly one tenant, so every
+// result it emits is tenant-attributable at the source).
+//
+// Backward compatibility: fields are additive-only. Never renumber or reuse a
+// field tag; a CI `buf breaking` check enforces this.
+package probectl.agent.v1;
+
+option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1;agentv1";
+
+service AgentService {
+  // Register announces an agent (idempotent upsert into the registry).
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  // Attest re-proves the agent's identity (placeholder for SPIFFE node/workload
+  // attestation; SVID issuance is S-EE1).
+  rpc Attest(AttestRequest) returns (AttestResponse);
+  // Heartbeat reports liveness and the agent's current config epoch.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  // StreamConfig pushes configuration to the agent (server -> agent stream).
+  rpc StreamConfig(StreamConfigRequest) returns (stream StreamConfigResponse);
+  // StreamResults streams probe results to the control plane (agent -> server).
+  rpc StreamResults(stream StreamResultsRequest) returns (StreamResultsResponse);
+  // PollCoordination returns the next pending agent-to-agent task for the
+  // calling agent (none when empty). The control plane brokers roles (which
+  // agent listens vs initiates) and rendezvous; agents poll for their task.
+  rpc PollCoordination(PollCoordinationRequest) returns (PollCoordinationResponse);
+  // ReportEndpoint lets a responder announce where it is listening for a
+  // session, so the control plane can hand the address to the initiator.
+  rpc ReportEndpoint(ReportEndpointRequest) returns (ReportEndpointResponse);
+}
+
+message RegisterRequest {
+  string hostname = 1;
+  string agent_version = 2;
+  repeated string capabilities = 3; // compiled-in canary plugin types
+  map<string, string> labels = 4;
+}
+
+message RegisterResponse {
+  string agent_id = 1;  // authoritative, from the verified certificate
+  string tenant_id = 2; // authoritative, from the verified certificate
+  uint64 config_epoch = 3;
+  uint32 heartbeat_interval_seconds = 4;
+}
+
+message AttestRequest {
+  bytes nonce = 1;
+  map<string, string> platform = 2;
+}
+
+message AttestResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message HeartbeatRequest {
+  string agent_id = 1;     // cross-check only; the certificate is authoritative
+  uint64 config_epoch = 2; // the epoch the agent currently holds
+}
+
+message HeartbeatResponse {
+  bool config_stale = 1; // the agent should re-pull config
+  uint32 heartbeat_interval_seconds = 2;
+}
+
+message StreamConfigRequest {
+  uint64 known_epoch = 1;
+}
+
+message StreamConfigResponse {
+  uint64 epoch = 1;
+  // Test/probe definitions arrive here from S7+. Placeholder payload for now.
+  bytes payload = 2;
+}
+
+message StreamResultsRequest {
+  // Placeholder result envelope. The canonical OTel-aligned result schema arrives
+  // in S6 (proto/result.proto); StreamResults will carry it then.
+  string type = 1;
+  bytes payload = 2;
+  int64 observed_unix_nanos = 3;
+}
+
+message StreamResultsResponse {
+  uint64 accepted = 1;
+}
+
+// A2ARole is an agent's role in one agent-to-agent measurement session.
+enum A2ARole {
+  A2A_ROLE_UNSPECIFIED = 0;
+  A2A_ROLE_RESPONDER = 1; // opens a listener and echoes probes
+  A2A_ROLE_INITIATOR = 2; // connects to the responder and measures
+}
+
+message PollCoordinationRequest {}
+
+message PollCoordinationResponse {
+  bool has_task = 1;
+  A2ATask task = 2;
+}
+
+// A2ATask is one brokered agent-to-agent assignment for the calling agent.
+message A2ATask {
+  string session_id = 1;
+  A2ARole role = 2;
+  string mode = 3; // "udp" | "tcp"
+  uint32 count = 4; // probes the initiator sends
+  // Set for the initiator only: where the responder is listening.
+  string responder_host = 5;
+  uint32 responder_port = 6;
+  string peer_agent_id = 7; // the other agent in the session (for labeling)
+}
+
+message ReportEndpointRequest {
+  string session_id = 1;
+  string host = 2;
+  uint32 port = 3;
+}
+
+message ReportEndpointResponse {
+  bool accepted = 1;
+}

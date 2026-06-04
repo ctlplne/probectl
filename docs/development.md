@@ -14,9 +14,9 @@
 
 The repo is a `go.work` workspace with two modules:
 
-- **`.`** — the primary module `github.com/imfeelingtheagi/netctl` (`cmd/`,
+- **`.`** — the primary module `github.com/imfeelingtheagi/probectl` (`cmd/`,
   `internal/`, `pkg/`). Production code and unit tests live here.
-- **`./test`** — `…/netctl/test`, the black-box integration harness. Kept
+- **`./test`** — `…/probectl/test`, the black-box integration harness. Kept
   separate so heavy, test-only dependencies stay out of the main module
   (deps arrive in S6+). These tests talk to services over the wire, not via
   `internal/`.
@@ -29,7 +29,7 @@ The repo is a `go.work` workspace with two modules:
 | ------------------- | ------------------------------------------------------------ |
 | `make build`        | Build all binaries into `./bin` (ldflags-stamped version)    |
 | `make build-cross`  | Cross-compile every binary for linux amd64 + arm64 (smoke)   |
-| `make run`          | Run `netctl-control` locally                                 |
+| `make run`          | Run `probectl-control` locally                                 |
 | `make test`         | Unit tests across all workspace modules (`-race`)            |
 | `make test-isolation` | Cross-tenant isolation gate (`-tags=isolation`)            |
 | `make test-integration` | Integration tests (`-tags=integration`; needs the dev stack) |
@@ -40,7 +40,7 @@ The repo is a `go.work` workspace with two modules:
 | `make fmt`          | Auto-format Go (`gofmt`) and Python (`ruff --fix`, `black`)   |
 | `make proto`        | `buf lint` + generate Go (+ gRPC) from `proto/`              |
 | `make proto-tools`  | Install protobuf codegen tools (buf + Go plugins)           |
-| `make migrate`      | Apply DB migrations via `netctl-control migrate`             |
+| `make migrate`      | Apply DB migrations via `probectl-control migrate`             |
 | `make test-integration` | Integration tests across modules (needs a database)     |
 | `make vuln`         | `govulncheck` over Go dependencies                           |
 | `make images`       | Multi-arch (`amd64`/`arm64`) images for every component       |

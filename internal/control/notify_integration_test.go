@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/notify"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/notify"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // captureConnector records Open/Resolve calls (no HTTP), so the integration tests
@@ -145,7 +145,7 @@ func TestInboundResolveSyncsAndLoopProtected(t *testing.T) {
 
 	// Forged (bad signature) → 401, no state change.
 	bad := httptest.NewRequest(http.MethodPost, "/ingest/itsm/servicenow/snow1", bytes.NewReader(body))
-	bad.Header.Set("X-Netctl-Signature", "sha256=deadbeef")
+	bad.Header.Set("X-Probectl-Signature", "sha256=deadbeef")
 	br := httptest.NewRecorder()
 	h.ServeHTTP(br, bad)
 	if br.Code != http.StatusUnauthorized {
@@ -154,7 +154,7 @@ func TestInboundResolveSyncsAndLoopProtected(t *testing.T) {
 
 	// Valid signature → 202, incident resolved.
 	ok := httptest.NewRequest(http.MethodPost, "/ingest/itsm/servicenow/snow1", bytes.NewReader(body))
-	ok.Header.Set("X-Netctl-Signature", sign(secret, body))
+	ok.Header.Set("X-Probectl-Signature", sign(secret, body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, ok)
 	if rec.Code != http.StatusAccepted {
@@ -186,7 +186,7 @@ func TestInboundResolveSyncsAndLoopProtected(t *testing.T) {
 
 	// A duplicate inbound webhook is a no-op (incident already resolved).
 	dup := httptest.NewRequest(http.MethodPost, "/ingest/itsm/servicenow/snow1", bytes.NewReader(body))
-	dup.Header.Set("X-Netctl-Signature", sign(secret, body))
+	dup.Header.Set("X-Probectl-Signature", sign(secret, body))
 	dr := httptest.NewRecorder()
 	h.ServeHTTP(dr, dup)
 	if pd.resolved() != 1 {
@@ -214,7 +214,7 @@ func TestInboundTenantIsolation(t *testing.T) {
 	})
 	body := []byte(`{"sys_id":"shared-ref","state":"6"}`)
 	req := httptest.NewRequest(http.MethodPost, "/ingest/itsm/servicenow/a1", bytes.NewReader(body))
-	req.Header.Set("X-Netctl-Signature", sign(secret, body))
+	req.Header.Set("X-Probectl-Signature", sign(secret, body))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusAccepted {

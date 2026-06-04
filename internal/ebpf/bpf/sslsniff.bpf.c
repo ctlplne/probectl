@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0 OR BSD-3-Clause)
 //
-// netctl eBPF agent (S21) — TLS plaintext capture via uprobes.
+// probectl eBPF agent (S21) — TLS plaintext capture via uprobes.
 //
 // Attaches to the SSL library's write/read entry points to read application
 // plaintext BEFORE encryption / AFTER decryption, with no CA and no MITM

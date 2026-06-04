@@ -7,18 +7,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/ai"
-	"github.com/imfeelingtheagi/netctl/internal/ai/mcp"
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/pathstore"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/ai/mcp"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
-// NewMCPServer builds netctl's MCP server (S25) over the tenant-scoped stores, the
+// NewMCPServer builds probectl's MCP server (S25) over the tenant-scoped stores, the
 // S23 query engine, and the S24 RCA analyzer. The tools are read-only; the tenant
 // boundary then RBAC are enforced at the MCP layer AND again at the engine/stores
 // (defense in depth).

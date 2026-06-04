@@ -28,7 +28,7 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 // Std returns the standard time.Duration.
 func (d Duration) Std() time.Duration { return time.Duration(d) }
 
-// Config is the netctl-agent configuration (a YAML file plus NETCTL_AGENT_* env
+// Config is the probectl-agent configuration (a YAML file plus PROBECTL_AGENT_* env
 // overrides). It is the agent config-file schema contract.
 type Config struct {
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
@@ -111,11 +111,11 @@ func (c *Config) applyEnv() {
 			*dst = v
 		}
 	}
-	override("NETCTL_AGENT_GRPC_ADDR", &c.ControlPlane.GRPCAddr)
-	override("NETCTL_AGENT_TLS_CERT_FILE", &c.TLS.CertFile)
-	override("NETCTL_AGENT_TLS_KEY_FILE", &c.TLS.KeyFile)
-	override("NETCTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
-	override("NETCTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
+	override("PROBECTL_AGENT_GRPC_ADDR", &c.ControlPlane.GRPCAddr)
+	override("PROBECTL_AGENT_TLS_CERT_FILE", &c.TLS.CertFile)
+	override("PROBECTL_AGENT_TLS_KEY_FILE", &c.TLS.KeyFile)
+	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
+	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
 }
 
 func (c *Config) applyDefaults() {
@@ -128,7 +128,7 @@ func (c *Config) applyDefaults() {
 		c.Agent.HeartbeatInterval = Duration(30 * time.Second)
 	}
 	if c.Buffer.Dir == "" {
-		c.Buffer.Dir = "/var/lib/netctl/agent/buffer"
+		c.Buffer.Dir = "/var/lib/probectl/agent/buffer"
 	}
 	if c.Buffer.MaxRecords == 0 {
 		c.Buffer.MaxRecords = 10000

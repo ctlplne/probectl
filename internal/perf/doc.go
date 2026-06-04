@@ -1,4 +1,4 @@
-// Package perf is netctl's reusable load/perf harness (S18a, perf-foundation).
+// Package perf is probectl's reusable load/perf harness (S18a, perf-foundation).
 //
 // It drives the core path — agents → bus → stores → query — at a defined
 // synthetic scale and captures baseline numbers (ingest throughput, query
@@ -27,5 +27,5 @@
 // Placement note: the harness lives here (a reusable main-module library) rather
 // than the black-box test/ module, matching how every other integration test in
 // this repo is structured (in-module, `integration`-tagged, reaching Postgres via
-// NETCTL_DATABASE_URL). The test/ module stays reserved for full-stack soak.
+// PROBECTL_DATABASE_URL). The test/ module stays reserved for full-stack soak.
 package perf

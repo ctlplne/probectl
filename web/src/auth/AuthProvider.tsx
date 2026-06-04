@@ -29,7 +29,7 @@ export interface AuthContextValue {
 // eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext<AuthContextValue | null>(null)
 
-const DEMO_USER: User = { id: 'u_demo', name: 'Demo Operator', email: 'demo@netctl.local' }
+const DEMO_USER: User = { id: 'u_demo', name: 'Demo Operator', email: 'demo@probectl.local' }
 
 // In dev the default tenant is resolved (single-tenant install is the one-tenant
 // case); a second tenant exists only to exercise the always-visible indicator.

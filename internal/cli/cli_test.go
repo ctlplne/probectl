@@ -46,7 +46,7 @@ func run(t *testing.T, srv *httptest.Server, args ...string) (stdout, stderr str
 	t.Helper()
 	var out, errb bytes.Buffer
 	env := func(k string) string {
-		if k == "NETCTL_API_URL" {
+		if k == "PROBECTL_API_URL" {
 			return srv.URL
 		}
 		return ""
@@ -118,7 +118,7 @@ func TestCLIErrorStatusExitsNonZero(t *testing.T) {
 
 func TestCLIVersionHelpAndUnknown(t *testing.T) {
 	srv := fakeAPI(t)
-	if out, _, code := run(t, srv, "version"); code != 0 || !strings.Contains(out, "netctl") {
+	if out, _, code := run(t, srv, "version"); code != 0 || !strings.Contains(out, "probectl") {
 		t.Errorf("version: code=%d out=%s", code, out)
 	}
 	if out, _, code := run(t, srv, "help"); code != 0 || !strings.Contains(out, "Usage") {

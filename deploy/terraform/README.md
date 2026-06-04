@@ -1,13 +1,13 @@
 # deploy/terraform/
 
-Terraform modules for deploying netctl (S35, F29). The core module deploys the
+Terraform modules for deploying probectl (S35, F29). The core module deploys the
 hardened Helm chart plus the sensitive config as a Kubernetes Secret, on **any**
 Kubernetes cluster (EKS/GKE/AKS/OpenShift/k3s) — provision the cluster + managed
 Postgres with your cloud's own modules and pass the DSN in.
 
 ```
 deploy/terraform/
-├── modules/netctl/         # the reusable module (helm_release + Secret + namespace)
+├── modules/probectl/         # the reusable module (helm_release + Secret + namespace)
 │   ├── versions.tf · variables.tf · main.tf · outputs.tf
 └── examples/kubernetes/    # a root you can `terraform apply`
     ├── main.tf · variables.tf · terraform.tfvars.example
@@ -22,7 +22,7 @@ terraform init
 terraform apply
 ```
 
-## Module interface (`modules/netctl`)
+## Module interface (`modules/probectl`)
 
 ### Inputs
 
@@ -32,11 +32,11 @@ terraform apply
 | `database_url` | string (sensitive) | — (required) | Postgres DSN (`sslmode=require`) |
 | `envelope_key` | string (sensitive) | — (required) | base64 32-byte KEK (`openssl rand -base64 32`) |
 | `size` | string | `medium` | `small`/`medium`/`large` reference profile (or `""` for chart defaults) |
-| `chart` | string | `../../helm/netctl` | chart path (local) or repo/OCI ref |
+| `chart` | string | `../../helm/probectl` | chart path (local) or repo/OCI ref |
 | `chart_version` | string | `""` | pin a chart version (repo/OCI charts) |
-| `release_name` | string | `netctl` | Helm release name |
-| `namespace` / `create_namespace` | string / bool | `netctl` / `true` | target namespace |
-| `ingress_tls_secret` | string | `netctl-tls` | TLS Secret for the ingress cert |
+| `release_name` | string | `probectl` | Helm release name |
+| `namespace` / `create_namespace` | string / bool | `probectl` / `true` | target namespace |
+| `ingress_tls_secret` | string | `probectl-tls` | TLS Secret for the ingress cert |
 | `image_repository` / `image_tag` | string | `""` | image overrides |
 | `oidc_issuer` / `oidc_client_id` / `oidc_client_secret` / `oidc_redirect_url` | string | `""` | SSO config (secret goes to the Secret, not the ConfigMap) |
 | `values_files` | list(string) | `[]` | extra values files applied after the size preset |
@@ -50,7 +50,7 @@ terraform apply
 
 ### How secrets are handled
 
-The module writes `NETCTL_ENVELOPE_KEY` / `NETCTL_DATABASE_URL` (and the OIDC
+The module writes `PROBECTL_ENVELOPE_KEY` / `PROBECTL_DATABASE_URL` (and the OIDC
 client secret) into a Kubernetes `Secret` and sets the chart's
 `secrets.existingSecret` to it — so no credential is ever rendered into the
 ConfigMap or the Helm release values. Mark `database_url` / `envelope_key` /

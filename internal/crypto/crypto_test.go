@@ -14,8 +14,8 @@ func TestHashKnownVector(t *testing.T) {
 }
 
 func TestHashDeterministicAndDistinct(t *testing.T) {
-	a1 := hex.EncodeToString(Hash([]byte("netctl")))
-	a2 := hex.EncodeToString(Hash([]byte("netctl")))
+	a1 := hex.EncodeToString(Hash([]byte("probectl")))
+	a2 := hex.EncodeToString(Hash([]byte("probectl")))
 	b := hex.EncodeToString(Hash([]byte("netct1")))
 	if a1 != a2 {
 		t.Error("Hash is not deterministic")

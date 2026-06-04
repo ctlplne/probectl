@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/testspec"
+	"github.com/imfeelingtheagi/probectl/internal/testspec"
 )
 
 // Observation is one observed, potentially-monitorable endpoint — mined from the

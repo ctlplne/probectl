@@ -7,12 +7,12 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/siem"
-	"github.com/imfeelingtheagi/netctl/internal/threat"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/siem"
+	"github.com/imfeelingtheagi/probectl/internal/threat"
 )
 
 // BuildTLSAnalyzer builds the S27 TLS/cert posture analyzer from config. CT

@@ -1,4 +1,4 @@
-// Package agent is the netctl agent runtime (S5): a plugin host that runs
+// Package agent is the probectl agent runtime (S5): a plugin host that runs
 // compiled-in canaries on a schedule into a disk-backed, bounded store-and-forward
 // buffer, plus a forwarder that registers, heartbeats, and drains the buffer to
 // the control plane over mTLS (S4), reconnecting with backoff.

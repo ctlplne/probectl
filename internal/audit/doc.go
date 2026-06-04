@@ -1,4 +1,4 @@
-// Package audit is netctl's immutable, tamper-evident audit log. It keeps two
+// Package audit is probectl's immutable, tamper-evident audit log. It keeps two
 // SEPARATE hash-chained streams (CLAUDE.md §7 guardrail 7):
 //
 //   - the tenant stream (audit_events), one chain per tenant, written within a

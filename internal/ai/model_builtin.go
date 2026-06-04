@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// BuiltinModel is netctl's default synthesis backend: a deterministic,
+// BuiltinModel is probectl's default synthesis backend: a deterministic,
 // evidence-grounded root-cause synthesizer that runs entirely in-process — no
 // network, no phone-home (CLAUDE.md §7 guardrail 2). It is the first-class
 // air-gapped path and the safe default, and it never fabricates: with no

@@ -3,7 +3,7 @@ package otel
 import (
 	"testing"
 
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 func TestL7CallAttributesConformToConventions(t *testing.T) {
@@ -18,7 +18,7 @@ func TestL7CallAttributesConformToConventions(t *testing.T) {
 		attrs := L7CallAttributes(c)
 		for k := range attrs {
 			if !KnownAttributes[k] {
-				t.Errorf("protocol %s: attribute %q is not an OTel/netctl convention name", c.GetProtocol(), k)
+				t.Errorf("protocol %s: attribute %q is not an OTel/probectl convention name", c.GetProtocol(), k)
 			}
 		}
 	}

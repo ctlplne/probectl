@@ -3,7 +3,7 @@ package agenttransport
 import (
 	"testing"
 
-	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
+	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
 )
 
 // TestServiceDescriptorMethods guards the wire contract: the generated

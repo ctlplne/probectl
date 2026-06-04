@@ -1,6 +1,6 @@
 # Topology graph (S30 — F40 foundation)
 
-`internal/topology` is netctl's live, **versioned/temporal**, **tenant-scoped**
+`internal/topology` is probectl's live, **versioned/temporal**, **tenant-scoped**
 network graph. It is built from the planes this milestone produced — path (S10),
 the eBPF service map (S20), and routing (S14) — and it is the model the AI
 semantic query layer (S23) traverses for root-cause analysis, the topology view

@@ -27,7 +27,7 @@ type Alert struct {
 }
 
 // WebhookPayloadVersion identifies the outbound webhook schema.
-const WebhookPayloadVersion = "netctl.alert.v1"
+const WebhookPayloadVersion = "probectl.alert.v1"
 
 // ruleRef is the rule identity embedded in a webhook payload.
 type ruleRef struct {
@@ -36,7 +36,7 @@ type ruleRef struct {
 }
 
 // WebhookPayload is the JSON document POSTed to a webhook channel — the stable
-// outbound contract (signed with HMAC-SHA256 in the X-Netctl-Signature header
+// outbound contract (signed with HMAC-SHA256 in the X-Probectl-Signature header
 // when the channel has a secret).
 type WebhookPayload struct {
 	Version    string            `json:"version"`

@@ -1,6 +1,6 @@
 # TLS / certificate observability (S27)
 
-netctl analyzes TLS/cert posture from the data it ALREADY captures — the HTTP
+probectl analyzes TLS/cert posture from the data it ALREADY captures — the HTTP
 synthetic canary (S13) and eBPF L7 (S21) — so it never re-handshakes (the S27
 watch-out). It is the certctl-adjacent security win, cheap because the handshake
 is captured for free.
@@ -25,19 +25,19 @@ From the captured handshake + leaf certificate: **expired** / **expiring-soon**
 (< 2048 bits), **deprecated TLS** (1.0 / 1.1), **weak ciphers** (RC4 / 3DES / NULL /
 EXPORT / MD5), and an **untrusted chain** (the capturer's verification failed).
 Each finding is severity-scored and surfaced as a **threat-plane incident signal**
-— it is a SIGNAL, not an IPS (netctl never blocks traffic; CLAUDE.md §7
+— it is a SIGNAL, not an IPS (probectl never blocks traffic; CLAUDE.md §7
 guardrail 9).
 
 ## certctl handoff
 
 A certificate finding builds a **certctl handoff** payload — subject, issuer,
-SANs, serial, expiry, reason — and, when `NETCTL_CERTCTL_URL` is set, a one-click
+SANs, serial, expiry, reason — and, when `PROBECTL_CERTCTL_URL` is set, a one-click
 deep-link (`<certctl>/renew?domain=…&serial=…`) carried in the signal attributes
 for renewal / replacement.
 
 ## CT correlation (opt-in)
 
-When enabled (`NETCTL_CT_ENABLED=true`), netctl correlates a leaf's serial against
+When enabled (`PROBECTL_CT_ENABLED=true`), probectl correlates a leaf's serial against
 **Certificate Transparency** logs (crt.sh by default) and flags a serial absent
 from CT as a low-severity issuance anomaly. It is **off by default** — an external
 fetch (sovereignty / no-phone-home) — and it respects crt.sh's AUP / rate limits
@@ -46,7 +46,7 @@ error that breaks posture). See [`configuration.md`](configuration.md).
 
 ## Coverage caveat
 
-The HTTP synthetic path observes the certificate netctl's own client sees. The
+The HTTP synthetic path observes the certificate probectl's own client sees. The
 eBPF L7 path (S21) observes server-side TLS, but a **Go server's TLS terminates in
 the Go runtime**, so capturing it needs Go-runtime uprobes (the S21 caveat) — TLS
 from Go servers can be invisible to the eBPF path until those uprobes land. The

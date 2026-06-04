@@ -1,67 +1,67 @@
 # Configuration
 
-This documents netctl's configuration conventions and the local dev-stack
+This documents probectl's configuration conventions and the local dev-stack
 service contract. Concrete config **keys** are added by the sprints that
 introduce them (the control plane in S1, the agent in S5, …); every new key is
 documented here in the same PR (CLAUDE.md §6, §8).
 
 ## Conventions
 
-- **Control plane:** configured via environment variables with the `NETCTL_`
+- **Control plane:** configured via environment variables with the `PROBECTL_`
   prefix; the S1 keys are listed below.
 - **Agent:** configured via a YAML file or environment variables. Schema lands
   in S5.
 - **Secrets** are never hardcoded, logged, or placed in URLs/query strings;
   sensitive values at rest use envelope encryption (S3). See CLAUDE.md §7.
 
-## Control plane (`netctl-control`) — S1
+## Control plane (`probectl-control`) — S1
 
-Subcommands: `netctl-control [serve]` (default), `netctl-control migrate` (apply
-migrations and exit), `netctl-control version`.
+Subcommands: `probectl-control [serve]` (default), `probectl-control migrate` (apply
+migrations and exit), `probectl-control version`.
 
 | Variable                          | Default                                                              | Description                                  |
 | --------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- |
-| `NETCTL_HTTP_ADDR`                | `:8080`                                                             | API listen address                           |
-| `NETCTL_HTTP_READ_TIMEOUT`        | `15s`                                                              | HTTP read timeout                            |
-| `NETCTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
-| `NETCTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
-| `NETCTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
-| `NETCTL_DATABASE_URL`             | `postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable`    | PostgreSQL DSN (`sslmode` controls TLS)      |
-| `NETCTL_DATABASE_MAX_CONNS`       | `10`                                                               | max pool connections (1–1000)                |
-| `NETCTL_DATABASE_MIN_CONNS`       | `0`                                                                | min pool connections                         |
-| `NETCTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
-| `NETCTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
-| `NETCTL_LOG_LEVEL`                | `info`                                                             | `debug` \| `info` \| `warn` \| `error`       |
-| `NETCTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
-| `NETCTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
-| `NETCTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
-| `NETCTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; serves HTTPS when set with the key |
-| `NETCTL_TLS_KEY_FILE`             | (none)                                                            | PEM server private key (set together with the cert)        |
-| `NETCTL_ENVELOPE_KEY`             | (none)                                                            | base64-encoded 32-byte KEK for at-rest envelope encryption |
-| `NETCTL_ENVELOPE_KEY_ID`          | `dev`                                                             | identifier recorded with each sealed value                 |
-| `NETCTL_AGENT_GRPC_ADDR`          | (none)                                                            | agent gRPC listen address; enables the transport when set with mTLS |
-| `NETCTL_AGENT_TLS_CERT_FILE`      | (none)                                                            | agent-transport server certificate (PEM)                   |
-| `NETCTL_AGENT_TLS_KEY_FILE`       | (none)                                                            | agent-transport server private key (PEM)                   |
-| `NETCTL_AGENT_TLS_CA_FILE`        | (none)                                                            | CA bundle that signs agent client certificates (PEM)       |
-| `NETCTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (lightweight, in-process) \| `kafka`  |
-| `NETCTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
-| `NETCTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
-| `NETCTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
-| `NETCTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
-| `NETCTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident (S17) |
-| `NETCTL_AUTH_MODE`                | `dev`                                                            | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (trusted-header dev principal — never in production) |
-| `NETCTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime (S18)                         |
-| `NETCTL_OIDC_ISSUER`              | (none)                                                           | OIDC issuer URL; SSO discovery is performed against it (S18) |
-| `NETCTL_OIDC_CLIENT_ID`          | (none)                                                           | OIDC client ID registered with the IdP (S18)               |
-| `NETCTL_OIDC_CLIENT_SECRET`      | (none)                                                           | OIDC client secret (kept out of logs/URLs; S18)            |
-| `NETCTL_OIDC_REDIRECT_URL`       | (none)                                                           | the control plane's `/auth/callback` URL registered with the IdP (S18) |
+| `PROBECTL_HTTP_ADDR`                | `:8080`                                                             | API listen address                           |
+| `PROBECTL_HTTP_READ_TIMEOUT`        | `15s`                                                              | HTTP read timeout                            |
+| `PROBECTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
+| `PROBECTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
+| `PROBECTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
+| `PROBECTL_DATABASE_URL`             | `postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable`    | PostgreSQL DSN (`sslmode` controls TLS)      |
+| `PROBECTL_DATABASE_MAX_CONNS`       | `10`                                                               | max pool connections (1–1000)                |
+| `PROBECTL_DATABASE_MIN_CONNS`       | `0`                                                                | min pool connections                         |
+| `PROBECTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
+| `PROBECTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
+| `PROBECTL_LOG_LEVEL`                | `info`                                                             | `debug` \| `info` \| `warn` \| `error`       |
+| `PROBECTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
+| `PROBECTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
+| `PROBECTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
+| `PROBECTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; serves HTTPS when set with the key |
+| `PROBECTL_TLS_KEY_FILE`             | (none)                                                            | PEM server private key (set together with the cert)        |
+| `PROBECTL_ENVELOPE_KEY`             | (none)                                                            | base64-encoded 32-byte KEK for at-rest envelope encryption |
+| `PROBECTL_ENVELOPE_KEY_ID`          | `dev`                                                             | identifier recorded with each sealed value                 |
+| `PROBECTL_AGENT_GRPC_ADDR`          | (none)                                                            | agent gRPC listen address; enables the transport when set with mTLS |
+| `PROBECTL_AGENT_TLS_CERT_FILE`      | (none)                                                            | agent-transport server certificate (PEM)                   |
+| `PROBECTL_AGENT_TLS_KEY_FILE`       | (none)                                                            | agent-transport server private key (PEM)                   |
+| `PROBECTL_AGENT_TLS_CA_FILE`        | (none)                                                            | CA bundle that signs agent client certificates (PEM)       |
+| `PROBECTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (lightweight, in-process) \| `kafka`  |
+| `PROBECTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
+| `PROBECTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
+| `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
+| `PROBECTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
+| `PROBECTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident (S17) |
+| `PROBECTL_AUTH_MODE`                | `dev`                                                            | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (trusted-header dev principal — never in production) |
+| `PROBECTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime (S18)                         |
+| `PROBECTL_OIDC_ISSUER`              | (none)                                                           | OIDC issuer URL; SSO discovery is performed against it (S18) |
+| `PROBECTL_OIDC_CLIENT_ID`          | (none)                                                           | OIDC client ID registered with the IdP (S18)               |
+| `PROBECTL_OIDC_CLIENT_SECRET`      | (none)                                                           | OIDC client secret (kept out of logs/URLs; S18)            |
+| `PROBECTL_OIDC_REDIRECT_URL`       | (none)                                                           | the control plane's `/auth/callback` URL registered with the IdP (S18) |
 
-Invalid values fail fast: `netctl-control` reports **all** configuration problems
+Invalid values fail fast: `probectl-control` reports **all** configuration problems
 at once and exits non-zero. The database password is redacted from logs.
 
 From S2, tenant-owned tables are protected by Row-Level Security. The
-`NETCTL_DATABASE_URL` role must be able to assume the least-privilege `netctl_app`
-role (a superuser always can; otherwise run `GRANT netctl_app TO <login_role>`),
+`PROBECTL_DATABASE_URL` role must be able to assume the least-privilege `probectl_app`
+role (a superuser always can; otherwise run `GRANT probectl_app TO <login_role>`),
 which `internal/tenancy` assumes per transaction so isolation holds regardless of
 how the control plane authenticated. See [`architecture.md`](architecture.md).
 
@@ -102,7 +102,7 @@ All errors share one JSON shape and a stable domain-error → HTTP mapping:
 
 The API listens over TLS in two interchangeable ways:
 
-- **App-terminated TLS** — set `NETCTL_TLS_CERT_FILE` + `NETCTL_TLS_KEY_FILE`, and
+- **App-terminated TLS** — set `PROBECTL_TLS_CERT_FILE` + `PROBECTL_TLS_KEY_FILE`, and
   the control plane serves **HTTPS only** (TLS 1.2+, prefer 1.3; plaintext is
   refused).
 - **Ingress-terminated TLS** — leave them unset and serve HTTP behind a
@@ -113,18 +113,18 @@ All TLS and crypto policy lives in `internal/crypto`; a CI guard
 (`scripts/check_crypto_imports.sh`) forbids crypto-primitive imports elsewhere so
 a FIPS 140-3 module can be swapped in (F32). At-rest secrets use the envelope
 helper (a per-record data key wrapped by a KMS/HSM-pluggable KEK; the dev
-`StaticKeyProvider` reads `NETCTL_ENVELOPE_KEY`).
+`StaticKeyProvider` reads `PROBECTL_ENVELOPE_KEY`).
 
 ### Agent transport (S4)
 
-The agent gRPC transport (`netctl.agent.v1.AgentService`) runs when
-`NETCTL_AGENT_GRPC_ADDR` and the three `NETCTL_AGENT_TLS_*` files are set. It is
+The agent gRPC transport (`probectl.agent.v1.AgentService`) runs when
+`PROBECTL_AGENT_GRPC_ADDR` and the three `PROBECTL_AGENT_TLS_*` files are set. It is
 **mTLS-only** (`RequireAndVerifyClientCert`): an agent's tenant and id come from
 its client certificate's tenant-bound SPIFFE identity
-(`spiffe://netctl/tenant/<t>/agent/<a>`), never from the request body, so every
+(`spiffe://probectl/tenant/<t>/agent/<a>`), never from the request body, so every
 result it emits is tenant-attributable at the source (F50). Generate dev mTLS
 material with the `internal/crypto` CA helpers. The `.proto` lives under
-`proto/netctl/agent/v1/`; regenerate Go with `make proto` (tools via
+`proto/probectl/agent/v1/`; regenerate Go with `make proto` (tools via
 `make proto-tools`).
 
 **Version-skew policy (S34).** At registration the control plane rejects agents
@@ -133,19 +133,19 @@ agent. See [`lifecycle.md`](lifecycle.md).
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `NETCTL_AGENT_SKEW_WINDOW` | `1` | allowed minor-version skew on either side (N/N-1); the control plane at minor N accepts agents at N-1…N+1. `0` requires an exact minor match |
-| `NETCTL_AGENT_MIN_VERSION` | (none) | an explicit floor — agents older than this are rejected regardless of the window (force-retire a known-bad version) |
+| `PROBECTL_AGENT_SKEW_WINDOW` | `1` | allowed minor-version skew on either side (N/N-1); the control plane at minor N accepts agents at N-1…N+1. `0` requires an exact minor match |
+| `PROBECTL_AGENT_MIN_VERSION` | (none) | an explicit floor — agents older than this are rejected regardless of the window (force-retire a known-bad version) |
 
 A rejected agent gets a gRPC `FailedPrecondition` ("upgrade required"); a dev/unpinned
 build (`0.0.0-dev`) on either side skips the check.
 
-### netctl-agent (S5)
+### probectl-agent (S5)
 
-The agent is configured by a YAML file (`-config` or `NETCTL_AGENT_CONFIG`); see
-[`deploy/agent/netctl-agent.example.yml`](../deploy/agent/netctl-agent.example.yml).
+The agent is configured by a YAML file (`-config` or `PROBECTL_AGENT_CONFIG`); see
+[`deploy/agent/probectl-agent.example.yml`](../deploy/agent/probectl-agent.example.yml).
 Its tenant and id are derived from its client certificate's SPIFFE identity, not
-configured. `NETCTL_AGENT_GRPC_ADDR`, `NETCTL_AGENT_TLS_{CERT,KEY,CA}_FILE`,
-`NETCTL_AGENT_BUFFER_DIR`, and `NETCTL_AGENT_LOG_{LEVEL,FORMAT}` override the file.
+configured. `PROBECTL_AGENT_GRPC_ADDR`, `PROBECTL_AGENT_TLS_{CERT,KEY,CA}_FILE`,
+`PROBECTL_AGENT_BUFFER_DIR`, and `PROBECTL_AGENT_LOG_{LEVEL,FORMAT}` override the file.
 Results buffer to disk (`buffer.dir`, bounded by `max_records`) while the control
 plane is unreachable and drain on reconnect (at-least-once). Probing runs
 independently of connectivity, so an outage never blocks measurement.
@@ -153,20 +153,20 @@ independently of connectivity, so an outage never blocks measurement.
 ### Result pipeline (S6)
 
 A streamed result flows agent → gRPC `StreamResults` → control-plane ingest →
-result bus (`netctl.network.results`, Protobuf) → consumer → time-series writer.
-The agent sends the canonical OTel-aligned result (`proto/netctl/result/v1`); the
+result bus (`probectl.network.results`, Protobuf) → consumer → time-series writer.
+The agent sends the canonical OTel-aligned result (`proto/probectl/result/v1`); the
 control plane **re-stamps the tenant and agent id from the verified mTLS
 certificate** before publishing, so a result is always attributed to the sending
 agent's tenant regardless of payload contents (CLAUDE.md §7 guardrails 1 and 5).
 The bus key is the `tenant_id`.
 
-`NETCTL_BUS_MODE` selects the bus: `memory` (default; in-process, for the
+`PROBECTL_BUS_MODE` selects the bus: `memory` (default; in-process, for the
 lightweight <5-agent deployment and single-binary runs) or `kafka` (set
-`NETCTL_BUS_BROKERS`). `NETCTL_TSDB_MODE` selects the writer: `memory` (default;
-in-process) or `prometheus` remote-write to `NETCTL_TSDB_URL` (Prometheus with
+`PROBECTL_BUS_BROKERS`). `PROBECTL_TSDB_MODE` selects the writer: `memory` (default;
+in-process) or `prometheus` remote-write to `PROBECTL_TSDB_URL` (Prometheus with
 `--web.enable-remote-write-receiver`, or VictoriaMetrics; use an `https://` URL
-for TLS in transit). Each probe emits `netctl_probe_success`,
-`netctl_probe_duration_seconds`, and one `netctl_probe_<metric>` per custom
+for TLS in transit). Each probe emits `probectl_probe_success`,
+`probectl_probe_duration_seconds`, and one `probectl_probe_<metric>` per custom
 metric, labeled `tenant_id`, `agent_id`, `canary_type`, and `server_address`. The
 canonical signal→OTel mapping is in [`otel-mapping.md`](otel-mapping.md).
 
@@ -174,7 +174,7 @@ canonical signal→OTel mapping is in [`otel-mapping.md`](otel-mapping.md).
 
 The `icmp` canary measures echo **loss, latency, and jitter** to a `target`
 (IPv4 or IPv6). Configure it per-canary under `canaries:` (see
-[`netctl-agent.example.yml`](../deploy/agent/netctl-agent.example.yml)). The
+[`probectl-agent.example.yml`](../deploy/agent/probectl-agent.example.yml)). The
 schedule `interval` and reply `timeout` are canary fields; the rest are `params`:
 
 | Param           | Default | Meaning                                                                 |
@@ -185,8 +185,8 @@ schedule `interval` and reply `timeout` are canary fields; the rest are `params`
 | `mode`          | `batch` | `batch` (back-to-back) or `continuous` (1 packet/sec)                   |
 | `privileged`    | `false` | `true` prefers raw sockets; default is unprivileged datagram ICMP       |
 
-It emits `netctl_probe_loss_ratio`, `netctl_probe_rtt_{min,avg,max,stddev}_ms`,
-`netctl_probe_jitter_ms`, and `netctl_probe_packets_{sent,received}`. A probe with
+It emits `probectl_probe_loss_ratio`, `probectl_probe_rtt_{min,avg,max,stddev}_ms`,
+`probectl_probe_jitter_ms`, and `probectl_probe_packets_{sent,received}`. A probe with
 100% loss reports `success=false` (target unreachable); partial loss is a success
 with a non-zero loss ratio. **Continuous mode** records a per-second drop-timing
 record as result attributes (`icmp.dropped_seqs`, `icmp.drop_send_offsets_ms`) —
@@ -196,7 +196,7 @@ carried as OTel attributes, not TSDB labels, so they don't widen cardinality.
 (`IPPROTO_ICMP`), which on Linux requires the agent's group to be within
 `net.ipv4.ping_group_range` (e.g. `sysctl -w net.ipv4.ping_group_range="0
 2147483647"`). Alternatively grant raw-socket capability
-(`setcap cap_net_raw+ep /usr/bin/netctl-agent`, or run with `CAP_NET_RAW`) and set
+(`setcap cap_net_raw+ep /usr/bin/probectl-agent`, or run with `CAP_NET_RAW`) and set
 `privileged: "true"`. The canary tries the preferred socket and falls back to the
 other; if neither can be opened it returns an internal error (the probe is not
 silently reported as loss).
@@ -208,13 +208,13 @@ The `tcp` and `udp` canaries are agent-to-server probes. Configure a `target` of
 
 The **`tcp`** canary measures **connect latency + reachability** (a connect-based,
 unprivileged equivalent of a TCP-SYN test): it establishes a connection and times
-the handshake, emitting `netctl_probe_connect_{min,avg,max,stddev}_ms`,
-`netctl_probe_jitter_ms`, and `netctl_probe_loss_ratio` (failed connects = loss;
+the handshake, emitting `probectl_probe_connect_{min,avg,max,stddev}_ms`,
+`probectl_probe_jitter_ms`, and `probectl_probe_loss_ratio` (failed connects = loss;
 all-failed = `success=false`).
 
 The **`udp`** canary is an **echo round-trip** probe: it sends token-tagged
-datagrams and matches the echoes, emitting `netctl_probe_rtt_*` + loss. It needs a
-target that echoes (a UDP echo service, or a netctl agent-to-agent responder); a
+datagrams and matches the echoes, emitting `probectl_probe_rtt_*` + loss. It needs a
+target that echoes (a UDP echo service, or a probectl agent-to-agent responder); a
 non-echoing target reports as 100% loss. `params.payload_bytes` (≥10) sets the
 datagram size.
 
@@ -237,8 +237,8 @@ optional DNSSEC verdict**. The `target` is the **query name**. Parameters:
 TLS certificate (TLS 1.2+); DoH posts an RFC 8484 `application/dns-message` query
 over HTTPS.
 
-In **resolver mode** the canary emits `netctl_probe_dns_query_ms` (round-trip) and
-`netctl_probe_dns_answers` (answer count), with `dns.rcode` and a compact
+In **resolver mode** the canary emits `probectl_probe_dns_query_ms` (round-trip) and
+`probectl_probe_dns_answers` (answer count), with `dns.rcode` and a compact
 `dns.answer` summary as attributes. The probe is `success=false` on a non-`NOERROR`
 rcode or an empty answer.
 
@@ -246,15 +246,15 @@ With `dnssec: "true"` the canary requests DNSSEC records (the DO bit) and
 **validates the zone's `RRSIG` over the answer against the zone `DNSKEY`** — it
 does **not** trust the resolver's AD bit. The verdict lands in the `dns.dnssec`
 attribute (`secure`, `insecure` for an unsigned zone, or `bogus`) and
-`netctl_probe_dns_dnssec_secure` (1/0); a **bogus** result (tampered, expired, or
+`probectl_probe_dns_dnssec_secure` (1/0); a **bogus** result (tampered, expired, or
 wrong-key signature) fails the probe. Validation verifies the signature on the
 answer RRset; full chain-to-root anchoring is a later refinement.
 
 In **trace mode** the canary performs an **iterative delegation walk** from the
 root hints, following `NS`/glue referrals down to the authoritative server (UDP,
 capped iterations, with a recursive fallback when a referral ships no glue). It
-emits `netctl_probe_dns_query_ms` (total walk time) and
-`netctl_probe_dns_trace_hops`, with the delegation chain in the `dns.trace`
+emits `probectl_probe_dns_query_ms` (total walk time) and
+`probectl_probe_dns_trace_hops`, with the delegation chain in the `dns.trace`
 attribute. DNS-exfiltration detection and open-data baselines are out of scope here
 (S42 / open-data sprints).
 
@@ -277,11 +277,11 @@ breakdown** and captures **TLS handshake details** for the TLS-posture plane
 `expect_status` is a comma list of exact codes (`200`), classes (`2xx`), and
 inclusive ranges (`200-204`); a response outside the set is `success=false` (the
 status is still reported). The probe emits the timing breakdown as metrics —
-`netctl_probe_http_dns_ms` (resolution), `netctl_probe_http_connect_ms` (TCP
-connect), `netctl_probe_http_tls_ms` (TLS handshake), `netctl_probe_http_ttfb_ms`
-(time to first byte), and `netctl_probe_http_total_ms` — plus
-`netctl_probe_http_status`, `netctl_probe_http_content_bytes`, and
-`netctl_probe_http_throughput_kbps`. A phase that does not occur (no DNS for an IP
+`probectl_probe_http_dns_ms` (resolution), `probectl_probe_http_connect_ms` (TCP
+connect), `probectl_probe_http_tls_ms` (TLS handshake), `probectl_probe_http_ttfb_ms`
+(time to first byte), and `probectl_probe_http_total_ms` — plus
+`probectl_probe_http_status`, `probectl_probe_http_content_bytes`, and
+`probectl_probe_http_throughput_kbps`. A phase that does not occur (no DNS for an IP
 target, no TLS for `http://`) is omitted rather than reported as zero. The resolved
 server IP is captured as the `network.peer.address` attribute, which **correlates
 the result to path/traceroute data** for the same destination (S10).
@@ -289,12 +289,12 @@ the result to path/traceroute data** for the same destination (S10).
 **TLS capture (for S27).** On HTTPS the canary records the negotiated
 `tls.protocol.version` and `tls.cipher`, the leaf certificate's
 `tls.server.{subject,issuer,not_before,not_after,san}`, the chain shape
-(`tls.server.chain`), and a `netctl_probe_http_tls_cert_expiry_days` metric
+(`tls.server.chain`), and a `probectl_probe_http_tls_cert_expiry_days` metric
 (negative once expired). It verifies the chain itself (hostname + trust, honoring
 `ca_file`) **after** capturing the certificate, so the handshake details are
 recorded **even when the certificate is invalid or expired** — an invalid cert
 fails the probe but its details are still attached. Set `insecure_skip_verify:
-"true"` to capture posture without failing the availability check. netctl performs
+"true"` to capture posture without failing the availability check. probectl performs
 no TLS *posture analysis* here (issuer trust, weak-cipher/expiry policy, CT) — that
 is S27, which consumes these captured fields.
 
@@ -307,10 +307,10 @@ responder's endpoint to the initiator, and hands each agent its task when it
 polls (`PollCoordination` / `ReportEndpoint`). The measurement is TWAMP-lite: the
 initiator timestamps each probe (T1), the responder stamps receive/send (T2/T3)
 and echoes, and the initiator stamps receive (T4), yielding **round-trip**
-(`netctl_probe_rtt_*`) plus **forward** and **reverse** one-way delay
-(`netctl_probe_forward_avg_ms`, `netctl_probe_reverse_avg_ms`). The responder also
-reports forward-direction delivery (`netctl_probe_packets_received`,
-`netctl_probe_loss_ratio`), so both agents and both directions are observed.
+(`probectl_probe_rtt_*`) plus **forward** and **reverse** one-way delay
+(`probectl_probe_forward_avg_ms`, `probectl_probe_reverse_avg_ms`). The responder also
+reports forward-direction delivery (`probectl_probe_packets_received`,
+`probectl_probe_loss_ratio`), so both agents and both directions are observed.
 
 Enable participation in the agent's `a2a` block: `enabled: true`,
 `advertise_host` (the address peers use to reach this agent's responder),
@@ -343,12 +343,12 @@ consumes them.
 
 The BGP plane is a Python analyzer (`analyzer/`) plus a Go bridge (`internal/bgp`);
 see [`architecture.md`](architecture.md). The analyzer ingests **public** collector
-data and emits `netctl.bgp.events`:
+data and emits `probectl.bgp.events`:
 
 ```sh
-python -m netctl_analyzer --config config.json --mrt rib.mrt        # RouteViews/RIS dump
-python -m netctl_analyzer --config config.json --replay cap.jsonl   # recorded RIS Live
-python -m netctl_analyzer --config config.json --ris-live           # live RIS Live websocket
+python -m probectl_analyzer --config config.json --mrt rib.mrt        # RouteViews/RIS dump
+python -m probectl_analyzer --config config.json --replay cap.jsonl   # recorded RIS Live
+python -m probectl_analyzer --config config.json --ris-live           # live RIS Live websocket
 ```
 
 The JSON config is **per tenant** (`tenant_id` is required — every event carries
@@ -363,9 +363,9 @@ it, and the bridge rejects any event without one):
 | `collector` | collector label recorded on events (e.g. `rrc00`) |
 | `rpki_vrp_file` / `rpki_vrp_url` | a `rpki-client`/Routinator VRP JSON export for RFC 6811 validation (absent → `unknown`) |
 
-The analyzer emits `netctl.bgp.events` as **JSON Lines**; the Go bridge tails that
+The analyzer emits `probectl.bgp.events` as **JSON Lines**; the Go bridge tails that
 stream, validates the tenant, and republishes each as the canonical
-`netctl.bgp.v1.BGPEvent` protobuf onto the bus (topic `netctl.bgp.events`, keyed by
+`probectl.bgp.v1.BGPEvent` protobuf onto the bus (topic `probectl.bgp.events`, keyed by
 tenant). Event types: `origin_change` (old/new origin + AS path), `possible_hijack`,
 `possible_leak`, `rpki_invalid`; each carries an RPKI status (`valid` / `invalid` /
 `not_found` / `unknown`), a severity, and a confidence — they are **signals**, not
@@ -407,14 +407,14 @@ treated as untrusted (CLAUDE.md §7 guardrails 10, 12). Open data is ingested
 The alerting engine (`internal/alert`) evaluates rules over the TSDB and notifies
 channels; see [`architecture.md`](architecture.md). Rules are CRUD'd via
 **`/v1/alerts`** (tenant-scoped) and the engine runs in the control plane, ticking
-every `NETCTL_ALERT_EVAL_INTERVAL` (default `30s`).
+every `PROBECTL_ALERT_EVAL_INTERVAL` (default `30s`).
 
 A rule targets a metric series and is either a **threshold** or a **baseline**
 rule:
 
 | Field | Applies | Meaning |
 | ----- | ------- | ------- |
-| `metric` + `match` | both | the TSDB metric (e.g. `netctl_probe_loss_ratio`) and label matchers |
+| `metric` + `match` | both | the TSDB metric (e.g. `probectl_probe_loss_ratio`) and label matchers |
 | `type` | both | `threshold` \| `baseline` |
 | `comparison` + `threshold` | threshold | `gt`/`lt`/`gte`/`lte`/`eq`/`neq` vs a bound |
 | `window` + `sensitivity` | baseline | rolling-history size and deviation (in std-devs); warms up until the window fills |
@@ -428,30 +428,30 @@ A `channels` entry is `{"type":"webhook","url":...,"secret":...}` or
 is **redacted (`***`) from API responses** and never returned. SMTP for email is
 configured at the deployment level (a follow-up exposes it as config).
 
-**Webhook payload (`netctl.alert.v1`).** On fire/resolve the webhook channel POSTs:
+**Webhook payload (`probectl.alert.v1`).** On fire/resolve the webhook channel POSTs:
 
 ```json
 {
-  "version": "netctl.alert.v1",
+  "version": "probectl.alert.v1",
   "state": "firing",
   "rule": { "id": "…", "name": "loss-high" },
   "tenant_id": "…",
   "severity": "critical",
-  "metric": "netctl_probe_loss_ratio",
+  "metric": "probectl_probe_loss_ratio",
   "labels": { "server_address": "1.1.1.1" },
   "value": 0.9,
   "threshold": 0.5,
   "comparison": "gt",
-  "reason": "netctl_probe_loss_ratio=0.9 gt 0.5",
+  "reason": "probectl_probe_loss_ratio=0.9 gt 0.5",
   "fired_at": "2026-01-02T15:04:05Z"
 }
 ```
 
 When the channel has a secret, the request carries
-`X-Netctl-Signature: sha256=<hex>` — the HMAC-SHA256 of the exact body — so the
+`X-Probectl-Signature: sha256=<hex>` — the HMAC-SHA256 of the exact body — so the
 receiver can verify the sender. Each channel delivers independently: a failing
 channel is logged and skipped, never blocking the others. Alerts are **signals**;
-netctl notifies and does not act on the network (on-call/ITSM routing is S33,
+probectl notifies and does not act on the network (on-call/ITSM routing is S33,
 detection-as-code is S42).
 
 ### Incidents (S17)
@@ -459,7 +459,7 @@ detection-as-code is S42).
 The incident correlator (`internal/incident`) groups related signals across planes
 into one **Incident** with a unified **timeline**; see [`architecture.md`](architecture.md).
 It runs in the control plane, fed by the alert engine (network plane) and a
-`netctl.bgp.events` consumer (BGP plane), and is exposed at **`/v1/incidents`**
+`probectl.bgp.events` consumer (BGP plane), and is exposed at **`/v1/incidents`**
 (tenant-scoped):
 
 - `GET /v1/incidents` — the tenant's incidents, most-recently-active first.
@@ -467,7 +467,7 @@ It runs in the control plane, fed by the alert engine (network plane) and a
 - `PATCH /v1/incidents/{id}` with `{"status":"resolved"}` — resolve an incident.
 
 Signals correlate into one incident when they are **close in time**
-(within `NETCTL_INCIDENT_WINDOW`, default `10m`) **and related in target** — the
+(within `PROBECTL_INCIDENT_WINDOW`, default `10m`) **and related in target** — the
 same target, an IP inside the other's prefix (either direction), or overlapping
 prefixes (so a network alert on `192.0.2.10` and a BGP event on `192.0.2.0/24`
 land together). An incident's severity is the **max** of its signals; a signal
@@ -480,7 +480,7 @@ the same `Incident`/timeline. AI root-cause analysis over the timeline is S24.
 
 ### SSO & RBAC (S18)
 
-netctl authenticates users with **OIDC SSO** and authorizes them with **RBAC** over
+probectl authenticates users with **OIDC SSO** and authorizes them with **RBAC** over
 the S2 role model. The security order is the **two-level boundary** (CLAUDE.md §7
 guardrails 1, 5): a request resolves to **exactly one tenant first**, then RBAC
 decides whether the caller may perform the route's action within that tenant.
@@ -497,11 +497,11 @@ session, and sets the session cookie. `POST /auth/logout` revokes the session.
 **Sessions.** A session is a random, high-entropy opaque token. Only its **hash**
 is stored (table `sessions`), so a database read cannot mint a session (guardrail
 6). The session cookie is **HttpOnly + SameSite=Lax**, and **Secure** whenever the
-API serves HTTPS. `NETCTL_SESSION_TTL` (default `12h`) bounds its lifetime.
+API serves HTTPS. `PROBECTL_SESSION_TTL` (default `12h`) bounds its lifetime.
 
 **Per-tenant IdP.** Providers are resolved per tenant through a provider factory —
 the seam for a tenant bringing its own SSO. S18 ships the env-configured default
-(`NETCTL_OIDC_*`); DB-backed per-tenant IdP config is a later sprint. A login
+(`PROBECTL_OIDC_*`); DB-backed per-tenant IdP config is a later sprint. A login
 always resolves to a single tenant. Provider/MSP operators authenticate into the
 **provider domain** (S-T1), not into tenant data.
 
@@ -526,11 +526,11 @@ The seeded system roles for the default tenant are **admin** (all permissions),
 **editor** (read everything + manage tests/alerts/incidents), and **viewer**
 (read-only). `GET /v1/me` requires only authentication (no specific permission).
 
-**Dev mode.** `NETCTL_AUTH_MODE=dev` (the default for local work and the test
+**Dev mode.** `PROBECTL_AUTH_MODE=dev` (the default for local work and the test
 suite) bypasses SSO and synthesizes an all-permissions principal for the default
-tenant, with the `X-Netctl-Tenant: <uuid>` override for multi-tenant dev. It is
-**never** for production — set `NETCTL_AUTH_MODE=session` and configure
-`NETCTL_OIDC_*` there.
+tenant, with the `X-Probectl-Tenant: <uuid>` override for multi-tenant dev. It is
+**never** for production — set `PROBECTL_AUTH_MODE=session` and configure
+`PROBECTL_OIDC_*` there.
 
 ### Resource API & CLI (S9)
 
@@ -550,72 +550,72 @@ permissions come from an authenticated session, and each route requires a
 permission. The `no undocumented routes` rule is enforced by a test that matches
 the route table against `openapi.json`.
 
-The **`netctl` CLI** is the web-parity client. Configure it with flags or
-environment: `NETCTL_API_URL` (default `http://localhost:8080`),
-`NETCTL_API_TOKEN` (sent as Bearer), `NETCTL_TENANT` (sent as `X-Netctl-Tenant`).
+The **`probectl` CLI** is the web-parity client. Configure it with flags or
+environment: `PROBECTL_API_URL` (default `http://localhost:8080`),
+`PROBECTL_API_TOKEN` (sent as Bearer), `PROBECTL_TENANT` (sent as `X-Probectl-Tenant`).
 
 ```bash
-netctl test list
-netctl test create --name edge-dns --type icmp --target 1.1.1.1 --interval 30
-netctl test delete <id>
-netctl agent list
-netctl --json test list      # machine-readable output
+probectl test list
+probectl test create --name edge-dns --type icmp --target 1.1.1.1 --interval 30
+probectl test delete <id>
+probectl agent list
+probectl --json test list      # machine-readable output
 ```
 
 ### eBPF host agent (S20)
 
-The eBPF agent (`netctl-ebpf-agent`) is configured by a YAML file (`-config` or
-`NETCTL_EBPF_CONFIG`); see
-[`deploy/agent/netctl-ebpf-agent.example.yml`](../deploy/agent/netctl-ebpf-agent.example.yml)
-and [`ebpf-agent.md`](ebpf-agent.md). `NETCTL_EBPF_*` env vars override the file.
+The eBPF agent (`probectl-ebpf-agent`) is configured by a YAML file (`-config` or
+`PROBECTL_EBPF_CONFIG`); see
+[`deploy/agent/probectl-ebpf-agent.example.yml`](../deploy/agent/probectl-ebpf-agent.example.yml)
+and [`ebpf-agent.md`](ebpf-agent.md). `PROBECTL_EBPF_*` env vars override the file.
 The agent is **observe-only**; the CO-RE loader is compiled in only with
 `-tags ebpf` — otherwise set `fixture_path` for the no-kernel path.
 
 | Variable                     | Default     | Description                                                     |
 | ---------------------------- | ----------- | -------------------------------------------------------------- |
-| `NETCTL_EBPF_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)             |
-| `NETCTL_EBPF_TENANT_ID`      | (required)  | tenant every flow is stamped with (F50)                        |
-| `NETCTL_EBPF_HOST`           | OS hostname | observing host name                                            |
-| `NETCTL_EBPF_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                            |
-| `NETCTL_EBPF_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                     |
-| `NETCTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path) |
-| `NETCTL_EBPF_L7_FIXTURE_PATH` | (none)     | replay recorded L7 events (no-kernel L7 path, S21)             |
-| `NETCTL_EBPF_LIBSSL`         | (auto)      | libssl path for TLS-uprobe L7 capture (`-tags ebpf`)           |
-| `NETCTL_EBPF_PROC_ROOT`      | `/proc`     | procfs root for process/cgroup enrichment                      |
-| `NETCTL_EBPF_FLUSH_INTERVAL` | `10s`       | how often flows + the service map are emitted                  |
-| `NETCTL_EBPF_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                         |
-| `NETCTL_EBPF_LOG_FORMAT`     | `json`      | `json` \| `text`                                               |
+| `PROBECTL_EBPF_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)             |
+| `PROBECTL_EBPF_TENANT_ID`      | (required)  | tenant every flow is stamped with (F50)                        |
+| `PROBECTL_EBPF_HOST`           | OS hostname | observing host name                                            |
+| `PROBECTL_EBPF_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                            |
+| `PROBECTL_EBPF_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                     |
+| `PROBECTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path) |
+| `PROBECTL_EBPF_L7_FIXTURE_PATH` | (none)     | replay recorded L7 events (no-kernel L7 path, S21)             |
+| `PROBECTL_EBPF_LIBSSL`         | (auto)      | libssl path for TLS-uprobe L7 capture (`-tags ebpf`)           |
+| `PROBECTL_EBPF_PROC_ROOT`      | `/proc`     | procfs root for process/cgroup enrichment                      |
+| `PROBECTL_EBPF_FLUSH_INTERVAL` | `10s`       | how often flows + the service map are emitted                  |
+| `PROBECTL_EBPF_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                         |
+| `PROBECTL_EBPF_LOG_FORMAT`     | `json`      | `json` \| `text`                                               |
 
-Flows + service edges are published to `netctl.ebpf.flows` (`ebpfv1.FlowBatch`,
+Flows + service edges are published to `probectl.ebpf.flows` (`ebpfv1.FlowBatch`,
 tenant-keyed). The live loader needs a BTF Linux kernel (≥5.8) and
 `CAP_BPF`/`CAP_PERFMON`; see [`ebpf-agent.md`](ebpf-agent.md).
 
-### Endpoint / DEM agent (`netctl-endpoint`, S37)
+### Endpoint / DEM agent (`probectl-endpoint`, S37)
 
 The endpoint agent runs on a user's device (Linux/macOS/Windows), captures
 last-mile experience, and attributes slowdowns to WiFi/ISP/network. It reads a
-YAML config (default path `NETCTL_ENDPOINT_CONFIG`); `NETCTL_ENDPOINT_*` env vars
+YAML config (default path `PROBECTL_ENDPOINT_CONFIG`); `PROBECTL_ENDPOINT_*` env vars
 override the file. See [`endpoint-dem.md`](endpoint-dem.md).
 
 | Variable                              | Default        | Meaning                                                          |
 | ------------------------------------- | -------------- | ---------------------------------------------------------------- |
-| `NETCTL_ENDPOINT_CONFIG`              | (none)         | path to the YAML config (`-config` flag overrides)               |
-| `NETCTL_ENDPOINT_TENANT_ID`           | (required)     | tenant every DEM result is stamped with (F50)                    |
-| `NETCTL_ENDPOINT_AGENT_ID`            | OS hostname    | device identifier in the fleet                                   |
-| `NETCTL_ENDPOINT_BUS_MODE`            | `memory`       | `memory` \| `kafka`                                              |
-| `NETCTL_ENDPOINT_BUS_BROKERS`         | (none)         | comma-separated Kafka brokers (kafka mode)                       |
-| `NETCTL_ENDPOINT_INTERVAL`            | `60s`          | how often a sample is collected                                  |
-| `NETCTL_ENDPOINT_TARGETS`             | 1.1.1.1,google | comma-separated targets (first = last-mile trace; all = session) |
-| `NETCTL_ENDPOINT_MAX_HOPS`            | `20`           | last-mile trace hop cap                                          |
-| `NETCTL_ENDPOINT_COLLECT_SSID`        | `true`         | retain the WiFi network name (SSID)                              |
-| `NETCTL_ENDPOINT_COLLECT_BSSID`       | `false`        | retain the AP MAC (BSSID) — geolocatable PII, off by default     |
-| `NETCTL_ENDPOINT_COLLECT_GATEWAY_IP`  | `true`         | retain the (private) default-gateway address                    |
-| `NETCTL_ENDPOINT_COLLECT_PUBLIC_HOPS` | `false`        | retain PUBLIC last-mile hop IPs (reveal ISP/geo), off by default |
-| `NETCTL_ENDPOINT_LOG_LEVEL`           | `info`         | `debug` \| `info` \| `warn` \| `error`                           |
-| `NETCTL_ENDPOINT_LOG_FORMAT`          | `json`         | `json` \| `text`                                                 |
+| `PROBECTL_ENDPOINT_CONFIG`              | (none)         | path to the YAML config (`-config` flag overrides)               |
+| `PROBECTL_ENDPOINT_TENANT_ID`           | (required)     | tenant every DEM result is stamped with (F50)                    |
+| `PROBECTL_ENDPOINT_AGENT_ID`            | OS hostname    | device identifier in the fleet                                   |
+| `PROBECTL_ENDPOINT_BUS_MODE`            | `memory`       | `memory` \| `kafka`                                              |
+| `PROBECTL_ENDPOINT_BUS_BROKERS`         | (none)         | comma-separated Kafka brokers (kafka mode)                       |
+| `PROBECTL_ENDPOINT_INTERVAL`            | `60s`          | how often a sample is collected                                  |
+| `PROBECTL_ENDPOINT_TARGETS`             | 1.1.1.1,google | comma-separated targets (first = last-mile trace; all = session) |
+| `PROBECTL_ENDPOINT_MAX_HOPS`            | `20`           | last-mile trace hop cap                                          |
+| `PROBECTL_ENDPOINT_COLLECT_SSID`        | `true`         | retain the WiFi network name (SSID)                              |
+| `PROBECTL_ENDPOINT_COLLECT_BSSID`       | `false`        | retain the AP MAC (BSSID) — geolocatable PII, off by default     |
+| `PROBECTL_ENDPOINT_COLLECT_GATEWAY_IP`  | `true`         | retain the (private) default-gateway address                    |
+| `PROBECTL_ENDPOINT_COLLECT_PUBLIC_HOPS` | `false`        | retain PUBLIC last-mile hop IPs (reveal ISP/geo), off by default |
+| `PROBECTL_ENDPOINT_LOG_LEVEL`           | `info`         | `debug` \| `info` \| `warn` \| `error`                           |
+| `PROBECTL_ENDPOINT_LOG_FORMAT`          | `json`         | `json` \| `text`                                                 |
 
 DEM results (WiFi / gateway / last-mile / session signals + the attribution
-verdict) are published to `netctl.endpoint.results` (`resultv1.Result`,
+verdict) are published to `probectl.endpoint.results` (`resultv1.Result`,
 tenant-keyed), flowing through the same pipeline as every other canary. The agent
 **discloses exactly what it collects at startup** and never phones home.
 
@@ -628,15 +628,15 @@ See [`otlp.md`](otlp.md).
 
 | Variable                    | Default | Description                                                  |
 | --------------------------- | ------- | ------------------------------------------------------------ |
-| `NETCTL_OTLP_GRPC_ADDR`     | (none)  | OTLP/gRPC listen address (e.g. `:4317`)                      |
-| `NETCTL_OTLP_HTTP_ADDR`     | (none)  | OTLP/HTTP listen address (e.g. `:4318`; `POST /v1/metrics`)  |
-| `NETCTL_OTLP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable)                  |
-| `NETCTL_OTLP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable)                  |
-| `NETCTL_OTLP_TOKENS`        | (none)  | bearer-token→tenant map: `token1=tenant1,token2=tenant2`     |
+| `PROBECTL_OTLP_GRPC_ADDR`     | (none)  | OTLP/gRPC listen address (e.g. `:4317`)                      |
+| `PROBECTL_OTLP_HTTP_ADDR`     | (none)  | OTLP/HTTP listen address (e.g. `:4318`; `POST /v1/metrics`)  |
+| `PROBECTL_OTLP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable)                  |
+| `PROBECTL_OTLP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable)                  |
+| `PROBECTL_OTLP_TOKENS`        | (none)  | bearer-token→tenant map: `token1=tenant1,token2=tenant2`     |
 
 Setting an address without the TLS files **and** at least one token fails config
 validation — the receiver is never anonymous plaintext. Ingested metrics are
-tenant-tagged and published to the `netctl.otlp.metrics` bus topic.
+tenant-tagged and published to the `probectl.otlp.metrics` bus topic.
 
 ### AI assistant (S24)
 
@@ -648,12 +648,12 @@ at a model only if you want LLM-written prose; a remote endpoint must be `https`
 
 | Variable                   | Default   | Description                                                         |
 | -------------------------- | --------- | ------------------------------------------------------------------ |
-| `NETCTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped) \| `ollama` \| `openai` \| `anthropic`      |
-| `NETCTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
-| `NETCTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
-| `NETCTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |
-| `NETCTL_AI_MODEL_TIMEOUT`  | `60s`     | per-request timeout for the model endpoint                         |
-| `NETCTL_AI_MAX_EVIDENCE`   | `50`      | cost guard: max signals an answer may gather                       |
+| `PROBECTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped) \| `ollama` \| `openai` \| `anthropic`      |
+| `PROBECTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
+| `PROBECTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
+| `PROBECTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |
+| `PROBECTL_AI_MODEL_TIMEOUT`  | `60s`     | per-request timeout for the model endpoint                         |
+| `PROBECTL_AI_MAX_EVIDENCE`   | `50`      | cost guard: max signals an answer may gather                       |
 
 A non-`builtin` provider without an endpoint fails config validation. Whatever
 the backend, every answer is tenant-and-RBAC-scoped by the S23 query layer and
@@ -664,17 +664,17 @@ see out-of-scope data or inject an ungrounded claim.
 
 The MCP server exposes read-only, tenant- + RBAC-scoped tools to AI clients. The
 **HTTP** transport is off by default and is **TLS-only + bearer-authenticated**
-(guardrail 12); the **stdio** transport is local (`netctl-control mcp-stdio`,
-token from `NETCTL_MCP_TOKEN`). See [`mcp.md`](mcp.md).
+(guardrail 12); the **stdio** transport is local (`probectl-control mcp-stdio`,
+token from `PROBECTL_MCP_TOKEN`). See [`mcp.md`](mcp.md).
 
 | Variable                   | Default | Description                                                   |
 | -------------------------- | ------- | ------------------------------------------------------------- |
-| `NETCTL_MCP_HTTP_ADDR`     | (none)  | MCP HTTP listen address (e.g. `:8090`) — enables the transport |
-| `NETCTL_MCP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable HTTP)              |
-| `NETCTL_MCP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable HTTP)              |
-| `NETCTL_MCP_RATE_PER_MIN`  | `120`   | per-tenant tool-call rate limit (0 disables)                  |
+| `PROBECTL_MCP_HTTP_ADDR`     | (none)  | MCP HTTP listen address (e.g. `:8090`) — enables the transport |
+| `PROBECTL_MCP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable HTTP)              |
+| `PROBECTL_MCP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable HTTP)              |
+| `PROBECTL_MCP_RATE_PER_MIN`  | `120`   | per-tenant tool-call rate limit (0 disables)                  |
 
-Setting `NETCTL_MCP_HTTP_ADDR` without the TLS files fails config validation — the
+Setting `PROBECTL_MCP_HTTP_ADDR` without the TLS files fails config validation — the
 MCP endpoint is never anonymous plaintext.
 
 ### TLS / certificate observability (S27)
@@ -685,10 +685,10 @@ See [`tls-observability.md`](tls-observability.md).
 
 | Variable                    | Default        | Description                                                       |
 | --------------------------- | -------------- | ----------------------------------------------------------------- |
-| `NETCTL_CERTCTL_URL`        | (none)         | certctl base URL; enables a one-click renewal deep-link on findings |
-| `NETCTL_TLS_EXPIRY_WARNING` | `504h` (21d)   | expiring-soon window                                              |
-| `NETCTL_CT_ENABLED`         | `false`        | opt in to Certificate Transparency correlation (external fetch)   |
-| `NETCTL_CT_ENDPOINT`        | `https://crt.sh` | CT log API endpoint                                             |
+| `PROBECTL_CERTCTL_URL`        | (none)         | certctl base URL; enables a one-click renewal deep-link on findings |
+| `PROBECTL_TLS_EXPIRY_WARNING` | `504h` (21d)   | expiring-soon window                                              |
+| `PROBECTL_CT_ENABLED`         | `false`        | opt in to Certificate Transparency correlation (external fetch)   |
+| `PROBECTL_CT_ENDPOINT`        | `https://crt.sh` | CT log API endpoint                                             |
 
 CT correlation is **off by default** (an external fetch — sovereignty / AUP /
 rate limits) and degrades gracefully when the CT source is down.
@@ -702,9 +702,9 @@ signals (a **signal, not an IPS** — never blocks). See
 
 | Variable                     | Default | Description                                                       |
 | ---------------------------- | ------- | ----------------------------------------------------------------- |
-| `NETCTL_THREATINTEL_ENABLED` | `false` | master switch (outbound feed fetches); off ⇒ no IOC code runs     |
-| `NETCTL_THREATINTEL_REFRESH` | `6h`    | feed refresh cadence                                              |
-| `NETCTL_THREATINTEL_FEEDS`   | (all)   | comma-separated feed names (`spamhaus_drop`, `feodo_tracker`, `sslbl`, `sslbl_ja3`, `urlhaus`, `tor_exit`, `firehol_level1`); empty ⇒ all |
+| `PROBECTL_THREATINTEL_ENABLED` | `false` | master switch (outbound feed fetches); off ⇒ no IOC code runs     |
+| `PROBECTL_THREATINTEL_REFRESH` | `6h`    | feed refresh cadence                                              |
+| `PROBECTL_THREATINTEL_FEEDS`   | (all)   | comma-separated feed names (`spamhaus_drop`, `feodo_tracker`, `sslbl`, `sslbl_ja3`, `urlhaus`, `tor_exit`, `firehol_level1`); empty ⇒ all |
 
 **Off by default** (an outbound fetch — sovereignty / no-phone-home). The
 refresher keeps each source's **last-good** indicators, so a feed outage degrades
@@ -718,7 +718,7 @@ over the API. See [`scim-abac.md`](scim-abac.md).
 
 ```
 # mint a per-tenant SCIM token for an IdP (shown once)
-netctl-control scim-token --tenant <tenant-uuid> --name okta
+probectl-control scim-token --tenant <tenant-uuid> --name okta
 ```
 
 The `/scim/v2/*` surface is gated by a valid SCIM token (no token ⇒ `401`), and the
@@ -733,8 +733,8 @@ table.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `NETCTL_CHANGE_WEBHOOKS` | (none) | comma-separated `id:tenant:provider:secret` webhook credentials (`provider` ∈ `generic`/`github`/`gitlab`). The secret is the last field, so it may contain `:` but not `,` — use URL-safe (hex/base64) secrets. |
-| `NETCTL_CHANGE_CORRELATION_WINDOW` | `24h` | how far before an incident a change is treated as a candidate cause |
+| `PROBECTL_CHANGE_WEBHOOKS` | (none) | comma-separated `id:tenant:provider:secret` webhook credentials (`provider` ∈ `generic`/`github`/`gitlab`). The secret is the last field, so it may contain `:` but not `,` — use URL-safe (hex/base64) secrets. |
+| `PROBECTL_CHANGE_CORRELATION_WINDOW` | `24h` | how far before an incident a change is treated as a candidate cause |
 
 Each inbound delivery is **TLS + signature-verified (HMAC/token, constant-time) +
 tenant-bound to the credential**; an unsigned or forged event is rejected before
@@ -744,38 +744,38 @@ runtime config — inject them from a secret manager, never commit them.
 ### SIEM export (S32)
 
 Forward the **audit stream** and **threat-plane signals** to a SOC's SIEM over
-hardened TLS. netctl is the **forwarder, not a SIEM** — events are rendered into a
+hardened TLS. probectl is the **forwarder, not a SIEM** — events are rendered into a
 standard format and pushed; nothing is auto-blocked. See [`siem.md`](siem.md) for
 formats, delivery guarantees, and per-SIEM setup.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `NETCTL_SIEM_ENABLED` | `false` | master switch (an outbound connection to your SIEM); off ⇒ no SIEM code runs |
-| `NETCTL_SIEM_PRESET` | `generic` | SIEM adapter: `generic`, `splunk`, `sentinel`, `elastic`, `chronicle` (sets the auth scheme + default format) |
-| `NETCTL_SIEM_FORMAT` | (preset) | wire format: `syslog` (RFC 5424), `cef`, `ecs`, `otlp`; empty ⇒ the preset's native default (Elastic⇒ecs, Chronicle⇒otlp, else cef) |
-| `NETCTL_SIEM_ENDPOINT` | (none) | HTTPS ingest URL (e.g. the Splunk HEC / Sentinel / Chronicle / Elasticsearch endpoint). Required when enabled |
-| `NETCTL_SIEM_TOKEN` | (none) | ingest credential (Splunk ⇒ `Splunk <tok>`, Elastic ⇒ `ApiKey <tok>`, others ⇒ `Bearer <tok>`). Inject from a secret manager |
-| `NETCTL_SIEM_POLL_INTERVAL` | `30s` | audit-stream drain cadence |
-| `NETCTL_SIEM_BUFFER` | `1024` | threat-signal buffer; full ⇒ producers block (backpressure, never drop) |
-| `NETCTL_SIEM_REDACT_KEYS` | (none) | extra audit `data` keys to scrub (on top of the built-in secret/PII denylist) |
+| `PROBECTL_SIEM_ENABLED` | `false` | master switch (an outbound connection to your SIEM); off ⇒ no SIEM code runs |
+| `PROBECTL_SIEM_PRESET` | `generic` | SIEM adapter: `generic`, `splunk`, `sentinel`, `elastic`, `chronicle` (sets the auth scheme + default format) |
+| `PROBECTL_SIEM_FORMAT` | (preset) | wire format: `syslog` (RFC 5424), `cef`, `ecs`, `otlp`; empty ⇒ the preset's native default (Elastic⇒ecs, Chronicle⇒otlp, else cef) |
+| `PROBECTL_SIEM_ENDPOINT` | (none) | HTTPS ingest URL (e.g. the Splunk HEC / Sentinel / Chronicle / Elasticsearch endpoint). Required when enabled |
+| `PROBECTL_SIEM_TOKEN` | (none) | ingest credential (Splunk ⇒ `Splunk <tok>`, Elastic ⇒ `ApiKey <tok>`, others ⇒ `Bearer <tok>`). Inject from a secret manager |
+| `PROBECTL_SIEM_POLL_INTERVAL` | `30s` | audit-stream drain cadence |
+| `PROBECTL_SIEM_BUFFER` | `1024` | threat-signal buffer; full ⇒ producers block (backpressure, never drop) |
+| `PROBECTL_SIEM_REDACT_KEYS` | (none) | extra audit `data` keys to scrub (on top of the built-in secret/PII denylist) |
 
 **Off by default** (an outbound connection — sovereignty / no-phone-home). Audit
 forwarding resumes from a **durable per-tenant cursor**, and delivery **retries
 without dropping** under a SIEM outage. Exported audit events are **PII/secret
-redacted** (built-in denylist + `NETCTL_SIEM_REDACT_KEYS`).
+redacted** (built-in denylist + `PROBECTL_SIEM_REDACT_KEYS`).
 
 ### On-call + ITSM integration (S33)
 
 Mirror incidents into operational tooling: page on-call (PagerDuty/Opsgenie), post
 to chat (Slack/Teams), and open + **bidirectionally sync** tickets (ServiceNow/Jira).
-netctl is the forwarder, not the system of record — it never auto-blocks anything.
+probectl is the forwarder, not the system of record — it never auto-blocks anything.
 See [`oncall-itsm.md`](oncall-itsm.md) for the connector matrix, mapping, and the
 inbound webhook contract.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `NETCTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`. `secret` is the provider credential (PagerDuty routing key, Opsgenie API key, ServiceNow `user:password`, Jira `email:token`; unused for chat). |
-| `NETCTL_NOTIFY_INBOUND` | (none) | inbound status-sync credentials, comma-separated, each `id:tenant:provider:secret` (the `id` is the URL selector for `POST /ingest/itsm/{provider}/{id}`; `secret` verifies the delivery). |
+| `PROBECTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`. `secret` is the provider credential (PagerDuty routing key, Opsgenie API key, ServiceNow `user:password`, Jira `email:token`; unused for chat). |
+| `PROBECTL_NOTIFY_INBOUND` | (none) | inbound status-sync credentials, comma-separated, each `id:tenant:provider:secret` (the `id` is the URL selector for `POST /ingest/itsm/{provider}/{id}`; `secret` verifies the delivery). |
 
 **Off by default** (each connector is an outbound connection to the operator's
 tooling). Paging + ticket creation are **idempotent** (an incident opens at most
@@ -786,7 +786,7 @@ its own tenant). Endpoint specifics: a Slack/Teams endpoint is the incoming-webh
 URL; a Jira endpoint carries the project (and optional resolve transition) as query
 params, e.g. `…/rest/api/2/issue?project=OPS&resolve_transition=31`; a ServiceNow
 endpoint is the `…/api/now/table/incident` URL. Inbound deliveries must include
-`X-Netctl-Signature: sha256=<hmac>` or `X-Netctl-Token: <secret>` over TLS; an
+`X-Probectl-Signature: sha256=<hmac>` or `X-Probectl-Token: <secret>` over TLS; an
 unsigned or forged delivery is rejected (`401`). Secrets are runtime config —
 inject them from a secret manager, never commit them.
 
@@ -798,9 +798,9 @@ TLS/HTTPS-by-default (CLAUDE.md §7 guardrail 12).
 
 | Service      | Compose name | Host port(s)        | Purpose                                   | Dev credentials                 |
 | ------------ | ------------ | ------------------- | ----------------------------------------- | ------------------------------- |
-| PostgreSQL   | `postgres`   | `5432`              | Durable state, tenants, RBAC, audit, SLOs | user/pass/db = `netctl`         |
+| PostgreSQL   | `postgres`   | `5432`              | Durable state, tenants, RBAC, audit, SLOs | user/pass/db = `probectl`         |
 | Kafka        | `kafka`      | `9092`              | Result/event bus (KRaft, no ZooKeeper)    | none (PLAINTEXT)                |
-| ClickHouse   | `clickhouse` | `8123` (HTTP), `9000` (native) | High-cardinality events/flows  | user/pass/db = `netctl`         |
+| ClickHouse   | `clickhouse` | `8123` (HTTP), `9000` (native) | High-cardinality events/flows  | user/pass/db = `probectl`         |
 | Prometheus   | `prometheus` | `9090`              | Metrics TSDB (remote-write enabled)       | none                            |
 
 Kafka listeners: host clients use `localhost:9092`; in-network containers use

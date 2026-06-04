@@ -3,13 +3,13 @@ package otel
 import (
 	"testing"
 
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // TestAllSignalMappingsConform is the S22 cross-signal conformance check: every
-// signal type's attribute mapping may emit ONLY OTel-standard or netctl.* names
+// signal type's attribute mapping may emit ONLY OTel-standard or probectl.* names
 // (the S6 ResultAttributes discipline, now enforced across all planes), and each
 // carries the tenant as the outermost scope (F50).
 func TestAllSignalMappingsConform(t *testing.T) {
@@ -44,7 +44,7 @@ func TestAllSignalMappingsConform(t *testing.T) {
 		}
 		for k := range attrs {
 			if !KnownAttributes[k] {
-				t.Errorf("%s: attribute %q is not an OTel/netctl convention name (invented attribute)", signal, k)
+				t.Errorf("%s: attribute %q is not an OTel/probectl convention name (invented attribute)", signal, k)
 			}
 		}
 		if attrs[AttrTenantID] != "t" {

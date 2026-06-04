@@ -11,10 +11,10 @@ import (
 
 // product identity stamped into every formatted record.
 const (
-	vendor         = "netctl"
-	product        = "netctl"
+	vendor         = "probectl"
+	product        = "probectl"
 	productVersion = "1.0"
-	sdID           = "netctl@32473" // RFC 5424 structured-data id (private enterprise number placeholder)
+	sdID           = "probectl@32473" // RFC 5424 structured-data id (private enterprise number placeholder)
 )
 
 // Formatter renders a canonical Event into one SIEM-format record.
@@ -264,10 +264,10 @@ func (otlpFormatter) Format(e Event) []byte {
 	doc := map[string]any{
 		"resourceLogs": []any{map[string]any{
 			"resource": map[string]any{"attributes": []any{
-				kv("service.name", product), kv("netctl.tenant_id", e.TenantID),
+				kv("service.name", product), kv("probectl.tenant_id", e.TenantID),
 			}},
 			"scopeLogs": []any{map[string]any{
-				"scope":      map[string]any{"name": "netctl.siem"},
+				"scope":      map[string]any{"name": "probectl.siem"},
 				"logRecords": []any{rec},
 			}},
 		}},

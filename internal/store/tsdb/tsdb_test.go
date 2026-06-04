@@ -8,8 +8,8 @@ import (
 func TestMemoryWriteQuery(t *testing.T) {
 	m := NewMemory()
 	series := []Series{
-		{Metric: "netctl_probe_success", Labels: map[string]string{"tenant_id": "t1"}, Value: 1, TimeMillis: 1000},
-		{Metric: "netctl_probe_success", Labels: map[string]string{"tenant_id": "t2"}, Value: 0, TimeMillis: 1000},
+		{Metric: "probectl_probe_success", Labels: map[string]string{"tenant_id": "t1"}, Value: 1, TimeMillis: 1000},
+		{Metric: "probectl_probe_success", Labels: map[string]string{"tenant_id": "t2"}, Value: 0, TimeMillis: 1000},
 	}
 	if err := m.Write(context.Background(), series); err != nil {
 		t.Fatal(err)
@@ -17,10 +17,10 @@ func TestMemoryWriteQuery(t *testing.T) {
 	if m.Len() != 2 {
 		t.Fatalf("len = %d, want 2", m.Len())
 	}
-	if got := m.Query("netctl_probe_success", map[string]string{"tenant_id": "t1"}); len(got) != 1 || got[0].Value != 1 {
+	if got := m.Query("probectl_probe_success", map[string]string{"tenant_id": "t1"}); len(got) != 1 || got[0].Value != 1 {
 		t.Errorf("query t1 = %+v", got)
 	}
-	if got := m.Query("netctl_probe_success", map[string]string{"tenant_id": "t2"}); len(got) != 1 || got[0].Value != 0 {
+	if got := m.Query("probectl_probe_success", map[string]string{"tenant_id": "t2"}); len(got) != 1 || got[0].Value != 0 {
 		t.Errorf("query t2 = %+v", got)
 	}
 	if got := m.Query("missing", nil); len(got) != 0 {

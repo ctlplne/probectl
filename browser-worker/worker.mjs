@@ -1,4 +1,4 @@
-// netctl browser-worker (S36, F15): a Playwright worker that runs one transaction
+// probectl browser-worker (S36, F15): a Playwright worker that runs one transaction
 // Script in headless Chromium and emits a JSON Result on stdout matching
 // internal/browser's model. The Go ExecDriver invokes this (one process per run);
 // the Fleet owns concurrency, isolation (it kills the process on timeout), and
@@ -9,7 +9,7 @@
 // Output (stdout): the Result JSON (see toWorkerResult in execdriver.go).
 import { chromium } from "playwright";
 
-const STEP_TIMEOUT_MS = Number(process.env.NETCTL_BROWSER_STEP_TIMEOUT_MS || 15000);
+const STEP_TIMEOUT_MS = Number(process.env.PROBECTL_BROWSER_STEP_TIMEOUT_MS || 15000);
 
 async function readStdin() {
   const chunks = [];

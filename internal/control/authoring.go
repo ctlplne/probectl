@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/ai/author"
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/ai/author"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // buildAuthor wires the AI test-authoring engine (S26). It uses the configured

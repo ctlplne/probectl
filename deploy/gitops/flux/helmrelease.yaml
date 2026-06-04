@@ -1,20 +1,20 @@
-# Flux HelmRelease for netctl (S35). Reconciles the chart from the GitRepository.
+# Flux HelmRelease for probectl (S35). Reconciles the chart from the GitRepository.
 # Secrets are referenced via secrets.existingSecret (manage the Secret with Sealed
 # Secrets / External Secrets Operator), never inlined here.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: netctl
-  namespace: netctl
+  name: probectl
+  namespace: probectl
 spec:
   interval: 10m
-  releaseName: netctl
+  releaseName: probectl
   chart:
     spec:
-      chart: deploy/helm/netctl
+      chart: deploy/helm/probectl
       sourceRef:
         kind: GitRepository
-        name: netctl
+        name: probectl
         namespace: flux-system
       interval: 5m
   install:
@@ -33,7 +33,7 @@ spec:
       enabled: true
       minAvailable: 2
     ingress:
-      host: netctl.example.com
-      tlsSecretName: netctl-tls
+      host: probectl.example.com
+      tlsSecretName: probectl-tls
     secrets:
-      existingSecret: netctl-secrets
+      existingSecret: probectl-secrets

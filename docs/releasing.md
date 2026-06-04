@@ -1,8 +1,8 @@
-# Releasing netctl
+# Releasing probectl
 
 ## Versioning scheme
 
-netctl uses **Semantic Versioning** with a `v` prefix: `vMAJOR.MINOR.PATCH`.
+probectl uses **Semantic Versioning** with a `v` prefix: `vMAJOR.MINOR.PATCH`.
 
 - **MAJOR** — incompatible API / config / migration changes.
 - **MINOR** — backward-compatible features.
@@ -14,7 +14,7 @@ weight (so a breaking change before 1.0 bumps the MINOR). **Phase 1 GA is
 
 The version is stamped into every binary at build time
 (`internal/version`, via `-ldflags`) and surfaced at `/version` and
-`netctl-control version`.
+`probectl-control version`.
 
 ## What a release publishes
 
@@ -22,16 +22,16 @@ Pushing a `v*` tag triggers [`.github/workflows/release.yml`](../.github/workflo
 which publishes:
 
 - **Multi-arch container images** (`linux/amd64`, `linux/arm64`) for all five
-  components — `netctl-control`, `netctl-agent`, `netctl-ebpf-agent`,
-  `netctl-endpoint`, `netctl` — to `ghcr.io/imfeelingtheagi/<component>`, tagged
+  components — `probectl-control`, `probectl-agent`, `probectl-ebpf-agent`,
+  `probectl-endpoint`, `probectl` — to `ghcr.io/imfeelingtheagi/<component>`, tagged
   with the exact version and `latest`. Each image carries **SLSA provenance and
   an SBOM** attestation (Buildx `provenance` + `sbom`).
 - **Cross-compiled binaries** for `linux/{amd64,arm64}` plus a `checksums.txt`
   (SHA-256), attached to the GitHub release.
 - An auto-generated **release notes** entry.
 
-Image tags follow `ghcr.io/imfeelingtheagi/netctl-control:v0.1.0` (and `:latest`).
-Pin the exact version in production deploys (compose `NETCTL_IMAGE`, Helm
+Image tags follow `ghcr.io/imfeelingtheagi/probectl-control:v0.1.0` (and `:latest`).
+Pin the exact version in production deploys (compose `PROBECTL_IMAGE`, Helm
 `image.tag`).
 
 ## Cutting a release

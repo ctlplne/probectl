@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
 )
 
 // sliceSource is an in-memory Source over a fixed slice of flows.

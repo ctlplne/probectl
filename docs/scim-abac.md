@@ -1,6 +1,6 @@
 # Enterprise identity: SCIM 2.0 + ABAC + directory integration (S31 · F25)
 
-netctl extends the S18 SSO/RBAC foundation with **SCIM 2.0** user/group lifecycle
+probectl extends the S18 SSO/RBAC foundation with **SCIM 2.0** user/group lifecycle
 provisioning, **ABAC** (attribute policies layered over RBAC), and the
 directory-integration path that Entra ID / Okta actually use (SCIM push +
 OIDC SSO). The two pillars are: an IdP can **provision and — critically —
@@ -31,7 +31,7 @@ Endpoints:
 - **Users** — `POST` (provision), `GET` (list with `userName eq` filter +
   `startIndex`/`count`), `GET/{id}`, `PUT/{id}`, `PATCH/{id}`, `DELETE/{id}`.
 - **Groups** — `POST`, `GET`, `GET/{id}`, `PATCH/{id}` (member add/remove), `DELETE`.
-  A SCIM **Group maps to a netctl role**; group membership is a role binding —
+  A SCIM **Group maps to a probectl role**; group membership is a role binding —
   this is the **group-sync mapping**.
 - **Discovery** — `GET /scim/v2/ServiceProviderConfig`.
 
@@ -44,7 +44,7 @@ string `"False"`.
 
 ### Deprovision → immediate revocation (the watch-out)
 
-When a user is **deactivated** (`active=false` via PATCH/PUT) or **DELETE**d, netctl
+When a user is **deactivated** (`active=false` via PATCH/PUT) or **DELETE**d, probectl
 deletes **all of that user's sessions** and revokes their MCP tokens in the same
 request. The next request on a deprovisioned session fails to resolve and returns
 `401` — there is no TTL window. (This does not depend on any cache; it is a direct
@@ -56,7 +56,7 @@ An operator mints the per-tenant bearer token with the control-plane CLI (the Id
 pastes it into its provisioning config). The token is shown once.
 
 ```
-netctl-control scim-token --tenant <tenant-uuid> --name okta
+probectl-control scim-token --tenant <tenant-uuid> --name okta
 ```
 
 ## ABAC over RBAC
@@ -91,7 +91,7 @@ and cached per tenant for a short TTL (policy CRUD invalidates the cache).
 
 ## Directory connectors
 
-Entra ID and Okta integrate via the **standard path netctl already supports**:
+Entra ID and Okta integrate via the **standard path probectl already supports**:
 **OIDC SSO** (S18, per-tenant IdP) for login + **SCIM push** for lifecycle and
 group sync. No additional connector is needed for these IdPs.
 

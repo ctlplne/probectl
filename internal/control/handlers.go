@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/version"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // handleHealthz is the liveness probe: 200 while the process is serving.

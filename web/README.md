@@ -1,6 +1,6 @@
-# web/ — netctl frontend foundation & design system (S8a)
+# web/ — probectl frontend foundation & design system (S8a)
 
-The single frontend for netctl. This sprint establishes the **system** every
+The single frontend for probectl. This sprint establishes the **system** every
 later UI surface builds on: design tokens, a component library, the app shell +
 command palette, auth-aware routing, and a WCAG 2.2 AA baseline.
 

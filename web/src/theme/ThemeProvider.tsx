@@ -3,7 +3,7 @@ import { createContext, useCallback, useEffect, useState, type ReactNode } from 
 export type ThemeName = 'dark' | 'aurora'
 
 const THEMES: ThemeName[] = ['dark', 'aurora']
-const STORAGE_KEY = 'netctl.theme'
+const STORAGE_KEY = 'probectl.theme'
 
 export interface ThemeContextValue {
   theme: ThemeName

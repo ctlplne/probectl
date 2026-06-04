@@ -1,5 +1,5 @@
 // Package canary defines the Canary plugin interface — the load-bearing
-// extension point for every netctl measurement type — together with the
+// extension point for every probectl measurement type — together with the
 // Result/Spec/Config shapes and a Registry of compiled-in plugin factories
 // (S5). A no-op plugin is included to exercise the agent runtime.
 //

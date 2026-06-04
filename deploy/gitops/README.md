@@ -1,7 +1,7 @@
 # deploy/gitops/
 
-GitOps manifests for reconciling netctl from Git (S35, F29). The hardened Helm
-chart (`deploy/helm/netctl`) is the unit of deployment; these wire it into ArgoCD
+GitOps manifests for reconciling probectl from Git (S35, F29). The hardened Helm
+chart (`deploy/helm/probectl`) is the unit of deployment; these wire it into ArgoCD
 or Flux so a `git push` is the only deploy action.
 
 ```
@@ -12,8 +12,8 @@ deploy/gitops/
 
 ## Config-as-code
 
-The declarative netctl config IS the Helm values: `control.*`, `oidc.*`,
-`database.url`, and `control.extraEnv` map to `NETCTL_*` env via the chart's
+The declarative probectl config IS the Helm values: `control.*`, `oidc.*`,
+`database.url`, and `control.extraEnv` map to `PROBECTL_*` env via the chart's
 ConfigMap; the size profiles (`values-{small,medium,large}.yaml`) and
 `values-multitenant.yaml` are the reference overlays. Put your chosen overlay in
 Git, point Argo/Flux at it, and the cluster converges — no `kubectl apply`,
@@ -58,7 +58,7 @@ install `remediation.retries` give automatic rollback on a failed reconcile.
 
 ## Stand-up
 
-A clean stand-up is: pre-create the `netctl-secrets` Secret → apply the GitOps
+A clean stand-up is: pre-create the `probectl-secrets` Secret → apply the GitOps
 manifest → the controller renders the chart and applies the namespace,
 Deployment, Service, hardened ingress, NetworkPolicy/PDB/HPA, and migrations
 init-container. Rolling upgrades and rollback follow the S34 lifecycle.

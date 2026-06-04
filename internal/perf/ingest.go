@@ -10,15 +10,15 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/pipeline"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 // seriesPerResult is how many TSDB series one probe result produces in the
-// scenarios this harness drives: netctl_probe_success + _duration_seconds + one
+// scenarios this harness drives: probectl_probe_success + _duration_seconds + one
 // custom metric (rtt.avg.ms). It is used to know when ingestion has settled.
 const seriesPerResult = 3
 

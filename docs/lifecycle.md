@@ -1,6 +1,6 @@
 # Zero-downtime lifecycle (S34 · F28)
 
-netctl is built to upgrade at scale without an outage: the control plane is
+probectl is built to upgrade at scale without an outage: the control plane is
 stateless replicas behind a load balancer, migrations are additive (expand/
 contract), the agent fleet rolls out version-by-version, and every step has a
 rollback. This page is the operator contract.
@@ -28,7 +28,7 @@ flowchart LR
 2. Roll replicas one at a time. On `SIGTERM`/`SIGINT` a replica **flips `/readyz`
    to `503 draining` immediately**, so the load balancer stops routing new
    requests to it, then it drains in-flight requests within
-   `NETCTL_SHUTDOWN_TIMEOUT` before exiting (`/healthz` stays `200` throughout —
+   `PROBECTL_SHUTDOWN_TIMEOUT` before exiting (`/healthz` stays `200` throughout —
    the process is still serving, just not accepting new traffic).
 3. Bring up the replacement; it serves once `/readyz` is `200` (DB reachable, not
    draining).
@@ -76,10 +76,10 @@ The control plane is the authority on agent↔control compatibility. At
 registration it checks the agent's version against its own with the **N/N-1
 window** (`internal/lifecycle`):
 
-- same major version, **minor skew ≤ `NETCTL_AGENT_SKEW_WINDOW`** (default 1) →
+- same major version, **minor skew ≤ `PROBECTL_AGENT_SKEW_WINDOW`** (default 1) →
   compatible, in **both** directions (an N agent ↔ N+1 control plane and an N+1
   agent ↔ N control plane both work);
-- a wider skew, a major mismatch, or an agent below `NETCTL_AGENT_MIN_VERSION` →
+- a wider skew, a major mismatch, or an agent below `PROBECTL_AGENT_MIN_VERSION` →
   rejected with gRPC `FailedPrecondition` ("upgrade required" — distinct from a
   transient error, so the agent surfaces it rather than hot-looping);
 - a dev/unpinned build (`0.0.0-dev`) on either side skips the check.
@@ -113,8 +113,8 @@ pace model + the version-skew enforcement that makes a staged roll safe.
 ## Configuration
 
 See [`configuration.md`](configuration.md#agent-transport-s4) for the
-`NETCTL_AGENT_SKEW_WINDOW` / `NETCTL_AGENT_MIN_VERSION` keys and
-`NETCTL_SHUTDOWN_TIMEOUT` (the drain window).
+`PROBECTL_AGENT_SKEW_WINDOW` / `PROBECTL_AGENT_MIN_VERSION` keys and
+`PROBECTL_SHUTDOWN_TIMEOUT` (the drain window).
 
 ## Out of scope
 

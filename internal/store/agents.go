@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Agent is a registered agent. It is tenant-bound (F50): its id and tenant come

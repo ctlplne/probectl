@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // fakeBackend records the tenant it was called with and returns canned data.
@@ -115,7 +115,7 @@ func TestInitializeAndPing(t *testing.T) {
 	if init["protocolVersion"] != protocolVersion {
 		t.Errorf("protocolVersion = %v", init["protocolVersion"])
 	}
-	if info, _ := init["serverInfo"].(map[string]any); info["name"] != "netctl" {
+	if info, _ := init["serverInfo"].(map[string]any); info["name"] != "probectl" {
 		t.Errorf("serverInfo = %v", init["serverInfo"])
 	}
 	if _, isErr := errCode(handle(t, s, principal("t"), 2, "ping", nil)); isErr {

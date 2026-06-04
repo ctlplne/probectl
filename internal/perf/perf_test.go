@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 // ingestSmokeConfig is the CI-cheap single-deployment ingest scenario: a few
@@ -49,7 +49,7 @@ func TestIngestBaseline(t *testing.T) {
 	perTenant := cfg.AgentsPerTenant * cfg.TestsPerAgent * cfg.ResultsPerTest
 	for tn := 0; tn < cfg.Tenants; tn++ {
 		tid := fmt.Sprintf("tenant-%04d", tn)
-		got := len(w.Query("netctl_probe_success", map[string]string{"tenant_id": tid}))
+		got := len(w.Query("probectl_probe_success", map[string]string{"tenant_id": tid}))
 		if got != perTenant {
 			t.Errorf("tenant %s: %d success series, want %d", tid, got, perTenant)
 		}

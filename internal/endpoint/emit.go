@@ -7,9 +7,9 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/canary"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // Emitter publishes a sample's DEM results. The seam lets a test capture results
@@ -20,7 +20,7 @@ type Emitter interface {
 }
 
 // BusEmitter maps a Sample to canonical canary Results and publishes each to
-// netctl.endpoint.results, tenant-keyed (pooled tenant-tagging), exactly like
+// probectl.endpoint.results, tenant-keyed (pooled tenant-tagging), exactly like
 // every other agent's results land on the bus.
 type BusEmitter struct {
 	bus    bus.Bus
@@ -28,7 +28,7 @@ type BusEmitter struct {
 	agent  string
 }
 
-// NewBusEmitter returns an Emitter publishing to netctl.endpoint.results.
+// NewBusEmitter returns an Emitter publishing to probectl.endpoint.results.
 func NewBusEmitter(b bus.Bus, tenant, agent string) *BusEmitter {
 	return &BusEmitter{bus: b, tenant: tenant, agent: agent}
 }

@@ -7,7 +7,7 @@ import (
 )
 
 // Planner turns a natural-language Question into a set of typed S23 queries. It
-// is DELIBERATELY deterministic netctl code, not the model: the model never
+// is DELIBERATELY deterministic probectl code, not the model: the model never
 // decides what to fetch, so untrusted question or evidence text can never widen
 // the query scope. The planned queries still run through the S23 engine, which
 // enforces the tenant boundary first, then RBAC — the planner cannot bypass it.

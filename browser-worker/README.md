@@ -1,9 +1,9 @@
 # browser-worker (S36 · F15)
 
-The Playwright browser worker for netctl's browser/transaction synthetic. It runs
+The Playwright browser worker for probectl's browser/transaction synthetic. It runs
 **one transaction script** in headless Chromium and emits a JSON `Result` —
 step timings, a resource waterfall, DOM/paint timings, and a PNG screenshot on
-failure. netctl's `internal/browser` Fleet invokes it (the `ExecDriver`), one
+failure. probectl's `internal/browser` Fleet invokes it (the `ExecDriver`), one
 process per run, and owns concurrency, per-run isolation (it kills the process on
 timeout), and worker recycling.
 
@@ -37,13 +37,13 @@ entrypoint. This is the unit of the **browser fleet** — scale it horizontally;
 heavy CPU/memory lives here, away from the Go control plane and agents.
 
 ```bash
-docker build -t netctl-browser-worker browser-worker/
-echo '<script json>' | docker run -i --rm netctl-browser-worker
+docker build -t probectl-browser-worker browser-worker/
+echo '<script json>' | docker run -i --rm probectl-browser-worker
 ```
 
 ## Why a separate worker (not a compiled-in canary)
 
-A browser is too heavy to compile into the single-binary agent. netctl keeps the
+A browser is too heavy to compile into the single-binary agent. probectl keeps the
 script format, result model, object-store upload, and fleet isolation/concurrency/
 recycling in Go (`internal/browser`, fully unit-tested), and delegates rendering
 to this worker over the `ExecDriver` contract. A lighter `HTTPDriver` (Go-native,

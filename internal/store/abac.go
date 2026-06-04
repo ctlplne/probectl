@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // ABACPolicies is the tenant-scoped ABAC policy repository (S31, F25). RLS confines

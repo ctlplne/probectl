@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/path"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // handleGetPath returns the latest discovered path for a test — the path-viz data

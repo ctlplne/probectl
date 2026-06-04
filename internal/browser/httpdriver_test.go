@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
 // loginApp is a tiny local app with a real login flow: GET /login renders a form,

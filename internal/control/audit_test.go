@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // security.txt is served unauthenticated and is a valid RFC 9116 document.

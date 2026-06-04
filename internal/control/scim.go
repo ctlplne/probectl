@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/audit"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/scim"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/scim"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // auditSCIM records a SCIM provisioning action; the actor is the directory service.
@@ -393,7 +393,7 @@ func (s *Server) groupToSCIMScoped(ctx context.Context, sc tenancy.Scope, r *htt
 func (s *Server) scimServiceProviderConfig(w http.ResponseWriter, _ *http.Request, _ string) {
 	writeSCIM(w, http.StatusOK, map[string]any{
 		"schemas":               []string{scim.SchemaSPConfig},
-		"documentationUri":      "https://docs.netctl.example/scim",
+		"documentationUri":      "https://docs.probectl.example/scim",
 		"patch":                 map[string]any{"supported": true},
 		"bulk":                  map[string]any{"supported": false, "maxOperations": 0, "maxPayloadSize": 0},
 		"filter":                map[string]any{"supported": true, "maxResults": 200},

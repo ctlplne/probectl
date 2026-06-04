@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // SIEMDelivery is the per-tenant SIEM export cursor (S32, F26): the highest audit

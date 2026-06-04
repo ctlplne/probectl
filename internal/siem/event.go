@@ -1,10 +1,10 @@
-// Package siem exports netctl's audit + security events to a SOC's SIEM (S32,
+// Package siem exports probectl's audit + security events to a SOC's SIEM (S32,
 // F26). It is the forwarder: a canonical Event, pluggable Formatters (RFC 5424
 // syslog, ArcSight CEF, Elastic ECS, OTLP logs), preset-aware HTTP/syslog Senders
 // (Splunk HEC, Microsoft Sentinel, Elastic, Google Chronicle), and a buffered,
 // retrying Forwarder that does NOT drop events under backpressure. The package is
 // pure — the control plane maps audit.Event + incident.Signal onto siem.Event and
-// drives the forwarder; netctl is never itself a SIEM (out of scope).
+// drives the forwarder; probectl is never itself a SIEM (out of scope).
 package siem
 
 import "time"

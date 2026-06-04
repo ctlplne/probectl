@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 )
 
 func TestMain(m *testing.M) {

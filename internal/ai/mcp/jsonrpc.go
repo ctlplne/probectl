@@ -26,7 +26,7 @@ type rpcError struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-// Error codes: the JSON-RPC reserved range plus netctl's auth/limit codes.
+// Error codes: the JSON-RPC reserved range plus probectl's auth/limit codes.
 const (
 	codeParse          = -32700
 	codeInvalidRequest = -32600

@@ -1,4 +1,4 @@
-# Administering netctl
+# Administering probectl
 
 Day-2 operation for an installed deployment: identity and roles, the audit trail,
 and SSO. For installation see [`install.md`](install.md); for every config key see
@@ -6,9 +6,9 @@ and SSO. For installation see [`install.md`](install.md); for every config key s
 
 ## Identity, roles, and access (RBAC)
 
-netctl enforces a **two-level boundary** on every API path: the request resolves
+probectl enforces a **two-level boundary** on every API path: the request resolves
 to exactly one tenant first, then RBAC decides whether the caller may perform the
-route's action. Authentication is **OIDC SSO** (`NETCTL_AUTH_MODE=session`); the
+route's action. Authentication is **OIDC SSO** (`PROBECTL_AUTH_MODE=session`); the
 `dev` mode is for evaluation only and grants all access.
 
 Seeded system roles (per tenant):
@@ -56,11 +56,11 @@ the stable contract the SIEM connectors (syslog/CEF/OTLP) build on in S32. The
 
 ## SSO (OIDC)
 
-Configure a single IdP per deployment with `NETCTL_OIDC_ISSUER`,
-`NETCTL_OIDC_CLIENT_ID`, `NETCTL_OIDC_CLIENT_SECRET`, and
-`NETCTL_OIDC_REDIRECT_URL` (`https://HOST/auth/callback`). Register that callback
+Configure a single IdP per deployment with `PROBECTL_OIDC_ISSUER`,
+`PROBECTL_OIDC_CLIENT_ID`, `PROBECTL_OIDC_CLIENT_SECRET`, and
+`PROBECTL_OIDC_REDIRECT_URL` (`https://HOST/auth/callback`). Register that callback
 with your IdP. Login begins at `GET /auth/login`; the session cookie is
-`Secure + HttpOnly + SameSite=Lax`, lifetime `NETCTL_SESSION_TTL` (default 12h).
+`Secure + HttpOnly + SameSite=Lax`, lifetime `PROBECTL_SESSION_TTL` (default 12h).
 Per-tenant IdPs (a tenant bringing its own SSO) are resolved through a provider
 factory; DB-backed per-tenant IdP config arrives in a later sprint.
 

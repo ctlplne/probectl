@@ -14,13 +14,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/path"
 )
 
 // tenant_id is the partition key so a tenant's path data is physically separated
 // (CLAUDE.md §4); it leads every ORDER BY so tenant-scoped reads prune by it.
-const createHops = `CREATE TABLE IF NOT EXISTS netctl_path_hops (
+const createHops = `CREATE TABLE IF NOT EXISTS probectl_path_hops (
   tenant_id String, path_id String, target String, target_ip String, mode String,
   ts DateTime64(3), ttl UInt8, responder String,
   sent UInt32, received UInt32, loss_ratio Float64,
@@ -28,7 +28,7 @@ const createHops = `CREATE TABLE IF NOT EXISTS netctl_path_hops (
   mpls_labels Array(UInt32)
 ) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, responder)`
 
-const createLinks = `CREATE TABLE IF NOT EXISTS netctl_path_links (
+const createLinks = `CREATE TABLE IF NOT EXISTS probectl_path_links (
   tenant_id String, path_id String, target String, ts DateTime64(3),
   ttl UInt8, from_ip String, to_ip String
 ) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
@@ -108,7 +108,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 		}
 	}
 	if hops.Len() > 0 {
-		if err := c.exec(ctx, "INSERT INTO netctl_path_hops FORMAT JSONEachRow", &hops); err != nil {
+		if err := c.exec(ctx, "INSERT INTO probectl_path_hops FORMAT JSONEachRow", &hops); err != nil {
 			return err
 		}
 	}
@@ -123,7 +123,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 		}
 	}
 	if links.Len() > 0 {
-		if err := c.exec(ctx, "INSERT INTO netctl_path_links FORMAT JSONEachRow", &links); err != nil {
+		if err := c.exec(ctx, "INSERT INTO probectl_path_links FORMAT JSONEachRow", &links); err != nil {
 			return err
 		}
 	}
@@ -134,7 +134,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 // the hop + link rows.
 func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error) {
 	meta, err := c.query(ctx, fmt.Sprintf(
-		`SELECT path_id, target_ip, mode FROM netctl_path_hops WHERE tenant_id=%s AND target=%s ORDER BY ts DESC LIMIT 1`,
+		`SELECT path_id, target_ip, mode FROM probectl_path_hops WHERE tenant_id=%s AND target=%s ORDER BY ts DESC LIMIT 1`,
 		chStr(tenantID), chStr(target)))
 	if err != nil {
 		return nil, false, err
@@ -147,7 +147,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 
 	hopRows, err := c.query(ctx, fmt.Sprintf(
 		`SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels
-		 FROM netctl_path_hops WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, responder`,
+		 FROM probectl_path_hops WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, responder`,
 		chStr(tenantID), chStr(pathID)))
 	if err != nil {
 		return nil, false, err
@@ -186,7 +186,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	p.MaxHops = maxTTL
 
 	linkRows, err := c.query(ctx, fmt.Sprintf(
-		`SELECT ttl, from_ip, to_ip FROM netctl_path_links WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, from_ip, to_ip`,
+		`SELECT ttl, from_ip, to_ip FROM probectl_path_links WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, from_ip, to_ip`,
 		chStr(tenantID), chStr(pathID)))
 	if err != nil {
 		return nil, false, err

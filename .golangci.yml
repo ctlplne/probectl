@@ -40,7 +40,7 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/imfeelingtheagi/netctl
+        - github.com/imfeelingtheagi/probectl
   exclusions:
     paths:
       - internal/gen

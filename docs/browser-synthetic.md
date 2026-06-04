@@ -1,6 +1,6 @@
 # Browser / transaction synthetic (S36 · F15)
 
-netctl runs **scripted multi-step transactions** — a login, a checkout — and
+probectl runs **scripted multi-step transactions** — a login, a checkout — and
 reports per-step timings, a page-load **waterfall**, DOM/paint timings, and a
 **failure screenshot**. It's the heaviest canary, so it runs as a managed worker
 fleet that caps concurrency, isolates each run, and recycles workers.

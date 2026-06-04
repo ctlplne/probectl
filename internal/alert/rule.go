@@ -1,10 +1,10 @@
-// Package alert is netctl's alerting engine (S16): threshold and baseline
+// Package alert is probectl's alerting engine (S16): threshold and baseline
 // (anomaly) rules evaluated over the time-series produced by the result pipeline,
 // with notification channels (webhook + email) and storm-avoiding debounce/dedupe.
 //
 // Tenancy: a Rule is tenant-owned (RLS-scoped at the store, F50); the engine only
 // ever evaluates a tenant's rules against that tenant's series. Detection is a
-// signal — netctl notifies, it does not act on the network.
+// signal — probectl notifies, it does not act on the network.
 package alert
 
 import (

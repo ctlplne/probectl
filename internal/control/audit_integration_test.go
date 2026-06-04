@@ -14,7 +14,7 @@ import (
 // test.create event with the right actor + target, the chain verifies, and the
 // audit read endpoint returns it.
 func TestAuditCapturesMutations(t *testing.T) {
-	h, _ := setupAPI(t) // dev auth mode → actor "dev@netctl.local"
+	h, _ := setupAPI(t) // dev auth mode → actor "dev@probectl.local"
 
 	name := fmt.Sprintf("audit-%d", time.Now().UnixNano())
 	rec := apiReq(t, h, http.MethodPost, "/v1/tests", "",
@@ -47,8 +47,8 @@ func TestAuditCapturesMutations(t *testing.T) {
 	for _, e := range page.Items {
 		if e.Action == "test.create" && e.Target == created.ID {
 			found = true
-			if e.Actor != "dev@netctl.local" {
-				t.Errorf("audit actor = %q, want dev@netctl.local", e.Actor)
+			if e.Actor != "dev@probectl.local" {
+				t.Errorf("audit actor = %q, want dev@probectl.local", e.Actor)
 			}
 			if e.Hash == "" {
 				t.Error("audit event has no hash")

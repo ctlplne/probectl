@@ -1,5 +1,5 @@
-// Package cli implements the netctl command-line interface — a web-parity client
-// for the control-plane /v1 API. Run is the testable entry point; cmd/netctl is
+// Package cli implements the probectl command-line interface — a web-parity client
+// for the control-plane /v1 API. Run is the testable entry point; cmd/probectl is
 // a thin wrapper around it.
 package cli
 
@@ -26,19 +26,19 @@ type Config struct {
 // straightforward to test.
 func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg := Config{
-		BaseURL: envOr(getenv, "NETCTL_API_URL", "http://localhost:8080"),
-		Token:   getenv("NETCTL_API_TOKEN"),
-		Tenant:  getenv("NETCTL_TENANT"),
+		BaseURL: envOr(getenv, "PROBECTL_API_URL", "http://localhost:8080"),
+		Token:   getenv("PROBECTL_API_TOKEN"),
+		Tenant:  getenv("PROBECTL_TENANT"),
 	}
 	// --json may appear anywhere; strip it before flag parsing.
 	args, cfg.JSON = extractBoolFlag(args, "--json")
 
-	fs := flag.NewFlagSet("netctl", flag.ContinueOnError)
+	fs := flag.NewFlagSet("probectl", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { usage(stderr) }
-	fs.StringVar(&cfg.BaseURL, "url", cfg.BaseURL, "control-plane API base URL (env NETCTL_API_URL)")
-	fs.StringVar(&cfg.Token, "token", cfg.Token, "API auth token, sent as Bearer (env NETCTL_API_TOKEN)")
-	fs.StringVar(&cfg.Tenant, "tenant", cfg.Tenant, "tenant UUID, sent as X-Netctl-Tenant (env NETCTL_TENANT)")
+	fs.StringVar(&cfg.BaseURL, "url", cfg.BaseURL, "control-plane API base URL (env PROBECTL_API_URL)")
+	fs.StringVar(&cfg.Token, "token", cfg.Token, "API auth token, sent as Bearer (env PROBECTL_API_TOKEN)")
+	fs.StringVar(&cfg.Tenant, "tenant", cfg.Tenant, "tenant UUID, sent as X-Probectl-Tenant (env PROBECTL_TENANT)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -54,7 +54,7 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		usage(stdout)
 		return 0
 	case "version":
-		fmt.Fprintln(stdout, "netctl "+buildVersion())
+		fmt.Fprintln(stdout, "probectl "+buildVersion())
 		return 0
 	case "test":
 		return cmdTest(cfg, rest[1:], stdout, stderr)
@@ -68,10 +68,10 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `netctl — control-plane CLI
+	fmt.Fprint(w, `probectl — control-plane CLI
 
 Usage:
-  netctl [global flags] <command> [args]
+  probectl [global flags] <command> [args]
 
 Commands:
   test list                      list synthetic tests
@@ -84,9 +84,9 @@ Commands:
   version                        print the CLI version
 
 Global flags:
-  --url <url>       API base URL (env NETCTL_API_URL, default http://localhost:8080)
-  --token <token>   Bearer auth token (env NETCTL_API_TOKEN)
-  --tenant <uuid>   tenant scope (env NETCTL_TENANT)
+  --url <url>       API base URL (env PROBECTL_API_URL, default http://localhost:8080)
+  --token <token>   Bearer auth token (env PROBECTL_API_TOKEN)
+  --tenant <uuid>   tenant scope (env PROBECTL_TENANT)
   --json            output JSON instead of a table
 
 'test create' flags:
@@ -132,7 +132,7 @@ func (c *client) do(method, path string, body any, out any) error {
 		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	}
 	if c.cfg.Tenant != "" {
-		req.Header.Set("X-Netctl-Tenant", c.cfg.Tenant)
+		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
 	}
 
 	resp, err := c.hc.Do(req)

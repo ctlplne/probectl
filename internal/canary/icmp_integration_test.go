@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 )
 
 // TestICMPLoopback proves the S7 Done-when on a real socket: an ICMP probe to a

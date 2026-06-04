@@ -11,7 +11,7 @@ This document is the canonical input to S20. It defines what S20/S21 must build,
 
 ## 1. Verdict
 
-**GO.** Zero-instrumentation L3/L4 flow capture + a service map (S20) is well-trodden and portable on modern kernels via CO-RE; the toolchain (`cilium/ebpf` + `bpf2go`, pure Go, no cgo) fits netctl's single-static-binary model. L7-over-TLS (S21) is feasible but is the genuinely hard, partial-coverage part — and **Go-encrypted traffic is its own sub-project**, not a library variant.
+**GO.** Zero-instrumentation L3/L4 flow capture + a service map (S20) is well-trodden and portable on modern kernels via CO-RE; the toolchain (`cilium/ebpf` + `bpf2go`, pure Go, no cgo) fits probectl's single-static-binary model. L7-over-TLS (S21) is feasible but is the genuinely hard, partial-coverage part — and **Go-encrypted traffic is its own sub-project**, not a library variant.
 
 Three risks must be *decided, not discovered* (per the sprint's charge). They are carried into §11:
 
@@ -25,7 +25,7 @@ None of these block S20. Two of the three (1, 3) are also relevant to S21 only f
 
 ## 2. Why this spike exists
 
-eBPF is the single least-portable component in netctl. Unlike the canaries (pure Go sockets) or the BGP analyzer (userspace Python), eBPF programs run in the kernel and must cope with **per-kernel struct layout drift** (solved by CO-RE/BTF) and **per-binary symbol layout** (uprobes). A 2–3 day spike converts those unknowns into a documented matrix so S20/S21 don't hit a multi-week portability surprise mid–Phase 2. The PRD calls this out directly: *"a feasibility spike precedes the agent build (M7)."*
+eBPF is the single least-portable component in probectl. Unlike the canaries (pure Go sockets) or the BGP analyzer (userspace Python), eBPF programs run in the kernel and must cope with **per-kernel struct layout drift** (solved by CO-RE/BTF) and **per-binary symbol layout** (uprobes). A 2–3 day spike converts those unknowns into a documented matrix so S20/S21 don't hit a multi-week portability surprise mid–Phase 2. The PRD calls this out directly: *"a feasibility spike precedes the agent build (M7)."*
 
 ---
 
@@ -45,7 +45,7 @@ The environment was probed with `bpftool` and the kernel config. Captured eviden
 | Capabilities | **empty set** — no `cap_bpf`, `cap_perfmon`, `cap_sys_admin` | `bpf()` syscall load + attach | ❌ cannot load here |
 | `tracefs` (`/sys/kernel/debug/tracing`) | permission denied | manual probe debugging | ❌ |
 
-**Reading:** the *kernel* is fully eBPF-capable (every feature CO-RE/kprobe/uprobe needs is compiled in, and BTF is present). What is missing is the **build toolchain** (clang) and **runtime privilege** (`CAP_BPF`). That maps cleanly onto two real netctl deployment realities S20 must handle:
+**Reading:** the *kernel* is fully eBPF-capable (every feature CO-RE/kprobe/uprobe needs is compiled in, and BTF is present). What is missing is the **build toolchain** (clang) and **runtime privilege** (`CAP_BPF`). That maps cleanly onto two real probectl deployment realities S20 must handle:
 
 * **Build host ≠ target host.** The agent is built once (with clang, in CI/release) and shipped as a binary with the BPF object embedded; the *target* needs only a BTF kernel + `CAP_BPF`, not clang. CO-RE is precisely what makes that split work.
 * **No-kernel CI.** Most CI runners (and this sandbox, and macOS dev laptops) cannot load eBPF. S20's tests therefore split into (a) userspace flow-aggregation unit tests that run anywhere, and (b) a privileged integration test gated behind a BTF-kernel CI runner, plus recorded-data fixtures for everything in between.
@@ -72,7 +72,7 @@ CO-RE ("Compile Once – Run Everywhere") compiles the program once against BTF 
 
 * **Floor = ring buffer + BTF.** Treat **Linux 5.8** as the clean floor. Detect BTF at startup; if absent, attempt the **BTFHub** external-BTF path; if that also fails, **degrade gracefully** to "eBPF unavailable on this host" (one structured log line + a host-capability flag surfaced to the control plane) — never crash the agent or the node.
 * **Perf-buffer fallback** for 4.x kernels that have BPF but not the ring buffer (see §5). This is a build-time/load-time selection, not two codebases.
-* **Architectures:** both `amd64` and `arm64` (this spike's kernel is arm64) — matches netctl's existing dual-arch build.
+* **Architectures:** both `amd64` and `arm64` (this spike's kernel is arm64) — matches probectl's existing dual-arch build.
 
 ---
 
@@ -138,7 +138,7 @@ Published reference points for eBPF observability-only agents (zero-instrumentat
 
 * **General eBPF telemetry: < 1% CPU** overhead is the commonly-cited envelope ([cloudraft / Hubble](https://www.cloudraft.io/blog/ebpf-based-network-observability-using-cilium-hubble)).
 * **Cilium/Hubble: ~0.1–0.3 CPU core** per node (negligible per pod); **Pixie: ~0.5–1 CPU core** per node (it does more — full L7 + Go) ([cloudraft](https://www.cloudraft.io/blog/ebpf-based-network-observability-using-cilium-hubble)).
-* **Microsoft Retina** (observability-only, the closest model to netctl's eBPF agent) reports CPU that "barely moves" under moderate load and ~47% less memory than alternatives ([Conf42 deep-dive](https://tldrecap.tech/posts/2026/conf42-cloud/ebpf-network-observability-deep-dive-retina-cilium/)).
+* **Microsoft Retina** (observability-only, the closest model to probectl's eBPF agent) reports CPU that "barely moves" under moderate load and ~47% less memory than alternatives ([Conf42 deep-dive](https://tldrecap.tech/posts/2026/conf42-cloud/ebpf-network-observability-deep-dive-retina-cilium/)).
 
 **Estimate for S20 (L3/L4 + service map only, no L7):** comfortably in the **single-digit-percent CPU** band under a defined load, with memory dominated by the ring buffer + the flow/edge aggregation tables. L7/TLS uprobes (S21) cost more (a probe per call) and must be measured separately and boundable/sampleable.
 
@@ -152,7 +152,7 @@ Published reference points for eBPF observability-only agents (zero-instrumentat
 ## 9. Privileges, safety, and the observe-only guardrail
 
 * **Privileges:** loading/attaching needs **`CAP_BPF` + `CAP_PERFMON`** (Linux ≥5.8) or, on older kernels, **`CAP_SYS_ADMIN`**. Document the minimal set; do not run the whole agent as root where the capability split is available. (This sandbox had *none* of these — hence no load.)
-* **Observe-only is a hard guardrail (CLAUDE.md §7.8–§7.9).** S20/S21 load **only** observability program types (tracepoints, kprobes, socket *observation*). **Never** attach a policy-*enforcing* or traffic-dropping program. netctl's eBPF layer watches; it is not an inline IPS and not a CNI. This must be enforced in code review and asserted in tests.
+* **Observe-only is a hard guardrail (CLAUDE.md §7.8–§7.9).** S20/S21 load **only** observability program types (tracepoints, kprobes, socket *observation*). **Never** attach a policy-*enforcing* or traffic-dropping program. probectl's eBPF layer watches; it is not an inline IPS and not a CNI. This must be enforced in code review and asserted in tests.
 * **Tenant scoping:** eBPF-derived flows/edges are tenant-scoped like every other signal — `tenant_id` resolved on the agent's bound tenant, carried through the bus to the stores (the agent is bound to one tenant at registration, S4).
 * **Drops are visible:** ring-buffer backpressure increments an exposed counter; "the dashboard is green because we dropped the events" is a failure mode we refuse to ship.
 * **Untrusted input:** treat ring-buffer records as untrusted; bound all userspace parsing (no unchecked lengths from kernel-supplied sizes).
@@ -206,7 +206,7 @@ For S21 specifically:
 * `Makefile` + `README.md` — exact build/run steps on a privileged BTF kernel, and why it cannot run in this sandbox / macOS / CI.
 * `PROBE-RESULTS.txt` — the captured `bpftool`/kernel-config evidence behind §3.
 
-S20 supersedes this with the production `cmd/netctl-ebpf-agent`; nothing here is meant to be promoted as-is.
+S20 supersedes this with the production `cmd/probectl-ebpf-agent`; nothing here is meant to be promoted as-is.
 
 ---
 

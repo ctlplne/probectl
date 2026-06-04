@@ -1,12 +1,12 @@
-# analyzer/ — netctl BGP analyzer (Python)
+# analyzer/ — probectl BGP analyzer (Python)
 
-The BGP analyzer is the one netctl component written in Python (the language has
+The BGP analyzer is the one probectl component written in Python (the language has
 the richest BGP/MRT libraries). It ingests **public** collector data — **RouteViews**
 (bulk MRT over HTTP) and **RIPE RIS** (MRT + the **RIS Live** websocket) — does
 per-prefix AS-path monitoring with origin-change / hijack / leak detection and
-**RPKI** (RFC 6811) validation, and emits `netctl.bgp.events` as JSON Lines. The Go
+**RPKI** (RFC 6811) validation, and emits `probectl.bgp.events` as JSON Lines. The Go
 side (`internal/bgp`) bridges those onto the bus as the canonical
-`netctl.bgp.v1.BGPEvent` protobuf, tenant-keyed.
+`probectl.bgp.v1.BGPEvent` protobuf, tenant-keyed.
 
 ## Modules
 
@@ -29,13 +29,13 @@ pip install -e '.[dev]'                         # from analyzer/
 pip install websockets
 
 # process a RouteViews / RIS MRT dump
-python -m netctl_analyzer --config config.json --mrt rib.20260101.0000.bz2.mrt
+python -m probectl_analyzer --config config.json --mrt rib.20260101.0000.bz2.mrt
 
 # replay a recorded RIS Live capture (JSON Lines)
-python -m netctl_analyzer --config config.json --replay ris-capture.jsonl
+python -m probectl_analyzer --config config.json --replay ris-capture.jsonl
 
 # stream live from RIS Live
-python -m netctl_analyzer --config config.json --ris-live | netctl-bgp-bridge
+python -m probectl_analyzer --config config.json --ris-live | probectl-bgp-bridge
 ```
 
 Events are written as JSON Lines to stdout (or `--out FILE`); the Go bridge tails

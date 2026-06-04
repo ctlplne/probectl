@@ -3,12 +3,12 @@ package otel
 import (
 	"strconv"
 
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 // eBPF flow / service-map attribute keys (S20), following the OpenTelemetry
 // source.* / destination.* / network.* / process.* / container.* / host.*
-// conventions. tenant_id / agent_id reuse the netctl.* identity keys above.
+// conventions. tenant_id / agent_id reuse the probectl.* identity keys above.
 const (
 	AttrHostName           = "host.name"
 	AttrSourceAddress      = "source.address"
@@ -35,7 +35,7 @@ func init() {
 
 // FlowAttributes maps an eBPF Flow to its OTel resource + network attributes —
 // the mapping the OTLP layer (S22) exposes rather than remapping. The tenant is
-// the outermost scope (netctl.tenant.id); empty optionals are omitted.
+// the outermost scope (probectl.tenant.id); empty optionals are omitted.
 func FlowAttributes(f *ebpfv1.Flow) map[string]string {
 	attrs := map[string]string{
 		AttrTenantID: f.GetTenantId(),

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 )
 
 type scheduled struct {

@@ -1,6 +1,6 @@
 # Security Policy
 
-netctl is a network *security and observability* product, so we hold its own
+probectl is a network *security and observability* product, so we hold its own
 posture to a high bar. Thank you for helping keep it and its users safe.
 
 ## Reporting a vulnerability
@@ -8,10 +8,10 @@ posture to a high bar. Thank you for helping keep it and its users safe.
 **Please report suspected vulnerabilities privately — do not open a public
 issue.**
 
-- Preferred: open a [GitHub private security advisory](https://github.com/imfeelingtheagi/netctl/security/advisories/new)
+- Preferred: open a [GitHub private security advisory](https://github.com/imfeelingtheagi/probectl/security/advisories/new)
   ("Report a vulnerability").
 - Each deployment also advertises a contact at `/.well-known/security.txt`
-  (RFC 9116), configurable via `NETCTL_SECURITY_CONTACT`.
+  (RFC 9116), configurable via `PROBECTL_SECURITY_CONTACT`.
 
 Please include: affected version/commit, component (control plane, agent,
 analyzer, deploy), a description and impact, and reproduction steps or a proof of
@@ -40,7 +40,7 @@ Long-term support windows will be published as the project matures.
 
 ## Scope
 
-In scope: the control plane (`netctl-control`), agents, the Python BGP analyzer,
+In scope: the control plane (`probectl-control`), agents, the Python BGP analyzer,
 the web UI, the shipped Docker images, Helm chart, and compose deploys.
 
 Out of scope: issues requiring a malicious operator with existing administrative

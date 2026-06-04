@@ -17,22 +17,22 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/imfeelingtheagi/netctl/internal/agenttransport"
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
-	"github.com/imfeelingtheagi/netctl/migrations"
+	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
 func dsn() string {
-	if v := os.Getenv("NETCTL_DATABASE_URL"); v != "" {
+	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://netctl@localhost:5432/postgres?sslmode=disable"
+	return "postgres://probectl@localhost:5432/postgres?sslmode=disable"
 }
 
 func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {
@@ -81,7 +81,7 @@ func writeTemp(t *testing.T, dir, name string, data []byte) string {
 func startTestServer(ctx context.Context, t *testing.T, pool *pgxpool.Pool, opts ...func(*agenttransport.Server)) testServer {
 	t.Helper()
 	dir := t.TempDir()
-	ca, err := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, err := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

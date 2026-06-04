@@ -1,4 +1,4 @@
-// Package ai is netctl's AI layer. This sprint (S23) implements the unified
+// Package ai is probectl's AI layer. This sprint (S23) implements the unified
 // semantic query layer — one RBAC-aware abstraction over the stores (metrics,
 // events/flows, entities, and the topology graph) that the API, the AI/RCA layer
 // (S24), and the MCP server (S25) all use.

@@ -8,7 +8,7 @@ export function Sidebar() {
     <nav className={styles.sidebar} aria-label="Primary">
       <div className={styles.brand}>
         <span className={styles.mark} aria-hidden="true" />
-        <span className={styles.wordmark}>netctl</span>
+        <span className={styles.wordmark}>probectl</span>
       </div>
       <ul className={styles.list} role="list">
         {NAV.map((item) => (

@@ -10,21 +10,21 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/ai"
-	"github.com/imfeelingtheagi/netctl/internal/ai/author"
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/notify"
-	"github.com/imfeelingtheagi/netctl/internal/path"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/pathstore"
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/ai/author"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/notify"
+	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 )
 
 // Discoverer runs a path discovery. The default is path.Run; tests inject a fake.
 type Discoverer func(ctx context.Context, cfg path.Config) (*path.Path, error)
 
-// Server is the netctl control-plane HTTP API server. It is stateless: all
+// Server is the probectl control-plane HTTP API server. It is stateless: all
 // durable state lives in the datastores, so instances are interchangeable.
 type Server struct {
 	cfg       *config.Config

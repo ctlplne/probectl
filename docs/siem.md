@@ -1,13 +1,13 @@
 # SIEM export (S32 · F26)
 
-netctl forwards its **audit stream** and **threat-plane signals** to a SOC's SIEM.
+probectl forwards its **audit stream** and **threat-plane signals** to a SOC's SIEM.
 It is a **forwarder, not a SIEM**: events are rendered into a standard wire format
-and pushed over hardened TLS. netctl never blocks traffic and is not an IPS — a
+and pushed over hardened TLS. probectl never blocks traffic and is not an IPS — a
 threat finding is a confidence-scored *signal* the SIEM correlates (guardrail 9).
 
 Off by default. Enabling it opens an **outbound connection** to the operator's
 SIEM (sovereignty / no-phone-home), so it is explicit, config-gated, and OFF unless
-`NETCTL_SIEM_ENABLED=true`.
+`PROBECTL_SIEM_ENABLED=true`.
 
 ## What is forwarded
 
@@ -22,16 +22,16 @@ outcome, message, and attributes.
 
 ## Wire formats
 
-Selectable via `NETCTL_SIEM_FORMAT` (or the preset default):
+Selectable via `PROBECTL_SIEM_FORMAT` (or the preset default):
 
-- **`syslog`** — RFC 5424 with structured data (`[netctl@32473 tenant="…" …]`).
-- **`cef`** — ArcSight CEF (`CEF:0|netctl|netctl|…`), tenant in `cs1`.
+- **`syslog`** — RFC 5424 with structured data (`[probectl@32473 tenant="…" …]`).
+- **`cef`** — ArcSight CEF (`CEF:0|probectl|probectl|…`), tenant in `cs1`.
 - **`ecs`** — Elastic Common Schema JSON (`event.*`, `organization.id` = tenant).
-- **`otlp`** — OTLP/HTTP logs JSON (resource attr `netctl.tenant_id`).
+- **`otlp`** — OTLP/HTTP logs JSON (resource attr `probectl.tenant_id`).
 
 ## Presets
 
-`NETCTL_SIEM_PRESET` adapts the auth header + default format to a target SIEM. The
+`PROBECTL_SIEM_PRESET` adapts the auth header + default format to a target SIEM. The
 **endpoint is operator-supplied** (the HEC / ingest / Elasticsearch URL):
 
 | Preset | Auth header | Default format |
@@ -72,7 +72,7 @@ flowchart LR
 Exported audit events are scrubbed of secrets/PII before they leave the network: a
 built-in denylist (`password`, `token`, `secret`, `api_key`, `authorization`,
 `cookie`, `private_key`, `client_secret`, `ssn`, …) plus any keys in
-`NETCTL_SIEM_REDACT_KEYS`. Redacted values become `[redacted]`; the key is kept so
+`PROBECTL_SIEM_REDACT_KEYS`. Redacted values become `[redacted]`; the key is kept so
 the SIEM still sees the shape of the event.
 
 ## Security
@@ -92,8 +92,8 @@ See [`configuration.md`](configuration.md#siem-export-s32) for the full key tabl
 Minimal Splunk HEC example:
 
 ```
-NETCTL_SIEM_ENABLED=true
-NETCTL_SIEM_PRESET=splunk
-NETCTL_SIEM_ENDPOINT=https://splunk.example:8088/services/collector/raw
-NETCTL_SIEM_TOKEN=<hec-token>
+PROBECTL_SIEM_ENABLED=true
+PROBECTL_SIEM_PRESET=splunk
+PROBECTL_SIEM_ENDPOINT=https://splunk.example:8088/services/collector/raw
+PROBECTL_SIEM_TOKEN=<hec-token>
 ```

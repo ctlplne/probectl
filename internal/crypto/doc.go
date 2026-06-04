@@ -1,4 +1,4 @@
-// Package crypto is netctl's cryptographic abstraction — the single place that
+// Package crypto is probectl's cryptographic abstraction — the single place that
 // imports cryptographic primitives, so a FIPS 140-3 validated module can be
 // compiled in later (CLAUDE.md §7 guardrail 3). A CI guard
 // (scripts/check_crypto_imports.sh) fails the build if any other package imports

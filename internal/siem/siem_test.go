@@ -46,7 +46,7 @@ func TestNewFormatterUnknown(t *testing.T) {
 func TestSyslogFormat(t *testing.T) {
 	out := string(syslogFormatter{}.Format(sampleEvent()))
 	// PRI = facility(13)*8 + severity(critical=2) = 106.
-	if !strings.HasPrefix(out, "<106>1 2026-06-02T12:00:00Z netctl netctl - ioc.botnet_c2 [netctl@32473 ") {
+	if !strings.HasPrefix(out, "<106>1 2026-06-02T12:00:00Z probectl probectl - ioc.botnet_c2 [probectl@32473 ") {
 		t.Fatalf("unexpected syslog header: %s", out)
 	}
 	for _, want := range []string{
@@ -73,7 +73,7 @@ func TestSyslogEscapesStructuredData(t *testing.T) {
 
 func TestCEFFormat(t *testing.T) {
 	out := string(cefFormatter{}.Format(sampleEvent()))
-	if !strings.HasPrefix(out, "CEF:0|netctl|netctl|1.0|ioc.botnet_c2|C2 beacon to known botnet|9|") {
+	if !strings.HasPrefix(out, "CEF:0|probectl|probectl|1.0|ioc.botnet_c2|C2 beacon to known botnet|9|") {
 		t.Fatalf("unexpected CEF header: %s", out)
 	}
 	for _, want := range []string{"cs1=t1", "cs1Label=tenant", "suser=threat-engine", "dst=203.0.113.7", "cat=threat", "confidence=90"} {
@@ -138,7 +138,7 @@ func TestOTLPFormat(t *testing.T) {
 	}
 	rl := doc["resourceLogs"].([]any)[0].(map[string]any)
 	res := rl["resource"].(map[string]any)["attributes"].([]any)
-	if !otlpHasAttr(res, "netctl.tenant_id", "t1") {
+	if !otlpHasAttr(res, "probectl.tenant_id", "t1") {
 		t.Fatalf("otlp resource missing tenant attr: %v", res)
 	}
 	rec := rl["scopeLogs"].([]any)[0].(map[string]any)["logRecords"].([]any)[0].(map[string]any)

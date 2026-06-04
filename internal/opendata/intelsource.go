@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // KindThreatIntel classifies threat-intel feeds.

@@ -1,6 +1,6 @@
 # Change intelligence + change-to-incident correlation (S29 · F39)
 
-netctl ingests **change events** — deploys, config/route changes, IaC applies,
+probectl ingests **change events** — deploys, config/route changes, IaC applies,
 commits — from signed webhooks, normalizes them into one model, keeps a per-tenant
 **change timeline**, and **correlates** recent changes to incidents so the AI RCA
 can answer the question that resolves most outages: **"what changed?"**
@@ -14,7 +14,7 @@ Webhooks feed the RCA, so every inbound delivery is treated as **untrusted** and
 must clear all of these before anything is stored (CLAUDE.md §7 guardrail 12):
 
 - **TLS** — the API (and the shipped deploys) are HTTPS-only.
-- **Per-provider signature verification** — the provider's HMAC (GitHub/netctl) or
+- **Per-provider signature verification** — the provider's HMAC (GitHub/probectl) or
   shared token (GitLab) is verified in **constant time** against the webhook's
   secret. An **unsigned or forged** delivery is rejected with `401` **before**
   normalization, so a forged change can never reach the timeline or RCA.
@@ -35,7 +35,7 @@ flowchart LR
   subgraph sources["Change sources (sign each delivery)"]
     GH["GitHub\nX-Hub-Signature-256 (HMAC)"]
     GL["GitLab\nX-Gitlab-Token (token)"]
-    CI["CI / IaC / automation\nX-Netctl-Signature (HMAC)"]
+    CI["CI / IaC / automation\nX-Probectl-Signature (HMAC)"]
   end
 
   sources -->|"POST /ingest/changes/{provider}/{id}\n(TLS)"| WH["Webhook handler\n1. lookup credential by {id}\n2. verify signature (const-time)\n3. normalize (untrusted)\n4. stamp tenant from credential"]
@@ -61,12 +61,12 @@ Every source is normalized onto one record (`internal/change.Event`): an
 
 | Provider | `provider` | Signature header | Scheme | Events normalized |
 | -------- | ---------- | ---------------- | ------ | ----------------- |
-| **netctl / CI / IaC** | `generic` | `X-Netctl-Signature: sha256=<hmac>` | HMAC-SHA256 | netctl change schema (a single object, an array, or `{"events":[…]}`) |
+| **probectl / CI / IaC** | `generic` | `X-Probectl-Signature: sha256=<hmac>` | HMAC-SHA256 | probectl change schema (a single object, an array, or `{"events":[…]}`) |
 | **GitHub** | `github` | `X-Hub-Signature-256: sha256=<hmac>` | HMAC-SHA256 | `push` → commit; `deployment`/`deployment_status` → deploy |
 | **GitLab** | `gitlab` | `X-Gitlab-Token: <token>` | shared token (constant-time) | `Push Hook` → commit; `Deployment Hook` → deploy |
 
 The **generic** provider is the path for network-automation / CI / Terraform /
-Atlantis: it accepts netctl's schema and carries an explicit correlation `target`
+Atlantis: it accepts probectl's schema and carries an explicit correlation `target`
 or `prefix`, so a deploy can be tied to the host or netblock it touched. GitHub /
 GitLab demonstrate heterogeneous normalization; a deploy's `environment_url` host
 becomes the correlation target.
@@ -75,7 +75,7 @@ becomes the correlation target.
 
 ```
 POST /ingest/changes/generic/<webhook-id>
-X-Netctl-Signature: sha256=<hmac-sha256(secret, body)>
+X-Probectl-Signature: sha256=<hmac-sha256(secret, body)>
 
 {"kind":"deploy","title":"deploy payments-api to prod",
  "target":"api.example.com","actor":"ci","ref":"abc123"}
@@ -112,8 +112,8 @@ secret.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `NETCTL_CHANGE_WEBHOOKS` | (none) | comma-separated `id:tenant:provider:secret` credentials. The secret is the last field (so it may contain `:`, not `,`) — use URL-safe (hex/base64) secrets. |
-| `NETCTL_CHANGE_CORRELATION_WINDOW` | `24h` | how far before an incident a change is considered a candidate cause |
+| `PROBECTL_CHANGE_WEBHOOKS` | (none) | comma-separated `id:tenant:provider:secret` credentials. The secret is the last field (so it may contain `:`, not `,`) — use URL-safe (hex/base64) secrets. |
+| `PROBECTL_CHANGE_CORRELATION_WINDOW` | `24h` | how far before an incident a change is considered a candidate cause |
 
 The webhook **id** is a non-secret URL selector; the **secret** is the HMAC key /
 shared token. Provision a distinct id + secret per tenant. Secrets are runtime
@@ -134,6 +134,6 @@ config (inject from a secret manager) — never commit them.
 ## Out of scope (deferred)
 
 Self-service webhook registration (DB-backed, envelope-encrypted secrets) for
-multi-tenant/MSP; bus publication of `netctl.change.events` for cross-plane replay;
+multi-tenant/MSP; bus publication of `probectl.change.events` for cross-plane replay;
 non-webhook collectors (BGP-derived route-change collector, network config-diff) —
 the `Provider` normalizer is the extension seam for these. Topology what-if is S43.

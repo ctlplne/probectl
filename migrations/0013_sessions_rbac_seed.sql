@@ -61,5 +61,5 @@ INSERT INTO role_permissions (tenant_id, role_id, permission_key)
 ON CONFLICT (role_id, permission_key) DO NOTHING;
 
 -- The auth layer reads sessions via the pool (pre-tenant), so grant the login
--- role; netctl_app inherits DML on new public tables via ALTER DEFAULT PRIVILEGES.
-GRANT SELECT, INSERT, DELETE ON sessions TO netctl_app;
+-- role; probectl_app inherits DML on new public tables via ALTER DEFAULT PRIVILEGES.
+GRANT SELECT, INSERT, DELETE ON sessions TO probectl_app;

@@ -18,7 +18,7 @@ import (
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
 )
 
 // liveL7Source captures TLS plaintext via uprobes on the SSL library's read/
@@ -163,10 +163,10 @@ func (s *liveL7Source) Close() error {
 	return s.objs.Close()
 }
 
-// opensslPath is the libssl to attach to (override with NETCTL_EBPF_LIBSSL).
+// opensslPath is the libssl to attach to (override with PROBECTL_EBPF_LIBSSL).
 // Extend to discover BoringSSL / GnuTLS / per-process library paths.
 func opensslPath() string {
-	if p := os.Getenv("NETCTL_EBPF_LIBSSL"); p != "" {
+	if p := os.Getenv("PROBECTL_EBPF_LIBSSL"); p != "" {
 		return p
 	}
 	return "/usr/lib/x86_64-linux-gnu/libssl.so.3"

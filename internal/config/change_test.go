@@ -4,13 +4,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/change"
+	"github.com/imfeelingtheagi/probectl/internal/change"
 )
 
 func TestChangeWebhooksConfig(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
-		"NETCTL_CHANGE_WEBHOOKS":           "wh1:11111111-1111-1111-1111-111111111111:generic:sec:ret:colons,wh2:22222222-2222-2222-2222-222222222222:github:abc",
-		"NETCTL_CHANGE_CORRELATION_WINDOW": "12h",
+		"PROBECTL_CHANGE_WEBHOOKS":           "wh1:11111111-1111-1111-1111-111111111111:generic:sec:ret:colons,wh2:22222222-2222-2222-2222-222222222222:github:abc",
+		"PROBECTL_CHANGE_CORRELATION_WINDOW": "12h",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -31,10 +31,10 @@ func TestChangeWebhooksConfig(t *testing.T) {
 	}
 
 	// malformed entries fail closed at startup (a load error, not a silent skip)
-	if _, err := Load(envFunc(map[string]string{"NETCTL_CHANGE_WEBHOOKS": "bad-entry"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "bad-entry"})); err == nil {
 		t.Error("a malformed webhook entry should be a load error")
 	}
-	if _, err := Load(envFunc(map[string]string{"NETCTL_CHANGE_WEBHOOKS": "id:tenant:bogus:secret"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_CHANGE_WEBHOOKS": "id:tenant:bogus:secret"})); err == nil {
 		t.Error("an unknown provider should be a load error")
 	}
 }

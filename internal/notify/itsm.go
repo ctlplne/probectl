@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 // basicAuth builds a Basic Authorization header from a "user:token" secret.
@@ -37,9 +37,9 @@ func (*serviceNow) Capability() Capability { return CapabilityTicket }
 func (s *serviceNow) Open(ctx context.Context, inc incident.Incident) (Delivery, error) {
 	payload := map[string]any{
 		"short_description": inc.Title,
-		"description":       fmt.Sprintf("netctl incident %s (target %s)", inc.ID, displayTarget(inc)),
+		"description":       fmt.Sprintf("probectl incident %s (target %s)", inc.ID, displayTarget(inc)),
 		"urgency":           serviceNowUrgency(inc.Severity),
-		"correlation_id":    inc.ID, // netctl's id, for the operator's reference
+		"correlation_id":    inc.ID, // probectl's id, for the operator's reference
 	}
 	body, err := doJSON(ctx, s.client, "POST", s.endpoint, basicAuth(s.secret), payload)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *serviceNow) Resolve(ctx context.Context, _ incident.Incident, ref strin
 	patch := map[string]any{
 		"state":       "6", // Resolved
 		"close_code":  "Solved (Permanently)",
-		"close_notes": "resolved by netctl",
+		"close_notes": "resolved by probectl",
 	}
 	_, err := doJSON(ctx, s.client, "PATCH", s.endpoint+"/"+url.PathEscape(ref), basicAuth(s.secret), patch)
 	return err
@@ -117,7 +117,7 @@ func (j *jira) Open(ctx context.Context, inc incident.Incident) (Delivery, error
 		"fields": map[string]any{
 			"project":     map[string]any{"key": j.project},
 			"summary":     inc.Title,
-			"description": fmt.Sprintf("netctl incident %s (severity %s, target %s)", inc.ID, inc.Severity, displayTarget(inc)),
+			"description": fmt.Sprintf("probectl incident %s (severity %s, target %s)", inc.ID, inc.Severity, displayTarget(inc)),
 			"issuetype":   map[string]any{"name": "Task"},
 		},
 	}

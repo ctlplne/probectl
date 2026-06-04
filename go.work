@@ -1,7 +1,7 @@
-// netctl Go workspace.
+// probectl Go workspace.
 //
 // The repository is a monorepo built around a single primary module
-// (github.com/imfeelingtheagi/netctl: cmd/, internal/, pkg/) plus a separate
+// (github.com/imfeelingtheagi/probectl: cmd/, internal/, pkg/) plus a separate
 // integration-test module (./test) whose heavier, test-only dependencies are
 // intentionally kept out of the main module's go.mod / go.sum. The workspace
 // ties them together for local development and CI; production builds use each

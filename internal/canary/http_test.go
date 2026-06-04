@@ -47,7 +47,7 @@ func TestNewHTTPParams(t *testing.T) {
 			"follow_redirects":     "false",
 			"insecure_skip_verify": "true",
 			"max_body_bytes":       "2048",
-			"ca_file":              "/etc/netctl/ca.pem",
+			"ca_file":              "/etc/probectl/ca.pem",
 			"body":                 "ping",
 		},
 	})
@@ -64,7 +64,7 @@ func TestNewHTTPParams(t *testing.T) {
 	if h.follow || !h.insecure {
 		t.Errorf("follow=%v insecure=%v", h.follow, h.insecure)
 	}
-	if h.maxBody != 2048 || h.caFile != "/etc/netctl/ca.pem" || h.body != "ping" {
+	if h.maxBody != 2048 || h.caFile != "/etc/probectl/ca.pem" || h.body != "ping" {
 		t.Errorf("maxBody=%d caFile=%q body=%q", h.maxBody, h.caFile, h.body)
 	}
 	if h.timeout != 3*time.Second {

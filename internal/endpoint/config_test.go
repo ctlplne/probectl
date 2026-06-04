@@ -52,11 +52,11 @@ thresholds:
 func TestApplyEnvOverrides(t *testing.T) {
 	c := Default()
 	env := map[string]string{
-		"NETCTL_ENDPOINT_TENANT_ID":           "t9",
-		"NETCTL_ENDPOINT_TARGETS":             "https://a, https://b ,https://c",
-		"NETCTL_ENDPOINT_COLLECT_BSSID":       "true",
-		"NETCTL_ENDPOINT_COLLECT_PUBLIC_HOPS": "true",
-		"NETCTL_ENDPOINT_INTERVAL":            "15s",
+		"PROBECTL_ENDPOINT_TENANT_ID":           "t9",
+		"PROBECTL_ENDPOINT_TARGETS":             "https://a, https://b ,https://c",
+		"PROBECTL_ENDPOINT_COLLECT_BSSID":       "true",
+		"PROBECTL_ENDPOINT_COLLECT_PUBLIC_HOPS": "true",
+		"PROBECTL_ENDPOINT_INTERVAL":            "15s",
 	}
 	c.applyEnv(func(k string) string { return env[k] })
 	if c.TenantID != "t9" {

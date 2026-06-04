@@ -3,7 +3,7 @@
 Container build assets.
 
 `Dockerfile` is a single, multi-stage, multi-arch build that produces any one of
-netctl's Go binaries, selected with the `COMPONENT` build arg. The build context
+probectl's Go binaries, selected with the `COMPONENT` build arg. The build context
 is the **repository root** so the Go module is available.
 
 ```sh
@@ -11,7 +11,7 @@ is the **repository root** so the Go module is available.
 make images                                   # builds all components, multi-arch
 
 # Or directly:
-docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=netctl-control -t netctl-control:dev .
+docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:dev .
 ```
 
 Images are built for `linux/amd64` and `linux/arm64` and tagged `<version>` and

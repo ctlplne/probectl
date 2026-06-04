@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 )
 
 func TestHTTPStatusMapping(t *testing.T) {

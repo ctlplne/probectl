@@ -61,7 +61,7 @@ func computeLatencyStats(samples []time.Duration, sent int) latencyStats {
 
 // latencyMetrics renders loss + the latency family (named e.g. "rtt" or
 // "connect") plus probe counts as the result metric map. Names follow the
-// dotted-path convention; the pipeline maps them to netctl_probe_<name>.
+// dotted-path convention; the pipeline maps them to probectl_probe_<name>.
 func (s latencyStats) latencyMetrics(name string) map[string]float64 {
 	m := map[string]float64{
 		"loss.ratio":       round(s.LossRatio, 4),

@@ -1,8 +1,8 @@
-# Contributing to netctl
+# Contributing to probectl
 
-netctl is built one small, CI-backed sprint at a time. Before starting work,
+probectl is built one small, CI-backed sprint at a time. Before starting work,
 read the canonical context (kept in the private Cowork working folder, not in
-this repo): `CLAUDE.md`, `netctl-PRD-v0.5.md`, and `netctl-sprint-plan.md`. Then
+this repo): `CLAUDE.md`, `probectl-PRD-v0.5.md`, and `probectl-sprint-plan.md`. Then
 read the active sprint brief. **Work one sprint at a time; do not exceed the
 active sprint's scope.**
 

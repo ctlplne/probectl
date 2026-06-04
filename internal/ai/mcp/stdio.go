@@ -6,7 +6,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // ServeStdio runs the MCP server over a newline-delimited JSON-RPC stream — the

@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 func TestGRPCServerRequiresTLS(t *testing.T) {

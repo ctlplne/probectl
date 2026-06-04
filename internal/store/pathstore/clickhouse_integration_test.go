@@ -15,12 +15,12 @@ import (
 )
 
 // TestClickHouseRealRoundTrip writes a path to a real ClickHouse over HTTP and
-// reads back the hop rows. Set NETCTL_PATHSTORE_URL (e.g. http://localhost:8123);
+// reads back the hop rows. Set PROBECTL_PATHSTORE_URL (e.g. http://localhost:8123);
 // the test skips when it is unset.
 func TestClickHouseRealRoundTrip(t *testing.T) {
-	base := os.Getenv("NETCTL_PATHSTORE_URL")
+	base := os.Getenv("PROBECTL_PATHSTORE_URL")
 	if base == "" {
-		t.Skip("set NETCTL_PATHSTORE_URL to run the ClickHouse round-trip test")
+		t.Skip("set PROBECTL_PATHSTORE_URL to run the ClickHouse round-trip test")
 	}
 	ch, err := NewClickHouse(base)
 	if err != nil {
@@ -31,7 +31,7 @@ func TestClickHouseRealRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	q := fmt.Sprintf("SELECT count() FROM netctl_path_hops WHERE tenant_id = '%s'", tenant)
+	q := fmt.Sprintf("SELECT count() FROM probectl_path_hops WHERE tenant_id = '%s'", tenant)
 	u := strings.TrimRight(base, "/") + "/?query=" + url.QueryEscape(q)
 	resp, err := http.Get(u) //nolint:gosec // localhost test query
 	if err != nil {

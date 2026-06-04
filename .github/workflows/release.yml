@@ -25,11 +25,11 @@ jobs:
     strategy:
       matrix:
         component:
-          - netctl-control
-          - netctl-agent
-          - netctl-ebpf-agent
-          - netctl-endpoint
-          - netctl
+          - probectl-control
+          - probectl-agent
+          - probectl-ebpf-agent
+          - probectl-endpoint
+          - probectl
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -77,13 +77,13 @@ jobs:
           DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           mkdir -p dist
           for arch in amd64 arm64; do
-            for b in netctl-control netctl-agent netctl-ebpf-agent netctl-endpoint netctl; do
+            for b in probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl; do
               out="dist/${b}_${VERSION}_linux_${arch}"
               GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 go build -trimpath \
                 -ldflags "-s -w \
-                  -X github.com/imfeelingtheagi/netctl/internal/version.Version=${VERSION} \
-                  -X github.com/imfeelingtheagi/netctl/internal/version.Commit=${GITHUB_SHA} \
-                  -X github.com/imfeelingtheagi/netctl/internal/version.Date=${DATE}" \
+                  -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
+                  -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${GITHUB_SHA} \
+                  -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
                 -o "${out}" "./cmd/${b}"
             done
           done

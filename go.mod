@@ -1,4 +1,4 @@
-module github.com/imfeelingtheagi/netctl
+module github.com/imfeelingtheagi/probectl
 
 go 1.26
 

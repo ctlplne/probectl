@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/testspec"
+	"github.com/imfeelingtheagi/probectl/internal/testspec"
 )
 
 // Proposal is an AI-authored test config pending human confirmation. It is NEVER
@@ -198,7 +198,7 @@ func NewModelAuthor(c Completer, name string) *ModelAuthor {
 // Name identifies the model author.
 func (m *ModelAuthor) Name() string { return m.name }
 
-const authorSystemPrompt = "You author netctl synthetic-test (canary) configs. Given a request, output ONLY a JSON " +
+const authorSystemPrompt = "You author probectl synthetic-test (canary) configs. Given a request, output ONLY a JSON " +
 	`object: {"name":"...","type":"...","target":"...","interval_seconds":60,"timeout_seconds":3,"params":{},"rationale":"..."}. ` +
 	"type MUST be one of icmp, tcp, udp, dns, http. target is a host/IP/URL: a full URL for http, a hostname for dns, " +
 	"host:port for tcp/udp, a host or IP for icmp. Do not invent fields or wrap the JSON in prose."

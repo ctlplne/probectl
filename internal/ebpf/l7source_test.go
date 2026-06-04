@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
 )
 
 func TestFixtureL7SourceReplays(t *testing.T) {

@@ -1,4 +1,4 @@
-// Package endpoint is netctl's endpoint / Digital-Experience-Monitoring (DEM)
+// Package endpoint is probectl's endpoint / Digital-Experience-Monitoring (DEM)
 // agent core (S37, F16/F46): it captures last-mile experience from a user's
 // device — WiFi link health, the local gateway, the ISP/last-mile path, and
 // browser-session timings — and ATTRIBUTES a slowdown to the closest impaired

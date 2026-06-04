@@ -1,6 +1,6 @@
 //go:build integration
 
-// Package integration holds netctl's black-box integration tests. They exercise
+// Package integration holds probectl's black-box integration tests. They exercise
 // the running services over their public interfaces against the real dev stack
 // (Postgres + Kafka + ClickHouse + Prometheus) defined in deploy/compose/dev.yml,
 // rather than importing internal packages.

@@ -1,4 +1,4 @@
-// Package path is netctl's ECMP/MPLS-aware path-discovery engine (S10).
+// Package path is probectl's ECMP/MPLS-aware path-discovery engine (S10).
 //
 // It runs Paris-style traceroutes — each trace uses a constant flow identifier
 // (a forced ICMP checksum, or a fixed TCP 5-tuple) so load-balancing routers

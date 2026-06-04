@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/migrations"
+	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
 func TestCheckSQLAllowsAdditive(t *testing.T) {
@@ -26,7 +26,7 @@ BEGIN
         CREATE POLICY tenant_isolation ON widgets USING (true)
     $pol$;
 END $$;
-GRANT SELECT ON widgets TO netctl_app;
+GRANT SELECT ON widgets TO probectl_app;
 `
 	if v := CheckSQL("0099_add.sql", additive); len(v) != 0 {
 		t.Fatalf("additive migration should pass, got violations: %v", v)
@@ -56,7 +56,7 @@ func TestCheckSQLDollarQuoteNotSplit(t *testing.T) {
 	sql := `DO $$
 BEGIN
     EXECUTE 'CREATE INDEX IF NOT EXISTS i ON t (a)';
-    EXECUTE 'GRANT SELECT ON t TO netctl_app';
+    EXECUTE 'GRANT SELECT ON t TO probectl_app';
 END $$;`
 	if v := CheckSQL("x.sql", sql); len(v) != 0 {
 		t.Fatalf("dollar-quoted block should pass, got: %v", v)

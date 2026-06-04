@@ -3,12 +3,12 @@ package control
 import (
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/alert"
 )
 
 func TestAlertRequestToRuleDefaults(t *testing.T) {
 	req := alertRequest{
-		Name: "loss-high", Metric: "netctl_probe_loss_ratio",
+		Name: "loss-high", Metric: "probectl_probe_loss_ratio",
 		Type: "threshold", Comparison: "gt", Threshold: 0.5,
 	}
 	r, err := req.toRule()

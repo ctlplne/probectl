@@ -1,17 +1,17 @@
 # Threat-intel enrichment (S28 · F38)
 
-netctl can match observed network activity — peer IPs, target hostnames, server
+probectl can match observed network activity — peer IPs, target hostnames, server
 **certificates**, and client **JA3** fingerprints — against public **threat-intel
 feeds**, surfacing matches as **confidence-scored, source-attributed threat-plane
 signals** that correlate into the unified incident timeline (S16/S17).
 
 This is a **signal, not an IPS** (CLAUDE.md §7 guardrail 9): a match is scored,
-tunable, and suppressible — netctl **never blocks traffic** and never acts inline.
+tunable, and suppressible — probectl **never blocks traffic** and never acts inline.
 
 ## Status
 
 **Off by default.** Enabling it makes outbound fetches to the configured feeds, so
-it is gated behind `NETCTL_THREATINTEL_ENABLED` (sovereignty / no-phone-home —
+it is gated behind `PROBECTL_THREATINTEL_ENABLED` (sovereignty / no-phone-home —
 guardrail 2). When disabled, no feed is contacted and no IOC code runs.
 
 ## How it works
@@ -37,7 +37,7 @@ flowchart LR
   feeds -->|"Fetch() → []IOC\n(hardened TLS, untrusted)"| REF["IntelRefresher\n(per-source last-good,\ngraceful degradation)"]
   REF -->|"atomic rebuild"| STORE[("IOCStore\nip · cidr · domain · url · cert · ja3")]
 
-  RES["netctl.network.results\n(synthetic + flow)"] --> IPC["IOCConsumer\nscore peer IP / host"]
+  RES["probectl.network.results\n(synthetic + flow)"] --> IPC["IOCConsumer\nscore peer IP / host"]
   TLS["S27 TLS observer\n(captured leaf + JA3)"] --> AN["threat.Analyzer\nWithIntel(store)"]
 
   STORE --> IPC
@@ -50,7 +50,7 @@ flowchart LR
 
 ### The two scoring paths
 
-- **IP / host** (`IOCConsumer`, over `netctl.network.results`): every result's peer
+- **IP / host** (`IOCConsumer`, over `probectl.network.results`): every result's peer
   address is scored. An IP is matched exactly and against any **containing CIDR**;
   a hostname target is matched against the domain feed. A `:port` is stripped first.
 - **Certificate / JA3** (`threat.Analyzer.WithIntel`, the **S27 tie**): the
@@ -96,7 +96,7 @@ mode commercially.
 > **FireHOL** aggregates many upstream feeds with **mixed licenses** — it is marked
 > `restricted` for resale; verify upstream terms before commercial redistribution.
 
-Set `NETCTL_THREATINTEL_FEEDS` to a comma-separated subset of the `name` column, or
+Set `PROBECTL_THREATINTEL_FEEDS` to a comma-separated subset of the `name` column, or
 leave it empty to load all built-in feeds.
 
 ## Reliability & accuracy caveats
@@ -105,7 +105,7 @@ leave it empty to load all built-in feeds.
   **last-good** IOCs. A feed that is down, rate-limited, or malformed leaves the
   prior indicators in place and never empties the store or breaks a core path.
 - **Freshness:** indicators are only as current as the last successful refresh
-  (`NETCTL_THREATINTEL_REFRESH`, default 6h). A signal reflects feed state at
+  (`PROBECTL_THREATINTEL_REFRESH`, default 6h). A signal reflects feed state at
   refresh time, not real time.
 - **False positives:** public feeds carry stale or shared-infrastructure entries
   (e.g. a CDN IP once used for C2; a Tor exit is not inherently malicious). Treat
@@ -119,9 +119,9 @@ leave it empty to load all built-in feeds.
 
 | Variable                     | Default | Description                                                            |
 | ---------------------------- | ------- | --------------------------------------------------------------------- |
-| `NETCTL_THREATINTEL_ENABLED` | `false` | master switch (outbound feed fetches); off ⇒ no IOC code runs         |
-| `NETCTL_THREATINTEL_REFRESH` | `6h`    | feed refresh cadence                                                   |
-| `NETCTL_THREATINTEL_FEEDS`   | (all)   | comma-separated feed names to load; empty ⇒ all built-in feeds        |
+| `PROBECTL_THREATINTEL_ENABLED` | `false` | master switch (outbound feed fetches); off ⇒ no IOC code runs         |
+| `PROBECTL_THREATINTEL_REFRESH` | `6h`    | feed refresh cadence                                                   |
+| `PROBECTL_THREATINTEL_FEEDS`   | (all)   | comma-separated feed names to load; empty ⇒ all built-in feeds        |
 
 ## Security guardrails upheld
 

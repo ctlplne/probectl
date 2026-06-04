@@ -1,8 +1,8 @@
 # Endpoint agent — last-mile / WiFi DEM (S37 · F16, F46)
 
-`netctl-endpoint` is a lightweight, cross-OS (Linux/macOS/Windows) agent that runs
+`probectl-endpoint` is a lightweight, cross-OS (Linux/macOS/Windows) agent that runs
 on a user's device and measures **last-mile experience** — the part of the path
-netctl's server-side canaries can't see. It captures WiFi link health, the local
+probectl's server-side canaries can't see. It captures WiFi link health, the local
 gateway, the ISP/last-mile path, and browser-session timings, then **attributes a
 slowdown** to the closest impaired layer so an operator can answer the
 hybrid-work question: *"is it us, or the user's WiFi/ISP?"*
@@ -19,7 +19,7 @@ flowchart LR
     C --> A[Attribution engine]
     A --> P[Privacy minimize]
   end
-  P -->|resultv1.Result, tenant-keyed| B[(netctl.endpoint.results)]
+  P -->|resultv1.Result, tenant-keyed| B[(probectl.endpoint.results)]
   B --> PIPE[pipeline → TSDB / incidents]
 ```
 
@@ -80,7 +80,7 @@ Minimization is **drop-on-collect**: a gated-off field is cleared *before* the
 sample is mapped, emitted, or logged, so it never leaves the device. A
 `StrictPrivacy()` preset collects no identifiers at all. The agent **discloses
 exactly what it collects at every startup** (the disclosure banner). Use
-`NETCTL_ENDPOINT_COLLECT_*` (see [`configuration.md`](configuration.md)) to tune.
+`PROBECTL_ENDPOINT_COLLECT_*` (see [`configuration.md`](configuration.md)) to tune.
 
 ## Cross-OS collection matrix
 
@@ -105,7 +105,7 @@ result per signal, typed `endpoint.attribution` / `.wifi` / `.gateway` /
 `.lastmile` / `.session`. Numeric fields become Metrics (TSDB series),
 identifiers/labels become Attributes (OTel attributes, no cardinality blow-up).
 The **attribution result is the headline** — its `endpoint.cause` attribute is
-the WiFi/ISP/network verdict. Results are published to `netctl.endpoint.results`
+the WiFi/ISP/network verdict. Results are published to `probectl.endpoint.results`
 as `resultv1.Result`, tenant-keyed, so they flow through the same pipeline → TSDB
 / incident path as every other canary.
 
@@ -122,8 +122,8 @@ bus in a single-node dev deploy) with a tenant id.
   last-mile trace rather than a separate privileged ping — simpler, no raw
   sockets. A dedicated low-overhead gateway probe is a possible refinement.
 - **Emission → TSDB:** the agent publishes `resultv1.Result` to
-  `netctl.endpoint.results`, and the control-plane result pipeline consumer
-  subscribes to it (on its own consumer group) alongside `netctl.network.results`,
+  `probectl.endpoint.results`, and the control-plane result pipeline consumer
+  subscribes to it (on its own consumer group) alongside `probectl.network.results`,
   so DEM results land in the TSDB through the same path as every other canary.
 - **Out of scope (per sprint):** full real-user monitoring (RUM, S47b) and deep
   packet capture. For roaming devices behind NAT, a future option is to forward

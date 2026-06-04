@@ -1,6 +1,6 @@
 # S19a — eBPF feasibility spike (vertical proof)
 
-Real CO-RE eBPF proof for the netctl eBPF agent (F11 / S20 / S21). The findings,
+Real CO-RE eBPF proof for the probectl eBPF agent (F11 / S20 / S21). The findings,
 coverage matrices, overhead estimate, and go/no-go live in
 **[`../../docs/ebpf-feasibility.md`](../../docs/ebpf-feasibility.md)** — read that
 first. This directory is the runnable artifact behind it.
@@ -39,4 +39,4 @@ pid=1234    comm=curl             10.0.0.5:53124 -> 93.184.216.34:443
 ## Not production code
 
 Separate Go module, **not** in the repo `go.work`; excluded from CI/lint/format.
-`cmd/netctl-ebpf-agent` (S20) supersedes this — nothing here is promoted as-is.
+`cmd/probectl-ebpf-agent` (S20) supersedes this — nothing here is promoted as-is.

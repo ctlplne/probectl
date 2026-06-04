@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from netctl_analyzer.events import BGPEvent, EventType, RPKIStatus, Severity
+from probectl_analyzer.events import BGPEvent, EventType, RPKIStatus, Severity
 
 
 def test_to_json_uses_snake_case_keys_and_lowercase_enums():

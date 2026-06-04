@@ -4,15 +4,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/alert"
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/alert"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 func TestSignalFromAlert(t *testing.T) {
 	a := alert.Alert{
 		TenantID: "t1", RuleName: "loss-high", RuleID: "r1", State: alert.StateFiring,
-		Severity: alert.SeverityCritical, Metric: "netctl_probe_loss_ratio",
+		Severity: alert.SeverityCritical, Metric: "probectl_probe_loss_ratio",
 		Labels: map[string]string{"server_address": "192.0.2.10"}, Value: 0.9, At: time.Unix(100, 0),
 	}
 	s := signalFromAlert(a)
@@ -22,7 +22,7 @@ func TestSignalFromAlert(t *testing.T) {
 	if s.Severity != incident.SeverityCritical || s.Target != "192.0.2.10" {
 		t.Errorf("severity/target = %q/%q", s.Severity, s.Target)
 	}
-	if s.Attributes["metric"] != "netctl_probe_loss_ratio" || s.Attributes["rule_id"] != "r1" {
+	if s.Attributes["metric"] != "probectl_probe_loss_ratio" || s.Attributes["rule_id"] != "r1" {
 		t.Errorf("attributes = %+v", s.Attributes)
 	}
 }

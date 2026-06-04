@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
 )
 
 // chain wraps h with the given middleware. The first middleware is outermost.

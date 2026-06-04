@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from netctl_analyzer.events import RPKIStatus
-from netctl_analyzer.rpki import VRPSet
+from probectl_analyzer.events import RPKIStatus
+from probectl_analyzer.rpki import VRPSet
 
 VRP_JSON = """
 {"roas": [

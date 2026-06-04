@@ -108,10 +108,10 @@ func (g *Graph) ObserveRouting(in RoutingInput, at time.Time) {
 	g.UpsertNode(Node{ID: pfx, Kind: NodePrefix, Label: in.Prefix}, at)
 	attrs := map[string]string{}
 	if in.EventType != "" {
-		attrs["netctl.bgp.event_type"] = in.EventType
+		attrs["probectl.bgp.event_type"] = in.EventType
 	}
 	if in.PeerASN != 0 {
-		attrs["netctl.bgp.peer_asn"] = strconv.FormatUint(uint64(in.PeerASN), 10)
+		attrs["probectl.bgp.peer_asn"] = strconv.FormatUint(uint64(in.PeerASN), 10)
 	}
 	g.UpsertEdge(Edge{From: as, To: pfx, Kind: EdgeRouting, Attributes: attrs}, at)
 }

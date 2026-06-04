@@ -1,4 +1,4 @@
-// Package threat is netctl's security/threat subsystem. S27 implements TLS/cert
+// Package threat is probectl's security/threat subsystem. S27 implements TLS/cert
 // observability: it analyzes TLS posture from ALREADY-CAPTURED data — the HTTP
 // synthetic canary (S13) and eBPF L7 (S21) — so it never re-handshakes (S27
 // watch-out).
@@ -11,6 +11,6 @@
 // incident signals (feeding the unified timeline + alerting, S16/S17).
 //
 // Threat detections here are SIGNALS, not an IPS (CLAUDE.md §7 guardrail 9):
-// confidence-scored, surfaced, and exportable — netctl does not block traffic.
+// confidence-scored, surfaced, and exportable — probectl does not block traffic.
 // Malicious-cert / JA3 threat-intel correlation is deferred (S28/S42).
 package threat

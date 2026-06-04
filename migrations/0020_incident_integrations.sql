@@ -34,9 +34,9 @@ BEGIN
     EXECUTE 'DROP POLICY IF EXISTS tenant_isolation ON incident_integrations';
     EXECUTE $pol$
         CREATE POLICY tenant_isolation ON incident_integrations
-          USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
-          WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
+          USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+          WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
     $pol$;
 END $$;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON incident_integrations TO netctl_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON incident_integrations TO probectl_app;

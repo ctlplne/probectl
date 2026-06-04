@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // CTChecker correlates a leaf certificate against Certificate Transparency logs

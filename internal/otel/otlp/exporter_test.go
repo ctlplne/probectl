@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/test/bufconn"
 
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // newBufconnReceiver starts an in-process OTLP/gRPC MetricsService (auth
@@ -50,7 +50,7 @@ func TestHTTPExporterErrors(t *testing.T) {
 	}
 }
 
-// TestRoundTripHTTP exports a netctl Result as OTLP/HTTP through the receiver and
+// TestRoundTripHTTP exports a probectl Result as OTLP/HTTP through the receiver and
 // asserts the tenant + canonical resource attributes survive.
 func TestRoundTripHTTP(t *testing.T) {
 	auth := NewTokenAuthenticator(map[string]string{"tok": "tenant-a"})
@@ -83,7 +83,7 @@ func TestRoundTripHTTP(t *testing.T) {
 			t.Fatalf("resource metrics = %d, want 1", len(got.req.GetResourceMetrics()))
 		}
 		attrs := resourceAttrs(got.req.GetResourceMetrics()[0])
-		if attrs["netctl.tenant.id"] != "tenant-a" || attrs["netctl.canary.type"] != "icmp" {
+		if attrs["probectl.tenant.id"] != "tenant-a" || attrs["probectl.canary.type"] != "icmp" {
 			t.Errorf("round-trip attrs = %v", attrs)
 		}
 	case <-time.After(2 * time.Second):

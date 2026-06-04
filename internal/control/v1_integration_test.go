@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
-	"github.com/imfeelingtheagi/netctl/migrations"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
 func setupAPI(t *testing.T) (http.Handler, *store.DB) {
@@ -58,7 +58,7 @@ func apiReq(t *testing.T, h http.Handler, method, path, tenant string, body any)
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if tenant != "" {
-		req.Header.Set("X-Netctl-Tenant", tenant)
+		req.Header.Set("X-Probectl-Tenant", tenant)
 	}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -203,7 +203,7 @@ func TestAgentsAPI(t *testing.T) {
 	err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.DefaultTenantID), db.Pool(),
 		func(ctx context.Context, s tenancy.Scope) error {
 			_, e := store.Agents{}.Register(ctx, s, agentID, "api-agent", "host-x", "0.1.0",
-				"spiffe://netctl/tenant/x/agent/"+agentID, []string{"icmp"})
+				"spiffe://probectl/tenant/x/agent/"+agentID, []string{"icmp"})
 			return e
 		})
 	if err != nil {

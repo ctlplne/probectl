@@ -10,7 +10,7 @@ ON CONFLICT (id) DO NOTHING;
 -- Set the tenant GUC so RLS WITH CHECK passes for the child inserts when the
 -- migration role is a non-superuser owner (a superuser bypasses RLS anyway).
 -- Transaction-local: the migration runner wraps each migration in one tx.
-SELECT set_config('netctl.tenant_id', '00000000-0000-0000-0000-000000000001', true);
+SELECT set_config('probectl.tenant_id', '00000000-0000-0000-0000-000000000001', true);
 
 INSERT INTO organizations (id, tenant_id, slug, name) VALUES
     ('00000000-0000-0000-0000-000000000010',

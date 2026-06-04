@@ -1,0 +1,21 @@
+apiVersion: v2
+name: probectl
+description: >-
+  Self-hosted, multi-tenant, OpenTelemetry-native network observability control
+  plane. HTTPS-by-default (TLS-terminating ingress + HSTS; no plaintext API
+  exposure). Ships single-tenant and multi-tenant/provider reference values.
+type: application
+# Chart version (independent of the app). Bump on chart changes.
+version: 0.1.0
+# The default probectl version this chart targets; override image.tag to pin.
+appVersion: "0.1.0"
+keywords:
+  - observability
+  - network
+  - opentelemetry
+  - multi-tenant
+home: https://github.com/imfeelingtheagi/probectl
+sources:
+  - https://github.com/imfeelingtheagi/probectl
+maintainers:
+  - name: probectl

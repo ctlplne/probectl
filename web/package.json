@@ -1,9 +1,9 @@
 {
-  "name": "netctl-web",
+  "name": "probectl-web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "netctl frontend foundation & design system (S8a).",
+  "description": "probectl frontend foundation & design system (S8a).",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

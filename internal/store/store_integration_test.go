@@ -11,16 +11,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
-	"github.com/imfeelingtheagi/netctl/migrations"
+	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
 func dsn() string {
-	if v := os.Getenv("NETCTL_DATABASE_URL"); v != "" {
+	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://netctl@localhost:5432/postgres?sslmode=disable"
+	return "postgres://probectl@localhost:5432/postgres?sslmode=disable"
 }
 
 func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {

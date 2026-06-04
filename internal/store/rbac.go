@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // RBAC repositories — SCHEMA-LEVEL only in S2 (enforcement lands in S18). They

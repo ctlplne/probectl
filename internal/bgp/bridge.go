@@ -1,9 +1,9 @@
 // Package bgp bridges the Python BGP analyzer into the control plane (S14).
 //
 // The analyzer (analyzer/) ingests public collector data and emits
-// netctl.bgp.events as JSON Lines. The Bridge reads that stream, validates each
+// probectl.bgp.events as JSON Lines. The Bridge reads that stream, validates each
 // event's tenant (the outermost scope — F50), and republishes it onto the bus as
-// the canonical netctl.bgp.v1.BGPEvent protobuf, keyed by tenant so a tenant's
+// the canonical probectl.bgp.v1.BGPEvent protobuf, keyed by tenant so a tenant's
 // routing events stay co-located (pooled tenant-tagging). Detections are signals,
 // not actions (CLAUDE.md §7 guardrail 9): the bridge transports them, it does not
 // act on routing.
@@ -19,7 +19,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
 )
 
 // maxEventLine bounds a single JSONL record (defensive: collector-derived input
@@ -52,7 +52,7 @@ func NewBridge(b Publisher, log *slog.Logger) *Bridge {
 }
 
 // Ingest reads JSON-Lines events from r until EOF, publishing each valid event
-// to netctl.bgp.events keyed by its tenant. A malformed or tenant-less line is
+// to probectl.bgp.events keyed by its tenant. A malformed or tenant-less line is
 // logged and skipped (fail closed), so one bad record never blocks the stream or
 // leaks across tenants. It returns the stats and the first transport error
 // (a publish failure is fatal to the run; a parse/validation failure is not).

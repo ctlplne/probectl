@@ -1,5 +1,5 @@
 /*
- * netctl design tokens (S8a · F54-foundation).
+ * probectl design tokens (S8a · F54-foundation).
  *
  * The single source of truth for every design value. Components reference ONLY
  * these CSS custom properties — never raw colors/sizes — so per-tenant

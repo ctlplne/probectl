@@ -10,15 +10,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
-	"github.com/imfeelingtheagi/netctl/migrations"
+	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
 func dsn() string {
-	if v := os.Getenv("NETCTL_DATABASE_URL"); v != "" {
+	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable"
+	return "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable"
 }
 
 // TestApplyIsIdempotent proves the S1 Done-when: a no-op (already-applied)
@@ -54,7 +54,7 @@ func TestApplyIsIdempotent(t *testing.T) {
 	}
 
 	var value string
-	if err := pool.QueryRow(ctx, "SELECT value FROM netctl_meta WHERE key = 'schema_baseline'").Scan(&value); err != nil {
+	if err := pool.QueryRow(ctx, "SELECT value FROM probectl_meta WHERE key = 'schema_baseline'").Scan(&value); err != nil {
 		t.Fatalf("baseline marker row: %v", err)
 	}
 	if value != "s1" {

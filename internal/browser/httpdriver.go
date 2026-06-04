@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // maxArtifact bounds the captured failure-artifact body.
@@ -166,7 +166,7 @@ func (d *HTTPDriver) do(ctx context.Context, client *http.Client, method, rawURL
 	if ct != "" {
 		req.Header.Set("Content-Type", ct)
 	}
-	req.Header.Set("User-Agent", "netctl-browser-synthetic")
+	req.Header.Set("User-Agent", "probectl-browser-synthetic")
 
 	var dnsStart, connStart, tlsStart time.Time
 	reqStart := time.Now()

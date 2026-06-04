@@ -1,6 +1,6 @@
 S19a eBPF feasibility spike — environment probe
 ================================================
-Captured with bpftool + the kernel config on the netctl build/CI sandbox.
+Captured with bpftool + the kernel config on the probectl build/CI sandbox.
 Backs §3 of docs/ebpf-feasibility.md. Raw commands and results:
 
 $ uname -srm

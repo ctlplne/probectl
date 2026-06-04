@@ -3,12 +3,12 @@ package otel
 import (
 	"testing"
 
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // TestResultAttributesConformToConventions is the semantic-convention conformance
 // check (S6 Done-when): the core Result->attribute mapping must only ever emit
-// OTel-standard or netctl.* names, never an invented attribute where an OTel
+// OTel-standard or probectl.* names, never an invented attribute where an OTel
 // convention exists. Runs in CI (test-go).
 func TestResultAttributesConformToConventions(t *testing.T) {
 	r := &resultv1.Result{
@@ -23,7 +23,7 @@ func TestResultAttributesConformToConventions(t *testing.T) {
 	attrs := ResultAttributes(r)
 	for k := range attrs {
 		if !KnownAttributes[k] {
-			t.Errorf("attribute %q is not an OTel/netctl convention name (invented attribute)", k)
+			t.Errorf("attribute %q is not an OTel/probectl convention name (invented attribute)", k)
 		}
 	}
 

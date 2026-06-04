@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 )
 
 // ToCanaryResult maps a browser Result onto the canonical canary.Result envelope

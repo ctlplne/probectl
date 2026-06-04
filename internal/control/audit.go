@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/imfeelingtheagi/netctl/internal/audit"
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // auditActor returns a stable actor identity for the request's principal, used as

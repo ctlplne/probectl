@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 // Dispatcher fans an incident lifecycle transition out to a tenant's connectors,

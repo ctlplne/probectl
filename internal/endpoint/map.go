@@ -3,7 +3,7 @@ package endpoint
 import (
 	"fmt"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 )
 
 // Canary result types emitted by the endpoint agent. They share the "endpoint."

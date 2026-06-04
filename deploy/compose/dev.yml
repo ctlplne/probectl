@@ -1,4 +1,4 @@
-# netctl local development dependency stack.
+# probectl local development dependency stack.
 #
 # Brings up the four backing services the control plane talks to during local
 # development: Postgres, Kafka (KRaft, no ZooKeeper), ClickHouse, and Prometheus.
@@ -10,26 +10,26 @@
 # dev credentials for convenience. The shipped production deploys are
 # HTTPS/TLS-by-default (CLAUDE.md §7 guardrail 12). Service names, ports, and
 # credentials are documented in docs/configuration.md.
-name: netctl-dev
+name: probectl-dev
 
 services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: netctl
-      POSTGRES_PASSWORD: netctl
-      POSTGRES_DB: netctl
+      POSTGRES_USER: probectl
+      POSTGRES_PASSWORD: probectl
+      POSTGRES_DB: probectl
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U netctl -d netctl"]
+      test: ["CMD-SHELL", "pg_isready -U probectl -d probectl"]
       interval: 5s
       timeout: 5s
       retries: 15
       start_period: 5s
-    networks: [netctl]
+    networks: [probectl]
 
   kafka:
     image: apache/kafka:3.9.0
@@ -64,7 +64,7 @@ services:
       timeout: 10s
       retries: 15
       start_period: 20s
-    networks: [netctl]
+    networks: [probectl]
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
@@ -72,9 +72,9 @@ services:
       - "8123:8123"
       - "9000:9000"
     environment:
-      CLICKHOUSE_USER: netctl
-      CLICKHOUSE_PASSWORD: netctl
-      CLICKHOUSE_DB: netctl
+      CLICKHOUSE_USER: probectl
+      CLICKHOUSE_PASSWORD: probectl
+      CLICKHOUSE_DB: probectl
     ulimits:
       nofile:
         soft: 262144
@@ -82,12 +82,12 @@ services:
     volumes:
       - chdata:/var/lib/clickhouse
     healthcheck:
-      test: ["CMD-SHELL", "clickhouse-client --host localhost --user netctl --password netctl --query 'SELECT 1' >/dev/null 2>&1 || exit 1"]
+      test: ["CMD-SHELL", "clickhouse-client --host localhost --user probectl --password probectl --query 'SELECT 1' >/dev/null 2>&1 || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
-    networks: [netctl]
+    networks: [probectl]
 
   prometheus:
     image: prom/prometheus:v3.1.0
@@ -107,7 +107,7 @@ services:
       timeout: 5s
       retries: 15
       start_period: 5s
-    networks: [netctl]
+    networks: [probectl]
 
 volumes:
   pgdata:
@@ -115,5 +115,5 @@ volumes:
   promdata:
 
 networks:
-  netctl:
-    name: netctl-dev
+  probectl:
+    name: probectl-dev

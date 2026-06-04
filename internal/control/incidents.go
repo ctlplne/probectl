@@ -11,13 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/alert"
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // pgIncidentStore implements incident.Store over Postgres, scoping every
@@ -147,7 +147,7 @@ func bgpSeverity(s bgpv1.Severity) incident.Severity {
 	}
 }
 
-// BGPIncidentConsumer subscribes to netctl.bgp.events and correlates each event
+// BGPIncidentConsumer subscribes to probectl.bgp.events and correlates each event
 // into an incident (the BGP plane feeding the unified timeline).
 type BGPIncidentConsumer struct {
 	bus        bus.Bus

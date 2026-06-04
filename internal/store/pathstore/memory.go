@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/imfeelingtheagi/netctl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/path"
 )
 
 // Memory is an in-process Store that retains saved paths for query (lightweight

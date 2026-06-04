@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Users is the tenant-scoped user repository (per-tenant identity; SSO in S18,

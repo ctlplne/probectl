@@ -1,6 +1,6 @@
 package otel
 
-import ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
+import ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 
 // L7 call attribute keys (S21), following the OpenTelemetry http.* / rpc.* /
 // dns.* / messaging.* semantic conventions. Identity (tenant/agent) and the edge
@@ -17,7 +17,7 @@ const (
 	AttrMessagingSystem        = "messaging.system"
 	AttrMessagingOperation     = "messaging.operation.name"
 	AttrMessagingDestination   = "messaging.destination.name"
-	AttrL7Encrypted            = "netctl.l7.encrypted"
+	AttrL7Encrypted            = "probectl.l7.encrypted"
 )
 
 func init() {

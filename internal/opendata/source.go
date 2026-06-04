@@ -1,4 +1,4 @@
-// Package opendata is netctl's open-data enrichment framework (S15): a pluggable
+// Package opendata is probectl's open-data enrichment framework (S15): a pluggable
 // set of sources that annotate an IP with ASN / geo / IXP / allocation context
 // drawn from public datasets, with per-source provenance + AUP metadata, caching,
 // and graceful degradation.

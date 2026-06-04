@@ -6,24 +6,24 @@ import (
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/otel"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
-const scopeName = "netctl"
+const scopeName = "probectl"
 
 // ResultResourceMetrics converts a probe Result to OTLP ResourceMetrics, using
 // the canonical S6 resource attributes.
 func ResultResourceMetrics(r *resultv1.Result) *metricspb.ResourceMetrics {
 	ts := uint64(r.GetStartTimeUnixNano())
 	ms := []*metricspb.Metric{
-		gauge("netctl.probe.duration", "ns", ts, float64(r.GetDurationNano())),
-		gauge("netctl.probe.success", "1", ts, b2f(r.GetSuccess())),
+		gauge("probectl.probe.duration", "ns", ts, float64(r.GetDurationNano())),
+		gauge("probectl.probe.success", "1", ts, b2f(r.GetSuccess())),
 	}
 	for name, v := range r.GetMetrics() {
-		ms = append(ms, gauge("netctl.metric."+name, "", ts, v))
+		ms = append(ms, gauge("probectl.metric."+name, "", ts, v))
 	}
 	return resourceMetrics(otel.ResultAttributes(r), ms...)
 }
@@ -32,8 +32,8 @@ func ResultResourceMetrics(r *resultv1.Result) *metricspb.ResourceMetrics {
 func FlowResourceMetrics(f *ebpfv1.Flow) *metricspb.ResourceMetrics {
 	ts := uint64(f.GetObservedAtUnixNano())
 	return resourceMetrics(otel.FlowAttributes(f),
-		gauge("netctl.flow.bytes", "By", ts, float64(f.GetBytes())),
-		gauge("netctl.flow.packets", "1", ts, float64(f.GetPackets())),
+		gauge("probectl.flow.bytes", "By", ts, float64(f.GetBytes())),
+		gauge("probectl.flow.packets", "1", ts, float64(f.GetPackets())),
 	)
 }
 
@@ -41,8 +41,8 @@ func FlowResourceMetrics(f *ebpfv1.Flow) *metricspb.ResourceMetrics {
 func L7CallResourceMetrics(c *ebpfv1.L7Call) *metricspb.ResourceMetrics {
 	ts := uint64(c.GetStartUnixNano())
 	return resourceMetrics(otel.L7CallAttributes(c),
-		gauge("netctl.l7.duration", "ns", ts, float64(c.GetLatencyNano())),
-		gauge("netctl.l7.error", "1", ts, b2f(c.GetError())),
+		gauge("probectl.l7.duration", "ns", ts, float64(c.GetLatencyNano())),
+		gauge("probectl.l7.error", "1", ts, b2f(c.GetError())),
 	)
 }
 
@@ -51,7 +51,7 @@ func L7CallResourceMetrics(c *ebpfv1.L7Call) *metricspb.ResourceMetrics {
 func BGPEventResourceMetrics(e *bgpv1.BGPEvent) *metricspb.ResourceMetrics {
 	ts := uint64(e.GetDetectedAtUnixNano())
 	return resourceMetrics(otel.BGPEventAttributes(e),
-		gauge("netctl.bgp.event", "1", ts, 1),
+		gauge("probectl.bgp.event", "1", ts, 1),
 	)
 }
 
@@ -60,7 +60,7 @@ func MetricsRequest(rms ...*metricspb.ResourceMetrics) *colmetricspb.ExportMetri
 	return &colmetricspb.ExportMetricsServiceRequest{ResourceMetrics: rms}
 }
 
-// ResourceTenant returns the netctl.tenant.id resource attribute, if present.
+// ResourceTenant returns the probectl.tenant.id resource attribute, if present.
 // The receiver uses it to enforce that a push matches its authenticated tenant.
 func ResourceTenant(rm *metricspb.ResourceMetrics) string {
 	for _, kv := range rm.GetResource().GetAttributes() {

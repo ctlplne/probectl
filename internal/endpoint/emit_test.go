@@ -7,8 +7,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // captureBus records every Publish for assertions.
@@ -30,7 +30,7 @@ func (c *captureBus) Subscribe(context.Context, string, string, bus.Handler) err
 func (c *captureBus) Close() error                                                 { return nil }
 
 // TestBusEmitterPublishesTenantTaggedResults checks the DEM sample lands on
-// netctl.endpoint.results as canonical resultv1.Result messages, tenant-keyed,
+// probectl.endpoint.results as canonical resultv1.Result messages, tenant-keyed,
 // with the attribution result carrying the cause.
 func TestBusEmitterPublishesTenantTaggedResults(t *testing.T) {
 	cb := &captureBus{}

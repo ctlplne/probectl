@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 )
 
 func integrationDSN() string {
-	if v := os.Getenv("NETCTL_DATABASE_URL"); v != "" {
+	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable"
+	return "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable"
 }
 
 // TestReadyzAgainstRealDatabase proves the S1 Done-when: the server boots with a

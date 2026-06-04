@@ -1,35 +1,35 @@
-# ArgoCD Application for netctl (S35). Point repoURL at the repo holding the chart
+# ArgoCD Application for probectl (S35). Point repoURL at the repo holding the chart
 # (this repo, or your config repo that vendors it) and customize the host. Secrets
 # are NOT inlined here: pre-create the Secret (Sealed Secrets / External Secrets
 # Operator) and reference it via secrets.existingSecret.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: netctl
+  name: probectl
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://github.com/your-org/netctl.git
+    repoURL: https://github.com/your-org/probectl.git
     targetRevision: main
-    path: deploy/helm/netctl
+    path: deploy/helm/probectl
     helm:
       # Pick the sizing profile (small | medium | large), and/or the provider one.
       valueFiles:
         - values-medium.yaml
       parameters:
         - name: ingress.host
-          value: netctl.example.com
+          value: probectl.example.com
         - name: ingress.tlsSecretName
-          value: netctl-tls
+          value: probectl-tls
         # A Secret you manage out-of-band (envelope key, DB DSN, OIDC secret).
         - name: secrets.existingSecret
-          value: netctl-secrets
+          value: probectl-secrets
   destination:
     server: https://kubernetes.default.svc
-    namespace: netctl
+    namespace: probectl
   syncPolicy:
     automated:
       prune: true

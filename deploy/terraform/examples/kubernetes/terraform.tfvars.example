@@ -3,11 +3,11 @@
 
 kubeconfig         = "~/.kube/config"
 size               = "medium"
-ingress_host       = "netctl.example.com"
-ingress_tls_secret = "netctl-tls"
+ingress_host       = "probectl.example.com"
+ingress_tls_secret = "probectl-tls"
 
 # Point at your managed Postgres.
-database_url = "postgres://netctl:CHANGEME@db.internal:5432/netctl?sslmode=require"
+database_url = "postgres://probectl:CHANGEME@db.internal:5432/probectl?sslmode=require"
 
 # openssl rand -base64 32
 envelope_key = "REPLACE_WITH_BASE64_32_BYTE_KEK"

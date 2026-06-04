@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/path"
 )
 
 func samplePath() *path.Path {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: (GPL-2.0 OR BSD-3-Clause)
 //
-// netctl eBPF agent (S20) — CO-RE L3/L4 capture.
+// probectl eBPF agent (S20) — CO-RE L3/L4 capture.
 //
 // Attaches to the stable `sock:inet_sock_set_state` tracepoint and, for each TCP
 // socket entering ESTABLISHED, emits the 5-tuple + pid/comm to a ring buffer.

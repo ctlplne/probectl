@@ -9,10 +9,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kfake"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 // TestConsumerKafkaMode proves bus-mode parity for the result pipeline: the same
@@ -51,7 +51,7 @@ func TestConsumerKafkaMode(t *testing.T) {
 
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(w.Query("netctl_probe_success", map[string]string{"tenant_id": "t1"})) > 0 {
+		if len(w.Query("probectl_probe_success", map[string]string{"tenant_id": "t1"})) > 0 {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
@@ -59,7 +59,7 @@ func TestConsumerKafkaMode(t *testing.T) {
 	cancel()
 	<-done
 
-	if got := w.Query("netctl_probe_success", map[string]string{"tenant_id": "t1"}); len(got) == 0 || got[0].Value != 1 {
+	if got := w.Query("probectl_probe_success", map[string]string{"tenant_id": "t1"}); len(got) == 0 || got[0].Value != 1 {
 		t.Errorf("result not queryable via the Kafka-mode pipeline: %+v", got)
 	}
 }

@@ -22,7 +22,7 @@ const DefaultTenantID ID = "00000000-0000-0000-0000-000000000001"
 
 // AppRole is the least-privilege Postgres role assumed for every tenant-scoped
 // transaction so RLS is enforced regardless of the connecting role.
-const AppRole = "netctl_app"
+const AppRole = "probectl_app"
 
 // ErrNoTenant is returned (fail closed) when a tenant-scoped operation is
 // attempted without a tenant in context.
@@ -56,7 +56,7 @@ type Scope struct {
 }
 
 // InTenant runs fn inside a transaction bound to the tenant resolved from ctx. It
-// assumes the least-privilege AppRole and sets the netctl.tenant_id GUC so
+// assumes the least-privilege AppRole and sets the probectl.tenant_id GUC so
 // Postgres Row-Level Security scopes every statement to this tenant. It fails
 // closed when no tenant is in context (CLAUDE.md §7 guardrail 1).
 func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Scope) error) error {
@@ -76,7 +76,7 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{AppRole}.Sanitize()); err != nil {
 		return fmt.Errorf("assume app role: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "SELECT set_config('netctl.tenant_id', $1, true)", id.String()); err != nil {
+	if _, err := tx.Exec(ctx, "SELECT set_config('probectl.tenant_id', $1, true)", id.String()); err != nil {
 		return fmt.Errorf("bind tenant scope: %w", err)
 	}
 

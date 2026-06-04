@@ -1,11 +1,11 @@
 {
-  "name": "netctl-browser-worker",
+  "name": "probectl-browser-worker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "netctl S36 Playwright browser-worker: runs one transaction script in headless Chromium and emits a JSON result.",
+  "description": "probectl S36 Playwright browser-worker: runs one transaction script in headless Chromium and emits a JSON result.",
   "bin": {
-    "netctl-browser-worker": "worker.mjs"
+    "probectl-browser-worker": "worker.mjs"
   },
   "scripts": {
     "check": "node --check worker.mjs && node --check smoke.mjs",

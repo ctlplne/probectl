@@ -5,7 +5,7 @@
 // source: prometheus/v1/remote.proto
 
 // A minimal Prometheus remote-write v1 schema — just enough to write samples to
-// a Prometheus/VictoriaMetrics remote-write receiver, so netctl does not depend
+// a Prometheus/VictoriaMetrics remote-write receiver, so probectl does not depend
 // on the (very large) prometheus Go module. Payloads are snappy-compressed and
 // POSTed to <tsdb>/api/v1/write. timestamps are Unix milliseconds.
 
@@ -229,22 +229,15 @@ func (x *Sample) GetTimestamp() int64 {
 var File_prometheus_v1_remote_proto protoreflect.FileDescriptor
 
 const file_prometheus_v1_remote_proto_rawDesc = "" +
-	"\n" +
-	"\x1aprometheus/v1/remote.proto\x12\rprometheus.v1\"I\n" +
-	"\fWriteRequest\x129\n" +
-	"\n" +
-	"timeseries\x18\x01 \x03(\v2\x19.prometheus.v1.TimeSeriesR\n" +
-	"timeseries\"k\n" +
-	"\n" +
-	"TimeSeries\x12,\n" +
-	"\x06labels\x18\x01 \x03(\v2\x14.prometheus.v1.LabelR\x06labels\x12/\n" +
-	"\asamples\x18\x02 \x03(\v2\x15.prometheus.v1.SampleR\asamples\"1\n" +
-	"\x05Label\x12\x12\n" +
-	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value\"<\n" +
-	"\x06Sample\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\x01R\x05value\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestampBEZCgithub.com/imfeelingtheagi/netctl/internal/gen/prometheus/v1;prompbb\x06proto3"
+	"\n\x1aprometheus/v1/remote.proto\x12\rprometheus.v1\"I\n\x0cWriteReque" +
+	"st\x129\n\ntimeseries\x18\x01 \x03(\x0b2\x19.prometheus.v1.TimeSeriesR" +
+	"\ntimeseries\"k\n\nTimeSeries\x12,\n\x06labels\x18\x01 \x03(\x0b2\x14." +
+	"prometheus.v1.LabelR\x06labels\x12/\n\x07samples\x18\x02 \x03(\x0b2" +
+	"\x15.prometheus.v1.SampleR\x07samples\"1\n\x05Label\x12\x12\n\x04name" +
+	"\x18\x01 \x01(\tR\x04name\x12\x14\n\x05value\x18\x02 \x01(\tR\x05value" +
+	"\"<\n\x06Sample\x12\x14\n\x05value\x18\x01 \x01(\x01R\x05value\x12\x1c" +
+	"\n\ttimestamp\x18\x02 \x01(\x03R\ttimestampBGZEgithub.com/imfeelingthe" +
+	"agi/probectl/internal/gen/prometheus/v1;prompbb\x06proto3"
 
 var (
 	file_prometheus_v1_remote_proto_rawDescOnce sync.Once

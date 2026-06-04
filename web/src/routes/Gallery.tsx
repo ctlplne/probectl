@@ -37,7 +37,7 @@ export function Gallery() {
   return (
     <Page
       title="Design system"
-      subtitle="The netctl component library — every value comes from design tokens, so the whole set re-themes when the token set is swapped."
+      subtitle="The probectl component library — every value comes from design tokens, so the whole set re-themes when the token set is swapped."
       actions={
         <Button variant="primary" onClick={toggleTheme}>
           Theme: {theme} — swap

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // Engine errors.
@@ -16,7 +16,7 @@ var (
 	ErrNoSource      = errors.New("ai: no source configured for domain")
 )
 
-// Engine is netctl's unified semantic query layer — THE tenant-then-RBAC security
+// Engine is probectl's unified semantic query layer — THE tenant-then-RBAC security
 // boundary for the API, the AI/RCA layer (S24), and the MCP server (S25). It takes
 // the tenant from the authenticated principal (never the query), enforces RBAC,
 // applies cost/timeout guards, and dispatches to the store sources, returning a

@@ -20,4 +20,4 @@ CREATE INDEX IF NOT EXISTS mcp_tokens_tenant_idx ON mcp_tokens (tenant_id);
 
 -- The auth layer reads/updates tokens via the pool (pre-tenant), like sessions;
 -- grant the least-privilege login role DML on the table.
-GRANT SELECT, INSERT, UPDATE, DELETE ON mcp_tokens TO netctl_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON mcp_tokens TO probectl_app;

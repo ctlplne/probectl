@@ -4,7 +4,7 @@
 // program in bpf/l4flow.bpf.c, attaches it to the inet_sock_set_state
 // tracepoint, and prints TCP connections observed via a ring buffer.
 //
-// This is throwaway de-risking code (sprint S19a); it is NOT part of the netctl
+// This is throwaway de-risking code (sprint S19a); it is NOT part of the probectl
 // production build (separate module, absent from go.work, excluded from CI).
 // It requires a BTF-enabled Linux kernel (>=5.8) and CAP_BPF (or root); it will
 // not run on macOS, in most CI runners, or in an unprivileged container — which

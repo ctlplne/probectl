@@ -1,4 +1,4 @@
-// Package control implements the netctl control-plane HTTP API server: its
+// Package control implements the probectl control-plane HTTP API server: its
 // lifecycle, middleware chain (request-id + request-scoped logging, security
 // headers, access logging, panic recovery), the health/readiness/version/OpenAPI
 // endpoints, the domain-error→HTTP mapping, and graceful shutdown (S1).

@@ -1,4 +1,4 @@
-# buf configuration for netctl's protobuf sources (gRPC services + bus messages).
+# buf configuration for probectl's protobuf sources (gRPC services + bus messages).
 #
 # S0 scaffold: no .proto files exist yet. proto/agent.proto arrives in S4 and
 # proto/result.proto in S6; this config and the `make proto` target are wired

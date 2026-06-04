@@ -14,9 +14,9 @@ from hypothesis import given
 from hypothesis import strategies as st
 from mrt_fixtures import rib_ipv4
 
-from netctl_analyzer.events import RPKIStatus
-from netctl_analyzer.mrt import MRTError, stream_mrt
-from netctl_analyzer.rpki import VRPSet
+from probectl_analyzer.events import RPKIStatus
+from probectl_analyzer.mrt import MRTError, stream_mrt
+from probectl_analyzer.rpki import VRPSet
 
 asns = st.integers(min_value=1, max_value=2**32 - 1)
 

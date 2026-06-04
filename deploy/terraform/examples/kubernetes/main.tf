@@ -1,4 +1,4 @@
-# Example root: deploy netctl onto any Kubernetes cluster with the netctl module.
+# Example root: deploy probectl onto any Kubernetes cluster with the probectl module.
 # Cloud-agnostic — point the providers at any kubeconfig (EKS/GKE/AKS/OpenShift/
 # k3s). Provision the cluster + managed Postgres with your cloud's modules, then
 # pass the DSN in via database_url.
@@ -27,13 +27,13 @@ provider "helm" {
   }
 }
 
-module "netctl" {
-  source = "../../modules/netctl"
+module "probectl" {
+  source = "../../modules/probectl"
 
   # Local chart in this repo (so the size presets resolve).
-  chart = "../../../helm/netctl"
+  chart = "../../../helm/probectl"
 
-  namespace          = "netctl"
+  namespace          = "probectl"
   size               = var.size
   ingress_host       = var.ingress_host
   ingress_tls_secret = var.ingress_tls_secret
@@ -43,13 +43,13 @@ module "netctl" {
 }
 
 output "namespace" {
-  value = module.netctl.namespace
+  value = module.probectl.namespace
 }
 
 output "release" {
-  value = module.netctl.release_name
+  value = module.probectl.release_name
 }
 
 output "app_version" {
-  value = module.netctl.app_version
+  value = module.probectl.app_version
 }

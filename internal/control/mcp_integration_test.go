@@ -10,13 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/pathstore"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 func mcpCall(t *testing.T, srv interface {
@@ -51,7 +51,7 @@ func mcpToolResult(t *testing.T, srv interface {
 	return res
 }
 
-// End-to-end MCP against Postgres (S25 Done-when): an MCP client queries netctl
+// End-to-end MCP against Postgres (S25 Done-when): an MCP client queries probectl
 // strictly within the caller's RBAC scope; a tenant cannot see another tenant's
 // incident; and a control-plane token resolves to its tenant + user.
 func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {

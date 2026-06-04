@@ -9,7 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the eBPF agent configuration: a YAML file with NETCTL_EBPF_*
+// Config is the eBPF agent configuration: a YAML file with PROBECTL_EBPF_*
 // environment overrides. Every key is documented in docs/configuration.md.
 type Config struct {
 	// TenantID binds every emitted flow to one tenant (F50). In production the
@@ -18,7 +18,7 @@ type Config struct {
 	TenantID string `yaml:"tenant_id"`
 	Host     string `yaml:"host"`
 
-	// Bus is where flow + service-edge batches are published (netctl.ebpf.flows).
+	// Bus is where flow + service-edge batches are published (probectl.ebpf.flows).
 	Bus BusConfig `yaml:"bus"`
 
 	// FixturePath, when set, replays recorded flows instead of loading eBPF —
@@ -57,7 +57,7 @@ func Default() *Config {
 	}
 }
 
-// Load reads the YAML config at path (if non-empty), applies NETCTL_EBPF_*
+// Load reads the YAML config at path (if non-empty), applies PROBECTL_EBPF_*
 // environment overrides, and validates the result.
 func Load(path string) (*Config, error) {
 	cfg := Default()
@@ -78,28 +78,28 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyEnv(getenv func(string) string) {
-	if v := getenv("NETCTL_EBPF_TENANT_ID"); v != "" {
+	if v := getenv("PROBECTL_EBPF_TENANT_ID"); v != "" {
 		c.TenantID = v
 	}
-	if v := getenv("NETCTL_EBPF_HOST"); v != "" {
+	if v := getenv("PROBECTL_EBPF_HOST"); v != "" {
 		c.Host = v
 	}
-	if v := getenv("NETCTL_EBPF_BUS_MODE"); v != "" {
+	if v := getenv("PROBECTL_EBPF_BUS_MODE"); v != "" {
 		c.Bus.Mode = v
 	}
-	if v := getenv("NETCTL_EBPF_BUS_BROKERS"); v != "" {
+	if v := getenv("PROBECTL_EBPF_BUS_BROKERS"); v != "" {
 		c.Bus.Brokers = splitComma(v)
 	}
-	if v := getenv("NETCTL_EBPF_FIXTURE_PATH"); v != "" {
+	if v := getenv("PROBECTL_EBPF_FIXTURE_PATH"); v != "" {
 		c.FixturePath = v
 	}
-	if v := getenv("NETCTL_EBPF_L7_FIXTURE_PATH"); v != "" {
+	if v := getenv("PROBECTL_EBPF_L7_FIXTURE_PATH"); v != "" {
 		c.L7FixturePath = v
 	}
-	if v := getenv("NETCTL_EBPF_PROC_ROOT"); v != "" {
+	if v := getenv("PROBECTL_EBPF_PROC_ROOT"); v != "" {
 		c.ProcRoot = v
 	}
-	if v := getenv("NETCTL_EBPF_FLUSH_INTERVAL"); v != "" {
+	if v := getenv("PROBECTL_EBPF_FLUSH_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			c.FlushInterval = d
 		}
@@ -108,7 +108,7 @@ func (c *Config) applyEnv(getenv func(string) string) {
 
 func (c *Config) validate() error {
 	if c.TenantID == "" {
-		return fmt.Errorf("ebpf: tenant_id is required (NETCTL_EBPF_TENANT_ID or config)")
+		return fmt.Errorf("ebpf: tenant_id is required (PROBECTL_EBPF_TENANT_ID or config)")
 	}
 	switch c.Bus.Mode {
 	case "memory", "kafka":

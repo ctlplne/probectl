@@ -18,7 +18,7 @@
 - [ ] OpenAPI spec + `docs/` updated (no undocumented routes at a GA milestone)
 - [ ] Idempotent migration included for any DB change
 - [ ] New config keys documented in `docs/configuration.md`
-- [ ] Feature self-observability (logs/metrics) present — netctl observes netctl
+- [ ] Feature self-observability (logs/metrics) present — probectl observes probectl
 - [ ] Security guardrails upheld (CLAUDE.md §7)
 - [ ] Conventional Commits; this PR references its sprint + requirement IDs
 

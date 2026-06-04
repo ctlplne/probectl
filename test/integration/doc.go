@@ -1,4 +1,4 @@
-// Package integration holds netctl's black-box integration tests, which are
+// Package integration holds probectl's black-box integration tests, which are
 // compiled and run with the `integration` build tag against the dev stack
 // (deploy/compose/dev.yml). The tagged test files arrive in S6+.
 //

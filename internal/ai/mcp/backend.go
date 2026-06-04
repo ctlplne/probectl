@@ -3,7 +3,7 @@ package mcp
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // Backend is the data seam the MCP tools call. Each method is given the

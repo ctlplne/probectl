@@ -12,7 +12,7 @@ import (
 const udpType = "udp"
 
 // udpCanary measures UDP round-trip latency and loss to a target that echoes
-// datagrams (e.g. a netctl agent-to-agent responder or a UDP echo service). It
+// datagrams (e.g. a probectl agent-to-agent responder or a UDP echo service). It
 // sends token-tagged datagrams and matches the echoes by token + sequence. A
 // non-echoing target shows as 100% loss — this is an echo-based probe.
 type udpCanary struct {

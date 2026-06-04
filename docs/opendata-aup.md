@@ -1,6 +1,6 @@
 # Open-data sources — provenance & AUP matrix
 
-netctl's enrichment layer (`internal/opendata`, S15) annotates IPs with ASN / geo
+probectl's enrichment layer (`internal/opendata`, S15) annotates IPs with ASN / geo
 / IXP / allocation context from public datasets. Each source carries machine-readable
 **provenance and acceptable-use (AUP) metadata** (the `OpenDataSource` model — a
 source's `Descriptor().AUP`), surfaced at runtime via `Enricher.Status()`.
@@ -29,7 +29,7 @@ never breaks a core path (graceful degradation).
 
 Notes:
 
-- **MaxMind GeoLite2** is **not shipped** with netctl — the operator supplies the
+- **MaxMind GeoLite2** is **not shipped** with probectl — the operator supplies the
   `.mmdb` under MaxMind's license and points the geo source at it (`OpenMMDB`).
 - **RIPE Atlas** is an **optional** active-measurement hook, not part of the
   passive enrichment path: it schedules measurements on the shared RIPE Atlas

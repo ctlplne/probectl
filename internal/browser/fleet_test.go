@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }

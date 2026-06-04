@@ -11,8 +11,8 @@ func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 	path := filepath.Join(dir, "ebpf.yaml")
 	writeFile(t, path, "tenant_id: t-yaml\nflush_interval: 5s\nbus:\n  mode: memory\n")
 
-	t.Setenv("NETCTL_EBPF_TENANT_ID", "t-env")
-	t.Setenv("NETCTL_EBPF_FLUSH_INTERVAL", "2s")
+	t.Setenv("PROBECTL_EBPF_TENANT_ID", "t-env")
+	t.Setenv("PROBECTL_EBPF_FLUSH_INTERVAL", "2s")
 
 	cfg, err := Load(path)
 	if err != nil {

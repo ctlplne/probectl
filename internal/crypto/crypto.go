@@ -11,7 +11,7 @@ import (
 	"io"
 )
 
-// Provider is netctl's cryptographic abstraction. Every cryptographic operation
+// Provider is probectl's cryptographic abstraction. Every cryptographic operation
 // in the product routes through a Provider so a FIPS 140-3 validated module can
 // be compiled in later (CLAUDE.md §7 guardrail 3). internal/crypto is the only
 // package that imports crypto primitive packages.

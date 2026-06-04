@@ -1,7 +1,7 @@
-# netctl
+# probectl
 
 Self-hosted, source-available, multi-tenant **network observability platform**.
-netctl unifies five observability planes — active/synthetic testing, BGP/routing
+probectl unifies five observability planes — active/synthetic testing, BGP/routing
 intelligence, flow analytics, device telemetry, and eBPF host/L7 — into one
 **OpenTelemetry-native** control plane, with an AI assistant for cross-plane
 root-cause analysis, a native security/threat layer, change-aware topology, and
@@ -23,8 +23,8 @@ boundary** on every record, agent, query, metric, event, and object.
 ## Repository layout
 
 ```
-cmd/            # binaries: netctl-control, netctl-agent, netctl-ebpf-agent,
-                #           netctl-endpoint, netctl (CLI)
+cmd/            # binaries: probectl-control, probectl-agent, probectl-ebpf-agent,
+                #           probectl-endpoint, probectl (CLI)
 internal/       # subsystem packages (control, tenancy, path, bgp, crypto, ...)
 pkg/            # shared, public libraries
 proto/          # protobuf schemas (gRPC + bus) — buf-managed
@@ -42,9 +42,9 @@ Bring up the control plane **over HTTPS** with a bundled Postgres (a self-signed
 cert is generated on first boot):
 
 ```sh
-cp deploy/compose/.env.example deploy/compose/.env     # set NETCTL_ENVELOPE_KEY etc.
-docker compose -f deploy/compose/netctl.yml up -d
-docker compose -f deploy/compose/netctl.yml cp control:/certs/ca.crt ./ca.crt
+cp deploy/compose/.env.example deploy/compose/.env     # set PROBECTL_ENVELOPE_KEY etc.
+docker compose -f deploy/compose/probectl.yml up -d
+docker compose -f deploy/compose/probectl.yml cp control:/certs/ca.crt ./ca.crt
 curl --cacert ./ca.crt https://localhost:8443/readyz
 ```
 
@@ -62,7 +62,7 @@ make build          # build all binaries into ./bin
 make test           # unit tests across the workspace
 make lint           # gofmt + go vet + golangci-lint, and ruff + black
 make compose-up     # start the dev dependency stack (Postgres/Kafka/ClickHouse/Prometheus)
-make run            # run netctl-control locally
+make run            # run probectl-control locally
 make help           # list every target
 ```
 

@@ -6,8 +6,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/imfeelingtheagi/netctl/internal/notify"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/notify"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // IncidentIntegrations is the tenant-scoped incident↔connector link repository

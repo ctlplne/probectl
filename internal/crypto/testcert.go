@@ -53,7 +53,7 @@ func GenerateTestCert(o TestCertOptions) (*x509.Certificate, []byte, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: o.CommonName, Organization: []string{"netctl-test"}},
+		Subject:      pkix.Name{CommonName: o.CommonName, Organization: []string{"probectl-test"}},
 		NotBefore:    o.NotBefore,
 		NotAfter:     o.NotAfter,
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -73,7 +73,7 @@ func GenerateTestCert(o TestCertOptions) (*x509.Certificate, []byte, error) {
 		}
 		parent = &x509.Certificate{
 			SerialNumber:          iserial,
-			Subject:               pkix.Name{CommonName: "netctl Test CA", Organization: []string{"netctl-test-ca"}},
+			Subject:               pkix.Name{CommonName: "probectl Test CA", Organization: []string{"probectl-test-ca"}},
 			NotBefore:             o.NotBefore,
 			NotAfter:              o.NotAfter,
 			IsCA:                  true,

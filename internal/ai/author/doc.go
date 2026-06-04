@@ -1,4 +1,4 @@
-// Package author is netctl's AI test authoring + auto-discovery (S26, F45): it
+// Package author is probectl's AI test authoring + auto-discovery (S26, F45): it
 // turns a natural-language request into a synthetic-test config, and mines
 // observed telemetry to propose monitorable targets.
 //

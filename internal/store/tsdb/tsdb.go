@@ -29,7 +29,7 @@ func New(mode, url string) (Writer, error) {
 		return NewMemory(), nil
 	case "prometheus":
 		if url == "" {
-			return nil, errors.New("tsdb: prometheus mode requires NETCTL_TSDB_URL")
+			return nil, errors.New("tsdb: prometheus mode requires PROBECTL_TSDB_URL")
 		}
 		return NewPrometheus(url), nil
 	default:

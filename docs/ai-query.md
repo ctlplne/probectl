@@ -1,6 +1,6 @@
 # Unified semantic query layer (S23)
 
-`internal/ai` is netctl's unified, RBAC-aware query layer — one abstraction over
+`internal/ai` is probectl's unified, RBAC-aware query layer — one abstraction over
 the stores (metrics, events/flows, entities, and the S30 topology graph) that the
 API, the AI/RCA layer (S24), and the MCP server (S25) all use. It is **the
 security boundary for AI and MCP**.

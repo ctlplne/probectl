@@ -34,9 +34,9 @@ ALTER TABLE alert_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE alert_rules FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON alert_rules;
 CREATE POLICY tenant_isolation ON alert_rules
-    USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
-    WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid);
+    USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+    WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid);
 
--- netctl_app inherits DML on new public tables via ALTER DEFAULT PRIVILEGES (0007),
+-- probectl_app inherits DML on new public tables via ALTER DEFAULT PRIVILEGES (0007),
 -- but grant explicitly so the table is reachable regardless of creation role.
-GRANT SELECT, INSERT, UPDATE, DELETE ON alert_rules TO netctl_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON alert_rules TO probectl_app;

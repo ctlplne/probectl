@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // ErrNormalize is returned when an (untrusted) webhook body cannot be parsed into
@@ -54,7 +54,7 @@ func ProviderByName(name string) (Provider, bool) {
 func ProviderNames() []string { return []string{ProviderGeneric, ProviderGitHub, ProviderGitLab} }
 
 // verifyHMAC checks a "sha256=<hex>" signature header against HMAC-SHA256(secret,
-// body) in constant time (the GitHub / netctl scheme). Empty secret or header
+// body) in constant time (the GitHub / probectl scheme). Empty secret or header
 // fails closed.
 func verifyHMAC(secret string, body []byte, sigHeader string) bool {
 	if secret == "" || sigHeader == "" {
@@ -67,17 +67,17 @@ func verifyHMAC(secret string, body []byte, sigHeader string) bool {
 	return crypto.Verify([]byte(secret), body, mac)
 }
 
-// --- generic (netctl / CI) provider ---
+// --- generic (probectl / CI) provider ---
 
-// genericProvider is netctl's own webhook contract: an HMAC-SHA256 signature in
-// X-Netctl-Signature (mirroring the S16 outbound alert webhook) over a body that
-// is already in netctl's change schema. This is the path a CI job, an IaC apply
+// genericProvider is probectl's own webhook contract: an HMAC-SHA256 signature in
+// X-Probectl-Signature (mirroring the S16 outbound alert webhook) over a body that
+// is already in probectl's change schema. This is the path a CI job, an IaC apply
 // (Terraform/Atlantis), or a network-automation tool uses to report a change with
 // an explicit correlation Target (host/IP/service) or Prefix.
 type genericProvider struct{}
 
 // GenericSignatureHeader carries the HMAC of the body (matches alert.SignatureHeader).
-const GenericSignatureHeader = "X-Netctl-Signature"
+const GenericSignatureHeader = "X-Probectl-Signature"
 
 func (genericProvider) Name() string { return ProviderGeneric }
 

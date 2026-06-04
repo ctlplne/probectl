@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 )
 
 func TestIsPrivateIP(t *testing.T) {

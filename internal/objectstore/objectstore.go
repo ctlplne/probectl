@@ -1,4 +1,4 @@
-// Package objectstore is netctl's pluggable blob store for large, out-of-band
+// Package objectstore is probectl's pluggable blob store for large, out-of-band
 // artifacts — starting with S36 browser-synthetic screenshots/waterfalls. It is a
 // small Put/Get/Stat interface with a filesystem implementation (the default) and
 // an in-memory one (tests); an S3/MinIO implementation slots in behind the same

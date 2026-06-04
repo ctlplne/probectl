@@ -45,10 +45,10 @@ func TestResultPipelineConfig(t *testing.T) {
 
 	// Kafka + Prometheus with their required settings (brokers are trimmed).
 	cfg, err = Load(envFunc(map[string]string{
-		"NETCTL_BUS_MODE":    "kafka",
-		"NETCTL_BUS_BROKERS": "b1:9092, b2:9092",
-		"NETCTL_TSDB_MODE":   "prometheus",
-		"NETCTL_TSDB_URL":    "http://prom:9090",
+		"PROBECTL_BUS_MODE":    "kafka",
+		"PROBECTL_BUS_BROKERS": "b1:9092, b2:9092",
+		"PROBECTL_TSDB_MODE":   "prometheus",
+		"PROBECTL_TSDB_URL":    "http://prom:9090",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -58,22 +58,22 @@ func TestResultPipelineConfig(t *testing.T) {
 	}
 
 	// kafka without brokers and prometheus without a URL must both fail.
-	if _, err := Load(envFunc(map[string]string{"NETCTL_BUS_MODE": "kafka"})); err == nil || !strings.Contains(err.Error(), "NETCTL_BUS_BROKERS") {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_BUS_MODE": "kafka"})); err == nil || !strings.Contains(err.Error(), "PROBECTL_BUS_BROKERS") {
 		t.Errorf("kafka without brokers should fail with a brokers error, got %v", err)
 	}
-	if _, err := Load(envFunc(map[string]string{"NETCTL_TSDB_MODE": "prometheus"})); err == nil || !strings.Contains(err.Error(), "NETCTL_TSDB_URL") {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_TSDB_MODE": "prometheus"})); err == nil || !strings.Contains(err.Error(), "PROBECTL_TSDB_URL") {
 		t.Errorf("prometheus without a URL should fail with a URL error, got %v", err)
 	}
 }
 
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
-		"NETCTL_HTTP_ADDR":          ":9000",
-		"NETCTL_LOG_LEVEL":          "debug",
-		"NETCTL_LOG_FORMAT":         "text",
-		"NETCTL_MIGRATE_ON_BOOT":    "true",
-		"NETCTL_SHUTDOWN_TIMEOUT":   "30s",
-		"NETCTL_DATABASE_MAX_CONNS": "20",
+		"PROBECTL_HTTP_ADDR":          ":9000",
+		"PROBECTL_LOG_LEVEL":          "debug",
+		"PROBECTL_LOG_FORMAT":         "text",
+		"PROBECTL_MIGRATE_ON_BOOT":    "true",
+		"PROBECTL_SHUTDOWN_TIMEOUT":   "30s",
+		"PROBECTL_DATABASE_MAX_CONNS": "20",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -94,15 +94,15 @@ func TestLoadOverrides(t *testing.T) {
 
 func TestLoadReportsMultipleErrors(t *testing.T) {
 	_, err := Load(envFunc(map[string]string{
-		"NETCTL_LOG_LEVEL":          "verbose", // invalid enum
-		"NETCTL_LOG_FORMAT":         "xml",     // invalid enum
-		"NETCTL_HTTP_READ_TIMEOUT":  "soon",    // invalid duration
-		"NETCTL_DATABASE_MAX_CONNS": "0",       // out of range (min 1)
+		"PROBECTL_LOG_LEVEL":          "verbose", // invalid enum
+		"PROBECTL_LOG_FORMAT":         "xml",     // invalid enum
+		"PROBECTL_HTTP_READ_TIMEOUT":  "soon",    // invalid duration
+		"PROBECTL_DATABASE_MAX_CONNS": "0",       // out of range (min 1)
 	}))
 	if err == nil {
 		t.Fatal("expected validation errors")
 	}
-	for _, want := range []string{"NETCTL_LOG_LEVEL", "NETCTL_LOG_FORMAT", "NETCTL_HTTP_READ_TIMEOUT", "NETCTL_DATABASE_MAX_CONNS"} {
+	for _, want := range []string{"PROBECTL_LOG_LEVEL", "PROBECTL_LOG_FORMAT", "PROBECTL_HTTP_READ_TIMEOUT", "PROBECTL_DATABASE_MAX_CONNS"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %s; got: %v", want, err)
 		}
@@ -111,8 +111,8 @@ func TestLoadReportsMultipleErrors(t *testing.T) {
 
 func TestLoadMinExceedsMax(t *testing.T) {
 	_, err := Load(envFunc(map[string]string{
-		"NETCTL_DATABASE_MIN_CONNS": "5",
-		"NETCTL_DATABASE_MAX_CONNS": "2",
+		"PROBECTL_DATABASE_MIN_CONNS": "5",
+		"PROBECTL_DATABASE_MAX_CONNS": "2",
 	}))
 	if err == nil {
 		t.Fatal("expected min>max validation error")
@@ -120,7 +120,7 @@ func TestLoadMinExceedsMax(t *testing.T) {
 }
 
 func TestLogValueRedactsPassword(t *testing.T) {
-	cfg := &Config{DatabaseURL: "postgres://netctl:supersecret@db:5432/netctl"}
+	cfg := &Config{DatabaseURL: "postgres://probectl:supersecret@db:5432/probectl"}
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("cfg", "config", cfg)
 	out := buf.String()
@@ -144,11 +144,11 @@ func TestOTLPConfig(t *testing.T) {
 
 	// Fully configured: enabled, tokens parsed (whitespace trimmed).
 	cfg, err = Load(envFunc(map[string]string{
-		"NETCTL_OTLP_GRPC_ADDR":     ":4317",
-		"NETCTL_OTLP_HTTP_ADDR":     ":4318",
-		"NETCTL_OTLP_TLS_CERT_FILE": "/c.pem",
-		"NETCTL_OTLP_TLS_KEY_FILE":  "/k.pem",
-		"NETCTL_OTLP_TOKENS":        "tok1=tenant-a, tok2=tenant-b",
+		"PROBECTL_OTLP_GRPC_ADDR":     ":4317",
+		"PROBECTL_OTLP_HTTP_ADDR":     ":4318",
+		"PROBECTL_OTLP_TLS_CERT_FILE": "/c.pem",
+		"PROBECTL_OTLP_TLS_KEY_FILE":  "/k.pem",
+		"PROBECTL_OTLP_TOKENS":        "tok1=tenant-a, tok2=tenant-b",
 	}))
 	if err != nil {
 		t.Fatalf("valid OTLP config rejected: %v", err)
@@ -161,17 +161,17 @@ func TestOTLPConfig(t *testing.T) {
 	}
 
 	// An address without TLS + tokens fails closed.
-	if _, err := Load(envFunc(map[string]string{"NETCTL_OTLP_GRPC_ADDR": ":4317"})); err == nil || !strings.Contains(err.Error(), "OTLP") {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_OTLP_GRPC_ADDR": ":4317"})); err == nil || !strings.Contains(err.Error(), "OTLP") {
 		t.Errorf("OTLP address without TLS/tokens should fail, got %v", err)
 	}
 
 	// A malformed token entry is reported.
 	if _, err := Load(envFunc(map[string]string{
-		"NETCTL_OTLP_GRPC_ADDR":     ":4317",
-		"NETCTL_OTLP_TLS_CERT_FILE": "/c.pem",
-		"NETCTL_OTLP_TLS_KEY_FILE":  "/k.pem",
-		"NETCTL_OTLP_TOKENS":        "missing-equals",
-	})); err == nil || !strings.Contains(err.Error(), "NETCTL_OTLP_TOKENS") {
+		"PROBECTL_OTLP_GRPC_ADDR":     ":4317",
+		"PROBECTL_OTLP_TLS_CERT_FILE": "/c.pem",
+		"PROBECTL_OTLP_TLS_KEY_FILE":  "/k.pem",
+		"PROBECTL_OTLP_TOKENS":        "missing-equals",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_OTLP_TOKENS") {
 		t.Errorf("a malformed OTLP token should fail with a tokens error, got %v", err)
 	}
 }
@@ -191,9 +191,9 @@ func TestAIConfig(t *testing.T) {
 
 	// A local Ollama endpoint enables the external-model path.
 	cfg, err = Load(envFunc(map[string]string{
-		"NETCTL_AI_MODEL_PROVIDER": "ollama",
-		"NETCTL_AI_MODEL_ENDPOINT": "http://localhost:11434",
-		"NETCTL_AI_MODEL_NAME":     "llama3.1",
+		"PROBECTL_AI_MODEL_PROVIDER": "ollama",
+		"PROBECTL_AI_MODEL_ENDPOINT": "http://localhost:11434",
+		"PROBECTL_AI_MODEL_NAME":     "llama3.1",
 	}))
 	if err != nil {
 		t.Fatalf("valid ollama config rejected: %v", err)
@@ -203,11 +203,11 @@ func TestAIConfig(t *testing.T) {
 	}
 
 	// A non-builtin provider without an endpoint fails closed.
-	if _, err := Load(envFunc(map[string]string{"NETCTL_AI_MODEL_PROVIDER": "openai"})); err == nil || !strings.Contains(err.Error(), "NETCTL_AI_MODEL_ENDPOINT") {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_AI_MODEL_PROVIDER": "openai"})); err == nil || !strings.Contains(err.Error(), "PROBECTL_AI_MODEL_ENDPOINT") {
 		t.Errorf("provider without endpoint should fail, got %v", err)
 	}
 	// An unknown provider is rejected by the enum.
-	if _, err := Load(envFunc(map[string]string{"NETCTL_AI_MODEL_PROVIDER": "skynet"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_AI_MODEL_PROVIDER": "skynet"})); err == nil {
 		t.Error("unknown provider should be rejected")
 	}
 }
@@ -225,10 +225,10 @@ func TestMCPConfig(t *testing.T) {
 	}
 
 	cfg, err = Load(envFunc(map[string]string{
-		"NETCTL_MCP_HTTP_ADDR":     ":8090",
-		"NETCTL_MCP_TLS_CERT_FILE": "/c.pem",
-		"NETCTL_MCP_TLS_KEY_FILE":  "/k.pem",
-		"NETCTL_MCP_RATE_PER_MIN":  "60",
+		"PROBECTL_MCP_HTTP_ADDR":     ":8090",
+		"PROBECTL_MCP_TLS_CERT_FILE": "/c.pem",
+		"PROBECTL_MCP_TLS_KEY_FILE":  "/k.pem",
+		"PROBECTL_MCP_RATE_PER_MIN":  "60",
 	}))
 	if err != nil {
 		t.Fatalf("valid MCP config rejected: %v", err)
@@ -241,7 +241,7 @@ func TestMCPConfig(t *testing.T) {
 	}
 
 	// An address without TLS fails closed (never plaintext — guardrail 12).
-	if _, err := Load(envFunc(map[string]string{"NETCTL_MCP_HTTP_ADDR": ":8090"})); err == nil || !strings.Contains(err.Error(), "MCP") {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_MCP_HTTP_ADDR": ":8090"})); err == nil || !strings.Contains(err.Error(), "MCP") {
 		t.Errorf("MCP address without TLS should fail, got %v", err)
 	}
 }
@@ -262,9 +262,9 @@ func TestThreatTLSConfig(t *testing.T) {
 	}
 
 	cfg, err = Load(envFunc(map[string]string{
-		"NETCTL_CERTCTL_URL":        "https://certctl.example",
-		"NETCTL_TLS_EXPIRY_WARNING": "240h",
-		"NETCTL_CT_ENABLED":         "true",
+		"PROBECTL_CERTCTL_URL":        "https://certctl.example",
+		"PROBECTL_TLS_EXPIRY_WARNING": "240h",
+		"PROBECTL_CT_ENABLED":         "true",
 	}))
 	if err != nil {
 		t.Fatal(err)

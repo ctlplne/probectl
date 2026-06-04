@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Sender delivers one formatted record to the SIEM. A non-nil error means the
@@ -100,7 +100,7 @@ func (h *HTTPSender) Send(ctx context.Context, payload []byte) error {
 		return err
 	}
 	req.Header.Set("Content-Type", h.contentType)
-	req.Header.Set("User-Agent", "netctl-siem")
+	req.Header.Set("User-Agent", "probectl-siem")
 	if h.authName != "" {
 		req.Header.Set(h.authName, h.authValue)
 	}

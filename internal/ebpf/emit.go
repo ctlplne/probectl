@@ -7,14 +7,14 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 // Emitter publishes a batch of observed flows + the current service edges. The
 // agent emits OTel-shaped records; BusEmitter marshals them to protobuf and
-// publishes to netctl.ebpf.flows, but the seam lets a future OTLP exporter (S22)
+// publishes to probectl.ebpf.flows, but the seam lets a future OTLP exporter (S22)
 // drop in without touching the runtime.
 type Emitter interface {
 	Emit(ctx context.Context, flows []Flow, edges []ServiceEdge, l7 []L7Record) error
@@ -26,7 +26,7 @@ type BusEmitter struct {
 	tenant string
 }
 
-// NewBusEmitter returns an Emitter that publishes to netctl.ebpf.flows.
+// NewBusEmitter returns an Emitter that publishes to probectl.ebpf.flows.
 func NewBusEmitter(b bus.Bus, tenant string) *BusEmitter {
 	return &BusEmitter{bus: b, tenant: tenant}
 }

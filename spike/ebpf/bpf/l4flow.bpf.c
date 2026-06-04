@@ -9,7 +9,7 @@
 // tracepoint context type against the target kernel's BTF.
 //
 // Requires a generated vmlinux.h (see ../Makefile `vmlinux`) and libbpf headers.
-// This is throwaway proof code; it is NOT part of the netctl production build.
+// This is throwaway proof code; it is NOT part of the probectl production build.
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>

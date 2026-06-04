@@ -1,14 +1,14 @@
-# netctl — developer & CI tooling. Run `make help` for the target list.
+# probectl — developer & CI tooling. Run `make help` for the target list.
 # See docs/development.md for details. No business logic lives here (S0).
 
 SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 # ---- configuration -------------------------------------------------------
-MODULE   := github.com/imfeelingtheagi/netctl
+MODULE   := github.com/imfeelingtheagi/probectl
 GO       ?= go
 BIN_DIR  := bin
-BINARIES := netctl-control netctl-agent netctl-ebpf-agent netctl-endpoint netctl
+BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl
 
 # Go modules in the workspace (each has its own go.mod).
 GO_MODULE_DIRS := . test
@@ -35,7 +35,7 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 # ---- meta ----------------------------------------------------------------
 .PHONY: help
 help: ## Show this help.
-	@awk 'BEGIN{FS=":.*##"; print "netctl make targets:"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN{FS=":.*##"; print "probectl make targets:"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ---- build ---------------------------------------------------------------
 .PHONY: build
@@ -60,26 +60,26 @@ build-cross: ## Cross-compile every binary for linux amd64 + arm64 (smoke test).
 endpoint-build: ## Cross-OS build smoke for the endpoint/DEM agent (Linux/macOS/Windows × amd64/arm64).
 	@for os in linux darwin windows; do \
 		for arch in amd64 arm64; do \
-			echo ">> netctl-endpoint $$os/$$arch"; \
-			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -o /dev/null ./cmd/netctl-endpoint || exit 1; \
+			echo ">> probectl-endpoint $$os/$$arch"; \
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 $(GO) build -o /dev/null ./cmd/probectl-endpoint || exit 1; \
 		done; \
 	done
 	@echo "endpoint cross-OS build OK (linux, darwin, windows × amd64, arm64)"
 
 .PHONY: run
 run: ## Run the control-plane server locally.
-	$(GO) run ./cmd/netctl-control
+	$(GO) run ./cmd/probectl-control
 
 .PHONY: ebpf-agent
-ebpf-agent: ## Build netctl-ebpf-agent WITH the live CO-RE loader (-tags ebpf; Linux + clang + bpftool + BTF; run `go get github.com/cilium/ebpf` once first).
+ebpf-agent: ## Build probectl-ebpf-agent WITH the live CO-RE loader (-tags ebpf; Linux + clang + bpftool + BTF; run `go get github.com/cilium/ebpf` once first).
 	@command -v clang   >/dev/null 2>&1 || { echo "ebpf-agent: clang required (e.g. apt install clang llvm libbpf-dev)"; exit 1; }
 	@command -v bpftool >/dev/null 2>&1 || { echo "ebpf-agent: bpftool required (e.g. apt install linux-tools-common)"; exit 1; }
 	@mkdir -p $(BIN_DIR)
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
 	cd internal/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf l4flow ./bpf/l4flow.bpf.c -- -I./bpf
 	cd internal/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf
-	CGO_ENABLED=0 $(GO) build -tags ebpf -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/netctl-ebpf-agent ./cmd/netctl-ebpf-agent
-	@echo "built $(BIN_DIR)/netctl-ebpf-agent (eBPF loader enabled)"
+	CGO_ENABLED=0 $(GO) build -tags ebpf -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/probectl-ebpf-agent ./cmd/probectl-ebpf-agent
+	@echo "built $(BIN_DIR)/probectl-ebpf-agent (eBPF loader enabled)"
 
 # ---- test ----------------------------------------------------------------
 .PHONY: test
@@ -142,7 +142,7 @@ gitops-gate: ## GitOps (ArgoCD/Flux) manifest structural validation (S35). Needs
 	bash scripts/check_gitops_manifests.sh
 
 .PHONY: terraform-gate
-terraform-gate: ## Terraform fmt + validate the netctl module (S35). Needs terraform.
+terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs terraform.
 	terraform -chdir=deploy/terraform fmt -recursive -check
 	cd deploy/terraform/examples/kubernetes && terraform init -backend=false -input=false >/dev/null && terraform validate
 
@@ -154,7 +154,7 @@ browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs
 perf-smoke: ## Load/perf smoke (S18a): ingest baseline (no DB) + pooled multi-tenant (needs Postgres).
 	# Run without -race: this measures throughput/latency, and race instrumentation
 	# distorts timing. The ingest baseline needs no services; the pooled
-	# multi-tenant smoke uses NETCTL_DATABASE_URL (skips if absent).
+	# multi-tenant smoke uses PROBECTL_DATABASE_URL (skips if absent).
 	$(GO) test -count=1 -v -run '^TestIngestBaseline$$' ./internal/perf/
 	$(GO) test -tags=integration -count=1 -v -run '^TestPooledMultiTenant$$' ./internal/perf/
 
@@ -212,8 +212,8 @@ proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bi
 
 # ---- migrate -------------------------------------------------------------
 .PHONY: migrate
-migrate: ## Apply DB migrations against NETCTL_DATABASE_URL.
-	$(GO) run ./cmd/netctl-control migrate
+migrate: ## Apply DB migrations against PROBECTL_DATABASE_URL.
+	$(GO) run ./cmd/probectl-control migrate
 
 # ---- security ------------------------------------------------------------
 .PHONY: vuln

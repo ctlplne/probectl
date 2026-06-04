@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // The Tenant → Organization → Team → Project hierarchy. These repositories are

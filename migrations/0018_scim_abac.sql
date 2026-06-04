@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS scim_tokens (
     revoked_at   timestamptz
 );
 CREATE INDEX IF NOT EXISTS scim_tokens_tenant_idx ON scim_tokens (tenant_id);
-GRANT SELECT, INSERT, UPDATE, DELETE ON scim_tokens TO netctl_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON scim_tokens TO probectl_app;
 
 CREATE TABLE IF NOT EXISTS abac_policies (
     id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -56,12 +56,12 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
         EXECUTE format($pol$
             CREATE POLICY tenant_isolation ON %I
-              USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
-              WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
+              USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+              WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
         $pol$, t);
     END LOOP;
 END $$;
-GRANT SELECT, INSERT, UPDATE, DELETE ON abac_policies TO netctl_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON abac_policies TO probectl_app;
 
 -- Permission keys gating directory administration: SCIM token + ABAC policy CRUD
 -- and the user/group lifecycle (delegated admin within a tenant). Idempotent.

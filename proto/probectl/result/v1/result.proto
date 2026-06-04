@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+// Result is the canonical probectl probe-result schema. Its fields and the
+// attributes map are modeled on OpenTelemetry resource + network semantic
+// conventions from the first field (S6), so the OTLP layer (S22) EXPOSES these
+// signals rather than remapping a divergent model. The tenant is carried as a
+// resource attribute (probectl.tenant.id). See docs/otel-mapping.md for the
+// canonical field -> OTel attribute mapping; a CI conformance check enforces it.
+//
+// Backward compatibility: fields are additive-only; never renumber or reuse tags.
+package probectl.result.v1;
+
+option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1;resultv1";
+
+message Result {
+  // --- Resource identity (OTel resource attributes) ---
+  string tenant_id = 1; // -> resource attribute "probectl.tenant.id" (outermost scope, F50)
+  string agent_id = 2;  // -> resource attribute "probectl.agent.id"
+
+  // --- Signal classification ---
+  string canary_type = 3; // icmp | tcp | udp | http | dns | ... (and "noop")
+
+  // --- Probe target (OTel server.* semantic conventions) ---
+  string server_address = 4; // -> "server.address"
+  uint32 server_port = 5;    // -> "server.port" (0 when not applicable)
+
+  // --- Network (OTel network.* semantic conventions) ---
+  string network_transport = 6;     // -> "network.transport" (tcp | udp | icmp)
+  string network_protocol_name = 7; // -> "network.protocol.name" (http | dns | ...)
+
+  // --- Outcome + timing ---
+  bool success = 8;
+  string error_message = 9;
+  int64 start_time_unix_nano = 10; // OTel-style nanosecond timestamp
+  int64 duration_nano = 11;
+
+  // --- Measurements: metric name -> value (e.g. "rtt.avg.ms", "packet.loss.ratio") ---
+  map<string, double> metrics = 12;
+
+  // --- Additional OTel-convention attributes (network.*, server.*, client.*, ...) ---
+  map<string, string> attributes = 13;
+}
+
+message ResultBatch {
+  repeated Result results = 1;
+}

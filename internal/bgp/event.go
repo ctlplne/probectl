@@ -4,13 +4,13 @@ import (
 	"errors"
 	"fmt"
 
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 )
 
 // Event is the analyzer's JSON event shape (the analyzer↔control-plane contract).
 // The Python analyzer writes these as JSON Lines; the bridge parses them and
-// republishes the canonical netctl.bgp.v1.BGPEvent protobuf onto the bus. The
-// JSON keys and lowercase enum strings match analyzer/netctl_analyzer/events.py.
+// republishes the canonical probectl.bgp.v1.BGPEvent protobuf onto the bus. The
+// JSON keys and lowercase enum strings match analyzer/probectl_analyzer/events.py.
 type Event struct {
 	TenantID           string   `json:"tenant_id"`
 	EventType          string   `json:"event_type"`

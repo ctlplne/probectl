@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/imfeelingtheagi/netctl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/path"
 )
 
 // Store persists and serves discovered Paths, tenant-scoped.
@@ -25,7 +25,7 @@ func New(mode, url string) (Store, error) {
 		return NewMemory(), nil
 	case "clickhouse":
 		if url == "" {
-			return nil, errors.New("pathstore: clickhouse mode requires NETCTL_PATHSTORE_URL")
+			return nil, errors.New("pathstore: clickhouse mode requires PROBECTL_PATHSTORE_URL")
 		}
 		return NewClickHouse(url)
 	default:

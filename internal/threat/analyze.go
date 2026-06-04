@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/opendata"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/opendata"
 )
 
 // CertIntel scores a leaf certificate's SHA1 fingerprint and/or a client JA3

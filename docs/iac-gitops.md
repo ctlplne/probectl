@@ -1,6 +1,6 @@
 # IaC, GitOps & Helm hardening (S35 · F29)
 
-netctl ships a declarative, secure-by-default deployment stack: a hardened Helm
+probectl ships a declarative, secure-by-default deployment stack: a hardened Helm
 chart, Terraform modules that wrap it, and ArgoCD/Flux manifests so a `git push`
 is the only deploy action. Everything is HTTPS-by-default and refuses to run with
 default credentials.
@@ -19,7 +19,7 @@ flowchart LR
 
 | Path | Use it when | Where |
 | ---- | ----------- | ----- |
-| **Helm** | manual / scripted installs | `deploy/helm/netctl` |
+| **Helm** | manual / scripted installs | `deploy/helm/probectl` |
 | **Terraform** | infra-as-code alongside cluster + DB | `deploy/terraform/` |
 | **GitOps** (ArgoCD/Flux) | continuous reconcile from Git | `deploy/gitops/` |
 
@@ -52,21 +52,21 @@ secure defaults (enforced by the CI hardening gate, `make helm-gate`):
 | provider | `values-multitenant.yaml` | 3 + anti-affinity | minAvailable 2 | – | – |
 
 ```bash
-helm install netctl deploy/helm/netctl -f deploy/helm/netctl/values-medium.yaml \
-  --set ingress.host=netctl.example.com --set ingress.tlsSecretName=netctl-tls \
+helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-medium.yaml \
+  --set ingress.host=probectl.example.com --set ingress.tlsSecretName=probectl-tls \
   --set secrets.envelopeKey="$(openssl rand -base64 32)"
 ```
 
 ## Config-as-code
 
 The declarative config IS the Helm values: `control.*`, `oidc.*`, `database.url`,
-and `control.extraEnv` map to `NETCTL_*` env via the chart's ConfigMap; the size
+and `control.extraEnv` map to `PROBECTL_*` env via the chart's ConfigMap; the size
 overlays are the reference config. Commit your overlay, point Terraform or
 Argo/Flux at it, and the cluster converges.
 
 ## Terraform
 
-`deploy/terraform/modules/netctl` deploys the chart + a Kubernetes Secret for the
+`deploy/terraform/modules/probectl` deploys the chart + a Kubernetes Secret for the
 sensitive config (so credentials never land in the ConfigMap/release values). It's
 cloud-agnostic — point the providers at any kubeconfig. Module interface (inputs /
 outputs / secret handling): [`deploy/terraform/README.md`](../deploy/terraform/README.md).

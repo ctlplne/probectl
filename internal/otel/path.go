@@ -3,12 +3,12 @@ package otel
 import "strconv"
 
 // Path/traceroute attribute keys (S10 / finalized S22). The destination uses the
-// OTel destination.address convention; path specifics use netctl.path.*.
+// OTel destination.address convention; path specifics use probectl.path.*.
 const (
-	AttrPathTarget   = "netctl.path.target"
-	AttrPathMode     = "netctl.path.mode"
-	AttrPathHopCount = "netctl.path.hop_count"
-	AttrPathReached  = "netctl.path.destination_reached"
+	AttrPathTarget   = "probectl.path.target"
+	AttrPathMode     = "probectl.path.mode"
+	AttrPathHopCount = "probectl.path.hop_count"
+	AttrPathReached  = "probectl.path.destination_reached"
 )
 
 func init() {
@@ -28,7 +28,7 @@ type PathSummary struct {
 	DestinationReached bool
 }
 
-// PathAttributes maps a discovered path to its OTel/netctl attributes.
+// PathAttributes maps a discovered path to its OTel/probectl attributes.
 func PathAttributes(p PathSummary) map[string]string {
 	attrs := map[string]string{
 		AttrTenantID:     p.TenantID,

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/audit"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/siem"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/siem"
 )
 
 func testLog() *slog.Logger { return logging.New(io.Discard, "error", "json") }
@@ -83,7 +83,7 @@ func TestSIEMThreatSignalForwardedAsCEF(t *testing.T) {
 	<-done
 
 	rec := string(snk.records()[0])
-	if !strings.HasPrefix(rec, "CEF:0|netctl|netctl|") || !strings.Contains(rec, "cat=threat") {
+	if !strings.HasPrefix(rec, "CEF:0|probectl|probectl|") || !strings.Contains(rec, "cat=threat") {
 		t.Fatalf("unexpected threat record: %s", rec)
 	}
 }

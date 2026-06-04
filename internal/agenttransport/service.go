@@ -13,14 +13,14 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/a2a"
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/lifecycle"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/a2a"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 const heartbeatIntervalSeconds = 30

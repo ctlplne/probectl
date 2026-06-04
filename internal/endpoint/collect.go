@@ -7,7 +7,7 @@ import (
 	"net/http/httptrace"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // The sub-collectors are injected so the orchestration is testable with fakes and
@@ -118,7 +118,7 @@ func (h *HTTPSessionCollector) Collect(ctx context.Context, target string) (Sess
 		out.Error = err.Error()
 		return out, nil // a bad target is a failed session, not a collector fault
 	}
-	req.Header.Set("User-Agent", "netctl-endpoint-dem")
+	req.Header.Set("User-Agent", "probectl-endpoint-dem")
 
 	var dnsStart, connStart, tlsStart, reqStart time.Time
 	reqStart = time.Now()

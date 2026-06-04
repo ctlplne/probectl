@@ -10,16 +10,16 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/audit"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/siem"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/siem"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // defaultRedactKeys are audit `data` keys never forwarded to the SIEM — secrets
-// and obvious PII. Operators extend this via NETCTL_SIEM_REDACT_KEYS (governance).
+// and obvious PII. Operators extend this via PROBECTL_SIEM_REDACT_KEYS (governance).
 // Matching is case-insensitive on the key name; values become "[redacted]".
 var defaultRedactKeys = []string{
 	"password", "passwd", "secret", "token", "api_key", "apikey",
@@ -39,7 +39,7 @@ func BuildSIEM(cfg *config.Config, log *slog.Logger) (*siem.Forwarder, bool) {
 		return nil, false
 	}
 	if cfg.SIEMEndpoint == "" {
-		log.Warn("siem enabled but NETCTL_SIEM_ENDPOINT is empty; export disabled")
+		log.Warn("siem enabled but PROBECTL_SIEM_ENDPOINT is empty; export disabled")
 		return nil, false
 	}
 	preset, ok := siem.ParsePreset(cfg.SIEMPreset)

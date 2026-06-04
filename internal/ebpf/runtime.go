@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
 )
 
 // Agent is the eBPF host agent runtime: it reads flows from a Source, enriches

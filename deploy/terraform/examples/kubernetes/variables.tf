@@ -11,14 +11,14 @@ variable "size" {
 }
 
 variable "ingress_host" {
-  description = "External hostname for the netctl HTTPS ingress."
+  description = "External hostname for the probectl HTTPS ingress."
   type        = string
 }
 
 variable "ingress_tls_secret" {
   description = "Name of the TLS Secret holding the ingress cert (e.g. from cert-manager)."
   type        = string
-  default     = "netctl-tls"
+  default     = "probectl-tls"
 }
 
 variable "database_url" {

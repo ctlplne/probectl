@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Channel is a notification destination.
@@ -28,7 +28,7 @@ type Doer interface {
 
 // SignatureHeader carries the HMAC-SHA256 signature of the webhook body so the
 // receiver can verify the sender (provider HMAC; receivers verify, CLAUDE.md §6).
-const SignatureHeader = "X-Netctl-Signature"
+const SignatureHeader = "X-Probectl-Signature"
 
 // WebhookChannel POSTs the alert payload to an HTTPS endpoint, optionally signed.
 type WebhookChannel struct {
@@ -58,7 +58,7 @@ func (w *WebhookChannel) Notify(ctx context.Context, a Alert) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "netctl-alerting")
+	req.Header.Set("User-Agent", "probectl-alerting")
 	if w.secret != "" {
 		// HMAC via internal/crypto (FIPS-swappable; never a direct crypto/hmac).
 		sig := crypto.Sign([]byte(w.secret), body)
@@ -98,7 +98,7 @@ func (e *EmailChannel) Notify(ctx context.Context, a Alert) error {
 	if e.sender == nil {
 		return fmt.Errorf("email channel has no configured mail sender")
 	}
-	subject := fmt.Sprintf("[netctl][%s] %s %s", a.Severity, a.RuleName, a.State)
+	subject := fmt.Sprintf("[probectl][%s] %s %s", a.Severity, a.RuleName, a.State)
 	body := fmt.Sprintf("Rule %q is %s.\n\nMetric: %s\nValue: %v\nReason: %s\nWhen: %s\n",
 		a.RuleName, a.State, a.Metric, a.Value, a.Reason, a.At.UTC().Format(time.RFC3339))
 	return e.sender.Send(ctx, e.recipients, subject, body)

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // tlsServer starts an HTTPS test server presenting the given cert/key, and
@@ -55,7 +55,7 @@ func okHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 func TestHTTPSuccessWithTimingAndTLS(t *testing.T) {
-	ca, err := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, err := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestHTTPSuccessWithTimingAndTLS(t *testing.T) {
 }
 
 func TestHTTPServerError5xx(t *testing.T) {
-	ca, _ := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, _ := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	certPEM, keyPEM, _ := ca.IssueServerCert("localhost", []string{"127.0.0.1"}, time.Hour)
 	srv, caFile := tlsServer(t, certPEM, keyPEM, ca.CertPEM(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -127,7 +127,7 @@ func TestHTTPServerError5xx(t *testing.T) {
 }
 
 func TestHTTPSlowTimesOut(t *testing.T) {
-	ca, _ := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, _ := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	certPEM, keyPEM, _ := ca.IssueServerCert("localhost", []string{"127.0.0.1"}, time.Hour)
 	srv, caFile := tlsServer(t, certPEM, keyPEM, ca.CertPEM(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {
@@ -159,7 +159,7 @@ func TestHTTPSlowTimesOut(t *testing.T) {
 }
 
 func TestHTTPExpiredCertCapturedAndFailed(t *testing.T) {
-	ca, err := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, err := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestHTTPExpiredCertCapturedAndFailed(t *testing.T) {
 }
 
 func TestHTTPInsecureSkipVerifyCaptures(t *testing.T) {
-	ca, _ := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, _ := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	certPEM, keyPEM, _ := ca.IssueServerCert("localhost", []string{"127.0.0.1"}, time.Hour)
 	srv, _ := tlsServer(t, certPEM, keyPEM, ca.CertPEM(), http.HandlerFunc(okHandler))
 

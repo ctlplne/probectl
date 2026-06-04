@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/version"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // protocolVersion is the MCP revision this server speaks.
@@ -18,7 +18,7 @@ type ServerInfo struct {
 	Version string `json:"version"`
 }
 
-// Server is netctl's MCP server: a transport-agnostic JSON-RPC handler over the
+// Server is probectl's MCP server: a transport-agnostic JSON-RPC handler over the
 // read-only tool catalog. Handle is the single entry point both transports use.
 type Server struct {
 	tools   map[string]Tool
@@ -50,7 +50,7 @@ func New(backend Backend, opts ...Option) *Server {
 	s := &Server{
 		tools:   map[string]Tool{},
 		limiter: newRateLimiter(120),
-		info:    ServerInfo{Name: "netctl", Version: version.Get().Version},
+		info:    ServerInfo{Name: "probectl", Version: version.Get().Version},
 		log:     slog.Default(),
 	}
 	for _, t := range buildTools(backend) {

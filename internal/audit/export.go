@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Sink is the audit export hook: a destination that receives audit events for
 // external delivery (S32 SIEM connectors — syslog/CEF/OTLP — implement it). It is
-// the stable contract S32 consumes; netctl ships the pull-based reader (List)
+// the stable contract S32 consumes; probectl ships the pull-based reader (List)
 // below, and S32 adds push sinks on top without changing this interface.
 //
 // A Sink must treat delivery as best-effort and idempotent on Event.Seq: it may

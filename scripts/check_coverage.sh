@@ -17,7 +17,7 @@
 set -euo pipefail
 
 PROFILE="${1:-coverage.out}"
-MODULE="github.com/imfeelingtheagi/netctl/"
+MODULE="github.com/imfeelingtheagi/probectl/"
 
 if [ ! -f "${PROFILE}" ]; then
   echo "coverage gate: profile ${PROFILE} not found (run 'make cover-gate')" >&2

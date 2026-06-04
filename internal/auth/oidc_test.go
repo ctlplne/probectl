@@ -126,13 +126,13 @@ func writeJSONResp(w http.ResponseWriter, v any) {
 }
 
 func TestOIDCProviderExchange(t *testing.T) {
-	idp := newMockIDP(t, "netctl-client")
+	idp := newMockIDP(t, "probectl-client")
 	ctx := context.Background()
 
 	prov, err := NewOIDCProvider(ctx, OIDCConfig{
 		Issuer:      idp.issuer,
-		ClientID:    "netctl-client",
-		RedirectURL: "https://netctl.example/auth/callback",
+		ClientID:    "probectl-client",
+		RedirectURL: "https://probectl.example/auth/callback",
 	})
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
@@ -140,7 +140,7 @@ func TestOIDCProviderExchange(t *testing.T) {
 
 	// AuthCodeURL carries the CSRF state, the nonce, and the client config.
 	u := prov.AuthCodeURL("state-xyz", "nonce-abc")
-	for _, want := range []string{"state=state-xyz", "nonce=nonce-abc", "client_id=netctl-client", "response_type=code"} {
+	for _, want := range []string{"state=state-xyz", "nonce=nonce-abc", "client_id=probectl-client", "response_type=code"} {
 		if !strings.Contains(u, want) {
 			t.Errorf("auth URL missing %q: %s", want, u)
 		}
@@ -159,7 +159,7 @@ func TestOIDCProviderExchange(t *testing.T) {
 func TestOIDCProviderRejectsWrongAudience(t *testing.T) {
 	idp := newMockIDP(t, "someone-else") // token aud != our client ID
 	ctx := context.Background()
-	prov, err := NewOIDCProvider(ctx, OIDCConfig{Issuer: idp.issuer, ClientID: "netctl-client"})
+	prov, err := NewOIDCProvider(ctx, OIDCConfig{Issuer: idp.issuer, ClientID: "probectl-client"})
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
 	}

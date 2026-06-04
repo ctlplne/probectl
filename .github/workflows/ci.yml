@@ -151,11 +151,11 @@ jobs:
           python3 -m pip install --quiet pyyaml
           make gitops-gate
       - name: compose config is valid
-        run: docker compose -f deploy/compose/netctl.yml config >/dev/null
+        run: docker compose -f deploy/compose/probectl.yml config >/dev/null
 
   terraform-gate:
     name: terraform-gate
-    # S35, F29: the netctl Terraform module is fmt-clean and validates (fmt +
+    # S35, F29: the probectl Terraform module is fmt-clean and validates (fmt +
     # `terraform validate` of the example root that consumes it).
     runs-on: ubuntu-latest
     steps:
@@ -175,18 +175,18 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: netctl
-          POSTGRES_PASSWORD: netctl
-          POSTGRES_DB: netctl
+          POSTGRES_USER: probectl
+          POSTGRES_PASSWORD: probectl
+          POSTGRES_DB: probectl
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U netctl -d netctl"
+          --health-cmd "pg_isready -U probectl -d probectl"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      NETCTL_DATABASE_URL: postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -205,20 +205,20 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: netctl
-          POSTGRES_PASSWORD: netctl
-          POSTGRES_DB: netctl
+          POSTGRES_USER: probectl
+          POSTGRES_PASSWORD: probectl
+          POSTGRES_DB: probectl
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U netctl -d netctl"
+          --health-cmd "pg_isready -U probectl -d probectl"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      NETCTL_DATABASE_URL: postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
       # Result pipeline (S6): the TSDB remote-write test targets this Prometheus.
-      NETCTL_PROM_URL: http://localhost:9090
+      PROBECTL_PROM_URL: http://localhost:9090
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -251,18 +251,18 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: netctl
-          POSTGRES_PASSWORD: netctl
-          POSTGRES_DB: netctl
+          POSTGRES_USER: probectl
+          POSTGRES_PASSWORD: probectl
+          POSTGRES_DB: probectl
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U netctl -d netctl"
+          --health-cmd "pg_isready -U probectl -d probectl"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      NETCTL_DATABASE_URL: postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -355,11 +355,11 @@ jobs:
       fail-fast: false
       matrix:
         component:
-          - netctl-control
-          - netctl-agent
-          - netctl-ebpf-agent
-          - netctl-endpoint
-          - netctl
+          - probectl-control
+          - probectl-agent
+          - probectl-ebpf-agent
+          - probectl-endpoint
+          - probectl
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -373,7 +373,7 @@ jobs:
           build-args: |
             COMPONENT=${{ matrix.component }}
           push: false
-          tags: netctl/${{ matrix.component }}:ci
+          tags: probectl/${{ matrix.component }}:ci
 
   image-scan:
     name: image-scan
@@ -388,14 +388,14 @@ jobs:
           file: deploy/docker/Dockerfile
           platforms: linux/amd64
           build-args: |
-            COMPONENT=netctl-control
+            COMPONENT=probectl-control
           load: true
-          tags: netctl/netctl-control:scan
+          tags: probectl/probectl-control:scan
       - name: Trivy image scan (vulns + secrets)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
-          image-ref: netctl/netctl-control:scan
+          image-ref: probectl/probectl-control:scan
           scanners: vuln,secret
           severity: CRITICAL,HIGH
           ignore-unfixed: true

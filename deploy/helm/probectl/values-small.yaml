@@ -1,0 +1,24 @@
+# SMALL reference values — lab / single-team / pilot.
+#
+#   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-small.yaml \
+#     --set ingress.host=probectl.example.com --set ingress.tlsSecretName=probectl-tls \
+#     --set secrets.envelopeKey=$(openssl rand -base64 32)
+#
+# One replica, modest resources. Same HTTPS-by-default + hardened pod posture as
+# every profile — only the runtime sizing differs. No PDB/HPA (single replica).
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+podDisruptionBudget:
+  enabled: false
+
+autoscaling:
+  enabled: false

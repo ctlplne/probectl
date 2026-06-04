@@ -6,16 +6,16 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Inbound verification headers. An operator configures their ITSM/on-call
 // outbound integration to include one over TLS:
-//   - X-Netctl-Signature: sha256=<hex HMAC of the raw body under the secret>, or
-//   - X-Netctl-Token: <the shared secret> (constant-time compared).
+//   - X-Probectl-Signature: sha256=<hex HMAC of the raw body under the secret>, or
+//   - X-Probectl-Token: <the shared secret> (constant-time compared).
 const (
-	InboundSignatureHeader = "X-Netctl-Signature"
-	InboundTokenHeader     = "X-Netctl-Token"
+	InboundSignatureHeader = "X-Probectl-Signature"
+	InboundTokenHeader     = "X-Probectl-Token"
 )
 
 // VerifyInbound authenticates an inbound provider webhook against the connector's

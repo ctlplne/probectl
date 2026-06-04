@@ -11,7 +11,7 @@
 // not populated at function entry). Go's crypto/tls does NOT use libssl and
 // needs an entirely different strategy — see docs/ebpf-feasibility.md §7.
 //
-// Throwaway proof code; NOT part of the netctl production build.
+// Throwaway proof code; NOT part of the probectl production build.
 
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>

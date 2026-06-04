@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from netctl_analyzer.rislive import iter_updates, parse_ris_message
+from probectl_analyzer.rislive import iter_updates, parse_ris_message
 
 RIS_MESSAGE = {
     "type": "ris_message",

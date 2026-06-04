@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config is the endpoint agent configuration: a YAML file with NETCTL_ENDPOINT_*
+// Config is the endpoint agent configuration: a YAML file with PROBECTL_ENDPOINT_*
 // environment overrides. Every key is documented in docs/configuration.md.
 type Config struct {
 	// TenantID binds every emitted DEM result to one tenant (F50). In production
@@ -20,7 +20,7 @@ type Config struct {
 	// AgentID identifies this device in the fleet ("" => the hostname).
 	AgentID string `yaml:"agent_id"`
 
-	// Bus is where DEM results are published (netctl.endpoint.results).
+	// Bus is where DEM results are published (probectl.endpoint.results).
 	Bus BusConfig `yaml:"bus"`
 
 	// Interval is how often a sample is collected.
@@ -63,7 +63,7 @@ func Default() *Config {
 	}
 }
 
-// Load reads the YAML config at path (if non-empty), applies NETCTL_ENDPOINT_*
+// Load reads the YAML config at path (if non-empty), applies PROBECTL_ENDPOINT_*
 // environment overrides, and validates the result.
 func Load(path string) (*Config, error) {
 	cfg := Default()
@@ -84,41 +84,41 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyEnv(getenv func(string) string) {
-	if v := getenv("NETCTL_ENDPOINT_TENANT_ID"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_TENANT_ID"); v != "" {
 		c.TenantID = v
 	}
-	if v := getenv("NETCTL_ENDPOINT_AGENT_ID"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_AGENT_ID"); v != "" {
 		c.AgentID = v
 	}
-	if v := getenv("NETCTL_ENDPOINT_BUS_MODE"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_BUS_MODE"); v != "" {
 		c.Bus.Mode = v
 	}
-	if v := getenv("NETCTL_ENDPOINT_BUS_BROKERS"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_BUS_BROKERS"); v != "" {
 		c.Bus.Brokers = splitComma(v)
 	}
-	if v := getenv("NETCTL_ENDPOINT_INTERVAL"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			c.Interval = d
 		}
 	}
-	if v := getenv("NETCTL_ENDPOINT_TARGETS"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_TARGETS"); v != "" {
 		c.Targets = splitComma(v)
 	}
-	if v := getenv("NETCTL_ENDPOINT_MAX_HOPS"); v != "" {
+	if v := getenv("PROBECTL_ENDPOINT_MAX_HOPS"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.MaxHops = n
 		}
 	}
-	// Privacy toggles: NETCTL_ENDPOINT_COLLECT_{SSID,BSSID,GATEWAY_IP,PUBLIC_HOPS}.
-	c.Privacy.CollectSSID = envBool(getenv, "NETCTL_ENDPOINT_COLLECT_SSID", c.Privacy.CollectSSID)
-	c.Privacy.CollectBSSID = envBool(getenv, "NETCTL_ENDPOINT_COLLECT_BSSID", c.Privacy.CollectBSSID)
-	c.Privacy.CollectGatewayIP = envBool(getenv, "NETCTL_ENDPOINT_COLLECT_GATEWAY_IP", c.Privacy.CollectGatewayIP)
-	c.Privacy.CollectPublicHops = envBool(getenv, "NETCTL_ENDPOINT_COLLECT_PUBLIC_HOPS", c.Privacy.CollectPublicHops)
+	// Privacy toggles: PROBECTL_ENDPOINT_COLLECT_{SSID,BSSID,GATEWAY_IP,PUBLIC_HOPS}.
+	c.Privacy.CollectSSID = envBool(getenv, "PROBECTL_ENDPOINT_COLLECT_SSID", c.Privacy.CollectSSID)
+	c.Privacy.CollectBSSID = envBool(getenv, "PROBECTL_ENDPOINT_COLLECT_BSSID", c.Privacy.CollectBSSID)
+	c.Privacy.CollectGatewayIP = envBool(getenv, "PROBECTL_ENDPOINT_COLLECT_GATEWAY_IP", c.Privacy.CollectGatewayIP)
+	c.Privacy.CollectPublicHops = envBool(getenv, "PROBECTL_ENDPOINT_COLLECT_PUBLIC_HOPS", c.Privacy.CollectPublicHops)
 }
 
 func (c *Config) validate() error {
 	if c.TenantID == "" {
-		return fmt.Errorf("endpoint: tenant_id is required (NETCTL_ENDPOINT_TENANT_ID or config)")
+		return fmt.Errorf("endpoint: tenant_id is required (PROBECTL_ENDPOINT_TENANT_ID or config)")
 	}
 	switch c.Bus.Mode {
 	case "memory", "kafka":

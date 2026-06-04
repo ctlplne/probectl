@@ -12,17 +12,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/a2a"
-	"github.com/imfeelingtheagi/netctl/internal/agent"
-	"github.com/imfeelingtheagi/netctl/internal/agenttransport"
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/canary"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/pipeline"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/a2a"
+	"github.com/imfeelingtheagi/probectl/internal/agent"
+	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // TestAgentToAgentEndToEnd proves the S8 agent-to-agent Done-when: the control
@@ -43,7 +43,7 @@ func TestAgentToAgentEndToEnd(t *testing.T) {
 		}
 		return p
 	}
-	ca, err := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, err := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,19 +153,19 @@ func TestAgentToAgentEndToEnd(t *testing.T) {
 	}
 
 	// Both directions, measured by the initiator, must reach the TSDB.
-	if !waitSeries("netctl_probe_forward_avg_ms", initID) {
+	if !waitSeries("probectl_probe_forward_avg_ms", initID) {
 		t.Fatal("initiator forward one-way series did not reach the TSDB")
 	}
-	if !waitSeries("netctl_probe_reverse_avg_ms", initID) {
+	if !waitSeries("probectl_probe_reverse_avg_ms", initID) {
 		t.Fatal("initiator reverse one-way series did not reach the TSDB")
 	}
 	// The responder (the other agent) must also report a result.
-	if !waitSeries("netctl_probe_packets_received", respID) {
+	if !waitSeries("probectl_probe_packets_received", respID) {
 		t.Fatal("responder result did not reach the TSDB")
 	}
 
 	// Round-trip loss on loopback should be zero.
-	loss := mtsdb.Query("netctl_probe_loss_ratio", map[string]string{"tenant_id": tn.ID, "canary_type": "a2a", "agent_id": initID})
+	loss := mtsdb.Query("probectl_probe_loss_ratio", map[string]string{"tenant_id": tn.ID, "canary_type": "a2a", "agent_id": initID})
 	if len(loss) == 0 || loss[0].Value != 0 {
 		t.Errorf("initiator round-trip loss = %+v, want one series with value 0", loss)
 	}

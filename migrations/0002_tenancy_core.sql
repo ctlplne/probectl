@@ -4,7 +4,7 @@
 -- tenant-owned table from this first migration (F50/F24) — never added later.
 --
 -- Pooled isolation (F52-pooled) is enforced by Row-Level Security keyed on the
--- `netctl.tenant_id` GUC that internal/tenancy sets per transaction. When the GUC
+-- `probectl.tenant_id` GUC that internal/tenancy sets per transaction. When the GUC
 -- is unset, current_setting(...) is NULL and no rows match — fail closed
 -- (CLAUDE.md §7 guardrail 1). Identifiers are UUIDs + stable slugs so they map
 -- cleanly onto OTel resource attributes (S6/S22).
@@ -83,7 +83,7 @@ CREATE INDEX IF NOT EXISTS service_accounts_tenant_idx ON service_accounts (tena
 
 -- Enable pooled-isolation RLS on every tenant-owned table created above.
 -- ENABLE + FORCE so even the table owner is subject to the policy; the policy
--- matches rows to the per-transaction netctl.tenant_id GUC and fails closed when
+-- matches rows to the per-transaction probectl.tenant_id GUC and fails closed when
 -- it is unset.
 DO $$
 DECLARE
@@ -96,8 +96,8 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON %I', t);
         EXECUTE format($pol$
             CREATE POLICY tenant_isolation ON %I
-              USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
-              WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
+              USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+              WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
         $pol$, t);
     END LOOP;
 END $$;

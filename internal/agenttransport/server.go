@@ -11,12 +11,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	"github.com/imfeelingtheagi/netctl/internal/a2a"
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
-	"github.com/imfeelingtheagi/netctl/internal/lifecycle"
-	"github.com/imfeelingtheagi/netctl/internal/version"
+	"github.com/imfeelingtheagi/probectl/internal/a2a"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // Server is the control-plane's agent-transport gRPC server. All connections are

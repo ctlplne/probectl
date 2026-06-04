@@ -55,7 +55,7 @@ export function PlaceholderPage({ to }: { to: string }) {
   const item = NAV.find((n) => n.to === to)
   const label = item?.label ?? 'Page'
   return (
-    <Page title={label} subtitle="This surface is part of the netctl information architecture.">
+    <Page title={label} subtitle="This surface is part of the probectl information architecture.">
       <Card>
         <CardBody>
           <EmptyState
@@ -290,7 +290,7 @@ export function AdminPage() {
               columns={columns}
               rows={data ?? []}
               rowKey={(a) => a.id}
-              empty={<EmptyState icon="admin" title="No agents registered" description="Deploy a netctl agent to begin." />}
+              empty={<EmptyState icon="admin" title="No agents registered" description="Deploy a probectl agent to begin." />}
             />
           )}
         </CardBody>

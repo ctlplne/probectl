@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "netctl-analyzer"
+name = "probectl-analyzer"
 version = "0.0.0.dev0"
-description = "netctl BGP analyzer — ingests public BGP collector data and emits netctl.bgp.events."
+description = "probectl BGP analyzer — ingests public BGP collector data and emits probectl.bgp.events."
 requires-python = ">=3.11"
 dependencies = [
   "structlog>=24.1.0",
@@ -20,7 +20,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["netctl_analyzer"]
+packages = ["probectl_analyzer"]
 
 [tool.ruff]
 line-length = 100

@@ -1,6 +1,6 @@
 # AI test authoring + auto-discovery (S26)
 
-netctl turns a natural-language request into a synthetic-test config, and mines
+probectl turns a natural-language request into a synthetic-test config, and mines
 observed telemetry to propose monitorable targets — both **propose-only**: nothing
 is created until a human confirms (CLAUDE.md §7 guardrail 8). It drives
 time-to-first-insight down.

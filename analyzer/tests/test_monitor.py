@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from netctl_analyzer.config import AnalyzerConfig
-from netctl_analyzer.events import EventType, RPKIStatus, Severity
-from netctl_analyzer.monitor import PrefixMonitor
-from netctl_analyzer.mrt import BGPRoute
-from netctl_analyzer.rpki import VRPSet
+from probectl_analyzer.config import AnalyzerConfig
+from probectl_analyzer.events import EventType, RPKIStatus, Severity
+from probectl_analyzer.monitor import PrefixMonitor
+from probectl_analyzer.mrt import BGPRoute
+from probectl_analyzer.rpki import VRPSet
 
 
 def make_monitor(no_transit=None, vrp=None) -> PrefixMonitor:

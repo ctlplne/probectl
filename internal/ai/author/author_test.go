@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/testspec"
+	"github.com/imfeelingtheagi/probectl/internal/testspec"
 )
 
 func mustAuthor(t *testing.T, e *Engine, prompt string) Proposal {

@@ -2,7 +2,7 @@
 #
 # Requires: clang, llvm, libbpf headers (bpf/*.h), bpftool, Go 1.26, and CAP_BPF
 # (or root) to load. This is throwaway de-risking code; it is NOT part of the
-# netctl production build and is excluded from the repo's CI/lint.
+# probectl production build and is excluded from the repo's CI/lint.
 
 CLANG   ?= clang
 BPFTOOL ?= bpftool

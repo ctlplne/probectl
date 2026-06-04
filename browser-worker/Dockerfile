@@ -1,7 +1,7 @@
-# netctl browser-worker (S36, F15): a Playwright + Chromium image for the browser-
+# probectl browser-worker (S36, F15): a Playwright + Chromium image for the browser-
 # synthetic fleet. Based on the official Playwright image (bundles a pinned,
 # headless-ready Chromium + the OS deps), so the worker runs without host browser
-# setup. The container runs one transaction per invocation; the netctl fleet owns
+# setup. The container runs one transaction per invocation; the probectl fleet owns
 # concurrency, isolation (it kills the process on timeout), and worker recycling.
 FROM mcr.microsoft.com/playwright:v1.49.1-noble
 

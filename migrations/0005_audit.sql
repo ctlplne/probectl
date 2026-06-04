@@ -41,7 +41,7 @@ ALTER TABLE audit_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_events FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS audit_select ON audit_events;
 CREATE POLICY audit_select ON audit_events FOR SELECT
-    USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid);
+    USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid);
 DROP POLICY IF EXISTS audit_insert ON audit_events;
 CREATE POLICY audit_insert ON audit_events FOR INSERT
-    WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid);
+    WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid);

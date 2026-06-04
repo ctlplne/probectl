@@ -13,11 +13,11 @@ import json
 
 from mrt_fixtures import peer_index_table, rib_ipv4
 
-from netctl_analyzer.config import AnalyzerConfig
-from netctl_analyzer.emit import ListSink
-from netctl_analyzer.events import EventType, RPKIStatus
-from netctl_analyzer.pipeline import Analyzer
-from netctl_analyzer.rpki import VRPSet
+from probectl_analyzer.config import AnalyzerConfig
+from probectl_analyzer.emit import ListSink
+from probectl_analyzer.events import EventType, RPKIStatus
+from probectl_analyzer.pipeline import Analyzer
+from probectl_analyzer.rpki import VRPSet
 
 CONFIG = {
     "tenant_id": "t1",

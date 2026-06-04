@@ -1,4 +1,4 @@
-// Package auth is netctl's identity + access foundation (S18, F22): OIDC SSO,
+// Package auth is probectl's identity + access foundation (S18, F22): OIDC SSO,
 // server-side sessions, and RBAC enforcement over the S2 role model.
 //
 // The two-level boundary (CLAUDE.md §7 guardrails 1, 5): a request resolves to

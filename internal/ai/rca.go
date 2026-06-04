@@ -7,12 +7,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // Answer is the result of an RCA: a cited, RBAC-scoped root cause. ID ties an
 // answer to any feedback the user later gives. InsufficientEvidence is set when
-// nothing grounded supports a conclusion — netctl prefers saying so over guessing.
+// nothing grounded supports a conclusion — probectl prefers saying so over guessing.
 type Answer struct {
 	ID                   string        `json:"id"`
 	Tenant               string        `json:"tenant"`
@@ -82,7 +82,7 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	}
 	start := time.Now()
 
-	// 1. Plan deterministically (netctl code, never the model).
+	// 1. Plan deterministically (probectl code, never the model).
 	queries := a.planner.Plan(q)
 
 	// 2. Gather evidence via the engine. Domains the caller cannot read

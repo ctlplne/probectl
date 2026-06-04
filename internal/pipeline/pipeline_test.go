@@ -8,10 +8,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 func TestResultToSeries(t *testing.T) {
@@ -29,16 +29,16 @@ func TestResultToSeries(t *testing.T) {
 	for _, s := range ResultToSeries(r) {
 		byName[s.Metric] = s
 	}
-	if byName["netctl_probe_success"].Value != 1 {
-		t.Errorf("success = %v, want 1", byName["netctl_probe_success"].Value)
+	if byName["probectl_probe_success"].Value != 1 {
+		t.Errorf("success = %v, want 1", byName["probectl_probe_success"].Value)
 	}
-	if d := byName["netctl_probe_duration_seconds"].Value; d < 0.0049 || d > 0.0051 {
+	if d := byName["probectl_probe_duration_seconds"].Value; d < 0.0049 || d > 0.0051 {
 		t.Errorf("duration_seconds = %v, want ~0.005", d)
 	}
-	if _, ok := byName["netctl_probe_rtt_avg_ms"]; !ok {
-		t.Error("missing custom metric netctl_probe_rtt_avg_ms (dot sanitization)")
+	if _, ok := byName["probectl_probe_rtt_avg_ms"]; !ok {
+		t.Error("missing custom metric probectl_probe_rtt_avg_ms (dot sanitization)")
 	}
-	lbl := byName["netctl_probe_success"].Labels
+	lbl := byName["probectl_probe_success"].Labels
 	if lbl["tenant_id"] != "t1" || lbl["agent_id"] != "a1" || lbl["canary_type"] != "icmp" || lbl["server_address"] != "host.example" {
 		t.Errorf("labels = %v", lbl)
 	}
@@ -69,7 +69,7 @@ func TestConsumerWritesToTSDB(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(w.Query("netctl_probe_success", map[string]string{"tenant_id": "t1"})) > 0 {
+		if len(w.Query("probectl_probe_success", map[string]string{"tenant_id": "t1"})) > 0 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -77,14 +77,14 @@ func TestConsumerWritesToTSDB(t *testing.T) {
 	cancel()
 	<-done
 
-	got := w.Query("netctl_probe_success", map[string]string{"tenant_id": "t1"})
+	got := w.Query("probectl_probe_success", map[string]string{"tenant_id": "t1"})
 	if len(got) == 0 || got[0].Value != 1 {
 		t.Errorf("result not queryable in TSDB: %+v", got)
 	}
 }
 
 // TestConsumerWritesEndpointResults proves the S37 follow-up: a DEM result
-// published on netctl.endpoint.results flows through the same pipeline into the
+// published on probectl.endpoint.results flows through the same pipeline into the
 // TSDB (the endpoint topic is no longer orphaned).
 func TestConsumerWritesEndpointResults(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,7 +112,7 @@ func TestConsumerWritesEndpointResults(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(w.Query("netctl_probe_success", map[string]string{"tenant_id": "t9"})) > 0 {
+		if len(w.Query("probectl_probe_success", map[string]string{"tenant_id": "t9"})) > 0 {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -120,7 +120,7 @@ func TestConsumerWritesEndpointResults(t *testing.T) {
 	cancel()
 	<-done
 
-	got := w.Query("netctl_probe_success", map[string]string{"tenant_id": "t9", "canary_type": "endpoint.attribution"})
+	got := w.Query("probectl_probe_success", map[string]string{"tenant_id": "t9", "canary_type": "endpoint.attribution"})
 	if len(got) == 0 {
 		t.Fatalf("endpoint result not queryable in TSDB")
 	}

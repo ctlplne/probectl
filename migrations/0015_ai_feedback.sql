@@ -21,10 +21,10 @@ ALTER TABLE ai_feedback ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_feedback FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS tenant_isolation ON ai_feedback;
 CREATE POLICY tenant_isolation ON ai_feedback
-  USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
-  WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid);
+  USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+  WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid);
 
-GRANT SELECT, INSERT ON ai_feedback TO netctl_app;
+GRANT SELECT, INSERT ON ai_feedback TO probectl_app;
 
 -- Permission keys: the per-domain read perms the S23 query layer enforces (the
 -- two-level boundary checks the tenant first, then these), plus ai.query which

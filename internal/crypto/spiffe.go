@@ -9,12 +9,12 @@ import (
 	"strings"
 )
 
-// TrustDomain is netctl's default SPIFFE trust domain.
-const TrustDomain = "netctl"
+// TrustDomain is probectl's default SPIFFE trust domain.
+const TrustDomain = "probectl"
 
 // SPIFFEID is a tenant-bound agent identity of the form
 //
-//	spiffe://netctl/tenant/<tenantID>/agent/<agentID>
+//	spiffe://probectl/tenant/<tenantID>/agent/<agentID>
 //
 // The agent identity encodes its tenant (PRD §3.2), so the mTLS layer can derive
 // the agent's tenant from its verified certificate. SVID issuance is out of scope
@@ -35,7 +35,7 @@ func (id SPIFFEID) String() string {
 	return fmt.Sprintf("spiffe://%s/tenant/%s/agent/%s", id.TrustDomain, id.TenantID, id.AgentID)
 }
 
-// ParseSPIFFEID parses a netctl agent SPIFFE URI.
+// ParseSPIFFEID parses a probectl agent SPIFFE URI.
 func ParseSPIFFEID(uri string) (SPIFFEID, error) {
 	u, err := url.Parse(uri)
 	if err != nil {

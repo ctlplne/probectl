@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // SessionCookie is the name of the session cookie.
-const SessionCookie = "netctl_session"
+const SessionCookie = "probectl_session"
 
 // Manager issues, resolves, and revokes sessions, and manages the session cookie.
 type Manager struct {

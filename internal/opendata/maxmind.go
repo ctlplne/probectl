@@ -80,7 +80,7 @@ type mmdbGeoReader struct {
 }
 
 // OpenMMDB opens a MaxMind .mmdb database for the geo source. The operator
-// supplies the GeoLite2 database under MaxMind's license; netctl does not ship it
+// supplies the GeoLite2 database under MaxMind's license; probectl does not ship it
 // (S15 watch-out — respect MaxMind licensing).
 func OpenMMDB(path string) (GeoReader, error) {
 	db, err := maxminddb.Open(path)
@@ -93,7 +93,7 @@ func OpenMMDB(path string) (GeoReader, error) {
 // Close releases the underlying database.
 func (m *mmdbGeoReader) Close() error { return m.db.Close() }
 
-// geoLite2City is the subset of the GeoLite2-City record netctl reads.
+// geoLite2City is the subset of the GeoLite2-City record probectl reads.
 type geoLite2City struct {
 	Country struct {
 		ISOCode string `maxminddb:"iso_code"`

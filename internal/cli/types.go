@@ -3,7 +3,7 @@ package cli
 import (
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/version"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // Test mirrors the /v1/tests resource.

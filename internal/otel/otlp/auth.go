@@ -19,7 +19,7 @@ type Authenticator interface {
 	Authenticate(token string) (tenant string, err error)
 }
 
-// TokenAuthenticator maps static bearer tokens to tenants (NETCTL_OTLP_TOKENS).
+// TokenAuthenticator maps static bearer tokens to tenants (PROBECTL_OTLP_TOKENS).
 // Tokens are bearer secrets carried over TLS; production may additionally use
 // mTLS / SPIFFE identity (the transport already requires TLS).
 type TokenAuthenticator struct {

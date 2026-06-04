@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 func discard() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -65,7 +65,7 @@ func (f *fakeMail) Send(context.Context, []string, string, string) error {
 func thresholdRule() Rule {
 	return Rule{
 		ID: "r1", TenantID: "t1", Name: "loss-high", Enabled: true,
-		Metric: "netctl_probe_loss_ratio", Type: Threshold,
+		Metric: "probectl_probe_loss_ratio", Type: Threshold,
 		Comparison: GT, Threshold: 0.5, Severity: SeverityCritical,
 	}
 }
@@ -223,7 +223,7 @@ func TestEngineBaselineFires(t *testing.T) {
 	en := NewEngine(src, NewNotifier(ChannelDeps{}, discard()), discard())
 	rule := Rule{
 		ID: "b1", TenantID: "t1", Name: "latency-anomaly", Enabled: true,
-		Metric: "netctl_probe_rtt_avg_ms", Type: Baseline, Window: 3, Sensitivity: 2,
+		Metric: "probectl_probe_rtt_avg_ms", Type: Baseline, Window: 3, Sensitivity: 2,
 		Severity: SeverityWarning,
 	}
 	labels := map[string]string{"server_address": "1.1.1.1"}
@@ -247,7 +247,7 @@ func TestWebhookChannelSignsAndDelivers(t *testing.T) {
 	doer := &fakeDoer{status: 200}
 	ch := NewWebhookChannel("https://hooks.example/alert", "topsecret", doer)
 	alert := Alert{RuleID: "r1", RuleName: "loss-high", TenantID: "t1", State: StateFiring,
-		Severity: SeverityCritical, Metric: "netctl_probe_loss_ratio", Value: 0.9, Threshold: 0.5,
+		Severity: SeverityCritical, Metric: "probectl_probe_loss_ratio", Value: 0.9, Threshold: 0.5,
 		Comparison: GT, Reason: "loss high", At: time.Unix(1_700_000_000, 0)}
 
 	if err := ch.Notify(context.Background(), alert); err != nil {

@@ -1,4 +1,4 @@
-// Package topology is netctl's live, versioned, tenant-scoped network topology
+// Package topology is probectl's live, versioned, tenant-scoped network topology
 // graph (S30, F40-foundation). It builds a graph — nodes (agents, hops, hosts,
 // services, prefixes, ASes) and edges (path adjacencies, eBPF service edges, BGP
 // routing) — from the path (S10) and eBPF service-map (S20) planes plus routing

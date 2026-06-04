@@ -30,10 +30,10 @@ func TestClickHouseHTTPStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(queries) != 2 || !strings.Contains(queries[0], "CREATE TABLE") || !strings.Contains(queries[0], "netctl_path_hops") {
+	if len(queries) != 2 || !strings.Contains(queries[0], "CREATE TABLE") || !strings.Contains(queries[0], "probectl_path_hops") {
 		t.Fatalf("schema DDL = %v", queries)
 	}
-	if !strings.Contains(queries[1], "netctl_path_links") {
+	if !strings.Contains(queries[1], "probectl_path_links") {
 		t.Errorf("links DDL missing: %v", queries[1])
 	}
 
@@ -43,13 +43,13 @@ func TestClickHouseHTTPStore(t *testing.T) {
 	if len(queries) != 4 {
 		t.Fatalf("after save, %d queries, want 4: %v", len(queries), queries)
 	}
-	if !strings.Contains(queries[2], "INSERT INTO netctl_path_hops") || !strings.Contains(queries[2], "JSONEachRow") {
+	if !strings.Contains(queries[2], "INSERT INTO probectl_path_hops") || !strings.Contains(queries[2], "JSONEachRow") {
 		t.Errorf("hops insert query = %q", queries[2])
 	}
 	if !strings.Contains(bodies[2], "tenant-x") || !strings.Contains(bodies[2], "10.0.0.1") || !strings.Contains(bodies[2], "16001") {
 		t.Errorf("hops body missing rows: %q", bodies[2])
 	}
-	if !strings.Contains(queries[3], "INSERT INTO netctl_path_links") {
+	if !strings.Contains(queries[3], "INSERT INTO probectl_path_links") {
 		t.Errorf("links insert query = %q", queries[3])
 	}
 	if !strings.Contains(bodies[3], `"from_ip":"10.0.0.1"`) || !strings.Contains(bodies[3], `"to_ip":"8.8.8.8"`) {

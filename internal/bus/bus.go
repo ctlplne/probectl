@@ -7,27 +7,27 @@ import (
 )
 
 // NetworkResultsTopic is the topic for network-plane probe results (S6). The
-// convention is netctl.<type>.results / netctl.<type>.events.
-const NetworkResultsTopic = "netctl.network.results"
+// convention is probectl.<type>.results / probectl.<type>.events.
+const NetworkResultsTopic = "probectl.network.results"
 
 // BGPEventsTopic carries routing-security signals from the BGP analyzer bridge
 // (S14), tenant-tagged via the message key.
-const BGPEventsTopic = "netctl.bgp.events"
+const BGPEventsTopic = "probectl.bgp.events"
 
 // EBPFFlowsTopic carries L3/L4 flow + service-edge batches from the eBPF host
 // agent (S20), tenant-tagged via the message key. Payload: ebpfv1.FlowBatch.
-const EBPFFlowsTopic = "netctl.ebpf.flows"
+const EBPFFlowsTopic = "probectl.ebpf.flows"
 
 // OTLPMetricsTopic carries OTLP metrics ingested by the OTLP receiver (S22),
 // tenant-tagged via the message key. Payload: a marshaled OTLP
 // ExportMetricsServiceRequest.
-const OTLPMetricsTopic = "netctl.otlp.metrics"
+const OTLPMetricsTopic = "probectl.otlp.metrics"
 
 // EndpointResultsTopic carries DEM results from the endpoint agent (S37) — WiFi /
 // gateway / last-mile / session signals and the slowdown attribution — tenant-
 // tagged via the message key. Payload: resultv1.Result (the canonical canary
 // result schema), so it flows through the same pipeline → TSDB path.
-const EndpointResultsTopic = "netctl.endpoint.results"
+const EndpointResultsTopic = "probectl.endpoint.results"
 
 // Message is one bus record. Key partitions the record (the tenant id, so a
 // tenant's results stay ordered and co-located — pooled tenant-tagging).
@@ -59,7 +59,7 @@ func New(mode string, brokers []string) (Bus, error) {
 		return NewMemory(), nil
 	case "kafka":
 		if len(brokers) == 0 {
-			return nil, errors.New("bus: kafka mode requires NETCTL_BUS_BROKERS")
+			return nil, errors.New("bus: kafka mode requires PROBECTL_BUS_BROKERS")
 		}
 		return NewKafka(brokers)
 	default:

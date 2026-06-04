@@ -1,12 +1,12 @@
 syntax = "proto3";
 
 // A minimal Prometheus remote-write v1 schema — just enough to write samples to
-// a Prometheus/VictoriaMetrics remote-write receiver, so netctl does not depend
+// a Prometheus/VictoriaMetrics remote-write receiver, so probectl does not depend
 // on the (very large) prometheus Go module. Payloads are snappy-compressed and
 // POSTed to <tsdb>/api/v1/write. timestamps are Unix milliseconds.
 package prometheus.v1;
 
-option go_package = "github.com/imfeelingtheagi/netctl/internal/gen/prometheus/v1;prompb";
+option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1;prompb";
 
 message WriteRequest {
   repeated TimeSeries timeseries = 1;

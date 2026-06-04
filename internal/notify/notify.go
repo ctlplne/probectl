@@ -1,6 +1,6 @@
-// Package notify wires netctl incidents into operational tooling (S33, F27): it
+// Package notify wires probectl incidents into operational tooling (S33, F27): it
 // pages on-call (PagerDuty/Opsgenie), posts to chat (Slack/Teams), and opens +
-// bidirectionally syncs tickets (ServiceNow/Jira). netctl owns the incident;
+// bidirectionally syncs tickets (ServiceNow/Jira). probectl owns the incident;
 // these systems mirror it.
 //
 // Three properties shape the design:
@@ -22,7 +22,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 // Doer is the subset of *http.Client a connector needs (injectable for tests).
@@ -82,4 +82,4 @@ type LinkStore interface {
 // dedupKey is the stable per-incident key a pager connector uses so even a
 // duplicate trigger (e.g. an Open retried before its link persisted) coalesces
 // server-side.
-func dedupKey(incidentID string) string { return "netctl-" + incidentID }
+func dedupKey(incidentID string) string { return "probectl-" + incidentID }

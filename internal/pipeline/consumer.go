@@ -7,13 +7,13 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 // DefaultGroup is the consumer-group name for the control-plane result pipeline.
-const DefaultGroup = "netctl-control"
+const DefaultGroup = "probectl-control"
 
 // Consumer drains result messages from the bus and writes them to the TSDB.
 type Consumer struct {

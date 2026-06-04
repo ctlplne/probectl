@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "netctl control-plane API",
+    "title": "probectl control-plane API",
     "version": "0.1.0",
-    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Netctl-Tenant override) \u2014 real identity (SSO/SCIM, per-tenant IdP) lands in S18."
+    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Probectl-Tenant override) \u2014 real identity (SSO/SCIM, per-tenant IdP) lands in S18."
   },
   "servers": [
     {
@@ -1210,7 +1210,7 @@
   "components": {
     "parameters": {
       "TenantHeader": {
-        "name": "X-Netctl-Tenant",
+        "name": "X-Probectl-Tenant",
         "in": "header",
         "required": false,
         "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted \u2192 the default tenant. Replaced by session-resolved identity in S18.",
@@ -1673,7 +1673,7 @@
           },
           "metric": {
             "type": "string",
-            "description": "TSDB metric, e.g. netctl_probe_loss_ratio."
+            "description": "TSDB metric, e.g. probectl_probe_loss_ratio."
           },
           "match": {
             "type": "object",

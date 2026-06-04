@@ -1,8 +1,8 @@
-// Package version exposes build metadata shared by every netctl binary.
+// Package version exposes build metadata shared by every probectl binary.
 //
 // The Version, Commit, and Date values are injected at build time via
 // -ldflags (see LDFLAGS in the Makefile). When built without ldflags
-// (for example `go run ./cmd/netctl-control`), they fall back to the
+// (for example `go run ./cmd/probectl-control`), they fall back to the
 // development defaults below.
 package version
 
@@ -12,7 +12,7 @@ import (
 )
 
 // Build metadata. These are overridden at link time with
-// -ldflags "-X github.com/imfeelingtheagi/netctl/internal/version.Version=...".
+// -ldflags "-X github.com/imfeelingtheagi/probectl/internal/version.Version=...".
 var (
 	// Version is the semantic version of the build (e.g. "v0.1.0").
 	Version = "0.0.0-dev"

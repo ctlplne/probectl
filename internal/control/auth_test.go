@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 func errKind(t *testing.T, err error) apierror.Kind {
@@ -68,7 +68,7 @@ func TestRequirePermission(t *testing.T) {
 }
 
 // Dev auth mode synthesizes an all-permissions principal, with an optional
-// X-Netctl-Tenant override — it keeps local dev and the /v1 test suite running
+// X-Probectl-Tenant override — it keeps local dev and the /v1 test suite running
 // without a real IdP.
 func TestResolvePrincipalDevMode(t *testing.T) {
 	s := &Server{cfg: &config.Config{AuthMode: "dev"}}
@@ -84,14 +84,14 @@ func TestResolvePrincipalDevMode(t *testing.T) {
 	}
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
-	r.Header.Set("X-Netctl-Tenant", "00000000-0000-0000-0000-0000000000ab")
+	r.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-0000000000ab")
 	if got := s.resolvePrincipal(r).TenantID; got != "00000000-0000-0000-0000-0000000000ab" {
 		t.Fatalf("tenant override: %s", got)
 	}
 
 	// A non-UUID override is ignored (falls back to the default tenant).
 	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	r2.Header.Set("X-Netctl-Tenant", "not-a-uuid")
+	r2.Header.Set("X-Probectl-Tenant", "not-a-uuid")
 	if got := s.resolvePrincipal(r2).TenantID; got != tenancy.DefaultTenantID.String() {
 		t.Fatalf("bad override should fall back to default, got %s", got)
 	}

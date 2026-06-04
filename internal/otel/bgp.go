@@ -4,21 +4,21 @@ import (
 	"strconv"
 	"strings"
 
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 )
 
 // BGP routing-signal attribute keys (S14 / finalized S22). BGP has no OTel
-// standard, so these use the netctl.bgp.* namespace; the collector peer's
+// standard, so these use the probectl.bgp.* namespace; the collector peer's
 // address uses the OTel network.peer.address convention.
 const (
-	AttrBGPEventType  = "netctl.bgp.event_type"
-	AttrBGPSeverity   = "netctl.bgp.severity"
-	AttrBGPConfidence = "netctl.bgp.confidence"
-	AttrBGPPrefix     = "netctl.bgp.prefix"
-	AttrBGPOriginASN  = "netctl.bgp.origin_asn"
-	AttrBGPPeerASN    = "netctl.bgp.peer_asn"
-	AttrBGPRPKIStatus = "netctl.bgp.rpki_status"
-	AttrBGPCollector  = "netctl.bgp.collector"
+	AttrBGPEventType  = "probectl.bgp.event_type"
+	AttrBGPSeverity   = "probectl.bgp.severity"
+	AttrBGPConfidence = "probectl.bgp.confidence"
+	AttrBGPPrefix     = "probectl.bgp.prefix"
+	AttrBGPOriginASN  = "probectl.bgp.origin_asn"
+	AttrBGPPeerASN    = "probectl.bgp.peer_asn"
+	AttrBGPRPKIStatus = "probectl.bgp.rpki_status"
+	AttrBGPCollector  = "probectl.bgp.collector"
 	AttrPeerAddress   = "network.peer.address"
 )
 
@@ -31,7 +31,7 @@ func init() {
 	}
 }
 
-// BGPEventAttributes maps a BGP routing-security event to its OTel/netctl
+// BGPEventAttributes maps a BGP routing-security event to its OTel/probectl
 // attributes. The tenant is the outermost scope; empty optionals are omitted.
 func BGPEventAttributes(e *bgpv1.BGPEvent) map[string]string {
 	attrs := map[string]string{AttrTenantID: e.GetTenantId()}

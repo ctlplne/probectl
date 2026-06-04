@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/ebpf/l7"
+	"github.com/imfeelingtheagi/probectl/internal/ebpf/l7"
 )
 
 // L7Event is one captured plaintext chunk plus its connection context, delivered

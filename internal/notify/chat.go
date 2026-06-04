@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 // chat posts incident notifications to a Slack or Teams incoming webhook. The
@@ -24,7 +24,7 @@ func (c *chat) Name() string           { return c.name }
 func (c *chat) Capability() Capability { return CapabilityChat }
 
 func (c *chat) Open(ctx context.Context, inc incident.Incident) (Delivery, error) {
-	text := fmt.Sprintf("🔴 netctl incident opened — %s (severity %s, target %s)",
+	text := fmt.Sprintf("🔴 probectl incident opened — %s (severity %s, target %s)",
 		inc.Title, inc.Severity, displayTarget(inc))
 	if err := c.post(ctx, text); err != nil {
 		return Delivery{}, err
@@ -33,7 +33,7 @@ func (c *chat) Open(ctx context.Context, inc incident.Incident) (Delivery, error
 }
 
 func (c *chat) Resolve(ctx context.Context, inc incident.Incident, _ string) error {
-	return c.post(ctx, fmt.Sprintf("✅ netctl incident resolved — %s", inc.Title))
+	return c.post(ctx, fmt.Sprintf("✅ probectl incident resolved — %s", inc.Title))
 }
 
 func (c *chat) post(ctx context.Context, text string) error {

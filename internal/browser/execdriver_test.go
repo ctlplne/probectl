@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
 // writeStub writes a node script to a temp dir and returns its path. node is

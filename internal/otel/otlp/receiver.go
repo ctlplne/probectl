@@ -18,7 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/otel"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
 const defaultMaxRecvBytes = 4 << 20 // 4 MiB

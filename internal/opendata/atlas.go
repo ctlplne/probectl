@@ -18,7 +18,7 @@ var ErrAtlasDisabled = errors.New("opendata: RIPE Atlas scheduling is not config
 const atlasBase = "https://atlas.ripe.net/api/v2"
 
 // MeasurementSpec requests a one-off RIPE Atlas measurement. This is the optional
-// active-measurement hook (F7): netctl does not run an Atlas fleet — it schedules
+// active-measurement hook (F7): probectl does not run an Atlas fleet — it schedules
 // on the shared platform when the operator supplies an API key and credits. Atlas
 // is credit-based and its terms govern commercial/MSP use (tracked as AUP).
 type MeasurementSpec struct {

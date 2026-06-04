@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 // --- PagerDuty (Events API v2) ---
@@ -37,7 +37,7 @@ func (p *pagerDuty) event(action, dedup string, inc incident.Incident) map[strin
 	if action == "trigger" {
 		m["payload"] = map[string]any{
 			"summary":  inc.Title,
-			"source":   "netctl",
+			"source":   "probectl",
 			"severity": pagerDutySeverity(inc.Severity),
 		}
 	}
@@ -109,7 +109,7 @@ func (o *opsgenie) Open(ctx context.Context, inc incident.Incident) (Delivery, e
 
 func (o *opsgenie) Resolve(ctx context.Context, _ incident.Incident, ref string) error {
 	closeURL := o.endpoint + "/" + url.PathEscape(ref) + "/close?identifierType=alias"
-	_, err := doJSON(ctx, o.client, "POST", closeURL, o.auth(), map[string]any{"note": "resolved by netctl"})
+	_, err := doJSON(ctx, o.client, "POST", closeURL, o.auth(), map[string]any{"note": "resolved by probectl"})
 	return err
 }
 

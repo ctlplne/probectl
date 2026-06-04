@@ -13,11 +13,11 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 
-	"github.com/imfeelingtheagi/netctl/internal/agenttransport"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
-	"github.com/imfeelingtheagi/netctl/internal/lifecycle"
-	"github.com/imfeelingtheagi/netctl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 )
 
 // agentClient dials the transport with a freshly-issued client cert for a new

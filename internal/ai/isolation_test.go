@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/topology"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
 // TestQueryLayerCrossTenantIsolation is the S23 security-boundary check: a query

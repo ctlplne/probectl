@@ -1,6 +1,6 @@
 # AI RCA + natural-language query (S24)
 
-netctl's AI assistant answers a natural-language question — *"why is X slow for
+probectl's AI assistant answers a natural-language question — *"why is X slow for
 Y?"* — with a **cited, RBAC-scoped root cause** grounded in the network's own
 signals. It is a primary product surface (PRD §6), not just an API, and it is
 **sovereign-capable**: the default model is an in-process synthesizer that runs
@@ -15,7 +15,7 @@ evidence reads, the proposal/gating affordance).
 
 ```mermaid
 flowchart LR
-  Q["NL question<br/>(+ optional subject)"] --> P["Planner<br/>(deterministic netctl code)"]
+  Q["NL question<br/>(+ optional subject)"] --> P["Planner<br/>(deterministic probectl code)"]
   P -->|"typed S23 queries"| E["S23 query engine<br/>tenant FIRST, then RBAC"]
   E -->|"tenant + RBAC-scoped rows"| G["Evidence<br/>(citable, per-plane)"]
   G --> M["ModelAdapter.Synthesize<br/>(no tools — synthesis only)"]
@@ -34,7 +34,7 @@ flowchart LR
 1. **Plan (deterministic).** A `HeuristicPlanner` turns the question into a set of
    typed S23 queries: it extracts the subject (host / IP / CIDR / node), a time
    window, and selects which planes to gather from based on the question's
-   language. The planner is netctl code, **not the model** — so untrusted text can
+   language. The planner is probectl code, **not the model** — so untrusted text can
    never widen the query scope.
 2. **Gather (tenant-first, then RBAC).** Each planned query runs through the S23
    engine, which enforces the **tenant boundary first, then the caller's RBAC**.

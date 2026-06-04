@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // TestThresholdFiresToWebhook is the S16 Done-when: a breached threshold fires an
@@ -43,7 +43,7 @@ func TestThresholdFiresToWebhook(t *testing.T) {
 
 	rule := Rule{
 		ID: "r1", TenantID: "t1", Name: "loss-high", Enabled: true,
-		Metric: "netctl_probe_loss_ratio", Type: Threshold, Comparison: GT, Threshold: 0.5,
+		Metric: "probectl_probe_loss_ratio", Type: Threshold, Comparison: GT, Threshold: 0.5,
 		Severity: SeverityCritical, ForN: 1,
 		Channels: []ChannelSpec{{Type: "webhook", URL: srv.URL, Secret: secret}},
 	}

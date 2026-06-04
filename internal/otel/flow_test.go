@@ -3,7 +3,7 @@ package otel
 import (
 	"testing"
 
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 )
 
 func TestFlowAttributesConformToConventions(t *testing.T) {
@@ -17,7 +17,7 @@ func TestFlowAttributesConformToConventions(t *testing.T) {
 	attrs := FlowAttributes(f)
 	for k := range attrs {
 		if !KnownAttributes[k] {
-			t.Errorf("attribute %q is not an OTel/netctl convention name (invented attribute)", k)
+			t.Errorf("attribute %q is not an OTel/probectl convention name (invented attribute)", k)
 		}
 	}
 	if attrs[AttrTenantID] != "t1" || attrs[AttrDestinationPort] != "443" || attrs[AttrNetworkTransport] != "tcp" {

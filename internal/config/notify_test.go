@@ -6,7 +6,7 @@ func TestNotifyConnectorsConfig(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
 		// pipe-delimited (the endpoint is a URL with ':'); the secret is the last
 		// field and may itself contain '|'. A chat connector may have an empty secret.
-		"NETCTL_NOTIFY_CONNECTORS": "11111111-1111-1111-1111-111111111111|pagerduty|https://events.pagerduty.com/v2/enqueue|rk|with|pipes," +
+		"PROBECTL_NOTIFY_CONNECTORS": "11111111-1111-1111-1111-111111111111|pagerduty|https://events.pagerduty.com/v2/enqueue|rk|with|pipes," +
 			"11111111-1111-1111-1111-111111111111|jira|https://jira.test/rest/api/2/issue?project=OPS&resolve_transition=41|email:token," +
 			"22222222-2222-2222-2222-222222222222|slack|https://hooks.slack.test/x|",
 	}))
@@ -31,13 +31,13 @@ func TestNotifyConnectorsConfig(t *testing.T) {
 	}
 
 	// Malformed / unknown entries fail closed at startup (a load error).
-	if _, err := Load(envFunc(map[string]string{"NETCTL_NOTIFY_CONNECTORS": "no-pipes-here"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_CONNECTORS": "no-pipes-here"})); err == nil {
 		t.Error("a connector without the 4 pipe fields should be a load error")
 	}
-	if _, err := Load(envFunc(map[string]string{"NETCTL_NOTIFY_CONNECTORS": "t|bogus|https://x|sec"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_CONNECTORS": "t|bogus|https://x|sec"})); err == nil {
 		t.Error("an unknown connector provider should be a load error")
 	}
-	if _, err := Load(envFunc(map[string]string{"NETCTL_NOTIFY_CONNECTORS": "t|pagerduty||sec"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_CONNECTORS": "t|pagerduty||sec"})); err == nil {
 		t.Error("an empty endpoint should be a load error")
 	}
 }
@@ -45,7 +45,7 @@ func TestNotifyConnectorsConfig(t *testing.T) {
 func TestNotifyInboundConfig(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
 		// colon form (no endpoint); the secret is last and may contain ':'.
-		"NETCTL_NOTIFY_INBOUND": "snow1:11111111-1111-1111-1111-111111111111:servicenow:sh:h:secret," +
+		"PROBECTL_NOTIFY_INBOUND": "snow1:11111111-1111-1111-1111-111111111111:servicenow:sh:h:secret," +
 			"jira1:22222222-2222-2222-2222-222222222222:jira:tok",
 	}))
 	if err != nil {
@@ -62,10 +62,10 @@ func TestNotifyInboundConfig(t *testing.T) {
 		t.Errorf("jira1 = %+v", cfg.NotifyInbound["jira1"])
 	}
 
-	if _, err := Load(envFunc(map[string]string{"NETCTL_NOTIFY_INBOUND": "bad-entry"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_INBOUND": "bad-entry"})); err == nil {
 		t.Error("a malformed inbound entry should be a load error")
 	}
-	if _, err := Load(envFunc(map[string]string{"NETCTL_NOTIFY_INBOUND": "id:tenant:bogus:secret"})); err == nil {
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_INBOUND": "id:tenant:bogus:secret"})); err == nil {
 		t.Error("an unknown inbound provider should be a load error")
 	}
 }

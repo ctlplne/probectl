@@ -6,7 +6,7 @@ import "errors"
 
 // newLiveSource is unavailable on builds without the eBPF loader: the default
 // build, macOS/Windows, or Linux built without -tags ebpf. Set a fixture_path
-// (NETCTL_EBPF_FIXTURE_PATH) for the no-kernel path, or rebuild with -tags ebpf
+// (PROBECTL_EBPF_FIXTURE_PATH) for the no-kernel path, or rebuild with -tags ebpf
 // on a Linux host with clang + libbpf headers. See docs/ebpf-agent.md. The real
 // implementation lives in source_live_linux.go (//go:build linux && ebpf).
 func newLiveSource(*Config) (Source, error) {

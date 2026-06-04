@@ -1,5 +1,5 @@
 /**
- * The netctl web API client (S8a contract). Every call targets the versioned
+ * The probectl web API client (S8a contract). Every call targets the versioned
  * control-plane API (`/v1/...`) and relies on the session for identity — the
  * tenant is resolved server-side from the caller's auth (never spoofed by the
  * browser), matching the backend's tenant-first boundary. Requests are

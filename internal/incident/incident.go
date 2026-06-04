@@ -1,4 +1,4 @@
-// Package incident is netctl's cross-plane incident + correlation foundation
+// Package incident is probectl's cross-plane incident + correlation foundation
 // (S17): related signals from any plane (network, BGP, and — without schema churn
 // — future threat/change/cost/SLO planes) group into a single Incident with a
 // coherent, time-ordered timeline.

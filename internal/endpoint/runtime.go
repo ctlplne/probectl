@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
 )
 
 // Runtime is the endpoint agent: on an interval it collects a DEM sample,

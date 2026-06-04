@@ -5,11 +5,11 @@
 *.test
 *.out
 # stray root-level cmd binaries (normal builds go to /bin/)
-/netctl
-/netctl-control
-/netctl-agent
-/netctl-ebpf-agent
-/netctl-endpoint
+/probectl
+/probectl-control
+/probectl-agent
+/probectl-ebpf-agent
+/probectl-endpoint
 
 # Go
 /vendor/

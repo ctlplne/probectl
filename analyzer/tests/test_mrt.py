@@ -6,7 +6,7 @@ import io
 
 from mrt_fixtures import bgp4mp_update_as4, peer_index_table, rib_ipv4
 
-from netctl_analyzer.mrt import stream_mrt
+from probectl_analyzer.mrt import stream_mrt
 
 
 def test_parses_table_dump_v2_rib_with_peer_attribution():

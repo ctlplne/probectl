@@ -1,7 +1,7 @@
 # Architecture (seed)
 
 This is a seed document. The authoritative architecture and product spec
-(`CLAUDE.md`, `netctl-PRD-v0.5.md`) are internal and kept in the private working
+(`CLAUDE.md`, `probectl-PRD-v0.5.md`) are internal and kept in the private working
 folder — **not committed** to this repo. This file is filled out as the
 subsystems land; the canonical **tenant-scoped data model** is documented here in
 **S2**.
@@ -25,7 +25,7 @@ flowchart TB
 
     Provider -->|tenant-scoped, isolated| CP
     Agents -->|gRPC mTLS| Edge
-    Analyzer -->|netctl.bgp.events| Bus
+    Analyzer -->|probectl.bgp.events| Bus
     Agents -->|results, tenant-tagged| Bus
     Bus --> Subsys
     Subsys -->|queries, tenant-first| Stores
@@ -88,17 +88,17 @@ Two layers enforce isolation, so an application bug cannot cause a cross-tenant
 read (PRD §3.2):
 
 1. **Storage layer — Row-Level Security.** Every tenant-owned table has RLS
-   `ENABLE`d and `FORCE`d, with a policy keyed on the `netctl.tenant_id` GUC. When
+   `ENABLE`d and `FORCE`d, with a policy keyed on the `probectl.tenant_id` GUC. When
    the GUC is unset the policy matches no rows (fail closed). Even a raw
    `SELECT * FROM organizations` returns only the current tenant's rows.
 2. **Query layer — the tenancy choke point.** `tenancy.InTenant(ctx, pool, fn)` is
    the only way to obtain a tenant-scoped querier. It opens a transaction,
-   `SET LOCAL ROLE netctl_app` (a `NOSUPERUSER`/`NOBYPASSRLS` role, so RLS applies
+   `SET LOCAL ROLE probectl_app` (a `NOSUPERUSER`/`NOBYPASSRLS` role, so RLS applies
    even from a privileged session), and sets the GUC — then runs `fn`.
 
-`netctl_app` holds least-privilege DML (audit is append-only: no UPDATE/DELETE).
-The application's Postgres login role must be able to assume `netctl_app` — a
-superuser always can; otherwise `GRANT netctl_app TO <login_role>`. A cross-tenant
+`probectl_app` holds least-privilege DML (audit is append-only: no UPDATE/DELETE).
+The application's Postgres login role must be able to assume `probectl_app` — a
+superuser always can; otherwise `GRANT probectl_app TO <login_role>`. A cross-tenant
 isolation test is a permanent CI gate.
 
 ### Provider plane & break-glass (F51)
@@ -119,16 +119,16 @@ reordering, or deletion breaks verification (`internal/audit` Verify).
 ## Agent transport (S4)
 
 Agents connect to the control plane over **gRPC + mTLS** (`internal/agenttransport`,
-`netctl.agent.v1.AgentService`: Register / Attest / Heartbeat / StreamConfig /
+`probectl.agent.v1.AgentService`: Register / Attest / Heartbeat / StreamConfig /
 StreamResults). The server requires and verifies a client certificate; the agent's
 tenant and id are read from its certificate's tenant-bound SPIFFE identity
-(`spiffe://netctl/tenant/<t>/agent/<a>`), never from the request body — so an agent
+(`spiffe://probectl/tenant/<t>/agent/<a>`), never from the request body — so an agent
 is bound to exactly one tenant and registration persists tenant-attributed (F50).
-The proto lives under `proto/netctl/agent/v1/` (versioned, additive-only).
+The proto lives under `proto/probectl/agent/v1/` (versioned, additive-only).
 
 ## Agent runtime (S5)
 
-`netctl-agent` (`cmd/netctl-agent`, `internal/agent`) is a single, multi-arch,
+`probectl-agent` (`cmd/probectl-agent`, `internal/agent`) is a single, multi-arch,
 DB-free binary. A plugin **host** runs compiled-in canaries (`internal/canary`:
 the `Canary` interface + a no-op plugin; real probes from S7) on a schedule into a
 disk-backed, bounded **store-and-forward buffer** (append-only framed log,
@@ -143,7 +143,7 @@ agent's tenant + id.
 A result travels agent → gRPC `StreamResults` → control-plane ingest
 (`internal/agenttransport`) → result bus (`internal/bus`) → consumer
 (`internal/pipeline`) → time-series writer (`internal/store/tsdb`). The wire
-payload is the canonical OTel-aligned result (`proto/netctl/result/v1`), whose
+payload is the canonical OTel-aligned result (`proto/probectl/result/v1`), whose
 attribute names follow OTel resource + network semantic conventions from first
 emission (the discipline S22 later *exposes* as OTLP/OBI rather than retrofits;
 see [`otel-mapping.md`](otel-mapping.md)).
@@ -155,7 +155,7 @@ to another tenant by a malformed or hostile payload (CLAUDE.md §7 guardrails 1
 and 5). The bus has a **memory** mode (in-process, the lightweight <5-agent
 default) and a **kafka** mode behind one interface; the writer has a **memory**
 mode and a **prometheus** remote-write mode (Prometheus/VictoriaMetrics). The
-consumer converts each result to `netctl_probe_*` series labeled by
+consumer converts each result to `probectl_probe_*` series labeled by
 `tenant_id`/`agent_id`/`canary_type`/`server_address`; tenant scoping at read time
 (S23) enforces isolation at the TSDB, which has no row-level security of its own.
 
@@ -270,13 +270,13 @@ animation respects `prefers-reduced-motion`.
 
 ## BGP / routing intelligence (S14)
 
-The BGP plane is the one netctl component written in **Python** (`analyzer/`) —
+The BGP plane is the one probectl component written in **Python** (`analyzer/`) —
 the language with the richest BGP/MRT tooling — bridged into the Go control plane
 by `internal/bgp`. The analyzer ingests **public** collector data (no customer
 router peering): RouteViews/RIPE-RIS **MRT** dumps and the **RIS Live** websocket.
 It does per-prefix AS-path monitoring with **origin-change / possible-hijack /
 possible-leak** detection and **RPKI** (RFC 6811) validation, and emits
-`netctl.bgp.events`.
+`probectl.bgp.events`.
 
 ```mermaid
 flowchart LR
@@ -287,10 +287,10 @@ flowchart LR
     MRT --> MON["monitor.py<br/>per-prefix baseline +<br/>origin/hijack/leak"]
     RIS --> MON
     RPKI --> MON
-    MON --> SINK["emit.py<br/>JSONL netctl.bgp.events"]
+    MON --> SINK["emit.py<br/>JSONL probectl.bgp.events"]
 
     SINK -->|JSON Lines| BRIDGE["internal/bgp<br/>validate tenant → protobuf"]
-    BRIDGE -->|"netctl.bgp.v1.BGPEvent<br/>(tenant-keyed)"| BUS["bus<br/>netctl.bgp.events"]
+    BRIDGE -->|"probectl.bgp.v1.BGPEvent<br/>(tenant-keyed)"| BUS["bus<br/>probectl.bgp.events"]
 ```
 
 **Streaming, never buffered.** `mrt.py` is a bounds-checked RFC 6396 reader that
@@ -300,7 +300,7 @@ is logged and skipped, not fatal. RIS Live's parsing core is transport-agnostic
 (replayable in tests); the live client owns the reconnect/backoff loop.
 
 **Detection is a signal, not an action** (guardrail 9). Each event carries a
-confidence and severity and is tunable/suppressible; netctl never acts on routing.
+confidence and severity and is tunable/suppressible; probectl never acts on routing.
 Rules: an origin differing from the last sighting → `origin_change` (with old/new
 origin + AS path); an origin outside the configured allow-list → `possible_hijack`
 (a more-specific is a higher-confidence sub-prefix hijack); a configured
@@ -312,7 +312,7 @@ rather than breaking analysis (guardrail 10).
 dependency-light, language-neutral contract); `internal/bgp` is the bridge that
 parses each line, **fails closed on any event missing a `tenant_id`** (tenant is
 the outermost scope — F50/guardrail 1), translates it to the canonical
-`netctl.bgp.v1.BGPEvent` protobuf, and publishes it on the bus **keyed by tenant**.
+`probectl.bgp.v1.BGPEvent` protobuf, and publishes it on the bus **keyed by tenant**.
 External BGP data is ingested **once** and scoped per tenant by each tenant's
 monitoring configuration. RouteViews/RIS are open data; their AUP (and per-source
 provenance) is tracked for MSP/commercial resale, not for single-tenant OSS use.
@@ -320,7 +320,7 @@ provenance) is tracked for MSP/commercial resale, not for single-tenant OSS use.
 ## Open-data enrichment (S15)
 
 `internal/opendata` annotates an IP with internet-wide context — ASN, geo, IXP
-presence, and RIR allocation — drawn from public datasets, without netctl owning
+presence, and RIR allocation — drawn from public datasets, without probectl owning
 any measurement fleet. It is a **pluggable** framework: each `Source` implements
 `Enrich(ctx, addr, *Enrichment)`, and the `Enricher` runs an IP through every
 enabled source and merges the result.
@@ -369,8 +369,8 @@ CRUD'd via `/v1/alerts`.
 
 ```mermaid
 flowchart LR
-    TSDB["TSDB<br/>netctl_probe_* series"] --> SRC["MetricSource<br/>(tenant-scoped, latest per series)"]
-    RULES["/v1/alerts<br/>rule store (RLS)"] --> EVAL["Evaluator<br/>tick every NETCTL_ALERT_EVAL_INTERVAL"]
+    TSDB["TSDB<br/>probectl_probe_* series"] --> SRC["MetricSource<br/>(tenant-scoped, latest per series)"]
+    RULES["/v1/alerts<br/>rule store (RLS)"] --> EVAL["Evaluator<br/>tick every PROBECTL_ALERT_EVAL_INTERVAL"]
     SRC --> ENG["Engine<br/>threshold | baseline · ForN debounce · dedupe/renotify"]
     EVAL --> ENG
     ENG -->|firing / resolved| NOTIF["Notifier<br/>fan-out, degrade per channel"]
@@ -391,20 +391,20 @@ emitting a single `resolved` notification on recovery.
 
 **Channels + delivery.** The `Notifier` fans an alert out to a rule's channels and
 **degrades per channel** — one failing/misconfigured channel never blocks the
-others. The **webhook** channel POSTs a stable JSON payload (`netctl.alert.v1`)
+others. The **webhook** channel POSTs a stable JSON payload (`probectl.alert.v1`)
 over TLS and, when a secret is set, signs the body with **HMAC-SHA256** (via
-`internal/crypto`, FIPS-swappable) in `X-Netctl-Signature` so the receiver can
+`internal/crypto`, FIPS-swappable) in `X-Probectl-Signature` so the receiver can
 verify the sender. The **email** channel sends via SMTP behind an injectable
 sender. Webhook secrets are **redacted (`***`) from API responses** (a follow-up
 envelope-encrypts them at rest — guardrail 6).
 
 **Wiring.** The control plane runs a background `Evaluator` that ticks every
-`NETCTL_ALERT_EVAL_INTERVAL`, loading each tenant's enabled rules through the RLS
+`PROBECTL_ALERT_EVAL_INTERVAL`, loading each tenant's enabled rules through the RLS
 choke point and querying the TSDB **scoped to that tenant** (it can never read
 another tenant's metrics). The current wiring evaluates the default tenant over
 the in-process TSDB; a multi-tenant fan-out and a Prometheus query backend are
 follow-ups (the loop disables itself gracefully when no in-process query backend
-is available). Alerts are signals — netctl notifies, it does not act on the
+is available). Alerts are signals — probectl notifies, it does not act on the
 network.
 
 ## Incident timeline + correlation (S17)
@@ -415,7 +415,7 @@ group into a single **Incident** with a coherent, time-ordered **timeline**.
 ```mermaid
 flowchart LR
     AL["alert engine<br/>(fired/resolved)"] -->|signalFromAlert| COR["Correlator<br/>time + target/prefix proximity"]
-    BG["netctl.bgp.events<br/>(bus consumer)"] -->|signalFromBGPEvent| COR
+    BG["probectl.bgp.events<br/>(bus consumer)"] -->|signalFromBGPEvent| COR
     FUT["future planes<br/>threat / change / cost / SLO"] -.->|map to Signal| COR
     COR -->|append + aggregate| INC["Incident + timeline<br/>(incidents · incident_signals, RLS)"]
     INC --> API["/v1/incidents<br/>list · timeline · resolve"]
@@ -428,10 +428,10 @@ arbitrary `attributes` map — so a new plane contributes by mapping its native
 event onto a Signal (`signalFromAlert`, `signalFromBGPEvent`); neither the
 `incident` package nor the schema (`incident_signals.attributes` is jsonb) changes.
 The control plane already feeds the **network** plane (alert firings, via an engine
-sink) and the **BGP** plane (a `netctl.bgp.events` bus consumer).
+sink) and the **BGP** plane (a `probectl.bgp.events` bus consumer).
 
 **Correlation grouping.** `Correlator.Ingest` places a signal into an open incident
-when it is both *close in time* (within `NETCTL_INCIDENT_WINDOW` of the incident's
+when it is both *close in time* (within `PROBECTL_INCIDENT_WINDOW` of the incident's
 activity) and *related in target* — the same target, an IP inside the other's
 prefix (either direction), or overlapping prefixes. That cross-plane join is the
 core move: a network loss alert for `192.0.2.10` and a BGP possible-hijack for
@@ -469,7 +469,7 @@ flowchart TD
       RB -- no --> F403["403"]
       RB -- yes --> H["handler in tenant tx<br/>(RLS-scoped)"]
     end
-    DEV["NETCTL_AUTH_MODE=dev<br/>synthesized all-perms principal"] -.-> MW
+    DEV["PROBECTL_AUTH_MODE=dev<br/>synthesized all-perms principal"] -.-> MW
 ```
 
 **Sessions (guardrail 6).** A session token is high-entropy random; only its
@@ -503,7 +503,7 @@ path; the recorded numbers + thresholds live in
 ```mermaid
 flowchart LR
     subgraph Ingest["DriveIngest (no services)"]
-      P["producers<br/>build + marshal results"] -->|publish, keyed by tenant| BUS["bus (memory)<br/>netctl.network.results"]
+      P["producers<br/>build + marshal results"] -->|publish, keyed by tenant| BUS["bus (memory)<br/>probectl.network.results"]
       BUS --> CON["pipeline consumer"]
       CON --> TS["TSDB (memory)"]
       TS -->|throughput + publish p95<br/>+ per-tenant correctness| RPT1["IngestReport"]

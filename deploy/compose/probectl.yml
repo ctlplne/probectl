@@ -1,0 +1,88 @@
+# probectl — shipped all-in-one deployment (HTTPS-by-default).
+#
+# Brings up the control plane behind TLS with a Postgres backing store. The API
+# is exposed ONLY over HTTPS (port 8443) — there is no plaintext listener
+# (CLAUDE.md §7 guardrail 12). A self-signed certificate is generated on first
+# boot by `probectl-control gen-cert` (the `certgen` one-shot) for an immediate
+# quickstart; production operators replace it with a CA-issued certificate by
+# mounting their own /certs and pointing PROBECTL_TLS_HOSTS at real hostnames.
+#
+#   cp deploy/compose/.env.example deploy/compose/.env   # then edit
+#   docker compose -f deploy/compose/probectl.yml up -d
+#   curl --cacert ./certs/ca.crt https://localhost:8443/readyz   # see docs/install.md
+#
+# This is the production-shaped stack. The local *dependency* stack for developing
+# the control plane from source is deploy/compose/dev.yml.
+name: probectl
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: probectl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-probectl}
+      POSTGRES_DB: probectl
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U probectl -d probectl"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+    networks: [probectl]
+    # No host port: only the control plane reaches Postgres (in-network).
+    restart: unless-stopped
+
+  # One-shot: generate a self-signed TLS cert into the shared `certs` volume if
+  # one is not already present. Idempotent — re-running leaves an existing cert.
+  certgen:
+    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:latest}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'test -f /certs/tls.crt || /usr/local/bin/app gen-cert /certs'
+    environment:
+      PROBECTL_CERT_HOSTS: ${PROBECTL_TLS_HOSTS:-localhost,127.0.0.1}
+    volumes:
+      - certs:/certs
+    networks: [probectl]
+    restart: "no"
+
+  control:
+    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      certgen:
+        condition: service_completed_successfully
+    environment:
+      # HTTPS only. TLS cert/key make the listener serve TLS; HSTS is on.
+      PROBECTL_HTTP_ADDR: ":8443"
+      PROBECTL_TLS_CERT_FILE: /certs/tls.crt
+      PROBECTL_TLS_KEY_FILE: /certs/tls.key
+      PROBECTL_HSTS_ENABLED: "true"
+      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:-probectl}@postgres:5432/probectl?sslmode=disable
+      PROBECTL_MIGRATE_ON_BOOT: "true"
+      # Envelope KEK for at-rest secret encryption. Generate: openssl rand -base64 32
+      PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
+      # "dev" = all-access (quickstart only). Production: "session" + PROBECTL_OIDC_*.
+      PROBECTL_AUTH_MODE: ${PROBECTL_AUTH_MODE:-dev}
+      PROBECTL_OIDC_ISSUER: ${PROBECTL_OIDC_ISSUER:-}
+      PROBECTL_OIDC_CLIENT_ID: ${PROBECTL_OIDC_CLIENT_ID:-}
+      PROBECTL_OIDC_CLIENT_SECRET: ${PROBECTL_OIDC_CLIENT_SECRET:-}
+      PROBECTL_OIDC_REDIRECT_URL: ${PROBECTL_OIDC_REDIRECT_URL:-}
+      PROBECTL_SECURITY_CONTACT: ${PROBECTL_SECURITY_CONTACT:-}
+      PROBECTL_LOG_FORMAT: json
+    ports:
+      - "8443:8443" # HTTPS ONLY — no plaintext API port is published.
+    volumes:
+      - certs:/certs:ro
+    networks: [probectl]
+    restart: unless-stopped
+
+volumes:
+  pgdata: {}
+  certs: {}
+
+networks:
+  probectl: {}

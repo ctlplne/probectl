@@ -43,7 +43,7 @@ export function AskPage() {
       subtitle="Cross-plane root-cause analysis grounded in your network's signals. Every claim is cited, and answers stay within your tenant and permissions."
     >
       <Card>
-        <CardHeader title="Ask netctl" />
+        <CardHeader title="Ask probectl" />
         <CardBody>
           <form className={styles.askForm} onSubmit={onSubmit}>
             <label className={styles.label} htmlFor="ai-question">
@@ -82,7 +82,7 @@ export function AskPage() {
       ) : (
         <EmptyState
           title="Ask a question to begin"
-          description="netctl correlates synthetic, path, routing, flow, and change signals into a cited root cause — and says so when the evidence is insufficient."
+          description="probectl correlates synthetic, path, routing, flow, and change signals into a cited root cause — and says so when the evidence is insufficient."
         />
       )}
     </Page>
@@ -140,7 +140,7 @@ function AnswerView({ answer }: { answer: Answer }) {
         <CardBody>
           <p className={styles.rootCause}>{answer.root_cause}</p>
           {answer.insufficient_evidence ? (
-            <p className={styles.note}>netctl did not find enough evidence to name a confident root cause — it will not guess.</p>
+            <p className={styles.note}>probectl did not find enough evidence to name a confident root cause — it will not guess.</p>
           ) : null}
           <p className={styles.provenance}>
             {`Synthesized by ${answer.model} · grounded in ${answer.evidence.length} signal(s) across ${planes.length} plane(s)${

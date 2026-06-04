@@ -1,5 +1,5 @@
-// Package mcp is netctl's Model Context Protocol server (S25, F14): an AI-native,
-// composable interface that exposes netctl's read tools to MCP clients (e.g.
+// Package mcp is probectl's Model Context Protocol server (S25, F14): an AI-native,
+// composable interface that exposes probectl's read tools to MCP clients (e.g.
 // Claude Desktop) over two transports — stdio (local) and HTTP (network, TLS +
 // bearer-authenticated).
 //

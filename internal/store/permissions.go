@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Permissions reads the RBAC catalog and effective grants. It is tenant-scoped:

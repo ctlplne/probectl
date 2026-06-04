@@ -11,12 +11,12 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
-	"github.com/imfeelingtheagi/netctl/internal/opendata"
-	"github.com/imfeelingtheagi/netctl/internal/siem"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/imfeelingtheagi/probectl/internal/siem"
 )
 
 // BuildThreatIntel builds the S28 IOC store + refresher from config. It returns
@@ -44,7 +44,7 @@ func BuildThreatIntel(cfg *config.Config, log *slog.Logger) (*opendata.IOCStore,
 // IOCConsumer subscribes to network results and scores each result's peer address
 // (IP or hostname) against the shared IOC store (S28), correlating any match into
 // a tenant-scoped threat-plane incident. A match is a confidence-scored SIGNAL
-// with source attribution — netctl never blocks traffic (guardrail 9).
+// with source attribution — probectl never blocks traffic (guardrail 9).
 type IOCConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator

@@ -14,25 +14,25 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/agent"
-	"github.com/imfeelingtheagi/netctl/internal/agenttransport"
-	"github.com/imfeelingtheagi/netctl/internal/bus"
-	"github.com/imfeelingtheagi/netctl/internal/canary"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
-	"github.com/imfeelingtheagi/netctl/internal/pipeline"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/store/migrate"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
-	"github.com/imfeelingtheagi/netctl/migrations"
+	"github.com/imfeelingtheagi/probectl/internal/agent"
+	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
 func dsn() string {
-	if v := os.Getenv("NETCTL_DATABASE_URL"); v != "" {
+	if v := os.Getenv("PROBECTL_DATABASE_URL"); v != "" {
 		return v
 	}
-	return "postgres://netctl@localhost:5432/postgres?sslmode=disable"
+	return "postgres://probectl@localhost:5432/postgres?sslmode=disable"
 }
 
 func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {
@@ -80,7 +80,7 @@ func TestAgentEndToEnd(t *testing.T) {
 		}
 		return p
 	}
-	ca, err := crypto.GenerateCA("netctl-test-ca", time.Hour)
+	ca, err := crypto.GenerateCA("probectl-test-ca", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestAgentEndToEnd(t *testing.T) {
 		if err == nil && got.Status == "online" && got.Hostname == "e2e-host" {
 			online = true
 		}
-		if online && srv.AcceptedResults() > 0 && len(mtsdb.Query("netctl_probe_success", map[string]string{"tenant_id": tn.ID})) > 0 {
+		if online && srv.AcceptedResults() > 0 && len(mtsdb.Query("probectl_probe_success", map[string]string{"tenant_id": tn.ID})) > 0 {
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -183,7 +183,7 @@ func TestAgentEndToEnd(t *testing.T) {
 	}
 	// The forwarded noop result must be queryable in the TSDB, tenant-scoped, with
 	// the control plane having stamped the tenant from the agent's certificate.
-	noop := mtsdb.Query("netctl_probe_success", map[string]string{"tenant_id": tn.ID, "canary_type": "noop"})
+	noop := mtsdb.Query("probectl_probe_success", map[string]string{"tenant_id": tn.ID, "canary_type": "noop"})
 	if len(noop) == 0 {
 		t.Fatal("no noop probe-success series reached the TSDB for the agent's tenant")
 	}
@@ -193,12 +193,12 @@ func TestAgentEndToEnd(t *testing.T) {
 
 	// The ICMP probe's loss/latency series must reach the TSDB (S7 Done-when).
 	if icmpOK {
-		waitForSeries(t, mtsdb, "netctl_probe_loss_ratio", tn.ID, "icmp", 10*time.Second)
-		loss := mtsdb.Query("netctl_probe_loss_ratio", map[string]string{"tenant_id": tn.ID, "canary_type": "icmp"})
+		waitForSeries(t, mtsdb, "probectl_probe_loss_ratio", tn.ID, "icmp", 10*time.Second)
+		loss := mtsdb.Query("probectl_probe_loss_ratio", map[string]string{"tenant_id": tn.ID, "canary_type": "icmp"})
 		if len(loss) == 0 || loss[0].Value != 0 {
 			t.Errorf("icmp loopback loss series = %+v, want one with value 0", loss)
 		}
-		if len(mtsdb.Query("netctl_probe_rtt_avg_ms", map[string]string{"tenant_id": tn.ID, "canary_type": "icmp"})) == 0 {
+		if len(mtsdb.Query("probectl_probe_rtt_avg_ms", map[string]string{"tenant_id": tn.ID, "canary_type": "icmp"})) == 0 {
 			t.Error("no icmp rtt.avg series reached the TSDB")
 		}
 		if loss[0].Labels["server_address"] != "127.0.0.1" {

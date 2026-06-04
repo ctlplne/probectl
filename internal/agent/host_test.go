@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
-	"github.com/imfeelingtheagi/netctl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
 )
 
 func TestHostProbesIntoBuffer(t *testing.T) {

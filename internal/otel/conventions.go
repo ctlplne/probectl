@@ -3,16 +3,16 @@ package otel
 import (
 	"strconv"
 
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
-// OTel resource + network semantic-convention attribute keys netctl emits. The
-// names follow the OpenTelemetry specification; netctl-specific identity uses the
-// netctl.* namespace, since OTel has no standard tenancy attribute.
+// OTel resource + network semantic-convention attribute keys probectl emits. The
+// names follow the OpenTelemetry specification; probectl-specific identity uses the
+// probectl.* namespace, since OTel has no standard tenancy attribute.
 const (
-	AttrTenantID         = "netctl.tenant.id"
-	AttrAgentID          = "netctl.agent.id"
-	AttrCanaryType       = "netctl.canary.type"
+	AttrTenantID         = "probectl.tenant.id"
+	AttrAgentID          = "probectl.agent.id"
+	AttrCanaryType       = "probectl.canary.type"
 	AttrServerAddress    = "server.address"
 	AttrServerPort       = "server.port"
 	AttrNetworkTransport = "network.transport"
@@ -20,8 +20,8 @@ const (
 )
 
 // KnownAttributes is the set of attribute keys the core mapping may emit — OTel
-// standard names plus the netctl.* namespace. The conformance test asserts
-// ResultAttributes never emits a key outside this set, i.e. netctl does not
+// standard names plus the probectl.* namespace. The conformance test asserts
+// ResultAttributes never emits a key outside this set, i.e. probectl does not
 // invent an attribute name where an OTel convention already exists.
 var KnownAttributes = map[string]bool{
 	AttrTenantID:         true,

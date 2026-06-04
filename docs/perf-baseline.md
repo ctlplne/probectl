@@ -1,6 +1,6 @@
-# netctl performance baseline (S18a)
+# probectl performance baseline (S18a)
 
-This is netctl's **checked-in load/perf baseline** — a cheap, repeatable
+This is probectl's **checked-in load/perf baseline** — a cheap, repeatable
 early-warning system, not a full scale validation. It left-shifts the scaling
 assumptions of the core pipeline (and pooled-tenancy cost) to **GA (M6)** so a
 regression is caught now, in CI, rather than discovered at the final scale gate
@@ -69,11 +69,11 @@ profile and real-TSDB remote-write numbers are sized at S48.
 ## Running it
 
 ```bash
-make perf-smoke          # ingest baseline (no services) + pooled (uses NETCTL_DATABASE_URL)
+make perf-smoke          # ingest baseline (no services) + pooled (uses PROBECTL_DATABASE_URL)
 ```
 
 The ingest baseline needs no services. The pooled smoke uses
-`NETCTL_DATABASE_URL` and **skips** when no database is reachable, so the target
+`PROBECTL_DATABASE_URL` and **skips** when no database is reachable, so the target
 is safe to run locally without the dev stack. In CI the `perf-smoke` job runs
 both against a Postgres service. The pooled run also exercises the cross-tenant
 isolation property under concurrency, complementing the dedicated
@@ -84,7 +84,7 @@ isolation property under concurrency, complementing the dedicated
 - The harness is a **main-module library** (`internal/perf`), not the black-box
   `test/` module — matching how every other integration test in this repo is
   structured (in-module, `integration`-tagged, reaching Postgres via
-  `NETCTL_DATABASE_URL`). The `test/` module stays reserved for the full-stack
+  `PROBECTL_DATABASE_URL`). The `test/` module stays reserved for the full-stack
   soak at S48.
 - **Resource-use capture** (control-plane + store CPU/memory under sustained
   load) is deferred to the S48 soak, where it is meaningful against real

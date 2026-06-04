@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 )
 
-// Stats are the cumulative counters the agent exposes so netctl observes netctl:
+// Stats are the cumulative counters the agent exposes so probectl observes probectl:
 // Dropped (ring-buffer backpressure) is surfaced, never silent — a dropped flow
 // is a correctness gap in an observability tool (CLAUDE.md / S20 watch-out).
 type Stats struct {

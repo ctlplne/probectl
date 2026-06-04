@@ -35,7 +35,7 @@ func GenerateCA(commonName string, ttl time.Duration) (*CA, error) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: commonName, Organization: []string{"netctl"}},
+		Subject:               pkix.Name{CommonName: commonName, Organization: []string{"probectl"}},
 		NotBefore:             time.Now().Add(-time.Minute),
 		NotAfter:              time.Now().Add(ttl),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
@@ -79,7 +79,7 @@ func (ca *CA) issue(commonName string, hosts []string, spiffeURI string, eku x50
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: commonName, Organization: []string{"netctl"}},
+		Subject:      pkix.Name{CommonName: commonName, Organization: []string{"probectl"}},
 		NotBefore:    time.Now().Add(-time.Minute),
 		NotAfter:     time.Now().Add(ttl),
 		KeyUsage:     x509.KeyUsageDigitalSignature,

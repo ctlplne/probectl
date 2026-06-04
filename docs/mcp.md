@@ -1,7 +1,7 @@
 # MCP server (S25)
 
-netctl ships a **Model Context Protocol** server so AI clients (e.g. Claude
-Desktop) can query netctl directly. It exposes **read-only**, **tenant- and
+probectl ships a **Model Context Protocol** server so AI clients (e.g. Claude
+Desktop) can query probectl directly. It exposes **read-only**, **tenant- and
 RBAC-scoped** tools over two transports — **stdio** (local) and **HTTP** (network,
 TLS + bearer-authenticated). It is a thin, dependency-free JSON-RPC 2.0 server.
 
@@ -57,15 +57,15 @@ owning user's effective RBAC. Like sessions, only the token's **hash** is stored
 (never the token), and the lookup is pre-tenant. Mint one with:
 
 ```
-netctl-control mcp-token --user <user-uuid> [--tenant <id>] [--name laptop]
+probectl-control mcp-token --user <user-uuid> [--tenant <id>] [--name laptop]
 ```
 
 **stdio** (local — for Claude Desktop). The client spawns the binary; the token
-comes from `NETCTL_MCP_TOKEN`. Logs go to stderr so stdout stays a clean JSON-RPC
+comes from `PROBECTL_MCP_TOKEN`. Logs go to stderr so stdout stays a clean JSON-RPC
 channel:
 
 ```
-NETCTL_MCP_TOKEN=<token> NETCTL_DATABASE_URL=... netctl-control mcp-stdio
+PROBECTL_MCP_TOKEN=<token> PROBECTL_DATABASE_URL=... probectl-control mcp-stdio
 ```
 
 Example Claude Desktop config:
@@ -73,10 +73,10 @@ Example Claude Desktop config:
 ```json
 {
   "mcpServers": {
-    "netctl": {
-      "command": "netctl-control",
+    "probectl": {
+      "command": "probectl-control",
       "args": ["mcp-stdio"],
-      "env": { "NETCTL_MCP_TOKEN": "...", "NETCTL_DATABASE_URL": "..." }
+      "env": { "PROBECTL_MCP_TOKEN": "...", "PROBECTL_DATABASE_URL": "..." }
     }
   }
 }
@@ -85,7 +85,7 @@ Example Claude Desktop config:
 **HTTP** (network-exposed). Enabled by config; **TLS-only and bearer-authenticated**
 — never exposed as plaintext when network-reachable (CLAUDE.md §7 guardrail 12).
 POST a JSON-RPC request with `Authorization: Bearer <token>`. See
-[`configuration.md`](configuration.md) for the `NETCTL_MCP_*` keys.
+[`configuration.md`](configuration.md) for the `PROBECTL_MCP_*` keys.
 
 ## Methods
 

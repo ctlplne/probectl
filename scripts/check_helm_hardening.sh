@@ -5,7 +5,7 @@
 # the large profile) must fail CI. Requires `helm` on PATH.
 set -euo pipefail
 
-CHART="${CHART:-deploy/helm/netctl}"
+CHART="${CHART:-deploy/helm/probectl}"
 # A throwaway base64 32-byte key just to let rendering proceed.
 KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 
@@ -15,9 +15,9 @@ fail() {
 }
 
 render() {
-  helm template netctl "$CHART" "$@" \
+  helm template probectl "$CHART" "$@" \
     --set ingress.host=h.example.com \
-    --set ingress.tlsSecretName=netctl-tls \
+    --set ingress.tlsSecretName=probectl-tls \
     --set secrets.envelopeKey="$KEY"
 }
 
@@ -25,8 +25,8 @@ need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
 
 # 1. No default credentials: rendering without an envelope key (and no
 #    existingSecret) must FAIL closed.
-if helm template netctl "$CHART" \
-  --set ingress.host=h.example.com --set ingress.tlsSecretName=netctl-tls >/dev/null 2>&1; then
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls >/dev/null 2>&1; then
   fail "chart rendered with no secrets.envelopeKey — that would be a default credential"
 fi
 
@@ -57,7 +57,7 @@ done
 # 5. Every profile lints clean.
 for f in values.yaml values-small.yaml values-medium.yaml values-large.yaml values-multitenant.yaml; do
   helm lint "$CHART" -f "$CHART/$f" \
-    --set ingress.host=h.example.com --set ingress.tlsSecretName=netctl-tls \
+    --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
     --set secrets.envelopeKey="$KEY" >/dev/null || fail "$f failed helm lint"
 done
 

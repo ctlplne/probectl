@@ -1,6 +1,6 @@
 # proto/
 
-Protobuf schemas for netctl's gRPC services and bus messages. Protobuf is the
+Protobuf schemas for probectl's gRPC services and bus messages. Protobuf is the
 wire format for both the message bus and gRPC; JSON is a development-only
 fallback (CLAUDE.md §4).
 

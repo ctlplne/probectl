@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 )
 
 // Domain models. UUIDs are carried as canonical strings so they map cleanly onto

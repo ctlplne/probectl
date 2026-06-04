@@ -3,7 +3,7 @@
 -- already forwarded to the operator's SIEM. The audit poller resumes from this
 -- cursor after a restart, so events are neither dropped nor (modulo a crash
 -- window) re-sent — delivery is idempotent on the SIEM side regardless. There is
--- no payload here: telemetry never lands in a netctl table for export; the
+-- no payload here: telemetry never lands in a probectl table for export; the
 -- forwarder streams audit + threat signals straight out.
 -- RLS confines each row to its tenant (F50). Idempotent + additive.
 
@@ -20,9 +20,9 @@ BEGIN
     EXECUTE 'DROP POLICY IF EXISTS tenant_isolation ON siem_delivery';
     EXECUTE $pol$
         CREATE POLICY tenant_isolation ON siem_delivery
-          USING (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
-          WITH CHECK (tenant_id = NULLIF(current_setting('netctl.tenant_id', true), '')::uuid)
+          USING (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
+          WITH CHECK (tenant_id = NULLIF(current_setting('probectl.tenant_id', true), '')::uuid)
     $pol$;
 END $$;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON siem_delivery TO netctl_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON siem_delivery TO probectl_app;

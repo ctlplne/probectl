@@ -45,11 +45,11 @@ func TestGeoReaderErrorPropagates(t *testing.T) {
 }
 
 // TestMMDBReader exercises the real MaxMind reader; it skips unless a GeoLite2
-// database is provided (netctl does not ship one — MaxMind licensing).
+// database is provided (probectl does not ship one — MaxMind licensing).
 func TestMMDBReader(t *testing.T) {
-	path := os.Getenv("NETCTL_GEOIP_DB")
+	path := os.Getenv("PROBECTL_GEOIP_DB")
 	if path == "" {
-		t.Skip("set NETCTL_GEOIP_DB to a GeoLite2 .mmdb to test the MMDB reader")
+		t.Skip("set PROBECTL_GEOIP_DB to a GeoLite2 .mmdb to test the MMDB reader")
 	}
 	r, err := OpenMMDB(path)
 	if err != nil {

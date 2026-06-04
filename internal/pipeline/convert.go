@@ -4,12 +4,12 @@ import (
 	"strings"
 	"time"
 
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/otel"
-	"github.com/imfeelingtheagi/netctl/internal/store/tsdb"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
-const metricPrefix = "netctl_probe_"
+const metricPrefix = "probectl_probe_"
 
 // labelNames maps the OTel attributes promoted to (bounded-cardinality) metric
 // labels to their Prometheus label names. tenant_id is a label in pooled mode;
@@ -22,8 +22,8 @@ var labelNames = map[string]string{
 }
 
 // ResultToSeries converts a probe Result into time series with OTel-aligned,
-// cardinality-bounded labels. It always emits netctl_probe_success and
-// netctl_probe_duration_seconds, plus one netctl_probe_<name> per custom metric.
+// cardinality-bounded labels. It always emits probectl_probe_success and
+// probectl_probe_duration_seconds, plus one probectl_probe_<name> per custom metric.
 func ResultToSeries(r *resultv1.Result) []tsdb.Series {
 	attrs := otel.ResultAttributes(r)
 	labels := make(map[string]string, len(labelNames))

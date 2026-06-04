@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	"github.com/imfeelingtheagi/netctl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -112,11 +112,11 @@ func TestPagerDutyOpenResolve(t *testing.T) {
 	inc := sampleIncident()
 
 	del, err := pd.Open(context.Background(), inc)
-	if err != nil || del.ExternalRef != "netctl-i1" {
+	if err != nil || del.ExternalRef != "probectl-i1" {
 		t.Fatalf("open: %v ref=%q", err, del.ExternalRef)
 	}
 	got := bodyJSON(t, fd.calls()[0].body)
-	if got["routing_key"] != "rk-1" || got["event_action"] != "trigger" || got["dedup_key"] != "netctl-i1" {
+	if got["routing_key"] != "rk-1" || got["event_action"] != "trigger" || got["dedup_key"] != "probectl-i1" {
 		t.Fatalf("trigger payload: %v", got)
 	}
 	if p, _ := got["payload"].(map[string]any); p["severity"] != "critical" {
@@ -127,7 +127,7 @@ func TestPagerDutyOpenResolve(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 	got2 := bodyJSON(t, fd.calls()[1].body)
-	if got2["event_action"] != "resolve" || got2["dedup_key"] != "netctl-i1" {
+	if got2["event_action"] != "resolve" || got2["dedup_key"] != "probectl-i1" {
 		t.Fatalf("resolve payload: %v", got2)
 	}
 }
@@ -138,20 +138,20 @@ func TestOpsgenieOpenResolve(t *testing.T) {
 	inc := sampleIncident()
 
 	del, err := og.Open(context.Background(), inc)
-	if err != nil || del.ExternalRef != "netctl-i1" {
+	if err != nil || del.ExternalRef != "probectl-i1" {
 		t.Fatalf("open: %v", err)
 	}
 	c0 := fd.calls()[0]
 	if c0.header.Get("Authorization") != "GenieKey key1" {
 		t.Fatalf("auth header: %q", c0.header.Get("Authorization"))
 	}
-	if b := bodyJSON(t, c0.body); b["alias"] != "netctl-i1" || b["priority"] != "P1" {
+	if b := bodyJSON(t, c0.body); b["alias"] != "probectl-i1" || b["priority"] != "P1" {
 		t.Fatalf("open body: %v", b)
 	}
 	if err := og.Resolve(context.Background(), inc, del.ExternalRef); err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if u := fd.calls()[1].url; !strings.Contains(u, "/netctl-i1/close?identifierType=alias") {
+	if u := fd.calls()[1].url; !strings.Contains(u, "/probectl-i1/close?identifierType=alias") {
 		t.Fatalf("close url: %s", u)
 	}
 }
@@ -261,7 +261,7 @@ func TestDispatcherOpenIsIdempotent(t *testing.T) {
 	if n := countAction(fd.calls(), "trigger"); n != 1 {
 		t.Fatalf("expected exactly one page on retry, got %d", n)
 	}
-	if l, _ := store.Get(context.Background(), "t1", "i1", "pagerduty"); l == nil || l.ExternalRef != "netctl-i1" {
+	if l, _ := store.Get(context.Background(), "t1", "i1", "pagerduty"); l == nil || l.ExternalRef != "probectl-i1" {
 		t.Fatalf("link not persisted: %+v", l)
 	}
 }
@@ -366,7 +366,7 @@ func TestParseInbound(t *testing.T) {
 		t.Fatalf("jira resolved: %+v ok=%v", r, ok)
 	}
 	// Portable contract (also the PagerDuty/Opsgenie path).
-	if r, ok := ParseInbound("pagerduty", []byte(`{"external_ref":"netctl-i1","status":"resolved"}`)); !ok || r.ExternalRef != "netctl-i1" || !r.Resolved {
+	if r, ok := ParseInbound("pagerduty", []byte(`{"external_ref":"probectl-i1","status":"resolved"}`)); !ok || r.ExternalRef != "probectl-i1" || !r.Resolved {
 		t.Fatalf("generic resolved: %+v ok=%v", r, ok)
 	}
 	if _, ok := ParseInbound("jira", []byte(`not json`)); ok {

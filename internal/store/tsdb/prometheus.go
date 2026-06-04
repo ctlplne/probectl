@@ -13,7 +13,7 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"google.golang.org/protobuf/proto"
 
-	prompb "github.com/imfeelingtheagi/netctl/internal/gen/prometheus/v1"
+	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
 )
 
 // Prometheus writes series via the Prometheus remote-write protocol (a snappy-

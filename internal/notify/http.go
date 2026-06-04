@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
-const userAgent = "netctl-oncall"
+const userAgent = "probectl-oncall"
 
 // maxRespBody bounds a provider response read (untrusted input).
 const maxRespBody = 1 << 16

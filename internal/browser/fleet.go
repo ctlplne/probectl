@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/imfeelingtheagi/netctl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
 // DefaultRunTimeout bounds a single transaction run when none is configured.

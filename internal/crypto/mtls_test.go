@@ -23,7 +23,7 @@ func mtlsMaterial(t *testing.T) mtlsFixture {
 		return p
 	}
 
-	ca, err := GenerateCA("netctl-test-ca", time.Hour)
+	ca, err := GenerateCA("probectl-test-ca", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

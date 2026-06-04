@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/imfeelingtheagi/netctl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 // Authenticator resolves a bearer token to a principal (tenant + RBAC). The

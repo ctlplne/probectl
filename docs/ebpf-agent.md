@@ -1,6 +1,6 @@
 # eBPF host agent (S20)
 
-The **netctl-ebpf-agent** provides zero-instrumentation **L3/L4 flow capture** and
+The **probectl-ebpf-agent** provides zero-instrumentation **L3/L4 flow capture** and
 a **live service map** — the shared host/L4 substrate later reused by the
 security, segmentation, and cost planes (F11). It is **observe-only**: it loads
 only observation programs and never enforcement (CLAUDE.md §7 guardrail 8). It
@@ -28,7 +28,7 @@ flowchart LR
   LIVE --> AGG["Aggregator"]
   AGG --> ENR["enrich: process / cgroup / container"]
   ENR --> MAP["ServiceMap (directed edges)"]
-  MAP --> EMIT["BusEmitter -> netctl.ebpf.flows (FlowBatch, OTel-shaped, tenant-keyed)"]
+  MAP --> EMIT["BusEmitter -> probectl.ebpf.flows (FlowBatch, OTel-shaped, tenant-keyed)"]
   AGG -. drops .-> DROPS["dropped_total metric"]
 ```
 
@@ -61,16 +61,16 @@ they carry `//go:build ebpf` and are git-ignored, regenerated per build.
 
 ```sh
 # No-kernel / CI / macOS: replay recorded flows.
-NETCTL_EBPF_TENANT_ID=<uuid> NETCTL_EBPF_FIXTURE_PATH=flows.json netctl-ebpf-agent
+PROBECTL_EBPF_TENANT_ID=<uuid> PROBECTL_EBPF_FIXTURE_PATH=flows.json probectl-ebpf-agent
 
 # Live (Linux, built with -tags ebpf, as root or with CAP_BPF+CAP_PERFMON):
-netctl-ebpf-agent -config /etc/netctl/ebpf-agent.yml
+probectl-ebpf-agent -config /etc/probectl/ebpf-agent.yml
 ```
 
 On start the agent logs a **capability probe** (BTF / ring buffer / CAP_BPF /
 compiled-in) and the chosen mode, so an unsupported host is a decided, visible
 state — never a silent failure. Example config:
-[`deploy/agent/netctl-ebpf-agent.example.yml`](../deploy/agent/netctl-ebpf-agent.example.yml).
+[`deploy/agent/probectl-ebpf-agent.example.yml`](../deploy/agent/probectl-ebpf-agent.example.yml).
 
 ## Kernel compatibility
 
@@ -86,12 +86,12 @@ capability probe and enrichment are read-only and need no privileges. The agent
 attaches only tracepoints/kprobes and calls no traffic-altering helper — a guard
 test (`observeonly_test.go`) parses the eBPF C sources and **fails the build** if
 an enforcing program type or helper (`bpf_redirect`, `bpf_override_return`, …) is
-ever introduced. netctl's eBPF layer watches; it is not a CNI and not an inline
+ever introduced. probectl's eBPF layer watches; it is not a CNI and not an inline
 IPS.
 
 ## Emission, OTel, and tenancy
 
-Flow + service-edge batches are published to **`netctl.ebpf.flows`** as an
+Flow + service-edge batches are published to **`probectl.ebpf.flows`** as an
 `ebpfv1.FlowBatch` protobuf, **keyed by tenant** (pooled tagging, F50). Field
 names follow OpenTelemetry `source.*` / `destination.*` / `network.*` /
 `process.*` / `container.*` conventions from first emission, so the OTLP layer
@@ -107,7 +107,7 @@ never silent (S20 watch-out).
 ## Configuration keys
 
 See [`configuration.md`](configuration.md#ebpf-host-agent-s20) for the full
-`NETCTL_EBPF_*` table.
+`PROBECTL_EBPF_*` table.
 
 ## L7 visibility (S21)
 
@@ -122,7 +122,7 @@ on `ServiceEdge`). Plaintext is obtained two ways:
   read at the *return* uprobe because the buffer fills on return.
 
 Parsing is pure Go and kernel-independent (`internal/ebpf/l7`), driven by the
-capture layer in production and by an L7 fixture (`NETCTL_EBPF_L7_FIXTURE_PATH`)
+capture layer in production and by an L7 fixture (`PROBECTL_EBPF_L7_FIXTURE_PATH`)
 in CI / demos. The OTel mapping (`internal/otel.L7CallAttributes`) emits `http.*`
 / `rpc.*` / `dns.*` / `messaging.*` attributes per protocol. Calls are attributed
 to the connection's **client→server** edge regardless of which direction
@@ -150,6 +150,6 @@ In scope for S20–S21: the agent, L3/L4 capture, the service map, **L7 parsing
 (HTTP/1.1+2, gRPC, DNS, Kafka) with TLS-uprobe plaintext capture**, OTel emit,
 and the kernel/uprobe matrix. Natural follow-ups (out of scope): IPv6 +
 byte/packet counters; the **5-tuple↔SSL correlation** and the **Go-TLS** capture
-path; a control-plane consumer draining `netctl.ebpf.flows` into ClickHouse + a
+path; a control-plane consumer draining `probectl.ebpf.flows` into ClickHouse + a
 tenant-scoped service-map API for the pane (feeds S30 topology). Detection (S42),
 segmentation validation (S46), TLS posture (S27), and cost (S44) build on this.

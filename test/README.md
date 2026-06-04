@@ -9,7 +9,7 @@ ClickHouse, and Prometheus — rather than importing `internal/` packages.
 
 ## Why a separate module
 
-`test/` is its own Go module (`github.com/imfeelingtheagi/netctl/test`) tied into
+`test/` is its own Go module (`github.com/imfeelingtheagi/probectl/test`) tied into
 the workspace via `go.work`. This keeps heavy, test-only dependencies
 (Kafka/ClickHouse/Postgres drivers, testcontainers, …) out of the main module's
 `go.mod`/`go.sum`. Those dependencies arrive with the result pipeline (S6+).

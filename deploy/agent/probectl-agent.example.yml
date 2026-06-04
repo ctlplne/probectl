@@ -1,0 +1,105 @@
+# Example probectl-agent configuration.
+#
+#   probectl-agent -config /etc/probectl/agent.yml
+#
+# The agent's tenant and id are derived from its client certificate's SPIFFE
+# identity (spiffe://probectl/tenant/<t>/agent/<a>) — they are NOT configured here.
+# PROBECTL_AGENT_* env vars override grpc_addr, the TLS files, and buffer.dir.
+
+control_plane:
+  grpc_addr: "control.probectl.local:9443"
+
+tls:
+  cert_file: /etc/probectl/agent.crt
+  key_file: /etc/probectl/agent.key
+  ca_file: /etc/probectl/ca.crt
+  # server_name to verify the control plane's certificate against (defaults to
+  # the grpc_addr host if your cert SANs match it).
+  server_name: "control.probectl.local"
+
+agent:
+  # hostname defaults to the OS hostname.
+  capabilities: ["noop", "icmp", "tcp", "udp", "dns", "http", "a2a"]
+  heartbeat_interval: 30s
+
+buffer:
+  # Disk-backed store-and-forward queue: results buffer here while the control
+  # plane is unreachable and drain on reconnect.
+  dir: /var/lib/probectl/agent/buffer
+  max_records: 10000
+
+canaries:
+  - type: noop
+    interval: 30s
+
+  # ICMP echo: loss / latency / jitter. Uses unprivileged datagram ICMP by
+  # default (no CAP_NET_RAW); see docs/configuration.md for the privilege notes.
+  - type: icmp
+    target: "1.1.1.1"
+    interval: 30s
+    timeout: 3s
+    params:
+      count: "5" # echo requests per probe
+      payload_bytes: "56" # ICMP data bytes (>= 8)
+      dscp: "0" # 0-63; marks outgoing packets (best-effort)
+      # mode: "continuous"  # 1 packet/sec, averaged loss + per-second drop timing
+      # privileged: "true"  # prefer raw sockets (needs CAP_NET_RAW)
+
+  # TCP connect latency + reachability.
+  - type: tcp
+    target: "example.com:443"
+    interval: 30s
+    timeout: 3s
+    params:
+      count: "3"
+
+  # UDP echo round-trip (target must echo, e.g. a UDP echo service).
+  - type: udp
+    target: "udp-echo.example.com:7"
+    interval: 30s
+    timeout: 3s
+    params:
+      count: "5"
+
+  # DNS resolver test: resolution time, answer, and (optional) DNSSEC status.
+  # target is the query name. Transports: udp (default) | tcp | dot | doh.
+  - type: dns
+    target: "example.com"
+    interval: 30s
+    timeout: 5s
+    params:
+      type: "A" # record type: A, AAAA, MX, TXT, NS, ...
+      transport: "udp" # udp | tcp | dot | doh
+      # server: "1.1.1.1:53"   # resolver host[:port] or DoH URL; default per transport
+      dnssec: "true" # validate the zone's RRSIG (not just the AD bit)
+
+  # DNS delegation trace: iterative walk root → TLD → authoritative.
+  - type: dns
+    target: "www.example.com"
+    interval: 60s
+    timeout: 5s
+    params:
+      mode: "trace"
+
+  # HTTP(S) availability + response-time breakdown (DNS/connect/TLS/TTFB/total)
+  # + throughput. On HTTPS it captures TLS handshake details (version, cipher,
+  # cert chain, expiry) for the TLS-posture plane.
+  - type: http
+    target: "https://example.com/health"
+    interval: 30s
+    timeout: 10s
+    params:
+      method: "GET"
+      expect_status: "2xx,3xx" # availability: codes/classes/ranges (e.g. 200, 200-204)
+      follow_redirects: "true"
+      # insecure_skip_verify: "false"  # capture TLS even if invalid, don't fail on it
+      # ca_file: /etc/probectl/private-ca.pem  # extra trust anchor for internal CAs
+      # max_body_bytes: "10485760"     # cap bytes read per probe (default 10 MiB)
+
+# Agent-to-agent participation. When enabled the agent polls the control plane
+# for brokered responder/initiator tasks (see docs/configuration.md).
+a2a:
+  enabled: false
+  # advertise_host: "10.0.0.12"  # address peers reach this agent on (NAT: set explicitly)
+  poll_interval: 2s
+  responder_ttl: 15s

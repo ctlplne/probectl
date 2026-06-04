@@ -119,7 +119,7 @@ export function AuthoringPanel() {
           ) : discover.isError ? (
             <ErrorState description="Could not load suggestions." />
           ) : !discover.data || discover.data.length === 0 ? (
-            <EmptyState title="No suggestions yet" description="netctl proposes targets seen in your telemetry that aren't monitored." />
+            <EmptyState title="No suggestions yet" description="probectl proposes targets seen in your telemetry that aren't monitored." />
           ) : (
             <ul className={styles.suggestionList} aria-label="Suggested targets">
               {discover.data.map((d, i) => (

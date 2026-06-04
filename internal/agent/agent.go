@@ -10,11 +10,11 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/imfeelingtheagi/netctl/internal/canary"
-	"github.com/imfeelingtheagi/netctl/internal/crypto"
-	agentv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/agent/v1"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/version"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 	registerTimeout = 10 * time.Second
 )
 
-// Agent is the netctl agent runtime: a plugin host that always probes into a
+// Agent is the probectl agent runtime: a plugin host that always probes into a
 // store-and-forward buffer, plus a forwarder that registers, heartbeats, and
 // drains the buffer to the control plane — reconnecting with backoff so probing
 // is never blocked by an outage.

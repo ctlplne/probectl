@@ -1,5 +1,5 @@
-// Package config loads and validates the netctl control-plane configuration
-// from NETCTL_-prefixed environment variables. Every key is documented in
+// Package config loads and validates the probectl control-plane configuration
+// from PROBECTL_-prefixed environment variables. Every key is documented in
 // docs/configuration.md (CLAUDE.md §6). Load reports all validation problems at
 // once so a misconfiguration is fixed in a single pass.
 package config
@@ -125,7 +125,7 @@ type Config struct {
 	// MCP server (S25): the Model Context Protocol HTTP transport (network-
 	// exposed). Enabled when an address + TLS cert/key are all set; it is TLS-only
 	// and bearer-authenticated (guardrail 12). The stdio transport is local
-	// (netctl-control mcp-stdio) and reads its token from NETCTL_MCP_TOKEN.
+	// (probectl-control mcp-stdio) and reads its token from PROBECTL_MCP_TOKEN.
 	// MCPRatePerMin caps per-tenant tool-call volume.
 	MCPHTTPAddr    string
 	MCPTLSCertFile string
@@ -219,115 +219,115 @@ type NotifyInbound struct {
 func Load(getenv func(string) string) (*Config, error) {
 	l := &loader{getenv: getenv}
 	cfg := &Config{
-		HTTPAddr:            l.str("NETCTL_HTTP_ADDR", ":8080"),
-		ReadTimeout:         l.dur("NETCTL_HTTP_READ_TIMEOUT", 15*time.Second),
-		WriteTimeout:        l.dur("NETCTL_HTTP_WRITE_TIMEOUT", 15*time.Second),
-		IdleTimeout:         l.dur("NETCTL_HTTP_IDLE_TIMEOUT", 60*time.Second),
-		ShutdownTimeout:     l.dur("NETCTL_SHUTDOWN_TIMEOUT", 15*time.Second),
-		DatabaseURL:         l.str("NETCTL_DATABASE_URL", "postgres://netctl:netctl@localhost:5432/netctl?sslmode=disable"),
-		DatabaseMaxConns:    int32(l.intRange("NETCTL_DATABASE_MAX_CONNS", 10, 1, 1000)),
-		DatabaseMinConns:    int32(l.intRange("NETCTL_DATABASE_MIN_CONNS", 0, 0, 1000)),
-		DatabaseConnTimeout: l.dur("NETCTL_DATABASE_CONNECT_TIMEOUT", 5*time.Second),
-		MigrateOnBoot:       l.boolean("NETCTL_MIGRATE_ON_BOOT", false),
-		LogLevel:            l.enum("NETCTL_LOG_LEVEL", "info", "debug", "info", "warn", "error"),
-		LogFormat:           l.enum("NETCTL_LOG_FORMAT", "json", "json", "text"),
-		HSTSEnabled:         l.boolean("NETCTL_HSTS_ENABLED", true),
-		HSTSMaxAge:          l.dur("NETCTL_HSTS_MAX_AGE", 365*24*time.Hour),
-		TLSCertFile:         l.str("NETCTL_TLS_CERT_FILE", ""),
-		TLSKeyFile:          l.str("NETCTL_TLS_KEY_FILE", ""),
-		EnvelopeKey:         l.str("NETCTL_ENVELOPE_KEY", ""),
-		EnvelopeKeyID:       l.str("NETCTL_ENVELOPE_KEY_ID", "dev"),
-		AgentGRPCAddr:       l.str("NETCTL_AGENT_GRPC_ADDR", ""),
-		AgentSkewWindow:     l.intRange("NETCTL_AGENT_SKEW_WINDOW", 1, 0, 100),
-		AgentMinVersion:     l.str("NETCTL_AGENT_MIN_VERSION", ""),
-		AgentTLSCertFile:    l.str("NETCTL_AGENT_TLS_CERT_FILE", ""),
-		AgentTLSKeyFile:     l.str("NETCTL_AGENT_TLS_KEY_FILE", ""),
-		AgentTLSCAFile:      l.str("NETCTL_AGENT_TLS_CA_FILE", ""),
-		BusMode:             l.enum("NETCTL_BUS_MODE", "memory", "memory", "kafka"),
-		BusBrokers:          l.list("NETCTL_BUS_BROKERS"),
-		TSDBMode:            l.enum("NETCTL_TSDB_MODE", "memory", "memory", "prometheus"),
-		TSDBURL:             l.str("NETCTL_TSDB_URL", ""),
-		PathStoreMode:       l.enum("NETCTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
-		PathStoreURL:        l.str("NETCTL_PATHSTORE_URL", ""),
-		AlertEvalInterval:   l.dur("NETCTL_ALERT_EVAL_INTERVAL", 30*time.Second),
-		IncidentWindow:      l.dur("NETCTL_INCIDENT_WINDOW", 10*time.Minute),
-		AuthMode:            l.enum("NETCTL_AUTH_MODE", "dev", "dev", "session"),
-		SessionTTL:          l.dur("NETCTL_SESSION_TTL", 12*time.Hour),
-		OIDCIssuer:          l.str("NETCTL_OIDC_ISSUER", ""),
-		OIDCClientID:        l.str("NETCTL_OIDC_CLIENT_ID", ""),
-		OIDCClientSecret:    l.str("NETCTL_OIDC_CLIENT_SECRET", ""),
-		OIDCRedirectURL:     l.str("NETCTL_OIDC_REDIRECT_URL", ""),
-		SecurityContact:     l.str("NETCTL_SECURITY_CONTACT", ""),
-		OTLPGRPCAddr:        l.str("NETCTL_OTLP_GRPC_ADDR", ""),
-		OTLPHTTPAddr:        l.str("NETCTL_OTLP_HTTP_ADDR", ""),
-		OTLPTLSCertFile:     l.str("NETCTL_OTLP_TLS_CERT_FILE", ""),
-		OTLPTLSKeyFile:      l.str("NETCTL_OTLP_TLS_KEY_FILE", ""),
-		OTLPTokens:          l.tokenMap("NETCTL_OTLP_TOKENS"),
-		AIModelProvider:     l.enum("NETCTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic"),
-		AIModelEndpoint:     l.str("NETCTL_AI_MODEL_ENDPOINT", ""),
-		AIModelName:         l.str("NETCTL_AI_MODEL_NAME", ""),
-		AIModelToken:        l.str("NETCTL_AI_MODEL_TOKEN", ""),
-		AIModelTimeout:      l.dur("NETCTL_AI_MODEL_TIMEOUT", 60*time.Second),
-		AIMaxEvidence:       l.intRange("NETCTL_AI_MAX_EVIDENCE", 50, 1, 1000),
-		MCPHTTPAddr:         l.str("NETCTL_MCP_HTTP_ADDR", ""),
-		MCPTLSCertFile:      l.str("NETCTL_MCP_TLS_CERT_FILE", ""),
-		MCPTLSKeyFile:       l.str("NETCTL_MCP_TLS_KEY_FILE", ""),
-		MCPRatePerMin:       l.intRange("NETCTL_MCP_RATE_PER_MIN", 120, 0, 100000),
-		CertctlURL:          l.str("NETCTL_CERTCTL_URL", ""),
-		TLSExpiryWarning:    l.dur("NETCTL_TLS_EXPIRY_WARNING", 21*24*time.Hour),
-		CTEnabled:           l.boolean("NETCTL_CT_ENABLED", false),
-		CTEndpoint:          l.str("NETCTL_CT_ENDPOINT", "https://crt.sh"),
-		ThreatIntelEnabled:  l.boolean("NETCTL_THREATINTEL_ENABLED", false),
-		ThreatIntelRefresh:  l.dur("NETCTL_THREATINTEL_REFRESH", 6*time.Hour),
-		ThreatIntelFeeds:    l.list("NETCTL_THREATINTEL_FEEDS"),
+		HTTPAddr:            l.str("PROBECTL_HTTP_ADDR", ":8080"),
+		ReadTimeout:         l.dur("PROBECTL_HTTP_READ_TIMEOUT", 15*time.Second),
+		WriteTimeout:        l.dur("PROBECTL_HTTP_WRITE_TIMEOUT", 15*time.Second),
+		IdleTimeout:         l.dur("PROBECTL_HTTP_IDLE_TIMEOUT", 60*time.Second),
+		ShutdownTimeout:     l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second),
+		DatabaseURL:         l.str("PROBECTL_DATABASE_URL", "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable"),
+		DatabaseMaxConns:    int32(l.intRange("PROBECTL_DATABASE_MAX_CONNS", 10, 1, 1000)),
+		DatabaseMinConns:    int32(l.intRange("PROBECTL_DATABASE_MIN_CONNS", 0, 0, 1000)),
+		DatabaseConnTimeout: l.dur("PROBECTL_DATABASE_CONNECT_TIMEOUT", 5*time.Second),
+		MigrateOnBoot:       l.boolean("PROBECTL_MIGRATE_ON_BOOT", false),
+		LogLevel:            l.enum("PROBECTL_LOG_LEVEL", "info", "debug", "info", "warn", "error"),
+		LogFormat:           l.enum("PROBECTL_LOG_FORMAT", "json", "json", "text"),
+		HSTSEnabled:         l.boolean("PROBECTL_HSTS_ENABLED", true),
+		HSTSMaxAge:          l.dur("PROBECTL_HSTS_MAX_AGE", 365*24*time.Hour),
+		TLSCertFile:         l.str("PROBECTL_TLS_CERT_FILE", ""),
+		TLSKeyFile:          l.str("PROBECTL_TLS_KEY_FILE", ""),
+		EnvelopeKey:         l.str("PROBECTL_ENVELOPE_KEY", ""),
+		EnvelopeKeyID:       l.str("PROBECTL_ENVELOPE_KEY_ID", "dev"),
+		AgentGRPCAddr:       l.str("PROBECTL_AGENT_GRPC_ADDR", ""),
+		AgentSkewWindow:     l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100),
+		AgentMinVersion:     l.str("PROBECTL_AGENT_MIN_VERSION", ""),
+		AgentTLSCertFile:    l.str("PROBECTL_AGENT_TLS_CERT_FILE", ""),
+		AgentTLSKeyFile:     l.str("PROBECTL_AGENT_TLS_KEY_FILE", ""),
+		AgentTLSCAFile:      l.str("PROBECTL_AGENT_TLS_CA_FILE", ""),
+		BusMode:             l.enum("PROBECTL_BUS_MODE", "memory", "memory", "kafka"),
+		BusBrokers:          l.list("PROBECTL_BUS_BROKERS"),
+		TSDBMode:            l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus"),
+		TSDBURL:             l.str("PROBECTL_TSDB_URL", ""),
+		PathStoreMode:       l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
+		PathStoreURL:        l.str("PROBECTL_PATHSTORE_URL", ""),
+		AlertEvalInterval:   l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second),
+		IncidentWindow:      l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute),
+		AuthMode:            l.enum("PROBECTL_AUTH_MODE", "dev", "dev", "session"),
+		SessionTTL:          l.dur("PROBECTL_SESSION_TTL", 12*time.Hour),
+		OIDCIssuer:          l.str("PROBECTL_OIDC_ISSUER", ""),
+		OIDCClientID:        l.str("PROBECTL_OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:    l.str("PROBECTL_OIDC_CLIENT_SECRET", ""),
+		OIDCRedirectURL:     l.str("PROBECTL_OIDC_REDIRECT_URL", ""),
+		SecurityContact:     l.str("PROBECTL_SECURITY_CONTACT", ""),
+		OTLPGRPCAddr:        l.str("PROBECTL_OTLP_GRPC_ADDR", ""),
+		OTLPHTTPAddr:        l.str("PROBECTL_OTLP_HTTP_ADDR", ""),
+		OTLPTLSCertFile:     l.str("PROBECTL_OTLP_TLS_CERT_FILE", ""),
+		OTLPTLSKeyFile:      l.str("PROBECTL_OTLP_TLS_KEY_FILE", ""),
+		OTLPTokens:          l.tokenMap("PROBECTL_OTLP_TOKENS"),
+		AIModelProvider:     l.enum("PROBECTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic"),
+		AIModelEndpoint:     l.str("PROBECTL_AI_MODEL_ENDPOINT", ""),
+		AIModelName:         l.str("PROBECTL_AI_MODEL_NAME", ""),
+		AIModelToken:        l.str("PROBECTL_AI_MODEL_TOKEN", ""),
+		AIModelTimeout:      l.dur("PROBECTL_AI_MODEL_TIMEOUT", 60*time.Second),
+		AIMaxEvidence:       l.intRange("PROBECTL_AI_MAX_EVIDENCE", 50, 1, 1000),
+		MCPHTTPAddr:         l.str("PROBECTL_MCP_HTTP_ADDR", ""),
+		MCPTLSCertFile:      l.str("PROBECTL_MCP_TLS_CERT_FILE", ""),
+		MCPTLSKeyFile:       l.str("PROBECTL_MCP_TLS_KEY_FILE", ""),
+		MCPRatePerMin:       l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000),
+		CertctlURL:          l.str("PROBECTL_CERTCTL_URL", ""),
+		TLSExpiryWarning:    l.dur("PROBECTL_TLS_EXPIRY_WARNING", 21*24*time.Hour),
+		CTEnabled:           l.boolean("PROBECTL_CT_ENABLED", false),
+		CTEndpoint:          l.str("PROBECTL_CT_ENDPOINT", "https://crt.sh"),
+		ThreatIntelEnabled:  l.boolean("PROBECTL_THREATINTEL_ENABLED", false),
+		ThreatIntelRefresh:  l.dur("PROBECTL_THREATINTEL_REFRESH", 6*time.Hour),
+		ThreatIntelFeeds:    l.list("PROBECTL_THREATINTEL_FEEDS"),
 
-		SIEMEnabled:      l.boolean("NETCTL_SIEM_ENABLED", false),
-		SIEMPreset:       l.enum("NETCTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),
-		SIEMFormat:       l.enum("NETCTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp"),
-		SIEMEndpoint:     l.str("NETCTL_SIEM_ENDPOINT", ""),
-		SIEMToken:        l.str("NETCTL_SIEM_TOKEN", ""),
-		SIEMPollInterval: l.dur("NETCTL_SIEM_POLL_INTERVAL", 30*time.Second),
-		SIEMBufferSize:   l.intRange("NETCTL_SIEM_BUFFER", 1024, 1, 1_000_000),
-		SIEMRedactKeys:   l.list("NETCTL_SIEM_REDACT_KEYS"),
+		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
+		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),
+		SIEMFormat:       l.enum("PROBECTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp"),
+		SIEMEndpoint:     l.str("PROBECTL_SIEM_ENDPOINT", ""),
+		SIEMToken:        l.str("PROBECTL_SIEM_TOKEN", ""),
+		SIEMPollInterval: l.dur("PROBECTL_SIEM_POLL_INTERVAL", 30*time.Second),
+		SIEMBufferSize:   l.intRange("PROBECTL_SIEM_BUFFER", 1024, 1, 1_000_000),
+		SIEMRedactKeys:   l.list("PROBECTL_SIEM_REDACT_KEYS"),
 
-		ChangeWebhooks:          l.changeWebhooks("NETCTL_CHANGE_WEBHOOKS"),
-		ChangeCorrelationWindow: l.dur("NETCTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour),
+		ChangeWebhooks:          l.changeWebhooks("PROBECTL_CHANGE_WEBHOOKS"),
+		ChangeCorrelationWindow: l.dur("PROBECTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour),
 
-		NotifyConnectors: l.notifyConnectors("NETCTL_NOTIFY_CONNECTORS"),
-		NotifyInbound:    l.notifyInbound("NETCTL_NOTIFY_INBOUND"),
+		NotifyConnectors: l.notifyConnectors("PROBECTL_NOTIFY_CONNECTORS"),
+		NotifyInbound:    l.notifyInbound("PROBECTL_NOTIFY_INBOUND"),
 	}
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
-		l.errf("NETCTL_TLS_CERT_FILE and NETCTL_TLS_KEY_FILE must be set together")
+		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
 	}
 	if cfg.AgentGRPCAddr != "" && !cfg.AgentTransportEnabled() {
-		l.errf("NETCTL_AGENT_GRPC_ADDR requires mTLS: also set NETCTL_AGENT_TLS_CERT_FILE, NETCTL_AGENT_TLS_KEY_FILE, and NETCTL_AGENT_TLS_CA_FILE")
+		l.errf("PROBECTL_AGENT_GRPC_ADDR requires mTLS: also set PROBECTL_AGENT_TLS_CERT_FILE, PROBECTL_AGENT_TLS_KEY_FILE, and PROBECTL_AGENT_TLS_CA_FILE")
 	}
 	if cfg.BusMode == "kafka" && len(cfg.BusBrokers) == 0 {
-		l.errf("NETCTL_BUS_MODE=kafka requires NETCTL_BUS_BROKERS (a comma-separated host:port list)")
+		l.errf("PROBECTL_BUS_MODE=kafka requires PROBECTL_BUS_BROKERS (a comma-separated host:port list)")
 	}
 	if cfg.TSDBMode == "prometheus" && cfg.TSDBURL == "" {
-		l.errf("NETCTL_TSDB_MODE=prometheus requires NETCTL_TSDB_URL")
+		l.errf("PROBECTL_TSDB_MODE=prometheus requires PROBECTL_TSDB_URL")
 	}
 	if cfg.PathStoreMode == "clickhouse" && cfg.PathStoreURL == "" {
-		l.errf("NETCTL_PATHSTORE_MODE=clickhouse requires NETCTL_PATHSTORE_URL")
+		l.errf("PROBECTL_PATHSTORE_MODE=clickhouse requires PROBECTL_PATHSTORE_URL")
 	}
 	if (cfg.OTLPGRPCAddr != "" || cfg.OTLPHTTPAddr != "") && !cfg.OTLPEnabled() {
-		l.errf("the OTLP receiver is TLS-only and authenticated: set NETCTL_OTLP_TLS_CERT_FILE, NETCTL_OTLP_TLS_KEY_FILE, and NETCTL_OTLP_TOKENS (token=tenant,...) alongside an address")
+		l.errf("the OTLP receiver is TLS-only and authenticated: set PROBECTL_OTLP_TLS_CERT_FILE, PROBECTL_OTLP_TLS_KEY_FILE, and PROBECTL_OTLP_TOKENS (token=tenant,...) alongside an address")
 	}
 	if cfg.AIModelEnabled() && cfg.AIModelEndpoint == "" {
-		l.errf("NETCTL_AI_MODEL_PROVIDER=%s requires NETCTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
+		l.errf("PROBECTL_AI_MODEL_PROVIDER=%s requires PROBECTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
 	}
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {
-		l.errf("the MCP HTTP transport is TLS-only and authenticated: set NETCTL_MCP_TLS_CERT_FILE and NETCTL_MCP_TLS_KEY_FILE alongside NETCTL_MCP_HTTP_ADDR")
+		l.errf("the MCP HTTP transport is TLS-only and authenticated: set PROBECTL_MCP_TLS_CERT_FILE and PROBECTL_MCP_TLS_KEY_FILE alongside PROBECTL_MCP_HTTP_ADDR")
 	}
 
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
-		l.errf("NETCTL_DATABASE_MIN_CONNS (%d) must be <= NETCTL_DATABASE_MAX_CONNS (%d)",
+		l.errf("PROBECTL_DATABASE_MIN_CONNS (%d) must be <= PROBECTL_DATABASE_MAX_CONNS (%d)",
 			cfg.DatabaseMinConns, cfg.DatabaseMaxConns)
 	}
 	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
-		l.errf("NETCTL_DATABASE_URL: invalid URL: %v", err)
+		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
 	}
 
 	if err := l.err(); err != nil {
@@ -572,7 +572,7 @@ func (l *loader) notifyConnectors(key string) []NotifyConnector {
 }
 
 // notifyInbound parses "id:tenant:provider:secret,..." into inbound status-sync
-// credentials (S33). No endpoint (the URL is netctl's own), so it mirrors the
+// credentials (S33). No endpoint (the URL is probectl's own), so it mirrors the
 // change-webhook colon form: the secret is last and may contain ':' but not ','.
 func (l *loader) notifyInbound(key string) map[string]NotifyInbound {
 	v := l.getenv(key)

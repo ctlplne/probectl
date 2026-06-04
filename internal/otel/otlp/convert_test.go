@@ -5,10 +5,10 @@ import (
 
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
-	bgpv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/bgp/v1"
-	ebpfv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/ebpf/v1"
-	resultv1 "github.com/imfeelingtheagi/netctl/internal/gen/netctl/result/v1"
-	"github.com/imfeelingtheagi/netctl/internal/otel"
+	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
 func resourceAttrs(rm *metricspb.ResourceMetrics) map[string]string {
@@ -46,7 +46,7 @@ func TestResultResourceMetricsConform(t *testing.T) {
 			t.Errorf("non-convention resource attribute %q", k)
 		}
 	}
-	if names := metricNames(rm); !names["netctl.probe.duration"] || !names["netctl.metric.rtt.avg.ms"] {
+	if names := metricNames(rm); !names["probectl.probe.duration"] || !names["probectl.metric.rtt.avg.ms"] {
 		t.Errorf("metrics = %v", names)
 	}
 	if ResourceTenant(rm) != "t1" {

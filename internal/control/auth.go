@@ -9,13 +9,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/imfeelingtheagi/netctl/internal/ai"
-	"github.com/imfeelingtheagi/netctl/internal/apierror"
-	"github.com/imfeelingtheagi/netctl/internal/audit"
-	"github.com/imfeelingtheagi/netctl/internal/auth"
-	"github.com/imfeelingtheagi/netctl/internal/config"
-	"github.com/imfeelingtheagi/netctl/internal/store"
-	"github.com/imfeelingtheagi/netctl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // RBAC permission keys (mirror migrations 0003 + 0013). Routes declare the key a
@@ -53,8 +53,8 @@ var allPermissionKeys = []string{
 // OAuth transient cookies: a short-lived state (CSRF) + the tenant being logged
 // into, so the callback can pick the right per-tenant provider.
 const (
-	oauthStateCookie  = "netctl_oauth_state"
-	oauthTenantCookie = "netctl_oauth_tenant"
+	oauthStateCookie  = "probectl_oauth_state"
+	oauthTenantCookie = "probectl_oauth_tenant"
 	oauthCookieTTL    = 10 * time.Minute
 )
 
@@ -120,12 +120,12 @@ func (s *Server) SetSSOProviderFactory(f auth.ProviderFactory) { s.providers = f
 // one rejection here is a malformed dev tenant override, which is a client error.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Dev mode accepts an X-Netctl-Tenant override; a present-but-malformed
+		// Dev mode accepts an X-Probectl-Tenant override; a present-but-malformed
 		// value is rejected (fail closed) rather than silently falling back to the
 		// default tenant.
 		if s.cfg.AuthMode == "dev" {
-			if h := r.Header.Get("X-Netctl-Tenant"); h != "" && !uuidRe.MatchString(h) {
-				writeError(w, r, apierror.BadRequest("X-Netctl-Tenant must be a tenant UUID"))
+			if h := r.Header.Get("X-Probectl-Tenant"); h != "" && !uuidRe.MatchString(h) {
+				writeError(w, r, apierror.BadRequest("X-Probectl-Tenant must be a tenant UUID"))
 				return
 			}
 		}
@@ -138,19 +138,19 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 
 // resolvePrincipal returns the caller's principal, or nil when unauthenticated.
 // In "dev" mode it synthesizes an all-permissions principal (tenant from the
-// X-Netctl-Tenant override or the default) — never used in production. In
+// X-Probectl-Tenant override or the default) — never used in production. In
 // "session" mode it resolves the session cookie to a real principal.
 func (s *Server) resolvePrincipal(r *http.Request) *auth.Principal {
 	if s.cfg.AuthMode == "dev" {
 		tid := tenancy.DefaultTenantID
-		if h := r.Header.Get("X-Netctl-Tenant"); h != "" && uuidRe.MatchString(h) {
+		if h := r.Header.Get("X-Probectl-Tenant"); h != "" && uuidRe.MatchString(h) {
 			tid = tenancy.ID(h)
 		}
 		perms := make(map[string]bool, len(allPermissionKeys))
 		for _, k := range allPermissionKeys {
 			perms[k] = true
 		}
-		return &auth.Principal{TenantID: tid.String(), UserID: "dev", Email: "dev@netctl.local",
+		return &auth.Principal{TenantID: tid.String(), UserID: "dev", Email: "dev@probectl.local",
 			DisplayName: "Dev", Permissions: perms, Attributes: map[string]string{"mfa": "true"}}
 	}
 	if s.authn == nil {
