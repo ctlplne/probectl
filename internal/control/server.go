@@ -13,13 +13,16 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/author"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/cmdb"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
 	"github.com/imfeelingtheagi/probectl/internal/path"
+	"github.com/imfeelingtheagi/probectl/internal/promapi"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 // Discoverer runs a path discovery. The default is path.Run; tests inject a fake.
@@ -63,9 +66,29 @@ type Server struct {
 	// configured store (ClickHouse in production) via WithFlowStore.
 	flowStore flowstore.Store
 
+	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
+	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
+	// Set via WithTSDB; nil answers 503 on the Grafana/federate/write endpoints.
+	tsdbWriter   tsdb.Writer
+	promUpstream *promapi.Upstream
+
+	// CMDB resolver (S40). nil unless a provider is configured (endpoints answer
+	// 503); set via WithCMDB.
+	cmdb *cmdb.Resolver
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
+}
+
+// WithCMDB attaches the CMDB resolver (S40) backing /v1/cmdb/* and the
+// incident/agent CI-correlation endpoints. nil is a no-op (the feature stays
+// off and the endpoints answer 503). Returns the server for chaining.
+func (s *Server) WithCMDB(r *cmdb.Resolver) *Server {
+	if r != nil {
+		s.cmdb = r
+	}
+	return s
 }
 
 // WithDispatcher attaches the on-call/ITSM dispatcher (S33) so the inbound

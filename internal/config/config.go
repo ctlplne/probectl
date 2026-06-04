@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -112,6 +113,15 @@ type Config struct {
 	FlowStoreURL      string
 	FlowRetentionDays int
 	FlowEnrichASN     bool
+
+	// CMDB integration (S40): read-only CI correlation. CMDBProvider "" keeps
+	// the feature off; "servicenow" requires CMDBURL (https, or http loopback
+	// for tests) and CMDBSecret ("user:password" — env only, never logged).
+	CMDBProvider string
+	CMDBURL      string
+	CMDBSecret   string
+	CMDBTable    string
+	CMDBCacheTTL time.Duration
 
 	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
 	// external OTLP. Enabled when an address + TLS cert/key + tokens are all set.
@@ -265,6 +275,11 @@ func Load(getenv func(string) string) (*Config, error) {
 		FlowStoreURL:        l.str("PROBECTL_FLOWSTORE_URL", ""),
 		FlowRetentionDays:   l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 0, 0, 3650),
 		FlowEnrichASN:       l.boolean("PROBECTL_FLOW_ENRICH_ASN", false),
+		CMDBProvider:        l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow"),
+		CMDBURL:             l.str("PROBECTL_CMDB_URL", ""),
+		CMDBSecret:          l.str("PROBECTL_CMDB_SECRET", ""),
+		CMDBTable:           l.str("PROBECTL_CMDB_TABLE", "cmdb_ci"),
+		CMDBCacheTTL:        l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute),
 		AlertEvalInterval:   l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second),
 		IncidentWindow:      l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute),
 		AuthMode:            l.enum("PROBECTL_AUTH_MODE", "dev", "dev", "session"),
@@ -330,6 +345,13 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	if cfg.FlowStoreMode == "clickhouse" && cfg.FlowStoreURL == "" {
 		l.errf("PROBECTL_FLOWSTORE_MODE=clickhouse requires PROBECTL_FLOWSTORE_URL")
+	}
+	if cfg.CMDBProvider != "" {
+		if cfg.CMDBURL == "" || cfg.CMDBSecret == "" {
+			l.errf("PROBECTL_CMDB_PROVIDER=%s requires PROBECTL_CMDB_URL and PROBECTL_CMDB_SECRET", cfg.CMDBProvider)
+		} else if !strings.HasPrefix(cfg.CMDBURL, "https://") && !isLoopbackURL(cfg.CMDBURL) {
+			l.errf("PROBECTL_CMDB_URL must be https (plain http is allowed only for loopback test instances)")
+		}
 	}
 	if (cfg.OTLPGRPCAddr != "" || cfg.OTLPHTTPAddr != "") && !cfg.OTLPEnabled() {
 		l.errf("the OTLP receiver is TLS-only and authenticated: set PROBECTL_OTLP_TLS_CERT_FILE, PROBECTL_OTLP_TLS_KEY_FILE, and PROBECTL_OTLP_TOKENS (token=tenant,...) alongside an address")
@@ -425,6 +447,21 @@ func redactURL(raw string) string {
 type loader struct {
 	getenv func(string) string
 	errs   []error
+}
+
+// isLoopbackURL reports whether u targets a loopback host (test instances may
+// use plain http there; everything else must be https).
+func isLoopbackURL(u string) bool {
+	parsed, err := url.Parse(u)
+	if err != nil || parsed.Scheme != "http" {
+		return false
+	}
+	host := parsed.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }
 
 func (l *loader) str(key, def string) string {

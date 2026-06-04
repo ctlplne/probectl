@@ -1,0 +1,34 @@
+# Grafana datasource provisioning for probectl (S40, F30).
+#
+# probectl exposes a Prometheus-compatible query API at /v1/grafana, so it is
+# added to Grafana AS a Prometheus datasource — no custom plugin install. Drop
+# this file into grafana/provisioning/datasources/ (or configure the same
+# values in the UI: Connections -> Data sources -> Prometheus).
+#
+# RBAC: requests authenticate as a probectl principal holding metrics.read;
+# every query is tenant-forced server-side, so a Grafana user can never see
+# another tenant's series regardless of the expression they write.
+#
+# Query language: series selectors (metric{label="value",...}). PromQL
+# functions/operators are rejected by design — a query probectl cannot fully
+# parse is a query it cannot tenant-scope. Use Grafana transformations for
+# client-side math.
+
+apiVersion: 1
+
+datasources:
+  - name: probectl
+    type: prometheus
+    access: proxy
+    # The probectl control plane (HTTPS) + the datasource API prefix:
+    url: https://probectl.example.com/v1/grafana
+    isDefault: false
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 30s # match the canary/poll cadence
+      # In dev (PROBECTL_AUTH_MODE=dev) requests carry the default tenant.
+      # In production, attach a session/credential via httpHeaderName1 below.
+      # httpHeaderName1: Cookie
+    # secureJsonData:
+    #   httpHeaderValue1: "probectl_session=<session for a metrics.read service account>"

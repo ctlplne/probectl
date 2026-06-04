@@ -167,8 +167,17 @@ func run(cmd string) error {
 	// server's inbound status-sync webhook + resolve handler. nil when disabled.
 	dispatcher, notifyOn := control.BuildDispatcher(cfg, db.Pool(), log)
 
+	// CMDB correlation (S40): read-only CI lookups against the operator's
+	// ServiceNow. OFF unless PROBECTL_CMDB_PROVIDER is set. nil when disabled.
+	cmdbResolver := control.BuildCMDB(cfg, log)
+
 	g.Go(func() error {
-		return control.New(cfg, log, db, db.Pool(), pathStore, nil).WithDispatcher(dispatcher).WithFlowStore(flowStore).Run(gctx)
+		return control.New(cfg, log, db, db.Pool(), pathStore, nil).
+			WithDispatcher(dispatcher).
+			WithFlowStore(flowStore).
+			WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
+			WithCMDB(cmdbResolver).
+			Run(gctx)
 	})
 	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
 	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.

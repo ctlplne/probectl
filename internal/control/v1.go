@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -53,6 +54,22 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
 		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
 		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
+		{http.MethodGet, "/v1/grafana/api/v1/query", s.handlePromQuery, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/grafana/api/v1/query", s.handlePromQuery, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/grafana/api/v1/query_range", s.handlePromQueryRange, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/grafana/api/v1/query_range", s.handlePromQueryRange, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/grafana/api/v1/series", s.handlePromSeries, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/grafana/api/v1/series", s.handlePromSeries, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/grafana/api/v1/labels", s.handlePromLabels, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/grafana/api/v1/labels", s.handlePromLabels, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/grafana/api/v1/label/{name}/values", s.handlePromLabelValues, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/grafana/api/v1/status/buildinfo", s.handlePromBuildInfo, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/grafana/api/v1/metadata", s.handlePromMetadata, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/prometheus/federate", s.handlePromFederate, ai.PermMetricsRead},
+		{http.MethodPost, "/v1/prometheus/write", s.handlePromWrite, permMetricsWrite},
+		{http.MethodGet, "/v1/cmdb/lookup", s.handleCMDBLookup, permCMDBRead},
+		{http.MethodGet, "/v1/incidents/{id}/cis", s.handleIncidentCIs, permIncidentRead},
+		{http.MethodGet, "/v1/agents/{id}/ci", s.handleAgentCI, permAgentRead},
 		{http.MethodGet, "/v1/audit", s.handleListAudit, permAuditRead},
 		{http.MethodGet, "/v1/audit/verify", s.handleVerifyAudit, permAuditRead},
 		{http.MethodPost, "/v1/ai/ask", s.handleAIAsk, permAIQuery},

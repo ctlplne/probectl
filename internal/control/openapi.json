@@ -1424,6 +1424,654 @@
           }
         }
       }
+    },
+    "/v1/grafana/api/v1/query": {
+      "get": {
+        "operationId": "promQuery",
+        "summary": "Instant query (Grafana datasource)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "description": "A series selector (see description).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "time",
+            "in": "query",
+            "required": false,
+            "description": "Evaluation time (unix seconds or RFC 3339; default now).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instant query (Grafana datasource)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
+      },
+      "post": {
+        "operationId": "promQueryForm",
+        "summary": "Instant query (form-encoded, as Grafana sends it)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Instant query (form-encoded, as Grafana sends it)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grafana/api/v1/query_range": {
+      "get": {
+        "operationId": "promQueryRange",
+        "summary": "Range query (Grafana datasource)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "description": "A series selector.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "description": "Window start.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "description": "Window end.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "required": false,
+            "description": "Step hint (upstream mode only; local mode returns raw samples).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Range query (Grafana datasource)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
+      },
+      "post": {
+        "operationId": "promQueryRangeForm",
+        "summary": "Range query (form-encoded, as Grafana sends it)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Range query (form-encoded, as Grafana sends it)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grafana/api/v1/series": {
+      "get": {
+        "operationId": "promSeries",
+        "summary": "Series metadata",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "match[]",
+            "in": "query",
+            "required": false,
+            "description": "Series selector(s) scoping the result (repeatable; default: everything in the caller's tenant).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "description": "Window start.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "description": "Window end.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Series metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
+      },
+      "post": {
+        "operationId": "promSeriesForm",
+        "summary": "Series metadata (form-encoded)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Series metadata (form-encoded)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grafana/api/v1/labels": {
+      "get": {
+        "operationId": "promLabels",
+        "summary": "Label names",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "match[]",
+            "in": "query",
+            "required": false,
+            "description": "Series selector(s) scoping the result (repeatable; default: everything in the caller's tenant).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "description": "Window start.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "description": "Window end.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Label names",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
+      },
+      "post": {
+        "operationId": "promLabelsForm",
+        "summary": "Label names (form-encoded)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Label names (form-encoded)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grafana/api/v1/label/{name}/values": {
+      "get": {
+        "operationId": "promLabelValues",
+        "summary": "Label values",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Label name (__name__ lists metric names; tenant_id yields only the caller's tenant).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "match[]",
+            "in": "query",
+            "required": false,
+            "description": "Series selector(s) scoping the result (repeatable).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "description": "Window start.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "description": "Window end.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Label values",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
+      }
+    },
+    "/v1/grafana/api/v1/status/buildinfo": {
+      "get": {
+        "operationId": "promBuildInfo",
+        "summary": "Prometheus API compatibility level (Grafana capability probe)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus API compatibility level (Grafana capability probe)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/grafana/api/v1/metadata": {
+      "get": {
+        "operationId": "promMetadata",
+        "summary": "Metric metadata (empty; probectl serves none yet)",
+        "tags": [
+          "grafana"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metric metadata (empty; probectl serves none yet)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/prometheus/federate": {
+      "get": {
+        "operationId": "promFederate",
+        "summary": "Federation scrape (text exposition of latest samples)",
+        "tags": [
+          "prometheus"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "match[]",
+            "in": "query",
+            "required": false,
+            "description": "Series selector(s) to export (repeatable; default: everything in the caller's tenant).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Prometheus text exposition format, tenant-scoped.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "description": "Prometheus-compatible (S40). The expression must be a plain series selector (metric{label=\"value\",...}); PromQL functions/operators are rejected. The tenant_id matcher is always overwritten with the caller's tenant."
+      }
+    },
+    "/v1/prometheus/write": {
+      "post": {
+        "operationId": "promRemoteWrite",
+        "summary": "Prometheus remote-write ingest (snappy-compressed protobuf)",
+        "tags": [
+          "prometheus"
+        ],
+        "description": "Accepts a Prometheus remote-write v1 WriteRequest. The payload is untrusted: size-, series-, sample-, and label-capped, and every sample's tenant_id label is overwritten with the authenticated caller's tenant.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-protobuf": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Samples accepted."
+          },
+          "400": {
+            "description": "Malformed or over-limit payload."
+          }
+        }
+      }
+    },
+    "/v1/cmdb/lookup": {
+      "get": {
+        "operationId": "cmdbLookup",
+        "summary": "Look up CMDB CIs by IP address or hostname",
+        "tags": [
+          "cmdb"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "description": "An IP address or hostname.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Look up CMDB CIs by IP address or hostname",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Read-only CI lookup against the configured CMDB provider (ServiceNow). 503 when no provider is configured."
+      }
+    },
+    "/v1/incidents/{id}/cis": {
+      "get": {
+        "operationId": "incidentCIs",
+        "summary": "CMDB CIs correlated to an incident's targets",
+        "tags": [
+          "cmdb"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Incident id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CMDB CIs correlated to an incident's targets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "description": "Correlates the incident's target and signal targets (tenant-scoped) to CIs in the configured CMDB."
+      }
+    },
+    "/v1/agents/{id}/ci": {
+      "get": {
+        "operationId": "agentCI",
+        "summary": "CMDB CI correlated to an agent (by hostname)",
+        "tags": [
+          "cmdb"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Agent id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CMDB CI correlated to an agent (by hostname)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

@@ -62,6 +62,13 @@ awk -v mod="${MODULE}" '
     # gNMI client against a bufconn mock target; the live SNMP dial + the
     # reconnect/supervision loops run against snmpsim/lab gear (env-gated).
     floor["internal/device"]         = 65
+    # Selector parser/eval/render/remote-write are pure logic, fully unit-tested;
+    # the upstream proxy (upstream.go) runs against a live TSDB only, so it does
+    # not execute in this service-free gate.
+    floor["internal/promapi"]        = 65
+    # Resolver/cache/canonicalization + the ServiceNow client vs an httptest
+    # Table-API double.
+    floor["internal/cmdb"]           = 75
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

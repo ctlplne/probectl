@@ -56,3 +56,13 @@ func (m *Memory) Len() int {
 	defer m.mu.Unlock()
 	return len(m.series)
 }
+
+// Snapshot returns a copy of every retained sample. It backs the selector-query
+// surfaces (Grafana datasource + federation, S40) in lightweight mode.
+func (m *Memory) Snapshot() []Series {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]Series, len(m.series))
+	copy(out, m.series)
+	return out
+}

@@ -727,6 +727,25 @@ Setting an address without the TLS files **and** at least one token fails config
 validation — the receiver is never anonymous plaintext. Ingested metrics are
 tenant-tagged and published to the `probectl.otlp.metrics` bus topic.
 
+### Ecosystem integrations (S40)
+
+The Grafana datasource API (`/v1/grafana/api/v1/*`), the federation endpoint
+(`/v1/prometheus/federate`), and the remote-write receiver
+(`/v1/prometheus/write`) ride the existing TSDB config (`PROBECTL_TSDB_MODE` /
+`PROBECTL_TSDB_URL`) and the `/v1` API listener — no extra keys. Reads need
+`metrics.read`, remote-write `metrics.write` (migration 0022). See
+[`ecosystem-integrations.md`](ecosystem-integrations.md).
+
+The ServiceNow CMDB correlation is off unless configured:
+
+| Variable                  | Default   | Meaning                                                            |
+| -------------------------- | --------- | ------------------------------------------------------------------- |
+| `PROBECTL_CMDB_PROVIDER`    | (none)    | `servicenow` enables CI correlation (`/v1/cmdb/*`, incident/agent CIs) |
+| `PROBECTL_CMDB_URL`         | (none)    | instance URL, e.g. `https://acme.service-now.com` (https; http only for loopback test doubles) |
+| `PROBECTL_CMDB_SECRET`      | (none)    | `user:password` for the read-only integration user (env only — never in files/logs) |
+| `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | CI table queried via the Table API                                  |
+| `PROBECTL_CMDB_CACHE_TTL`   | `10m`     | CI lookup cache TTL (a down CMDB serves stale entries)              |
+
 ### AI assistant (S24)
 
 The AI assistant (RCA / NL query) is on by default using the **built-in,
