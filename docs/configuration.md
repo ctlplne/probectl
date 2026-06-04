@@ -663,6 +663,51 @@ anomalies):
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `0`      | > 0 applies a ClickHouse delete-TTL to `probectl_flows`              |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | OPT-IN Team Cymru ASN enrichment (outbound DNS — off by default per the no-phone-home guardrail; device-exported AS numbers always pass through) |
 
+### Device telemetry agent (`probectl-device-agent`, S39)
+
+The device agent polls network devices over **SNMP v2c/v3** and subscribes to
+**gNMI/OpenConfig** streams, normalizes both into one `DeviceMetric` model, and
+publishes to `probectl.device.metrics` (`devicev1.DeviceMetricBatch`,
+tenant-keyed). The control plane lands the samples in the TSDB as
+`probectl_device_*` series. Devices and transports are declared in a YAML
+config (see `deploy/agent/probectl-device-agent.example.yml`); the env vars
+below override the file and offer a single-device quick start. See
+[`device-telemetry.md`](device-telemetry.md).
+
+| Variable                       | Default     | Meaning                                                          |
+| ------------------------------- | ----------- | ----------------------------------------------------------------- |
+| `PROBECTL_DEVICE_CONFIG`         | (none)      | path to the YAML config (`-config` flag overrides)                |
+| `PROBECTL_DEVICE_TENANT`         | (required)  | tenant every device metric is stamped with (F50)                  |
+| `PROBECTL_DEVICE_AGENT_ID`       | OS hostname | agent identifier                                                  |
+| `PROBECTL_DEVICE_BUS_MODE`       | `memory`    | `memory` \| `kafka`                                               |
+| `PROBECTL_DEVICE_BUS_BROKERS`    | (none)      | comma-separated Kafka brokers (kafka mode)                        |
+| `PROBECTL_DEVICE_TARGET`         | (none)      | quick start: add one device by address                            |
+| `PROBECTL_DEVICE_TRANSPORT`      | `snmpv2c`   | quick-start transport: `snmpv2c` \| `snmpv3` \| `gnmi`            |
+| `PROBECTL_DEVICE_CREDENTIAL`     | (none)      | quick start: credential NAME for the device (see below)           |
+| `PROBECTL_DEVICE_PORT`           | `161`/`9339`| quick start: SNMP/gNMI port override                              |
+| `PROBECTL_DEVICE_INTERVAL`       | `60s`       | quick start: poll/sample interval                                 |
+| `PROBECTL_DEVICE_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                            |
+| `PROBECTL_DEVICE_LOG_FORMAT`     | `json`      | `json` \| `text`                                                  |
+
+**Credentials are referenced by NAME, never inlined** (guardrail 6). The
+default `CredentialSource` resolves names from the environment; S41 plugs
+Vault/CyberArk into the same seam. An unresolvable name fails closed at
+startup. `<NAME>` is the upper-cased credential name with `-`/`.` → `_`:
+
+| Variable                                  | Used by        | Meaning                                        |
+| ------------------------------------------ | -------------- | ----------------------------------------------- |
+| `PROBECTL_DEVICE_CRED_<NAME>_COMMUNITY`     | snmpv2c        | community string                                |
+| `PROBECTL_DEVICE_CRED_<NAME>_USERNAME`      | snmpv3, gnmi   | USM user / gNMI metadata user                   |
+| `PROBECTL_DEVICE_CRED_<NAME>_AUTH_PROTO`    | snmpv3         | `sha` (default) \| `sha256` \| `sha512` \| `md5` |
+| `PROBECTL_DEVICE_CRED_<NAME>_AUTH_PASS`     | snmpv3         | auth passphrase (empty → NoAuthNoPriv)          |
+| `PROBECTL_DEVICE_CRED_<NAME>_PRIV_PROTO`    | snmpv3         | `aes` (default) \| `aes256` \| `des`            |
+| `PROBECTL_DEVICE_CRED_<NAME>_PRIV_PASS`     | snmpv3         | privacy passphrase (empty → AuthNoPriv)         |
+| `PROBECTL_DEVICE_CRED_<NAME>_PASSWORD`      | gnmi           | gNMI metadata password                          |
+
+gNMI connections are **TLS with certificate verification** (system roots or a
+per-device `ca_file`); there is no skip-verify option. `plaintext: true` is an
+explicit lab-only YAML opt-in and is loudly logged (guardrail 12).
+
 ### OTLP receiver (S22)
 
 The control plane optionally ingests external OpenTelemetry metrics over OTLP —

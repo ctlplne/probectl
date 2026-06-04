@@ -1,0 +1,44 @@
+# probectl-device-agent example configuration (S39, F18).
+# Env overrides + the credential variables: see docs/configuration.md.
+#
+# Credentials are referenced by NAME and resolved at runtime through the
+# credential seam (env provider today; Vault/CyberArk via S41). NEVER put a
+# community string, passphrase, or password in this file.
+
+tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every metric is tenant-bound (F50)
+agent_id: "" # default: OS hostname
+
+bus:
+  mode: memory # memory | kafka
+  brokers: []  # kafka mode, e.g. ["kafka-1:9092", "kafka-2:9092"]
+
+devices:
+  # SNMP v2c poll every 60s. Resolves PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY.
+  - address: "192.0.2.1"
+    transport: snmpv2c # snmpv2c | snmpv3 | gnmi
+    credential: core-ro
+    # port: 161
+    # interval: 60s
+    # sensors: true   # opt-in ENTITY-SENSOR temperature walk
+
+  # SNMP v3 (USM). Credential supplies USERNAME/AUTH_*/PRIV_* — prefer SHA-2 +
+  # AES (MD5/DES are not FIPS-approved).
+  - address: "192.0.2.2"
+    transport: snmpv3
+    credential: edge-v3
+
+  # gNMI/OpenConfig streaming. TLS with certificate verification — system
+  # roots, or pin a private CA with ca_file. There is NO skip-verify option;
+  # plaintext is an explicit lab-only opt-in and is loudly logged.
+  - address: "192.0.2.3"
+    transport: gnmi
+    credential: core-gnmi # USERNAME/PASSWORD ride gRPC metadata
+    # port: 9339
+    gnmi:
+      # ca_file: /etc/probectl/device-ca.pem
+      # plaintext: false
+      sample_interval: 30s
+      # Default subscriptions when omitted:
+      paths:
+        - /interfaces/interface/state/counters
+        - /interfaces/interface/state/oper-status

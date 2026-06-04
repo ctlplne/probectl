@@ -11,6 +11,13 @@ modules:
 lint:
   use:
     - STANDARD
+  ignore:
+    # Vendored upstream schemas kept byte-wire-compatible (package names,
+    # field numbers, enums as published) so probectl interoperates with the
+    # real ecosystem; upstream style predates buf's STANDARD rules.
+    # gnmi/gnmi_ext: openconfig/gnmi (S39 device telemetry).
+    - proto/gnmi
+    - proto/gnmi_ext
 breaking:
   use:
     - FILE

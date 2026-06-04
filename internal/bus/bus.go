@@ -29,6 +29,12 @@ const OTLPMetricsTopic = "probectl.otlp.metrics"
 // (S15), and persists to ClickHouse (internal/store/flowstore).
 const FlowEventsTopic = "probectl.flow.events"
 
+// DeviceMetricsTopic carries normalized device-telemetry batches (SNMP polls +
+// gNMI/OpenConfig subscriptions, S39) from the device collector, tenant-tagged
+// via the message key. Payload: devicev1.DeviceMetricBatch. The control plane
+// consumes it and lands the samples in the TSDB.
+const DeviceMetricsTopic = "probectl.device.metrics"
+
 // EndpointResultsTopic carries DEM results from the endpoint agent (S37) — WiFi /
 // gateway / last-mile / session signals and the slowdown attribution — tenant-
 // tagged via the message key. Payload: resultv1.Result (the canonical canary

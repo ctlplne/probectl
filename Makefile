@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 MODULE   := github.com/imfeelingtheagi/probectl
 GO       ?= go
 BIN_DIR  := bin
-BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl
+BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl
 
 # Go modules in the workspace (each has its own go.mod).
 GO_MODULE_DIRS := . test
@@ -117,7 +117,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/.
 	./internal/bgp/... ./internal/bus/... ./internal/pipeline/... ./internal/crypto/... \
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
 	./internal/auth/... ./internal/perf/... ./internal/ebpf/... ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... ./internal/lifecycle/... ./internal/browser/... ./internal/objectstore/... ./internal/endpoint/... \
-	./internal/flow/... ./internal/store/flowstore/... \
+	./internal/flow/... ./internal/store/flowstore/... ./internal/device/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate

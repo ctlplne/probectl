@@ -58,6 +58,10 @@ awk -v mod="${MODULE}" '
     # Decoders + template/sampling state are exhaustively fixture-tested; the
     # UDP read loops are exercised by the collector e2e test.
     floor["internal/flow"]           = 75
+    # SNMP poller/creds/correlator/config are unit-tested against fakes and the
+    # gNMI client against a bufconn mock target; the live SNMP dial + the
+    # reconnect/supervision loops run against snmpsim/lab gear (env-gated).
+    floor["internal/device"]         = 65
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

@@ -173,6 +173,8 @@ func run(cmd string) error {
 	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
 	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.
 	g.Go(func() error { return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).Run(gctx) })
+	// Device pipeline (S39): probectl.device.metrics -> TSDB.
+	g.Go(func() error { return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).Run(gctx) })
 
 	// Incident correlation (S17): related signals across planes group into one
 	// incident. Alerts feed it via a sink; BGP events via a bus consumer. When

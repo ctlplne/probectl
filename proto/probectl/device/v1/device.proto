@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+// Device / streaming telemetry (S39, F18): one normalized metric sample from
+// the device plane — SNMP polls (v2c/v3) and gNMI/OpenConfig subscriptions
+// both reduce to DeviceMetric, so the pipeline, TSDB, alerting, and the
+// path/flow correlation never care which wire protocol produced a sample.
+// Field names follow the repo's OTel discipline (result.proto / flow.proto):
+// the tenant is the outermost scope (probectl.tenant.id, F50); device detail
+// has no established OTel network-device convention and uses probectl.device.*.
+//
+// Backward compatibility: fields are additive-only; never renumber or reuse tags.
+package probectl.device.v1;
+
+option go_package = "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1;devicev1";
+
+message DeviceMetric {
+  // --- Resource identity (OTel resource attributes) ---
+  string tenant_id = 1;      // -> "probectl.tenant.id" (outermost scope, F50)
+  string agent_id = 2;       // -> "probectl.agent.id" (the polling collector)
+  string device_address = 3; // -> "probectl.device.address" (mgmt address polled)
+  string device_name = 4;    // -> "probectl.device.name" (sysName / gNMI target)
+
+  // transport that produced the sample: snmp | gnmi.
+  string source = 5; // -> "probectl.device.source"
+
+  // --- Interface scope (zero/empty when the metric is device-wide) ---
+  uint32 if_index = 6; // SNMP ifIndex   -> "probectl.device.interface.index"
+  string if_name = 7;  // ifName/OC name -> "probectl.device.interface.name"
+
+  // --- The sample ---
+  // name is one of the probectl.device.* metric names (see internal/device):
+  // e.g. probectl.device.uptime.seconds, probectl.device.if.in.octets,
+  // probectl.device.if.oper.status, probectl.device.cpu.utilization.
+  string name = 8;
+  double value = 9;
+  string unit = 10; // octets | packets | percent | celsius | seconds | bps | ""
+
+  int64 time_unix_nano = 11; // sample time (OTel-style ns)
+}
+
+// DeviceMetricBatch is the bus payload on probectl.device.metrics: one
+// collector flush, tenant-keyed.
+message DeviceMetricBatch {
+  repeated DeviceMetric metrics = 1;
+}

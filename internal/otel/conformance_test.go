@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
@@ -36,6 +37,11 @@ func TestAllSignalMappingsConform(t *testing.T) {
 		"path": PathAttributes(PathSummary{
 			TenantID: "t", Target: "example.com", TargetIP: "93.184.216.34", Mode: "icmp",
 			HopCount: 12, DestinationReached: true,
+		}),
+		"device": DeviceMetricAttributes(&devicev1.DeviceMetric{
+			TenantId: "t", AgentId: "a", DeviceAddress: "192.0.2.1", DeviceName: "core-sw1",
+			Source: "snmp", IfIndex: 3, IfName: "eth0",
+			Name: "probectl.device.if.in.octets", Value: 1, Unit: "octets",
 		}),
 		"netflow": NetFlowAttributes(&flowv1.FlowRecord{
 			TenantId: "t", AgentId: "a", ExporterAddress: "203.0.113.10", FlowProtocol: "netflow9",
