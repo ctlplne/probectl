@@ -323,6 +323,8 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npm run lint
+      - name: Frontend-coverage gate (S-FE6 — every capability has its declared surface)
+        run: npm run coverage-gate
       - name: Test (a11y gate · theme-swap · command palette · no hardcoded tokens)
         run: npm run test
       - name: Build

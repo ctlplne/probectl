@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "coverage-gate": "vitest run src/test/surface-coverage.test.tsx"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.16",

@@ -1,0 +1,113 @@
+import { describe, expect, test } from 'vitest'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { axe } from 'jest-axe'
+import { renderApp } from './renderApp'
+import { NAV } from '../nav/ia'
+import { SURFACES, checkRegistryShape, type SurfaceDecl } from '../surfaces'
+
+/**
+ * The frontend-coverage gate (S-FE6). Backend↔frontend coverage is a verified,
+ * standing property: every user-facing capability must have its DECLARED
+ * surface — native (a real screen, not the placeholder, passing the WCAG 2.2
+ * AA bar), federated (evidence exists), or an explicitly registered
+ * placeholder. Plus the consistency pass: no orphaned route styles, no nav
+ * drift. Coverage + consistency — not polish.
+ */
+
+const REPO_ROOT = resolve(__dirname, '../../..')
+const PLACEHOLDER_MARKER = /lands in a later sprint/i
+
+const openapi = readFileSync(join(REPO_ROOT, 'internal/control/openapi.json'), 'utf8')
+const openapiPaths = Object.keys((JSON.parse(openapi) as { paths: Record<string, unknown> }).paths)
+
+function uniqueRoutes(kind: SurfaceDecl['kind']): string[] {
+  return [...new Set(SURFACES.filter((s) => s.kind === kind && s.route).map((s) => s.route!))]
+}
+
+describe('frontend-coverage gate (S-FE6)', () => {
+  test('registry shape: every nav destination is registered; every routed declaration is a nav destination', () => {
+    const violations = checkRegistryShape(
+      NAV.map((n) => n.to),
+      SURFACES,
+    )
+    expect(violations).toEqual([])
+  })
+
+  test('the gate itself fails on a capability with no surface', () => {
+    // A nav destination nobody registered → violation.
+    expect(checkRegistryShape(['/ghost'], SURFACES).some((v) => v.capability === 'nav:/ghost')).toBe(true)
+    // A federated claim without evidence → violation.
+    const bad: SurfaceDecl[] = [{ capability: 'x', sprint: 'Sx', kind: 'federated' }]
+    expect(checkRegistryShape([], bad)[0].problem).toMatch(/no evidence/)
+    // A routed declaration outside the nav → violation.
+    const offNav: SurfaceDecl[] = [{ capability: 'y', sprint: 'Sy', kind: 'native', route: '/nowhere' }]
+    expect(checkRegistryShape([], offNav)[0].problem).toMatch(/not a nav destination/)
+  })
+
+  test('every native surface renders a real screen — never the placeholder', async () => {
+    for (const route of uniqueRoutes('native')) {
+      const { container, unmount } = renderApp(route)
+      // The shell + a page heading mounted…
+      expect(container.querySelector('main'), `${route}: no main landmark`).toBeTruthy()
+      await new Promise((r) => setTimeout(r, 30)) // let the page settle
+      expect(
+        container.textContent ?? '',
+        `${route} is declared native but renders the placeholder`,
+      ).not.toMatch(PLACEHOLDER_MARKER)
+      expect(container.querySelector('h1'), `${route}: no h1`).toBeTruthy()
+      unmount()
+    }
+  })
+
+  test('every declared placeholder is STILL a placeholder (re-declare native when it ships)', async () => {
+    for (const route of uniqueRoutes('placeholder')) {
+      const { container, unmount } = renderApp(route)
+      await new Promise((r) => setTimeout(r, 30))
+      expect(
+        container.textContent ?? '',
+        `${route} no longer renders the placeholder — re-declare it native in surfaces.ts`,
+      ).toMatch(PLACEHOLDER_MARKER)
+      unmount()
+    }
+  })
+
+  test('every federated surface has its declared evidence', () => {
+    for (const s of SURFACES.filter((x) => x.kind === 'federated')) {
+      for (const ev of s.evidence ?? []) {
+        if (ev.startsWith('file:')) {
+          const p = ev.slice('file:'.length)
+          expect(existsSync(join(REPO_ROOT, p)), `${s.capability}: missing ${p}`).toBe(true)
+        } else if (ev.startsWith('openapi:')) {
+          const path = ev.slice('openapi:'.length)
+          expect(openapiPaths, `${s.capability}: ${path} not in openapi.json`).toContain(path)
+        } else {
+          throw new Error(`${s.capability}: unknown evidence kind ${ev}`)
+        }
+      }
+    }
+  })
+
+  test('consistency: no orphaned route styles (every routes/*.module.css is imported)', () => {
+    const routesDir = resolve(__dirname, '../routes')
+    const cssFiles = readdirSync(routesDir).filter((f) => f.endsWith('.module.css'))
+    const sources = readdirSync(routesDir)
+      .filter((f) => f.endsWith('.tsx') || f.endsWith('.ts'))
+      .map((f) => readFileSync(join(routesDir, f), 'utf8'))
+      .join('\n')
+    for (const css of cssFiles) {
+      expect(sources.includes(`./${css}`), `orphaned route stylesheet: ${css}`).toBe(true)
+    }
+  })
+
+  test('a11y: every native surface passes the WCAG 2.2 AA bar (axe)', async () => {
+    for (const route of uniqueRoutes('native')) {
+      const { container, findAllByRole, unmount } = renderApp(route)
+      await findAllByRole('heading')
+      await new Promise((r) => setTimeout(r, 50)) // settle queries/empty states
+      const results = await axe(container)
+      expect(results, `${route} fails the a11y bar`).toHaveNoViolations()
+      unmount()
+    }
+  }, 60_000)
+})
