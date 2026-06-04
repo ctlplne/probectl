@@ -171,20 +171,6 @@ func run(cmd string) error {
 	// ServiceNow. OFF unless PROBECTL_CMDB_PROVIDER is set. nil when disabled.
 	cmdbResolver := control.BuildCMDB(cfg, log)
 
-	g.Go(func() error {
-		return control.New(cfg, log, db, db.Pool(), pathStore, nil).
-			WithDispatcher(dispatcher).
-			WithFlowStore(flowStore).
-			WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
-			WithCMDB(cmdbResolver).
-			Run(gctx)
-	})
-	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
-	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.
-	g.Go(func() error { return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).Run(gctx) })
-	// Device pipeline (S39): probectl.device.metrics -> TSDB.
-	g.Go(func() error { return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).Run(gctx) })
-
 	// Incident correlation (S17): related signals across planes group into one
 	// incident. Alerts feed it via a sink; BGP events via a bus consumer. When
 	// on-call/ITSM is configured, an opened incident also pages + opens a ticket.
@@ -197,6 +183,35 @@ func run(cmd string) error {
 	g.Go(func() error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
+
+	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and
+	// correlate fired alerts into incidents. Disabled gracefully when the TSDB has
+	// no in-process query backend. Built before the API server so the active-alert
+	// surface (S-FE1) can read the evaluator engine's state.
+	var alertEngine *alert.Engine
+	if ev, ok := control.BuildAlertEvaluator(db.Pool(), tsdbWriter, alert.ChannelDeps{},
+		cfg.AlertEvalInterval, tenancy.DefaultTenantID, control.AlertSink(correlator, log), log); ok {
+		alertEngine = ev.Engine()
+		g.Go(func() error { ev.Run(gctx); return nil })
+	} else {
+		log.Info("alert evaluation disabled (no in-process TSDB query backend in this mode)")
+	}
+
+	srv := control.New(cfg, log, db, db.Pool(), pathStore, nil).
+		WithDispatcher(dispatcher).
+		WithFlowStore(flowStore).
+		WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
+		WithCMDB(cmdbResolver)
+	if alertEngine != nil {
+		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
+		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
+	}
+	g.Go(func() error { return srv.Run(gctx) })
+	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
+	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.
+	g.Go(func() error { return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).Run(gctx) })
+	// Device pipeline (S39): probectl.device.metrics -> TSDB.
+	g.Go(func() error { return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).Run(gctx) })
 
 	// SIEM export (S32): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF unless configured (an outbound connection to the operator's
@@ -237,15 +252,6 @@ func run(cmd string) error {
 		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).WithSIEM(siemFwd).Run(gctx)
 	})
 
-	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and
-	// correlate fired alerts into incidents. Disabled gracefully when the TSDB has
-	// no in-process query backend.
-	if ev, ok := control.BuildAlertEvaluator(db.Pool(), tsdbWriter, alert.ChannelDeps{},
-		cfg.AlertEvalInterval, tenancy.DefaultTenantID, control.AlertSink(correlator, log), log); ok {
-		g.Go(func() error { ev.Run(gctx); return nil })
-	} else {
-		log.Info("alert evaluation disabled (no in-process TSDB query backend in this mode)")
-	}
 	if cfg.AgentTransportEnabled() {
 		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)
 		if err != nil {

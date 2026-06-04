@@ -2072,6 +2072,198 @@
           }
         }
       }
+    },
+    "/v1/alerts/active": {
+      "get": {
+        "operationId": "listActiveAlerts",
+        "summary": "Firing alerts (engine truth) with silence/ack state",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Every series the caller's tenant's alert evaluator currently has firing, with operator state (silenced_until, acked_by/at). evaluator_running=false distinguishes a quiet tenant from one with no running evaluator.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active alerts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "evaluator_running": {
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fingerprint": {
+                            "type": "string"
+                          },
+                          "rule_id": {
+                            "type": "string"
+                          },
+                          "rule_name": {
+                            "type": "string"
+                          },
+                          "severity": {
+                            "type": "string"
+                          },
+                          "metric": {
+                            "type": "string"
+                          },
+                          "labels": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "value": {
+                            "type": "number"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "since": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "last_seen_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "silenced_until": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "acked_by": {
+                            "type": "string"
+                          },
+                          "acked_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/alerts/active/silence": {
+      "post": {
+        "operationId": "silenceAlert",
+        "summary": "Silence a firing alert's notifications until a deadline",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Suppresses channel notifications (and the incident sink) for one firing series for duration_minutes (0 clears, max 7 days). The series keeps evaluating and stays listed as firing; the silence clears automatically on resolve.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fingerprint"
+                ],
+                "properties": {
+                  "fingerprint": {
+                    "type": "string"
+                  },
+                  "duration_minutes": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated active alert.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No firing alert with that fingerprint."
+          },
+          "503": {
+            "description": "The alert evaluator is not running for this tenant."
+          }
+        }
+      }
+    },
+    "/v1/alerts/active/ack": {
+      "post": {
+        "operationId": "acknowledgeAlert",
+        "summary": "Acknowledge a firing alert (records who owns it)",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Records the caller as having seen/owning the firing series. Evaluation and delivery are unchanged; the ack clears on resolve.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "fingerprint"
+                ],
+                "properties": {
+                  "fingerprint": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The updated active alert.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No firing alert with that fingerprint."
+          },
+          "503": {
+            "description": "The alert evaluator is not running for this tenant."
+          }
+        }
+      }
     }
   },
   "components": {

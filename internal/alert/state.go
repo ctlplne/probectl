@@ -14,6 +14,23 @@ type seriesState struct {
 	firing       bool
 	lastNotified time.Time
 	base         *baseline // baseline rules only
+
+	// Rendered state for the active-alert surface (S-FE1), written on each
+	// evaluation so the API reflects engine truth.
+	ruleID     string
+	ruleName   string
+	severity   Severity
+	metric     string
+	labels     map[string]string
+	lastValue  float64
+	lastReason string
+	since      time.Time // first firing of the current episode
+	lastSeen   time.Time // last evaluation of this series
+
+	// Operator actions (S-FE1): cleared automatically on resolve.
+	silencedUntil time.Time
+	ackedBy       string
+	ackedAt       time.Time
 }
 
 // fingerprint is a stable key for a label set.

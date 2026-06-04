@@ -32,6 +32,8 @@ export function defaultFetch(): typeof fetch {
     if (url.endsWith('/v1/tests')) return jsonResponse({ items: sampleTests })
     if (url.endsWith('/v1/agents')) return jsonResponse({ items: sampleAgents })
     if (url.endsWith('/v1/ai/discover')) return jsonResponse({ proposals: [] })
+    if (url.endsWith('/v1/alerts')) return jsonResponse({ items: [] })
+    if (url.endsWith('/v1/alerts/active')) return jsonResponse({ items: [], evaluator_running: true })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
   }) as unknown as typeof fetch
 }

@@ -4,6 +4,7 @@ import { NAV } from '../nav/ia'
 import { AdminPage, NotFoundPage, PlaceholderPage, TargetsPage } from './pages'
 import { PathPage } from './PathPage'
 import { IncidentsPage } from './IncidentsPage'
+import { AlertsPage } from './AlertsPage'
 import { AskPage } from './AskPage'
 import { Gallery } from './Gallery'
 
@@ -16,9 +17,10 @@ export function AppRoutes() {
         <Route path="/targets" element={<TargetsPage />} />
         <Route path="/path" element={<PathPage />} />
         <Route path="/incidents" element={<IncidentsPage />} />
+        <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/ask" element={<AskPage />} />
         <Route path="/admin" element={<AdminPage />} />
-        {NAV.filter((n) => !['/targets', '/path', '/incidents', '/ask', '/admin'].includes(n.to)).map((n) => (
+        {NAV.filter((n) => !['/targets', '/path', '/incidents', '/alerts', '/ask', '/admin'].includes(n.to)).map((n) => (
           <Route key={n.to} path={n.to} element={<PlaceholderPage to={n.to} />} />
         ))}
         <Route path="/gallery" element={<Gallery />} />

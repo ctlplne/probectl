@@ -74,9 +74,7 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 
 	var acted []Alert
 	for _, s := range samples {
-		st := en.stateFor(rule, s.Labels)
-		breached, reason := en.breached(rule, st, s.Value)
-		alert, notify := en.transition(rule, st, s, breached, reason)
+		alert, notify := en.evalSample(rule, s)
 		if notify {
 			if en.notifier != nil {
 				en.notifier.Deliver(ctx, rule, alert)
@@ -90,9 +88,27 @@ func (en *Engine) Evaluate(ctx context.Context, rule Rule) ([]Alert, error) {
 	return acted, nil
 }
 
-func (en *Engine) stateFor(rule Rule, labels map[string]string) *seriesState {
+// evalSample evaluates one sample under the engine lock: the same state is read
+// by the active-alert surface (Active/Silence/Acknowledge), so every mutation
+// happens locked. Notification delivery stays outside the lock.
+func (en *Engine) evalSample(rule Rule, s Sample) (Alert, bool) {
 	en.mu.Lock()
 	defer en.mu.Unlock()
+	st := en.stateForLocked(rule, s.Labels)
+	breached, reason := en.breached(rule, st, s.Value)
+
+	// Capture the rendered state the surface serves (engine truth).
+	st.ruleID, st.ruleName = rule.ID, rule.Name
+	st.severity, st.metric = rule.Severity, rule.Metric
+	st.labels = s.Labels
+	st.lastValue, st.lastReason = s.Value, reason
+	st.lastSeen = en.clock()
+
+	return en.transition(rule, st, s, breached, reason)
+}
+
+// stateForLocked returns (creating if needed) the per-series state. en.mu held.
+func (en *Engine) stateForLocked(rule Rule, labels map[string]string) *seriesState {
 	key := stateKey(rule.ID, labels)
 	st, ok := en.states[key]
 	if !ok {
@@ -139,6 +155,14 @@ func (en *Engine) transition(rule Rule, st *seriesState, s Sample, breached bool
 		firstFiring := !st.firing
 		st.firing = true
 		now := en.clock()
+		if firstFiring {
+			st.since = now // a new firing episode
+		}
+		// A silence (S-FE1) suppresses firing notifications until its deadline;
+		// the series keeps evaluating and stays visible as firing.
+		if st.silencedUntil.After(now) {
+			return Alert{}, false
+		}
 		renotify := rule.RenotifySeconds > 0 &&
 			now.Sub(st.lastNotified) >= time.Duration(rule.RenotifySeconds)*time.Second
 		if firstFiring || renotify {
@@ -152,6 +176,9 @@ func (en *Engine) transition(rule Rule, st *seriesState, s Sample, breached bool
 	st.breachCount = 0
 	if st.firing {
 		st.firing = false
+		// The episode is over: operator state does not leak into the next one.
+		st.silencedUntil = time.Time{}
+		st.ackedBy, st.ackedAt = "", time.Time{}
 		return en.alert(rule, s, StateResolved, "value recovered"), true
 	}
 	return Alert{}, false
@@ -196,6 +223,12 @@ func NewEvaluator(engine *Engine, rules RuleProvider, interval time.Duration, lo
 		log = slog.Default()
 	}
 	return &Evaluator{engine: engine, rules: rules, interval: interval, log: log}
+}
+
+// Engine exposes the evaluator's engine — the active-alert state surface
+// (S-FE1) reads firing state and applies silence/acknowledge through it.
+func (ev *Evaluator) Engine() *Engine {
+	return ev.engine
 }
 
 // Tick runs one evaluation pass over all rules.

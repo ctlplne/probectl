@@ -76,6 +76,11 @@ type Server struct {
 	// 503); set via WithCMDB.
 	cmdb *cmdb.Resolver
 
+	// Active-alert state sources (S-FE1), keyed by tenant ID — each tenant's
+	// evaluator engine. Set via WithAlertState; a missing tenant fails closed
+	// (empty list / 503 on actions).
+	alertState map[string]AlertStateSource
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
