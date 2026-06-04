@@ -15,6 +15,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/cmdb"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/cost"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
@@ -107,6 +108,10 @@ type Server struct {
 	// Topology graph + what-if (S43): the dependency-graph store. Set via
 	// WithTopology; nil reports topology_running=false.
 	topo topology.Store
+
+	// FinOps cost engine (S44). Set via WithCost; nil reports
+	// cost_running=false.
+	costEngine *cost.Engine
 
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).

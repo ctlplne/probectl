@@ -47,9 +47,16 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'AI assistant (NL query + RCA with citations)', sprint: 'S24', kind: 'native', route: '/ask' },
   { capability: 'Agent fleet admin', sprint: 'S9', kind: 'native', route: '/admin' },
   { capability: 'Topology dependency graph + what-if impact simulation', sprint: 'S43', kind: 'native', route: '/topology' },
+  { capability: 'Network egress cost summary + budgets (FinOps showback)', sprint: 'S44', kind: 'native', route: '/cost' },
   { capability: 'Secret-backend config + credential health', sprint: 'S41', kind: 'native', route: '/admin' },
 
   // --- federated surfaces (by design) ---
+  {
+    capability: 'Cost dashboards (Grafana via the probectl datasource)',
+    sprint: 'S44',
+    kind: 'federated',
+    evidence: ['openapi:/v1/cost/summary', 'openapi:/v1/grafana/api/v1/query'],
+  },
   {
     capability: 'Metrics exploration + dashboards (Grafana datasource)',
     sprint: 'S40',
@@ -76,7 +83,7 @@ export const SURFACES: SurfaceDecl[] = [
   },
 
   // --- declared placeholders (engine lands with the named sprint) ---
-  { capability: 'Network/cloud egress cost (FinOps)', sprint: 'S44', kind: 'placeholder', route: '/cost' },
+
   { capability: 'SLOs, error budgets + burn rates', sprint: 'S45', kind: 'placeholder', route: '/slos' },
   { capability: 'Curated in-app dashboards', sprint: 'S45 (Grafana covers it today via S40)', kind: 'placeholder', route: '/dashboards' },
   { capability: 'Compliance / segmentation evidence', sprint: 'S46', kind: 'placeholder', route: '/compliance' },

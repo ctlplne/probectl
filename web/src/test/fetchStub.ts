@@ -40,6 +40,15 @@ export function defaultFetch(): typeof fetch {
     if (url.endsWith('/v1/results/latest')) return jsonResponse({ items: [], collector_running: true })
     if (url.includes('/v1/topology') && !url.includes('whatif'))
       return jsonResponse({ topology_running: true, at: '2026-06-04T12:00:00Z', nodes: [], edges: [], coverage: { path_edges: 0, flow_edges: 0, routing_edges: 0, device_edges: 0 } })
+    if (url.endsWith('/v1/cost/summary'))
+      return jsonResponse({
+        cost_running: true,
+        summary: {
+          priced: true, zones_mapped: true, pricing_source: 'test', pricing_as_of: '2026-06-01',
+          total_bytes: 0, total_usd: 0, by_class: {}, by_service: {}, by_team: {},
+          chatty_pairs: [], trend: [], budgets: [],
+        },
+      })
     if (url.endsWith('/v1/secrets/health'))
       return jsonResponse({
         resolver_running: true,

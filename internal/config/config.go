@@ -186,6 +186,19 @@ type Config struct {
 	// sit behind the same query API; the switch is transparent to callers.
 	TopologyEngine string
 
+	// FinOps / egress cost (S44, F41): volume × public pricing over the local
+	// flow stream — no cloud-billing API calls (sovereignty-safe; ON by
+	// default). CostZones maps CIDRs to cloud zones ("cidr=zone[/region],...");
+	// CostServices attributes CIDRs to service:team (showback); CostBudgets
+	// caps monthly spend ("team:payments=500,..."); CostPricesFile overrides
+	// the embedded public list rates (JSON); CostPriced=false runs volume-only.
+	CostEnabled    bool
+	CostZones      string
+	CostServices   string
+	CostBudgets    string
+	CostPricesFile string
+	CostPriced     bool
+
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
 	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
@@ -327,6 +340,12 @@ func Load(getenv func(string) string) (*Config, error) {
 		NDREnabled:          l.boolean("PROBECTL_NDR_ENABLED", true),
 		NDRRulesDir:         l.str("PROBECTL_NDR_RULES_DIR", ""),
 		TopologyEngine:      l.str("PROBECTL_TOPOLOGY_ENGINE", "indexed"),
+		CostEnabled:         l.boolean("PROBECTL_COST_ENABLED", true),
+		CostZones:           l.str("PROBECTL_COST_ZONES", ""),
+		CostServices:        l.str("PROBECTL_COST_SERVICES", ""),
+		CostBudgets:         l.str("PROBECTL_COST_BUDGETS", ""),
+		CostPricesFile:      l.str("PROBECTL_COST_PRICES_FILE", ""),
+		CostPriced:          l.boolean("PROBECTL_COST_PRICED", true),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

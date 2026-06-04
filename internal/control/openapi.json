@@ -2257,6 +2257,88 @@
         }
       }
     },
+    "/v1/cost/summary": {
+      "get": {
+        "operationId": "getCostSummary",
+        "summary": "FinOps egress-cost summary (S44)",
+        "tags": [
+          "cost"
+        ],
+        "description": "The caller's tenant's network-cost picture: egress volume x public pricing attributed per service and per team (showback), traffic-class breakdown (same-zone / inter-AZ / inter-region / internet), cross-AZ 'chatty' zone-pair conversations, hourly trend, and budget status. Honesty flags: cost_running=false (engine unwired), priced=false (volume-only — no price table), zones_mapped=false (no CIDR→zone rules). Pricing provenance (source + as-of date) is surfaced; rates are PUBLIC list ballparks the operator overrides — this is attribution, not billing reconciliation.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The cost summary.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "cost_running": {
+                      "type": "boolean"
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "priced": {
+                          "type": "boolean"
+                        },
+                        "zones_mapped": {
+                          "type": "boolean"
+                        },
+                        "pricing_source": {
+                          "type": "string"
+                        },
+                        "pricing_as_of": {
+                          "type": "string"
+                        },
+                        "total_bytes": {
+                          "type": "integer"
+                        },
+                        "total_usd": {
+                          "type": "number"
+                        },
+                        "by_class": {
+                          "type": "object"
+                        },
+                        "by_service": {
+                          "type": "object"
+                        },
+                        "by_team": {
+                          "type": "object"
+                        },
+                        "chatty_pairs": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "trend": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        },
+                        "budgets": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/cis": {
       "get": {
         "operationId": "incidentCIs",

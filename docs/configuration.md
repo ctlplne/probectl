@@ -908,6 +908,20 @@ The graph feeds from eBPF/BGP/device streams + path discoveries; served at
 `GET /v1/topology` with what-if simulation at `POST /v1/topology/whatif`.
 See `docs/topology.md`.
 
+### FinOps / egress cost (S44)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_COST_ENABLED`     | `true` | cost engine over the local flow stream (volume × public pricing; no billing-API calls) |
+| `PROBECTL_COST_ZONES`       | (none) | CIDR→zone rules, e.g. `10.0.1.0/24=us-east-1a,…` (locality classification) |
+| `PROBECTL_COST_SERVICES`    | (none) | CIDR→`service:team` attribution rules (showback) |
+| `PROBECTL_COST_BUDGETS`     | (none) | monthly USD budgets, e.g. `team:payments=500` (breach = one cost-plane signal per month) |
+| `PROBECTL_COST_PRICES_FILE` | (none) | JSON price-table override; embedded public list rates otherwise (provenance + as-of surfaced) |
+| `PROBECTL_COST_PRICED`      | `true` | `false` = volume-only mode (bytes attributed, dollars never invented) |
+
+Summary at `GET /v1/cost/summary` and the Cost page; deep dashboards are
+federated to Grafana (S40). See `docs/finops.md`.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

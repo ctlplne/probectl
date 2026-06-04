@@ -209,6 +209,19 @@ func run(cmd string) error {
 	g.Go(func() error { return control.NewTopologyConsumer(resultBus, topoStore, log).Run(gctx) })
 	log.Info("topology graph enabled", "engine", cfg.TopologyEngine)
 
+	// FinOps egress cost (S44): volume x public pricing over the local flow
+	// stream — attribution, chatty-pair detection, budgets. Purely local (no
+	// billing-API calls); budget breaches are SIGNALS into incidents.
+	costEngine, costOn, err := control.BuildCost(cfg, log)
+	if err != nil {
+		return err // malformed zone/owner/budget/pricing config fails startup
+	}
+	if costOn {
+		g.Go(func() error {
+			return control.NewCostConsumer(resultBus, costEngine, correlator, log).Run(gctx)
+		})
+	}
+
 	g.Go(func() error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
@@ -250,7 +263,8 @@ func run(cmd string) error {
 		WithEndpointViews(endpointViews).
 		WithLatestResults(latestResults).
 		WithSecrets(secretsResolver). // backend health at /v1/secrets/health (S41)
-		WithTopology(topoStore)       // dependency graph + what-if (S43)
+		WithTopology(topoStore).      // dependency graph + what-if (S43)
+		WithCost(costEngine)          // FinOps summary at /v1/cost/summary (S44)
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)

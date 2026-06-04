@@ -73,6 +73,9 @@ awk -v mod="${MODULE}" '
     # httptest doubles (Vault KV2+AppRole, CCP, SigV4, AAD, SA-JWT). The
     # uncovered remainder is os.Getenv/os.ReadFile glue in FromEnv.
     floor["internal/secrets"]        = 70
+    # Mapper/classifier/pricing/engine are pure and fully unit-tested; the
+    # remainder is config-string plumbing.
+    floor["internal/cost"]           = 80
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50
