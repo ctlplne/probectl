@@ -97,7 +97,7 @@ func TestSnapshotStoreBounds(t *testing.T) {
 		s.Record("t", "ep-5", rv(TypeSession, fmt.Sprintf("svc-%02d", i), at.Add(time.Duration(i)*time.Second),
 			map[string]float64{"total_ms": 100}, nil))
 	}
-	var ep5 EndpointView
+	var ep5 View
 	for _, v := range s.List("t") {
 		if v.AgentID == "ep-5" {
 			ep5 = v

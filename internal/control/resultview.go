@@ -136,7 +136,7 @@ func NewResultViewConsumer(b bus.Bus, store *LatestResults, log *slog.Logger) *R
 // Run consumes until ctx is done; malformed messages are dropped.
 func (cs *ResultViewConsumer) Run(ctx context.Context) error {
 	return cs.bus.Subscribe(ctx, bus.NetworkResultsTopic, "result-view",
-		func(ctx context.Context, msg bus.Message) error {
+		func(_ context.Context, msg bus.Message) error {
 			var r resultv1.Result
 			if err := proto.Unmarshal(msg.Value, &r); err != nil {
 				cs.log.Warn("skipping malformed result", "error", err)

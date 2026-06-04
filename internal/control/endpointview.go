@@ -39,7 +39,7 @@ func NewEndpointViewConsumer(b bus.Bus, store *endpoint.SnapshotStore, log *slog
 // input never wedges the consumer).
 func (cs *EndpointViewConsumer) Run(ctx context.Context) error {
 	return cs.bus.Subscribe(ctx, bus.EndpointResultsTopic, "endpoint-view",
-		func(ctx context.Context, msg bus.Message) error {
+		func(_ context.Context, msg bus.Message) error {
 			var r resultv1.Result
 			if err := proto.Unmarshal(msg.Value, &r); err != nil {
 				cs.log.Warn("skipping malformed endpoint result", "error", err)
@@ -78,12 +78,12 @@ func (s *Server) handleListEndpoints(w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	if s.endpointViews == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"items": []endpoint.EndpointView{}, "collector_running": false})
+		writeJSON(w, http.StatusOK, map[string]any{"items": []endpoint.View{}, "collector_running": false})
 		return nil
 	}
 	items := s.endpointViews.List(tid)
 	if items == nil {
-		items = []endpoint.EndpointView{}
+		items = []endpoint.View{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "collector_running": true})
 	return nil

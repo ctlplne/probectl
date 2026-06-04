@@ -30,8 +30,8 @@ type ResultView struct {
 	ObservedAt time.Time          `json:"observed_at"`
 }
 
-// EndpointView is one endpoint's assembled DEM state.
-type EndpointView struct {
+// View is one endpoint's assembled DEM state.
+type View struct {
 	AgentID    string    `json:"agent_id"`
 	LastSeenAt time.Time `json:"last_seen_at"`
 
@@ -139,13 +139,13 @@ func (s *SnapshotStore) Record(tenant, agent string, rv ResultView) {
 
 // List assembles the tenant's endpoint views: impaired (slow) endpoints first,
 // then most recently seen.
-func (s *SnapshotStore) List(tenant string) []EndpointView {
+func (s *SnapshotStore) List(tenant string) []View {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	part := s.tenants[tenant]
-	out := make([]EndpointView, 0, len(part))
+	out := make([]View, 0, len(part))
 	for agent, st := range part {
-		v := EndpointView{AgentID: agent, LastSeenAt: st.lastSeen}
+		v := View{AgentID: agent, LastSeenAt: st.lastSeen}
 		if a, ok := st.byType[TypeAttribution]; ok {
 			av := a
 			v.Attribution = &av

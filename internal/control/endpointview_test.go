@@ -64,8 +64,8 @@ func TestEndpointViewEndToEnd(t *testing.T) {
 			t.Fatalf("status = %d", rec.Code)
 		}
 		var resp struct {
-			CollectorRunning bool                    `json:"collector_running"`
-			Items            []endpoint.EndpointView `json:"items"`
+			CollectorRunning bool            `json:"collector_running"`
+			Items            []endpoint.View `json:"items"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 			t.Fatal(err)
