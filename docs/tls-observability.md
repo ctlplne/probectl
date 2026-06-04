@@ -2,7 +2,7 @@
 
 probectl analyzes TLS/cert posture from the data it ALREADY captures — the HTTP
 synthetic canary (S13) and eBPF L7 (S21) — so it never re-handshakes (the S27
-watch-out). It is the certctl-adjacent security win, cheap because the handshake
+watch-out). It is the trustctl-adjacent security win, cheap because the handshake
 is captured for free.
 
 ## Flow
@@ -14,7 +14,7 @@ flowchart LR
   O --> A["Analyzer.Analyze"]
   A --> F["Findings"]
   A -. opt-in .-> CT["CT correlation (crt.sh)"]
-  F --> S["threat-plane incident signals<br/>(+ certctl handoff)"]
+  F --> S["threat-plane incident signals<br/>(+ trustctl handoff)"]
   S --> I["unified timeline + alerting (S16/S17)"]
 ```
 
@@ -28,11 +28,11 @@ Each finding is severity-scored and surfaced as a **threat-plane incident signal
 — it is a SIGNAL, not an IPS (probectl never blocks traffic; CLAUDE.md §7
 guardrail 9).
 
-## certctl handoff
+## trustctl handoff
 
-A certificate finding builds a **certctl handoff** payload — subject, issuer,
-SANs, serial, expiry, reason — and, when `PROBECTL_CERTCTL_URL` is set, a one-click
-deep-link (`<certctl>/renew?domain=…&serial=…`) carried in the signal attributes
+A certificate finding builds a **trustctl handoff** payload — subject, issuer,
+SANs, serial, expiry, reason — and, when `PROBECTL_TRUSTCTL_URL` is set, a one-click
+deep-link (`<trustctl>/renew?domain=…&serial=…`) carried in the signal attributes
 for renewal / replacement.
 
 ## CT correlation (opt-in)
@@ -66,6 +66,6 @@ served at `GET /v1/tls/posture` (RBAC `threat.read`, migration 0023;
 fleet). The web surface lives at `/security`: the certificate inventory
 (filterable by issuer/SAN text and by flag — expired/expiring/weak/self-signed/
 CT/intel), an **expiring-soon worklist** (≤30 days, soonest first), and a
-per-cert detail view whose **certctl handoff is the S27 analyzer's payload
+per-cert detail view whose **trustctl handoff is the S27 analyzer's payload
 verbatim** (copy JSON + deep link via the payload's own URL) — never re-derived
 client-side. The inventory rebuilds from the result stream after a restart.

@@ -33,7 +33,7 @@ function postureFixtures(): TLSPosture[] {
       handoff: {
         target: 'expired.acme.example:443', subject: 'CN=expired.acme.example',
         issuer: 'CN=ACME Issuing CA', serial: '0a', not_after: days(-2),
-        reason: 'cert_expired', url: 'https://certctl.acme.example/renew?serial=0a',
+        reason: 'cert_expired', url: 'https://trustctl.acme.example/renew?serial=0a',
       },
       observed_at: new Date(now).toISOString(),
     },
@@ -136,7 +136,7 @@ describe('TLS/cert posture surface (S-FE2)', () => {
     })
   })
 
-  test('detail shows findings and the VERBATIM certctl handoff payload', async () => {
+  test('detail shows findings and the VERBATIM trustctl handoff payload', async () => {
     const fixtures = postureFixtures()
     const { fetcher } = tlsBackend(fixtures)
     vi.stubGlobal('fetch', fetcher)
@@ -151,12 +151,12 @@ describe('TLS/cert posture surface (S-FE2)', () => {
     expect(within(dialog).getByText(/certificate expired 2 days ago/)).toBeDefined()
 
     // Handoff fidelity: the rendered payload IS the S27 payload, key for key.
-    const pre = within(dialog).getByLabelText('certctl handoff payload')
+    const pre = within(dialog).getByLabelText('trustctl handoff payload')
     const rendered = JSON.parse(pre.textContent ?? '{}') as Record<string, unknown>
     expect(rendered).toEqual(fixtures[0].handoff as unknown as Record<string, unknown>)
 
-    // The certctl deep link uses the payload URL untouched.
-    const link = within(dialog).getByRole('link', { name: 'Open in certctl' })
+    // The trustctl deep link uses the payload URL untouched.
+    const link = within(dialog).getByRole('link', { name: 'Open in trustctl' })
     expect(link.getAttribute('href')).toBe(fixtures[0].handoff?.url)
   })
 

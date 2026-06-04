@@ -36,7 +36,7 @@ func TestAnalyzeThreatIntelCertAndJA3(t *testing.T) {
 	if p.Severity != SeverityCritical {
 		t.Errorf("severity = %s, want critical", p.Severity)
 	}
-	// a malicious-cert finding is NOT a renewal case → no certctl handoff
+	// a malicious-cert finding is NOT a renewal case → no trustctl handoff
 	if p.Handoff != nil {
 		t.Errorf("malicious cert should not produce a renewal handoff: %+v", p.Handoff)
 	}

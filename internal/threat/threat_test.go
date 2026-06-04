@@ -32,7 +32,7 @@ func hasKind(findings []Finding, k FindingKind) bool {
 }
 
 func TestAnalyzeExpiredExpiringHealthy(t *testing.T) {
-	a := NewAnalyzer(Config{ExpiryWarning: 21 * 24 * time.Hour, CertctlURL: "https://certctl.example"}, nil)
+	a := NewAnalyzer(Config{ExpiryWarning: 21 * 24 * time.Hour, TrustctlURL: "https://trustctl.example"}, nil)
 	now := time.Now()
 
 	expired := cert(t, crypto.TestCertOptions{CommonName: "old.example", DNSNames: []string{"old.example"}, NotAfter: now.Add(-time.Hour)})
@@ -41,7 +41,7 @@ func TestAnalyzeExpiredExpiringHealthy(t *testing.T) {
 		t.Errorf("expired cert should be a critical finding, got %+v", p)
 	}
 	if p.Handoff == nil || p.Handoff.URL == "" || !strings.Contains(p.Handoff.URL, "old.example") {
-		t.Errorf("expired cert should offer a certctl handoff to the domain, got %+v", p.Handoff)
+		t.Errorf("expired cert should offer a trustctl handoff to the domain, got %+v", p.Handoff)
 	}
 
 	exp := cert(t, crypto.TestCertOptions{CommonName: "soon.example", DNSNames: []string{"soon.example"}, NotAfter: now.Add(10 * 24 * time.Hour)})
@@ -144,15 +144,15 @@ func TestToSignals(t *testing.T) {
 	p := Posture{
 		Target: "x", Source: "http", TLSVersion: "1.0",
 		Findings:   []Finding{{Kind: FindingDeprecatedTLS, Severity: SeverityWarning, Message: "deprecated TLS version 1.0"}},
-		Handoff:    &HandoffPayload{URL: "https://certctl.example/renew?domain=x"},
+		Handoff:    &HandoffPayload{URL: "https://trustctl.example/renew?domain=x"},
 		ObservedAt: time.Now(),
 	}
 	sigs := ToSignals("tenant-a", p)
 	if len(sigs) != 1 || sigs[0].Plane != "threat" || sigs[0].Kind != "tls.deprecated_protocol" || sigs[0].TenantID != "tenant-a" {
 		t.Errorf("signal = %+v", sigs)
 	}
-	if sigs[0].Attributes["certctl.handoff_url"] == "" {
-		t.Error("the certctl handoff URL should be carried in the signal attributes")
+	if sigs[0].Attributes["trustctl.handoff_url"] == "" {
+		t.Error("the trustctl handoff URL should be carried in the signal attributes")
 	}
 	if ToSignals("t", Posture{}) != nil {
 		t.Error("a clean posture should emit no signals")

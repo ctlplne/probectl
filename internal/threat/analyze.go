@@ -24,7 +24,7 @@ type CertIntel interface {
 type Config struct {
 	ExpiryWarning time.Duration    // expiring_soon window (default 21 days)
 	MinRSABits    int              // weak-key threshold for RSA (default 2048)
-	CertctlURL    string           // certctl handoff base URL (empty → no deep-link)
+	TrustctlURL   string           // trustctl handoff base URL (empty → no deep-link)
 	Now           func() time.Time // injectable clock (tests)
 }
 
@@ -181,7 +181,7 @@ func weakCipher(name string) bool {
 }
 
 // hasCertFinding reports whether any certificate-level (renewable/replaceable)
-// finding is present — the ones a certctl handoff addresses.
+// finding is present — the ones a trustctl handoff addresses.
 func hasCertFinding(findings []Finding) bool {
 	for _, f := range findings {
 		switch f.Kind {
@@ -202,8 +202,8 @@ func (a *Analyzer) buildHandoff(target string, cert Certificate, findings []Find
 		NotAfter: cert.NotAfter.UTC().Format(time.RFC3339),
 		Reason:   handoffReason(findings),
 	}
-	if a.cfg.CertctlURL != "" {
-		if u, err := url.Parse(strings.TrimRight(a.cfg.CertctlURL, "/") + "/renew"); err == nil {
+	if a.cfg.TrustctlURL != "" {
+		if u, err := url.Parse(strings.TrimRight(a.cfg.TrustctlURL, "/") + "/renew"); err == nil {
 			q := u.Query()
 			q.Set("domain", primaryDomain(cert))
 			q.Set("serial", cert.SerialNumber)

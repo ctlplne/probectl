@@ -262,14 +262,14 @@ func TestThreatTLSConfig(t *testing.T) {
 	}
 
 	cfg, err = Load(envFunc(map[string]string{
-		"PROBECTL_CERTCTL_URL":        "https://certctl.example",
+		"PROBECTL_TRUSTCTL_URL":       "https://trustctl.example",
 		"PROBECTL_TLS_EXPIRY_WARNING": "240h",
 		"PROBECTL_CT_ENABLED":         "true",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.CertctlURL != "https://certctl.example" || !cfg.CTEnabled || cfg.TLSExpiryWarning.Hours() != 240 {
+	if cfg.TrustctlURL != "https://trustctl.example" || !cfg.CTEnabled || cfg.TLSExpiryWarning.Hours() != 240 {
 		t.Errorf("threat config = %+v", cfg)
 	}
 }

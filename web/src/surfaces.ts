@@ -41,7 +41,7 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'Path / topology visualization', sprint: 'S11', kind: 'native', route: '/path' },
   { capability: 'Incidents list + cross-plane timeline', sprint: 'S17', kind: 'native', route: '/incidents' },
   { capability: 'Alerting: active alerts, silence/ack, rule config', sprint: 'S-FE1', kind: 'native', route: '/alerts' },
-  { capability: 'TLS/cert posture inventory + certctl handoff', sprint: 'S-FE2', kind: 'native', route: '/security' },
+  { capability: 'TLS/cert posture inventory + trustctl handoff', sprint: 'S-FE2', kind: 'native', route: '/security' },
   { capability: 'Threat-intel / IOC + NDR detection triage', sprint: 'S-FE3', kind: 'native', route: '/security' },
   { capability: 'Endpoint / last-mile / WiFi DEM fleet + attribution', sprint: 'S-FE4', kind: 'native', route: '/endpoints' },
   { capability: 'AI assistant (NL query + RCA with citations)', sprint: 'S24', kind: 'native', route: '/ask' },

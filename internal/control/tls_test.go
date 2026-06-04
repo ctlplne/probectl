@@ -14,7 +14,7 @@ import (
 
 // The TLS posture consumer analyzes an HTTPS result's CAPTURED TLS into a
 // threat-plane signal — an expired cert becomes a critical signal carrying a
-// certctl handoff — and ignores non-HTTPS results.
+// trustctl handoff — and ignores non-HTTPS results.
 func TestTLSPostureConsumerSignals(t *testing.T) {
 	_, der, err := crypto.GenerateTestCert(crypto.TestCertOptions{
 		CommonName: "old.example", DNSNames: []string{"old.example"}, NotAfter: time.Now().Add(-time.Hour),
@@ -23,7 +23,7 @@ func TestTLSPostureConsumerSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	cs := NewTLSPostureConsumer(nil, nil,
-		BuildTLSAnalyzer(&config.Config{CertctlURL: "https://certctl.example", TLSExpiryWarning: 21 * 24 * time.Hour}), nil)
+		BuildTLSAnalyzer(&config.Config{TrustctlURL: "https://trustctl.example", TLSExpiryWarning: 21 * 24 * time.Hour}), nil)
 
 	r := &resultv1.Result{
 		TenantId:          "t",
@@ -51,8 +51,8 @@ func TestTLSPostureConsumerSignals(t *testing.T) {
 	if expired.Plane != "threat" || expired.Severity != incident.SeverityCritical {
 		t.Errorf("expired posture signal = %+v", expired)
 	}
-	if expired.Attributes["certctl.handoff_url"] == "" {
-		t.Error("an expired-cert signal should carry a certctl handoff URL")
+	if expired.Attributes["trustctl.handoff_url"] == "" {
+		t.Error("an expired-cert signal should carry a trustctl handoff URL")
 	}
 
 	if cs.analyzeAndRecord(context.Background(), &resultv1.Result{CanaryType: "icmp"}) != nil {

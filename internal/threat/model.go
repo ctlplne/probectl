@@ -83,7 +83,7 @@ type Finding struct {
 	Indicator  string      `json:"indicator,omitempty"`  // the matched IOC value
 }
 
-// HandoffPayload is the certctl renewal/replace handoff for a certificate finding.
+// HandoffPayload is the trustctl renewal/replace handoff for a certificate finding.
 type HandoffPayload struct {
 	Target   string   `json:"target"`
 	Subject  string   `json:"subject"`
@@ -92,7 +92,7 @@ type HandoffPayload struct {
 	Serial   string   `json:"serial"`
 	NotAfter string   `json:"not_after"`
 	Reason   string   `json:"reason"`
-	URL      string   `json:"url,omitempty"` // deep-link into certctl (when configured)
+	URL      string   `json:"url,omitempty"` // deep-link into trustctl (when configured)
 }
 
 // Posture is the analyzed TLS/cert posture for a target.

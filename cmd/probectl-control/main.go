@@ -268,7 +268,7 @@ func run(cmd string) error {
 	}
 
 	// TLS/cert posture (S27): analyze captured TLS from HTTPS synthetic results
-	// into threat-plane incidents (expiry/weakness + a certctl renewal handoff),
+	// into threat-plane incidents (expiry/weakness + a trustctl renewal handoff),
 	// reusing already-captured TLS — never re-handshaking. When threat-intel is on,
 	// the analyzer also scores the leaf cert SHA1 + JA3 against IOCs (S28).
 	tlsAnalyzer := control.BuildTLSAnalyzer(cfg)

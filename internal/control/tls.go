@@ -25,7 +25,7 @@ func BuildTLSAnalyzer(cfg *config.Config) *threat.Analyzer {
 	}
 	return threat.NewAnalyzer(threat.Config{
 		ExpiryWarning: cfg.TLSExpiryWarning,
-		CertctlURL:    cfg.CertctlURL,
+		TrustctlURL:   cfg.TrustctlURL,
 	}, ct)
 }
 

@@ -23,7 +23,7 @@ func (s *Server) WithTLSPosture(ps *threat.PostureStore) *Server {
 
 // handleTLSPosture serves GET /v1/tls/posture — the tenant's certificate
 // inventory (latest analyzed posture per target, flagged findings + the
-// verbatim certctl handoff payload). collector_running=false distinguishes
+// verbatim trustctl handoff payload). collector_running=false distinguishes
 // "no HTTPS targets observed" from "the collector is not wired".
 func (s *Server) handleTLSPosture(w http.ResponseWriter, r *http.Request) error {
 	tid, err := s.principalTenant(r)

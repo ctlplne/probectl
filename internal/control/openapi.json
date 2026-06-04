@@ -2272,7 +2272,7 @@
         "tags": [
           "tls"
         ],
-        "description": "The caller's tenant's certificate inventory from the S27 posture pipeline: per-target leaf certificate, protocol/cipher, weakness/CT/threat-intel findings, severity, and the verbatim certctl handoff payload. collector_running=false distinguishes an unwired collector from an empty fleet.",
+        "description": "The caller's tenant's certificate inventory from the S27 posture pipeline: per-target leaf certificate, protocol/cipher, weakness/CT/threat-intel findings, severity, and the verbatim trustctl handoff payload. collector_running=false distinguishes an unwired collector from an empty fleet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"

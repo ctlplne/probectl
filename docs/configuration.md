@@ -793,7 +793,7 @@ See [`tls-observability.md`](tls-observability.md).
 
 | Variable                    | Default        | Description                                                       |
 | --------------------------- | -------------- | ----------------------------------------------------------------- |
-| `PROBECTL_CERTCTL_URL`        | (none)         | certctl base URL; enables a one-click renewal deep-link on findings |
+| `PROBECTL_TRUSTCTL_URL`        | (none)         | trustctl base URL; enables a one-click renewal deep-link on findings |
 | `PROBECTL_TLS_EXPIRY_WARNING` | `504h` (21d)   | expiring-soon window                                              |
 | `PROBECTL_CT_ENABLED`         | `false`        | opt in to Certificate Transparency correlation (external fetch)   |
 | `PROBECTL_CT_ENDPOINT`        | `https://crt.sh` | CT log API endpoint                                             |

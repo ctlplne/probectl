@@ -155,10 +155,10 @@ type Config struct {
 	MCPRatePerMin  int
 
 	// Security / threat (S27): TLS/cert posture over already-captured TLS (S13/S21).
-	// CertctlURL deep-links cert findings to certctl for renewal; TLSExpiryWarning
+	// TrustctlURL deep-links cert findings to trustctl for renewal; TLSExpiryWarning
 	// is the expiring-soon window. CT correlation is OPT-IN (CTEnabled) — an
 	// external fetch (AUP / sovereignty / no-phone-home), off by default.
-	CertctlURL       string
+	TrustctlURL      string
 	TLSExpiryWarning time.Duration
 	CTEnabled        bool
 	CTEndpoint       string
@@ -304,7 +304,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		MCPTLSCertFile:      l.str("PROBECTL_MCP_TLS_CERT_FILE", ""),
 		MCPTLSKeyFile:       l.str("PROBECTL_MCP_TLS_KEY_FILE", ""),
 		MCPRatePerMin:       l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000),
-		CertctlURL:          l.str("PROBECTL_CERTCTL_URL", ""),
+		TrustctlURL:         l.str("PROBECTL_TRUSTCTL_URL", ""),
 		TLSExpiryWarning:    l.dur("PROBECTL_TLS_EXPIRY_WARNING", 21*24*time.Hour),
 		CTEnabled:           l.boolean("PROBECTL_CT_ENABLED", false),
 		CTEndpoint:          l.str("PROBECTL_CT_ENDPOINT", "https://crt.sh"),

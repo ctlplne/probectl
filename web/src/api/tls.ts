@@ -4,7 +4,7 @@ import { apiFetch } from './client'
 /**
  * The S27 TLS/cert posture API (surface: S-FE2). The inventory is the latest
  * analyzed posture per target — leaf certificate, protocol/cipher, weakness/
- * CT/threat-intel findings, and the VERBATIM certctl handoff payload (the UI
+ * CT/threat-intel findings, and the VERBATIM trustctl handoff payload (the UI
  * forwards it as-is, never re-derives it).
  */
 
@@ -31,7 +31,7 @@ export interface TLSFinding {
   indicator?: string
 }
 
-export interface CertctlHandoff {
+export interface TrustctlHandoff {
   target: string
   subject: string
   issuer: string
@@ -50,7 +50,7 @@ export interface TLSPosture {
   leaf?: TLSCertificate
   findings: TLSFinding[] | null
   severity: 'info' | 'warning' | 'critical'
-  handoff?: CertctlHandoff
+  handoff?: TrustctlHandoff
   observed_at: string
 }
 

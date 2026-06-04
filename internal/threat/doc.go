@@ -7,7 +7,7 @@
 // reads the captured TLS version + cipher, optionally correlates against
 // Certificate Transparency logs for issuance anomalies, flags deprecated
 // protocols / weak ciphers / expired-or-expiring / self-signed / weak-key /
-// untrusted-chain, builds a certctl renewal handoff, and emits threat-plane
+// untrusted-chain, builds a trustctl renewal handoff, and emits threat-plane
 // incident signals (feeding the unified timeline + alerting, S16/S17).
 //
 // Threat detections here are SIGNALS, not an IPS (CLAUDE.md §7 guardrail 9):

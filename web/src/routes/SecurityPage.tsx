@@ -59,7 +59,7 @@ function flagBadges(p: TLSPosture) {
   )
 }
 
-/** PostureDetail shows one target's full posture + the certctl handoff. The
+/** PostureDetail shows one target's full posture + the trustctl handoff. The
  *  handoff payload is the S27 analyzer's, forwarded VERBATIM (never re-derived
  *  client-side — the 'watch out for'). */
 function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () => void }) {
@@ -135,8 +135,8 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
 
       {posture.handoff ? (
         <>
-          <h3>certctl handoff</h3>
-          <pre className={styles.handoff} aria-label="certctl handoff payload">
+          <h3>trustctl handoff</h3>
+          <pre className={styles.handoff} aria-label="trustctl handoff payload">
             {handoffJSON}
           </pre>
           <div className={styles.actionsRow}>
@@ -145,7 +145,7 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
             </Button>
             {posture.handoff.url ? (
               <a href={posture.handoff.url} target="_blank" rel="noreferrer">
-                Open in certctl
+                Open in trustctl
               </a>
             ) : null}
           </div>
@@ -363,7 +363,7 @@ function matchesFlag(p: TLSPosture, f: FlagFilter): boolean {
 
 /** SecurityPage is the security-plane surface: threat/IOC triage (S-FE3,
  *  fed by S28 + later S42) over the TLS/cert posture inventory, worklist, and
- *  certctl handoff (S-FE2). */
+ *  trustctl handoff (S-FE2). */
 export function SecurityPage() {
   const posture = useTLSPosture()
   const [text, setText] = useState('')
