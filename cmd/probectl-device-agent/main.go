@@ -7,9 +7,12 @@
 // interface inventory that correlates path hops and flow records onto devices.
 //
 // Credentials are referenced by NAME and resolved through the CredentialSource
-// seam — the environment provider (PROBECTL_DEVICE_CRED_<NAME>_*) is the
-// pre-S41 default; S41 plugs Vault/CyberArk into the same seam. Secrets are
-// never logged. See docs/device-telemetry.md.
+// seam: the PROBECTL_DEVICE_CRED_<NAME>_* environment layout, where each field
+// value may be a SECRET REFERENCE (S41 — env:/vault:/cyberark:/aws:/azure:/gcp:)
+// resolved through the secret backends configured in the environment, with
+// short-lived leases and per-poll re-resolution. Plain values pass through as
+// literals. Secrets are never logged. See docs/secrets.md and
+// docs/device-telemetry.md.
 package main
 
 import (
@@ -24,6 +27,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/secrets"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
@@ -62,7 +66,20 @@ func run() error {
 	}
 	defer func() { _ = b.Close() }()
 
-	rt, err := device.New(cfg, device.NewBusEmitter(b, cfg.TenantID), nil, log)
+	// S41: device credentials resolve through the secret backends configured in
+	// the environment. Plain env values keep working (literal passthrough); a
+	// misconfigured backend fails closed at startup.
+	res, err := secrets.FromEnv(0)
+	if err != nil {
+		return err
+	}
+	creds, err := device.NewSecretsCredentials(nil, res.Resolve)
+	if err != nil {
+		return err
+	}
+	log.Info("secret backends configured", "schemes", res.Schemes())
+
+	rt, err := device.New(cfg, device.NewBusEmitter(b, cfg.TenantID), creds, log)
 	if err != nil {
 		return err
 	}

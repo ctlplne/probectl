@@ -46,6 +46,7 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'Endpoint / last-mile / WiFi DEM fleet + attribution', sprint: 'S-FE4', kind: 'native', route: '/endpoints' },
   { capability: 'AI assistant (NL query + RCA with citations)', sprint: 'S24', kind: 'native', route: '/ask' },
   { capability: 'Agent fleet admin', sprint: 'S9', kind: 'native', route: '/admin' },
+  { capability: 'Secret-backend config + credential health', sprint: 'S41', kind: 'native', route: '/admin' },
 
   // --- federated surfaces (by design) ---
   {

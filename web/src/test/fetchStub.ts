@@ -38,6 +38,11 @@ export function defaultFetch(): typeof fetch {
     if (url.endsWith('/v1/threat/detections')) return jsonResponse({ items: [], detections_running: true })
     if (url.endsWith('/v1/endpoints')) return jsonResponse({ items: [], collector_running: true })
     if (url.endsWith('/v1/results/latest')) return jsonResponse({ items: [], collector_running: true })
+    if (url.endsWith('/v1/secrets/health'))
+      return jsonResponse({
+        resolver_running: true,
+        backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
+      })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
   }) as unknown as typeof fetch
 }

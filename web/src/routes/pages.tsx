@@ -25,6 +25,7 @@ import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
 import { ResultDetail } from './ResultDetail'
 import { useAgents, type Agent } from '../api/agents'
+import { useSecretsHealth, type SecretBackendHealth } from '../api/secrets'
 
 export function Page({
   title,
@@ -255,7 +256,80 @@ export function TargetsPage() {
   )
 }
 
-// --- Admin & Settings: the agent fleet (live /v1/agents) ---
+// --- Admin & Settings: the agent fleet (live /v1/agents) + secret-backend
+// health (S41, live /v1/secrets/health) ---
+
+/** SecretBackendsCard is the S41 surface: per-backend credential-resolution
+ * health. No secret material ever reaches this card — the API serves counters
+ * and redacted errors only. resolver_running=false renders as the honest
+ * "not wired" empty state, never as a healthy zero. */
+function SecretBackendsCard() {
+  const { data, isPending, isError } = useSecretsHealth()
+
+  const columns: Column<SecretBackendHealth>[] = [
+    { key: 'scheme', header: 'Backend', render: (b) => <code>{b.scheme}</code> },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (b) =>
+        !b.configured ? (
+          <StatusDot tone="neutral" label="Not configured" />
+        ) : b.failures > 0 && (!b.last_ok || (b.last_error_at && b.last_error_at > b.last_ok)) ? (
+          <StatusDot tone="danger" label="Failing" />
+        ) : (
+          <StatusDot tone="success" label="OK" />
+        ),
+    },
+    { key: 'resolves', header: 'Resolves', render: (b) => b.resolves },
+    { key: 'failures', header: 'Failures', render: (b) => b.failures },
+    {
+      key: 'leases',
+      header: 'Live leases',
+      render: (b) => (b.cached_leases > 0 ? <Badge tone="info">{b.cached_leases}</Badge> : '0'),
+    },
+    {
+      key: 'last',
+      header: 'Last error',
+      render: (b) => (b.last_error ? <code>{b.last_error}</code> : '—'),
+    },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="Secret backends"
+        description="Credential resolution (Vault / CyberArk / cloud KMS). Values are sealed in memory with short-lived leases; failures fail closed."
+      />
+      <CardBody>
+        {isPending ? (
+          <LoadingState label="Loading secret-backend health…" />
+        ) : isError ? (
+          <ErrorState description="Could not load secret-backend health." />
+        ) : !data?.resolver_running ? (
+          <EmptyState
+            icon="admin"
+            title="Secrets resolver not wired"
+            description="The control plane started without a secrets resolver — credential references cannot resolve."
+          />
+        ) : (
+          <Table
+            caption="Secret backend health"
+            columns={columns}
+            rows={data.backends}
+            rowKey={(b) => b.scheme}
+            empty={
+              <EmptyState
+                icon="admin"
+                title="No backends configured"
+                description="Set PROBECTL_SECRETS_VAULT_ADDR (or CyberArk / cloud credentials) to enable secret references."
+              />
+            }
+          />
+        )}
+      </CardBody>
+    </Card>
+  )
+}
 
 export function AdminPage() {
   const { data, isPending, isError } = useAgents()
@@ -303,6 +377,7 @@ export function AdminPage() {
           )}
         </CardBody>
       </Card>
+      <SecretBackendsCard />
     </Page>
   )
 }

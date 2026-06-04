@@ -39,8 +39,13 @@ var ocLeafMetrics = map[string]struct {
 // default), subscribe SAMPLE on the configured paths, normalize notifications,
 // and reconnect with backoff until the context ends.
 type gnmiCollector struct {
-	dev    Target
+	dev Target
+	// cred is the static credential (tests). credFn, when set, RE-RESOLVES the
+	// credential on every (re)connect so rotated secrets apply without an
+	// agent restart (S41); a failing resolve fails the attempt — fail closed —
+	// and the run loop's backoff retries.
 	cred   Credential
+	credFn func() (Credential, error)
 	tenant string
 	agent  string
 	emit   Emitter
@@ -79,6 +84,13 @@ func (c *gnmiCollector) run(ctx context.Context) {
 
 // streamOnce dials, subscribes, and pumps notifications until the stream ends.
 func (c *gnmiCollector) streamOnce(ctx context.Context) error {
+	cred := c.cred
+	if c.credFn != nil {
+		var err error
+		if cred, err = c.credFn(); err != nil {
+			return fmt.Errorf("gnmi credential resolve %s: %w", c.dev.Address, err)
+		}
+	}
 	opts, err := c.transport()
 	if err != nil {
 		return err
@@ -95,9 +107,9 @@ func (c *gnmiCollector) streamOnce(ctx context.Context) error {
 	defer conn.Close()
 
 	sctx := ctx
-	if c.cred.Username != "" {
+	if cred.Username != "" {
 		sctx = metadata.AppendToOutgoingContext(ctx,
-			"username", c.cred.Username, "password", c.cred.Password)
+			"username", cred.Username, "password", cred.Password)
 	}
 	stream, err := gnmipb.NewGNMIClient(conn).Subscribe(sctx)
 	if err != nil {

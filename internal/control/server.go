@@ -99,6 +99,10 @@ type Server struct {
 	// agent). Set via WithLatestResults; nil reports collector_running=false.
 	latestResults *LatestResults
 
+	// Secret-backend health (S41): the secrets resolver's operational
+	// snapshot. Set via WithSecrets; nil reports resolver_running=false.
+	secretsHealth SecretsHealthSource
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool

@@ -17,8 +17,12 @@ type Client struct {
 }
 
 // Dial connects to the control plane over mTLS (TLS policy from internal/crypto).
+// The client certificate is loaded through a rotating identity (S41): when
+// trustctl renews the agent's cert/key in place, the next handshake — including
+// gRPC's automatic reconnects — presents the renewed certificate without an
+// agent restart.
 func Dial(addr, certFile, keyFile, caFile, serverName string) (*Client, error) {
-	cfg, err := crypto.ClientMTLSConfig(certFile, keyFile, caFile)
+	cfg, _, err := crypto.ClientMTLSConfigRotating(certFile, keyFile, caFile, "")
 	if err != nil {
 		return nil, err
 	}

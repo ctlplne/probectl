@@ -36,6 +36,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/imfeelingtheagi/probectl/internal/secrets"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
@@ -77,6 +78,18 @@ func run(cmd string) error {
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+	// S41: integration credentials (OIDC client secret, CMDB, AI model, SIEM,
+	// webhook/connector secrets) may be SECRET REFERENCES — resolve them through
+	// the backends configured in the environment before anything consumes them.
+	// Plain values pass through; any resolution failure aborts startup (fail
+	// closed — never run with a partially-resolved credential set).
+	secretsResolver, err := secrets.FromEnv(0)
+	if err != nil {
+		return fmt.Errorf("secret backends: %w", err)
+	}
+	if err := cfg.ResolveSecretRefs(context.Background(), secretsResolver.Resolve); err != nil {
+		return err
 	}
 	// mcp-stdio uses stdout for its JSON-RPC channel, so its logs go to stderr.
 	logOut := os.Stdout
@@ -221,7 +234,8 @@ func run(cmd string) error {
 		WithTLSPosture(tlsPostures).
 		WithDetections(detections).
 		WithEndpointViews(endpointViews).
-		WithLatestResults(latestResults)
+		WithLatestResults(latestResults).
+		WithSecrets(secretsResolver) // backend health at /v1/secrets/health (S41)
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)

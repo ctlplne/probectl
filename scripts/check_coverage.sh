@@ -69,6 +69,10 @@ awk -v mod="${MODULE}" '
     # Resolver/cache/canonicalization + the ServiceNow client vs an httptest
     # Table-API double.
     floor["internal/cmdb"]           = 75
+    # Ref grammar, sealed-lease resolver, and all six backends run against
+    # httptest doubles (Vault KV2+AppRole, CCP, SigV4, AAD, SA-JWT). The
+    # uncovered remainder is os.Getenv/os.ReadFile glue in FromEnv.
+    floor["internal/secrets"]        = 70
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

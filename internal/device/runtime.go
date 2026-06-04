@@ -16,6 +16,9 @@ type Stats struct {
 	Metrics     atomic.Uint64
 	EmitErrors  atomic.Uint64
 	GNMIStreams atomic.Uint64
+	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
+	// the cycle is SKIPPED — fail closed, never poll with stale material).
+	CredErrors atomic.Uint64
 }
 
 // Runtime drives one collector process: an SNMP poll loop per SNMP device and
@@ -70,6 +73,7 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 		"metrics":      r.stats.Metrics.Load(),
 		"emit_errors":  r.stats.EmitErrors.Load(),
 		"gnmi_streams": r.stats.GNMIStreams.Load(),
+		"cred_errors":  r.stats.CredErrors.Load(),
 	}
 }
 
@@ -78,26 +82,30 @@ func (r *Runtime) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	for _, dev := range r.cfg.Devices {
 		dev := dev
-		cred, err := r.creds.Resolve(dev.Credential)
-		if err != nil {
+		if _, err := r.creds.Resolve(dev.Credential); err != nil {
 			// A typo'd credential reference must surface immediately, not poll
 			// unauthenticated forever (guardrail 6 / fail closed).
 			return err
 		}
+		// Re-resolve per cycle/connection (S41): the secrets backend's lease
+		// cache makes this cheap, and rotated credentials are picked up
+		// without an agent restart. A failing backend skips the cycle — fail
+		// closed, never a stale credential.
+		credFn := func() (Credential, error) { return r.creds.Resolve(dev.Credential) }
 		wg.Add(1)
 		switch dev.Transport {
 		case TransportGNMI:
 			go func() {
 				defer wg.Done()
 				r.stats.GNMIStreams.Add(1)
-				c := &gnmiCollector{dev: dev, cred: cred, tenant: r.cfg.TenantID,
+				c := &gnmiCollector{dev: dev, credFn: credFn, tenant: r.cfg.TenantID,
 					agent: r.cfg.AgentID, emit: r.emit, log: r.log}
 				c.run(ctx)
 			}()
 		default: // snmpv2c | snmpv3 (validated)
 			go func() {
 				defer wg.Done()
-				r.pollLoop(ctx, dev, cred)
+				r.pollLoop(ctx, dev, credFn)
 			}()
 		}
 	}
@@ -121,13 +129,20 @@ func (r *Runtime) Run(ctx context.Context) error {
 	}
 }
 
-// pollLoop polls one SNMP device on its interval: dial -> poll -> emit ->
-// correlate, redialing on every cycle (devices reboot; sessions go stale).
-func (r *Runtime) pollLoop(ctx context.Context, dev Target, cred Credential) {
+// pollLoop polls one SNMP device on its interval: re-resolve credential ->
+// dial -> poll -> emit -> correlate, redialing on every cycle (devices
+// reboot; sessions go stale; credentials rotate — S41).
+func (r *Runtime) pollLoop(ctx context.Context, dev Target, credFn func() (Credential, error)) {
 	ticker := time.NewTicker(dev.Interval)
 	defer ticker.Stop()
 	for {
-		r.pollOnce(ctx, dev, cred)
+		if cred, err := credFn(); err != nil {
+			r.stats.CredErrors.Add(1)
+			r.log.Warn("device credential resolve failed; skipping cycle",
+				"device", dev.Address, "error", err.Error())
+		} else {
+			r.pollOnce(ctx, dev, cred)
+		}
 		select {
 		case <-ctx.Done():
 			return

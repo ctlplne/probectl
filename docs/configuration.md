@@ -898,6 +898,37 @@ endpoint is the `…/api/now/table/incident` URL. Inbound deliveries must includ
 unsigned or forged delivery is rejected (`401`). Secrets are runtime config —
 inject them from a secret manager, never commit them.
 
+### Secrets integration (S41)
+
+Any credential value in this document may be a **secret reference** instead of
+the literal material — `env:NAME`, `vault:<mount>/<path>#<field>`,
+`cyberark:<query>`, `aws:<id>[#<json-field>]`, `azure:<vault>/<name>`,
+`gcp:<project>/<secret>[/<version>]`, or `literal:<value>` as the escape
+hatch. The control plane resolves `PROBECTL_OIDC_CLIENT_SECRET`,
+`PROBECTL_CMDB_SECRET`, `PROBECTL_AI_MODEL_TOKEN`, `PROBECTL_SIEM_TOKEN`, and
+the secret parts of `PROBECTL_CHANGE_WEBHOOKS` / `PROBECTL_NOTIFY_CONNECTORS` /
+`PROBECTL_NOTIFY_INBOUND` at startup (fail closed); the device agent resolves
+every `PROBECTL_DEVICE_CRED_<NAME>_*` value per poll cycle. Resolved values are
+cached only encrypted, for a short lease (5 m). See `docs/secrets.md`.
+
+Backend access settings (environment only; all over verified TLS):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_SECRETS_VAULT_ADDR`      | (none) | Vault base URL; enables `vault:` references |
+| `PROBECTL_SECRETS_VAULT_TOKEN`     | (none) | static Vault token (alternative to AppRole) |
+| `PROBECTL_SECRETS_VAULT_ROLE_ID` / `_SECRET_ID` | (none) | AppRole login; the lease-aware client token is renewed at ⅔ TTL |
+| `PROBECTL_SECRETS_VAULT_NAMESPACE` | (none) | `X-Vault-Namespace` (Vault Enterprise) |
+| `PROBECTL_SECRETS_CYBERARK_URL`    | (none) | CyberArk CCP base URL; enables `cyberark:` |
+| `PROBECTL_SECRETS_CYBERARK_APP_ID` | (none) | CCP AppID |
+| `PROBECTL_SECRETS_CYBERARK_CERT_FILE` / `_KEY_FILE` / `_CA_FILE` | (none) | optional CCP client-certificate auth |
+| `AWS_REGION` (or `AWS_DEFAULT_REGION`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | (none) | enables `aws:` (Secrets Manager, SigV4) |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | (none) | enables `azure:` (Key Vault) |
+| `GOOGLE_APPLICATION_CREDENTIALS` | (none) | service-account key file; enables `gcp:` (Secret Manager) |
+
+Backend health (counters + redacted last error, never secret material) is
+served at `GET /v1/secrets/health` and on the Admin page.
+
 ## Local dev stack (`deploy/compose/dev.yml`)
 
 Started with `make compose-up`. **Local, non-production** defaults — plaintext

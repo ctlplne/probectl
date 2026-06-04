@@ -3,7 +3,7 @@
   "info": {
     "title": "probectl control-plane API",
     "version": "0.1.0",
-    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Probectl-Tenant override) \u2014 real identity (SSO/SCIM, per-tenant IdP) lands in S18."
+    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Probectl-Tenant override) — real identity (SSO/SCIM, per-tenant IdP) lands in S18."
   },
   "servers": [
     {
@@ -814,7 +814,7 @@
             "name": "tenant",
             "in": "query",
             "required": false,
-            "description": "Tenant UUID to log into; omitted \u2192 the default tenant.",
+            "description": "Tenant UUID to log into; omitted → the default tenant.",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -1002,7 +1002,7 @@
         },
         "responses": {
           "200": {
-            "description": "A schema-valid test proposal \u2014 NOT created; apply via POST /v1/tests.",
+            "description": "A schema-valid test proposal — NOT created; apply via POST /v1/tests.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1048,7 +1048,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Ranked discovery proposals \u2014 none are created.",
+            "description": "Ranked discovery proposals — none are created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2002,6 +2002,73 @@
         "description": "Read-only CI lookup against the configured CMDB provider (ServiceNow). 503 when no provider is configured."
       }
     },
+    "/v1/secrets/health": {
+      "get": {
+        "operationId": "getSecretsHealth",
+        "summary": "Secret-backend health (S41)",
+        "tags": [
+          "secrets"
+        ],
+        "description": "Per-backend operational health of the S41 secrets resolver: configured schemes (env/vault/cyberark/aws/azure/gcp), resolve/failure counters, live (unexpired) lease counts, last success time, and the last REDACTED error. Never contains secret material or reference fragments. resolver_running=false distinguishes an unwired resolver from a healthy-but-idle one. Requires directory read (admin surface).",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The per-backend health snapshots.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "resolver_running": {
+                      "type": "boolean"
+                    },
+                    "backends": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "scheme": {
+                            "type": "string"
+                          },
+                          "configured": {
+                            "type": "boolean"
+                          },
+                          "resolves": {
+                            "type": "integer"
+                          },
+                          "failures": {
+                            "type": "integer"
+                          },
+                          "last_ok": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "last_error": {
+                            "type": "string",
+                            "description": "Redacted; never secret material."
+                          },
+                          "last_error_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "cached_leases": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/cis": {
       "get": {
         "operationId": "incidentCIs",
@@ -2343,7 +2410,7 @@
         "tags": [
           "threat"
         ],
-        "description": "The caller's tenant's recent threat detections (newest first): the flagged entity, the matched indicator, the attributing feed/detector with confidence and license, and the correlated incident id (the triage pivot). Detections are confidence-scored SIGNALS \u2014 probectl never blocks \u2014 and feeds can list benign infrastructure, so provenance ships verbatim. detections_running=false distinguishes unwired consumers from a quiet tenant.",
+        "description": "The caller's tenant's recent threat detections (newest first): the flagged entity, the matched indicator, the attributing feed/detector with confidence and license, and the correlated incident id (the triage pivot). Detections are confidence-scored SIGNALS — probectl never blocks — and feeds can list benign infrastructure, so provenance ships verbatim. detections_running=false distinguishes unwired consumers from a quiet tenant.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2426,7 +2493,7 @@
         "tags": [
           "endpoints"
         ],
-        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence \u2014 impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. collector_running=false distinguishes an unwired consumer from an empty fleet.",
+        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence — impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. collector_running=false distinguishes an unwired consumer from an empty fleet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2503,7 +2570,7 @@
         "tags": [
           "tests"
         ],
-        "description": "The caller's tenant's newest result per synthetic series, carrying the full per-type detail (DNS rcode/answers/DNSSEC, HTTP dns/connect/tls/ttfb waterfall phases, ICMP/TCP/UDP latency families + loss) \u2014 the read model behind the test-result views (S-FE5). collector_running=false distinguishes an unwired consumer from no results yet.",
+        "description": "The caller's tenant's newest result per synthetic series, carrying the full per-type detail (DNS rcode/answers/DNSSEC, HTTP dns/connect/tls/ttfb waterfall phases, ICMP/TCP/UDP latency families + loss) — the read model behind the test-result views (S-FE5). collector_running=false distinguishes an unwired consumer from no results yet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2577,7 +2644,7 @@
         "name": "X-Probectl-Tenant",
         "in": "header",
         "required": false,
-        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted \u2192 the default tenant. Replaced by session-resolved identity in S18.",
+        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted → the default tenant. Replaced by session-resolved identity in S18.",
         "schema": {
           "type": "string",
           "format": "uuid"
