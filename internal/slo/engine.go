@@ -135,11 +135,11 @@ func (e *Engine) ObserveResult(tenant, canaryType, target string, success bool, 
 			continue
 		}
 		st := e.state(tenant, s.Name)
-		min := at.UTC().Truncate(time.Minute).Unix()
-		b, ok := st.buckets[min]
+		minute := at.UTC().Truncate(time.Minute).Unix()
+		b, ok := st.buckets[minute]
 		if !ok {
 			b = &minuteBucket{}
-			st.buckets[min] = b
+			st.buckets[minute] = b
 			st.prune(s.Window, at)
 		}
 		b.total++

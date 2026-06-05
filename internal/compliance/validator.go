@@ -202,10 +202,7 @@ func (e *Engine) Observe(tenant string, f FlowObs) []incident.Signal {
 				st.last = f.At
 			}
 			if len(st.samples) < maxSamples {
-				st.samples = append(st.samples, ViolationSample{
-					Src: f.Src, Dst: f.Dst, DstPort: f.DstPort, Bytes: f.Bytes,
-					Source: f.Source, At: f.At,
-				})
+				st.samples = append(st.samples, ViolationSample(f))
 			}
 			if !st.alerted {
 				st.alerted = true
