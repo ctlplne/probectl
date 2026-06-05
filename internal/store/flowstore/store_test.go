@@ -164,7 +164,7 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	if err := tq.normalize(); err != nil {
 		t.Fatal(err)
 	}
-	sql := topSQL(tq)
+	sql := topSQL(tq, sharedFlowsTable)
 	if !strings.Contains(sql, `WHERE tenant_id='t-a\'; DROP TABLE x--'`) {
 		t.Fatalf("tenant literal not escaped/leading: %s", sql)
 	}
@@ -176,7 +176,7 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	if err := cq.normalize(); err != nil {
 		t.Fatal(err)
 	}
-	csql := capacitySQL(cq)
+	csql := capacitySQL(cq, sharedFlowsTable)
 	for _, want := range []string{"WHERE tenant_id='t-a'", "out_if AS iface", "INTERVAL 300 second", "exporter='r1'"} {
 		if !strings.Contains(csql, want) {
 			t.Fatalf("capacity sql missing %q: %s", want, csql)
@@ -186,7 +186,7 @@ func TestClickHouseSQLTenantGuard(t *testing.T) {
 	// ASN grouping excludes the zero ASN and carries the org name.
 	aq := TopQuery{TenantID: "t-a", By: BySrcASN, Window: time.Hour, Now: now}
 	_ = aq.normalize()
-	asql := topSQL(aq)
+	asql := topSQL(aq, sharedFlowsTable)
 	if !strings.Contains(asql, "src_asn != 0") || !strings.Contains(asql, "any(src_as_name)") {
 		t.Fatalf("asn sql = %s", asql)
 	}
@@ -199,7 +199,7 @@ func TestDDLShape(t *testing.T) {
 		"ORDER BY (tenant_id, ts, exporter",
 		"IF NOT EXISTS",
 	} {
-		if !strings.Contains(createFlows, want) {
+		if !strings.Contains(createFlowsDDL(sharedFlowsTable), want) {
 			t.Errorf("DDL missing %q", want)
 		}
 	}

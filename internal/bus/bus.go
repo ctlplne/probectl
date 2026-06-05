@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 )
 
 // NetworkResultsTopic is the topic for network-plane probe results (S6). The
@@ -67,6 +69,30 @@ type Bus interface {
 	Subscribe(ctx context.Context, topic, group string, handler Handler) error
 	// Close releases resources.
 	Close() error
+}
+
+// namespaceRe is the shape a per-tenant topic namespace must have (S-T2,
+// siloed bus isolation): lowercase alphanumerics and hyphens, no dots — it
+// becomes one topic segment.
+var namespaceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+
+// ValidNamespace reports whether ns can namespace topics ("" = shared).
+func ValidNamespace(ns string) bool { return ns == "" || namespaceRe.MatchString(ns) }
+
+// TopicFor namespaces a base topic for a siloed tenant (S-T2):
+// TopicFor("t-acme", "probectl.network.results") = "probectl.t-acme.network.results".
+// An empty or invalid namespace returns the shared topic unchanged — the
+// namespace is a delivery LANE; the tenant boundary stays the tenant-keyed
+// message either way, and storage-level isolation is enforced by the stores.
+func TopicFor(namespace, base string) string {
+	if namespace == "" || !namespaceRe.MatchString(namespace) {
+		return base
+	}
+	rest, ok := strings.CutPrefix(base, "probectl.")
+	if !ok {
+		return base
+	}
+	return "probectl." + namespace + "." + rest
 }
 
 // New builds a Bus for the given mode. "memory" (or empty) is the lightweight

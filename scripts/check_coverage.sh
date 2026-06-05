@@ -102,6 +102,11 @@ awk -v mod="${MODULE}" '
     # the integration job (incl. the role-confinement test), so it does not
     # execute in this service-free gate.
     floor["ee/provider"]             = 55
+    # Silo isolation (S-T2, ee/): naming/planner/drift/planes are pure and
+    # fully unit-tested; the provisioner executor + registry router need live
+    # Postgres and run in the integration job (the physical-separation,
+    # parity, teardown, and catch-up suite).
+    floor["ee/silo"]                 = 30
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

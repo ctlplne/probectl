@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // DefaultRunTimeout bounds a single transaction run when none is configured.
@@ -133,7 +134,15 @@ func (f *Fleet) storeArtifact(ctx context.Context, tenant string, s Script, res 
 	if res.Success && !f.cfg.StoreOnSuccess {
 		return
 	}
-	key := objectstore.TenantKey(tenant, "browser",
+	// Isolation-routed key (S-T2): siloed/hybrid tenants get their own object
+	// namespace; pooled tenants keep the standard tenant/<id>/ prefix. A
+	// routing failure stores nothing (fail closed) rather than misfiling.
+	targets, err := tenancy.CurrentRouter().TargetsFor(ctx, tenant)
+	if err != nil {
+		f.log.Warn("browser: artifact not stored (isolation routing failed)", "tenant", tenant, "error", err)
+		return
+	}
+	key := objectstore.PrefixedKey(targets.ObjectPrefix, tenant, "browser",
 		fmt.Sprintf("%s-%d%s", safeName(s.Name), res.StartedAt.UnixNano(), ext(out.ScreenshotType)))
 	if err := f.store.Put(ctx, key, out.ScreenshotType, out.Screenshot); err != nil {
 		f.log.Warn("browser: store artifact failed", "tenant", tenant, "script", s.Name, "error", err)

@@ -262,6 +262,12 @@ type Config struct {
 	ProviderBootstrapToken          string
 	ProviderBreakGlassMaxTTLMinutes int
 
+	// DataPlanes (S-T2, ee/; siloed_isolation): named residency targets for
+	// siloed/hybrid tenants — "name=clickhouseURL[;name=clickhouseURL...]".
+	// Residency pins a tenant's ClickHouse data plane; see docs/isolation.md
+	// for exactly what is and is not pinned in this release.
+	DataPlanes string
+
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
 	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
@@ -432,6 +438,7 @@ func Load(getenv func(string) string) (*Config, error) {
 
 		ProviderBootstrapToken:          l.str("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", ""),
 		ProviderBreakGlassMaxTTLMinutes: l.intRange("PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES", 240, 5, 1440),
+		DataPlanes:                      l.str("PROBECTL_DATAPLANES", ""),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

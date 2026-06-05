@@ -11,8 +11,8 @@ import { jsonResponse, defaultFetch } from './fetchStub'
 
 const operator = { id: 'op_1', email: 'root@msp.example', name: 'Root', role: 'admin', status: 'active', enrolled: true }
 const tenants = [
-  { id: 'tn_1', slug: 'acme', name: 'Acme Industries', status: 'active', created_at: '2026-06-01T00:00:00Z' },
-  { id: 'tn_2', slug: 'globex', name: 'Globex', status: 'suspended', created_at: '2026-06-02T00:00:00Z' },
+  { id: 'tn_1', slug: 'acme', name: 'Acme Industries', status: 'active', isolation_model: 'pooled', created_at: '2026-06-01T00:00:00Z' },
+  { id: 'tn_2', slug: 'globex', name: 'Globex', status: 'suspended', isolation_model: 'siloed', residency: 'eu', created_at: '2026-06-02T00:00:00Z' },
 ]
 const fleet = [
   { tenant_id: 'tn_1', tenant_slug: 'acme', tenant_name: 'Acme Industries', tenant_status: 'active', agents_total: 3, agents_online: 2, agents_stale: 1, versions: { '0.3.0': 3 } },
@@ -35,6 +35,8 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
     if (url.endsWith('/provider/v1/license'))
       return jsonResponse({ tier: 'provider', state: opts?.readOnly ? 'read_only' : 'active', customer: 'MSP Test GmbH', tenant_band: 25 })
     if (url.endsWith('/provider/v1/tenants') && method === 'GET') return jsonResponse({ items: tenants })
+    if (url.endsWith('/provider/v1/tenants') && method === 'POST')
+      return jsonResponse({ id: 'tn_new', slug: 'silo-co', name: 'Silo Co', status: 'active', isolation_model: 'siloed', residency: 'eu' }, 201)
     if (url.endsWith('/provider/v1/fleet')) return jsonResponse({ items: fleet })
     if (url.endsWith('/provider/v1/breakglass') && method === 'GET') return jsonResponse({ items: grants })
     if (url.endsWith('/provider/v1/operators') && method === 'GET') return jsonResponse({ items: [operator] })
@@ -96,6 +98,31 @@ describe('provider console (S-T1)', () => {
     expect(await screen.findByRole('table', { name: /provider operators/i })).toBeInTheDocument()
     // License chip renders the band.
     expect(screen.getByText(/tenant band 25/)).toBeInTheDocument()
+    // S-T2: isolation model + residency render per tenant.
+    expect(within(acmeRow).getByText('pooled')).toBeInTheDocument()
+    expect(within(globexRow).getByText('siloed')).toBeInTheDocument()
+    expect(within(globexRow).getByText(/eu/)).toBeInTheDocument()
+  })
+
+  test('S-T2 provisioning: the isolation select + conditional residency field send the right payload', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    await screen.findByRole('table', { name: /tenant inventory/i })
+
+    // Residency is hidden for pooled, shown for siloed/hybrid.
+    expect(screen.queryByLabelText(/residency/i)).toBeNull()
+    await userEvent.selectOptions(screen.getByLabelText(/isolation/i), 'siloed')
+    await userEvent.type(await screen.findByLabelText(/residency/i), 'eu')
+    await userEvent.type(screen.getByLabelText(/new tenant slug/i), 'silo-co')
+    await userEvent.type(screen.getByLabelText(/display name/i), 'Silo Co')
+    await userEvent.click(screen.getByRole('button', { name: /provision/i }))
+
+    const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const post = calls.find((c) => String(c[0]).endsWith('/provider/v1/tenants') && (c[1] as RequestInit | undefined)?.method === 'POST')
+    expect(post).toBeTruthy()
+    const body = JSON.parse(String((post![1] as RequestInit).body))
+    expect(body).toEqual({ slug: 'silo-co', name: 'Silo Co', isolation_model: 'siloed', residency: 'eu' })
   })
 
   test('lifecycle action fires the right call', async () => {

@@ -114,7 +114,7 @@
         }
       },
       "post": {
-        "summary": "Provision a tenant (licensed tenant band enforced)",
+        "summary": "Provision a tenant (licensed tenant band enforced; isolation_model pooled|siloed|hybrid \u2014 siloed/hybrid require the siloed_isolation feature and provision the tenant's isolated stores; residency pins a configured data plane)",
         "responses": {
           "200": {
             "description": "OK"
@@ -154,7 +154,7 @@
     },
     "/provider/v1/tenants/{id}/offboard": {
       "post": {
-        "summary": "Offboard a tenant (export/verifiable deletion is S-T5)",
+        "summary": "Offboard a tenant: API access stops; a siloed/hybrid tenant's isolated stores are torn down (pooled-data export/verifiable deletion is S-T5)",
         "responses": {
           "200": {
             "description": "OK"

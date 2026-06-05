@@ -358,7 +358,14 @@ func run(cmd string) error {
 	if rumOn {
 		// Beacon ingest at POST /ingest/rum + convergence view at /v1/rum (S47b).
 		srv.WithRUM(rumEngine, rumApps, func(ctx context.Context, tenant string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.RUMEventsTopic, []byte(tenant), payload)
+			// Siloed lane routing (S-T2): availability-first — a routing blip
+			// publishes to the shared lane (messages stay tenant-keyed; storage
+			// isolation is enforced by the stores).
+			topic := bus.RUMEventsTopic
+			if t, rerr := tenancy.CurrentRouter().TargetsFor(ctx, tenant); rerr == nil {
+				topic = bus.TopicFor(t.BusNamespace, bus.RUMEventsTopic)
+			}
+			return resultBus.Publish(ctx, topic, []byte(tenant), payload)
 		}, cfg.RUMRatePerMin)
 	}
 	srv.WithLicense(lic) // editions truth at /v1/editions (S-T0)
@@ -368,7 +375,7 @@ func run(cmd string) error {
 	// The ee attach seam (S-T1+): licensed commercial features are constructed
 	// and mounted here — and ONLY here. The core-only build (-tags
 	// probectl_core) compiles the no-op twin, proving core stands alone.
-	if err := attachEE(srv, cfg, log, lic, db.Pool(), latestResults); err != nil {
+	if err := attachEE(srv, cfg, log, lic, db.Pool(), latestResults, flowStore); err != nil {
 		return err
 	}
 	if alertEngine != nil {
@@ -376,7 +383,19 @@ func run(cmd string) error {
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
 	}
 	g.Go(func() error { return srv.Run(gctx) })
-	g.Go(func() error { return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).Run(gctx) })
+	// Siloed bus lanes (S-T2): subscribe the result pipeline to every siloed/
+	// hybrid tenant's namespaced topics known at startup (the shared lanes stay
+	// subscribed regardless; a tenant siloed after boot is picked up on the
+	// next restart). Pooled deployments resolve zero namespaces.
+	busNamespaces, nsErr := tenancy.CurrentRouter().BusNamespaces(gctx)
+	if nsErr != nil {
+		log.Warn("isolation: bus namespaces unavailable; consuming shared lanes only", "error", nsErr.Error())
+	} else if len(busNamespaces) > 0 {
+		log.Info("isolation: consuming namespaced result lanes", "namespaces", busNamespaces)
+	}
+	g.Go(func() error {
+		return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).WithNamespaces(busNamespaces).Run(gctx)
+	})
 	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.
 	g.Go(func() error { return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).Run(gctx) })
 	// Device pipeline (S39): probectl.device.metrics -> TSDB.

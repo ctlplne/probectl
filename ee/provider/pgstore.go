@@ -167,20 +167,24 @@ func (s *PGStore) CountOperators(ctx context.Context) (int, error) {
 
 // --- tenants ---
 
-const tenantCols = `id::text, slug, name, status, created_at`
+const tenantCols = `id::text, slug, name, status, isolation_model, residency, created_at`
 
 func scanTenant(row pgx.Row) (Tenant, error) {
 	var t Tenant
-	err := row.Scan(&t.ID, &t.Slug, &t.Name, &t.Status, &t.CreatedAt)
+	err := row.Scan(&t.ID, &t.Slug, &t.Name, &t.Status, &t.IsolationModel, &t.Residency, &t.CreatedAt)
 	return t, err
 }
 
-func (s *PGStore) CreateTenant(ctx context.Context, slug, name string) (Tenant, error) {
+func (s *PGStore) CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error) {
+	if isolationModel == "" {
+		isolationModel = "pooled"
+	}
 	var out Tenant
 	err := s.in(ctx, func(ctx context.Context, q tenancy.Querier) error {
 		var e error
 		out, e = scanTenant(q.QueryRow(ctx,
-			`INSERT INTO tenants (slug, name) VALUES ($1, $2) RETURNING `+tenantCols, slug, name))
+			`INSERT INTO tenants (slug, name, isolation_model, residency) VALUES ($1, $2, $3, $4) RETURNING `+tenantCols,
+			slug, name, isolationModel, residency))
 		return e
 	})
 	return out, mapPGErr(err)

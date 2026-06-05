@@ -317,11 +317,16 @@ func (h *Handler) handleListTenants(w http.ResponseWriter, r *http.Request, _ Op
 }
 
 func (h *Handler) handleProvision(w http.ResponseWriter, r *http.Request, op Operator) error {
-	var in struct{ Slug, Name string }
+	var in struct {
+		Slug           string `json:"slug"`
+		Name           string `json:"name"`
+		IsolationModel string `json:"isolation_model"`
+		Residency      string `json:"residency"`
+	}
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	t, err := h.svc.Provision(r.Context(), op.Email, in.Slug, in.Name)
+	t, err := h.svc.Provision(r.Context(), op.Email, in.Slug, in.Name, in.IsolationModel, in.Residency)
 	if err != nil {
 		return err
 	}

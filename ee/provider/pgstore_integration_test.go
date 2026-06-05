@@ -77,7 +77,7 @@ func TestPGStoreLifecycle(t *testing.T) {
 
 	// Tenant lifecycle.
 	slug := "it-" + time.Now().UTC().Format("150405")
-	tn, err := st.CreateTenant(ctx, slug, "Integration Tenant")
+	tn, err := st.CreateTenant(ctx, slug, "Integration Tenant", "pooled", "")
 	if err != nil {
 		t.Fatal(err)
 	}

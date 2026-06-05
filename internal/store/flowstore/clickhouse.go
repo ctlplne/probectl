@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -16,7 +17,8 @@ import (
 // prune at the storage layer (CLAUDE.md §4, §6); the day component bounds part
 // sizes at NetFlow volumes and makes the retention TTL cheap to apply. The
 // LowCardinality columns keep the high-volume dictionary small.
-const createFlows = `CREATE TABLE IF NOT EXISTS probectl_flows (
+func createFlowsDDL(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
   tenant_id String, agent_id String, exporter String, obs_domain UInt32,
   protocol LowCardinality(String),
   ts DateTime64(3), start_ts DateTime64(3),
@@ -29,30 +31,114 @@ const createFlows = `CREATE TABLE IF NOT EXISTS probectl_flows (
 ) ENGINE = MergeTree
 PARTITION BY (tenant_id, toYYYYMMDD(ts))
 ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr)`
+}
+
+const sharedFlowsTable = "probectl_flows"
+
+// Target is where one tenant's flows live (S-T2 siloed/hybrid isolation).
+// The zero value is the shared (pooled) deployment store. Database routes to
+// a per-tenant ClickHouse database; BaseURL pins a residency data plane.
+type Target struct {
+	BaseURL  string
+	Database string
+}
+
+// TargetRouter resolves a tenant's flow-store target. It must FAIL CLOSED: a
+// routing error fails the operation rather than silently landing a siloed
+// tenant's rows in the pooled table (the S-T2 watch-out).
+type TargetRouter func(tenantID string) (Target, error)
+
+var chIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// tableFor renders the routed table reference, refusing malformed database
+// names (defense in depth — names derive from UUIDs, never user input).
+func tableFor(t Target) (string, error) {
+	if t.Database == "" {
+		return sharedFlowsTable, nil
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return "", fmt.Errorf("flowstore: refusing malformed database name %q", t.Database)
+	}
+	return t.Database + "." + sharedFlowsTable, nil
+}
 
 // ClickHouse persists flows over the ClickHouse HTTP interface (pathstore
 // pattern: zero driver dependencies; https URL = TLS in transit).
 type ClickHouse struct {
 	base   string
 	client *http.Client
+	router TargetRouter // nil = everything pooled
 }
 
-// NewClickHouse connects, ensures the schema, and (when retentionDays > 0)
-// applies the delete-TTL — idempotently, so repeated starts are safe.
+// NewClickHouse connects, ensures the shared schema, and (when retentionDays
+// > 0) applies the delete-TTL — idempotently, so repeated starts are safe.
 func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
 	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), client: &http.Client{Timeout: 30 * time.Second}}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := c.exec(ctx, createFlows, nil); err != nil {
+	if err := c.exec(ctx, "", createFlowsDDL(sharedFlowsTable), nil); err != nil {
 		return nil, fmt.Errorf("flowstore: create table: %w", err)
 	}
 	if retentionDays > 0 {
-		ttl := fmt.Sprintf("ALTER TABLE probectl_flows MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", retentionDays)
-		if err := c.exec(ctx, ttl, nil); err != nil {
+		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", sharedFlowsTable, retentionDays)
+		if err := c.exec(ctx, "", ttl, nil); err != nil {
 			return nil, fmt.Errorf("flowstore: apply retention TTL: %w", err)
 		}
 	}
 	return c, nil
+}
+
+// WithRouter installs the isolation router (S-T2; the main.go attach seam).
+// nil keeps everything pooled.
+func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse {
+	c.router = r
+	return c
+}
+
+// route resolves one tenant's target (pooled when no router is installed).
+func (c *ClickHouse) route(tenantID string) (Target, error) {
+	if c.router == nil {
+		return Target{}, nil
+	}
+	return c.router(tenantID)
+}
+
+// EnsureTenantDatabase creates a tenant's isolated database + flow table on
+// its data plane (idempotent — the silo provisioner calls it at tenant
+// provision and again on catch-up).
+func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
+	if t.Database == "" {
+		return fmt.Errorf("flowstore: a tenant database name is required")
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("flowstore: refusing malformed database name %q", t.Database)
+	}
+	if err := c.exec(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil); err != nil {
+		return fmt.Errorf("flowstore: create tenant database: %w", err)
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return err
+	}
+	if err := c.exec(ctx, t.BaseURL, createFlowsDDL(table), nil); err != nil {
+		return fmt.Errorf("flowstore: create tenant table: %w", err)
+	}
+	if retentionDays > 0 {
+		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", table, retentionDays)
+		if err := c.exec(ctx, t.BaseURL, ttl, nil); err != nil {
+			return fmt.Errorf("flowstore: tenant retention TTL: %w", err)
+		}
+	}
+	return nil
+}
+
+// DropTenantDatabase removes a siloed tenant's database (offboard teardown).
+// Idempotent: dropping an absent database succeeds.
+func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
+	if t.Database == "" || !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("flowstore: refusing to drop malformed database name %q", t.Database)
+	}
+	return c.exec(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil)
 }
 
 // chRow is the JSONEachRow insert shape (times rendered as ClickHouse strings).
@@ -62,28 +148,46 @@ type chRow struct {
 	StartStr string `json:"start_ts"`
 }
 
-// Insert streams rows as one JSONEachRow batch (the high-volume path: one HTTP
-// request per collector flush, not per record).
+// Insert streams rows as JSONEachRow batches — one request per routed target
+// per flush (pooled deployments keep exactly the old single-request path).
+// Routing failures fail the batch (fail closed) rather than misfiling rows.
 func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
+	groups := map[Target][]Row{}
 	for i := range rows {
-		r := chRow{Row: rows[i],
-			TSStr:    rows[i].TS.UTC().Format("2006-01-02 15:04:05.000"),
-			StartStr: rows[i].StartTS.UTC().Format("2006-01-02 15:04:05.000")}
-		if err := enc.Encode(r); err != nil {
-			return fmt.Errorf("flowstore: encode row: %w", err)
+		t, err := c.route(rows[i].TenantID)
+		if err != nil {
+			return fmt.Errorf("flowstore: route tenant %s: %w", rows[i].TenantID, err)
+		}
+		groups[t] = append(groups[t], rows[i])
+	}
+	for t, group := range groups {
+		table, err := tableFor(t)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		for i := range group {
+			r := chRow{Row: group[i],
+				TSStr:    group[i].TS.UTC().Format("2006-01-02 15:04:05.000"),
+				StartStr: group[i].StartTS.UTC().Format("2006-01-02 15:04:05.000")}
+			if err := enc.Encode(r); err != nil {
+				return fmt.Errorf("flowstore: encode row: %w", err)
+			}
+		}
+		if err := c.exec(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", &buf); err != nil {
+			return err
 		}
 	}
-	return c.exec(ctx, "INSERT INTO probectl_flows FORMAT JSONEachRow", &buf)
+	return nil
 }
 
 // topSQL builds the top-talkers query (exported via a test for the tenant
 // guard: the WHERE must lead with tenant_id).
-func topSQL(q TopQuery) string {
+func topSQL(q TopQuery, table string) string {
 	var key, detail, extra string
 	switch q.By {
 	case BySrc:
@@ -103,17 +207,25 @@ func topSQL(q TopQuery) string {
 	}
 	return fmt.Sprintf(
 		`SELECT %s AS k, %s AS d, sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f `+
-			`FROM probectl_flows WHERE tenant_id=%s AND ts >= %s AND ts <= %s%s `+
+			`FROM %s WHERE tenant_id=%s AND ts >= %s AND ts <= %s%s `+
 			`GROUP BY %s ORDER BY b DESC, k ASC LIMIT %d`,
-		key, detail, chStr(q.TenantID), chTime(q.Now.Add(-q.Window)), chTime(q.Now), extra, groupBy, q.Limit)
+		key, detail, table, chStr(q.TenantID), chTime(q.Now.Add(-q.Window)), chTime(q.Now), extra, groupBy, q.Limit)
 }
 
-// TopTalkers runs the aggregation in ClickHouse.
+// TopTalkers runs the aggregation in ClickHouse, on the tenant's routed store.
 func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, error) {
 	if err := q.normalize(); err != nil {
 		return nil, err
 	}
-	rows, err := c.query(ctx, topSQL(q))
+	t, err := c.route(q.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.query(ctx, t.BaseURL, topSQL(q, table))
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +243,7 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 }
 
 // capacitySQL buckets throughput per exporter/interface in ClickHouse.
-func capacitySQL(q CapacityQuery) string {
+func capacitySQL(q CapacityQuery, table string) string {
 	iface := "in_if"
 	if q.Direction == "out" {
 		iface = "out_if"
@@ -144,17 +256,25 @@ func capacitySQL(q CapacityQuery) string {
 	return fmt.Sprintf(
 		`SELECT exporter, %s AS iface, toStartOfInterval(ts, INTERVAL %d second) AS t, `+
 			`sum(bytes_scaled)*8/%d AS bps, sum(packets_scaled)/%d AS pps `+
-			`FROM probectl_flows WHERE tenant_id=%s AND ts >= %s AND ts <= %s%s `+
+			`FROM %s WHERE tenant_id=%s AND ts >= %s AND ts <= %s%s `+
 			`GROUP BY exporter, iface, t ORDER BY t, exporter, iface`,
-		iface, secs, secs, secs, chStr(q.TenantID), chTime(q.Now.Add(-q.Window)), chTime(q.Now), exporterFilter)
+		iface, secs, secs, secs, table, chStr(q.TenantID), chTime(q.Now.Add(-q.Window)), chTime(q.Now), exporterFilter)
 }
 
-// Capacity runs the bucket aggregation in ClickHouse.
+// Capacity runs the bucket aggregation in ClickHouse, on the routed store.
 func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityPoint, error) {
 	if err := q.normalize(); err != nil {
 		return nil, err
 	}
-	rows, err := c.query(ctx, capacitySQL(q))
+	t, err := c.route(q.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.query(ctx, t.BaseURL, capacitySQL(q, table))
 	if err != nil {
 		return nil, err
 	}
@@ -189,8 +309,16 @@ func (c *ClickHouse) Close() error { return nil }
 
 // --- HTTP plumbing (pathstore pattern) ---------------------------------------
 
-func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, error) {
-	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow")
+// baseFor picks the data-plane endpoint ("" = the deployment default).
+func (c *ClickHouse) baseFor(base string) string {
+	if base == "" {
+		return c.base
+	}
+	return strings.TrimRight(base, "/")
+}
+
+func (c *ClickHouse) query(ctx context.Context, base, sql string) ([]map[string]any, error) {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -218,8 +346,8 @@ func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, e
 	return rows, nil
 }
 
-func (c *ClickHouse) exec(ctx context.Context, query string, body io.Reader) error {
-	u := c.base + "/?query=" + url.QueryEscape(query)
+func (c *ClickHouse) exec(ctx context.Context, base, query string, body io.Reader) error {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(query)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
 	if err != nil {
 		return err

@@ -38,6 +38,8 @@ interface Tenant {
   slug: string
   name: string
   status: string
+  isolation_model?: string
+  residency?: string
 }
 
 interface FleetRow {
@@ -237,6 +239,8 @@ function TenantsCard({ readOnly }: { readOnly: boolean }) {
   const [error, setError] = useState('')
   const [slug, setSlug] = useState('')
   const [name, setName] = useState('')
+  const [isolation, setIsolation] = useState('pooled')
+  const [residency, setResidency] = useState('')
 
   const load = useCallback(() => {
     api<{ items: Tenant[] }>('GET', '/provider/v1/tenants')
@@ -249,9 +253,15 @@ function TenantsCard({ readOnly }: { readOnly: boolean }) {
     e.preventDefault()
     setError('')
     try {
-      await api('POST', '/provider/v1/tenants', { slug, name })
+      await api('POST', '/provider/v1/tenants', {
+        slug,
+        name,
+        isolation_model: isolation,
+        residency: isolation === 'pooled' ? '' : residency,
+      })
       setSlug('')
       setName('')
+      setResidency('')
       load()
     } catch (err) {
       setError((err as Error).message)
@@ -271,6 +281,18 @@ function TenantsCard({ readOnly }: { readOnly: boolean }) {
   const columns: Column<Tenant>[] = [
     { key: 'slug', header: 'Slug', render: (t) => <code>{t.slug}</code> },
     { key: 'name', header: 'Name', render: (t) => t.name },
+    {
+      key: 'isolation',
+      header: 'Isolation',
+      render: (t) => (
+        <>
+          <Badge tone={t.isolation_model === 'siloed' ? 'accent' : t.isolation_model === 'hybrid' ? 'info' : 'neutral'}>
+            {t.isolation_model || 'pooled'}
+          </Badge>
+          {t.residency ? <> {t.residency}</> : null}
+        </>
+      ),
+    },
     {
       key: 'status',
       header: 'Status',
@@ -312,7 +334,7 @@ function TenantsCard({ readOnly }: { readOnly: boolean }) {
     <Card>
       <CardHeader
         title="Tenants"
-        description="Lifecycle metadata only. Suspension blocks the tenant's users at the API; data and ingestion are untouched. Offboarding hands deletion/export to the S-T5 compliance flow."
+        description="Lifecycle metadata only. Suspension blocks the tenant's users at the API; data and ingestion are untouched. Offboarding removes a siloed/hybrid tenant's isolated stores; pooled-data export/deletion is the S-T5 compliance flow."
       />
       <CardBody>
         {tenants === null ? (
@@ -326,6 +348,22 @@ function TenantsCard({ readOnly }: { readOnly: boolean }) {
               <span className={styles.grow}>
                 <Field label="Display name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Acme Industries" required disabled={readOnly} />
               </span>
+              <Select
+                label="Isolation"
+                value={isolation}
+                onChange={(e) => setIsolation(e.target.value)}
+                disabled={readOnly}
+                options={[
+                  { value: 'pooled', label: 'pooled (default)' },
+                  { value: 'siloed', label: 'siloed' },
+                  { value: 'hybrid', label: 'hybrid' },
+                ]}
+              />
+              {isolation !== 'pooled' ? (
+                <span className={styles.grow}>
+                  <Field label="Residency (data plane, optional)" value={residency} onChange={(e) => setResidency(e.target.value)} placeholder="eu" disabled={readOnly} />
+                </span>
+              ) : null}
               <Button type="submit" variant="primary" disabled={readOnly}>
                 Provision
               </Button>

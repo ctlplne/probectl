@@ -48,6 +48,11 @@ type Deps struct {
 	Results  *control.LatestResults // the S-T1 break-glass telemetry surface
 	Sessions *auth.Manager          // tenant sessions (the consent leg); nil = consent 503s
 	Perms    auth.PermissionLoader  // tenant RBAC (the consent permission check)
+	// S-T2: the silo capability (nil unless siloed_isolation is licensed —
+	// then only pooled tenants can be provisioned) + the isolation router's
+	// cache-invalidation hook for lifecycle changes.
+	Silo           SiloOps
+	SiloInvalidate func()
 }
 
 // Build constructs the provider plane handler. It fails loudly on missing
@@ -80,6 +85,9 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 		time.Duration(cfg.ProviderBreakGlassMaxTTLMinutes)*time.Minute)
 	if err != nil {
 		return nil, err
+	}
+	if d.Silo != nil {
+		svc.WithSilo(d.Silo, d.SiloInvalidate)
 	}
 
 	var tenantAuth TenantAuth

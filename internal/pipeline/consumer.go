@@ -17,10 +17,11 @@ const DefaultGroup = "probectl-control"
 
 // Consumer drains result messages from the bus and writes them to the TSDB.
 type Consumer struct {
-	bus   bus.Bus
-	tsdb  tsdb.Writer
-	group string
-	log   *slog.Logger
+	bus        bus.Bus
+	tsdb       tsdb.Writer
+	group      string
+	log        *slog.Logger
+	namespaces []string // siloed bus lanes (S-T2), known at startup
 }
 
 // NewConsumer builds the result-pipeline consumer.
@@ -31,17 +32,41 @@ func NewConsumer(b bus.Bus, w tsdb.Writer, group string, log *slog.Logger) *Cons
 	return &Consumer{bus: b, tsdb: w, group: group, log: log}
 }
 
+// WithNamespaces adds siloed tenants' namespaced result lanes (S-T2). The set
+// is resolved at startup; a tenant siloed after boot publishes to its lane as
+// soon as it exists, and the consumer attaches on the next restart (the
+// shared lane remains subscribed throughout, so nothing is ever unconsumed
+// for pooled tenants).
+func (c *Consumer) WithNamespaces(ns []string) *Consumer {
+	c.namespaces = append(c.namespaces, ns...)
+	return c
+}
+
 // resultTopics are the bus topics carrying resultv1.Result that the pipeline
 // drains into the TSDB. Network-plane probe results (S6), endpoint/DEM results
 // (S37) and real-user page views (S47b) share the canonical result schema, so
 // one handler serves all three. Each topic gets its own consumer group so
-// their offsets are independent.
+// their offsets are independent. Siloed namespaces (S-T2) add one lane per
+// (namespace × topic), each with its own group.
 func (c *Consumer) resultTopics() []topicGroup {
-	return []topicGroup{
+	base := []topicGroup{
 		{topic: bus.NetworkResultsTopic, group: c.group},
 		{topic: bus.EndpointResultsTopic, group: c.group + "-endpoint"},
 		{topic: bus.RUMEventsTopic, group: c.group + "-rum"}, // RUM vitals → dashboards
 	}
+	out := base
+	for _, ns := range c.namespaces {
+		if !bus.ValidNamespace(ns) || ns == "" {
+			continue
+		}
+		for _, b := range base {
+			out = append(out, topicGroup{
+				topic: bus.TopicFor(ns, b.topic),
+				group: b.group + "-" + ns,
+			})
+		}
+	}
+	return out
 }
 
 type topicGroup struct{ topic, group string }

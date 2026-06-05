@@ -13,6 +13,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // AuditSink receives provider-plane audit events. The production sink wraps
@@ -39,6 +40,17 @@ var (
 	ErrForbidden     = errors.New("provider: forbidden")
 )
 
+// SiloOps is the S-T2 isolation seam: provisioning/teardown of a tenant's
+// isolated stores plus residency validation. Implemented by silo.Provisioner;
+// nil when the deployment is not licensed for siloed_isolation (then only
+// pooled tenants can be provisioned).
+type SiloOps interface {
+	Provision(ctx context.Context, tenantID, residency string, model tenancy.IsolationModel) error
+	Teardown(ctx context.Context, tenantID, residency string, model tenancy.IsolationModel) error
+	ValidResidency(name string) bool
+	Planes() []string
+}
+
 // Service implements the provider plane's business rules over Store. Every
 // mutation and every break-glass access is written to the provider audit
 // stream before the call returns.
@@ -51,6 +63,12 @@ type Service struct {
 	now       func() time.Time
 
 	maxGrantTTL time.Duration
+
+	// S-T2: nil = pooled-only (the siloed_isolation feature is not licensed).
+	silo SiloOps
+	// routerInvalidate drops the isolation router's registry cache after a
+	// lifecycle change, so new/changed tenants route correctly at once.
+	routerInvalidate func()
 }
 
 // NewService wires the provider service. envelope is required (TOTP secrets
@@ -73,6 +91,21 @@ func NewService(store Store, sink AuditSink, lic *license.Manager, telemetry Tel
 func (s *Service) WithClock(now func() time.Time) *Service {
 	s.now = now
 	return s
+}
+
+// WithSilo attaches the S-T2 isolation capability (the attach seam passes it
+// only when the license grants siloed_isolation) and the router-cache
+// invalidation hook.
+func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
+	s.silo = ops
+	s.routerInvalidate = invalidate
+	return s
+}
+
+func (s *Service) invalidateRouter() {
+	if s.routerInvalidate != nil {
+		s.routerInvalidate()
+	}
 }
 
 // writable returns ErrReadOnly when the license has degraded past grace
@@ -247,13 +280,32 @@ func (s *Service) ListOperators(ctx context.Context) ([]Operator, error) {
 
 // Provision creates a tenant, enforcing the licensed tenant band (S-T0's
 // TenantBand claim is consumed here): provisioning beyond the band fails
-// loudly; existing tenants are never affected.
-func (s *Service) Provision(ctx context.Context, actor, slug, name string) (Tenant, error) {
+// loudly; existing tenants are never affected. The isolation model (S-T2)
+// defaults to pooled; siloed/hybrid require the siloed_isolation capability
+// and provision the tenant's isolated stores before the call returns.
+func (s *Service) Provision(ctx context.Context, actor, slug, name, isolationModel, residency string) (Tenant, error) {
 	if err := s.writable(); err != nil {
 		return Tenant{}, err
 	}
 	if !ValidSlug(slug) {
 		return Tenant{}, errors.New("provider: slug must be lowercase alphanumeric/hyphen, 2-63 chars")
+	}
+	if isolationModel == "" {
+		isolationModel = string(tenancy.IsolationPooled)
+	}
+	if !tenancy.ValidIsolationModel(isolationModel) {
+		return Tenant{}, errors.New("provider: isolation_model must be pooled, siloed, or hybrid")
+	}
+	model := tenancy.IsolationModel(isolationModel)
+	if model != tenancy.IsolationPooled {
+		if s.silo == nil {
+			return Tenant{}, fmt.Errorf("%w: siloed/hybrid isolation requires the siloed_isolation license feature", ErrForbidden)
+		}
+		if !s.silo.ValidResidency(residency) {
+			return Tenant{}, fmt.Errorf("provider: unknown residency %q (configured: %s)", residency, strings.Join(s.silo.Planes(), ", "))
+		}
+	} else if residency != "" {
+		return Tenant{}, errors.New("provider: residency targeting requires a siloed or hybrid tenant")
 	}
 	if band := s.lic.TenantBand(); band > 0 {
 		n, err := s.store.CountActiveTenants(ctx)
@@ -264,11 +316,21 @@ func (s *Service) Provision(ctx context.Context, actor, slug, name string) (Tena
 			return Tenant{}, fmt.Errorf("%w: %d of %d in use", ErrBandExhausted, n, band)
 		}
 	}
-	t, err := s.store.CreateTenant(ctx, slug, strings.TrimSpace(name))
+	t, err := s.store.CreateTenant(ctx, slug, strings.TrimSpace(name), isolationModel, residency)
 	if err != nil {
 		return Tenant{}, err
 	}
-	if err := s.audit.Append(ctx, actor, "provider.tenant_provision", t.ID, map[string]any{"slug": slug, "name": name}); err != nil {
+	// Create the isolated stores BEFORE announcing success: a siloed tenant
+	// must never exist without its silo (the pooled fall-through hazard).
+	if model != tenancy.IsolationPooled {
+		if err := s.silo.Provision(ctx, t.ID, residency, model); err != nil {
+			return Tenant{}, fmt.Errorf("silo provisioning failed (re-run provision to complete): %w", err)
+		}
+	}
+	s.invalidateRouter()
+	if err := s.audit.Append(ctx, actor, "provider.tenant_provision", t.ID, map[string]any{
+		"slug": slug, "name": name, "isolation_model": isolationModel, "residency": residency,
+	}); err != nil {
 		return Tenant{}, err
 	}
 	return t, nil
@@ -301,10 +363,31 @@ func (s *Service) Resume(ctx context.Context, actor, id string) (Tenant, error) 
 }
 
 // Offboard marks a tenant offboarding: API access stops and the tenant leaves
-// the licensed band. Data export + verifiable deletion are S-T5 (a compliance
-// right, deliberately core) — offboarding here never silently destroys data.
+// the licensed band. For siloed/hybrid tenants the isolated stores are torn
+// down (S-T2: "offboarding removes a siloed tenant's stores" — they are
+// per-tenant containers). POOLED rows are NOT touched: their export +
+// verifiable deletion are S-T5 (a compliance right, deliberately core).
+// Idempotent: a failed teardown is re-run by calling offboard again.
 func (s *Service) Offboard(ctx context.Context, actor, id string) (Tenant, error) {
-	return s.setStatus(ctx, actor, id, "offboarding", "provider.tenant_offboard")
+	t, err := s.setStatus(ctx, actor, id, "offboarding", "provider.tenant_offboard")
+	if err != nil {
+		return Tenant{}, err
+	}
+	model := tenancy.IsolationModel(t.IsolationModel)
+	if model == tenancy.IsolationSiloed || model == tenancy.IsolationHybrid {
+		if s.silo == nil {
+			return Tenant{}, errors.New("provider: tenant has isolated stores but the silo capability is not attached")
+		}
+		if err := s.silo.Teardown(ctx, t.ID, t.Residency, model); err != nil {
+			return Tenant{}, fmt.Errorf("silo teardown failed (re-run offboard to retry): %w", err)
+		}
+		if err := s.audit.Append(ctx, actor, "provider.tenant_silo_teardown", t.ID, map[string]any{
+			"isolation_model": t.IsolationModel, "residency": t.Residency,
+		}); err != nil {
+			return Tenant{}, err
+		}
+	}
+	return t, nil
 }
 
 func (s *Service) setStatus(ctx context.Context, actor, id, status, action string) (Tenant, error) {
@@ -315,6 +398,7 @@ func (s *Service) setStatus(ctx context.Context, actor, id, status, action strin
 	if err != nil {
 		return Tenant{}, err
 	}
+	s.invalidateRouter()
 	if err := s.audit.Append(ctx, actor, action, id, map[string]any{"slug": t.Slug}); err != nil {
 		return Tenant{}, err
 	}

@@ -1029,6 +1029,24 @@ the model, the break-glass consent flow, and the storage-layer confinement
 (`probectl_provider` role). Suspending a tenant rejects its users at the API
 (`tenant_suspended`) without touching data or ingestion.
 
+### Siloed / hybrid isolation (S-T2, ee/)
+
+Pooled isolation stays the default and needs no configuration. Siloed and
+hybrid tenants (per-tenant Postgres schema / ClickHouse database / bus topic
+namespace / object key namespace) require a license granting
+`siloed_isolation` and are selected per tenant at provisioning
+(`isolation_model` + optional `residency`).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_DATAPLANES` | (none) | named residency data planes — `name=clickhouseURL[;name=clickhouseURL...]` (e.g. `eu=https://ch-eu:8123;us=https://ch-us:8123`). A tenant's `residency` pins its ClickHouse database to that plane |
+
+Residency pins the tenant's **ClickHouse flow data** in this release;
+Postgres control state, the TSDB, object storage, and bus brokers are NOT
+region-pinned yet — `docs/isolation.md` states the exact contract, the
+catch-up/migration story for silo schemas, and the offboard-teardown
+semantics.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

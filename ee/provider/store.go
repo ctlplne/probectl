@@ -48,13 +48,17 @@ type Credential struct {
 }
 
 // Tenant is the provider-plane view of a tenant (lifecycle metadata only —
-// never telemetry).
+// never telemetry). IsolationModel and Residency are the S-T2 fields: which
+// isolation model the tenant runs under (pooled is the default) and the
+// data-plane name it is pinned to ("" = the default plane).
 type Tenant struct {
-	ID        string    `json:"id"`
-	Slug      string    `json:"slug"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"` // active | suspended | offboarding | deleted
-	CreatedAt time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	Slug           string    `json:"slug"`
+	Name           string    `json:"name"`
+	Status         string    `json:"status"` // active | suspended | offboarding | deleted
+	IsolationModel string    `json:"isolation_model"`
+	Residency      string    `json:"residency,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // TenantFleet is one tenant's agent-fleet health: counts and versions,
@@ -133,7 +137,7 @@ type Store interface {
 	CountOperators(ctx context.Context) (int, error)
 
 	// Tenant lifecycle.
-	CreateTenant(ctx context.Context, slug, name string) (Tenant, error)
+	CreateTenant(ctx context.Context, slug, name, isolationModel, residency string) (Tenant, error)
 	RenameTenant(ctx context.Context, id, name string) (Tenant, error)
 	SetTenantStatus(ctx context.Context, id, status string) (Tenant, error)
 	ListTenants(ctx context.Context) ([]Tenant, error)
@@ -290,7 +294,7 @@ func (m *MemStore) CountOperators(_ context.Context) (int, error) {
 	return len(m.operators), nil
 }
 
-func (m *MemStore) CreateTenant(_ context.Context, slug, name string) (Tenant, error) {
+func (m *MemStore) CreateTenant(_ context.Context, slug, name, isolationModel, residency string) (Tenant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, t := range m.tenants {
@@ -298,7 +302,11 @@ func (m *MemStore) CreateTenant(_ context.Context, slug, name string) (Tenant, e
 			return Tenant{}, ErrConflict
 		}
 	}
-	t := Tenant{ID: m.nextID("tn"), Slug: slug, Name: name, Status: "active", CreatedAt: time.Now().UTC()}
+	if isolationModel == "" {
+		isolationModel = "pooled"
+	}
+	t := Tenant{ID: m.nextID("tn"), Slug: slug, Name: name, Status: "active",
+		IsolationModel: isolationModel, Residency: residency, CreatedAt: time.Now().UTC()}
 	m.tenants[t.ID] = &t
 	return t, nil
 }

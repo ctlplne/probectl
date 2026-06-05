@@ -59,3 +59,13 @@ func validKey(key string) error {
 func TenantKey(tenantID string, parts ...string) string {
 	return strings.Join(append([]string{"tenant", tenantID}, parts...), "/")
 }
+
+// PrefixedKey builds a key under an isolation-routed prefix (S-T2 siloed
+// object namespace). An empty prefix falls back to the standard TenantKey
+// layout, so pooled callers behave exactly as before.
+func PrefixedKey(prefix, tenantID string, parts ...string) string {
+	if prefix == "" {
+		return TenantKey(tenantID, parts...)
+	}
+	return strings.Join(append([]string{strings.Trim(prefix, "/")}, parts...), "/")
+}

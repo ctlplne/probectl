@@ -183,7 +183,19 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	if err != nil {
 		return err
 	}
-	return svc.bus.Publish(ctx, bus.NetworkResultsTopic, []byte(r.TenantId), value)
+	// Siloed bus lanes (S-T2): a siloed/hybrid tenant's results ride its own
+	// namespaced topic. The lane is delivery routing, not the tenant boundary
+	// (messages stay tenant-keyed; storage isolation is enforced by the
+	// stores) — so a routing blip degrades to the shared lane with a warning
+	// rather than dropping telemetry.
+	topic := bus.NetworkResultsTopic
+	if t, rerr := tenancy.CurrentRouter().TargetsFor(ctx, id.TenantID); rerr == nil {
+		topic = bus.TopicFor(t.BusNamespace, bus.NetworkResultsTopic)
+	} else {
+		svc.log.Warn("isolation routing failed; using the shared result lane",
+			"tenant", id.TenantID, "error", rerr.Error())
+	}
+	return svc.bus.Publish(ctx, topic, []byte(r.TenantId), value)
 }
 
 // PollCoordination returns the next brokered agent-to-agent task for the calling

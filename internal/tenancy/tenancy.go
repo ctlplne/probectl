@@ -97,6 +97,13 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 		return ErrNoTenant
 	}
 
+	// Resolve the tenant's isolation targets FIRST (fail closed: a siloed
+	// tenant must never silently fall through to the pooled schema — S-T2).
+	schema, err := pgSchemaFor(ctx, id.String())
+	if err != nil {
+		return err
+	}
+
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tenant tx: %w", err)
@@ -107,6 +114,17 @@ func InTenant(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, 
 	// name is a constant; quote it as an identifier for safety.
 	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{AppRole}.Sanitize()); err != nil {
 		return fmt.Errorf("assume app role: %w", err)
+	}
+	// Siloed tenants (S-T2): route tenant-owned tables to the tenant's own
+	// schema. public stays on the path for the GLOBAL tables (permissions,
+	// tenants); the tenant schema shadows every tenant-owned table, and the
+	// recreated RLS policies + the GUC below keep even a mis-routed query
+	// scoped (defense-in-depth on top of physical separation, not instead).
+	if schema != "" {
+		if _, err := tx.Exec(ctx,
+			"SET LOCAL search_path TO "+pgx.Identifier{schema}.Sanitize()+", public"); err != nil {
+			return fmt.Errorf("route tenant schema: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, "SELECT set_config('probectl.tenant_id', $1, true)", id.String()); err != nil {
 		return fmt.Errorf("bind tenant scope: %w", err)
