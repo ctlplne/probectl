@@ -257,6 +257,16 @@ func run(cmd string) error {
 		return err // malformed policy dir fails startup
 	}
 
+	// Editions / license (S-T0): load once, fail closed on a configured-but-
+	// invalid file; absent = Community (the full core, default-open).
+	// Verification is local math against build-time-baked keys — never
+	// phone-home. Future ee/ features gate HERE at their Build* seams via
+	// lic.Has/Mode (e.g. S-T1: if lic.Has(license.FeatureProviderPlane) {...}).
+	lic, err := control.BuildLicense(cfg, log)
+	if err != nil {
+		return err
+	}
+
 	// Collective internet-outage view (S47a): public outage feeds (OPT-IN —
 	// enabling them makes outbound fetches) + the customer's own vantage
 	// points, correlated per tenant. The engine is local-only and on by
@@ -350,6 +360,7 @@ func run(cmd string) error {
 			return resultBus.Publish(ctx, bus.RUMEventsTopic, []byte(tenant), payload)
 		}, cfg.RUMRatePerMin)
 	}
+	srv.WithLicense(lic) // editions truth at /v1/editions (S-T0)
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)

@@ -55,6 +55,7 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'Voice/RTP quality tests: MOS (E-model), jitter, loss', sprint: 'S47c', kind: 'native', route: '/targets' },
   { capability: 'Carbon/energy estimate (ESG view of network traffic)', sprint: 'S48', kind: 'native', route: '/cost' },
   { capability: 'Secret-backend config + credential health', sprint: 'S41', kind: 'native', route: '/admin' },
+  { capability: 'Editions / license state (Admin → Editions)', sprint: 'S-T0', kind: 'native', route: '/admin' },
 
   // --- federated surfaces (by design) ---
   {

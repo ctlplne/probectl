@@ -997,6 +997,20 @@ estimate serves at `GET /v1/carbon` and folds into the Cost page. See
 `docs/carbon.md`; the chaos injector and the L/XL scale gate (also S48) are
 test-harness deliverables — see `docs/chaos.md` and `docs/scale-gate.md`.
 
+### Editions / license (S-T0)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_LICENSE_FILE` | (none) | path to the Ed25519-signed license file. Unset = Community (the full core, default-open). Set-but-missing/invalid = **startup error** (fail closed on configuration) |
+
+Verification is **offline** — local signature math against public keys baked
+into the binary at build time (never an env var; never phone-home). Expiry
+runs the 30-day-grace → read-only ladder and **never breaks running
+telemetry**. License state + the feature→tier map serve at
+`GET /v1/editions` and render on **Admin → Editions** — the one place tiers
+appear when unlicensed. See `docs/editions.md` for the file format, the
+signing CLI (`probectl-license`), and the gating pattern.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

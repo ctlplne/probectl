@@ -20,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/cost"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
+	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
 	"github.com/imfeelingtheagi/probectl/internal/path"
@@ -143,6 +144,11 @@ type Server struct {
 	// Carbon/power estimation (S48). Set via WithCarbon; nil reports
 	// carbon_running=false.
 	carbonEngine *carbon.Engine
+
+	// Editions / license (S-T0). Set via WithLicense; nil = Community
+	// (default-open). Read by /v1/editions; ee/ feature gating happens at
+	// the main.go Build* seams, never in handlers.
+	license *license.Manager
 
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).

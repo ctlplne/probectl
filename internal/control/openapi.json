@@ -2069,6 +2069,94 @@
         }
       }
     },
+    "/v1/editions": {
+      "get": {
+        "operationId": "getEditions",
+        "summary": "Editions / license state (S-T0)",
+        "tags": [
+          "editions"
+        ],
+        "description": "The deployment's edition truth: licensed tier (community/enterprise/provider), lifecycle state (community, active, grace, read_only), customer + expiry + read-only horizon when licensed, the provider tenant band, and the full gated-feature table with per-feature licensed/mode status. This endpoint is the ONE place tiers appear when unlicensed (the hidden-unlicensed UX): commercial features are otherwise invisible without an entitlement. License verification is offline (Ed25519 against build-time-baked keys) — never phone-home; expiry degrades read-only after a 30-day grace and never breaks running telemetry.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The editions view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tier": {
+                      "type": "string",
+                      "enum": [
+                        "community",
+                        "enterprise",
+                        "provider"
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "community",
+                        "active",
+                        "grace",
+                        "read_only"
+                      ]
+                    },
+                    "customer": {
+                      "type": "string"
+                    },
+                    "license_id": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "read_only_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "tenant_band": {
+                      "type": "integer"
+                    },
+                    "features": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "tier": {
+                            "type": "string"
+                          },
+                          "licensed": {
+                            "type": "boolean"
+                          },
+                          "mode": {
+                            "type": "string",
+                            "enum": [
+                              "enabled",
+                              "read_only",
+                              "off"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/topology": {
       "get": {
         "operationId": "getTopology",

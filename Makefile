@@ -118,7 +118,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/.
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
 	./internal/auth/... ./internal/perf/... ./internal/ebpf/... ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... ./internal/lifecycle/... ./internal/browser/... ./internal/objectstore/... ./internal/endpoint/... \
 	./internal/flow/... ./internal/store/flowstore/... ./internal/device/... \
-	./internal/promapi/... ./internal/cmdb/... ./internal/secrets/... ./internal/cost/... ./internal/slo/... ./internal/compliance/... ./internal/outage/... ./internal/rum/... ./internal/chaos/... ./internal/carbon/... \
+	./internal/promapi/... ./internal/cmdb/... ./internal/secrets/... ./internal/cost/... ./internal/slo/... ./internal/compliance/... ./internal/outage/... ./internal/rum/... ./internal/chaos/... ./internal/carbon/... ./internal/license/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate
@@ -152,6 +152,12 @@ terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs ter
 browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs node. (Real-browser smoke runs in CI's Playwright container.)
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
 
+.PHONY: editions-gate
+editions-gate: ## The S-T0 editions gate: ee/ import guard (with self-test) + the core-only build/test.
+	SELFTEST=1 ./scripts/check_editions_imports.sh
+	$(GO) build $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
+	$(GO) test -count=1 $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
+
 .PHONY: scale-gate
 scale-gate: ## The S48 L/XL scale gate at FULL scale (reference hardware): make scale-gate TIER=L
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
@@ -178,13 +184,14 @@ lint: lint-go lint-python ## Run all linters (Go + Python).
 # spike/README.md). go vet runs over GO_MODULE_DIRS and golangci-lint over the
 # workspace, so neither touches spike/ either.
 .PHONY: lint-go
-lint-go: ## gofmt check + go vet + golangci-lint + crypto-import guard.
+lint-go: ## gofmt check + go vet + golangci-lint + crypto-import guard + editions guard.
 	@files=$$(find . -name '*.go' -not -path '*/gen/*' -not -path './spike/*'); \
 		bad=$$(gofmt -l $$files); \
 		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
 	golangci-lint run
 	./scripts/check_crypto_imports.sh
+	SELFTEST=1 ./scripts/check_editions_imports.sh
 
 .PHONY: lint-python
 lint-python: ## Lint the Python analyzer (ruff + black --check).

@@ -93,6 +93,9 @@ awk -v mod="${MODULE}" '
     floor["internal/chaos"]          = 75
     # The estimation model + attribution are pure and fully unit-tested.
     floor["internal/carbon"]         = 85
+    # Offline Ed25519 verify, the feature→tier table, and the grace→read-only
+    # ladder are pure local math — fully unit-tested (S-T0).
+    floor["internal/license"]        = 90
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

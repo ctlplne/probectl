@@ -26,6 +26,7 @@ import { AuthoringPanel } from './AuthoringPanel'
 import { ResultDetail } from './ResultDetail'
 import { useAgents, type Agent } from '../api/agents'
 import { useSecretsHealth, type SecretBackendHealth } from '../api/secrets'
+import { useEditions, type FeatureInfo } from '../api/editions'
 
 export function Page({
   title,
@@ -378,6 +379,79 @@ export function AdminPage() {
         </CardBody>
       </Card>
       <SecretBackendsCard />
+      <EditionsCard />
     </Page>
+  )
+}
+
+/** EditionsCard (S-T0) is the ONE place tiers appear when unlicensed — the
+ *  hidden-unlicensed doctrine: no lockware anywhere else in the product. */
+function EditionsCard() {
+  const { data, isPending, isError } = useEditions()
+
+  const stateBadge = () => {
+    switch (data?.state) {
+      case 'active':
+        return <Badge tone="success">active</Badge>
+      case 'grace':
+        return <Badge tone="warning">expired — grace period</Badge>
+      case 'read_only':
+        return <Badge tone="danger">expired — read-only</Badge>
+      default:
+        return <Badge tone="neutral">community</Badge>
+    }
+  }
+
+  const columns: Column<FeatureInfo>[] = [
+    { key: 'feature', header: 'Feature', render: (f) => <code>{f.name}</code> },
+    { key: 'tier', header: 'Tier', render: (f) => f.tier },
+    {
+      key: 'state',
+      header: 'State',
+      render: (f) =>
+        !f.licensed ? (
+          <StatusDot tone="neutral" label="Not licensed" />
+        ) : f.mode === 'read_only' ? (
+          <StatusDot tone="danger" label="Read-only" />
+        ) : (
+          <StatusDot tone="success" label="Enabled" />
+        ),
+    },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="Editions"
+        description="License state and the commercial feature map. Verification is offline (no phone-home); expiry degrades read-only after a 30-day grace — running telemetry never breaks."
+      />
+      <CardBody>
+        {isPending ? (
+          <LoadingState label="Loading license state…" />
+        ) : isError ? (
+          <ErrorState description="Could not load the editions state." />
+        ) : (
+          <>
+            <p className={styles.editionsLede}>
+              {stateBadge()}{' '}
+              <strong>{(data?.tier ?? 'community').toUpperCase()}</strong>
+              {data?.customer ? <> · licensed to {data.customer}</> : <> — the full core, free forever</>}
+              {data?.expires_at ? <> · expires {new Date(data.expires_at).toLocaleDateString()}</> : null}
+              {data?.state === 'grace' && data.read_only_at ? (
+                <> · read-only from {new Date(data.read_only_at).toLocaleDateString()}</>
+              ) : null}
+              {data?.tenant_band ? <> · tenant band {data.tenant_band}</> : null}
+            </p>
+            <Table
+              caption="Commercial features by tier"
+              columns={columns}
+              rows={data?.features ?? []}
+              rowKey={(f) => f.name}
+              empty={<EmptyState icon="admin" title="No feature table" description="—" />}
+            />
+          </>
+        )}
+      </CardBody>
+    </Card>
   )
 }

@@ -65,6 +65,21 @@ export function defaultFetch(): typeof fetch {
         resolver_running: true,
         backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
       })
+    if (url.endsWith('/v1/editions'))
+      return jsonResponse({
+        tier: 'community', state: 'community',
+        features: [
+          { name: 'fips', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'byok', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'governance', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'remediation', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'ha_support', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'provider_plane', tier: 'provider', licensed: false, mode: 'off' },
+          { name: 'siloed_isolation', tier: 'provider', licensed: false, mode: 'off' },
+          { name: 'metering', tier: 'provider', licensed: false, mode: 'off' },
+          { name: 'white_label', tier: 'provider', licensed: false, mode: 'off' },
+        ],
+      })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
   }) as unknown as typeof fetch
 }

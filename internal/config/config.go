@@ -248,6 +248,13 @@ type Config struct {
 	CarbonEnabled   bool
 	CarbonGridGCO2E int
 
+	// Editions (S-T0): the path to the offline-signed license file. Empty =
+	// Community (the full core, default-open). A configured-but-invalid file
+	// FAILS STARTUP; an expired one degrades per the grace ladder — it never
+	// breaks running telemetry. Verification is local math against
+	// build-time-baked public keys (never phone-home).
+	LicenseFile string
+
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
 	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
@@ -413,6 +420,8 @@ func Load(getenv func(string) string) (*Config, error) {
 
 		CarbonEnabled:   l.boolean("PROBECTL_CARBON_ENABLED", true),
 		CarbonGridGCO2E: l.intRange("PROBECTL_CARBON_GRID_GCO2E", 436, 1, 5000),
+
+		LicenseFile: l.str("PROBECTL_LICENSE_FILE", ""),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

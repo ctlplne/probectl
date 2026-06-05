@@ -44,6 +44,17 @@ jobs:
       - name: ruff + black --check
         run: make lint-python
 
+  editions-gate:
+    name: editions-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Editions guard (self-tested) + core-only build/test
+        run: make editions-gate
+
   test-go:
     name: test-go
     runs-on: ubuntu-latest

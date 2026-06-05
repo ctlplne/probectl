@@ -85,6 +85,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/outages", s.handleOutages, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/rum", s.handleRUM, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/carbon", s.handleCarbon, ai.PermMetricsRead},
+		{http.MethodGet, "/v1/editions", s.handleEditions, permDirectoryRead},
 		{http.MethodPost, "/v1/topology/whatif", s.handleWhatIf, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/incidents/{id}/cis", s.handleIncidentCIs, permIncidentRead},
 		{http.MethodGet, "/v1/agents/{id}/ci", s.handleAgentCI, permAgentRead},
