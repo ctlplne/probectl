@@ -33,7 +33,6 @@ import (
 func attachEE(srv *control.Server, cfg *config.Config, log *slog.Logger,
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
 	flowStore flowstore.Store) error {
-
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
 	// tenant provisioning can create isolated stores from the first call.
 	var siloOps provider.SiloOps
