@@ -3747,6 +3747,16 @@
           }
         }
       }
+    },
+    "/v1/fairness": {
+      "get": {
+        "summary": "The tenant's own fairness view (S-T7): the bounds it runs under (policy) + admitted/shed/rejected accounting \u2014 debugging a fairness dispute never requires the provider's word",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   },
   "components": {

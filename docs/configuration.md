@@ -1096,6 +1096,22 @@ references through the S41 secret backends. Surfaces: `GET/POST
 Encryption keys card. The full model — sealing formats, rotation, the BYOK
 lockout warning, crypto-offboarding — is in `docs/byok.md`.
 
+### Tenant fairness (S-T7, core)
+
+Per-tenant ingest bounds + query-cost guards protecting the pooled platform
+(enforcement is core in every edition). All defaults are **0 = unlimited** —
+fairness is opt-in per bound; per-tenant overrides are set from the provider
+console into `tenant_fairness`. Full model: `docs/fairness.md`.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `0` | per-tenant result-message admission rate |
+| `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `0` | per-tenant flow-record admission rate |
+| `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `0` | per-tenant result-payload byte rate |
+| `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | bucket capacity = rate × burst |
+| `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `0` | per-tenant in-flight query cap (429 over it) |
+| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `0` | per-tenant query budget (429 over it) |
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

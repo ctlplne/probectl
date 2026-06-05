@@ -262,6 +262,17 @@ type Config struct {
 	ProviderBootstrapToken          string
 	ProviderBreakGlassMaxTTLMinutes int
 
+	// Fairness deployment defaults (S-T7): per-tenant bounds applied to
+	// every tenant absent a stored override. Zero = unlimited (fairness is
+	// opt-in per bound; small/single-tenant deployments enforce nothing
+	// unless configured).
+	FairnessResultsPerSec     float64
+	FairnessFlowEventsPerSec  float64
+	FairnessIngestBytesPerSec float64
+	FairnessBurstSeconds      float64
+	FairnessQueryConcurrency  int
+	FairnessQueriesPerMin     float64
+
 	// BackupRetentionNote (S-T5): the operator's backup-TTL statement,
 	// included verbatim in every deletion attestation (the explicit
 	// backup-retention story — live-store deletion is attested; snapshots
@@ -447,6 +458,13 @@ func Load(getenv func(string) string) (*Config, error) {
 		DataPlanes:                      l.str("PROBECTL_DATAPLANES", ""),
 		BackupRetentionNote:             l.str("PROBECTL_BACKUP_RETENTION_NOTE", ""),
 
+		FairnessResultsPerSec:     l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 0),
+		FairnessFlowEventsPerSec:  l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 0),
+		FairnessIngestBytesPerSec: l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 0),
+		FairnessBurstSeconds:      l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10),
+		FairnessQueryConcurrency:  l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 0, 0, 100000),
+		FairnessQueriesPerMin:     l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 0),
+
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),
 		SIEMFormat:       l.enum("PROBECTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp"),
@@ -621,6 +639,23 @@ func (l *loader) dur(key string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func (l *loader) float(key string, def float64) float64 {
+	v := l.getenv(key)
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		l.errf("%s: invalid number %q: %v", key, v, err)
+		return def
+	}
+	if f < 0 {
+		l.errf("%s: must not be negative", key)
+		return def
+	}
+	return f
 }
 
 func (l *loader) intRange(key string, def, lo, hi int) int {

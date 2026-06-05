@@ -51,6 +51,26 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       })
     if (url.includes('/provider/v1/tenants/tn_1/quotas') && method === 'PUT')
       return jsonResponse({ tenant_id: 'tn_1', max_agents: 5, max_tests: null })
+    if (url.endsWith('/provider/v1/fairness') && method === 'GET')
+      return jsonResponse({
+        items: [
+          {
+            tenant_id: 'tn_1',
+            policy: { results_per_sec: 100, queries_per_min: 60, burst_seconds: 10 },
+            ingest: { results_ingested: { admitted_calls: 900, admitted_units: 900, shed_calls: 40, shed_units: 40 } },
+            queries: { allowed: 50, rejected_concurrency: 0, rejected_budget: 13, in_flight: 1 },
+          },
+          {
+            tenant_id: 'tn_2',
+            policy: {},
+            ingest: {},
+            queries: { allowed: 4, rejected_concurrency: 0, rejected_budget: 0, in_flight: 0 },
+          },
+        ],
+        overrides: {},
+      })
+    if (url.includes('/provider/v1/tenants/tn_1/fairness') && method === 'PUT')
+      return jsonResponse({ results_per_sec: 250, flow_events_per_sec: 0, queries_per_min: 0, query_concurrency: 4 })
     if (url.endsWith('/provider/v1/branding') && method === 'GET') return jsonResponse({ product_name: '' })
     if (url.includes('/provider/v1/tenants/tn_1/branding') && method === 'PUT')
       return jsonResponse({ tenant_id: 'tn_1', product_name: 'AcmeWatch' })
@@ -116,6 +136,34 @@ describe('provider console (S-T1)', () => {
     expect(within(acmeRow).getByText('pooled')).toBeInTheDocument()
     expect(within(globexRow).getByText('siloed')).toBeInTheDocument()
     expect(within(globexRow).getByText(/eu/)).toBeInTheDocument()
+  })
+
+  test('S-T7 fairness: accounting renders (shed + rejections flagged) and the policy PUT sends the right payload', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    expect(await screen.findByText('Fairness')).toBeInTheDocument()
+    // tn_1 shows shed units + query rejections; tn_2 is unbounded.
+    expect(await screen.findByText('40')).toBeInTheDocument()
+    expect(screen.getByText('13')).toBeInTheDocument()
+    expect(screen.getByText(/100\/s results · 60\/min queries/)).toBeInTheDocument()
+    expect(screen.getByText('unbounded')).toBeInTheDocument()
+    // The admin policy editor PUTs the numeric payload.
+    await userEvent.type(screen.getByLabelText(/tenant id \(fairness\)/i), 'tn_1')
+    await userEvent.type(screen.getByLabelText(/results\/sec/i), '250')
+    await userEvent.type(screen.getByLabelText(/query concurrency/i), '4')
+    await userEvent.click(screen.getByRole('button', { name: /save policy/i }))
+    expect(await screen.findByText(/fairness policy saved/i)).toBeInTheDocument()
+    const put = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => String(c[0]).includes('/tenants/tn_1/fairness') && (c[1] as RequestInit)?.method === 'PUT',
+    )
+    expect(put).toBeTruthy()
+    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({
+      results_per_sec: 250,
+      flow_events_per_sec: 0,
+      queries_per_min: 0,
+      query_concurrency: 4,
+    })
   })
 
   test('S-T2 provisioning: the isolation select + conditional residency field send the right payload', async () => {

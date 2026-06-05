@@ -142,6 +142,13 @@ type askRequest struct {
 // cause. The tenant boundary + per-domain RBAC are enforced inside the analyzer
 // (the S23 engine), never by the model.
 func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
+	// Fairness (S-T7): the per-tenant query-cost guard wraps the whole
+	// analysis (it extends the S23 deployment-wide row/timeout guards).
+	release, err := s.beginQuery(w, r)
+	if err != nil {
+		return err
+	}
+	defer release()
 	var req askRequest
 	if err := decodeJSON(r, &req); err != nil {
 		return err

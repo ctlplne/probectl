@@ -53,6 +53,9 @@ type Handler struct {
 	// lifecycle (S-T5): the CORE erase engine (the provider view of it).
 	lifecycle Lifecycle
 
+	// fairness (S-T7): operator views over the CORE gate + policy store.
+	fairness *Fairness
+
 	mux *http.ServeMux
 }
 
@@ -91,6 +94,7 @@ func Routes() []RouteDecl {
 		{http.MethodPost, "/provider/v1/consent/{id}"},
 	}
 	base = append(base, meteringRoutes()...)
+	base = append(base, fairnessRoutes()...)
 	base = append(base, brandingRoutes()...)
 	return append(base, lifecycleRoutes()...)
 }
@@ -130,6 +134,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 
 	// Metering / usage / quotas (S-T3). Registered unconditionally; the
 	// handlers answer not_found until WithMetering attaches the capability.
+	h.handle("GET /provider/v1/fairness", h.asOperator("", h.handleFairnessView))
+	h.handle("PUT /provider/v1/tenants/{id}/fairness", h.asOperator(RoleAdmin, h.handlePutFairness))
 	h.handle("GET /provider/v1/usage", h.asOperator("", h.handleUsage))
 	h.handle("GET /provider/v1/usage/export", h.asOperator("", h.handleUsageExport))
 	h.handle("GET /provider/v1/tenants/{id}/quotas", h.asOperator("", h.handleGetQuotas))
@@ -158,6 +164,15 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 func (h *Handler) WithWhiteLabel(w *WhiteLabel) *Handler {
 	if w != nil && w.Store != nil {
 		h.whitelabel = w
+	}
+	return h
+}
+
+// WithFairness attaches the S-T7 fairness views (enforcement is core; this
+// is the operator surface over it).
+func (h *Handler) WithFairness(f *Fairness) *Handler {
+	if f != nil {
+		h.fairness = f
 	}
 	return h
 }

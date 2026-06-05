@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
@@ -34,6 +35,7 @@ type FlowConsumer struct {
 	enrich FlowEnricher
 	group  string
 	log    *slog.Logger
+	gate   *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
 }
 
 // NewFlowConsumer builds the consumer; enrich may be nil.
@@ -55,6 +57,12 @@ func (c *FlowConsumer) Run(ctx context.Context) error {
 	return nil
 }
 
+// WithFairness bounds per-tenant flow admission (S-T7, see Consumer.WithFairness).
+func (c *FlowConsumer) WithFairness(g *fairness.Gate) *FlowConsumer {
+	c.gate = g
+	return c
+}
+
 // handle decodes one FlowBatch, enriches, and inserts. Malformed messages and
 // transient store failures are logged and dropped (best-effort, matching the
 // result pipeline) rather than blocking the stream.
@@ -65,6 +73,12 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 		return nil
 	}
 	if len(batch.Flows) == 0 {
+		return nil
+	}
+	// Fairness (S-T7): batch-level admission by the batch's tenant key —
+	// shedding happens BEFORE enrichment + insert (the expensive section).
+	if c.gate != nil && !c.gate.AdmitN(ctx, string(msg.Key), fairness.MeterFlowEvents, int64(len(batch.Flows))) {
+		c.log.Debug("flow batch shed by fairness bounds", "tenant_id", string(msg.Key), "rows", len(batch.Flows))
 		return nil
 	}
 	rows := make([]flowstore.Row, 0, len(batch.Flows))

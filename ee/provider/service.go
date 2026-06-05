@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -105,6 +106,19 @@ func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 // CheckWritable exposes the read-only-degrade gate for surfaces (S-T3 quota
 // writes) that live outside this file.
 func (s *Service) CheckWritable() error { return s.writable() }
+
+// RecordFairnessChange audits a fairness-policy update on the provider stream.
+func (s *Service) RecordFairnessChange(ctx context.Context, actor, tenantID string, p fairness.Policy) error {
+	return s.audit.Append(ctx, actor, "provider.fairness_set", tenantID, map[string]any{
+		"results_per_sec":      p.ResultsPerSec,
+		"flow_events_per_sec":  p.FlowEventsPerSec,
+		"ingest_bytes_per_sec": p.IngestBytesPerSec,
+		"burst_seconds":        p.BurstSeconds,
+		"query_concurrency":    p.QueryConcurrency,
+		"queries_per_min":      p.QueriesPerMin,
+		"weight":               p.Weight,
+	})
+}
 
 // RecordQuotaChange audits a quota update on the provider stream.
 func (s *Service) RecordQuotaChange(ctx context.Context, actor, tenantID string, maxAgents, maxTests *int) error {

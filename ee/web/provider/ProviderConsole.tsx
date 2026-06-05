@@ -229,6 +229,7 @@ function Dashboard({ operator }: { operator: Operator }) {
       <TenantsCard readOnly={readOnly} />
       <FleetCard />
       <UsageCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
+      <FairnessCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
       <BreakGlassCard />
       {operator.role === 'admin' ? <BrandingCard readOnly={readOnly} /> : null}
       {operator.role === 'admin' ? <OperatorsCard readOnly={readOnly} /> : null}
@@ -658,6 +659,127 @@ function UsageCard({ isAdmin, readOnly }: { isAdmin: boolean; readOnly: boolean 
           </form>
         ) : null}
         {saved ? <p className={styles.note}>Quotas saved.</p> : null}
+        {error ? <p role="alert" className={styles.note}>{error}</p> : null}
+      </CardBody>
+    </Card>
+  )
+}
+
+/** FairnessCard (S-T7): cross-tenant fairness — live admitted/shed/rejected
+ *  accounting from the core gate + the tuneable per-tenant policy (admin).
+ *  Enforcement is core; this is the operator's view of it. */
+interface FairnessSnap {
+  tenant_id: string
+  policy: Record<string, number>
+  ingest: Record<string, { admitted_units: number; shed_units: number; admitted_calls: number; shed_calls: number }>
+  queries: { allowed: number; rejected_concurrency: number; rejected_budget: number; in_flight: number }
+}
+
+function FairnessCard({ isAdmin, readOnly }: { isAdmin: boolean; readOnly: boolean }) {
+  const [snaps, setSnaps] = useState<FairnessSnap[] | null>(null)
+  const [enabled, setEnabled] = useState(true)
+  const [tenant, setTenant] = useState('')
+  const [resultsSec, setResultsSec] = useState('')
+  const [flowsSec, setFlowsSec] = useState('')
+  const [queriesMin, setQueriesMin] = useState('')
+  const [queryConc, setQueryConc] = useState('')
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    api<{ items: FairnessSnap[] }>('GET', '/provider/v1/fairness')
+      .then((r) => setSnaps(r.items ?? []))
+      .catch((err) => {
+        if (err instanceof NotEnabledError) setEnabled(false)
+        else setError((err as Error).message)
+      })
+  }, [])
+
+  if (!enabled) return null
+
+  const shed = (t: FairnessSnap) =>
+    Object.values(t.ingest ?? {}).reduce((a, c) => a + (c.shed_units ?? 0), 0)
+  const columns: Column<FairnessSnap>[] = [
+    { key: 'tenant', header: 'Tenant', render: (t) => <code>{t.tenant_id}</code> },
+    {
+      key: 'shed',
+      header: 'Shed units (MTD)',
+      render: (t) =>
+        shed(t) > 0 ? <Badge tone="warning">{shed(t).toLocaleString()}</Badge> : '0',
+    },
+    {
+      key: 'q',
+      header: 'Query rejections',
+      render: (t) => {
+        const n = (t.queries?.rejected_concurrency ?? 0) + (t.queries?.rejected_budget ?? 0)
+        return n > 0 ? <Badge tone="warning">{n.toLocaleString()}</Badge> : '0'
+      },
+    },
+    {
+      key: 'bounds',
+      header: 'Bounds',
+      render: (t) => {
+        const p = t.policy ?? {}
+        const parts = []
+        if (p.results_per_sec) parts.push(`${p.results_per_sec}/s results`)
+        if (p.flow_events_per_sec) parts.push(`${p.flow_events_per_sec}/s flows`)
+        if (p.queries_per_min) parts.push(`${p.queries_per_min}/min queries`)
+        if (p.query_concurrency) parts.push(`${p.query_concurrency} concurrent`)
+        return parts.length ? parts.join(' · ') : 'unbounded'
+      },
+    },
+  ]
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSaved(false)
+    try {
+      await api('PUT', `/provider/v1/tenants/${tenant}/fairness`, {
+        results_per_sec: resultsSec === '' ? 0 : Number(resultsSec),
+        flow_events_per_sec: flowsSec === '' ? 0 : Number(flowsSec),
+        queries_per_min: queriesMin === '' ? 0 : Number(queriesMin),
+        query_concurrency: queryConc === '' ? 0 : Number(queryConc),
+      })
+      setSaved(true)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Fairness"
+        description="Noisy-neighbor protection: per-tenant ingest bounds and query-cost guards (0/blank = unlimited). Shed work is counted and attributable — never silent. Enforcement is core; tenants see their own view at /v1/fairness."
+      />
+      <CardBody>
+        {snaps === null ? (
+          <LoadingState label="Loading fairness accounting…" />
+        ) : (
+          <Table
+            caption="Per-tenant fairness accounting"
+            columns={columns}
+            rows={snaps}
+            rowKey={(t) => t.tenant_id}
+            empty={<EmptyState icon="admin" title="No accounting yet" description="Counters appear as tenant traffic flows." />}
+          />
+        )}
+        {isAdmin ? (
+          <form className={styles.row} onSubmit={save}>
+            <span className={styles.grow}>
+              <Field label="Tenant ID (fairness)" value={tenant} onChange={(e) => setTenant(e.target.value)} required disabled={readOnly} />
+            </span>
+            <Field label="Results/sec" inputMode="numeric" value={resultsSec} onChange={(e) => setResultsSec(e.target.value)} disabled={readOnly} />
+            <Field label="Flow events/sec" inputMode="numeric" value={flowsSec} onChange={(e) => setFlowsSec(e.target.value)} disabled={readOnly} />
+            <Field label="Queries/min" inputMode="numeric" value={queriesMin} onChange={(e) => setQueriesMin(e.target.value)} disabled={readOnly} />
+            <Field label="Query concurrency" inputMode="numeric" value={queryConc} onChange={(e) => setQueryConc(e.target.value)} disabled={readOnly} />
+            <Button type="submit" variant="primary" disabled={readOnly}>
+              Save policy
+            </Button>
+          </form>
+        ) : null}
+        {saved ? <p className={styles.note}>Fairness policy saved — enforced on the next admission.</p> : null}
         {error ? <p role="alert" className={styles.note}>{error}</p> : null}
       </CardBody>
     </Card>

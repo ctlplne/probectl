@@ -20,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/cost"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
@@ -170,6 +171,11 @@ type Server struct {
 	// Per-tenant key management (S-T6, ee-backed): set via WithKeyManager at
 	// the attach seam; nil = the /v1/security/keys surface hides (404).
 	keyManager tenantcrypto.KeyManager
+
+	// Fairness gate (S-T7, core): per-tenant ingest bounds + query-cost
+	// guards. Set via WithFairness; nil = no enforcement (small/dev
+	// deployments), self-view reports enforcing=false.
+	fairnessGate *fairness.Gate
 
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).

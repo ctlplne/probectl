@@ -8,6 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/usage"
@@ -22,7 +23,8 @@ type Consumer struct {
 	tsdb       tsdb.Writer
 	group      string
 	log        *slog.Logger
-	namespaces []string // siloed bus lanes (S-T2), known at startup
+	namespaces []string       // siloed bus lanes (S-T2), known at startup
+	gate       *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
 }
 
 // NewConsumer builds the result-pipeline consumer.
@@ -109,6 +111,15 @@ func (c *Consumer) Run(ctx context.Context) error {
 	return nil
 }
 
+// WithFairness bounds per-tenant admission (S-T7): over-rate tenants are
+// shed with accounting BEFORE the expensive section, so one tenant's burst
+// cannot stall the shared pipeline. Wrapping the consumer makes the bound
+// identical under Kafka and the lightweight bus modes.
+func (c *Consumer) WithFairness(g *fairness.Gate) *Consumer {
+	c.gate = g
+	return c
+}
+
 // handle decodes one result and writes its series. Malformed messages and
 // transient write failures are logged and dropped (best-effort) rather than
 // blocking the stream; durable retry/redelivery is a later hardening step.
@@ -117,6 +128,18 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		c.log.Error("dropping malformed result", "error", err.Error())
 		return nil
+	}
+	// Fairness (S-T7): per-tenant ingest bounds. Shed work is counted on the
+	// gate (surfaced via /v1/fairness, the provider console, and TSDB series)
+	// — never silent, never another tenant's problem. Shed messages are not
+	// metered: billing reflects stored work.
+	if c.gate != nil {
+		okResults := c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterResults, 1)
+		okBytes := c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterBytes, int64(len(msg.Value)))
+		if !okResults || !okBytes {
+			c.log.Debug("result shed by fairness bounds", "tenant_id", r.GetTenantId())
+			return nil
+		}
 	}
 	// Metering (S-T3): derived from the stream already flowing — a no-op
 	// unless the ee/billing recorder is installed at the attach seam.

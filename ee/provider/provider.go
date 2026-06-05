@@ -61,6 +61,9 @@ type Deps struct {
 	// S-T5: the CORE tenant-lifecycle engine (export/erasure is a compliance
 	// right; the provider plane only adds the operator-facing erase view).
 	Lifecycle Lifecycle
+	// S-T7: the CORE fairness gate + policy store (operator views/tuning;
+	// enforcement itself is core in every edition).
+	Fairness *Fairness
 }
 
 // Build constructs the provider plane handler. It fails loudly on missing
@@ -108,7 +111,8 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	}
 	return NewHandler(svc, NewSessions(), tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.HSTSEnabled).
-		WithMetering(d.Metering).WithWhiteLabel(d.WhiteLabel).WithLifecycle(d.Lifecycle), nil
+		WithMetering(d.Metering).WithWhiteLabel(d.WhiteLabel).WithLifecycle(d.Lifecycle).
+		WithFairness(d.Fairness), nil
 }
 
 // providerAudit writes the separate, tamper-evident provider audit stream.

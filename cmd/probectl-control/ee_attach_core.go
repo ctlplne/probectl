@@ -10,6 +10,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
@@ -21,6 +22,7 @@ import (
 // editions gate builds this variant in CI to prove core stands alone.
 func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*license.Manager, *pgxpool.Pool, *control.LatestResults, flowstore.Store,
-	*tenantlife.Engine, func(context.Context, string) (string, error)) error {
+	*tenantlife.Engine, func(context.Context, string) (string, error),
+	*fairness.Gate) error {
 	return nil
 }

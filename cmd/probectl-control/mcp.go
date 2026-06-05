@@ -40,7 +40,7 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	}
 	defer pathStore.Close()
 
-	srv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin)
+	srv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, nil)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)

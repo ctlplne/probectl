@@ -12,6 +12,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -22,12 +23,13 @@ import (
 // S23 query engine, and the S24 RCA analyzer. The tools are read-only; the tenant
 // boundary then RBAC are enforced at the MCP layer AND again at the engine/stores
 // (defense in depth).
-func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int) *mcp.Server {
+func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, gate *fairness.Gate) *mcp.Server {
 	backend := mcpBackend{
 		pool:      pool,
 		engine:    buildEngine(cfg, pool),
 		analyzer:  buildAnalyzer(cfg, log, pool),
 		pathStore: pathStore,
+		gate:      gate,
 	}
 	return mcp.New(backend, mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log))
 }
@@ -40,6 +42,17 @@ type mcpBackend struct {
 	engine    *ai.Engine
 	analyzer  *ai.Analyzer
 	pathStore pathstore.Store
+	gate      *fairness.Gate // per-tenant query-cost guard (S-T7); nil = unbounded
+}
+
+// beginQuery applies the per-tenant query-cost guard to the expensive MCP
+// tools (the deployment-wide MCP rate limit still applies first). The
+// returned release is never nil.
+func (b mcpBackend) beginQuery(ctx context.Context, p *auth.Principal) (func(), error) {
+	if b.gate == nil || p == nil {
+		return func() {}, nil
+	}
+	return b.gate.BeginQuery(ctx, p.TenantID)
 }
 
 func (b mcpBackend) scope(ctx context.Context, p *auth.Principal, fn func(context.Context, tenancy.Scope) error) error {
@@ -121,6 +134,11 @@ func (b mcpBackend) queryEvents(ctx context.Context, p *auth.Principal, sel map[
 			clean[k] = v
 		}
 	}
+	release, err := b.beginQuery(ctx, p) // fairness (S-T7)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	res, err := b.engine.Query(ctx, p, ai.Query{Domain: ai.DomainEvents, Selector: clean, Limit: limit})
 	if err != nil {
 		if errors.Is(err, ai.ErrNoSource) {

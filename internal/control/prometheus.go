@@ -93,6 +93,11 @@ func promSelectors(r *http.Request, tenant string) ([]promapi.Selector, error) {
 
 // handlePromQuery serves GET+POST /v1/grafana/api/v1/query (instant queries).
 func (s *Server) handlePromQuery(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
@@ -133,6 +138,11 @@ func (s *Server) handlePromQuery(w http.ResponseWriter, r *http.Request) error {
 
 // handlePromQueryRange serves GET+POST /v1/grafana/api/v1/query_range.
 func (s *Server) handlePromQueryRange(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err

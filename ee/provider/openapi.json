@@ -313,6 +313,26 @@
           }
         }
       }
+    },
+    "/provider/v1/fairness": {
+      "get": {
+        "summary": "Cross-tenant fairness view (S-T7): live per-tenant admitted/shed/rejected accounting + effective policies + stored overrides",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/fairness": {
+      "put": {
+        "summary": "Set a tenant's fairness policy override (0 = unlimited / deployment default; enforced on the next admission; audited provider.fairness_set; admin role; blocked by read-only license degrade)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   }
 }

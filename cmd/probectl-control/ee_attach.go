@@ -28,6 +28,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -43,7 +44,8 @@ import (
 func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log *slog.Logger,
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
 	flowStore flowstore.Store, life *tenantlife.Engine,
-	resolveSecret func(context.Context, string) (string, error)) error {
+	resolveSecret func(context.Context, string) (string, error),
+	fairGate *fairness.Gate) error {
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
 	// tenant provisioning can create isolated stores from the first call.
 	var siloOps provider.SiloOps
@@ -158,6 +160,9 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			Metering:   metering,
 			WhiteLabel: wl,
 			Lifecycle:  life,
+			// S-T7: operator fairness views over the CORE gate (enforcement
+			// is core; only the views/tuning ride the provider plane).
+			Fairness: &provider.Fairness{Gate: fairGate, Store: fairness.NewPGStore(pool)},
 		})
 		if err != nil {
 			return err

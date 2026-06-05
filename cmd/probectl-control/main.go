@@ -32,6 +32,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
@@ -385,6 +386,27 @@ func run(cmd string) error {
 		}, cfg.RUMRatePerMin)
 	}
 	srv.WithLicense(lic) // editions truth at /v1/editions (S-T0)
+	// Fairness (S-T7, core): per-tenant ingest bounds + query-cost guards.
+	// Deployment defaults come from PROBECTL_FAIRNESS_* (zero = unlimited);
+	// per-tenant overrides live in tenant_fairness (set from the provider
+	// plane) and are read through the provider role with an async TTL cache
+	// — admission never blocks on Postgres. Enforcement protects the pooled
+	// platform itself, so it is core in every edition (ratified).
+	var fairnessSource fairness.PolicySource
+	if db.Pool() != nil {
+		fairnessSource = fairness.NewPGStore(db.Pool())
+	}
+	fairGate := fairness.NewGate(fairness.Policy{
+		ResultsPerSec:     cfg.FairnessResultsPerSec,
+		FlowEventsPerSec:  cfg.FairnessFlowEventsPerSec,
+		IngestBytesPerSec: cfg.FairnessIngestBytesPerSec,
+		BurstSeconds:      cfg.FairnessBurstSeconds,
+		QueryConcurrency:  cfg.FairnessQueryConcurrency,
+		QueriesPerMin:     cfg.FairnessQueriesPerMin,
+	}, fairnessSource)
+	srv.WithFairness(fairGate)
+	// Fairness accounting as per-tenant TSDB series (Grafana-federable).
+	g.Go(func() error { fairness.RunMetrics(gctx, tsdbWriter, fairGate, 30*time.Second, log); return nil })
 	// Per-tenant lifecycle (S-T5, core): export / retention / verifiable
 	// erasure with attestation. The object store is agent-side (browser
 	// artifacts), so the control plane's engine runs without one — recorded
@@ -403,7 +425,7 @@ func run(cmd string) error {
 	// The ee attach seam (S-T1+): licensed commercial features are constructed
 	// and mounted here — and ONLY here. The core-only build (-tags
 	// probectl_core) compiles the no-op twin, proving core stands alone.
-	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, lifeEngine, secretsResolver.Resolve); err != nil {
+	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, lifeEngine, secretsResolver.Resolve, fairGate); err != nil {
 		return err
 	}
 	if alertEngine != nil {
@@ -422,10 +444,12 @@ func run(cmd string) error {
 		log.Info("isolation: consuming namespaced result lanes", "namespaces", busNamespaces)
 	}
 	g.Go(func() error {
-		return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).WithNamespaces(busNamespaces).Run(gctx)
+		return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).WithNamespaces(busNamespaces).WithFairness(fairGate).Run(gctx)
 	})
 	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.
-	g.Go(func() error { return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).Run(gctx) })
+	g.Go(func() error {
+		return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).WithFairness(fairGate).Run(gctx)
+	})
 	// Device pipeline (S39): probectl.device.metrics -> TSDB.
 	g.Go(func() error { return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).Run(gctx) })
 	// Endpoint DEM view (S-FE4): probectl.endpoint.results -> snapshot store.
@@ -549,7 +573,7 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("mcp tls: %w", err)
 		}
-		mcpSrv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin)
+		mcpSrv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, fairGate)
 		handler := mcpSrv.HTTPHandler(control.NewMCPAuthenticator(db.Pool()))
 		g.Go(func() error { return serveMCPHTTP(gctx, cfg.MCPHTTPAddr, tlsCfg, handler, log) })
 	}
