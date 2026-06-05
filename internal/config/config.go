@@ -239,6 +239,15 @@ type Config struct {
 	RUMApps       map[string]string
 	RUMRatePerMin int
 
+	// Carbon/power observability (S48, F48): coefficient-based estimation of
+	// network transmission energy/carbon over the local flow stream — served
+	// as ESTIMATES with the methodology block. ON by default (local-only; no
+	// outbound calls). CarbonGridGCO2E is the operator's grid carbon
+	// intensity in gCO2e/kWh (defaults to the world average — set yours).
+	// Attribution reuses PROBECTL_COST_ZONES / PROBECTL_COST_SERVICES.
+	CarbonEnabled   bool
+	CarbonGridGCO2E int
+
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
 	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
@@ -401,6 +410,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		RUMEnabled:    l.boolean("PROBECTL_RUM_ENABLED", false),
 		RUMApps:       l.tokenMap("PROBECTL_RUM_APPS"),
 		RUMRatePerMin: l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000),
+
+		CarbonEnabled:   l.boolean("PROBECTL_CARBON_ENABLED", true),
+		CarbonGridGCO2E: l.intRange("PROBECTL_CARBON_GRID_GCO2E", 436, 1, 5000),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

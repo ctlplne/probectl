@@ -118,7 +118,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/.
 	./internal/cli/... ./internal/opendata/... ./internal/alert/... ./internal/incident/... \
 	./internal/auth/... ./internal/perf/... ./internal/ebpf/... ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... ./internal/lifecycle/... ./internal/browser/... ./internal/objectstore/... ./internal/endpoint/... \
 	./internal/flow/... ./internal/store/flowstore/... ./internal/device/... \
-	./internal/promapi/... ./internal/cmdb/... ./internal/secrets/... ./internal/cost/... ./internal/slo/... ./internal/compliance/... ./internal/outage/... ./internal/rum/... \
+	./internal/promapi/... ./internal/cmdb/... ./internal/secrets/... ./internal/cost/... ./internal/slo/... ./internal/compliance/... ./internal/outage/... ./internal/rum/... ./internal/chaos/... ./internal/carbon/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
 
 .PHONY: cover-gate
@@ -151,6 +151,11 @@ terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs ter
 .PHONY: browser-worker-check
 browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs node. (Real-browser smoke runs in CI's Playwright container.)
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
+
+.PHONY: scale-gate
+scale-gate: ## The S48 L/XL scale gate at FULL scale (reference hardware): make scale-gate TIER=L
+	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
+		$(GO) test -count=1 -v -timeout 30m -run '^TestScaleGateCI$$' ./internal/perf/
 
 .PHONY: perf-smoke
 perf-smoke: ## Load/perf smoke (S18a): ingest baseline (no DB) + pooled multi-tenant (needs Postgres).

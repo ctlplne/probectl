@@ -88,6 +88,11 @@ awk -v mod="${MODULE}" '
     # Beacon parse/redaction and the convergence verdict matrix are pure and
     # fully unit-tested.
     floor["internal/rum"]            = 85
+    # The fault model + proxy are unit-tested; the SLO-detection self-test
+    # is integration-tagged and runs in the same gate.
+    floor["internal/chaos"]          = 75
+    # The estimation model + attribution are pure and fully unit-tested.
+    floor["internal/carbon"]         = 85
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

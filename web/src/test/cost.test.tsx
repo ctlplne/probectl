@@ -47,12 +47,32 @@ function summaryFixture(): CostResponse {
   }
 }
 
-function stubWith(resp: CostResponse) {
+function stubWith(resp: CostResponse, carbon?: unknown) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.endsWith('/v1/cost/summary')) return jsonResponse(resp)
+    if (url.endsWith('/v1/carbon')) return jsonResponse(carbon ?? { carbon_running: false })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
   }) as unknown as typeof fetch
+}
+
+const carbonFixture = {
+  carbon_running: true,
+  summary: {
+    total_bytes: 12 * 2 ** 30, total_kwh: 0.22, total_gco2e: 88,
+    by_class: { inter_az: { bytes: 10 * 2 ** 30, kwh: 0.1, gco2e: 40 } },
+    by_service: { checkout: { bytes: 10 * 2 ** 30, kwh: 0.1, gco2e: 40 } },
+    by_team: {
+      payments: { bytes: 10 * 2 ** 30, kwh: 0.1, gco2e: 40 },
+      '(unattributed)': { bytes: 2 * 2 ** 30, kwh: 0.12, gco2e: 48 },
+    },
+    trend: [],
+    methodology: {
+      measured: false, grid_gco2e_per_kwh: 400,
+      source: 'fixed-network transmission coefficients (Aslan et al. 2017 band, scaled by locality); operator-set grid intensity',
+      note: 'coefficient-based ESTIMATE of network transmission energy — not measured device power',
+    },
+  },
 }
 
 describe('cost / FinOps summary (S44)', () => {
@@ -106,10 +126,31 @@ describe('cost / FinOps summary (S44)', () => {
     expect(await screen.findByText(/cost engine not wired/i)).toBeInTheDocument()
   })
 
+  test('carbon card (S48): the ESG estimate renders with the methodology stated', async () => {
+    vi.stubGlobal('fetch', stubWith(summaryFixture(), carbonFixture))
+    renderApp('/cost')
+
+    const table = await screen.findByRole('table', { name: /carbon by team/i })
+    expect(within(table).getByText('payments')).toBeInTheDocument()
+    expect(within(table).getByText('40.0')).toBeInTheDocument() // gCO2e est.
+    // The methodology honesty is front and center: an ESTIMATE, never measured.
+    const note = screen.getByRole('note', { name: /carbon methodology/i })
+    expect(within(note).getByText(/not measured power/)).toBeInTheDocument()
+    expect(within(note).getByText(/grid 400 gCO2e\/kWh/)).toBeInTheDocument()
+    expect(within(note).getByText('estimate')).toBeInTheDocument() // the badge
+  })
+
+  test('carbon honesty: unwired engine renders as not wired', async () => {
+    vi.stubGlobal('fetch', stubWith(summaryFixture(), { carbon_running: false }))
+    renderApp('/cost')
+    expect(await screen.findByText(/carbon engine not wired/i)).toBeInTheDocument()
+  })
+
   test('a11y: the cost page passes the axe baseline', async () => {
-    vi.stubGlobal('fetch', stubWith(summaryFixture()))
+    vi.stubGlobal('fetch', stubWith(summaryFixture(), carbonFixture))
     const { container } = renderApp('/cost')
     await screen.findAllByText('$0.38')
+    await screen.findByRole('table', { name: /carbon by team/i })
     const results = await axe.run(container, {
       rules: { 'color-contrast': { enabled: false } },
     })

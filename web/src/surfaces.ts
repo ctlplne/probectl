@@ -53,6 +53,7 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'Collective internet-outage view (open data + your vantages)', sprint: 'S47a', kind: 'native', route: '/outages' },
   { capability: 'RUM convergence: real-user impact joined with synthetic coverage', sprint: 'S47b', kind: 'native', route: '/endpoints' },
   { capability: 'Voice/RTP quality tests: MOS (E-model), jitter, loss', sprint: 'S47c', kind: 'native', route: '/targets' },
+  { capability: 'Carbon/energy estimate (ESG view of network traffic)', sprint: 'S48', kind: 'native', route: '/cost' },
   { capability: 'Secret-backend config + credential health', sprint: 'S41', kind: 'native', route: '/admin' },
 
   // --- federated surfaces (by design) ---

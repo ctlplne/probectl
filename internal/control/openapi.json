@@ -2339,6 +2339,138 @@
         }
       }
     },
+    "/v1/carbon": {
+      "get": {
+        "operationId": "getCarbon",
+        "summary": "Network energy/carbon estimate (S48)",
+        "tags": [
+          "carbon"
+        ],
+        "description": "The caller's tenant's ESTIMATED network transmission energy and carbon: flow volume × published energy-per-byte coefficients × the operator-set grid intensity, attributed to services/teams through the same mapping as the FinOps engine. The methodology block (measured=false, coefficient source, grid intensity, the estimate note) rides every response — these are coefficient-based estimates for relative attribution and trends, not measured device power. carbon_running=false distinguishes an unwired engine.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The estimate.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "carbon_running": {
+                      "type": "boolean"
+                    },
+                    "summary": {
+                      "type": "object",
+                      "properties": {
+                        "total_bytes": {
+                          "type": "integer"
+                        },
+                        "total_kwh": {
+                          "type": "number"
+                        },
+                        "total_gco2e": {
+                          "type": "number"
+                        },
+                        "by_class": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "bytes": {
+                                "type": "integer"
+                              },
+                              "kwh": {
+                                "type": "number"
+                              },
+                              "gco2e": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        },
+                        "by_service": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "bytes": {
+                                "type": "integer"
+                              },
+                              "kwh": {
+                                "type": "number"
+                              },
+                              "gco2e": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        },
+                        "by_team": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "bytes": {
+                                "type": "integer"
+                              },
+                              "kwh": {
+                                "type": "number"
+                              },
+                              "gco2e": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        },
+                        "trend": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "hour": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "kwh": {
+                                "type": "number"
+                              },
+                              "gco2e": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        },
+                        "methodology": {
+                          "type": "object",
+                          "properties": {
+                            "measured": {
+                              "type": "boolean"
+                            },
+                            "source": {
+                              "type": "string"
+                            },
+                            "grid_gco2e_per_kwh": {
+                              "type": "number"
+                            },
+                            "note": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/slos": {
       "get": {
         "operationId": "listSLOs",

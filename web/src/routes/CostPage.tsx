@@ -18,10 +18,13 @@ import {
   type BudgetStatus,
   type ChattyPair,
 } from '../api/cost'
+import { useCarbon, type CarbonAgg } from '../api/carbon'
 
 /** CostPage (S44): the light native FinOps summary — spend by team/service
  * (showback), chatty cross-AZ conversations, budget status. Deep dashboarding
- * is federated to Grafana via the S40 datasource (the Surface declaration). */
+ * is federated to Grafana via the S40 datasource (the Surface declaration).
+ * S48 folds the carbon/ESG estimate in below — same traffic, same owners,
+ * grams instead of dollars. */
 export function CostPage() {
   const { data, isPending, isError } = useCostSummary()
   const s = data?.summary
@@ -206,6 +209,70 @@ export function CostPage() {
           </Card>
         </>
       )}
+
+      <CarbonCard />
     </Page>
+  )
+}
+
+/** CarbonCard (S48): the ESG estimate folded into the FinOps page — same
+ *  attribution as the dollars above, with the methodology stated plainly. */
+function CarbonCard() {
+  const carbon = useCarbon()
+  const s = carbon.data?.summary
+
+  const rows: Array<{ name: string; agg: CarbonAgg }> = Object.entries(s?.by_team ?? {})
+    .map(([name, agg]) => ({ name, agg }))
+    .sort((x, y) => y.agg.gco2e - x.agg.gco2e)
+
+  const columns: Column<{ name: string; agg: CarbonAgg }>[] = [
+    { key: 'team', header: 'Team', render: (r) => r.name },
+    { key: 'gb', header: 'Volume (GiB)', numeric: true, render: (r) => gib(r.agg.bytes) },
+    { key: 'kwh', header: 'Energy (kWh, est.)', numeric: true, render: (r) => r.agg.kwh.toFixed(3) },
+    { key: 'g', header: 'Carbon (gCO2e, est.)', numeric: true, render: (r) => r.agg.gco2e.toFixed(1) },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="Carbon / energy (estimate)"
+        description="The ESG view of the same traffic: volume × transmission-energy coefficients × your grid intensity."
+      />
+      <CardBody>
+        {carbon.isPending ? (
+          <LoadingState label="Loading carbon estimate…" />
+        ) : carbon.isError ? (
+          <ErrorState description="Could not load the carbon estimate." />
+        ) : !carbon.data?.carbon_running ? (
+          <EmptyState
+            icon="cost"
+            title="Carbon engine not wired"
+            description="The control plane started with PROBECTL_CARBON_ENABLED=false."
+          />
+        ) : (
+          <>
+            <p role="note" aria-label="carbon methodology" className={styles.notice}>
+              <Badge tone="info">estimate</Badge> {s?.total_gco2e.toFixed(1)} gCO2e ·{' '}
+              {s?.total_kwh.toFixed(3)} kWh over {gib(s?.total_bytes ?? 0)} GiB — coefficient-based
+              estimate, not measured power · grid {s?.methodology.grid_gco2e_per_kwh} gCO2e/kWh ·{' '}
+              {s?.methodology.source}
+            </p>
+            <Table
+              caption="Carbon by team"
+              columns={columns}
+              rows={rows}
+              rowKey={(r) => r.name}
+              empty={
+                <EmptyState
+                  icon="cost"
+                  title="No traffic observed yet"
+                  description="Estimates appear once flow telemetry arrives."
+                />
+              }
+            />
+          </>
+        )}
+      </CardBody>
+    </Card>
   )
 }

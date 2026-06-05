@@ -985,6 +985,18 @@ the convergence view serves at `GET /v1/rum` and folds into the Endpoints
 surface; `rum.*` vitals flow to the TSDB for dashboards. The SDK is
 `web/public/probectl-rum.js`. See `docs/rum.md`.
 
+### Carbon / power observability (S48)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_CARBON_ENABLED`    | `true` | coefficient-based energy/carbon ESTIMATES over the local flow stream (local-only; methodology served with every response) |
+| `PROBECTL_CARBON_GRID_GCO2E` | `436`  | your grid's carbon intensity in gCO2e/kWh (defaults to the world average — set yours) |
+
+Attribution reuses `PROBECTL_COST_ZONES` / `PROBECTL_COST_SERVICES`. The
+estimate serves at `GET /v1/carbon` and folds into the Cost page. See
+`docs/carbon.md`; the chaos injector and the L/XL scale gate (also S48) are
+test-harness deliverables — see `docs/chaos.md` and `docs/scale-gate.md`.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

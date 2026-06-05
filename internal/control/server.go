@@ -13,6 +13,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/author"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/carbon"
 	"github.com/imfeelingtheagi/probectl/internal/cmdb"
 	"github.com/imfeelingtheagi/probectl/internal/compliance"
 	"github.com/imfeelingtheagi/probectl/internal/config"
@@ -138,6 +139,10 @@ type Server struct {
 	rumApps    map[string]RUMApp
 	rumPublish RUMPublisher
 	rumLimiter *keyLimiter
+
+	// Carbon/power estimation (S48). Set via WithCarbon; nil reports
+	// carbon_running=false.
+	carbonEngine *carbon.Engine
 
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).

@@ -225,6 +225,19 @@ func run(cmd string) error {
 		})
 	}
 
+	// Carbon/power estimation (S48): the ESG sibling of the cost engine —
+	// same flow stream, same attribution config, energy/carbon ESTIMATES
+	// with a served methodology block. Local-only.
+	carbonEngine, carbonOn, err := control.BuildCarbon(cfg, log)
+	if err != nil {
+		return err // malformed attribution config fails startup
+	}
+	if carbonOn {
+		g.Go(func() error {
+			return control.NewCarbonConsumer(resultBus, carbonEngine, log).Run(gctx)
+		})
+	}
+
 	// SLO engine (S45): OpenSLO definitions evaluated per tenant over the
 	// synthetic-result stream; burn-rate breaches are SIGNALS into incidents,
 	// and the engine feeds SLO impact into S43 what-if simulations. Built
@@ -317,7 +330,8 @@ func run(cmd string) error {
 		WithLatestResults(latestResults).
 		WithSecrets(secretsResolver). // backend health at /v1/secrets/health (S41)
 		WithTopology(topoStore).      // dependency graph + what-if (S43)
-		WithCost(costEngine)          // FinOps summary at /v1/cost/summary (S44)
+		WithCost(costEngine).         // FinOps summary at /v1/cost/summary (S44)
+		WithCarbon(carbonEngine)      // energy/carbon estimates at /v1/carbon (S48)
 	if sloOn {
 		srv.WithSLO(sloEngine) // SLO statuses at /v1/slos + what-if impact (S45)
 	}
