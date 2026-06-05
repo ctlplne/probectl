@@ -222,6 +222,25 @@ func run(cmd string) error {
 		})
 	}
 
+	// SLO engine (S45): OpenSLO definitions evaluated per tenant over the
+	// synthetic-result stream; burn-rate breaches are SIGNALS into incidents,
+	// and the engine feeds SLO impact into S43 what-if simulations. Built
+	// before the API server so /v1/slos serves engine truth (the consumer
+	// launches below, beside its SIEM-dependent peers).
+	sloEngine, sloOn, err := control.BuildSLO(cfg, log)
+	if err != nil {
+		return err // malformed SLO definitions fail startup
+	}
+
+	// Compliance / segmentation validation (S46): declared policies validated
+	// against observed flow + eBPF traffic; violations are SIGNALS into
+	// incidents + SIEM. probectl validates — it never enforces. Built before
+	// the API server so /v1/compliance serves validator truth.
+	complianceEngine, complianceOn, err := control.BuildCompliance(cfg, log)
+	if err != nil {
+		return err // malformed policy dir fails startup
+	}
+
 	g.Go(func() error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
@@ -265,6 +284,12 @@ func run(cmd string) error {
 		WithSecrets(secretsResolver). // backend health at /v1/secrets/health (S41)
 		WithTopology(topoStore).      // dependency graph + what-if (S43)
 		WithCost(costEngine)          // FinOps summary at /v1/cost/summary (S44)
+	if sloOn {
+		srv.WithSLO(sloEngine) // SLO statuses at /v1/slos + what-if impact (S45)
+	}
+	if complianceOn {
+		srv.WithCompliance(complianceEngine) // verdicts + evidence at /v1/compliance (S46)
+	}
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
@@ -310,25 +335,11 @@ func run(cmd string) error {
 		log.Info("threat-intel enrichment enabled", "refresh", cfg.ThreatIntelRefresh)
 	}
 
-	// SLO engine (S45): OpenSLO definitions evaluated per tenant over the
-	// synthetic-result stream; burn-rate breaches are SIGNALS into incidents,
-	// and the engine feeds SLO impact into S43 what-if simulations.
-	sloEngine, sloOn, err := control.BuildSLO(cfg, log)
-	if err != nil {
-		return err // malformed SLO definitions fail startup
-	}
+	// SLO + compliance consumers (engines built above, before the API server).
 	if sloOn {
 		g.Go(func() error {
 			return control.NewSLOConsumer(resultBus, sloEngine, correlator, log).Run(gctx)
 		})
-	}
-
-	// Compliance / segmentation validation (S46): declared policies validated
-	// against observed flow + eBPF traffic; violations are SIGNALS into
-	// incidents + SIEM. probectl validates — it never enforces.
-	complianceEngine, complianceOn, err := control.BuildCompliance(cfg, log)
-	if err != nil {
-		return err // malformed policy dir fails startup
 	}
 	if complianceOn {
 		g.Go(func() error {
