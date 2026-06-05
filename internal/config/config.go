@@ -228,6 +228,17 @@ type Config struct {
 	OutageRetention    time.Duration
 	OutageRadarToken   string
 
+	// RUM convergence (S47b, F20). OFF by default: enabling opens the beacon
+	// ingest (an unauthenticated-session inbound surface — each beacon
+	// authenticates via its app key). RUMApps maps app keys to
+	// "tenant/app" bindings (the key in a page is an identifier, not a
+	// secret); RUMRatePerMin bounds each key's beacon rate. Privacy
+	// (consent, URL redaction, no IP storage) is enforced server-side in
+	// internal/rum regardless of configuration.
+	RUMEnabled    bool
+	RUMApps       map[string]string
+	RUMRatePerMin int
+
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
 	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
@@ -386,6 +397,10 @@ func Load(getenv func(string) string) (*Config, error) {
 		OutageRefresh:      l.dur("PROBECTL_OUTAGE_REFRESH", 10*time.Minute),
 		OutageRetention:    l.dur("PROBECTL_OUTAGE_RETENTION", 48*time.Hour),
 		OutageRadarToken:   l.str("PROBECTL_OUTAGE_RADAR_TOKEN", ""),
+
+		RUMEnabled:    l.boolean("PROBECTL_RUM_ENABLED", false),
+		RUMApps:       l.tokenMap("PROBECTL_RUM_APPS"),
+		RUMRatePerMin: l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

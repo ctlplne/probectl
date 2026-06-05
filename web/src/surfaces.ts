@@ -51,6 +51,7 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'SLOs, error budgets + multi-window burn rates (OpenSLO)', sprint: 'S45', kind: 'native', route: '/slos' },
   { capability: 'Segmentation validation + audit evidence (PCI/NIST/zero-trust)', sprint: 'S46', kind: 'native', route: '/compliance' },
   { capability: 'Collective internet-outage view (open data + your vantages)', sprint: 'S47a', kind: 'native', route: '/outages' },
+  { capability: 'RUM convergence: real-user impact joined with synthetic coverage', sprint: 'S47b', kind: 'native', route: '/endpoints' },
   { capability: 'Secret-backend config + credential health', sprint: 'S41', kind: 'native', route: '/admin' },
 
   // --- federated surfaces (by design) ---

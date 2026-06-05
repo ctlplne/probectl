@@ -261,6 +261,20 @@ func run(cmd string) error {
 		log.Info("outage view enabled", "feeds", outageFeedsOn, "scope_resolution", ipEnricher != nil)
 	}
 
+	// RUM convergence (S47b): real-user beacons (consent-gated, redacted at
+	// the edge) joined with synthetic outcomes per host; verdict transitions
+	// are SIGNALS into incidents. OFF unless app keys are configured — the
+	// beacon ingest is an inbound surface. The consumer joins both topics.
+	rumEngine, rumApps, rumOn, err := control.BuildRUM(cfg, log)
+	if err != nil {
+		return err // a malformed app-key registry fails startup (fail closed)
+	}
+	if rumOn {
+		g.Go(func() error {
+			return control.NewRUMConsumer(resultBus, rumEngine, correlator, log).Run(gctx)
+		})
+	}
+
 	g.Go(func() error {
 		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
 	})
@@ -315,6 +329,12 @@ func run(cmd string) error {
 	}
 	if outageFeedsOn {
 		srv.WithOutageFeeds(outageRefresher) // feed health + AUP provenance (S47a)
+	}
+	if rumOn {
+		// Beacon ingest at POST /ingest/rum + convergence view at /v1/rum (S47b).
+		srv.WithRUM(rumEngine, rumApps, func(ctx context.Context, tenant string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.RUMEventsTopic, []byte(tenant), payload)
+		}, cfg.RUMRatePerMin)
 	}
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.

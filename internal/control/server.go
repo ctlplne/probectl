@@ -23,6 +23,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/outage"
 	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/promapi"
+	"github.com/imfeelingtheagi/probectl/internal/rum"
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
@@ -129,6 +130,15 @@ type Server struct {
 	outageEngine *outage.Engine
 	outageFeeds  *outage.Refresher
 
+	// RUM convergence (S47b). Set via WithRUM; nil engine = ingest answers
+	// 503 and /v1/rum reports rum_running=false. rumApps maps app keys to
+	// their VERIFIED (tenant, app) binding; rumPublish writes accepted
+	// beacons to the bus; rumLimiter rate-bounds each key.
+	rumEngine  *rum.Engine
+	rumApps    map[string]RUMApp
+	rumPublish RUMPublisher
+	rumLimiter *keyLimiter
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
@@ -232,6 +242,14 @@ func (s *Server) routes() http.Handler {
 	// verifies the connector's HMAC/token signature, binds to the credential's
 	// tenant, and resolves the linked incident (then loop-protected cross-sync).
 	mux.Handle("POST /ingest/itsm/{provider}/{id}", apiHandler(s.handleITSMWebhook))
+
+	// RUM beacon ingest (S47b) — same model again: each beacon authenticates
+	// itself via its app key (in the body — sendBeacon cannot set headers) and
+	// is bound to the KEY's tenant, never the payload's. Consent + redaction
+	// are enforced before anything is published. OPTIONS serves the CORS
+	// preflight (browsers post cross-origin; write-only, credential-less).
+	mux.Handle("POST /ingest/rum", apiHandler(s.handleRUMBeacon))
+	mux.Handle("OPTIONS /ingest/rum", apiHandler(s.handleRUMPreflight))
 
 	// SCIM 2.0 (S31) — an IdP provisioning surface mounted off /v1; each request is
 	// authenticated by a per-tenant SCIM bearer token (pre-tenant, like sessions),

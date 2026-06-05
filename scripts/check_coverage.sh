@@ -85,6 +85,9 @@ awk -v mod="${MODULE}" '
     # Feed adapters run against recorded fixtures; the store + engine
     # (vantage detection, correlation, tenant isolation) are fully unit-tested.
     floor["internal/outage"]         = 80
+    # Beacon parse/redaction and the convergence verdict matrix are pure and
+    # fully unit-tested.
+    floor["internal/rum"]            = 85
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

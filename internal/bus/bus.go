@@ -41,6 +41,12 @@ const DeviceMetricsTopic = "probectl.device.metrics"
 // result schema), so it flows through the same pipeline → TSDB path.
 const EndpointResultsTopic = "probectl.endpoint.results"
 
+// RUMEventsTopic carries real-user page views from the RUM beacon ingest
+// (S47b) — validated, consent-gated, PII-redacted at the edge — tenant-tagged
+// via the message key. Payload: resultv1.Result (canary_type "rum"; the
+// canonical schema), so RUM flows through the same pipeline → TSDB path.
+const RUMEventsTopic = "probectl.rum.events"
+
 // Message is one bus record. Key partitions the record (the tenant id, so a
 // tenant's results stay ordered and co-located — pooled tenant-tagging).
 type Message struct {

@@ -58,6 +58,7 @@ export function defaultFetch(): typeof fetch {
         events: [], vantage_events: [],
         coverage_notes: ['coverage = your vantage points + public open-data feeds — probectl does not operate a global probe fleet'],
       })
+    if (url.endsWith('/v1/rum')) return jsonResponse({ rum_running: false })
     if (url.endsWith('/v1/secrets/health'))
       return jsonResponse({
         resolver_running: true,

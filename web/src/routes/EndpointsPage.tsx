@@ -25,6 +25,7 @@ import {
   type DEMResult,
   type EndpointView,
 } from '../api/endpoints'
+import { useRUM, type RUMAppStatus, type RUMVerdict } from '../api/rum'
 
 function when(iso?: string): string {
   if (!iso) return '—'
@@ -287,7 +288,117 @@ export function EndpointsPage() {
         </CardBody>
       </Card>
 
+      <RUMCard />
+
       {detail ? <EndpointDetail view={detail} onClose={() => setDetailID(null)} /> : null}
     </Page>
+  )
+}
+
+/** rumVerdictBadge renders the convergence call with honesty wording: every
+ *  claim is about what probectl OBSERVED, never more. */
+function rumVerdictBadge(v: RUMVerdict) {
+  switch (v) {
+    case 'user_impact_confirmed':
+      return <Badge tone="danger">user impact confirmed</Badge>
+    case 'user_only_synthetic_blind':
+      return <Badge tone="warning">users degraded — synthetic blind spot</Badge>
+    case 'synthetic_only_no_user_impact':
+      return <Badge tone="neutral">synthetic only — no user impact observed</Badge>
+    default:
+      return <Badge tone="success">healthy</Badge>
+  }
+}
+
+/** RUMCard folds real-user monitoring into the DEM surface (S47b): the
+ *  synthetic↔RUM convergence per app, plus the enforced privacy posture. */
+function RUMCard() {
+  const rum = useRUM()
+
+  const columns: Column<RUMAppStatus>[] = [
+    {
+      key: 'app',
+      header: 'Application',
+      render: (a) => (
+        <div>
+          <strong>{a.app}</strong>
+          <div className={styles.notice}>{a.host}</div>
+        </div>
+      ),
+    },
+    { key: 'verdict', header: 'Convergence', render: (a) => rumVerdictBadge(a.verdict) },
+    { key: 'views', header: 'Views (15m)', numeric: true, render: (a) => a.window_views },
+    {
+      key: 'errors',
+      header: 'Error rate',
+      numeric: true,
+      render: (a) => `${(a.error_rate * 100).toFixed(1)}%`,
+    },
+    {
+      key: 'lcp',
+      header: 'p75 LCP',
+      numeric: true,
+      render: (a) => (a.p75_lcp_ms ? `${Math.round(a.p75_lcp_ms)} ms` : '—'),
+    },
+    {
+      key: 'synth',
+      header: 'Synthetic coverage',
+      render: (a) =>
+        a.synthetic_observed ? (
+          a.synthetic_degraded ? (
+            <Badge tone="danger">degraded</Badge>
+          ) : (
+            <Badge tone="success">green</Badge>
+          )
+        ) : (
+          <Badge tone="neutral">none for this host</Badge>
+        ),
+    },
+    {
+      key: 'top',
+      header: 'Top page',
+      render: (a) => (a.pages[0] ? `${a.pages[0].page} (${a.pages[0].views})` : '—'),
+    },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="Real-user monitoring (RUM)"
+        description="Real-user page views joined with synthetic coverage per application — consent-gated, URL-redacted, no IP stored."
+      />
+      <CardBody>
+        {rum.isLoading ? (
+          <LoadingState label="Loading RUM convergence…" />
+        ) : rum.isError ? (
+          <ErrorState description="Could not load the RUM view." />
+        ) : !rum.data?.rum_running ? (
+          <EmptyState
+            title="RUM not wired"
+            description="Enable the beacon ingest (PROBECTL_RUM_ENABLED + PROBECTL_RUM_APPS) and embed the probectl-rum.js snippet to see real-user impact here."
+          />
+        ) : (rum.data.apps?.length ?? 0) === 0 ? (
+          <EmptyState
+            title="No real-user views in the window"
+            description="Instrumented pages report here once users (who consented) browse them — see docs/rum.md for the embed snippet."
+          />
+        ) : (
+          <>
+            <p role="note" aria-label="rum privacy posture" className={styles.notice}>
+              <Badge tone="info">privacy</Badge> consent required · URLs redacted · IP never stored ·{' '}
+              {rum.data.privacy?.rejected_no_consent ?? 0} beacons rejected without consent.{' '}
+              {rum.data.coverage_notes?.[0] ?? ''}
+            </p>
+            <Table
+              caption="RUM convergence by application"
+              columns={columns}
+              rows={rum.data.apps ?? []}
+              rowKey={(a) => `${a.app}|${a.host}`}
+              empty={<EmptyState title="No apps" description="—" />}
+            />
+          </>
+        )}
+      </CardBody>
+    </Card>
   )
 }

@@ -960,6 +960,20 @@ the Internet outages page. Scope resolution (IP→ASN/country) rides the S15
 enricher (`PROBECTL_FLOW_ENRICH_ASN`); without it the response reports the
 degradation honestly. See `docs/outage.md`.
 
+### RUM convergence (S47b)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_RUM_ENABLED`      | `false` | the browser-beacon ingest + synthetic↔RUM convergence engine (an inbound surface — opt-in) |
+| `PROBECTL_RUM_APPS`         | (none)  | app-key registry `pk_key=tenant/app,...` — each beacon binds to its KEY's tenant; enabled-but-empty fails startup |
+| `PROBECTL_RUM_RATE_PER_MIN` | `300`   | per-key beacon rate limit (429 + Retry-After above it; 0 = unlimited) |
+
+Beacons ingest at `POST /ingest/rum` (app-key authenticated, consent-gated,
+URL-redacted, no IP stored — privacy is enforced server-side, fail closed);
+the convergence view serves at `GET /v1/rum` and folds into the Endpoints
+surface; `rum.*` vitals flow to the TSDB for dashboards. The SDK is
+`web/public/probectl-rum.js`. See `docs/rum.md`.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

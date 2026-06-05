@@ -2614,6 +2614,226 @@
         }
       }
     },
+    "/v1/rum": {
+      "get": {
+        "operationId": "getRUM",
+        "summary": "RUM convergence view (S47b)",
+        "tags": [
+          "rum"
+        ],
+        "description": "The caller's tenant's real-user-monitoring convergence view: per (app, host) window aggregates (views, error rate, p75 LCP/TTFB, per-page-group stats) joined with synthetic coverage into a verdict — healthy, user_impact_confirmed (both planes degraded), synthetic_only_no_user_impact, or user_only_synthetic_blind (the coverage blind spot). The privacy block reports the enforced posture (consent required, URL redaction, no IP storage) and per-reason rejection counters. Claims cover what probectl OBSERVED; absence of RUM data is not proof of health. rum_running=false distinguishes an unwired engine.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The convergence view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rum_running": {
+                      "type": "boolean"
+                    },
+                    "apps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "app": {
+                            "type": "string"
+                          },
+                          "host": {
+                            "type": "string"
+                          },
+                          "window_views": {
+                            "type": "integer"
+                          },
+                          "error_rate": {
+                            "type": "number"
+                          },
+                          "p75_lcp_ms": {
+                            "type": "number"
+                          },
+                          "p75_ttfb_ms": {
+                            "type": "number"
+                          },
+                          "rum_degraded": {
+                            "type": "boolean"
+                          },
+                          "synthetic_observed": {
+                            "type": "boolean"
+                          },
+                          "synthetic_degraded": {
+                            "type": "boolean"
+                          },
+                          "verdict": {
+                            "type": "string",
+                            "enum": [
+                              "healthy",
+                              "user_impact_confirmed",
+                              "synthetic_only_no_user_impact",
+                              "user_only_synthetic_blind"
+                            ]
+                          },
+                          "pages": {
+                            "type": "array",
+                            "items": {
+                              "type": "object"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "privacy": {
+                      "type": "object",
+                      "properties": {
+                        "consent_required": {
+                          "type": "boolean"
+                        },
+                        "url_redaction": {
+                          "type": "boolean"
+                        },
+                        "ip_stored": {
+                          "type": "boolean"
+                        },
+                        "rejected_no_consent": {
+                          "type": "integer"
+                        },
+                        "rejected_malformed": {
+                          "type": "integer"
+                        },
+                        "rejected_invalid_field": {
+                          "type": "integer"
+                        },
+                        "accepted_page_views": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "coverage_notes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ingest/rum": {
+      "post": {
+        "operationId": "ingestRUMBeacon",
+        "summary": "RUM beacon ingest (S47b) — app-key authenticated",
+        "tags": [
+          "rum"
+        ],
+        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon authenticates itself via its app key (in the body — sendBeacon cannot set headers) and is bound to the KEY's configured tenant, never the payload's. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After) and a 16KiB size cap (413) bound the surface. CORS: wildcard origin, write-only, credential-less; OPTIONS serves the preflight.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "v",
+                  "key",
+                  "consent",
+                  "host",
+                  "page"
+                ],
+                "properties": {
+                  "v": {
+                    "type": "integer",
+                    "enum": [
+                      1
+                    ]
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "app key → (tenant, app); an identifier, not a secret; never stored"
+                  },
+                  "consent": {
+                    "type": "boolean",
+                    "description": "explicit user consent; false/absent = rejected"
+                  },
+                  "app": {
+                    "type": "string"
+                  },
+                  "host": {
+                    "type": "string",
+                    "description": "bare page host — the synthetic↔RUM join key"
+                  },
+                  "page": {
+                    "type": "string",
+                    "description": "path only; server re-redacts regardless"
+                  },
+                  "browser": {
+                    "type": "string"
+                  },
+                  "vitals": {
+                    "type": "object",
+                    "properties": {
+                      "ttfb_ms": {
+                        "type": "number"
+                      },
+                      "fcp_ms": {
+                        "type": "number"
+                      },
+                      "lcp_ms": {
+                        "type": "number"
+                      },
+                      "cls": {
+                        "type": "number"
+                      },
+                      "inp_ms": {
+                        "type": "number"
+                      },
+                      "load_ms": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "errors": {
+                    "type": "integer"
+                  },
+                  "failed_requests": {
+                    "type": "integer"
+                  },
+                  "sdk": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Beacon accepted and published.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "accepted": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/compliance": {
       "get": {
         "operationId": "listComplianceResults",

@@ -32,13 +32,15 @@ func NewConsumer(b bus.Bus, w tsdb.Writer, group string, log *slog.Logger) *Cons
 }
 
 // resultTopics are the bus topics carrying resultv1.Result that the pipeline
-// drains into the TSDB. Network-plane probe results (S6) and endpoint/DEM results
-// (S37) share the canonical result schema, so one handler serves both. Each topic
-// gets its own consumer group so their offsets are independent.
+// drains into the TSDB. Network-plane probe results (S6), endpoint/DEM results
+// (S37) and real-user page views (S47b) share the canonical result schema, so
+// one handler serves all three. Each topic gets its own consumer group so
+// their offsets are independent.
 func (c *Consumer) resultTopics() []topicGroup {
 	return []topicGroup{
 		{topic: bus.NetworkResultsTopic, group: c.group},
 		{topic: bus.EndpointResultsTopic, group: c.group + "-endpoint"},
+		{topic: bus.RUMEventsTopic, group: c.group + "-rum"}, // RUM vitals → dashboards
 	}
 }
 
