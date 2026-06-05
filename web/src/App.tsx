@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { ThemeProvider } from './theme/ThemeProvider'
+import { BrandProvider } from './brand/BrandProvider'
 import { AuthProvider } from './auth/AuthProvider'
 import { ToastProvider } from './components'
 import { makeQueryClient } from './api/queryClient'
@@ -13,11 +14,13 @@ export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(makeQueryClient)
   return (
     <ThemeProvider>
-      <QueryClientProvider client={client}>
-        <AuthProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <BrandProvider>
+        <QueryClientProvider client={client}>
+          <AuthProvider>
+            <ToastProvider>{children}</ToastProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </BrandProvider>
     </ThemeProvider>
   )
 }

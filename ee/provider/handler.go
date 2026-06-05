@@ -47,6 +47,9 @@ type Handler struct {
 	// the usage/quota routes answer not_found (hidden-unlicensed).
 	metering *Metering
 
+	// whitelabel (S-T4): nil unless the white_label feature is licensed.
+	whitelabel *WhiteLabel
+
 	mux *http.ServeMux
 }
 
@@ -84,7 +87,8 @@ func Routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/consent"},
 		{http.MethodPost, "/provider/v1/consent/{id}"},
 	}
-	return append(base, meteringRoutes()...)
+	base = append(base, meteringRoutes()...)
+	return append(base, brandingRoutes()...)
 }
 
 // NewHandler builds the provider HTTP surface.
@@ -127,10 +131,26 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("GET /provider/v1/tenants/{id}/quotas", h.asOperator("", h.handleGetQuotas))
 	h.handle("PUT /provider/v1/tenants/{id}/quotas", h.asOperator(RoleAdmin, h.handlePutQuotas))
 
+	// White-label branding (S-T4). Admin SoD on writes (brand changes are
+	// commercial decisions); not_found until WithWhiteLabel attaches.
+	h.handle("GET /provider/v1/tenants/{id}/branding", h.asOperator("", h.handleGetTenantBranding))
+	h.handle("PUT /provider/v1/tenants/{id}/branding", h.asOperator(RoleAdmin, h.handlePutTenantBranding))
+	h.handle("GET /provider/v1/branding", h.asOperator("", h.handleGetProviderBranding))
+	h.handle("PUT /provider/v1/branding", h.asOperator(RoleAdmin, h.handlePutProviderBranding))
+
 	// Tenant-session routes (the consent leg).
 	h.handle("GET /provider/v1/consent", h.asTenantAdmin(h.handleConsentList))
 	h.handle("POST /provider/v1/consent/{id}", h.asTenantAdmin(h.handleConsentDecide))
 
+	return h
+}
+
+// WithWhiteLabel attaches the S-T4 branding capability (the attach seam
+// passes it only when the white_label feature is licensed).
+func (h *Handler) WithWhiteLabel(w *WhiteLabel) *Handler {
+	if w != nil && w.Store != nil {
+		h.whitelabel = w
+	}
 	return h
 }
 

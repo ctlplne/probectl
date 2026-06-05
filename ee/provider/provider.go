@@ -56,6 +56,8 @@ type Deps struct {
 	// S-T3: the metering capability (nil unless the metering feature is
 	// licensed — then the usage/quota surfaces stay hidden).
 	Metering *Metering
+	// S-T4: the white-label capability (nil unless white_label is licensed).
+	WhiteLabel *WhiteLabel
 }
 
 // Build constructs the provider plane handler. It fails loudly on missing
@@ -102,7 +104,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 		log = slog.Default()
 	}
 	return NewHandler(svc, NewSessions(), tenantAuth, log,
-		cfg.ProviderBootstrapToken, cfg.HSTSEnabled).WithMetering(d.Metering), nil
+		cfg.ProviderBootstrapToken, cfg.HSTSEnabled).WithMetering(d.Metering).WithWhiteLabel(d.WhiteLabel), nil
 }
 
 // providerAudit writes the separate, tamper-evident provider audit stream.

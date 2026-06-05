@@ -267,6 +267,42 @@
           }
         }
       }
+    },
+    "/provider/v1/tenants/{id}/branding": {
+      "get": {
+        "summary": "A tenant's white-label brand (TenantBranding: product name, inline logo, login message, S8a token overrides, email branding, custom domain)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set a tenant's brand (admin; validated against the core token/logo/domain contracts; audited)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/branding": {
+      "get": {
+        "summary": "The provider master brand (the default for tenants without their own)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set the provider master brand (admin; audited)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   }
 }

@@ -65,6 +65,7 @@ export function defaultFetch(): typeof fetch {
         resolver_running: true,
         backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
       })
+    if (url.endsWith('/branding')) return jsonResponse({ product_name: 'probectl' })
     if (url.endsWith('/v1/editions'))
       return jsonResponse({
         tier: 'community', state: 'community',

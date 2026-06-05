@@ -230,6 +230,7 @@ function Dashboard({ operator }: { operator: Operator }) {
       <FleetCard />
       <UsageCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
       <BreakGlassCard />
+      {operator.role === 'admin' ? <BrandingCard readOnly={readOnly} /> : null}
       {operator.role === 'admin' ? <OperatorsCard readOnly={readOnly} /> : null}
     </>
   )
@@ -657,6 +658,108 @@ function UsageCard({ isAdmin, readOnly }: { isAdmin: boolean; readOnly: boolean 
           </form>
         ) : null}
         {saved ? <p className={styles.note}>Quotas saved.</p> : null}
+        {error ? <p role="alert" className={styles.note}>{error}</p> : null}
+      </CardBody>
+    </Card>
+  )
+}
+
+/** BrandingCard (S-T4, admin): per-tenant white-label brand + the provider
+ *  master — S8a token overrides, never per-screen styling. Hidden honestly
+ *  when white_label is not licensed (the API 404s). */
+function BrandingCard({ readOnly }: { readOnly: boolean }) {
+  const [enabled, setEnabled] = useState(true)
+  const [scope, setScope] = useState('tenant')
+  const [tenantID, setTenantID] = useState('')
+  const [productName, setProductName] = useState('')
+  const [accent, setAccent] = useState('')
+  const [loginMessage, setLoginMessage] = useState('')
+  const [customDomain, setCustomDomain] = useState('')
+  const [emailFrom, setEmailFrom] = useState('')
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    api('GET', '/provider/v1/branding').catch((err) => {
+      if (err instanceof NotEnabledError) setEnabled(false)
+    })
+  }, [])
+  if (!enabled) return null // not licensed: no lockware
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSaved(false)
+    const body: Record<string, unknown> = {
+      product_name: productName,
+      login_message: loginMessage,
+      email_from_name: emailFrom,
+      token_overrides: accent ? { '--color-accent': accent } : {},
+    }
+    try {
+      if (scope === 'tenant') {
+        body.custom_domain = customDomain
+        await api('PUT', `/provider/v1/tenants/${tenantID}/branding`, body)
+      } else {
+        await api('PUT', '/provider/v1/branding', body)
+      }
+      setSaved(true)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="White-label branding"
+        description="Per-tenant brand as S8a token overrides — logo, colors, product name, branded login, custom domain. The provider master is the default for tenants without their own brand. Custom domains need per-domain TLS at the ingress (see docs/white-label.md)."
+      />
+      <CardBody>
+        <form className={styles.form} onSubmit={save}>
+          <span className={styles.row}>
+            <Select
+              label="Scope"
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              disabled={readOnly}
+              options={[
+                { value: 'tenant', label: 'tenant brand' },
+                { value: 'master', label: 'provider master' },
+              ]}
+            />
+            {scope === 'tenant' ? (
+              <span className={styles.grow}>
+                <Field label="Tenant ID (branding)" value={tenantID} onChange={(e) => setTenantID(e.target.value)} required disabled={readOnly} />
+              </span>
+            ) : null}
+          </span>
+          <span className={styles.row}>
+            <span className={styles.grow}>
+              <Field label="Product name" value={productName} onChange={(e) => setProductName(e.target.value)} placeholder="AcmeWatch" disabled={readOnly} />
+            </span>
+            <Field label="Accent color (hex)" value={accent} onChange={(e) => setAccent(e.target.value)} placeholder="#ff3300" disabled={readOnly} />
+          </span>
+          <span className={styles.row}>
+            <span className={styles.grow}>
+              <Field label="Login message" value={loginMessage} onChange={(e) => setLoginMessage(e.target.value)} disabled={readOnly} />
+            </span>
+            {scope === 'tenant' ? (
+              <span className={styles.grow}>
+                <Field label="Custom domain" value={customDomain} onChange={(e) => setCustomDomain(e.target.value)} placeholder="status.acme.example" disabled={readOnly} />
+              </span>
+            ) : null}
+            <span className={styles.grow}>
+              <Field label="Email from-name" value={emailFrom} onChange={(e) => setEmailFrom(e.target.value)} disabled={readOnly} />
+            </span>
+          </span>
+          <span className={styles.actions}>
+            <Button type="submit" variant="primary" disabled={readOnly}>
+              Save brand
+            </Button>
+          </span>
+        </form>
+        {saved ? <p className={styles.note}>Brand saved. Tenants see it within a minute (resolver cache).</p> : null}
         {error ? <p role="alert" className={styles.note}>{error}</p> : null}
       </CardBody>
     </Card>

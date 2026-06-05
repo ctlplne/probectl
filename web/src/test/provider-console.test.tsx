@@ -51,6 +51,9 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       })
     if (url.includes('/provider/v1/tenants/tn_1/quotas') && method === 'PUT')
       return jsonResponse({ tenant_id: 'tn_1', max_agents: 5, max_tests: null })
+    if (url.endsWith('/provider/v1/branding') && method === 'GET') return jsonResponse({ product_name: '' })
+    if (url.includes('/provider/v1/tenants/tn_1/branding') && method === 'PUT')
+      return jsonResponse({ tenant_id: 'tn_1', product_name: 'AcmeWatch' })
     if (url.includes('/provider/v1/tenants/tn_1/suspend') && method === 'POST')
       return jsonResponse({ ...tenants[0], status: 'suspended' })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
@@ -195,6 +198,26 @@ describe('provider console (S-T1)', () => {
     renderApp('/provider')
     await screen.findByRole('table', { name: /tenant inventory/i })
     expect(screen.queryByText(/usage & showback/i)).toBeNull()
+  })
+
+  test('S-T4 branding: the admin card PUTs the tenant brand with validated token overrides', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    await screen.findByText(/white-label branding/i)
+    await userEvent.type(screen.getByLabelText(/tenant id \(branding\)/i), 'tn_1')
+    await userEvent.type(screen.getByLabelText(/product name/i), 'AcmeWatch')
+    await userEvent.type(screen.getByLabelText(/accent color/i), '#ff3300')
+    await userEvent.type(screen.getByLabelText(/custom domain/i), 'status.acme.example')
+    await userEvent.click(screen.getByRole('button', { name: /save brand/i }))
+    expect(await screen.findByText(/brand saved/i)).toBeInTheDocument()
+    const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const put = calls.find((c) => String(c[0]).endsWith('/provider/v1/tenants/tn_1/branding') && (c[1] as RequestInit | undefined)?.method === 'PUT')
+    expect(put).toBeTruthy()
+    const body = JSON.parse(String((put![1] as RequestInit).body))
+    expect(body.product_name).toBe('AcmeWatch')
+    expect(body.custom_domain).toBe('status.acme.example')
+    expect(body.token_overrides).toEqual({ '--color-accent': '#ff3300' })
   })
 
   test('a11y: the provider console passes the axe bar (logged-in dashboard)', async () => {

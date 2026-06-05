@@ -273,6 +273,12 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
 	mux.Handle("GET /.well-known/security.txt", apiHandler(s.handleSecurityTxt))
 
+	// White-label brand (S-T4) — public + pre-auth BY DESIGN: the login
+	// surface renders the tenant's brand before any session exists. Resolved
+	// by Host (custom domains) or the caller's session tenant; community/
+	// unlicensed deployments answer the default probectl brand.
+	mux.Handle("GET /branding", apiHandler(s.handleBranding))
+
 	// SSO login endpoints (S18) — public: they establish the session that the
 	// rest of the API requires.
 	mux.Handle("GET /auth/login", apiHandler(s.handleLogin))

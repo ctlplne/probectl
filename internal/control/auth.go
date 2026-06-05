@@ -13,6 +13,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/branding"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -244,6 +245,12 @@ func (s *Server) requirePermission(perm string, h apiHandler) apiHandler {
 // tenant, sets short-lived state+tenant cookies, and redirects to the IdP.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	tid := tenancy.DefaultTenantID
+	// Custom-domain login (S-T4): a request arriving on a tenant's branded
+	// domain logs into THAT tenant — no ?tenant= needed. An explicit
+	// parameter still wins (operator tooling).
+	if mapped := branding.TenantForHost(r.Context(), branding.NormalizeHost(r.Host)); mapped != "" {
+		tid = tenancy.ID(mapped)
+	}
 	if q := r.URL.Query().Get("tenant"); q != "" {
 		if !uuidRe.MatchString(q) {
 			return apierror.BadRequest("tenant must be a tenant UUID")

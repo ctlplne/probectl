@@ -1047,6 +1047,17 @@ region-pinned yet — `docs/isolation.md` states the exact contract, the
 catch-up/migration story for silo schemas, and the offboard-teardown
 semantics.
 
+### White-label branding (S-T4, ee/)
+
+No configuration keys: branding activates with a license granting
+`white_label` and is configured per tenant (or as the provider master) from
+the provider console. The public `GET /branding` endpoint serves the resolved
+brand pre-auth (Host-resolved for custom domains; the probectl default when
+unlicensed); custom-domain login resolves the tenant from the serving host.
+Custom domains need a certificate at the TLS-terminating ingress (or via
+trustctl) — see `docs/white-label.md` for the token-override contract, the
+no-bleed rules, and the email-template contract.
+
 ### Per-tenant metering & quotas (S-T3, ee/)
 
 No configuration keys: metering activates with a license granting `metering`

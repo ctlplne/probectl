@@ -111,6 +111,13 @@ awk -v mod="${MODULE}" '
     # the named accuracy/format/enforcement suites on the memory store; the
     # pgx store runs in the integration job.
     floor["ee/billing"]              = 55
+    # White-label (S-T4, ee/): resolver/merge/email/validation run the named
+    # application/no-bleed/domain/email suites on the memory store; the pgx
+    # store runs in the integration job.
+    floor["ee/whitelabel"]           = 55
+    # The core branding seam (S-T4): validation + seam + normalization are
+    # fully unit-tested.
+    floor["internal/branding"]       = 80
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

@@ -118,6 +118,15 @@ func (s *Service) RecordQuotaChange(ctx context.Context, actor, tenantID string,
 	return s.audit.Append(ctx, actor, "provider.quota_set", tenantID, data)
 }
 
+// RecordBrandingChange audits a white-label update on the provider stream.
+func (s *Service) RecordBrandingChange(ctx context.Context, actor, target, customDomain string) error {
+	data := map[string]any{}
+	if customDomain != "" {
+		data["custom_domain"] = customDomain
+	}
+	return s.audit.Append(ctx, actor, "provider.branding_set", target, data)
+}
+
 func (s *Service) invalidateRouter() {
 	if s.routerInvalidate != nil {
 		s.routerInvalidate()

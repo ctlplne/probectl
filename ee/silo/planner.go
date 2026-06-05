@@ -26,6 +26,7 @@ var providerOwned = map[string]bool{
 	"break_glass_grants": true,
 	"usage_records":      true,
 	"tenant_quotas":      true,
+	"tenant_branding":    true,
 }
 
 // Catalog is the slice of information_schema facts the planner consumes.
