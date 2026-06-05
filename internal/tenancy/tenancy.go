@@ -55,6 +55,38 @@ type Scope struct {
 	Q      Querier
 }
 
+// ProviderRole is the least-privilege Postgres role the provider/management
+// plane assumes (S-T1). Its grants are deliberately minimal: SELECT over agents
+// (via the explicit provider_fleet_read policy) + the tenant registry + the
+// provider-plane tables. It can NEVER read tests, results, incidents, or any
+// telemetry table — the storage layer itself confines the provider plane to
+// operational metadata (CLAUDE.md §7 guardrail 1).
+const ProviderRole = "probectl_provider"
+
+// InProvider runs fn inside a transaction bound to the provider plane's
+// restricted role. It is the ONLY sanctioned cross-tenant data path, and it is
+// cross-tenant solely for the tables that role is granted (fleet/lifecycle
+// metadata). No tenant GUC is set: the tenant_isolation policies correctly
+// match nothing, and only the explicit provider policies apply.
+func InProvider(ctx context.Context, pool *pgxpool.Pool, fn func(context.Context, Querier) error) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin provider tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // no-op once committed
+
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+pgx.Identifier{ProviderRole}.Sanitize()); err != nil {
+		return fmt.Errorf("assume provider role: %w", err)
+	}
+	if err := fn(ctx, tx); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit provider tx: %w", err)
+	}
+	return nil
+}
+
 // InTenant runs fn inside a transaction bound to the tenant resolved from ctx. It
 // assumes the least-privilege AppRole and sets the probectl.tenant_id GUC so
 // Postgres Row-Level Security scopes every statement to this tenant. It fails

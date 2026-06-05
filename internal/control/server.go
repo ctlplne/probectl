@@ -150,9 +150,45 @@ type Server struct {
 	// the main.go Build* seams, never in handlers.
 	license *license.Manager
 
+	// Provider/management plane (S-T1, ee/). A plain http.Handler so core
+	// never imports ee/: the licensed build attaches it at the main.go attach
+	// seam; nil (community / unlicensed) leaves /provider/* a plain 404 — the
+	// hidden-unlicensed UX. The handler owns its own authn (operator sessions,
+	// a privilege domain distinct from tenant users) and its own audit stream.
+	providerPlane http.Handler
+
+	// Tenant lifecycle source (S-T1): requirePermission rejects users of
+	// suspended/offboarded tenants. nil skips the check (unit tests / dev).
+	tenantStatus TenantStatusSource
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
+}
+
+// WithProviderPlane mounts the provider/management plane (S-T1) under
+// /provider/. The handler is opaque to core (it lives in ee/ and is attached
+// only by a licensed build at the main.go seam); nil is a no-op, leaving
+// /provider/* 404 — commercial surfaces stay hidden when unlicensed.
+func (s *Server) WithProviderPlane(h http.Handler) *Server {
+	if h != nil {
+		s.providerPlane = h
+	}
+	return s
+}
+
+// SessionManager exposes the tenant session manager for the ee/ attach seam
+// (the provider plane's tenant-consent leg resolves tenant sessions through
+// it). nil when no database is configured.
+func (s *Server) SessionManager() *auth.Manager { return s.sessions }
+
+// PermissionLoader exposes the tenant RBAC loader for the ee/ attach seam.
+// nil when no database is configured.
+func (s *Server) PermissionLoader() auth.PermissionLoader {
+	if s.pool == nil {
+		return nil
+	}
+	return permLoader{pool: s.pool}
 }
 
 // WithCMDB attaches the CMDB resolver (S40) backing /v1/cmdb/* and the
@@ -286,6 +322,20 @@ func (s *Server) routes() http.Handler {
 	for _, rt := range s.apiRoutes() {
 		mux.Handle(rt.Method+" "+rt.Pattern, s.requirePermission(rt.Permission, rt.Handler))
 	}
+
+	// Provider/management plane (S-T1) — dispatched per-request so the ee/
+	// handler can be attached AFTER New (the main.go seam). It performs its
+	// OWN operator authn (a distinct privilege domain; tenant sessions and the
+	// dev principal mean nothing here) and writes the separate provider audit
+	// stream. Unattached (community / unlicensed) = a plain 404,
+	// indistinguishable from any unknown path: unlicensed surfaces stay hidden.
+	mux.Handle("/provider/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.providerPlane == nil {
+			http.NotFound(w, r)
+			return
+		}
+		s.providerPlane.ServeHTTP(w, r)
+	}))
 
 	// Outermost first: security headers, request context (id + logger), access
 	// logging, panic recovery, then authentication closest to the mux so every

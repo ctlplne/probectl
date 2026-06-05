@@ -255,6 +255,13 @@ type Config struct {
 	// build-time-baked public keys (never phone-home).
 	LicenseFile string
 
+	// Provider plane (S-T1, ee/; active only with a provider-tier license).
+	// ProviderBootstrapToken creates the FIRST operator (single-use: inert once
+	// any operator exists). ProviderBreakGlassMaxTTLMinutes caps break-glass
+	// grant lifetimes (default 240 = 4h).
+	ProviderBootstrapToken          string
+	ProviderBreakGlassMaxTTLMinutes int
+
 	// SIEM export (S32, F26): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF by default — enabling it makes an outbound connection to the
 	// operator-supplied endpoint (sovereignty / no-phone-home). SIEMPreset adapts the
@@ -422,6 +429,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		CarbonGridGCO2E: l.intRange("PROBECTL_CARBON_GRID_GCO2E", 436, 1, 5000),
 
 		LicenseFile: l.str("PROBECTL_LICENSE_FILE", ""),
+
+		ProviderBootstrapToken:          l.str("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", ""),
+		ProviderBreakGlassMaxTTLMinutes: l.intRange("PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES", 240, 5, 1440),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

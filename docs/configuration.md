@@ -1011,6 +1011,24 @@ telemetry**. License state + the feature→tier map serve at
 appear when unlicensed. See `docs/editions.md` for the file format, the
 signing CLI (`probectl-license`), and the gating pattern.
 
+### Provider / management plane (S-T1, ee/)
+
+Active only when the license grants `provider_plane`; otherwise `/provider/*`
+is a plain 404 (hidden, not locked).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PROBECTL_PROVIDER_BOOTSTRAP_TOKEN` | (none) | creates the FIRST operator via `POST /provider/v1/auth/bootstrap`; single-use — inert once any operator exists |
+| `PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES` | `240` | cap on break-glass grant lifetimes (5–1440) |
+
+The provider plane additionally **requires `PROBECTL_ENVELOPE_KEY`** (operator
+TOTP secrets are envelope-sealed at rest) and a database. Operator MFA is
+mandatory; operators are a privilege domain distinct from tenant users with
+**no implicit access to tenant telemetry** — see `docs/provider-plane.md` for
+the model, the break-glass consent flow, and the storage-layer confinement
+(`probectl_provider` role). Suspending a tenant rejects its users at the API
+(`tenant_suspended`) without touching data or ingestion.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

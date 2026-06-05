@@ -1,0 +1,92 @@
+/* probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
+   The provider console is a VISUALLY-SEPARATE surface from any tenant app
+   (CLAUDE.md §4 frontend): its own shell, a loud domain banner, and no tenant
+   indicator — operators act in the provider privilege domain, never inside a
+   tenant. Tokens only (S8a); no hardcoded design values. */
+
+.shell {
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.domainBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-warning);
+  font-size: var(--font-size-sm);
+}
+
+.domainName {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.main {
+  flex: 1;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.loginWrap {
+  margin: auto;
+  width: 100%;
+  max-width: 380px;
+  padding: var(--space-5);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.grow {
+  flex: 1;
+  min-width: 160px;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.secret {
+  font-family: var(--font-mono);
+  word-break: break-all;
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  letter-spacing: -0.01em;
+}

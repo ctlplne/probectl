@@ -126,20 +126,34 @@ gating.
 ## Gating pattern (the only sanctioned shape)
 
 Tier checks are wired **only at the `main.go` `Build*` seams** — never inside
-handlers, engines, or stores. The future S-T1+ pattern:
+handlers, engines, or stores. Since S-T1 the seam is concrete:
+**`cmd/probectl-control/ee_attach.go`** (the one file allowlisted by the
+editions guard), which MUST carry `//go:build !probectl_core`:
 
 ```go
-lic, err := control.BuildLicense(cfg, log)   // fail closed on a bad config
-...
-if lic.Has(license.FeatureProviderPlane) {   // the seam — the ONE check
-    pp := ee.BuildProviderPlane(cfg, lic, log)
-    srv.WithProviderPlane(pp)
+// ee_attach.go (build !probectl_core) — the ONE place core meets ee/.
+func attachEE(srv *control.Server, ..., lic *license.Manager, ...) error {
+    if lic.Has(license.FeatureProviderPlane) {   // one Has() per feature
+        h, err := provider.Build(cfg, provider.Deps{...})
+        if err != nil { return err }
+        srv.WithProviderPlane(h)                 // core sees an opaque http.Handler
+    }
+    return nil
 }
 ```
 
+`ee_attach_core.go` (`//go:build probectl_core`) is the no-op twin: the
+core-only build (`-tags probectl_core`, what `make editions-gate` builds)
+links **zero** `ee/` packages — verifiable with
+`go list -tags probectl_core -deps ./cmd/probectl-control | grep /ee` (empty).
+One binary lineage, two link sets; runtime activation stays license-gated in
+the default build.
+
 Scattering `if licensed` checks through business logic is a review-blocking
 defect: it multiplies the surface where a bug becomes a licensing bypass or,
-worse, a core regression.
+worse, a core regression. (A licensed feature may still consult
+`Mode(feature)` internally to implement its OWN read-only degrade — that is
+behavior of the feature, not gating.)
 
 ## Unlicensed UX
 
@@ -153,10 +167,12 @@ so an operator can see what exists and what their file grants.
 `make editions-gate` (a standing CI job from S-T0 on):
 
 1. `scripts/check_editions_imports.sh` — greps for any core import of
-   `…/probectl/ee/…`; runs its own `SELFTEST=1` (plants a violation, asserts
-   detection) so the guard can never silently rot.
-2. Builds and tests the **core-only package set** (everything except `ee/...`)
-   — proving core stands alone with `ee/` inert.
+   `…/probectl/ee/…`, allowing ONLY the `ee_attach.go` seam (and only when it
+   carries `//go:build !probectl_core`); runs its own `SELFTEST=1` (plants
+   violations, asserts detection) so the guard can never silently rot.
+2. Builds and tests the **core-only package set with `-tags probectl_core`**
+   (everything except `ee/...`, linking the no-op attach twin) — proving core
+   stands alone with `ee/` truly absent from the link.
 
 ## Auditability
 

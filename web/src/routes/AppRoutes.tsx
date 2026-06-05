@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
+import { ProviderConsole } from '@ee/provider/ProviderConsole'
 import { AppShell } from '../shell/AppShell'
 import { NAV } from '../nav/ia'
 import { AdminPage, NotFoundPage, PlaceholderPage, TargetsPage } from './pages'
@@ -19,6 +20,11 @@ import { Gallery } from './Gallery'
 export function AppRoutes() {
   return (
     <Routes>
+      {/* The provider/operator console (S-T1, ee/) — OUTSIDE the tenant
+          AppShell: a visually-separate surface for a separate privilege
+          domain. Not in the tenant nav; the API behind it is hidden
+          (404) unless the deployment holds a provider license. */}
+      <Route path="/provider/*" element={<ProviderConsole />} />
       <Route element={<AppShell />}>
         <Route index element={<Navigate to="/targets" replace />} />
         <Route path="/targets" element={<TargetsPage />} />

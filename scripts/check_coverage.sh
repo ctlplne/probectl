@@ -96,6 +96,12 @@ awk -v mod="${MODULE}" '
     # Offline Ed25519 verify, the feature→tier table, and the grace→read-only
     # ladder are pure local math — fully unit-tested (S-T0).
     floor["internal/license"]        = 90
+    # The provider plane (S-T1, ee/): service/handler/sessions/memstore run the
+    # full named suites (lifecycle e2e, no-implicit-access, fleet, degrade,
+    # SoD, auth hardening); the pgx store needs Postgres and is exercised by
+    # the integration job (incl. the role-confinement test), so it does not
+    # execute in this service-free gate.
+    floor["ee/provider"]             = 55
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

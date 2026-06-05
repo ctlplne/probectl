@@ -1,0 +1,234 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "probectl provider/management plane API (ee, S-T1)",
+    "version": "v1",
+    "description": "The MSP operator surface: tenant lifecycle, fleet-across-tenants health, audited break-glass. Operators are a privilege domain distinct from tenant users (mandatory TOTP MFA); they hold NO implicit access to tenant telemetry \u2014 the only telemetry path is an active, tenant-consented, time-bounded grant, and every access is written to the separate provider audit stream."
+  },
+  "paths": {
+    "/provider/v1/auth/bootstrap": {
+      "post": {
+        "summary": "Create the first admin from the deployment bootstrap token (single-use)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/auth/enroll/start": {
+      "post": {
+        "summary": "Exchange an enrollment token for the TOTP binding (secret returned once)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/auth/enroll/complete": {
+      "post": {
+        "summary": "Verify the first TOTP code, set the password, activate the operator",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/auth/login": {
+      "post": {
+        "summary": "Operator login: email + password + TOTP (MFA mandatory)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/auth/logout": {
+      "post": {
+        "summary": "End the operator session",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/me": {
+      "get": {
+        "summary": "The authenticated operator",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/license": {
+      "get": {
+        "summary": "License state for the console banner (tier, state, horizons)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/operators": {
+      "get": {
+        "summary": "List operators (admin)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an operator; returns the one-time enrollment token (admin)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/operators/{id}/status": {
+      "post": {
+        "summary": "Enable/disable an operator; disablement revokes sessions immediately (admin)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants": {
+      "get": {
+        "summary": "Tenant inventory (lifecycle metadata only)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "summary": "Provision a tenant (licensed tenant band enforced)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}": {
+      "patch": {
+        "summary": "Configure (rename) a tenant",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/suspend": {
+      "post": {
+        "summary": "Suspend a tenant: its users are rejected at the API; data and ingestion are untouched",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/resume": {
+      "post": {
+        "summary": "Reactivate a suspended tenant",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/offboard": {
+      "post": {
+        "summary": "Offboard a tenant (export/verifiable deletion is S-T5)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/fleet": {
+      "get": {
+        "summary": "Fleet-across-tenants health: agent counts + versions per tenant \u2014 never telemetry",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/breakglass": {
+      "get": {
+        "summary": "List break-glass grants with derived state",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "summary": "Request a break-glass grant (pending until the tenant consents; TTL capped)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/breakglass/{id}/revoke": {
+      "post": {
+        "summary": "Revoke a grant early",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/breakglass/{id}/results": {
+      "get": {
+        "summary": "THE break-glass telemetry read: requires an ACTIVE consented grant owned by the caller; every access is provider-audited",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/consent": {
+      "get": {
+        "summary": "Pending grants for the caller's tenant (tenant session)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/consent/{id}": {
+      "post": {
+        "summary": "Approve or deny a grant (tenant admin session; directory.write)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  }
+}

@@ -43,6 +43,10 @@ describe('frontend-coverage gate (S-FE6)', () => {
     // A routed declaration outside the nav → violation.
     const offNav: SurfaceDecl[] = [{ capability: 'y', sprint: 'Sy', kind: 'native', route: '/nowhere' }]
     expect(checkRegistryShape([], offNav)[0].problem).toMatch(/not a nav destination/)
+    // …unless it is EXPLICITLY declared offNav (S-T1: the provider console —
+    // deliberately undiscoverable from the tenant app).
+    const declared: SurfaceDecl[] = [{ capability: 'y', sprint: 'Sy', kind: 'native', route: '/nowhere', offNav: true }]
+    expect(checkRegistryShape([], declared)).toEqual([])
   })
 
   test('every native surface renders a real screen — never the placeholder', async () => {

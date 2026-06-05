@@ -218,6 +218,12 @@ func (s *Server) requirePermission(perm string, h apiHandler) apiHandler {
 		if p == nil {
 			return apierror.Unauthorized("authentication required")
 		}
+		// Tenant lifecycle (S-T1): a suspended/offboarded tenant's users are
+		// rejected. Keyed strictly by the principal's OWN tenant — the check
+		// can never consult another tenant's state.
+		if err := s.checkTenantLifecycle(r, p.TenantID); err != nil {
+			return err
+		}
 		if perm != "" {
 			if !p.Has(perm) {
 				return apierror.Forbidden("missing permission: " + perm)

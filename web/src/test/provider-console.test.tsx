@@ -1,0 +1,126 @@
+import { describe, expect, test, vi } from 'vitest'
+import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { axe } from 'jest-axe'
+import { renderApp } from './renderApp'
+import { jsonResponse, defaultFetch } from './fetchStub'
+
+/** S-T1 surface: the provider/operator console at /provider — a visually-
+ *  separate privilege domain (no tenant shell, no tenant indicator), hidden
+ *  behind a 404 when the deployment is unlicensed. */
+
+const operator = { id: 'op_1', email: 'root@msp.example', name: 'Root', role: 'admin', status: 'active', enrolled: true }
+const tenants = [
+  { id: 'tn_1', slug: 'acme', name: 'Acme Industries', status: 'active', created_at: '2026-06-01T00:00:00Z' },
+  { id: 'tn_2', slug: 'globex', name: 'Globex', status: 'suspended', created_at: '2026-06-02T00:00:00Z' },
+]
+const fleet = [
+  { tenant_id: 'tn_1', tenant_slug: 'acme', tenant_name: 'Acme Industries', tenant_status: 'active', agents_total: 3, agents_online: 2, agents_stale: 1, versions: { '0.3.0': 3 } },
+  { tenant_id: 'tn_2', tenant_slug: 'globex', tenant_name: 'Globex', tenant_status: 'suspended', agents_total: 1, agents_online: 1, agents_stale: 0, versions: { '0.2.9': 1 } },
+]
+const grants = [
+  { id: 'bg_1', operator_email: 'root@msp.example', tenant_id: 'tn_1', reason: 'incident #42', scope: 'read', expires_at: '2026-06-05T12:00:00Z', use_count: 2, state: 'active' },
+  { id: 'bg_2', operator_email: 'root@msp.example', tenant_id: 'tn_2', reason: 'migration check', scope: 'read', expires_at: '2026-06-05T12:00:00Z', use_count: 0, state: 'pending' },
+]
+
+function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
+  const loggedIn = opts?.loggedIn ?? true
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = init?.method ?? 'GET'
+    if (url.endsWith('/provider/v1/me'))
+      return loggedIn ? jsonResponse({ operator }) : jsonResponse({ error: { code: 'unauthorized', message: 'no session' } }, 401)
+    if (url.endsWith('/provider/v1/auth/login') && method === 'POST')
+      return jsonResponse({ operator, token: 't' })
+    if (url.endsWith('/provider/v1/license'))
+      return jsonResponse({ tier: 'provider', state: opts?.readOnly ? 'read_only' : 'active', customer: 'MSP Test GmbH', tenant_band: 25 })
+    if (url.endsWith('/provider/v1/tenants') && method === 'GET') return jsonResponse({ items: tenants })
+    if (url.endsWith('/provider/v1/fleet')) return jsonResponse({ items: fleet })
+    if (url.endsWith('/provider/v1/breakglass') && method === 'GET') return jsonResponse({ items: grants })
+    if (url.endsWith('/provider/v1/operators') && method === 'GET') return jsonResponse({ items: [operator] })
+    if (url.includes('/provider/v1/tenants/tn_1/suspend') && method === 'POST')
+      return jsonResponse({ ...tenants[0], status: 'suspended' })
+    return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
+  }) as unknown as typeof fetch
+}
+
+describe('provider console (S-T1)', () => {
+  test('hidden-unlicensed honesty: a 404 API renders "not enabled", never a broken console', async () => {
+    vi.stubGlobal('fetch', defaultFetch()) // no provider endpoints stubbed = 404s
+    renderApp('/provider')
+    expect(await screen.findByText(/provider plane not enabled/i)).toBeInTheDocument()
+    expect(screen.getByText(/tenant observability is unaffected/i)).toBeInTheDocument()
+    // The tenant shell is NOT around this surface: no tenant nav landmarks.
+    expect(screen.queryByRole('navigation')).toBeNull()
+  })
+
+  test('no session: the MFA login screen (password AND authenticator code)', async () => {
+    vi.stubGlobal('fetch', providerStub({ loggedIn: false }))
+    renderApp('/provider')
+    expect(await screen.findByText(/operator sign-in/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/authenticator code/i)).toBeInTheDocument()
+    // The domain banner brands the separate privilege domain.
+    expect(screen.getByText(/PROVIDER PLANE/)).toBeInTheDocument()
+    expect(screen.getByText(/operator domain — no tenant context/i)).toBeInTheDocument()
+  })
+
+  test('dashboard truth: tenants + lifecycle states, fleet counts, break-glass states, operators (admin)', async () => {
+    vi.stubGlobal('fetch', providerStub())
+    renderApp('/provider')
+
+    // Tenant inventory with lifecycle states.
+    const tenantsTable = (await screen.findByRole('table', { name: /tenant inventory/i })) as HTMLTableElement
+    const acmeRow = within(tenantsTable).getByText('acme').closest('tr')!
+    expect(within(acmeRow).getByText('Active')).toBeInTheDocument()
+    expect(within(acmeRow).getByRole('button', { name: /suspend/i })).toBeInTheDocument()
+    const globexRow = within(tenantsTable).getByText('globex').closest('tr')!
+    expect(within(globexRow).getByText('Suspended')).toBeInTheDocument()
+    expect(within(globexRow).getByRole('button', { name: /resume/i })).toBeInTheDocument()
+
+    // Fleet: per-tenant counts + versions, metadata only.
+    const fleetTable = (await screen.findByRole('table', { name: /fleet across tenants/i })) as HTMLTableElement
+    const fleetAcme = within(fleetTable).getByText('acme').closest('tr')!
+    expect(within(fleetAcme).getByText('2/3')).toBeInTheDocument()
+    expect(within(fleetAcme).getByText('0.3.0×3')).toBeInTheDocument()
+
+    // Break-glass: states + audited use count.
+    const bgTable = (await screen.findByRole('table', { name: /break-glass grants/i })) as HTMLTableElement
+    const active = within(bgTable).getByText('incident #42').closest('tr')!
+    expect(within(active).getByText('active')).toBeInTheDocument()
+    expect(within(active).getByText('2')).toBeInTheDocument() // audited uses
+    const pending = within(bgTable).getByText('migration check').closest('tr')!
+    expect(within(pending).getByText('pending')).toBeInTheDocument()
+
+    // Admin sees the operators card (SoD surface).
+    expect(await screen.findByRole('table', { name: /provider operators/i })).toBeInTheDocument()
+    // License chip renders the band.
+    expect(screen.getByText(/tenant band 25/)).toBeInTheDocument()
+  })
+
+  test('lifecycle action fires the right call', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    const tenantsTable = (await screen.findByRole('table', { name: /tenant inventory/i })) as HTMLTableElement
+    const acmeRow = within(tenantsTable).getByText('acme').closest('tr')!
+    await userEvent.click(within(acmeRow).getByRole('button', { name: /suspend/i }))
+    const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => `${(c[1] as RequestInit | undefined)?.method ?? 'GET'} ${String(c[0])}`)
+    expect(calls.some((c) => c === 'POST /provider/v1/tenants/tn_1/suspend')).toBe(true)
+  })
+
+  test('read-only license degrade is loud and disables mutations', async () => {
+    vi.stubGlobal('fetch', providerStub({ readOnly: true }))
+    renderApp('/provider')
+    expect(await screen.findByText(/READ-ONLY: lifecycle changes are blocked/i)).toBeInTheDocument()
+    const provision = await screen.findByRole('button', { name: /provision/i })
+    expect(provision).toBeDisabled()
+  })
+
+  test('a11y: the provider console passes the axe bar (logged-in dashboard)', async () => {
+    vi.stubGlobal('fetch', providerStub())
+    const { container } = renderApp('/provider')
+    await screen.findByRole('table', { name: /tenant inventory/i })
+    expect(await axe(container)).toHaveNoViolations()
+  })
+})

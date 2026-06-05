@@ -119,7 +119,8 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/.
 	./internal/auth/... ./internal/perf/... ./internal/ebpf/... ./internal/ebpf/l7/... ./internal/topology/... ./internal/ai/... ./internal/ai/mcp/... ./internal/ai/author/... ./internal/testspec/... ./internal/threat/... ./internal/change/... ./internal/scim/... ./internal/siem/... ./internal/notify/... ./internal/lifecycle/... ./internal/browser/... ./internal/objectstore/... ./internal/endpoint/... \
 	./internal/flow/... ./internal/store/flowstore/... ./internal/device/... \
 	./internal/promapi/... ./internal/cmdb/... ./internal/secrets/... ./internal/cost/... ./internal/slo/... ./internal/compliance/... ./internal/outage/... ./internal/rum/... ./internal/chaos/... ./internal/carbon/... ./internal/license/... \
-	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/...
+	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/... \
+	./ee/provider/...
 
 .PHONY: cover-gate
 cover-gate: ## Coverage profile (integration tag, service-free) + per-package floor gate.
@@ -153,10 +154,10 @@ browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
 
 .PHONY: editions-gate
-editions-gate: ## The S-T0 editions gate: ee/ import guard (with self-test) + the core-only build/test.
+editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test) + the core-only build/test (-tags probectl_core links ZERO ee/ code via the attach-seam twin).
 	SELFTEST=1 ./scripts/check_editions_imports.sh
-	$(GO) build $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
-	$(GO) test -count=1 $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
+	$(GO) build -tags probectl_core $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
+	$(GO) test -tags probectl_core -count=1 $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
 
 .PHONY: scale-gate
 scale-gate: ## The S48 L/XL scale gate at FULL scale (reference hardware): make scale-gate TIER=L

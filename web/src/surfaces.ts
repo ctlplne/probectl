@@ -32,6 +32,14 @@ export interface SurfaceDecl {
   route?: string
   /** Federated proof: "file:<repo-relative>" | "openapi:<api path>". */
   evidence?: string[]
+  /**
+   * Deliberately OUTSIDE the tenant nav (S-T1+): a native surface that must
+   * not be discoverable from the tenant app — e.g. the provider/operator
+   * console, a separate privilege domain (and hidden-unlicensed at the API).
+   * The render + a11y gates still apply; only the nav-membership rule is
+   * waived.
+   */
+  offNav?: boolean
 }
 
 export const SURFACES: SurfaceDecl[] = [
@@ -56,6 +64,9 @@ export const SURFACES: SurfaceDecl[] = [
   { capability: 'Carbon/energy estimate (ESG view of network traffic)', sprint: 'S48', kind: 'native', route: '/cost' },
   { capability: 'Secret-backend config + credential health', sprint: 'S41', kind: 'native', route: '/admin' },
   { capability: 'Editions / license state (Admin → Editions)', sprint: 'S-T0', kind: 'native', route: '/admin' },
+  // The provider/operator console (ee/) is deliberately OFF the tenant nav: a
+  // separate privilege domain, hidden when unlicensed (the API 404s).
+  { capability: 'Provider console: tenant lifecycle, fleet, break-glass (operators)', sprint: 'S-T1', kind: 'native', route: '/provider', offNav: true },
 
   // --- federated surfaces (by design) ---
   {
@@ -128,7 +139,7 @@ export function checkRegistryShape(navRoutes: string[], surfaces: SurfaceDecl[])
     }
   }
   for (const [route, decls] of routed) {
-    if (!navRoutes.includes(route)) {
+    if (!navRoutes.includes(route) && !decls.every((d) => d.offNav)) {
       violations.push({ capability: decls[0].capability, problem: `route ${route} is not a nav destination` })
     }
     const kinds = new Set(decls.map((d) => d.kind))

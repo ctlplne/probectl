@@ -23,15 +23,19 @@ function moduleCssFiles(dir: string): string[] {
 
 describe('design tokens', () => {
   test('no .module.css uses a hardcoded color literal', () => {
-    const srcDir = join(process.cwd(), 'src')
+    // Core UI + the ee/web tree (S-T1): the white-label token contract is one
+    // contract — commercial surfaces obey it identically.
+    const dirs = [join(process.cwd(), 'src'), join(process.cwd(), '../ee/web')]
     const offenders: string[] = []
-    for (const file of moduleCssFiles(srcDir)) {
-      const css = readFileSync(file, 'utf8')
-      css.split('\n').forEach((line, i) => {
-        if (COLOR_LITERAL.test(line)) {
-          offenders.push(`${file.split('/src/')[1]}:${i + 1}  ${line.trim()}`)
-        }
-      })
+    for (const dir of dirs) {
+      for (const file of moduleCssFiles(dir)) {
+        const css = readFileSync(file, 'utf8')
+        css.split('\n').forEach((line, i) => {
+          if (COLOR_LITERAL.test(line)) {
+            offenders.push(`${file}:${i + 1}  ${line.trim()}`)
+          }
+        })
+      }
     }
     expect(offenders, `hardcoded colors must move into tokens.css:\n${offenders.join('\n')}`).toEqual(
       [],

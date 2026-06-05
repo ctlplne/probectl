@@ -260,8 +260,9 @@ func run(cmd string) error {
 	// Editions / license (S-T0): load once, fail closed on a configured-but-
 	// invalid file; absent = Community (the full core, default-open).
 	// Verification is local math against build-time-baked keys — never
-	// phone-home. Future ee/ features gate HERE at their Build* seams via
-	// lic.Has/Mode (e.g. S-T1: if lic.Has(license.FeatureProviderPlane) {...}).
+	// phone-home. ee/ features gate at the attachEE seam (ee_attach.go) via
+	// lic.Has/Mode — S-T1 wired the provider plane there; later S-T/EE
+	// sprints add theirs in the same place.
 	lic, err := control.BuildLicense(cfg, log)
 	if err != nil {
 		return err
@@ -361,6 +362,15 @@ func run(cmd string) error {
 		}, cfg.RUMRatePerMin)
 	}
 	srv.WithLicense(lic) // editions truth at /v1/editions (S-T0)
+	// Tenant lifecycle gate (S-T1): users of suspended/offboarded tenants are
+	// rejected at the API; data and ingestion are untouched.
+	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
+	// The ee attach seam (S-T1+): licensed commercial features are constructed
+	// and mounted here — and ONLY here. The core-only build (-tags
+	// probectl_core) compiles the no-op twin, proving core stands alone.
+	if err := attachEE(srv, cfg, log, lic, db.Pool(), latestResults); err != nil {
+		return err
+	}
 	if alertEngine != nil {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
