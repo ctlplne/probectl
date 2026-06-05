@@ -12,6 +12,7 @@ import (
 	"net/http"
 
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 )
 
@@ -55,11 +56,20 @@ func (s *Server) licenseManager() *license.Manager {
 }
 
 // handleEditions serves GET /v1/editions — tier, lifecycle state, expiry
-// horizon, and the full feature table with per-feature licensed/mode truth.
+// horizon, the full feature table with per-feature licensed/mode truth, and
+// the FIPS posture (S-EE1: a compliance/status INDICATOR only — FIPS is a
+// hardening build, gated by the artifact, never a runtime license check).
 func (s *Server) handleEditions(w http.ResponseWriter, r *http.Request) error {
 	if _, err := s.principalTenant(r); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, s.licenseManager().Info())
+	type editionsView struct {
+		license.Info
+		FIPS crypto.FIPSStatus `json:"fips"`
+	}
+	writeJSON(w, http.StatusOK, editionsView{
+		Info: s.licenseManager().Info(),
+		FIPS: crypto.Status(),
+	})
 	return nil
 }

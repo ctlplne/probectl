@@ -19,6 +19,14 @@ export interface FeatureInfo {
   mode: FeatureMode
 }
 
+export interface FIPSStatus {
+  build_tag: boolean
+  module_active: boolean
+  enforced: boolean
+  module_version?: string
+  self_test_passed: boolean
+}
+
 export interface EditionsInfo {
   tier: EditionTier
   state: EditionState
@@ -28,6 +36,7 @@ export interface EditionsInfo {
   read_only_at?: string
   tenant_band?: number
   features: FeatureInfo[]
+  fips?: FIPSStatus
 }
 
 export function useEditions() {

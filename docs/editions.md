@@ -35,6 +35,14 @@ support entitlement is contract). **Starter/Pro pricing tiers need no code
 gating at all** — they are entitlement (support/SLA) tiers on the same core
 binary.
 
+**`fips` is the exception to runtime gating (S-EE1).** The FIPS 140-3 build is
+gated by the **artifact**, not a `lic.Has(fips)` check — there is no runtime
+license gate for FIPS anywhere in the binary. The validated distribution
+(`make build-fips`, `GOFIPS140` + the `probectl_fips` tag) is the Enterprise
+deliverable; the `fips` table row documents that entitlement. A running binary
+reports its FIPS posture on `/v1/editions` under `fips` (build tag, live module
+state, self-test result) as a status indicator only. See `docs/hardening.md`.
+
 ## The license file
 
 A license is a small JSON envelope: base64 of the exact signed payload bytes

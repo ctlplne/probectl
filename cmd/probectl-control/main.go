@@ -31,6 +31,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
@@ -116,6 +117,19 @@ func run(cmd string) error {
 	}
 	log := logging.New(logOut, cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
+
+	// FIPS power-on self-test (S-EE1): exercise every crypto primitive (KATs)
+	// before serving traffic and — in the FIPS artifact — assert the validated
+	// module is active. Fail closed: a control plane whose crypto self-test
+	// fails must not run (guardrail 3).
+	if err := crypto.PowerOnSelfTest(); err != nil {
+		return fmt.Errorf("crypto power-on self-test: %w", err)
+	}
+	if st := crypto.Status(); st.BuildTag || st.ModuleActive {
+		log.Info("crypto self-test passed",
+			"fips_build", st.BuildTag, "fips_module_active", st.ModuleActive,
+			"fips_enforced", st.Enforced, "module_version", st.ModuleVersion)
+	}
 
 	db, err := store.Open(context.Background(), cfg.DatabaseURL,
 		cfg.DatabaseMaxConns, cfg.DatabaseMinConns, cfg.DatabaseConnTimeout)

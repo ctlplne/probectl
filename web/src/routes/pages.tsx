@@ -598,6 +598,15 @@ function EditionsCard() {
               ) : null}
               {data?.tenant_band ? <> · tenant band {data.tenant_band}</> : null}
             </p>
+            {data?.fips && (data.fips.build_tag || data.fips.module_active) ? (
+              <p className={styles.editionsLede}>
+                <Badge tone={data.fips.module_active ? 'success' : 'warning'}>
+                  FIPS {data.fips.module_active ? `mode active${data.fips.module_version ? ` · ${data.fips.module_version}` : ''}` : 'build (module inactive)'}
+                </Badge>
+                {data.fips.self_test_passed ? <> · crypto self-test passed</> : <> · self-test not confirmed</>}
+                {data.fips.enforced ? <> · enforced</> : null}
+              </p>
+            ) : null}
             <Table
               caption="Commercial features by tier"
               columns={columns}

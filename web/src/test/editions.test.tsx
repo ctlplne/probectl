@@ -66,6 +66,25 @@ describe('editions card (S-T0)', () => {
     expect(within(fipsRow).getByText('Not licensed')).toBeInTheDocument()
   })
 
+  test('FIPS posture (S-EE1): a validated build shows the active badge + self-test; a plain build shows nothing', async () => {
+    // A FIPS artifact running the validated module.
+    vi.stubGlobal('fetch', stubWith({
+      ...licensedFixture(),
+      fips: { build_tag: true, module_active: true, enforced: false, module_version: 'v1.0.0', self_test_passed: true },
+    }))
+    const { unmount } = renderApp('/admin')
+    expect(await screen.findByText(/FIPS mode active · v1\.0\.0/)).toBeInTheDocument()
+    expect(screen.getByText(/crypto self-test passed/i)).toBeInTheDocument()
+    unmount()
+
+    // A standard build reports no FIPS block → no indicator at all (it is a
+    // status indicator only, never lockware).
+    vi.stubGlobal('fetch', stubWith(licensedFixture()))
+    renderApp('/admin')
+    await screen.findByText('PROVIDER')
+    expect(screen.queryByText(/FIPS mode active/)).toBeNull()
+  })
+
   test('expiry ladder renders: read-only state is loud, never silent', async () => {
     vi.stubGlobal('fetch', stubWith({ ...licensedFixture(), state: 'read_only' }))
     renderApp('/admin')
