@@ -98,13 +98,13 @@ func (s *FSStore) Stat(_ context.Context, key string) (int64, bool, error) {
 }
 
 // List returns the keys under prefix, sorted (".meta" siblings excluded).
-func (f *FSStore) List(_ context.Context, prefix string) ([]string, error) {
+func (s *FSStore) List(_ context.Context, prefix string) ([]string, error) {
 	var keys []string
-	err := filepath.WalkDir(f.root, func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(s.root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || strings.HasSuffix(p, ".meta") {
 			return err
 		}
-		rel, rerr := filepath.Rel(f.root, p)
+		rel, rerr := filepath.Rel(s.root, p)
 		if rerr != nil {
 			return rerr
 		}
@@ -124,20 +124,20 @@ func (f *FSStore) List(_ context.Context, prefix string) ([]string, error) {
 // DeletePrefix removes every object under prefix and returns the count
 // (S-T5 verifiable deletion). The prefix is validated like any key, so it
 // can never escape the root.
-func (f *FSStore) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+func (s *FSStore) DeletePrefix(ctx context.Context, prefix string) (int, error) {
 	if prefix == "" {
 		return 0, nil
 	}
 	if err := validKey(strings.TrimSuffix(prefix, "/")); err != nil {
 		return 0, err
 	}
-	keys, err := f.List(ctx, prefix)
+	keys, err := s.List(ctx, prefix)
 	if err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, key := range keys {
-		path := filepath.Join(f.root, filepath.FromSlash(key))
+		path := filepath.Join(s.root, filepath.FromSlash(key))
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return n, fmt.Errorf("objectstore: delete %s: %w", key, err)
 		}
@@ -145,7 +145,7 @@ func (f *FSStore) DeletePrefix(ctx context.Context, prefix string) (int, error) 
 		n++
 	}
 	// Prune now-empty directories under the prefix (best-effort tidiness).
-	_ = filepath.WalkDir(filepath.Join(f.root, filepath.FromSlash(strings.TrimSuffix(prefix, "/"))), func(p string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(filepath.Join(s.root, filepath.FromSlash(strings.TrimSuffix(prefix, "/"))), func(p string, d fs.DirEntry, err error) error {
 		if err == nil && d.IsDir() {
 			_ = os.Remove(p) // fails (kept) unless empty
 		}

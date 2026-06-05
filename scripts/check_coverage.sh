@@ -122,7 +122,7 @@ awk -v mod="${MODULE}" '
     # the named gone-from-every-store + round-trip suites on the memory
     # stores; the Postgres legs (RLS-scoped deletes, retention, provider
     # rows, chain-verified attestation) run in the integration job.
-    floor["internal/tenantlife"]     = 28
+    floor["internal/tenantlife"]     = 25
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

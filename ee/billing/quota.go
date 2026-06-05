@@ -28,9 +28,8 @@ type QuotaChecker struct {
 	ttl   time.Duration
 	now   func() time.Time
 
-	mu     sync.Mutex
-	cache  map[string]cachedQuota
-	misses int
+	mu    sync.Mutex
+	cache map[string]cachedQuota
 }
 
 type cachedQuota struct {

@@ -45,3 +45,25 @@ func TestNewModes(t *testing.T) {
 		t.Error("unknown mode should error")
 	}
 }
+
+// TestMemoryDeleteTenant (S-T5): tenant-labeled series are removed in place;
+// other tenants' series survive; a re-delete reads zero (verification).
+func TestMemoryDeleteTenant(t *testing.T) {
+	m := NewMemory()
+	_ = m.Write(context.Background(), []Series{
+		{Metric: "probe_rtt", Labels: map[string]string{"tenant_id": "tnA"}, Value: 1},
+		{Metric: "probe_rtt", Labels: map[string]string{"tenant_id": "tnA"}, Value: 2},
+		{Metric: "probe_rtt", Labels: map[string]string{"tenant_id": "tnB"}, Value: 3},
+		{Metric: "probe_up", Labels: nil, Value: 1}, // unlabeled survives too
+	})
+	n, err := m.DeleteTenant(context.Background(), "tnA")
+	if err != nil || n != 2 {
+		t.Fatalf("delete: n=%d err=%v", n, err)
+	}
+	if n, _ := m.DeleteTenant(context.Background(), "tnA"); n != 0 {
+		t.Fatalf("re-delete must read zero: %d", n)
+	}
+	if n, _ := m.DeleteTenant(context.Background(), "tnB"); n != 1 {
+		t.Fatalf("tenant B must have survived: %d", n)
+	}
+}

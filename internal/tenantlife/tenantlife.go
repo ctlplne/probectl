@@ -264,35 +264,67 @@ func (a Attestation) hash() string {
 	return hex.EncodeToString(crypto.Hash(b))
 }
 
+// appendOnlyTables are tenant-owned tables the APP ROLE may not delete by
+// design (audit_events is append-only for probectl_app — a deliberate
+// security property). The erase engine removes them via the PROVIDER role
+// instead (an explicit DELETE policy from migration 0029), never by
+// weakening the app role.
+var appendOnlyTables = map[string]bool{"audit_events": true}
+
 // erasePostgres deletes every tenant-owned row under the tenant's own scope.
+// Each table's DELETE runs in ITS OWN transaction: a failed statement aborts
+// a Postgres transaction, so per-table isolation is what lets the multi-pass
+// loop retry FK orderings without poisoning the rest of the pass.
 func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResult, error) {
-	tables, err := e.tenantOwnedTables(ctx)
+	all, err := e.tenantOwnedTables(ctx)
 	if err != nil {
 		return StoreResult{}, err
+	}
+	tables := make([]string, 0, len(all))
+	for _, t := range all {
+		if !appendOnlyTables[t] {
+			tables = append(tables, t)
+		}
 	}
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
 	var deleted int64
 	for pass := 0; pass < maxDeletePasses; pass++ {
 		var passDeleted int64
-		err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-			for _, t := range tables {
+		for _, t := range tables {
+			err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 				tag, err := sc.Q.Exec(ctx, `DELETE FROM `+pgIdent(t))
 				if err != nil {
-					continue // FK ordering: a later pass retries
+					return err
 				}
 				passDeleted += tag.RowsAffected()
+				return nil
+			})
+			if err != nil {
+				continue // FK ordering: a later pass retries this table
 			}
-			return nil
-		})
-		if err != nil {
-			return StoreResult{}, fmt.Errorf("tenantlife: postgres erase: %w", err)
 		}
 		deleted += passDeleted
 		if passDeleted == 0 {
 			break
 		}
 	}
-	// Verify: every table reads zero within the tenant's scope.
+	// Append-only tables: erased via the provider role (the explicit S-T5
+	// DELETE policy) — the app role stays append-only.
+	err = tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
+		for t := range appendOnlyTables {
+			tag, err := q.Exec(ctx, `DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID)
+			if err != nil {
+				return fmt.Errorf("delete %s: %w", t, err)
+			}
+			deleted += tag.RowsAffected()
+		}
+		return nil
+	})
+	if err != nil {
+		return StoreResult{}, fmt.Errorf("tenantlife: postgres erase (append-only tables): %w", err)
+	}
+	// Verify: every table reads zero within the tenant's scope (the
+	// append-only set is verified through the provider role).
 	verified := true
 	notes := ""
 	verr := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
@@ -311,8 +343,23 @@ func (e *Engine) erasePostgres(ctx context.Context, tenantID string) (StoreResul
 	if verr != nil {
 		return StoreResult{}, fmt.Errorf("tenantlife: postgres verify: %w", verr)
 	}
+	if perr := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
+		for t := range appendOnlyTables {
+			var n int64
+			if err := q.QueryRow(ctx, `SELECT count(*) FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID).Scan(&n); err != nil {
+				return err
+			}
+			if n != 0 {
+				verified = false
+				notes += fmt.Sprintf("%s:%d ", t, n)
+			}
+		}
+		return nil
+	}); perr != nil {
+		return StoreResult{}, fmt.Errorf("tenantlife: postgres verify (append-only): %w", perr)
+	}
 	return StoreResult{Store: "postgres", Deleted: deleted, VerifiedZero: verified,
-		Notes: trimNotes(notes, len(tables))}, nil
+		Notes: trimNotes(notes, len(all))}, nil
 }
 
 // eraseProviderRows removes provider-plane rows about the tenant and marks
