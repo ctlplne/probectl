@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-func at(min int) time.Time {
-	return time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC).Add(time.Duration(min) * time.Minute)
+func at(minutes int) time.Time {
+	return time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC).Add(time.Duration(minutes) * time.Minute)
 }
 
 func extEvent(id string, scope Scope, start, end time.Time) Event {
