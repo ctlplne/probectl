@@ -102,6 +102,22 @@ func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 	return s
 }
 
+// CheckWritable exposes the read-only-degrade gate for surfaces (S-T3 quota
+// writes) that live outside this file.
+func (s *Service) CheckWritable() error { return s.writable() }
+
+// RecordQuotaChange audits a quota update on the provider stream.
+func (s *Service) RecordQuotaChange(ctx context.Context, actor, tenantID string, maxAgents, maxTests *int) error {
+	data := map[string]any{}
+	if maxAgents != nil {
+		data["max_agents"] = *maxAgents
+	}
+	if maxTests != nil {
+		data["max_tests"] = *maxTests
+	}
+	return s.audit.Append(ctx, actor, "provider.quota_set", tenantID, data)
+}
+
 func (s *Service) invalidateRouter() {
 	if s.routerInvalidate != nil {
 		s.routerInvalidate()

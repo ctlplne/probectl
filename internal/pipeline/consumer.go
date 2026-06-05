@@ -10,6 +10,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 // DefaultGroup is the consumer-group name for the control-plane result pipeline.
@@ -117,6 +118,10 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 		c.log.Error("dropping malformed result", "error", err.Error())
 		return nil
 	}
+	// Metering (S-T3): derived from the stream already flowing — a no-op
+	// unless the ee/billing recorder is installed at the attach seam.
+	usage.Record(r.GetTenantId(), usage.MeterResultsIngested, 1)
+	usage.Record(r.GetTenantId(), usage.MeterIngestBytes, int64(len(msg.Value)))
 	if err := c.tsdb.Write(ctx, ResultToSeries(&r)); err != nil {
 		c.log.Error("tsdb write failed", "tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(), "error", err.Error())
 		return nil

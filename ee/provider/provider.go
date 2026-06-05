@@ -53,6 +53,9 @@ type Deps struct {
 	// cache-invalidation hook for lifecycle changes.
 	Silo           SiloOps
 	SiloInvalidate func()
+	// S-T3: the metering capability (nil unless the metering feature is
+	// licensed — then the usage/quota surfaces stay hidden).
+	Metering *Metering
 }
 
 // Build constructs the provider plane handler. It fails loudly on missing
@@ -99,7 +102,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 		log = slog.Default()
 	}
 	return NewHandler(svc, NewSessions(), tenantAuth, log,
-		cfg.ProviderBootstrapToken, cfg.HSTSEnabled), nil
+		cfg.ProviderBootstrapToken, cfg.HSTSEnabled).WithMetering(d.Metering), nil
 }
 
 // providerAudit writes the separate, tamper-evident provider audit stream.

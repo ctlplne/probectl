@@ -1047,6 +1047,15 @@ region-pinned yet — `docs/isolation.md` states the exact contract, the
 catch-up/migration story for silo schemas, and the offboard-teardown
 semantics.
 
+### Per-tenant metering & quotas (S-T3, ee/)
+
+No configuration keys: metering activates with a license granting `metering`
+(provider/MSP tier). Counters flush every minute; gauge snapshots run every
+15 minutes; usage and quotas live in Postgres (migration 0026). The usage
+API, the CSV/JSONL billing-export feed, per-tenant quotas (creation-gating
+only — telemetry is never quota-dropped), and the console showback card are
+documented in `docs/metering.md`.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

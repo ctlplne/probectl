@@ -21,6 +21,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 const heartbeatIntervalSeconds = 30
@@ -65,13 +66,27 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 		name = id.AgentID
 	}
 	var agent *store.Agent
+	var quotaErr error
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
 		func(ctx context.Context, s tenancy.Scope) error {
+			// Per-tenant quota gate (S-T3): NEW agents only — an existing
+			// agent re-registering (idempotent upsert) must never be rejected
+			// at quota, or a running fleet would break on restart.
+			if _, gerr := svc.agents.Get(ctx, s, id.AgentID); gerr != nil {
+				if qerr := usage.AllowCreate(ctx, id.TenantID, usage.MeterAgents); qerr != nil {
+					quotaErr = qerr
+					return qerr
+				}
+			}
 			a, e := svc.agents.Register(ctx, s, id.AgentID, name, req.GetHostname(),
 				req.GetAgentVersion(), id.String(), req.GetCapabilities())
 			agent = a
 			return e
 		})
+	if quotaErr != nil {
+		svc.log.Warn("agent registration rejected at quota", "tenant", id.TenantID, "agent", id.AgentID, "error", quotaErr.Error())
+		return nil, status.Error(codes.ResourceExhausted, quotaErr.Error())
+	}
 	if err != nil {
 		svc.log.Error("agent register failed", "tenant", id.TenantID, "agent", id.AgentID, "error", err.Error())
 		return nil, status.Error(codes.Internal, "register failed")

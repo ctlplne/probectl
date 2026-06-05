@@ -40,6 +40,17 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
     if (url.endsWith('/provider/v1/fleet')) return jsonResponse({ items: fleet })
     if (url.endsWith('/provider/v1/breakglass') && method === 'GET') return jsonResponse({ items: grants })
     if (url.endsWith('/provider/v1/operators') && method === 'GET') return jsonResponse({ items: [operator] })
+    if (url.includes('/provider/v1/usage') && method === 'GET')
+      return jsonResponse({
+        items: [
+          { tenant_id: 'tn_1', tenant_slug: 'acme', meter: 'results_ingested', kind: 'counter', period_start: '2026-06-05T00:00:00Z', period_end: '2026-06-06T00:00:00Z', value: 1042, unit: 'count' },
+          { tenant_id: 'tn_1', tenant_slug: 'acme', meter: 'agents', kind: 'gauge', period_start: '2026-06-05T00:00:00Z', period_end: '2026-06-06T00:00:00Z', value: 3, unit: 'count' },
+          { tenant_id: 'tn_2', tenant_slug: 'globex', meter: 'ai_calls', kind: 'counter', period_start: '2026-06-05T00:00:00Z', period_end: '2026-06-06T00:00:00Z', value: 7, unit: 'count' },
+        ],
+        meters: ['agents', 'tests', 'results_ingested', 'ingest_bytes', 'flow_events', 'ai_calls'],
+      })
+    if (url.includes('/provider/v1/tenants/tn_1/quotas') && method === 'PUT')
+      return jsonResponse({ tenant_id: 'tn_1', max_agents: 5, max_tests: null })
     if (url.includes('/provider/v1/tenants/tn_1/suspend') && method === 'POST')
       return jsonResponse({ ...tenants[0], status: 'suspended' })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
@@ -142,6 +153,48 @@ describe('provider console (S-T1)', () => {
     expect(await screen.findByText(/READ-ONLY: lifecycle changes are blocked/i)).toBeInTheDocument()
     const provision = await screen.findByRole('button', { name: /provision/i })
     expect(provision).toBeDisabled()
+  })
+
+  test('S-T3 showback: month-to-date usage per tenant + the export feed links', async () => {
+    vi.stubGlobal('fetch', providerStub())
+    renderApp('/provider')
+    const usageTable = (await screen.findByRole('table', { name: /usage and showback/i })) as HTMLTableElement
+    const acme = within(usageTable).getByText('acme').closest('tr')!
+    expect(within(acme).getByText('1,042')).toBeInTheDocument()
+    expect(within(acme).getByText('3')).toBeInTheDocument()
+    const globex = within(usageTable).getByText('globex').closest('tr')!
+    expect(within(globex).getByText('7')).toBeInTheDocument()
+    // The export feed (the generic CSV/JSONL contract) is one click away.
+    expect(screen.getByRole('link', { name: /export csv/i })).toHaveAttribute('href', '/provider/v1/usage/export?format=csv&rollup=day')
+    expect(screen.getByRole('link', { name: /export jsonl/i })).toHaveAttribute('href', '/provider/v1/usage/export?format=jsonl&rollup=day')
+  })
+
+  test('S-T3 quotas: the admin editor PUTs the right payload (blank = unlimited)', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    await screen.findByRole('table', { name: /usage and showback/i })
+    await userEvent.type(screen.getByLabelText(/tenant id \(quotas\)/i), 'tn_1')
+    await userEvent.type(screen.getByLabelText(/max agents/i), '5')
+    await userEvent.click(screen.getByRole('button', { name: /save quotas/i }))
+    expect(await screen.findByText(/quotas saved/i)).toBeInTheDocument()
+    const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls
+    const put = calls.find((c) => String(c[0]).endsWith('/provider/v1/tenants/tn_1/quotas') && (c[1] as RequestInit | undefined)?.method === 'PUT')
+    expect(put).toBeTruthy()
+    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({ max_agents: 5, max_tests: null })
+  })
+
+  test('S-T3 hidden-unlicensed: a 404 usage API renders no usage card at all', async () => {
+    const stub = providerStub()
+    const wrapped = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/provider/v1/usage'))
+        return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
+      return (stub as unknown as (i: RequestInfo | URL, n?: RequestInit) => Promise<Response>)(input, init)
+    }) as unknown as typeof fetch
+    vi.stubGlobal('fetch', wrapped)
+    renderApp('/provider')
+    await screen.findByRole('table', { name: /tenant inventory/i })
+    expect(screen.queryByText(/usage & showback/i)).toBeNull()
   })
 
   test('a11y: the provider console passes the axe bar (logged-in dashboard)', async () => {

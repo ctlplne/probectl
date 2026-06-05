@@ -107,6 +107,10 @@ awk -v mod="${MODULE}" '
     # Postgres and run in the integration job (the physical-separation,
     # parity, teardown, and catch-up suite).
     floor["ee/silo"]                 = 30
+    # Metering (S-T3, ee/): recorder/collector/rollup/export/quota logic runs
+    # the named accuracy/format/enforcement suites on the memory store; the
+    # pgx store runs in the integration job.
+    floor["ee/billing"]              = 55
     # Memory store + anomaly detector + SQL builders are unit-tested; the
     # ClickHouse HTTP paths are covered by the live-stack integration job.
     floor["internal/store/flowstore"] = 50

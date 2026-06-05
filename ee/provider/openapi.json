@@ -229,6 +229,44 @@
           }
         }
       }
+    },
+    "/provider/v1/usage": {
+      "get": {
+        "summary": "Per-tenant usage (showback): UsageRecords for [from,to) with rollup=hour|day (default day); counters sum, gauges peak",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/usage/export": {
+      "get": {
+        "summary": "The billing-export feed (generic, vendor-neutral): format=csv (default) | jsonl with the documented stable column contract",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/provider/v1/tenants/{id}/quotas": {
+      "get": {
+        "summary": "A tenant's creation quotas (null = unlimited)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set a tenant's creation quotas (admin; audited; creation-gating only \u2014 telemetry is never quota-dropped)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   }
 }

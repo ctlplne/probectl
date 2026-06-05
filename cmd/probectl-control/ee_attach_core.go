@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,7 +18,7 @@ import (
 // -tags probectl_core build links zero ee/ code, and this stub keeps main.go
 // identical across both variants (one binary lineage, two link sets). The
 // editions gate builds this variant in CI to prove core stands alone.
-func attachEE(*control.Server, *config.Config, *slog.Logger,
+func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*license.Manager, *pgxpool.Pool, *control.LatestResults, flowstore.Store) error {
 	return nil
 }

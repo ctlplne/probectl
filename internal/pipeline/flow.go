@@ -11,6 +11,7 @@ import (
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 // FlowGroup is the consumer-group name for the flow pipeline (its offsets are
@@ -71,6 +72,8 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 		c.enrichRecord(ctx, f)
 		rows = append(rows, rowFromProto(f))
 	}
+	// Metering (S-T3): stored flow events, tagged by the batch's tenant key.
+	usage.Record(string(msg.Key), usage.MeterFlowEvents, int64(len(rows)))
 	if err := c.store.Insert(ctx, rows); err != nil {
 		c.log.Error("flow store insert failed", "rows", len(rows),
 			"tenant_id", batch.Flows[0].GetTenantId(), "error", err.Error())

@@ -14,9 +14,11 @@ package main
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/ee/billing"
 	"github.com/imfeelingtheagi/probectl/ee/provider"
 	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/internal/config"
@@ -24,13 +26,14 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 // attachEE wires licensed ee/ features onto the core server — the Build* seam
 // pattern (CLAUDE.md §6, editions): one Has() check per feature, here and
 // nowhere else. Unlicensed features are simply never constructed; their
 // surfaces stay hidden (404).
-func attachEE(srv *control.Server, cfg *config.Config, log *slog.Logger,
+func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log *slog.Logger,
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
 	flowStore flowstore.Store) error {
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
@@ -74,6 +77,24 @@ func attachEE(srv *control.Server, cfg *config.Config, log *slog.Logger,
 			"data_planes", silo.PlaneNames(planes), "clickhouse_routed", chRouter != nil)
 	}
 
+	// Per-tenant metering + quotas (S-T3). The recorder hooks the core usage
+	// seam (results/flows/AI calls meter as they already flow); the collector
+	// snapshots per-tenant gauges INSIDE each tenant's own scope; the quota
+	// checker gates resource creation (telemetry is never quota-dropped).
+	var metering *provider.Metering
+	if lic.Has(license.FeatureMetering) {
+		bstore := billing.NewPGStore(pool)
+		recorder := billing.NewRecorder(bstore, log)
+		usage.SetRecorder(recorder)
+		checker := billing.NewQuotaChecker(bstore, billing.PGTenantCounter(pool), 30*time.Second)
+		usage.SetQuotaChecker(checker)
+		collector := billing.NewCollector(bstore, billing.PGTenantLister(pool), billing.PGTenantCounter(pool), log)
+		go recorder.Run(ctx, time.Minute)
+		go collector.Run(ctx, 15*time.Minute)
+		metering = &provider.Metering{Store: bstore, Quotas: checker}
+		log.Info("per-tenant metering attached (S-T3)", "flush", "1m", "snapshot", "15m")
+	}
+
 	if lic.Has(license.FeatureProviderPlane) {
 		h, err := provider.Build(cfg, provider.Deps{
 			Pool:     pool,
@@ -88,6 +109,7 @@ func attachEE(srv *control.Server, cfg *config.Config, log *slog.Logger,
 					routerInvalidate()
 				}
 			},
+			Metering: metering,
 		})
 		if err != nil {
 			return err

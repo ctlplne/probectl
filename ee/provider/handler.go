@@ -43,6 +43,10 @@ type Handler struct {
 	bootstrapToken string
 	secureCookies  bool
 
+	// metering (S-T3): nil unless the metering feature is licensed — then
+	// the usage/quota routes answer not_found (hidden-unlicensed).
+	metering *Metering
+
 	mux *http.ServeMux
 }
 
@@ -55,7 +59,7 @@ type RouteDecl struct {
 
 // Routes is the provider plane's route table.
 func Routes() []RouteDecl {
-	return []RouteDecl{
+	base := []RouteDecl{
 		{http.MethodPost, "/provider/v1/auth/bootstrap"},
 		{http.MethodPost, "/provider/v1/auth/enroll/start"},
 		{http.MethodPost, "/provider/v1/auth/enroll/complete"},
@@ -80,6 +84,7 @@ func Routes() []RouteDecl {
 		{http.MethodGet, "/provider/v1/consent"},
 		{http.MethodPost, "/provider/v1/consent/{id}"},
 	}
+	return append(base, meteringRoutes()...)
 }
 
 // NewHandler builds the provider HTTP surface.
@@ -115,10 +120,26 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	h.handle("POST /provider/v1/breakglass/{id}/revoke", h.asOperator("", h.handleRevokeGrant))
 	h.handle("GET /provider/v1/breakglass/{id}/results", h.asOperator("", h.handleGrantResults))
 
+	// Metering / usage / quotas (S-T3). Registered unconditionally; the
+	// handlers answer not_found until WithMetering attaches the capability.
+	h.handle("GET /provider/v1/usage", h.asOperator("", h.handleUsage))
+	h.handle("GET /provider/v1/usage/export", h.asOperator("", h.handleUsageExport))
+	h.handle("GET /provider/v1/tenants/{id}/quotas", h.asOperator("", h.handleGetQuotas))
+	h.handle("PUT /provider/v1/tenants/{id}/quotas", h.asOperator(RoleAdmin, h.handlePutQuotas))
+
 	// Tenant-session routes (the consent leg).
 	h.handle("GET /provider/v1/consent", h.asTenantAdmin(h.handleConsentList))
 	h.handle("POST /provider/v1/consent/{id}", h.asTenantAdmin(h.handleConsentDecide))
 
+	return h
+}
+
+// WithMetering attaches the S-T3 billing capability (the attach seam passes
+// it only when the metering feature is licensed).
+func (h *Handler) WithMetering(m *Metering) *Handler {
+	if m != nil && m.Store != nil {
+		h.metering = m
+	}
 	return h
 }
 

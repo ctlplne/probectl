@@ -19,9 +19,13 @@ import (
 // construction: a new tenant-owned table in a later migration is picked up by
 // the next provision/catch-up with no list to forget to update.
 
-// providerOwned tables carry tenant_id but are NOT tenant-owned.
+// providerOwned tables carry tenant_id but are NOT tenant-owned: break-glass
+// grants and the S-T3 metering/quota tables are provider-plane data ABOUT
+// tenants (billing stays pooled by design — never copied into silo schemas).
 var providerOwned = map[string]bool{
 	"break_glass_grants": true,
+	"usage_records":      true,
+	"tenant_quotas":      true,
 }
 
 // Catalog is the slice of information_schema facts the planner consumes.

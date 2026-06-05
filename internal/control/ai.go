@@ -17,6 +17,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 // buildEngine wires the S23 query engine: the cost guard plus the tenant-scoped
@@ -144,6 +145,9 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 	var req askRequest
 	if err := decodeJSON(r, &req); err != nil {
 		return err
+	}
+	if p := auth.PrincipalFrom(r.Context()); p != nil {
+		usage.Record(p.TenantID, usage.MeterAICalls, 1) // metering seam (S-T3)
 	}
 	q := strings.TrimSpace(req.Question)
 	if q == "" || len(q) > 2000 {

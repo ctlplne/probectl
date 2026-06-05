@@ -228,6 +228,7 @@ function Dashboard({ operator }: { operator: Operator }) {
       ) : null}
       <TenantsCard readOnly={readOnly} />
       <FleetCard />
+      <UsageCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
       <BreakGlassCard />
       {operator.role === 'admin' ? <OperatorsCard readOnly={readOnly} /> : null}
     </>
@@ -542,6 +543,121 @@ function BreakGlassCard() {
             empty={<EmptyState icon="admin" title="No grants" description="No break-glass access has been requested." />}
           />
         )}
+      </CardBody>
+    </Card>
+  )
+}
+
+interface UsageRow {
+  tenant_id: string
+  tenant_slug: string
+  meter: string
+  kind: string
+  period_start: string
+  period_end: string
+  value: number
+  unit: string
+}
+
+/** UsageCard (S-T3): per-tenant showback for the current month + the
+ *  billing-export feed (CSV/JSONL) + per-tenant creation quotas (admin).
+ *  Hidden honestly when the metering feature is not licensed (the API 404s). */
+function UsageCard({ isAdmin, readOnly }: { isAdmin: boolean; readOnly: boolean }) {
+  const [rows, setRows] = useState<UsageRow[] | null>(null)
+  const [enabled, setEnabled] = useState(true)
+  const [quotaTenant, setQuotaTenant] = useState('')
+  const [maxAgents, setMaxAgents] = useState('')
+  const [maxTests, setMaxTests] = useState('')
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    api<{ items: UsageRow[] }>('GET', '/provider/v1/usage?rollup=day')
+      .then((r) => setRows(r.items ?? []))
+      .catch((err) => {
+        if (err instanceof NotEnabledError) setEnabled(false)
+        else setError((err as Error).message)
+      })
+  }, [])
+
+  if (!enabled) return null // metering not licensed: no lockware, no card
+
+  // Aggregate the month per tenant × meter (rows are daily).
+  const perTenant = new Map<string, Record<string, number>>()
+  for (const r of rows ?? []) {
+    const m = perTenant.get(r.tenant_slug) ?? {}
+    m[r.meter] = r.kind === 'gauge' ? Math.max(m[r.meter] ?? 0, r.value) : (m[r.meter] ?? 0) + r.value
+    perTenant.set(r.tenant_slug, m)
+  }
+  const tenants = [...perTenant.entries()].map(([slug, meters]) => ({ slug, ...meters })) as Array<
+    { slug: string } & Record<string, number>
+  >
+
+  const meterCols = ['agents', 'tests', 'results_ingested', 'ingest_bytes', 'flow_events', 'ai_calls']
+  const columns: Column<(typeof tenants)[number]>[] = [
+    { key: 'slug', header: 'Tenant', render: (t) => <code>{t.slug}</code> },
+    ...meterCols.map((m) => ({
+      key: m,
+      header: m.replace(/_/g, ' '),
+      render: (t: (typeof tenants)[number]) => ((t[m] as number | undefined) ?? 0).toLocaleString(),
+    })),
+  ]
+
+  const saveQuota = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSaved(false)
+    try {
+      await api('PUT', `/provider/v1/tenants/${quotaTenant}/quotas`, {
+        max_agents: maxAgents === '' ? null : Number(maxAgents),
+        max_tests: maxTests === '' ? null : Number(maxTests),
+      })
+      setSaved(true)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Usage & showback"
+        description="Month-to-date per-tenant usage, metered from the streams already flowing. Export feeds your PSA/billing system (CSV/JSONL, stable columns). Quotas gate resource creation only — telemetry is never dropped."
+      />
+      <CardBody>
+        <p className={styles.actions}>
+          <a className={styles.note} href="/provider/v1/usage/export?format=csv&rollup=day" download>
+            Export CSV
+          </a>
+          <a className={styles.note} href="/provider/v1/usage/export?format=jsonl&rollup=day" download>
+            Export JSONL
+          </a>
+        </p>
+        {rows === null ? (
+          <LoadingState label="Aggregating usage…" />
+        ) : (
+          <Table
+            caption="Usage and showback"
+            columns={columns}
+            rows={tenants}
+            rowKey={(t) => t.slug}
+            empty={<EmptyState icon="admin" title="No usage yet" description="Meters fill as tenant telemetry flows." />}
+          />
+        )}
+        {isAdmin ? (
+          <form className={styles.row} onSubmit={saveQuota}>
+            <span className={styles.grow}>
+              <Field label="Tenant ID (quotas)" value={quotaTenant} onChange={(e) => setQuotaTenant(e.target.value)} required disabled={readOnly} />
+            </span>
+            <Field label="Max agents (blank = unlimited)" inputMode="numeric" value={maxAgents} onChange={(e) => setMaxAgents(e.target.value)} disabled={readOnly} />
+            <Field label="Max tests (blank = unlimited)" inputMode="numeric" value={maxTests} onChange={(e) => setMaxTests(e.target.value)} disabled={readOnly} />
+            <Button type="submit" variant="primary" disabled={readOnly}>
+              Save quotas
+            </Button>
+          </form>
+        ) : null}
+        {saved ? <p className={styles.note}>Quotas saved.</p> : null}
+        {error ? <p role="alert" className={styles.note}>{error}</p> : null}
       </CardBody>
     </Card>
   )

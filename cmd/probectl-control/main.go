@@ -375,7 +375,7 @@ func run(cmd string) error {
 	// The ee attach seam (S-T1+): licensed commercial features are constructed
 	// and mounted here — and ONLY here. The core-only build (-tags
 	// probectl_core) compiles the no-op twin, proving core stands alone.
-	if err := attachEE(srv, cfg, log, lic, db.Pool(), latestResults, flowStore); err != nil {
+	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore); err != nil {
 		return err
 	}
 	if alertEngine != nil {

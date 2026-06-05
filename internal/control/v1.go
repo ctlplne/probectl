@@ -13,6 +13,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testspec"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 // apiRoute binds a method+pattern to a handler. This table is the single source
@@ -177,6 +178,13 @@ func (s *Server) handleCreateTest(w http.ResponseWriter, r *http.Request) error 
 	in, err := req.toInput()
 	if err != nil {
 		return err
+	}
+	// Per-tenant quota gate (S-T3): creation paths only — telemetry is never
+	// quota-dropped. Allow-all unless the ee/billing checker is installed.
+	if tid, terr := s.principalTenant(r); terr == nil {
+		if qerr := usage.AllowCreate(r.Context(), tid, usage.MeterTests); qerr != nil {
+			return apierror.Forbidden(qerr.Error()).WithCode("quota_exceeded")
+		}
 	}
 	var created *store.Test
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
