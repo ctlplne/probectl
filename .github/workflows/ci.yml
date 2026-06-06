@@ -233,8 +233,8 @@ jobs:
           BPFTOOL="$(find /usr/lib -path '*linux-tools*' -name bpftool -type f | sort -V | tail -n1)"
           test -n "${BPFTOOL}" || { echo "no bpftool binary under /usr/lib (linux-tools-generic missing?)"; exit 1; }
           "${BPFTOOL}" btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
-          (cd internal/ebpf && go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf l4flow ./bpf/l4flow.bpf.c -- -I./bpf)
-          (cd internal/ebpf && go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf)
+          (cd internal/ebpf && go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf -go-package ebpf l4flow ./bpf/l4flow.bpf.c -- -I./bpf)
+          (cd internal/ebpf && go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf -go-package ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf)
           (cd internal/ebpf && go run ./gendigests .)   # U-014 manifest
       - name: Cache kernel image
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v4 (same pin trivy-action uses)
