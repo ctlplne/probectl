@@ -21,16 +21,26 @@ end to end. They await explicit sign-off; change them in
 
 The inflation ratio applies above a **materiality floor** (5 ms): a 100×
 "inflation" of microseconds is scheduler noise, not a noisy neighbor — the
-quiet tenant's experience is still excellent. **Correctness has no floor
-and no scale exemption**: every quiet-tenant result must land complete and
-correctly scoped no matter what the neighbor does (guardrail 1 under load).
+quiet tenant's experience is still excellent. The floor is **the same 5 ms
+in CI and at full scale** (U-055; CI briefly carried a 6×-loosened floor —
+that divergence is gone, see the scenario design below). **Correctness has
+no floor and no scale exemption**: every quiet-tenant result must land
+complete and correctly scoped no matter what the neighbor does (guardrail 1
+under load).
 
 ## The noisy-neighbor scenario
 
-Two phases on the shared pooled path: (1) the quiet tenant alone —
-baseline p95; (2) the same quiet workload while a neighbor floods at 10×
-volume. Reported: solo p95, under-noise p95, the inflation ratio, and the
-hard correctness verdict.
+Each measurement is a temporally-adjacent **(solo, noisy) pair** on the
+shared pooled path: the quiet tenant alone — baseline p95 — then the same
+quiet workload immediately beside a neighbor flooding at 10× volume. The
+scenario runs **3 pairs and gates on the median pair** (U-055): host-wide
+slowness on a shared CI runner hits both sides of a pair (the ratio
+self-normalizes), and a transient stall poisons at most one pair (the
+median absorbs it) — which is what lets CI enforce the same documented
+floor as reference hardware instead of a loosened one. Sustained contention
+inflates every pair and still trips. Reported: the median pair's solo p95,
+under-noise p95 and inflation ratio, plus the hard correctness verdict
+(AND-ed over every phase of every pair).
 
 ## Running it
 

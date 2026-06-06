@@ -101,6 +101,67 @@ func TestNoisyNeighborIsolationAndBoundedInflation(t *testing.T) {
 	if rep.Inflation < 1 {
 		t.Fatalf("inflation must be clamped ≥ 1, got %.2f", rep.Inflation)
 	}
+	if rep.Pairs != 3 {
+		t.Fatalf("default must run 3 (solo, noisy) pairs (U-055 de-flake), ran %d", rep.Pairs)
+	}
+}
+
+// U-055: the de-flake mechanics that let CI gate at the documented 5ms floor.
+// A transient host stall poisons at most one pair — the MEDIAN absorbs it
+// without loosening the SLO; sustained contention still trips the gate; a
+// single incorrect phase fails regardless of timing.
+func TestNoisyPairMedianAbsorbsTransientJitterOnly(t *testing.T) {
+	p, err := ProfileFor(TierM, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(solo, noisy time.Duration, ok bool) noisyPair {
+		return newNoisyPair(solo, noisy, phaseCounts{quiet: 1, noisy: 1}, ok)
+	}
+	evalWith := func(rep NoisyReport) []string {
+		r := ScaleReport{Profile: p, AtCIScale: true, Noisy: rep}
+		r.evaluate()
+		return r.Violations
+	}
+
+	// One 40ms stall (30x "inflation") among two honest pairs: median holds,
+	// the gate stays green at the 5ms floor — no CI-only loosening needed.
+	transient := aggregatePairs([]noisyPair{
+		mk(time.Millisecond, 1200*time.Microsecond, true),
+		mk(1300*time.Microsecond, 40*time.Millisecond, true), // the stall
+		mk(time.Millisecond, 1500*time.Microsecond, true),
+	})
+	if transient.Inflation > p.SLO.MaxNoisyInflation || transient.NoisyP95 >= 5*time.Millisecond {
+		t.Fatalf("median must report an honest pair, got %+v", transient)
+	}
+	if v := evalWith(transient); len(v) != 0 {
+		t.Fatalf("a transient stall must not trip the gate: %v", v)
+	}
+
+	// Sustained, material contention (every pair inflated past the ceiling at
+	// a material absolute latency) trips — the floor hides nothing real.
+	sustained := aggregatePairs([]noisyPair{
+		mk(4*time.Millisecond, 12*time.Millisecond, true),
+		mk(4*time.Millisecond, 14*time.Millisecond, true),
+		mk(4*time.Millisecond, 13*time.Millisecond, true),
+	})
+	if v := evalWith(sustained); len(v) != 1 {
+		t.Fatalf("sustained contention must trip exactly the inflation check: %v", v)
+	}
+
+	// Correctness is AND-ed across every pair: one bad phase fails the run
+	// even when the median timing is excellent.
+	broken := aggregatePairs([]noisyPair{
+		mk(time.Millisecond, time.Millisecond, true),
+		mk(time.Millisecond, time.Millisecond, false),
+		mk(time.Millisecond, time.Millisecond, true),
+	})
+	if broken.QuietCorrect {
+		t.Fatal("one incorrect phase must fail QuietCorrect")
+	}
+	if v := evalWith(broken); len(v) != 1 {
+		t.Fatalf("correctness violation must surface: %v", v)
+	}
 }
 
 func TestScaleSLOEvaluation(t *testing.T) {

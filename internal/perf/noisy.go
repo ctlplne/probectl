@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,27 +38,40 @@ type NoisyConfig struct {
 	Producers int
 	// SettleTimeout bounds the post-publish drain wait per phase.
 	SettleTimeout time.Duration
+	// Repeats is the number of (solo, noisy) PAIRS to run; the reported
+	// inflation is the MEDIAN pair's (default 3 — see the U-055 note below).
+	Repeats int
 }
 
 // NoisyReport is the scenario outcome.
 type NoisyReport struct {
 	Ran          bool
-	SoloP95      time.Duration // quiet tenant alone
-	NoisyP95     time.Duration // quiet tenant beside the flood
-	Inflation    float64       // NoisyP95 / SoloP95
-	QuietCorrect bool          // every quiet series landed, correctly scoped
+	SoloP95      time.Duration // quiet tenant alone (median pair)
+	NoisyP95     time.Duration // quiet tenant beside the flood (median pair)
+	Inflation    float64       // NoisyP95 / SoloP95 of the median pair
+	QuietCorrect bool          // every quiet series landed, correctly scoped, in EVERY phase
 	QuietSeries  int
 	NoisySeries  int
+	Pairs        int // (solo, noisy) pairs run
 }
 
 // String renders the report for logs and docs.
 func (r NoisyReport) String() string {
-	return fmt.Sprintf("noisy-neighbor: solo p95 %s → under-noise p95 %s = %.2fx inflation; quiet correct=%t",
-		round(r.SoloP95), round(r.NoisyP95), r.Inflation, r.QuietCorrect)
+	return fmt.Sprintf("noisy-neighbor: solo p95 %s → under-noise p95 %s = %.2fx inflation (median of %d pairs); quiet correct=%t",
+		round(r.SoloP95), round(r.NoisyP95), r.Inflation, r.Pairs, r.QuietCorrect)
 }
 
-// DriveNoisyNeighbor runs the two phases on the lightweight in-process stack
+// DriveNoisyNeighbor runs the scenario on the lightweight in-process stack
 // and reports the quiet tenant's experience.
+//
+// De-flaking design (U-055): each comparison is a temporally-adjacent
+// (solo, noisy) PAIR — host-wide slowness (shared CI runners, GC, scheduler
+// stalls) hits both sides of the same pair, so the RATIO self-normalizes —
+// and the scenario runs Repeats pairs, reporting the MEDIAN pair, so one
+// transient stall cannot fake a noisy neighbor. This is what lets CI gate at
+// the same documented 5ms materiality floor as reference hardware instead of
+// a loosened one. Correctness is AND-ed across every phase of every pair:
+// a single mis-scoped or lost result fails the gate regardless of timing.
 func DriveNoisyNeighbor(ctx context.Context, cfg NoisyConfig) (NoisyReport, error) {
 	if cfg.QuietResults <= 0 {
 		cfg.QuietResults = 500
@@ -71,37 +85,62 @@ func DriveNoisyNeighbor(ctx context.Context, cfg NoisyConfig) (NoisyReport, erro
 	if cfg.SettleTimeout <= 0 {
 		cfg.SettleTimeout = 60 * time.Second
 	}
-
-	// Phase 1 — solo: the quiet tenant alone.
-	soloP95, _, soloOK, err := runPhase(ctx, cfg, false)
-	if err != nil {
-		return NoisyReport{}, fmt.Errorf("perf: solo phase: %w", err)
+	if cfg.Repeats <= 0 {
+		cfg.Repeats = 3
 	}
 
-	// Phase 2 — the same quiet workload beside a flooding neighbor.
-	noisyP95, counts, noisyOK, err := runPhase(ctx, cfg, true)
-	if err != nil {
-		return NoisyReport{}, fmt.Errorf("perf: noisy phase: %w", err)
+	pairs := make([]noisyPair, 0, cfg.Repeats)
+	for k := 0; k < cfg.Repeats; k++ {
+		// Phase A — solo: the quiet tenant alone.
+		soloP95, _, soloOK, err := runPhase(ctx, cfg, false)
+		if err != nil {
+			return NoisyReport{}, fmt.Errorf("perf: solo phase (pair %d): %w", k+1, err)
+		}
+		// Phase B — the same quiet workload beside a flooding neighbor,
+		// immediately after its own baseline.
+		noisyP95, counts, noisyOK, err := runPhase(ctx, cfg, true)
+		if err != nil {
+			return NoisyReport{}, fmt.Errorf("perf: noisy phase (pair %d): %w", k+1, err)
+		}
+		pairs = append(pairs, newNoisyPair(soloP95, noisyP95, counts, soloOK && noisyOK))
 	}
+	return aggregatePairs(pairs), nil
+}
 
-	rep := NoisyReport{
-		Ran:          true,
-		SoloP95:      soloP95,
-		NoisyP95:     noisyP95,
-		QuietCorrect: soloOK && noisyOK,
-		QuietSeries:  counts.quiet,
-		NoisySeries:  counts.noisy,
+// noisyPair is one temporally-adjacent (solo, noisy) measurement.
+type noisyPair struct {
+	solo, noisy time.Duration
+	inflation   float64
+	counts      phaseCounts
+	correct     bool
+}
+
+func newNoisyPair(solo, noisy time.Duration, counts phaseCounts, correct bool) noisyPair {
+	base := solo
+	if base < time.Microsecond {
+		base = time.Microsecond
 	}
-	floor := time.Microsecond
-	base := soloP95
-	if base < floor {
-		base = floor
+	inf := float64(noisy) / float64(base)
+	if inf < 1 {
+		inf = 1 // contention can only be ≥ solo; clamp jitter
 	}
-	rep.Inflation = float64(noisyP95) / float64(base)
-	if rep.Inflation < 1 {
-		rep.Inflation = 1 // contention can only be ≥ solo; clamp jitter
+	return noisyPair{solo: solo, noisy: noisy, inflation: inf, counts: counts, correct: correct}
+}
+
+// aggregatePairs reduces the pairs to the report: the MEDIAN pair carries
+// the timing verdict (a transient host stall poisons at most one pair);
+// correctness must hold in every pair.
+func aggregatePairs(pairs []noisyPair) NoisyReport {
+	rep := NoisyReport{Ran: true, Pairs: len(pairs), QuietCorrect: true}
+	for _, p := range pairs {
+		rep.QuietCorrect = rep.QuietCorrect && p.correct
 	}
-	return rep, nil
+	sorted := append([]noisyPair(nil), pairs...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].inflation < sorted[j].inflation })
+	med := sorted[(len(sorted)-1)/2]
+	rep.SoloP95, rep.NoisyP95, rep.Inflation = med.solo, med.noisy, med.inflation
+	rep.QuietSeries, rep.NoisySeries = med.counts.quiet, med.counts.noisy
+	return rep
 }
 
 type phaseCounts struct{ quiet, noisy int }

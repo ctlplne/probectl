@@ -136,17 +136,15 @@ type ScaleReport struct {
 // 100x "inflation" of nothing — the experience is still excellent; ratios
 // of microseconds are scheduler noise, not a noisy-neighbor problem.
 //
-// CI runs on shared, oversubscribed GitHub-hosted runners where a
-// microsecond-scale solo baseline routinely inflates into single-digit
-// milliseconds from host scheduling jitter alone (not a fairness failure).
-// CI therefore uses a higher floor; the tight floor applies on reference
-// hardware (full scale), where the ratio is the real signal. Correctness
-// (QuietCorrect) is the hard backstop in BOTH environments — a genuine
-// backpressure break trips it regardless of timing.
-const (
-	noisyMaterialityFloor   = 5 * time.Millisecond  // reference hardware / full scale
-	noisyMaterialityFloorCI = 30 * time.Millisecond // shared CI runners: absorb host jitter
-)
+// U-055: ONE floor, the documented 5ms, in CI and at full scale alike. CI
+// previously carried a 6x-loosened floor (30ms) to absorb shared-runner
+// jitter; that was a silent SLO weakening. The jitter is now absorbed
+// structurally instead — DriveNoisyNeighbor measures temporally-adjacent
+// (solo, noisy) pairs and gates on the MEDIAN of 3, so a transient host
+// stall cannot fake (or hide) a noisy neighbor — and the documented floor
+// applies everywhere (docs/scale-gate.md). Correctness (QuietCorrect)
+// remains the hard backstop with no floor and no scale exemption.
+const noisyMaterialityFloor = 5 * time.Millisecond
 
 // evaluate applies the tier SLO. At CI scale the absolute throughput floors
 // don't apply (CI hardware proves the gate, not the platform) — correctness
@@ -172,11 +170,7 @@ func (r *ScaleReport) evaluate() {
 				"%s: NOISY-NEIGHBOR CORRECTNESS BROKEN — the quiet tenant saw wrong results under load (F57)",
 				r.Profile.Tier))
 		}
-		floor := noisyMaterialityFloor
-		if r.AtCIScale {
-			floor = noisyMaterialityFloorCI
-		}
-		if r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= floor {
+		if r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= noisyMaterialityFloor {
 			r.Violations = append(r.Violations, fmt.Sprintf(
 				"%s: noisy-neighbor p95 inflation %.2fx (at %s) above the %.1fx ceiling (F57; PROVISIONAL SLO)",
 				r.Profile.Tier, r.Noisy.Inflation, r.Noisy.NoisyP95, slo.MaxNoisyInflation))
