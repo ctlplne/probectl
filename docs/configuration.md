@@ -1156,6 +1156,25 @@ series `probectl_self_*` + `probectl_build_info` feed
 secrets/credentials/PII (allowlist config + anonymized topology + a final
 scrub). Full model: `docs/supportability.md`.
 
+### Guarded agentic remediation (S-EE5, `remediation` ee/)
+
+The assistant PROPOSES remediations; a human APPROVES; probectl NEVER executes —
+there is no executor in the codebase (guardrail 8, F44). Approve is a recorded,
+audited, blast-radius-limited, human-only sign-off that an operator carries out
+in their own change process; ingested data (e.g. a prompt-injection routed
+through the `propose_remediation` MCP tool) can at most create a `proposed`
+proposal a human must approve via the authenticated UI. The feature is hidden
+(404) when the `remediation` Enterprise feature is unlicensed.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PROBECTL_REMEDIATION_APPROVALS_ENABLED` | `false` | advisory-only master switch — until an operator turns this on, Approve is unavailable and proposals are review-only |
+| `PROBECTL_REMEDIATION_MAX_BLAST_RADIUS` | `50` | a proposal whose simulated (S43 what-if) blast radius exceeds this cannot be approved; an unknown radius (no topology) is also blocked — fail closed |
+
+Permissions `remediation.propose` and `remediation.approve` (migration 0035,
+admin-seeded) gate the `/v1/remediation/*` routes; the dry-run blast radius is a
+read-only topology simulation. Full policy + architecture: `docs/remediation.md`.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

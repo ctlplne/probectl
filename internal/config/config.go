@@ -273,6 +273,13 @@ type Config struct {
 	ProviderBootstrapToken          string
 	ProviderBreakGlassMaxTTLMinutes int
 
+	// Guarded remediation (S-EE5). ApprovalsEnabled is the advisory-only
+	// master switch — OFF by default (proposals + dry-run work; the Approve
+	// action is inert until an operator turns it on). MaxBlastRadius caps the
+	// simulated impact an approvable proposal may have (provisional; human-owned).
+	RemediationApprovalsEnabled bool
+	RemediationMaxBlastRadius   int
+
 	// Fairness deployment defaults (S-T7): per-tenant bounds applied to
 	// every tenant absent a stored override. Zero = unlimited (fairness is
 	// opt-in per bound; small/single-tenant deployments enforce nothing
@@ -476,12 +483,14 @@ func Load(getenv func(string) string) (*Config, error) {
 		DataPlanes:                      l.str("PROBECTL_DATAPLANES", ""),
 		BackupRetentionNote:             l.str("PROBECTL_BACKUP_RETENTION_NOTE", ""),
 
-		FairnessResultsPerSec:     l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 0),
-		FairnessFlowEventsPerSec:  l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 0),
-		FairnessIngestBytesPerSec: l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 0),
-		FairnessBurstSeconds:      l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10),
-		FairnessQueryConcurrency:  l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 0, 0, 100000),
-		FairnessQueriesPerMin:     l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 0),
+		RemediationApprovalsEnabled: l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false),
+		RemediationMaxBlastRadius:   l.intRange("PROBECTL_REMEDIATION_MAX_BLAST_RADIUS", 50, 1, 100000),
+		FairnessResultsPerSec:       l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 0),
+		FairnessFlowEventsPerSec:    l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 0),
+		FairnessIngestBytesPerSec:   l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 0),
+		FairnessBurstSeconds:        l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10),
+		FairnessQueryConcurrency:    l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 0, 0, 100000),
+		FairnessQueriesPerMin:       l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 0),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

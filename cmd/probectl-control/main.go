@@ -477,7 +477,7 @@ func run(cmd string) error {
 	// The ee attach seam (S-T1+): licensed commercial features are constructed
 	// and mounted here — and ONLY here. The core-only build (-tags
 	// probectl_core) compiles the no-op twin, proving core stands alone.
-	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, lifeEngine, secretsResolver.Resolve, fairGate); err != nil {
+	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, lifeEngine, secretsResolver.Resolve, fairGate, topoStore); err != nil {
 		return err
 	}
 	if alertEngine != nil {
@@ -625,7 +625,7 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("mcp tls: %w", err)
 		}
-		mcpSrv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, fairGate)
+		mcpSrv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, fairGate, srv.RemediationService())
 		handler := mcpSrv.HTTPHandler(control.NewMCPAuthenticator(db.Pool()))
 		g.Go(func() error { return serveMCPHTTP(gctx, cfg.MCPHTTPAddr, tlsCfg, handler, log) })
 	}

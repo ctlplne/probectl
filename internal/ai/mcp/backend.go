@@ -22,4 +22,9 @@ type Backend interface {
 	GetIncident(ctx context.Context, p *auth.Principal, id string) (any, error)
 	CorrelateIncident(ctx context.Context, p *auth.Principal, id string) (any, error)
 	ExplainDegradation(ctx context.Context, p *auth.Principal, question string, subject map[string]string) (any, error)
+	// ProposeRemediation files a guarded-remediation PROPOSAL (S-EE5). It is
+	// PROPOSAL-ONLY: it can only ever create a state=proposed suggestion a
+	// human must approve via the authenticated UI — ingested data (a
+	// prompt-injection) can at most file a proposal, never approve or execute.
+	ProposeRemediation(ctx context.Context, p *auth.Principal, kind, title, rationale, target, incidentID string) (any, error)
 }

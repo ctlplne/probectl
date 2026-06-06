@@ -31,6 +31,7 @@ import { useLifecycle } from '../api/lifecycle'
 import { useDiagnostics, type HealthStatus } from '../api/diagnostics'
 import { ApiError } from '../api/client'
 import { useKeys, useRotateKey, type KeyInfo } from '../api/keys'
+import { useRemediations, useDecideRemediation, type Proposal } from '../api/remediation'
 
 export function Page({
   title,
@@ -385,9 +386,116 @@ export function AdminPage() {
       <SecretBackendsCard />
       <KeysCard />
       <LifecycleCard />
+      <RemediationCard />
       <SupportCard />
       <EditionsCard />
     </Page>
+  )
+}
+
+/** RemediationCard (S-EE5, ee): AI-proposed remediations awaiting a human
+ *  decision. probectl NEVER executes — Approve is a recorded, audited sign-off
+ *  that an operator carries out elsewhere. Advisory-only by default: until an
+ *  operator enables approvals, Approve is unavailable and the card says so.
+ *  Unlicensed deployments answer 404 and the card renders NOTHING
+ *  (hidden-unlicensed). */
+function RemediationCard() {
+  const { data, isPending, isError, error } = useRemediations()
+  const decide = useDecideRemediation()
+
+  // Hidden-unlicensed: render NOTHING until the API proves the feature is on.
+  if (isPending) return null
+  if (isError && error instanceof ApiError && error.status === 404) return null
+
+  const approvalsEnabled = data?.approvals_enabled ?? false
+
+  const columns: Column<Proposal>[] = [
+    { key: 'title', header: 'Proposal', render: (p) => <strong>{p.title}</strong> },
+    { key: 'kind', header: 'Kind', render: (p) => <code>{p.kind}</code> },
+    {
+      key: 'blast',
+      header: 'Blast radius',
+      render: (p) =>
+        p.dry_run.blast_radius < 0 ? (
+          <Badge tone="warning">unknown</Badge>
+        ) : (
+          <Badge tone={p.dry_run.blast_radius > 0 ? 'accent' : 'neutral'}>{p.dry_run.blast_radius}</Badge>
+        ),
+    },
+    {
+      key: 'state',
+      header: 'State',
+      render: (p) =>
+        p.state === 'proposed' ? (
+          <StatusDot tone="warning" label="Proposed" />
+        ) : p.state === 'approved' ? (
+          <StatusDot tone="success" label="Approved (not executed)" />
+        ) : p.state === 'rejected' ? (
+          <StatusDot tone="neutral" label="Rejected" />
+        ) : (
+          <StatusDot tone="neutral" label="Applied (by operator)" />
+        ),
+    },
+    {
+      key: 'actions',
+      header: 'Decision',
+      render: (p) =>
+        p.state !== 'proposed' ? (
+          <span>{p.decided_by ? `by ${p.decided_by}` : '—'}</span>
+        ) : (
+          <span className={styles.actions}>
+            <Button
+              variant="primary"
+              disabled={!approvalsEnabled || decide.isPending}
+              onClick={() => decide.mutate({ id: p.id, decision: 'approve' })}
+            >
+              Approve
+            </Button>
+            <Button variant="ghost" disabled={decide.isPending} onClick={() => decide.mutate({ id: p.id, decision: 'reject' })}>
+              Reject
+            </Button>
+          </span>
+        ),
+    },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="AI remediation proposals"
+        description="The assistant PROPOSES remediations grounded in RCA + a topology what-if; a human decides. probectl never executes — Approve is a recorded, audited sign-off you carry out in your own change process."
+      />
+      <CardBody>
+        {!approvalsEnabled ? (
+          <p role="status" className={styles.editionsLede}>
+            <Badge tone="neutral">advisory-only</Badge> Approvals are disabled — proposals are review-only until an operator enables
+            them (<code>PROBECTL_REMEDIATION_APPROVALS_ENABLED=true</code>).
+          </p>
+        ) : null}
+        {isError ? (
+          <ErrorState description="Could not load remediation proposals." />
+        ) : (
+          <Table
+            caption="Proposed remediations"
+            columns={columns}
+            rows={data?.items ?? []}
+            rowKey={(p) => p.id}
+            empty={
+              <EmptyState
+                icon="admin"
+                title="No proposals"
+                description="The assistant files proposals here when it has an RCA-grounded remediation to suggest."
+              />
+            }
+          />
+        )}
+        {decide.isError ? (
+          <p role="alert" className={styles.editionsLede}>
+            {(decide.error as Error).message}
+          </p>
+        ) : null}
+      </CardBody>
+    </Card>
   )
 }
 

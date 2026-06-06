@@ -28,6 +28,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/outage"
 	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/promapi"
+	"github.com/imfeelingtheagi/probectl/internal/remediation"
 	"github.com/imfeelingtheagi/probectl/internal/rum"
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -183,6 +184,11 @@ type Server struct {
 	// region/health status. Set via WithCluster; nil = single-region (writes
 	// always allowed, no cluster status).
 	cluster *cluster.Manager
+
+	// Guarded remediation (S-EE5, ee-backed): the AI-proposes/human-approves
+	// workflow. Set via WithRemediation; nil = the `remediation` feature is
+	// unlicensed and the surface 404s. probectl NEVER executes.
+	remediation remediation.Service
 
 	// startedAt is the process start (S-EE4): the support bundle reports uptime.
 	startedAt time.Time

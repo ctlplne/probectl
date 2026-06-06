@@ -61,6 +61,11 @@ func (f *fakeBackend) ExplainDegradation(_ context.Context, p *auth.Principal, q
 	return map[string]any{"root_cause": "x", "question": q}, nil
 }
 
+func (f *fakeBackend) ProposeRemediation(_ context.Context, p *auth.Principal, kind, title, _, _, _ string) (any, error) {
+	f.rec("ProposeRemediation", p)
+	return map[string]any{"state": "proposed", "kind": kind, "title": title}, nil
+}
+
 func principal(tenant string, perms ...string) *auth.Principal {
 	m := map[string]bool{}
 	for _, k := range perms {
@@ -205,6 +210,52 @@ func TestAllToolsReachBackend(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("call %d = %s, want %s", i, got[i], want[i])
+		}
+	}
+}
+
+// TestProposeRemediationToolIsProposalOnly is the prompt-injection guardrail at
+// the MCP boundary (S-EE5): the propose_remediation tool requires
+// remediation.propose, reaches the backend's PROPOSE path (which can only
+// create a proposed proposal), and the catalog exposes NO approve/execute tool
+// — so ingested data routed through the AI can never approve or execute.
+func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
+	fb := &fakeBackend{}
+	s := New(fb)
+
+	// A caller holding remediation.propose can file a proposal.
+	res := resultOf(t, handle(t, s, principal("tenant-a", permRemediationPropose), 30, "tools/call",
+		map[string]any{"name": "propose_remediation", "arguments": map[string]any{
+			"kind": "reroute_suggestion", "title": "reroute around failing hop",
+		}}))
+	if res["isError"] == true {
+		t.Fatalf("propose_remediation returned isError: %v", res)
+	}
+	if got := fb.seen(); len(got) != 1 || got[0] != "ProposeRemediation" {
+		t.Fatalf("backend calls = %v, want [ProposeRemediation]", got)
+	}
+
+	// A caller WITHOUT the permission is forbidden and never reaches the backend.
+	fb2 := &fakeBackend{}
+	s2 := New(fb2)
+	resp := handle(t, s2, principal("tenant-a", permTestRead), 31, "tools/call",
+		map[string]any{"name": "propose_remediation", "arguments": map[string]any{
+			"kind": "reroute_suggestion", "title": "x",
+		}})
+	if code, _ := errCode(resp); code != codeForbidden {
+		t.Fatalf("propose without permission: code=%d, want %d (forbidden)", code, codeForbidden)
+	}
+	if len(fb2.seen()) != 0 {
+		t.Fatalf("forbidden propose must not reach the backend, got %v", fb2.seen())
+	}
+
+	// Structural: there is NO approve/execute/apply tool anywhere in the catalog.
+	for _, tl := range buildTools(fb) {
+		n := strings.ToLower(tl.Name)
+		for _, banned := range []string{"approve", "execute", "apply", "remediate_now", "enact"} {
+			if strings.Contains(n, banned) {
+				t.Fatalf("MCP catalog exposes a forbidden write/execute tool %q — the AI must only PROPOSE", tl.Name)
+			}
 		}
 	}
 }

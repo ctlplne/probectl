@@ -22,9 +22,11 @@ import (
 	"github.com/imfeelingtheagi/probectl/ee/billing"
 	"github.com/imfeelingtheagi/probectl/ee/governance"
 	"github.com/imfeelingtheagi/probectl/ee/provider"
+	eeremediation "github.com/imfeelingtheagi/probectl/ee/remediation"
 	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/ee/tenantkeys"
 	"github.com/imfeelingtheagi/probectl/ee/whitelabel"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/branding"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
@@ -36,6 +38,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
@@ -47,7 +50,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
 	flowStore flowstore.Store, life *tenantlife.Engine,
 	resolveSecret func(context.Context, string) (string, error),
-	fairGate *fairness.Gate) error {
+	fairGate *fairness.Gate, topoStore topology.Store) error {
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
 	// tenant provisioning can create isolated stores from the first call.
 	var siloOps provider.SiloOps
@@ -156,6 +159,32 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		govern.SetSource(gstore)
 		governanceCap = &provider.Governance{Store: gstore, Pool: pool}
 		log.Info("advanced data governance attached (S-EE3)")
+	}
+
+	// Guarded agentic remediation (S-EE5, F44 — guardrail-critical). The AI
+	// PROPOSES; a human APPROVES; probectl NEVER executes — there is NO executor
+	// in the codebase. The dry-run blast radius is a READ-ONLY S43 topology
+	// what-if; approvals are advisory-only by default (the master switch off)
+	// and the full propose→approve→reject trail is written to the tenant's
+	// tamper-evident audit stream. Unlicensed: the whole surface 404s.
+	if lic.Has(license.FeatureRemediation) {
+		// auditFn bridges the ee Service to the core tenant audit chain inside
+		// each tenant's own RLS scope (never cross-tenant).
+		auditFn := func(ctx context.Context, tenantID, actor, action, target string, data map[string]any) error {
+			return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+				_, err := audit.TenantAppend(ctx, sc, actor, action, target, data)
+				return err
+			})
+		}
+		estimator := eeremediation.NewTopologyEstimator(topoStore, nil) // SLO impact optional
+		remed := eeremediation.New(eeremediation.NewPGStore(pool), estimator, auditFn, eeremediation.Config{
+			ApprovalsEnabled: cfg.RemediationApprovalsEnabled,
+			MaxBlastRadius:   cfg.RemediationMaxBlastRadius,
+		})
+		srv.WithRemediation(remed)
+		log.Info("guarded remediation attached (S-EE5)",
+			"approvals_enabled", cfg.RemediationApprovalsEnabled,
+			"max_blast_radius", cfg.RemediationMaxBlastRadius)
 	}
 
 	if lic.Has(license.FeatureProviderPlane) {

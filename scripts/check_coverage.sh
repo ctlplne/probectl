@@ -116,6 +116,15 @@ awk -v mod="${MODULE}" '
     # store runs in the integration job.
     floor["ee/whitelabel"]           = 55
     floor["ee/tenantkeys"]           = 65
+    # Guarded remediation (S-EE5, ee/): the propose→approve→reject workflow,
+    # the advisory-only master switch, and the blast-radius/fail-closed guards
+    # run the named guardrail suites on the memory store; the pgx store + the
+    # topology estimator need live Postgres/topology and run in the integration
+    # job (the round-trip + audit-trail suite).
+    floor["ee/remediation"]          = 55
+    # The core remediation model + seam (S-EE5): ValidKind, the no-executed-state
+    # invariant, and the typed errors are pure and fully unit-tested.
+    floor["internal/remediation"]    = 80
     floor["internal/tenantcrypto"]   = 80
     floor["internal/fairness"]       = 70
     floor["internal/cluster"]        = 70

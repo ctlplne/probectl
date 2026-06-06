@@ -14,6 +14,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/remediation"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -23,13 +24,14 @@ import (
 // S23 query engine, and the S24 RCA analyzer. The tools are read-only; the tenant
 // boundary then RBAC are enforced at the MCP layer AND again at the engine/stores
 // (defense in depth).
-func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, gate *fairness.Gate) *mcp.Server {
+func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, gate *fairness.Gate, remed remediation.Service) *mcp.Server {
 	backend := mcpBackend{
-		pool:      pool,
-		engine:    buildEngine(cfg, pool),
-		analyzer:  buildAnalyzer(cfg, log, pool),
-		pathStore: pathStore,
-		gate:      gate,
+		pool:        pool,
+		engine:      buildEngine(cfg, pool),
+		analyzer:    buildAnalyzer(cfg, log, pool),
+		pathStore:   pathStore,
+		gate:        gate,
+		remediation: remed,
 	}
 	return mcp.New(backend, mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log))
 }
@@ -38,11 +40,12 @@ func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, path
 // method scopes to the principal's tenant (the engine/stores enforce it), so a
 // tool can never reach another tenant's data.
 type mcpBackend struct {
-	pool      *pgxpool.Pool
-	engine    *ai.Engine
-	analyzer  *ai.Analyzer
-	pathStore pathstore.Store
-	gate      *fairness.Gate // per-tenant query-cost guard (S-T7); nil = unbounded
+	pool        *pgxpool.Pool
+	engine      *ai.Engine
+	analyzer    *ai.Analyzer
+	pathStore   pathstore.Store
+	gate        *fairness.Gate      // per-tenant query-cost guard (S-T7); nil = unbounded
+	remediation remediation.Service // S-EE5 propose-only; nil = feature unlicensed
 }
 
 // beginQuery applies the per-tenant query-cost guard to the expensive MCP
@@ -174,4 +177,19 @@ func (a mcpAuthenticator) Authenticate(ctx context.Context, bearer string) (*aut
 		m[k] = true
 	}
 	return &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: m}, nil
+}
+
+// ProposeRemediation implements the proposal-only MCP tool (S-EE5). It
+// delegates to the remediation Service, which ALWAYS creates a state=proposed
+// proposal — this path can never approve or execute. When the feature is
+// unlicensed (no service installed), the tool errors. The proposer is recorded
+// as the AI, distinct from a human approver.
+func (b mcpBackend) ProposeRemediation(ctx context.Context, p *auth.Principal, kind, title, rationale, target, incidentID string) (any, error) {
+	if b.remediation == nil {
+		return nil, errors.New("remediation is not enabled in this deployment")
+	}
+	return b.remediation.Propose(ctx, p.TenantID, "ai:propose_remediation", remediation.ProposeInput{
+		Kind: remediation.Kind(kind), Title: title, Rationale: rationale,
+		Target: target, IncidentID: incidentID,
+	})
 }

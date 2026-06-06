@@ -3777,6 +3777,54 @@
           }
         }
       }
+    },
+    "/v1/remediation/proposals": {
+      "get": {
+        "summary": "List guarded-remediation proposals (S-EE5). Hidden 404 when the remediation feature is unlicensed",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "post": {
+        "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve",
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}": {
+      "get": {
+        "summary": "Get one remediation proposal + its dry-run/blast-radius",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}/approve": {
+      "post": {
+        "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/remediation/proposals/{id}/reject": {
+      "post": {
+        "summary": "Record a human's rejection of a remediation proposal (audited)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   },
   "components": {

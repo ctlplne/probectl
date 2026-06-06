@@ -23,10 +23,11 @@ type Tool struct {
 // Permission keys gating each tool (mirror internal/ai + internal/control). The
 // tenant boundary is enforced before any of these.
 const (
-	permTestRead     = "test.read"
-	permEventsRead   = "events.read"
-	permIncidentRead = "incident.read"
-	permAIQuery      = "ai.query"
+	permTestRead           = "test.read"
+	permEventsRead         = "events.read"
+	permIncidentRead       = "incident.read"
+	permAIQuery            = "ai.query"
+	permRemediationPropose = "remediation.propose"
 )
 
 // buildTools returns the S25 read-only tool catalog. Other sprints append tools
@@ -138,6 +139,29 @@ func buildTools(b Backend) []Tool {
 					return nil, argErr("question is required")
 				}
 				return b.ExplainDegradation(ctx, p, a.Question, a.Subject)
+			},
+		},
+		{
+			Name:        "propose_remediation",
+			Permission:  permRemediationPropose,
+			Description: "PROPOSE a network remediation (a SUGGESTION grounded in RCA/topology) for a human to review. This is PROPOSAL-ONLY: it creates a proposed suggestion — probectl never executes it and this tool can NEVER approve or act. A human must approve it via the authenticated UI. kind: reroute_suggestion | traffic_shift_suggestion | open_ticket | trustctl_renewal.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"kind":{"type":"string","enum":["reroute_suggestion","traffic_shift_suggestion","open_ticket","trustctl_renewal"]},"title":{"type":"string"},"rationale":{"type":"string"},"target":{"type":"string","description":"the affected topology element, e.g. hop:10.0.0.1"},"incident_id":{"type":"string"}},"required":["kind","title"],"additionalProperties":false}`),
+			Invoke: func(ctx context.Context, p *auth.Principal, args json.RawMessage) (any, error) {
+				var a struct {
+					Kind, Title, Rationale, Target, IncidentID string
+				}
+				var raw struct {
+					Kind       string `json:"kind"`
+					Title      string `json:"title"`
+					Rationale  string `json:"rationale"`
+					Target     string `json:"target"`
+					IncidentID string `json:"incident_id"`
+				}
+				if err := decodeArgs(args, &raw); err != nil {
+					return nil, err
+				}
+				a.Kind, a.Title, a.Rationale, a.Target, a.IncidentID = raw.Kind, raw.Title, raw.Rationale, raw.Target, raw.IncidentID
+				return b.ProposeRemediation(ctx, p, a.Kind, a.Title, a.Rationale, a.Target, a.IncidentID)
 			},
 		},
 	}
