@@ -15,6 +15,7 @@ const tcpType = "tcp"
 // unprivileged equivalent of a TCP-SYN test): it establishes a connection and
 // records the time to complete the handshake.
 type tcpCanary struct {
+	guard   *TargetGuard
 	host    string
 	port    string
 	count   int
@@ -30,7 +31,10 @@ func NewTCP(cfg Config) (Canary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tcp: %w", err)
 	}
-	c := &tcpCanary{host: host, port: port, count: 3, timeout: cfg.Timeout}
+	c := &tcpCanary{host: host, port: port, count: 3, timeout: cfg.Timeout, guard: GuardFromParams(cfg.Params)}
+	if err := c.guard.CheckHost(host); err != nil {
+		return nil, fmt.Errorf("tcp: %w", err)
+	}
 	if c.timeout <= 0 {
 		c.timeout = 3 * time.Second
 	}
@@ -59,7 +63,7 @@ func (c *tcpCanary) Run(ctx context.Context) (Result, error) {
 		"server.port":       c.port,
 	}}
 
-	dialer := net.Dialer{Timeout: c.timeout, Control: dialControl(c.dscp)}
+	dialer := net.Dialer{Timeout: c.timeout, Control: c.guard.DialControl(dialControl(c.dscp))}
 	samples := make([]time.Duration, c.count)
 	for i := 0; i < c.count; i++ {
 		if ctx.Err() != nil {

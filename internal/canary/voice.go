@@ -56,6 +56,7 @@ const rtpHeaderLen = 12
 
 // voiceCanary streams an RTP-framed probe call and scores the path.
 type voiceCanary struct {
+	guard   *TargetGuard
 	host    string
 	port    string
 	codec   codecProfile
@@ -72,7 +73,10 @@ func NewVoice(cfg Config) (Canary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("voice: %w", err)
 	}
-	c := &voiceCanary{host: host, port: port, codec: voiceCodecs["g711"], seconds: 3, dscp: 46, timeout: cfg.Timeout}
+	c := &voiceCanary{host: host, port: port, codec: voiceCodecs["g711"], seconds: 3, dscp: 46, timeout: cfg.Timeout, guard: GuardFromParams(cfg.Params)}
+	if err := c.guard.CheckHost(host); err != nil {
+		return nil, fmt.Errorf("voice: %w", err)
+	}
 	if c.timeout <= 0 {
 		c.timeout = 3 * time.Second
 	}
@@ -113,7 +117,7 @@ func (c *voiceCanary) Run(ctx context.Context) (Result, error) {
 		"voice.one_way_estimate": "rtt/2 + codec + jitter buffer",
 	}}
 
-	dialer := net.Dialer{Control: dialControl(c.dscp)}
+	dialer := net.Dialer{Control: c.guard.DialControl(dialControl(c.dscp))}
 	conn, err := dialer.DialContext(ctx, "udp", addr)
 	if err != nil {
 		return Result{}, fmt.Errorf("voice: dial %s: %w", addr, err)

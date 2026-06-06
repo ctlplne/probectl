@@ -18,7 +18,7 @@ func TestICMPLoopback(t *testing.T) {
 		t.Run(target, func(t *testing.T) {
 			c, err := canary.NewICMP(canary.Config{
 				Type: "icmp", Target: target, Timeout: 2 * time.Second,
-				Params: map[string]string{"count": "3"},
+				Params: map[string]string{"allow_private_targets": "true", "count": "3"},
 			})
 			if err != nil {
 				t.Fatal(err)

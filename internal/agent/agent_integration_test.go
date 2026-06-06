@@ -132,7 +132,7 @@ func TestAgentEndToEnd(t *testing.T) {
 		caps = append(caps, "icmp")
 		canaries = append(canaries, agent.CanaryConfig{
 			Type: "icmp", Target: "127.0.0.1", Interval: agent.Duration(100 * time.Millisecond),
-			Timeout: agent.Duration(time.Second), Params: map[string]string{"count": "2"},
+			Timeout: agent.Duration(time.Second), Params: map[string]string{"allow_private_targets": "true", "count": "2"},
 		})
 	}
 	cfg := &agent.Config{
@@ -214,7 +214,7 @@ func TestAgentEndToEnd(t *testing.T) {
 func loopbackICMPWorks(ctx context.Context) bool {
 	c, err := canary.NewICMP(canary.Config{
 		Type: "icmp", Target: "127.0.0.1", Timeout: time.Second,
-		Params: map[string]string{"count": "1"},
+		Params: map[string]string{"allow_private_targets": "true", "count": "1"},
 	})
 	if err != nil {
 		return false

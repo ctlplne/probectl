@@ -38,6 +38,10 @@ func tlsServer(t *testing.T, certPEM, keyPEM, caPEM []byte, h http.Handler) (*ht
 
 func runHTTP(t *testing.T, target string, params map[string]string) canary.Result {
 	t.Helper()
+	if params == nil {
+		params = map[string]string{}
+	}
+	params["allow_private_targets"] = "true" // loopback test servers (U-002 override, audited in prod)
 	c, err := canary.NewHTTP(canary.Config{Type: "http", Target: target, Timeout: 5 * time.Second, Params: params})
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
@@ -138,7 +142,7 @@ func TestHTTPSlowTimesOut(t *testing.T) {
 	}))
 
 	c, err := canary.NewHTTP(canary.Config{Type: "http", Target: srv.URL, Timeout: 300 * time.Millisecond,
-		Params: map[string]string{"ca_file": caFile}})
+		Params: map[string]string{"allow_private_targets": "true", "ca_file": caFile}})
 	if err != nil {
 		t.Fatal(err)
 	}

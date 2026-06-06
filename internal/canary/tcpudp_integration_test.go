@@ -27,7 +27,7 @@ func TestTCPConnect(t *testing.T) {
 		}
 	}()
 
-	c, err := canary.NewTCP(canary.Config{Type: "tcp", Target: ln.Addr().String(), Timeout: time.Second, Params: map[string]string{"count": "3"}})
+	c, err := canary.NewTCP(canary.Config{Type: "tcp", Target: ln.Addr().String(), Timeout: time.Second, Params: map[string]string{"allow_private_targets": "true", "count": "3"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestTCPConnectRefused(t *testing.T) {
 	addr := ln.Addr().String()
 	_ = ln.Close() // the port is now closed → connects are refused
 
-	c, err := canary.NewTCP(canary.Config{Type: "tcp", Target: addr, Timeout: 500 * time.Millisecond, Params: map[string]string{"count": "2"}})
+	c, err := canary.NewTCP(canary.Config{Type: "tcp", Target: addr, Timeout: 500 * time.Millisecond, Params: map[string]string{"allow_private_targets": "true", "count": "2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestUDPEcho(t *testing.T) {
 		}
 	}()
 
-	c, err := canary.NewUDP(canary.Config{Type: "udp", Target: pc.LocalAddr().String(), Timeout: time.Second, Params: map[string]string{"count": "3"}})
+	c, err := canary.NewUDP(canary.Config{Type: "udp", Target: pc.LocalAddr().String(), Timeout: time.Second, Params: map[string]string{"allow_private_targets": "true", "count": "3"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestUDPNoEcho(t *testing.T) {
 		}
 	}()
 
-	c, err := canary.NewUDP(canary.Config{Type: "udp", Target: pc.LocalAddr().String(), Timeout: 300 * time.Millisecond, Params: map[string]string{"count": "2"}})
+	c, err := canary.NewUDP(canary.Config{Type: "udp", Target: pc.LocalAddr().String(), Timeout: 300 * time.Millisecond, Params: map[string]string{"allow_private_targets": "true", "count": "2"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ const dnsType = "dns"
 // optionally validating DNSSEC. The crypto lives entirely in miekg/dns (FIPS
 // enabler intact — CLAUDE.md §7 guardrail 3).
 type dnsCanary struct {
+	guard     *TargetGuard
 	name      string
 	server    string
 	qtype     uint16
@@ -45,6 +46,19 @@ func NewDNS(cfg Config) (Canary, error) {
 	}
 	p := cfg.Params
 	c.server = p["server"]
+	c.guard = GuardFromParams(cfg.Params)
+	// SSRF guard (U-002): an EXPLICIT resolver target is validated (and
+	// enforced again at dial time). The system default from /etc/resolv.conf
+	// is exempt — it is the host's own resolver, not request-supplied.
+	if c.server != "" {
+		host := c.server
+		if h, _, err := net.SplitHostPort(c.server); err == nil {
+			host = h
+		}
+		if err := c.guard.CheckHost(host); err != nil {
+			return nil, fmt.Errorf("dns: %w", err)
+		}
+	}
 	if v := p["type"]; v != "" {
 		t, ok := dns.StringToType[strings.ToUpper(v)]
 		if !ok {
@@ -144,6 +158,9 @@ func (c *dnsCanary) query(ctx context.Context, server, name string, qtype uint16
 		return c.queryDoH(ctx, server, m)
 	}
 	client := &dns.Client{Timeout: c.timeout}
+	if c.server != "" { // explicit resolver: enforce the guard at dial time too
+		client.Dialer = &net.Dialer{Timeout: c.timeout, Control: c.guard.DialControl(nil)}
+	}
 	addr := withDefaultPort(server, "53")
 	switch c.transport {
 	case "tcp":
@@ -169,7 +186,14 @@ func (c *dnsCanary) queryDoH(ctx context.Context, endpoint string, m *dns.Msg) (
 	req.Header.Set("Accept", "application/dns-message")
 
 	start := time.Now()
-	resp, err := (&http.Client{Timeout: c.timeout}).Do(req)
+	dohClient := &http.Client{Timeout: c.timeout}
+	if c.server != "" {
+		dohClient.Transport = &http.Transport{DialContext: (&net.Dialer{
+			Timeout: c.timeout,
+			Control: c.guard.DialControl(nil),
+		}).DialContext}
+	}
+	resp, err := dohClient.Do(req)
 	rtt := time.Since(start)
 	if err != nil {
 		return nil, rtt, fmt.Errorf("doh request: %w", err)

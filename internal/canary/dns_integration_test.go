@@ -57,7 +57,7 @@ func TestDNSResolverUDPAndTCP(t *testing.T) {
 	} {
 		t.Run(tc.transport, func(t *testing.T) {
 			c, err := canary.NewDNS(canary.Config{Type: "dns", Target: "example.com", Timeout: 2 * time.Second,
-				Params: map[string]string{"transport": tc.transport, "server": tc.server}})
+				Params: map[string]string{"allow_private_targets": "true", "transport": tc.transport, "server": tc.server}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -94,7 +94,7 @@ func TestDNSResolverNXDOMAIN(t *testing.T) {
 	udp, _ := serveDNS(t, h)
 
 	c, err := canary.NewDNS(canary.Config{Type: "dns", Target: "nope.example", Timeout: 2 * time.Second,
-		Params: map[string]string{"server": udp}})
+		Params: map[string]string{"allow_private_targets": "true", "server": udp}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestDNSOverHTTPS(t *testing.T) {
 	defer srv.Close()
 
 	c, err := canary.NewDNS(canary.Config{Type: "dns", Target: "example.org", Timeout: 2 * time.Second,
-		Params: map[string]string{"transport": "doh", "server": srv.URL}})
+		Params: map[string]string{"allow_private_targets": "true", "transport": "doh", "server": srv.URL}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestDNSSECSecure(t *testing.T) {
 	udp, _ := serveDNS(t, dnssecHandler(a, sig, key))
 
 	c, err := canary.NewDNS(canary.Config{Type: "dns", Target: "example.com", Timeout: 2 * time.Second,
-		Params: map[string]string{"server": udp, "dnssec": "true"}})
+		Params: map[string]string{"allow_private_targets": "true", "server": udp, "dnssec": "true"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestDNSSECBogus(t *testing.T) {
 	udp, _ := serveDNS(t, dnssecHandler(a, sig, key))
 
 	c, err := canary.NewDNS(canary.Config{Type: "dns", Target: "example.com", Timeout: 2 * time.Second,
-		Params: map[string]string{"server": udp, "dnssec": "true"}})
+		Params: map[string]string{"allow_private_targets": "true", "server": udp, "dnssec": "true"}})
 	if err != nil {
 		t.Fatal(err)
 	}

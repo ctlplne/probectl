@@ -16,6 +16,7 @@ const udpType = "udp"
 // sends token-tagged datagrams and matches the echoes by token + sequence. A
 // non-echoing target shows as 100% loss — this is an echo-based probe.
 type udpCanary struct {
+	guard   *TargetGuard
 	host    string
 	port    string
 	count   int
@@ -34,7 +35,10 @@ func NewUDP(cfg Config) (Canary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("udp: %w", err)
 	}
-	c := &udpCanary{host: host, port: port, count: 5, payload: 56, timeout: cfg.Timeout}
+	c := &udpCanary{host: host, port: port, count: 5, payload: 56, timeout: cfg.Timeout, guard: GuardFromParams(cfg.Params)}
+	if err := c.guard.CheckHost(host); err != nil {
+		return nil, fmt.Errorf("udp: %w", err)
+	}
 	if c.timeout <= 0 {
 		c.timeout = 3 * time.Second
 	}
@@ -65,7 +69,7 @@ func (c *udpCanary) Run(ctx context.Context) (Result, error) {
 		"server.port":       c.port,
 	}}
 
-	dialer := net.Dialer{Control: dialControl(c.dscp)}
+	dialer := net.Dialer{Control: c.guard.DialControl(dialControl(c.dscp))}
 	conn, err := dialer.DialContext(ctx, "udp", addr)
 	if err != nil {
 		return Result{}, fmt.Errorf("udp: dial %s: %w", addr, err)

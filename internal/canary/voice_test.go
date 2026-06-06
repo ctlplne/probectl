@@ -112,21 +112,21 @@ func TestJitterBufferModel(t *testing.T) {
 // --- construction + config validation ---
 
 func TestNewVoiceValidation(t *testing.T) {
-	if _, err := NewVoice(Config{Type: voiceType, Target: "10.0.0.1:5004"}); err != nil {
+	if _, err := NewVoice(Config{Type: voiceType, Target: "192.0.2.10:5004"}); err != nil {
 		t.Fatalf("defaults must build: %v", err)
 	}
-	if _, err := NewVoice(Config{Type: voiceType, Target: "10.0.0.1"}); err == nil {
+	if _, err := NewVoice(Config{Type: voiceType, Target: "192.0.2.10"}); err == nil {
 		t.Fatal("missing port must fail")
 	}
-	if _, err := NewVoice(Config{Type: voiceType, Target: "10.0.0.1:5004",
+	if _, err := NewVoice(Config{Type: voiceType, Target: "192.0.2.10:5004",
 		Params: map[string]string{"codec": "opus"}}); err == nil || !strings.Contains(err.Error(), "unknown codec") {
 		t.Fatal("unknown codec must fail with the allowlist")
 	}
-	if _, err := NewVoice(Config{Type: voiceType, Target: "10.0.0.1:5004",
+	if _, err := NewVoice(Config{Type: voiceType, Target: "192.0.2.10:5004",
 		Params: map[string]string{"duration_seconds": "60"}}); err == nil {
 		t.Fatal("out-of-range duration must fail")
 	}
-	c, err := NewVoice(Config{Type: voiceType, Target: "10.0.0.1:5004",
+	c, err := NewVoice(Config{Type: voiceType, Target: "192.0.2.10:5004",
 		Params: map[string]string{"codec": "G729", "duration_seconds": "2", "dscp": "46"}})
 	if err != nil {
 		t.Fatal(err)

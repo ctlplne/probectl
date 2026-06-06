@@ -32,7 +32,7 @@ func TestVoiceRTPEcho(t *testing.T) {
 
 	c, err := canary.NewVoice(canary.Config{
 		Type: "voice", Target: pc.LocalAddr().String(), Timeout: time.Second,
-		Params: map[string]string{"duration_seconds": "1"},
+		Params: map[string]string{"allow_private_targets": "true", "duration_seconds": "1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestVoiceRTPLossDegradesMOS(t *testing.T) {
 
 	c, err := canary.NewVoice(canary.Config{
 		Type: "voice", Target: pc.LocalAddr().String(), Timeout: time.Second,
-		Params: map[string]string{"duration_seconds": "1"},
+		Params: map[string]string{"allow_private_targets": "true", "duration_seconds": "1"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +130,7 @@ func TestVoiceNoEcho(t *testing.T) {
 
 	c, err := canary.NewVoice(canary.Config{
 		Type: "voice", Target: pc.LocalAddr().String(), Timeout: 300 * time.Millisecond,
-		Params: map[string]string{"duration_seconds": "1"},
+		Params: map[string]string{"allow_private_targets": "true", "duration_seconds": "1"},
 	})
 	if err != nil {
 		t.Fatal(err)

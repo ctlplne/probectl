@@ -30,6 +30,7 @@ const defaultMaxBody = 10 << 20 // 10 MiB
 // plane. The crypto stays in crypto/tls + crypto/x509 (FIPS-swappable; CLAUDE.md
 // §7 guardrail 3).
 type httpCanary struct {
+	guard    *TargetGuard
 	url      string
 	method   string
 	scheme   string
@@ -65,6 +66,7 @@ func NewHTTP(cfg Config) (Canary, error) {
 	}
 
 	c := &httpCanary{
+		guard:   GuardFromParams(cfg.Params),
 		url:     u.String(),
 		method:  http.MethodGet,
 		scheme:  u.Scheme,
@@ -95,6 +97,9 @@ func NewHTTP(cfg Config) (Canary, error) {
 	}
 	if p["insecure_skip_verify"] == "true" {
 		c.insecure = true
+	}
+	if err := c.guard.CheckHost(c.host); err != nil {
+		return nil, fmt.Errorf("http: %w", err)
 	}
 	if v := strings.TrimSpace(p["max_body_bytes"]); v != "" {
 		n, err := strconv.ParseInt(v, 10, 64)
@@ -145,6 +150,12 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		DisableKeepAlives: true,
 		ForceAttemptHTTP2: true,
 		Proxy:             http.ProxyFromEnvironment,
+		// SSRF guard (U-002): every connection — initial, redirect hop, or a
+		// rebinding re-resolution — passes the guard at dial time.
+		DialContext: (&net.Dialer{
+			Timeout: c.timeout,
+			Control: c.guard.DialControl(nil),
+		}).DialContext,
 	}
 	if c.scheme == "https" {
 		transport.TLSClientConfig = &tls.Config{

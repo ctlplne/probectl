@@ -10,6 +10,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testspec"
@@ -193,6 +194,9 @@ func (s *Server) handleCreateTest(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
+	if err := s.guardAllowPrivate(r, in.Params); err != nil {
+		return err
+	}
 	// Per-tenant quota gate (S-T3): creation paths only — telemetry is never
 	// quota-dropped. Allow-all unless the ee/billing checker is installed.
 	if tid, terr := s.principalTenant(r); terr == nil {
@@ -207,7 +211,11 @@ func (s *Server) handleCreateTest(w http.ResponseWriter, r *http.Request) error 
 			return e
 		}
 		created = t
-		return s.recordAudit(ctx, sc, r, "test.create", t.ID, map[string]any{"name": t.Name, "type": t.Type})
+		data := map[string]any{"name": t.Name, "type": t.Type}
+		if in.Params[canary.AllowPrivateParam] == "true" {
+			data[canary.AllowPrivateParam] = true // U-002: the override is explicit in the audit trail
+		}
+		return s.recordAudit(ctx, sc, r, "test.create", t.ID, data)
 	}); err != nil {
 		return err
 	}
@@ -240,6 +248,9 @@ func (s *Server) handleUpdateTest(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
+	if err := s.guardAllowPrivate(r, in.Params); err != nil {
+		return err
+	}
 	var t *store.Test
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		x, e := store.Tests{}.Update(ctx, sc, id, in)
@@ -247,11 +258,31 @@ func (s *Server) handleUpdateTest(w http.ResponseWriter, r *http.Request) error 
 			return e
 		}
 		t = x
-		return s.recordAudit(ctx, sc, r, "test.update", id, map[string]any{"name": t.Name})
+		data := map[string]any{"name": t.Name}
+		if in.Params[canary.AllowPrivateParam] == "true" {
+			data[canary.AllowPrivateParam] = true // U-002
+		}
+		return s.recordAudit(ctx, sc, r, "test.update", id, data)
 	}); err != nil {
 		return err
 	}
 	writeJSON(w, http.StatusOK, t)
+	return nil
+}
+
+// guardAllowPrivate gates the SSRF-guard override (U-002): setting
+// allow_private_targets=true on a test is tenant-scoped by construction
+// (the test row is RLS-scoped), requires the admin-seeded
+// test.allow_private permission, and is recorded explicitly in the audit
+// entry by the callers.
+func (s *Server) guardAllowPrivate(r *http.Request, params map[string]string) error {
+	if params[canary.AllowPrivateParam] != "true" {
+		return nil
+	}
+	p := auth.PrincipalFrom(r.Context())
+	if p == nil || !p.Has(permTestAllowPrivate) {
+		return apierror.Forbidden("setting " + canary.AllowPrivateParam + " requires permission: " + permTestAllowPrivate)
+	}
 	return nil
 }
 

@@ -287,6 +287,7 @@ breakdown** and captures **TLS handshake details** for the TLS-posture plane
 | `ca_file` | path to a PEM bundle | — | extra trust anchor (private/internal CA) |
 | `body` | string | — | request body (e.g. for `POST`) |
 | `max_body_bytes` | integer | `10485760` | cap bytes read per probe (10 MiB) |
+| `allow_private_targets` | `true` \| `false` | `false` | **SSRF-guard override (U-002).** Every canary (http/tcp/udp/icmp/dns/voice) denies loopback, RFC1918/ULA, link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast and numeric-encoding bypasses by default, enforcing the check on the **resolved** address at dial time (rebind-proof). Setting `true` lifts the guard for that one test — requires the admin-only `test.allow_private` permission and is written to the tenant audit trail |
 
 `expect_status` is a comma list of exact codes (`200`), classes (`2xx`), and
 inclusive ranges (`200-204`); a response outside the set is `success=false` (the

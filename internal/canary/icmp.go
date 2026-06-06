@@ -24,6 +24,7 @@ const icmpType = "icmp"
 // by default and falls back to raw sockets (CAP_NET_RAW); set the "privileged"
 // param to prefer raw. It supports IPv4 and IPv6.
 type icmpCanary struct {
+	guard      *TargetGuard
 	target     string
 	count      int
 	payload    int
@@ -42,7 +43,11 @@ func NewICMP(cfg Config) (Canary, error) {
 	if cfg.Target == "" {
 		return nil, errors.New("icmp: target is required")
 	}
-	c := &icmpCanary{target: cfg.Target, count: 5, payload: 56, timeout: cfg.Timeout}
+	guard := GuardFromParams(cfg.Params)
+	if err := guard.CheckHost(cfg.Target); err != nil {
+		return nil, fmt.Errorf("icmp: %w", err)
+	}
+	c := &icmpCanary{guard: guard, target: cfg.Target, count: 5, payload: 56, timeout: cfg.Timeout}
 	if c.timeout <= 0 {
 		c.timeout = 3 * time.Second
 	}
@@ -93,6 +98,11 @@ func (c *icmpCanary) Run(ctx context.Context) (Result, error) {
 	ipAddr, err := net.ResolveIPAddr("ip", c.target)
 	if err != nil {
 		return c.fail(res, fmt.Sprintf("resolve %s: %v", c.target, err)), nil
+	}
+	// SSRF guard (U-002): check the RESOLVED address and ping exactly that
+	// address below — a rebinding name cannot swap in a private IP later.
+	if err := c.guard.CheckNetIP(ipAddr.IP); err != nil {
+		return c.fail(res, err.Error()), nil
 	}
 	v6 := ipAddr.IP.To4() == nil
 	res.Attributes["network.peer.address"] = ipAddr.IP.String()
