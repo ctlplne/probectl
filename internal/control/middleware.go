@@ -22,9 +22,22 @@ func chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler 
 	return h
 }
 
+// contentSecurityPolicy is the strict policy set on every response (U-023,
+// CLAUDE.md §7 guardrail 12). The UI bundle is fully same-origin (external
+// Vite-built JS/CSS, CSS modules, hand-rolled SVG viz, fetch to /v1 — no
+// inline <script>/<style>, no third-party origins, sovereignty guardrail 11),
+// so nothing needs 'unsafe-inline' or a nonce. img-src allows data: URIs
+// (inline icons/favicons); frame-ancestors 'none' (plus X-Frame-Options DENY
+// for legacy browsers) forbids all framing — clickjacking is structurally off.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; " +
+	"style-src 'self'; img-src 'self' data:; font-src 'self'; " +
+	"connect-src 'self'; object-src 'none'; base-uri 'self'; " +
+	"form-action 'self'; frame-ancestors 'none'"
+
 // securityHeaders sets baseline response headers. HSTS is set now (honored by
 // browsers only over HTTPS) so the posture is correct once TLS terminates at the
-// ingress / lands in S3 (CLAUDE.md §7 guardrail 12).
+// ingress / lands in S3 (CLAUDE.md §7 guardrail 12). CSP + X-Frame-Options
+// apply to every UI/API response (U-023).
 func securityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 	var hsts string
 	if cfg.HSTSEnabled {
@@ -32,9 +45,12 @@ func securityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("X-Content-Type-Options", "nosniff")
+			h := w.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("Content-Security-Policy", contentSecurityPolicy)
+			h.Set("X-Frame-Options", "DENY")
 			if hsts != "" {
-				w.Header().Set("Strict-Transport-Security", hsts)
+				h.Set("Strict-Transport-Security", hsts)
 			}
 			next.ServeHTTP(w, r)
 		})
