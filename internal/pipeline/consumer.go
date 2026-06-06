@@ -43,16 +43,16 @@ type Consumer struct {
 	card *CardinalityLimiter
 }
 
-// PipelineStats are the consumer's loss-accounting counters (U-019).
-type PipelineStats struct {
+// ConsumerStats are the consumer's loss-accounting counters (U-019).
+type ConsumerStats struct {
 	Retried      uint64
 	DeadLettered uint64
 	Dropped      uint64
 }
 
 // Stats reports the cumulative retry/DLQ counters.
-func (c *Consumer) Stats() PipelineStats {
-	return PipelineStats{Retried: c.retried.Load(), DeadLettered: c.deadLettered.Load(), Dropped: c.dropped.Load()}
+func (c *Consumer) Stats() ConsumerStats {
+	return ConsumerStats{Retried: c.retried.Load(), DeadLettered: c.deadLettered.Load(), Dropped: c.dropped.Load()}
 }
 
 // NewConsumer builds the result-pipeline consumer.
