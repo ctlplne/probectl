@@ -32,6 +32,18 @@ type MemoryStore struct {
 // NewMemoryStore returns an empty in-memory store.
 func NewMemoryStore() *MemoryStore { return &MemoryStore{graphs: map[string]*Graph{}} }
 
+// DeleteTenant drops the tenant's entire topology graph (every snapshot/
+// version — S-T5 verifiable erasure, U-027) and reports whether one existed.
+func (s *MemoryStore) DeleteTenant(tenant string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.graphs[tenant]; !ok {
+		return 0
+	}
+	delete(s.graphs, tenant)
+	return 1
+}
+
 func (s *MemoryStore) graph(tenant string) *Graph {
 	s.mu.Lock()
 	defer s.mu.Unlock()

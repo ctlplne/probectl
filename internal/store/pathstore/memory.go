@@ -25,6 +25,16 @@ func (m *Memory) Save(_ context.Context, tenantID string, p *path.Path) error {
 	return nil
 }
 
+// DeleteTenant removes every saved path for the tenant (S-T5 verifiable
+// erasure, U-027) and returns how many were removed and how many remain.
+func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (deleted, remaining int, err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	deleted = len(m.saved[tenantID])
+	delete(m.saved, tenantID)
+	return deleted, 0, nil
+}
+
 // Latest returns the most recently saved path to target for the tenant.
 func (m *Memory) Latest(_ context.Context, tenantID, target string) (*path.Path, bool, error) {
 	m.mu.Lock()

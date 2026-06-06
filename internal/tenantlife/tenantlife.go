@@ -25,6 +25,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -52,12 +53,24 @@ type TSDBTenantDeleter interface {
 // chain that survives the tenant's own audit data being erased.
 type AuditSink func(ctx context.Context, actor, action, target string, data map[string]any) error
 
+// PathDeleter is the pathstore erasure seam (memory + ClickHouse implement it).
+type PathDeleter interface {
+	DeleteTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error)
+}
+
+// TopologyDeleter drops a tenant's topology graph (every snapshot/version).
+type TopologyDeleter interface {
+	DeleteTenant(tenant string) int
+}
+
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
 	pool    *pgxpool.Pool
 	flows   flowstore.Store
 	objects objectstore.Store
 	tsdbW   tsdb.Writer
+	paths   PathDeleter     // optional (WithPaths)
+	topo    TopologyDeleter // optional (WithTopology)
 	audit   AuditSink
 	log     *slog.Logger
 	now     func() time.Time
@@ -81,6 +94,12 @@ func New(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.Store, w
 	return &Engine{pool: pool, flows: flows, objects: objects, tsdbW: w,
 		audit: audit, backupNote: backupNote, log: log, now: time.Now}
 }
+
+// WithPaths attaches the path store for erasure coverage (U-027).
+func (e *Engine) WithPaths(p PathDeleter) *Engine { e.paths = p; return e }
+
+// WithTopology attaches the topology store for erasure coverage (U-027).
+func (e *Engine) WithTopology(t TopologyDeleter) *Engine { e.topo = t; return e }
 
 // WithClock overrides time (tests).
 func (e *Engine) WithClock(now func() time.Time) *Engine {
@@ -198,21 +217,49 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		att.Stores = append(att.Stores, StoreResult{Store: "objects", VerifiedZero: true, Notes: "store not deployed"})
 	}
 
-	// 3) TSDB series.
+	// 3) TSDB series. The prometheus writer automates deletion via the admin
+	// API (delete_series + verification, U-027); when that API is disabled it
+	// reports ErrAdminAPIDisabled and the documented manual step is recorded
+	// honestly, exactly as before.
 	switch td := e.tsdbW.(type) {
 	case TSDBTenantDeleter:
 		n, err := td.DeleteTenant(ctx, tenantID)
-		if err != nil {
-			fail("tsdb", "delete failed: "+err.Error())
-		} else {
+		switch {
+		case err == nil:
 			att.Stores = append(att.Stores, StoreResult{Store: "tsdb", Deleted: int64(n), VerifiedZero: true})
+		case errors.Is(err, tsdb.ErrAdminAPIDisabled):
+			fail("tsdb", "MANUAL STEP REQUIRED: prometheus admin API disabled — delete series via the admin delete_series API or retention expiry (see docs/runbooks/tenant-offboarding.md)")
+		default:
+			fail("tsdb", "delete failed: "+err.Error())
 		}
 	case nil:
 		att.Stores = append(att.Stores, StoreResult{Store: "tsdb", VerifiedZero: true, Notes: "store not deployed"})
 	default:
-		// Honesty over optimism: prometheus-mode series need the documented
-		// manual step (delete_series admin API or retention expiry).
-		fail("tsdb", "MANUAL STEP REQUIRED: prometheus-mode series are deleted via the admin delete_series API or expire by retention (see docs/runbooks/tenant-offboarding.md)")
+		fail("tsdb", "MANUAL STEP REQUIRED: this TSDB mode cannot delete series in place (see docs/runbooks/tenant-offboarding.md)")
+	}
+
+	// 3b) ClickHouse path store (U-027): hops + links, count-verified.
+	if e.paths != nil {
+		deleted, remaining, err := e.paths.DeleteTenant(ctx, tenantID)
+		if err != nil {
+			fail("paths", "delete failed: "+err.Error())
+		} else {
+			att.Stores = append(att.Stores, StoreResult{Store: "paths", Deleted: int64(deleted),
+				VerifiedZero: remaining == 0, Notes: "remaining=" + fmt.Sprint(remaining)})
+			if remaining != 0 {
+				att.Complete = false
+			}
+		}
+	} else {
+		att.Stores = append(att.Stores, StoreResult{Store: "paths", VerifiedZero: true, Notes: "store not deployed"})
+	}
+
+	// 3c) Topology graph — every snapshot/version for the tenant (U-027).
+	if e.topo != nil {
+		n := e.topo.DeleteTenant(tenantID)
+		att.Stores = append(att.Stores, StoreResult{Store: "topology", Deleted: int64(n), VerifiedZero: true})
+	} else {
+		att.Stores = append(att.Stores, StoreResult{Store: "topology", VerifiedZero: true, Notes: "store not deployed"})
 	}
 
 	// 4) Postgres tenant-owned tables — RLS-scoped, silo-routed, multi-pass

@@ -3,9 +3,12 @@ package tsdb
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +38,73 @@ func NewPrometheus(url string) *Prometheus {
 		url:    strings.TrimRight(url, "/") + "/api/v1/write",
 		client: crypto.HardenedHTTPClient(30 * time.Second),
 	}
+}
+
+// ErrAdminAPIDisabled reports that the upstream's admin API (delete_series)
+// is not enabled — the erasure engine then records the documented manual
+// step instead (U-027 honest fallback).
+var ErrAdminAPIDisabled = errors.New("tsdb: prometheus admin API unavailable (run with --web.enable-admin-api to automate series deletion)")
+
+// DeleteTenant removes every series labeled with the tenant via the
+// Prometheus/VictoriaMetrics admin API (delete_series + clean_tombstones),
+// then verifies via an instant query that zero series remain. The series
+// count is not reported by the API, so the return is 0 with verification
+// carried by the error result (U-027).
+func (p *Prometheus) DeleteTenant(ctx context.Context, tenantID string) (int, error) {
+	base := strings.TrimSuffix(p.url, "/api/v1/write")
+	matcher := url.QueryEscape(`{tenant_id="` + tenantID + `"}`)
+
+	del, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		base+"/api/v1/admin/tsdb/delete_series?match[]="+matcher, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := p.client.Do(del)
+	if err != nil {
+		return 0, fmt.Errorf("tsdb: delete_series: %w", err)
+	}
+	_ = resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusNoContent, http.StatusOK:
+	case http.StatusNotFound, http.StatusMethodNotAllowed, http.StatusForbidden, http.StatusUnauthorized:
+		return 0, ErrAdminAPIDisabled
+	default:
+		return 0, fmt.Errorf("tsdb: delete_series returned %d", resp.StatusCode)
+	}
+
+	// Best-effort tombstone clean (VictoriaMetrics deletes immediately and
+	// has no such endpoint — non-2xx here is not a failure).
+	if clean, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		base+"/api/v1/admin/tsdb/clean_tombstones", nil); err == nil {
+		if r2, err := p.client.Do(clean); err == nil {
+			_ = r2.Body.Close()
+		}
+	}
+
+	// Verify: an instant query for the tenant must return no series.
+	q, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		base+"/api/v1/query?query="+url.QueryEscape(`count({tenant_id="`+tenantID+`"})`), nil)
+	if err != nil {
+		return 0, err
+	}
+	r3, err := p.client.Do(q)
+	if err != nil {
+		return 0, fmt.Errorf("tsdb: post-delete verification query: %w", err)
+	}
+	defer r3.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(r3.Body, 1<<20))
+	var out struct {
+		Data struct {
+			Result []any `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return 0, fmt.Errorf("tsdb: verification decode: %w", err)
+	}
+	if len(out.Data.Result) != 0 {
+		return 0, fmt.Errorf("tsdb: series remain after delete_series (verification failed)")
+	}
+	return 0, nil
 }
 
 // Write remote-writes the series.

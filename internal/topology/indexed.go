@@ -25,6 +25,18 @@ func NewIndexedStore() *IndexedStore {
 	return &IndexedStore{graphs: map[string]*indexedGraph{}}
 }
 
+// DeleteTenant drops the tenant's entire indexed graph (every snapshot/
+// version — S-T5 verifiable erasure, U-027) and reports whether one existed.
+func (s *IndexedStore) DeleteTenant(tenant string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.graphs[tenant]; !ok {
+		return 0
+	}
+	delete(s.graphs, tenant)
+	return 1
+}
+
 func (s *IndexedStore) graph(tenant string) *indexedGraph {
 	s.mu.Lock()
 	defer s.mu.Unlock()

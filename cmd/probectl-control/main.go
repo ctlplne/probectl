@@ -477,6 +477,14 @@ func run(cmd string) error {
 			_, err := audit.ProviderAppend(ctx, db.Pool(), actor, action, target, data)
 			return err
 		}, cfg.BackupRetentionNote, log)
+	// U-027: erasure coverage for the path store + topology graph; the
+	// attestation enumerates them (or records "store not deployed").
+	if pd, ok := pathStore.(tenantlife.PathDeleter); ok {
+		lifeEngine.WithPaths(pd)
+	}
+	if td, ok := topoStore.(tenantlife.TopologyDeleter); ok {
+		lifeEngine.WithTopology(td)
+	}
 	srv.WithTenantLife(lifeEngine)
 	g.Go(func() error { lifeEngine.RunRetention(gctx, 24*time.Hour); return nil })
 	// Tenant lifecycle gate (S-T1): users of suspended/offboarded tenants are

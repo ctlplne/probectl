@@ -160,6 +160,31 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 
 // Latest reconstructs the most recently saved path to target for a tenant from
 // the hop + link rows.
+// DeleteTenant removes every path row for the tenant from both tables
+// (mutations_sync so the count-after is authoritative) and returns the
+// pre-count and the verified remaining rows (U-027).
+func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error) {
+	if tenantID == "" {
+		return 0, 0, ErrNoTenant
+	}
+	for _, table := range []string{"probectl_path_hops", "probectl_path_links"} {
+		out, qerr := c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id="+chStr(tenantID))
+		if qerr != nil {
+			return deleted, -1, qerr
+		}
+		deleted += chCount(out)
+		if eerr := c.exec(ctx, "DELETE FROM "+table+" WHERE tenant_id="+chStr(tenantID)+" SETTINGS mutations_sync=2", nil); eerr != nil {
+			return deleted, -1, eerr
+		}
+		out, qerr = c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id="+chStr(tenantID))
+		if qerr != nil {
+			return deleted, -1, qerr
+		}
+		remaining += chCount(out)
+	}
+	return deleted, remaining, nil
+}
+
 func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error) {
 	if tenantID == "" {
 		return nil, false, ErrNoTenant
@@ -262,6 +287,27 @@ func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, e
 }
 
 // chStr renders a ClickHouse string literal with the necessary escaping.
+// chCount extracts the single count() value from a query result.
+func chCount(rows []map[string]any) int {
+	if len(rows) == 0 {
+		return 0
+	}
+	switch v := rows[0]["n"].(type) {
+	case float64:
+		return int(v)
+	case string:
+		n := 0
+		for _, r := range v {
+			if r < '0' || r > '9' {
+				return 0
+			}
+			n = n*10 + int(r-'0')
+		}
+		return n
+	}
+	return 0
+}
+
 func chStr(s string) string {
 	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
 }
