@@ -3,7 +3,10 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -25,6 +28,28 @@ type Consumer struct {
 	log        *slog.Logger
 	namespaces []string       // siloed bus lanes (S-T2), known at startup
 	gate       *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
+
+	// Store-write resilience (U-019): bounded retry with jittered backoff,
+	// then the dead-letter topic — telemetry loss is never silent.
+	maxRetries int
+	retryBase  time.Duration
+	sleep      func(context.Context, time.Duration) // injectable for tests
+
+	retried      atomic.Uint64 // write attempts beyond the first
+	deadLettered atomic.Uint64 // records routed to the DLQ after exhaustion
+	dropped      atomic.Uint64 // records lost entirely (DLQ publish ALSO failed)
+}
+
+// PipelineStats are the consumer's loss-accounting counters (U-019).
+type PipelineStats struct {
+	Retried      uint64
+	DeadLettered uint64
+	Dropped      uint64
+}
+
+// Stats reports the cumulative retry/DLQ counters.
+func (c *Consumer) Stats() PipelineStats {
+	return PipelineStats{Retried: c.retried.Load(), DeadLettered: c.deadLettered.Load(), Dropped: c.dropped.Load()}
 }
 
 // NewConsumer builds the result-pipeline consumer.
@@ -32,7 +57,21 @@ func NewConsumer(b bus.Bus, w tsdb.Writer, group string, log *slog.Logger) *Cons
 	if group == "" {
 		group = DefaultGroup
 	}
-	return &Consumer{bus: b, tsdb: w, group: group, log: log}
+	return &Consumer{
+		bus: b, tsdb: w, group: group, log: log,
+		maxRetries: 3,
+		retryBase:  50 * time.Millisecond,
+		sleep:      sleepCtx,
+	}
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+	case <-t.C:
+	}
 }
 
 // WithNamespaces adds siloed tenants' namespaced result lanes (S-T2). The set
@@ -120,9 +159,10 @@ func (c *Consumer) WithFairness(g *fairness.Gate) *Consumer {
 	return c
 }
 
-// handle decodes one result and writes its series. Malformed messages and
-// transient write failures are logged and dropped (best-effort) rather than
-// blocking the stream; durable retry/redelivery is a later hardening step.
+// handle decodes one result and writes its series. Malformed messages are
+// dropped (they can never succeed); transient store-write failures are
+// retried with jittered backoff and, after exhaustion, dead-lettered with
+// the ORIGINAL bytes (U-019) — never silently lost.
 func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
@@ -145,9 +185,45 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 	// unless the ee/billing recorder is installed at the attach seam.
 	usage.Record(r.GetTenantId(), usage.MeterResultsIngested, 1)
 	usage.Record(r.GetTenantId(), usage.MeterIngestBytes, int64(len(msg.Value)))
-	if err := c.tsdb.Write(ctx, ResultToSeries(&r)); err != nil {
-		c.log.Error("tsdb write failed", "tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(), "error", err.Error())
-		return nil
+	if err := c.writeWithRetry(ctx, ResultToSeries(&r)); err != nil {
+		c.deadLetter(ctx, msg, &r, err)
 	}
 	return nil
+}
+
+// writeWithRetry attempts the store write up to 1+maxRetries times with
+// exponential backoff + jitter (50ms, ~100ms, ~200ms by default). A canceled
+// context stops retrying immediately.
+func (c *Consumer) writeWithRetry(ctx context.Context, series []tsdb.Series) error {
+	var err error
+	for attempt := 0; ; attempt++ {
+		if err = c.tsdb.Write(ctx, series); err == nil {
+			return nil
+		}
+		if attempt >= c.maxRetries || ctx.Err() != nil {
+			return err
+		}
+		c.retried.Add(1)
+		backoff := c.retryBase << attempt
+		c.sleep(ctx, backoff+time.Duration(rand.Int64N(int64(backoff)/2+1)))
+	}
+}
+
+// deadLetter routes the ORIGINAL message bytes to the dead-letter topic
+// (tenant-keyed, replayable) and accounts the outcome. A DLQ publish failure
+// is the only true loss — it is counted and logged at ERROR.
+func (c *Consumer) deadLetter(ctx context.Context, msg bus.Message, r *resultv1.Result, writeErr error) {
+	if err := c.bus.Publish(ctx, bus.DeadLetterResultsTopic, msg.Key, msg.Value); err != nil {
+		c.dropped.Add(1)
+		c.log.Error("RESULT LOST: store write exhausted retries and dead-letter publish failed",
+			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
+			"write_error", writeErr.Error(), "dlq_error", err.Error(),
+			"dropped_total", c.dropped.Load())
+		return
+	}
+	c.deadLettered.Add(1)
+	c.log.Error("store write exhausted retries — result dead-lettered (replayable)",
+		"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
+		"topic", bus.DeadLetterResultsTopic, "error", writeErr.Error(),
+		"dead_lettered_total", c.deadLettered.Load())
 }

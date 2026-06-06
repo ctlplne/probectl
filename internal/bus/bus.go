@@ -43,6 +43,12 @@ const DeviceMetricsTopic = "probectl.device.metrics"
 // result schema), so it flows through the same pipeline → TSDB path.
 const EndpointResultsTopic = "probectl.endpoint.results"
 
+// DeadLetterResultsTopic receives result messages whose store write failed
+// after bounded retries (U-019): the ORIGINAL serialized record, tenant-keyed,
+// replayable. Telemetry loss is never silent — dead-lettering is counted and
+// logged; operators alert on this topic's depth.
+const DeadLetterResultsTopic = "probectl.deadletter.results"
+
 // RUMEventsTopic carries real-user page views from the RUM beacon ingest
 // (S47b) — validated, consent-gated, PII-redacted at the edge — tenant-tagged
 // via the message key. Payload: resultv1.Result (canary_type "rum"; the
