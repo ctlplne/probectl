@@ -1,0 +1,83 @@
+{
+  "__comment": "probectl self-monitoring dashboard (S-EE4): probectl observes probectl. Reads the probectl_self_*, probectl_build_info, probectl_cluster_* (S-EE2) and probectl_fairness_* (S-T7) series probectl emits. Import into Grafana or drop into the provisioned dashboards folder.",
+  "title": "probectl — self-monitoring",
+  "uid": "probectl-self",
+  "tags": ["probectl", "self-monitoring", "supportability"],
+  "schemaVersion": 39,
+  "timezone": "",
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "region",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(probectl_cluster_writes_usable, region)",
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Build",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 0 },
+      "targets": [{ "expr": "probectl_build_info", "legendFormat": "{{version}} ({{commit}})" }]
+    },
+    {
+      "id": 2,
+      "title": "Uptime (s)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 8, "y": 0 },
+      "targets": [{ "expr": "probectl_self_uptime_seconds" }]
+    },
+    {
+      "id": 3,
+      "title": "Goroutines",
+      "type": "timeseries",
+      "gridPos": { "h": 4, "w": 8, "x": 16, "y": 0 },
+      "targets": [{ "expr": "probectl_self_goroutines" }]
+    },
+    {
+      "id": 4,
+      "title": "Memory (alloc / sys)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "targets": [
+        { "expr": "probectl_self_mem_alloc_bytes", "legendFormat": "alloc" },
+        { "expr": "probectl_self_mem_sys_bytes", "legendFormat": "sys" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Cluster writer role (writer=1 / reader=0 / stale=-1 / unknown=-2)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "targets": [{ "expr": "probectl_cluster_writer_role{region=~\"$region\"}", "legendFormat": "{{region}}" }]
+    },
+    {
+      "id": 6,
+      "title": "Replica lag (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "targets": [{ "expr": "probectl_cluster_replica_lag_seconds{region=~\"$region\"}", "legendFormat": "{{region}}" }]
+    },
+    {
+      "id": 7,
+      "title": "Fairness — shed units / s by tenant (S-T7)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "targets": [{ "expr": "rate(probectl_fairness_shed_units_total[5m])", "legendFormat": "{{tenant_id}} {{meter}}" }]
+    },
+    {
+      "id": 8,
+      "title": "Fairness — query rejections / s (S-T7)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
+      "targets": [{ "expr": "rate(probectl_fairness_queries_rejected_total[5m])", "legendFormat": "{{tenant_id}}" }]
+    }
+  ]
+}

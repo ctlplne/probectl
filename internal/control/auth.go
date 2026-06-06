@@ -22,27 +22,28 @@ import (
 // RBAC permission keys (mirror migrations 0003 + 0013). Routes declare the key a
 // caller must hold; the seeded admin/editor/viewer roles grant them.
 const (
-	permTestRead       = "test.read"
-	permTestWrite      = "test.write"
-	permAgentRead      = "agent.read"
-	permAgentWrite     = "agent.write"
-	permAlertRead      = "alert.read"
-	permAlertWrite     = "alert.write"
-	permIncidentRead   = "incident.read"
-	permIncidentWrite  = "incident.write"
-	permChangeRead     = "change.read"
-	permFlowRead       = "flow.read"
-	permMetricsWrite   = "metrics.write"
-	permCMDBRead       = "cmdb.read"
-	permThreatRead     = "threat.read"
-	permAuditRead      = "audit.read"
-	permAIQuery        = "ai.query"
-	permDirectoryRead  = "directory.read"
-	permDirectoryWrite = "directory.write"
-	permLifecycleExp   = "lifecycle.export"
-	permLifecycleErase = "lifecycle.erase"
-	permSecurityKeys   = "security.keys"
-	permFairnessRead   = "fairness.read"
+	permTestRead        = "test.read"
+	permTestWrite       = "test.write"
+	permAgentRead       = "agent.read"
+	permAgentWrite      = "agent.write"
+	permAlertRead       = "alert.read"
+	permAlertWrite      = "alert.write"
+	permIncidentRead    = "incident.read"
+	permIncidentWrite   = "incident.write"
+	permChangeRead      = "change.read"
+	permFlowRead        = "flow.read"
+	permMetricsWrite    = "metrics.write"
+	permCMDBRead        = "cmdb.read"
+	permThreatRead      = "threat.read"
+	permAuditRead       = "audit.read"
+	permAIQuery         = "ai.query"
+	permDirectoryRead   = "directory.read"
+	permDirectoryWrite  = "directory.write"
+	permLifecycleExp    = "lifecycle.export"
+	permLifecycleErase  = "lifecycle.erase"
+	permSecurityKeys    = "security.keys"
+	permFairnessRead    = "fairness.read"
+	permDiagnosticsRead = "diagnostics.read"
 )
 
 // allPermissionKeys is the full catalog — granted to the dev-mode principal so
@@ -59,6 +60,7 @@ var allPermissionKeys = []string{
 	permLifecycleExp, permLifecycleErase,
 	permSecurityKeys,
 	permFairnessRead,
+	permDiagnosticsRead,
 	permAuditRead,
 	permAIQuery,
 	ai.PermMetricsRead, ai.PermEventsRead, ai.PermEntitiesRead, ai.PermTopologyRead,

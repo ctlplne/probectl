@@ -601,6 +601,43 @@ func (c *Config) LogValue() slog.Value {
 	)
 }
 
+// Redacted returns a safe-to-share snapshot of the configuration for the
+// support bundle (S-EE4). It is an ALLOWLIST: only known-non-secret
+// operational settings are included, DSNs are password-redacted, and NO
+// secret field (envelope key, OIDC/CMDB/SIEM/AI secrets, bootstrap/OTLP/MCP
+// tokens, webhook secrets) is ever reflected — a new secret field added later
+// cannot leak because it is simply not on the list.
+func (c *Config) Redacted() map[string]any {
+	return map[string]any{
+		"http_addr":               c.HTTPAddr,
+		"database_url":            redactURL(c.DatabaseURL),
+		"database_read_url":       redactURL(c.DatabaseReadURL),
+		"database_max_conns":      c.DatabaseMaxConns,
+		"database_min_conns":      c.DatabaseMinConns,
+		"migrate_on_boot":         c.MigrateOnBoot,
+		"log_level":               c.LogLevel,
+		"log_format":              c.LogFormat,
+		"auth_mode":               c.AuthMode,
+		"hsts_enabled":            c.HSTSEnabled,
+		"tls_enabled":             c.TLSEnabled(),
+		"agent_transport":         c.AgentTransportEnabled(),
+		"bus_mode":                c.BusMode,
+		"tsdb_mode":               c.TSDBMode,
+		"otlp_enabled":            c.OTLPEnabled(),
+		"ai_model_enabled":        c.AIModelEnabled(),
+		"mcp_enabled":             c.MCPEnabled(),
+		"oidc_issuer":             c.OIDCIssuer, // an issuer URL is not a secret
+		"region":                  c.Region,
+		"regions":                 c.Regions,
+		"residency":               c.Residency,
+		"replication_mode":        c.ReplicationMode,
+		"flow_retention_days":     c.FlowRetentionDays,
+		"backup_retention_note":   c.BackupRetentionNote,
+		"data_planes_configured":  c.DataPlanes != "",
+		"envelope_key_configured": c.EnvelopeKey != "", // a boolean, never the key
+	}
+}
+
 func redactURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {

@@ -3757,6 +3757,26 @@
           }
         }
       }
+    },
+    "/v1/diagnostics": {
+      "get": {
+        "summary": "Deep health report (S-EE4): per-component status (database, secrets resolver, cluster, license) aggregated to the worst \u2014 admin diagnostics.read",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/v1/diagnostics/bundle": {
+      "get": {
+        "summary": "Secret-stripped support bundle (S-EE4): tar.gz of versions, redacted config, deep health, self-metrics, anonymized topology, runtime \u2014 NO secrets/PII (guardrail 6); admin diagnostics.read",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   },
   "components": {

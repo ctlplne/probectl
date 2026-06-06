@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -183,6 +184,9 @@ type Server struct {
 	// always allowed, no cluster status).
 	cluster *cluster.Manager
 
+	// startedAt is the process start (S-EE4): the support bundle reports uptime.
+	startedAt time.Time
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
@@ -254,7 +258,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		discover = path.Run
 	}
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory()}
+		flowStore: flowstore.NewMemory(), startedAt: time.Now()}
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).

@@ -1145,6 +1145,17 @@ The writer must be reachable for API writes; `cluster_state` (migration 0032)
 holds the promotion epoch the fence reads. Promotion is `cluster_promote()` in
 the failover runbook.
 
+### Supportability (S-EE4, core)
+
+Deep health + a secret-stripped support bundle for triage (CORE; the support
+org/SLA is contract). No new config keys; `diagnostics.read` (migration 0034,
+admin-seeded) gates `GET /v1/diagnostics` and `GET /v1/diagnostics/bundle`. An
+offline bundle: `probectl-control support-bundle [-o file]`. Self-monitoring
+series `probectl_self_*` + `probectl_build_info` feed
+`deploy/grafana/dashboards/probectl-self.json`. The bundle NEVER contains
+secrets/credentials/PII (allowlist config + anonymized topology + a final
+scrub). Full model: `docs/supportability.md`.
+
 ### NDR-lite detection (S42)
 
 | Variable | Default | Purpose |

@@ -28,6 +28,7 @@ import { useAgents, type Agent } from '../api/agents'
 import { useSecretsHealth, type SecretBackendHealth } from '../api/secrets'
 import { useEditions, type FeatureInfo } from '../api/editions'
 import { useLifecycle } from '../api/lifecycle'
+import { useDiagnostics, type HealthStatus } from '../api/diagnostics'
 import { ApiError } from '../api/client'
 import { useKeys, useRotateKey, type KeyInfo } from '../api/keys'
 
@@ -384,6 +385,7 @@ export function AdminPage() {
       <SecretBackendsCard />
       <KeysCard />
       <LifecycleCard />
+      <SupportCard />
       <EditionsCard />
     </Page>
   )
@@ -538,6 +540,61 @@ function LifecycleCard() {
             {saved ? <p className={styles.editionsLede}>Retention saved.</p> : null}
             {error ? <p role="alert" className={styles.editionsLede}>{error}</p> : null}
           </>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+/** SupportCard (S-EE4, core): deep health per component + a one-click
+ *  secret-stripped support bundle for triage. The bundle never contains
+ *  credentials or PII. */
+function SupportCard() {
+  const { data, isPending, isError } = useDiagnostics()
+
+  const tone = (s: HealthStatus) => (s === 'ok' ? 'success' : s === 'degraded' ? 'warning' : 'danger')
+
+  return (
+    <Card>
+      <CardHeader
+        title="Support & diagnostics"
+        description="Deep health across components, and a one-click support bundle (versions, redacted config, health, self-metrics, anonymized topology) — secret-stripped: never contains credentials or PII."
+      />
+      <CardBody>
+        <p className={styles.editionsLede}>
+          {data ? <Badge tone={tone(data.status)}>{data.status}</Badge> : <Badge tone="neutral">unknown</Badge>}
+          {' · '}
+          <a href="/v1/diagnostics/bundle" download>
+            Download support bundle (tar.gz)
+          </a>
+        </p>
+        {isPending ? (
+          <LoadingState label="Running health checks…" />
+        ) : isError ? (
+          <ErrorState description="Could not load diagnostics." />
+        ) : (
+          <Table
+            caption="Component health"
+            columns={[
+              { key: 'name', header: 'Component', render: (c: { name: string }) => <code>{c.name}</code> },
+              {
+                key: 'status',
+                header: 'Status',
+                render: (c: { status: HealthStatus }) =>
+                  c.status === 'ok' ? (
+                    <StatusDot tone="success" label="OK" />
+                  ) : c.status === 'degraded' ? (
+                    <StatusDot tone="warning" label="Degraded" />
+                  ) : (
+                    <StatusDot tone="danger" label="Down" />
+                  ),
+              },
+              { key: 'detail', header: 'Detail', render: (c: { detail?: string }) => c.detail || '—' },
+            ]}
+            rows={data?.checks ?? []}
+            rowKey={(c) => c.name}
+            empty={<EmptyState icon="admin" title="No checks" description="—" />}
+          />
         )}
       </CardBody>
     </Card>

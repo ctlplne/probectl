@@ -47,6 +47,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
@@ -77,10 +78,13 @@ func run(cmd string) error {
 	case "gen-cert":
 		// Self-signed TLS cert for the HTTPS-by-default quickstart; no DB needed.
 		return genCert(os.Args[2:])
+	case "support-bundle":
+		// S-EE4: offline, secret-stripped diagnostics bundle.
+		return supportBundle(os.Args[2:])
 	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token":
 		// fall through to the configured path below
 	default:
-		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | gen-cert | version)", cmd)
+		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | gen-cert | support-bundle | version)", cmd)
 	}
 
 	cfg, err := config.LoadFromEnv()
@@ -428,6 +432,10 @@ func run(cmd string) error {
 	srv.WithFairness(fairGate)
 	// Fairness accounting as per-tenant TSDB series (Grafana-federable).
 	g.Go(func() error { fairness.RunMetrics(gctx, tsdbWriter, fairGate, 30*time.Second, log); return nil })
+	// Self-monitoring (S-EE4): probectl observes probectl — goroutines, mem,
+	// uptime, build_info as TSDB series for the self-monitoring dashboard.
+	supportStart := time.Now()
+	g.Go(func() error { support.RunSelfMetrics(gctx, tsdbWriter, supportStart, 30*time.Second, log); return nil })
 
 	// Multi-region / active-active HA (S-EE2). Inert unless PROBECTL_REGION is
 	// set: a single-region deployment keeps writes always-allowed and omits

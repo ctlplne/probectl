@@ -65,6 +65,15 @@ export function defaultFetch(): typeof fetch {
         resolver_running: true,
         backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
       })
+    if (url.endsWith('/v1/diagnostics'))
+      return jsonResponse({
+        status: 'degraded',
+        checked_at: '2026-06-06T00:00:00Z',
+        checks: [
+          { name: 'database', status: 'ok' },
+          { name: 'cluster', status: 'degraded', detail: 'writer endpoint points at a read-only standby (failover in progress)' },
+        ],
+      })
     if (url.endsWith('/branding')) return jsonResponse({ product_name: 'probectl' })
     if (url.endsWith('/v1/security/keys'))
       return jsonResponse({ error: { message: 'not found' } }, 404)
