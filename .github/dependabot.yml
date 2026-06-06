@@ -1,0 +1,12 @@
+# Dependabot keeps the SHA-pinned GitHub Actions fresh (U-007): it bumps the
+# commit SHA and rewrites the trailing "# <tag>" comment, so pins never rot.
+# scripts/check_action_pins.sh (the action-pins CI job) rejects any non-SHA ref.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
