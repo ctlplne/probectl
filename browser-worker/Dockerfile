@@ -8,8 +8,8 @@ FROM mcr.microsoft.com/playwright:v1.49.1-noble
 WORKDIR /worker
 
 # Install only the worker's deps (the base image already has the browsers).
-COPY package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY worker.mjs ./
 

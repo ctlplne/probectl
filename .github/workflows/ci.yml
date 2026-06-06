@@ -129,8 +129,8 @@ jobs:
         working-directory: browser-worker
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - name: install deps
-        run: npm install --no-audit --no-fund
+      - name: install deps (lockfile-faithful, U-029)
+        run: npm ci --no-audit --no-fund
       - name: syntax check
         run: npm run check
       - name: real-browser smoke (scripted login vs a local app)
@@ -349,6 +349,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm ci
+      - name: Audit gate (U-028 — no critical advisories)
+        run: npm audit --audit-level=critical
       - name: Typecheck
         run: npm run typecheck
       - name: Lint
