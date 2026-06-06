@@ -40,6 +40,7 @@ type HTTPModel struct {
 	model    string
 	token    string
 	client   *http.Client
+	remote   bool // non-loopback endpoint: calls LEAVE the host (U-013)
 }
 
 // HTTPModelConfig configures an HTTPModel.
@@ -75,8 +76,16 @@ func NewHTTPModel(cfg HTTPModelConfig) (*HTTPModel, error) {
 		model:    cfg.Model,
 		token:    cfg.Token,
 		client:   crypto.HardenedHTTPClient(timeout),
+		remote:   !isLoopbackHost(u.Hostname()),
 	}, nil
 }
+
+// RemoteEgress reports whether calls leave the local host (U-013): true for
+// any non-loopback endpoint, false for a co-located Ollama/vLLM.
+func (m *HTTPModel) RemoteEgress() bool { return m.remote }
+
+// Endpoint returns the configured model endpoint (egress audit provenance).
+func (m *HTTPModel) Endpoint() string { return m.endpoint }
 
 // Name identifies the adapter + model for provenance.
 func (m *HTTPModel) Name() string {

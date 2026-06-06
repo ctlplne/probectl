@@ -175,6 +175,11 @@ type Config struct {
 	AIModelToken    string
 	AIModelTimeout  time.Duration
 	AIMaxEvidence   int
+	// AIEgressAck (U-013): a REMOTE (non-loopback) model endpoint sends
+	// tenant telemetry off-network. The operator must acknowledge that
+	// explicitly — the server refuses to start otherwise. Loopback local
+	// models and the air-gapped builtin need no acknowledgment.
+	AIEgressAck string
 
 	// MCP server (S25): the Model Context Protocol HTTP transport (network-
 	// exposed). Enabled when an address + TLS cert/key are all set; it is TLS-only
@@ -469,6 +474,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		AIModelToken:        l.str("PROBECTL_AI_MODEL_TOKEN", ""),
 		AIModelTimeout:      l.dur("PROBECTL_AI_MODEL_TIMEOUT", 60*time.Second),
 		AIMaxEvidence:       l.intRange("PROBECTL_AI_MAX_EVIDENCE", 50, 1, 1000),
+		AIEgressAck:         l.str("PROBECTL_AI_EGRESS_ACK", ""),
 		MCPHTTPAddr:         l.str("PROBECTL_MCP_HTTP_ADDR", ""),
 		MCPTLSCertFile:      l.str("PROBECTL_MCP_TLS_CERT_FILE", ""),
 		MCPTLSKeyFile:       l.str("PROBECTL_MCP_TLS_KEY_FILE", ""),
@@ -577,6 +583,10 @@ func Load(getenv func(string) string) (*Config, error) {
 	if cfg.AIModelEnabled() && cfg.AIModelEndpoint == "" {
 		l.errf("PROBECTL_AI_MODEL_PROVIDER=%s requires PROBECTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
 	}
+	if remoteAIEndpoint(cfg) && cfg.AIEgressAck != AIEgressAckPhrase {
+		l.errf("PROBECTL_AI_MODEL_ENDPOINT is a REMOTE endpoint: tenant telemetry would leave the network (U-013). "+
+			"Acknowledge explicitly with PROBECTL_AI_EGRESS_ACK=%q (see docs/ai-egress.md), or use a loopback local model / the builtin", AIEgressAckPhrase)
+	}
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {
 		l.errf("the MCP HTTP transport is TLS-only and authenticated: set PROBECTL_MCP_TLS_CERT_FILE and PROBECTL_MCP_TLS_KEY_FILE alongside PROBECTL_MCP_HTTP_ADDR")
 	}
@@ -607,6 +617,31 @@ func (c *Config) BusSecurity() bus.Security {
 		SASLPassword:   c.BusSASLPassword,
 		AllowPlaintext: c.BusAllowPlaintext,
 	}
+}
+
+// AIEgressAckPhrase is the exact operator acknowledgment required to run a
+// REMOTE model endpoint (U-013): proof the off-network data flow is a
+// deliberate decision, not a default.
+const AIEgressAckPhrase = "yes-send-tenant-data-to-the-remote-model"
+
+// remoteAIEndpoint reports whether the configured model endpoint leaves the
+// host (non-loopback). The builtin provider and loopback Ollama/vLLM do not.
+func remoteAIEndpoint(c *Config) bool {
+	if !c.AIModelEnabled() || c.AIModelEndpoint == "" {
+		return false
+	}
+	u, err := url.Parse(c.AIModelEndpoint)
+	if err != nil || u.Hostname() == "" {
+		return false // unparseable endpoints fail other validations
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return false
+	}
+	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
+		return false
+	}
+	return true
 }
 
 // LoadFromEnv resolves configuration from the process environment.

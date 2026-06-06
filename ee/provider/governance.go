@@ -97,14 +97,15 @@ func (h *Handler) handlePutGovernance(w http.ResponseWriter, r *http.Request, op
 		return err // the read-only license degrade blocks policy writes too
 	}
 	var in struct {
-		Overrides    map[string]string `json:"classifications"`
-		RedactFrom   string            `json:"redact_from"`
-		RedactExport bool              `json:"redact_export"`
+		Overrides      map[string]string `json:"classifications"`
+		RedactFrom     string            `json:"redact_from"`
+		RedactExport   bool              `json:"redact_export"`
+		AIRemoteEgress bool              `json:"ai_remote_egress"` // U-013: tenant consent for remote-model egress
 	}
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	pol := govern.Policy{RedactExport: in.RedactExport, RedactFrom: govern.ParseClass(in.RedactFrom)}
+	pol := govern.Policy{RedactExport: in.RedactExport, RedactFrom: govern.ParseClass(in.RedactFrom), AIRemoteEgress: in.AIRemoteEgress}
 	if in.RedactFrom != "" && pol.RedactFrom == govern.ClassUnset {
 		return errBadJSON{strErr("redact_from must be one of: public, internal, confidential, pii, restricted")}
 	}

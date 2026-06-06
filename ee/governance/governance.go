@@ -34,14 +34,15 @@ func scanPolicy(row pgx.Row) (govern.Policy, bool, error) {
 		classes  []byte
 		from     string
 		redactEx bool
+		aiEgress bool
 	)
-	if err := row.Scan(&classes, &from, &redactEx); err != nil {
+	if err := row.Scan(&classes, &from, &redactEx, &aiEgress); err != nil {
 		if err == pgx.ErrNoRows {
 			return govern.Policy{}, false, nil
 		}
 		return govern.Policy{}, false, err
 	}
-	pol := govern.Policy{RedactFrom: govern.ParseClass(from), RedactExport: redactEx}
+	pol := govern.Policy{RedactFrom: govern.ParseClass(from), RedactExport: redactEx, AIRemoteEgress: aiEgress}
 	if len(classes) > 0 {
 		raw := map[string]string{}
 		if err := json.Unmarshal(classes, &raw); err == nil && len(raw) > 0 {
@@ -64,7 +65,7 @@ func (s *Store) PolicyFor(ctx context.Context, tenantID string) (govern.Policy, 
 	err := tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
 		var e error
 		pol, found, e = scanPolicy(q.QueryRow(ctx,
-			`SELECT classifications, redact_from, redact_export FROM tenant_governance WHERE tenant_id = $1`, tenantID))
+			`SELECT classifications, redact_from, redact_export, ai_remote_egress FROM tenant_governance WHERE tenant_id = $1`, tenantID))
 		return e
 	})
 	return pol, found, err
@@ -86,15 +87,16 @@ func (s *Store) Upsert(ctx context.Context, tenantID string, pol govern.Policy, 
 	}
 	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
 		_, err := q.Exec(ctx, `
-			INSERT INTO tenant_governance (tenant_id, classifications, redact_from, redact_export, updated_at, updated_by)
-			VALUES ($1, $2::jsonb, $3, $4, $5, $6)
+			INSERT INTO tenant_governance (tenant_id, classifications, redact_from, redact_export, ai_remote_egress, updated_at, updated_by)
+			VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7)
 			ON CONFLICT (tenant_id) DO UPDATE SET
-				classifications = excluded.classifications,
-				redact_from     = excluded.redact_from,
-				redact_export   = excluded.redact_export,
-				updated_at      = excluded.updated_at,
-				updated_by      = excluded.updated_by`,
-			tenantID, string(classesJSON), from, pol.RedactExport, time.Now().UTC(), by)
+				classifications  = excluded.classifications,
+				redact_from      = excluded.redact_from,
+				redact_export    = excluded.redact_export,
+				ai_remote_egress = excluded.ai_remote_egress,
+				updated_at       = excluded.updated_at,
+				updated_by       = excluded.updated_by`,
+			tenantID, string(classesJSON), from, pol.RedactExport, pol.AIRemoteEgress, time.Now().UTC(), by)
 		return err
 	})
 }

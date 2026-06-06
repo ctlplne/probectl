@@ -781,6 +781,7 @@ at a model only if you want LLM-written prose; a remote endpoint must be `https`
 | Variable                   | Default   | Description                                                         |
 | -------------------------- | --------- | ------------------------------------------------------------------ |
 | `PROBECTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped) \| `ollama` \| `openai` \| `anthropic`      |
+| `PROBECTL_AI_EGRESS_ACK` | (none) | **required for a REMOTE model endpoint** (U-013): must equal `yes-send-tenant-data-to-the-remote-model`; the server refuses to start otherwise. Per-tenant consent + audit on top — see [`docs/ai-egress.md`](ai-egress.md) |
 | `PROBECTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
 | `PROBECTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
 | `PROBECTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |

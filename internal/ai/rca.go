@@ -36,6 +36,11 @@ type Analyzer struct {
 	planner     Planner
 	maxEvidence int
 	newID       func() string
+
+	// Remote-model egress controls (U-013): consulted only when the model
+	// reports RemoteEgress() — the air-gapped default never touches them.
+	egressPolicy EgressPolicy
+	egressAudit  EgressAudit
 }
 
 // AnalyzerOption configures an Analyzer.
@@ -107,10 +112,20 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		evidence = evidence[:a.maxEvidence]
 	}
 
-	// 3. Synthesize over the gathered evidence (the model has no tools).
-	syn, err := a.model.Synthesize(ctx, SynthesisInput{Question: q.Text, Evidence: evidence})
+	// 3. Synthesize over the gathered evidence (the model has no tools). A
+	// REMOTE model is gated on the tenant's egress consent and audited
+	// (U-013); the air-gapped builtin and loopback local models skip both.
+	in := SynthesisInput{Question: q.Text, Evidence: evidence}
+	egress, err := a.checkEgress(ctx, p.TenantID, in)
 	if err != nil {
 		return Answer{}, err
+	}
+	syn, err := a.model.Synthesize(ctx, in)
+	if err != nil {
+		return Answer{}, err
+	}
+	if egress != nil && a.egressAudit != nil {
+		a.egressAudit(ctx, *egress)
 	}
 
 	// 4. Citation integrity: drop any finding citing evidence that doesn't exist,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
@@ -41,7 +42,54 @@ func buildEngine(cfg *config.Config, pool *pgxpool.Pool) *ai.Engine {
 // grounded in real, RLS-scoped signals. The model defaults to the in-process,
 // air-gapped built-in synthesizer.
 func buildAnalyzer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool) *ai.Analyzer {
-	return ai.NewAnalyzer(buildEngine(cfg, pool), ai.WithModel(buildModel(cfg, log)), ai.WithMaxEvidence(cfg.AIMaxEvidence))
+	return ai.NewAnalyzer(buildEngine(cfg, pool),
+		ai.WithModel(buildModel(cfg, log)),
+		ai.WithMaxEvidence(cfg.AIMaxEvidence),
+		// U-013: a REMOTE model is gated on the tenant's recorded consent and
+		// every call that leaves is audited. Local/builtin paths skip both.
+		ai.WithEgressPolicy(tenantEgressPolicy(pool)),
+		ai.WithEgressAudit(egressAuditor(pool, log)),
+	)
+}
+
+// tenantEgressPolicy reads tenant_governance.ai_remote_egress (default-deny:
+// no row, no pool, or any error = no egress).
+func tenantEgressPolicy(pool *pgxpool.Pool) ai.EgressPolicy {
+	return func(ctx context.Context, tenantID string) (bool, error) {
+		if pool == nil {
+			return false, nil
+		}
+		allowed := false
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			row := sc.Q.QueryRow(ctx, `SELECT ai_remote_egress FROM tenant_governance WHERE tenant_id = $1`, tenantID)
+			if err := row.Scan(&allowed); err != nil {
+				allowed = false // no policy row = no consent
+			}
+			return nil
+		})
+		if err != nil {
+			return false, nil // fail closed, never fail open
+		}
+		return allowed, nil
+	}
+}
+
+// egressAuditor appends ai.remote_egress to the tenant's tamper-evident audit
+// stream: endpoint, model, and the DATA CATEGORIES that left (never content).
+func egressAuditor(pool *pgxpool.Pool, log *slog.Logger) ai.EgressAudit {
+	return func(ctx context.Context, ev ai.EgressEvent) {
+		log.Info("ai remote egress", "tenant_id", ev.TenantID, "endpoint", ev.Endpoint,
+			"model", ev.Model, "evidence", ev.EvidenceCount, "planes", ev.Planes)
+		if pool == nil {
+			return
+		}
+		_ = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			_, err := audit.TenantAppend(ctx, sc, "system", "ai.remote_egress", ev.Endpoint, map[string]any{
+				"model": ev.Model, "evidence_count": ev.EvidenceCount, "planes": ev.Planes,
+			})
+			return err
+		})
+	}
 }
 
 // buildModel selects the synthesis backend from config. Default (and fallback on

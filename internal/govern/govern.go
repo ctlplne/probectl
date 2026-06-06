@@ -120,6 +120,10 @@ type Policy struct {
 	// request did not ask for it (a strict-tenant default).
 	RedactExport bool `json:"redact_export,omitempty"`
 
+	// AIRemoteEgress is the tenant's consent for sending its telemetry to a
+	// REMOTE AI model (U-013). Default false; enforced by the analyzer.
+	AIRemoteEgress bool `json:"ai_remote_egress,omitempty"`
+
 	// Composed (delegated) governance, recorded for the unified view only:
 	RetentionDays *int   `json:"retention_days,omitempty"` // S-T5
 	Residency     string `json:"residency,omitempty"`      // S-T2 / S-EE2
