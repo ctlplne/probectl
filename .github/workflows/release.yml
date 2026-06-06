@@ -13,14 +13,50 @@ permissions:
   contents: write # create the GitHub release
   packages: write # push images to GHCR
   id-token: write # SLSA provenance / keyless attestation
+  actions: read # require-green-ci reads the ci workflow's runs (U-083)
 
 env:
   GO_VERSION: "1.26"
   IMAGE_PREFIX: ghcr.io/imfeelingtheagi
 
 jobs:
+  # U-022/U-083: a tag ships nothing unless the FULL ci workflow concluded
+  # green on the exact tagged commit. Tag pushes don't trigger ci, so this
+  # gate looks up (and, if still running, waits for) the ci run for
+  # github.sha — a tag on an untested/red commit fails here and no artifact
+  # is built. Branch protection on main is the second layer (docs/ops/
+  # branch-protection.md); this gate holds even for tags cut off-branch.
+  require-green-ci:
+    name: require green ci on the tagged sha
+    runs-on: ubuntu-latest
+    steps:
+      - name: ci workflow must be green for ${{ github.sha }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "tag ${GITHUB_REF_NAME} -> commit ${GITHUB_SHA}"
+          for attempt in $(seq 1 60); do # up to ~30 minutes for an in-flight run
+            run="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=1" \
+              --jq '.workflow_runs[0] | if . == null then "none none" else "\(.status) \(.conclusion)" end')"
+            read -r status conclusion <<<"${run}"
+            case "${status}/${conclusion}" in
+              completed/success)
+                echo "ci is green on ${GITHUB_SHA}"; exit 0 ;;
+              completed/*)
+                echo "::error::ci concluded '${conclusion}' on ${GITHUB_SHA} — refusing to release an untested/red commit (U-083)."; exit 1 ;;
+              none/*)
+                echo "::error::no ci run exists for ${GITHUB_SHA}. Tag a commit that ran ci (push it to main first)."; exit 1 ;;
+              *)
+                echo "ci run is '${status}' (attempt ${attempt}/60); waiting 30s..."; sleep 30 ;;
+            esac
+          done
+          echo "::error::timed out waiting for ci to complete on ${GITHUB_SHA}."
+          exit 1
+
   images:
     name: images (${{ matrix.component }})
+    needs: require-green-ci
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -64,6 +100,7 @@ jobs:
 
   binaries:
     name: binaries + checksums + release
+    needs: require-green-ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
