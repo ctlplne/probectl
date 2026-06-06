@@ -1,0 +1,37 @@
+# U-030: one-shot backup services for host-cron use (see README.md).
+# Overlay on the running stack:
+#   docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm pg-backup
+#   docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm ch-backup
+services:
+  pg-backup:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+    profiles: [backup]
+    environment:
+      PGPASSWORD: probectl
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        out="/backups/postgres-probectl-$$(date -u +%Y%m%dT%H%M%SZ).dump"
+        pg_dump -h postgres -U probectl -d probectl --format=custom --no-owner > "$$out"
+        sha256sum "$$out" > "$$out.sha256"
+        echo "pg-backup: wrote $$out"
+    volumes:
+      - backups:/backups
+    networks: [probectl]
+
+  ch-backup:
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
+    profiles: [backup]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        name="clickhouse-probectl-$$(date -u +%Y%m%dT%H%M%SZ).zip"
+        # Server-side native backup onto the clickhouse container's /backups
+        # disk (the chbackups volume; allowed_path from clickhouse-backups.xml).
+        clickhouse-client --host clickhouse --user probectl --password probectl \
+          --query "BACKUP DATABASE probectl TO File('/backups/$$name')"
+        echo "ch-backup: wrote chbackups:/backups/$$name"
+    networks: [probectl]
+
+volumes:
+  backups:

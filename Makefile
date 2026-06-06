@@ -281,6 +281,10 @@ images: ## Build multi-arch images for all components (Buildx).
 			. || exit 1; \
 	done
 
+.PHONY: backup-restore-drill
+backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).
+	./scripts/backup_restore_drill.sh
+
 .PHONY: compose-up
 compose-up: ## Start the local dev stack (Postgres/Kafka/ClickHouse/Prometheus).
 	docker compose -f $(COMPOSE_DEV) up -d --wait

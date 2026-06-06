@@ -1,0 +1,45 @@
+# U-030: nightly ClickHouse-native backup (example — see README.md).
+# The BACKUP statement writes server-side: the ClickHouse pod must mount a
+# backups volume at /backups and allow it via config.d (the
+# deploy/compose/clickhouse-backups.xml drop-in shows the shape).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: probectl-clickhouse-backup
+  labels:
+    app.kubernetes.io/part-of: probectl
+spec:
+  schedule: "15 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101 # the clickhouse image's clickhouse uid
+          containers:
+            - name: ch-backup
+              image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  name="clickhouse-probectl-$(date -u +%Y%m%dT%H%M%SZ).zip"
+                  clickhouse-client --host probectl-clickhouse \
+                    --user "$CH_USER" --password "$CH_PASSWORD" \
+                    --query "BACKUP DATABASE probectl TO File('/backups/$name')"
+                  echo "wrote /backups/$name (on the clickhouse server's backups volume)"
+              env:
+                - name: CH_USER
+                  valueFrom:
+                    secretKeyRef: { name: probectl-db-credentials, key: ch-username }
+                - name: CH_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: probectl-db-credentials, key: ch-password }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { cpu: "1", memory: 512Mi }

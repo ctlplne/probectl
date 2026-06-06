@@ -85,6 +85,9 @@ services:
         hard: 262144
     volumes:
       - chdata:/var/lib/clickhouse
+      # U-030: native BACKUP/RESTORE target (scripts/backup_clickhouse.sh).
+      - chbackups:/backups
+      - ./clickhouse-backups.xml:/etc/clickhouse-server/config.d/backups.xml:ro
     healthcheck:
       test: ["CMD-SHELL", "clickhouse-client --host localhost --user probectl --password probectl --query 'SELECT 1' >/dev/null 2>&1 || exit 1"]
       interval: 5s
@@ -116,6 +119,7 @@ services:
 volumes:
   pgdata:
   chdata:
+  chbackups:
   promdata:
 
 networks:

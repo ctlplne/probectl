@@ -1,0 +1,49 @@
+# U-030: nightly logical Postgres backup (example — see README.md).
+# Prerequisites: a `probectl-backups` PVC and a `probectl-db-credentials`
+# secret (keys: username, password) in the release namespace.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: probectl-postgres-backup
+  labels:
+    app.kubernetes.io/part-of: probectl
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999 # the postgres image's postgres uid
+          containers:
+            - name: pg-dump
+              image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                  pg_dump -h probectl-postgres -U "$PGUSER" -d probectl --format=custom --no-owner > "$out"
+                  sha256sum "$out" > "$out.sha256"
+                  echo "wrote $out"
+              env:
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: { name: probectl-db-credentials, key: username }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: probectl-db-credentials, key: password }
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits: { cpu: "1", memory: 512Mi }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: probectl-backups

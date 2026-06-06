@@ -1,0 +1,8 @@
+<!-- U-030: allow ClickHouse-native BACKUP/RESTORE ... TO/FROM File() under
+     /backups (mounted as the chbackups volume). Required server-side; the
+     backup scripts refuse usefully without it. -->
+<clickhouse>
+    <backups>
+        <allowed_path>/backups/</allowed_path>
+    </backups>
+</clickhouse>
