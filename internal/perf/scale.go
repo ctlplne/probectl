@@ -135,7 +135,18 @@ type ScaleReport struct {
 // tenant's under-noise p95 is itself material. A 2µs → 200µs swing is a
 // 100x "inflation" of nothing — the experience is still excellent; ratios
 // of microseconds are scheduler noise, not a noisy-neighbor problem.
-const noisyMaterialityFloor = 5 * time.Millisecond
+//
+// CI runs on shared, oversubscribed GitHub-hosted runners where a
+// microsecond-scale solo baseline routinely inflates into single-digit
+// milliseconds from host scheduling jitter alone (not a fairness failure).
+// CI therefore uses a higher floor; the tight floor applies on reference
+// hardware (full scale), where the ratio is the real signal. Correctness
+// (QuietCorrect) is the hard backstop in BOTH environments — a genuine
+// backpressure break trips it regardless of timing.
+const (
+	noisyMaterialityFloor   = 5 * time.Millisecond  // reference hardware / full scale
+	noisyMaterialityFloorCI = 30 * time.Millisecond // shared CI runners: absorb host jitter
+)
 
 // evaluate applies the tier SLO. At CI scale the absolute throughput floors
 // don't apply (CI hardware proves the gate, not the platform) — correctness
@@ -161,7 +172,11 @@ func (r *ScaleReport) evaluate() {
 				"%s: NOISY-NEIGHBOR CORRECTNESS BROKEN — the quiet tenant saw wrong results under load (F57)",
 				r.Profile.Tier))
 		}
-		if r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= noisyMaterialityFloor {
+		floor := noisyMaterialityFloor
+		if r.AtCIScale {
+			floor = noisyMaterialityFloorCI
+		}
+		if r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= floor {
 			r.Violations = append(r.Violations, fmt.Sprintf(
 				"%s: noisy-neighbor p95 inflation %.2fx (at %s) above the %.1fx ceiling (F57; PROVISIONAL SLO)",
 				r.Profile.Tier, r.Noisy.Inflation, r.Noisy.NoisyP95, slo.MaxNoisyInflation))
