@@ -226,8 +226,13 @@ jobs:
       - name: Generate + compile the BPF objects (the operator build path)
         run: |
           set -euo pipefail
-          go get github.com/cilium/ebpf
-          bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
+          # The /usr/sbin/bpftool shim dispatches on `uname -r`, and the
+          # runner's azure kernel ships no matching linux-tools package — call
+          # the linux-tools-generic binary directly (dumping the BTF blob at
+          # /sys/kernel/btf/vmlinux is not coupled to the running kernel).
+          BPFTOOL="$(find /usr/lib -path '*linux-tools*' -name bpftool -type f | sort -V | tail -n1)"
+          test -n "${BPFTOOL}" || { echo "no bpftool binary under /usr/lib (linux-tools-generic missing?)"; exit 1; }
+          "${BPFTOOL}" btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
           (cd internal/ebpf && go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf l4flow ./bpf/l4flow.bpf.c -- -I./bpf)
           (cd internal/ebpf && go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf)
           (cd internal/ebpf && go run ./gendigests .)   # U-014 manifest
