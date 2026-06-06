@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "probectl-agent.fullname" . }}
+  labels:
+    {{- include "probectl-agent.labels" . | nindent 4 }}
+data:
+  ebpf-agent.yaml: |
+    tenant_id: {{ required "tenantID is required" .Values.tenantID | quote }}
+    bus:
+      mode: {{ .Values.bus.mode | quote }}
+      {{- with .Values.bus.brokers }}
+      brokers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- if .Values.l7Capture.enabled }}
+    # U-003: requires BOTH flags; consent must name this agent's tenant.
+    l7_capture_enabled: true
+    l7_capture_consent_tenant: {{ .Values.l7Capture.consentTenant | quote }}
+    {{- end }}

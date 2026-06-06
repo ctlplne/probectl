@@ -174,8 +174,21 @@ jobs:
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
         with:
           version: v3.16.2
-      - name: helm lint + hardening gate (small/medium/large/multitenant)
+      - name: helm lint + hardening gate (small/medium/large/multitenant + agent chart)
         run: make helm-gate
+      - name: kubeconform (rendered charts are valid Kubernetes; U-016)
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tar.gz \
+            https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          echo "95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73  /tmp/kubeconform.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/kubeconform.tar.gz -C /tmp kubeconform
+          helm template agent deploy/helm/probectl-agent \
+            --set tenantID=ci --set 'bus.brokers={kafka:9093}' \
+            | /tmp/kubeconform -strict -summary
+          helm template probectl deploy/helm/probectl \
+            --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+            --set secrets.envelopeKey=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            | /tmp/kubeconform -strict -summary
       - name: GitOps manifests valid (ArgoCD + Flux)
         run: |
           python3 -m pip install --quiet pyyaml

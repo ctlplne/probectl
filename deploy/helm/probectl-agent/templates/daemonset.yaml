@@ -1,0 +1,111 @@
+{{- $tenant := required "tenantID is required — every flow is tenant-bound (guardrail 1)" .Values.tenantID -}}
+{{- if and (eq .Values.bus.mode "kafka") (not .Values.bus.brokers) -}}
+{{- fail "bus.brokers is required for kafka mode" -}}
+{{- end -}}
+{{- if and (eq .Values.bus.mode "kafka") (not .Values.bus.tls.enabled) (not .Values.bus.allowPlaintext) -}}
+{{- fail "plaintext kafka refused (U-010): enable bus.tls (bus.tls.existingSecret) or set the explicit dev-only bus.allowPlaintext=true" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "probectl-agent.fullname" . }}
+  labels:
+    {{- include "probectl-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "probectl-agent.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "probectl-agent.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "probectl-agent.fullname" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        seccompProfile:
+          type: {{ .Values.seccomp.type }}
+          {{- if eq .Values.seccomp.type "Localhost" }}
+          localhostProfile: {{ .Values.seccomp.localhostProfile }}
+          {{- end }}
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--config", "/etc/probectl/ebpf-agent.yaml"]
+          securityContext:
+            # The loader needs its capabilities EFFECTIVE: Kubernetes grants
+            # added capabilities to uid 0 only (no ambient-cap support), so
+            # the container runs as root with everything dropped except the
+            # documented minimal set (deploy/agent/README.md). The VM systemd
+            # unit runs fully non-root via ambient capabilities instead.
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              {{- if eq .Values.capabilityMode "legacy" }}
+              add: ["SYS_ADMIN"] # kernels 5.4–5.7 gate bpf() behind SYS_ADMIN
+              {{- else }}
+              add: ["BPF", "PERFMON"] # kernels >= 5.8 — the minimal pair
+              {{- end }}
+          env:
+            - name: PROBECTL_EBPF_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: PROBECTL_EBPF_LOG_FORMAT
+              value: {{ .Values.logFormat | quote }}
+            {{- if .Values.bus.tls.enabled }}
+            - name: PROBECTL_EBPF_BUS_TLS_ENABLED
+              value: "true"
+            {{- if .Values.bus.tls.existingSecret }}
+            - name: PROBECTL_EBPF_BUS_TLS_CA_FILE
+              value: /etc/probectl/bus-tls/ca.crt
+            {{- end }}
+            {{- end }}
+            {{- if .Values.bus.allowPlaintext }}
+            - name: PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT
+              value: "true" # dev-only (U-010)
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/probectl
+              readOnly: true
+            - name: btf
+              mountPath: /sys/kernel/btf/vmlinux
+              readOnly: true
+            {{- if and .Values.bus.tls.enabled .Values.bus.tls.existingSecret }}
+            - name: bus-tls
+              mountPath: /etc/probectl/bus-tls
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "probectl-agent.fullname" . }}
+        # CO-RE relocation source: the running kernel's BTF (read-only).
+        - name: btf
+          hostPath:
+            path: /sys/kernel/btf/vmlinux
+            type: File
+        {{- if and .Values.bus.tls.enabled .Values.bus.tls.existingSecret }}
+        - name: bus-tls
+          secret:
+            secretName: {{ .Values.bus.tls.existingSecret }}
+        {{- end }}

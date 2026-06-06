@@ -62,3 +62,36 @@ for f in values.yaml values-small.yaml values-medium.yaml values-large.yaml valu
 done
 
 echo "helm hardening gate: OK (default + small/medium/large/multitenant)"
+
+# ── Agent chart (U-016): the eBPF agent's privilege contract is EXPLICIT ────
+AGENT="${AGENT_CHART:-deploy/helm/probectl-agent}"
+helm lint "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' >/dev/null \
+  || fail "agent chart does not lint"
+
+arender() { helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' "$@"; }
+agent="$(arender)"
+need "kind: DaemonSet"                  "$agent" "agent: not a DaemonSet"
+need 'drop: \["ALL"\]'                  "$agent" "agent: capabilities not dropped to ALL"
+need '"BPF", "PERFMON"'                 "$agent" "agent: minimal capability pair not declared"
+need "seccompProfile"                   "$agent" "agent: no seccomp profile"
+need "readOnlyRootFilesystem: true"     "$agent" "agent: root filesystem not read-only"
+need "allowPrivilegeEscalation: false"  "$agent" "agent: privilege escalation not disabled"
+need "automountServiceAccountToken: false" "$agent" "agent: SA token automounted"
+need "/sys/kernel/btf/vmlinux"          "$agent" "agent: BTF host mount missing"
+need "limits:"                          "$agent" "agent: no resource limits"
+grep -q "SYS_ADMIN" <<<"$agent" && fail "agent: SYS_ADMIN in the DEFAULT profile (legacy mode only)"
+
+# legacy kernels get exactly the documented fallback
+need "SYS_ADMIN" "$(arender --set capabilityMode=legacy)" "agent: legacy mode missing SYS_ADMIN"
+
+# fail-closed rendering: no tenant, or plaintext kafka without the explicit
+# dev override, must refuse (guardrail 1 / U-010).
+if helm template agent "$AGENT" >/dev/null 2>&1; then
+  fail "agent chart rendered WITHOUT a tenantID"
+fi
+if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9092}' \
+     --set bus.tls.enabled=false >/dev/null 2>&1; then
+  fail "agent chart rendered plaintext kafka without bus.allowPlaintext"
+fi
+
+echo "helm hardening gate: OK (control plane + agent charts)"

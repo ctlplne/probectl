@@ -55,6 +55,40 @@ running the live smoke: l4flow tracepoint attach, sslsniff uprobe attach
 verification on the load path. Bump the matrix when adopting a new LTS; the
 table above documents the runtime capability matrix.
 
+## Installing (U-016)
+
+**Kubernetes** — the `deploy/helm/probectl-agent` chart deploys the agent as
+a DaemonSet with the privilege contract declared in the artifact: drop ALL +
+`CAP_BPF`/`CAP_PERFMON` (set `capabilityMode: legacy` for 5.4–5.7 kernels →
+`CAP_SYS_ADMIN`), a seccomp profile (`RuntimeDefault`; point
+`seccomp.type: Localhost` at the installed U-052 profile for default-deny),
+read-only root, the BTF host mount, and resource limits. Rendering fails
+closed: no `tenantID`, or plaintext kafka without the explicit
+`bus.allowPlaintext`, refuses to template (U-010). CI helm-lints,
+hardening-asserts, and kubeconform-validates the chart on every pass.
+
+```sh
+helm install probectl-agent deploy/helm/probectl-agent \
+  --set tenantID=acme \
+  --set 'bus.brokers={kafka.probectl.svc:9093}' \
+  --set bus.tls.existingSecret=probectl-bus-tls
+```
+
+(The chart runs the container as uid 0 with everything dropped except the
+minimal pair — Kubernetes grants added capabilities to root only; the VM
+unit below runs fully non-root via ambient capabilities instead.)
+
+**VM / bare metal** — `deploy/agent/install.sh` installs a local binary
+(air-gap friendly, downloads nothing, no self-update), the `probectl-agent`
+system user, the hardened systemd unit (U-052), and a fail-closed sample
+config:
+
+```sh
+sudo deploy/agent/install.sh ./bin/probectl-ebpf-agent
+$EDITOR /etc/probectl/ebpf-agent.yaml   # tenant_id + brokers
+sudo systemctl start probectl-ebpf-agent
+```
+
 ## Hardened runtime profile (U-052)
 
 Run the agent with the **minimal capability set** and the shipped seccomp

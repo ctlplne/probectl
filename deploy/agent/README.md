@@ -42,9 +42,17 @@ services:
 
 ## Kubernetes (DaemonSet securityContext — U-016 pairing)
 
+**The supported artifact is the `deploy/helm/probectl-agent` chart** — it
+declares this exact contract (plus the BTF mount, resource limits, and
+fail-closed rendering) and is lint/hardening/kubeconform-gated in CI. The
+snippet below is the shape it renders; note Kubernetes grants added
+capabilities to uid 0 only, so the chart runs the container as root with
+ALL dropped except the pair (the systemd unit achieves non-root via
+ambient capabilities instead). For VM installs use `install.sh`.
+
 ```yaml
 securityContext:
-  runAsNonRoot: true
+  runAsUser: 0   # k8s grants added caps to uid 0 only; ALL dropped below
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities:

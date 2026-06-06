@@ -1,0 +1,65 @@
+# probectl-agent (eBPF host agent) — secure-by-default DaemonSet values.
+# The privilege contract is documented in deploy/agent/README.md (U-052) and
+# docs/ebpf-agent.md; this chart declares it explicitly (U-016).
+
+image:
+  repository: ghcr.io/imfeelingtheagi/probectl-ebpf-agent
+  # Defaults to the chart appVersion; pin a digest for production (U-061),
+  # e.g. tag: "0.1.0@sha256:...".
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# REQUIRED: the tenant every flow from these nodes belongs to (guardrail 1).
+tenantID: ""
+
+bus:
+  # kafka is the production mode. The agent REFUSES plaintext kafka unless
+  # allowPlaintext is set (U-010).
+  mode: kafka
+  brokers: []  # REQUIRED for kafka mode, e.g. ["kafka.probectl.svc:9093"]
+  tls:
+    enabled: true
+    # Secret with ca.crt (+ optional tls.crt/tls.key for mTLS to the bus).
+    existingSecret: ""
+  # Dev-only escape hatch: lab clusters without bus TLS must opt in
+  # EXPLICITLY; production kafka requires TLS.
+  allowPlaintext: false
+
+# TLS-plaintext L7 capture stays OFF unless both the enable flag AND the
+# per-tenant consent naming this agent's tenant are set (U-003).
+l7Capture:
+  enabled: false
+  consentTenant: ""
+
+# Kernel capability matrix (deploy/agent/README.md):
+#   modern — kernels >= 5.8: CAP_BPF + CAP_PERFMON (the minimal pair).
+#   legacy — kernels 5.4–5.7: CAP_SYS_ADMIN (the pre-5.8 catch-all).
+capabilityMode: modern
+
+seccomp:
+  # RuntimeDefault works on every cluster. For the strict default-deny
+  # profile (U-052), install deploy/agent/seccomp.json on each node at
+  # /var/lib/kubelet/seccomp/probectl/seccomp.json and set type: Localhost.
+  type: RuntimeDefault
+  localhostProfile: probectl/seccomp.json
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+logLevel: info
+logFormat: json
+
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations: []
+priorityClassName: ""
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 10%

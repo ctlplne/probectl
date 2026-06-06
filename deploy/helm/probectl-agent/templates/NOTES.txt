@@ -1,0 +1,14 @@
+probectl eBPF agent deployed as a DaemonSet (tenant: {{ .Values.tenantID }}).
+
+Privilege contract on every node (U-016 / U-052):
+  capabilities : drop ALL, add {{ if eq .Values.capabilityMode "legacy" }}SYS_ADMIN (legacy <5.8 kernels){{ else }}BPF + PERFMON (kernels >= 5.8){{ end }}
+  seccomp      : {{ .Values.seccomp.type }}{{ if eq .Values.seccomp.type "Localhost" }} ({{ .Values.seccomp.localhostProfile }}){{ end }}
+  filesystem   : read-only root; /sys/kernel/btf/vmlinux mounted read-only
+
+Check rollout:   kubectl rollout status ds/{{ include "probectl-agent.fullname" . }}
+Agent logs:      kubectl logs ds/{{ include "probectl-agent.fullname" . }} -f
+Kernel matrix + the strict Localhost seccomp profile: deploy/agent/README.md.
+{{- if .Values.bus.allowPlaintext }}
+
+WARNING: bus.allowPlaintext=true — dev-only; production kafka requires TLS (U-010).
+{{- end }}
