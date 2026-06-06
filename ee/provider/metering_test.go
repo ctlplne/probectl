@@ -38,6 +38,10 @@ func seedUsage(t *testing.T, store *billing.MemStore, now time.Time) {
 func meteredFixture(t *testing.T) (*fixture, *billing.MemStore, string) {
 	t.Helper()
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	// Pin a fixed mid-month, mid-day clock so the metering buckets (h and
+	// h-2*Period) always land on the same calendar day — otherwise the day
+	// rollup splits them whenever the test runs within 2h of UTC midnight.
+	*f.now = time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	store := billing.NewMemStore()
 	f.h.WithMetering(&Metering{Store: store})
 	token := f.bootstrapAndLogin(t)
@@ -191,6 +195,7 @@ func TestMeteringHiddenWhenUnattached(t *testing.T) {
 // writes (config mutations) while usage reads keep working.
 func TestQuotaWriteReadOnlyDegrade(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, -31*24*time.Hour)) // read_only
+	*f.now = time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	store := billing.NewMemStore()
 	f.h.WithMetering(&Metering{Store: store})
 	token := f.bootstrapAndLoginReadOnly(t)
