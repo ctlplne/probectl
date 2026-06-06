@@ -2,7 +2,10 @@
 
 package ebpf
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf
+// sslsniff uses uprobes (BPF_UPROBE → PT_REGS_PARM*), which need a concrete
+// register layout: bpf2go compiles one object per supported arch
+// (amd64→x86, arm64), unlike the arch-neutral tracepoint in l4flow.
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target amd64,arm64 -tags ebpf -go-package ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf
 
 import (
 	"bytes"
@@ -10,6 +13,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -56,8 +60,13 @@ func newLiveL7Source(cfg *Config) (L7Source, error) {
 	}
 	s := &liveL7Source{cfg: cfg}
 	// U-014: the embedded object must match the build-time manifest before
-	// the kernel ever sees it; a tampered/stale object refuses to load.
-	if err := VerifyObjectDigest("sslsniff", _SslsniffBytes, bpfObjectDigests["sslsniff"]); err != nil {
+	// the kernel ever sees it; a tampered/stale object refuses to load. The
+	// object (and so its manifest key) is per-arch — see the bpf2go directive.
+	objName := "sslsniff_x86"
+	if runtime.GOARCH == "arm64" {
+		objName = "sslsniff_arm64"
+	}
+	if err := VerifyObjectDigest(objName, _SslsniffBytes, bpfObjectDigests[objName]); err != nil {
 		return nil, err
 	}
 	if err := loadSslsniffObjects(&s.objs, nil); err != nil {

@@ -97,7 +97,7 @@ ebpf-agent: ## Build probectl-ebpf-agent WITH the live CO-RE loader (-tags ebpf;
 	@mkdir -p $(BIN_DIR)
 	bpftool btf dump file /sys/kernel/btf/vmlinux format c > internal/ebpf/bpf/vmlinux.h
 	cd internal/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf -go-package ebpf l4flow ./bpf/l4flow.bpf.c -- -I./bpf
-	cd internal/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target bpfel -tags ebpf -go-package ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf
+	cd internal/ebpf && $(GO) run github.com/cilium/ebpf/cmd/bpf2go -cc clang -target amd64,arm64 -tags ebpf -go-package ebpf sslsniff ./bpf/sslsniff.bpf.c -- -I./bpf
 	cd internal/ebpf && $(GO) run ./gendigests .   # U-014: SHA-256 manifest of the objects, verified before kernel load
 	CGO_ENABLED=0 $(GO) build -tags ebpf -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/probectl-ebpf-agent ./cmd/probectl-ebpf-agent
 	@echo "built $(BIN_DIR)/probectl-ebpf-agent (eBPF loader enabled)"
