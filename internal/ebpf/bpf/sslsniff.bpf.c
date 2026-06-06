@@ -67,10 +67,12 @@ static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, int 
 	e->pad[0] = e->pad[1] = e->pad[2] = 0;
 
 	__u32 n = (__u32)num;
-	if (n > MAX_DATA)
-		n = MAX_DATA;
+	if (n > MAX_DATA - 1)
+		n = MAX_DATA - 1; /* clamp BELOW the mask: at n==MAX_DATA the old code
+	                       * copied ZERO bytes while declaring len=4096, shipping
+	                       * stale ring memory to userspace (D-001/U-003). */
 	e->len = n;
-	bpf_probe_read_user(&e->data, n & (MAX_DATA - 1), buf); // mask aids the verifier
+	bpf_probe_read_user(&e->data, n & (MAX_DATA - 1), buf); // mask aids the verifier (now identity)
 	bpf_ringbuf_submit(e, 0);
 }
 

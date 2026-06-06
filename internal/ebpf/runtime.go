@@ -63,9 +63,15 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	agg := NewAggregator()
 	var l7src L7Source
 	if cfg.L7FixturePath != "" {
+		// Recorded replay (CI/demos) — not live plaintext capture; exempt
+		// from the U-003 consent gate.
 		if l7src, err = NewFixtureL7Source(cfg.L7FixturePath); err != nil {
 			return nil, err
 		}
+	} else if ok, reason := l7CaptureAuthorized(cfg); !ok {
+		// U-003: live TLS-plaintext capture is OFF unless explicitly enabled
+		// AND consented for this agent's tenant. Off is the default posture.
+		log.Info("ebpf L7 TLS capture off", "reason", reason)
 	} else if live, lerr := newLiveL7Source(cfg); lerr == nil {
 		l7src = live
 	} else {

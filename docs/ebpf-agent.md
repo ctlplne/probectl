@@ -15,7 +15,13 @@ pure-Go **userspace core** (the flow/service-edge model, the aggregator,
 process/cgroup enrichment, the capability probe, the OTel mapping, and the bus
 emitter) drives a pluggable **flow `Source`**. The live `Source` — a CO-RE eBPF
 program loaded via `cilium/ebpf` into a ring buffer — is compiled in **only under
-`-tags ebpf`**. Every other build uses the **`FixtureSource`** (recorded flows),
+`-tags ebpf`**. Live TLS-plaintext (sslsniff) capture is additionally
+**off by default and consent-gated** (U-003): it runs only with
+`l7_capture_enabled: true` AND `l7_capture_consent_tenant` matching the
+agent's bound tenant, and payload bodies are zeroed at the ring-buffer →
+user-space boundary (`l7_capture_redaction: headers`, the default; http2/grpc
+call extraction is degraded under redaction by design). Every other build
+uses the **`FixtureSource`** (recorded flows),
 which is also the no-kernel CI path.
 
 ```mermaid

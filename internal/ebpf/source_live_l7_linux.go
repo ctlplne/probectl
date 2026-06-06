@@ -138,6 +138,11 @@ func (s *liveL7Source) L7Events(ctx context.Context) (<-chan L7Event, error) {
 			if n > uint32(len(c.Data)) {
 				n = uint32(len(c.Data))
 			}
+			// U-003 redaction boundary: the ONLY copy of the plaintext is
+			// redacted in place before anything downstream (parsers,
+			// buffers) can retain it. rec.RawSample is kernel-owned and
+			// reused on the next ring read; no other reference survives.
+			payload := RedactPayload(append([]byte(nil), c.Data[:n]...), s.cfg.L7CaptureRedaction)
 			ev := L7Event{
 				ConnID:      c.Conn,
 				TenantID:    s.cfg.TenantID,
@@ -148,7 +153,7 @@ func (s *liveL7Source) L7Events(ctx context.Context) (<-chan L7Event, error) {
 				Data: l7.DataEvent{
 					Kind:    kind,
 					Time:    time.Now(),
-					Payload: append([]byte(nil), c.Data[:n]...),
+					Payload: payload,
 				},
 			}
 			select {

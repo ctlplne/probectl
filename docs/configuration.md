@@ -605,6 +605,9 @@ The agent is **observe-only**; the CO-RE loader is compiled in only with
 | `PROBECTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path) |
 | `PROBECTL_EBPF_L7_FIXTURE_PATH` | (none)     | replay recorded L7 events (no-kernel L7 path, S21)             |
 | `PROBECTL_EBPF_LIBSSL`         | (auto)      | libssl path for TLS-uprobe L7 capture (`-tags ebpf`)           |
+| `PROBECTL_EBPF_L7_CAPTURE`     | `false`     | **U-003:** live TLS-plaintext capture is OFF by default; `true` alone is not enough — consent below is also required |
+| `PROBECTL_EBPF_L7_CONSENT_TENANT` | (none)   | the EXPLICIT per-tenant consent: must equal this agent's bound tenant id exactly, else capture stays off |
+| `PROBECTL_EBPF_L7_REDACTION`   | `headers`   | capture-boundary policy: `headers` zeroes payload bodies in place before any retention (protocol metadata survives); `full` (consented debugging) disables masking |
 | `PROBECTL_EBPF_PROC_ROOT`      | `/proc`     | procfs root for process/cgroup enrichment                      |
 | `PROBECTL_EBPF_FLUSH_INTERVAL` | `10s`       | how often flows + the service map are emitted                  |
 | `PROBECTL_EBPF_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                         |

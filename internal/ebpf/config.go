@@ -37,6 +37,15 @@ type Config struct {
 
 	// RingBufferBytes sizes the kernel ring buffer (live source only).
 	RingBufferBytes int `yaml:"ring_buffer_bytes"`
+
+	// TLS-plaintext capture policy (U-003): live sslsniff capture is OFF by
+	// default and requires BOTH the enable flag and an explicit per-tenant
+	// consent naming this agent's tenant. L7CaptureRedaction selects the
+	// boundary policy ("headers" default — bodies zeroed before any
+	// retention; "full" only for consented debugging).
+	L7CaptureEnabled       bool   `yaml:"l7_capture_enabled"`
+	L7CaptureConsentTenant string `yaml:"l7_capture_consent_tenant"`
+	L7CaptureRedaction     string `yaml:"l7_capture_redaction"`
 }
 
 // BusConfig selects the bus backend for emission.
@@ -49,11 +58,12 @@ type BusConfig struct {
 func Default() *Config {
 	host, _ := os.Hostname()
 	return &Config{
-		Host:            host,
-		Bus:             BusConfig{Mode: "memory"},
-		ProcRoot:        "/proc",
-		FlushInterval:   10 * time.Second,
-		RingBufferBytes: 1 << 24,
+		Host:               host,
+		Bus:                BusConfig{Mode: "memory"},
+		ProcRoot:           "/proc",
+		FlushInterval:      10 * time.Second,
+		RingBufferBytes:    1 << 24,
+		L7CaptureRedaction: RedactHeaders, // U-003: capture off by default; bodies zeroed when on
 	}
 }
 
@@ -104,6 +114,15 @@ func (c *Config) applyEnv(getenv func(string) string) {
 			c.FlushInterval = d
 		}
 	}
+	if v := getenv("PROBECTL_EBPF_L7_CAPTURE"); v != "" {
+		c.L7CaptureEnabled = v == "true"
+	}
+	if v := getenv("PROBECTL_EBPF_L7_CONSENT_TENANT"); v != "" {
+		c.L7CaptureConsentTenant = v
+	}
+	if v := getenv("PROBECTL_EBPF_L7_REDACTION"); v != "" {
+		c.L7CaptureRedaction = v
+	}
 }
 
 func (c *Config) validate() error {
@@ -120,6 +139,12 @@ func (c *Config) validate() error {
 	}
 	if c.FlushInterval <= 0 {
 		return fmt.Errorf("ebpf: flush_interval must be > 0")
+	}
+	if c.L7CaptureRedaction != "" && !validRedactionMode(c.L7CaptureRedaction) {
+		return fmt.Errorf("ebpf: l7_capture_redaction %q (want %s|%s)", c.L7CaptureRedaction, RedactHeaders, RedactFull)
+	}
+	if c.L7CaptureEnabled && c.L7CaptureConsentTenant == "" {
+		return fmt.Errorf("ebpf: l7_capture_enabled requires l7_capture_consent_tenant (the EXPLICIT per-tenant consent, U-003)")
 	}
 	return nil
 }

@@ -98,6 +98,17 @@ never consulted by `internal/ebpf` — consistent with O:RED-007's note.
 - The observe-only guardrail is enforced by `internal/ebpf/observeonly_test.go`
   (`TestBPFProgramsAreObserveOnly`) — preserved, untouched by this investigation.
 
+## Remediation status (C13)
+
+Closed by C13 (U-003): live capture is now **default-OFF** behind
+`l7_capture_enabled` + `l7_capture_consent_tenant` (exact-match per-tenant
+consent; `internal/ebpf/l7policy.go`), payload bodies are **zeroed in place**
+at the `source_live_l7_linux.go` handoff before any parser/buffer retention
+(`RedactPayload`, default `headers` mode), and the D-001 length-mask bug is
+fixed (`sslsniff.bpf.c` clamps to `MAX_DATA-1`, so the verifier mask is the
+identity and the stale-ring-memory ship is gone). Tests prove capture stays
+off without consent and no raw body byte survives the boundary.
+
 ## Recommended register updates
 
 - **D-001 → resolved.** Adjudication: "their" off-by-one is a real length-clamp bug at
