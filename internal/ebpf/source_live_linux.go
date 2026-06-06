@@ -51,6 +51,10 @@ func newLiveSource(cfg *Config) (Source, error) {
 		return nil, fmt.Errorf("ebpf: remove memlock (need CAP_BPF/root): %w", err)
 	}
 	s := &liveSource{cfg: cfg}
+	// U-014: refuse a tampered/stale embedded object before any kernel load.
+	if err := VerifyObjectDigest("l4flow", _L4flowBytes, bpfObjectDigests["l4flow"]); err != nil {
+		return nil, err
+	}
 	if err := loadL4flowObjects(&s.objs, nil); err != nil {
 		return nil, fmt.Errorf("ebpf: load objects (need a BTF kernel + CAP_BPF): %w", err)
 	}

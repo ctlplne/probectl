@@ -4,5 +4,6 @@
 bpf/vmlinux.h
 *_bpfel.go
 *_bpfeb.go
+bpf_digests_ebpf.go
 *_bpfel.o
 *_bpfeb.o

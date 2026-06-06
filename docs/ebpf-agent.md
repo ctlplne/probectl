@@ -47,7 +47,9 @@ need **no eBPF toolchain and no extra dependency**.
 | Live eBPF (Linux) | `make ebpf-agent` | CO-RE loader | clang + bpftool + libbpf headers + a BTF kernel |
 
 The live build regenerates `vmlinux.h` from the running kernel's BTF and runs
-`bpf2go`; it also needs the `cilium/ebpf` module, which the default build does
+`bpf2go`, then writes a SHA-256 manifest of the compiled objects
+(`gendigests` → `bpf_digests_ebpf.go`) that the loaders verify before ANY
+kernel load — a tampered or stale object refuses to load (U-014); it also needs the `cilium/ebpf` module, which the default build does
 **not** pull in. One-time, on the build host:
 
 ```sh

@@ -55,6 +55,11 @@ func newLiveL7Source(cfg *Config) (L7Source, error) {
 		return nil, fmt.Errorf("ebpf: remove memlock: %w", err)
 	}
 	s := &liveL7Source{cfg: cfg}
+	// U-014: the embedded object must match the build-time manifest before
+	// the kernel ever sees it; a tampered/stale object refuses to load.
+	if err := VerifyObjectDigest("sslsniff", _SslsniffBytes, bpfObjectDigests["sslsniff"]); err != nil {
+		return nil, err
+	}
 	if err := loadSslsniffObjects(&s.objs, nil); err != nil {
 		return nil, fmt.Errorf("ebpf: load sslsniff objects (need a BTF kernel + CAP_BPF): %w", err)
 	}
