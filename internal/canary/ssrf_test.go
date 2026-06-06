@@ -86,7 +86,7 @@ func TestTargetGuardDialControlBlocksRebind(t *testing.T) {
 func TestTargetGuardDialControlChains(t *testing.T) {
 	g := NewTargetGuard(false)
 	called := false
-	chained := g.DialControl(func(network, address string, c syscall.RawConn) error {
+	chained := g.DialControl(func(_, _ string, _ syscall.RawConn) error {
 		called = true
 		return nil
 	})
