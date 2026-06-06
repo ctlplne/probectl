@@ -518,6 +518,10 @@ function LifecycleCard() {
               <a href="/v1/lifecycle/export" download>
                 Export my data (tar.gz)
               </a>
+              {' · '}
+              <a href="/v1/lifecycle/export?redact=true" download title="PII (IP addresses, emails, geo, …) masked per the data-governance policy">
+                Redacted export
+              </a>
             </p>
             <form className={styles.actions} onSubmit={save}>
               <Field

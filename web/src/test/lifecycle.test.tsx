@@ -14,6 +14,7 @@ describe('tenant data lifecycle (S-T5)', () => {
     renderApp('/admin')
     expect(await screen.findByText(/data lifecycle/i)).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: /export my data/i })).toHaveAttribute('href', '/v1/lifecycle/export')
+    expect(screen.getByRole('link', { name: /redacted export/i })).toHaveAttribute('href', '/v1/lifecycle/export?redact=true')
     expect(screen.getByText('pooled')).toBeInTheDocument()
     expect(screen.getByLabelText(/flow retention days/i)).toBeInTheDocument()
   })

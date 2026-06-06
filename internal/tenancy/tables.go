@@ -15,6 +15,7 @@ var providerOwnedTables = map[string]bool{
 	"tenant_keys":        true,
 	"tenant_fairness":    true,
 	"cluster_state":      true,
+	"tenant_governance":  true,
 }
 
 // ProviderOwnedTable reports whether a tenant_id-bearing table is

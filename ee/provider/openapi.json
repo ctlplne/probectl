@@ -333,6 +333,24 @@
           }
         }
       }
+    },
+    "/provider/v1/tenants/{id}/governance": {
+      "get": {
+        "summary": "The tenant's COMPOSED data-governance view (S-EE3): classification + redaction + residency (S-T2) + retention (S-T5) + BYOK status (S-T6)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set the tenant's data-governance policy: classification overrides + redaction (redact_from / redact_export); audited provider.governance_set; admin; read-only-degrade blocked",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   }
 }

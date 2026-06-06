@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/ee/billing"
+	"github.com/imfeelingtheagi/probectl/ee/governance"
 	"github.com/imfeelingtheagi/probectl/ee/provider"
 	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/ee/tenantkeys"
@@ -29,6 +30,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -143,6 +145,19 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		log.Info("per-tenant key isolation attached (S-T6)", "scheme", "tk1", "modes", "managed|byok")
 	}
 
+	// Advanced data governance (S-EE3). The governance feature installs the
+	// per-tenant classification + redaction POLICY onto the core govern seam
+	// (so redacted exports honour per-tenant overrides) and exposes the
+	// composed governance view on the provider plane. Classification +
+	// redaction MECHANISM is core; this is the policy + surface.
+	var governanceCap *provider.Governance
+	if lic.Has(license.FeatureGovernance) {
+		gstore := governance.NewStore(pool)
+		govern.SetSource(gstore)
+		governanceCap = &provider.Governance{Store: gstore, Pool: pool}
+		log.Info("advanced data governance attached (S-EE3)")
+	}
+
 	if lic.Has(license.FeatureProviderPlane) {
 		h, err := provider.Build(cfg, provider.Deps{
 			Pool:     pool,
@@ -163,6 +178,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			// S-T7: operator fairness views over the CORE gate (enforcement
 			// is core; only the views/tuning ride the provider plane).
 			Fairness: &provider.Fairness{Gate: fairGate, Store: fairness.NewPGStore(pool)},
+			// S-EE3: the data-governance policy store + composed view.
+			Governance: governanceCap,
 		})
 		if err != nil {
 			return err

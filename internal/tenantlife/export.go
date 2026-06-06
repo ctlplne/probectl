@@ -10,6 +10,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -32,6 +33,7 @@ type Manifest struct {
 	Flows         int64            `json:"flows"`
 	Objects       []ObjectRef      `json:"objects"`
 	Notes         []string         `json:"notes"`
+	Redacted      bool             `json:"redacted"` // S-EE3: PII masked per the governance policy
 }
 
 // ObjectRef inventories one stored artifact.
@@ -44,6 +46,27 @@ type ObjectRef struct {
 // inside the tenant's own scope (RLS + silo routing) — the export path
 // cannot see another tenant's rows by construction.
 func (e *Engine) Export(ctx context.Context, tenantID string, w io.Writer) (Manifest, error) {
+	return e.export(ctx, tenantID, w, false)
+}
+
+// ExportRedacted is Export with optional data-governance redaction (S-EE3):
+// when redact is requested OR the tenant's governance policy forces it,
+// PII-class columns (IPs-as-PII, emails, geo, …) and flow records are masked
+// per the tenant's classification before they leave the deployment.
+func (e *Engine) ExportRedacted(ctx context.Context, tenantID string, w io.Writer, redact bool) (Manifest, error) {
+	return e.export(ctx, tenantID, w, redact)
+}
+
+func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redact bool) (Manifest, error) {
+	// Resolve the effective redaction policy. A request for redaction (or a
+	// policy that forces it) uses the tenant's governance policy, defaulting to
+	// PII-floor partial masking when nothing is configured — the redaction
+	// MECHANISM is core, the per-tenant POLICY is the governance feature.
+	pol := govern.PolicyFor(ctx, tenantID)
+	redact = redact || pol.RedactExport
+	if redact && pol.RedactFrom == govern.ClassUnset {
+		pol = govern.DefaultPIIPolicy()
+	}
 	man := Manifest{
 		FormatVersion: 1, TenantID: tenantID, ExportedAt: e.now().UTC(),
 		Tables: map[string]int64{},
@@ -51,6 +74,11 @@ func (e *Engine) Export(ctx context.Context, tenantID string, w io.Writer) (Mani
 			"TSDB metric series are not bundled: export them via the Prometheus-compatible API (federation/PromQL).",
 			"Object-store artifacts are inventoried under objects[]; fetch blobs individually via their API surfaces.",
 		},
+		Redacted: redact,
+	}
+	if redact {
+		man.Notes = append(man.Notes,
+			"This export is REDACTED (S-EE3): PII-class values (IP addresses, emails, geo, …) are masked per the tenant's data-classification policy.")
 	}
 
 	gz := gzip.NewWriter(w)
@@ -87,7 +115,11 @@ func (e *Engine) Export(ctx context.Context, tenantID string, w io.Writer) (Mani
 				return man, fmt.Errorf("tenantlife: export %s: %w", table, err)
 			}
 			man.Tables[table] = count
-			if err := writeTarFile(tw, "postgres/"+table+".jsonl", buf.Bytes(), man.ExportedAt); err != nil {
+			out := buf.Bytes()
+			if redact {
+				out = govern.RedactJSONL(pol, out)
+			}
+			if err := writeTarFile(tw, "postgres/"+table+".jsonl", out, man.ExportedAt); err != nil {
 				return man, err
 			}
 		}
@@ -101,7 +133,11 @@ func (e *Engine) Export(ctx context.Context, tenantID string, w io.Writer) (Mani
 			return man, fmt.Errorf("tenantlife: export flows: %w", err)
 		}
 		man.Flows = n
-		if err := writeTarFile(tw, "flows.jsonl", buf.Bytes(), man.ExportedAt); err != nil {
+		flowsOut := buf.Bytes()
+		if redact {
+			flowsOut = govern.RedactJSONL(pol, flowsOut)
+		}
+		if err := writeTarFile(tw, "flows.jsonl", flowsOut, man.ExportedAt); err != nil {
 			return man, err
 		}
 	}

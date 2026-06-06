@@ -64,6 +64,8 @@ type Deps struct {
 	// S-T7: the CORE fairness gate + policy store (operator views/tuning;
 	// enforcement itself is core in every edition).
 	Fairness *Fairness
+	// S-EE3: the data-governance policy store + composed view (governance feat).
+	Governance *Governance
 }
 
 // Build constructs the provider plane handler. It fails loudly on missing
@@ -112,7 +114,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	return NewHandler(svc, NewSessions(), tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.HSTSEnabled).
 		WithMetering(d.Metering).WithWhiteLabel(d.WhiteLabel).WithLifecycle(d.Lifecycle).
-		WithFairness(d.Fairness), nil
+		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
 }
 
 // providerAudit writes the separate, tamper-evident provider audit stream.

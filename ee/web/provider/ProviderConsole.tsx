@@ -230,6 +230,7 @@ function Dashboard({ operator }: { operator: Operator }) {
       <FleetCard />
       <UsageCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
       <FairnessCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
+      <GovernanceCard isAdmin={operator.role === 'admin'} readOnly={readOnly} />
       <BreakGlassCard />
       {operator.role === 'admin' ? <BrandingCard readOnly={readOnly} /> : null}
       {operator.role === 'admin' ? <OperatorsCard readOnly={readOnly} /> : null}
@@ -668,6 +669,124 @@ function UsageCard({ isAdmin, readOnly }: { isAdmin: boolean; readOnly: boolean 
 /** FairnessCard (S-T7): cross-tenant fairness — live admitted/shed/rejected
  *  accounting from the core gate + the tuneable per-tenant policy (admin).
  *  Enforcement is core; this is the operator's view of it. */
+interface GovernanceView {
+  classifications: Record<string, string>
+  redact_from: string
+  redact_export: boolean
+  residency?: string
+  isolation_model: string
+  retention_days?: number | null
+  byok?: string
+}
+
+/** GovernanceCard (S-EE3): per-tenant data governance — the COMPOSED view
+ *  (classification + redaction + residency [S-T2] + retention [S-T5] + BYOK
+ *  [S-T6]) and the redaction policy editor. Hidden when the governance feature
+ *  is not licensed (the per-tenant GET 404s). */
+function GovernanceCard({ isAdmin, readOnly }: { isAdmin: boolean; readOnly: boolean }) {
+  const [tenant, setTenant] = useState('')
+  const [view, setView] = useState<GovernanceView | null>(null)
+  const [enabled, setEnabled] = useState(true)
+  const [redactFrom, setRedactFrom] = useState('pii')
+  const [redactExport, setRedactExport] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  if (!enabled) return null
+
+  const load = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setSaved(false)
+    try {
+      const v = await api<GovernanceView>('GET', `/provider/v1/tenants/${tenant}/governance`)
+      setView(v)
+      setRedactFrom(v.redact_from || 'pii')
+      setRedactExport(!!v.redact_export)
+    } catch (err) {
+      if (err instanceof NotEnabledError) setEnabled(false)
+      else setError((err as Error).message)
+    }
+  }
+
+  const save = async () => {
+    setError('')
+    setSaved(false)
+    try {
+      await api('PUT', `/provider/v1/tenants/${tenant}/governance`, {
+        redact_from: redactFrom,
+        redact_export: redactExport,
+      })
+      setSaved(true)
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  const piiCats = view
+    ? Object.entries(view.classifications).filter(([, c]) => c === 'pii' || c === 'restricted')
+    : []
+
+  return (
+    <Card>
+      <CardHeader
+        title="Data governance"
+        description="Per-tenant data classification + redaction, composed with residency (S-T2), retention (S-T5) and BYOK (S-T6). IPs are PII by default; a redacted export masks PII-class values."
+      />
+      <CardBody>
+        <form className={styles.row} onSubmit={load}>
+          <span className={styles.grow}>
+            <Field label="Tenant ID (governance)" value={tenant} onChange={(e) => setTenant(e.target.value)} required />
+          </span>
+          <Button type="submit" variant="secondary">
+            Load
+          </Button>
+        </form>
+        {view ? (
+          <>
+            <p className={styles.note}>
+              Residency: <Badge tone={view.residency ? 'accent' : 'neutral'}>{view.residency || 'unset'}</Badge>{' · '}
+              Isolation: {view.isolation_model}{' · '}
+              Retention: {view.retention_days != null ? `${view.retention_days}d` : 'default'}{' · '}
+              BYOK: <Badge tone={view.byok && view.byok !== 'none' ? 'success' : 'neutral'}>{view.byok || 'none'}</Badge>{' · '}
+              Redact from {view.redact_from}{view.redact_export ? ' · export redacted' : ''}
+            </p>
+            <p className={styles.note}>
+              PII / restricted categories:{' '}
+              {piiCats.length ? piiCats.map(([cat]) => <Badge key={cat} tone="warning">{cat}</Badge>) : '—'}
+            </p>
+            {isAdmin ? (
+              <div className={styles.row}>
+                <Select
+                  label="Redact from class"
+                  value={redactFrom}
+                  onChange={(e) => setRedactFrom(e.target.value)}
+                  options={[
+                    { value: 'public', label: 'public' },
+                    { value: 'internal', label: 'internal' },
+                    { value: 'confidential', label: 'confidential' },
+                    { value: 'pii', label: 'pii (default)' },
+                    { value: 'restricted', label: 'restricted' },
+                  ]}
+                  disabled={readOnly}
+                />
+                <label className={styles.note}>
+                  <input type="checkbox" checked={redactExport} onChange={(e) => setRedactExport(e.target.checked)} disabled={readOnly} /> Force redacted export
+                </label>
+                <Button type="button" variant="primary" onClick={save} disabled={readOnly}>
+                  Save governance
+                </Button>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+        {saved ? <p className={styles.note}>Governance policy saved.</p> : null}
+        {error ? <p role="alert" className={styles.note}>{error}</p> : null}
+      </CardBody>
+    </Card>
+  )
+}
+
 interface FairnessSnap {
   tenant_id: string
   policy: Record<string, number>

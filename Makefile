@@ -140,7 +140,7 @@ COVER_PKGS := ./internal/apierror/... ./internal/otel/... ./internal/otel/otlp/.
 	./internal/flow/... ./internal/store/flowstore/... ./internal/device/... \
 	./internal/promapi/... ./internal/cmdb/... ./internal/secrets/... ./internal/cost/... ./internal/slo/... ./internal/compliance/... ./internal/outage/... ./internal/rum/... ./internal/chaos/... ./internal/carbon/... ./internal/license/... \
 	./internal/store/pathstore/... ./internal/store/tsdb/... ./internal/store/migrate/... \
-	./ee/provider/... ./ee/silo/... ./ee/billing/... ./ee/whitelabel/... ./ee/tenantkeys/... ./internal/branding/... ./internal/cluster/... ./internal/fairness/... ./internal/tenantcrypto/... ./internal/tenantlife/...
+	./ee/provider/... ./ee/silo/... ./ee/billing/... ./ee/whitelabel/... ./ee/tenantkeys/... ./internal/branding/... ./internal/cluster/... ./internal/fairness/... ./internal/govern/... ./internal/tenantcrypto/... ./internal/tenantlife/...
 
 .PHONY: cover-gate
 cover-gate: ## Coverage profile (integration tag, service-free) + per-package floor gate.

@@ -107,6 +107,13 @@ func (s *Service) WithSilo(ops SiloOps, invalidate func()) *Service {
 // writes) that live outside this file.
 func (s *Service) CheckWritable() error { return s.writable() }
 
+// RecordGovernanceChange audits a data-governance policy update.
+func (s *Service) RecordGovernanceChange(ctx context.Context, actor, tenantID, redactFrom string, redactExport bool, overrides int) error {
+	return s.audit.Append(ctx, actor, "provider.governance_set", tenantID, map[string]any{
+		"redact_from": redactFrom, "redact_export": redactExport, "classification_overrides": overrides,
+	})
+}
+
 // RecordFairnessChange audits a fairness-policy update on the provider stream.
 func (s *Service) RecordFairnessChange(ctx context.Context, actor, tenantID string, p fairness.Policy) error {
 	return s.audit.Append(ctx, actor, "provider.fairness_set", tenantID, map[string]any{

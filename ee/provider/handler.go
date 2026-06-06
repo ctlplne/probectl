@@ -56,6 +56,9 @@ type Handler struct {
 	// fairness (S-T7): operator views over the CORE gate + policy store.
 	fairness *Fairness
 
+	// governance (S-EE3): the data-governance policy + composed view.
+	governance *Governance
+
 	mux *http.ServeMux
 }
 
@@ -95,6 +98,7 @@ func Routes() []RouteDecl {
 	}
 	base = append(base, meteringRoutes()...)
 	base = append(base, fairnessRoutes()...)
+	base = append(base, governanceRoutes()...)
 	base = append(base, brandingRoutes()...)
 	return append(base, lifecycleRoutes()...)
 }
@@ -136,6 +140,8 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 	// handlers answer not_found until WithMetering attaches the capability.
 	h.handle("GET /provider/v1/fairness", h.asOperator("", h.handleFairnessView))
 	h.handle("PUT /provider/v1/tenants/{id}/fairness", h.asOperator(RoleAdmin, h.handlePutFairness))
+	h.handle("GET /provider/v1/tenants/{id}/governance", h.asOperator("", h.handleGovernanceView))
+	h.handle("PUT /provider/v1/tenants/{id}/governance", h.asOperator(RoleAdmin, h.handlePutGovernance))
 	h.handle("GET /provider/v1/usage", h.asOperator("", h.handleUsage))
 	h.handle("GET /provider/v1/usage/export", h.asOperator("", h.handleUsageExport))
 	h.handle("GET /provider/v1/tenants/{id}/quotas", h.asOperator("", h.handleGetQuotas))
@@ -173,6 +179,14 @@ func (h *Handler) WithWhiteLabel(w *WhiteLabel) *Handler {
 func (h *Handler) WithFairness(f *Fairness) *Handler {
 	if f != nil {
 		h.fairness = f
+	}
+	return h
+}
+
+// WithGovernance attaches the S-EE3 governance capability.
+func (h *Handler) WithGovernance(g *Governance) *Handler {
+	if g != nil {
+		h.governance = g
 	}
 	return h
 }

@@ -71,6 +71,13 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       })
     if (url.includes('/provider/v1/tenants/tn_1/fairness') && method === 'PUT')
       return jsonResponse({ results_per_sec: 250, flow_events_per_sec: 0, queries_per_min: 0, query_concurrency: 4 })
+    if (url.includes('/provider/v1/tenants/tn_1/governance') && method === 'GET')
+      return jsonResponse({
+        classifications: { ip_address: 'pii', hostname: 'internal', credential: 'restricted', email: 'pii', asn: 'public' },
+        redact_from: 'pii', redact_export: false, residency: 'eu', isolation_model: 'siloed', retention_days: 30, byok: 'byok',
+      })
+    if (url.includes('/provider/v1/tenants/tn_1/governance') && method === 'PUT')
+      return jsonResponse({ ok: true })
     if (url.endsWith('/provider/v1/branding') && method === 'GET') return jsonResponse({ product_name: '' })
     if (url.includes('/provider/v1/tenants/tn_1/branding') && method === 'PUT')
       return jsonResponse({ tenant_id: 'tn_1', product_name: 'AcmeWatch' })
@@ -136,6 +143,28 @@ describe('provider console (S-T1)', () => {
     expect(within(acmeRow).getByText('pooled')).toBeInTheDocument()
     expect(within(globexRow).getByText('siloed')).toBeInTheDocument()
     expect(within(globexRow).getByText(/eu/)).toBeInTheDocument()
+  })
+
+  test('S-EE3 governance: the composed view loads (IPs-as-PII, residency, BYOK) and the policy PUT sends redaction settings', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+    expect(await screen.findByText('Data governance')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText(/tenant id \(governance\)/i), 'tn_1')
+    await userEvent.click(screen.getByRole('button', { name: /^load$/i }))
+    // The composed view renders the redaction floor + BYOK + PII categories.
+    expect(await screen.findByText(/redact from pii/i)).toBeInTheDocument()
+    expect(screen.getByText('byok')).toBeInTheDocument()
+    expect(screen.getAllByText('ip_address').length).toBeGreaterThan(0)
+    // Force a redacted export + save → PUT carries the redaction settings.
+    await userEvent.click(screen.getByLabelText(/force redacted export/i))
+    await userEvent.click(screen.getByRole('button', { name: /save governance/i }))
+    expect(await screen.findByText(/governance policy saved/i)).toBeInTheDocument()
+    const put = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => String(c[0]).includes('/tenants/tn_1/governance') && (c[1] as RequestInit)?.method === 'PUT',
+    )
+    expect(put).toBeTruthy()
+    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({ redact_from: 'pii', redact_export: true })
   })
 
   test('S-T7 fairness: accounting renders (shed + rejections flagged) and the policy PUT sends the right payload', async () => {

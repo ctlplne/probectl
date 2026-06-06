@@ -61,7 +61,10 @@ func (s *Server) handleLifecycleExport(w http.ResponseWriter, r *http.Request) e
 	}
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", `attachment; filename="probectl-tenant-export.tar.gz"`)
-	if _, err := e.Export(r.Context(), tid, w); err != nil {
+	// S-EE3: ?redact=true masks PII-class values per the tenant's governance
+	// policy (and the policy itself can force redaction).
+	redact := r.URL.Query().Get("redact") == "true"
+	if _, err := e.ExportRedacted(r.Context(), tid, w, redact); err != nil {
 		// Headers are committed; the truncated stream is the failure signal.
 		s.log.Error("tenant export failed", "tenant_id", tid, "error", err.Error())
 		return nil

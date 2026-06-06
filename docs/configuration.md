@@ -1058,6 +1058,16 @@ Custom domains need a certificate at the TLS-terminating ingress (or via
 trustctl) — see `docs/white-label.md` for the token-override contract, the
 no-bleed rules, and the email-template contract.
 
+### Advanced data governance (S-EE3, `governance` ee/)
+
+Per-tenant data classification + redaction, composed with retention (S-T5),
+residency (S-T2/S-EE2) and BYOK (S-T6). No new config keys: classification +
+redaction MECHANISM is core (the `?redact=true` export toggle works anywhere,
+masking PII with a partial strategy); the `governance` feature adds per-tenant
+POLICY (stored in `tenant_governance`, migration 0033) set from the provider
+plane (`GET/PUT /provider/v1/tenants/{id}/governance`). IPs are PII by default.
+Full model: `docs/governance.md`. Redacted export: `GET /v1/lifecycle/export?redact=true`.
+
 ### Tenant lifecycle: export, retention, erasure (S-T5, core)
 
 Export + verifiable deletion are a compliance right — core in every edition.
