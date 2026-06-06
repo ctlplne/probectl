@@ -3,7 +3,7 @@
 # headless-ready Chromium + the OS deps), so the worker runs without host browser
 # setup. The container runs one transaction per invocation; the probectl fleet owns
 # concurrency, isolation (it kills the process on timeout), and worker recycling.
-FROM mcr.microsoft.com/playwright:v1.49.1-noble
+FROM mcr.microsoft.com/playwright:v1.55.1-noble
 
 WORKDIR /worker
 

@@ -123,7 +123,7 @@ jobs:
     # real scripted login against a local app — success timings/waterfall/DOM and a
     # failure screenshot. The Go side (internal/browser) is covered by the unit job.
     runs-on: ubuntu-latest
-    container: mcr.microsoft.com/playwright:v1.49.1-noble
+    container: mcr.microsoft.com/playwright:v1.55.1-noble
     defaults:
       run:
         working-directory: browser-worker
