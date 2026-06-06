@@ -183,7 +183,7 @@ func run(cmd string) error {
 		return fmt.Errorf("result bus: %w", err)
 	}
 	defer resultBus.Close()
-	tsdbWriter, err := tsdb.New(cfg.TSDBMode, cfg.TSDBURL)
+	tsdbWriter, err := tsdb.NewWithLimits(cfg.TSDBMode, cfg.TSDBURL, cfg.TSDBMemoryRetention, int64(cfg.TSDBMemoryMaxBytes)) // U-018 bounds
 	if err != nil {
 		return fmt.Errorf("tsdb: %w", err)
 	}

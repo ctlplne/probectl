@@ -104,8 +104,12 @@ type Config struct {
 	// 0 = defaults (1000 / 50000).
 	IngestMaxSeriesPerAgent  int
 	IngestMaxSeriesPerTenant int
-	TSDBMode                 string
-	TSDBURL                  string
+	// In-memory TSDB bounds (U-018): retention window + byte wall for the
+	// lightweight mode (0 = defaults 1h / 256MiB). Oldest-first eviction.
+	TSDBMemoryRetention time.Duration
+	TSDBMemoryMaxBytes  int
+	TSDBMode            string
+	TSDBURL             string
 
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
@@ -454,6 +458,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		BusMaxBuffered:           l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000),
 		IngestMaxSeriesPerAgent:  l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_AGENT", 0, 0, 10_000_000),
 		IngestMaxSeriesPerTenant: l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_TENANT", 0, 0, 100_000_000),
+		TSDBMemoryRetention:      l.dur("PROBECTL_TSDB_MEMORY_RETENTION", 0),
+		TSDBMemoryMaxBytes:       l.intRange("PROBECTL_TSDB_MEMORY_MAX_BYTES", 0, 0, 1<<31-1),
 		TSDBMode:                 l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus"),
 		TSDBURL:                  l.str("PROBECTL_TSDB_URL", ""),
 		PathStoreMode:            l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
