@@ -89,7 +89,7 @@ func TestChaosRunDetectedBySLO(t *testing.T) {
 
 	probe, err := canary.NewUDP(canary.Config{
 		Type: "udp", Target: proxy.Addr(), Timeout: 250 * time.Millisecond,
-		Params: map[string]string{"count": "3"},
+		Params: map[string]string{"allow_private_targets": "true", "count": "3"}, // probes the local chaos proxy (U-002 override)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +177,7 @@ func TestChaosLatencyVisibleInProbeMetrics(t *testing.T) {
 
 	probe, err := canary.NewUDP(canary.Config{
 		Type: "udp", Target: proxy.Addr(), Timeout: time.Second,
-		Params: map[string]string{"count": "3"},
+		Params: map[string]string{"allow_private_targets": "true", "count": "3"}, // probes the local chaos proxy (U-002 override)
 	})
 	if err != nil {
 		t.Fatal(err)
