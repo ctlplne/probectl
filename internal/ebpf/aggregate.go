@@ -13,6 +13,9 @@ type Stats struct {
 	L7Observed uint64
 	Dropped    uint64
 	Edges      uint64
+	// L7AttachFailures counts TLS-uprobe attach failures (U-015): an
+	// encrypted-traffic visibility gap is surfaced, never silent.
+	L7AttachFailures uint64
 }
 
 // Aggregator turns a stream of observed Flows into (a) a live ServiceMap and
@@ -23,9 +26,10 @@ type Aggregator struct {
 	l7pending []L7Record
 	smap      *ServiceMap
 
-	observed   atomic.Uint64
-	l7observed atomic.Uint64
-	dropped    atomic.Uint64
+	observed       atomic.Uint64
+	l7observed     atomic.Uint64
+	dropped        atomic.Uint64
+	l7attachFailed atomic.Uint64
 }
 
 // NewAggregator returns an empty aggregator.
@@ -45,6 +49,10 @@ func (a *Aggregator) Observe(f Flow) {
 
 // RecordDrops adds n to the dropped counter (ring-buffer backpressure).
 func (a *Aggregator) RecordDrops(n uint64) { a.dropped.Add(n) }
+
+// RecordL7AttachFailure counts a failed TLS-uprobe attach (U-015) so the
+// L7-visibility gap shows up in the agent's own telemetry.
+func (a *Aggregator) RecordL7AttachFailure() { a.l7attachFailed.Add(1) }
 
 // ObserveL7 records one parsed L7 call: it rolls the call onto its service edge
 // and queues it for the next emission batch.
@@ -81,9 +89,10 @@ func (a *Aggregator) ServiceMap() *ServiceMap { return a.smap }
 // Stats reports the cumulative counters.
 func (a *Aggregator) Stats() Stats {
 	return Stats{
-		Observed:   a.observed.Load(),
-		L7Observed: a.l7observed.Load(),
-		Dropped:    a.dropped.Load(),
-		Edges:      uint64(a.smap.Len()),
+		Observed:         a.observed.Load(),
+		L7Observed:       a.l7observed.Load(),
+		Dropped:          a.dropped.Load(),
+		Edges:            uint64(a.smap.Len()),
+		L7AttachFailures: a.l7attachFailed.Load(),
 	}
 }

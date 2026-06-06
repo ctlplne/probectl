@@ -60,6 +60,7 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		return nil, err
 	}
 
+	agg := NewAggregator()
 	var l7src L7Source
 	if cfg.L7FixturePath != "" {
 		if l7src, err = NewFixtureL7Source(cfg.L7FixturePath); err != nil {
@@ -68,7 +69,12 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 	} else if live, lerr := newLiveL7Source(cfg); lerr == nil {
 		l7src = live
 	} else {
-		log.Info("ebpf L7 capture inactive", "reason", lerr.Error())
+		// U-015: a missing TLS uprobe is an encrypted-traffic VISIBILITY GAP —
+		// warn loudly and count it (l7_attach_failures in the agent's stats);
+		// it must never pass as a silent no-op.
+		log.Warn("ebpf L7 TLS capture NOT attached — encrypted-traffic (HTTPS/gRPC) visibility is OFF on this host",
+			"reason", lerr.Error())
+		agg.RecordL7AttachFailure()
 	}
 
 	return &Agent{
@@ -78,7 +84,7 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		l7source: l7src,
 		enricher: NewProcEnricher(cfg.ProcRoot),
 		emitter:  NewBusEmitter(b, cfg.TenantID),
-		agg:      NewAggregator(),
+		agg:      agg,
 		l7man:    l7.NewManager(),
 		l7conns:  map[uint64]l7conn{},
 	}, nil
@@ -208,7 +214,8 @@ func (a *Agent) flush(ctx context.Context) {
 	st := a.agg.Stats()
 	a.log.Info("ebpf flows emitted",
 		"tenant_id", a.cfg.TenantID, "flows", len(flows), "edges", len(edges), "l7_calls", len(l7calls),
-		"observed_total", st.Observed, "l7_total", st.L7Observed, "dropped_total", st.Dropped)
+		"observed_total", st.Observed, "l7_total", st.L7Observed, "dropped_total", st.Dropped,
+		"l7_attach_failures", st.L7AttachFailures)
 }
 
 // syncDrops folds the source's cumulative drop count into the aggregator so the

@@ -59,10 +59,15 @@ func newLiveL7Source(cfg *Config) (L7Source, error) {
 		return nil, fmt.Errorf("ebpf: load sslsniff objects (need a BTF kernel + CAP_BPF): %w", err)
 	}
 
-	ex, err := link.OpenExecutable(opensslPath())
+	libssl, err := opensslPath()
 	if err != nil {
 		_ = s.objs.Close()
-		return nil, fmt.Errorf("ebpf: open libssl %q: %w", opensslPath(), err)
+		return nil, fmt.Errorf("ebpf: %w", err)
+	}
+	ex, err := link.OpenExecutable(libssl)
+	if err != nil {
+		_ = s.objs.Close()
+		return nil, fmt.Errorf("ebpf: open libssl %q: %w", libssl, err)
 	}
 	attach := func(sym string, prog *cebpf.Program, ret bool) error {
 		var (
@@ -163,11 +168,12 @@ func (s *liveL7Source) Close() error {
 	return s.objs.Close()
 }
 
-// opensslPath is the libssl to attach to (override with PROBECTL_EBPF_LIBSSL).
-// Extend to discover BoringSSL / GnuTLS / per-process library paths.
-func opensslPath() string {
+// opensslPath is the libssl to attach to: the PROBECTL_EBPF_LIBSSL override,
+// else multi-arch discovery (ldconfig cache + per-arch candidates — U-015; see
+// libssl.go). Extend to discover BoringSSL / GnuTLS / per-process paths.
+func opensslPath() (string, error) {
 	if p := os.Getenv("PROBECTL_EBPF_LIBSSL"); p != "" {
-		return p
+		return p, nil
 	}
-	return "/usr/lib/x86_64-linux-gnu/libssl.so.3"
+	return discoverLibsslDefault()
 }
