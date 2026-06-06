@@ -17,6 +17,7 @@
 // Built into the agent only under -tags ebpf (bpf2go). See docs/ebpf-agent.md.
 
 #include "vmlinux.h"
+#include "arch_compat.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 
