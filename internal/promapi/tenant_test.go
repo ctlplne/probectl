@@ -59,7 +59,7 @@ func TestTenantScopedShape(t *testing.T) {
 // forgets ForceTenant gets an error before anything reaches the wire.
 func TestUpstreamRefusesUnscopedForwards(t *testing.T) {
 	dialed := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		dialed = true
 		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 	}))

@@ -43,8 +43,8 @@ func TestAnalyzeWithLocalModelEndToEnd(t *testing.T) {
 	idRe := regexp.MustCompile(`E[0-9a-f]+-1\b`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		real := idRe.FindString(string(body))
-		answer := `{"root_cause":"x","confidence":"medium","findings":[{"statement":"s","citations":["` + real + `","E42"]}]}`
+		realID := idRe.FindString(string(body))
+		answer := `{"root_cause":"x","confidence":"medium","findings":[{"statement":"s","citations":["` + realID + `","E42"]}]}`
 		_ = json.NewEncoder(w).Encode(map[string]any{"message": map[string]string{"content": answer}})
 	}))
 	defer srv.Close()

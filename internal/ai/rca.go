@@ -5,11 +5,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"sync/atomic"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Answer is the result of an RCA: a cited, RBAC-scoped root cause. ID ties an

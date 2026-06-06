@@ -94,18 +94,6 @@ func TestAnalyzeGoldenRootCauseClassAndCitations(t *testing.T) {
 	}
 }
 
-// mockModel returns a fixed Synthesis — used to drive citation-integrity + error
-// paths independent of the built-in synthesizer.
-type mockModel struct {
-	syn Synthesis
-	err error
-}
-
-func (mockModel) Name() string { return "mock" }
-func (m mockModel) Synthesize(context.Context, SynthesisInput) (Synthesis, error) {
-	return m.syn, m.err
-}
-
 // citingModel builds its synthesis FROM the input (so it can cite the real,
 // per-session-random evidence ids — U-037 test double).
 type citingModel struct {

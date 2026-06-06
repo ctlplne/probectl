@@ -133,7 +133,7 @@ func TestPrometheusAdminDeleteAutomated(t *testing.T) {
 // When the admin API is disabled, the attestation records the documented
 // manual step honestly (Complete=false) — never a silent skip.
 func TestPrometheusAdminDisabledRecordsManualStep(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound) // admin API off
 	}))
 	defer srv.Close()
