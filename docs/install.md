@@ -23,8 +23,9 @@ A self-signed certificate is generated on first boot for an immediate start.
 # 1. Configure.
 cp deploy/compose/.env.example deploy/compose/.env
 # Edit deploy/compose/.env: set PROBECTL_ENVELOPE_KEY (openssl rand -base64 32),
-# POSTGRES_PASSWORD, and your TLS hostnames. For real SSO set PROBECTL_AUTH_MODE=session
-# and the PROBECTL_OIDC_* values; the default "dev" mode is for evaluation only.
+# POSTGRES_PASSWORD, and your TLS hostnames. Auth defaults to "session" (OIDC SSO,
+# fail-closed) — set the PROBECTL_OIDC_* values. For a quick NO-AUTH local
+# evaluation only, explicitly set PROBECTL_AUTH_MODE=dev (loud startup warning).
 
 # 2. Start.
 docker compose -f deploy/compose/probectl.yml up -d

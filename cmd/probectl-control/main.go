@@ -123,6 +123,14 @@ func run(cmd string) error {
 	log := logging.New(logOut, cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
 
+	// Dev auth is an explicit opt-in, never a default (U-001): running with it
+	// must be unmissable in the logs. The secure default is "session" (OIDC).
+	if cfg.AuthMode == "dev" {
+		log.Warn("AUTH MODE 'dev' IS ACTIVE: every request gets an all-permissions principal with NO authentication — " +
+			"local evaluation only, NEVER production. Unset PROBECTL_AUTH_MODE (the default is \"session\") " +
+			"and configure PROBECTL_OIDC_* for real SSO.")
+	}
+
 	// FIPS power-on self-test (S-EE1): exercise every crypto primitive (KATs)
 	// before serving traffic and — in the FIPS artifact — assert the validated
 	// module is active. Fail closed: a control plane whose crypto self-test

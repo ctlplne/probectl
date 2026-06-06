@@ -99,8 +99,11 @@ type Config struct {
 	// "mailto:security@your-org.example"). Operator-configured.
 	SecurityContact string
 
-	// Identity & access (S18). AuthMode: "session" (real OIDC SSO + RBAC) or
-	// "dev" (trusted-header dev principal with all permissions — never in prod).
+	// Identity & access (S18). AuthMode: "session" (real OIDC SSO + RBAC — the
+	// default; without a session every /v1 request is refused, U-001
+	// fail-closed) or "dev" (trusted-header dev principal with all permissions
+	// — an EXPLICIT opt-in for local evaluation; the control plane logs a loud
+	// startup warning; never in prod).
 	AuthMode         string
 	SessionTTL       time.Duration
 	OIDCIssuer       string
@@ -419,7 +422,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		CMDBCacheTTL:        l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute),
 		AlertEvalInterval:   l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second),
 		IncidentWindow:      l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute),
-		AuthMode:            l.enum("PROBECTL_AUTH_MODE", "dev", "dev", "session"),
+		AuthMode:            l.enum("PROBECTL_AUTH_MODE", "session", "dev", "session"),
 		SessionTTL:          l.dur("PROBECTL_SESSION_TTL", 12*time.Hour),
 		OIDCIssuer:          l.str("PROBECTL_OIDC_ISSUER", ""),
 		OIDCClientID:        l.str("PROBECTL_OIDC_CLIENT_ID", ""),

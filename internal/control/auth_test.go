@@ -118,6 +118,34 @@ func TestUnauthenticatedSessionModeIs401(t *testing.T) {
 	}
 }
 
+// U-001 boot test: with NO auth mode configured (an empty environment), the
+// loaded default must be the secure "session" mode and the server must refuse
+// unauthenticated /v1 requests — fail closed out of the box. Dev mode exists
+// only as an explicit PROBECTL_AUTH_MODE=dev opt-in.
+func TestBootNoAuthModeRefusesUnauthenticated(t *testing.T) {
+	cfg, err := config.Load(func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	if cfg.AuthMode != "session" {
+		t.Fatalf("default auth mode = %q, want \"session\" (fail-closed)", cfg.AuthMode)
+	}
+
+	s := New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil)
+	for _, path := range []string{"/v1/tests", "/v1/me"} {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("unauthenticated GET %s with default config: want 401, got %d", path, rec.Code)
+		}
+	}
+
+	// The dev principal must not exist unless dev mode was explicitly chosen.
+	if p := s.resolvePrincipal(httptest.NewRequest(http.MethodGet, "/v1/tests", nil)); p != nil {
+		t.Fatalf("default config synthesized a principal: %+v", p)
+	}
+}
+
 // /v1/me returns the caller's tenant + effective permissions.
 func TestMeEndpoint(t *testing.T) {
 	rec := httptest.NewRecorder()

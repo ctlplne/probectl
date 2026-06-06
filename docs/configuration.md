@@ -49,7 +49,7 @@ migrations and exit), `probectl-control version`.
 | `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `PROBECTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
 | `PROBECTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident (S17) |
-| `PROBECTL_AUTH_MODE`                | `dev`                                                            | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (trusted-header dev principal — never in production) |
+| `PROBECTL_AUTH_MODE`                | `session`                                                          | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (trusted-header dev principal — never in production) |
 | `PROBECTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime (S18)                         |
 | `PROBECTL_OIDC_ISSUER`              | (none)                                                           | OIDC issuer URL; SSO discovery is performed against it (S18) |
 | `PROBECTL_OIDC_CLIENT_ID`          | (none)                                                           | OIDC client ID registered with the IdP (S18)               |
@@ -537,11 +537,12 @@ The seeded system roles for the default tenant are **admin** (all permissions),
 **editor** (read everything + manage tests/alerts/incidents), and **viewer**
 (read-only). `GET /v1/me` requires only authentication (no specific permission).
 
-**Dev mode.** `PROBECTL_AUTH_MODE=dev` (the default for local work and the test
-suite) bypasses SSO and synthesizes an all-permissions principal for the default
-tenant, with the `X-Probectl-Tenant: <uuid>` override for multi-tenant dev. It is
-**never** for production — set `PROBECTL_AUTH_MODE=session` and configure
-`PROBECTL_OIDC_*` there.
+**Dev mode.** `PROBECTL_AUTH_MODE=dev` (an **explicit opt-in** — the default is
+`session`, which refuses unauthenticated requests) bypasses SSO and synthesizes
+an all-permissions principal for the default tenant, with the
+`X-Probectl-Tenant: <uuid>` override for multi-tenant dev. The control plane
+logs a loud warning at startup when dev mode is active. It is **never** for
+production; the test suite sets it explicitly per test.
 
 ### Resource API & CLI (S9)
 

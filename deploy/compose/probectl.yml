@@ -65,8 +65,10 @@ services:
       PROBECTL_MIGRATE_ON_BOOT: "true"
       # Envelope KEK for at-rest secret encryption. Generate: openssl rand -base64 32
       PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
-      # "dev" = all-access (quickstart only). Production: "session" + PROBECTL_OIDC_*.
-      PROBECTL_AUTH_MODE: ${PROBECTL_AUTH_MODE:-dev}
+      # Secure default: "session" (OIDC SSO + PROBECTL_OIDC_*) — unauthenticated
+      # requests are refused. "dev" (all-access, NO auth) is an explicit opt-in
+      # for local evaluation only and logs a loud startup warning.
+      PROBECTL_AUTH_MODE: ${PROBECTL_AUTH_MODE:-session}
       PROBECTL_OIDC_ISSUER: ${PROBECTL_OIDC_ISSUER:-}
       PROBECTL_OIDC_CLIENT_ID: ${PROBECTL_OIDC_CLIENT_ID:-}
       PROBECTL_OIDC_CLIENT_SECRET: ${PROBECTL_OIDC_CLIENT_SECRET:-}
