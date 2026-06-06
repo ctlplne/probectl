@@ -199,7 +199,9 @@ jobs:
   cross-tenant-isolation:
     name: cross-tenant-isolation
     # Permanent CI gate — CLAUDE.md §7 guardrail 1. From S2 this proves real
-    # tenant isolation (RLS + tenancy choke point) against a Postgres service.
+    # tenant isolation (RLS + tenancy choke point) against a Postgres service;
+    # U-026 extends the SAME gate to real ClickHouse (flowstore + pathstore
+    # cross-tenant reads, scoped erasure, and the row-policy DDL).
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -215,8 +217,19 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget -qO- http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
     env:
       PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
+      PROBECTL_FLOWSTORE_URL: http://localhost:8123
+      PROBECTL_PATHSTORE_URL: http://localhost:8123
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5

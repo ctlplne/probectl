@@ -65,6 +65,17 @@ be real): Postgres control/config state (shared control plane), the TSDB
 control/HA mechanics are S-EE2; per-tenant keys are S-T6. Do not sell
 residency beyond this list.
 
+## ClickHouse DB-level tenancy (U-026)
+
+Code-level scoping (every query pins `tenant_id`, unscoped calls refuse with
+`ErrNoTenant`) is backed by **DB-level row policies** for direct CH access:
+`EnsureRowPolicies` installs, per shared table, a policy filtering every user
+to `tenant_id = currentUser()` (convention: per-tenant CH users are named
+exactly the tenant id) plus a permissive policy for probectl's own service
+account. A tenant credential used directly against ClickHouse can then never
+read another tenant's rows — independent of this codebase. The cross-tenant
+CI gate runs flowstore + pathstore against a real ClickHouse.
+
 ## Lifecycle
 
 Provisioning (`POST /provider/v1/tenants` with `isolation_model` +

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -185,6 +186,33 @@ func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 	return nil
 }
 
+// ErrNoTenant refuses any tenant-keyed ClickHouse operation without a tenant
+// (U-026 defense in depth: the predicate can never be omitted by a caller).
+var ErrNoTenant = errors.New("flowstore: tenant_id is required (refusing an unscoped ClickHouse query)")
+
+// EnsureRowPolicies installs DB-LEVEL tenancy on the shared tables (U-026):
+// per-tenant ClickHouse users (named exactly the tenant id, per the operator
+// convention in docs/isolation.md) are row-filtered to tenant_id =
+// currentUser(), while serviceUser (probectl's own account) keeps full
+// access via a permissive policy. Direct CH access with a tenant credential
+// can then never cross tenants, independent of this codebase.
+func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+	if serviceUser == "" {
+		serviceUser = "default"
+	}
+	for _, table := range []string{sharedFlowsTable} {
+		for _, ddl := range []string{
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
+		} {
+			if err := c.exec(ctx, "", ddl, nil); err != nil {
+				return fmt.Errorf("flowstore: row policy: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 // topSQL builds the top-talkers query (exported via a test for the tenant
 // guard: the WHERE must lead with tenant_id).
 func topSQL(q TopQuery, table string) string {
@@ -214,6 +242,9 @@ func topSQL(q TopQuery, table string) string {
 
 // TopTalkers runs the aggregation in ClickHouse, on the tenant's routed store.
 func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, error) {
+	if q.TenantID == "" {
+		return nil, ErrNoTenant
+	}
 	if err := q.normalize(); err != nil {
 		return nil, err
 	}
@@ -263,6 +294,9 @@ func capacitySQL(q CapacityQuery, table string) string {
 
 // Capacity runs the bucket aggregation in ClickHouse, on the routed store.
 func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityPoint, error) {
+	if q.TenantID == "" {
+		return nil, ErrNoTenant
+	}
 	if err := q.normalize(); err != nil {
 		return nil, err
 	}
@@ -296,6 +330,9 @@ func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityP
 // lightweight-delete mutation (mutations_sync=2 — the call returns only when
 // the rows are gone, so the returned remaining-count is a real verification).
 func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
 	t, err := c.route(tenantID)
 	if err != nil {
 		return -1, err
@@ -325,6 +362,9 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 // DeleteTenantBefore removes one tenant's flows older than cutoff (S-T5
 // per-tenant retention), on the tenant's routed store.
 func (c *ClickHouse) DeleteTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) error {
+	if tenantID == "" {
+		return ErrNoTenant
+	}
 	t, err := c.route(tenantID)
 	if err != nil {
 		return err
@@ -340,6 +380,9 @@ func (c *ClickHouse) DeleteTenantBefore(ctx context.Context, tenantID string, cu
 // ExportTenant streams one tenant's flows as JSON Lines into w, straight from
 // the ClickHouse HTTP response (no buffering — exports can be large).
 func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Writer) (int64, error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
 	t, err := c.route(tenantID)
 	if err != nil {
 		return 0, err

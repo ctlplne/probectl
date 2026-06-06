@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -83,7 +84,34 @@ type linkRow struct {
 }
 
 // Save writes one discovery (its hops and links) under tenantID.
+// ErrNoTenant refuses any tenant-keyed ClickHouse operation without a tenant
+// (U-026 defense in depth).
+var ErrNoTenant = errors.New("pathstore: tenant_id is required (refusing an unscoped ClickHouse query)")
+
+// EnsureRowPolicies installs DB-level tenancy on the path tables (U-026) —
+// same model as flowstore: per-tenant CH users see only their rows;
+// serviceUser keeps full access.
+func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+	if serviceUser == "" {
+		serviceUser = "default"
+	}
+	for _, table := range []string{"probectl_path_hops", "probectl_path_links"} {
+		for _, ddl := range []string{
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
+		} {
+			if err := c.exec(ctx, ddl, nil); err != nil {
+				return fmt.Errorf("pathstore: row policy: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
 func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) error {
+	if tenantID == "" {
+		return ErrNoTenant
+	}
 	pathID, err := randomID()
 	if err != nil {
 		return err
@@ -133,6 +161,9 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 // Latest reconstructs the most recently saved path to target for a tenant from
 // the hop + link rows.
 func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path.Path, bool, error) {
+	if tenantID == "" {
+		return nil, false, ErrNoTenant
+	}
 	meta, err := c.query(ctx, fmt.Sprintf(
 		`SELECT path_id, target_ip, mode FROM probectl_path_hops WHERE tenant_id=%s AND target=%s ORDER BY ts DESC LIMIT 1`,
 		chStr(tenantID), chStr(target)))

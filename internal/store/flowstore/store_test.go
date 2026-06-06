@@ -2,6 +2,7 @@ package flowstore
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -215,5 +216,33 @@ func TestStoreModeSelection(t *testing.T) {
 	}
 	if _, err := New("bogus", "", 0); err == nil {
 		t.Fatal("unknown mode must error")
+	}
+}
+
+// U-026 defense in depth: every tenant-keyed ClickHouse operation refuses an
+// empty tenant before any SQL is built, and the query builders pin the
+// tenant predicate at the head of the WHERE.
+func TestClickHouseRefusesUnscopedQueries(t *testing.T) {
+	c := &ClickHouse{base: "http://127.0.0.1:1"} // never dialed: refusals are pre-flight
+	ctx := context.Background()
+	if _, err := c.TopTalkers(ctx, TopQuery{By: BySrc, Window: time.Hour, Now: time.Now(), Limit: 5}); err != ErrNoTenant {
+		t.Fatalf("TopTalkers unscoped: %v", err)
+	}
+	if _, err := c.Capacity(ctx, CapacityQuery{Window: time.Hour, Now: time.Now()}); err != ErrNoTenant {
+		t.Fatalf("Capacity unscoped: %v", err)
+	}
+	if _, err := c.DeleteTenant(ctx, ""); err != ErrNoTenant {
+		t.Fatalf("DeleteTenant unscoped: %v", err)
+	}
+	if err := c.DeleteTenantBefore(ctx, "", time.Now()); err != ErrNoTenant {
+		t.Fatalf("DeleteTenantBefore unscoped: %v", err)
+	}
+	if _, err := c.ExportTenant(ctx, "", io.Discard); err != ErrNoTenant {
+		t.Fatalf("ExportTenant unscoped: %v", err)
+	}
+	// Builders pin the predicate at the head of the WHERE.
+	sql := topSQL(TopQuery{TenantID: "tX", By: BySrc, Window: time.Hour, Now: time.Now(), Limit: 5}, sharedFlowsTable)
+	if !strings.Contains(sql, "WHERE tenant_id='tX'") {
+		t.Fatalf("top SQL lost the leading tenant predicate: %s", sql)
 	}
 }
