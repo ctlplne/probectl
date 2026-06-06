@@ -316,8 +316,8 @@ func (s *Server) routes() http.Handler {
 
 	// SSO login endpoints (S18) — public: they establish the session that the
 	// rest of the API requires.
-	mux.Handle("GET /auth/login", apiHandler(s.throttleAuth(s.handleLogin)))
-	mux.Handle("GET /auth/callback", apiHandler(s.throttleAuth(s.handleCallback)))
+	mux.Handle("GET /auth/login", s.throttleAuth(s.handleLogin))
+	mux.Handle("GET /auth/callback", s.throttleAuth(s.handleCallback))
 	mux.Handle("POST /auth/logout", apiHandler(s.handleLogout))
 
 	// Change-event ingest (S29) — NOT session-authenticated: it authenticates each
