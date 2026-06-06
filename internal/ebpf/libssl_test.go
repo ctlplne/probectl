@@ -93,6 +93,23 @@ func TestDiscoverLibsslFailureIsLoud(t *testing.T) {
 	}
 }
 
+// discoverLibsslDefault (the production wiring, called from the -tags ebpf
+// source) is exercised against the real test host: whatever the host has, it
+// must return either a usable path or the loud, actionable error — and this
+// reference keeps the default (untagged) lint honest about it being used.
+func TestDiscoverLibsslDefaultIsLoudEitherWay(t *testing.T) {
+	p, err := discoverLibsslDefault()
+	if err == nil {
+		if p == "" {
+			t.Fatal("discoverLibsslDefault returned an empty path with a nil error")
+		}
+		return
+	}
+	if !strings.Contains(err.Error(), "PROBECTL_EBPF_LIBSSL") {
+		t.Errorf("failure must mention the override knob: %v", err)
+	}
+}
+
 // The attach-failure counter rides the same Stats surface as drops — the gap
 // is a metric, never silent (U-015).
 func TestAggregatorL7AttachFailureCounter(t *testing.T) {
