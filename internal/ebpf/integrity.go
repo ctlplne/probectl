@@ -1,9 +1,10 @@
 package ebpf
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // BPF object integrity (U-014): the compiled BPF objects are embedded into
@@ -27,10 +28,10 @@ func IsTampered(err error) bool {
 	return ok
 }
 
-// ObjectDigest returns the lowercase hex SHA-256 of a BPF object.
+// ObjectDigest returns the lowercase hex SHA-256 of a BPF object. Hashing
+// routes through internal/crypto (guardrail 3 — FIPS-swappable).
 func ObjectDigest(obj []byte) string {
-	sum := sha256.Sum256(obj)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(crypto.Hash(obj))
 }
 
 // VerifyObjectDigest checks obj against the build-time manifest digest for
