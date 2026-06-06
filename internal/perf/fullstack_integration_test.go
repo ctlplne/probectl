@@ -51,8 +51,9 @@ func TestFullStackLoadGate(t *testing.T) {
 	}
 	t.Logf("RESULT ROW (docs/scale-gate.md): %s", rep)
 	t.Logf("ingest detail: %s", rep.Scale.Ingest)
+	t.Logf("%s", rep.Diagnostics())
 
 	if len(rep.Scale.Violations) > 0 {
-		t.Fatalf("FULL-STACK GATE FAILED:\n%s", strings.Join(rep.Scale.Violations, "\n"))
+		t.Fatalf("FULL-STACK GATE FAILED:\n%s\n%s", rep.Diagnostics(), strings.Join(rep.Scale.Violations, "\n"))
 	}
 }

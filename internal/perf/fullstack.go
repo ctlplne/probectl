@@ -23,7 +23,7 @@ package perf
 import (
 	"context"
 	"fmt"
-	"io"
+	"os"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
@@ -48,8 +48,32 @@ type FullStackReport struct {
 	Scale          ScaleReport // profile, ingest numbers, SLO violations
 	Namespace      string      // this run's tenant prefix
 	UniqueSeries   int         // distinct series the run must materialize
+	Confirmed      int         // distinct series actually visible in the store
 	QueryP95       time.Duration
 	TenantsQueried int
+
+	// Pipeline diagnostics — where records stop when a run fails (the bus
+	// produced count comes from the real Kafka client when present; the rest
+	// from the consumer). A failed gate reads these to localize the break:
+	// published≠produced ⇒ bus; produced but deadLettered/dropped ⇒ store
+	// write (the consumer logs the verbatim error to stderr); produced+
+	// written but 0 confirmed ⇒ query/store visibility.
+	Published    int
+	Produced     uint64
+	ProduceFail  uint64
+	ProduceShed  uint64
+	Retried      uint64
+	DeadLettered uint64
+	Dropped      uint64
+	SeriesCapped uint64
+}
+
+// Diagnostics renders the pipeline counters for the CI log.
+func (r FullStackReport) Diagnostics() string {
+	return fmt.Sprintf(
+		"pipeline: published=%d produced=%d produce_fail=%d produce_shed=%d → confirmed=%d/%d series; consumer retried=%d dead_lettered=%d dropped=%d series_capped=%d",
+		r.Published, r.Produced, r.ProduceFail, r.ProduceShed, r.Confirmed, r.UniqueSeries,
+		r.Retried, r.DeadLettered, r.Dropped, r.SeriesCapped)
 }
 
 // String renders the row the operator copies into docs/scale-gate.md.
@@ -59,10 +83,10 @@ func (r FullStackReport) String() string {
 		verdict = "FAIL"
 	}
 	return fmt.Sprintf(
-		"full-stack %s (ci=%t ns=%s): %.0f results/s end-to-end; publish p95 %s; query p95 %s over %d tenants; %d series confirmed; %s",
+		"full-stack %s (ci=%t ns=%s): %.0f results/s end-to-end; publish p95 %s; query p95 %s over %d tenants; %d/%d series confirmed; %s",
 		r.Scale.Profile.Tier, r.Scale.AtCIScale, r.Namespace,
 		r.Scale.Ingest.Throughput, round(r.Scale.Ingest.PublishLatency.P95),
-		round(r.QueryP95), r.TenantsQueried, r.UniqueSeries, verdict)
+		round(r.QueryP95), r.TenantsQueried, r.Confirmed, r.UniqueSeries, verdict)
 }
 
 // uniqueSeriesFor is the number of DISTINCT series a scenario materializes:
@@ -88,7 +112,10 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	}
 	rep := FullStackReport{Namespace: ns, UniqueSeries: uniqueSeriesFor(cfg)}
 
-	consumer := pipeline.NewConsumer(b, w, "loadgate-"+ns, logging.New(io.Discard, "error", "json"))
+	// Consumer errors (store-write failures incl. the verbatim Prometheus
+	// remote-write status/body) go to stderr so a failed gate is diagnosable
+	// from the CI log — not swallowed.
+	consumer := pipeline.NewConsumer(b, w, "loadgate-"+ns, logging.New(os.Stderr, "error", "json"))
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	consumerDone := make(chan struct{})
@@ -99,6 +126,7 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	var pubLat Latencies
 	start := time.Now()
 	published, pubErr := publishIdentities(cctx, b, buildIdentities(cfg), cfg.Producers, &pubLat)
+	rep.Published = published
 	if pubErr != nil {
 		cancel()
 		<-consumerDone
@@ -122,6 +150,17 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	elapsed := time.Since(start)
 	cancel()
 	<-consumerDone
+
+	rep.Confirmed = int(confirmed)
+	// Localize a break: bus produce outcomes (real Kafka only) + consumer
+	// loss accounting.
+	if bs, ok := b.(interface{ Stats() bus.PublishStats }); ok {
+		st := bs.Stats()
+		rep.Produced, rep.ProduceFail, rep.ProduceShed = st.Produced, st.Failed, st.Shed
+	}
+	cs := consumer.Stats()
+	rep.Retried, rep.DeadLettered, rep.Dropped = cs.Retried, cs.DeadLettered, cs.Dropped
+	rep.SeriesCapped = consumer.CardinalityStats().Dropped
 
 	ing := IngestReport{
 		Config:         cfg,
