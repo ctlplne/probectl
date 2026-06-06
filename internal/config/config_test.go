@@ -44,11 +44,13 @@ func TestResultPipelineConfig(t *testing.T) {
 	}
 
 	// Kafka + Prometheus with their required settings (brokers are trimmed).
+	// Kafka requires TLS (U-010) — the happy path enables it.
 	cfg, err = Load(envFunc(map[string]string{
-		"PROBECTL_BUS_MODE":    "kafka",
-		"PROBECTL_BUS_BROKERS": "b1:9092, b2:9092",
-		"PROBECTL_TSDB_MODE":   "prometheus",
-		"PROBECTL_TSDB_URL":    "http://prom:9090",
+		"PROBECTL_BUS_MODE":        "kafka",
+		"PROBECTL_BUS_BROKERS":     "b1:9092, b2:9092",
+		"PROBECTL_BUS_TLS_ENABLED": "true",
+		"PROBECTL_TSDB_MODE":       "prometheus",
+		"PROBECTL_TSDB_URL":        "http://prom:9090",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -63,6 +65,22 @@ func TestResultPipelineConfig(t *testing.T) {
 	}
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_TSDB_MODE": "prometheus"})); err == nil || !strings.Contains(err.Error(), "PROBECTL_TSDB_URL") {
 		t.Errorf("prometheus without a URL should fail with a URL error, got %v", err)
+	}
+
+	// U-010 fail-closed: kafka without TLS is refused unless the explicit
+	// dev-only plaintext flag is set.
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_BUS_MODE":    "kafka",
+		"PROBECTL_BUS_BROKERS": "b1:9092",
+	})); err == nil || !strings.Contains(err.Error(), "kafka without TLS") {
+		t.Errorf("plaintext kafka should be refused, got %v", err)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_BUS_MODE":            "kafka",
+		"PROBECTL_BUS_BROKERS":         "b1:9092",
+		"PROBECTL_BUS_ALLOW_PLAINTEXT": "true",
+	})); err != nil {
+		t.Errorf("explicit dev plaintext flag should load, got %v", err)
 	}
 }
 

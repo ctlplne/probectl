@@ -57,7 +57,7 @@ func run() error {
 	log := logging.New(os.Stdout, envOr("PROBECTL_ENDPOINT_LOG_LEVEL", "info"), envOr("PROBECTL_ENDPOINT_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
 
-	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers)
+	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_ENDPOINT_BUS"))
 	if err != nil {
 		return err
 	}

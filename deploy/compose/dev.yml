@@ -31,6 +31,10 @@ services:
       start_period: 5s
     networks: [probectl]
 
+  # DEV ONLY: this kafka broker is plaintext (no tls). A control plane / agent pointed at it
+  # must set PROBECTL_BUS_ALLOW_PLAINTEXT=true (resp. PROBECTL_<AGENT>_BUS_
+  # ALLOW_PLAINTEXT=true) — production kafka requires TLS
+  # (PROBECTL_BUS_TLS_ENABLED=true [+ CA/SASL]); plaintext is refused (U-010).
   kafka:
     image: apache/kafka:3.9.0
     ports:

@@ -96,8 +96,10 @@ func TopicFor(namespace, base string) string {
 }
 
 // New builds a Bus for the given mode. "memory" (or empty) is the lightweight
-// in-process bus; "kafka" requires brokers.
-func New(mode string, brokers []string) (Bus, error) {
+// in-process bus; "kafka" requires brokers and enforces the transport policy
+// (U-010): TLS (+ optional SASL) unless the explicit dev-only AllowPlaintext
+// flag is set.
+func New(mode string, brokers []string, sec Security) (Bus, error) {
 	switch mode {
 	case "", "memory":
 		return NewMemory(), nil
@@ -105,7 +107,14 @@ func New(mode string, brokers []string) (Bus, error) {
 		if len(brokers) == 0 {
 			return nil, errors.New("bus: kafka mode requires PROBECTL_BUS_BROKERS")
 		}
-		return NewKafka(brokers)
+		if err := sec.Validate(); err != nil {
+			return nil, err
+		}
+		opts, err := sec.kgoOpts()
+		if err != nil {
+			return nil, err
+		}
+		return NewKafka(brokers, opts...)
 	default:
 		return nil, fmt.Errorf("bus: unknown mode %q (want memory|kafka)", mode)
 	}

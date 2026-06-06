@@ -45,6 +45,14 @@ migrations and exit), `probectl-control version`.
 | `PROBECTL_AGENT_TLS_CA_FILE`        | (none)                                                            | CA bundle that signs agent client certificates (PEM)       |
 | `PROBECTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (lightweight, in-process) \| `kafka`  |
 | `PROBECTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
+| `PROBECTL_BUS_TLS_ENABLED`          | `false`     | TLS to the Kafka brokers (U-010). **Required in kafka mode** unless the explicit dev flag below is set |
+| `PROBECTL_BUS_TLS_CA_FILE`          | (none)      | private CA bundle for the brokers |
+| `PROBECTL_BUS_TLS_CERT_FILE`        | (none)      | client certificate (broker mTLS; with `_KEY_FILE`) |
+| `PROBECTL_BUS_TLS_KEY_FILE`         | (none)      | client key (broker mTLS) |
+| `PROBECTL_BUS_SASL_MECHANISM`       | (none)      | `plain` \| `scram-sha-256` \| `scram-sha-512` |
+| `PROBECTL_BUS_SASL_USER`            | (none)      | SASL username |
+| `PROBECTL_BUS_SASL_PASSWORD`        | (none)      | SASL password (S41 secret references supported; never logged) |
+| `PROBECTL_BUS_ALLOW_PLAINTEXT`      | `false`     | **dev only**: allow a plaintext broker (the dev compose stack). Production never sets this |
 | `PROBECTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
 | `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `PROBECTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |

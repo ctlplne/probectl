@@ -44,6 +44,18 @@ secrets:
   # base64-encoded 32-byte envelope KEK (openssl rand -base64 32). Required.
   envelopeKey: ""
 
+# Kafka bus tls policy (optional; PROBECTL_BUS_MODE=kafka): production runs the
+# broker hop over TLS — plaintext kafka is refused by the control plane unless
+# the explicit dev-only PROBECTL_BUS_ALLOW_PLAINTEXT=true is set (U-010).
+# Wire via control.extraEnv, e.g.:
+#   PROBECTL_BUS_MODE: kafka
+#   PROBECTL_BUS_BROKERS: kafka-0.kafka:9093
+#   PROBECTL_BUS_TLS_ENABLED: "true"
+#   PROBECTL_BUS_TLS_CA_FILE: /etc/probectl/kafka-ca.crt   # mounted CA bundle
+#   PROBECTL_BUS_SASL_MECHANISM: scram-sha-512
+#   PROBECTL_BUS_SASL_USER: probectl
+#   PROBECTL_BUS_SASL_PASSWORD: vault:kafka/probectl#password  # S41 secret ref
+
 database:
   # Full DSN. Point at your managed Postgres, or the bundled subchart-less
   # Postgres you run separately. TLS in transit is expected in production.

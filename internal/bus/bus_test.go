@@ -78,3 +78,50 @@ func testPubSub(t *testing.T, b Bus) {
 		}
 	}
 }
+
+// U-010: kafka without TLS is refused unless the explicit dev flag is set;
+// with the flag, the wired client still round-trips against kfake.
+func TestKafkaPlaintextRefusedWithoutDevFlag(t *testing.T) {
+	if _, err := New("kafka", []string{"broker:9092"}, Security{}); err == nil {
+		t.Fatal("plaintext kafka must be refused without the explicit dev flag")
+	}
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, NetworkResultsTopic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cluster.Close()
+	b, err := New("kafka", cluster.ListenAddrs(), Security{AllowPlaintext: true})
+	if err != nil {
+		t.Fatalf("explicit dev flag must connect: %v", err)
+	}
+	defer b.Close()
+	testPubSub(t, b)
+}
+
+// The TLS/SASL option builders fail closed on bad input and produce options
+// on good input.
+func TestBusSecurityPolicy(t *testing.T) {
+	if err := (Security{SASLMechanism: "scram-sha-1"}).Validate(); err == nil {
+		t.Fatal("unknown SASL mechanism must fail validation")
+	}
+	if err := (Security{TLSEnabled: true, SASLMechanism: "plain"}).Validate(); err == nil {
+		t.Fatal("SASL without credentials must fail validation")
+	}
+	if err := (Security{TLSEnabled: true, CertFile: "only-cert.pem"}).Validate(); err == nil {
+		t.Fatal("client cert without key must fail validation")
+	}
+	sec := Security{TLSEnabled: true, SASLMechanism: "scram-sha-512", SASLUser: "u", SASLPassword: "p"}
+	if err := sec.Validate(); err != nil {
+		t.Fatalf("valid policy rejected: %v", err)
+	}
+	opts, err := sec.kgoOpts()
+	if err != nil {
+		t.Fatalf("kgoOpts: %v", err)
+	}
+	if len(opts) != 2 { // DialTLSConfig + SASL
+		t.Fatalf("opts = %d, want 2 (TLS + SASL)", len(opts))
+	}
+	if _, err := (Security{TLSEnabled: true, CAFile: "/does/not/exist.pem"}).kgoOpts(); err == nil {
+		t.Fatal("missing CA file must fail")
+	}
+}

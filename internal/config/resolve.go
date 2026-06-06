@@ -41,6 +41,7 @@ func (c *Config) ResolveSecretRefs(ctx context.Context, resolve func(context.Con
 		{"PROBECTL_CMDB_SECRET", &c.CMDBSecret},
 		{"PROBECTL_AI_MODEL_TOKEN", &c.AIModelToken},
 		{"PROBECTL_SIEM_TOKEN", &c.SIEMToken},
+		{"PROBECTL_BUS_SASL_PASSWORD", &c.BusSASLPassword},
 		{"PROBECTL_OUTAGE_RADAR_TOKEN", &c.OutageRadarToken},
 	}
 	for i := range c.NotifyConnectors {

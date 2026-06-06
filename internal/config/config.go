@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/bus"
 )
 
 // Config is the fully resolved, validated control-plane configuration.
@@ -84,8 +86,18 @@ type Config struct {
 	// writes to the TSDB.
 	BusMode    string
 	BusBrokers []string
-	TSDBMode   string
-	TSDBURL    string
+	// Kafka transport policy (U-010): TLS by default in kafka mode; plaintext
+	// requires the explicit dev-only BusAllowPlaintext flag. SASL optional.
+	BusTLSEnabled     bool
+	BusTLSCAFile      string
+	BusTLSCertFile    string
+	BusTLSKeyFile     string
+	BusSASLMechanism  string
+	BusSASLUser       string
+	BusSASLPassword   string
+	BusAllowPlaintext bool
+	TSDBMode          string
+	TSDBURL           string
 
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
@@ -413,6 +425,14 @@ func Load(getenv func(string) string) (*Config, error) {
 		AgentTLSCAFile:      l.str("PROBECTL_AGENT_TLS_CA_FILE", ""),
 		BusMode:             l.enum("PROBECTL_BUS_MODE", "memory", "memory", "kafka"),
 		BusBrokers:          l.list("PROBECTL_BUS_BROKERS"),
+		BusTLSEnabled:       l.boolean("PROBECTL_BUS_TLS_ENABLED", false),
+		BusTLSCAFile:        l.str("PROBECTL_BUS_TLS_CA_FILE", ""),
+		BusTLSCertFile:      l.str("PROBECTL_BUS_TLS_CERT_FILE", ""),
+		BusTLSKeyFile:       l.str("PROBECTL_BUS_TLS_KEY_FILE", ""),
+		BusSASLMechanism:    l.str("PROBECTL_BUS_SASL_MECHANISM", ""),
+		BusSASLUser:         l.str("PROBECTL_BUS_SASL_USER", ""),
+		BusSASLPassword:     l.str("PROBECTL_BUS_SASL_PASSWORD", ""),
+		BusAllowPlaintext:   l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false),
 		TSDBMode:            l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus"),
 		TSDBURL:             l.str("PROBECTL_TSDB_URL", ""),
 		PathStoreMode:       l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
@@ -529,6 +549,12 @@ func Load(getenv func(string) string) (*Config, error) {
 	if cfg.BusMode == "kafka" && len(cfg.BusBrokers) == 0 {
 		l.errf("PROBECTL_BUS_MODE=kafka requires PROBECTL_BUS_BROKERS (a comma-separated host:port list)")
 	}
+	if cfg.BusMode == "kafka" {
+		// U-010 fail-closed: kafka without TLS needs the explicit dev flag.
+		if err := cfg.BusSecurity().Validate(); err != nil {
+			l.errf("%s", err.Error())
+		}
+	}
 	if cfg.TSDBMode == "prometheus" && cfg.TSDBURL == "" {
 		l.errf("PROBECTL_TSDB_MODE=prometheus requires PROBECTL_TSDB_URL")
 	}
@@ -567,6 +593,20 @@ func Load(getenv func(string) string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// BusSecurity renders the Kafka transport policy (U-010) for bus.New.
+func (c *Config) BusSecurity() bus.Security {
+	return bus.Security{
+		TLSEnabled:     c.BusTLSEnabled,
+		CAFile:         c.BusTLSCAFile,
+		CertFile:       c.BusTLSCertFile,
+		KeyFile:        c.BusTLSKeyFile,
+		SASLMechanism:  c.BusSASLMechanism,
+		SASLUser:       c.BusSASLUser,
+		SASLPassword:   c.BusSASLPassword,
+		AllowPlaintext: c.BusAllowPlaintext,
+	}
 }
 
 // LoadFromEnv resolves configuration from the process environment.

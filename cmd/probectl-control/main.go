@@ -178,7 +178,7 @@ func run(cmd string) error {
 
 	// Result pipeline: a message bus that the control plane consumes and writes
 	// to the TSDB. The bus is shared with the agent transport (the publisher).
-	resultBus, err := bus.New(cfg.BusMode, cfg.BusBrokers)
+	resultBus, err := bus.New(cfg.BusMode, cfg.BusBrokers, cfg.BusSecurity())
 	if err != nil {
 		return fmt.Errorf("result bus: %w", err)
 	}
