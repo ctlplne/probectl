@@ -114,7 +114,7 @@ func New(mode string, brokers []string, sec Security) (Bus, error) {
 		if err != nil {
 			return nil, err
 		}
-		return NewKafka(brokers, opts...)
+		return NewKafka(brokers, sec.MaxBufferedRecords, opts...)
 	default:
 		return nil, fmt.Errorf("bus: unknown mode %q (want memory|kafka)", mode)
 	}

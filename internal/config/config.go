@@ -96,8 +96,11 @@ type Config struct {
 	BusSASLUser       string
 	BusSASLPassword   string
 	BusAllowPlaintext bool
-	TSDBMode          string
-	TSDBURL           string
+	// BusMaxBuffered bounds the async producer's in-flight buffer (U-004);
+	// 0 = the bus default (65536). Full buffer = shed + counted, never block.
+	BusMaxBuffered int
+	TSDBMode       string
+	TSDBURL        string
 
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
@@ -443,6 +446,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		BusSASLUser:         l.str("PROBECTL_BUS_SASL_USER", ""),
 		BusSASLPassword:     l.str("PROBECTL_BUS_SASL_PASSWORD", ""),
 		BusAllowPlaintext:   l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false),
+		BusMaxBuffered:      l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000),
 		TSDBMode:            l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus"),
 		TSDBURL:             l.str("PROBECTL_TSDB_URL", ""),
 		PathStoreMode:       l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
@@ -615,14 +619,15 @@ func Load(getenv func(string) string) (*Config, error) {
 // BusSecurity renders the Kafka transport policy (U-010) for bus.New.
 func (c *Config) BusSecurity() bus.Security {
 	return bus.Security{
-		TLSEnabled:     c.BusTLSEnabled,
-		CAFile:         c.BusTLSCAFile,
-		CertFile:       c.BusTLSCertFile,
-		KeyFile:        c.BusTLSKeyFile,
-		SASLMechanism:  c.BusSASLMechanism,
-		SASLUser:       c.BusSASLUser,
-		SASLPassword:   c.BusSASLPassword,
-		AllowPlaintext: c.BusAllowPlaintext,
+		TLSEnabled:         c.BusTLSEnabled,
+		CAFile:             c.BusTLSCAFile,
+		CertFile:           c.BusTLSCertFile,
+		KeyFile:            c.BusTLSKeyFile,
+		SASLMechanism:      c.BusSASLMechanism,
+		SASLUser:           c.BusSASLUser,
+		SASLPassword:       c.BusSASLPassword,
+		AllowPlaintext:     c.BusAllowPlaintext,
+		MaxBufferedRecords: c.BusMaxBuffered,
 	}
 }
 

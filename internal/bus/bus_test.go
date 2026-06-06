@@ -24,7 +24,7 @@ func TestKafkaPublishSubscribe(t *testing.T) {
 	}
 	defer cluster.Close()
 
-	b, err := NewKafka(cluster.ListenAddrs())
+	b, err := NewKafka(cluster.ListenAddrs(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -53,6 +53,7 @@ migrations and exit), `probectl-control version`.
 | `PROBECTL_BUS_SASL_USER`            | (none)      | SASL username |
 | `PROBECTL_BUS_SASL_PASSWORD`        | (none)      | SASL password (S41 secret references supported; never logged) |
 | `PROBECTL_BUS_ALLOW_PLAINTEXT`      | `false`     | **dev only**: allow a plaintext broker (the dev compose stack). Production never sets this |
+| `PROBECTL_BUS_MAX_BUFFERED`         | `65536`     | U-004: bound on the async producer's in-flight records; a full buffer SHEDS new records (counted, never blocking ingest) |
 | `PROBECTL_TSDB_MODE`                | `memory`                                                         | time-series writer: `memory` (in-process) \| `prometheus`  |
 | `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `PROBECTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |

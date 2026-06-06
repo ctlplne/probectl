@@ -25,7 +25,7 @@ func TestConsumerKafkaMode(t *testing.T) {
 	}
 	defer cluster.Close()
 
-	b, err := bus.NewKafka(cluster.ListenAddrs())
+	b, err := bus.NewKafka(cluster.ListenAddrs(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

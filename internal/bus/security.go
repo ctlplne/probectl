@@ -37,6 +37,11 @@ type Security struct {
 	// AllowPlaintext is the EXPLICIT dev-only escape hatch
 	// (*_BUS_ALLOW_PLAINTEXT=true): without it, kafka mode requires TLS.
 	AllowPlaintext bool
+
+	// MaxBufferedRecords bounds the async producer's in-flight buffer
+	// (U-004); 0 = DefaultMaxBuffered. When full, new records are shed
+	// with ErrPublishShed and counted.
+	MaxBufferedRecords int
 }
 
 // Validate enforces the fail-closed policy for kafka mode.
@@ -63,6 +68,9 @@ func (s Security) Validate() error {
 // kgoOpts renders the policy as franz-go options.
 func (s Security) kgoOpts() ([]kgo.Opt, error) {
 	var opts []kgo.Opt
+	if s.MaxBufferedRecords > 0 {
+		opts = append(opts, kgo.MaxBufferedRecords(s.MaxBufferedRecords))
+	}
 	if s.TLSEnabled {
 		cfg, err := s.tlsConfig()
 		if err != nil {
@@ -120,13 +128,30 @@ func (s Security) saslMechanism() (sasl.Mechanism, error) {
 // prefix; the control plane loads the same fields via internal/config.
 func SecurityFromEnv(getenv func(string) string, prefix string) Security {
 	return Security{
-		TLSEnabled:     getenv(prefix+"_TLS_ENABLED") == "true",
-		CAFile:         getenv(prefix + "_TLS_CA_FILE"),
-		CertFile:       getenv(prefix + "_TLS_CERT_FILE"),
-		KeyFile:        getenv(prefix + "_TLS_KEY_FILE"),
-		SASLMechanism:  getenv(prefix + "_SASL_MECHANISM"),
-		SASLUser:       getenv(prefix + "_SASL_USER"),
-		SASLPassword:   getenv(prefix + "_SASL_PASSWORD"),
-		AllowPlaintext: getenv(prefix+"_ALLOW_PLAINTEXT") == "true",
+		TLSEnabled:         getenv(prefix+"_TLS_ENABLED") == "true",
+		CAFile:             getenv(prefix + "_TLS_CA_FILE"),
+		CertFile:           getenv(prefix + "_TLS_CERT_FILE"),
+		KeyFile:            getenv(prefix + "_TLS_KEY_FILE"),
+		SASLMechanism:      getenv(prefix + "_SASL_MECHANISM"),
+		SASLUser:           getenv(prefix + "_SASL_USER"),
+		SASLPassword:       getenv(prefix + "_SASL_PASSWORD"),
+		AllowPlaintext:     getenv(prefix+"_ALLOW_PLAINTEXT") == "true",
+		MaxBufferedRecords: MaxBufferedFromEnv(getenv, prefix),
 	}
+}
+
+// MaxBufferedFromEnv parses <prefix>_MAX_BUFFERED for SecurityFromEnv callers
+// (0/unset/invalid = the bus default).
+func MaxBufferedFromEnv(getenv func(string) string, prefix string) int {
+	n := 0
+	for _, r := range getenv(prefix + "_MAX_BUFFERED") {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		n = n*10 + int(r-'0')
+		if n > 10_000_000 {
+			return 10_000_000
+		}
+	}
+	return n
 }
