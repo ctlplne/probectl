@@ -1,0 +1,30 @@
+{
+  "_comment": "probectl-ebpf-agent seccomp profile (U-052). Default-deny (EPERM); the allowlist covers the Go runtime, the cilium/ebpf loader (bpf, perf_event_open), netlink/socket telemetry I/O, and nothing else: no mount, no ptrace, no module loading, no reboot/kexec, no setns into foreign namespaces.",
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
+  "archMap": [
+    { "architecture": "SCMP_ARCH_X86_64", "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"] },
+    { "architecture": "SCMP_ARCH_AARCH64", "subArchitectures": ["SCMP_ARCH_ARM"] }
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "accept4", "access", "arch_prctl", "bind", "bpf", "brk",
+        "capget", "capset", "clock_gettime", "clock_nanosleep", "clone", "clone3", "close", "close_range",
+        "connect", "dup", "dup2", "dup3", "epoll_create1", "epoll_ctl", "epoll_pwait", "epoll_wait",
+        "eventfd2", "execve", "exit", "exit_group", "faccessat", "faccessat2", "fchmod", "fchown",
+        "fcntl", "fdatasync", "flock", "fstat", "fstatfs", "fsync", "futex", "getcwd", "getdents64",
+        "getegid", "geteuid", "getgid", "getpeername", "getpid", "getppid", "getrandom", "getrlimit",
+        "getsockname", "getsockopt", "gettid", "gettimeofday", "getuid", "ioctl", "kill", "listen",
+        "lseek", "madvise", "membarrier", "memfd_create", "mkdirat", "mmap", "mprotect", "mremap",
+        "munmap", "nanosleep", "newfstatat", "openat", "perf_event_open", "pipe2", "ppoll", "prctl",
+        "pread64", "prlimit64", "pwrite64", "read", "readlinkat", "recvfrom", "recvmmsg", "recvmsg",
+        "renameat", "restart_syscall", "rseq", "rt_sigaction", "rt_sigprocmask", "rt_sigreturn",
+        "sched_getaffinity", "sched_yield", "sendmmsg", "sendmsg", "sendto", "set_robust_list",
+        "set_tid_address", "setrlimit", "setsockopt", "shutdown", "sigaltstack", "socket", "socketpair",
+        "statfs", "statx", "sysinfo", "tgkill", "uname", "unlinkat", "wait4", "write", "writev"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}

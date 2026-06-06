@@ -45,6 +45,15 @@ runners / macOS laptops can load no eBPF at all. The `-tags ebpf` files are a
 separate, off-by-default compilation unit, so the default `make build` and CI
 need **no eBPF toolchain and no extra dependency**.
 
+## Hardened runtime profile (U-052)
+
+Run the agent with the **minimal capability set** and the shipped seccomp
+profile — see [`deploy/agent/`](../deploy/agent/README.md): `CAP_BPF` +
+`CAP_PERFMON` on kernels >= 5.8 (`CAP_SYS_ADMIN` only as the pre-5.8
+fallback), `LimitMEMLOCK`, no root, default-deny seccomp
+(`deploy/agent/seccomp.json`), plus a hardened systemd unit and
+container/K8s securityContext examples.
+
 ## Building
 
 | Build | Command | Source | Needs |
