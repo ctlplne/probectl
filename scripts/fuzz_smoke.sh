@@ -44,5 +44,10 @@ run_fuzz FuzzParseICMPv4       15s ./internal/path/ || exit 1
 run_fuzz FuzzParseTimeExceeded 15s ./internal/path/ || exit 1
 run_fuzz FuzzEmbeddedEcho      10s ./internal/path/ || exit 1
 run_fuzz FuzzIngest            15s ./internal/bgp/  || exit 1
+# U-082: every externally-fed parser carries a fuzz target.
+run_fuzz FuzzDecode            15s ./internal/flow/      || exit 1
+run_fuzz FuzzSNMPPoll          10s ./internal/device/    || exit 1
+run_fuzz FuzzOTLPPayload       15s ./internal/otel/otlp/ || exit 1
+run_fuzz FuzzParseBeacon       10s ./internal/rum/       || exit 1
 
 echo "fuzz-smoke: all targets clean"

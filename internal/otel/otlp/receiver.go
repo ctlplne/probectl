@@ -155,6 +155,15 @@ func stampTenant(rm *metricspb.ResourceMetrics, tenant string) {
 	if rm.Resource == nil {
 		rm.Resource = &resourcepb.Resource{}
 	}
+	// Overwrite an existing EMPTY-valued tenant attribute in place: appending
+	// after it would let the empty value shadow the stamp for first-match
+	// readers (ResourceTenant) — fuzz-found via FuzzOTLPPayload (U-082).
+	for _, kv := range rm.Resource.Attributes {
+		if kv.GetKey() == otel.AttrTenantID {
+			kv.Value = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: tenant}}
+			return
+		}
+	}
 	rm.Resource.Attributes = append(rm.Resource.Attributes, &commonpb.KeyValue{
 		Key:   otel.AttrTenantID,
 		Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: tenant}},
