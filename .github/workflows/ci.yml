@@ -382,6 +382,16 @@ jobs:
           echo "prometheus did not become ready" >&2; docker logs prometheus; exit 1
       - name: Integration tests (migrations + readiness + result pipeline)
         run: make test-integration
+      - name: Store integration coverage floor (U-057)
+        # The store package is correctness-gated here (real PG + RLS), not in
+        # the unit-coverage job: measure statement coverage WITH the
+        # integration tests and hold the floor. Raise the floor as coverage
+        # grows; never lower it to make a regression pass.
+        run: |
+          go test -tags integration -count=1 -coverprofile=store-cover.out ./internal/store/
+          pct=$(go tool cover -func=store-cover.out | awk '/^total:/ {gsub(/%/,"",$3); print $3}')
+          echo "internal/store integration coverage: ${pct}%"
+          awk -v p="$pct" 'BEGIN { if (p+0 < 60.0) { print "FAIL: internal/store integration coverage " p "% is below the 60% floor (U-057)"; exit 1 } }'
 
   perf-smoke:
     name: perf-smoke
