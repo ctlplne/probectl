@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,9 +58,11 @@ func chMigrations() []chmigrate.Migration {
 // chExec adapts the store's HTTP client to the chmigrate runner.
 type chExec struct{ c *ClickHouse }
 
-func (e chExec) Exec(ctx context.Context, sql string) error { return e.c.exec(ctx, sql, nil) }
-func (e chExec) Query(ctx context.Context, sql string) ([]map[string]any, error) {
-	return e.c.query(ctx, sql)
+func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
+	return e.c.exec(ctx, sql, chParams(p), nil)
+}
+func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
+	return e.c.query(ctx, sql, chParams(p))
 }
 
 // NewClickHouse connects to a ClickHouse HTTP endpoint and ensures the schema
@@ -114,12 +117,15 @@ func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) 
 	if serviceUser == "" {
 		serviceUser = "default"
 	}
+	if !chUserRe.MatchString(serviceUser) {
+		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", serviceUser)
+	}
 	for _, table := range []string{"probectl_path_hops", "probectl_path_links"} {
 		for _, ddl := range []string{
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
 		} {
-			if err := c.exec(ctx, ddl, nil); err != nil {
+			if err := c.exec(ctx, ddl, nil, nil); err != nil {
 				return fmt.Errorf("pathstore: row policy: %w", err)
 			}
 		}
@@ -155,7 +161,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 		}
 	}
 	if hops.Len() > 0 {
-		if err := c.exec(ctx, "INSERT INTO probectl_path_hops FORMAT JSONEachRow", &hops); err != nil {
+		if err := c.exec(ctx, "INSERT INTO probectl_path_hops FORMAT JSONEachRow", nil, &hops); err != nil {
 			return err
 		}
 	}
@@ -170,7 +176,7 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 		}
 	}
 	if links.Len() > 0 {
-		if err := c.exec(ctx, "INSERT INTO probectl_path_links FORMAT JSONEachRow", &links); err != nil {
+		if err := c.exec(ctx, "INSERT INTO probectl_path_links FORMAT JSONEachRow", nil, &links); err != nil {
 			return err
 		}
 	}
@@ -186,16 +192,17 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 	if tenantID == "" {
 		return 0, 0, ErrNoTenant
 	}
+	tp := chParams{"tenant": tenantID}
 	for _, table := range []string{"probectl_path_hops", "probectl_path_links"} {
-		out, qerr := c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id="+chStr(tenantID))
+		out, qerr := c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
 		deleted += chCount(out)
-		if eerr := c.exec(ctx, "DELETE FROM "+table+" WHERE tenant_id="+chStr(tenantID)+" SETTINGS mutations_sync=2", nil); eerr != nil {
+		if eerr := c.exec(ctx, "DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", tp, nil); eerr != nil {
 			return deleted, -1, eerr
 		}
-		out, qerr = c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id="+chStr(tenantID))
+		out, qerr = c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
@@ -208,9 +215,9 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	if tenantID == "" {
 		return nil, false, ErrNoTenant
 	}
-	meta, err := c.query(ctx, fmt.Sprintf(
-		`SELECT path_id, target_ip, mode FROM probectl_path_hops WHERE tenant_id=%s AND target=%s ORDER BY ts DESC LIMIT 1`,
-		chStr(tenantID), chStr(target)))
+	meta, err := c.query(ctx,
+		`SELECT path_id, target_ip, mode FROM probectl_path_hops WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1`,
+		chParams{"tenant": tenantID, "target": target})
 	if err != nil {
 		return nil, false, err
 	}
@@ -220,10 +227,10 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	pathID := chToString(meta[0]["path_id"])
 	p := &path.Path{Target: target, TargetIP: chToString(meta[0]["target_ip"]), Mode: chToString(meta[0]["mode"])}
 
-	hopRows, err := c.query(ctx, fmt.Sprintf(
+	hopRows, err := c.query(ctx,
 		`SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels
-		 FROM probectl_path_hops WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, responder`,
-		chStr(tenantID), chStr(pathID)))
+		 FROM probectl_path_hops WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder`,
+		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
 		return nil, false, err
 	}
@@ -260,9 +267,9 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	}
 	p.MaxHops = maxTTL
 
-	linkRows, err := c.query(ctx, fmt.Sprintf(
-		`SELECT ttl, from_ip, to_ip FROM probectl_path_links WHERE tenant_id=%s AND path_id=%s ORDER BY ttl, from_ip, to_ip`,
-		chStr(tenantID), chStr(pathID)))
+	linkRows, err := c.query(ctx,
+		`SELECT ttl, from_ip, to_ip FROM probectl_path_links WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, from_ip, to_ip`,
+		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
 		return nil, false, err
 	}
@@ -275,9 +282,28 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 // Close is a no-op (the HTTP client needs no teardown).
 func (c *ClickHouse) Close() error { return nil }
 
+// chParams carries SERVER-BOUND query parameters (SEC-005/TENANT-108): each
+// key k is sent as the HTTP parameter param_k and bound by ClickHouse to the
+// {k:Type} placeholder in the SQL — values never enter the SQL text.
+type chParams map[string]string
+
+func (p chParams) qs() string {
+	if len(p) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for k, v := range p {
+		sb.WriteString("&param_")
+		sb.WriteString(url.QueryEscape(k))
+		sb.WriteString("=")
+		sb.WriteString(url.QueryEscape(v))
+	}
+	return sb.String()
+}
+
 // query runs a SELECT and parses the JSONEachRow response into row maps.
-func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, error) {
-	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow")
+func (c *ClickHouse) query(ctx context.Context, sql string, p chParams) ([]map[string]any, error) {
+	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
@@ -322,7 +348,10 @@ func chDo(b *breaker.Breaker, client *http.Client, req *http.Request) (*http.Res
 // BreakerStats exposes the storage breaker state (U-078 fallback metrics).
 func (c *ClickHouse) BreakerStats() breaker.Stats { return c.breaker.Stats() }
 
-// chStr renders a ClickHouse string literal with the necessary escaping.
+// chUserRe is the shape a ClickHouse USER identifier may take in our DDL
+// (identifiers cannot be bound parameters; validated, fail closed).
+var chUserRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$`)
+
 // chCount extracts the single count() value from a query result.
 func chCount(rows []map[string]any) int {
 	if len(rows) == 0 {
@@ -342,10 +371,6 @@ func chCount(rows []map[string]any) int {
 		return n
 	}
 	return 0
-}
-
-func chStr(s string) string {
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
 }
 
 func chToString(v any) string {
@@ -380,8 +405,8 @@ func chToUintSlice(v any) []uint32 {
 	return out
 }
 
-func (c *ClickHouse) exec(ctx context.Context, query string, body io.Reader) error {
-	u := c.base + "/?query=" + url.QueryEscape(query)
+func (c *ClickHouse) exec(ctx context.Context, query string, p chParams, body io.Reader) error {
+	u := c.base + "/?query=" + url.QueryEscape(query) + p.qs()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
 	if err != nil {
 		return err

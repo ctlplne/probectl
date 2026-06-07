@@ -107,9 +107,11 @@ func chMigrations() []chmigrate.Migration {
 // chExec adapts the store's HTTP client (pooled base) to the chmigrate runner.
 type chExec struct{ c *ClickHouse }
 
-func (e chExec) Exec(ctx context.Context, sql string) error { return e.c.exec(ctx, "", sql, nil) }
-func (e chExec) Query(ctx context.Context, sql string) ([]map[string]any, error) {
-	return e.c.query(ctx, "", sql)
+func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
+	return e.c.exec(ctx, "", sql, chParams(p), nil)
+}
+func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
+	return e.c.query(ctx, "", sql, chParams(p))
 }
 
 func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
@@ -123,7 +125,7 @@ func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
 	}
 	if retentionDays > 0 {
 		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", sharedFlowsTable, retentionDays)
-		if err := c.exec(ctx, "", ttl, nil); err != nil {
+		if err := c.exec(ctx, "", ttl, nil, nil); err != nil {
 			return nil, fmt.Errorf("flowstore: apply retention TTL: %w", err)
 		}
 	}
@@ -155,19 +157,19 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if !chIdentRe.MatchString(t.Database) {
 		return fmt.Errorf("flowstore: refusing malformed database name %q", t.Database)
 	}
-	if err := c.exec(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil); err != nil {
+	if err := c.exec(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil, nil); err != nil {
 		return fmt.Errorf("flowstore: create tenant database: %w", err)
 	}
 	table, err := tableFor(t)
 	if err != nil {
 		return err
 	}
-	if err := c.exec(ctx, t.BaseURL, createFlowsDDL(table), nil); err != nil {
+	if err := c.exec(ctx, t.BaseURL, createFlowsDDL(table), nil, nil); err != nil {
 		return fmt.Errorf("flowstore: create tenant table: %w", err)
 	}
 	if retentionDays > 0 {
 		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", table, retentionDays)
-		if err := c.exec(ctx, t.BaseURL, ttl, nil); err != nil {
+		if err := c.exec(ctx, t.BaseURL, ttl, nil, nil); err != nil {
 			return fmt.Errorf("flowstore: tenant retention TTL: %w", err)
 		}
 	}
@@ -180,7 +182,7 @@ func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
 	if t.Database == "" || !chIdentRe.MatchString(t.Database) {
 		return fmt.Errorf("flowstore: refusing to drop malformed database name %q", t.Database)
 	}
-	return c.exec(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil)
+	return c.exec(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil, nil)
 }
 
 // chRow is the JSONEachRow insert shape (times rendered as ClickHouse strings).
@@ -220,7 +222,7 @@ func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 				return fmt.Errorf("flowstore: encode row: %w", err)
 			}
 		}
-		if err := c.exec(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", &buf); err != nil {
+		if err := c.exec(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", nil, &buf); err != nil {
 			return err
 		}
 	}
@@ -240,14 +242,14 @@ var ErrNoTenant = errors.New("flowstore: tenant_id is required (refusing an unsc
 // inserts + migrations); a compromised query path that omits the WHERE clause
 // then still cannot cross tenants. See docs/security/tenant-isolation.md.
 func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser string) error {
-	if readerUser == "" {
-		return fmt.Errorf("flowstore: reader user required for setting-scoped policy")
+	if err := chValidUser(readerUser); err != nil {
+		return fmt.Errorf("flowstore: reader user: %w", err)
 	}
 	for _, table := range []string{sharedFlowsTable} {
 		ddl := fmt.Sprintf(
 			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
 			table, tenantSettingName, readerUser)
-		if err := c.exec(ctx, "", ddl, nil); err != nil {
+		if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
 			return fmt.Errorf("flowstore: reader row policy: %w", err)
 		}
 	}
@@ -264,12 +266,15 @@ func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) 
 	if serviceUser == "" {
 		serviceUser = "default"
 	}
+	if err := chValidUser(serviceUser); err != nil {
+		return fmt.Errorf("flowstore: service user: %w", err)
+	}
 	for _, table := range []string{sharedFlowsTable} {
 		for _, ddl := range []string{
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
 		} {
-			if err := c.exec(ctx, "", ddl, nil); err != nil {
+			if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
 				return fmt.Errorf("flowstore: row policy: %w", err)
 			}
 		}
@@ -277,9 +282,22 @@ func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) 
 	return nil
 }
 
-// topSQL builds the top-talkers query (exported via a test for the tenant
-// guard: the WHERE must lead with tenant_id).
-func topSQL(q TopQuery, table string) string {
+// chUserRe is the shape a ClickHouse USER identifier may take in our DDL
+// (identifiers cannot travel as bound parameters in any SQL dialect, so they
+// are validated, never escaped — fail closed on anything else).
+var chUserRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$`)
+
+func chValidUser(u string) error {
+	if !chUserRe.MatchString(u) {
+		return fmt.Errorf("refusing malformed ClickHouse user identifier %q", u)
+	}
+	return nil
+}
+
+// topSQL builds the top-talkers query (tested: the WHERE must lead with
+// tenant_id, and every VALUE travels as a bound parameter — only structure
+// from validated enums/ints is rendered into the SQL text).
+func topSQL(q TopQuery, table string) (string, chParams) {
 	var key, detail, extra string
 	switch q.By {
 	case BySrc:
@@ -297,11 +315,16 @@ func topSQL(q TopQuery, table string) string {
 	if q.By == ByPair {
 		groupBy = "k, d"
 	}
-	return fmt.Sprintf(
+	sql := fmt.Sprintf(
 		`SELECT %s AS k, %s AS d, sum(bytes_scaled) AS b, sum(packets_scaled) AS p, count() AS f `+
-			`FROM %s WHERE tenant_id=%s AND ts >= %s AND ts <= %s%s `+
+			`FROM %s WHERE tenant_id={tenant:String} AND ts >= {since:DateTime64(3)} AND ts <= {until:DateTime64(3)}%s `+
 			`GROUP BY %s ORDER BY b DESC, k ASC LIMIT %d`,
-		key, detail, table, chStr(q.TenantID), chTime(q.Now.Add(-q.Window)), chTime(q.Now), extra, groupBy, q.Limit)
+		key, detail, table, extra, groupBy, q.Limit)
+	return sql, chParams{
+		"tenant": q.TenantID,
+		"since":  chTimeParam(q.Now.Add(-q.Window)),
+		"until":  chTimeParam(q.Now),
+	}
 }
 
 // TopTalkers runs the aggregation in ClickHouse, on the tenant's routed store.
@@ -320,7 +343,8 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, topSQL(q, table))
+	sql, params := topSQL(q, table)
+	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -337,23 +361,31 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 	return out, nil
 }
 
-// capacitySQL buckets throughput per exporter/interface in ClickHouse.
-func capacitySQL(q CapacityQuery, table string) string {
+// capacitySQL buckets throughput per exporter/interface in ClickHouse. All
+// values are bound parameters; iface/secs/table are validated structure.
+func capacitySQL(q CapacityQuery, table string) (string, chParams) {
 	iface := "in_if"
 	if q.Direction == "out" {
 		iface = "out_if"
 	}
 	secs := int64(q.Bucket / time.Second)
+	params := chParams{
+		"tenant": q.TenantID,
+		"since":  chTimeParam(q.Now.Add(-q.Window)),
+		"until":  chTimeParam(q.Now),
+	}
 	exporterFilter := ""
 	if q.Exporter != "" {
-		exporterFilter = " AND exporter=" + chStr(q.Exporter)
+		exporterFilter = " AND exporter={exporter:String}"
+		params["exporter"] = q.Exporter
 	}
-	return fmt.Sprintf(
+	sql := fmt.Sprintf(
 		`SELECT exporter, %s AS iface, toStartOfInterval(ts, INTERVAL %d second) AS t, `+
 			`sum(bytes_scaled)*8/%d AS bps, sum(packets_scaled)/%d AS pps `+
-			`FROM %s WHERE tenant_id=%s AND ts >= %s AND ts <= %s%s `+
+			`FROM %s WHERE tenant_id={tenant:String} AND ts >= {since:DateTime64(3)} AND ts <= {until:DateTime64(3)}%s `+
 			`GROUP BY exporter, iface, t ORDER BY t, exporter, iface`,
-		iface, secs, secs, secs, table, chStr(q.TenantID), chTime(q.Now.Add(-q.Window)), chTime(q.Now), exporterFilter)
+		iface, secs, secs, secs, table, exporterFilter)
+	return sql, params
 }
 
 // Capacity runs the bucket aggregation in ClickHouse, on the routed store.
@@ -372,7 +404,8 @@ func (c *ClickHouse) Capacity(ctx context.Context, q CapacityQuery) ([]CapacityP
 	if err != nil {
 		return nil, err
 	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, capacitySQL(q, table))
+	sql, params := capacitySQL(q, table)
+	rows, err := c.queryScoped(ctx, t.BaseURL, q.TenantID, sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -408,11 +441,13 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		return 0, nil
 	}
 	if err := c.exec(ctx, t.BaseURL,
-		"DELETE FROM "+sharedFlowsTable+" WHERE tenant_id="+chStr(tenantID)+" SETTINGS mutations_sync=2", nil); err != nil {
+		"DELETE FROM "+sharedFlowsTable+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2",
+		chParams{"tenant": tenantID}, nil); err != nil {
 		return -1, fmt.Errorf("flowstore: delete tenant: %w", err)
 	}
 	rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
-		"SELECT count() AS n FROM "+sharedFlowsTable+" WHERE tenant_id="+chStr(tenantID))
+		"SELECT count() AS n FROM "+sharedFlowsTable+" WHERE tenant_id={tenant:String}",
+		chParams{"tenant": tenantID})
 	if err != nil {
 		return -1, err
 	}
@@ -438,7 +473,8 @@ func (c *ClickHouse) DeleteTenantBefore(ctx context.Context, tenantID string, cu
 		return err
 	}
 	return c.exec(ctx, t.BaseURL,
-		"DELETE FROM "+table+" WHERE tenant_id="+chStr(tenantID)+" AND ts < "+chTime(cutoff)+" SETTINGS mutations_sync=2", nil)
+		"DELETE FROM "+table+" WHERE tenant_id={tenant:String} AND ts < {cutoff:DateTime64(3)} SETTINGS mutations_sync=2",
+		chParams{"tenant": tenantID, "cutoff": chTimeParam(cutoff)}, nil)
 }
 
 // ExportTenant streams one tenant's flows as JSON Lines into w, straight from
@@ -455,8 +491,8 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
-	sql := "SELECT * FROM " + table + " WHERE tenant_id=" + chStr(tenantID) + " ORDER BY ts FORMAT JSONEachRow"
-	u := c.baseFor(t.BaseURL) + "/?query=" + url.QueryEscape(sql)
+	sql := "SELECT * FROM " + table + " WHERE tenant_id={tenant:String} ORDER BY ts FORMAT JSONEachRow"
+	u := c.baseFor(t.BaseURL) + "/?query=" + url.QueryEscape(sql) + chParams{"tenant": tenantID}.qs()
 	if c.tenantScoping {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
 	}
@@ -479,7 +515,8 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 		return 0, err
 	}
 	// Count exported lines for the manifest.
-	rows, qerr := c.queryScoped(ctx, t.BaseURL, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id="+chStr(tenantID))
+	rows, qerr := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", chParams{"tenant": tenantID})
 	if qerr != nil || len(rows) == 0 {
 		return -1, nil // streamed fine; count unavailable
 	}
@@ -518,19 +555,43 @@ func (c *ClickHouse) baseFor(base string) string {
 	return strings.TrimRight(base, "/")
 }
 
+// chParams carries SERVER-BOUND query parameters (SEC-005/TENANT-108): each
+// key k is sent as the HTTP parameter param_k and bound by ClickHouse to the
+// {k:Type} placeholder in the SQL. Values never enter the SQL text — a value
+// like "x' OR '1'='1" is data, not syntax, no client-side escaping involved.
+type chParams map[string]string
+
+// qs renders the param_* query-string suffix ("" for no params).
+func (p chParams) qs() string {
+	if len(p) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for k, v := range p {
+		sb.WriteString("&param_")
+		sb.WriteString(url.QueryEscape(k))
+		sb.WriteString("=")
+		sb.WriteString(url.QueryEscape(v))
+	}
+	return sb.String()
+}
+
+// chTimeParam renders a time for a {x:DateTime64(3)} bound parameter.
+func chTimeParam(t time.Time) string { return t.UTC().Format("2006-01-02 15:04:05.000") }
+
 // queryScoped is query with the per-request tenant custom setting attached
 // (TENANT-102) when scoping is enabled. tenantID "" means an admin/cross-tenant
 // read (migrations, totals) — no setting is attached.
-func (c *ClickHouse) queryScoped(ctx context.Context, base, tenantID, sql string) ([]map[string]any, error) {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow")
+func (c *ClickHouse) queryScoped(ctx context.Context, base, tenantID, sql string, p chParams) ([]map[string]any, error) {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
 	if c.tenantScoping && tenantID != "" {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
 	}
 	return c.doQuery(ctx, u)
 }
 
-func (c *ClickHouse) query(ctx context.Context, base, sql string) ([]map[string]any, error) {
-	return c.doQuery(ctx, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow"))
+func (c *ClickHouse) query(ctx context.Context, base, sql string, p chParams) ([]map[string]any, error) {
+	return c.doQuery(ctx, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
 }
 
 func (c *ClickHouse) doQuery(ctx context.Context, u string) ([]map[string]any, error) {
@@ -561,8 +622,8 @@ func (c *ClickHouse) doQuery(ctx context.Context, u string) ([]map[string]any, e
 	return rows, nil
 }
 
-func (c *ClickHouse) exec(ctx context.Context, base, query string, body io.Reader) error {
-	u := c.baseFor(base) + "/?query=" + url.QueryEscape(query)
+func (c *ClickHouse) exec(ctx context.Context, base, query string, p chParams, body io.Reader) error {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(query) + p.qs()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
 	if err != nil {
 		return err
@@ -597,16 +658,6 @@ func chDo(b *breaker.Breaker, client *http.Client, req *http.Request) (*http.Res
 
 // BreakerStats exposes the storage breaker state (U-078 fallback metrics).
 func (c *ClickHouse) BreakerStats() breaker.Stats { return c.breaker.Stats() }
-
-// chStr renders a ClickHouse string literal with the necessary escaping.
-func chStr(s string) string {
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
-}
-
-// chTime renders an absolute DateTime64 literal.
-func chTime(t time.Time) string {
-	return "toDateTime64(" + chStr(t.UTC().Format("2006-01-02 15:04:05.000")) + ", 3)"
-}
 
 // chParseTime parses ClickHouse DateTime / DateTime64 strings.
 func chParseTime(s string) time.Time {

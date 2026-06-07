@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,33 +17,35 @@ type fakeExec struct {
 	failOn string // substring of a statement that should error
 }
 
-var insertRe = regexp.MustCompile(`VALUES \('([^']*)', (\d+), '([^']*)', '([^']*)'\)`)
-
-func (f *fakeExec) Exec(_ context.Context, sql string) error {
+func (f *fakeExec) Exec(_ context.Context, sql string, p Params) error {
 	if f.failOn != "" && strings.Contains(sql, f.failOn) {
 		return errors.New("simulated clickhouse failure")
 	}
 	f.execed = append(f.execed, sql)
 	if strings.HasPrefix(sql, "INSERT INTO "+Ledger) {
-		m := insertRe.FindStringSubmatch(sql)
-		if m == nil {
-			return fmt.Errorf("fake: unparseable ledger insert %q", sql)
+		// The SQL carries placeholders only — values arrive as BOUND params
+		// (SEC-005/TENANT-108). A literal value in the SQL is a regression.
+		if strings.Contains(sql, "VALUES ('") {
+			return fmt.Errorf("fake: ledger insert carries literal values (must be bound): %q", sql)
 		}
-		v, _ := strconv.Atoi(m[2])
+		v, _ := strconv.Atoi(p["version"])
 		f.ledger = append(f.ledger, map[string]any{
-			"component": m[1], "version": float64(v), "name": m[3], "checksum": m[4],
+			"component": p["component"], "version": float64(v), "name": p["name"], "checksum": p["checksum"],
 		})
 	}
 	return nil
 }
 
-func (f *fakeExec) Query(_ context.Context, sql string) ([]map[string]any, error) {
+func (f *fakeExec) Query(_ context.Context, sql string, p Params) ([]map[string]any, error) {
 	if f.failOn != "" && strings.Contains(sql, f.failOn) {
 		return nil, errors.New("simulated clickhouse failure")
 	}
+	if strings.Contains(sql, "WHERE component =") && !strings.Contains(sql, "{component:String}") {
+		return nil, fmt.Errorf("fake: component filter not bound: %q", sql)
+	}
 	var out []map[string]any
 	for _, r := range f.ledger {
-		if strings.Contains(sql, sqlStr(r["component"].(string))) {
+		if r["component"] == p["component"] {
 			out = append(out, r)
 		}
 	}

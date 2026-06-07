@@ -36,9 +36,14 @@ import (
 
 // Exec is the minimal ClickHouse client surface the runner needs — the
 // stores' HTTP adapters implement it.
+// Params carries SERVER-BOUND values for {name:Type} placeholders (the
+// ClickHouse HTTP param_* mechanism) — values never enter the SQL text
+// (SEC-005/TENANT-108). nil = a statement with no bound values (DDL).
+type Params map[string]string
+
 type Exec interface {
-	Exec(ctx context.Context, sql string) error
-	Query(ctx context.Context, sql string) ([]map[string]any, error)
+	Exec(ctx context.Context, sql string, params Params) error
+	Query(ctx context.Context, sql string, params Params) ([]map[string]any, error)
 }
 
 // Migration is one versioned schema step. Statements run in order, one HTTP
@@ -80,11 +85,12 @@ func Apply(ctx context.Context, db Exec, component string, ms []Migration, log *
 	if err := validate(component, ms); err != nil {
 		return nil, err
 	}
-	if err := db.Exec(ctx, ledgerDDL); err != nil {
+	if err := db.Exec(ctx, ledgerDDL, nil); err != nil {
 		return nil, fmt.Errorf("chmigrate: ensure ledger: %w", err)
 	}
 	rows, err := db.Query(ctx,
-		"SELECT version, checksum FROM "+Ledger+" FINAL WHERE component = "+sqlStr(component))
+		"SELECT version, checksum FROM "+Ledger+" FINAL WHERE component = {component:String}",
+		Params{"component": component})
 	if err != nil {
 		return nil, fmt.Errorf("chmigrate: read ledger: %w", err)
 	}
@@ -105,14 +111,17 @@ func Apply(ctx context.Context, db Exec, component string, ms []Migration, log *
 			continue
 		}
 		for i, stmt := range m.Statements {
-			if err := db.Exec(ctx, stmt); err != nil {
+			if err := db.Exec(ctx, stmt, nil); err != nil {
 				return done, fmt.Errorf("chmigrate: %s migration %04d_%s statement %d: %w",
 					component, m.Version, m.Name, i+1, err)
 			}
 		}
-		record := fmt.Sprintf("INSERT INTO %s (component, version, name, checksum) VALUES (%s, %d, %s, %s)",
-			Ledger, sqlStr(component), m.Version, sqlStr(m.Name), sqlStr(sum))
-		if err := db.Exec(ctx, record); err != nil {
+		record := "INSERT INTO " + Ledger +
+			" (component, version, name, checksum) VALUES ({component:String}, {version:UInt32}, {name:String}, {checksum:String})"
+		if err := db.Exec(ctx, record, Params{
+			"component": component, "version": strconv.Itoa(m.Version),
+			"name": m.Name, "checksum": sum,
+		}); err != nil {
 			return done, fmt.Errorf("chmigrate: record %s %04d_%s in the ledger: %w", component, m.Version, m.Name, err)
 		}
 		log.Info("applied clickhouse migration", "component", component, "version", m.Version, "name", m.Name)
@@ -147,10 +156,6 @@ func validate(component string, ms []Migration) error {
 }
 
 // sqlStr renders a ClickHouse string literal with the necessary escaping.
-func sqlStr(s string) string {
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(s) + "'"
-}
-
 func anyToInt(v any) int {
 	switch n := v.(type) {
 	case float64:

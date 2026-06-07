@@ -9,6 +9,24 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 7: ClickHouse queries are parameterized — every VALUE travels
+  as a server-bound parameter ({name:Type} placeholder + param_* HTTP
+  parameter, ClickHouse's native binding) instead of being escaped into
+  the SQL text (ARCH-002, SEC-005, TENANT-108). The hand-rolled
+  escaping helpers (chStr/chTime/sqlStr) are deleted across flowstore,
+  pathstore, and the chmigrate ledger; tenant scoping is a bound
+  parameter everywhere; DDL identifiers (CH users, table names) are
+  regex-validated fail-closed since identifiers cannot be bound.
+  Injection tests at three depths: SQL-builder unit tests (the raw
+  value never appears in SQL), transport tests (param_* carries it),
+  and a real-ClickHouse isolation case (a DROP-shaped tenant id selects
+  nothing and breaks nothing). New `no-stringbuilt-sql` gate in make
+  lint-go (self-testing) fails the build on reintroduced string-built
+  CH SQL. FOUNDER DECISION: binding over the existing HTTP transport
+  rather than adopting clickhouse-go/v2 — identical security property
+  with no new dependency tree and the §4 architecture (breaker,
+  silo router, TLS posture) intact.
+
 - Sprint 6: cross-tenant isolation suite extended to the new ingest +
   query guarantees, end to end (TENANT-105 / TENANT-107). Ingest-path
   injection cases for every surface — flow (through real ClickHouse),

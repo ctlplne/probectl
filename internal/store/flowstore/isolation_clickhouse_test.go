@@ -80,13 +80,41 @@ func TestClickHouseCrossTenantIsolation(t *testing.T) {
 // The DB-level row policies apply cleanly on a real server and register in
 // system.row_policies (per-tenant CH users are then row-filtered to
 // tenant_id = currentUser(); the service account keeps full access).
+// SEC-005/TENANT-108 (Sprint 7): an injection-shaped tenant id is BOUND, not
+// interpolated — against a real server it selects nothing and breaks nothing.
+func TestClickHouseInjectionShapedTenantIsBound(t *testing.T) {
+	c := chFlow(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	tid := fmt.Sprintf("iso-inj-%d", now.UnixNano())
+	if err := c.Insert(ctx, []Row{flowRow(tid, "198.51.100.7", now)}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	defer func() { _, _ = c.DeleteTenant(ctx, tid) }()
+
+	for _, inj := range []string{"x' OR '1'='1", tid + "' OR 1=1 --", "'; DROP TABLE " + sharedFlowsTable + " --"} {
+		rows, err := c.TopTalkers(ctx, TopQuery{TenantID: inj, By: BySrc, Window: time.Hour, Now: now.Add(time.Minute), Limit: 10})
+		if err != nil {
+			t.Fatalf("bound injection value must be a VALID query (just matching nothing), got error: %v", err)
+		}
+		if len(rows) != 0 {
+			t.Fatalf("INJECTION ESCAPED BINDING: %q matched %d rows", inj, len(rows))
+		}
+	}
+	// The table survived the DROP-shaped value and the real tenant still reads.
+	rows, err := c.TopTalkers(ctx, TopQuery{TenantID: tid, By: BySrc, Window: time.Hour, Now: now.Add(time.Minute), Limit: 10})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("legit read after injection attempts: rows=%v err=%v", rows, err)
+	}
+}
+
 func TestClickHouseRowPoliciesApply(t *testing.T) {
 	c := chFlow(t)
 	ctx := context.Background()
 	if err := c.EnsureRowPolicies(ctx, "default"); err != nil {
 		t.Fatalf("EnsureRowPolicies: %v", err)
 	}
-	out, err := c.query(ctx, "", "SELECT name FROM system.row_policies WHERE name LIKE 'probectl%'")
+	out, err := c.query(ctx, "", "SELECT name FROM system.row_policies WHERE name LIKE 'probectl%'", nil)
 	if err != nil {
 		t.Fatalf("system.row_policies: %v", err)
 	}

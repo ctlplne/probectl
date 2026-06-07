@@ -22,9 +22,18 @@ type fakeCH struct {
 
 func (f *fakeCH) handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query().Get("query")
+		qv := r.URL.Query()
+		q := qv.Get("query")
+		// Record the SQL plus any bound params (param_*) so tests can assert
+		// values travel as parameters, never inside the SQL text (SEC-005).
+		rec := q
+		for k, vs := range qv {
+			if strings.HasPrefix(k, "param_") && len(vs) > 0 {
+				rec += " /*" + k + "=" + vs[0] + "*/"
+			}
+		}
 		f.mu.Lock()
-		f.queries = append(f.queries, q)
+		f.queries = append(f.queries, rec)
 		f.mu.Unlock()
 		switch {
 		case strings.Contains(q, "count() AS n"):
@@ -49,7 +58,7 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			f.deleted[table] = true
 			f.mu.Unlock()
 		case strings.Contains(q, "SELECT path_id"):
-			if strings.Contains(q, "'missing.example'") {
+			if strings.Contains(q, "'missing.example'") || qv.Get("param_target") == "missing.example" {
 				return // no rows -> not found
 			}
 			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp"}` + "\n"))
@@ -147,12 +156,17 @@ func TestClickHouseDeleteTenantVerifies(t *testing.T) {
 	for _, q := range f.queries {
 		if strings.HasPrefix(q, "DELETE FROM") {
 			sawSync = sawSync || strings.Contains(q, "mutations_sync=2")
-			sawScope = sawScope || strings.Contains(q, "tenant_id='t-gone'")
+			// Tenant must be a BOUND parameter (SEC-005/TENANT-108): the SQL
+			// carries the placeholder; the value travels as param_tenant.
+			sawScope = sawScope || (strings.Contains(q, "tenant_id={tenant:String}") && strings.Contains(q, "/*param_tenant=t-gone*/"))
+			if strings.Contains(q, "tenant_id='t-gone'") {
+				t.Fatalf("raw tenant literal in DELETE SQL (must be bound): %s", q)
+			}
 		}
 	}
 	f.mu.Unlock()
 	if !sawSync || !sawScope {
-		t.Fatalf("DELETE must be tenant-scoped and mutations_sync: sync=%v scope=%v", sawSync, sawScope)
+		t.Fatalf("DELETE must be tenant-scoped (bound) and mutations_sync: sync=%v scope=%v", sawSync, sawScope)
 	}
 }
 

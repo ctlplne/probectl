@@ -158,38 +158,96 @@ func TestAnomalyDetection(t *testing.T) {
 }
 
 // TestClickHouseSQLTenantGuard pins the generated SQL: every query must filter
-// tenant_id first (the cross-tenant guard for the pooled store) and embed the
-// escaped literal.
+// tenant_id first (the cross-tenant guard for the pooled store) — and the
+// tenant must travel as a BOUND PARAMETER (SEC-005/TENANT-108): an
+// injection-shaped tenant id never appears in the SQL text, only in params.
 func TestClickHouseSQLTenantGuard(t *testing.T) {
-	tq := TopQuery{TenantID: "t-a'; DROP TABLE x--", By: ByPair, Window: time.Hour, Limit: 5, Now: now}
+	const inj = "t-a'; DROP TABLE x--"
+	tq := TopQuery{TenantID: inj, By: ByPair, Window: time.Hour, Limit: 5, Now: now}
 	if err := tq.normalize(); err != nil {
 		t.Fatal(err)
 	}
-	sql := topSQL(tq, sharedFlowsTable)
-	if !strings.Contains(sql, `WHERE tenant_id='t-a\'; DROP TABLE x--'`) {
-		t.Fatalf("tenant literal not escaped/leading: %s", sql)
+	sql, params := topSQL(tq, sharedFlowsTable)
+	if !strings.Contains(sql, "WHERE tenant_id={tenant:String}") {
+		t.Fatalf("tenant must be a leading bound parameter: %s", sql)
+	}
+	if strings.Contains(sql, inj) || strings.Contains(sql, "DROP TABLE") {
+		t.Fatalf("INJECTION: raw tenant value leaked into the SQL text: %s", sql)
+	}
+	if params["tenant"] != inj {
+		t.Fatalf("tenant param = %q, want the raw (unescaped) value", params["tenant"])
+	}
+	if params["since"] == "" || params["until"] == "" {
+		t.Fatalf("time bounds must be bound parameters: %v", params)
 	}
 	if !strings.Contains(sql, "GROUP BY k, d") || !strings.Contains(sql, "LIMIT 5") {
 		t.Fatalf("pair grouping/limit missing: %s", sql)
 	}
 
-	cq := CapacityQuery{TenantID: "t-a", Exporter: "r1", Direction: "out", Window: time.Hour, Bucket: 5 * time.Minute, Now: now}
+	cq := CapacityQuery{TenantID: "t-a", Exporter: "r1'; --", Direction: "out", Window: time.Hour, Bucket: 5 * time.Minute, Now: now}
 	if err := cq.normalize(); err != nil {
 		t.Fatal(err)
 	}
-	csql := capacitySQL(cq, sharedFlowsTable)
-	for _, want := range []string{"WHERE tenant_id='t-a'", "out_if AS iface", "INTERVAL 300 second", "exporter='r1'"} {
+	csql, cparams := capacitySQL(cq, sharedFlowsTable)
+	for _, want := range []string{"WHERE tenant_id={tenant:String}", "out_if AS iface", "INTERVAL 300 second", "exporter={exporter:String}"} {
 		if !strings.Contains(csql, want) {
 			t.Fatalf("capacity sql missing %q: %s", want, csql)
 		}
+	}
+	if strings.Contains(csql, "r1'") {
+		t.Fatalf("INJECTION: raw exporter value leaked into the SQL text: %s", csql)
+	}
+	if cparams["tenant"] != "t-a" || cparams["exporter"] != "r1'; --" {
+		t.Fatalf("capacity params = %v, want raw values bound", cparams)
+	}
+	// No exporter filter → no exporter param, no dangling placeholder.
+	nsql, nparams := capacitySQL(CapacityQuery{TenantID: "t-a", Window: time.Hour, Bucket: time.Minute, Now: now}, sharedFlowsTable)
+	if strings.Contains(nsql, "{exporter") {
+		t.Fatalf("unbound exporter placeholder: %s", nsql)
+	}
+	if _, ok := nparams["exporter"]; ok {
+		t.Fatalf("exporter param without a filter: %v", nparams)
 	}
 
 	// ASN grouping excludes the zero ASN and carries the org name.
 	aq := TopQuery{TenantID: "t-a", By: BySrcASN, Window: time.Hour, Now: now}
 	_ = aq.normalize()
-	asql := topSQL(aq, sharedFlowsTable)
+	asql, _ := topSQL(aq, sharedFlowsTable)
 	if !strings.Contains(asql, "src_asn != 0") || !strings.Contains(asql, "any(src_as_name)") {
 		t.Fatalf("asn sql = %s", asql)
+	}
+}
+
+// TestChParamsBindingURL pins the transport contract: bound values travel as
+// param_<name> HTTP parameters (server-side binding), URL-encoded, and never
+// inside the query= SQL text.
+func TestChParamsBindingURL(t *testing.T) {
+	const inj = "x' OR '1'='1"
+	p := chParams{"tenant": inj}
+	qs := p.qs()
+	if !strings.Contains(qs, "&param_tenant=") {
+		t.Fatalf("param_tenant missing: %s", qs)
+	}
+	if !strings.Contains(qs, "x%27+OR+%271%27%3D%271") {
+		t.Fatalf("param value not URL-encoded: %s", qs)
+	}
+	if (chParams)(nil).qs() != "" || (chParams{}).qs() != "" {
+		t.Fatal("empty params must render no suffix")
+	}
+}
+
+// TestChValidUser pins the DDL identifier guard (identifiers cannot be bound,
+// so they are validated, fail closed).
+func TestChValidUser(t *testing.T) {
+	for _, ok := range []string{"default", "probectl_reader", "tenant-a-123", "A1"} {
+		if err := chValidUser(ok); err != nil {
+			t.Fatalf("valid user %q rejected: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "a b", "x;DROP USER y", "a'b", "-lead", "x" + strings.Repeat("y", 70)} {
+		if err := chValidUser(bad); err == nil {
+			t.Fatalf("malformed user %q accepted", bad)
+		}
 	}
 }
 
@@ -240,9 +298,9 @@ func TestClickHouseRefusesUnscopedQueries(t *testing.T) {
 	if _, err := c.ExportTenant(ctx, "", io.Discard); err != ErrNoTenant {
 		t.Fatalf("ExportTenant unscoped: %v", err)
 	}
-	// Builders pin the predicate at the head of the WHERE.
-	sql := topSQL(TopQuery{TenantID: "tX", By: BySrc, Window: time.Hour, Now: time.Now(), Limit: 5}, sharedFlowsTable)
-	if !strings.Contains(sql, "WHERE tenant_id='tX'") {
-		t.Fatalf("top SQL lost the leading tenant predicate: %s", sql)
+	// Builders pin the predicate at the head of the WHERE, value bound.
+	sql, params := topSQL(TopQuery{TenantID: "tX", By: BySrc, Window: time.Hour, Now: time.Now(), Limit: 5}, sharedFlowsTable)
+	if !strings.Contains(sql, "WHERE tenant_id={tenant:String}") || params["tenant"] != "tX" {
+		t.Fatalf("top SQL lost the leading bound tenant predicate: %s %v", sql, params)
 	}
 }

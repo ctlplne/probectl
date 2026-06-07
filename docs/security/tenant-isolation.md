@@ -35,8 +35,18 @@ policies match nothing and only the explicit provider policies apply.
 ## ClickHouse (high-volume telemetry: flow, path, threat, change, cost)
 
 **Application layer (always on):** every tenant-scoped query leads with
-`WHERE tenant_id = <caller>`; an unscoped query is refused in code
+`WHERE tenant_id = {tenant:String}`; an unscoped query is refused in code
 (`ErrNoTenant`). This is the primary boundary in the default deployment.
+
+**Values are server-bound, never interpolated (Sprint 7 — ARCH-002/SEC-005/
+TENANT-108):** every value in a ClickHouse query travels as a bound parameter —
+a `{name:Type}` placeholder in the SQL plus a `param_name` HTTP parameter that
+the SERVER binds (ClickHouse's native parameterized-query mechanism, not
+client-side escaping). A tenant id shaped like `x' OR '1'='1` is data, not
+syntax. The hand-rolled escaping helpers are deleted; DDL identifiers (table
+constants, CH user names) — which no SQL dialect can bind — are regex-validated
+and refused on mismatch. The `no-stringbuilt-sql` lint gate fails the build if
+string-built CH SQL reappears.
 
 **DB layer — per-tenant direct-access policy (U-026, shipped):**
 `EnsureRowPolicies` installs `probectl_tenant_isolation` (`USING tenant_id =

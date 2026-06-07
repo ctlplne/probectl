@@ -84,11 +84,11 @@ func TestClickHouseReaderCannotCrossTenant(t *testing.T) {
 		fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", ta, readerPw),
 		fmt.Sprintf("GRANT SELECT ON *.* TO %s", ta),
 	} {
-		if err := c.exec(ctx, "", ddl, nil); err != nil {
+		if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
 			t.Fatalf("provision reader user: %v (%s)", err, ddl)
 		}
 	}
-	defer func() { _ = c.exec(ctx, "", "DROP USER IF EXISTS "+ta, nil) }()
+	defer func() { _ = c.exec(ctx, "", "DROP USER IF EXISTS "+ta, nil, nil) }()
 
 	// Predicate-free read as tenant A's user: the row policy must hide B.
 	n, errText := chReadCountAs(t, ta, readerPw)
@@ -118,11 +118,11 @@ func TestClickHouseSettingScopedReaderPolicy(t *testing.T) {
 		fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", reader, readerPw),
 		fmt.Sprintf("GRANT SELECT ON *.* TO %s", reader),
 	} {
-		if err := c.exec(ctx, "", ddl, nil); err != nil {
+		if err := c.exec(ctx, "", ddl, nil, nil); err != nil {
 			t.Fatalf("provision reader: %v", err)
 		}
 	}
-	defer func() { _ = c.exec(ctx, "", "DROP USER IF EXISTS "+reader, nil) }()
+	defer func() { _ = c.exec(ctx, "", "DROP USER IF EXISTS "+reader, nil, nil) }()
 
 	if err := c.EnsureReaderRowPolicy(ctx, reader); err != nil {
 		// CH rejects getSetting() of an undeclared custom setting at policy

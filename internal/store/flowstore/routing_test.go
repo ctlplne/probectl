@@ -134,11 +134,18 @@ func TestQueryRoutesToTenantStore(t *testing.T) {
 	defer mu.Unlock()
 	var siloedSeen, pooledSeen bool
 	for _, qs := range queries {
-		if strings.Contains(qs, "FROM probectl_t_x.probectl_flows") && strings.Contains(qs, "tenant_id='siloed'") {
+		// The tenant travels as a BOUND parameter (param_tenant), never inside
+		// the SQL text (SEC-005/TENANT-108).
+		if strings.Contains(qs, "FROM probectl_t_x.probectl_flows") &&
+			strings.Contains(qs, "tenant_id={tenant:String}") && strings.Contains(qs, "param_tenant=siloed") {
 			siloedSeen = true
 		}
-		if strings.Contains(qs, "FROM probectl_flows WHERE tenant_id='pooled'") {
+		if strings.Contains(qs, "FROM probectl_flows WHERE tenant_id={tenant:String}") &&
+			strings.Contains(qs, "param_tenant=pooled") {
 			pooledSeen = true
+		}
+		if strings.Contains(qs, "tenant_id='siloed'") || strings.Contains(qs, "tenant_id='pooled'") {
+			t.Fatalf("raw tenant literal in SQL (must be bound): %s", qs)
 		}
 	}
 	if !siloedSeen || !pooledSeen {

@@ -23,8 +23,19 @@ type httpExec struct {
 	client *http.Client
 }
 
-func (h httpExec) Exec(ctx context.Context, sql string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.base+"/?query="+url.QueryEscape(sql), nil)
+func paramsQS(p Params) string {
+	var sb strings.Builder
+	for k, v := range p {
+		sb.WriteString("&param_")
+		sb.WriteString(url.QueryEscape(k))
+		sb.WriteString("=")
+		sb.WriteString(url.QueryEscape(v))
+	}
+	return sb.String()
+}
+
+func (h httpExec) Exec(ctx context.Context, sql string, p Params) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, h.base+"/?query="+url.QueryEscape(sql)+paramsQS(p), nil)
 	if err != nil {
 		return err
 	}
@@ -40,9 +51,9 @@ func (h httpExec) Exec(ctx context.Context, sql string) error {
 	return nil
 }
 
-func (h httpExec) Query(ctx context.Context, sql string) ([]map[string]any, error) {
+func (h httpExec) Query(ctx context.Context, sql string, p Params) ([]map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
-		h.base+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow"), nil)
+		h.base+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+paramsQS(p), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +100,8 @@ func TestClickHouseMigrationsEndToEnd(t *testing.T) {
 			"ALTER TABLE " + table + " ADD COLUMN IF NOT EXISTS note String"}},
 	}
 	t.Cleanup(func() {
-		_ = db.Exec(ctx, "DROP TABLE IF EXISTS "+table)
-		_ = db.Exec(ctx, "DELETE FROM "+Ledger+" WHERE component = "+sqlStr(comp))
+		_ = db.Exec(ctx, "DROP TABLE IF EXISTS "+table, nil)
+		_ = db.Exec(ctx, "DELETE FROM "+Ledger+" WHERE component = {component:String}", Params{"component": comp})
 	})
 
 	done, err := Apply(ctx, db, comp, ms, nil)
@@ -103,13 +114,14 @@ func TestClickHouseMigrationsEndToEnd(t *testing.T) {
 
 	// The schema really exists (v1 table + v2 column).
 	cols, err := db.Query(ctx,
-		"SELECT name FROM system.columns WHERE table = "+sqlStr(table)+" AND name = 'note'")
+		"SELECT name FROM system.columns WHERE table = {table:String} AND name = 'note'",
+		Params{"table": table})
 	if err != nil || len(cols) != 1 {
 		t.Fatalf("migrated schema missing on the server: cols=%v err=%v", cols, err)
 	}
 	// The ledger is recorded server-side with matching checksums.
 	rows, err := db.Query(ctx, "SELECT version, checksum FROM "+Ledger+
-		" FINAL WHERE component = "+sqlStr(comp)+" ORDER BY version")
+		" FINAL WHERE component = {component:String} ORDER BY version", Params{"component": comp})
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("ledger rows = %v err=%v", rows, err)
 	}
