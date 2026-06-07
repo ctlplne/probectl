@@ -9,6 +9,46 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 10: residual hardening (SEC-006/007/008, OPS-003/010). SSRF
+  guard denies the full 0.0.0.0/8 "this network" block (Linux routes
+  0.x.y.z to localhost) incl. v4-mapped smuggles, with per-range table
+  tests across every blocked class. Non-dev compose REQUIRES
+  operator-set secrets (`${POSTGRES_PASSWORD:?}` — refuses to start
+  unset; DR overlay reuses the env ref; .env.example ships empty).
+  SCIM store errors return generic text (details logged server-side);
+  /openapi.json is auth-gated and /version strips build detail for
+  anonymous callers outside dev mode. CI now talks TLS to Postgres:
+  every DB-backed job starts it under a per-run test CA and connects
+  sslmode=verify-full (scripts/ci_pg_tls.sh); local-dev fallbacks
+  documented.
+
+- Sprint 9: auth/session/transport hardening (SEC-003/004/009,
+  RED-007). The provider/operator login — the highest-privilege login
+  — gets the U-024 brute-force brake: per-account + per-IP throttle,
+  exponential lockout, 429 + Retry-After, lockouts audited to the
+  provider stream. OIDC nonce is now ENFORCED on callback: minted at
+  login into a transient cookie, compared against the verified ID
+  token's nonce claim, fail closed on mismatch or missing cookie.
+  Cookie Secure follows the DEPLOYMENT EDGE (PROBECTL_PUBLIC_TLS; the
+  Helm chart sets it — cookies were previously not-Secure behind the
+  TLS-terminating ingress). RED-007 verified: mcp-stdio authenticates
+  PROBECTL_MCP_TOKEN before serving anything (pinned by test); the
+  stdio local-trust model is documented in docs/mcp.md.
+
+- Sprint 8: at-rest encryption is the shipped default (SEC-002,
+  COMPLY-004). PROBECTL_ENVELOPE_KEY_FILE loads — or GENERATES and
+  persists (0600) on first boot — the deployment KEK; compose points it
+  at the new controldata volume with REQUIRE_AT_REST_ENCRYPTION=true
+  (fail-closed, TENANT-106), Helm already hard-requires a key and now
+  sets the require flag too. An explicit PROBECTL_ENVELOPE_KEY
+  (KMS/secret-manager injected) always wins. The operator's duty to
+  encrypt the BULK telemetry volumes (Postgres/ClickHouse/object store)
+  is now a documented contract (docs/hardening.md §0c) enforced by the
+  new `probectl-control preflight [--strict]`: it inspects the mounts
+  backing the data paths, warns on undetectably-encrypted devices
+  (strict = exit 1), and accepts a logged operator attestation for
+  cloud-volume encryption invisible from inside a container.
+
 - Sprint 7: ClickHouse queries are parameterized — every VALUE travels
   as a server-bound parameter ({name:Type} placeholder + param_* HTTP
   parameter, ClickHouse's native binding) instead of being escaped into

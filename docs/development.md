@@ -69,6 +69,16 @@ The job names are a **contract** introduced in S0:
 
 ## Testing layers
 
+### Local test DSNs (documented dev-only plaintext)
+
+Integration/isolation tests fall back to `sslmode=disable` DSNs ONLY when
+`PROBECTL_DATABASE_URL` is unset — the local-dev convenience path against the
+`test/` compose stack. CI never uses the fallbacks: every DB-backed job starts
+Postgres with TLS under a per-run test CA and connects
+`sslmode=verify-full` (`scripts/ci_pg_tls.sh`, OPS-010), the production
+posture. The shipped deploy recipes are `sslmode=require` or stricter.
+
+
 - **Unit** (`make test`, `-race`) — hermetic, table-driven; the default fast path.
 - **Integration** (`make test-integration`, `-tags=integration`) — against real
   Kafka (in-process kfake), Postgres, ClickHouse, and Prometheus, plus in-process

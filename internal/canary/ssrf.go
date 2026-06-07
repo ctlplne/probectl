@@ -66,6 +66,11 @@ func (g *TargetGuard) CheckIP(ip netip.Addr) error {
 		return deniedErr(a, "private (RFC1918/ULA)")
 	case a.IsUnspecified():
 		return deniedErr(a, "unspecified")
+	case a.Is4() && zeroNet.Contains(a):
+		// SEC-007: the WHOLE "this network" block, not just 0.0.0.0 — on
+		// Linux, 0.x.y.z destinations reach localhost (the 0/8 kernel quirk),
+		// so they are loopback-bypass smuggles.
+		return deniedErr(a, "this-network (0.0.0.0/8)")
 	case a.Is4() && cgnat.Contains(a):
 		return deniedErr(a, "carrier-grade NAT (RFC6598)")
 	case a.Is4() && a == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
@@ -74,7 +79,10 @@ func (g *TargetGuard) CheckIP(ip netip.Addr) error {
 	return nil
 }
 
-var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+var (
+	cgnat   = netip.MustParsePrefix("100.64.0.0/10")
+	zeroNet = netip.MustParsePrefix("0.0.0.0/8") // SEC-007
+)
 
 func deniedErr(a netip.Addr, class string) error {
 	return fmt.Errorf("canary: target %s is denied by the SSRF guard (%s); "+

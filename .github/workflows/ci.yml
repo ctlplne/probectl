@@ -399,20 +399,10 @@ jobs:
     # U-026 extends the SAME gate to real ClickHouse (flowstore + pathstore
     # cross-tenant reads, scoped erasure, and the row-policy DDL).
     runs-on: ubuntu-latest
+    # Postgres runs as a docker step (not a service) so it can serve TLS under
+    # a per-run test CA — CI talks verify-full like production (OPS-010). The
+    # TLS step exports PROBECTL_DATABASE_URL via GITHUB_ENV.
     services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: probectl
-          POSTGRES_PASSWORD: probectl
-          POSTGRES_DB: probectl
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U probectl -d probectl"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
       clickhouse:
         image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
         env:
@@ -429,7 +419,6 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
       PROBECTL_FLOWSTORE_URL: http://default:probectl@localhost:8123
       PROBECTL_PATHSTORE_URL: http://default:probectl@localhost:8123
     steps:
@@ -437,6 +426,8 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Start TLS Postgres (verify-full, test CA — OPS-010)
+        run: ./scripts/ci_pg_tls.sh
       - name: Cross-tenant isolation tests
         run: make test-isolation
 
@@ -446,22 +437,9 @@ jobs:
     # idempotent and /readyz passes (S1 Done-when). Uses a service container
     # rather than the full compose stack — only Postgres is needed yet.
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: probectl
-          POSTGRES_PASSWORD: probectl
-          POSTGRES_DB: probectl
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U probectl -d probectl"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Postgres runs as a docker step so it serves TLS under a per-run test CA;
+    # the client connects sslmode=verify-full like production (OPS-010).
     env:
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
       # Result pipeline (S6): the TSDB remote-write test targets this Prometheus.
       PROBECTL_PROM_URL: http://localhost:9090
     steps:
@@ -469,6 +447,8 @@ jobs:
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Start TLS Postgres (verify-full, test CA — OPS-010)
+        run: ./scripts/ci_pg_tls.sh
       - name: Start Prometheus with the remote-write receiver (result-pipeline test)
         # A service container cannot take the required --web.enable-remote-write-receiver
         # flag, so run it as a step instead.
@@ -502,27 +482,13 @@ jobs:
     # asserts tenant-scoped isolation + bounded query latency against Postgres —
     # the first place a pooled-cardinality or RLS-cost regression would surface.
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: probectl
-          POSTGRES_PASSWORD: probectl
-          POSTGRES_DB: probectl
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U probectl -d probectl"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      PROBECTL_DATABASE_URL: postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: Start TLS Postgres (verify-full, test CA — OPS-010)
+        run: ./scripts/ci_pg_tls.sh
       - name: Load/perf smoke (ingest baseline + pooled multi-tenant)
         run: make perf-smoke
 

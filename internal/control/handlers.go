@@ -45,7 +45,14 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
 }
 
 // handleVersion reports build metadata — an operational/observability endpoint.
-func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) error {
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) error {
+	// SEC-008: build/commit/Go/OS detail is reconnaissance — full detail only
+	// for authenticated callers outside dev mode; anonymous gets the service
+	// name (load balancers and uptime checks keep working).
+	if s.cfg.AuthMode != "dev" && s.resolvePrincipal(r) == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"service": "probectl"})
+		return nil
+	}
 	writeJSON(w, http.StatusOK, version.Get())
 	return nil
 }

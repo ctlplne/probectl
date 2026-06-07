@@ -107,7 +107,7 @@ func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request, tenantID
 		return auditSCIM(ctx, sc, "directory.provision", u.ID, map[string]any{"user_name": u.UserName})
 	})
 	if err != nil {
-		writeSCIMStoreError(w, err, "user")
+		s.writeSCIMStoreError(w, err, "user")
 		return
 	}
 	writeSCIM(w, http.StatusCreated, userToSCIM(*out, scimBase(r)))
@@ -201,7 +201,7 @@ func (s *Server) applyUserWrite(w http.ResponseWriter, r *http.Request, tenantID
 		return auditSCIM(ctx, sc, action, u.ID, map[string]any{"active": !deactivated})
 	})
 	if err != nil {
-		writeSCIMStoreError(w, err, "user")
+		s.writeSCIMStoreError(w, err, "user")
 		return
 	}
 	if deactivated {
@@ -267,7 +267,7 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request, tenantI
 		return auditSCIM(ctx, sc, "directory.group_create", role.ID, map[string]any{"display": in.DisplayName})
 	})
 	if err != nil {
-		writeSCIMStoreError(w, err, "group")
+		s.writeSCIMStoreError(w, err, "group")
 		return
 	}
 	writeSCIM(w, http.StatusCreated, s.groupToSCIM(r, tenantID, *role))
@@ -474,13 +474,15 @@ func writeSCIMError(w http.ResponseWriter, status int, scimType, detail string) 
 }
 
 // writeSCIMStoreError maps a store write error to a SCIM error (a uniqueness
-// violation becomes 409).
-func writeSCIMStoreError(w http.ResponseWriter, err error, resource string) {
+// violation becomes 409). SEC-008: the response is GENERIC — internal store
+// error text is logged server-side only, never echoed to the IdP client.
+func (s *Server) writeSCIMStoreError(w http.ResponseWriter, err error, resource string) {
 	if isConflict(err) {
 		writeSCIMError(w, http.StatusConflict, "uniqueness", resource+" already exists")
 		return
 	}
-	writeSCIMError(w, http.StatusBadRequest, "invalidValue", err.Error())
+	s.log.Warn("scim store error (returned generic)", "resource", resource, "error", err.Error())
+	writeSCIMError(w, http.StatusBadRequest, "invalidValue", "invalid "+resource+" attributes")
 }
 
 func scimEqFilter(filter, attr string) string {

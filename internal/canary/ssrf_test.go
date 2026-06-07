@@ -11,18 +11,27 @@ import (
 // including the IPv4-mapped smuggle.
 func TestTargetGuardDeniesInternalClasses(t *testing.T) {
 	g := NewTargetGuard(false)
-	denied := []string{
-		"127.0.0.1", "127.8.8.8", // loopback
-		"10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", // RFC1918
-		"169.254.169.254", "169.254.0.1", // link-local incl. cloud metadata
-		"100.64.0.1", "100.127.255.255", // CGNAT
-		"0.0.0.0", "255.255.255.255", "224.0.0.1", // unspecified/broadcast/multicast
-		"::1", "::", "fe80::1", "fc00::1", "fd12::1", "ff02::1", // v6 equivalents
-		"::ffff:10.0.0.1", "::ffff:169.254.169.254", // v4-mapped smuggles
+	// One row per blocked RANGE (SEC-007 table): boundary + interior addresses.
+	denied := []struct{ ip, class string }{
+		{"127.0.0.1", "loopback"}, {"127.8.8.8", "loopback"}, {"127.255.255.255", "loopback"},
+		{"10.0.0.1", "rfc1918"}, {"10.255.255.255", "rfc1918"},
+		{"172.16.0.1", "rfc1918"}, {"172.31.255.255", "rfc1918"},
+		{"192.168.1.1", "rfc1918"}, {"192.168.255.255", "rfc1918"},
+		{"169.254.169.254", "link-local/metadata"}, {"169.254.0.1", "link-local"}, {"169.254.255.255", "link-local"},
+		{"100.64.0.1", "cgnat"}, {"100.127.255.255", "cgnat"},
+		{"0.0.0.0", "unspecified"},
+		// SEC-007: the WHOLE 0.0.0.0/8 block (Linux routes 0.x.y.z to
+		// localhost), not just the exact unspecified address.
+		{"0.0.0.1", "this-network"}, {"0.1.2.3", "this-network"}, {"0.255.255.255", "this-network"},
+		{"255.255.255.255", "broadcast"}, {"224.0.0.1", "multicast"}, {"239.255.255.255", "multicast"},
+		{"::1", "v6 loopback"}, {"::", "v6 unspecified"},
+		{"fe80::1", "v6 link-local"}, {"fc00::1", "ULA"}, {"fd12::1", "ULA"}, {"ff02::1", "v6 multicast"},
+		{"::ffff:10.0.0.1", "v4-mapped rfc1918"}, {"::ffff:169.254.169.254", "v4-mapped metadata"},
+		{"::ffff:0.1.2.3", "v4-mapped this-network"},
 	}
-	for _, ip := range denied {
-		if err := g.CheckIP(netip.MustParseAddr(ip)); err == nil {
-			t.Errorf("CheckIP(%s): want denied", ip)
+	for _, tc := range denied {
+		if err := g.CheckIP(netip.MustParseAddr(tc.ip)); err == nil {
+			t.Errorf("CheckIP(%s) [%s]: want denied", tc.ip, tc.class)
 		}
 	}
 	allowed := []string{"8.8.8.8", "1.1.1.1", "93.184.216.34", "2606:4700::1111"}
