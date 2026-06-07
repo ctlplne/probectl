@@ -12,7 +12,7 @@ the status with the commit hash rather than deleting the row.
 
 | ID(s) | Risk | Status | Owner | Closes via |
 |---|---|---|---|---|
-| TENANT-101 / WIRE-001 | Bus-published planes (flow/device/eBPF) trust the agent-config `tenant_id` (`internal/flow/collector.go:207`) — a compromised agent could inject into another tenant | **OPEN — top engineering priority** | eng | Sprint 4 (server-side re-stamp from authenticated identity) |
+| TENANT-101 / WIRE-001 | Bus-published planes trusted the agent-config `tenant_id` — cross-tenant injection on flow/device/eBPF/endpoint | **CLOSED (Sprint 4)** — consumers verify (tenant, agent) against the registry (fail closed, cached); namespaced lanes are the authoritative tenant; injection tests + fuzz in CI. Residual until S11: a forged pair using ANOTHER tenant's registered agent id over pooled bus creds — bounded by the registry check + rejection counters, fully closed by enrollment/SVID | eng | Sprint 11 (residual) |
 | WIRE-002 / RED-002 / TENANT-103 / ARCH-004 | No in-repo agent enrollment / SVID issuance — the trust root is operator-manual (deferred as S-EE1) | OPEN — **ADR + threat-model delta reviewed before code** | eng | Sprint 11 |
 | LICENSE-001/002 / DATAROOM-001/002 | `LICENSE` is a TBD placeholder; no EE license text; no CLA/DCO; IP chain unproven for non-founder commits | OPEN — counsel decisions kick off now, commits land last | counsel | Phase L (S32–S33) |
 | COMPLY-001 / DATAROOM-006 | No SOC 2 attestation (self-declared mapping only) — caps the headline diligence score regardless of code | OPEN — engage auditor now (6–12 mo) | auditor | S29 evidence pack + external attestation |

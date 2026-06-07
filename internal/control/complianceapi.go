@@ -21,6 +21,7 @@ import (
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/siem"
 )
 
@@ -99,6 +100,7 @@ type ComplianceConsumer struct {
 	correlator *incident.Correlator
 	siem       *siem.Forwarder
 	log        *slog.Logger
+	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 }
 
 // NewComplianceConsumer builds the consumer over a non-nil engine.
@@ -123,10 +125,37 @@ func (cc *ComplianceConsumer) Run(ctx context.Context) error {
 	return <-errc
 }
 
+// WithTenantBinding installs registry-backed tenant verification (TENANT-101).
+func (cc *ComplianceConsumer) WithTenantBinding(b pipeline.TenantBinding) *ComplianceConsumer {
+	cc.binding = b
+	return cc
+}
+
+// rejectFlows verifies claimed identities, dropping the batch fail-closed.
+func (cc *ComplianceConsumer) rejectFlows(ctx context.Context, plane string, ids []pipeline.Identity) bool {
+	if cc.binding == nil || len(ids) == 0 {
+		return false
+	}
+	if _, _, err := pipeline.VerifyBatchTenant(ctx, cc.binding, "", ids); err != nil {
+		cc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+			"view", "compliance", "plane", plane, "claimed_tenant", ids[0].Tenant,
+			"agent_id", ids[0].Agent, "error", err.Error())
+		return true
+	}
+	return false
+}
+
 func (cc *ComplianceConsumer) handleFlow(ctx context.Context, msg bus.Message) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("compliance: skipping malformed flow batch", "error", err)
+		return nil
+	}
+	ids := make([]pipeline.Identity, len(batch.GetFlows()))
+	for i, f := range batch.GetFlows() {
+		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
+	}
+	if cc.rejectFlows(ctx, "flow", ids) {
 		return nil
 	}
 	for _, f := range batch.GetFlows() {
@@ -150,6 +179,13 @@ func (cc *ComplianceConsumer) handleEBPF(ctx context.Context, msg bus.Message) e
 	var batch ebpfv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("compliance: skipping malformed ebpf batch", "error", err)
+		return nil
+	}
+	ids := make([]pipeline.Identity, len(batch.GetFlows()))
+	for i, f := range batch.GetFlows() {
+		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
+	}
+	if cc.rejectFlows(ctx, "ebpf", ids) {
 		return nil
 	}
 	for _, f := range batch.GetFlows() {

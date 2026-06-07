@@ -84,13 +84,17 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		agg.RecordL7AttachFailure()
 	}
 
+	emitter, eerr := NewNamespacedBusEmitter(b, cfg.TenantID, cfg.Bus.Namespace)
+	if eerr != nil {
+		return nil, eerr // RED-006: malformed silo namespace refuses start
+	}
 	return &Agent{
 		cfg:      cfg,
 		log:      log,
 		source:   src,
 		l7source: l7src,
 		enricher: NewProcEnricher(cfg.ProcRoot),
-		emitter:  NewBusEmitter(b, cfg.TenantID),
+		emitter:  emitter,
 		agg:      agg,
 		l7man:    l7.NewManager(),
 		l7conns:  map[uint64]l7conn{},

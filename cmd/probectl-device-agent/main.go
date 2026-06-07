@@ -79,7 +79,11 @@ func run() error {
 	}
 	log.Info("secret backends configured", "schemes", res.Schemes())
 
-	rt, err := device.New(cfg, device.NewBusEmitter(b, cfg.TenantID), creds, log)
+	emitter, eerr := device.NewNamespacedBusEmitter(b, cfg.TenantID, cfg.Bus.Namespace)
+	if eerr != nil {
+		return eerr // RED-006: malformed silo namespace refuses start
+	}
+	rt, err := device.New(cfg, emitter, creds, log)
 	if err != nil {
 		return err
 	}

@@ -26,8 +26,12 @@ type Consumer struct {
 	tsdb       tsdb.Writer
 	group      string
 	log        *slog.Logger
-	namespaces []string       // siloed bus lanes (S-T2), known at startup
-	gate       *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
+	namespaces []string          // siloed bus lanes (S-T2), known at startup
+	nsTenants  map[string]string // namespace -> tenant id (lane authority, TENANT-101)
+	binding    TenantBinding     // registry-backed verification; nil = unit tests
+	gate       *fairness.Gate    // per-tenant ingest bounds (S-T7); nil = unbounded
+
+	rejectedTenant atomic.Uint64 // results dropped by tenant verification
 
 	// Store-write resilience (U-019): bounded retry with jittered backoff,
 	// then the dead-letter topic — telemetry loss is never silent.
@@ -98,6 +102,24 @@ func (c *Consumer) WithNamespaces(ns []string) *Consumer {
 	return c
 }
 
+// WithNamespaceTenants supplies the namespace -> tenant map so namespaced
+// lanes can be the AUTHORITATIVE tenant source for their records (TENANT-101).
+func (c *Consumer) WithNamespaceTenants(m map[string]string) *Consumer {
+	c.nsTenants = m
+	return c
+}
+
+// WithTenantBinding installs registry-backed verification of agent-published
+// results (the endpoint lanes) — the payload tenant is never authoritative
+// (TENANT-101). nil keeps legacy behavior for DB-less unit tests.
+func (c *Consumer) WithTenantBinding(b TenantBinding) *Consumer {
+	c.binding = b
+	return c
+}
+
+// RejectedTenant reports results dropped fail-closed by tenant verification.
+func (c *Consumer) RejectedTenant() uint64 { return c.rejectedTenant.Load() }
+
 // resultTopics are the bus topics carrying resultv1.Result that the pipeline
 // drains into the TSDB. Network-plane probe results (S6), endpoint/DEM results
 // (S37) and real-user page views (S47b) share the canonical result schema, so
@@ -106,26 +128,46 @@ func (c *Consumer) WithNamespaces(ns []string) *Consumer {
 // (namespace × topic), each with its own group.
 func (c *Consumer) resultTopics() []topicGroup {
 	base := []topicGroup{
+		// network results are published by the CONTROL PLANE after the mTLS
+		// identity re-stamp (agenttransport.ingest) — the publisher is trusted.
 		{topic: bus.NetworkResultsTopic, group: c.group},
-		{topic: bus.EndpointResultsTopic, group: c.group + "-endpoint"},
-		{topic: bus.RUMEventsTopic, group: c.group + "-rum"}, // RUM vitals → dashboards
+		// endpoint results are published DIRECTLY by endpoint agents — the
+		// payload tenant must be verified against the registry (TENANT-101).
+		{topic: bus.EndpointResultsTopic, group: c.group + "-endpoint", verify: true},
+		// RUM is published by the control plane's beacon ingest (server-side
+		// tenant from the app key); records carry no agent id.
+		{topic: bus.RUMEventsTopic, group: c.group + "-rum"},
 	}
 	out := base
 	for _, ns := range c.namespaces {
 		if !bus.ValidNamespace(ns) || ns == "" {
 			continue
 		}
+		laneTenant := ""
+		if c.nsTenants != nil {
+			laneTenant = c.nsTenants[ns]
+		}
 		for _, b := range base {
+			t, err := bus.TopicFor(ns, b.topic)
+			if err != nil {
+				continue // unreachable: ValidNamespace guarded above
+			}
 			out = append(out, topicGroup{
-				topic: bus.TopicFor(ns, b.topic),
-				group: b.group + "-" + ns,
+				topic:      t,
+				group:      b.group + "-" + ns,
+				verify:     b.verify,
+				laneTenant: laneTenant, // the lane is authoritative (TENANT-101)
 			})
 		}
 	}
 	return out
 }
 
-type topicGroup struct{ topic, group string }
+type topicGroup struct {
+	topic, group string
+	verify       bool   // registry-verify the payload (agent-published lanes)
+	laneTenant   string // non-empty: namespaced lane bound to one tenant
+}
 
 // Run subscribes to every result topic and writes each result to the TSDB until
 // ctx is canceled. It blocks. The subscriptions run concurrently; a fatal error
@@ -147,7 +189,8 @@ func (c *Consumer) Run(ctx context.Context) error {
 		wg.Add(1)
 		go func(s topicGroup) {
 			defer wg.Done()
-			if err := c.bus.Subscribe(ctx, s.topic, s.group, c.handle); err != nil && ctx.Err() == nil {
+			h := func(hctx context.Context, msg bus.Message) error { return c.handleLane(hctx, msg, s) }
+			if err := c.bus.Subscribe(ctx, s.topic, s.group, h); err != nil && ctx.Err() == nil {
 				c.log.Error("result subscription failed", "topic", s.topic, "error", err.Error())
 				errs <- err
 				cancel() // one topic's fatal error stops the others
@@ -178,10 +221,38 @@ func (c *Consumer) WithFairness(g *fairness.Gate) *Consumer {
 // retried with jittered backoff and, after exhaustion, dead-lettered with
 // the ORIGINAL bytes (U-019) — never silently lost.
 func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, topicGroup{})
+}
+
+// handleLane is handle with the lane's tenant-authority context (TENANT-101):
+// agent-published lanes (endpoint) verify the payload (tenant, agent) against
+// the registry; namespaced lanes overwrite the tenant with the lane's.
+func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGroup) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		c.log.Error("dropping malformed result", "error", err.Error())
 		return nil
+	}
+	if lane.verify || lane.laneTenant != "" {
+		binding := c.binding
+		if !lane.verify {
+			binding = nil // control-published lane: re-stamp only, no agent check
+		}
+		tenant, overwritten, verr := VerifyBatchTenant(ctx, binding, lane.laneTenant,
+			[]Identity{{Tenant: r.GetTenantId(), Agent: r.GetAgentId()}})
+		if verr != nil {
+			c.rejectedTenant.Add(1)
+			c.log.Error("REJECTED result: tenant verification failed (TENANT-101, fail closed)",
+				"claimed_tenant", r.GetTenantId(), "agent_id", r.GetAgentId(),
+				"lane_tenant", lane.laneTenant, "topic", lane.topic,
+				"rejected_total", c.rejectedTenant.Load(), "error", verr.Error())
+			return nil
+		}
+		if overwritten {
+			c.log.Warn("result tenant overwritten by lane (payload disagreed)",
+				"claimed_tenant", r.GetTenantId(), "lane_tenant", tenant, "topic", lane.topic)
+		}
+		r.TenantId = tenant
 	}
 	// Fairness (S-T7): per-tenant ingest bounds. Shed work is counted on the
 	// gate (surfaced via /v1/fairness, the provider console, and TSDB series)

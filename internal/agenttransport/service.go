@@ -3,6 +3,7 @@ package agenttransport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync/atomic"
@@ -200,16 +201,21 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 		return err
 	}
 	// Siloed bus lanes (S-T2): a siloed/hybrid tenant's results ride its own
-	// namespaced topic. The lane is delivery routing, not the tenant boundary
-	// (messages stay tenant-keyed; storage isolation is enforced by the
-	// stores) — so a routing blip degrades to the shared lane with a warning
-	// rather than dropping telemetry.
-	topic := bus.NetworkResultsTopic
-	if t, rerr := tenancy.CurrentRouter().TargetsFor(ctx, id.TenantID); rerr == nil {
-		topic = bus.TopicFor(t.BusNamespace, bus.NetworkResultsTopic)
-	} else {
-		svc.log.Warn("isolation routing failed; using the shared result lane",
-			"tenant", id.TenantID, "error", rerr.Error())
+	// namespaced topic. FAIL CLOSED (RED-006): if the lane cannot be resolved,
+	// the result is DROPPED with a loud error — a siloed tenant's telemetry
+	// must never silently ride the shared lane. The agent's store-and-forward
+	// retries cover the blip.
+	t, rerr := tenancy.CurrentRouter().TargetsFor(ctx, id.TenantID)
+	if rerr != nil {
+		svc.log.Error("DROPPING result: isolation routing unavailable (RED-006, fail closed)",
+			"tenant", id.TenantID, "agent", id.AgentID, "error", rerr.Error())
+		return fmt.Errorf("isolation routing unavailable: %w", rerr)
+	}
+	topic, terr := bus.TopicFor(t.BusNamespace, bus.NetworkResultsTopic)
+	if terr != nil {
+		svc.log.Error("DROPPING result: invalid bus namespace (RED-006, fail closed)",
+			"tenant", id.TenantID, "namespace", t.BusNamespace, "error", terr.Error())
+		return terr
 	}
 	return svc.bus.Publish(ctx, topic, []byte(r.TenantId), value)
 }

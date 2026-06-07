@@ -23,6 +23,7 @@ import (
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
@@ -136,9 +137,10 @@ func atParam(r *http.Request, def time.Time) (time.Time, error) {
 // (S14), and device telemetry (S39). Path discoveries fold in at save time
 // (see handleDiscoverPath). Unscoped records are dropped (guardrail 1).
 type TopologyConsumer struct {
-	store topology.Store
-	bus   bus.Bus
-	log   *slog.Logger
+	store   topology.Store
+	bus     bus.Bus
+	log     *slog.Logger
+	binding pipeline.TenantBinding // TENANT-101; nil = unit tests
 }
 
 // NewTopologyConsumer builds the consumer over a non-nil store.
@@ -147,6 +149,28 @@ func NewTopologyConsumer(b bus.Bus, st topology.Store, log *slog.Logger) *Topolo
 		log = slog.Default()
 	}
 	return &TopologyConsumer{store: st, bus: b, log: log}
+}
+
+// WithTenantBinding installs registry-backed tenant verification (TENANT-101)
+// for the agent-published planes this view derives from. nil = unit tests.
+func (tc *TopologyConsumer) WithTenantBinding(b pipeline.TenantBinding) *TopologyConsumer {
+	tc.binding = b
+	return tc
+}
+
+// rejectBatch verifies a batch's claimed identities and reports whether the
+// batch must be dropped (fail closed) — counted, never silent.
+func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane string, ids []pipeline.Identity) bool {
+	if tc.binding == nil || len(ids) == 0 {
+		return false
+	}
+	if _, _, err := pipeline.VerifyBatchTenant(ctx, tc.binding, "", ids); err != nil {
+		tc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+			"view", "topology", "plane", plane, "claimed_tenant", ids[0].Tenant,
+			"agent_id", ids[0].Agent, "error", err.Error())
+		return true
+	}
+	return false
 }
 
 // Run subscribes (independent consumer groups) until ctx is canceled.
@@ -158,11 +182,31 @@ func (tc *TopologyConsumer) Run(ctx context.Context) error {
 	return <-errc
 }
 
-func (tc *TopologyConsumer) handleEBPF(_ context.Context, msg bus.Message) error {
+func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) error {
 	var batch ebpfv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		tc.log.Warn("topology: skipping malformed ebpf batch", "error", err)
 		return nil
+	}
+	// Identity comes from the FLOWS (edges carry tenant only); every edge must
+	// share the flows' tenant — a mixed batch is rejected as an injection
+	// vector. An edges-only batch (no agent to verify) passes homogeneity
+	// only; emitters always batch flows alongside edges in practice.
+	ids := make([]pipeline.Identity, 0, len(batch.GetFlows()))
+	for _, f := range batch.GetFlows() {
+		ids = append(ids, pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()})
+	}
+	if tc.rejectBatch(ctx, "ebpf", ids) {
+		return nil
+	}
+	if len(ids) > 0 {
+		for _, e := range batch.GetEdges() {
+			if e.GetTenantId() != "" && e.GetTenantId() != ids[0].Tenant {
+				tc.log.Error("REJECTED batch: edge tenant differs from flow tenant (TENANT-101, fail closed)",
+					"view", "topology", "flow_tenant", ids[0].Tenant, "edge_tenant", e.GetTenantId())
+				return nil
+			}
+		}
 	}
 	now := time.Now()
 	for _, e := range batch.GetEdges() {
@@ -187,10 +231,17 @@ func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error 
 	return nil
 }
 
-func (tc *TopologyConsumer) handleDevice(_ context.Context, msg bus.Message) error {
+func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) error {
 	var batch devicev1.DeviceMetricBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		tc.log.Warn("topology: skipping malformed device batch", "error", err)
+		return nil
+	}
+	ids := make([]pipeline.Identity, 0, len(batch.GetMetrics()))
+	for _, m := range batch.GetMetrics() {
+		ids = append(ids, pipeline.Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()})
+	}
+	if tc.rejectBatch(ctx, "device", ids) {
 		return nil
 	}
 	now := time.Now()

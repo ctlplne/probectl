@@ -3,6 +3,8 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -36,6 +38,15 @@ type FlowConsumer struct {
 	group  string
 	log    *slog.Logger
 	gate   *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
+
+	// Server-side tenant binding (TENANT-101): payload tenants are verified
+	// against the agents registry (shared lane) or overwritten by the lane
+	// tenant (namespaced lanes). nil binding = unit tests only.
+	binding   TenantBinding
+	nsTenants map[string]string // bus namespace -> tenant id (siloed lanes)
+
+	rejected    atomic.Uint64 // batches dropped fail-closed (TENANT-101)
+	overwritten atomic.Uint64 // payload tenant corrected to the lane tenant
 }
 
 // NewFlowConsumer builds the consumer; enrich may be nil.
@@ -46,8 +57,51 @@ func NewFlowConsumer(b bus.Bus, st flowstore.Store, enrich FlowEnricher, log *sl
 	return &FlowConsumer{bus: b, store: st, enrich: enrich, group: FlowGroup, log: log}
 }
 
+// lanes returns every subscription: the shared topic plus one namespaced
+// lane per siloed tenant (TENANT-107).
+func (c *FlowConsumer) lanes() ([]laneSub, error) {
+	subs := []laneSub{{topic: bus.FlowEventsTopic, group: c.group}}
+	for ns, tid := range c.nsTenants {
+		t, err := bus.TopicFor(ns, bus.FlowEventsTopic)
+		if err != nil {
+			return nil, err // RED-006: a malformed namespace is fatal, never shared-lane
+		}
+		subs = append(subs, laneSub{topic: t, group: c.group + "-" + ns, laneTenant: tid})
+	}
+	return subs, nil
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *FlowConsumer) Run(ctx context.Context) error {
+	subs, lerr := c.lanes()
+	if lerr != nil {
+		return lerr
+	}
+	if len(subs) > 1 {
+		ctx2, cancel := context.WithCancel(ctx)
+		defer cancel()
+		errs := make(chan error, len(subs))
+		var wg sync.WaitGroup
+		for _, s := range subs {
+			wg.Add(1)
+			go func(s laneSub) {
+				defer wg.Done()
+				h := func(hctx context.Context, msg bus.Message) error { return c.handleLane(hctx, msg, s.laneTenant) }
+				if err := c.bus.Subscribe(ctx2, s.topic, s.group, h); err != nil && ctx2.Err() == nil {
+					errs <- err
+					cancel()
+				}
+			}(s)
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
 	c.log.Info("flow pipeline consumer starting", "topic", bus.FlowEventsTopic, "group", c.group,
 		"enrichment", c.enrich != nil)
 	if err := c.bus.Subscribe(ctx, bus.FlowEventsTopic, c.group, c.handle); err != nil && ctx.Err() == nil {
@@ -63,10 +117,36 @@ func (c *FlowConsumer) WithFairness(g *fairness.Gate) *FlowConsumer {
 	return c
 }
 
-// handle decodes one FlowBatch, enriches, and inserts. Malformed messages and
-// transient store failures are logged and dropped (best-effort, matching the
-// result pipeline) rather than blocking the stream.
+// WithTenantBinding installs the registry-backed tenant verification
+// (TENANT-101). Production always sets it; nil keeps legacy behavior for
+// DB-less unit tests.
+func (c *FlowConsumer) WithTenantBinding(b TenantBinding) *FlowConsumer {
+	c.binding = b
+	return c
+}
+
+// WithNamespaceTenants subscribes the consumer to each siloed tenant's
+// namespaced flow lane (TENANT-107) and makes the lane the authoritative
+// tenant for records arriving on it.
+func (c *FlowConsumer) WithNamespaceTenants(ns map[string]string) *FlowConsumer {
+	c.nsTenants = ns
+	return c
+}
+
+// RejectedBatches reports batches dropped by tenant verification.
+func (c *FlowConsumer) RejectedBatches() uint64 { return c.rejected.Load() }
+
+// handle serves the shared lane.
 func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+// handleLane decodes one FlowBatch, VERIFIES its tenant (TENANT-101: the
+// payload is never authoritative — the lane tenant or the agents registry
+// is), re-stamps, enriches, and inserts. Malformed/unverifiable messages are
+// dropped fail-closed and counted; transient store failures are logged and
+// dropped (best-effort, matching the result pipeline).
+func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		c.log.Error("dropping malformed flow batch", "error", err.Error())
@@ -75,10 +155,31 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 	if len(batch.Flows) == 0 {
 		return nil
 	}
-	// Fairness (S-T7): batch-level admission by the batch's tenant key —
+	ids := make([]Identity, len(batch.Flows))
+	for i, f := range batch.Flows {
+		ids[i] = Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
+	}
+	tenant, overwritten, verr := VerifyBatchTenant(ctx, c.binding, laneTenant, ids)
+	if verr != nil {
+		c.rejected.Add(1)
+		c.log.Error("REJECTED flow batch: tenant verification failed (TENANT-101, fail closed)",
+			"claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent,
+			"lane_tenant", laneTenant, "rows", len(batch.Flows),
+			"rejected_total", c.rejected.Load(), "error", verr.Error())
+		return nil
+	}
+	if overwritten {
+		c.overwritten.Add(1)
+		c.log.Warn("flow batch tenant overwritten by lane (payload disagreed)",
+			"claimed_tenant", ids[0].Tenant, "lane_tenant", tenant, "agent_id", ids[0].Agent)
+	}
+	for _, f := range batch.Flows {
+		f.TenantId = tenant // authoritative re-stamp before anything persists
+	}
+	// Fairness (S-T7): batch-level admission by the VERIFIED tenant —
 	// shedding happens BEFORE enrichment + insert (the expensive section).
-	if c.gate != nil && !c.gate.AdmitN(ctx, string(msg.Key), fairness.MeterFlowEvents, int64(len(batch.Flows))) {
-		c.log.Debug("flow batch shed by fairness bounds", "tenant_id", string(msg.Key), "rows", len(batch.Flows))
+	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterFlowEvents, int64(len(batch.Flows))) {
+		c.log.Debug("flow batch shed by fairness bounds", "tenant_id", tenant, "rows", len(batch.Flows))
 		return nil
 	}
 	rows := make([]flowstore.Row, 0, len(batch.Flows))
@@ -86,8 +187,8 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 		c.enrichRecord(ctx, f)
 		rows = append(rows, rowFromProto(f))
 	}
-	// Metering (S-T3): stored flow events, tagged by the batch's tenant key.
-	usage.Record(string(msg.Key), usage.MeterFlowEvents, int64(len(rows)))
+	// Metering (S-T3): stored flow events, tagged by the VERIFIED tenant.
+	usage.Record(tenant, usage.MeterFlowEvents, int64(len(rows)))
 	if err := c.store.Insert(ctx, rows); err != nil {
 		c.log.Error("flow store insert failed", "rows", len(rows),
 			"tenant_id", batch.Flows[0].GetTenantId(), "error", err.Error())

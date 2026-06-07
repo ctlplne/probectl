@@ -27,10 +27,14 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Runtime, error) {
 		newPlatformLastMileCollector(cfg.Probes, cfg.MaxHops),
 		NewHTTPSessionCollector(cfg.SessionTimeout),
 	)
+	emitter, eerr := NewNamespacedBusEmitter(b, cfg.TenantID, cfg.AgentID, cfg.Bus.Namespace)
+	if eerr != nil {
+		return nil, eerr // RED-006: malformed silo namespace refuses start
+	}
 	return &Runtime{
 		cfg:       cfg,
 		collector: collector,
-		emitter:   NewBusEmitter(b, cfg.TenantID, cfg.AgentID),
+		emitter:   emitter,
 		log:       log,
 	}, nil
 }

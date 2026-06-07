@@ -12,6 +12,10 @@ type fakeRouter struct {
 	ns      []string
 }
 
+func (f fakeRouter) BusNamespaceTenants(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
 func (f fakeRouter) TargetsFor(_ context.Context, id string) (Targets, error) {
 	if f.err != nil {
 		return Targets{}, f.err

@@ -674,6 +674,7 @@ as untrusted and the collector should sit adjacent to its exporters.
 | Variable                          | Default     | Meaning                                                        |
 | --------------------------------- | ----------- | --------------------------------------------------------------- |
 | `PROBECTL_FLOW_CONFIG`             | (none)      | path to the YAML config (`-config` flag overrides)              |
+| `PROBECTL_FLOW_BUS_NAMESPACE` | (none) | TENANT-107: publish this agent's batches on its tenant's SILOED bus lane (`probectl.<ns>.flow.events`); malformed value refuses start (RED-006). Same key exists per plane: `PROBECTL_DEVICE_BUS_NAMESPACE`, `PROBECTL_EBPF_BUS_NAMESPACE`, `PROBECTL_ENDPOINT_BUS_NAMESPACE` |
 | `PROBECTL_FLOW_TENANT`             | (required)  | tenant every flow record is stamped with (F50)                  |
 | `PROBECTL_FLOW_AGENT_ID`           | OS hostname | collector identifier                                            |
 | `PROBECTL_FLOW_BUS_MODE`           | `memory`    | `memory` \| `kafka`                                             |

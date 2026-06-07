@@ -44,6 +44,9 @@ type Config struct {
 type BusConfig struct {
 	Mode    string   `yaml:"mode"`    // memory | kafka
 	Brokers []string `yaml:"brokers"` // kafka mode
+	// Namespace routes this tenant's results onto its SILOED bus lane
+	// (TENANT-107). Empty = shared lane; malformed refuses start (RED-006).
+	Namespace string `yaml:"namespace"`
 }
 
 // Default returns the built-in defaults: memory bus, a 60s interval, balanced
@@ -95,6 +98,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	if v := getenv("PROBECTL_ENDPOINT_BUS_BROKERS"); v != "" {
 		c.Bus.Brokers = splitComma(v)
+	}
+	if v := getenv("PROBECTL_ENDPOINT_BUS_NAMESPACE"); v != "" {
+		c.Bus.Namespace = v
 	}
 	if v := getenv("PROBECTL_ENDPOINT_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

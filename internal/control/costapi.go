@@ -19,6 +19,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/cost"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 )
 
 // BuildCost builds the engine from config. Returns (nil, false, nil) when
@@ -90,6 +91,7 @@ type CostConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	log        *slog.Logger
+	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
 }
 
 // NewCostConsumer builds the consumer over a non-nil engine.
@@ -105,11 +107,28 @@ func (cc *CostConsumer) Run(ctx context.Context) error {
 	return cc.bus.Subscribe(ctx, bus.FlowEventsTopic, "cost-flow", cc.handle)
 }
 
+// WithTenantBinding installs registry-backed tenant verification (TENANT-101).
+func (cc *CostConsumer) WithTenantBinding(b pipeline.TenantBinding) *CostConsumer {
+	cc.binding = b
+	return cc
+}
+
 func (cc *CostConsumer) handle(ctx context.Context, msg bus.Message) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("cost: skipping malformed flow batch", "error", err)
 		return nil
+	}
+	if cc.binding != nil && len(batch.GetFlows()) > 0 {
+		ids := make([]pipeline.Identity, len(batch.GetFlows()))
+		for i, f := range batch.GetFlows() {
+			ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
+		}
+		if _, _, err := pipeline.VerifyBatchTenant(ctx, cc.binding, "", ids); err != nil {
+			cc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
+				"view", "cost", "claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent, "error", err.Error())
+			return nil
+		}
 	}
 	for _, f := range batch.GetFlows() {
 		tenant := f.GetTenantId()

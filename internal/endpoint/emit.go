@@ -26,11 +26,24 @@ type BusEmitter struct {
 	bus    bus.Bus
 	tenant string
 	agent  string
+	topic  string // shared, or the tenant's namespaced lane (TENANT-107)
 }
 
 // NewBusEmitter returns an Emitter publishing to probectl.endpoint.results.
 func NewBusEmitter(b bus.Bus, tenant, agent string) *BusEmitter {
-	return &BusEmitter{bus: b, tenant: tenant, agent: agent}
+	e, _ := NewNamespacedBusEmitter(b, tenant, agent, "")
+	return e
+}
+
+// NewNamespacedBusEmitter publishes to the tenant's namespaced lane when
+// namespace is set (TENANT-107). A malformed namespace refuses construction
+// (RED-006: never a silent shared-lane fallback).
+func NewNamespacedBusEmitter(b bus.Bus, tenant, agent, namespace string) (*BusEmitter, error) {
+	topic, err := bus.TopicFor(namespace, bus.EndpointResultsTopic)
+	if err != nil {
+		return nil, fmt.Errorf("endpoint: refusing to start: %w", err)
+	}
+	return &BusEmitter{bus: b, tenant: tenant, agent: agent, topic: topic}, nil
 }
 
 // Emit publishes one message per DEM result in the sample.
@@ -40,7 +53,7 @@ func (e *BusEmitter) Emit(ctx context.Context, s Sample) error {
 		if err != nil {
 			return fmt.Errorf("endpoint: marshal result: %w", err)
 		}
-		if err := e.bus.Publish(ctx, bus.EndpointResultsTopic, []byte(e.tenant), value); err != nil {
+		if err := e.bus.Publish(ctx, e.topic, []byte(e.tenant), value); err != nil {
 			return err
 		}
 	}

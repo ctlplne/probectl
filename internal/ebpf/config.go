@@ -54,6 +54,10 @@ type Config struct {
 type BusConfig struct {
 	Mode    string   `yaml:"mode"`    // memory | kafka
 	Brokers []string `yaml:"brokers"` // kafka mode
+	// Namespace routes this tenant's batches onto its SILOED bus lane
+	// (TENANT-107): topics become probectl.<namespace>.<...>. Empty = the
+	// shared (pooled) lane. A malformed value refuses agent start (RED-006).
+	Namespace string `yaml:"namespace"`
 }
 
 // Default returns the built-in defaults (memory bus, /proc, 10s flush, 16 MiB ring).
@@ -101,6 +105,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	if v := getenv("PROBECTL_EBPF_BUS_BROKERS"); v != "" {
 		c.Bus.Brokers = splitComma(v)
+	}
+	if v := getenv("PROBECTL_EBPF_BUS_NAMESPACE"); v != "" {
+		c.Bus.Namespace = v
 	}
 	if v := getenv("PROBECTL_EBPF_FIXTURE_PATH"); v != "" {
 		c.FixturePath = v

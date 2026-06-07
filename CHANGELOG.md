@@ -9,6 +9,22 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 4 [CRITICAL]: server-side tenant binding on ingest — the
+  payload tenant_id is never authoritative again. Every bus-consumed
+  plane (flow, device, eBPF-derived views, endpoint results, cost/
+  compliance/topology views) verifies the claimed (tenant, agent) pair
+  against the agents registry (RLS-scoped lookup, TTL-cached, FAIL
+  CLOSED on mismatch/unknown/outage) and rejects mixed-identity
+  batches; tenant-namespaced lanes are the authoritative tenant and
+  overwrite payload disagreement (counted, logged). Emitters
+  (flow/device/eBPF/endpoint) publish to their tenant's siloed lane
+  when configured (PROBECTL_<PLANE>_BUS_NAMESPACE) and REFUSE START on
+  a malformed namespace; bus.TopicFor now errors instead of silently
+  falling back to the shared lane, and the results/RUM publishers drop
+  (loudly) when silo routing is unavailable (TENANT-101, WIRE-001,
+  TENANT-107, RED-006). Injection table tests + an end-to-end red-team
+  test + FuzzVerifyBatchTenant guard it.
+
 - Sprint 3 [CRITICAL]: the dev-mode auth bypass is COMPILED OUT of
   release binaries — the dev principal exists only behind -tags devauth
   (internal/control/devauth.go); release binaries refuse

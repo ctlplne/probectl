@@ -21,6 +21,10 @@ type ListenerConfig struct {
 type BusConfig struct {
 	Mode    string   `yaml:"mode"`
 	Brokers []string `yaml:"brokers"`
+	// Namespace routes this tenant's batches onto its SILOED bus lane
+	// (TENANT-107): topics become probectl.<namespace>.<...>. Empty = the
+	// shared (pooled) lane. A malformed value refuses agent start (RED-006).
+	Namespace string `yaml:"namespace"`
 }
 
 // Config is the flow-collector configuration: a YAML file with PROBECTL_FLOW_*
@@ -126,6 +130,7 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 
 	set("PROBECTL_FLOW_TENANT", &c.TenantID)
+	set("PROBECTL_FLOW_BUS_NAMESPACE", &c.Bus.Namespace)
 	set("PROBECTL_FLOW_AGENT_ID", &c.AgentID)
 	set("PROBECTL_FLOW_BUS_MODE", &c.Bus.Mode)
 	if v := getenv("PROBECTL_FLOW_BUS_BROKERS"); v != "" {

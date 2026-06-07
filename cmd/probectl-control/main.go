@@ -269,13 +269,19 @@ func run(cmd string) error {
 	// the what-if API, fed by eBPF service edges, BGP events, device telemetry
 	// (consumer below) and path discoveries (at save time). Engine selection is
 	// transparent behind the S30 query API.
+	// TENANT-101: registry-backed (tenant, agent) verification for every
+	// agent-published bus plane — the payload is never authoritative.
+	tenantBinding := pipeline.NewRegistryBinding(db.Pool())
+
 	var topoStore topology.Store
 	if cfg.TopologyEngine == "memory" {
 		topoStore = topology.NewMemoryStore()
 	} else {
 		topoStore = topology.NewIndexedStore() // the L/XL dedicated engine
 	}
-	g.Go(func() error { return control.NewTopologyConsumer(resultBus, topoStore, log).Run(gctx) })
+	g.Go(func() error {
+		return control.NewTopologyConsumer(resultBus, topoStore, log).WithTenantBinding(tenantBinding).Run(gctx)
+	})
 	log.Info("topology graph enabled", "engine", cfg.TopologyEngine)
 
 	// FinOps egress cost (S44): volume x public pricing over the local flow
@@ -287,7 +293,7 @@ func run(cmd string) error {
 	}
 	if costOn {
 		g.Go(func() error {
-			return control.NewCostConsumer(resultBus, costEngine, correlator, log).Run(gctx)
+			return control.NewCostConsumer(resultBus, costEngine, correlator, log).WithTenantBinding(tenantBinding).Run(gctx)
 		})
 	}
 
@@ -424,12 +430,16 @@ func run(cmd string) error {
 	if rumOn {
 		// Beacon ingest at POST /ingest/rum + convergence view at /v1/rum (S47b).
 		srv.WithRUM(rumEngine, rumApps, func(ctx context.Context, tenant string, payload []byte) error {
-			// Siloed lane routing (S-T2): availability-first — a routing blip
-			// publishes to the shared lane (messages stay tenant-keyed; storage
-			// isolation is enforced by the stores).
-			topic := bus.RUMEventsTopic
-			if t, rerr := tenancy.CurrentRouter().TargetsFor(ctx, tenant); rerr == nil {
-				topic = bus.TopicFor(t.BusNamespace, bus.RUMEventsTopic)
+			// Siloed lane routing (S-T2). FAIL CLOSED (RED-006): an unresolved
+			// lane drops the beacon (the sender retries) — a siloed tenant's
+			// data never silently rides the shared lane.
+			t, rerr := tenancy.CurrentRouter().TargetsFor(ctx, tenant)
+			if rerr != nil {
+				return fmt.Errorf("isolation routing unavailable (fail closed): %w", rerr)
+			}
+			topic, terr := bus.TopicFor(t.BusNamespace, bus.RUMEventsTopic)
+			if terr != nil {
+				return terr
 			}
 			return resultBus.Publish(ctx, topic, []byte(tenant), payload)
 		}, cfg.RUMRatePerMin)
@@ -541,19 +551,36 @@ func run(cmd string) error {
 	} else if len(busNamespaces) > 0 {
 		log.Info("isolation: consuming namespaced result lanes", "namespaces", busNamespaces)
 	}
+	// TENANT-101: the lane -> tenant map makes namespaced lanes the
+	// AUTHORITATIVE tenant source; the registry binding makes the payload's
+	// (tenant, agent) pair verifiable on shared lanes. Both fail closed.
+	nsTenants, ntErr := tenancy.CurrentRouter().BusNamespaceTenants(gctx)
+	if ntErr != nil {
+		log.Warn("isolation: namespace-tenant map unavailable", "error", ntErr.Error())
+	}
 	g.Go(func() error {
 		return pipeline.NewConsumer(resultBus, tsdbWriter, pipeline.DefaultGroup, log).
 			WithNamespaces(busNamespaces).
+			WithNamespaceTenants(nsTenants).
+			WithTenantBinding(tenantBinding). // TENANT-101: endpoint lane verified
 			WithFairness(fairGate).
 			WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
 			Run(gctx)
 	})
-	// Flow pipeline (S38): probectl.flow.events -> enrich -> flow store.
+	// Flow pipeline (S38): probectl.flow.events -> verify tenant -> enrich -> flow store.
 	g.Go(func() error {
-		return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).WithFairness(fairGate).Run(gctx)
+		return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).
+			WithTenantBinding(tenantBinding).
+			WithNamespaceTenants(nsTenants).
+			WithFairness(fairGate).Run(gctx)
 	})
-	// Device pipeline (S39): probectl.device.metrics -> TSDB.
-	g.Go(func() error { return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).Run(gctx) })
+	// Device pipeline (S39): probectl.device.metrics -> verify tenant -> TSDB.
+	g.Go(func() error {
+		return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).
+			WithTenantBinding(tenantBinding).
+			WithNamespaceTenants(nsTenants).
+			Run(gctx)
+	})
 	// Endpoint DEM view (S-FE4): probectl.endpoint.results -> snapshot store.
 	g.Go(func() error { return control.NewEndpointViewConsumer(resultBus, endpointViews, log).Run(gctx) })
 	// Latest-result view (S-FE5): probectl.network.results -> latest-result store.
@@ -599,6 +626,7 @@ func run(cmd string) error {
 		g.Go(func() error {
 			return control.NewComplianceConsumer(resultBus, complianceEngine, correlator, log).
 				WithSIEM(siemFwd).
+				WithTenantBinding(tenantBinding).
 				Run(gctx)
 		})
 	}

@@ -172,6 +172,27 @@ func (r *Router) TargetsFor(ctx context.Context, tenantID string) (tenancy.Targe
 	return t, nil
 }
 
+// BusNamespaceTenants maps every active siloed/hybrid tenant's bus namespace
+// to its tenant id (TENANT-101: the lane is the consumer's authoritative
+// tenant source for agent-published planes).
+func (r *Router) BusNamespaceTenants(ctx context.Context) (map[string]string, error) {
+	reg, err := r.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for id, row := range reg {
+		if row.model != tenancy.IsolationSiloed && row.model != tenancy.IsolationHybrid {
+			continue
+		}
+		if row.status == "offboarding" || row.status == "deleted" {
+			continue
+		}
+		out[BusNamespace(row.slug)] = id
+	}
+	return out, nil
+}
+
 // BusNamespaces lists the namespaced lanes of every non-offboarded siloed or
 // hybrid tenant (consumer fan-out at startup).
 func (r *Router) BusNamespaces(ctx context.Context) ([]string, error) {

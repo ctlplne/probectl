@@ -61,7 +61,11 @@ func run() error {
 	}
 	defer func() { _ = b.Close() }()
 
-	collector, err := flow.New(cfg, flow.NewBusEmitter(b, cfg.TenantID), log)
+	emitter, err := flow.NewNamespacedBusEmitter(b, cfg.TenantID, cfg.Bus.Namespace)
+	if err != nil {
+		return err // RED-006: malformed silo namespace refuses start
+	}
+	collector, err := flow.New(cfg, emitter, log)
 	if err != nil {
 		return err
 	}

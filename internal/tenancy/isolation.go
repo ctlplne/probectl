@@ -75,6 +75,11 @@ type Router interface {
 	// BusNamespaces lists every namespace with isolated bus topics (consumer
 	// fan-out at startup).
 	BusNamespaces(ctx context.Context) ([]string, error)
+	// BusNamespaceTenants maps each isolated bus namespace to its tenant id —
+	// the consumer side's AUTHORITATIVE tenant for records arriving on that
+	// lane (TENANT-101: a namespaced lane is single-tenant by construction,
+	// so the lane, not the payload, names the tenant).
+	BusNamespaceTenants(ctx context.Context) (map[string]string, error)
 }
 
 // PooledRouter is the core default: every tenant routes to the shared stores.
@@ -87,6 +92,11 @@ func (PooledRouter) TargetsFor(context.Context, string) (Targets, error) {
 
 // BusNamespaces returns none.
 func (PooledRouter) BusNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+// BusNamespaceTenants: pooled deployments have no namespaced lanes.
+func (PooledRouter) BusNamespaceTenants(context.Context) (map[string]string, error) {
+	return nil, nil
+}
 
 var (
 	routerMu sync.RWMutex

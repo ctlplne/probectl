@@ -21,11 +21,24 @@ type Emitter interface {
 type BusEmitter struct {
 	bus    bus.Bus
 	tenant string
+	topic  string // shared, or the tenant's namespaced lane (TENANT-107)
 }
 
 // NewBusEmitter returns an Emitter publishing to bus.DeviceMetricsTopic.
 func NewBusEmitter(b bus.Bus, tenant string) *BusEmitter {
-	return &BusEmitter{bus: b, tenant: tenant}
+	e, _ := NewNamespacedBusEmitter(b, tenant, "")
+	return e
+}
+
+// NewNamespacedBusEmitter publishes to the tenant's namespaced lane when
+// namespace is set (TENANT-107). A malformed namespace refuses construction
+// (RED-006: never a silent shared-lane fallback).
+func NewNamespacedBusEmitter(b bus.Bus, tenant, namespace string) (*BusEmitter, error) {
+	topic, err := bus.TopicFor(namespace, bus.DeviceMetricsTopic)
+	if err != nil {
+		return nil, fmt.Errorf("device: refusing to start: %w", err)
+	}
+	return &BusEmitter{bus: b, tenant: tenant, topic: topic}, nil
 }
 
 // Emit marshals the batch and publishes it. An empty batch is a no-op.
@@ -41,5 +54,5 @@ func (e *BusEmitter) Emit(ctx context.Context, ms []Metric) error {
 	if err != nil {
 		return fmt.Errorf("device: marshal batch: %w", err)
 	}
-	return e.bus.Publish(ctx, bus.DeviceMetricsTopic, []byte(e.tenant), value)
+	return e.bus.Publish(ctx, e.topic, []byte(e.tenant), value)
 }

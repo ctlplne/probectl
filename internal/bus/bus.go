@@ -87,18 +87,22 @@ func ValidNamespace(ns string) bool { return ns == "" || namespaceRe.MatchString
 
 // TopicFor namespaces a base topic for a siloed tenant (S-T2):
 // TopicFor("t-acme", "probectl.network.results") = "probectl.t-acme.network.results".
-// An empty or invalid namespace returns the shared topic unchanged — the
-// namespace is a delivery LANE; the tenant boundary stays the tenant-keyed
-// message either way, and storage-level isolation is enforced by the stores.
-func TopicFor(namespace, base string) string {
-	if namespace == "" || !namespaceRe.MatchString(namespace) {
-		return base
+// An empty namespace returns the shared topic (pooled). A NON-empty invalid
+// namespace is an ERROR (RED-006 — fail closed): a siloed tenant's traffic
+// must never silently degrade onto the shared lane because its namespace was
+// malformed.
+func TopicFor(namespace, base string) (string, error) {
+	if namespace == "" {
+		return base, nil
+	}
+	if !namespaceRe.MatchString(namespace) {
+		return "", fmt.Errorf("bus: invalid topic namespace %q (must match %s) — refusing shared-lane fallback (RED-006)", namespace, namespaceRe.String())
 	}
 	rest, ok := strings.CutPrefix(base, "probectl.")
 	if !ok {
-		return base
+		return "", fmt.Errorf("bus: topic %q is not namespaceable (no probectl. prefix)", base)
 	}
-	return "probectl." + namespace + "." + rest
+	return "probectl." + namespace + "." + rest, nil
 }
 
 // New builds a Bus for the given mode. "memory" (or empty) is the lightweight

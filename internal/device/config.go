@@ -50,6 +50,10 @@ type Target struct {
 type BusConfig struct {
 	Mode    string   `yaml:"mode"`
 	Brokers []string `yaml:"brokers"`
+	// Namespace routes this tenant's batches onto its SILOED bus lane
+	// (TENANT-107): topics become probectl.<namespace>.<...>. Empty = the
+	// shared (pooled) lane. A malformed value refuses agent start (RED-006).
+	Namespace string `yaml:"namespace"`
 }
 
 // Config is the device-telemetry collector configuration: a YAML file with
@@ -103,6 +107,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	if v := getenv("PROBECTL_DEVICE_BUS_MODE"); v != "" {
 		c.Bus.Mode = v
+	}
+	if v := getenv("PROBECTL_DEVICE_BUS_NAMESPACE"); v != "" {
+		c.Bus.Namespace = v
 	}
 	if v := getenv("PROBECTL_DEVICE_BUS_BROKERS"); v != "" {
 		parts := strings.Split(v, ",")

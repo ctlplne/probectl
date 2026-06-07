@@ -3,6 +3,8 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -40,7 +42,28 @@ type DeviceConsumer struct {
 	tsdb  tsdb.Writer
 	group string
 	log   *slog.Logger
+
+	// Server-side tenant binding (TENANT-101) + siloed lanes (TENANT-107).
+	binding   TenantBinding
+	nsTenants map[string]string
+	rejected  atomic.Uint64
 }
+
+// WithTenantBinding installs registry-backed tenant verification (TENANT-101).
+func (c *DeviceConsumer) WithTenantBinding(b TenantBinding) *DeviceConsumer {
+	c.binding = b
+	return c
+}
+
+// WithNamespaceTenants adds each siloed tenant's namespaced device lane
+// (TENANT-107); the lane is the authoritative tenant for its records.
+func (c *DeviceConsumer) WithNamespaceTenants(ns map[string]string) *DeviceConsumer {
+	c.nsTenants = ns
+	return c
+}
+
+// RejectedBatches reports batches dropped by tenant verification.
+func (c *DeviceConsumer) RejectedBatches() uint64 { return c.rejected.Load() }
 
 // NewDeviceConsumer builds the consumer.
 func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsumer {
@@ -50,20 +73,49 @@ func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsum
 	return &DeviceConsumer{bus: b, tsdb: w, group: DeviceGroup, log: log}
 }
 
-// Run subscribes until ctx is canceled. It blocks.
+// Run subscribes until ctx is canceled (shared lane + one lane per siloed
+// tenant). It blocks.
 func (c *DeviceConsumer) Run(ctx context.Context) error {
-	c.log.Info("device pipeline consumer starting", "topic", bus.DeviceMetricsTopic, "group", c.group)
-	if err := c.bus.Subscribe(ctx, bus.DeviceMetricsTopic, c.group, c.handle); err != nil && ctx.Err() == nil {
-		c.log.Error("device subscription failed", "error", err.Error())
-		return err
+	subs := []laneSub{{topic: bus.DeviceMetricsTopic, group: c.group}}
+	for ns, tid := range c.nsTenants {
+		t, err := bus.TopicFor(ns, bus.DeviceMetricsTopic)
+		if err != nil {
+			return err // RED-006: malformed namespace is fatal, never shared-lane
+		}
+		subs = append(subs, laneSub{topic: t, group: c.group + "-" + ns, laneTenant: tid})
+	}
+	c.log.Info("device pipeline consumer starting", "topic", bus.DeviceMetricsTopic, "group", c.group, "lanes", len(subs))
+	ctx2, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errs := make(chan error, len(subs))
+	var wg sync.WaitGroup
+	for _, s := range subs {
+		wg.Add(1)
+		go func(s laneSub) {
+			defer wg.Done()
+			h := func(hctx context.Context, msg bus.Message) error { return c.handleLane(hctx, msg, s.laneTenant) }
+			if err := c.bus.Subscribe(ctx2, s.topic, s.group, h); err != nil && ctx2.Err() == nil {
+				c.log.Error("device subscription failed", "topic", s.topic, "error", err.Error())
+				errs <- err
+				cancel()
+			}
+		}(s)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// handle decodes one batch and writes its series. Malformed messages and
-// transient write failures are logged and dropped (best-effort, matching the
-// result pipeline).
-func (c *DeviceConsumer) handle(ctx context.Context, msg bus.Message) error {
+// handleLane decodes one batch, VERIFIES its tenant (TENANT-101 — the
+// payload is never authoritative), re-stamps, and writes its series.
+// Unverifiable batches are dropped fail-closed and counted; transient write
+// failures are logged and dropped (best-effort, matching the result pipeline).
+func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch devicev1.DeviceMetricBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		c.log.Error("dropping malformed device batch", "error", err.Error())
@@ -71,6 +123,25 @@ func (c *DeviceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	}
 	if len(batch.Metrics) == 0 {
 		return nil
+	}
+	ids := make([]Identity, len(batch.Metrics))
+	for i, m := range batch.Metrics {
+		ids[i] = Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()}
+	}
+	tenant, overwritten, verr := VerifyBatchTenant(ctx, c.binding, laneTenant, ids)
+	if verr != nil {
+		c.rejected.Add(1)
+		c.log.Error("REJECTED device batch: tenant verification failed (TENANT-101, fail closed)",
+			"claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent, "lane_tenant", laneTenant,
+			"metrics", len(batch.Metrics), "rejected_total", c.rejected.Load(), "error", verr.Error())
+		return nil
+	}
+	if overwritten {
+		c.log.Warn("device batch tenant overwritten by lane (payload disagreed)",
+			"claimed_tenant", ids[0].Tenant, "lane_tenant", tenant)
+	}
+	for _, m := range batch.Metrics {
+		m.TenantId = tenant
 	}
 	series := make([]tsdb.Series, 0, len(batch.Metrics))
 	for _, m := range batch.Metrics {
