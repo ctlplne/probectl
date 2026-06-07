@@ -9,6 +9,25 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 6: cross-tenant isolation suite extended to the new ingest +
+  query guarantees, end to end (TENANT-105 / TENANT-107). Ingest-path
+  injection cases for every surface — flow (through real ClickHouse),
+  device and eBPF/endpoint results (through the real, RLS-scoped
+  registry binding on Postgres), and OTLP (token→tenant, capture sink):
+  a client presenting tenant A's identity with payload tenant B is
+  re-stamped to A or rejected and never lands in B's partition. The
+  registry lookup that vouches for a (tenant, agent) pair is itself
+  proven RLS-scoped (it cannot see another tenant's agent). Query-path:
+  a non-service ClickHouse reader issuing a PREDICATE-FREE read sees only
+  its own tenant's rows (the DB row policy, not the app WHERE, scopes it),
+  with the Sprint 5 getSetting reader policy exercised where the server
+  allows the custom-settings prefix. Siloed-namespace: a siloed tenant's
+  records route ONLY to its namespaced topic — the shared topic never
+  carries them — and a malformed namespace refuses construction
+  (RED-006). The infra-bound cases run in the existing required
+  cross-tenant-isolation CI job (no new plumbing); the silo-routing and
+  OTLP cases need no infra and run in the normal suite too.
+
 - Sprint 5: database-level tenant-isolation backstops. (TENANT-104)
   tenancy.AssertIsolationPosture runs at boot and FATALs if the app
   role is super/bypass-RLS or any tenant_id table lacks FORCE ROW

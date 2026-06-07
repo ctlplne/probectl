@@ -100,6 +100,17 @@ boots.
   rejection; cross-tenant query returns nothing (the standing
   `cross-tenant-isolation` CI gate).
 - `internal/store/flowstore`: read-path setting attach, reader-policy DDL
-  shape (no permissive escape), empty-reader rejection.
+  shape (no permissive escape), empty-reader rejection; and (`-tags
+  isolation`) a non-service CH reader issuing a **predicate-free** read sees
+  only its own tenant's rows — the row policy, not the app WHERE, scopes it.
+- `internal/pipeline` (`-tags isolation`): end-to-end ingest injection —
+  flow through real ClickHouse, device + eBPF/endpoint results through the
+  RLS-scoped registry binding on real Postgres — a payload claiming another
+  tenant is rejected and never lands in the victim partition; the registry
+  lookup itself is proven tenant-scoped. Plus (no infra) siloed records
+  route only to namespaced topics, with RED-006 fail-closed construction.
+- `internal/otel/otlp` (`-tags isolation`): an OTLP push authenticated as one
+  tenant but naming another is rejected; the sink only ever sees the
+  authenticated tenant.
 - `internal/config`: the `require-at-rest` and CH-scoping knobs parse and
   default off.
