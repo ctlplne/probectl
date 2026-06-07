@@ -30,9 +30,10 @@ topologySpreadConstraints:
       matchLabels:
         app.kubernetes.io/name: probectl
 
-# NetworkPolicy is available — set the allow-lists, then enable:
+# NetworkPolicy is ON by default (U-086) with two documented holes (in-cluster
+# ingress to the API port; allow-all egress) — close them by setting the
+# allow-lists; values-large.yaml ships the filled reference shape:
 #   networkPolicy:
-#     enabled: true
 #     ingressFrom:
 #       - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
 #     egressTo:

@@ -133,19 +133,29 @@ autoscaling:
   targetCPUUtilizationPercentage: 70
   # targetMemoryUtilizationPercentage: 80
 
-# NetworkPolicy: default-deny ingress + egress, with explicit allows. This is a
-# security surface — leave the defaults restrictive and open only what you need.
+# NetworkPolicy: default-deny ingress + egress, with explicit allows. ON by
+# default (U-086) — the policy below is real but deliberately carries two
+# DOCUMENTED HOLES until you tighten it per deployment:
+#   HOLE 1: ingressFrom EMPTY ⇒ any pod in the cluster may reach the API port
+#           (everything else is still denied). Set your ingress-controller
+#           selector to close it.
+#   HOLE 2: egressTo EMPTY ⇒ all egress is allowed (plus DNS, always allowed).
+#           Set the datastore/bus/IdP/feed allow-list to close it —
+#           values-large.yaml ships a filled reference list.
+# Requires a CNI that enforces NetworkPolicy (Calico/Cilium/...); without one
+# the object is inert. Set enabled: false only with an equivalent external
+# control (and note it in your hardening review).
 networkPolicy:
-  enabled: false
-  # Sources allowed to reach the API on the container port. EMPTY ⇒ allow from any
-  # pod in the cluster (still default-deny all other traffic); in production set
-  # your ingress-controller's namespace/pod selector here.
+  enabled: true
+  # Sources allowed to reach the API on the container port. EMPTY ⇒ HOLE 1
+  # above; in production set your ingress-controller's namespace/pod selector.
   ingressFrom: []
     # - namespaceSelector:
     #     matchLabels:
     #       kubernetes.io/metadata.name: ingress-nginx
   # Egress beyond DNS (which is always allowed): the Postgres/bus/IdP/SIEM/feeds
-  # this deployment must reach. EMPTY ⇒ allow all egress (DNS + everything).
+  # this deployment must reach. EMPTY ⇒ HOLE 2 above (allow-all egress); see
+  # values-large.yaml for the filled reference allow-list.
   egressTo: []
     # - to:
     #     - ipBlock: { cidr: 10.0.0.0/8 }

@@ -39,8 +39,39 @@ topologySpreadConstraints:
 # permit-all UNTIL you fill egressTo (then it is restricted to those targets + DNS).
 networkPolicy:
   enabled: true
-  # ingressFrom:
-  #   - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: ingress-nginx } }
-  # egressTo:
-  #   - to: [ { ipBlock: { cidr: 10.0.0.0/8 } } ]
-  #     ports: [ { protocol: TCP, port: 5432 } ]
+  # Only the ingress controller reaches the API port. ADJUST the namespace
+  # label to your controller (this is the reference shape, not a guess-free
+  # default — a mismatch locks your controller out, which fails LOUDLY).
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+  # Filled egress allow-list (U-086). DNS is always allowed by the template.
+  egressTo:
+    # Datastores + bus + TSDB on private ranges: Postgres 5432; ClickHouse
+    # 8123 (HTTP) / 8443 (HTTPS) / 9000 (native) / 9440 (native TLS); Kafka
+    # 9092 (plain, dev) / 9093 (TLS); Prometheus 9090 / VictoriaMetrics 8428.
+    # NARROW the CIDRs to your actual service/pod ranges.
+    - to:
+        - ipBlock: { cidr: 10.0.0.0/8 }
+        - ipBlock: { cidr: 172.16.0.0/12 }
+        - ipBlock: { cidr: 192.168.0.0/16 }
+      ports:
+        - { protocol: TCP, port: 5432 }
+        - { protocol: TCP, port: 8123 }
+        - { protocol: TCP, port: 8443 }
+        - { protocol: TCP, port: 9000 }
+        - { protocol: TCP, port: 9440 }
+        - { protocol: TCP, port: 9092 }
+        - { protocol: TCP, port: 9093 }
+        - { protocol: TCP, port: 9090 }
+        - { protocol: TCP, port: 8428 }
+    # DOCUMENTED HOLE: HTTPS to anywhere — the IdP/OIDC endpoint, open-data
+    # feeds (RouteViews, RIPE RIS/Atlas, RPKI, PeeringDB, CT logs, IODA),
+    # threat-intel, SIEM/webhook/ITSM endpoints. Air-gapped deployments should
+    # DELETE this rule (probectl degrades gracefully without feeds, U-006);
+    # otherwise narrow it to your egress proxy or provider CIDRs.
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 }
+      ports:
+        - { protocol: TCP, port: 443 }

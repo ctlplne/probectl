@@ -41,6 +41,7 @@ need "automountServiceAccountToken: false" "$base" "service-account token automo
 need "path: /readyz"                   "$base" "missing /readyz readiness probe (S34 drain)"
 need "path: /healthz"                  "$base" "missing /healthz liveness probe"
 need "Strict-Transport-Security"       "$base" "HSTS not set (HTTPS-by-default)"
+need "kind: NetworkPolicy"             "$base" "default profile missing NetworkPolicy (default-on, U-086)"
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 
 # 3. Large profile: NetworkPolicy + PodDisruptionBudget + HPA all present.

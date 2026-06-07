@@ -51,13 +51,21 @@ Pick a sizing profile and layer your overrides on top:
 | single-tenant default | [`probectl/values.yaml`](probectl/values.yaml) | 1 replica |
 | small | [`probectl/values-small.yaml`](probectl/values-small.yaml) | lab / pilot |
 | medium | [`probectl/values-medium.yaml`](probectl/values-medium.yaml) | 3 replicas + PDB + spread |
-| large | [`probectl/values-large.yaml`](probectl/values-large.yaml) | HPA 4–12 + PDB + NetworkPolicy |
+| large | [`probectl/values-large.yaml`](probectl/values-large.yaml) | HPA 4–12 + PDB + filled NetworkPolicy egress allow-list |
 | provider (MSP) | [`probectl/values-multitenant.yaml`](probectl/values-multitenant.yaml) | 3 replicas + anti-affinity + PDB |
 
 `values.schema.json` types every key (Helm validates it). Security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
 `/readyz` drain probe, HSTS, no default credentials) are enforced by the CI
 hardening gate — `make helm-gate` (`helm lint` + `scripts/check_helm_hardening.sh`).
+
+**NetworkPolicy is ON by default (U-086)** in every profile, with two
+documented holes until tightened per deployment: empty `ingressFrom` admits
+any in-cluster pod to the API port, and empty `egressTo` allows all egress.
+`values-large.yaml` ships the filled reference egress allow-list (datastores/
+bus/TSDB on private ranges + a clearly-marked HTTPS-anywhere rule for IdP and
+open-data feeds — delete that rule when air-gapped). Enforcement needs a
+NetworkPolicy-capable CNI; the gate asserts the object renders by default.
 Terraform + GitOps wrap this same chart; see
 [`docs/iac-gitops.md`](../../docs/iac-gitops.md). Full guide:
 [`docs/install.md`](../../docs/install.md).
