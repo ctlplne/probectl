@@ -3,7 +3,7 @@
 > **Sprint:** S19a · **Milestone:** M7 · **De-risks:** F11 (eBPF host/L7 agent), S20 (L3/L4 flows + service map), S21 (L7 visibility)
 > **Type:** time-boxed spike — the deliverable is *knowledge*, not production code.
 > **Status:** ✅ complete. **Verdict: GO**, conditional on the three risk mitigations in §10–§11.
-> **Author tooling note:** the proof in [`/spike/ebpf`](../spike/ebpf) is real, CO-RE, runnable on a privileged BTF kernel; it is intentionally **not** wired into the production build (see §3 and §12).
+> **Author tooling note:** the proof lived in `spike/ebpf` — real, CO-RE, runnable on a privileged BTF kernel, intentionally never wired into the production build. The spike tree was removed from main once superseded by `internal/ebpf` (U-080); retrieve it with `git log --follow -- spike/ebpf`.
 
 This document is the canonical input to S20. It defines what S20/S21 must build, which kernels and TLS libraries are in/out, what the capture path looks like, the expected overhead envelope, and the safety guardrails. S20 should treat §11 (scope adjustments) as its acceptance checklist.
 
@@ -33,7 +33,7 @@ eBPF is the single least-portable component in probectl. Unlike the canaries (pu
 
 Honesty first: **the spike could not load a program in this build environment**, and that is itself a useful, representative data point — it is exactly the CI/sandbox case S20 must design for ("a recorded-data fixture path for CI without kernel access").
 
-The environment was probed with `bpftool` and the kernel config. Captured evidence is checked in at [`/spike/ebpf/PROBE-RESULTS.txt`](../spike/ebpf/PROBE-RESULTS.txt). Summary:
+The environment was probed with `bpftool` and the kernel config. Captured evidence was checked in at `spike/ebpf/PROBE-RESULTS.txt` (now in git history, U-080). Summary:
 
 | Capability | This environment | Needed to… | Result |
 |---|---|---|---|
@@ -106,7 +106,7 @@ flowchart LR
   U -. counts .-> DROPS["ring-buffer drop counter"]
 ```
 
-This is deliberately the *robust* path: tracepoint args avoid per-kernel `struct sock` offset drift. S20 will additionally need CO-RE struct reads for fields the tracepoint doesn't carry (e.g. cgroup id, netns, byte/packet counts via `sock`/`tcp_sock`) — those are exactly what BTF+CO-RE relocate, and the spike confirmed the needed structs are present in BTF (§3). Source: [`spike/ebpf/bpf/l4flow.bpf.c`](../spike/ebpf/bpf/l4flow.bpf.c) + [`spike/ebpf/main.go`](../spike/ebpf/main.go).
+This is deliberately the *robust* path: tracepoint args avoid per-kernel `struct sock` offset drift. S20 will additionally need CO-RE struct reads for fields the tracepoint doesn't carry (e.g. cgroup id, netns, byte/packet counts via `sock`/`tcp_sock`) — those are exactly what BTF+CO-RE relocate, and the spike confirmed the needed structs are present in BTF (§3). Source: `spike/ebpf/bpf/l4flow.bpf.c` + `spike/ebpf/main.go` (git history; the production successor is `internal/ebpf/bpf/l4flow.bpf.c`).
 
 The captured events feed the **eBPFFlow / ServiceEdge** model S20 introduces. Identifiers should be modeled to map onto OTel resource attributes from first emission (the S6 discipline), so S22's OTLP/OBI exposure is a projection, not a retrofit.
 
@@ -125,7 +125,7 @@ L7 visibility for **encrypted** traffic works by attaching **uprobes to the TLS 
 | **Go `crypto/tls`** | **no libssl** — pure-Go; `uretprobe` unsafe on Go | static in the app binary | ⚠️ **special-case (see below)** |
 | Stripped / static (no symbols) | n/a | symbols absent | ❌ socket-layer plaintext only |
 
-**SSL_read subtlety:** at the *entry* of `SSL_read` the destination buffer is not yet populated; the plaintext must be copied at the **uretprobe (return)**. The proof ([`spike/ebpf/bpf/sslsniff.bpf.c`](../spike/ebpf/bpf/sslsniff.bpf.c)) demonstrates the simpler `SSL_write` entry case and documents the read-at-return requirement.
+**SSL_read subtlety:** at the *entry* of `SSL_read` the destination buffer is not yet populated; the plaintext must be copied at the **uretprobe (return)**. The proof (`spike/ebpf/bpf/sslsniff.bpf.c`, git history; production successor `internal/ebpf/bpf/sslsniff.bpf.c`) demonstrates the simpler `SSL_write` entry case and documents the read-at-return requirement.
 
 **The Go problem (the one to plan around).** Go ships its own TLS implementation, so the OpenSSL uprobe approach is *completely inapplicable*. Worse, `uretprobe` does not work reliably on Go binaries because of Go's stack management and ABI. The established technique ([Speedscale](https://speedscale.com/blog/ebpf-go-design-notes-1/), [eCapture GoTLS](https://github.com/gojue/ecapture)) is to **disassemble the target Go binary to locate `RET` instruction offsets and attach uprobes there**, extract arguments per the **Go register ABI (1.17+)**, and **track the goroutine ID** (goroutines are not pinned 1:1 to OS threads) via DWARF/offset tables. This is a meaningfully different, more brittle code path than the C-library case.
 
@@ -199,7 +199,7 @@ For S21 specifically:
 
 ## 12. The vertical proof
 
-[`/spike/ebpf`](../spike/ebpf) contains a **real, CO-RE, runnable-on-a-BTF-kernel** proof and is **excluded from the production build** on purpose (separate Go module, not in `go.work`; not built/linted/tested by CI — it is throwaway de-risking code, per the sprint charter "not production code"):
+`spike/ebpf` contained a **real, CO-RE, runnable-on-a-BTF-kernel** proof, **excluded from the production build** on purpose (separate Go module, not in `go.work`; not built/linted/tested by CI — throwaway de-risking code, per the sprint charter "not production code"). It was removed from main once `internal/ebpf` superseded it (U-080); `git log --follow -- spike/ebpf` retrieves it:
 
 * `bpf/l4flow.bpf.c` — CO-RE L3/L4 capture via the `inet_sock_set_state` tracepoint → ring buffer.
 * `bpf/sslsniff.bpf.c` — minimal `SSL_write` uprobe demonstrating plaintext-before-encryption capture (the S21 path).

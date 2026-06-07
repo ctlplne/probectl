@@ -221,13 +221,11 @@ fuzz-smoke: ## Run each fuzz target briefly to catch crashers (CI smoke; crasher
 .PHONY: lint
 lint: lint-go lint-python ## Run all linters (Go + Python).
 
-# The gofmt scope excludes generated code (*/gen/*) and throwaway spikes
-# (./spike/* — separate out-of-workspace modules, not built/tested by CI; see
-# spike/README.md). go vet runs over GO_MODULE_DIRS and golangci-lint over the
-# workspace, so neither touches spike/ either.
+# The gofmt scope excludes generated code (*/gen/*). (The throwaway spike/
+# tree was removed from main in U-080 — git history preserves it.)
 .PHONY: lint-go
 lint-go: ## gofmt check + go vet + golangci-lint + crypto-import guard + editions guard.
-	@files=$$(find . -name '*.go' -not -path '*/gen/*' -not -path './spike/*'); \
+	@files=$$(find . -name '*.go' -not -path '*/gen/*'); \
 		bad=$$(gofmt -l $$files); \
 		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
@@ -244,7 +242,7 @@ lint-python: ## Lint the Python analyzer (ruff + black --check).
 
 .PHONY: fmt
 fmt: ## Auto-format Go and Python.
-	gofmt -w $$(find . -name '*.go' -not -path '*/gen/*' -not -path './spike/*')
+	gofmt -w $$(find . -name '*.go' -not -path '*/gen/*')
 	-ruff check --fix analyzer
 	-black analyzer
 
