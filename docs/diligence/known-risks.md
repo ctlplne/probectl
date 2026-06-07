@@ -22,7 +22,7 @@ the status with the commit hash rather than deleting the row.
 
 | ID(s) | Risk | Status | Owner | Closes via |
 |---|---|---|---|---|
-| RED-001 / SEC-001 | Dev auth mode is runtime-selectable (default is fail-closed `session`, but the code path ships in release binaries) | OPEN | eng | Sprint 3 (compile-out) |
+| RED-001 / SEC-001 | Dev auth mode was runtime-selectable in every binary | **CLOSED (Sprint 3, c114a05)** — compiled out of release binaries (-tags devauth only), triple-gated (ack + loopback), no-devauth-in-release CI gate | eng | done |
 | WIRE-004 | Bare binary falls back to plaintext HTTP when TLS unconfigured (`server.go:415`); deploys are HTTPS-by-default but the binary fail-opens | OPEN | eng | Sprint 12 |
 | SEC-003 | Provider/operator login (`ee/provider/handler.go`) sits outside the tenant-login rate limiter (U-024 covers tenant SSO only) | OPEN | eng | Sprint 9 |
 | SEC-004 | OIDC nonce generated and sent but never validated on callback (`internal/control/auth.go:282`) | OPEN | eng | Sprint 9 |
@@ -32,8 +32,8 @@ the status with the commit hash rather than deleting the row.
 | WIRE-006 | No application-layer replay/freshness protection on ingestion (mTLS limits the attacker to a compromised agent) | OPEN | eng | Sprint 12 |
 | ARCH-002 / SEC-005 / TENANT-108 | ClickHouse reached via raw HTTP with string-escaped queries (`chStr`) — injection hardening is manual | OPEN | eng | Sprint 7 (driver + bound params) |
 | TENANT-102 (residual) | CH row policies exist (`flowstore/clickhouse.go:229`) but the service account is policy-exempt — app compromise = cross-tenant read | OPEN | eng | Sprint 5 |
-| CODE-002 | Ignored `json.Unmarshal` errors on ABAC/audit/store reads (`store/abac.go:27,30` is fail-open-ish under deny-override) | OPEN | eng | Sprint 2 |
-| CODE-006 | Committed test private key `internal/auth/testdata/oidc_test_key.pem` | OPEN | eng | Sprint 1 |
+| CODE-002 | Ignored `json.Unmarshal` errors on ABAC/audit/store reads (`store/abac.go:27,30` is fail-open-ish under deny-override) | OPEN | eng | Sprint 2 (next) |
+| CODE-006 | Committed test private key | **CLOSED (Sprint 1, 425143b)** — key deleted, runtime keygen via internal/crypto, gitleaks secret-scan gate | eng | done |
 | SCALE-010 | `probectl.otlp.metrics` topic has no consumer — externally-ingested OTLP either drops or the topic is dead code | OPEN | eng | Sprint 16 |
 | OPS-002 / COMPLY-002 | Backup artifacts unencrypted; tenant erasure attestation does not cover backups | OPEN | eng | Sprint 27 |
 | COMPLY-003 | Residency is a reporting label for pooled tenants (honest per U-042); siloed/hybrid enforcement not yet implemented | OPEN | eng | Sprint 28 (scoped: enforce for siloed/hybrid, disclose for pooled) |
