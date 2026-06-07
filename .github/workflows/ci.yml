@@ -94,6 +94,32 @@ jobs:
       - name: Endpoint agent cross-OS build (Linux/macOS/Windows)
         run: make endpoint-build
 
+  # U-049: RCA quality eval — NON-BLOCKING (continue-on-error). Runs the
+  # >=20-scenario eval set through the real planner->engine->synthesize
+  # pipeline against the deterministic builtin model and uploads the JSON
+  # score report as an artifact, so answer accuracy / citation precision are
+  # tracked over time without gating merges (initially, per the register).
+  rca-eval:
+    name: rca-eval (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Run the RCA eval set (U-049)
+        run: PROBECTL_RCA_EVAL_REPORT=$PWD/rca-eval-report.json go test -count=1 -v -run TestRCAEval ./internal/ai/eval/ | tee rca-eval.log
+      - name: Score summary
+        run: grep -h "rca-eval:" rca-eval.log || true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: rca-eval-report
+          path: |
+            rca-eval-report.json
+            rca-eval.log
+          retention-days: 90
+
   coverage:
     name: coverage
     # Per-package statement-coverage floor on the service-free logic / parser /
