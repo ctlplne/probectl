@@ -25,6 +25,37 @@ jobs:
       - name: Every workflow action is SHA-pinned (U-007)
         run: ./scripts/check_action_pins.sh
 
+  secret-scan:
+    # Sprint 1 (CODE-006): no committed secrets, ever. gitleaks scans the
+    # working tree at HEAD (--no-git: history is immutable; the one historical
+    # test-key was a documented throwaway, removed in Sprint 1). Allowlist
+    # policy lives in .gitleaks.toml (deliberate redaction-test fixtures only).
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install gitleaks (pinned, sumdb-verified)
+        run: go install github.com/zricethezav/gitleaks/v8@v8.18.4
+      - name: Scan the tree for secrets
+        run: gitleaks detect --no-git --no-banner --source . --config .gitleaks.toml
+
+  verify-branch-protection:
+    # Sprint 1 (TEST-002, SUPPLY-007): .github/rulesets/main.json is the
+    # committed source of truth; this job reads the EFFECTIVE rules on the
+    # default branch (readable with the default token) and fails on drift —
+    # so "CI is a merge gate" is proven from inside the repo, every run.
+    name: verify-branch-protection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Compare live rules to the committed ruleset
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/check_branch_protection.sh
+
   lint-go:
     name: lint-go
     runs-on: ubuntu-latest
@@ -83,7 +114,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Unit tests (all workspace modules)
-        run: make test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee test-go.log
+      # Sprint 1 (DATAROOM-011): the test log is a retained receipt.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: test-go-log
+          path: test-go.log
+          retention-days: 90
       - name: Fuzz smoke (untrusted-input parsers must not crash)
         run: make fuzz-smoke
       - name: Agent overhead bench smoke (U-051 — benches compile + run; the
@@ -125,7 +165,14 @@ jobs:
     # Per-package statement-coverage floor on the service-free logic / parser /
     # probe packages (scripts/check_coverage.sh). Stateful DB/transport packages
     # are gated for correctness by the integration + cross-tenant-isolation jobs.
+    #
+    # Sprint 1 (TEST-008, DATAROOM-005): coverage.out + a per-package summary
+    # are retained as workflow artifacts on every run (the diligence receipt),
+    # and PRs get a best-effort summary comment. No bot ever pushes to main.
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -133,6 +180,25 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: Coverage gate
         run: make cover-gate
+      - name: Coverage summary (receipt)
+        if: always()
+        run: |
+          { echo "## Coverage summary ($(git rev-parse --short HEAD))"; echo; echo '```'; \
+            go tool cover -func=coverage.out | tail -40; echo '```'; } > coverage-summary.txt
+          tail -3 coverage-summary.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-receipt
+          path: |
+            coverage.out
+            coverage-summary.txt
+          retention-days: 90
+      - name: PR comment (best-effort)
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr comment ${{ github.event.pull_request.number }} --body-file coverage-summary.txt || true
 
   test-python:
     name: test-python
@@ -551,7 +617,9 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: govulncheck (Go dependencies)
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: |
+          set -o pipefail
+          go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./... 2>&1 | tee govulncheck-report.txt
       - name: Trivy filesystem scan (vulns + secrets)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -561,6 +629,20 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+          format: table
+          output: trivy-fs-report.txt
+      - name: Show trivy report
+        if: always()
+        run: cat trivy-fs-report.txt || true
+      # Sprint 1 (DATAROOM-011): scan outputs retained as data-room receipts.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: dependency-scan-receipts
+          path: |
+            govulncheck-report.txt
+            trivy-fs-report.txt
+          retention-days: 90
 
   build-images:
     name: build-images

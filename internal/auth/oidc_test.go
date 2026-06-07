@@ -2,24 +2,27 @@ package auth
 
 import (
 	"context"
+	stdcrypto "crypto"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	jose "github.com/go-jose/go-jose/v4"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // mockIDP is a minimal OIDC identity provider for tests: it serves a discovery
 // document, a JWKS built from the test key, and a token endpoint that returns a
-// signed ID token. The signing key comes from a static PEM fixture, so the test
-// performs no key generation and imports no crypto primitive (x509 + go-jose
-// only — the FIPS guard stays green).
+// signed ID token. The signing key is GENERATED at test setup via
+// internal/crypto.GenerateRSAKeyPEM (CODE-006: no committed key fixture, ever),
+// so this file still imports no crypto primitive (x509 + go-jose only — the
+// FIPS guard stays green).
 type mockIDP struct {
 	srv      *httptest.Server
 	signer   jose.Signer
@@ -31,17 +34,17 @@ type mockIDP struct {
 
 func newMockIDP(t *testing.T, clientID string) *mockIDP {
 	t.Helper()
-	pemBytes, err := os.ReadFile("testdata/oidc_test_key.pem")
+	pemBytes, err := crypto.GenerateRSAKeyPEM(2048)
 	if err != nil {
-		t.Fatalf("read key fixture: %v", err)
+		t.Fatalf("generate signing key: %v", err)
 	}
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		t.Fatal("decode PEM fixture")
+		t.Fatal("decode generated PEM")
 	}
-	// x509 is allowed by the crypto guard; the returned type is *rsa.PrivateKey
+	// x509 is allowed by the crypto guard; the parsed type reaches go-jose
 	// without this file importing crypto/rsa.
-	priv, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	priv, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
 		t.Fatalf("parse key: %v", err)
 	}
@@ -63,7 +66,7 @@ func newMockIDP(t *testing.T, clientID string) *mockIDP {
 	}
 
 	jwks := jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
-		Key: &priv.PublicKey, KeyID: "test", Use: "sig", Algorithm: "RS256",
+		Key: priv.(stdcrypto.Signer).Public(), KeyID: "test", Use: "sig", Algorithm: "RS256",
 	}}}
 
 	mux := http.NewServeMux()

@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 1: CI is a proven merge gate — committed branch ruleset
+  (.github/rulesets/main.json) + CODEOWNERS + a verify-branch-protection
+  job that fails on live-vs-committed drift (TEST-002, SUPPLY-007,
+  CODE-007); the committed OIDC test key is gone — the mock IdP
+  generates its key at test setup — and a pinned gitleaks secret-scan
+  job gates every push/PR (CODE-006); coverage/test/scan outputs are
+  retained as 90-day workflow artifacts with a PR coverage comment,
+  documented in docs/quality/coverage.md (TEST-008, DATAROOM-005,
+  DATAROOM-011); .gitignore asserted + docs/dev/repo-hygiene.md
+  (CODE-003, triaged to gitignore-assert only).
+
 - Sprint 0: observe-only denylist hardened — `bpf_probe_write_user` + the
   full state-mutating helper families forbidden (EBPF-006); known-risks
   register + finding-ID reconciliation map committed under

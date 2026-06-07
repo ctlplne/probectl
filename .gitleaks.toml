@@ -1,0 +1,28 @@
+# gitleaks config for the secret-scan CI gate (Sprint 1 / CODE-006).
+#
+# The scan runs with --no-git (working tree at HEAD): history is immutable and
+# the one key that ever lived there (the OIDC test fixture, removed in Sprint 1)
+# was a documented throwaway, never a live credential.
+#
+# Allowlist policy: ONLY deliberate fake secrets inside redaction/no-secrets
+# TESTS (the tests exist to prove these strings get masked) and named
+# false-positive patterns. Never allowlist a real credential path.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Deliberate test fixtures + named false positives"
+paths = [
+  # These tests PLANT fake secrets to prove support bundles / diagnostics
+  # redact them. The strings are the test's input, not credentials.
+  '''internal/control/diagnostics_test\.go''',
+  '''internal/support/support_test\.go''',
+  # The AI redaction test plants a dummy PEM block to prove masking.
+  '''internal/ai/redact_test\.go''',
+]
+regexes = [
+  # gosnmp protocol constants (e.g. AuthenticationProtocol = gosnmp.SHA512)
+  # trip the generic-api-key rule; they are enum identifiers, not secrets.
+  '''gosnmp\.(SHA|MD5|AES|DES|NoAuth|NoPriv)[0-9A-Za-z]*''',
+]

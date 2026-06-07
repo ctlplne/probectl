@@ -1,0 +1,26 @@
+# CODEOWNERS (Sprint 1 / CODE-007). Solo-founder repo: one owner everywhere
+# today; the per-directory rows exist so ownership lines are ALREADY drawn
+# when contributors arrive — edit a row, not the model. Later entries win.
+
+*               @imfeelingtheagi
+
+# Control plane, agents, domain logic
+/cmd/           @imfeelingtheagi
+/internal/      @imfeelingtheagi
+
+# Commercial tree (license boundary — changes here interact with editions-gate)
+/ee/            @imfeelingtheagi
+
+# Wire contract (buf-breaking gate) and storage schema (migration-gate)
+/proto/         @imfeelingtheagi
+/migrations/    @imfeelingtheagi
+
+# Deploy surface (helm/compose/terraform hardening gates)
+/deploy/        @imfeelingtheagi
+
+# CI + rulesets: changes to the gates themselves get owner review
+/.github/       @imfeelingtheagi
+
+# Frontend + analyzer
+/web/           @imfeelingtheagi
+/analyzer/      @imfeelingtheagi
