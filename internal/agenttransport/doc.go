@@ -7,7 +7,7 @@
 // tenant-attributable at the source (F50).
 //
 // It implements Register, Attest, Heartbeat, and StreamResults (agent->server).
-// StreamConfig is an unimplemented stub kept for wire compatibility (U-044):
+// StreamConfig is an EXPLICIT DENY kept for wire compatibility (U-044/ARCH-003):
 // config push is deliberately not a shipped capability — agents load config
 // from local YAML/env only, and there is no remote control channel (see
 // docs/adr/config-push.md). Registration persists to the agents registry via

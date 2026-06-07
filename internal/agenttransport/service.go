@@ -131,24 +131,15 @@ func (svc *service) Heartbeat(ctx context.Context, _ *agentv1.HeartbeatRequest) 
 	return &agentv1.HeartbeatResponse{ConfigStale: false, HeartbeatIntervalSeconds: heartbeatIntervalSeconds}, nil
 }
 
-// StreamConfig is an unimplemented stub (U-044): it sends one empty epoch-0
-// frame and holds the stream open until the agent disconnects. Config push is
-// deliberately NOT a shipped capability — agents load config locally only —
-// and implementing it requires the signed-push ADR (docs/adr/config-push.md).
-func (svc *service) StreamConfig(_ *agentv1.StreamConfigRequest, stream grpc.ServerStreamingServer[agentv1.StreamConfigResponse]) error {
-	id, err := identityFromContext(stream.Context())
-	if err != nil {
-		return status.Error(codes.Unauthenticated, err.Error())
-	}
-	if err := stream.Send(&agentv1.StreamConfigResponse{Epoch: 0}); err != nil {
-		return err
-	}
-	svc.log.Debug("config stream opened", "tenant", id.TenantID, "agent", id.AgentID)
-	select {
-	case <-stream.Context().Done(): // agent disconnected
-	case <-svc.shutdown: // server shutting down
-	}
-	return nil
+// StreamConfig is an EXPLICIT DENY (Sprint 13, ARCH-003; ADR
+// docs/adr/config-push.md, U-044): the RPC stays in the schema for wire
+// compatibility, but the server refuses it immediately — no frame is sent, no
+// stream is held open, and the agent has no code path that calls it. Config
+// push is deliberately not a capability; implementing it requires the
+// signed-push ADR, never a quiet handler change.
+func (svc *service) StreamConfig(_ *agentv1.StreamConfigRequest, _ grpc.ServerStreamingServer[agentv1.StreamConfigResponse]) error {
+	return status.Error(codes.Unimplemented,
+		"config push is not a capability; see docs/adr/config-push.md (U-044)")
 }
 
 // StreamResults accepts a stream of results, publishes each to the result bus,

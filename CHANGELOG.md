@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 13: StreamConfig is now an ENFORCED deny (ARCH-003, within
+  the standing U-044 ADR — founder decision: the RPC stays in the
+  schema for wire compatibility). The old stub sent an empty epoch-0
+  frame and held the stream open; the server now answers an immediate
+  codes.Unimplemented citing docs/adr/config-push.md — no frame, no
+  held stream — with a test that fails the build if a frame ever comes
+  back, and a static test asserting the agent binary contains no
+  client invocation. Zero proto change (buf-breaking stays green); the
+  proto conformance test still sees the RPC in the schema; ADR
+  addendum records the hardening and the audit finding it answers.
+
 - Sprint 12: transport security (WIRE-003/004/005/006/007, RED-008).
   Revocation is now FED, not just checked: `probectl-control
   revoke-agent` + the audited admin API resolve an agent's issued

@@ -15,7 +15,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 
 	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
@@ -165,13 +167,15 @@ func TestAgentRegistersOverMTLS(t *testing.T) {
 		t.Fatalf("heartbeat: %v", err)
 	}
 
+	// Sprint 13 (ARCH-003): StreamConfig is an EXPLICIT DENY — the call is
+	// refused with Unimplemented before any frame; no stream is held open.
 	scCtx, scCancel := context.WithCancel(ctx)
 	cs, err := client.StreamConfig(scCtx, &agentv1.StreamConfigRequest{})
 	if err != nil {
-		t.Fatalf("stream config: %v", err)
+		t.Fatalf("stream config open: %v", err)
 	}
-	if _, err := cs.Recv(); err != nil {
-		t.Fatalf("config recv: %v", err)
+	if _, err := cs.Recv(); status.Code(err) != codes.Unimplemented {
+		t.Fatalf("StreamConfig must be DENIED with Unimplemented, got %v", err)
 	}
 	scCancel()
 

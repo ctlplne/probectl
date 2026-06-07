@@ -46,7 +46,7 @@ the status with the commit hash rather than deleting the row.
 
 | Decision | Rationale | Reference |
 |---|---|---|
-| StreamConfig RPC stays in the schema (explicit deny, no client stub) | Wire compatibility; removal = buf-breaking for zero capability gain; agent has no config-apply path | `docs/adr/config-push.md` (U-044) + Sprint 13 hardening |
+| StreamConfig RPC stays in the schema (explicit deny, no client stub) | Wire compatibility; removal = buf-breaking for zero capability gain; agent has no config-apply path. **Sprint 13 (ARCH-003) enforced it**: the server answers immediate `Unimplemented` citing the ADR (no frame, no held stream — deny test fails the build if a frame returns); a static test asserts the agent has no client invocation; zero proto change | `docs/adr/config-push.md` (U-044) + Sprint 13 hardening (done) |
 | NetworkPolicy default keeps two documented holes; strict profile available | Default-deny `ingressFrom` locks out unknown ingress controllers; holes are loud + documented | U-086 + `values-strict.yaml` (Sprint 26) |
 | Topology/detections rebuild on restart (no persistence) | They are caches of durable streams; cold-start tests prove rebuild; only silences/acks (operator inputs) get persisted | `docs/adr/volatile-stores.md` (U-047) + Sprint 16 |
 | Isolation tests stay behind tags/skip-harness | They require live PG/CH; the CI job is required — coverage is enforced where it can run | Sprint 6 triage decision |

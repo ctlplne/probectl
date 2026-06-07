@@ -39,6 +39,20 @@ The RPC itself is kept (removal is a buf-breaking change and the stub costs
 nothing); `Heartbeat.config_stale` likewise remains a no-op field until a
 signed design lands.
 
+## Addendum — Sprint 13 hardening (ARCH-003, blind second audit)
+
+The blind audit read the held-open stub as remote-config attack surface
+(ARCH-003). The triage verdict: the concern was overstated — the agent has no
+config-apply path at all — but the stub's behavior (send an empty epoch-0
+frame, hold the stream open) was pointless surface for a non-capability. The
+decision above STANDS unchanged; within it, the server now answers
+StreamConfig with an immediate, explicit `codes.Unimplemented` citing this
+ADR: no frame is ever sent, no stream is ever held, and a test fails the
+build if a frame sneaks back (`TestStreamConfigExplicitDeny`). A second
+static test asserts the agent binary contains no client invocation. The RPC
+remains in the schema — zero wire change, buf-breaking stays green — so the
+de-document-don't-implement posture is now also enforce-don't-serve.
+
 ## Revisit when
 
 A customer-driven need for centrally-pushed probe definitions, or fleet scale
