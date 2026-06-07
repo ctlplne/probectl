@@ -128,8 +128,8 @@ test-integration: ## Run integration tests across modules (needs a database / de
 	done
 
 .PHONY: test-python
-test-python: ## Run the Python analyzer test suite (pytest).
-	cd analyzer && python -m pytest
+test-python: ## Run the Python analyzer test suite with the coverage floor (U-094).
+	cd analyzer && python -m pytest --cov=probectl_analyzer --cov-report=term
 
 .PHONY: cover
 cover: ## Run unit tests with a coverage profile.
