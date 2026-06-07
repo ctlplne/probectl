@@ -25,14 +25,26 @@ import (
 // the full login flow (state cookie → callback → JIT provisioning → session) run
 // without a real IdP or network. The real OIDC path is covered by the auth
 // package's mock-IdP test.
-type fakeProvider struct{ ident auth.Identity }
+type fakeProvider struct {
+	ident auth.Identity
+	// echoNonce mimics a correct IdP: the nonce sent at AuthCodeURL comes
+	// back as the ID token's nonce claim (SEC-004). wrongNonce simulates a
+	// replayed/substituted token.
+	lastNonce  string
+	wrongNonce bool
+}
 
-func (f fakeProvider) AuthCodeURL(state, _ string) string {
+func (f *fakeProvider) AuthCodeURL(state, nonce string) string {
+	f.lastNonce = nonce
 	return "https://idp.example/authorize?state=" + state
 }
 
-func (f fakeProvider) Exchange(context.Context, string) (*auth.Identity, error) {
+func (f *fakeProvider) Exchange(context.Context, string) (*auth.Identity, error) {
 	id := f.ident
+	id.Nonce = f.lastNonce
+	if f.wrongNonce {
+		id.Nonce = "replayed-token-nonce"
+	}
 	return &id, nil
 }
 
@@ -58,7 +70,7 @@ func setupSessionAPI(t *testing.T, ident auth.Identity) (*Server, *store.DB) {
 	t.Cleanup(db.Close)
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "session", SessionTTL: time.Hour}
 	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
-	srv.SetSSOProviderFactory(fakeFactory{p: fakeProvider{ident: ident}})
+	srv.SetSSOProviderFactory(fakeFactory{p: &fakeProvider{ident: ident}})
 	return srv, db
 }
 
@@ -124,14 +136,19 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	}
 	state := findCookie(login.Result().Cookies(), oauthStateCookie)
 	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
+	nonceCk := findCookie(login.Result().Cookies(), oauthNonceCookie)
 	if state == nil || state.Value == "" {
 		t.Fatal("login did not set the oauth state cookie")
 	}
+	if nonceCk == nil || nonceCk.Value == "" {
+		t.Fatal("login did not set the oauth nonce cookie (SEC-004)")
+	}
 
-	// 2. Callback with matching state → 302 + session cookie.
+	// 2. Callback with matching state + nonce → 302 + session cookie.
 	cb := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state.Value, nil)
 	cb.AddCookie(state)
 	cb.AddCookie(tenantCk)
+	cb.AddCookie(nonceCk)
 	cbRec := httptest.NewRecorder()
 	h.ServeHTTP(cbRec, cb)
 	if cbRec.Code != http.StatusFound {
@@ -186,6 +203,54 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	}
 	if rec := withCookie(t, h, http.MethodGet, "/v1/me", sess); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("after logout: want 401, got %d", rec.Code)
+	}
+}
+
+// SEC-004: a callback whose ID token carries a DIFFERENT nonce than the one
+// minted at login is rejected — replayed/substituted tokens fail closed.
+func TestCallbackRejectsNonceMismatch(t *testing.T) {
+	srv, _ := setupSessionAPI(t, auth.Identity{Email: "nonce@example.com"})
+	evil := &fakeProvider{ident: auth.Identity{Email: "nonce@example.com"}, wrongNonce: true}
+	srv.SetSSOProviderFactory(fakeFactory{p: evil})
+	h := srv.Handler()
+
+	login := httptest.NewRecorder()
+	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	state := findCookie(login.Result().Cookies(), oauthStateCookie)
+	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
+	nonceCk := findCookie(login.Result().Cookies(), oauthNonceCookie)
+
+	cb := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state.Value, nil)
+	cb.AddCookie(state)
+	cb.AddCookie(tenantCk)
+	cb.AddCookie(nonceCk)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, cb)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("nonce mismatch must be 401, got %d: %s", rec.Code, rec.Body)
+	}
+	if findCookie(rec.Result().Cookies(), auth.SessionCookie) != nil {
+		t.Fatal("nonce mismatch must not mint a session")
+	}
+}
+
+// SEC-004: a callback MISSING the nonce cookie is rejected outright.
+func TestCallbackRejectsMissingNonceCookie(t *testing.T) {
+	srv, _ := setupSessionAPI(t, auth.Identity{Email: "nonce2@example.com"})
+	h := srv.Handler()
+
+	login := httptest.NewRecorder()
+	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	state := findCookie(login.Result().Cookies(), oauthStateCookie)
+	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
+
+	cb := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state.Value, nil)
+	cb.AddCookie(state)
+	cb.AddCookie(tenantCk) // nonce cookie deliberately omitted
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, cb)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing nonce cookie must be 401, got %d: %s", rec.Code, rec.Body)
 	}
 }
 

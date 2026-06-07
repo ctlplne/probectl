@@ -81,5 +81,5 @@ func (p *oidcProvider) Exchange(ctx context.Context, code string) (*Identity, er
 	if name == "" {
 		name = claims.PreferredUsername
 	}
-	return &Identity{Subject: claims.Subject, Email: claims.Email, DisplayName: name}, nil
+	return &Identity{Subject: claims.Subject, Email: claims.Email, DisplayName: name, Nonce: idToken.Nonce}, nil
 }

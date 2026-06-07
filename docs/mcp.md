@@ -63,7 +63,17 @@ probectl-control mcp-token --user <user-uuid> [--tenant <id>] [--name laptop]
 
 **stdio** (local — for Claude Desktop). The client spawns the binary; the token
 comes from `PROBECTL_MCP_TOKEN`. Logs go to stderr so stdout stays a clean JSON-RPC
-channel:
+channel.
+
+*Local-trust model (RED-007, verified):* the **binary entry authenticates the
+token before serving anything** — `mcp-stdio` resolves `PROBECTL_MCP_TOKEN`
+against the `mcp_tokens` store and refuses to start on a missing/invalid
+token (pinned by `TestMCPAuthRequiredBeforeServing`). What stdio deliberately
+trusts is the **local invoking process**: anyone able to spawn the binary
+with the env var IS the principal that token names — process isolation on the
+workstation is the boundary, exactly like any local CLI credential. Tenant
+scoping + RBAC still apply to every call; the transport adds no extra
+privilege.
 
 ```
 PROBECTL_MCP_TOKEN=<token> PROBECTL_DATABASE_URL=... probectl-control mcp-stdio

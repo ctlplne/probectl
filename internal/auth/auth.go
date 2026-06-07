@@ -18,6 +18,9 @@ type Identity struct {
 	Subject     string
 	Email       string
 	DisplayName string
+	// Nonce is the ID token's nonce claim (SEC-004): the callback compares it
+	// to the value minted at login — a mismatch/replayed token is refused.
+	Nonce string
 }
 
 // Session is a server-side session. The opaque token is never stored — only its

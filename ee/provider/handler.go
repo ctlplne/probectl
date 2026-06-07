@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +41,12 @@ type Handler struct {
 	sessions   *Sessions
 	tenantAuth TenantAuth
 	log        *slog.Logger
+
+	// limiter throttles the operator login (SEC-003): per source IP and per
+	// account, exponential lockout, lockouts audited to the PROVIDER stream.
+	// The tenant login has had this since U-024; the provider plane is the
+	// HIGHEST-privilege login, so it gets the same brake.
+	limiter *auth.Limiter
 
 	bootstrapToken string
 	secureCookies  bool
@@ -109,6 +117,14 @@ func NewHandler(svc *Service, sessions *Sessions, tenantAuth TenantAuth, log *sl
 		svc: svc, sessions: sessions, tenantAuth: tenantAuth, log: log,
 		bootstrapToken: bootstrapToken, secureCookies: secureCookies,
 		mux: http.NewServeMux(),
+	}
+	// SEC-003: brute-force brake on the operator login, ON by construction
+	// (zero values = the limiter's safe defaults: 5 failures / 1m window /
+	// 1m lockout doubling to 1h).
+	h.limiter = auth.NewLimiter(0, 0, 0)
+	h.limiter.OnLockout = func(key string, failures int, lockout time.Duration) {
+		log.Warn("provider auth lockout", "key", key, "failures", failures, "lockout", lockout.String())
+		svc.RecordLoginLockout(context.Background(), key, failures, lockout)
 	}
 
 	// Public (they establish the operator session or the enrollment).
@@ -319,9 +335,24 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	if err := decode(r, &in); err != nil {
 		return err
 	}
+	// SEC-003: throttle BEFORE authentication — per source IP and per
+	// account. A locked dimension refuses even a correct password.
+	keys := []string{"pip:" + providerClientIP(r), "pacct:" + strings.ToLower(strings.TrimSpace(in.Email))}
+	for _, k := range keys {
+		if ok, retry := h.limiter.Allow(k); !ok {
+			w.Header().Set("Retry-After", strconv.Itoa(int(retry.Seconds())+1))
+			return errRateLimited
+		}
+	}
 	op, err := h.svc.Login(r.Context(), in.Email, in.Password, in.TOTP)
 	if err != nil {
+		for _, k := range keys {
+			h.limiter.Fail(k)
+		}
 		return err
+	}
+	for _, k := range keys {
+		h.limiter.Success(k)
 	}
 	token, err := h.sessions.Issue(op)
 	if err != nil {
@@ -538,7 +569,9 @@ func (h *Handler) handleConsentDecide(w http.ResponseWriter, r *http.Request, te
 // --- plumbing ---
 
 var (
-	errUnauthorized         = errors.New("provider: operator authentication required")
+	errUnauthorized = errors.New("provider: operator authentication required")
+	// errRateLimited refuses a throttled/locked login dimension (SEC-003).
+	errRateLimited          = errors.New("provider: too many login attempts (locked, backing off)")
 	errForbiddenRole        = errors.New("provider: insufficient role")
 	errConsentNotConfigured = errors.New("provider: tenant-session auth is not configured on this deployment")
 	errBadDecision          = errors.New("provider: decision must be approve or deny")
@@ -563,11 +596,25 @@ func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) error {
 	return json.NewEncoder(w).Encode(v)
 }
 
+// providerClientIP is the throttle key source: the transport RemoteAddr.
+// Forwarded headers are deliberately NOT trusted (spoofable) — same stance as
+// the tenant limiter (U-024); a fronting ingress that should count real client
+// IPs must rewrite the connection source (PROXY protocol), not a header.
+func providerClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // writeErr maps service errors onto the core error envelope shape
 // ({"error":{"code","message"}}), so both surfaces speak one dialect.
 func (h *Handler) writeErr(w http.ResponseWriter, err error) {
 	code, status := "internal", http.StatusInternalServerError
 	switch {
+	case errors.Is(err, errRateLimited):
+		code, status = "rate_limited", http.StatusTooManyRequests
 	case errors.Is(err, errUnauthorized):
 		code, status = "unauthorized", http.StatusUnauthorized
 	case errors.Is(err, errForbiddenRole), errors.Is(err, ErrForbidden), errors.Is(err, ErrNotGrantee):

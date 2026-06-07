@@ -112,7 +112,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 		log = slog.Default()
 	}
 	return NewHandler(svc, NewSessions(), tenantAuth, log,
-		cfg.ProviderBootstrapToken, cfg.HSTSEnabled).
+		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
 		WithMetering(d.Metering).WithWhiteLabel(d.WhiteLabel).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
 }

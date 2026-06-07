@@ -76,6 +76,7 @@ var allPermissionKeys = []string{
 // into, so the callback can pick the right per-tenant provider.
 const (
 	oauthStateCookie  = "probectl_oauth_state"
+	oauthNonceCookie  = "probectl_oauth_nonce"
 	oauthTenantCookie = "probectl_oauth_tenant"
 	oauthCookieTTL    = 10 * time.Minute
 )
@@ -298,6 +299,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	s.setOAuthCookie(w, oauthStateCookie, state)
+	s.setOAuthCookie(w, oauthNonceCookie, nonce)
 	s.setOAuthCookie(w, oauthTenantCookie, tid.String())
 	http.Redirect(w, r, prov.AuthCodeURL(state, nonce), http.StatusFound)
 	return nil
@@ -335,6 +337,15 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	if ident.Email == "" {
 		return apierror.Unauthorized("identity provider returned no email")
 	}
+	// SEC-004: the ID token's nonce claim must equal the value minted at
+	// login (stored in the transient cookie). A missing cookie or a mismatch
+	// REFUSES the login — replayed/substituted ID tokens fail closed.
+	nonceCookie, _ := r.Cookie(oauthNonceCookie)
+	if nonceCookie == nil || nonceCookie.Value == "" || ident.Nonce != nonceCookie.Value {
+		s.log.Warn("sso nonce mismatch", "have_cookie", nonceCookie != nil)
+		return apierror.Unauthorized("oidc nonce mismatch")
+	}
+	s.clearOAuthCookie(w, oauthNonceCookie)
 	// Per-account throttle (U-024): a locked account is refused even with a
 	// successful IdP exchange; later failures below count against it.
 	if err := s.checkAccountThrottle(w, tid.String(), ident.Email); err != nil {
@@ -426,7 +437,7 @@ func (s *Server) setOAuthCookie(w http.ResponseWriter, name, value string) {
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.TLSEnabled(),
+		Secure:   s.cfg.CookieSecure(),
 		SameSite: http.SameSiteLaxMode,
 		Expires:  time.Now().Add(oauthCookieTTL),
 	})
@@ -438,7 +449,7 @@ func (s *Server) clearOAuthCookie(w http.ResponseWriter, name string) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   s.cfg.TLSEnabled(),
+		Secure:   s.cfg.CookieSecure(),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})

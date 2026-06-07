@@ -107,6 +107,7 @@ func (m *mockIDP) mintIDToken(t *testing.T) string {
 		"iat":   now.Unix(),
 		"email": m.email,
 		"name":  m.name,
+		"nonce": "nonce-abc", // SEC-004: surfaced as Identity.Nonce
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
@@ -156,6 +157,11 @@ func TestOIDCProviderExchange(t *testing.T) {
 	}
 	if id.Subject != "user-123" || id.Email != "alice@example.com" || id.DisplayName != "Alice Example" {
 		t.Fatalf("wrong identity: %+v", id)
+	}
+	// SEC-004: the ID token's nonce claim surfaces on the identity so the
+	// callback can enforce it against the login-minted value.
+	if id.Nonce != "nonce-abc" {
+		t.Fatalf("Identity.Nonce = %q, want the token's nonce claim", id.Nonce)
 	}
 }
 

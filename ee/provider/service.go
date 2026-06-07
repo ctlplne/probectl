@@ -289,6 +289,15 @@ func (s *Service) EnrollComplete(ctx context.Context, enrollToken, password, tot
 // Login verifies email + password + TOTP (MFA is mandatory in the provider
 // domain — there is no password-only path). Failures are uniform: no signal
 // distinguishes a wrong password from a wrong code or an unknown email.
+// RecordLoginLockout lands an operator-login lockout in the SEPARATE,
+// tamper-evident provider audit stream (SEC-003 / guardrail 7). Best-effort:
+// an audit-sink failure must not mask the lockout itself (already enforced).
+func (s *Service) RecordLoginLockout(ctx context.Context, key string, failures int, lockout time.Duration) {
+	_ = s.audit.Append(ctx, "system", "provider.auth_lockout", "", map[string]any{
+		"key": key, "failures": failures, "lockout": lockout.String(),
+	})
+}
+
 func (s *Service) Login(ctx context.Context, email, password, totpCode string) (Operator, error) {
 	op, cred, err := s.store.OperatorByEmail(ctx, strings.ToLower(strings.TrimSpace(email)))
 	if err != nil || op.Status != "active" || !op.Enrolled {
