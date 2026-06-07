@@ -82,10 +82,14 @@ func run(cmd string) error {
 	case "support-bundle":
 		// S-EE4: offline, secret-stripped diagnostics bundle.
 		return supportBundle(os.Args[2:])
+	case "preflight":
+		// Sprint 8 (SEC-002/COMPLY-004): deployment self-check — envelope key
+		// + operator storage-encryption duties (docs/hardening.md).
+		return runPreflight(os.Args[2:])
 	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token":
 		// fall through to the configured path below
 	default:
-		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | gen-cert | support-bundle | version)", cmd)
+		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | gen-cert | support-bundle | preflight | version)", cmd)
 	}
 
 	cfg, err := config.LoadFromEnv()
@@ -109,6 +113,21 @@ func run(cmd string) error {
 	// deployments run passthrough; the licensed byok build replaces the
 	// PRIMARY with the per-tenant keyring at the attach seam — this dv1
 	// sealer stays registered as an opener, so existing rows keep decrypting.
+	envelopeGenerated := false
+	if cfg.EnvelopeKey == "" && cfg.EnvelopeKeyFile != "" {
+		// SEC-002: encryption-by-default — load the deployment KEK from the
+		// file, generating + persisting one on first boot (no silent keyless
+		// passthrough in the shipped recipes). Explicit env key wins above.
+		kek, generated, err := tenantcrypto.LoadOrGenerateKeyFile(cfg.EnvelopeKeyFile)
+		if err != nil {
+			return fmt.Errorf("envelope key file: %w", err)
+		}
+		cfg.EnvelopeKey = kek
+		if cfg.EnvelopeKeyID == "dev" {
+			cfg.EnvelopeKeyID = "file"
+		}
+		envelopeGenerated = generated
+	}
 	if cfg.EnvelopeKey != "" {
 		sealer, err := tenantcrypto.NewEnvelopeSealer(cfg.EnvelopeKeyID, cfg.EnvelopeKey)
 		if err != nil {
@@ -128,6 +147,10 @@ func run(cmd string) error {
 	}
 	log := logging.New(logOut, cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
+	if envelopeGenerated {
+		log.Warn("GENERATED a new at-rest envelope key — back this file up like any key material; losing it makes sealed values unreadable",
+			"key_file", cfg.EnvelopeKeyFile, "key_id", cfg.EnvelopeKeyID)
+	}
 
 	// Dev auth (RED-001/SEC-001): never a default (U-001), and in a RELEASE
 	// binary not even possible — the code path only exists behind the

@@ -44,6 +44,18 @@ secrets:
   # base64-encoded 32-byte envelope KEK (openssl rand -base64 32). Required.
   envelopeKey: ""
 
+# At-rest encryption is REQUIRED by default (SEC-002): the chart refuses to
+# template without an envelope key, and the control plane refuses to start
+# keyless (TENANT-106 fail-closed). Bulk telemetry volumes (Postgres,
+# ClickHouse, object store) are encrypted by the OPERATOR's storage layer —
+# see docs/hardening.md and `probectl-control preflight --strict`.
+requireAtRestEncryption: true
+
+# SEC-009: the deployment edge (ingress) serves TLS, so session/OAuth cookies
+# carry the Secure attribute even though the in-cluster listener is plaintext
+# behind it. Only set false for a cluster-internal eval with no TLS anywhere.
+publicTLS: true
+
 # Kafka bus tls policy (optional; PROBECTL_BUS_MODE=kafka): production runs the
 # broker hop over TLS — plaintext kafka is refused by the control plane unless
 # the explicit dev-only PROBECTL_BUS_ALLOW_PLAINTEXT=true is set (U-010).

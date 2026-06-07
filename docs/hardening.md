@@ -40,6 +40,56 @@ cycle re-verifies signatures, seq continuity, and the cross-segment hash
 chain — a purge or gap logs an unmissable error. Third parties can verify
 segments with nothing but the published key.
 
+## 0c. At-rest encryption — who encrypts what (SEC-002 / COMPLY-004)
+
+probectl is self-hosted: some at-rest encryption is the product's job, some is
+necessarily the operator's. This section is the contract;
+`probectl-control preflight` is the check that keeps it honest.
+
+**What probectl encrypts (on by default).** Sealed tenant values
+(alert-channel secrets, integration credentials, ...) are envelope-encrypted
+through `internal/tenantcrypto` before they reach Postgres. The shipped
+recipes turn this on:
+
+- compose sets `PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key` on
+  the `controldata` volume — on first boot the control plane **generates** a
+  KEK there (0600) and logs it loudly. **Back that volume up like key
+  material**: losing the key makes sealed values unreadable.
+- Helm refuses to template without `secrets.envelopeKey` / `existingSecret`.
+- Both set `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, so keyless
+  misconfiguration is a **fatal startup error** (TENANT-106) — never silent
+  plaintext.
+- Production should supply its own key: `PROBECTL_ENVELOPE_KEY` (always wins
+  over the file), injected from a KMS / secret manager; per-tenant BYOK on the
+  licensed tier (`docs/byok.md`).
+
+**What the operator encrypts (a documented duty, not an assumption).**
+probectl does not re-encrypt the bulk telemetry stores' data files — at that
+scale it is the storage layer's job. **You MUST provide at-rest encryption for
+the volumes backing:**
+
+| Store | Holds | How |
+|---|---|---|
+| Postgres (`pgdata`) | durable state, tenants, audit, sealed values | dm-crypt/LUKS, ZFS native encryption, or encrypted cloud volume (EBS / PD / Azure Disk) |
+| ClickHouse | flow/path/threat/change/cost telemetry | same; ClickHouse disk-level encryption also acceptable |
+| Object store | exports, support bundles, WORM segments | server-side encryption or encrypted volume |
+| `controldata` | the generated envelope key | encrypted volume strongly recommended — it IS key material |
+
+**The preflight check.**
+
+```
+probectl-control preflight [--strict] [--paths /var/lib/postgresql,/var/lib/clickhouse,/var/lib/probectl]
+```
+
+Per data path it reports whether the backing mount is detectably encrypted:
+`/dev/mapper/*` (dm-crypt/LUKS; plain LVM also matches — confirm) and
+ZFS/eCryptFS pass; a plain block device **warns**, and `--strict` exits
+non-zero so regulated profiles and CI can gate on it. Cloud-volume encryption
+is invisible from inside a container — if your volumes are encrypted below the
+host, set `PROBECTL_STORAGE_ENCRYPTION_ATTESTED=true`: the finding downgrades
+to informational and the attestation goes on the record. The check also
+reports probectl's own envelope-key posture.
+
 ## 1. FIPS 140-3 mode
 
 ### What the FIPS build is
@@ -182,8 +232,11 @@ these as defaults except where noted "operator action".
       no plaintext private keys for managed-host flows.
 - [x] Secrets resolve from references (Vault / CyberArk / cloud KMS) — never
       logged, never in URLs or git.
-- [ ] **Operator action:** set `PROBECTL_ENVELOPE_KEY` (32-byte base64) from a
-      secret manager; enable per-tenant BYOK (S-T6) for regulated tenants.
+- [x] At-rest sealing **on by default** in the shipped recipes (generated key
+      file + `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, §0c); keyless = fatal.
+- [ ] **Operator action:** supply `PROBECTL_ENVELOPE_KEY` from a secret
+      manager in production; enable per-tenant BYOK (S-T6) for regulated
+      tenants; encrypt the bulk telemetry volumes (§0c — `preflight --strict`).
 
 ### Audit & data lifecycle (guardrails 7, and S-T5)
 
@@ -234,7 +287,8 @@ posture. A green default means no action needed.
 | Tenant isolation | pooled (RLS, storage-layer) | siloed/hybrid (S-T2) for regulated tenants | operator |
 | Password KDF | PBKDF2-HMAC-SHA-256 ×600k | Same | default ✓ |
 | MFA | TOTP available | required for admin + all operators | operator |
-| Envelope key | none (keyless dev = passthrough) | `PROBECTL_ENVELOPE_KEY` from a secret manager | operator |
+| Envelope key | generated-or-required, fail-closed (§0c) | `PROBECTL_ENVELOPE_KEY` from a KMS/secret manager | default ✓ |
+| Bulk telemetry volumes | operator's storage layer (§0c duty) | LUKS/ZFS/cloud-volume encryption + `preflight --strict` | operator |
 | Per-tenant keys | deployment envelope | BYOK (S-T6) for regulated tenants | operator |
 | Secrets | env / references | Vault / CyberArk / cloud KMS references only | operator |
 | Phone-home | off | off | default ✓ |

@@ -64,6 +64,17 @@ type Config struct {
 	// owners from S18. EnvelopeKey is a base64-encoded 32-byte KEK.
 	EnvelopeKey   string
 	EnvelopeKeyID string
+	// EnvelopeKeyFile (SEC-002) makes encryption the shipped default: when
+	// EnvelopeKey is empty and this path is set, the control plane loads the
+	// KEK from the file — GENERATING and persisting one (0600) on first boot.
+	// The compose recipe points it at a named volume; back the file up like
+	// any key material. An explicit EnvelopeKey (KMS/secret-manager injected)
+	// always wins. See docs/hardening.md.
+	EnvelopeKeyFile string
+	// PublicTLS (SEC-009) asserts the DEPLOYMENT EDGE serves TLS even when
+	// this process's own listener is plaintext (TLS-terminating ingress) —
+	// it drives the Secure attribute on cookies. The Helm chart sets it.
+	PublicTLS bool
 	// RequireAtRestEncryption (TENANT-106) makes keyless passthrough a FATAL
 	// startup error instead of a silent plaintext degrade: when true, the
 	// control plane refuses to run without a resolvable envelope key (or the
@@ -472,6 +483,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		TLSKeyFile:               l.str("PROBECTL_TLS_KEY_FILE", ""),
 		EnvelopeKey:              l.str("PROBECTL_ENVELOPE_KEY", ""),
 		EnvelopeKeyID:            l.str("PROBECTL_ENVELOPE_KEY_ID", "dev"),
+		EnvelopeKeyFile:          l.str("PROBECTL_ENVELOPE_KEY_FILE", ""),
+		PublicTLS:                l.boolean("PROBECTL_PUBLIC_TLS", false),
 		RequireAtRestEncryption:  l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", false),
 		AgentGRPCAddr:            l.str("PROBECTL_AGENT_GRPC_ADDR", ""),
 		AgentSkewWindow:          l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100),
@@ -718,6 +731,12 @@ func LoadFromEnv() (*Config, error) { return Load(os.Getenv) }
 // TLSEnabled reports whether the API should serve HTTPS directly — both a
 // certificate and a key are configured. When false, TLS terminates at the ingress.
 func (c *Config) TLSEnabled() bool { return c.TLSCertFile != "" && c.TLSKeyFile != "" }
+
+// CookieSecure (SEC-009) decides the Secure attribute on every cookie: true
+// when this process serves TLS itself OR the deployment edge does
+// (PROBECTL_PUBLIC_TLS behind a TLS-terminating ingress). Browsers only see
+// the edge, so the edge — not the app listener — is the right signal.
+func (c *Config) CookieSecure() bool { return c.TLSEnabled() || c.PublicTLS }
 
 // AgentTransportEnabled reports whether the agent gRPC transport should run — an
 // address and the full mTLS material (cert, key, CA) are configured.

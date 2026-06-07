@@ -23,7 +23,9 @@ services:
         condition: service_completed_successfully
     environment:
       POSTGRES_USER: probectl
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-probectl}
+      # SEC-006: REQUIRED — compose refuses to start without an operator-set
+      # password (no shipped default). Set it in .env (openssl rand -base64 24).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}
       POSTGRES_DB: probectl
     # TLS on the Postgres listener (U-039): reuse the certgen-provisioned cert
     # (sslmode=require encrypts without verifying, so the self-signed quickstart
@@ -76,10 +78,18 @@ services:
       PROBECTL_TLS_KEY_FILE: /certs/tls.key
       PROBECTL_HSTS_ENABLED: "true"
       # sslmode=require (U-039): encrypted to the in-network Postgres above.
-      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:-probectl}@postgres:5432/probectl?sslmode=require
+      PROBECTL_DATABASE_URL: postgres://probectl:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env (no default ships — SEC-006)}@postgres:5432/probectl?sslmode=require
       PROBECTL_MIGRATE_ON_BOOT: "true"
-      # Envelope KEK for at-rest secret encryption. Generate: openssl rand -base64 32
+      # At-rest encryption is ON BY DEFAULT (SEC-002): when PROBECTL_ENVELOPE_KEY
+      # is unset, the control plane GENERATES a KEK at the key-file path on
+      # first boot and persists it on the controldata volume (0600). Back that
+      # volume up like key material. Provide PROBECTL_ENVELOPE_KEY explicitly
+      # (e.g. from a KMS/secret manager) to override — it always wins.
       PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
+      PROBECTL_ENVELOPE_KEY_FILE: ${PROBECTL_ENVELOPE_KEY_FILE:-/var/lib/probectl/envelope.key}
+      # Fail closed (TENANT-106): refuse to start rather than silently write
+      # plaintext if no key resolves.
+      PROBECTL_REQUIRE_AT_REST_ENCRYPTION: ${PROBECTL_REQUIRE_AT_REST_ENCRYPTION:-true}
       # Secure default: "session" (OIDC SSO + PROBECTL_OIDC_*) — unauthenticated
       # requests are refused. "dev" (all-access, NO auth) is an explicit opt-in
       # for local evaluation only and logs a loud startup warning.
@@ -94,12 +104,15 @@ services:
       - "8443:8443" # HTTPS ONLY — no plaintext API port is published.
     volumes:
       - certs:/certs:ro
+      - controldata:/var/lib/probectl
     networks: [probectl]
     restart: unless-stopped
 
 volumes:
   pgdata: {}
   certs: {}
+  # Holds the generated at-rest envelope key (SEC-002) — back it up.
+  controldata: {}
 
 networks:
   probectl: {}

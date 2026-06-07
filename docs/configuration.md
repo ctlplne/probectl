@@ -705,6 +705,8 @@ anomalies):
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint (required in clickhouse mode)            |
 | `PROBECTL_FLOWSTORE_TENANT_SCOPING` | `false` | TENANT-102: attach a per-request tenant custom setting to ClickHouse reads so a reader row policy constrains the query path at the DB (needs server-side `custom_settings_prefixes=SQL_` + a reader user) |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | TENANT-102: the ClickHouse reader user the setting-scoped row policy is installed on at boot |
+| `PROBECTL_ENVELOPE_KEY_FILE` | (none) | SEC-002: path to the at-rest KEK file — loaded, or GENERATED+persisted (0600) on first boot; explicit `PROBECTL_ENVELOPE_KEY` wins. Shipped compose sets it on the `controldata` volume |
+| `PROBECTL_STORAGE_ENCRYPTION_ATTESTED` | `false` | COMPLY-004: operator attestation that bulk-store volumes are encrypted below the host (cloud-volume encryption invisible to preflight) — logged, downgrades the preflight warning |
 | `PROBECTL_REQUIRE_AT_REST_ENCRYPTION` | `false` | TENANT-106: FATAL at startup if no envelope key is resolvable (refuse plaintext at-rest) instead of silent passthrough |
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `0`      | > 0 applies a ClickHouse delete-TTL to `probectl_flows`              |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | OPT-IN Team Cymru ASN enrichment (outbound DNS — off by default per the no-phone-home guardrail; device-exported AS numbers always pass through) |

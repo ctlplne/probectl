@@ -5,6 +5,12 @@ metadata:
   labels:
     {{- include "probectl.labels" . | nindent 4 }}
 data:
+  # Fail closed (TENANT-106/SEC-002): never silently write plaintext at rest.
+  PROBECTL_REQUIRE_AT_REST_ENCRYPTION: {{ .Values.requireAtRestEncryption | default true | quote }}
+  # SEC-009: the chart fronts the app with a TLS-terminating ingress, so the
+  # browser-facing edge is HTTPS — cookies carry Secure even though the app
+  # listener behind the ingress is plaintext.
+  PROBECTL_PUBLIC_TLS: {{ .Values.publicTLS | default true | quote }}
   PROBECTL_HTTP_ADDR: ":8080"
   PROBECTL_HSTS_ENABLED: "true"
   PROBECTL_LOG_FORMAT: {{ .Values.control.logFormat | quote }}
