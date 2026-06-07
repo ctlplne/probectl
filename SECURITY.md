@@ -18,6 +18,15 @@ analyzer, deploy), a description and impact, and reproduction steps or a proof o
 concept. If you have a suggested fix, even better.
 
 We support coordinated disclosure and will credit reporters who wish to be named.
+
+## How reports are handled
+
+Confirmed reports run the **incident response plan**
+([docs/security/incident-response.md](docs/security/incident-response.md)):
+severity matrix (cross-tenant exposure is SEV-1 by definition), response
+SLAs, evidence preservation via the signed audit/WORM tooling, operator
+notification flow, and post-incident review. The threat model behind the
+severity judgments is [docs/security/threat-model.md](docs/security/threat-model.md).
 Please give us a reasonable window to remediate before any public disclosure.
 
 ### Highest-severity classes
