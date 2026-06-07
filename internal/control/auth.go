@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -136,19 +137,45 @@ func (f *oidcFactory) For(ctx context.Context, tenantID string) (auth.Provider, 
 // a mock IdP without real OIDC discovery.
 func (s *Server) SetSSOProviderFactory(f auth.ProviderFactory) { s.providers = f }
 
+// devModeHook is the ONLY entry point to dev-auth behavior. It is nil unless
+// the binary was built with -tags devauth (internal/control/devauth.go), so a
+// RELEASE binary contains no dev-auth logic, no dev literals, and nothing to
+// misconfigure (RED-001/SEC-001 — the bypass is compiled out, not just
+// warned about). The test binary installs its own hook (main_test.go); it
+// never ships. The hook may fully handle the request (handled=true, e.g. a
+// malformed tenant-override header → 400).
+var devModeHook func(s *Server, w http.ResponseWriter, r *http.Request) (p *auth.Principal, handled bool)
+
+// DevModeAvailable reports whether this binary is even capable of dev auth
+// (i.e. was built with -tags devauth). main refuses AuthMode=dev otherwise.
+func DevModeAvailable() bool { return devModeHook != nil }
+
+// devModeActive flips on (once) when a server actually starts in dev mode —
+// exported via DevModeActive for self-telemetry surfaces.
+var devModeActive atomic.Bool
+
+// DevModeActive reports whether any server in this process is serving the
+// all-permissions dev principal.
+func DevModeActive() bool { return devModeActive.Load() }
+
 // authenticate is the middleware that resolves a request's principal (if any) and
-// injects it into the context. Per-route enforcement (401/403) happens later; the
-// one rejection here is a malformed dev tenant override, which is a client error.
+// injects it into the context. Per-route enforcement (401/403) happens later.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Dev mode accepts an X-Probectl-Tenant override; a present-but-malformed
-		// value is rejected (fail closed) rather than silently falling back to the
-		// default tenant.
-		if s.cfg.AuthMode == "dev" {
-			if h := r.Header.Get("X-Probectl-Tenant"); h != "" && !uuidRe.MatchString(h) {
-				writeError(w, r, apierror.BadRequest("X-Probectl-Tenant must be a tenant UUID"))
+		// Dev auth exists only behind the compiled-in hook. In a release
+		// build (hook nil) AuthMode=dev grants NOTHING — requests fall
+		// through unauthenticated and the route layer 401s (and main has
+		// already refused to boot; this is defense-in-depth).
+		if s.cfg.AuthMode == "dev" && devModeHook != nil {
+			p, handled := devModeHook(s, w, r)
+			if handled {
 				return
 			}
+			if p != nil {
+				r = r.WithContext(auth.WithPrincipal(r.Context(), p))
+			}
+			next.ServeHTTP(w, r)
+			return
 		}
 		if p := s.resolvePrincipal(r); p != nil {
 			r = r.WithContext(auth.WithPrincipal(r.Context(), p))
@@ -157,23 +184,10 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// resolvePrincipal returns the caller's principal, or nil when unauthenticated.
-// In "dev" mode it synthesizes an all-permissions principal (tenant from the
-// X-Probectl-Tenant override or the default) — never used in production. In
-// "session" mode it resolves the session cookie to a real principal.
+// resolvePrincipal returns the caller's principal, or nil when unauthenticated,
+// by resolving the session cookie to a real principal. Dev auth never reaches
+// here — it exists only behind devModeHook (compiled in via -tags devauth).
 func (s *Server) resolvePrincipal(r *http.Request) *auth.Principal {
-	if s.cfg.AuthMode == "dev" {
-		tid := tenancy.DefaultTenantID
-		if h := r.Header.Get("X-Probectl-Tenant"); h != "" && uuidRe.MatchString(h) {
-			tid = tenancy.ID(h)
-		}
-		perms := make(map[string]bool, len(allPermissionKeys))
-		for _, k := range allPermissionKeys {
-			perms[k] = true
-		}
-		return &auth.Principal{TenantID: tid.String(), UserID: "dev", Email: "dev@probectl.local",
-			DisplayName: "Dev", Permissions: perms, Attributes: map[string]string{"mfa": "true"}}
-	}
 	if s.authn == nil {
 		return nil
 	}

@@ -66,7 +66,8 @@ migrations and exit), `probectl-control version`.
 | `PROBECTL_TSDB_URL`                 | (none)                                                           | Prometheus/VictoriaMetrics base URL for remote-write (required for `prometheus`) |
 | `PROBECTL_ALERT_EVAL_INTERVAL`      | `30s`                                                            | how often the alerting engine evaluates rules over the TSDB (S16) |
 | `PROBECTL_INCIDENT_WINDOW`          | `10m`                                                            | time window within which related signals correlate into one incident (S17) |
-| `PROBECTL_AUTH_MODE`                | `session`                                                          | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (trusted-header dev principal — never in production) |
+| `PROBECTL_AUTH_MODE`                | `session`                                                          | identity mode (S18): `session` (real OIDC SSO + session cookies) \| `dev` (LOCAL EVALUATION ONLY — exists only in `-tags devauth` builds; release binaries refuse it at boot, RED-001) |
+| `PROBECTL_DEV_AUTH_ACK`             | (none)                                                             | RED-001: must be `i-understand` to start in dev auth mode (tagged builds only, loopback bind required) |
 | `PROBECTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime (S18)                         |
 | `PROBECTL_AUTH_RATE_MAX_FAILURES`   | `5`         | auth brute-force guard (U-024): failures per window before lockout |
 | `PROBECTL_AUTH_RATE_WINDOW`         | `1m`        | failure-counting window for the auth throttle |
@@ -558,12 +559,17 @@ The seeded system roles for the default tenant are **admin** (all permissions),
 **editor** (read everything + manage tests/alerts/incidents), and **viewer**
 (read-only). `GET /v1/me` requires only authentication (no specific permission).
 
-**Dev mode.** `PROBECTL_AUTH_MODE=dev` (an **explicit opt-in** — the default is
-`session`, which refuses unauthenticated requests) bypasses SSO and synthesizes
-an all-permissions principal for the default tenant, with the
-`X-Probectl-Tenant: <uuid>` override for multi-tenant dev. The control plane
-logs a loud warning at startup when dev mode is active. It is **never** for
-production; the test suite sets it explicitly per test.
+**Dev mode.** `PROBECTL_AUTH_MODE=dev` bypasses SSO and synthesizes an
+all-permissions principal for the default tenant, with the
+`X-Probectl-Tenant: <uuid>` override for multi-tenant dev. Since RED-001 it is
+**triple-gated**: (1) the code path exists only in binaries built with
+`-tags devauth` (`make build-devauth`) — a release binary **refuses to start**
+in this mode; (2) `PROBECTL_DEV_AUTH_ACK=i-understand` must be set; (3) the
+listener must bind loopback (`PROBECTL_HTTP_ADDR=127.0.0.1:…`). When active it
+logs at error level and writes an `auth.dev_mode_active` audit event. The CI
+gate `no-devauth-in-release` proves release binaries contain neither the
+symbols nor the dev-principal literal. The test suite installs its own hook
+in `_test.go` files, which never ship.
 
 ### Resource API & CLI (S9)
 

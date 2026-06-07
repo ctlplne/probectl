@@ -13,6 +13,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/author"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/carbon"
 	"github.com/imfeelingtheagi/probectl/internal/cluster"
@@ -35,6 +36,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/threat"
@@ -277,6 +279,26 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		s.authn = auth.NewAuthenticator(s.sessions, permLoader{pool: pool})
 		// ABAC policy cache (S31): the per-request deny-override check reads from here.
 		s.abac = newABACCache(pool)
+	}
+
+	// Dev auth actually serving must be unmissable (RED-001/SEC-001): an
+	// error-level log, an audit event on the default tenant's tamper-evident
+	// chain (best-effort), and the process flag DevModeActive() for
+	// self-telemetry. main has already enforced build-tag + ack + loopback.
+	if cfg.AuthMode == "dev" && DevModeAvailable() {
+		devModeActive.Store(true)
+		log.Error("DEV AUTH ACTIVE: every request receives an all-permissions principal with NO authentication — " +
+			"local evaluation ONLY (this required a -tags devauth build, PROBECTL_DEV_AUTH_ACK, and a loopback bind)")
+		if pool != nil {
+			go func() {
+				_ = tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.DefaultTenantID), pool,
+					func(ctx context.Context, sc tenancy.Scope) error {
+						_, err := audit.TenantAppend(ctx, sc, "system", "auth.dev_mode_active", "control-plane",
+							map[string]any{"ack": "i-understand", "bind": cfg.HTTPAddr})
+						return err
+					})
+			}()
+		}
 	}
 
 	// AI assistant (S24): RCA analyzer over the S23 query engine, grounded in the

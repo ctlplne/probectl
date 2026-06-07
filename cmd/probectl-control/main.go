@@ -124,12 +124,23 @@ func run(cmd string) error {
 	log := logging.New(logOut, cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
 
-	// Dev auth is an explicit opt-in, never a default (U-001): running with it
-	// must be unmissable in the logs. The secure default is "session" (OIDC).
+	// Dev auth (RED-001/SEC-001): never a default (U-001), and in a RELEASE
+	// binary not even possible — the code path only exists behind the
+	// devauth build tag. Even then, an explicit acknowledgment AND a
+	// loopback-only bind are required. Fatal-exit, never just a warning.
 	if cfg.AuthMode == "dev" {
-		log.Warn("AUTH MODE 'dev' IS ACTIVE: every request gets an all-permissions principal with NO authentication — " +
-			"local evaluation only, NEVER production. Unset PROBECTL_AUTH_MODE (the default is \"session\") " +
-			"and configure PROBECTL_OIDC_* for real SSO.")
+		if !control.DevModeAvailable() {
+			return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth is not compiled into this binary (release build). " +
+				"For local evaluation build with -tags devauth (make build-devauth); production uses the default \"session\" mode (RED-001)")
+		}
+		if os.Getenv("PROBECTL_DEV_AUTH_ACK") != "i-understand" {
+			return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: set PROBECTL_DEV_AUTH_ACK=i-understand to acknowledge that " +
+				"EVERY request will receive an all-permissions principal with no authentication (local evaluation only)")
+		}
+		if !loopbackOnly(cfg.HTTPAddr) {
+			return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth requires a loopback bind (got %q) — "+
+				"set PROBECTL_HTTP_ADDR=127.0.0.1:<port>; never expose an unauthenticated all-permissions API on a network interface", cfg.HTTPAddr)
+		}
 	}
 
 	// FIPS power-on self-test (S-EE1): exercise every crypto primitive (KATs)
@@ -703,4 +714,19 @@ func intelSourceOrNil(s *opendata.IOCStore) threat.IntelSource {
 		return nil
 	}
 	return s
+}
+
+// loopbackOnly reports whether addr binds exclusively to a loopback
+// interface. An empty host (":8080") or a wildcard (0.0.0.0 / ::) binds every
+// interface and is NOT loopback — dev auth refuses it (RED-001).
+func loopbackOnly(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 3 [CRITICAL]: the dev-mode auth bypass is COMPILED OUT of
+  release binaries — the dev principal exists only behind -tags devauth
+  (internal/control/devauth.go); release binaries refuse
+  PROBECTL_AUTH_MODE=dev at boot, and even tagged builds require
+  PROBECTL_DEV_AUTH_ACK=i-understand plus a loopback-only bind. Active
+  dev auth logs at error level and writes an auth.dev_mode_active audit
+  event. New required CI gate no-devauth-in-release verifies symbol +
+  literal absence on the release binary, self-tests against a tagged
+  build, and runs the behavioral boot refusal (RED-001, SEC-001;
+  lineage U-001).
+
 - Sprint 1: CI is a proven merge gate — committed branch ruleset
   (.github/rulesets/main.json) + CODEOWNERS + a verify-branch-protection
   job that fails on live-vs-committed drift (TEST-002, SUPPLY-007,

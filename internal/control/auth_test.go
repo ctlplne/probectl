@@ -67,13 +67,19 @@ func TestRequirePermission(t *testing.T) {
 	}
 }
 
-// Dev auth mode synthesizes an all-permissions principal, with an optional
-// X-Probectl-Tenant override — it keeps local dev and the /v1 test suite running
-// without a real IdP.
-func TestResolvePrincipalDevMode(t *testing.T) {
+// Dev auth flows ONLY through the compiled-in hook (the test binary installs
+// one in main_test.go; release binaries have none — RED-001). The hook
+// synthesizes an all-permissions principal with an optional X-Probectl-Tenant
+// override; a malformed override is rejected fail-closed with a 400.
+func TestDevModeViaHook(t *testing.T) {
 	s := &Server{cfg: &config.Config{AuthMode: "dev"}}
 
-	p := s.resolvePrincipal(httptest.NewRequest(http.MethodGet, "/", nil))
+	captured := func(p **auth.Principal) http.Handler {
+		return http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { *p = auth.PrincipalFrom(r.Context()) })
+	}
+
+	var p *auth.Principal
+	s.authenticate(captured(&p)).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	if p == nil || p.TenantID != tenancy.DefaultTenantID.String() {
 		t.Fatalf("dev principal: %+v", p)
 	}
@@ -85,15 +91,40 @@ func TestResolvePrincipalDevMode(t *testing.T) {
 
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	r.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-0000000000ab")
-	if got := s.resolvePrincipal(r).TenantID; got != "00000000-0000-0000-0000-0000000000ab" {
-		t.Fatalf("tenant override: %s", got)
+	p = nil
+	s.authenticate(captured(&p)).ServeHTTP(httptest.NewRecorder(), r)
+	if p == nil || p.TenantID != "00000000-0000-0000-0000-0000000000ab" {
+		t.Fatalf("tenant override: %+v", p)
 	}
 
-	// A non-UUID override is ignored (falls back to the default tenant).
+	// A malformed override is rejected (400), not silently defaulted.
 	r2 := httptest.NewRequest(http.MethodGet, "/", nil)
 	r2.Header.Set("X-Probectl-Tenant", "not-a-uuid")
-	if got := s.resolvePrincipal(r2).TenantID; got != tenancy.DefaultTenantID.String() {
-		t.Fatalf("bad override should fall back to default, got %s", got)
+	rec := httptest.NewRecorder()
+	p = nil
+	s.authenticate(captured(&p)).ServeHTTP(rec, r2)
+	if rec.Code != http.StatusBadRequest || p != nil {
+		t.Fatalf("malformed override: code=%d principal=%+v (want 400, nil)", rec.Code, p)
+	}
+}
+
+// RELEASE semantics (RED-001): with no hook compiled in, AuthMode=dev grants
+// NOTHING — no principal is synthesized and the route layer 401s. main would
+// have refused to boot already; this proves the defense-in-depth layer.
+func TestDevModeAbsentGrantsNothing(t *testing.T) {
+	old := devModeHook
+	devModeHook = nil
+	defer func() { devModeHook = old }()
+
+	if DevModeAvailable() {
+		t.Fatal("DevModeAvailable must be false with no hook")
+	}
+	s := &Server{cfg: &config.Config{AuthMode: "dev"}}
+	var p *auth.Principal
+	h := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { p = auth.PrincipalFrom(r.Context()) })
+	s.authenticate(h).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	if p != nil {
+		t.Fatalf("release build must synthesize NO principal in dev mode, got %+v", p)
 	}
 }
 

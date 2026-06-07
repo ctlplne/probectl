@@ -135,9 +135,10 @@ type Config struct {
 
 	// Identity & access (S18). AuthMode: "session" (real OIDC SSO + RBAC — the
 	// default; without a session every /v1 request is refused, U-001
-	// fail-closed) or "dev" (trusted-header dev principal with all permissions
-	// — an EXPLICIT opt-in for local evaluation; the control plane logs a loud
-	// startup warning; never in prod).
+	// fail-closed) or "dev" (LOCAL EVALUATION ONLY, RED-001: the dev-principal
+	// code path exists only in -tags devauth builds — release binaries refuse
+	// this mode at boot — and even tagged builds additionally require
+	// PROBECTL_DEV_AUTH_ACK=i-understand plus a loopback-only bind).
 	AuthMode   string
 	SessionTTL time.Duration
 	// Auth brute-force guard (U-024): failures per window before a lockout,

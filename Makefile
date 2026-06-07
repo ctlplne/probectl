@@ -306,6 +306,10 @@ compose-down: ## Stop and remove the local dev stack.
 	docker compose -f $(COMPOSE_DEV) down -v
 
 # ---- housekeeping --------------------------------------------------------
+.PHONY: build-devauth
+build-devauth: ## Build probectl-control WITH dev auth compiled in (-tags devauth) — LOCAL EVALUATION ONLY (RED-001). Release targets never use this tag.
+	$(GO) build -tags devauth -o $(BIN_DIR)/probectl-control-devauth ./cmd/probectl-control
+
 .PHONY: tools
 tools: ## Install pinned dev tools (golangci-lint) into GOPATH/bin.
 	# U-060: installed as a Go module at a pinned version — every artifact is

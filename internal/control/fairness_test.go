@@ -96,8 +96,9 @@ func TestFairnessSelfViewAndQueryGuard(t *testing.T) {
 
 // devTenantID resolves the dev-mode principal's tenant (the default tenant).
 func devTenantID(s *Server) string {
-	req := httptest.NewRequest(http.MethodGet, "/v1/fairness", nil)
-	p := s.resolvePrincipal(req)
+	// Dev principals come from the hook now (RED-001) — resolvePrincipal only
+	// handles real sessions.
+	p, _ := devModeHook(s, httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v1/fairness", nil))
 	if p == nil {
 		return ""
 	}

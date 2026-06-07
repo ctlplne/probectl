@@ -53,6 +53,7 @@
           { "context": "image-scan" },
           { "context": "commitlint" },
           { "context": "secret-scan" },
+          { "context": "no-devauth-in-release" },
           { "context": "verify-branch-protection" }
         ]
       }
