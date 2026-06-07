@@ -44,7 +44,8 @@ caller's tenant first, then RBAC**.
   record, message, metric, and object is `tenant_id`-scoped at the storage/query
   layer — never application code alone. A cross-tenant isolation test is a
   permanent CI gate (`cross-tenant-isolation`).
-- **OpenTelemetry-native.** Signal schemas map to OTel resource + network
+- **OpenTelemetry-native** (metrics OTLP in/out today; traces/logs OTLP
+  ingest roadmapped — `docs/otlp.md`). Signal schemas map to OTel resource + network
   semantic conventions from first emission (S6), so OTLP/OBI is exposure (S22),
   not a retrofit.
 - **Self-hosted, no phone-home.** No outbound telemetry on by default.

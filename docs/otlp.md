@@ -1,11 +1,28 @@
 # OTLP exposure & OBI (S22)
 
-probectl is OpenTelemetry-native: its signal schemas have followed OTel resource +
-network semantic conventions since S6, so this layer **exposes** them as OTLP
-rather than remapping a divergent model. `internal/otel/otlp` provides a TLS-only,
+probectl is OpenTelemetry-native **on the metrics signal**: its signal schemas
+have followed OTel resource + network semantic conventions since S6, so this
+layer **exposes** them as OTLP rather than remapping a divergent model. OTLP
+**traces and logs are not ingested today** — see [Scope & roadmap](#scope--roadmap-u-020). `internal/otel/otlp` provides a TLS-only,
 authenticated, tenant-scoped **receiver** (ingest external OTLP), an **exporter**
 (emit probectl signals as OTLP), and the signal↔OTLP-metrics conversion. The
 canonical mapping is in [`otel-mapping.md`](otel-mapping.md).
+
+## Scope & roadmap (U-020)
+
+What "OTel-native" means here, precisely:
+
+- **Today:** OTel resource + network **semantic conventions** on every signal
+  in every plane (`otel-mapping.md`), an OTLP **metrics** receiver
+  (gRPC `MetricsService` + HTTP `/v1/metrics`), and an OTLP **metrics**
+  exporter. eBPF capture follows the OBI model.
+- **Not yet:** OTLP **traces** and **logs** ingestion. probectl is not a
+  tracing backend or a log store by design (CLAUDE.md §10 — no APM/SIEM
+  replacement); the roadmapped traces/logs work is OTLP *ingest for
+  correlation* (e.g. exemplars and change events), with conformance tests,
+  tracked as a separate roadmap item. Until that lands, marketing/positioning
+  language must scope OTel-native claims to metrics + conventions — this is
+  the authoritative wording.
 
 ## Receiver — inbound, TLS-only, authenticated, tenant-scoped
 

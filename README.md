@@ -17,9 +17,12 @@
 Self-hosted, source-available, multi-tenant **network observability platform**.
 probectl unifies five observability planes — active/synthetic testing, BGP/routing
 intelligence, flow analytics, device telemetry, and eBPF host/L7 — into one
-**OpenTelemetry-native** control plane, with an AI assistant for cross-plane
-root-cause analysis, a native security/threat layer, change-aware topology, and
-cost/SLO intelligence. Telemetry **never leaves the operator's network**.
+**OpenTelemetry-native** control plane — OTel resource + network semantic
+conventions across every plane, with OTLP **metrics** ingest/export today and
+OTLP traces/logs ingest on the roadmap ([docs/otlp.md](docs/otlp.md)) — with an
+AI assistant for cross-plane root-cause analysis, a native security/threat
+layer, change-aware topology, and cost/SLO intelligence. Telemetry **never
+leaves the operator's network**.
 
 One codebase serves two operating modes: **sovereign single-tenant** (a regulated
 or air-gapped org self-hosts; the deployment *is* the tenant) and
@@ -66,7 +69,9 @@ Three choices set it apart:
 - **It's unified and standard.** One **OpenTelemetry-native** model spans all
   five planes, so a flow record, a probe result, and a BGP event share the same
   schema and the same query layer — no per-tool silos, and you can export to OTLP
-  or your SIEM without re-instrumenting anything.
+  or your SIEM without re-instrumenting anything. (Scope today: OTLP **metrics**
+  in/out; the schemas follow OTel semantic conventions everywhere, and OTLP
+  traces/logs ingest is roadmapped — see `docs/otlp.md`.)
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, white-labeled, individually-metered
   platform an MSP self-hosts and resells. **Tenant is the outermost security
@@ -106,7 +111,8 @@ unless you explicitly configure one; see the AI row below.)
   self-host once and serve hard-isolated, white-labeled, individually-metered
   tenants from one control plane.
 - **Network & platform engineers** tired of hand-correlating five dashboards who
-  want a single OTel-native source of truth they actually own.
+  want a single OTel-native source of truth they actually own (OTLP metrics
+  today, traces/logs on the roadmap).
 
 ## Capabilities
 
