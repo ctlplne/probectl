@@ -401,6 +401,19 @@ jobs:
       - name: backup → wipe → restore drill
         run: make backup-restore-drill
 
+  failover-drill:
+    name: failover-drill
+    # U-053: the promote-the-standby failover (the documented multi-region
+    # model) is TIMED on every pass: streaming replica, kill -9 the primary,
+    # pg_promote, RTO = first successful write on the promoted node, RPO =
+    # acked rows lost. Numbers land in the job log; docs/ops/dr.md is the
+    # runbook + sign-off table (representative-infra row is human-run).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: timed failover drill (kill primary → promote replica)
+        run: make failover-drill
+
   load-smoke:
     name: load-smoke
     # U-005: the FULL-STACK load gate's S-tier smoke — synthetic agents through

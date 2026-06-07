@@ -1,0 +1,29 @@
+# U-053: overlay adding a STREAMING REPLICA of the dev Postgres, used by
+# scripts/failover_drill.sh to time a real promote-the-standby failover
+# (the documented multi-region model, docs/multi-region.md: one writer +
+# streaming replicas; failover = promote). Ephemeral data dir on purpose.
+#
+#   docker compose -f deploy/compose/dev.yml -f deploy/compose/dr-drill.yml up -d pg-replica
+services:
+  pg-replica:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+    environment:
+      PGPASSWORD: probectl # pg_basebackup auth to the primary
+    entrypoint: ["/bin/bash", "-ec"]
+    command:
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          echo "replica: taking a base backup from the primary..."
+          until pg_basebackup -h postgres -U probectl -D "$$PGDATA" -R -X stream -c fast; do
+            echo "replica: primary not ready for replication yet; retrying"; rm -rf "$$PGDATA"/*; sleep 2
+          done
+          chown -R postgres:postgres "$$PGDATA" && chmod 0700 "$$PGDATA"
+        fi
+        exec docker-entrypoint.sh postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U probectl -d probectl"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    networks: [probectl]

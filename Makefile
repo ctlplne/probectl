@@ -285,6 +285,10 @@ images: ## Build multi-arch images for all components (Buildx).
 backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).
 	./scripts/backup_restore_drill.sh
 
+.PHONY: failover-drill
+failover-drill: ## U-053 timed failover drill: kill the primary, promote the streaming replica, measure RTO/RPO (DESTRUCTIVE to the dev stack; runs in CI).
+	./scripts/failover_drill.sh
+
 .PHONY: compose-up
 compose-up: ## Start the local dev stack (Postgres/Kafka/ClickHouse/Prometheus).
 	docker compose -f $(COMPOSE_DEV) up -d --wait
