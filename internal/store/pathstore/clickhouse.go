@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/breaker"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
@@ -38,8 +39,9 @@ const createLinks = `CREATE TABLE IF NOT EXISTS probectl_path_links (
 // ClickHouse persists paths to a ClickHouse HTTP endpoint. TLS in transit is
 // supported by using an https URL (CLAUDE.md §7 guardrail 12).
 type ClickHouse struct {
-	base   string
-	client *http.Client
+	breaker *breaker.Breaker
+	base    string
+	client  *http.Client
 }
 
 // chMigrations is the pathstore's versioned ClickHouse schema (U-046),
@@ -63,7 +65,7 @@ func (e chExec) Query(ctx context.Context, sql string) ([]map[string]any, error)
 // NewClickHouse connects to a ClickHouse HTTP endpoint and ensures the schema
 // via versioned, ledger-recorded migrations (U-046).
 func NewClickHouse(rawURL string) (*ClickHouse, error) {
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), client: &http.Client{Timeout: 30 * time.Second}}
+	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), client: &http.Client{Timeout: 30 * time.Second}, breaker: breaker.New(0, 0)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if _, err := chmigrate.Apply(ctx, chExec{c}, "pathstore", chMigrations(), nil); err != nil {
@@ -302,6 +304,23 @@ func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, e
 	}
 	return rows, nil
 }
+
+// chDo issues the request through the circuit breaker (U-078).
+func chDo(b *breaker.Breaker, client *http.Client, req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	err := b.Do(func() error {
+		r, e := client.Do(req)
+		if e != nil {
+			return e
+		}
+		resp = r
+		return nil
+	})
+	return resp, err
+}
+
+// BreakerStats exposes the storage breaker state (U-078 fallback metrics).
+func (c *ClickHouse) BreakerStats() breaker.Stats { return c.breaker.Stats() }
 
 // chStr renders a ClickHouse string literal with the necessary escaping.
 // chCount extracts the single count() value from a query result.

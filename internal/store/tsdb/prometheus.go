@@ -17,6 +17,7 @@ import (
 	"github.com/klauspost/compress/snappy"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/imfeelingtheagi/probectl/internal/breaker"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
 )
@@ -26,20 +27,42 @@ import (
 // with --web.enable-remote-write-receiver) and VictoriaMetrics. TLS in transit is
 // supported by using an https URL (CLAUDE.md §7 guardrail 12).
 type Prometheus struct {
-	url    string
-	client *http.Client
+	url     string
+	client  *http.Client
+	breaker *breaker.Breaker
 }
 
 // NewPrometheus returns a remote-write writer targeting the base URL (e.g.
 // http://localhost:9090). Egress uses the hardened TLS client (U-036): an
 // https endpoint gets the TLS 1.2+/AEAD-only/always-verified policy from
-// internal/crypto; a plain-http loopback dev endpoint is unaffected.
+// internal/crypto; a plain-http loopback dev endpoint is unaffected. A circuit
+// breaker (U-078) short-circuits when the upstream is down.
 func NewPrometheus(url string) *Prometheus {
 	return &Prometheus{
-		url:    strings.TrimRight(url, "/") + "/api/v1/write",
-		client: crypto.HardenedHTTPClient(30 * time.Second),
+		url:     strings.TrimRight(url, "/") + "/api/v1/write",
+		client:  crypto.HardenedHTTPClient(30 * time.Second),
+		breaker: breaker.New(0, 0),
 	}
 }
+
+// promDo issues the request through the circuit breaker (U-078): a transport
+// failure (upstream unreachable) trips it after the threshold, short-circuiting
+// further calls until a cooldown probe succeeds.
+func (p *Prometheus) promDo(req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	err := p.breaker.Do(func() error {
+		r, e := p.client.Do(req)
+		if e != nil {
+			return e
+		}
+		resp = r
+		return nil
+	})
+	return resp, err
+}
+
+// BreakerStats exposes the TSDB breaker state (U-078 fallback metrics).
+func (p *Prometheus) BreakerStats() breaker.Stats { return p.breaker.Stats() }
 
 // ErrAdminAPIDisabled reports that the upstream's admin API (delete_series)
 // is not enabled — the erasure engine then records the documented manual
@@ -118,7 +141,7 @@ func (p *Prometheus) Count(ctx context.Context, promql string) (float64, error) 
 	if err != nil {
 		return 0, err
 	}
-	resp, err := p.client.Do(req)
+	resp, err := p.promDo(req)
 	if err != nil {
 		return 0, fmt.Errorf("tsdb: instant query: %w", err)
 	}
@@ -181,7 +204,7 @@ func (p *Prometheus) Write(ctx context.Context, series []Series) error {
 	req.Header.Set("Content-Encoding", "snappy")
 	req.Header.Set("X-Prometheus-Remote-Write-Version", "0.1.0")
 
-	resp, err := p.client.Do(req)
+	resp, err := p.promDo(req)
 	if err != nil {
 		return fmt.Errorf("tsdb: remote-write: %w", err)
 	}

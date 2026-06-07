@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/breaker"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
 
@@ -68,9 +69,10 @@ func tableFor(t Target) (string, error) {
 // ClickHouse persists flows over the ClickHouse HTTP interface (pathstore
 // pattern: zero driver dependencies; https URL = TLS in transit).
 type ClickHouse struct {
-	base   string
-	client *http.Client
-	router TargetRouter // nil = everything pooled
+	breaker *breaker.Breaker
+	base    string
+	client  *http.Client
+	router  TargetRouter // nil = everything pooled
 }
 
 // NewClickHouse connects, ensures the shared schema, and (when retentionDays
@@ -94,7 +96,7 @@ func (e chExec) Query(ctx context.Context, sql string) ([]map[string]any, error)
 }
 
 func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
-	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), client: &http.Client{Timeout: 30 * time.Second}}
+	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), client: &http.Client{Timeout: 30 * time.Second}, breaker: breaker.New(0, 0)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	// Versioned, ledger-recorded schema (U-046). The retention TTL below
@@ -519,6 +521,25 @@ func (c *ClickHouse) exec(ctx context.Context, base, query string, body io.Reade
 	}
 	return nil
 }
+
+// chDo issues the request through the circuit breaker (U-078): a transport
+// failure (upstream down) counts toward tripping; the breaker short-circuits
+// while open instead of stacking connect timeouts.
+func chDo(b *breaker.Breaker, client *http.Client, req *http.Request) (*http.Response, error) {
+	var resp *http.Response
+	err := b.Do(func() error {
+		r, e := client.Do(req)
+		if e != nil {
+			return e
+		}
+		resp = r
+		return nil
+	})
+	return resp, err
+}
+
+// BreakerStats exposes the storage breaker state (U-078 fallback metrics).
+func (c *ClickHouse) BreakerStats() breaker.Stats { return c.breaker.Stats() }
 
 // chStr renders a ClickHouse string literal with the necessary escaping.
 func chStr(s string) string {

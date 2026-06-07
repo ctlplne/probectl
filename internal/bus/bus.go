@@ -105,10 +105,10 @@ func TopicFor(namespace, base string) string {
 // in-process bus; "kafka" requires brokers and enforces the transport policy
 // (U-010): TLS (+ optional SASL) unless the explicit dev-only AllowPlaintext
 // flag is set.
-func New(mode string, brokers []string, sec Security) (Bus, error) {
+func New(mode string, brokers []string, sec Security, memOpts ...MemoryOption) (Bus, error) {
 	switch mode {
 	case "", "memory":
-		return NewMemory(), nil
+		return NewMemory(memOpts...), nil
 	case "kafka":
 		if len(brokers) == 0 {
 			return nil, errors.New("bus: kafka mode requires PROBECTL_BUS_BROKERS")

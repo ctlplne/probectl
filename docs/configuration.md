@@ -45,6 +45,8 @@ migrations and exit), `probectl-control version`.
 | `PROBECTL_AGENT_TLS_CA_FILE`        | (none)                                                            | CA bundle that signs agent client certificates (PEM)       |
 | `PROBECTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (lightweight, in-process) \| `kafka`  |
 | `PROBECTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
+| `PROBECTL_BUS_MEMORY_BUFFER`        | `1024`                                                           | in-memory bus: per-subscriber channel depth (lightweight mode, U-079) |
+| `PROBECTL_BUS_MEMORY_OVERFLOW`      | `block`                                                          | in-memory bus overflow policy: `block` (back-pressure publisher) \| `drop` (drop + count, no deadlock) |
 | `PROBECTL_BUS_TLS_ENABLED`          | `false`     | TLS to the Kafka brokers (U-010). **Required in kafka mode** unless the explicit dev flag below is set |
 | `PROBECTL_BUS_TLS_CA_FILE`          | (none)      | private CA bundle for the brokers |
 | `PROBECTL_BUS_TLS_CERT_FILE`        | (none)      | client certificate (broker mTLS; with `_KEY_FILE`) |

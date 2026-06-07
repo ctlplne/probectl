@@ -86,6 +86,10 @@ type Config struct {
 	// writes to the TSDB.
 	BusMode    string
 	BusBrokers []string
+	// In-memory bus tuning (lightweight mode, U-079): per-subscriber channel
+	// depth and the overflow policy (block | drop) when a subscriber lags.
+	BusMemoryBuffer   int
+	BusMemoryOverflow string
 	// Kafka transport policy (U-010): TLS by default in kafka mode; plaintext
 	// requires the explicit dev-only BusAllowPlaintext flag. SASL optional.
 	BusTLSEnabled     bool
@@ -453,6 +457,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		AgentTLSCAFile:           l.str("PROBECTL_AGENT_TLS_CA_FILE", ""),
 		BusMode:                  l.enum("PROBECTL_BUS_MODE", "memory", "memory", "kafka"),
 		BusBrokers:               l.list("PROBECTL_BUS_BROKERS"),
+		BusMemoryBuffer:          l.intRange("PROBECTL_BUS_MEMORY_BUFFER", 1024, 1, 1<<20),
+		BusMemoryOverflow:        l.enum("PROBECTL_BUS_MEMORY_OVERFLOW", "block", "block", "drop"),
 		BusTLSEnabled:            l.boolean("PROBECTL_BUS_TLS_ENABLED", false),
 		BusTLSCAFile:             l.str("PROBECTL_BUS_TLS_CA_FILE", ""),
 		BusTLSCertFile:           l.str("PROBECTL_BUS_TLS_CERT_FILE", ""),
