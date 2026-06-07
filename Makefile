@@ -281,6 +281,10 @@ images: ## Build multi-arch images for all components (Buildx).
 			. || exit 1; \
 	done
 
+.PHONY: e2e
+e2e: ## U-054 black-box full-stack e2e (test/e2e): compose deps + real binaries + public API + tenancy boundary. Nightly CI.
+	PROBECTL_E2E=1 $(GO) test -count=1 -v -timeout 15m -run '^TestE2E$$' ./test/...
+
 .PHONY: backup-restore-drill
 backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).
 	./scripts/backup_restore_drill.sh

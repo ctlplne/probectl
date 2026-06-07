@@ -1,0 +1,28 @@
+name: nightly
+
+# U-054: the BLACK-BOX full-stack e2e (test/e2e) — real binaries, the real
+# compose dependencies, public interfaces only: enroll two fixture-mode
+# agents, ingest over Kafka, query /v1/topology per tenant, assert the
+# tenancy boundary both ways. Nightly (not per-PR): it boots a stack and
+# takes minutes; per-PR full-stack correctness stays with the integration +
+# cross-tenant-isolation jobs.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: e2e (black-box full stack)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26"
+      - name: full-stack e2e (compose → binaries → ingest → API → tenancy)
+        run: make e2e
