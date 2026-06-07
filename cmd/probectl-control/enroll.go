@@ -92,3 +92,29 @@ func serverCertPin(certFile string) string {
 	}
 	return hex.EncodeToString(crypto.Hash(cert.Raw))
 }
+
+// runRevokeAgent persists an agent revocation from the CLI (Sprint 12,
+// WIRE-003): the running control plane's periodic deny-list refresh (30s)
+// picks it up; enrollment/rotation refuse the id immediately.
+func runRevokeAgent(ctx context.Context, db *store.DB, args []string) error {
+	fs := flag.NewFlagSet("revoke-agent", flag.ContinueOnError)
+	tenant := fs.String("tenant", "", "tenant UUID the agent belongs to (REQUIRED)")
+	agent := fs.String("agent", "", "agent id to revoke (REQUIRED)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tenant == "" || *agent == "" {
+		return fmt.Errorf("usage: probectl-control revoke-agent -tenant <uuid> -agent <id>")
+	}
+	svc, err := enroll.Load(ctx, db.Pool(), nil)
+	if err != nil {
+		return err
+	}
+	serials, spiffeID, err := svc.Revoke(ctx, *tenant, *agent, "cli")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("revoked %s (%s): %d live serial(s) denied; a running control plane refuses its handshakes within 30s; re-enrollment/rotation refused immediately\n",
+		*agent, spiffeID, len(serials))
+	return nil
+}

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -37,6 +38,8 @@ type service struct {
 	agents   store.Agents
 	shutdown <-chan struct{}
 	accepted atomic.Uint64 // results accepted across all StreamResults calls
+	// freshness refuses stale/replayed stream envelopes (Sprint 12, WIRE-006).
+	freshness *nonceCache
 
 	// Version-skew policy (S34): the control plane is the authority on agent↔control
 	// compatibility. An agent outside the N/N-1 window is rejected at Register so a
@@ -158,6 +161,16 @@ func (svc *service) StreamResults(stream grpc.ClientStreamingServer[agentv1.Stre
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
 	ctx := stream.Context()
+	// WIRE-006: the stream envelope must be FRESH and UNSEEN — a replayed or
+	// stale open is refused before any result is read (fail closed).
+	if svc.freshness != nil {
+		md, _ := metadata.FromIncomingContext(ctx)
+		if ferr := svc.freshness.check(md, id.TenantID+"/"+id.AgentID); ferr != nil {
+			svc.log.Warn("REFUSED results stream: freshness/replay check failed (WIRE-006)",
+				"tenant", id.TenantID, "agent", id.AgentID, "error", ferr.Error())
+			return status.Error(codes.Unauthenticated, "stream envelope rejected: "+ferr.Error())
+		}
+	}
 	var accepted uint64
 	for {
 		req, err := stream.Recv()

@@ -23,6 +23,48 @@ import (
 // configured; the routes answer 503 with the init instruction).
 func (s *Server) SetEnrollService(svc *enroll.Service) { s.enrollSvc = svc }
 
+// SetAgentRevocationPush installs the LIVE deny-list hook (Sprint 12,
+// WIRE-003): main wires it to the agent transport's RevocationList so an API
+// revocation refuses handshakes immediately — persistence (and the periodic
+// refresher) covers restarts and CLI-side revocations.
+func (s *Server) SetAgentRevocationPush(push func(serials []string, spiffeIDs []string)) {
+	s.revokePush = push
+}
+
+// handleRevokeAgent is the operator path that FEEDS the handshake deny-list
+// (WIRE-003 residual): resolves the agent's issued serials + SPIFFE id from
+// the registry, persists the revocation, pushes it live, audits it. The
+// caller's tenant scopes the revocation (admin RBAC: agents.write).
+func (s *Server) handleRevokeAgent(w http.ResponseWriter, r *http.Request) error {
+	if s.enrollSvc == nil {
+		return apierror.Unavailable("agent enrollment is not configured (run: probectl-control agent-ca init)")
+	}
+	agentID := r.PathValue("id")
+	var out struct {
+		AgentID     string `json:"agent_id"`
+		SPIFFEID    string `json:"spiffe_id"`
+		LiveSerials int    `json:"live_serials_revoked"`
+	}
+	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		serials, spiffeID, err := s.enrollSvc.Revoke(ctx, sc.Tenant.String(), agentID, auditActor(r))
+		if err != nil {
+			return err
+		}
+		out.AgentID, out.SPIFFEID, out.LiveSerials = agentID, spiffeID, len(serials)
+		if s.revokePush != nil {
+			s.revokePush(serials, []string{spiffeID})
+		}
+		return s.recordAudit(ctx, sc, r, "agent.revoked", agentID, map[string]any{
+			"spiffe_id": spiffeID, "live_serials": len(serials),
+		})
+	})
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, out)
+	return nil
+}
+
 func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error {
 	if s.enrollSvc == nil {
 		return apierror.Unavailable("agent enrollment is not configured (run: probectl-control agent-ca init)")

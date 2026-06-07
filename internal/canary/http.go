@@ -242,12 +242,20 @@ func (c *httpCanary) statusOK(code int) bool {
 }
 
 // trustRoots returns the verification root pool: the system pool plus any
-// ca_file anchors, or nil to use the system pool alone.
+// ca_file anchors, or nil to use the system pool alone. The ca_file path is
+// CONSTRAINED to the operator-allowlisted directory (RED-008): test specs are
+// API-supplied, so an unconstrained path lets a tenant admin read arbitrary
+// agent-filesystem PEM-ish files via probe behavior. No dir configured = the
+// parameter is refused outright (fail closed).
 func (c *httpCanary) trustRoots() (*x509.CertPool, error) {
 	if c.caFile == "" {
 		return nil, nil
 	}
-	pemBytes, err := os.ReadFile(c.caFile)
+	resolved, err := ResolveCAFile(c.caFile)
+	if err != nil {
+		return nil, err
+	}
+	pemBytes, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("http: read ca_file: %w", err)
 	}

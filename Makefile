@@ -224,7 +224,7 @@ lint: lint-go lint-python ## Run all linters (Go + Python).
 # The gofmt scope excludes generated code (*/gen/*). (The throwaway spike/
 # tree was removed from main in U-080 — git history preserves it.)
 .PHONY: lint-go
-lint-go: ## gofmt check + go vet + golangci-lint + crypto-import guard + editions guard.
+lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-sql/unified-TLS guards.
 	@files=$$(find . -name '*.go' -not -path '*/gen/*'); \
 		bad=$$(gofmt -l $$files); \
 		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
@@ -234,6 +234,8 @@ lint-go: ## gofmt check + go vet + golangci-lint + crypto-import guard + edition
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	./scripts/check_swallowed_errors.sh
 	./scripts/check_http_clients.sh
+	SELFTEST=1 ./scripts/check_stringbuilt_sql.sh
+	SELFTEST=1 ./scripts/check_tls_configs.sh
 
 .PHONY: lint-python
 lint-python: ## Lint the Python analyzer (ruff + black --check).

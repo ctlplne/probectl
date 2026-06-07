@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -67,6 +69,8 @@ type Server struct {
 	authLimiter *auth.Limiter
 	// enrollSvc issues agent SVIDs (Sprint 11); nil = enrollment unconfigured.
 	enrollSvc *enroll.Service
+	// revokePush feeds the live handshake deny-list (Sprint 12, WIRE-003).
+	revokePush func(serials, spiffeIDs []string)
 
 	// AI assistant (S24). The RCA analyzer over the S23 query engine; always set
 	// (built-in air-gapped model + incidents evidence when a pool is present).
@@ -428,6 +432,16 @@ func (s *Server) routes() http.Handler {
 // in-flight requests within the configured ShutdownTimeout.
 func (s *Server) Run(ctx context.Context) error {
 	tlsEnabled := s.cfg.TLSEnabled()
+	if !tlsEnabled {
+		// WIRE-004: TLS is the DEFAULT. A plaintext listener is allowed only
+		// bound to loopback (local dev) or with the explicit, loud opt-in
+		// (PROBECTL_ALLOW_PLAINTEXT_HTTP — the behind-TLS-ingress posture).
+		if err := plaintextAllowed(s.cfg.HTTPAddr, s.cfg.AllowPlaintextHTTP); err != nil {
+			return err
+		}
+		s.log.Warn("PLAINTEXT HTTP listener (no TLS on this process) — acceptable ONLY behind a TLS-terminating ingress or on loopback",
+			"addr", s.cfg.HTTPAddr, "opt_in", s.cfg.AllowPlaintextHTTP)
+	}
 	if tlsEnabled {
 		// Apply the hardened TLS config (the only crypto routes through
 		// internal/crypto; control imports no crypto package directly).
@@ -466,4 +480,30 @@ func (s *Server) Run(ctx context.Context) error {
 		defer cancel()
 		return s.http.Shutdown(shutdownCtx)
 	}
+}
+
+// plaintextAllowed decides whether a non-TLS control listener may start
+// (WIRE-004): loopback binds are fine (local dev); anything else needs the
+// explicit PROBECTL_ALLOW_PLAINTEXT_HTTP opt-in. Default = refuse.
+func plaintextAllowed(addr string, optIn bool) error {
+	if optIn || loopbackAddr(addr) {
+		return nil
+	}
+	return fmt.Errorf("refusing to serve the control API over PLAINTEXT on %q: configure TLS "+
+		"(PROBECTL_TLS_CERT_FILE/KEY_FILE), bind loopback, or set PROBECTL_ALLOW_PLAINTEXT_HTTP=true "+
+		"ONLY behind a TLS-terminating ingress (WIRE-004)", addr)
+}
+
+// loopbackAddr reports whether addr binds only the loopback interface.
+func loopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	switch host {
+	case "localhost", "127.0.0.1", "::1", "[::1]":
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
 }

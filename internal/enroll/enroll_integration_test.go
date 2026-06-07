@@ -7,6 +7,7 @@ package enroll_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -232,4 +233,65 @@ func leafOnly(chainPEM string) string {
 		return chainPEM
 	}
 	return chainPEM[:i+len(end)] + "\n"
+}
+
+// Sprint 12 (WIRE-003): revocation persists, blocks re-enrollment AND
+// rotation, and surfaces through ListRevoked (the boot/refresh feed).
+func TestRevokeAgentPersistsAndBlocksReissuance(t *testing.T) {
+	ctx := context.Background()
+	pool, svc, tenantID := setup(ctx, t)
+	_ = pool
+
+	display, _, err := svc.MintToken(ctx, tenantID, "agent-rev", "", "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr1, key1, _ := crypto.CreateCSR("host-rev")
+	id, err := svc.Enroll(ctx, enroll.EnrollRequest{Token: display, CSRPEM: string(csr1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serials, spiffeID, err := svc.Revoke(ctx, tenantID, "agent-rev", "test")
+	if err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if len(serials) == 0 || spiffeID != id.SPIFFEID {
+		t.Fatalf("revoke returned serials=%d spiffe=%s, want the issued identity", len(serials), spiffeID)
+	}
+
+	// The persisted feed contains the material (what boot/refresh installs).
+	feedSerials, feedIDs, err := svc.ListRevoked(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsStr(feedSerials, id.Serial) || !containsStr(feedIDs, id.SPIFFEID) {
+		t.Fatalf("feed missing revoked material: serials=%v ids=%v", feedSerials, feedIDs)
+	}
+
+	// Rotation of the revoked identity refuses (no resurrection)...
+	csr2, _, _ := crypto.CreateCSR("host-rev")
+	proof, _ := crypto.ECDSASignPEM(key1, csr2)
+	if _, err := svc.Rotate(ctx, enroll.RotateRequest{
+		CertPEM: leafOnly(id.CertPEM), CSRPEM: string(csr2), ProofHex: fmt.Sprintf("%x", proof)}); !errors.Is(err, enroll.ErrRevoked) {
+		t.Fatalf("rotation of a revoked identity must refuse with ErrRevoked, got %v", err)
+	}
+	// ...and so does re-enrollment with a fresh token PINNED to the same id.
+	display2, _, err := svc.MintToken(ctx, tenantID, "agent-rev", "", "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	csr3, _, _ := crypto.CreateCSR("host-rev")
+	if _, err := svc.Enroll(ctx, enroll.EnrollRequest{Token: display2, CSRPEM: string(csr3)}); !errors.Is(err, enroll.ErrRevoked) {
+		t.Fatalf("re-enrollment of a revoked identity must refuse with ErrRevoked, got %v", err)
+	}
+}
+
+func containsStr(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
 }

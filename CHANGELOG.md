@@ -9,6 +9,33 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 12: transport security (WIRE-003/004/005/006/007, RED-008).
+  Revocation is now FED, not just checked: `probectl-control
+  revoke-agent` + the audited admin API resolve an agent's issued
+  serials + SPIFFE id from the Sprint 11 registry, persist the
+  revocation (survives restarts), push the live handshake deny-list,
+  and a 30s refresher converges CLI-side revocations; the SPIFFE
+  dimension refuses even re-issued certs, and enrollment/rotation
+  refuse revoked identities (no resurrection). TLS is mandatory for
+  the control API: a non-loopback plaintext listener refuses to start
+  without the explicit PROBECTL_ALLOW_PLAINTEXT_HTTP opt-in (the Helm
+  chart sets it — plaintext only behind its TLS-terminating ingress).
+  One hardened TLS config now serves every probectl listener (API,
+  OTLP, MCP — the bespoke weak config in main is gone) with a TLS 1.3
+  floor across all probectl↔probectl endpoints (agent mTLS, enrollment
+  client included); outbound probe clients (canary HTTP/DNS, gNMI)
+  deliberately keep 1.2 for third-party interop, allowlisted in the
+  new `unified-TLS` lint gate that fails the build on any bespoke
+  tls.Config literal. Ingestion gains app-layer replay/freshness
+  protection: results streams carry a timestamp+nonce envelope inside
+  the authenticated channel — stale or replayed envelopes are refused
+  (bounded per-agent nonce cache that refuses rather than evicts under
+  flood), while store-and-forward of buffered results stays intact.
+  Probe ca_file parameters are contained to an operator-allowlisted
+  directory (traversal- and symlink-escape-proof; refused entirely
+  when unconfigured). Also restores the no-stringbuilt-sql gate wiring
+  in make lint-go (lost to an external edit after Sprint 7).
+
 - Sprint 11: agent enrollment & SVID issuance — the trust root is now
   repo-managed (WIRE-002, RED-002, TENANT-103, ARCH-004; ADR
   founder-approved before code, docs/adr/agent-enrollment.md). One-time

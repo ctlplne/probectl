@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
+	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
 )
@@ -47,8 +48,14 @@ func (c *Client) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest) e
 	return err
 }
 
-// StreamResults opens a client stream for forwarding buffered results.
+// StreamResults opens a client stream for forwarding buffered results. The
+// stream envelope carries a fresh timestamp + nonce inside the mTLS channel
+// (Sprint 12, WIRE-006) — the server refuses stale/replayed envelopes.
 func (c *Client) StreamResults(ctx context.Context) (grpc.ClientStreamingClient[agentv1.StreamResultsRequest, agentv1.StreamResultsResponse], error) {
+	ctx, err := agenttransport.FreshnessMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return c.svc.StreamResults(ctx)
 }
 

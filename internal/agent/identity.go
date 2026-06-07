@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
@@ -190,7 +189,7 @@ func RotationDue(notBefore, notAfter, now time.Time) bool {
 // quickstarts) or CA bundle; with neither, the system roots apply. A pin
 // mismatch fails closed — there is no trust-on-first-use fallback.
 func enrollHTTPClient(caPin, caFile string) (*http.Client, error) {
-	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	tlsCfg := crypto.InternalClientTLSConfig() // probectl↔probectl: 1.3 floor
 	switch {
 	case caPin != "":
 		want, err := hex.DecodeString(strings.ToLower(strings.TrimSpace(caPin)))

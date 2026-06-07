@@ -3986,6 +3986,33 @@
           }
         }
       }
+    },
+    "/v1/agents/{id}/revoke": {
+      "post": {
+        "operationId": "revokeAgent",
+        "summary": "Revoke an agent's identity (WIRE-003): persists, blocks re-enrollment/rotation, and refuses its mTLS handshakes from the next connection",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked: spiffe_id + count of live serials pushed to the handshake deny-list"
+          },
+          "503": {
+            "description": "Enrollment not configured"
+          }
+        }
+      }
     }
   },
   "components": {

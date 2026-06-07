@@ -55,7 +55,7 @@ func ClientMTLSConfig(certFile, keyFile, caFile string) (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := hardenedTLS()
+	cfg := hardenedServerTLS() // probectl↔probectl: TLS 1.3 floor (WIRE-007)
 	cfg.Certificates = []tls.Certificate{cert}
 	cfg.RootCAs = pool
 	return cfg, nil

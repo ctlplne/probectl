@@ -77,6 +77,9 @@ type TLSConfig struct {
 	KeyFile    string `yaml:"key_file"`
 	CAFile     string `yaml:"ca_file"`
 	ServerName string `yaml:"server_name"`
+	// CanaryCADir allowlists the ONE directory probe ca_file parameters may
+	// reference (RED-008). Empty = the ca_file param is refused (default).
+	CanaryCADir string `yaml:"canary_ca_dir"`
 }
 
 // Meta is agent-level metadata.
@@ -128,6 +131,7 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_GRPC_ADDR", &c.ControlPlane.GRPCAddr)
 	override("PROBECTL_AGENT_TLS_CERT_FILE", &c.TLS.CertFile)
 	override("PROBECTL_AGENT_IDENTITY_SERVER", &c.Identity.Server)
+	override("PROBECTL_AGENT_CANARY_CA_DIR", &c.TLS.CanaryCADir)
 	override("PROBECTL_AGENT_TLS_KEY_FILE", &c.TLS.KeyFile)
 	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
 	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)

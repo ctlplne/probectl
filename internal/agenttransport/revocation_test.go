@@ -78,3 +78,72 @@ func leafFromPEM(t *testing.T, certPEM []byte) *x509.Certificate {
 	}
 	return c
 }
+
+// Sprint 12 (WIRE-003 residual — the FEEDING path): the persisted registry
+// list arrives via Replace(serials, spiffeIDs). Revoking the SPIFFE IDENTITY
+// refuses even a FRESHLY ISSUED cert for it — the handshake-level half of the
+// no-resurrection guarantee (enrollment/rotation refuse the other half).
+func TestRevokeFeedRefusesReissuedIdentity(t *testing.T) {
+	dir := t.TempDir()
+	ca, err := crypto.GenerateCA("transport-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srvCert, srvKey, err := ca.IssueServerCert("control", []string{"localhost"}, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfgTLS, err := crypto.ServerMTLSConfigRevocable(
+		writeFile(t, dir, "s.crt", srvCert), writeFile(t, dir, "s.key", srvKey),
+		writeFile(t, dir, "ca.crt", ca.CertPEM()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = cfgTLS
+
+	rl := crypto.NewRevocationList()
+	cfg, err := crypto.ServerMTLSConfigRevocable(
+		writeFile(t, dir, "s2.crt", srvCert), writeFile(t, dir, "s2.key", srvKey),
+		writeFile(t, dir, "ca2.crt", ca.CertPEM()), rl)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id := crypto.AgentSPIFFEID("t1", "agent-gone")
+	first, _, err := ca.IssueClientCert("agent-gone", id, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstLeaf := leafFromPEM(t, first)
+
+	// The registry feed (boot reload / 30s refresh / API push): live serials
+	// AND the identity's SPIFFE id.
+	rl.Replace([]string{firstLeaf.SerialNumber.Text(16)}, []string{id})
+
+	// The revoked cert is refused...
+	if err := cfg.VerifyPeerCertificate([][]byte{firstLeaf.Raw}, nil); err == nil {
+		t.Fatal("revoked serial accepted")
+	}
+	// ...and so is a BRAND-NEW cert for the same identity (different serial):
+	// the SPIFFE-id dimension of the feed catches resurrection attempts.
+	second, _, err := ca.IssueClientCert("agent-gone", id, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLeaf := leafFromPEM(t, second)
+	if secondLeaf.SerialNumber.Cmp(firstLeaf.SerialNumber) == 0 {
+		t.Fatal("test invalid: same serial")
+	}
+	if err := cfg.VerifyPeerCertificate([][]byte{secondLeaf.Raw}, nil); err == nil ||
+		!strings.Contains(err.Error(), "REVOKED") {
+		t.Fatalf("re-issued identity not refused by the spiffe-id feed: %v", err)
+	}
+	// An unrelated identity still connects.
+	other, _, err := ca.IssueClientCert("agent-ok", crypto.AgentSPIFFEID("t1", "agent-ok"), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.VerifyPeerCertificate([][]byte{leafFromPEM(t, other).Raw}, nil); err != nil {
+		t.Fatalf("unrelated identity refused: %v", err)
+	}
+}

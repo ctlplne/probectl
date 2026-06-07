@@ -56,6 +56,10 @@ requireAtRestEncryption: true
 # behind it. Only set false for a cluster-internal eval with no TLS anywhere.
 publicTLS: true
 
+# WIRE-004: the chart's in-cluster listener is plaintext behind the ingress;
+# the binary refuses non-loopback plaintext without this explicit opt-in.
+allowPlaintextHTTP: true
+
 # Kafka bus tls policy (optional; PROBECTL_BUS_MODE=kafka): production runs the
 # broker hop over TLS — plaintext kafka is refused by the control plane unless
 # the explicit dev-only PROBECTL_BUS_ALLOW_PLAINTEXT=true is set (U-010).

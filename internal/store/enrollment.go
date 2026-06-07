@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -133,4 +134,90 @@ func (c AgentCA) Load(ctx context.Context, kind string) (certPEM, sealedKey stri
 		sealedKey = *sealed
 	}
 	return certPEM, sealedKey, nil
+}
+
+// RevokeAgent stamps every identity row of (tenant, agent) revoked and
+// returns the live serials + the SPIFFE id to feed the handshake deny-list
+// (Sprint 12, WIRE-003). Idempotent: re-revoking returns the same material.
+// Pre-tenant by design — revocation is an operator action that must also work
+// from the CLI; RLS on agent_identities follows the consume-path pattern.
+func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, revokedBy string) (serials []string, spiffeID string, err error) {
+	_, err = a.pool.Exec(ctx,
+		`UPDATE agent_identities SET revoked_at = now(), revoked_by = $3
+		  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NULL`,
+		tenantID, agentID, revokedBy)
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := a.pool.Query(ctx,
+		`SELECT serial, spiffe_id FROM agent_identities
+		  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL AND not_after > now()`,
+		tenantID, agentID)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var s, sp string
+		if err := rows.Scan(&s, &sp); err != nil {
+			return nil, "", err
+		}
+		serials = append(serials, s)
+		spiffeID = sp
+	}
+	if spiffeID == "" {
+		// No live rows (all expired or none issued): still revoke the IDENTITY
+		// so re-enrollment under the same id is refused.
+		var any int
+		if err := a.pool.QueryRow(ctx,
+			`SELECT count(*) FROM agent_identities WHERE tenant_id=$1 AND agent_id=$2`,
+			tenantID, agentID).Scan(&any); err != nil {
+			return nil, "", err
+		}
+		if any == 0 {
+			return nil, "", fmt.Errorf("store: agent %s has no issued identities in tenant %s", agentID, tenantID)
+		}
+	}
+	return serials, spiffeID, rows.Err()
+}
+
+// IsAgentRevoked reports whether (tenant, agent) has been operator-revoked —
+// enrollment and rotation refuse a revoked agent id (no resurrection).
+func (a AgentIdentities) IsAgentRevoked(ctx context.Context, tenantID, agentID string) (bool, error) {
+	var n int
+	err := a.pool.QueryRow(ctx,
+		`SELECT count(*) FROM agent_identities
+		  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL`,
+		tenantID, agentID).Scan(&n)
+	return n > 0, err
+}
+
+// ListRevoked returns the deny-list to install at boot and on refresh:
+// UNEXPIRED revoked serials (expired certs refuse themselves) plus every
+// revoked SPIFFE id (so a re-issued cert for a revoked identity is refused
+// even past its predecessors' expiry).
+func (a AgentIdentities) ListRevoked(ctx context.Context) (serials, spiffeIDs []string, err error) {
+	rows, err := a.pool.Query(ctx,
+		`SELECT serial, spiffe_id, not_after > now() AS live
+		   FROM agent_identities WHERE revoked_at IS NOT NULL`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	seen := map[string]bool{}
+	for rows.Next() {
+		var s, sp string
+		var live bool
+		if err := rows.Scan(&s, &sp, &live); err != nil {
+			return nil, nil, err
+		}
+		if live {
+			serials = append(serials, s)
+		}
+		if !seen[sp] {
+			seen[sp] = true
+			spiffeIDs = append(spiffeIDs, sp)
+		}
+	}
+	return serials, spiffeIDs, rows.Err()
 }

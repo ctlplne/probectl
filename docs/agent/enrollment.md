@@ -84,4 +84,19 @@ retries every minute while the current SVID is valid, logging loudly.
 | Bounded theft | 24h leaf TTL; every issued serial is recorded (feeds the handshake revocation list — operator path: Sprint 12) |
 | Throttled bootstrap surface | `/enroll/agent[/rotate]` ride the per-IP login throttle; no signing before the token/proof check |
 
+## Revoking an agent (Sprint 12)
+
+```
+probectl-control revoke-agent -tenant <uuid> -agent <id>     # CLI
+POST /v1/agents/{id}/revoke                                  # admin API (agents.write, audited)
+```
+
+Both persist the revocation (restart-proof) and feed the mTLS handshake
+deny-list: the API pushes it live immediately; the running control plane also
+reloads the persisted list every 30s (which is how CLI-side revocations
+arrive). A revoked agent's handshakes are refused from the next connection,
+its live serials are denied, its SPIFFE id is denied (so a re-issued cert is
+refused too), and **enrollment/rotation refuse the identity** — there is no
+resurrection path short of an operator un-revoking in the database.
+
 Threat-model details and the stated residuals: the ADR's threat-model delta.

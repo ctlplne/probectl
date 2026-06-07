@@ -13,7 +13,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -88,10 +87,10 @@ func run(cmd string) error {
 		// Sprint 8 (SEC-002/COMPLY-004): deployment self-check — envelope key
 		// + operator storage-encryption duties (docs/hardening.md).
 		return runPreflight(os.Args[2:])
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token":
+	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent":
 		// fall through to the configured path below
 	default:
-		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | gen-cert | support-bundle | preflight | version)", cmd)
+		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | gen-cert | support-bundle | preflight | version)", cmd)
 	}
 
 	cfg, err := config.LoadFromEnv()
@@ -214,6 +213,10 @@ func run(cmd string) error {
 		return runAgentCAInit(context.Background(), db)
 	case "enroll-token":
 		return runEnrollToken(context.Background(), cfg, db, os.Args[2:])
+	case "revoke-agent":
+		// Sprint 12 (WIRE-003): persisted revocation; the RUNNING control
+		// plane picks it up via its periodic deny-list refresh.
+		return runRevokeAgent(context.Background(), db, os.Args[2:])
 	case "scim-token":
 		return runSCIMToken(log, db, os.Args[2:])
 	}
@@ -752,13 +755,47 @@ func run(cmd string) error {
 		// Version-skew policy (S34): reject agents outside the N/N-1 window (or an
 		// explicit floor) at registration.
 		grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
+		// Sprint 12 (WIRE-003 residual): FEED the handshake deny-list. Boot
+		// loads persisted revocations; the API pushes live; the refresher
+		// (30s) picks up CLI-side revocations and keeps restarts converged.
+		if enrollSvc != nil {
+			reload := func() {
+				serials, ids, rerr := enrollSvc.ListRevoked(gctx)
+				if rerr != nil {
+					log.Error("revocation reload failed (keeping the previous deny-list)", "error", rerr.Error())
+					return
+				}
+				grpcSrv.RevocationList().Replace(serials, ids)
+			}
+			reload()
+			srv.SetAgentRevocationPush(func(serials, ids []string) {
+				for _, s := range serials {
+					grpcSrv.RevocationList().RevokeSerial(s)
+				}
+				for _, id := range ids {
+					grpcSrv.RevocationList().RevokeID(id)
+				}
+			})
+			g.Go(func() error {
+				t := time.NewTicker(30 * time.Second)
+				defer t.Stop()
+				for {
+					select {
+					case <-gctx.Done():
+						return nil
+					case <-t.C:
+						reload()
+					}
+				}
+			})
+		}
 		g.Go(func() error { return grpcSrv.Serve(gctx, cfg.AgentGRPCAddr) })
 	}
 
 	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
 	// external OTLP. Ingested metrics are tenant-tagged and published to the bus.
 	if cfg.OTLPEnabled() {
-		tlsCfg, err := loadServerTLS(cfg.OTLPTLSCertFile, cfg.OTLPTLSKeyFile)
+		tlsCfg, err := crypto.ServerTLSConfig(cfg.OTLPTLSCertFile, cfg.OTLPTLSKeyFile)
 		if err != nil {
 			return fmt.Errorf("otlp tls: %w", err)
 		}
@@ -777,7 +814,7 @@ func run(cmd string) error {
 	// MCP server (S25): the Model Context Protocol HTTP transport — TLS + bearer-
 	// authenticated, tenant- + RBAC-scoped read tools. Off unless configured.
 	if cfg.MCPEnabled() {
-		tlsCfg, err := loadServerTLS(cfg.MCPTLSCertFile, cfg.MCPTLSKeyFile)
+		tlsCfg, err := crypto.ServerTLSConfig(cfg.MCPTLSCertFile, cfg.MCPTLSKeyFile)
 		if err != nil {
 			return fmt.Errorf("mcp tls: %w", err)
 		}
@@ -789,15 +826,8 @@ func run(cmd string) error {
 	return g.Wait()
 }
 
-// loadServerTLS builds a server TLS config from a cert/key pair. crypto/tls is
-// permitted by the FIPS import guard; TLS policy stays centralized.
-func loadServerTLS(certFile, keyFile string) (*tls.Config, error) {
-	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-	if err != nil {
-		return nil, err
-	}
-	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
-}
+// (WIRE-005: the bespoke loadServerTLS is gone — every probectl listener
+// takes crypto.ServerTLSConfig, the ONE hardened policy: TLS 1.3 floor.)
 
 func runMigrations(ctx context.Context, db *store.DB, log *slog.Logger) error {
 	applied, err := migrate.New(migrations.FS, log).Apply(ctx, db.Pool())

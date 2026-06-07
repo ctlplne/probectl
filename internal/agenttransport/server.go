@@ -50,6 +50,7 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 	svc := &service{
 		pool: pool, bus: b, broker: broker, log: log, shutdown: srvCtx.Done(),
 		compat: lifecycle.DefaultPolicy(), controlVersion: version.Get().Version,
+		freshness: newNonceCache(DefaultFreshnessWindow),
 	}
 	gs := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)))
 	agentv1.RegisterAgentServiceServer(gs, svc)

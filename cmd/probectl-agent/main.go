@@ -73,6 +73,10 @@ func run() error {
 			"fips_module_active", st.ModuleActive, "module_version", st.ModuleVersion)
 	}
 
+	// RED-008: constrain probe ca_file parameters to the allowlisted dir
+	// ("" = the parameter is refused — fail closed).
+	canary.SetCAFileDir(cfg.TLS.CanaryCADir)
+
 	// Compiled-in canary plugins.
 	reg := canary.NewRegistry()
 	reg.Register("noop", canary.NewNoop)

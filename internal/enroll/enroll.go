@@ -55,6 +55,9 @@ var (
 	ErrBadCSR        = errors.New("enroll: invalid CSR")
 	ErrNotOurs       = errors.New("enroll: certificate was not issued by this deployment (fail closed)")
 	ErrIdentityFixed = errors.New("enroll: rotation cannot change identity")
+	// ErrRevoked refuses any issuance for an operator-revoked agent identity
+	// (Sprint 12, WIRE-003): no resurrection by re-enrollment or rotation.
+	ErrRevoked = errors.New("enroll: agent identity is revoked")
 )
 
 // Service issues and rotates agent SVIDs.
@@ -220,6 +223,10 @@ func (s *Service) Enroll(ctx context.Context, req EnrollRequest) (*Identity, err
 			return nil, err
 		}
 		agentID = "agent-" + hex.EncodeToString(r)
+	} else if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, tenantID, agentID); rerr != nil {
+		return nil, rerr
+	} else if revoked {
+		return nil, ErrRevoked // a revoked identity cannot be re-enrolled (WIRE-003)
 	}
 	return s.issue(ctx, tenantID, agentID, hostname, req.Version, req.CSRPEM, "" /* first issuance */)
 }
@@ -264,6 +271,12 @@ func (s *Service) Rotate(ctx context.Context, req RotateRequest) (*Identity, err
 	proof, err := hex.DecodeString(req.ProofHex)
 	if err != nil || crypto.ECDSAVerifyCert(cert, []byte(req.CSRPEM), proof) != nil {
 		return nil, fmt.Errorf("enroll: rotation proof invalid (fail closed)")
+	}
+	// Revocation (Sprint 12): a revoked identity cannot rotate its way back.
+	if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, id.TenantID, id.AgentID); rerr != nil {
+		return nil, rerr
+	} else if revoked {
+		return nil, ErrRevoked
 	}
 	// Provenance: the serial must be one WE issued for this identity.
 	oldSerial := cert.SerialNumber.Text(16)
@@ -331,4 +344,22 @@ func (s *Service) issue(ctx context.Context, tenantID, agentID, hostname, versio
 		SPIFFEID: spiffe, TenantID: tenantID, AgentID: agentID,
 		Serial: serialHex, NotAfter: notAfter,
 	}, nil
+}
+
+// Revoke stamps every identity of (tenant, agent) revoked, returns the
+// material for the LIVE handshake deny-list, and blocks future issuance for
+// the id (Sprint 12, WIRE-003 residual). Callers audit and feed the list.
+func (s *Service) Revoke(ctx context.Context, tenantID, agentID, revokedBy string) (serials []string, spiffeID string, err error) {
+	serials, spiffeID, err = store.NewAgentIdentities(s.pool).RevokeAgent(ctx, tenantID, agentID, revokedBy)
+	if err != nil {
+		return nil, "", err
+	}
+	s.log.Warn("agent identity REVOKED — handshakes refuse it from the next connection",
+		"tenant_id", tenantID, "agent_id", agentID, "live_serials", len(serials), "revoked_by", revokedBy)
+	return serials, spiffeID, nil
+}
+
+// ListRevoked returns the persisted deny-list (boot reload + refresh).
+func (s *Service) ListRevoked(ctx context.Context) (serials, spiffeIDs []string, err error) {
+	return store.NewAgentIdentities(s.pool).ListRevoked(ctx)
 }

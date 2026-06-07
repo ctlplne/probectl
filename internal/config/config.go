@@ -75,6 +75,12 @@ type Config struct {
 	// this process's own listener is plaintext (TLS-terminating ingress) —
 	// it drives the Secure attribute on cookies. The Helm chart sets it.
 	PublicTLS bool
+	// AllowPlaintextHTTP (WIRE-004) is the explicit, loud, non-default opt-in
+	// for a plaintext control-API listener — REQUIRED to start without TLS
+	// unless the listener binds loopback. The Helm chart sets it (plaintext
+	// in-cluster listener behind the TLS-terminating ingress); everything
+	// else should serve TLS (the compose recipe does).
+	AllowPlaintextHTTP bool
 	// RequireAtRestEncryption (TENANT-106) makes keyless passthrough a FATAL
 	// startup error instead of a silent plaintext degrade: when true, the
 	// control plane refuses to run without a resolvable envelope key (or the
@@ -485,6 +491,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		EnvelopeKeyID:            l.str("PROBECTL_ENVELOPE_KEY_ID", "dev"),
 		EnvelopeKeyFile:          l.str("PROBECTL_ENVELOPE_KEY_FILE", ""),
 		PublicTLS:                l.boolean("PROBECTL_PUBLIC_TLS", false),
+		AllowPlaintextHTTP:       l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false),
 		RequireAtRestEncryption:  l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", false),
 		AgentGRPCAddr:            l.str("PROBECTL_AGENT_GRPC_ADDR", ""),
 		AgentSkewWindow:          l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100),
