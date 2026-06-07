@@ -86,6 +86,9 @@ jobs:
         run: make test
       - name: Fuzz smoke (untrusted-input parsers must not crash)
         run: make fuzz-smoke
+      - name: Agent overhead bench smoke (U-051 — benches compile + run; the
+          throughput tripwire already ran inside make test)
+        run: go test -bench . -benchtime 1000x -run '^$' ./internal/ebpf/...
       - name: Cross-compile (linux amd64 + arm64)
         run: make build-cross
       - name: Endpoint agent cross-OS build (Linux/macOS/Windows)
