@@ -45,6 +45,24 @@ runners / macOS laptops can load no eBPF at all. The `-tags ebpf` files are a
 separate, off-by-default compilation unit, so the default `make build` and CI
 need **no eBPF toolchain and no extra dependency**.
 
+## Capture limitations (measured, not hidden)
+
+- **IPv6 (U-073):** `l4flow` captures **IPv4 only** today; non-IPv4 sockets
+  are filtered in-kernel. The blind spot is **measurable** — a per-CPU BPF
+  counter is summed and surfaced as `filtered_non_ipv4_total` in the agent's
+  flush telemetry, so an IPv6-heavy host shows a rising count rather than
+  silent gaps. IPv6 capture is roadmapped (`docs/roadmap.md`): the
+  tracepoint already carries the family; it needs the 16-byte address path
+  and the wider event struct.
+- **Go `crypto/tls` (U-074):** the L7 capture uprobes attach to the system
+  libssl (OpenSSL/BoringSSL/GnuTLS). **Go programs do not use libssl** —
+  they ship their own TLS — so Go-process TLS plaintext is **not captured**.
+  This is a known, documented gap (`docs/ebpf-feasibility.md` §7): the
+  established technique disassembles the Go binary for `RET` offsets and
+  tracks the goroutine ABI — a meaningfully more brittle path, roadmapped
+  separately. L4 flow + the service map still see Go processes; only their
+  L7 plaintext is out of scope.
+
 ## Tuning & kernel lockdown
 
 `ring_buffer_bytes` (config / `PROBECTL_EBPF_RING_BUFFER_BYTES`) sizes the

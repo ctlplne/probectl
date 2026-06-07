@@ -40,8 +40,11 @@ The harnesses exist; this quarter runs them on real iron and signs off.
   ledger to per-tenant DB routing — follow-up noted in
   `internal/store/flowstore`).
 - **eBPF L7 productionization**: fd→socket correlation for precise edges;
-  Go-TLS strategy decision (disclosed limitation,
-  `docs/ebpf-feasibility.md` §7).
+  Go-TLS strategy decision (U-074 — disclosed limitation,
+  `docs/ebpf-feasibility.md` §7; the disassemble-RET-offsets + goroutine-ABI
+  path).
+- **eBPF IPv6 capture (U-073)**: extend l4flow to the 16-byte address path
+  (the non-IPv4 blind spot is already counted as `filtered_non_ipv4_total`).
 - **Design-led surfaces**: path map + topology/what-if as the hero UI
   views (PRD §6), white-label token QA at MSP scale.
 - **GA milestone gate**: surface-coverage + cross-plane correlation gates

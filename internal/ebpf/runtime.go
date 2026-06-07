@@ -25,7 +25,8 @@ type Agent struct {
 	l7man    *l7.Manager
 	l7conns  map[uint64]l7conn
 
-	lastDrops uint64
+	lastDrops      uint64
+	lastFilteredV6 uint64
 }
 
 // l7conn remembers a connection's client→server identity so a call (which may be
@@ -208,6 +209,7 @@ func (a *Agent) observeL7(ev L7Event) {
 
 func (a *Agent) flush(ctx context.Context) {
 	a.syncDrops()
+	a.syncFilteredNonIPv4()
 	flows, edges := a.agg.Drain()
 	l7calls := a.agg.DrainL7()
 	if len(flows) == 0 && len(edges) == 0 && len(l7calls) == 0 {
@@ -221,7 +223,7 @@ func (a *Agent) flush(ctx context.Context) {
 	a.log.Info("ebpf flows emitted",
 		"tenant_id", a.cfg.TenantID, "flows", len(flows), "edges", len(edges), "l7_calls", len(l7calls),
 		"observed_total", st.Observed, "l7_total", st.L7Observed, "dropped_total", st.Dropped,
-		"l7_attach_failures", st.L7AttachFailures)
+		"l7_attach_failures", st.L7AttachFailures, "filtered_non_ipv4_total", st.FilteredNonIPv4)
 }
 
 // syncDrops folds the source's cumulative drop count into the aggregator so the
@@ -231,5 +233,20 @@ func (a *Agent) syncDrops() {
 	if cur > a.lastDrops {
 		a.agg.RecordDrops(cur - a.lastDrops)
 		a.lastDrops = cur
+	}
+}
+
+// syncFilteredNonIPv4 folds the live source's in-kernel non-IPv4 filter count
+// into the aggregator (U-073) — measurable, not silent. Sources that don't
+// expose it (the fixture) are skipped.
+func (a *Agent) syncFilteredNonIPv4() {
+	fs, ok := a.source.(interface{ FilteredNonIPv4() uint64 })
+	if !ok {
+		return
+	}
+	cur := fs.FilteredNonIPv4()
+	if cur > a.lastFilteredV6 {
+		a.agg.RecordFilteredNonIPv4(cur - a.lastFilteredV6)
+		a.lastFilteredV6 = cur
 	}
 }

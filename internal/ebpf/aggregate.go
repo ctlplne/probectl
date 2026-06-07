@@ -16,6 +16,10 @@ type Stats struct {
 	// L7AttachFailures counts TLS-uprobe attach failures (U-015): an
 	// encrypted-traffic visibility gap is surfaced, never silent.
 	L7AttachFailures uint64
+	// FilteredNonIPv4 counts flows dropped IN-KERNEL because they are not
+	// IPv4 (l4flow captures IPv4 only today; U-073). The blind spot is
+	// measurable, not silent — an IPv6-heavy host shows a rising count.
+	FilteredNonIPv4 uint64
 }
 
 // Aggregator turns a stream of observed Flows into (a) a live ServiceMap and
@@ -26,10 +30,11 @@ type Aggregator struct {
 	l7pending []L7Record
 	smap      *ServiceMap
 
-	observed       atomic.Uint64
-	l7observed     atomic.Uint64
-	dropped        atomic.Uint64
-	l7attachFailed atomic.Uint64
+	observed        atomic.Uint64
+	l7observed      atomic.Uint64
+	dropped         atomic.Uint64
+	l7attachFailed  atomic.Uint64
+	filteredNonIPv4 atomic.Uint64
 }
 
 // NewAggregator returns an empty aggregator.
@@ -49,6 +54,10 @@ func (a *Aggregator) Observe(f Flow) {
 
 // RecordDrops adds n to the dropped counter (ring-buffer backpressure).
 func (a *Aggregator) RecordDrops(n uint64) { a.dropped.Add(n) }
+
+// RecordFilteredNonIPv4 adds n to the in-kernel non-IPv4 filter counter
+// (U-073) so the IPv4-only capture limitation is measurable.
+func (a *Aggregator) RecordFilteredNonIPv4(n uint64) { a.filteredNonIPv4.Add(n) }
 
 // RecordL7AttachFailure counts a failed TLS-uprobe attach (U-015) so the
 // L7-visibility gap shows up in the agent's own telemetry.
@@ -94,5 +103,6 @@ func (a *Aggregator) Stats() Stats {
 		Dropped:          a.dropped.Load(),
 		Edges:            uint64(a.smap.Len()),
 		L7AttachFailures: a.l7attachFailed.Load(),
+		FilteredNonIPv4:  a.filteredNonIPv4.Load(),
 	}
 }

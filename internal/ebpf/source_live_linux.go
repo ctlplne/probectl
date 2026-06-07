@@ -131,6 +131,25 @@ func (e l4eventC) toFlow(cfg *Config) Flow {
 // Drops returns cumulative dropped records (decode failures + ring-buffer-full).
 func (s *liveSource) Drops() uint64 { return s.drops.Load() }
 
+// FilteredNonIPv4 returns the cumulative count of flows dropped in-kernel for
+// being non-IPv4 (U-073) — summed across CPUs from the percpu `filtered` map.
+// The agent folds this into its filtered_non_ipv4_total telemetry so the
+// IPv4-only capture limitation is measurable, never silent.
+func (s *liveSource) FilteredNonIPv4() uint64 {
+	if s.objs.Filtered == nil {
+		return 0
+	}
+	var perCPU []uint64
+	if err := s.objs.Filtered.Lookup(uint32(0), &perCPU); err != nil {
+		return 0
+	}
+	var sum uint64
+	for _, v := range perCPU {
+		sum += v
+	}
+	return sum
+}
+
 // Close detaches the program and releases the ring buffer.
 func (s *liveSource) Close() error {
 	if s.rd != nil {

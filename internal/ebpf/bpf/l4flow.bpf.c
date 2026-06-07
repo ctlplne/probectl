@@ -39,16 +39,31 @@ struct l4_event {
 
 struct {
 	__uint(type, BPF_MAP_TYPE_RINGBUF);
-	__uint(max_entries, 1 << 24); // 16 MiB
+	__uint(max_entries, 1 << 24); // 16 MiB (resized from config at load, U-050)
 } events SEC(".maps");
+
+// filtered counts flows dropped in-kernel for being non-IPv4 (U-073): a
+// single per-CPU u64 userspace reads + sums, so the IPv4-only capture limit
+// is MEASURABLE rather than a silent blind spot.
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} filtered SEC(".maps");
 
 SEC("tracepoint/sock/inet_sock_set_state")
 int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 {
 	if (ctx->protocol != IPPROTO_TCP)
 		return 0;
-	if (ctx->family != AF_INET) // IPv4 for S20; IPv6 is a follow-up
+	if (ctx->family != AF_INET) { // IPv4 only today; IPv6 is counted, not captured (U-073)
+		__u32 k = 0;
+		__u64 *cnt = bpf_map_lookup_elem(&filtered, &k);
+		if (cnt)
+			__sync_fetch_and_add(cnt, 1);
 		return 0;
+	}
 	if (ctx->newstate != BPF_TCP_ESTABLISHED)
 		return 0;
 
