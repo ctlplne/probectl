@@ -76,6 +76,55 @@ func TestEveryConverterCarriesTenantAndConforms(t *testing.T) {
 	}
 }
 
+// TestMetricTypeConformance asserts OTLP metric-type SEMANTICS (U-045):
+// transferred-volume counters are monotonic cumulative Sum; point-in-time
+// measurements (latencies, success/error flags, event markers) are Gauge.
+func TestMetricTypeConformance(t *testing.T) {
+	byName := map[string]*metricspb.Metric{}
+	collect := func(rm *metricspb.ResourceMetrics) {
+		for _, m := range rm.GetScopeMetrics()[0].GetMetrics() {
+			byName[m.GetName()] = m
+		}
+	}
+	collect(FlowResourceMetrics(&ebpfv1.Flow{TenantId: "t", AgentId: "a", SourceAddress: "1.1.1.1", DestinationAddress: "2.2.2.2", DestinationPort: 443, NetworkTransport: "tcp", Bytes: 10, Packets: 1}))
+	collect(ResultResourceMetrics(&resultv1.Result{TenantId: "t", AgentId: "a", CanaryType: "icmp", Success: true, DurationNano: 1500, Metrics: map[string]float64{"rtt.avg.ms": 12.5}}))
+	collect(L7CallResourceMetrics(&ebpfv1.L7Call{TenantId: "t", AgentId: "a", Protocol: "http1", Method: "GET", Resource: "/x", Status: "200"}))
+	collect(BGPEventResourceMetrics(&bgpv1.BGPEvent{TenantId: "t", EventType: bgpv1.EventType_EVENT_TYPE_ORIGIN_CHANGE, Severity: bgpv1.Severity_SEVERITY_INFO, Prefix: "192.0.2.0/24"}))
+
+	wantSum := []string{"probectl.flow.bytes", "probectl.flow.packets"}
+	wantGauge := []string{
+		"probectl.probe.duration", "probectl.probe.success", "probectl.metric.rtt.avg.ms",
+		"probectl.l7.duration", "probectl.l7.error", "probectl.bgp.event",
+	}
+
+	for _, n := range wantSum {
+		m := byName[n]
+		if m == nil {
+			t.Fatalf("missing metric %q", n)
+		}
+		s, ok := m.GetData().(*metricspb.Metric_Sum)
+		if !ok {
+			t.Errorf("%s: type %T, want Sum (counter)", n, m.GetData())
+			continue
+		}
+		if !s.Sum.GetIsMonotonic() {
+			t.Errorf("%s: Sum must be monotonic", n)
+		}
+		if s.Sum.GetAggregationTemporality() != metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE {
+			t.Errorf("%s: temporality = %v, want CUMULATIVE", n, s.Sum.GetAggregationTemporality())
+		}
+	}
+	for _, n := range wantGauge {
+		m := byName[n]
+		if m == nil {
+			t.Fatalf("missing metric %q", n)
+		}
+		if _, ok := m.GetData().(*metricspb.Metric_Gauge); !ok {
+			t.Errorf("%s: type %T, want Gauge (point-in-time)", n, m.GetData())
+		}
+	}
+}
+
 func TestMetricsRequest(t *testing.T) {
 	req := MetricsRequest(ResultResourceMetrics(&resultv1.Result{TenantId: "t"}))
 	if len(req.GetResourceMetrics()) != 1 {

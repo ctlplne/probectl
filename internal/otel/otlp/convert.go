@@ -29,11 +29,13 @@ func ResultResourceMetrics(r *resultv1.Result) *metricspb.ResourceMetrics {
 }
 
 // FlowResourceMetrics converts an eBPF L3/L4 flow to OTLP ResourceMetrics.
+// Bytes/packets are transferred-volume COUNTERS — emitted as monotonic Sum
+// (cumulative) per the OTel network semantic conventions (U-045), not Gauge.
 func FlowResourceMetrics(f *ebpfv1.Flow) *metricspb.ResourceMetrics {
 	ts := uint64(f.GetObservedAtUnixNano())
 	return resourceMetrics(otel.FlowAttributes(f),
-		gauge("probectl.flow.bytes", "By", ts, float64(f.GetBytes())),
-		gauge("probectl.flow.packets", "1", ts, float64(f.GetPackets())),
+		sum("probectl.flow.bytes", "By", ts, float64(f.GetBytes())),
+		sum("probectl.flow.packets", "1", ts, float64(f.GetPackets())),
 	)
 }
 
@@ -88,11 +90,30 @@ func gauge(name, unit string, ts uint64, value float64) *metricspb.Metric {
 		Name: name,
 		Unit: unit,
 		Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{
-			DataPoints: []*metricspb.NumberDataPoint{{
-				TimeUnixNano: ts,
-				Value:        &metricspb.NumberDataPoint_AsDouble{AsDouble: value},
-			}},
+			DataPoints: []*metricspb.NumberDataPoint{numberPoint(ts, value)},
 		}},
+	}
+}
+
+// sum builds a monotonic, cumulative Sum — the correct OTLP type for a
+// counter (U-045). Point-in-time measurements (latencies, success/error
+// flags, event markers) stay gauges.
+func sum(name, unit string, ts uint64, value float64) *metricspb.Metric {
+	return &metricspb.Metric{
+		Name: name,
+		Unit: unit,
+		Data: &metricspb.Metric_Sum{Sum: &metricspb.Sum{
+			IsMonotonic:            true,
+			AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE,
+			DataPoints:             []*metricspb.NumberDataPoint{numberPoint(ts, value)},
+		}},
+	}
+}
+
+func numberPoint(ts uint64, value float64) *metricspb.NumberDataPoint {
+	return &metricspb.NumberDataPoint{
+		TimeUnixNano: ts,
+		Value:        &metricspb.NumberDataPoint_AsDouble{AsDouble: value},
 	}
 }
 
