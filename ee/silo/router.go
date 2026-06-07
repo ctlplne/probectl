@@ -5,6 +5,7 @@ package silo
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -24,9 +25,34 @@ type Router struct {
 	planes map[string]DataPlane
 	ttl    time.Duration
 
-	mu      sync.Mutex
-	byID    map[string]registryRow
-	fetched time.Time
+	// Seams for tests; production uses time.Now + the registry query.
+	now   func() time.Time
+	fetch func(ctx context.Context) (map[string]registryRow, error)
+
+	mu          sync.Mutex
+	byID        map[string]registryRow
+	fetched     time.Time
+	staleServes uint64
+	lastErr     string
+}
+
+// RouterStats reports the router's degradation counters (U-090): how often a
+// stale snapshot was served on registry errors, and the last such error.
+type RouterStats struct {
+	StaleServes uint64
+	LastError   string
+	SnapshotAge time.Duration
+}
+
+// Stats returns the current degradation counters.
+func (r *Router) Stats() RouterStats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	st := RouterStats{StaleServes: r.staleServes, LastError: r.lastErr}
+	if !r.fetched.IsZero() {
+		st.SnapshotAge = r.now().Sub(r.fetched)
+	}
+	return st
 }
 
 type registryRow struct {
@@ -44,7 +70,9 @@ func NewRouter(pool *pgxpool.Pool, planes map[string]DataPlane, ttl time.Duratio
 	if planes == nil {
 		planes = map[string]DataPlane{}
 	}
-	return &Router{pool: pool, planes: planes, ttl: ttl, byID: map[string]registryRow{}}
+	r := &Router{pool: pool, planes: planes, ttl: ttl, byID: map[string]registryRow{}, now: time.Now}
+	r.fetch = r.fetchRegistry
+	return r
 }
 
 // Invalidate drops the cache (called after lifecycle changes so a freshly
@@ -56,14 +84,36 @@ func (r *Router) Invalidate() {
 }
 
 // load refreshes the registry snapshot if stale. Serving a stale-but-known
-// snapshot on a read ERROR is allowed only within 10× TTL — beyond that the
-// router refuses to answer (fail closed) rather than route on ancient state.
+// snapshot on a read ERROR is tolerated for at most ONE extra TTL (U-090) —
+// and is surfaced loudly (warn log + Stats counter) every time it happens.
+// Beyond that the router refuses to answer (fail closed) rather than route
+// on ancient state: a siloed tenant must never ride an outdated registry.
 func (r *Router) load(ctx context.Context) (map[string]registryRow, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if time.Since(r.fetched) < r.ttl {
+	if r.now().Sub(r.fetched) < r.ttl {
 		return r.byID, nil
 	}
+	fresh, err := r.fetch(ctx)
+	if err != nil {
+		age := r.now().Sub(r.fetched)
+		r.lastErr = err.Error()
+		if !r.fetched.IsZero() && age < 2*r.ttl {
+			// Brief registry blip: serve the known snapshot, but say so.
+			r.staleServes++
+			slog.Warn("silo: tenant registry unavailable — serving STALE snapshot (U-090)",
+				"age", age, "stale_cap", 2*r.ttl, "error", err)
+			return r.byID, nil
+		}
+		return nil, fmt.Errorf("silo: tenant registry unavailable and the cached snapshot is too old to trust (age %s > stale cap %s): %w",
+			age, 2*r.ttl, err)
+	}
+	r.byID, r.fetched, r.lastErr = fresh, r.now(), ""
+	return r.byID, nil
+}
+
+// fetchRegistry reads the tenant registry as the least-privilege provider role.
+func (r *Router) fetchRegistry(ctx context.Context) (map[string]registryRow, error) {
 	fresh := map[string]registryRow{}
 	err := tenancy.InProvider(ctx, r.pool, func(ctx context.Context, q tenancy.Querier) error {
 		rows, err := q.Query(ctx, `SELECT id::text, slug, status, isolation_model, residency FROM tenants`)
@@ -84,13 +134,9 @@ func (r *Router) load(ctx context.Context) (map[string]registryRow, error) {
 		return rows.Err()
 	})
 	if err != nil {
-		if !r.fetched.IsZero() && time.Since(r.fetched) < 10*r.ttl {
-			return r.byID, nil // brief registry blip: serve the known snapshot
-		}
-		return nil, fmt.Errorf("silo: tenant registry unavailable: %w", err)
+		return nil, err
 	}
-	r.byID, r.fetched = fresh, time.Now()
-	return r.byID, nil
+	return fresh, nil
 }
 
 // TargetsFor resolves one tenant's isolation targets.
