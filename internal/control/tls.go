@@ -5,8 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
@@ -72,37 +70,35 @@ func (cs *TLSPostureConsumer) WithSIEM(fw *siem.Forwarder) *TLSPostureConsumer {
 	return cs
 }
 
-// Run subscribes until ctx is canceled.
+// Run subscribes until ctx is canceled (standalone mode; production uses
+// SinkResult via the ResultFan, SCALE-013).
 func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
-	return cs.bus.Subscribe(ctx, bus.NetworkResultsTopic, "tls-posture",
-		func(ctx context.Context, msg bus.Message) error {
-			var r resultv1.Result
-			if err := proto.Unmarshal(msg.Value, &r); err != nil {
-				cs.log.Warn("skipping malformed result", "error", err)
-				return nil
+	return runResultSink(ctx, cs.bus, "tls-posture", cs.log, cs.SinkResult)
+}
+
+// SinkResult analyzes one DECODED result (shared immutable — never mutated).
+func (cs *TLSPostureConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error {
+	for _, sig := range cs.analyzeAndRecord(ctx, r) {
+		inc, err := cs.correlator.Ingest(ctx, sig)
+		if err != nil {
+			cs.log.Warn("correlate tls posture into incident failed", "error", err)
+		}
+		if cs.detections != nil {
+			incID := ""
+			if inc != nil {
+				incID = inc.ID
 			}
-			for _, sig := range cs.analyzeAndRecord(ctx, &r) {
-				inc, err := cs.correlator.Ingest(ctx, sig)
-				if err != nil {
-					cs.log.Warn("correlate tls posture into incident failed", "error", err)
-				}
-				if cs.detections != nil {
-					incID := ""
-					if inc != nil {
-						incID = inc.ID
-					}
-					if d, ok := threat.DetectionFromSignal(sig, incID); ok {
-						cs.detections.Record(sig.TenantID, d)
-					}
-				}
-				if cs.siem != nil {
-					if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
-						cs.log.Warn("forward tls posture to siem failed", "error", err)
-					}
-				}
+			if d, ok := threat.DetectionFromSignal(sig, incID); ok {
+				cs.detections.Record(sig.TenantID, d)
 			}
-			return nil
-		})
+		}
+		if cs.siem != nil {
+			if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
+				cs.log.Warn("forward tls posture to siem failed", "error", err)
+			}
+		}
+	}
+	return nil
 }
 
 // analyzeAndRecord analyzes one result's captured TLS, retains the posture in

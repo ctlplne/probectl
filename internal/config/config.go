@@ -81,6 +81,10 @@ type Config struct {
 	// in-cluster listener behind the TLS-terminating ingress); everything
 	// else should serve TLS (the compose recipe does).
 	AllowPlaintextHTTP bool
+	// BusWorkers parallelizes each bus subscription's consume path
+	// (SCALE-001): poll batches dispatch across this many key-sharded
+	// workers (per-key order preserved). 0/1 = serial.
+	BusWorkers int
 	// RequireAtRestEncryption (TENANT-106) makes keyless passthrough a FATAL
 	// startup error instead of a silent plaintext degrade: when true, the
 	// control plane refuses to run without a resolvable envelope key (or the
@@ -492,6 +496,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		EnvelopeKeyFile:          l.str("PROBECTL_ENVELOPE_KEY_FILE", ""),
 		PublicTLS:                l.boolean("PROBECTL_PUBLIC_TLS", false),
 		AllowPlaintextHTTP:       l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false),
+		BusWorkers:               l.intRange("PROBECTL_BUS_WORKERS", 4, 0, 256),
 		RequireAtRestEncryption:  l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", false),
 		AgentGRPCAddr:            l.str("PROBECTL_AGENT_GRPC_ADDR", ""),
 		AgentSkewWindow:          l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100),

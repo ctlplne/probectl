@@ -224,6 +224,12 @@ func NewRUMConsumer(b bus.Bus, e *rum.Engine, c *incident.Correlator, log *slog.
 	return &RUMConsumer{engine: e, bus: b, correlator: c, log: log}
 }
 
+// RunViews consumes ONLY the RUM beacon topic — production mode when the
+// synthetic results arrive via the decode-once ResultFan (SCALE-013).
+func (rc *RUMConsumer) RunViews(ctx context.Context) error {
+	return rc.bus.Subscribe(ctx, bus.RUMEventsTopic, "rum-views", rc.handleRUMEvent)
+}
+
 // Run subscribes to both topics (own consumer groups) until ctx ends.
 func (rc *RUMConsumer) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -276,6 +282,11 @@ func (rc *RUMConsumer) handleSynthetic(ctx context.Context, msg bus.Message) err
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		return nil // the result pipeline owns malformed-result logging
 	}
+	return rc.SinkResult(ctx, &r)
+}
+
+// SinkResult ingests one DECODED synthetic result (shared immutable).
+func (rc *RUMConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error {
 	tenant := r.GetTenantId()
 	if tenant == "" || !webFacing(r.GetCanaryType()) {
 		return nil // unscoped dropped (guardrail 1); non-web types irrelevant here

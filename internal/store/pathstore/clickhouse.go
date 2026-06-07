@@ -137,24 +137,42 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	if tenantID == "" {
 		return ErrNoTenant
 	}
-	pathID, err := randomID()
-	if err != nil {
-		return err
-	}
-	ts := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+	return c.SaveBatch(ctx, []PathItem{{TenantID: tenantID, P: p}})
+}
 
-	var hops bytes.Buffer
-	enc := json.NewEncoder(&hops)
-	for _, h := range p.Hops {
-		for _, n := range h.Nodes {
-			labels := make([]uint32, 0, len(n.MPLS))
-			for _, l := range n.MPLS {
-				labels = append(labels, l.Label)
+// SaveBatch persists MANY discoveries in one insert per table (Sprint 14,
+// SCALE-009 — the cross-path batching window): N paths cost 2 requests, not
+// 2N. Used by BatchingSaver; Save is the single-item case.
+func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
+	var hops, links bytes.Buffer
+	henc, lenc := json.NewEncoder(&hops), json.NewEncoder(&links)
+	for _, it := range items {
+		if it.TenantID == "" {
+			return ErrNoTenant
+		}
+		pathID, err := randomID()
+		if err != nil {
+			return err
+		}
+		ts := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+		for _, h := range it.P.Hops {
+			for _, n := range h.Nodes {
+				labels := make([]uint32, 0, len(n.MPLS))
+				for _, l := range n.MPLS {
+					labels = append(labels, l.Label)
+				}
+				if err := henc.Encode(hopRow{
+					TenantID: it.TenantID, PathID: pathID, Target: it.P.Target, TargetIP: it.P.TargetIP, Mode: it.P.Mode,
+					TS: ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
+					RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
+				}); err != nil {
+					return err
+				}
 			}
-			if err := enc.Encode(hopRow{
-				TenantID: tenantID, PathID: pathID, Target: p.Target, TargetIP: p.TargetIP, Mode: p.Mode,
-				TS: ts, TTL: h.TTL, Responder: n.IP, Sent: n.Sent, Received: n.Received, LossRatio: n.LossRatio,
-				RTTMin: n.RTTMinMs, RTTAvg: n.RTTAvgMs, RTTMax: n.RTTMaxMs, MPLS: labels,
+		}
+		for _, l := range it.P.Links {
+			if err := lenc.Encode(linkRow{
+				TenantID: it.TenantID, PathID: pathID, Target: it.P.Target, TS: ts, TTL: l.TTL, From: l.From, To: l.To,
 			}); err != nil {
 				return err
 			}
@@ -162,16 +180,6 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 	}
 	if hops.Len() > 0 {
 		if err := c.exec(ctx, "INSERT INTO probectl_path_hops FORMAT JSONEachRow", nil, &hops); err != nil {
-			return err
-		}
-	}
-
-	var links bytes.Buffer
-	lenc := json.NewEncoder(&links)
-	for _, l := range p.Links {
-		if err := lenc.Encode(linkRow{
-			TenantID: tenantID, PathID: pathID, Target: p.Target, TS: ts, TTL: l.TTL, From: l.From, To: l.To,
-		}); err != nil {
 			return err
 		}
 	}

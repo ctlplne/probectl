@@ -43,6 +43,14 @@ type Consumer struct {
 	deadLettered atomic.Uint64 // records routed to the DLQ after exhaustion
 	dropped      atomic.Uint64 // records lost entirely (DLQ publish ALSO failed)
 
+	// Write-stage decoupling (SCALE-001): decode/verify enqueue onto a
+	// BOUNDED channel drained by writeWorkers goroutines doing the remote
+	// write (+ retry/DLQ). Enqueue blocks when full — backpressure reaches
+	// the bus consumer instead of an unbounded buffer. nil = synchronous
+	// (unit tests calling handleLane directly keep the old behavior).
+	writeCh      chan writeItem
+	writeWorkers int
+
 	// card caps per-agent/per-tenant series identities (U-017); always set.
 	card *CardinalityLimiter
 }
@@ -183,6 +191,31 @@ func (c *Consumer) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	// SCALE-001: the write stage. Decode/verify (the subscription handlers)
+	// and the remote write run in separate stages joined by a bounded queue.
+	workers := c.writeWorkers
+	if workers <= 0 {
+		workers = 4
+	}
+	c.writeCh = make(chan writeItem, workers*16)
+	var writeWG sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		writeWG.Add(1)
+		go func() {
+			defer writeWG.Done()
+			for it := range c.writeCh {
+				if err := c.writeWithRetry(ctx, it.series); err != nil {
+					c.deadLetter(ctx, it.msg, it.r, err)
+				}
+			}
+		}()
+	}
+	defer func() {
+		close(c.writeCh)
+		writeWG.Wait()
+		c.writeCh = nil
+	}()
+
 	var wg sync.WaitGroup
 	errs := make(chan error, len(subs))
 	for _, s := range subs {
@@ -213,6 +246,22 @@ func (c *Consumer) Run(ctx context.Context) error {
 // identical under Kafka and the lightweight bus modes.
 func (c *Consumer) WithFairness(g *fairness.Gate) *Consumer {
 	c.gate = g
+	return c
+}
+
+// writeItem carries one decoded record's series to the write stage, plus the
+// ORIGINAL message + decoded result for the DLQ path.
+type writeItem struct {
+	series []tsdb.Series
+	msg    bus.Message
+	r      *resultv1.Result
+}
+
+// WithWriteWorkers sets the write-stage parallelism (default 4 in Run).
+func (c *Consumer) WithWriteWorkers(n int) *Consumer {
+	if n > 0 {
+		c.writeWorkers = n
+	}
 	return c
 }
 
@@ -280,6 +329,13 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 			"rejected", droppedSeries, "rejected_total", c.card.Stats().Dropped)
 	}
 	if len(series) == 0 {
+		return nil
+	}
+	if ch := c.writeCh; ch != nil {
+		// Decoupled: block on the BOUNDED queue (backpressure), the write
+		// stage owns retry + DLQ. The decode stage moves on to the next
+		// message — no per-record synchronous remote-write on this path.
+		ch <- writeItem{series: series, msg: msg, r: &r}
 		return nil
 	}
 	if err := c.writeWithRetry(ctx, series); err != nil {

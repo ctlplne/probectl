@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -30,7 +31,18 @@ type Kafka struct {
 	failed      atomic.Uint64 // accepted but failed after retries (async)
 	shed        atomic.Uint64 // rejected at the full buffer (backpressure drop)
 	maxBuffered int64
+
+	// workers parallelizes EACH subscription's consume path (SCALE-001): a
+	// poll batch is dispatched across this many key-sharded workers — records
+	// sharing a key stay FIFO (per-tenant order holds), distinct keys process
+	// concurrently — and the loop waits for the whole batch before polling
+	// again, so commit-after-process (at-least-once) semantics are unchanged.
+	// 0/1 = the previous serial behavior.
+	workers int
 }
+
+// WithSubscribeWorkers sets the per-subscription parallelism (PROBECTL_BUS_WORKERS).
+func (k *Kafka) WithSubscribeWorkers(n int) *Kafka { k.workers = n; return k }
 
 // DefaultMaxBuffered bounds the async in-flight buffer (records) when no
 // explicit tuning is supplied.
@@ -126,9 +138,33 @@ func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Hand
 		if fetches.IsClientClosed() {
 			return nil
 		}
+		if k.workers <= 1 {
+			fetches.EachRecord(func(r *kgo.Record) {
+				_ = handler(ctx, Message{Topic: r.Topic, Key: r.Key, Value: r.Value})
+			})
+			continue
+		}
+		// SCALE-001: shard the poll batch by key across bounded workers; wait
+		// for the batch so offsets never run ahead of processing.
+		shards := make([][]Message, k.workers)
 		fetches.EachRecord(func(r *kgo.Record) {
-			_ = handler(ctx, Message{Topic: r.Topic, Key: r.Key, Value: r.Value})
+			i := int(shardKey(r.Key)) % k.workers
+			shards[i] = append(shards[i], Message{Topic: r.Topic, Key: r.Key, Value: r.Value})
 		})
+		var wg sync.WaitGroup
+		for _, shard := range shards {
+			if len(shard) == 0 {
+				continue
+			}
+			wg.Add(1)
+			go func(ms []Message) {
+				defer wg.Done()
+				for _, m := range ms {
+					_ = handler(ctx, m)
+				}
+			}(shard)
+		}
+		wg.Wait()
 	}
 	return nil
 }
@@ -141,4 +177,16 @@ func (k *Kafka) Close() error {
 	_ = k.producer.Flush(ctx) // best-effort drain; unflushed records are already counted
 	k.producer.Close()
 	return nil
+}
+
+// shardKey hashes a record key onto a worker shard (FNV-1a). An empty key
+// hashes to one shard — key-less topics keep global order (the conservative
+// choice; key your records to parallelize them).
+func shardKey(key []byte) uint32 {
+	var h uint32 = 2166136261
+	for _, b := range key {
+		h ^= uint32(b)
+		h *= 16777619
+	}
+	return h
 }

@@ -135,3 +135,16 @@ func (Agents) List(ctx context.Context, s tenancy.Scope) ([]Agent, error) {
 	}
 	return out, rows.Err()
 }
+
+// HeartbeatBatch marks a WINDOW of agents online in one statement (Sprint 14,
+// SCALE-012): the per-RPC UPDATE scaled linearly with fleet size; the
+// transport now coalesces heartbeats and flushes per tenant. Within-window
+// heartbeats collapse (same now()) — exactly the wanted semantics.
+func (Agents) HeartbeatBatch(ctx context.Context, s tenancy.Scope, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	_, err := s.Q.Exec(ctx,
+		`UPDATE agents SET status = 'online', last_seen_at = now() WHERE id = ANY($1)`, ids)
+	return err
+}

@@ -43,6 +43,11 @@ const DeviceMetricsTopic = "probectl.device.metrics"
 // result schema), so it flows through the same pipeline → TSDB path.
 const EndpointResultsTopic = "probectl.endpoint.results"
 
+// DeadLetterDeviceTopic receives device-metric messages whose TSDB write
+// exhausted retries (Sprint 14, SCALE-008 residual) — tenant-keyed,
+// replayable, same contract as the results DLQ.
+const DeadLetterDeviceTopic = "probectl.deadletter.device"
+
 // DeadLetterResultsTopic receives result messages whose store write failed
 // after bounded retries (U-019): the ORIGINAL serialized record, tenant-keyed,
 // replayable. Telemetry loss is never silent — dead-lettering is counted and

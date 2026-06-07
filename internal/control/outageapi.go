@@ -179,6 +179,11 @@ func (oc *OutageConsumer) handle(ctx context.Context, msg bus.Message) error {
 		oc.log.Warn("outage: skipping malformed result", "error", err)
 		return nil
 	}
+	return oc.SinkResult(ctx, &r)
+}
+
+// SinkResult observes one DECODED result (shared immutable — never mutated).
+func (oc *OutageConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error {
 	tenant := r.GetTenantId()
 	if tenant == "" {
 		return nil // unscoped records are dropped (guardrail 1)

@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
@@ -78,37 +76,35 @@ func (cs *IOCConsumer) WithSIEM(fw *siem.Forwarder) *IOCConsumer {
 	return cs
 }
 
-// Run subscribes to the network-results topic until ctx is canceled.
+// Run subscribes to the network-results topic until ctx is canceled
+// (standalone mode; production uses SinkResult via the ResultFan, SCALE-013).
 func (cs *IOCConsumer) Run(ctx context.Context) error {
-	return cs.bus.Subscribe(ctx, bus.NetworkResultsTopic, "threat-intel-ip",
-		func(ctx context.Context, msg bus.Message) error {
-			var r resultv1.Result
-			if err := proto.Unmarshal(msg.Value, &r); err != nil {
-				cs.log.Warn("skipping malformed result", "error", err)
-				return nil
+	return runResultSink(ctx, cs.bus, "threat-intel-ip", cs.log, cs.SinkResult)
+}
+
+// SinkResult scores one DECODED result (shared immutable — never mutated).
+func (cs *IOCConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error {
+	for _, sig := range cs.signals(r) {
+		inc, err := cs.correlator.Ingest(ctx, sig)
+		if err != nil {
+			cs.log.Warn("correlate ioc match into incident failed", "error", err)
+		}
+		if cs.detections != nil {
+			incID := ""
+			if inc != nil {
+				incID = inc.ID
 			}
-			for _, sig := range cs.signals(&r) {
-				inc, err := cs.correlator.Ingest(ctx, sig)
-				if err != nil {
-					cs.log.Warn("correlate ioc match into incident failed", "error", err)
-				}
-				if cs.detections != nil {
-					incID := ""
-					if inc != nil {
-						incID = inc.ID
-					}
-					if d, ok := threat.DetectionFromSignal(sig, incID); ok {
-						cs.detections.Record(sig.TenantID, d)
-					}
-				}
-				if cs.siem != nil {
-					if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
-						cs.log.Warn("forward ioc match to siem failed", "error", err)
-					}
-				}
+			if d, ok := threat.DetectionFromSignal(sig, incID); ok {
+				cs.detections.Record(sig.TenantID, d)
 			}
-			return nil
-		})
+		}
+		if cs.siem != nil {
+			if err := cs.siem.Enqueue(ctx, signalToSIEM(sig)); err != nil {
+				cs.log.Warn("forward ioc match to siem failed", "error", err)
+			}
+		}
+	}
+	return nil
 }
 
 // signals scores a result's peer address against the store and maps each match to

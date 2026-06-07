@@ -52,6 +52,12 @@ func New(certFile, keyFile, caFile string, pool *pgxpool.Pool, b bus.Bus, broker
 		compat: lifecycle.DefaultPolicy(), controlVersion: version.Get().Version,
 		freshness: newNonceCache(DefaultFreshnessWindow),
 	}
+	if pool != nil {
+		// SCALE-012: heartbeats coalesce into one multi-row UPDATE per tenant
+		// per window instead of one UPDATE per RPC (fleet-linear write load).
+		svc.hb = newHeartbeatBatcher(pool, log, defaultHeartbeatWindow)
+		go svc.hb.run(srvCtx)
+	}
 	gs := grpc.NewServer(grpc.Creds(credentials.NewTLS(tlsConfig)))
 	agentv1.RegisterAgentServiceServer(gs, svc)
 	return &Server{grpc: gs, log: log, cancel: cancel, svc: svc, revocations: revocations}, nil

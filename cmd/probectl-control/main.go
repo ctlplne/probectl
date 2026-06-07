@@ -244,6 +244,10 @@ func run(cmd string) error {
 		memOpts = append(memOpts, bus.WithOverflowDrop())
 	}
 	resultBus, err := bus.New(cfg.BusMode, cfg.BusBrokers, cfg.BusSecurity(), memOpts...)
+	if k, ok := resultBus.(*bus.Kafka); ok {
+		// SCALE-001: key-sharded parallel consume per subscription.
+		k.WithSubscribeWorkers(cfg.BusWorkers)
+	}
 	if err != nil {
 		return fmt.Errorf("result bus: %w", err)
 	}
@@ -257,6 +261,11 @@ func run(cmd string) error {
 	pathStore, err := pathstore.New(cfg.PathStoreMode, cfg.PathStoreURL)
 	if err != nil {
 		return fmt.Errorf("path store: %w", err)
+	}
+	if cfg.PathStoreMode == "clickhouse" {
+		// SCALE-009: cross-path batching window — N discoveries inside the
+		// window cost one insert per table instead of a pair each.
+		pathStore = pathstore.NewBatchingSaver(pathStore, log, 0, 0)
 	}
 	defer pathStore.Close()
 
@@ -415,10 +424,13 @@ func run(cmd string) error {
 	if outageFeedsOn {
 		g.Go(func() error { return outageRefresher.Run(gctx) })
 	}
+	// Decode-once fan-out (Sprint 14, SCALE-013): the sidecar result consumers
+	// register typed sinks on ONE subscription instead of each re-decoding the
+	// results topic under its own group.
+	var resultSinks []control.ResultSink
 	if outageOn {
-		g.Go(func() error {
-			return control.NewOutageConsumer(resultBus, outageEngine, correlator, log).Run(gctx)
-		})
+		oc := control.NewOutageConsumer(resultBus, outageEngine, correlator, log)
+		resultSinks = append(resultSinks, control.ResultSink{Name: "outage-vantage", Fn: oc.SinkResult})
 		log.Info("outage view enabled", "feeds", outageFeedsOn, "scope_resolution", ipEnricher != nil)
 	}
 
@@ -431,9 +443,9 @@ func run(cmd string) error {
 		return err // a malformed app-key registry fails startup (fail closed)
 	}
 	if rumOn {
-		g.Go(func() error {
-			return control.NewRUMConsumer(resultBus, rumEngine, correlator, log).Run(gctx)
-		})
+		rc := control.NewRUMConsumer(resultBus, rumEngine, correlator, log)
+		resultSinks = append(resultSinks, control.ResultSink{Name: "rum-synthetic", Fn: rc.SinkResult})
+		g.Go(func() error { return rc.RunViews(gctx) })
 	}
 
 	g.Go(func() error {
@@ -665,7 +677,8 @@ func run(cmd string) error {
 	// Endpoint DEM view (S-FE4): probectl.endpoint.results -> snapshot store.
 	g.Go(func() error { return control.NewEndpointViewConsumer(resultBus, endpointViews, log).Run(gctx) })
 	// Latest-result view (S-FE5): probectl.network.results -> latest-result store.
-	g.Go(func() error { return control.NewResultViewConsumer(resultBus, latestResults, log).Run(gctx) })
+	resultSinks = append(resultSinks, control.ResultSink{
+		Name: "result-view", Fn: control.NewResultViewConsumer(resultBus, latestResults, log).SinkResult})
 
 	// SIEM export (S32): forward the audit stream + threat-plane signals to the
 	// SOC's SIEM. OFF unless configured (an outbound connection to the operator's
@@ -688,12 +701,10 @@ func run(cmd string) error {
 	iocStore, iocRefresher, intelOn := control.BuildThreatIntel(cfg, log)
 	if intelOn {
 		g.Go(func() error { return iocRefresher.Run(gctx) })
-		g.Go(func() error {
-			return control.NewIOCConsumer(resultBus, correlator, iocStore, log).
-				WithSIEM(siemFwd).
-				WithDetections(detections). // triage feed (S-FE3)
-				Run(gctx)
-		})
+		ioc := control.NewIOCConsumer(resultBus, correlator, iocStore, log).
+			WithSIEM(siemFwd).
+			WithDetections(detections) // triage feed (S-FE3)
+		resultSinks = append(resultSinks, control.ResultSink{Name: "threat-intel-ip", Fn: ioc.SinkResult})
 		log.Info("threat-intel enrichment enabled", "refresh", cfg.ThreatIntelRefresh)
 	}
 
@@ -723,12 +734,11 @@ func run(cmd string) error {
 		return err // malformed rules dir fails startup (fail closed)
 	}
 	if ndrOn {
-		g.Go(func() error {
-			return control.NewNDRConsumer(resultBus, ndrEngine, correlator, log).
-				WithSIEM(siemFwd).
-				WithDetections(detections).
-				Run(gctx)
-		})
+		ndrc := control.NewNDRConsumer(resultBus, ndrEngine, correlator, log).
+			WithSIEM(siemFwd).
+			WithDetections(detections)
+		resultSinks = append(resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})
+		g.Go(func() error { return ndrc.RunFlowLanes(gctx) })
 	}
 
 	// TLS/cert posture (S27): analyze captured TLS from HTTPS synthetic results
@@ -739,13 +749,14 @@ func run(cmd string) error {
 	if iocStore != nil {
 		tlsAnalyzer.WithIntel(iocStore)
 	}
-	g.Go(func() error {
-		return control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).
-			WithSIEM(siemFwd).
-			WithPostureStore(tlsPostures). // certificate inventory (S-FE2)
-			WithDetections(detections).    // triage feed (S-FE3)
-			Run(gctx)
-	})
+	tlsc := control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).
+		WithSIEM(siemFwd).
+		WithPostureStore(tlsPostures). // certificate inventory (S-FE2)
+		WithDetections(detections)     // triage feed (S-FE3)
+	resultSinks = append(resultSinks, control.ResultSink{Name: "tls-posture", Fn: tlsc.SinkResult})
+	// ONE subscription, ONE decode, every sink (SCALE-013).
+	resultFan := control.NewResultFan(resultBus, log, resultSinks...)
+	g.Go(func() error { return resultFan.Run(gctx) })
 
 	if cfg.AgentTransportEnabled() {
 		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)

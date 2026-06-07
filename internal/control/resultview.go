@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
@@ -134,27 +132,26 @@ func NewResultViewConsumer(b bus.Bus, store *LatestResults, log *slog.Logger) *R
 }
 
 // Run consumes until ctx is done; malformed messages are dropped.
+// (Standalone mode — production wires SinkResult through the decode-once
+// ResultFan, SCALE-013.)
 func (cs *ResultViewConsumer) Run(ctx context.Context) error {
-	return cs.bus.Subscribe(ctx, bus.NetworkResultsTopic, "result-view",
-		func(_ context.Context, msg bus.Message) error {
-			var r resultv1.Result
-			if err := proto.Unmarshal(msg.Value, &r); err != nil {
-				cs.log.Warn("skipping malformed result", "error", err)
-				return nil
-			}
-			cs.store.Record(r.GetTenantId(), ResultView{
-				AgentID:    r.GetAgentId(),
-				Type:       r.GetCanaryType(),
-				Target:     r.GetServerAddress(),
-				Success:    r.GetSuccess(),
-				Error:      r.GetErrorMessage(),
-				DurationMs: float64(r.GetDurationNano()) / 1e6,
-				Metrics:    r.GetMetrics(),
-				Attributes: r.GetAttributes(),
-				ObservedAt: time.Unix(0, r.GetStartTimeUnixNano()),
-			})
-			return nil
-		})
+	return runResultSink(ctx, cs.bus, "result-view", cs.log, cs.SinkResult)
+}
+
+// SinkResult records one DECODED result (shared immutable — never mutated).
+func (cs *ResultViewConsumer) SinkResult(_ context.Context, r *resultv1.Result) error {
+	cs.store.Record(r.GetTenantId(), ResultView{
+		AgentID:    r.GetAgentId(),
+		Type:       r.GetCanaryType(),
+		Target:     r.GetServerAddress(),
+		Success:    r.GetSuccess(),
+		Error:      r.GetErrorMessage(),
+		DurationMs: float64(r.GetDurationNano()) / 1e6,
+		Metrics:    r.GetMetrics(),
+		Attributes: r.GetAttributes(),
+		ObservedAt: time.Unix(0, r.GetStartTimeUnixNano()),
+	})
+	return nil
 }
 
 // WithLatestResults attaches the store backing GET /v1/results/latest.

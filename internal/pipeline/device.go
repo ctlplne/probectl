@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"log/slog"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,7 +48,24 @@ type DeviceConsumer struct {
 	binding   TenantBinding
 	nsTenants map[string]string
 	rejected  atomic.Uint64
+
+	// Store-write resilience (Sprint 14, SCALE-008 residual): the device
+	// plane now rides the SAME retry+DLQ contract as results — transient
+	// TSDB failures retry with jittered backoff, exhaustion dead-letters the
+	// ORIGINAL bytes, and loss is never silent.
+	maxRetries   int
+	retryBase    time.Duration
+	sleep        func(context.Context, time.Duration)
+	retried      atomic.Uint64
+	deadLettered atomic.Uint64
+	dropped      atomic.Uint64
 }
+
+// Dropped reports device batches lost entirely (DLQ publish ALSO failed).
+func (c *DeviceConsumer) Dropped() uint64 { return c.dropped.Load() }
+
+// DeadLettered reports device batches routed to the DLQ after exhaustion.
+func (c *DeviceConsumer) DeadLettered() uint64 { return c.deadLettered.Load() }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101).
 func (c *DeviceConsumer) WithTenantBinding(b TenantBinding) *DeviceConsumer {
@@ -70,7 +88,10 @@ func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsum
 	if log == nil {
 		log = slog.Default()
 	}
-	return &DeviceConsumer{bus: b, tsdb: w, group: DeviceGroup, log: log}
+	return &DeviceConsumer{
+		bus: b, tsdb: w, group: DeviceGroup, log: log,
+		maxRetries: 3, retryBase: 50 * time.Millisecond, sleep: sleepCtx,
+	}
 }
 
 // Run subscribes until ctx is canceled (shared lane + one lane per siloed
@@ -147,11 +168,49 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	for _, m := range batch.Metrics {
 		series = append(series, DeviceMetricToSeries(m))
 	}
-	if err := c.tsdb.Write(ctx, series); err != nil {
-		c.log.Error("tsdb write failed", "tenant_id", batch.Metrics[0].GetTenantId(),
-			"series", len(series), "error", err.Error())
+	// SCALE-008 residual: retry with jittered backoff; exhaustion routes the
+	// ORIGINAL bytes to the device DLQ — never a silent drop.
+	if err := c.writeWithRetry(ctx, series); err != nil {
+		c.deadLetter(ctx, msg, tenant, err)
 	}
 	return nil
+}
+
+// writeWithRetry mirrors the results pipeline's policy (U-019).
+func (c *DeviceConsumer) writeWithRetry(ctx context.Context, series []tsdb.Series) error {
+	var err error
+	for attempt := 0; ; attempt++ {
+		if err = c.tsdb.Write(ctx, series); err == nil {
+			return nil
+		}
+		if attempt >= c.maxRetries || ctx.Err() != nil {
+			return err
+		}
+		c.retried.Add(1)
+		backoff := c.retryBase << attempt
+		c.sleep(ctx, backoff+time.Duration(rand.Int64N(int64(backoff)/2+1)))
+	}
+}
+
+// deadLetter publishes the ORIGINAL message bytes to the device DLQ
+// (tenant-keyed, replayable). A DLQ publish failure is the only true loss.
+func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant string, writeErr error) {
+	if c.bus == nil {
+		c.dropped.Add(1)
+		c.log.Error("DEVICE BATCH LOST: write exhausted retries and no bus for the DLQ",
+			"tenant_id", tenant, "write_error", writeErr.Error(), "dropped_total", c.dropped.Load())
+		return
+	}
+	if err := c.bus.Publish(ctx, bus.DeadLetterDeviceTopic, msg.Key, msg.Value); err != nil {
+		c.dropped.Add(1)
+		c.log.Error("DEVICE BATCH LOST: write exhausted retries and dead-letter publish failed",
+			"tenant_id", tenant, "write_error", writeErr.Error(), "dlq_error", err.Error(),
+			"dropped_total", c.dropped.Load())
+		return
+	}
+	c.deadLettered.Add(1)
+	c.log.Warn("device batch dead-lettered after write retries",
+		"tenant_id", tenant, "topic", bus.DeadLetterDeviceTopic, "write_error", writeErr.Error())
 }
 
 // DeviceMetricToSeries converts one device sample into a TSDB series with

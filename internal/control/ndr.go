@@ -88,6 +88,14 @@ func (cs *NDRConsumer) Run(ctx context.Context) error {
 	g.Go(func() error {
 		return cs.bus.Subscribe(gctx, bus.NetworkResultsTopic, "ndr-dns", cs.handleResult)
 	})
+	g.Go(func() error { return cs.RunFlowLanes(gctx) })
+	return g.Wait()
+}
+
+// RunFlowLanes consumes ONLY the flow/eBPF lanes — production mode when the
+// DNS results arrive via the decode-once ResultFan (SCALE-013).
+func (cs *NDRConsumer) RunFlowLanes(ctx context.Context) error {
+	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		return cs.bus.Subscribe(gctx, bus.FlowEventsTopic, "ndr-flow", cs.handleFlowBatch)
 	})
@@ -104,6 +112,11 @@ func (cs *NDRConsumer) handleResult(ctx context.Context, msg bus.Message) error 
 		cs.log.Warn("ndr: skipping malformed result", "error", err)
 		return nil
 	}
+	return cs.SinkResult(ctx, &r)
+}
+
+// SinkResult feeds one DECODED dns result (shared immutable — never mutated).
+func (cs *NDRConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error {
 	if r.GetCanaryType() != "dns" && r.GetCanaryType() != "dnstrace" {
 		return nil
 	}

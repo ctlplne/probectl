@@ -9,6 +9,28 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 14: ingest hot-path performance (SCALE-001/008/009/012/013).
+  The consume path parallelizes: Kafka poll batches dispatch across
+  key-sharded workers (PROBECTL_BUS_WORKERS, default 4) — per-key FIFO
+  preserved, the loop waits for the batch so at-least-once semantics
+  are unchanged — and the result pipeline decouples decode from the
+  remote write through a bounded write stage (backpressure, retry+DLQ
+  intact). Decode-once fan-out: six sidecar consumers (result views,
+  threat-intel, TLS posture, NDR DNS, outage, RUM synthetic) now share
+  ONE subscription and ONE unmarshal via the new ResultFan instead of
+  six independent groups re-decoding every message (benchmarked ~5.8×
+  less decode work; sinks treat the record as immutable). Heartbeats
+  coalesce into one multi-row UPDATE per tenant per 2s window (was one
+  UPDATE per RPC, fleet-linear); path discoveries batch cross-path —
+  N paths inside a 100ms window cost one insert per table, with
+  flush-before-read keeping read-your-write for the discover→view
+  flow. The DEVICE plane now rides the same retry+DLQ contract as
+  results (jittered backoff, original bytes to probectl.deadletter.
+  device, loss only if the DLQ itself is down) — proven by a
+  transient/permanent/DLQ-down decision-table test with the drop
+  counter pinned at 0. BenchmarkIngest* suite added; nightly
+  ingest-bench job uploads results (feeds the Sprint 17 baseline).
+
 - Sprint 13: StreamConfig is now an ENFORCED deny (ARCH-003, within
   the standing U-044 ADR — founder decision: the RPC stays in the
   schema for wire compatibility). The old stub sent an empty epoch-0

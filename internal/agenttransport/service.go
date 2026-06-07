@@ -37,6 +37,8 @@ type service struct {
 	log      *slog.Logger
 	agents   store.Agents
 	shutdown <-chan struct{}
+	// hb coalesces heartbeat UPDATEs (Sprint 14, SCALE-012); nil = sync.
+	hb       *heartbeatBatcher
 	accepted atomic.Uint64 // results accepted across all StreamResults calls
 	// freshness refuses stale/replayed stream envelopes (Sprint 12, WIRE-006).
 	freshness *nonceCache
@@ -119,6 +121,12 @@ func (svc *service) Heartbeat(ctx context.Context, _ *agentv1.HeartbeatRequest) 
 	id, err := identityFromContext(ctx)
 	if err != nil {
 		return nil, status.Error(codes.Unauthenticated, err.Error())
+	}
+	if svc.hb != nil {
+		// SCALE-012: coalesced — one multi-row UPDATE per tenant per window
+		// instead of one UPDATE per heartbeat RPC.
+		svc.hb.record(id.TenantID, id.AgentID)
+		return &agentv1.HeartbeatResponse{ConfigStale: false, HeartbeatIntervalSeconds: heartbeatIntervalSeconds}, nil
 	}
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
 		func(ctx context.Context, s tenancy.Scope) error {
