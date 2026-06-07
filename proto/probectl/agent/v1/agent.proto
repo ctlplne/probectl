@@ -20,7 +20,13 @@ service AgentService {
   rpc Attest(AttestRequest) returns (AttestResponse);
   // Heartbeat reports liveness and the agent's current config epoch.
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
-  // StreamConfig pushes configuration to the agent (server -> agent stream).
+  // StreamConfig is an UNIMPLEMENTED STUB (U-044) — config push is NOT a
+  // shipped capability. The server sends a single empty epoch-0 frame and
+  // holds the stream open; no configuration is ever delivered. Agents load
+  // config from local YAML/env only (deliberate: no remote config/control
+  // channel, matching the no-agent-self-update posture). Kept in the schema
+  // for wire compatibility; implementing real push requires a signed
+  // config-push ADR first (docs/adr/config-push.md).
   rpc StreamConfig(StreamConfigRequest) returns (stream StreamConfigResponse);
   // StreamResults streams probe results to the control plane (agent -> server).
   rpc StreamResults(stream StreamResultsRequest) returns (StreamResultsResponse);
@@ -73,7 +79,8 @@ message StreamConfigRequest {
 
 message StreamConfigResponse {
   uint64 epoch = 1;
-  // Test/probe definitions arrive here from S7+. Placeholder payload for now.
+  // RESERVED for a future signed config-push design (U-044): always empty
+  // today — see the StreamConfig rpc comment.
   bytes payload = 2;
 }
 

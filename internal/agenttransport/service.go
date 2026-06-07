@@ -127,9 +127,10 @@ func (svc *service) Heartbeat(ctx context.Context, _ *agentv1.HeartbeatRequest) 
 	return &agentv1.HeartbeatResponse{ConfigStale: false, HeartbeatIntervalSeconds: heartbeatIntervalSeconds}, nil
 }
 
-// StreamConfig pushes configuration to the agent. Placeholder: one empty epoch-0
-// update, then the stream stays open until the agent disconnects. Real test/probe
-// config arrives in S7+.
+// StreamConfig is an unimplemented stub (U-044): it sends one empty epoch-0
+// frame and holds the stream open until the agent disconnects. Config push is
+// deliberately NOT a shipped capability — agents load config locally only —
+// and implementing it requires the signed-push ADR (docs/adr/config-push.md).
 func (svc *service) StreamConfig(_ *agentv1.StreamConfigRequest, stream grpc.ServerStreamingServer[agentv1.StreamConfigResponse]) error {
 	id, err := identityFromContext(stream.Context())
 	if err != nil {

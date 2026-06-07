@@ -6,8 +6,10 @@
 // an agent is bound to exactly one tenant and everything it does is
 // tenant-attributable at the source (F50).
 //
-// It implements Register, Attest, Heartbeat, StreamConfig (server->agent), and
-// StreamResults (agent->server). Registration persists to the agents registry via
-// internal/store. Config push (S7+) and result processing (S6) are placeholders
-// here; the agent binary itself is S5.
+// It implements Register, Attest, Heartbeat, and StreamResults (agent->server).
+// StreamConfig is an unimplemented stub kept for wire compatibility (U-044):
+// config push is deliberately not a shipped capability — agents load config
+// from local YAML/env only, and there is no remote control channel (see
+// docs/adr/config-push.md). Registration persists to the agents registry via
+// internal/store.
 package agenttransport
