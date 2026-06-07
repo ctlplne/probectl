@@ -55,8 +55,19 @@ func newLiveSource(cfg *Config) (Source, error) {
 	if err := VerifyObjectDigest("l4flow", _L4flowBytes, bpfObjectDigests["l4flow"]); err != nil {
 		return nil, err
 	}
-	if err := loadL4flowObjects(&s.objs, nil); err != nil {
-		return nil, fmt.Errorf("ebpf: load objects (need a BTF kernel + CAP_BPF): %w", err)
+	// U-050: size the kernel ring buffer from the config (rounded to a valid
+	// power-of-two page multiple) instead of the compiled-in default.
+	spec, err := loadL4flow()
+	if err != nil {
+		return nil, fmt.Errorf("ebpf: load collection spec: %w", err)
+	}
+	if m, ok := spec.Maps["events"]; ok {
+		m.MaxEntries = ringBufferBytes(cfg.RingBufferBytes)
+	}
+	if err := spec.LoadAndAssign(&s.objs, nil); err != nil {
+		// U-075: a kernel-lockdown confidentiality failure is explained, not
+		// surfaced as a bare EPERM.
+		return nil, explainBPFLoadError(fmt.Errorf("ebpf: load objects (need a BTF kernel + CAP_BPF): %w", err))
 	}
 	tp, err := link.Tracepoint("sock", "inet_sock_set_state", s.objs.HandleSetState, nil)
 	if err != nil {

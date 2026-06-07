@@ -3,6 +3,7 @@ package ebpf
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +36,8 @@ type Config struct {
 	// FlushInterval is how often accumulated flows + the service map are emitted.
 	FlushInterval time.Duration `yaml:"flush_interval"`
 
-	// RingBufferBytes sizes the kernel ring buffer (live source only).
+	// RingBufferBytes sizes the kernel ring buffer (live source only); it is
+	// rounded to a valid power-of-two page multiple at load (U-050).
 	RingBufferBytes int `yaml:"ring_buffer_bytes"`
 
 	// TLS-plaintext capture policy (U-003): live sslsniff capture is OFF by
@@ -108,6 +110,11 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	if v := getenv("PROBECTL_EBPF_PROC_ROOT"); v != "" {
 		c.ProcRoot = v
+	}
+	if v := getenv("PROBECTL_EBPF_RING_BUFFER_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.RingBufferBytes = n
+		}
 	}
 	if v := getenv("PROBECTL_EBPF_FLUSH_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {

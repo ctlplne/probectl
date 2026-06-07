@@ -26,10 +26,14 @@ type Capabilities struct {
 	RingBuffer    bool // kernel >= 5.8 (BPF_MAP_TYPE_RINGBUF)
 	CapBPF        bool // process holds CAP_BPF or CAP_SYS_ADMIN
 	Compiled      bool // built with -tags ebpf (the live source is linked in)
+	// Lockdown is the kernel lockdown mode ("", "none", "integrity",
+	// "confidentiality"); confidentiality mode blocks bpf() even with
+	// CAP_BPF (U-075).
+	Lockdown string
 }
 
 // String renders a one-line summary for logs.
 func (c Capabilities) String() string {
-	return fmt.Sprintf("mode=%s os=%s arch=%s kernel=%q btf=%t ringbuf=%t cap_bpf=%t compiled=%t reason=%q",
-		c.Mode, c.OS, c.Arch, c.KernelVersion, c.BTF, c.RingBuffer, c.CapBPF, c.Compiled, c.Reason)
+	return fmt.Sprintf("mode=%s os=%s arch=%s kernel=%q btf=%t ringbuf=%t cap_bpf=%t lockdown=%q compiled=%t reason=%q",
+		c.Mode, c.OS, c.Arch, c.KernelVersion, c.BTF, c.RingBuffer, c.CapBPF, c.Lockdown, c.Compiled, c.Reason)
 }

@@ -31,6 +31,7 @@ func Probe() Capabilities {
 	c.BTF = fileExists("/sys/kernel/btf/vmlinux")
 	c.RingBuffer = kernelAtLeast(c.KernelVersion, 5, 8)
 	c.CapBPF = hasBPFCapability()
+	c.Lockdown = lockdownMode()
 
 	switch {
 	case !c.Compiled:
@@ -41,6 +42,8 @@ func Probe() Capabilities {
 		c.Mode, c.Reason = ModeUnavailable, fmt.Sprintf("kernel %q lacks the BPF ring buffer (need >= 5.8)", c.KernelVersion)
 	case !c.CapBPF:
 		c.Mode, c.Reason = ModeUnavailable, "process lacks CAP_BPF / CAP_SYS_ADMIN to load eBPF"
+	case lockdownBlocksBPF(c.Lockdown):
+		c.Mode, c.Reason = ModeUnavailable, "kernel lockdown is in CONFIDENTIALITY mode — bpf() is blocked even with CAP_BPF; boot without lockdown=confidentiality (or use integrity mode) to run the eBPF agent (U-075)"
 	default:
 		c.Mode, c.Reason = ModeLive, "ready"
 	}

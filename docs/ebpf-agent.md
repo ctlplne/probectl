@@ -45,6 +45,19 @@ runners / macOS laptops can load no eBPF at all. The `-tags ebpf` files are a
 separate, off-by-default compilation unit, so the default `make build` and CI
 need **no eBPF toolchain and no extra dependency**.
 
+## Tuning & kernel lockdown
+
+`ring_buffer_bytes` (config / `PROBECTL_EBPF_RING_BUFFER_BYTES`) sizes the
+kernel ring buffer for the live source; it is rounded at load to a valid
+power-of-two page multiple (default 16 MiB). Raise it on high-flow hosts to
+reduce ring-buffer-full drops (the `dropped` counter surfaces them).
+
+**Kernel lockdown:** if the kernel runs in lockdown **confidentiality** mode,
+`bpf()` is blocked even with `CAP_BPF` — the capability probe reports this
+explicitly (`lockdown="confidentiality"`, mode unavailable) and a load attempt
+returns a clear message rather than a bare `EPERM` (U-075). Boot without
+`lockdown=confidentiality` (integrity mode is fine) to run the agent.
+
 ## Kernel-matrix CI (U-021)
 
 The `ebpf-kernel-matrix` ci job LOADS and ATTACHES every BPF program on real
