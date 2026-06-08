@@ -13,7 +13,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: "1.26"
+  # Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.4` /
+  # `toolchain go1.26.4`, SUPPLY-007). "1.26" let setup-go resolve 1.26.3 on
+  # the arm64 runner, which is < the go.work floor under GOTOOLCHAIN=local
+  # (broke ebpf-kernel-matrix 6.6-arm64).
+  GO_VERSION: "1.26.4"
   PYTHON_VERSION: "3.12"
 
 jobs:
@@ -360,6 +364,11 @@ jobs:
           python3 -m pip install --quiet pyyaml==6.0.3 # SUPPLY-006: exact pin
           make gitops-gate
       - name: compose config is valid
+        # POSTGRES_PASSWORD is a required var with no default (SEC-006 fails
+        # closed); supply a throwaway so interpolation can validate the file,
+        # mirroring the dummy envelopeKey the helm renders above pass.
+        env:
+          POSTGRES_PASSWORD: ci-validate-only
         run: docker compose -f deploy/compose/probectl.yml config >/dev/null
 
   terraform-gate:
