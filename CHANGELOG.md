@@ -9,6 +9,20 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 12 (plan v2): require the verify-all umbrella + scanner gates in
+  branch protection (TEST-002 / SUPPLY-005). `.github/rulesets/main.json`
+  ran `verify-all`, `rca-eval`, `ebpf-image-live`, and `build-images` as CI
+  jobs but did not REQUIRE them, so a fixed finding could silently regress.
+  Fix (decision D6): added those four to the required_status_checks
+  contexts, using each job's exact display `name:` so they match the
+  published check runs; `verify-branch-protection` + check_branch_protection.sh
+  already enforce committed-ruleset == live-rules.
+  `required_approving_review_count` stays 0 — a 1-review rule is
+  unsatisfiable for a solo founder and would block their own merges (raise to
+  1 when a second maintainer exists; the rationale lives in known-risks since
+  JSON has no inline comment). Applying the live ruleset GitHub-side is the
+  human's step (the committed file is the source of truth).
+
 - Sprint 11 (plan v2): classify CGNAT 100.64/10 as internal in the NDR
   signals (THREAT-001). `isInternal()` relied on `netip.IsPrivate()`, which
   excludes RFC 6598 carrier-grade NAT space (100.64.0.0/10), so

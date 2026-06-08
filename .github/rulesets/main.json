@@ -54,6 +54,10 @@
           { "context": "commitlint" },
           { "context": "secret-scan" },
           { "context": "no-devauth-in-release" },
+          { "context": "rca-eval (BLOCKING — floors 0.85/0.85)" },
+          { "context": "ebpf-image-live" },
+          { "context": "build-images" },
+          { "context": "verify-all (executed-verification umbrella)" },
           { "context": "verify-branch-protection" }
         ]
       }
