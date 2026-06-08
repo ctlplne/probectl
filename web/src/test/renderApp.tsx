@@ -27,7 +27,10 @@ const DEFAULT_ME = {
 export function renderApp(path = '/targets') {
   const inner = globalThis.fetch as typeof fetch
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).endsWith('/v1/me')) return Promise.resolve(jsonResponse(DEFAULT_ME))
+    const u = String(input)
+    // Serve the TENANT identity (/v1/me) only — NOT the provider console's
+    // /provider/v1/me, which the test's own stub answers with an operator shape.
+    if (u.endsWith('/v1/me') && !u.includes('/provider/')) return Promise.resolve(jsonResponse(DEFAULT_ME))
     return inner(input, init)
   })
   return render(

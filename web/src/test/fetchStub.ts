@@ -31,7 +31,8 @@ export function defaultFetch(): typeof fetch {
     const url = String(input)
     // SEC-001: the app resolves identity from /v1/me; serve a default
     // authenticated session so any screen renders as a signed-in operator.
-    if (url.endsWith('/v1/me'))
+    // Exclude the provider console's /provider/v1/me (different shape).
+    if (url.endsWith('/v1/me') && !url.includes('/provider/'))
       return jsonResponse({
         tenant_id: '00000000-0000-0000-0000-000000000001',
         user_id: 'u_test', email: 'operator@probectl.test',
