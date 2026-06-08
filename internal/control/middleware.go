@@ -34,6 +34,15 @@ const contentSecurityPolicy = "default-src 'self'; script-src 'self'; " +
 	"connect-src 'self'; object-src 'none'; base-uri 'self'; " +
 	"form-action 'self'; frame-ancestors 'none'"
 
+// permissionsPolicy denies the powerful browser features the dashboard never
+// uses (SEC-006). An empty allowlist () denies the feature for ALL origins
+// (including self); fullscreen is allowed for self (the topology/path hero
+// views). interest-cohort=() opts out of FLoC.
+const permissionsPolicy = "accelerometer=(), autoplay=(), camera=(), " +
+	"display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), " +
+	"gyroscope=(), magnetometer=(), microphone=(), midi=(), payment=(), usb=(), " +
+	"interest-cohort=()"
+
 // securityHeaders sets baseline response headers. HSTS is set now (honored by
 // browsers only over HTTPS) so the posture is correct once TLS terminates at the
 // ingress / lands in S3 (CLAUDE.md §7 guardrail 12). CSP + X-Frame-Options
@@ -49,6 +58,10 @@ func securityHeaders(cfg *config.Config) func(http.Handler) http.Handler {
 			h.Set("X-Content-Type-Options", "nosniff")
 			h.Set("Content-Security-Policy", contentSecurityPolicy)
 			h.Set("X-Frame-Options", "DENY")
+			// SEC-006: don't leak URLs to cross-origin navigations, and deny
+			// powerful browser features the dashboard never uses.
+			h.Set("Referrer-Policy", "no-referrer")
+			h.Set("Permissions-Policy", permissionsPolicy)
 			if hsts != "" {
 				h.Set("Strict-Transport-Security", hsts)
 			}

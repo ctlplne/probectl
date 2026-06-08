@@ -42,5 +42,18 @@ func TestSecurityHeadersCSPAndFraming(t *testing.T) {
 		if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 			t.Errorf("%s: missing nosniff", path)
 		}
+		// SEC-006: referrer + permissions policy on every response.
+		if rp := rec.Header().Get("Referrer-Policy"); rp != "no-referrer" {
+			t.Errorf("%s: Referrer-Policy = %q, want no-referrer", path, rp)
+		}
+		pp := rec.Header().Get("Permissions-Policy")
+		if pp == "" {
+			t.Fatalf("%s: missing Permissions-Policy", path)
+		}
+		for _, feature := range []string{"camera=()", "microphone=()", "geolocation=()", "interest-cohort=()"} {
+			if !strings.Contains(pp, feature) {
+				t.Errorf("%s: Permissions-Policy missing %q (got %q)", path, feature, pp)
+			}
+		}
 	}
 }

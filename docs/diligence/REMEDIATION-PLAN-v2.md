@@ -99,7 +99,7 @@ the diffs. If you disagree with one at runtime, still implement it (reversible) 
 | [x] 10 | C | MFA wired end-to-end (amr → MFASatisfied) | SEC-005 | Medium | M |
 | [x] 11 | C | CGNAT 100.64/10 internal classification (NDR) | THREAT-001 | Medium | S |
 | [x] 12 | C | Branch-protection required-checks + review note | TEST-002 / SUPPLY-005 | Medium | S |
-| [ ] 13 | C | Hygiene bundle: security headers, go-version skew, down-migration policy | SEC-006, SUPPLY-007, SCHEMA-001 | Low–Med | M |
+| [x] 13 | C | Hygiene bundle: security headers, go-version skew, down-migration policy | SEC-006, SUPPLY-007, SCHEMA-001 | Low–Med | M |
 | [ ] 14 | D | SPDX headers + NOTICE + third-party license inventory | LICENSE-003, DATAROOM-003 | High(legal-prep) | M |
 | [ ] 15 | D | DCO check in CI + CONTRIBUTING IP section | LICENSE-004 / GOV-002 (automatable half) | Medium | S |
 | [ ] 16 | D | SBOM generation in CI (+ artifact) | DATAROOM-003 | Medium | S |

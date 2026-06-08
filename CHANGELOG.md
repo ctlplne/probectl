@@ -9,6 +9,18 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 13 (plan v2): hygiene bundle (SEC-006, SCHEMA-001; SUPPLY-007
+  landed earlier as the go.work hotfix). SEC-006: the security-headers
+  middleware now sets `Referrer-Policy: no-referrer` and a deny-by-default
+  `Permissions-Policy` (camera/microphone/geolocation/USB/… all `()`,
+  interest-cohort opt-out), asserted on every response by the headers test.
+  SCHEMA-001: `migrations/README.md` documents the deliberate forward-only
+  expand/contract migration policy (no `.down.sql`) and the operator manual
+  rollback procedure — restore-from-backup for destructive changes, a
+  forward-revert migration for additive ones, never edit an already-applied
+  file. SUPPLY-007 (the go.work/go.mod skew) was already fixed in commit
+  27f3876.
+
 - Sprint 12 (plan v2): require the verify-all umbrella + scanner gates in
   branch protection (TEST-002 / SUPPLY-005). `.github/rulesets/main.json`
   ran `verify-all`, `rca-eval`, `ebpf-image-live`, and `build-images` as CI
