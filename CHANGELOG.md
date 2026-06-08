@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 15 (plan v2): DCO sign-off gate + CONTRIBUTING IP policy
+  (LICENSE-004 / GOV-002, automatable half; decision D8). A dependency-free
+  DCO check (`scripts/check_dco.sh` + a `dco` CI job, added to the required
+  branch-protection contexts) rejects any PR commit lacking a
+  `Signed-off-by:` trailer (`git commit -s`) — verified to flag an unsigned
+  commit and accept a valid trailer. `CONTRIBUTING.md` gains an
+  Intellectual-property / DCO section (DCO 1.1, sign-off requirement, CLA
+  pending counsel, SPDX placeholder note). The gate is forward-only; the
+  ~230 historical unsigned commits, the `dev@netctl.local` provenance, and
+  the CLA-vs-DCO decision remain counsel items (Appendix B).
+
 - Sprint 14 (plan v2): SPDX headers + NOTICE + third-party inventory
   (LICENSE-003, DATAROOM-003; decision D8 — mechanical artifacts only, no
   binding legal text). `scripts/add_spdx_headers.sh` stamps every

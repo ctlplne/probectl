@@ -28,6 +28,29 @@ Allowed types: `feat`, `fix`, `docs`, `chore`, `test`, `refactor`, `perf`,
 `build`, `ci`, `style`, `revert`. Enforced by commitlint in CI. Enable the local
 message template with `git config commit.template .gitmessage`.
 
+## Intellectual property — Developer Certificate of Origin (DCO)
+
+Every commit must be **signed off** under the [Developer Certificate of Origin
+1.1](https://developercertificate.org/): by adding a `Signed-off-by:` trailer
+you certify you wrote the change (or have the right to submit it) under the
+project's license. Sign off with:
+
+```
+git commit -s
+```
+
+which appends `Signed-off-by: Your Name <your@email>` (matching your `git`
+identity). The **`dco`** CI check enforces this on every PR commit (a
+dependency-free `scripts/check_dco.sh`); it is a required merge gate. The DCO
+applies **going forward** — historical commits are handled separately.
+
+A **Contributor License Agreement (CLA)** may additionally be required; the
+choice between DCO-only and a CLA, the project `LICENSE`, and retroactive
+chain-of-title for historical contributions are **pending counsel** and tracked
+in the diligence plan (Appendix B). Until the `LICENSE` lands, source files
+carry a placeholder `SPDX-License-Identifier` (`LicenseRef-probectl-TBD`),
+finalized in one pass once the license is chosen.
+
 ## Definition of Done
 
 See `CLAUDE.md §8`. In short: compiles and is lint-clean; unit + relevant

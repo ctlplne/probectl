@@ -52,6 +52,7 @@
           { "context": "dependency-scan" },
           { "context": "image-scan" },
           { "context": "commitlint" },
+          { "context": "dco" },
           { "context": "secret-scan" },
           { "context": "no-devauth-in-release" },
           { "context": "rca-eval (BLOCKING — floors 0.85/0.85)" },
