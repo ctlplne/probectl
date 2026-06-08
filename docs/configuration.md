@@ -817,8 +817,10 @@ at a model only if you want LLM-written prose; a remote endpoint must be `https`
 | -------------------------- | --------- | ------------------------------------------------------------------ |
 | `PROBECTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped) \| `ollama` \| `openai` \| `anthropic`      |
 | `PROBECTL_AI_EGRESS_ACK` | (none) | **required for a REMOTE model endpoint** (U-013): must equal `yes-send-tenant-data-to-the-remote-model`; the server refuses to start otherwise. Per-tenant consent + audit on top — see [`docs/ai-egress.md`](ai-egress.md) |
-| `PROBECTL_AI_REDACT_IPS` | `true` | C8: mask IPs in prompts before a REMOTE model call (stable per-value tokens; local paths never redacted) |
-| `PROBECTL_AI_REDACT_HOSTNAMES` | `false` | C8: also mask hostnames in remote prompts (secrets are always masked) |
+| `PROBECTL_AI_REDACT_IPS` | `true` | C8: mask IPs in anything leaving to an external AI (stable per-value tokens; local paths never redacted) |
+| `PROBECTL_AI_REDACT_HOSTNAMES` | `false` | C8: also mask hostnames (secrets are always masked) |
+| `PROBECTL_AI_REDACT_PII` | `true` | **AIRCA-002:** mask free-text PII — emails, phone numbers, MAC addresses — in anything leaving to an external AI (RCA prompts, MCP tool results, authoring prompts) |
+| `PROBECTL_AI_REDACT_PATTERNS` | (none) | **AIRCA-002:** operator regexes (`;;`-separated) masked as `[custom:xxxx]` — org-specific identifiers (employee IDs, ticket refs). A bad pattern refuses start (fail closed). On the MCP surface patterns apply to the JSON-rendered payload |
 | `PROBECTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
 | `PROBECTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
 | `PROBECTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |

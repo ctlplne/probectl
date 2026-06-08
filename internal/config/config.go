@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -248,6 +249,12 @@ type Config struct {
 	// obvious secrets are always masked. Local paths are never redacted.
 	AIRedactIPs       bool
 	AIRedactHostnames bool
+	// AIRedactPII (AIRCA-002): mask emails, phone numbers, and MAC
+	// addresses in anything leaving to an external AI (default true).
+	AIRedactPII bool
+	// AIRedactCustom (AIRCA-002): operator regexes (";;"-separated) masked
+	// as [custom:xxxx]; compile-checked at load (fail closed).
+	AIRedactCustom string
 	// AIEgressAck (U-013): a REMOTE (non-loopback) model endpoint sends
 	// tenant telemetry off-network. The operator must acknowledge that
 	// explicitly — the server refuses to start otherwise. Loopback local
@@ -572,6 +579,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		AIEgressAck:              l.str("PROBECTL_AI_EGRESS_ACK", ""),
 		AIRedactIPs:              l.boolean("PROBECTL_AI_REDACT_IPS", true),
 		AIRedactHostnames:        l.boolean("PROBECTL_AI_REDACT_HOSTNAMES", false),
+		AIRedactPII:              l.boolean("PROBECTL_AI_REDACT_PII", true),
+		AIRedactCustom:           l.str("PROBECTL_AI_REDACT_PATTERNS", ""),
 		MCPHTTPAddr:              l.str("PROBECTL_MCP_HTTP_ADDR", ""),
 		MCPTLSCertFile:           l.str("PROBECTL_MCP_TLS_CERT_FILE", ""),
 		MCPTLSKeyFile:            l.str("PROBECTL_MCP_TLS_KEY_FILE", ""),
@@ -648,6 +657,16 @@ func Load(getenv func(string) string) (*Config, error) {
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
+	}
+	// AIRCA-002: a bad custom redaction pattern refuses START — never
+	// silently redact less than the operator asked for.
+	for _, part := range strings.Split(cfg.AIRedactCustom, ";;") {
+		if part = strings.TrimSpace(part); part == "" {
+			continue
+		}
+		if _, err := regexp.Compile(part); err != nil {
+			l.errf("PROBECTL_AI_REDACT_PATTERNS: bad pattern %q: %v", part, err)
+		}
 	}
 	if cfg.AgentGRPCAddr != "" && !cfg.AgentTransportEnabled() {
 		l.errf("PROBECTL_AGENT_GRPC_ADDR requires mTLS: also set PROBECTL_AGENT_TLS_CERT_FILE, PROBECTL_AGENT_TLS_KEY_FILE, and PROBECTL_AGENT_TLS_CA_FILE")

@@ -42,20 +42,45 @@ func buildEngine(cfg *config.Config, pool *pgxpool.Pool) *ai.Engine {
 	return ai.NewEngine(opts...)
 }
 
+// buildEgressGate constructs THE external-AI egress gate (AIRCA-001/005):
+// one instance per server, one consent source, one redaction policy, one
+// audit sink — the RCA analyzer, the MCP server, and the test-authoring
+// model all draw from it. No second construction site exists.
+func buildEgressGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool) *ai.EgressGate {
+	return ai.NewEgressGate(tenantEgressPolicy(pool), egressAuditor(pool, log), redactionPolicy(cfg))
+}
+
+// redactionPolicy maps the config knobs onto the C8 redaction policy
+// (custom patterns were compile-checked at config load — fail closed there).
+func redactionPolicy(cfg *config.Config) ai.RedactionPolicy {
+	custom, _ := ai.CompileCustomPatterns(cfg.AIRedactCustom)
+	return ai.RedactionPolicy{
+		MaskIPs:        cfg.AIRedactIPs,
+		MaskHostnames:  cfg.AIRedactHostnames,
+		MaskPII:        cfg.AIRedactPII,
+		CustomPatterns: custom,
+	}
+}
+
 // buildAnalyzer wires the RCA Analyzer (S24) over the S23 query engine, so RCA is
 // grounded in real, RLS-scoped signals. The model defaults to the in-process,
 // air-gapped built-in synthesizer.
 func buildAnalyzer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool) *ai.Analyzer {
+	return buildAnalyzerWithGate(cfg, log, pool, buildEgressGate(cfg, log, pool))
+}
+
+// buildAnalyzerWithGate is the gate-injected form (the server composes ONE
+// gate and shares it across the analyzer, MCP, and authoring surfaces).
+func buildAnalyzerWithGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, gate *ai.EgressGate) *ai.Analyzer {
 	return ai.NewAnalyzer(buildEngine(cfg, pool),
 		ai.WithModel(buildModel(cfg, log)),
 		ai.WithMaxEvidence(cfg.AIMaxEvidence),
 		// U-048: process-wide concurrency backstop (fail-fast 429), effective
 		// even when no fairness gate is configured.
 		ai.WithMaxConcurrent(cfg.AIMaxConcurrent),
-		// U-013: a REMOTE model is gated on the tenant's recorded consent and
-		// every call that leaves is audited. Local/builtin paths skip both.
-		ai.WithEgressPolicy(tenantEgressPolicy(pool)),
-		ai.WithEgressAudit(egressAuditor(pool, log)),
+		// U-013 + AIRCA-001: remote-model consent + audit come from the ONE
+		// shared egress gate. Local/builtin paths skip both.
+		ai.WithEgressGate(gate),
 	)
 }
 
@@ -115,10 +140,10 @@ func buildModel(cfg *config.Config, log *slog.Logger) ai.ModelAdapter {
 		Model:    cfg.AIModelName,
 		Token:    cfg.AIModelToken,
 		Timeout:  cfg.AIModelTimeout,
-		Redaction: &ai.RedactionPolicy{ // C8: pre-egress masking knobs
-			MaskIPs:       cfg.AIRedactIPs,
-			MaskHostnames: cfg.AIRedactHostnames,
-		},
+		Redaction: func() *ai.RedactionPolicy { // C8: pre-egress masking knobs
+			p := redactionPolicy(cfg)
+			return &p
+		}(),
 	})
 	if err != nil {
 		log.Warn("ai model adapter unavailable; using the built-in air-gapped synthesizer", "error", err)
@@ -285,9 +310,9 @@ func (s *Server) persistAnswer(r *http.Request, ans ai.Answer) {
 // (U-093): same hash = same provider/endpoint/model/evidence-cap/redaction, so
 // a dispute can establish what setup answered. Never includes the token.
 func aiConfigHash(cfg *config.Config) string {
-	canon := fmt.Sprintf("provider=%s|endpoint=%s|model=%s|max_evidence=%d|redact_ips=%t|redact_hostnames=%t",
+	canon := fmt.Sprintf("provider=%s|endpoint=%s|model=%s|max_evidence=%d|redact_ips=%t|redact_hostnames=%t|redact_pii=%t|redact_custom=%s",
 		cfg.AIModelProvider, cfg.AIModelEndpoint, cfg.AIModelName,
-		cfg.AIMaxEvidence, cfg.AIRedactIPs, cfg.AIRedactHostnames)
+		cfg.AIMaxEvidence, cfg.AIRedactIPs, cfg.AIRedactHostnames, cfg.AIRedactPII, cfg.AIRedactCustom)
 	return hex.EncodeToString(crypto.Hash([]byte(canon)))
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/mcp"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -25,15 +26,43 @@ import (
 // boundary then RBAC are enforced at the MCP layer AND again at the engine/stores
 // (defense in depth).
 func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, gate *fairness.Gate, remed remediation.Service) *mcp.Server {
+	egress := buildEgressGate(cfg, log, pool)
 	backend := mcpBackend{
 		pool:        pool,
 		engine:      buildEngine(cfg, pool),
-		analyzer:    buildAnalyzer(cfg, log, pool),
+		analyzer:    buildAnalyzerWithGate(cfg, log, pool, egress),
 		pathStore:   pathStore,
 		gate:        gate,
 		remediation: remed,
 	}
-	return mcp.New(backend, mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log))
+	// AIRCA-001/003: every tool call is consent-gated + redacted by the ONE
+	// egress gate and audited to the tenant stream — including denials.
+	return mcp.New(backend, egress,
+		mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log),
+		mcp.WithCallAudit(mcpCallAuditor(pool, log)))
+}
+
+// mcpCallAuditor appends mcp.tool_call to the tenant's tamper-evident audit
+// stream: who called which tool and the outcome (AIRCA-003). Best-effort —
+// the log line always lands; the DB append never blocks the call path.
+func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
+	return func(ctx context.Context, ev mcp.CallEvent) {
+		log.Info("mcp tool call", "tenant_id", ev.TenantID, "user_id", ev.UserID,
+			"tool", ev.Tool, "allowed", ev.Allowed, "denial", ev.Denial)
+		if pool == nil {
+			return
+		}
+		_ = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+			actor := ev.UserID
+			if actor == "" {
+				actor = "mcp-client"
+			}
+			_, err := audit.TenantAppend(ctx, sc, actor, "mcp.tool_call", ev.Tool, map[string]any{
+				"allowed": ev.Allowed, "denial": ev.Denial,
+			})
+			return err
+		})
+	}
 }
 
 // mcpBackend implements mcp.Backend over the control-plane data sources. Every

@@ -9,6 +9,29 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 20: AI/MCP egress controls, redaction & audit (AIRCA-001/002/
+  003/005, RED-005). ONE egress gate now fronts every external-AI door:
+  the remote RCA model, MCP tool results, and the test-authoring model
+  draw consent (tenant_governance.ai_remote_egress, default deny),
+  redaction, and audit from a single ai.EgressGate constructed once.
+  MCP semantics change: tools/call for a non-consented tenant is DENIED
+  (audited, tool never runs) — the MCP caller is an external AI client,
+  so tool results are egress; allowed results are redacted (text AND
+  structuredContent) before the wire. The gate is a required mcp.New
+  argument — a gate-less server is not constructible. Authoring rides
+  GatedCompleter (principal-derived tenant, fail closed). The C8
+  redactor gains free-text PII (emails/phones/MACs, default on) and
+  operator custom patterns (;;-separated, compile-checked at boot,
+  fail closed), with JSON-safe secret masking for encoded payloads.
+  Every MCP call audits mcp.tool_call (actor/tool/outcome including
+  consent/permission/rate denials) + ai.remote_egress (surface=mcp).
+  RED-005 closed: the root_cause must carry citations that resolve to
+  gathered evidence on EVERY adapter path — uncited headlines are
+  rejected (replaced, flagged root_cause_grounded=false, confidence
+  forced low); the one-grounded-finding bypass has an injection test.
+  TestNoAIClientOutsideGate statically bans AI clients outside the
+  adapter/gate.
+
 - Sprint 19: agent integrity, capabilities, resource caps, kernel matrix
   (EBPF-003..008). EBPF-003 decided per the triage rule: operator-
   supplied BPF objects are NOT supported — the embedded-digest chain

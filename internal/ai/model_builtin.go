@@ -114,9 +114,10 @@ func (BuiltinModel) Synthesize(_ context.Context, in SynthesisInput) (Synthesis,
 	}
 
 	return Synthesis{
-		RootCause:  b.String(),
-		Confidence: confidenceFor(primary, len(planes)),
-		Findings:   findings,
+		RootCause:          b.String(),
+		RootCauseCitations: []Citation{{EvidenceID: primary.ID}}, // RED-005: the headline cites its evidence
+		Confidence:         confidenceFor(primary, len(planes)),
+		Findings:           findings,
 	}, nil
 }
 

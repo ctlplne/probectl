@@ -20,10 +20,16 @@ const DefaultMaxConcurrent = 8
 // answer to any feedback the user later gives. InsufficientEvidence is set when
 // nothing grounded supports a conclusion — probectl prefers saying so over guessing.
 type Answer struct {
-	ID                   string        `json:"id"`
-	Tenant               string        `json:"tenant"`
-	Question             string        `json:"question"`
-	RootCause            string        `json:"root_cause"`
+	ID        string `json:"id"`
+	Tenant    string `json:"tenant"`
+	Question  string `json:"question"`
+	RootCause string `json:"root_cause"`
+	// RootCauseCitations are the VALIDATED citations grounding the headline
+	// claim (RED-005); RootCauseGrounded is false when the model's root
+	// cause was rejected for citing nothing real (the claim is replaced,
+	// never surfaced).
+	RootCauseCitations   []Citation    `json:"root_cause_citations,omitempty"`
+	RootCauseGrounded    bool          `json:"root_cause_grounded"`
 	Confidence           Confidence    `json:"confidence"`
 	Findings             []Finding     `json:"findings"`
 	Evidence             []Evidence    `json:"evidence"`
@@ -167,6 +173,20 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	syn.Findings = groundFindings(syn.Findings, evidence)
 	insufficient := syn.InsufficientEvidence || len(syn.Findings) == 0
 
+	// RED-005: the ROOT CAUSE itself must be grounded. Previously a model
+	// (or a prompt injection riding the evidence) could emit any headline
+	// claim and pass as long as ONE finding survived grounding — the
+	// citation check never looked at the root_cause string. Now an uncited
+	// or fake-cited root cause is REJECTED on every adapter path: the claim
+	// is replaced with a grounded fallback and confidence drops to low.
+	rcCitations := groundCitations(syn.RootCauseCitations, evidence)
+	rootCauseGrounded := len(rcCitations) > 0
+	if !insufficient && !rootCauseGrounded {
+		syn.RootCause = rejectedRootCause(syn.Findings)
+		syn.Confidence = ConfidenceLow
+		rcCitations = nil
+	}
+
 	// U-092: the API response carries only allow-listed evidence fields — the
 	// raw row (which may include keys a future source adds) stays in-process.
 	sanitizeEvidenceFields(evidence)
@@ -176,6 +196,8 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		Tenant:               p.TenantID,
 		Question:             q.Text,
 		RootCause:            syn.RootCause,
+		RootCauseCitations:   rcCitations,
+		RootCauseGrounded:    rootCauseGrounded && !insufficient,
 		Confidence:           syn.Confidence,
 		Findings:             syn.Findings,
 		Evidence:             evidence,
@@ -194,6 +216,33 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		}
 	}
 	return ans, nil
+}
+
+// groundCitations keeps only citations that resolve to real gathered
+// evidence (the root-cause variant of groundFindings; RED-005).
+func groundCitations(cits []Citation, evidence []Evidence) []Citation {
+	ids := make(map[string]bool, len(evidence))
+	for _, e := range evidence {
+		ids[e.ID] = true
+	}
+	kept := make([]Citation, 0, len(cits))
+	for _, c := range cits {
+		if ids[c.EvidenceID] {
+			kept = append(kept, c)
+		}
+	}
+	return kept
+}
+
+// rejectedRootCause is the replacement when the model's headline failed
+// citation integrity: it makes NO new claim — it points at the grounded
+// findings, which carry their own validated citations.
+func rejectedRootCause(grounded []Finding) string {
+	if len(grounded) == 0 {
+		return "Insufficient evidence: the gathered signals do not support a confident root cause."
+	}
+	return "The model's root-cause statement was rejected by citation integrity (it cited no gathered evidence). " +
+		"The grounded findings below stand on their own; the strongest is: " + grounded[0].Statement
 }
 
 // groundFindings keeps only findings whose citations resolve to real gathered

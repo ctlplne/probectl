@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/author"
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
@@ -19,10 +20,13 @@ import (
 // model when one is set (reusing the S24 model config) and otherwise the
 // deterministic, air-gapped heuristic — so authoring works with zero external
 // calls by default.
-func buildAuthor(cfg *config.Config, log *slog.Logger) *author.Engine {
+func buildAuthor(cfg *config.Config, log *slog.Logger, gate *ai.EgressGate) *author.Engine {
 	m := buildModel(cfg, log)
-	if c, ok := m.(author.Completer); ok {
-		return author.NewEngine(author.NewModelAuthor(c, m.Name()))
+	if c, ok := m.(ai.RemoteCompleter); ok {
+		// AIRCA-005: the authoring model rides the SAME egress gate as RCA
+		// and MCP — per-tenant consent, redaction, audit. A remote authoring
+		// call without consent is denied; the heuristic author still works.
+		return author.NewEngine(author.NewModelAuthor(ai.NewGatedCompleter(c, gate), m.Name()))
 	}
 	return author.NewEngine(author.HeuristicAuthor{})
 }

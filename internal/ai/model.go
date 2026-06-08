@@ -43,7 +43,12 @@ type SynthesisInput struct {
 // regardless of which adapter produced it, so the trust guarantee does not
 // depend on the model.
 type Synthesis struct {
-	RootCause            string
+	RootCause string
+	// RootCauseCitations ground the headline claim itself (RED-005): the
+	// pipeline validates them like finding citations, and an uncited
+	// root_cause is REJECTED on every path — a prompt-injected headline
+	// cannot ride along on one valid finding.
+	RootCauseCitations   []Citation
 	Confidence           Confidence
 	Findings             []Finding
 	InsufficientEvidence bool

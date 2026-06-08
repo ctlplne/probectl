@@ -20,19 +20,33 @@ import (
 type RedactionPolicy struct {
 	MaskIPs       bool
 	MaskHostnames bool
+	// MaskPII (AIRCA-002) masks free-text personal identifiers: email
+	// addresses, phone numbers, and MAC addresses. Deterministic masking
+	// preserves correlation ("the same user appears in both signals")
+	// without the value ever leaving.
+	MaskPII bool
+	// CustomPatterns are operator-supplied regexes (compiled at config
+	// load, fail-closed on a bad pattern) masked as [custom:xxxx] — for
+	// org-specific identifiers (employee IDs, ticket numbers, internal
+	// naming) no generic pattern can know.
+	CustomPatterns []*regexp.Regexp
 }
 
-// DefaultRedaction is the remote-model default: IPs masked, hostnames kept
-// (they are usually the subject of the question), secrets always masked.
-var DefaultRedaction = RedactionPolicy{MaskIPs: true, MaskHostnames: false}
+// DefaultRedaction is the remote-model default: IPs + free-text PII masked,
+// hostnames kept (they are usually the subject of the question), secrets
+// always masked.
+var DefaultRedaction = RedactionPolicy{MaskIPs: true, MaskHostnames: false, MaskPII: true}
 
 var (
 	// Always-on secret shapes: bearer/authorization values, key=value
 	// credentials, AWS access key IDs, PEM blocks.
 	reBearer = regexp.MustCompile(`(?i)\b(bearer|authorization:)\s+[A-Za-z0-9._~+/=-]{8,}`)
-	reKV     = regexp.MustCompile(`(?i)\b((?:api[_-]?key|access[_-]?key|secret|token|password|passwd|pwd)\s*[=:]\s*)\S+`)
-	reAKIA   = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
-	rePEM    = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+-----[\s\S]*?-----END [A-Z0-9 ]+-----`)
+	// The value match excludes quotes so redacting JSON-RENDERED payloads
+	// (the MCP surface masks the encoded form) never eats a structural
+	// quote and corrupts the document.
+	reKV   = regexp.MustCompile(`(?i)\b((?:api[_-]?key|access[_-]?key|secret|token|password|passwd|pwd)\s*[=:]\s*)[^\s"']+`)
+	reAKIA = regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)
+	rePEM  = regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+-----[\s\S]*?-----END [A-Z0-9 ]+-----`)
 
 	reIPv4 = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?\b`)
 	// IPv6 candidates: two-plus colons over hex groups (covers :: compression
@@ -41,6 +55,15 @@ var (
 	reIPv6Candidate = regexp.MustCompile(`(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}(?:%[0-9a-zA-Z]+)?(?:/\d{1,3})?|::[fF]{4}:(?:\d{1,3}\.){3}\d{1,3}`)
 
 	reHostname = regexp.MustCompile(`\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,})\b`)
+
+	// Free-text PII (AIRCA-002). Email masking runs before the hostname
+	// pass, so the domain part is consumed as part of the address. Phone
+	// patterns are deliberately conservative (international +prefix, or
+	// separator-structured shapes) — telemetry is full of digit runs, and
+	// the IP pass has already consumed dotted quads.
+	reEmail = regexp.MustCompile(`\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`)
+	rePhone = regexp.MustCompile(`\+\d{1,3}[ .-]?\(?\d{1,4}\)?(?:[ .-]\d{2,4}){1,3}\b|\(\d{3}\)\s?\d{3}[-.]\d{4}\b|\b\d{3}[-.]\d{3}[-.]\d{4}\b`)
+	reMAC   = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
 )
 
 // redactText applies the policy to one string.
@@ -64,10 +87,44 @@ func redactText(s string, pol RedactionPolicy) string {
 		})
 		s = reIPv4.ReplaceAllStringFunc(s, func(m string) string { return mask("ip", m) })
 	}
+	if pol.MaskPII {
+		// Email first (its domain must not survive into the hostname pass);
+		// MAC before phone (a '-'-separated MAC must not half-match a
+		// separator-structured phone shape).
+		s = reEmail.ReplaceAllStringFunc(s, func(m string) string { return mask("email", m) })
+		s = reMAC.ReplaceAllStringFunc(s, func(m string) string { return mask("mac", m) })
+		s = rePhone.ReplaceAllStringFunc(s, func(m string) string { return mask("phone", m) })
+	}
 	if pol.MaskHostnames {
 		s = reHostname.ReplaceAllStringFunc(s, func(m string) string { return mask("host", m) })
 	}
+	for _, re := range pol.CustomPatterns {
+		if re == nil {
+			continue
+		}
+		s = re.ReplaceAllStringFunc(s, func(m string) string { return mask("custom", m) })
+	}
 	return s
+}
+
+// CompileCustomPatterns parses the operator's custom redaction patterns
+// (";;"-separated regexes — regexes routinely contain commas). It fails
+// closed: one bad pattern refuses the whole config rather than silently
+// redacting less than the operator asked for.
+func CompileCustomPatterns(spec string) ([]*regexp.Regexp, error) {
+	var out []*regexp.Regexp
+	for _, part := range strings.Split(spec, ";;") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		re, err := regexp.Compile(part)
+		if err != nil {
+			return nil, fmt.Errorf("ai: bad custom redaction pattern %q: %w", part, err)
+		}
+		out = append(out, re)
+	}
+	return out, nil
 }
 
 // lastSlashPart returns what follows the final '/' (the CIDR suffix), or ""

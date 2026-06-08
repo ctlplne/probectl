@@ -21,9 +21,17 @@ is stored as an S41 secret reference), raw telemetry rows, packet payloads,
 database contents, or anything outside the caller's tenant + RBAC scope (the
 evidence is gathered tenant-first through the S23 engine).
 
-¹ After the C8 redaction pass (`docs/ai-egress.md` consumers: see
-`internal/ai/redact.go`): IPs and obvious secrets are masked, hostnames per
-policy, before the prompt leaves.
+¹ After the C8 redaction pass (see `internal/ai/redact.go`): secrets are
+ALWAYS masked; IPs and free-text PII (emails, phone numbers, MACs —
+AIRCA-002) by default; hostnames and operator custom patterns
+(`PROBECTL_AI_REDACT_PATTERNS`) per policy — before anything leaves.
+
+**One gate, three doors (Sprint 20 — AIRCA-001/005):** the same
+`EgressGate` (consent + redaction + audit) covers the remote RCA model,
+**MCP tool results** (the MCP caller is an external AI client; see
+`docs/mcp.md`), and the **test-authoring** model. The audit event carries
+`surface = rca | mcp | author`. No AI call path exists outside the gate —
+a static test (`TestNoAIClientOutsideGate`) enforces it.
 
 **Processing by the model provider is governed by YOUR agreement with that
 provider** — probectl sets no retention terms on the remote side. DPA inputs:

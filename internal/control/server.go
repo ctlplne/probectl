@@ -308,12 +308,18 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		}
 	}
 
+	// THE external-AI egress gate (AIRCA-001/005): one instance — consent,
+	// redaction, audit — shared by RCA, test authoring, and (via
+	// NewMCPServer) the MCP surface. No second construction site.
+	egressGate := buildEgressGate(cfg, log, pool)
+
 	// AI assistant (S24): RCA analyzer over the S23 query engine, grounded in the
 	// tenant-scoped incident store and synthesized by the configured model.
-	s.analyzer = buildAnalyzer(cfg, log, pool)
+	s.analyzer = buildAnalyzerWithGate(cfg, log, pool, egressGate)
 
-	// AI test authoring (S26): heuristic by default, model-backed when configured.
-	s.authorEngine = buildAuthor(cfg, log)
+	// AI test authoring (S26): heuristic by default, model-backed when configured —
+	// the model path rides the egress gate (AIRCA-005).
+	s.authorEngine = buildAuthor(cfg, log, egressGate)
 
 	s.http = &http.Server{
 		Addr:         cfg.HTTPAddr,

@@ -22,14 +22,19 @@ type RemoteEgresser interface {
 	Endpoint() string
 }
 
-// EgressEvent describes one remote-model call for the audit trail: WHAT
-// leaves (data categories, never the content), WHERE to, and for WHOM.
+// EgressEvent describes one external-AI egress for the audit trail: WHAT
+// leaves (data categories, never the content), WHERE to, for WHOM, and from
+// WHICH surface.
 type EgressEvent struct {
 	TenantID      string
 	Endpoint      string
 	Model         string
 	EvidenceCount int
 	Planes        []string // sorted, de-duplicated evidence planes (data categories)
+	// Surface is the egress path: "rca" (remote synthesis model), "author"
+	// (test-authoring model), or "mcp" (tool results to an external AI
+	// client). One gate, three doors — the audit says which (AIRCA-001).
+	Surface string
 }
 
 // EgressPolicy reports whether tenantID's data may be sent to a remote
@@ -89,5 +94,6 @@ func (a *Analyzer) checkEgress(ctx context.Context, tenantID string, in Synthesi
 		Model:         a.model.Name(),
 		EvidenceCount: len(in.Evidence),
 		Planes:        planes,
+		Surface:       "rca",
 	}, nil
 }

@@ -11,8 +11,16 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
+
+// testGate is a permissive egress gate for mechanics tests: consent allowed
+// for every tenant, no audit sink, no optional masking (secrets are still
+// always masked by design). Consent/redaction behavior has its own tests.
+func testGate() *ai.EgressGate {
+	return ai.NewEgressGate(func(context.Context, string) (bool, error) { return true, nil }, nil, ai.RedactionPolicy{})
+}
 
 // fakeBackend records the tenant it was called with and returns canned data.
 type fakeBackend struct {
@@ -115,7 +123,7 @@ func resultOf(t *testing.T, resp map[string]any) map[string]any {
 }
 
 func TestInitializeAndPing(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	init := resultOf(t, handle(t, s, principal("t"), 1, "initialize", nil))
 	if init["protocolVersion"] != protocolVersion {
 		t.Errorf("protocolVersion = %v", init["protocolVersion"])
@@ -129,7 +137,7 @@ func TestInitializeAndPing(t *testing.T) {
 }
 
 func TestToolsListFilteredByRBAC(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	// A caller holding only test.read sees only the test.read tools.
 	resp := handle(t, s, principal("t", permTestRead), 3, "tools/list", nil)
 	tools, _ := resultOf(t, resp)["tools"].([]any)
@@ -149,7 +157,7 @@ func TestToolsListFilteredByRBAC(t *testing.T) {
 
 func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb)
+	s := New(fb, testGate())
 
 	// Authorized call: the backend is invoked with the principal's tenant.
 	resp := handle(t, s, principal("tenant-a", permTestRead), 4, "tools/call",
@@ -165,7 +173,7 @@ func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
 	// Out-of-scope caller gets nothing: a test.read-only caller cannot call
 	// get_incident, and the backend is never reached.
 	fb2 := &fakeBackend{}
-	s2 := New(fb2)
+	s2 := New(fb2, testGate())
 	resp = handle(t, s2, principal("tenant-a", permTestRead), 5, "tools/call",
 		map[string]any{"name": "get_incident", "arguments": map[string]any{"id": "i1"}})
 	if code, _ := errCode(resp); code != codeForbidden {
@@ -178,7 +186,7 @@ func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
 
 func TestAllToolsReachBackend(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb)
+	s := New(fb, testGate())
 	p := principal("t", allPerms()...)
 	calls := []struct {
 		name string
@@ -221,7 +229,7 @@ func TestAllToolsReachBackend(t *testing.T) {
 // — so ingested data routed through the AI can never approve or execute.
 func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb)
+	s := New(fb, testGate())
 
 	// A caller holding remediation.propose can file a proposal.
 	res := resultOf(t, handle(t, s, principal("tenant-a", permRemediationPropose), 30, "tools/call",
@@ -237,7 +245,7 @@ func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
 
 	// A caller WITHOUT the permission is forbidden and never reaches the backend.
 	fb2 := &fakeBackend{}
-	s2 := New(fb2)
+	s2 := New(fb2, testGate())
 	resp := handle(t, s2, principal("tenant-a", permTestRead), 31, "tools/call",
 		map[string]any{"name": "propose_remediation", "arguments": map[string]any{
 			"kind": "reroute_suggestion", "title": "x",
@@ -261,14 +269,14 @@ func TestProposeRemediationToolIsProposalOnly(t *testing.T) {
 }
 
 func TestNoTenantFailsClosed(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	if code, _ := errCode(handle(t, s, principal(""), 6, "tools/list", nil)); code != codeUnauthorized {
 		t.Errorf("tenantless principal: code = %d, want %d", code, codeUnauthorized)
 	}
 }
 
 func TestToolArgValidationIsError(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	// get_path with no target → an isError tool result (not a transport error).
 	res := resultOf(t, handle(t, s, principal("t", permTestRead), 7, "tools/call",
 		map[string]any{"name": "get_path", "arguments": map[string]any{}}))
@@ -279,7 +287,7 @@ func TestToolArgValidationIsError(t *testing.T) {
 
 func TestRateLimit(t *testing.T) {
 	fb := &fakeBackend{}
-	s := New(fb, WithRateLimit(1))
+	s := New(fb, testGate(), WithRateLimit(1))
 	p := principal("t", permTestRead)
 	if _, isErr := errCode(handle(t, s, p, 8, "tools/call", map[string]any{"name": "list_tests"})); isErr {
 		t.Fatal("first call should be allowed")
@@ -290,7 +298,7 @@ func TestRateLimit(t *testing.T) {
 }
 
 func TestParseError(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	var resp map[string]any
 	_ = json.Unmarshal(s.Handle(context.Background(), principal("t"), []byte("{bad")), &resp)
 	if code, _ := errCode(resp); code != codeParse {
@@ -299,7 +307,7 @@ func TestParseError(t *testing.T) {
 }
 
 func TestServeStdioRoundTrip(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"ping"}` + "\n" +
 			`{"jsonrpc":"2.0","method":"notifications/initialized"}` + "\n" + // notification: no reply
@@ -327,7 +335,7 @@ type fakeAuthn struct {
 func (f fakeAuthn) Authenticate(context.Context, string) (*auth.Principal, error) { return f.p, f.err }
 
 func TestHTTPHandler(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	h := s.HTTPHandler(fakeAuthn{p: principal("t", permTestRead)})
 	srv := httptest.NewServer(h)
 	defer srv.Close()
@@ -372,7 +380,7 @@ func TestHTTPHandler(t *testing.T) {
 }
 
 func TestHTTPHandlerRejectsBadToken(t *testing.T) {
-	s := New(&fakeBackend{})
+	s := New(&fakeBackend{}, testGate())
 	h := s.HTTPHandler(fakeAuthn{err: io.EOF})
 	srv := httptest.NewServer(h)
 	defer srv.Close()
