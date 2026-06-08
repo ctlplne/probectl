@@ -7,11 +7,17 @@
 // ties them together for local development and CI; production builds use each
 // module's own go.mod. Additional modules (e.g. a future public SDK) can be
 // added with `go work use ./<dir>` without disturbing existing imports.
-go 1.26
+// The language version is pinned to 1.26.4 to MATCH both modules' go.mod
+// (go 1.26.4). go.work must stay in lockstep with go.mod: a bare `go 1.26`
+// here is OLDER than the modules' `go >= 1.26.4`, which Go rejects whenever it
+// cannot auto-resolve a newer toolchain — i.e. under GOTOOLCHAIN=local, as the
+// FIPS distribution build (`make build-fips`) runs. That skew broke the
+// build-fips CI job; keeping the two in sync is SUPPLY-007.
+go 1.26.4
 
 // Pin the build toolchain to a patched Go (stdlib fixes for GO-2026-5037
-// crypto/x509 + GO-2026-5039 net/textproto). The `go` line above is the language
-// version; this is the minimum toolchain CI and dev builds resolve to.
+// crypto/x509 + GO-2026-5039 net/textproto) — the minimum toolchain CI and dev
+// builds resolve to (matches the go line above and each module's go.mod).
 toolchain go1.26.4
 
 use (

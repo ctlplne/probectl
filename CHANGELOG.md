@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Build hotfix (SUPPLY-007, pulled forward from Sprint 13): align go.work's
+  language version to `go 1.26.4` to match both modules' go.mod. A bare
+  `go 1.26` in go.work is OLDER than the modules' `go >= 1.26.4`, which Go
+  rejects whenever it cannot auto-resolve a newer toolchain — i.e. under
+  GOTOOLCHAIN=local, as the FIPS distribution build (`make build-fips`)
+  runs. That skew failed the build-fips CI job ("module . listed in go.work
+  file requires go >= 1.26.4, but go.work lists go 1.26"). go.work and
+  go.mod now stay in lockstep; the toolchain directive was already 1.26.4.
+  (Sprint 13 will still do the remaining SEC-006 headers + SCHEMA-001
+  migration policy.)
+
 - Sprint 2 (plan v2): tenant erasure now covers the OTLP trace/log store
   (TENANT-008; corrects the overstated COMPLY-013 "erasure across 5+
   stores"). Externally-ingested traces+logs (ARCH-001) are tenant PII, but

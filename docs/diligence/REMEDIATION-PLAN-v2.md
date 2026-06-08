@@ -386,6 +386,9 @@ exist as CI jobs but don't block merge — so "fixed" findings can silently regr
 1. SEC-006: add `Referrer-Policy: no-referrer` (or `strict-origin-when-cross-origin`) and a minimal
    `Permissions-Policy` in `internal/control/middleware.go` security headers; extend the headers test.
 2. SUPPLY-007: align `go.work` to `go 1.26.4` (match `go.mod`) so there's no version skew.
+   **DONE early** — pulled forward as a standalone build hotfix (it was failing the
+   `build-fips` CI job under `GOTOOLCHAIN=local`); see CHANGELOG. This sprint now does
+   only SEC-006 + SCHEMA-001.
 3. SCHEMA-001: add a documented down-migration / rollback **policy** to `docs/` (probectl uses
    expand-contract forward-only migrations — document that explicitly as the deliberate choice + the manual
    rollback procedure; do not necessarily author `.down.sql` for 43 migrations).
