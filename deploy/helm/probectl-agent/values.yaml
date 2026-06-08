@@ -63,3 +63,10 @@ updateStrategy:
   type: RollingUpdate
   rollingUpdate:
     maxUnavailable: 10%
+
+# OPS-001: liveness/readiness probe server. The DaemonSet wires httpGet
+# probes to /healthz (process up) and /readyz (flow source attached +
+# streaming) on this port. Disable only for a no-orchestrator run.
+health:
+  enabled: true
+  port: 9090

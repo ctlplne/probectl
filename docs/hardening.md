@@ -306,6 +306,40 @@ hardening gate and your own controls.
 
 ---
 
+## 3a. Day-2 ops & the strict NetworkPolicy profile (OPS-001/004/005/009)
+
+The default Helm profile ships NetworkPolicy **on** with two documented
+holes (U-086): empty `ingressFrom` (any pod may reach the API port) and
+empty `egressTo` (allow-all egress) — deliberate, so a default install
+doesn't lock out an unknown ingress controller. For regulated/air-gapped
+deployments, apply the **strict profile**, which closes both holes:
+
+```sh
+helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml
+```
+
+`values-strict.yaml` is full default-deny: a NAMED ingress-controller
+selector (plus the monitoring namespace for `/metrics` scraping) and an
+explicit datastore/bus/IdP egress allow-list — no allow-all rule survives.
+**Match the selectors and CIDRs to your cluster before applying**; a wrong
+selector fails CLOSED (the API becomes unreachable), which is the safe
+direction. The strict profile also turns on the ServiceMonitor (OPS-005)
+and the backup CronJobs (OPS-009).
+
+Other day-2 surfaces, chart-managed:
+
+- **Probes (OPS-001):** the control Deployment and the agent DaemonSet both
+  ship liveness (`/healthz`) + readiness (`/readyz`) probes; agent readiness
+  reflects flow-source attachment, so a stuck `bpf()`/lockdown surfaces as
+  not-ready instead of a silently-dead pod.
+- **/metrics (OPS-005):** the control plane serves Prometheus self-metrics
+  (process/aggregate only — no tenant data) at `/metrics`, scraped by the
+  ServiceMonitor (`metrics.serviceMonitor.enabled`).
+- **Backups (OPS-009):** PG + CH backup CronJobs are folded into the chart
+  behind `backup.enabled` (off by default; supply the credentials secret).
+
+---
+
 ## 4. References
 
 - FIPS module behavior: <https://go.dev/doc/security/fips140>

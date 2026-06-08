@@ -36,6 +36,10 @@ type Config struct {
 	// FlushInterval is how often accumulated flows + the service map are emitted.
 	FlushInterval time.Duration `yaml:"flush_interval"`
 
+	// HealthAddr binds the liveness/readiness probe server (OPS-001), e.g.
+	// ":9090". Empty disables it (the no-k8s/dev default).
+	HealthAddr string `yaml:"health_addr"`
+
 	// RingBufferBytes sizes the kernel ring buffer (live source only); it is
 	// rounded to a valid power-of-two page multiple at load (U-050).
 	RingBufferBytes int `yaml:"ring_buffer_bytes"`
@@ -142,6 +146,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 		if d, err := time.ParseDuration(v); err == nil {
 			c.FlushInterval = d
 		}
+	}
+	if v := getenv("PROBECTL_EBPF_HEALTH_ADDR"); v != "" {
+		c.HealthAddr = v
 	}
 	if v := getenv("PROBECTL_EBPF_L7_CAPTURE"); v != "" {
 		c.L7CaptureEnabled = v == "true"

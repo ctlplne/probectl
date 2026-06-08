@@ -1,0 +1,113 @@
+{{- if .Values.backup.enabled }}
+# OPS-009: chart-managed PG + CH backup CronJobs (folded in from
+# deploy/backup/, U-030). Behind backup.enabled — off by default; an operator
+# opts in and supplies the backups PVC + db-credentials secret (or lets the
+# chart create the PVC via backup.persistence).
+{{- if .Values.backup.persistence.create }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "probectl.fullname" . }}-backups
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.backup.persistence.size }}
+  {{- with .Values.backup.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+---
+{{- end }}
+{{- if .Values.backup.postgres.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "probectl.fullname" . }}-postgres-backup
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.postgres.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999 # the postgres image's postgres uid
+          containers:
+            - name: pg-dump
+              image: {{ .Values.backup.postgres.image | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                  pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner > "$out"
+                  sha256sum "$out" > "$out.sha256"
+                  echo "wrote $out"
+              env:
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: username }
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: password }
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
+---
+{{- end }}
+{{- if .Values.backup.clickhouse.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "probectl.fullname" . }}-clickhouse-backup
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.clickhouse.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101 # the clickhouse image's clickhouse uid
+          containers:
+            - name: ch-backup
+              image: {{ .Values.backup.clickhouse.image | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  name="clickhouse-probectl-$(date -u +%Y%m%dT%H%M%SZ).zip"
+                  clickhouse-client --host {{ .Values.backup.clickhouse.host }} \
+                    --user "$CH_USER" --password "$CH_PASSWORD" \
+                    --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('/backups/$name')"
+                  echo "wrote /backups/$name (on the clickhouse server's backups volume)"
+              env:
+                - name: CH_USER
+                  valueFrom:
+                    secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-username }
+                - name: CH_PASSWORD
+                  valueFrom:
+                    secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-password }
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+{{- end }}
+{{- end }}

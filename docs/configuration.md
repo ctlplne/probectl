@@ -627,6 +627,7 @@ The agent is **observe-only**; the CO-RE loader is compiled in only with
 | `PROBECTL_EBPF_L7_KERNEL_WINDOW` | `1024`    | **EBPF-002:** max plaintext bytes per chunk that may transit the kernel ring under `headers` redaction (128–4095); bytes past the window never leave kernel space. `length` forces 0, `full` forces 4095. The BPF policy map's zero default is length-only, so an unprogrammed kernel ships no plaintext |
 | `PROBECTL_EBPF_PROC_ROOT`      | `/proc`     | procfs root for process/cgroup enrichment                      |
 | `PROBECTL_EBPF_FLUSH_INTERVAL` | `10s`       | how often flows + the service map are emitted                  |
+| `PROBECTL_EBPF_HEALTH_ADDR`    | (none)      | **OPS-001:** bind the liveness/readiness probe server (e.g. `:9090`; `/healthz` = process up, `/readyz` = flow source attached). Empty disables it. The Helm DaemonSet sets it from `health.port` |
 | `PROBECTL_EBPF_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                         |
 | `PROBECTL_EBPF_LOG_FORMAT`     | `json`      | `json` \| `text`                                               |
 

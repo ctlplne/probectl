@@ -9,6 +9,26 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 26: k8s/Helm day-2 ops (OPS-001/004/005/009; OPS-006 struck —
+  migrations run at boot). Agent DaemonSet gains real probes: a tiny
+  loopback health server in the eBPF agent (/healthz = process up,
+  /readyz = flow source attached + streaming, so a stuck bpf()/lockdown
+  shows as not-ready) wired to liveness/readiness probes (the control
+  Deployment already had them). NetworkPolicy strict profile
+  (values-strict.yaml): full default-deny — named ingress-controller +
+  monitoring selectors and an explicit datastore/bus/IdP egress
+  allow-list, no allow-all rule surviving (the U-086 default keeps its
+  two documented holes by design); recommended for regulated deploys in
+  docs/hardening.md. /metrics: a dependency-free internal/metrics
+  package serves Prometheus self-metrics (build/uptime/goroutines/heap +
+  extensible counters — process/aggregate only, never tenant data) at
+  GET /metrics, pre-auth like /healthz, scraped by a gated ServiceMonitor.
+  Backups: PG + CH backup CronJobs folded into the chart behind
+  backup.enabled (off by default; optional chart-managed PVC). The helm
+  hardening gate now asserts agent probes, the strict profile's closed
+  holes, and ServiceMonitor/CronJob gating; CI kubeconform validates the
+  strict render too.
+
 - Sprint 25: green-build capstone — the verify-all umbrella (closes the
   STATIC-ONLY methodology caveat). `make verify-all` runs build + lint +
   race-detector tests + the repo guards + govulncheck + trivy + the eBPF

@@ -86,7 +86,7 @@ func accessLog(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		level := slog.LevelInfo
-		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" || r.URL.Path == "/metrics" {
 			level = slog.LevelDebug
 		}
 		logging.FromContext(r.Context()).Log(r.Context(), level, "request",

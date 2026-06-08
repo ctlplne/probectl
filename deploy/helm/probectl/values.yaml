@@ -183,3 +183,46 @@ topologySpreadConstraints: []
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# OPS-005: Prometheus self-metrics (/metrics on the control plane). The
+# endpoint is process/aggregate health only — never tenant data — so it is
+# served unauthenticated like /healthz; scrape access is scoped at the
+# NetworkPolicy + ServiceMonitor layer (see values-strict.yaml).
+metrics:
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs. Off by default (no CRDs ⇒ the
+    # object would not apply); regulated profiles enable it.
+    enabled: false
+    interval: 30s
+    scheme: http # the in-cluster Service port; set https + tlsConfig behind a TLS sidecar
+    labels: {}
+    tlsConfig: {}
+
+# OPS-009: chart-managed PG + CH backup CronJobs (folded in from
+# deploy/backup/, U-030). OFF by default — opt in, then supply the
+# credentials secret (and either an existing backups PVC or persistence.create).
+backup:
+  enabled: false
+  # Secret holding username/password (Postgres) and ch-username/ch-password
+  # (ClickHouse). Operator-provided.
+  credentialsSecret: probectl-db-credentials
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  persistence:
+    create: false       # true ⇒ the chart creates the backups PVC
+    claimName: ""        # else point at an existing PVC (default: <release>-backups)
+    size: 50Gi
+    storageClass: ""
+  postgres:
+    enabled: true
+    schedule: "0 2 * * *"
+    host: probectl-postgres
+    database: probectl
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+  clickhouse:
+    enabled: true
+    schedule: "30 2 * * *"
+    host: probectl-clickhouse
+    database: probectl
+    image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)

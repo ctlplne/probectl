@@ -50,6 +50,27 @@ need "kind: NetworkPolicy"          "$large" "large profile missing NetworkPolic
 need "kind: PodDisruptionBudget"    "$large" "large profile missing PodDisruptionBudget"
 need "kind: HorizontalPodAutoscaler" "$large" "large profile missing HorizontalPodAutoscaler"
 
+# 3a. STRICT profile (OPS-004): full default-deny — a NAMED ingress selector
+#     and an explicit egress allow-list, with NO allow-all holes. Plus the
+#     regulated-profile ops surfaces (OPS-005/009): ServiceMonitor + backups.
+strict="$(render -f "$CHART/values-strict.yaml")"
+need "kind: NetworkPolicy"          "$strict" "strict profile missing NetworkPolicy"
+need "ingress-nginx"                "$strict" "strict profile: ingress selector hole not closed (HOLE 1)"
+need "port: 5432"                   "$strict" "strict profile: datastore egress allow-list missing (HOLE 2)"
+# The default profile's allow-all egress rule ("- {}") must NOT survive in strict.
+npblock="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$strict")"
+grep -qE '^[[:space:]]*-[[:space:]]*\{\}[[:space:]]*$' <<<"$npblock" \
+  && fail "strict profile still has an allow-all egress rule (a HOLE) — default-deny not achieved"
+need "kind: ServiceMonitor"         "$strict" "strict profile missing ServiceMonitor (OPS-005)"
+need "kind: CronJob"                "$strict" "strict profile missing backup CronJob (OPS-009)"
+
+# 3b. /metrics + backup are chart-managed and gated. Default profile must
+#     NOT ship the operator-CRD ServiceMonitor or the opt-in CronJobs.
+grep -q "kind: ServiceMonitor" <<<"$base" && fail "ServiceMonitor must be OFF by default (Prometheus-Operator CRD gate)"
+grep -q "kind: CronJob" <<<"$base" && fail "backup CronJobs must be OFF by default (backup.enabled)"
+need "kind: CronJob" "$(render --set backup.enabled=true)" "backup.enabled=true must render the backup CronJobs (OPS-009)"
+need "kind: ServiceMonitor" "$(render --set metrics.serviceMonitor.enabled=true)" "metrics.serviceMonitor.enabled=true must render the ServiceMonitor (OPS-005)"
+
 # 4. Medium + multi-tenant profiles ship a PodDisruptionBudget (zero-downtime, S34).
 for f in values-medium.yaml values-multitenant.yaml; do
   need "kind: PodDisruptionBudget" "$(render -f "$CHART/$f")" "$f missing PodDisruptionBudget"
@@ -80,6 +101,11 @@ need "allowPrivilegeEscalation: false"  "$agent" "agent: privilege escalation no
 need "automountServiceAccountToken: false" "$agent" "agent: SA token automounted"
 need "/sys/kernel/btf/vmlinux"          "$agent" "agent: BTF host mount missing"
 need "limits:"                          "$agent" "agent: no resource limits"
+# OPS-001: the DaemonSet ships real liveness + readiness probes.
+need "livenessProbe:"                   "$agent" "agent: no liveness probe (OPS-001)"
+need "readinessProbe:"                  "$agent" "agent: no readiness probe (OPS-001)"
+need "path: /healthz"                   "$agent" "agent: liveness probe not wired to /healthz"
+need "path: /readyz"                    "$agent" "agent: readiness probe not wired to /readyz"
 grep -q "SYS_ADMIN" <<<"$agent" && fail "agent: SYS_ADMIN in the DEFAULT profile (legacy mode only)"
 
 # legacy kernels get exactly the documented fallback

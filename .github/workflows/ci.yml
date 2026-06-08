@@ -342,6 +342,13 @@ jobs:
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
             --set secrets.envelopeKey=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
             | /tmp/kubeconform -strict -summary
+          # OPS-004/005/009: the strict regulated profile renders valid too
+          # (the ServiceMonitor is a Prometheus-Operator CRD — skip it).
+          helm template probectl deploy/helm/probectl \
+            -f deploy/helm/probectl/values-strict.yaml \
+            --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+            --set secrets.envelopeKey=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+            | /tmp/kubeconform -strict -summary -skip ServiceMonitor
       - name: GitOps manifests valid (ArgoCD + Flux)
         run: |
           python3 -m pip install --quiet pyyaml==6.0.3 # SUPPLY-006: exact pin

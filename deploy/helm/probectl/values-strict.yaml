@@ -1,0 +1,70 @@
+# probectl — STRICT / regulated profile (OPS-004).
+#
+# The DEFAULT profile (values.yaml, U-086) ships NetworkPolicy on with two
+# documented holes (empty ingressFrom ⇒ any pod may reach the API; empty
+# egressTo ⇒ allow-all egress) — deliberately, so a default install doesn't
+# silently lock out an unknown ingress controller. THIS profile closes both
+# holes for regulated/air-gapped deployments: full default-deny with a NAMED
+# ingress-controller selector and an explicit datastore/scrape egress
+# allow-list. Nothing is reachable that isn't named here.
+#
+#   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml \
+#     --set 'networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=ingress-nginx'
+#
+# REVIEW BEFORE APPLYING: the selectors + CIDRs below are a REFERENCE that
+# you MUST match to your cluster (ingress-controller namespace, monitoring
+# namespace, datastore CIDRs/ports). A wrong selector fails CLOSED — the API
+# becomes unreachable — which is the safe direction for this profile.
+# Referenced from docs/hardening.md as the regulated-profile recommendation.
+
+networkPolicy:
+  enabled: true
+  # HOLE 1 CLOSED: only the named ingress controller (and the monitoring
+  # namespace, for /metrics scraping) may reach the API port. Replace the
+  # namespace labels with YOUR cluster's.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+  # HOLE 2 CLOSED: egress beyond DNS is restricted to the datastores, bus,
+  # IdP, and feeds this deployment actually reaches. Tune CIDRs/ports to your
+  # environment. (DNS 53 is always allowed by the template.)
+  egressTo:
+    - to:
+        - ipBlock: { cidr: 10.0.0.0/8 } # in-cluster / private datastore range
+      ports:
+        - { protocol: TCP, port: 5432 } # PostgreSQL
+        - { protocol: TCP, port: 8123 } # ClickHouse HTTP
+        - { protocol: TCP, port: 9000 } # ClickHouse native
+        - { protocol: TCP, port: 9092 } # Kafka
+        - { protocol: TCP, port: 9009 } # Prometheus/VictoriaMetrics remote-write
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0 } # IdP / OIDC + open-data/threat feeds
+      ports:
+        - { protocol: TCP, port: 443 } # HTTPS only — no plaintext egress
+
+# OPS-005: scrape /metrics via the Prometheus Operator (the monitoring
+# namespace is the second ingress selector above).
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scheme: http
+
+# OPS-009: backups ON in the regulated profile. Supply the credentials
+# secret out-of-band; let the chart create the backups PVC.
+backup:
+  enabled: true
+  persistence:
+    create: true
+    size: 100Gi
+
+# Strict pod hardening (mirrors the seccomp/strict guidance — keep these in
+# step with your platform's PodSecurity "restricted" admission).
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault

@@ -67,6 +67,18 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// OPS-001: serve liveness/readiness probes for the DaemonSet when
+	// configured. Runs alongside the agent; a probe failure surfaces a stuck
+	// attach to Kubernetes instead of a silently-dead pod.
+	if cfg.HealthAddr != "" {
+		health := ebpf.NewHealthServer(cfg.HealthAddr, agent)
+		go func() {
+			if herr := health.Run(ctx); herr != nil {
+				log.Error("ebpf health server stopped", "error", herr.Error())
+			}
+		}()
+	}
 	return agent.Run(ctx)
 }
 

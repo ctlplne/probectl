@@ -28,6 +28,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
 	"github.com/imfeelingtheagi/probectl/internal/path"
@@ -45,6 +46,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/threat"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // Discoverer runs a path discovery. The default is path.Run; tests inject a fake.
@@ -206,6 +208,10 @@ type Server struct {
 	// startedAt is the process start (S-EE4): the support bundle reports uptime.
 	startedAt time.Time
 
+	// metrics is the self-observability registry exposed at /metrics
+	// (OPS-005). Process/aggregate health only — never tenant data.
+	metrics *metrics.Registry
+
 	// draining flips true at the start of a graceful shutdown so /readyz reports 503
 	// and the load balancer drains this replica before it exits (S34 zero-downtime).
 	draining atomic.Bool
@@ -285,8 +291,10 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	if discover == nil {
 		discover = path.Run
 	}
+	v := version.Get()
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), startedAt: time.Now()}
+		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), startedAt: time.Now(),
+		metrics: metrics.New(v.Version, v.Commit)}
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).
@@ -351,6 +359,10 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /healthz", apiHandler(s.handleHealthz))
 	mux.Handle("GET /readyz", apiHandler(s.handleReadyz))
 	mux.Handle("GET /version", apiHandler(s.handleVersion))
+	// OPS-005: Prometheus self-metrics. Unauthenticated like /healthz (it
+	// carries no tenant data); production scopes scrape access at the
+	// NetworkPolicy + ServiceMonitor layer (values-strict.yaml).
+	mux.Handle("GET /metrics", s.metrics.Handler())
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
 	mux.Handle("GET /.well-known/security.txt", apiHandler(s.handleSecurityTxt))
 

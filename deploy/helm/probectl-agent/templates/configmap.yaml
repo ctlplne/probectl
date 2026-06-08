@@ -7,6 +7,9 @@ metadata:
 data:
   ebpf-agent.yaml: |
     tenant_id: {{ required "tenantID is required" .Values.tenantID | quote }}
+    {{- if .Values.health.enabled }}
+    health_addr: ":{{ .Values.health.port }}" # OPS-001: liveness/readiness probe server
+    {{- end }}
     bus:
       mode: {{ .Values.bus.mode | quote }}
       {{- with .Values.bus.brokers }}

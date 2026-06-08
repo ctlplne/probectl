@@ -3,6 +3,7 @@ package ebpf
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
@@ -27,7 +28,19 @@ type Agent struct {
 
 	lastDrops      uint64
 	lastFilteredV6 uint64
+
+	// ready flips true once the flow source is streaming — the readiness
+	// probe's signal (OPS-001). started records process liveness.
+	ready   atomic.Bool
+	started atomic.Bool
 }
+
+// Ready reports whether the agent's source is attached and streaming (the
+// k8s readiness probe). Live reports process liveness (the liveness probe).
+func (a *Agent) Ready() bool { return a.ready.Load() }
+
+// Live reports that the agent process is up and running its loop.
+func (a *Agent) Live() bool { return a.started.Load() }
 
 // l7conn remembers a connection's client→server identity so a call (which may be
 // completed by a response event) is attributed to the request-direction edge.
@@ -117,11 +130,15 @@ func (a *Agent) Run(ctx context.Context) error {
 		"flush", a.cfg.FlushInterval.String(), "topic", bus.EBPFFlowsTopic,
 		"l7", a.l7source != nil)
 
+	a.started.Store(true)
 	flows, err := a.source.Flows(ctx)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = a.source.Close() }()
+	// Source attached and streaming: readiness is satisfied (OPS-001).
+	a.ready.Store(true)
+	defer a.ready.Store(false)
 
 	var l7events <-chan L7Event
 	if a.l7source != nil {

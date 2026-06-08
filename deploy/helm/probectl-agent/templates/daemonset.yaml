@@ -48,6 +48,26 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--config", "/etc/probectl/ebpf-agent.yaml"]
+          {{- if .Values.health.enabled }}
+          ports:
+            - name: health
+              containerPort: {{ .Values.health.port }}
+          # OPS-001: liveness restarts a dead agent; readiness depools a
+          # not-yet-attached one (stuck CAP_PERFMON / kernel lockdown shows
+          # up instead of a silently-dead pod).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- end }}
           securityContext:
             # The loader needs its capabilities EFFECTIVE: Kubernetes grants
             # added capabilities to uid 0 only (no ambient-cap support), so
