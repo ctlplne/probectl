@@ -28,8 +28,10 @@ ARG COMMIT=unknown
 ARG DATE=unknown
 WORKDIR /src
 
+# libbpf-dev supplies the bpf/bpf_helpers.h that the BPF objects #include
+# (same package the kernel-matrix job installs); clang/bpf2go fail without it.
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
-      clang llvm bpftool && rm -rf /var/lib/apt/lists/*
+      clang llvm libbpf-dev bpftool && rm -rf /var/lib/apt/lists/*
 
 # Cache dependencies first for faster rebuilds.
 COPY go.mod go.sum ./
