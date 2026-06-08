@@ -41,3 +41,19 @@ jobs:
         with:
           name: ingest-bench
           path: ingest-bench.txt
+
+  scale-gate-m:
+    name: scale-gate-m (Sprint 17 — M-profile SLO regression guard)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26"
+      - name: M-profile scale gate (results + flow planes; SLO violations fail)
+        run: make scale-gate-m
+      - name: M-tier FULL-STACK regression (real Kafka + Prometheus)
+        run: |
+          docker compose -f deploy/compose/dev.yml up -d --wait kafka prometheus
+          PROBECTL_SCALE_TIER=M go test -tags=integration -count=1 -v -timeout 20m \
+            -run '^TestFullStackLoadGate$' ./internal/perf/

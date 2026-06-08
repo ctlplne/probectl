@@ -189,7 +189,12 @@ editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test)
 .PHONY: scale-gate
 scale-gate: ## The S48 L/XL scale gate at FULL scale (reference hardware): make scale-gate TIER=L
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
-		$(GO) test -count=1 -v -timeout 30m -run '^TestScaleGateCI$$' ./internal/perf/
+		$(GO) test -count=1 -v -timeout 30m -run '^TestScaleGate' ./internal/perf/
+
+.PHONY: scale-gate-m
+scale-gate-m: ## Sprint 17 nightly regression guard: the M profile (results + flow planes) at CI scale — fails on any SLO/materiality violation.
+	PROBECTL_SCALE_TIER=M \
+		$(GO) test -count=1 -v -timeout 15m -run '^TestScaleGate' ./internal/perf/
 
 .PHONY: load-test-smoke
 load-test-smoke: ## U-005 S-tier FULL-STACK load smoke (real Kafka + Prometheus; make compose-up first or the ci load-smoke job).

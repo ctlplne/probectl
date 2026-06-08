@@ -201,3 +201,28 @@ func TestScaleSLOEvaluation(t *testing.T) {
 		t.Fatalf("sub-materiality inflation must not violate, got %v", noise.Violations)
 	}
 }
+
+// TestScaleGateFlowPlaneCI drives the FLOW plane (Sprint 17 — the volume
+// plane was missing from the drive set) at the same tier/scale contract as
+// the results gate: CI proves the drive; PROBECTL_SCALE=1 on reference
+// hardware proves the platform. Completeness is the hard assertion.
+func TestScaleGateFlowPlaneCI(t *testing.T) {
+	tier := Tier(os.Getenv("PROBECTL_SCALE_TIER"))
+	scale := 0.05
+	if tier == "" {
+		tier = TierM
+	}
+	if os.Getenv("PROBECTL_SCALE") == "1" {
+		scale = 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	rep, err := DriveFlowPlane(ctx, tier, scale)
+	if err != nil {
+		t.Fatalf("flow plane %s: %v", tier, err)
+	}
+	t.Logf("%s", rep)
+	if rep.Rejected != 0 {
+		t.Fatalf("flow plane rejected %d batches under a clean drive", rep.Rejected)
+	}
+}

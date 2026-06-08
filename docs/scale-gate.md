@@ -48,6 +48,18 @@ under-noise p95 and inflation ratio, plus the hard correctness verdict
   proving the GATE (profiles drive, SLOs evaluate, isolation holds), not
   the platform. Absolute throughput floors don't apply at CI scale;
   correctness and material inflation do.
+- **Flow plane (Sprint 17):** the drive set now includes the VOLUME plane.
+  `TestScaleGateFlowPlaneCI` (`internal/perf/flowplane.go`) drives 4× the
+  tier's result count as NetFlow records through the production
+  `FlowConsumer` (verify + fairness + enrich seams identical to runtime) and
+  fails on any rejected batch or incomplete storage. `make scale-gate` runs
+  both planes (`-run '^TestScaleGate'`).
+- **Nightly M-profile regression guard:** `make scale-gate-m` runs the M
+  tier (both planes, CI scale) plus the M-tier FULL-STACK gate against real
+  Kafka + Prometheus — the `scale-gate-m` job in `nightly.yml`. A
+  regression that breaks an SLO, drops a record, or leaks a tenant fails
+  the night's build; this is the standing guard until the L/XL reference
+  run lands.
 - **Full scale (reference hardware):** `make scale-gate TIER=L` (or `XL`)
   sets `PROBECTL_SCALE=1` and runs the real shape with the absolute SLOs
   armed. Record the numbers here when run:

@@ -9,6 +9,24 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 17: scale validation — everything-but-the-run (SCALE-002/015,
+  DOCS-001/006). The benchmark set is complete: path-store write joins
+  ingest (S14) and TSDB query (S16) — memory Save ~38ns and the
+  Sprint 14 batched window ~102ns/op, zero-alloc steady state. The
+  scale-gate drive set gains the VOLUME plane: DriveFlowPlane pushes
+  4× the tier's results as NetFlow through the production FlowConsumer
+  (verify/fairness/enrich seams) and fails on rejects or incomplete
+  storage; `make scale-gate` now runs both planes. A nightly M-profile
+  regression guard (`scale-gate-m` in nightly.yml) runs both planes
+  plus the M-tier FULL-STACK gate against real Kafka + Prometheus —
+  the standing SLO guard until the reference run. The live ring-buffer
+  overhead harness (TestLiveOverheadReport, linux&&ebpf) loads+attaches
+  the real BPF path, drives loopback traffic, and prints the OVERHEAD
+  ROW for docs/agent-overhead.md; skips cleanly without privileges.
+  Honesty preserved: the L/XL run and live numbers need reference
+  hardware — tables stay `_pending_`, SLOs stay PROVISIONAL, register
+  row stays OPEN (owner: iron) with the run now one command.
+
 - Sprint 16: storage + OTLP plane (SCALE-006/010/014, ARCH-005). Path
   tables get retention: chmigrate v2 re-creates them with (tenant_id,
   day) partitioning — PARTITION BY is immutable in ClickHouse, and

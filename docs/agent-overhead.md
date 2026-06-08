@@ -61,3 +61,23 @@ percentage of one core and tens of MiB — the chart's default limits
 The reference-host row is BLOCKED-ON-HUMAN: run the script on the
 whitepaper hardware with live traffic, paste the row, and cite it from the
 whitepaper.
+
+### Measuring the live ring-buffer path (Sprint 17, DOCS-006)
+
+`TestLiveOverheadReport` (`internal/ebpf/live_smoke_ebpf_test.go`,
+`linux && ebpf` tags) measures the REAL path the table above marks `n/a`:
+it loads + attaches the BPF programs via `newLiveSource`, generates
+loopback TCP connects through the tracepoints for a configurable window
+(`PROBECTL_OVERHEAD_SECONDS`, default 10), drains the ring buffer, and
+prints an `OVERHEAD ROW` with CPU% (rusage user+sys over the window),
+heap, and max RSS. It skips cleanly without kernel privileges, so it runs
+wherever the kernel-matrix smoke runs:
+
+```sh
+# on a reference host (root or CAP_BPF+CAP_PERFMON):
+PROBECTL_OVERHEAD_SECONDS=60 go test -tags ebpf -count=1 -v \
+  -run '^TestLiveOverheadReport$' ./internal/ebpf/
+```
+
+Paste the logged row into the table above (the "Live ring-buffer events/s"
+column stops being `n/a` the first time this runs on real hardware).
