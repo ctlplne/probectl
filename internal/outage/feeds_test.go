@@ -166,6 +166,13 @@ func TestNewFeedsOmitsRadarWithoutToken(t *testing.T) {
 func TestRefresherKeepsLastGoodAndReportsHealth(t *testing.T) {
 	doer := &fakeDoer{responses: map[string]fakeResp{"ioda": {status: 200, body: iodaFixture}}}
 	store := NewStore(0)
+	// Pin the store clock to the recorded fixture's epoch (iodaFixture uses
+	// start=1780660800) so the 48h retention window deterministically covers all
+	// three normalized events. Without this, the one *ended* event (BR, duration
+	// 1800) ages out of the window as the wall clock advances past the fixture
+	// date — a moving-real-time-fixture flake, not a code defect.
+	fixtureNow := time.Unix(1780660800, 0).Add(time.Hour)
+	store.clock = func() time.Time { return fixtureNow }
 	r := NewRefresher(store, []Feed{NewIODA(doer)}, time.Minute, 48*time.Hour, slog.Default())
 
 	r.Refresh(context.Background())

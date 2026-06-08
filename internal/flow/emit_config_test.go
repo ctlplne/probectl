@@ -45,8 +45,12 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 	if err := em.Emit(context.Background(), recs); err != nil {
 		t.Fatalf("emit: %v", err)
 	}
-	if cb.topic != bus.FlowEventsTopic || string(cb.key) != "t-acme" {
-		t.Fatalf("published to %q key %q", cb.topic, cb.key)
+	// The key is the bucketed tenant key (SCALE-007): tenant|bN, with the agent
+	// id as entropy. Build the expected value the same way emit.go does, so this
+	// asserts the keying contract instead of a stale pre-bucketing literal.
+	wantKey := bus.TenantKey("t-acme", "a1")
+	if cb.topic != bus.FlowEventsTopic || string(cb.key) != string(wantKey) {
+		t.Fatalf("published to %q key %q (want tenant-keyed %q)", cb.topic, cb.key, wantKey)
 	}
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(cb.value, &batch); err != nil {

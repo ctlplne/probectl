@@ -33,6 +33,11 @@ require() {
 
 run_step build        make build
 run_step lint         make lint
+# test-race runs `go test -race -count=1 ./...` in EVERY module dir
+# (GO_MODULE_DIRS = . test), i.e. the full package tree — no package is
+# hand-listed or excluded, so a green here means every package compiled+ran
+# (the flow/outage suites included). A "verify-all green" claim is only valid
+# if this step actually passed across ./... — don't infer green from a subset.
 run_step test-race    make test
 run_step test-python  make test-python
 run_step supply-pins  ./scripts/check_supply_pins.sh

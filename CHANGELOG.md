@@ -9,6 +9,22 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 1 (plan v2, post-verification): green build + verify-all
+  coverage (CORRECT-002, RESIL-006, TEST-001, DOCS-F02). Fixed the two red
+  unit suites that meant the full-tree test run had never actually passed,
+  so a prior "verify-all green" claim was overstated. The flow bus-emitter
+  test asserted a pre-bucketing key literal ("t-acme") even though
+  Sprint-15 keys are tenant|bN — it now builds the expected key via
+  `bus.TenantKey("t-acme","a1")`, asserting the SCALE-007 bucketing
+  contract instead of a brittle literal. The outage refresher test used a
+  moving real-time fixture whose one *ended* event aged out of the 48h
+  retention window as the wall clock advanced past the fixture date — it
+  now pins the store's injected `clock` to the recorded fixture epoch
+  (deterministic). `go test ./...` is fully green (0 FAIL);
+  scripts/verify_all.sh now documents that test-race runs the full package
+  tree across every module dir (GO_MODULE_DIRS = . test), so a green
+  result cannot be inferred from a subset.
+
 - Sprint 27: backup encryption, erasure-covers-backups, self-hosted IdP,
   DR runbooks (OPS-002, COMPLY-002, OPS-008, DOCS-007; OPS-007/DATAROOM-008
   representative RTO/RPO drill stays [needs infra], owner iron). OPS-002:
