@@ -9,6 +9,19 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 8 (plan v2): bound the eBPF L7 DNS pending-query map (FUZZ-001).
+  The parser added an entry per query and deleted only on a matched
+  response, so unanswered queries (a lossy network or an attacker flooding
+  queries) pinned up to 65 536 stale entries per parser and risked
+  mis-correlating a late/spoofed response. Fix: the map is now BOUNDED — a
+  query older than `dnsPendingTTL` (10s) is abandoned (no legitimate
+  response will follow), and a hard cap `dnsMaxPending` (4096) evicts the
+  oldest in-flight query under a flood, so `len(pending)` can never exceed
+  the cap. A normal query→response within the window still matches. Tests: a
+  6k-query flood keeps the map at/under the cap with a legitimate match
+  still resolving, and a TTL-expired query no longer matches a late
+  response.
+
 - Sprint 7 (plan v2): flow collector emit retry + dropped-records counter
   (CORRECT-001; reconciles the under-rated SCALE-012). The flow collector
   dropped a batch on emit failure with no retry — only an `EmitErrors`
