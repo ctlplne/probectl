@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
-
 // VENDORED from github.com/openconfig/gnmi v0.14.1 (Apache-2.0) — the standard
 // gNMI service definition, kept wire-compatible (package gnmi/gnmi_ext and all
 // field numbers unchanged) so probectl's collector interoperates with real

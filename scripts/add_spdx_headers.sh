@@ -23,6 +23,13 @@ stamp() { # stamp <file> <tag>
   if grep -q "SPDX-License-Identifier:" "$f"; then
     return 0
   fi
+  # Skip GENERATED files: codegen reproduces them verbatim (without a license
+  # header), so stamping them would make `make proto` see drift and fail the
+  # proto gate. They carry the generator's "// Code generated ... DO NOT EDIT."
+  # marker instead, and golangci-lint excludes internal/gen anyway.
+  if head -3 "$f" | grep -q "Code generated .* DO NOT EDIT"; then
+    return 0
+  fi
   local tmp
   tmp="$(mktemp)"
   printf '// SPDX-License-Identifier: %s\n\n' "$tag" >"$tmp"
