@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -77,6 +78,11 @@ type VaultSource struct {
 	namespace string
 	client    *http.Client
 
+	// mu guards the AppRole token cache (KEYS-001). The resolver releases its
+	// own lock before calling Fetch (secrets.go), so this backend owns the
+	// synchronization of its own state — concurrent Resolve calls must not
+	// race leaseTok/leaseExp.
+	mu       sync.Mutex
 	leaseTok string    // AppRole-issued token (memory only)
 	leaseExp time.Time // conservative re-login deadline
 }
@@ -105,12 +111,21 @@ func (s *VaultSource) authToken(ctx context.Context) (string, error) {
 	if s.token != "" {
 		return s.token, nil
 	}
+	// Fast path: a still-valid cached AppRole token, read under the lock.
+	s.mu.Lock()
 	if s.leaseTok != "" && time.Now().Before(s.leaseExp) {
-		return s.leaseTok, nil
+		tok := s.leaseTok
+		s.mu.Unlock()
+		return tok, nil
 	}
+	s.mu.Unlock()
+
 	if s.roleID == "" || s.secretID == "" {
 		return "", fmt.Errorf("vault auth not configured (set PROBECTL_SECRETS_VAULT_TOKEN or _ROLE_ID + _SECRET_ID)")
 	}
+	// Log in WITHOUT holding the lock (don't serialize all resolves behind one
+	// network round-trip). Concurrent misses may each log in; that's harmless —
+	// every issued token is valid and the last writer wins the cache.
 	body, _ := json.Marshal(map[string]string{"role_id": s.roleID, "secret_id": s.secretID})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.addr+"/v1/auth/approle/login", strings.NewReader(string(body)))
 	if err != nil {
@@ -130,13 +145,16 @@ func (s *VaultSource) authToken(ctx context.Context) (string, error) {
 	if err := json.Unmarshal(raw, &resp); err != nil || resp.Auth.ClientToken == "" {
 		return "", fmt.Errorf("approle login: unexpected response shape")
 	}
-	s.leaseTok = resp.Auth.ClientToken
 	ttl := time.Duration(resp.Auth.LeaseDuration) * time.Second
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
+	// Cache under the lock — the only writes to leaseTok/leaseExp.
+	s.mu.Lock()
+	s.leaseTok = resp.Auth.ClientToken
 	s.leaseExp = time.Now().Add(ttl * 2 / 3) // renew early
-	return s.leaseTok, nil
+	s.mu.Unlock()
+	return resp.Auth.ClientToken, nil
 }
 
 func (s *VaultSource) header(req *http.Request) {

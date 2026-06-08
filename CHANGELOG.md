@@ -9,6 +9,19 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 4 (plan v2): lock the Vault AppRole token cache (KEYS-001).
+  `VaultSource.authToken` read/wrote `leaseTok`/`leaseExp` with no lock, and
+  the resolver releases its own mutex before calling `src.Fetch`, so
+  concurrent `Resolve` calls raced the cache (a real, `-race`-reproducible
+  DATA RACE in the secret backend). Fix: `VaultSource` gains its own
+  `sync.Mutex`; `authToken` uses a double-checked pattern — fast-path cache
+  read under the lock, the AppRole login performed WITHOUT the lock (so
+  resolves don't serialize behind one network round-trip), then the token
+  cached under the lock. Concurrent misses may each log in, which is
+  harmless (every issued token is valid; last writer wins). A 64-goroutine
+  `-race` regression test reproduces the original race and is now clean; the
+  single-threaded lease-reuse test (one login) still holds.
+
 - Sprint 3 (plan v2): persist the WORM audit signing key (KEYS-002 /
   COMPLY-008). The provider audit WORM export minted a FRESH Ed25519 key on
   every boot (`NewWormExporterPG` passed no key → `NewWormExporter`

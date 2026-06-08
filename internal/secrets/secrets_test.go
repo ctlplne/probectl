@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -205,6 +206,56 @@ func TestVaultKV2AndAppRole(t *testing.T) {
 	// Missing field fails closed.
 	if _, err := v.Fetch(ctxT(t), Ref{Scheme: "vault", Path: "kv/netops/snmp", Field: "absent"}); err == nil {
 		t.Fatal("absent field resolved")
+	}
+}
+
+// KEYS-001: concurrent resolves race the AppRole token cache. The resolver
+// releases its own mutex before calling src.Fetch (secrets.go), so VaultSource
+// must guard its own leaseTok/leaseExp. Under -race this must be clean; before
+// the fix it reported a DATA RACE on those fields.
+func TestVaultAppRoleConcurrentNoRace(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/v1/auth/approle/login":
+			fmt.Fprint(w, `{"auth":{"client_token":"approle-tok","lease_duration":600}}`)
+		case strings.HasPrefix(r.URL.Path, "/v1/kv/data/"):
+			fmt.Fprint(w, `{"data":{"data":{"community":"v4ult-c0mm"}}}`)
+		default:
+			http.Error(w, "nope", 404)
+		}
+	}))
+	defer ts.Close()
+
+	v := NewVaultSource(func(k string) string {
+		return map[string]string{
+			"PROBECTL_SECRETS_VAULT_ADDR":      ts.URL,
+			"PROBECTL_SECRETS_VAULT_ROLE_ID":   "rid",
+			"PROBECTL_SECRETS_VAULT_SECRET_ID": "sid",
+		}[k]
+	})
+	if v == nil {
+		t.Fatal("vault source not built")
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 64)
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			got, err := v.Fetch(ctxT(t), Ref{Scheme: "vault", Path: "kv/netops/snmp", Field: "community"})
+			switch {
+			case err != nil:
+				errs <- err
+			case got != "v4ult-c0mm":
+				errs <- fmt.Errorf("got %q", got)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent fetch: %v", err)
 	}
 }
 

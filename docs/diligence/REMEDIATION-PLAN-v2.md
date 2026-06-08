@@ -90,7 +90,7 @@ the diffs. If you disagree with one at runtime, still implement it (reversible) 
 | [x] 1 | A | Green build: fix the 2 failing tests + close the verify-all coverage hole | CORRECT-002/DOCS-F02/TEST-001, RESIL-006 | High | M |
 | [x] 2 | A | Tenant erasure covers the OTLP store (GDPR Art. 17) | TENANT-008 (↑High), correct COMPLY-013 | High | M |
 | [x] 3 | A | Persist the WORM audit signing key (cross-restart chain verify) | KEYS-002 / COMPLY-008 (↑High) | High | M |
-| [ ] 4 | A | Vault AppRole token-cache data race | KEYS-001 | High | M |
+| [x] 4 | A | Vault AppRole token-cache data race | KEYS-001 | High | M |
 | [ ] 5 | A | Handle ignored `json.Unmarshal` in store hydration | CODE-005 (miss) + Sprint-2 leftover | Medium | M |
 | [ ] 6 | B | OTLP consumer retry + DLQ (durability parity) | SCALE-003 / ARCH-002 | High | M |
 | [ ] 7 | B | Flow store-failure DLQ + drop counter | CORRECT-001 (SCALE-012 reconciled ↑High) | High | M |
