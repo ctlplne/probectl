@@ -20,6 +20,10 @@ paths = [
   '''internal/support/support_test\.go''',
   # The AI redaction test plants a dummy PEM block to prove masking.
   '''internal/ai/redact_test\.go''',
+  # The AI egress-gate redactor test plants fake PII + a dummy Stripe-style
+  # key (sk_live_abc123def456) to prove redactText() masks them (AIRCA-002).
+  # The strings are the test's INPUT, not credentials.
+  '''internal/ai/egressgate_test\.go''',
 ]
 regexes = [
   # gosnmp protocol constants (e.g. AuthenticationProtocol = gosnmp.SHA512)
