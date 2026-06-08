@@ -9,6 +9,21 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 17 (plan v2): wire the web AuthProvider to the real session
+  identity (SEC-001 — down-rated to Medium: a UI demo stub, never an
+  access-control hole, since the backend OIDC+session+RBAC enforces every
+  `/v1` call). `AuthProvider` previously hardcoded a `DEMO_USER`
+  (`demo@probectl.local`) and a stub `signOut`. It now resolves the real
+  identity from `/v1/me` (the server derives the tenant from the session
+  cookie, never the browser), removes `DEMO_USER`/`DEMO_TENANTS`, makes
+  `signOut` POST `/auth/logout` then redirect, and sends an unauthenticated
+  caller to `/auth/login` with no fallback identity. The shared test harness
+  (`renderApp`/`defaultFetch`) serves a default `/v1/me` so screen tests
+  stay authenticated; a new `auth.test.tsx` exercises the real path
+  (identity from `/v1/me`, 401→login redirect, signOut→logout). No
+  `demo@probectl` remains in `web/src`; vitest (12 files) and `tsc --noEmit`
+  are green.
+
 - Sprint 16 (plan v2): SBOM generation in CI (DATAROOM-003; decision D8). A
   new `sbom` CI job generates a CycloneDX SBOM of the Go module graph
   (`cyclonedx-gomod`, installed pinned + sumdb-verified — no third-party

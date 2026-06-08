@@ -29,6 +29,14 @@ const sampleAgents = [
 export function defaultFetch(): typeof fetch {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
+    // SEC-001: the app resolves identity from /v1/me; serve a default
+    // authenticated session so any screen renders as a signed-in operator.
+    if (url.endsWith('/v1/me'))
+      return jsonResponse({
+        tenant_id: '00000000-0000-0000-0000-000000000001',
+        user_id: 'u_test', email: 'operator@probectl.test',
+        display_name: 'Test Operator', mfa_satisfied: true, permissions: [],
+      })
     if (url.endsWith('/v1/tests')) return jsonResponse({ items: sampleTests })
     if (url.endsWith('/v1/agents')) return jsonResponse({ items: sampleAgents })
     if (url.endsWith('/v1/ai/discover')) return jsonResponse({ proposals: [] })

@@ -51,9 +51,10 @@ describe('frontend-coverage gate (S-FE6)', () => {
 
   test('every native surface renders a real screen — never the placeholder', async () => {
     for (const route of uniqueRoutes('native')) {
-      const { container, unmount } = renderApp(route)
-      // The shell + a page heading mounted…
-      expect(container.querySelector('main'), `${route}: no main landmark`).toBeTruthy()
+      const { container, findByRole, unmount } = renderApp(route)
+      // The shell mounts AFTER the session resolves (/v1/me, SEC-001), so await
+      // the <main> landmark rather than asserting synchronously.
+      expect(await findByRole('main'), `${route}: no main landmark`).toBeTruthy()
       await new Promise((r) => setTimeout(r, 30)) // let the page settle
       expect(
         container.textContent ?? '',
