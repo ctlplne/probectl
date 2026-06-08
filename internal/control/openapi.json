@@ -3,7 +3,7 @@
   "info": {
     "title": "probectl control-plane API",
     "version": "0.1.0",
-    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Probectl-Tenant override) — real identity (SSO/SCIM, per-tenant IdP) lands in S18."
+    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Probectl-Tenant override) \u2014 real identity (SSO/SCIM, per-tenant IdP) lands in S18."
   },
   "servers": [
     {
@@ -814,7 +814,7 @@
             "name": "tenant",
             "in": "query",
             "required": false,
-            "description": "Tenant UUID to log into; omitted → the default tenant.",
+            "description": "Tenant UUID to log into; omitted \u2192 the default tenant.",
             "schema": {
               "type": "string",
               "format": "uuid"
@@ -1002,7 +1002,7 @@
         },
         "responses": {
           "200": {
-            "description": "A schema-valid test proposal — NOT created; apply via POST /v1/tests.",
+            "description": "A schema-valid test proposal \u2014 NOT created; apply via POST /v1/tests.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1048,7 +1048,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Ranked discovery proposals — none are created.",
+            "description": "Ranked discovery proposals \u2014 none are created.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2076,7 +2076,7 @@
         "tags": [
           "editions"
         ],
-        "description": "The deployment's edition truth: licensed tier (community/enterprise/provider), lifecycle state (community, active, grace, read_only), customer + expiry + read-only horizon when licensed, the provider tenant band, and the full gated-feature table with per-feature licensed/mode status. This endpoint is the ONE place tiers appear when unlicensed (the hidden-unlicensed UX): commercial features are otherwise invisible without an entitlement. License verification is offline (Ed25519 against build-time-baked keys) — never phone-home; expiry degrades read-only after a 30-day grace and never breaks running telemetry.",
+        "description": "The deployment's edition truth: licensed tier (community/enterprise/provider), lifecycle state (community, active, grace, read_only), customer + expiry + read-only horizon when licensed, the provider tenant band, and the full gated-feature table with per-feature licensed/mode status. This endpoint is the ONE place tiers appear when unlicensed (the hidden-unlicensed UX): commercial features are otherwise invisible without an entitlement. License verification is offline (Ed25519 against build-time-baked keys) \u2014 never phone-home; expiry degrades read-only after a 30-day grace and never breaks running telemetry.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2250,7 +2250,7 @@
         "tags": [
           "topology"
         ],
-        "description": "Simulates the failure of one node (e.g. hop:10.0.0.1, service:api, as:64500) or edge (from|kind|to) at a point in time and returns the predicted impact: broken vs rerouted agent→target paths (with the surviving route), transitively impacted services, impacted prefixes, newly disconnected nodes, and SLO impact when the S45 engine is wired. READ-ONLY: the simulation runs on a copy; probectl never acts on predictions (S-EE5 is human-gated). The coverage block reports completeness honestly. Unknown targets are a 404, never an empty 'no impact'.",
+        "description": "Simulates the failure of one node (e.g. hop:10.0.0.1, service:api, as:64500) or edge (from|kind|to) at a point in time and returns the predicted impact: broken vs rerouted agent\u2192target paths (with the surviving route), transitively impacted services, impacted prefixes, newly disconnected nodes, and SLO impact when the S45 engine is wired. READ-ONLY: the simulation runs on a copy; probectl never acts on predictions (S-EE5 is human-gated). The coverage block reports completeness honestly. Unknown targets are a 404, never an empty 'no impact'.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2352,7 +2352,7 @@
         "tags": [
           "cost"
         ],
-        "description": "The caller's tenant's network-cost picture: egress volume x public pricing attributed per service and per team (showback), traffic-class breakdown (same-zone / inter-AZ / inter-region / internet), cross-AZ 'chatty' zone-pair conversations, hourly trend, and budget status. Honesty flags: cost_running=false (engine unwired), priced=false (volume-only — no price table), zones_mapped=false (no CIDR→zone rules). Pricing provenance (source + as-of date) is surfaced; rates are PUBLIC list ballparks the operator overrides — this is attribution, not billing reconciliation.",
+        "description": "The caller's tenant's network-cost picture: egress volume x public pricing attributed per service and per team (showback), traffic-class breakdown (same-zone / inter-AZ / inter-region / internet), cross-AZ 'chatty' zone-pair conversations, hourly trend, and budget status. Honesty flags: cost_running=false (engine unwired), priced=false (volume-only \u2014 no price table), zones_mapped=false (no CIDR\u2192zone rules). Pricing provenance (source + as-of date) is surfaced; rates are PUBLIC list ballparks the operator overrides \u2014 this is attribution, not billing reconciliation.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2434,7 +2434,7 @@
         "tags": [
           "carbon"
         ],
-        "description": "The caller's tenant's ESTIMATED network transmission energy and carbon: flow volume × published energy-per-byte coefficients × the operator-set grid intensity, attributed to services/teams through the same mapping as the FinOps engine. The methodology block (measured=false, coefficient source, grid intensity, the estimate note) rides every response — these are coefficient-based estimates for relative attribution and trends, not measured device power. carbon_running=false distinguishes an unwired engine.",
+        "description": "The caller's tenant's ESTIMATED network transmission energy and carbon: flow volume \u00d7 published energy-per-byte coefficients \u00d7 the operator-set grid intensity, attributed to services/teams through the same mapping as the FinOps engine. The methodology block (measured=false, coefficient source, grid intensity, the estimate note) rides every response \u2014 these are coefficient-based estimates for relative attribution and trends, not measured device power. carbon_running=false distinguishes an unwired engine.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2566,7 +2566,7 @@
         "tags": [
           "slo"
         ],
-        "description": "The caller's tenant's SLO statuses from the OpenSLO-defined SLIs: attainment over the SLO window, error budget remaining, total events, cold_start honesty flag, and the multi-window burn rates (fast 1h/5m @14.4x, medium 6h/30m @6x, slow 3d/6h @1x — the Google SRE multi-window multi-burn-rate method) with per-window firing state. slo_running=false distinguishes an unwired engine.",
+        "description": "The caller's tenant's SLO statuses from the OpenSLO-defined SLIs: attainment over the SLO window, error budget remaining, total events, cold_start honesty flag, and the multi-window burn rates (fast 1h/5m @14.4x, medium 6h/30m @6x, slow 3d/6h @1x \u2014 the Google SRE multi-window multi-burn-rate method) with per-window firing state. slo_running=false distinguishes an unwired engine.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2669,7 +2669,7 @@
         "tags": [
           "outage"
         ],
-        "description": "The collective internet-outage view for the caller's tenant: shared public outage events (IODA / Cloudflare Radar — opt-in feeds, ingested once) annotated with THIS tenant's affected tests, the tenant's own vantage-detected outages, per-feed health + AUP provenance, and coverage notes. Honesty contract: coverage = your vantage points + public open data — probectl does not operate a global probe fleet; scope_resolution=false reports that IP enrichment is off and correlation is degraded; outage_running=false distinguishes an unwired engine.",
+        "description": "The collective internet-outage view for the caller's tenant: shared public outage events (IODA / Cloudflare Radar \u2014 opt-in feeds, ingested once) annotated with THIS tenant's affected tests, the tenant's own vantage-detected outages, per-feed health + AUP provenance, and coverage notes. Honesty contract: coverage = your vantage points + public open data \u2014 probectl does not operate a global probe fleet; scope_resolution=false reports that IP enrichment is off and correlation is degraded; outage_running=false distinguishes an unwired engine.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2841,7 +2841,7 @@
         "tags": [
           "rum"
         ],
-        "description": "The caller's tenant's real-user-monitoring convergence view: per (app, host) window aggregates (views, error rate, p75 LCP/TTFB, per-page-group stats) joined with synthetic coverage into a verdict — healthy, user_impact_confirmed (both planes degraded), synthetic_only_no_user_impact, or user_only_synthetic_blind (the coverage blind spot). The privacy block reports the enforced posture (consent required, URL redaction, no IP storage) and per-reason rejection counters. Claims cover what probectl OBSERVED; absence of RUM data is not proof of health. rum_running=false distinguishes an unwired engine.",
+        "description": "The caller's tenant's real-user-monitoring convergence view: per (app, host) window aggregates (views, error rate, p75 LCP/TTFB, per-page-group stats) joined with synthetic coverage into a verdict \u2014 healthy, user_impact_confirmed (both planes degraded), synthetic_only_no_user_impact, or user_only_synthetic_blind (the coverage blind spot). The privacy block reports the enforced posture (consent required, URL redaction, no IP storage) and per-reason rejection counters. Claims cover what probectl OBSERVED; absence of RUM data is not proof of health. rum_running=false distinguishes an unwired engine.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -2951,11 +2951,11 @@
     "/ingest/rum": {
       "post": {
         "operationId": "ingestRUMBeacon",
-        "summary": "RUM beacon ingest (S47b) — app-key authenticated",
+        "summary": "RUM beacon ingest (S47b) \u2014 app-key authenticated",
         "tags": [
           "rum"
         ],
-        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon authenticates itself via its app key (in the body — sendBeacon cannot set headers) and is bound to the KEY's configured tenant, never the payload's. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After) and a 16KiB size cap (413) bound the surface. CORS: wildcard origin, write-only, credential-less; OPTIONS serves the preflight.",
+        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon authenticates itself via its app key (in the body \u2014 sendBeacon cannot set headers) and is bound to the KEY's configured tenant, never the payload's. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After) and a 16KiB size cap (413) bound the surface. CORS: wildcard origin, write-only, credential-less; OPTIONS serves the preflight.",
         "requestBody": {
           "required": true,
           "content": {
@@ -2978,7 +2978,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "app key → (tenant, app); an identifier, not a secret; never stored"
+                    "description": "app key \u2192 (tenant, app); an identifier, not a secret; never stored"
                   },
                   "consent": {
                     "type": "boolean",
@@ -2989,7 +2989,7 @@
                   },
                   "host": {
                     "type": "string",
-                    "description": "bare page host — the synthetic↔RUM join key"
+                    "description": "bare page host \u2014 the synthetic\u2194RUM join key"
                   },
                   "page": {
                     "type": "string",
@@ -3061,7 +3061,7 @@
         "tags": [
           "compliance"
         ],
-        "description": "The caller's tenant's per-rule segmentation verdicts from OBSERVED flow/eBPF traffic: violation (forbidden traffic observed, with bounded flow evidence), observed_clean (traffic between the zones observed, none in the forbidden scope), or not_observed (no traffic seen — explicitly NOT proof of isolation). The coverage block states what was actually watched; probectl never claims 'compliant' beyond observed traffic, and never enforces.",
+        "description": "The caller's tenant's per-rule segmentation verdicts from OBSERVED flow/eBPF traffic: violation (forbidden traffic observed, with bounded flow evidence), observed_clean (traffic between the zones observed, none in the forbidden scope), or not_observed (no traffic seen \u2014 explicitly NOT proof of isolation). The coverage block states what was actually watched; probectl never claims 'compliant' beyond observed traffic, and never enforces.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3102,7 +3102,7 @@
         "tags": [
           "compliance"
         ],
-        "description": "A self-verifying, timestamped evidence document: per-rule results with PCI DSS / NIST / zero-trust framework mappings and bounded violation samples, hash-chained via the internal crypto provider (any post-export tampering breaks verification), with the coverage caveats embedded — an auditor sees exactly what was and wasn't observed. Requires audit read.",
+        "description": "A self-verifying, timestamped evidence document: per-rule results with PCI DSS / NIST / zero-trust framework mappings and bounded violation samples, hash-chained via the internal crypto provider (any post-export tampering breaks verification), with the coverage caveats embedded \u2014 an auditor sees exactly what was and wasn't observed. Requires audit read.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3463,7 +3463,7 @@
         "tags": [
           "threat"
         ],
-        "description": "The caller's tenant's recent threat detections (newest first): the flagged entity, the matched indicator, the attributing feed/detector with confidence and license, and the correlated incident id (the triage pivot). Detections are confidence-scored SIGNALS — probectl never blocks — and feeds can list benign infrastructure, so provenance ships verbatim. detections_running=false distinguishes unwired consumers from a quiet tenant.",
+        "description": "The caller's tenant's recent threat detections (newest first): the flagged entity, the matched indicator, the attributing feed/detector with confidence and license, and the correlated incident id (the triage pivot). Detections are confidence-scored SIGNALS \u2014 probectl never blocks \u2014 and feeds can list benign infrastructure, so provenance ships verbatim. detections_running=false distinguishes unwired consumers from a quiet tenant.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3546,7 +3546,7 @@
         "tags": [
           "endpoints"
         ],
-        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence — impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. collector_running=false distinguishes an unwired consumer from an empty fleet.",
+        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence \u2014 impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. collector_running=false distinguishes an unwired consumer from an empty fleet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3623,7 +3623,7 @@
         "tags": [
           "tests"
         ],
-        "description": "The caller's tenant's newest result per synthetic series, carrying the full per-type detail (DNS rcode/answers/DNSSEC, HTTP dns/connect/tls/ttfb waterfall phases, ICMP/TCP/UDP latency families + loss) — the read model behind the test-result views (S-FE5). collector_running=false distinguishes an unwired consumer from no results yet.",
+        "description": "The caller's tenant's newest result per synthetic series, carrying the full per-type detail (DNS rcode/answers/DNSSEC, HTTP dns/connect/tls/ttfb waterfall phases, ICMP/TCP/UDP latency families + loss) \u2014 the read model behind the test-result views (S-FE5). collector_running=false distinguishes an unwired consumer from no results yet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3692,7 +3692,7 @@
     },
     "/v1/lifecycle/export": {
       "get": {
-        "summary": "Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 — export is a compliance right, core)",
+        "summary": "Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 \u2014 export is a compliance right, core)",
         "responses": {
           "200": {
             "description": "OK"
@@ -3730,7 +3730,7 @@
     },
     "/v1/security/keys": {
       "get": {
-        "summary": "The tenant's at-rest key chain (S-T6: versions, mode, state — key MATERIAL never crosses; hidden 404 when byok is not licensed)",
+        "summary": "The tenant's at-rest key chain (S-T6: versions, mode, state \u2014 key MATERIAL never crosses; hidden 404 when byok is not licensed)",
         "responses": {
           "200": {
             "description": "OK"
@@ -3740,7 +3740,7 @@
     },
     "/v1/security/keys/rotate": {
       "post": {
-        "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation — the lockout guard); retired versions stay decrypt-only (no downtime)",
+        "summary": "Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation \u2014 the lockout guard); retired versions stay decrypt-only (no downtime)",
         "responses": {
           "200": {
             "description": "OK"
@@ -3750,7 +3750,7 @@
     },
     "/v1/fairness": {
       "get": {
-        "summary": "The tenant's own fairness view (S-T7): the bounds it runs under (policy) + admitted/shed/rejected accounting — debugging a fairness dispute never requires the provider's word",
+        "summary": "The tenant's own fairness view (S-T7): the bounds it runs under (policy) + admitted/shed/rejected accounting \u2014 debugging a fairness dispute never requires the provider's word",
         "responses": {
           "200": {
             "description": "OK"
@@ -3760,7 +3760,7 @@
     },
     "/v1/diagnostics": {
       "get": {
-        "summary": "Deep health report (S-EE4): per-component status (database, secrets resolver, cluster, license) aggregated to the worst — admin diagnostics.read",
+        "summary": "Deep health report (S-EE4): per-component status (database, secrets resolver, cluster, license) aggregated to the worst \u2014 admin diagnostics.read",
         "responses": {
           "200": {
             "description": "OK"
@@ -3770,7 +3770,7 @@
     },
     "/v1/diagnostics/bundle": {
       "get": {
-        "summary": "Secret-stripped support bundle (S-EE4): tar.gz of versions, redacted config, deep health, self-metrics, anonymized topology, runtime — NO secrets/PII (guardrail 6); admin diagnostics.read",
+        "summary": "Secret-stripped support bundle (S-EE4): tar.gz of versions, redacted config, deep health, self-metrics, anonymized topology, runtime \u2014 NO secrets/PII (guardrail 6); admin diagnostics.read",
         "responses": {
           "200": {
             "description": "OK"
@@ -3788,7 +3788,7 @@
         }
       },
       "post": {
-        "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed — probectl never executes; a human must approve",
+        "summary": "File a remediation PROPOSAL (a suggestion grounded in RCA/topology). Always state=proposed \u2014 probectl never executes; a human must approve",
         "responses": {
           "201": {
             "description": "Created"
@@ -3808,7 +3808,7 @@
     },
     "/v1/remediation/proposals/{id}/approve": {
       "post": {
-        "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING — operators carry it out",
+        "summary": "Record a human's APPROVAL (remediation.approve; advisory-only-by-default; blast-radius-limited; audited). probectl executes NOTHING \u2014 operators carry it out",
         "responses": {
           "200": {
             "description": "OK"
@@ -4013,6 +4013,183 @@
           }
         }
       }
+    },
+    "/v1/otlp/traces": {
+      "get": {
+        "operationId": "otlpTraces",
+        "summary": "Query externally-ingested OTLP trace spans (tenant-scoped)",
+        "tags": [
+          "otlp"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Filter by OTel service.name.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter by hex trace id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "RFC3339 lower bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "RFC3339 upper bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Max rows (default 100, cap 1000).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching spans, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "spans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      }
+    },
+    "/v1/otlp/logs": {
+      "get": {
+        "operationId": "otlpLogs",
+        "summary": "Query externally-ingested OTLP log records (tenant-scoped)",
+        "tags": [
+          "otlp"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "description": "Filter by OTel service.name.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "description": "Filter by hex trace id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "RFC3339 lower bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "RFC3339 upper bound.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Max rows (default 100, cap 1000).",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "min_severity",
+            "in": "query",
+            "required": false,
+            "description": "OTel severity number floor (1-24).",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching log records, newest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "logs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4021,7 +4198,7 @@
         "name": "X-Probectl-Tenant",
         "in": "header",
         "required": false,
-        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted → the default tenant. Replaced by session-resolved identity in S18.",
+        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted \u2192 the default tenant. Replaced by session-resolved identity in S18.",
         "schema": {
           "type": "string",
           "format": "uuid"

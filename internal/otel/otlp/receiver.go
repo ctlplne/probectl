@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
@@ -53,12 +55,15 @@ func NewBusSink(publish func(ctx context.Context, tenant string, payload []byte)
 // authenticating, tenant-scoping interceptor and a bounded receive size. It
 // fails closed if no TLS config is supplied — the receiver is never plaintext
 // (CLAUDE.md §7 guardrail 12).
-func NewGRPCServer(tlsCfg *tls.Config, auth Authenticator, sink Sink, maxRecvBytes int) (*grpc.Server, error) {
+func NewGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int) (*grpc.Server, error) {
 	if tlsCfg == nil {
 		return nil, errors.New("otlp: TLS config required (the OTLP receiver is TLS-only)")
 	}
-	if auth == nil || sink == nil {
-		return nil, errors.New("otlp: authenticator and sink are required")
+	if auth == nil {
+		return nil, errors.New("otlp: authenticator is required")
+	}
+	if err := sinks.validate(); err != nil {
+		return nil, err
 	}
 	if maxRecvBytes <= 0 {
 		maxRecvBytes = defaultMaxRecvBytes
@@ -68,7 +73,10 @@ func NewGRPCServer(tlsCfg *tls.Config, auth Authenticator, sink Sink, maxRecvByt
 		grpc.UnaryInterceptor(authUnaryInterceptor(auth)),
 		grpc.MaxRecvMsgSize(maxRecvBytes),
 	)
-	colmetricspb.RegisterMetricsServiceServer(srv, newMetricsService(sink))
+	// ARCH-001: all three OTLP signals, one contract.
+	colmetricspb.RegisterMetricsServiceServer(srv, newMetricsService(sinks.Metrics))
+	coltracepb.RegisterTraceServiceServer(srv, &traceService{sink: sinks.Traces})
+	collogspb.RegisterLogsServiceServer(srv, &logsService{sink: sinks.Logs})
 	return srv, nil
 }
 

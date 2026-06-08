@@ -61,6 +61,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/flows/top", s.handleFlowTop, permFlowRead},
 		{http.MethodGet, "/v1/flows/capacity", s.handleFlowCapacity, permFlowRead},
 		{http.MethodGet, "/v1/flows/anomalies", s.handleFlowAnomalies, permFlowRead},
+		{http.MethodGet, "/v1/otlp/traces", s.handleOTLPTraces, permMetricsRead},
+		{http.MethodGet, "/v1/otlp/logs", s.handleOTLPLogs, permMetricsRead},
 		{http.MethodGet, "/v1/grafana/api/v1/query", s.handlePromQuery, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/grafana/api/v1/query", s.handlePromQuery, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/grafana/api/v1/query_range", s.handlePromQueryRange, ai.PermMetricsRead},

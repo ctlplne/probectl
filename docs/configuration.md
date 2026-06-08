@@ -777,7 +777,10 @@ See [`otlp.md`](otlp.md).
 | Variable                    | Default | Description                                                  |
 | --------------------------- | ------- | ------------------------------------------------------------ |
 | `PROBECTL_OTLP_GRPC_ADDR`     | (none)  | OTLP/gRPC listen address (e.g. `:4317`)                      |
-| `PROBECTL_OTLP_HTTP_ADDR`     | (none)  | OTLP/HTTP listen address (e.g. `:4318`; `POST /v1/metrics`)  |
+| `PROBECTL_OTLP_HTTP_ADDR`     | (none)  | OTLP/HTTP listen address (e.g. `:4318`; `POST /v1/metrics` + `/v1/traces` + `/v1/logs` — all three signals, ARCH-001) |
+| `PROBECTL_OTELSTORE_MODE`     | `memory` | where ingested OTLP traces+logs live: `memory` (lightweight) \| `clickhouse` (production; `(tenant_id, day)` partition) |
+| `PROBECTL_OTELSTORE_URL`      | (none)  | ClickHouse HTTP URL for `clickhouse` mode (https = TLS in transit) |
+| `PROBECTL_OTEL_RETENTION_DAYS` | `30`   | delete-TTL for stored OTLP traces+logs (0 disables) |
 | `PROBECTL_OTLP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable)                  |
 | `PROBECTL_OTLP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable)                  |
 | `PROBECTL_OTLP_TOKENS`        | (none)  | bearer-token→tenant map: `token1=tenant1,token2=tenant2`     |

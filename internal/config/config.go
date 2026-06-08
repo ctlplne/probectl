@@ -192,8 +192,13 @@ type Config struct {
 	// opendata sources (Team Cymru DNS lookups — an OUTBOUND dependency, so it
 	// is off by default per the no-phone-home guardrail; device-asserted AS
 	// numbers always pass through).
-	FlowStoreMode     string
-	FlowStoreURL      string
+	FlowStoreMode string
+	FlowStoreURL  string
+	// OTelStoreMode/URL/RetentionDays (ARCH-001): where externally-ingested
+	// OTLP traces + logs live (memory | clickhouse; retention in days).
+	OTelStoreMode     string
+	OTelStoreURL      string
+	OTelRetentionDays int
 	FlowRetentionDays int
 	// PathRetentionDays bounds the path/traceroute tables (SCALE-006).
 	PathRetentionDays int
@@ -540,6 +545,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		PathStoreURL:             l.str("PROBECTL_PATHSTORE_URL", ""),
 		FlowStoreMode:            l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse"),
 		FlowStoreURL:             l.str("PROBECTL_FLOWSTORE_URL", ""),
+		OTelStoreMode:            l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse"),
+		OTelStoreURL:             l.str("PROBECTL_OTELSTORE_URL", ""),
+		OTelRetentionDays:        l.intRange("PROBECTL_OTEL_RETENTION_DAYS", 30, 0, 3650),
 		FlowRetentionDays:        l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 0, 0, 3650),
 		PathRetentionDays:        l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650),
 		FlowEnrichASN:            l.boolean("PROBECTL_FLOW_ENRICH_ASN", false),
@@ -688,6 +696,9 @@ func Load(getenv func(string) string) (*Config, error) {
 	}
 	if cfg.FlowStoreMode == "clickhouse" && cfg.FlowStoreURL == "" {
 		l.errf("PROBECTL_FLOWSTORE_MODE=clickhouse requires PROBECTL_FLOWSTORE_URL")
+	}
+	if cfg.OTelStoreMode == "clickhouse" && cfg.OTelStoreURL == "" {
+		l.errf("PROBECTL_OTELSTORE_MODE=clickhouse requires PROBECTL_OTELSTORE_URL")
 	}
 	if cfg.CMDBProvider != "" {
 		if cfg.CMDBURL == "" || cfg.CMDBSecret == "" {

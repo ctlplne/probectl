@@ -47,6 +47,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/support"
@@ -272,6 +273,14 @@ func run(cmd string) error {
 	// Flow analytics store (S38): where NetFlow/IPFIX/sFlow records land
 	// (ClickHouse at volume; memory in the lightweight deploy) and the
 	// /v1/flows/* views are served from.
+	// OTLP traces + logs store (ARCH-001): memory in lightweight mode,
+	// ClickHouse in production (tenant_id-led partition + retention TTL).
+	otelStore, err := otelstore.New(cfg.OTelStoreMode, cfg.OTelStoreURL, cfg.OTelRetentionDays)
+	if err != nil {
+		return fmt.Errorf("otelstore: %w", err)
+	}
+	defer otelStore.Close()
+
 	flowStore, err := flowstore.New(cfg.FlowStoreMode, cfg.FlowStoreURL, cfg.FlowRetentionDays)
 	if err != nil {
 		return fmt.Errorf("flow store: %w", err)
@@ -505,6 +514,7 @@ func run(cmd string) error {
 	srv := control.New(cfg, log, db, db.Pool(), pathStore, nil).
 		WithDispatcher(dispatcher).
 		WithFlowStore(flowStore).
+		WithOTelStore(otelStore).
 		WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
 		WithCMDB(cmdbResolver).
 		WithTLSPosture(tlsPostures).
@@ -822,20 +832,32 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("otlp tls: %w", err)
 		}
-		sink := otlp.NewBusSink(func(ctx context.Context, tenant string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPMetricsTopic, []byte(tenant), payload)
-		})
+		// ARCH-001 (Sprint 22): all THREE OTLP signals — metrics, traces,
+		// logs — are received, tenant-scoped, published per-signal, consumed,
+		// stored, and queryable (/v1/otlp/*).
+		sinks := otlp.Sinks{
+			Metrics: otlp.NewBusSink(func(ctx context.Context, tenant string, payload []byte) error {
+				return resultBus.Publish(ctx, bus.OTLPMetricsTopic, []byte(tenant), payload)
+			}),
+			Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant string, payload []byte) error {
+				return resultBus.Publish(ctx, bus.OTLPTracesTopic, []byte(tenant), payload)
+			}),
+			Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant string, payload []byte) error {
+				return resultBus.Publish(ctx, bus.OTLPLogsTopic, []byte(tenant), payload)
+			}),
+		}
 		otlpSrv, err := otlp.NewServer(
 			otlp.ServerConfig{GRPCAddr: cfg.OTLPGRPCAddr, HTTPAddr: cfg.OTLPHTTPAddr},
-			tlsCfg, otlp.NewTokenAuthenticator(cfg.OTLPTokens), sink, log)
+			tlsCfg, otlp.NewTokenAuthenticator(cfg.OTLPTokens), sinks, log)
 		if err != nil {
 			return fmt.Errorf("otlp receiver: %w", err)
 		}
 		g.Go(func() error { return otlpSrv.Run(gctx) })
-		// SCALE-010: the topic finally has a CONSUMER — externally-ingested
-		// OTLP metrics land in the TSDB instead of being published and
-		// silently dropped.
+		// SCALE-010 + ARCH-001: every topic has a CONSUMER — metrics land in
+		// the TSDB; traces + logs land in the otelstore.
 		g.Go(func() error { return pipeline.NewOTLPConsumer(resultBus, tsdbWriter, log).Run(gctx) })
+		g.Go(func() error { return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).Run(gctx) })
+		g.Go(func() error { return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).Run(gctx) })
 	}
 
 	// MCP server (S25): the Model Context Protocol HTTP transport — TLS + bearer-

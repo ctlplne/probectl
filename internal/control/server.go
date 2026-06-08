@@ -37,6 +37,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -92,6 +93,7 @@ type Server struct {
 	// Flow analytics store (S38). Defaults to in-memory; main attaches the
 	// configured store (ClickHouse in production) via WithFlowStore.
 	flowStore flowstore.Store
+	otelStore otelstore.Store
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -252,6 +254,15 @@ func (s *Server) WithDispatcher(d *notify.Dispatcher) *Server {
 	return s
 }
 
+// WithOTelStore attaches the OTLP traces+logs store (ARCH-001, Sprint 22)
+// backing /v1/otlp/*.
+func (s *Server) WithOTelStore(st otelstore.Store) *Server {
+	if st != nil {
+		s.otelStore = st
+	}
+	return s
+}
+
 // WithFlowStore attaches the flow-analytics store (S38) backing /v1/flows/*.
 // nil is a no-op (the in-memory default from New stays). Returns the server
 // for chaining.
@@ -275,7 +286,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		discover = path.Run
 	}
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory(), startedAt: time.Now()}
+		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), startedAt: time.Now()}
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).

@@ -25,6 +25,13 @@ const EBPFFlowsTopic = "probectl.ebpf.flows"
 // ExportMetricsServiceRequest.
 const OTLPMetricsTopic = "probectl.otlp.metrics"
 
+// OTLPTracesTopic / OTLPLogsTopic carry the other two OTLP signals
+// (ARCH-001, Sprint 22) — same tenant-keyed contract as metrics.
+const (
+	OTLPTracesTopic = "probectl.otlp.traces"
+	OTLPLogsTopic   = "probectl.otlp.logs"
+)
+
 // FlowEventsTopic carries normalized device-flow batches (NetFlow v5/v9, IPFIX,
 // sFlow v5) from the flow collector (S38), tenant-tagged via the message key.
 // Payload: flowv1.FlowBatch. The control plane consumes it, enriches ASN/geo

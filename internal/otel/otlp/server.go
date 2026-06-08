@@ -24,20 +24,24 @@ type ServerConfig struct {
 // inbound OTLP surface: TLS-only, authenticated, tenant-scoped, untrusted input
 // (CLAUDE.md §7 guardrail 12).
 type Server struct {
-	cfg  ServerConfig
-	tls  *tls.Config
-	auth Authenticator
-	sink Sink
-	log  *slog.Logger
+	cfg   ServerConfig
+	tls   *tls.Config
+	auth  Authenticator
+	sinks Sinks
+	log   *slog.Logger
 }
 
 // NewServer validates the receiver configuration and returns a runnable Server.
-func NewServer(cfg ServerConfig, tlsCfg *tls.Config, auth Authenticator, sink Sink, log *slog.Logger) (*Server, error) {
+// Sinks for ALL THREE signals are required (ARCH-001).
+func NewServer(cfg ServerConfig, tlsCfg *tls.Config, auth Authenticator, sinks Sinks, log *slog.Logger) (*Server, error) {
 	if tlsCfg == nil {
 		return nil, errors.New("otlp: TLS config required (the receiver is TLS-only)")
 	}
-	if auth == nil || sink == nil {
-		return nil, errors.New("otlp: authenticator and sink are required")
+	if auth == nil {
+		return nil, errors.New("otlp: authenticator is required")
+	}
+	if err := sinks.validate(); err != nil {
+		return nil, err
 	}
 	if cfg.GRPCAddr == "" && cfg.HTTPAddr == "" {
 		return nil, errors.New("otlp: a gRPC or HTTP address is required")
@@ -45,7 +49,7 @@ func NewServer(cfg ServerConfig, tlsCfg *tls.Config, auth Authenticator, sink Si
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Server{cfg: cfg, tls: tlsCfg, auth: auth, sink: sink, log: log}, nil
+	return &Server{cfg: cfg, tls: tlsCfg, auth: auth, sinks: sinks, log: log}, nil
 }
 
 // Run starts the configured listeners and blocks until ctx is canceled or a
@@ -54,7 +58,7 @@ func (s *Server) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	if s.cfg.GRPCAddr != "" {
-		grpcSrv, err := NewGRPCServer(s.tls, s.auth, s.sink, s.cfg.MaxRecvBytes)
+		grpcSrv, err := NewGRPCServer(s.tls, s.auth, s.sinks, s.cfg.MaxRecvBytes)
 		if err != nil {
 			return err
 		}
@@ -73,7 +77,11 @@ func (s *Server) Run(ctx context.Context) error {
 
 	if s.cfg.HTTPAddr != "" {
 		mux := http.NewServeMux()
-		mux.Handle("/v1/metrics", MetricsHTTPHandler(s.auth, s.sink, int64(s.cfg.MaxRecvBytes)))
+		// The standard OTLP/HTTP paths — exactly what an OTel Collector's
+		// otlphttp exporter posts to (ARCH-006).
+		mux.Handle("/v1/metrics", MetricsHTTPHandler(s.auth, s.sinks.Metrics, int64(s.cfg.MaxRecvBytes)))
+		mux.Handle("/v1/traces", TracesHTTPHandler(s.auth, s.sinks.Traces, int64(s.cfg.MaxRecvBytes)))
+		mux.Handle("/v1/logs", LogsHTTPHandler(s.auth, s.sinks.Logs, int64(s.cfg.MaxRecvBytes)))
 		httpSrv := &http.Server{
 			Addr:              s.cfg.HTTPAddr,
 			Handler:           mux,

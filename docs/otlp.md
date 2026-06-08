@@ -1,28 +1,33 @@
 # OTLP exposure & OBI (S22)
 
-probectl is OpenTelemetry-native **on the metrics signal**: its signal schemas
-have followed OTel resource + network semantic conventions since S6, so this
-layer **exposes** them as OTLP rather than remapping a divergent model. OTLP
-**traces and logs are not ingested today** — see [Scope & roadmap](#scope--roadmap-u-020). `internal/otel/otlp` provides a TLS-only,
-authenticated, tenant-scoped **receiver** (ingest external OTLP), an **exporter**
-(emit probectl signals as OTLP), and the signal↔OTLP-metrics conversion. The
-canonical mapping is in [`otel-mapping.md`](otel-mapping.md).
+probectl is OpenTelemetry-native: its signal schemas have followed OTel
+resource + network semantic conventions since S6, and `internal/otel/otlp`
+provides a TLS-only, authenticated, tenant-scoped **receiver for all three
+OTLP signals — metrics, traces, and logs** (ARCH-001, Sprint 22) — plus an
+**exporter** (emit probectl signals as OTLP metrics) and the
+signal↔OTLP-metrics conversion. The canonical mapping is in
+[`otel-mapping.md`](otel-mapping.md).
 
-## Scope & roadmap (U-020)
+## Scope (U-020 — the authoritative claims wording)
 
 What "OTel-native" means here, precisely:
 
-- **Today:** OTel resource + network **semantic conventions** on every signal
-  in every plane (`otel-mapping.md`), an OTLP **metrics** receiver
-  (gRPC `MetricsService` + HTTP `/v1/metrics`), and an OTLP **metrics**
-  exporter. eBPF capture follows the OBI model.
-- **Not yet:** OTLP **traces** and **logs** ingestion. probectl is not a
-  tracing backend or a log store by design (CLAUDE.md §10 — no APM/SIEM
-  replacement); the roadmapped traces/logs work is OTLP *ingest for
-  correlation* (e.g. exemplars and change events), with conformance tests,
-  tracked as a separate roadmap item. Until that lands, marketing/positioning
-  language must scope OTel-native claims to metrics + conventions — this is
-  the authoritative wording.
+- **Conventions:** OTel resource + network semantic conventions on every
+  signal in every plane (`otel-mapping.md`); eBPF capture follows the OBI
+  model.
+- **OTLP ingest (all three signals):** gRPC `MetricsService` +
+  `TraceService` + `LogsService` and HTTP `/v1/metrics` + `/v1/traces` +
+  `/v1/logs` — authenticated, tenant-scoped server-side, bounded. Metrics
+  land in the TSDB; traces + logs land in the otelstore (memory or
+  ClickHouse with `(tenant_id, day)` partitioning + retention TTL) and are
+  queryable at `GET /v1/otlp/traces` / `GET /v1/otlp/logs`. A standard OTel
+  Collector exports straight to it (`deploy/otel-collector/config.yaml`).
+- **OTLP export:** metrics. Trace/log re-export is not a goal.
+- **Deliberate bounds (CLAUDE.md §10):** probectl ingests traces + logs for
+  CORRELATION (bounded attributes, capped bodies, retention-limited) — it
+  is not an APM/distributed-tracing replacement and not a log-analytics
+  store. Positioning language may claim three-signal OTLP ingest with
+  exactly those bounds.
 
 ## Token rotation & revocation (U-076/U-077)
 
@@ -96,3 +101,25 @@ and the tenant is enforced (the S22 "round-trips with an external collector"
 check). `internal/otel.TestAllSignalMappingsConform` holds **every** signal type
 — result, flow, L7, BGP, path — to the OTel / `probectl.*` naming discipline (the S6
 regression, now across all planes).
+
+
+## Deploying behind an OTel Collector (ARCH-006)
+
+probectl's receiver speaks the standard OTLP wire protocol on the standard
+paths, so a stock **opentelemetry-collector** exports to it with the
+ordinary `otlphttp` exporter — no probectl-specific Collector component:
+
+1. Mint a tenant token (`PROBECTL_OTLP_TOKENS=tok=tenant-id`) and enable
+   the receiver (`PROBECTL_OTLP_HTTP_ADDR=:4318` + the TLS pair).
+2. Run the Collector with the reference config
+   [`deploy/otel-collector/config.yaml`](../deploy/otel-collector/config.yaml):
+   apps export to the Collector as usual; the Collector batches and
+   forwards metrics+traces+logs to probectl over TLS with the bearer token.
+3. Query them back, tenant-scoped: `GET /v1/otlp/traces`,
+   `GET /v1/otlp/logs` (and metrics via the unified metrics path).
+
+The token determines the tenant: probectl verifies or stamps
+`probectl.tenant.id` server-side, so a mislabeled resource is rejected —
+never misfiled. The three-signal round-trip is pinned in CI
+(`TestOTLPThreeSignalRoundTrip`); the live Collector exercise on real
+infrastructure is the [needs infra] half of the acceptance.

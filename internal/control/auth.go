@@ -35,6 +35,7 @@ const (
 	permIncidentWrite      = "incident.write"
 	permChangeRead         = "change.read"
 	permFlowRead           = "flow.read"
+	permMetricsRead        = "metrics.read"
 	permMetricsWrite       = "metrics.write"
 	permCMDBRead           = "cmdb.read"
 	permThreatRead         = "threat.read"

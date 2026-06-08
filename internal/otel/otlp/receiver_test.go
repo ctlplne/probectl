@@ -23,7 +23,7 @@ import (
 )
 
 func TestGRPCServerRequiresTLS(t *testing.T) {
-	if _, err := NewGRPCServer(nil, NewTokenAuthenticator(nil), SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil }), 0); err == nil {
+	if _, err := NewGRPCServer(nil, NewTokenAuthenticator(nil), testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })), 0); err == nil {
 		t.Error("expected NewGRPCServer to reject a nil TLS config (TLS-only)")
 	}
 }
@@ -128,7 +128,7 @@ func TestNewGRPCServerHappyPath(t *testing.T) {
 	srv, err := NewGRPCServer(
 		&tls.Config{MinVersion: tls.VersionTLS12},
 		NewTokenAuthenticator(map[string]string{"t": "x"}),
-		SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil }),
+		testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })),
 		1<<20,
 	)
 	if err != nil || srv == nil {

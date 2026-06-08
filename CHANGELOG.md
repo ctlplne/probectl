@@ -9,6 +9,27 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 22: OTLP traces + logs + the OTel Collector path (ARCH-001,
+  ARCH-006). The OTLP receiver now ingests ALL THREE signals — gRPC
+  Trace/Logs services + HTTP /v1/traces and /v1/logs alongside metrics —
+  with the same per-signal contract (TLS-only, token→tenant, server-side
+  tenant verify/stamp, bounded input; sinks for all three are REQUIRED,
+  a signal can't silently drop). New per-signal topics feed new
+  consumers: traces+logs land in the otelstore (memory + ClickHouse
+  with (tenant_id, day) partitioning, versioned chmigrate schema,
+  server-bound query parameters, retention TTL default 30d, tenant
+  erasure) with bounded attributes (12) and capped bodies (8KiB) —
+  correlation signals, deliberately not an APM/log store (§10).
+  Queryable tenant-first at GET /v1/otlp/traces and /v1/otlp/logs
+  (metrics.read; OpenAPI updated in the same change). CI pins the
+  three-signal round-trip (receiver→bus→consumer→store→query +
+  cross-tenant 403s). ARCH-006: probectl is a standard OTLP endpoint —
+  a stock OTel Collector exports to it via otlphttp; reference config
+  in deploy/otel-collector/config.yaml + runbook in docs/otlp.md
+  ([needs infra] live exercise). "OpenTelemetry-native" claims updated
+  to the actual coverage (docs/otlp.md is authoritative; README +
+  architecture aligned — coordinates with DOCS-005/Sprint 30).
+
 - Sprint 21: RCA resilience + blocking eval gate (AIRCA-004, TEST-003).
   The remote-model path now rides ResilientModel: circuit breaker
   (internal/breaker — 3 consecutive failures open the circuit 30s,

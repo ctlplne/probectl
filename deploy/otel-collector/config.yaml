@@ -1,0 +1,60 @@
+# OTel Collector → probectl (ARCH-006, Sprint 22).
+#
+# probectl's OTLP receiver speaks the STANDARD OTLP/HTTP + OTLP/gRPC wire
+# protocol for all three signals (metrics, traces, logs), so a stock
+# opentelemetry-collector exports to it with the ordinary otlphttp exporter —
+# no probectl-specific component. This config is the reference shape: apps
+# send to the Collector however they already do; the Collector batches and
+# forwards everything to probectl, authenticated and over TLS.
+#
+#   otelcol --config deploy/otel-collector/config.yaml
+#
+# Replace probectl.example:4318 with your control plane's OTLP HTTP address
+# (PROBECTL_OTLP_HTTP_ADDR) and the token with one minted for the tenant
+# (PROBECTL_OTLP_TOKENS). The token determines the tenant: probectl verifies
+# or stamps the probectl.tenant.id resource attribute server-side, so a
+# mislabeled resource is rejected, never misfiled.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 512
+    timeout: 2s
+  # Optional: drop high-cardinality attributes before they leave the
+  # Collector (probectl also bounds stored attributes server-side).
+  # attributes/trim:
+  #   actions:
+  #     - key: http.request.header.cookie
+  #       action: delete
+
+exporters:
+  otlphttp/probectl:
+    endpoint: https://probectl.example:4318
+    headers:
+      Authorization: "Bearer ${env:PROBECTL_OTLP_TOKEN}"
+    tls:
+      # probectl's receiver is TLS-only. Point at your CA bundle if the
+      # control plane uses a private CA; NEVER set insecure_skip_verify.
+      ca_file: /etc/otelcol/probectl-ca.pem
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/probectl]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/probectl]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/probectl]

@@ -111,8 +111,8 @@ unless you explicitly configure one; see the AI row below.)
   self-host once and serve hard-isolated, white-labeled, individually-metered
   tenants from one control plane.
 - **Network & platform engineers** tired of hand-correlating five dashboards who
-  want a single OTel-native source of truth they actually own (OTLP metrics
-  today, traces/logs on the roadmap).
+  want a single OTel-native source of truth they actually own (OTLP
+  metrics, traces, and logs ingest — bounded for correlation, not APM).
 
 ## Capabilities
 
