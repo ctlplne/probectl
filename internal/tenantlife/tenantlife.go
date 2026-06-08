@@ -1,7 +1,8 @@
 // Package tenantlife is the per-tenant lifecycle engine (S-T5, F55):
 // tenant-scoped data EXPORT (portability), VERIFIABLE full deletion across
-// every store (Postgres / ClickHouse flows / TSDB / object store) with an
-// audit-grade attestation, and per-tenant retention/erasure controls.
+// every store (Postgres / ClickHouse flows / TSDB / object store / path graph
+// / topology / OTLP trace+log store) with an audit-grade attestation, and
+// per-tenant retention/erasure controls.
 //
 // This is CORE deliberately (the ratified editions decision): export and
 // verifiable deletion are a compliance right, not a commercial feature. Only
@@ -63,6 +64,14 @@ type TopologyDeleter interface {
 	DeleteTenant(tenant string) int
 }
 
+// OtelDeleter is the OTLP trace/log store erasure seam (otelstore memory +
+// ClickHouse implement it). Externally-ingested traces/logs (ARCH-001) are
+// tenant PII and a whole telemetry plane, so they MUST be erased on
+// offboarding too (TENANT-008) — count-verified like the other stores.
+type OtelDeleter interface {
+	EraseTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error)
+}
+
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
 	pool    *pgxpool.Pool
@@ -71,6 +80,7 @@ type Engine struct {
 	tsdbW   tsdb.Writer
 	paths   PathDeleter     // optional (WithPaths)
 	topo    TopologyDeleter // optional (WithTopology)
+	otel    OtelDeleter     // optional (WithOtel) — OTLP trace/log store
 	audit   AuditSink
 	log     *slog.Logger
 	now     func() time.Time
@@ -119,6 +129,9 @@ func (e *Engine) WithPaths(p PathDeleter) *Engine { e.paths = p; return e }
 
 // WithTopology attaches the topology store for erasure coverage (U-027).
 func (e *Engine) WithTopology(t TopologyDeleter) *Engine { e.topo = t; return e }
+
+// WithOtel attaches the OTLP trace/log store for erasure coverage (TENANT-008).
+func (e *Engine) WithOtel(o OtelDeleter) *Engine { e.otel = o; return e }
 
 // WithClock overrides time (tests).
 func (e *Engine) WithClock(now func() time.Time) *Engine {
@@ -286,6 +299,23 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		att.Stores = append(att.Stores, StoreResult{Store: "topology", Deleted: int64(n), VerifiedZero: true})
 	} else {
 		att.Stores = append(att.Stores, StoreResult{Store: "topology", VerifiedZero: true, Notes: "store not deployed"})
+	}
+
+	// 3d) OTLP trace/log store (TENANT-008): externally-ingested traces+logs
+	// are tenant PII — erase them too, count-verified like the other planes.
+	if e.otel != nil {
+		deleted, remaining, err := e.otel.EraseTenant(ctx, tenantID)
+		if err != nil {
+			fail("otel", "delete failed: "+err.Error())
+		} else {
+			att.Stores = append(att.Stores, StoreResult{Store: "otel", Deleted: int64(deleted),
+				VerifiedZero: remaining == 0, Notes: "remaining=" + fmt.Sprint(remaining)})
+			if remaining != 0 {
+				att.Complete = false
+			}
+		}
+	} else {
+		att.Stores = append(att.Stores, StoreResult{Store: "otel", VerifiedZero: true, Notes: "store not deployed"})
 	}
 
 	// 4) Postgres tenant-owned tables — RLS-scoped, silo-routed, multi-pass

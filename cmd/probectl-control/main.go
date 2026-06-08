@@ -631,6 +631,12 @@ func run(cmd string) error {
 	if td, ok := topoStore.(tenantlife.TopologyDeleter); ok {
 		lifeEngine.WithTopology(td)
 	}
+	// TENANT-008: erasure coverage for the OTLP trace/log store — externally-
+	// ingested traces+logs are tenant PII; the attestation enumerates the
+	// "otel" store (count-verified) or records "store not deployed".
+	if od, ok := otelStore.(tenantlife.OtelDeleter); ok {
+		lifeEngine.WithOtel(od)
+	}
 	srv.WithTenantLife(lifeEngine)
 	g.Go(func() error { lifeEngine.RunRetention(gctx, 24*time.Hour); return nil })
 	// U-041: WORM export of the provider audit chain — signed segments into

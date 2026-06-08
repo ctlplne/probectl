@@ -270,15 +270,42 @@ LIMIT {lim:UInt32}`
 	return out, nil
 }
 
-// EraseTenant deletes every signal owned by tenant (verifiable deletion).
-func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) error {
+// EraseTenant deletes every signal owned by tenant (verifiable deletion,
+// TENANT-008). Like flowstore, the mutation runs mutations_sync=2 so it
+// returns only once the rows are gone — making the post-delete count a REAL
+// verification: deleted = before-after, remaining = after (0 when clean).
+func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, remaining int, err error) {
 	for _, table := range []string{spansTable, logsTable} {
-		if err := c.exec(ctx, "ALTER TABLE "+table+" DELETE WHERE tenant_id = {tenant:String}",
-			chParams{"tenant": tenant}, nil); err != nil {
-			return err
+		before, err := c.countTenant(ctx, table, tenant)
+		if err != nil {
+			return 0, -1, err
 		}
+		if err := c.exec(ctx, "ALTER TABLE "+table+" DELETE WHERE tenant_id = {tenant:String} SETTINGS mutations_sync = 2",
+			chParams{"tenant": tenant}, nil); err != nil {
+			return 0, -1, err
+		}
+		after, err := c.countTenant(ctx, table, tenant)
+		if err != nil {
+			return 0, -1, err
+		}
+		deleted += before - after
+		remaining += after
 	}
-	return nil
+	return deleted, remaining, nil
+}
+
+// countTenant counts one tenant's rows in a table (erase verification),
+// tenant-scoped like every other read.
+func (c *ClickHouse) countTenant(ctx context.Context, table, tenant string) (int, error) {
+	rows, err := c.queryScoped(ctx, tenant,
+		"SELECT count() AS n FROM "+table+" WHERE tenant_id = {tenant:String}", chParams{"tenant": tenant})
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return int(i64(rows[0]["n"])), nil
 }
 
 // Close is a no-op (stateless HTTP client).

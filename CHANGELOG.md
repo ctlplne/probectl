@@ -9,6 +9,21 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 2 (plan v2): tenant erasure now covers the OTLP trace/log store
+  (TENANT-008; corrects the overstated COMPLY-013 "erasure across 5+
+  stores"). Externally-ingested traces+logs (ARCH-001) are tenant PII, but
+  `tenantlife.Erase()` never touched the otelstore — a whole telemetry
+  plane survived offboarding while the attestation reported "complete"
+  (GDPR Art. 17 gap). Fix (decision D1): a `WithOtel` seam mirroring
+  WithPaths/WithTopology; `Erase()` erases the OTLP store and appends a
+  count-verified `"otel"` StoreResult (or "store not deployed" when nil),
+  so the attestation enumerates it like every other plane.
+  `otelstore.EraseTenant` now returns `(deleted, remaining)` — ClickHouse
+  runs the mutation `mutations_sync=2` so the post-delete count is a real
+  verification, memory counts what it dropped; main.go wires the live
+  store. Tests: a tenant's spans+logs erase to zero with a complete
+  attestation, and a neighbor tenant's OTLP data is untouched.
+
 - Sprint 1 (plan v2, post-verification): green build + verify-all
   coverage (CORRECT-002, RESIL-006, TEST-001, DOCS-F02). Fixed the two red
   unit suites that meant the full-tree test run had never actually passed,

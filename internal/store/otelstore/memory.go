@@ -128,13 +128,16 @@ func (m *Memory) Len(tenant string) (spans, logs int) {
 func (m *Memory) Close() error { return nil }
 
 // EraseTenant removes every signal owned by tenant (the per-tenant
-// verifiable-deletion path, F-compliance).
-func (m *Memory) EraseTenant(_ context.Context, tenant string) error {
+// verifiable-deletion path, F-compliance / TENANT-008). It returns the count
+// removed and the post-delete remaining (always 0 in memory) so the caller
+// can attest verified-zero like the other stores.
+func (m *Memory) EraseTenant(_ context.Context, tenant string) (deleted, remaining int, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	deleted = len(m.spans[tenant]) + len(m.logs[tenant])
 	delete(m.spans, tenant)
 	delete(m.logs, tenant)
-	return nil
+	return deleted, 0, nil
 }
 
 var _ Store = (*Memory)(nil)

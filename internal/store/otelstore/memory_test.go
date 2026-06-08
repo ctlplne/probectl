@@ -60,9 +60,9 @@ func TestMemorySpanAndLogQueriesScopedAndFiltered(t *testing.T) {
 		t.Fatalf("newest-first ordering: %+v", all)
 	}
 
-	// Erasure removes a tenant's signals and nothing else.
-	if err := m.EraseTenant(ctx, "t1"); err != nil {
-		t.Fatal(err)
+	// Erasure removes a tenant's signals and nothing else, count-verified.
+	if deleted, remaining, err := m.EraseTenant(ctx, "t1"); err != nil || remaining != 0 || deleted < 1 {
+		t.Fatalf("erase t1: deleted=%d remaining=%d err=%v", deleted, remaining, err)
 	}
 	if s, l := m.Len("t1"); s != 0 || l != 0 {
 		t.Fatal("erase must remove every t1 signal")
