@@ -9,6 +9,16 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 11 (plan v2): classify CGNAT 100.64/10 as internal in the NDR
+  signals (THREAT-001). `isInternal()` relied on `netip.IsPrivate()`, which
+  excludes RFC 6598 carrier-grade NAT space (100.64.0.0/10), so
+  carrier/cloud-NAT internal hosts were misclassified external — a
+  lateral-movement blind spot. Added the CGNAT prefix to `isInternal`
+  (IPv6 ULA fc00::/7 was already covered by IsPrivate); v4-mapped addresses
+  are unmapped first. Table test: 100.64/10 (including host:port) classifies
+  internal, while the ranges just outside (100.63/100.128) and public v4/v6
+  stay external.
+
 - Sprint 10 (plan v2): MFA wired end-to-end (SEC-005). `Identity.MFASatisfied`
   was plumbed through session/middleware/audit/ABAC, but the OIDC callback
   never parsed the `amr` claim, so it was always false — MFA could neither

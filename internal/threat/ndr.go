@@ -714,7 +714,14 @@ func registeredDomain(name string) string {
 	return strings.Join(labels[len(labels)-2:], ".")
 }
 
-// isInternal reports whether addr is private/loopback/link-local/ULA.
+// cgnatPrefix is RFC 6598 carrier-grade NAT space (100.64.0.0/10). netip's
+// IsPrivate() does NOT include it, but a CGNAT host is INTERNAL (carrier /
+// cloud-NAT addressing) — omitting it misclassified those hosts as external, a
+// lateral-movement blind spot in the NDR signals (THREAT-001). IPv6 ULA
+// (fc00::/7) is already covered by IsPrivate.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// isInternal reports whether addr is private/loopback/link-local/ULA/CGNAT.
 // Non-IP entities (hostnames from eBPF edges) are treated as internal —
 // they are resolved service names inside the cluster.
 func isInternal(addr string) bool {
@@ -726,7 +733,7 @@ func isInternal(addr string) bool {
 	if err != nil {
 		return true
 	}
-	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || cgnatPrefix.Contains(ip.Unmap())
 }
 
 func firstGenerated(entries []dnsEntry) string {
