@@ -9,6 +9,24 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- CI greening, round 2 (run #203, after the round-1 fixes pushed): the full
+  `make lint-go` / `make cover-gate` / Docker / arm64 paths ran on GitHub for
+  the first time and surfaced five more real failures — all fixed without
+  weakening anything. `ebpf-image-live`: `Dockerfile.ebpf` was missing
+  `libbpf-dev` so bpf2go's clang compile couldn't find `bpf/bpf_helpers.h`
+  (the in-build BTF dump itself worked — an earlier hypothesis was wrong).
+  `ebpf-kernel-matrix (6.6-arm64)`: pinned `GO_VERSION` to exact `1.26.4` (the
+  loose `"1.26"` resolved to 1.26.3 on arm64, below go.work's floor under
+  `GOTOOLCHAIN=local`). `helm-gate`: the chart was fine — the `docker compose
+  config` step needed a throwaway `POSTGRES_PASSWORD` (SEC-006 ships no
+  default). `lint-go`: the full target also runs `check_http_clients.sh`, so
+  otelstore's ClickHouse client moved to `crypto.HardenedHTTPClient` and the
+  agent enroll client (hardened + cert-pinned) was allowlisted like
+  `otlp/exporter.go`. `coverage`: the canary HTTP integration tests now
+  allowlist their CA dir via `canary.SetCAFileDir` (RED-008), exercising the
+  full ca_file path rather than skipping it. `verify-branch-protection`
+  remains a one-time human action (`scripts/apply_branch_protection.sh`).
+
 - CI greening (first real GitHub Actions run): the prior "verify-all green"
   was local-only, so the first push surfaced gates that had never executed on
   GitHub. Fixed with real code/config changes — no linter disabled, no test

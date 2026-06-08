@@ -89,22 +89,24 @@ the status with the commit hash rather than deleting the row.
 
 ## First-CI-run residuals (GitHub Actions — the repo's first real run on GitHub)
 
-The first push surfaced failures that had never run on GitHub before (the
-prior "verify-all green" was local only; `golangci-lint`, `gitleaks`, the
-GitHub-rules read, and the container/QEMU jobs had no way to run locally).
-Fixed with real code/config changes — **no linter disabled, no test
-skipped/weakened**:
+The first pushes surfaced failures that had never run on GitHub before (the
+prior "verify-all green" was local only). Two rounds: run **#199** was the
+first push; run **#203** was after the round-1 fixes landed and exercised the
+*full* `make lint-go` / `make cover-gate` / Docker / arm64 paths — round 1 had
+only run `golangci-lint`/`go vet` locally, so a few guard- and runtime-level
+failures only appeared on GitHub. All fixed with real code/config changes —
+**no linter disabled, no test skipped/weakened**:
 
 | Job | Cause | Status |
 |---|---|---|
-| lint-go | `golangci-lint` v2.12.2 had never actually executed; pre-existing findings (goimports grouping, revive `redefines-builtin`/stutter/unused-param, gocritic `appendAssign`, De Morgan, `bodyclose`) + a dead func | **FIXED** (07ec426) — `golangci-lint run ./...` = 0 issues |
+| lint-go | (r1) golangci-lint v2.12.2 pre-existing findings (goimports, revive, gocritic, De Morgan, `bodyclose`) + a dead func; (r2) the full `make lint-go` also runs `check_http_clients.sh` (U-036), which flagged two bare `http.Client`s | **FIXED** — 07ec426 (golangci-lint 0 issues) + d38e5c3: otelstore → `crypto.HardenedHTTPClient`; the agent enroll client allowlisted (hardened + cert-pinned, like `otlp/exporter.go`) |
 | proto | the Sprint-14 SPDX script stamped generated `*.pb.go`; `buf generate` re-emits them without it → `git diff` drift | **FIXED** (a923d0b) — script skips generated files; the 12 generated files un-stamped |
 | web | the screen-test harness intercepted `/v1/me` with `endsWith`, shadowing the provider console's `/provider/v1/me` → empty `<main/>`, 13 failures | **FIXED** (996289f) — exclude `/provider/`; 62 web tests green |
 | test-python | the lock-drift check compiled from the repo root, so uv's provenance comment differed from the committed lock (compiled in `analyzer/`) | **FIXED** (3915bc7) — compile from `analyzer/`, diff content-only; verified with uv 0.11.2 |
 | secret-scan | `egressgate_test.go` (Sprint 20) plants a fake `sk_live_…` to prove redaction; added after the Sprint-1 gitleaks allowlist | **FIXED** (375f8a1) — file allowlisted per the documented redaction-fixture policy; gitleaks = no leaks |
-| coverage / integration | exit 2 = BUILD failure: the `EnrollRequest→Request` rename did not propagate to the integration-tagged `enroll_integration_test.go` (plain `go build` misses it) | **FIXED** by 07ec426 — `go vet -tags=integration ./...` clean in both modules |
-| verify-branch-protection | the committed ruleset (`.github/rulesets/main.json`) is not yet *enforced* on the default branch; the default CI token cannot write rulesets | **NEEDS HUMAN** — run `scripts/apply_branch_protection.sh` once with an admin token (or import via Settings → Rules); helper added (2b3e496) |
-| helm-gate | needs `helm`/`kubeconform`/`docker compose` (none installable in the dev sandbox within disk+time limits) | **NEEDS CI TOOLCHAIN** — chart passes static review (all values files + templates present; ServiceMonitor/CronJob gating correct; strict NetworkPolicy closes both holes) and the two python/YAML sub-steps (`gitops-gate`, compose YAML) pass locally |
-| ebpf-image-live | `Dockerfile.ebpf` dumps `/sys/kernel/btf/vmlinux` *inside* the build; BuildKit RUN steps may not expose `/sys/kernel/btf` → `test -r` fails. **§4 eBPF build-path change → founder decision** | **NEEDS DOCKER TO CONFIRM** — recommended fix if confirmed: generate `vmlinux.h` on the runner (as the kernel-matrix job already does) and `COPY` it in, rather than dumping BTF in-container. Not guessed/applied (untestable here + touches the eBPF build architecture) |
-| ebpf-kernel-matrix | boots real LTS kernels under QEMU/KVM (load+attach BPF) — pure infra, no local repro | **INFRA** — NOT a required check (absent from `main.json`); not a merge blocker |
-| failover-drill | exit 143 = SIGTERM; with `concurrency.cancel-in-progress: true`, an in-progress long job (boots PG primary+replica, timed promote) is cancelled when a newer commit is pushed | **LIKELY CANCELLATION** — drill + compose are structurally sound (`postgres`/`pg-replica` services present); expected to pass on a clean, uncancelled run |
+| coverage / integration | (r1) exit-2 BUILD failure: the `EnrollRequest→Request` rename did not reach the integration-tagged `enroll_integration_test.go`; (r2) the canary HTTP integration tests set a `ca_file` without the RED-008 `canary_ca_dir` allowlist | **FIXED** — 07ec426 (build) + e1ffb85: the tests allowlist their CA dir via `canary.SetCAFileDir` (the full ca_file + TLS path is still exercised); `go test -tags=integration ./internal/canary/` ok |
+| ebpf-image-live | `Dockerfile.ebpf` installed clang/llvm/bpftool but **not `libbpf-dev`**, so bpf2go's clang compile failed on `bpf/bpf_helpers.h`. (The in-build BTF dump itself SUCCEEDED — an earlier BuildKit-BTF hypothesis was wrong.) | **FIXED** (9d425df) — add `libbpf-dev`, matching the kernel-matrix toolchain |
+| ebpf-kernel-matrix (6.6-arm64) | `setup-go` resolved go 1.26.3 from the loose `GO_VERSION: "1.26"`, below go.work's 1.26.4 floor under `GOTOOLCHAIN=local` (amd64 got 1.26.4 and passed) | **FIXED** (7939716) — pin `GO_VERSION` to exact `1.26.4` (lockstep with go.work/go.mod). The QEMU kernel boot itself is infra, but is NOT a required check |
+| helm-gate | NOT the chart (static review held): the final `docker compose config` step failed because `POSTGRES_PASSWORD` is a required var with no default (SEC-006 fail-closed) | **FIXED** (7939716) — supply a throwaway `POSTGRES_PASSWORD` on that step (like the dummy envelopeKey the helm renders pass) |
+| failover-drill | exit 143 = SIGTERM from `concurrency.cancel-in-progress` when a newer commit superseded the #199 run | **CANCELLATION** — not a code defect; did not recur in #203 |
+| verify-branch-protection | the committed ruleset (`.github/rulesets/main.json`) is not yet *enforced* on the default branch; the default CI token cannot write rulesets | **NEEDS HUMAN** — run `scripts/apply_branch_protection.sh` once with an admin token (or import via Settings → Rules); helper added (2b3e496). The only step that turns it green |
