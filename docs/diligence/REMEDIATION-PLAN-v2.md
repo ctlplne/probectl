@@ -95,7 +95,7 @@ the diffs. If you disagree with one at runtime, still implement it (reversible) 
 | [x] 6 | B | OTLP consumer retry + DLQ (durability parity) | SCALE-003 / ARCH-002 | High | M |
 | [x] 7 | B | Flow store-failure DLQ + drop counter | CORRECT-001 (SCALE-012 reconciled ↑High) | High | M |
 | [x] 8 | B | Bound the DNS pending-map (eviction cap) | FUZZ-001 | High | M |
-| [ ] 9 | B | Reduce fairness Gate lock contention | SCALE-001 | High | M |
+| [x] 9 | B | Reduce fairness Gate lock contention | SCALE-001 | High | M |
 | [ ] 10 | C | MFA wired end-to-end (amr → MFASatisfied) | SEC-005 | Medium | M |
 | [ ] 11 | C | CGNAT 100.64/10 internal classification (NDR) | THREAT-001 | Medium | S |
 | [ ] 12 | C | Branch-protection required-checks + review note | TEST-002 / SUPPLY-005 | Medium | S |

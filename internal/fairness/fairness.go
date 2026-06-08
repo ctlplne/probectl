@@ -194,6 +194,20 @@ type tenantState struct {
 	policyFetching bool
 }
 
+// gateShards stripes the Gate's per-tenant state so admissions for DIFFERENT
+// tenants don't serialize on one global mutex (SCALE-001 — the admit hot path
+// took a single process-wide lock, so under high tenant fan-in every tenant
+// queued behind every other). A tenant always maps to ONE shard via a stable
+// hash, so its state stays under a single lock: per-tenant admit semantics
+// (deficit token buckets, counters, the policy cache) are UNCHANGED; only the
+// cross-tenant contention is removed.
+const gateShards = 32
+
+type gateShard struct {
+	mu      sync.Mutex
+	tenants map[string]*tenantState
+}
+
 // Gate is the fairness enforcement point. One Gate serves the whole process
 // (consumers, query handlers, surfaces) so accounting is coherent.
 type Gate struct {
@@ -201,8 +215,7 @@ type Gate struct {
 	source    PolicySource
 	policyTTL time.Duration
 
-	mu      sync.Mutex
-	tenants map[string]*tenantState
+	shards [gateShards]gateShard
 
 	now func() time.Time
 }
@@ -210,13 +223,27 @@ type Gate struct {
 // NewGate builds a Gate with deployment defaults and an optional stored
 // policy source (nil = defaults only).
 func NewGate(defaults Policy, source PolicySource) *Gate {
-	return &Gate{
+	g := &Gate{
 		defaults:  defaults.merged(Policy{}),
 		source:    source,
 		policyTTL: time.Minute,
-		tenants:   map[string]*tenantState{},
 		now:       time.Now,
 	}
+	for i := range g.shards {
+		g.shards[i].tenants = map[string]*tenantState{}
+	}
+	return g
+}
+
+// shardFor maps a tenant to its state stripe (FNV-1a, the bus key hash family).
+// A tenant is always on the same shard, so its state never spans locks.
+func (g *Gate) shardFor(tenantID string) *gateShard {
+	var h uint32 = 2166136261
+	for i := 0; i < len(tenantID); i++ {
+		h ^= uint32(tenantID[i])
+		h *= 16777619
+	}
+	return &g.shards[h%gateShards]
 }
 
 // WithPolicyTTL overrides the policy cache TTL (tests).
@@ -235,16 +262,19 @@ func (g *Gate) WithNow(now func() time.Time) *Gate {
 	return g
 }
 
-func (g *Gate) state(tenantID string) *tenantState {
-	st, ok := g.tenants[tenantID]
+// state returns (creating if needed) the tenant's state within its shard. The
+// caller MUST hold sh.mu.
+func (g *Gate) state(sh *gateShard, tenantID string) *tenantState {
+	st, ok := sh.tenants[tenantID]
 	if !ok {
 		st = &tenantState{buckets: map[string]*bucket{}, ingest: map[string]*Counters{}}
-		g.tenants[tenantID] = st
+		sh.tenants[tenantID] = st
 	}
 	return st
 }
 
-// policyFor resolves the tenant's effective policy under g.mu. The stored
+// policyFor resolves the tenant's effective policy under the tenant's shard
+// lock (held by the caller). The stored
 // override is fetched ASYNCHRONOUSLY: admission never blocks on Postgres —
 // a slow policy store would otherwise be a noisy neighbor to every tenant.
 // Until the first fetch lands (and whenever the source errors) the
@@ -276,9 +306,10 @@ func (g *Gate) refresh(tenantID string) {
 	if p, ok, err := g.source.PolicyFor(ctx, tenantID); err == nil && ok {
 		eff = p.merged(g.defaults)
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(tenantID)
+	sh := g.shardFor(tenantID)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	st := g.state(sh, tenantID)
 	st.policy = eff
 	st.policyKnown = true
 	st.policyFetched = g.now()
@@ -288,16 +319,18 @@ func (g *Gate) refresh(tenantID string) {
 // EffectivePolicy is the tenant's policy as enforced right now (defaults +
 // override merge) — the /v1/fairness self-view.
 func (g *Gate) EffectivePolicy(ctx context.Context, tenantID string) Policy {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return g.policyFor(ctx, g.state(tenantID), tenantID)
+	sh := g.shardFor(tenantID)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	return g.policyFor(ctx, g.state(sh, tenantID), tenantID)
 }
 
 // Invalidate drops a tenant's cached policy (the provider just changed it).
 func (g *Gate) Invalidate(tenantID string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if st, ok := g.tenants[tenantID]; ok {
+	sh := g.shardFor(tenantID)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	if st, ok := sh.tenants[tenantID]; ok {
 		st.policyKnown = false
 	}
 }
@@ -333,9 +366,10 @@ func (g *Gate) AdmitN(ctx context.Context, tenantID, meter string, n int64) bool
 	if tenantID == "" {
 		return true // unattributable messages are the pipeline's problem, not fairness's
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(tenantID)
+	sh := g.shardFor(tenantID)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	st := g.state(sh, tenantID)
 	pol := g.policyFor(ctx, st, tenantID)
 	rate := pol.rateFor(meter)
 	c, ok := st.ingest[meter]
@@ -360,9 +394,10 @@ func (g *Gate) BeginQuery(ctx context.Context, tenantID string) (release func(),
 	if tenantID == "" {
 		return func() {}, nil
 	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(tenantID)
+	sh := g.shardFor(tenantID)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	st := g.state(sh, tenantID)
 	pol := g.policyFor(ctx, st, tenantID)
 	if pol.QueryConcurrency > 0 && st.queries.InFlight >= int64(pol.QueryConcurrency) {
 		st.queries.RejectedConcurrency++
@@ -380,8 +415,8 @@ func (g *Gate) BeginQuery(ctx context.Context, tenantID string) (release func(),
 	st.queries.InFlight++
 	done := false
 	return func() {
-		g.mu.Lock()
-		defer g.mu.Unlock()
+		sh.mu.Lock()
+		defer sh.mu.Unlock()
 		if !done {
 			done = true
 			st.queries.InFlight--
@@ -391,20 +426,26 @@ func (g *Gate) BeginQuery(ctx context.Context, tenantID string) (release func(),
 
 // SnapshotTenant returns one tenant's accounting + effective policy.
 func (g *Gate) SnapshotTenant(ctx context.Context, tenantID string) Snapshot {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	st := g.state(tenantID)
+	sh := g.shardFor(tenantID)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	st := g.state(sh, tenantID)
 	return snapshotLocked(tenantID, st, g.policyFor(ctx, st, tenantID))
 }
 
 // SnapshotAll returns every tenant the gate has seen, sorted by tenant ID —
-// the provider-console fairness view (ee reads it through this core call).
+// the provider-console fairness view (ee reads it through this core call). It
+// locks each shard in turn (one at a time, no deadlock); it's a read surface,
+// not on the hot path, so a per-shard-consistent view is sufficient.
 func (g *Gate) SnapshotAll() []Snapshot {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	out := make([]Snapshot, 0, len(g.tenants))
-	for id, st := range g.tenants {
-		out = append(out, snapshotLocked(id, st, st.policy))
+	var out []Snapshot
+	for i := range g.shards {
+		sh := &g.shards[i]
+		sh.mu.Lock()
+		for id, st := range sh.tenants {
+			out = append(out, snapshotLocked(id, st, st.policy))
+		}
+		sh.mu.Unlock()
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].TenantID < out[j].TenantID })
 	return out

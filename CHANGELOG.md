@@ -9,6 +9,19 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 9 (plan v2): shard the fairness Gate to cut admit-path lock
+  contention (SCALE-001). The Gate took a single process-wide mutex on the
+  admit hot path (`AdmitN`/`BeginQuery`), so under high tenant fan-in every
+  tenant's admission serialized behind every other. Fix (decision D5): the
+  per-tenant state is sharded into 32 stripes by a stable tenant hash — a
+  tenant's state stays under one lock, so admit semantics (deficit token
+  buckets, counters, the policy cache) are UNCHANGED, while admissions for
+  different tenants no longer contend. Verified race-free (`-race`) with
+  identical admit decisions (the existing fairness suite passes). A new
+  benchmark shows parallel admits across 256 tenants at ~142 ns/op vs
+  ~215 ns/op when pinned to one tenant/shard — contention drops as load
+  spreads across shards. No new concurrency dependency.
+
 - Sprint 8 (plan v2): bound the eBPF L7 DNS pending-query map (FUZZ-001).
   The parser added an entry per query and deleted only on a matched
   response, so unanswered queries (a lossy network or an attacker flooding
