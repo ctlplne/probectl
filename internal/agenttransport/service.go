@@ -229,7 +229,9 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 			"tenant", id.TenantID, "namespace", t.BusNamespace, "error", terr.Error())
 		return terr
 	}
-	return svc.bus.Publish(ctx, topic, []byte(r.TenantId), value)
+	// SCALE-007: tenant|bucket key (agent entropy) — one large tenant spreads
+	// across partitions; each agent's stream keeps its FIFO.
+	return svc.bus.Publish(ctx, topic, bus.TenantKey(r.TenantId, r.AgentId), value)
 }
 
 // PollCoordination returns the next brokered agent-to-agent task for the calling

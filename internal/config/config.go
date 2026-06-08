@@ -384,9 +384,11 @@ type Config struct {
 	FairnessResultsPerSec     float64
 	FairnessFlowEventsPerSec  float64
 	FairnessIngestBytesPerSec float64
-	FairnessBurstSeconds      float64
-	FairnessQueryConcurrency  int
-	FairnessQueriesPerMin     float64
+	// FairnessDeviceMetricsPerSec bounds the SNMP/gNMI plane (SCALE-005).
+	FairnessDeviceMetricsPerSec float64
+	FairnessBurstSeconds        float64
+	FairnessQueryConcurrency    int
+	FairnessQueriesPerMin       float64
 
 	// BackupRetentionNote (S-T5): the operator's backup-TTL statement,
 	// included verbatim in every deletion attestation (the explicit
@@ -615,9 +617,12 @@ func Load(getenv func(string) string) (*Config, error) {
 
 		RemediationApprovalsEnabled: l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false),
 		RemediationMaxBlastRadius:   l.intRange("PROBECTL_REMEDIATION_MAX_BLAST_RADIUS", 50, 1, 100000),
-		FairnessResultsPerSec:       l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 0),
-		FairnessFlowEventsPerSec:    l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 0),
-		FairnessIngestBytesPerSec:   l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 0),
+		// SCALE-004: bounded by DEFAULT — unlimited is the explicit opt-in
+		// (set a NEGATIVE value). Defaults mirror fairness.DefaultPolicy.
+		FairnessResultsPerSec:       l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 1000),
+		FairnessFlowEventsPerSec:    l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 10000),
+		FairnessIngestBytesPerSec:   l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 2<<20),
+		FairnessDeviceMetricsPerSec: l.float("PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC", 2000),
 		FairnessBurstSeconds:        l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10),
 		FairnessQueryConcurrency:    l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 0, 0, 100000),
 		FairnessQueriesPerMin:       l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 0),

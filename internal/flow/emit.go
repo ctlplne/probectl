@@ -50,5 +50,9 @@ func (e *BusEmitter) Emit(ctx context.Context, recs []Record) error {
 	if err != nil {
 		return fmt.Errorf("flow: marshal batch: %w", err)
 	}
-	return e.bus.Publish(ctx, e.topic, []byte(e.tenant), value)
+	entropy := ""
+	if len(recs) > 0 {
+		entropy = recs[0].AgentID // stable per collector: per-agent FIFO holds
+	}
+	return e.bus.Publish(ctx, e.topic, bus.TenantKey(e.tenant, entropy), value)
 }

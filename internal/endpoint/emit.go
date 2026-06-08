@@ -53,7 +53,7 @@ func (e *BusEmitter) Emit(ctx context.Context, s Sample) error {
 		if err != nil {
 			return fmt.Errorf("endpoint: marshal result: %w", err)
 		}
-		if err := e.bus.Publish(ctx, e.topic, []byte(e.tenant), value); err != nil {
+		if err := e.bus.Publish(ctx, e.topic, bus.TenantKey(e.tenant, e.agent), value); err != nil {
 			return err
 		}
 	}

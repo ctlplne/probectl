@@ -9,6 +9,26 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- Sprint 15: cardinality + fairness layer (SCALE-003/004/005/007/011).
+  The cardinality limiter is BOUNDED: identities idle past 1h evict
+  via an amortized sweep (live series refresh their slot; empty
+  agents/tenants are removed; Evicted/ActiveSeries surfaced) — and
+  cross-replica sharing is deliberately skipped (per-replica caps
+  tolerate replicas×cap, vs a stateful dependency on the hot path —
+  trade-off recorded). Fairness is bounded BY DEFAULT on every plane
+  (results 1000/s, flow 10k/s, ingest 2MiB/s, device 2000/s per
+  tenant); unlimited is now an explicit NEGATIVE opt-in — the
+  fail-open doctrine is reversed. The device plane, verified to have
+  neither, gains the fairness gate and its own cardinality cap. Bus
+  partition keys become tenant|bucket with AGENT entropy: one large
+  tenant spreads across up to 16 partitions while each agent's stream
+  keeps FIFO (the ordering consumers actually rely on). Flow ASN/geo
+  enrichment moves off the hot path: cache hits enrich inline (~87ns),
+  misses queue a background warm pool and the record proceeds
+  unenriched — graceful degrade under lag with shed warms counted
+  (the old inline miss cost ~1.4ms per record). BenchmarkEnrich* +
+  eviction/throttle/spread/device-cap tests ride the required suite.
+
 - Sprint 14: ingest hot-path performance (SCALE-001/008/009/012/013).
   The consume path parallelizes: Kafka poll batches dispatch across
   key-sharded workers (PROBECTL_BUS_WORKERS, default 4) — per-key FIFO

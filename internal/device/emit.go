@@ -54,5 +54,9 @@ func (e *BusEmitter) Emit(ctx context.Context, ms []Metric) error {
 	if err != nil {
 		return fmt.Errorf("device: marshal batch: %w", err)
 	}
-	return e.bus.Publish(ctx, e.topic, []byte(e.tenant), value)
+	entropy := ""
+	if len(ms) > 0 {
+		entropy = ms[0].AgentID
+	}
+	return e.bus.Publish(ctx, e.topic, bus.TenantKey(e.tenant, entropy), value)
 }

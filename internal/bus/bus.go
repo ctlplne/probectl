@@ -134,3 +134,30 @@ func New(mode string, brokers []string, sec Security, memOpts ...MemoryOption) (
 		return nil, fmt.Errorf("bus: unknown mode %q (want memory|kafka)", mode)
 	}
 }
+
+// TenantBuckets is the sub-partition fan per tenant (Sprint 15, SCALE-007).
+const TenantBuckets = 16
+
+// TenantKey builds the partition key for tenant-owned records. With entropy
+// (normally the AGENT id) it appends a stable hash bucket — tenant|bN — so a
+// single large tenant spreads across up to TenantBuckets partitions instead
+// of hot-spotting one (SCALE-007).
+//
+// Ordering trade-off, stated: per-tenant TOTAL order narrows to per-bucket
+// order. Because the entropy is the agent id, each AGENT's stream keeps its
+// FIFO (the order consumers actually rely on — per-key shard dispatch and
+// Kafka partition order both follow the key); cross-agent interleaving within
+// a tenant was never guaranteed under concurrent agents anyway. Empty entropy
+// = the plain tenant key (single-writer planes keep total order).
+func TenantKey(tenantID, entropy string) []byte {
+	if entropy == "" {
+		return []byte(tenantID)
+	}
+	var h uint32 = 2166136261 // FNV-1a, matching the consumer shard hash
+	for i := 0; i < len(entropy); i++ {
+		h ^= uint32(entropy[i])
+		h *= 16777619
+	}
+	b := h % TenantBuckets
+	return []byte(tenantID + "|b" + string(rune('a'+b)))
+}

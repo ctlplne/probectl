@@ -57,8 +57,10 @@ func TestBusEmitterPublishesTenantTaggedResults(t *testing.T) {
 		if m.topic != bus.EndpointResultsTopic {
 			t.Errorf("topic = %q, want %q", m.topic, bus.EndpointResultsTopic)
 		}
-		if string(m.key) != "tenant-A" {
-			t.Errorf("key (tenant tag) = %q, want tenant-A", m.key)
+		// SCALE-007: the key is tenant|bucket (agent entropy) — still
+		// tenant-prefixed for partition affinity, stable per agent.
+		if want := string(bus.TenantKey("tenant-A", "laptop-7")); string(m.key) != want {
+			t.Errorf("key (tenant tag) = %q, want %q", m.key, want)
 		}
 		var r resultv1.Result
 		if err := proto.Unmarshal(m.value, &r); err != nil {

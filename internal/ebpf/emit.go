@@ -67,7 +67,11 @@ func (e *BusEmitter) Emit(ctx context.Context, flows []Flow, edges []ServiceEdge
 	if err != nil {
 		return fmt.Errorf("ebpf: marshal flow batch: %w", err)
 	}
-	return e.bus.Publish(ctx, e.topic, []byte(e.tenant), value)
+	entropy := ""
+	if len(flows) > 0 {
+		entropy = flows[0].AgentID
+	}
+	return e.bus.Publish(ctx, e.topic, bus.TenantKey(e.tenant, entropy), value)
 }
 
 func (f Flow) toProto() *ebpfv1.Flow {

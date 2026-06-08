@@ -705,6 +705,10 @@ anomalies):
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint (required in clickhouse mode)            |
 | `PROBECTL_FLOWSTORE_TENANT_SCOPING` | `false` | TENANT-102: attach a per-request tenant custom setting to ClickHouse reads so a reader row policy constrains the query path at the DB (needs server-side `custom_settings_prefixes=SQL_` + a reader user) |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | TENANT-102: the ClickHouse reader user the setting-scoped row policy is installed on at boot |
+| `PROBECTL_FAIRNESS_RESULTS_PER_SEC` | `1000` | SCALE-004: per-tenant result admission (was 0=unlimited). NEGATIVE = explicit unlimited |
+| `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | SCALE-004: per-tenant flow-record admission; negative = unlimited |
+| `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | SCALE-004: per-tenant ingest bytes (2 MiB/s); negative = unlimited |
+| `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | SCALE-005: per-tenant SNMP/gNMI device-sample admission; negative = unlimited |
 | `PROBECTL_BUS_WORKERS` | `4` | SCALE-001: per-subscription consume parallelism — Kafka poll batches dispatch across this many key-sharded workers (per-key order preserved); 0/1 = serial |
 | `PROBECTL_ALLOW_PLAINTEXT_HTTP` | `false` | WIRE-004: explicit, loud opt-in for a NON-loopback plaintext control listener (only behind a TLS-terminating ingress — Helm sets it). Without it, no TLS + non-loopback = refuse to start |
 | `PROBECTL_AGENT_CANARY_CA_DIR` | (none) | RED-008: the ONE directory probe `ca_file` parameters may reference (`tls.canary_ca_dir` in agent YAML); empty = the parameter is refused |

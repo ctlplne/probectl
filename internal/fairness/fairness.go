@@ -18,8 +18,11 @@
 //     /v1/fairness (the tenant debugging its own disputes), the provider
 //     console (ee), and as TSDB series (Grafana-federable).
 //
-// The fail-open doctrine: an UNSET limit (zero) means unlimited — small and
-// single-tenant deployments enforce nothing unless configured. A policy-store
+// Defaults doctrine (Sprint 15, SCALE-004 — REVERSED from fail-open): the
+// deployment ships SANE per-tenant ingest bounds on every plane; UNLIMITED is
+// an explicit opt-in (set the env/policy value NEGATIVE, e.g.
+// PROBECTL_FAIRNESS_RESULTS_PER_SEC=-1). A zero policy field still means
+// "deployment default" — the default itself is now bounded. A policy-store
 // outage degrades to the deployment defaults (availability over precision; a
 // down Postgres must not stall ingest). Shedding is never silent: every shed
 // unit is counted, surfaced, and attributable. Cost guards bound CONCURRENCY
@@ -39,19 +42,35 @@ import (
 // Meter names bounded by the ingest gate — the S-T3 usage vocabulary, so
 // metering, quotas, and fairness agree about what a unit is.
 const (
-	MeterResults    = "results_ingested" // result messages admitted to the pipeline
-	MeterFlowEvents = "flow_events"      // flow records admitted to the flow store
-	MeterBytes      = "ingest_bytes"     // result payload bytes admitted
-	meterQueries    = "queries"          // query-budget bucket (internal)
+	MeterResults       = "results_ingested" // result messages admitted to the pipeline
+	MeterFlowEvents    = "flow_events"      // flow records admitted to the flow store
+	MeterBytes         = "ingest_bytes"     // result payload bytes admitted
+	MeterDeviceMetrics = "device_metrics"   // device samples admitted (SCALE-005)
+	meterQueries       = "queries"          // query-budget bucket (internal)
 )
 
 // Policy is the per-tenant fairness contract (the S-T7 "quotas / limits /
 // weights"). The zero value of any field means UNLIMITED / deployment
 // default — fairness is opt-in per bound.
+// DefaultPolicy is the bounded-by-default deployment policy (SCALE-004):
+// generous for real fleets, a hard wall for a runaway tenant. Override per
+// deployment via PROBECTL_FAIRNESS_*; opt OUT with a negative value.
+func DefaultPolicy() Policy {
+	return Policy{
+		ResultsPerSec:       1000,
+		FlowEventsPerSec:    10000,
+		IngestBytesPerSec:   2 << 20, // 2 MiB/s
+		DeviceMetricsPerSec: 2000,
+		BurstSeconds:        10,
+	}
+}
+
 type Policy struct {
 	ResultsPerSec     float64 `json:"results_per_sec,omitempty"`
 	FlowEventsPerSec  float64 `json:"flow_events_per_sec,omitempty"`
 	IngestBytesPerSec float64 `json:"ingest_bytes_per_sec,omitempty"`
+	// DeviceMetricsPerSec bounds the SNMP/gNMI device plane (SCALE-005).
+	DeviceMetricsPerSec float64 `json:"device_metrics_per_sec,omitempty"`
 	// BurstSeconds sizes every bucket: capacity = rate × BurstSeconds
 	// (default 10 — a tenant may burst ten seconds of its rate).
 	BurstSeconds float64 `json:"burst_seconds,omitempty"`
@@ -75,6 +94,9 @@ func (p Policy) merged(def Policy) Policy {
 	}
 	if out.IngestBytesPerSec == 0 {
 		out.IngestBytesPerSec = def.IngestBytesPerSec
+	}
+	if out.DeviceMetricsPerSec == 0 {
+		out.DeviceMetricsPerSec = def.DeviceMetricsPerSec
 	}
 	if out.BurstSeconds == 0 {
 		out.BurstSeconds = def.BurstSeconds
@@ -102,6 +124,8 @@ func (p Policy) rateFor(meter string) float64 {
 		return p.FlowEventsPerSec
 	case MeterBytes:
 		return p.IngestBytesPerSec
+	case MeterDeviceMetrics:
+		return p.DeviceMetricsPerSec
 	case meterQueries:
 		return p.QueriesPerMin / 60
 	}

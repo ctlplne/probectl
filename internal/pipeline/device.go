@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	"github.com/imfeelingtheagi/probectl/internal/otel"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
@@ -48,6 +49,14 @@ type DeviceConsumer struct {
 	binding   TenantBinding
 	nsTenants map[string]string
 	rejected  atomic.Uint64
+
+	// SCALE-005: the device plane rides the SAME bounds as every other
+	// plane — per-tenant rate (fairness gate) + per-(tenant,agent) series
+	// cardinality caps. Verified absent in the Sprint 15 survey: the
+	// consumer.go cap covers the RESULTS consumer only.
+	gate *fairness.Gate
+	card *CardinalityLimiter
+	shed atomic.Uint64
 
 	// Store-write resilience (Sprint 14, SCALE-008 residual): the device
 	// plane now rides the SAME retry+DLQ contract as results — transient
@@ -91,7 +100,14 @@ func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsum
 	return &DeviceConsumer{
 		bus: b, tsdb: w, group: DeviceGroup, log: log,
 		maxRetries: 3, retryBase: 50 * time.Millisecond, sleep: sleepCtx,
+		card: NewCardinalityLimiter(0, 0),
 	}
+}
+
+// WithFairness bounds per-tenant device-plane admission (SCALE-005).
+func (c *DeviceConsumer) WithFairness(g *fairness.Gate) *DeviceConsumer {
+	c.gate = g
+	return c
 }
 
 // Run subscribes until ctx is canceled (shared lane + one lane per siloed
@@ -164,9 +180,27 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	for _, m := range batch.Metrics {
 		m.TenantId = tenant
 	}
+	// SCALE-005: per-tenant rate bound by the VERIFIED tenant, shed BEFORE
+	// the expensive section — identical contract to the result pipeline.
+	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterDeviceMetrics, int64(len(batch.Metrics))) {
+		c.shed.Add(1)
+		c.log.Debug("device batch shed by fairness bounds", "tenant_id", tenant, "metrics", len(batch.Metrics))
+		return nil
+	}
 	series := make([]tsdb.Series, 0, len(batch.Metrics))
 	for _, m := range batch.Metrics {
 		series = append(series, DeviceMetricToSeries(m))
+	}
+	// SCALE-005: series-cardinality cap per (tenant, agent) — a runaway
+	// device fleet cannot mint unbounded identities.
+	agentID := batch.Metrics[0].GetAgentId()
+	series, droppedSeries := c.card.Filter(tenant, agentID, series)
+	if droppedSeries > 0 {
+		c.log.Warn("device series rejected by cardinality cap",
+			"tenant_id", tenant, "agent_id", agentID, "rejected", droppedSeries)
+	}
+	if len(series) == 0 {
+		return nil
 	}
 	// SCALE-008 residual: retry with jittered backoff; exhaustion routes the
 	// ORIGINAL bytes to the device DLQ — never a silent drop.

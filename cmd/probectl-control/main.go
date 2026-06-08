@@ -300,12 +300,18 @@ func run(cmd string) error {
 	// The same enricher instance powers the outage view's IP→scope join (S47a).
 	var flowEnricher pipeline.FlowEnricher
 	var ipEnricher *opendata.Enricher
+	var asyncEnricher *pipeline.AsyncEnricher
 	if cfg.FlowEnrichASN {
 		en := opendata.NewEnricher(log)
 		en.Register(opendata.NewCymru(net.DefaultResolver))
-		flowEnricher = en
+		// SCALE-011: enrichment is ASYNC on the flow hot path — cache hits
+		// enrich inline, misses warm in the background and the record
+		// proceeds unenriched (graceful degrade under lag).
+		async := pipeline.NewAsyncEnricher(en, log)
+		asyncEnricher = async
+		flowEnricher = async
 		ipEnricher = en
-		log.Info("flow ASN enrichment enabled", "source", "team-cymru")
+		log.Info("flow ASN enrichment enabled", "source", "team-cymru", "mode", "async")
 	}
 
 	// Brokers agent-to-agent measurement sessions; sessions are started by the
@@ -318,6 +324,10 @@ func run(cmd string) error {
 	// Run the HTTP API, the result-pipeline consumer, and (when configured) the
 	// agent gRPC transport together; a signal or a failure in any drains all.
 	g, gctx := errgroup.WithContext(ctx)
+	if asyncEnricher != nil {
+		// SCALE-011: background warm pool for flow enrichment cache misses.
+		g.Go(func() error { return asyncEnricher.Run(gctx) })
+	}
 
 	// On-call/ITSM integration (S33): mirror incidents into PagerDuty/Opsgenie/
 	// Slack/Teams/ServiceNow/Jira and sync status back. OFF unless connectors are
@@ -549,12 +559,13 @@ func run(cmd string) error {
 		fairnessSource = fairness.NewPGStore(db.Pool())
 	}
 	fairGate := fairness.NewGate(fairness.Policy{
-		ResultsPerSec:     cfg.FairnessResultsPerSec,
-		FlowEventsPerSec:  cfg.FairnessFlowEventsPerSec,
-		IngestBytesPerSec: cfg.FairnessIngestBytesPerSec,
-		BurstSeconds:      cfg.FairnessBurstSeconds,
-		QueryConcurrency:  cfg.FairnessQueryConcurrency,
-		QueriesPerMin:     cfg.FairnessQueriesPerMin,
+		ResultsPerSec:       cfg.FairnessResultsPerSec,
+		FlowEventsPerSec:    cfg.FairnessFlowEventsPerSec,
+		IngestBytesPerSec:   cfg.FairnessIngestBytesPerSec,
+		DeviceMetricsPerSec: cfg.FairnessDeviceMetricsPerSec,
+		BurstSeconds:        cfg.FairnessBurstSeconds,
+		QueryConcurrency:    cfg.FairnessQueryConcurrency,
+		QueriesPerMin:       cfg.FairnessQueriesPerMin,
 	}, fairnessSource)
 	srv.WithFairness(fairGate)
 	// Fairness accounting as per-tenant TSDB series (Grafana-federable).
@@ -670,6 +681,7 @@ func run(cmd string) error {
 	// Device pipeline (S39): probectl.device.metrics -> verify tenant -> TSDB.
 	g.Go(func() error {
 		return pipeline.NewDeviceConsumer(resultBus, tsdbWriter, log).
+			WithFairness(fairGate). // SCALE-005: device plane bounded like every plane
 			WithTenantBinding(tenantBinding).
 			WithNamespaceTenants(nsTenants).
 			Run(gctx)
