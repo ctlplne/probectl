@@ -134,7 +134,7 @@ func TestRegistryBindingLookupIsTenantScoped(t *testing.T) {
 
 func flowBatchMsg(tenant, agent string) bus.Message {
 	batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
-		TenantId: tenant, AgentId: agent,
+		TenantId: tenant, AgentId: agent, EndUnixNano: time.Now().UnixNano(),
 		SourceAddress: "198.51.100.5", DestinationAddress: "203.0.113.9",
 		SourcePort: 40000, DestinationPort: 443, NetworkTransport: "tcp", Bytes: 1000, Packets: 10,
 	}}}

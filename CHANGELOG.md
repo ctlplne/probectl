@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- CI greening, round 9 (cross-tenant-isolation — flow-ingest test timestamp):
+  with round 8's RLS + UUID fixes in, `TestFlowIngestCrossTenantInjectionRealStores`
+  finally ran its post-registration logic and failed ("legit flow row did not
+  land under tenant A"). Root cause was a pre-existing test-fixture bug, not the
+  ingest path: `flowBatchMsg` set no flow timestamp, so `rowFromProto` stamped
+  the row at the **epoch** (`ts` derives from `EndUnixNano`/`ObservedAtUnixNano`,
+  both 0), placing it outside `TopTalkers`' `[now-1h, now]` window → 0 rows.
+  Fixed by setting `EndUnixNano: time.Now().UnixNano()` in `flowBatchMsg` —
+  matching the passing `flow_test.go` unit fixtures. Test-only; the tenant-
+  isolation assertions (injection dropped, nothing under B) are unaffected.
+
 - CI greening, round 8 (cross-tenant-isolation — FORCE RLS on the auth/provider
   tables): the boot-time isolation posture (TENANT-104) FATALs unless every
   tenant_id table FORCES row security; `sessions`, `scim_tokens`, and
