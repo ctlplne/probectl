@@ -1,10 +1,23 @@
-# Voice/RTP tests (S47c, F21)
+# Voice / RTP tests
 
-The `voice` canary scores VoIP path quality the way a phone would
-experience it: it streams REAL RTP packets (version-2 header, codec payload
-type, codec cadence and payload size) to a reflecting target and computes
-**MOS** (ITU-T G.107 E-model), **RFC 3550 jitter**, and **packet loss** from
-the echoes.
+## What it is
+
+The **`voice` canary** answers one question: *if you placed a phone call across
+this path right now, how good would it sound?* It does that not by guessing from
+ping times, but by sending **real RTP packets** — the same packet format and
+timing a softphone uses — to a target that echoes them back, then scoring the
+echoes the way a phone's own quality meter would.
+
+From those echoes it computes three numbers operators recognize:
+
+- **MOS** (Mean Opinion Score, 1.0–4.5) — the headline "call quality" score,
+  derived from the ITU-T G.107 **E-model**.
+- **Jitter** — how unevenly packets arrived (RFC 3550 interarrival estimator).
+- **Packet loss** — how many of the RTP packets never came back.
+
+It is a standard canary like ICMP or HTTP: you create a test, it runs on a
+schedule, and the result flows through the normal pipeline. The implementation
+lives in `internal/canary/voice.go`.
 
 ## Creating a test
 
@@ -17,50 +30,84 @@ POST /v1/tests
 
 | Param | Default | Meaning |
 |---|---|---|
-| `codec` | `g711` | codec preset: `g711` (PCMU, 50 pps, 160 B) or `g729` (50 pps, 20 B) |
-| `duration_seconds` | `3` | simulated call length (1–10 s; 50 packets/s) |
-| `dscp` | `46` | DSCP marking (EF by convention for voice) |
+| `codec` | `g711` | codec preset: `g711` (PCMU, 50 packets/s, 160 B payload) or `g729` (50 packets/s, 20 B payload) |
+| `duration_seconds` | `3` | simulated call length (1–10 s; the codec sends 50 packets/s) |
+| `dscp` | `46` | DSCP marking (EF = 46 by convention for voice) |
 
-The target must **echo UDP datagrams** (a probectl agent responder or any
-UDP echo service) — a non-echoing target reports as 100% loss and an
-explicit *"voice path unmeasurable"* failure, never a fabricated score.
+The target must **echo the UDP datagrams** back — that can be a probectl agent
+acting as a responder, or any plain UDP echo service. A target that does *not*
+echo shows up as **100% loss** and an explicit *"voice path unmeasurable"*
+failure. It never invents a score from a silent target.
+
+## How it works — sending a call and listening to the echo
+
+The canary opens a UDP connection and, for the configured duration, streams
+RTP-framed packets at the codec's cadence:
+
+1. **Frame and send.** Each packet carries a real RTP header (version 2, the
+   codec's payload type, a per-packet sequence number, and an 8 kHz timestamp)
+   followed by a payload of the codec's size. For G.711 that's a 12-byte header +
+   160-byte payload every 20 ms — exactly 50 packets per second.
+2. **Match the echoes.** A reader goroutine receives the reflected packets and
+   matches each one to the packet it sent, keyed by the stream's SSRC and the RTP
+   sequence number. The send time and the receive time of every matched packet
+   are recorded.
+3. **Score from the round-trips.** From those send/receive pairs the canary
+   derives per-packet RTT, loss, and jitter, then runs the E-model to turn delay
+   + loss + codec into an R-factor and finally a MOS.
+
+The DSCP marking is applied to the outgoing socket so the packets traverse the
+network in the same QoS class real voice would — testing the path voice actually
+takes, not a best-effort one.
 
 ## The model (and its honesty)
 
-This is the **simplified, transport-only E-model** — stated on every result
-(`voice.model = itu-t-g107-e-model-simplified`), because the S47c watch-out
-is exactly that MOS models get over-trusted:
+A MOS number looks authoritative, and the biggest risk with voice scoring is
+that people over-trust it. So probectl uses a **deliberately simplified,
+transport-only E-model** and **says so on every result**
+(`voice.model = itu-t-g107-e-model-simplified`). Here's the actual math the code
+runs, and what each piece assumes:
 
-- `R = 93.2 − Id − Ie,eff` (default-parameter R0; no advantage factor, no
-  simultaneous-impairment terms).
-- **Delay** `Id = 0.024·d + 0.11·(d−177.3)·H(d−177.3)` — the G.107 delay
-  curve with its 177.3 ms knee. One-way delay `d` is **estimated** as
-  RTT/2 + codec delay + a modeled jitter buffer (2× jitter, 40–120 ms),
-  and the result says so (`voice.one_way_estimate`).
-- **Loss** `Ie,eff = Ie + (95 − Ie)·Ppl/(Ppl + Bpl)` — G.113 codec
-  parameters (g711: Ie 0 / Bpl 25.1; g729: Ie 11 / Bpl 19), random-loss
-  assumption.
-- **MOS** from R via the G.107 Annex-B cubic (1.0 floor, 4.5 ceiling).
-- **Jitter** is the RFC 3550 §6.4.1 interarrival estimator over received
+- **The rating** `R = 93.2 − Id − Ie,eff`. The `93.2` is the default-parameter R0
+  (no advantage factor, no simultaneous-impairment terms — the conservative
+  baseline).
+- **Delay impairment** `Id = 0.024·d + 0.11·(d − 177.3)·H(d − 177.3)` — the G.107
+  delay curve, with its characteristic 177.3 ms "knee" past which delay hurts much
+  more. The one-way delay `d` is **estimated** (you can't measure one-way delay
+  from an echo) as `RTT/2 + codec delay + a modeled jitter buffer` — and the
+  result discloses that estimate (`voice.one_way_estimate`). The jitter buffer is
+  modeled as twice the measured jitter, floored at 40 ms and capped at 120 ms,
+  matching what a real endpoint would add.
+- **Loss impairment** `Ie,eff = Ie + (95 − Ie)·Ppl/(Ppl + Bpl)` — using the G.113
+  codec parameters (`g711`: Ie 0, Bpl 25.1; `g729`: Ie 11, Bpl 19) under a
+  random-loss assumption.
+- **MOS** is mapped from R via the G.107 Annex-B cubic, clamped to a 1.0 floor and
+  a 4.5 ceiling.
+- **Jitter** is the RFC 3550 §6.4.1 interarrival estimator over the received
   packets (`J += (|D| − J)/16`), reported as `voice.jitter.ms`.
 
-Narrowband codecs only: the 93.2 baseline IS the narrowband model;
-wideband (G.722/Opus) needs the wideband E-model variant — out of scope,
-documented rather than approximated.
+**Narrowband codecs only.** That `93.2` baseline *is* the narrowband model.
+Wideband / HD-voice codecs (G.722, Opus) need the wideband E-model variant, which
+is a different calculation — so it's marked out of scope and documented rather
+than approximated with the wrong formula.
 
 ## Result fields (the contract)
 
-Metrics: `voice.mos`, `voice.r_factor`, `voice.jitter.ms`,
-`voice.one_way.ms`, `voice.loss.pct`, plus the standard latency family
+**Metrics:** `voice.mos`, `voice.r_factor`, `voice.jitter.ms`, `voice.one_way.ms`,
+`voice.loss.pct`, plus the standard latency family
 (`rtt.min/avg/max/stddev.ms`, `loss.ratio`, `packets.sent/received`).
-Attributes: `voice.codec`, `voice.model`, `voice.method`
-(`rtp-udp-echo-reflection`), `voice.jitter_buffer_ms`,
-`voice.one_way_estimate`.
 
-Results render in the Targets & Tests result views (S-FE5) with MOS up
-front (≥4.0 good / ≥3.6 fair / below = poor) and the model named in the
-detail — a computed score is never presented as a measured listening test.
+**Attributes:** `voice.codec`, `voice.model`, `voice.method`
+(`rtp-udp-echo-reflection`), `voice.jitter_buffer_ms`, `voice.one_way_estimate`.
 
-Out of scope by design: SIP call control (no signaling — RTP transport
-quality only), wideband codecs, and owning reflector infrastructure
-(agent-to-agent reflection rides the existing a2a responder).
+Results render in the Targets & Tests views with MOS up front
+(≥4.0 good / ≥3.6 fair / below = poor) and the model named in the detail — so a
+*computed* score is never presented as a *measured* listening test.
+
+## What it deliberately does not do
+
+- **No SIP / call control.** There's no signaling — this measures RTP transport
+  quality only. It does not register, dial, or tear down a call.
+- **No wideband codecs** (see the narrowband note above).
+- **No reflector infrastructure to own.** Agent-to-agent reflection reuses the
+  existing a2a responder rather than standing up a separate echo fleet.

@@ -4,15 +4,16 @@ Sequential, numbered SQL migrations for the control-plane datastores.
 
 ## Status
 
-43 sequential migrations (`0001_baseline.sql` … `0043_alert_ops.sql`) define the
-control-plane schema. They are embedded (`embed.go`) and applied in ascending
-order by the migration runner — `probectl-control migrate` (one-shot) or on boot
-(U-046) — idempotently, so re-running is safe.
+44 sequential migrations (`0001_baseline.sql` … `0044_auth_provider_rls.sql`)
+define the control-plane schema. They are embedded into the binary (`embed.go`,
+a `//go:embed *.sql`) and applied in ascending order by the migration runner —
+either `probectl-control migrate` (one-shot) or on boot when
+`PROBECTL_MIGRATE_ON_BOOT=true` — idempotently, so re-running is safe.
 
 ## Conventions (CLAUDE.md §6)
 
-- One change per file, named `NNNN_description.sql` (e.g. `0001_tenants.sql`),
-  applied in ascending numeric order.
+- One change per file, named `NNNN_description.sql` (e.g.
+  `0002_tenancy_core.sql`), applied in ascending numeric order.
 - **Idempotent**: use `IF NOT EXISTS`, `ON CONFLICT`, etc. so repeated execution
   is safe.
 - **Backward-compatible** for zero-downtime upgrades.
@@ -20,7 +21,7 @@ order by the migration runner — `probectl-control migrate` (one-shot) or on bo
   appropriate index/partition **from its first migration** — never added later
   (CLAUDE.md §7 guardrail 1).
 
-## Rollback policy (SCHEMA-001 — forward-only, expand/contract)
+## Rollback policy — forward-only, expand/contract
 
 probectl migrations are **forward-only**: there are no `.down.sql` files, by
 deliberate design. Rollback is achieved by rolling *forward* (a new,
@@ -51,8 +52,8 @@ unavoidable:
 
 1. **Destructive changes** (a dropped column/table): the data is gone under a
    forward-only model, so a **point-in-time restore** from an encrypted backup
-   (OPS-002, `docs/hardening.md`) is the supported recovery — never hand-edit
-   production schema.
+   (see `docs/ops/backup-restore.md` and `docs/hardening.md`) is the supported
+   recovery — never hand-edit production schema.
 2. **Additive changes**: author a forward revert — a new `NNNN_revert_*.sql`
    that `DROP ... IF EXISTS`-es what the bad migration added, reviewed and
    applied like any migration.
@@ -61,6 +62,6 @@ unavoidable:
    environments.
 
 **Pre-GA exception:** a partitioning change that must recreate a table (e.g.
-the path tables' v2 `(tenant_id, day)` partition, SCALE-006) may discard
+moving the path tables to a `(tenant_id, day)` partition) may discard
 re-discoverable snapshot data, recorded in that migration's comment — explicit,
 and pre-1.0 only.

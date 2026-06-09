@@ -1,16 +1,23 @@
-# The L/XL scale gate (S48) — the acquirer-grade scale proof
+# The L/XL scale gate
 
-The gate runs the PRD §5.4 reference-architecture load profiles against
-numeric SLOs, including the **multi-tenant noisy-neighbor scenario** (F57:
-no cross-tenant performance bleed). It extends the S18a harness
-(`internal/perf`): same drivers, bigger shapes, explicit SLOs.
+This is the test that proves probectl actually holds up at scale — not just that
+the unit tests pass. It drives the reference-architecture load profiles against
+explicit numeric SLOs, and critically it includes a **multi-tenant
+"noisy-neighbor" scenario**: a proof that one tenant hammering the system does not
+degrade a quiet tenant's experience (no cross-tenant performance bleed). It is the
+same harness as the lighter perf smoke (`internal/perf`) — same drivers, just
+bigger shapes and stricter SLOs.
 
-## ⚠ The numeric SLOs are PROVISIONAL — sign-off required
+Why a separate, bigger gate? Because the cheap CI smoke proves the *mechanics*
+work; this proves the *platform* does, at the tenant counts and throughputs a real
+deployment sees.
 
-CLAUDE.md §2 lists numeric SLO targets as a **human-owned open decision**.
-The values below are engineering estimates recorded so the gate is runnable
-end to end. They await explicit sign-off; change them in
-`internal/perf/scale.go` (`Profiles`) and this table together.
+## The numeric SLOs are PROVISIONAL — pending sign-off
+
+The numeric SLO targets below are engineering estimates, recorded so the gate is
+runnable end to end — they await explicit sign-off, not a final commitment.
+Change them in `internal/perf/scale.go` (the `Profiles` function) and this table
+together so the two never drift.
 
 | Tier | Shape (full scale) | Ingest floor | Publish p95 ceiling | Noisy-neighbor inflation ceiling |
 |---|---|---|---|---|
@@ -19,90 +26,99 @@ end to end. They await explicit sign-off; change them in
 | L  | 32 tenants × 100 agents | 10,000 results/s | 100 ms | ≤ 2× |
 | XL | 64 tenants × 300 agents | 25,000 results/s | 200 ms | ≤ 2× |
 
-The inflation ratio applies above a **materiality floor** (5 ms): a 100×
-"inflation" of microseconds is scheduler noise, not a noisy neighbor — the
-quiet tenant's experience is still excellent. The floor is **the same 5 ms
-in CI and at full scale** (U-055; CI briefly carried a 6×-loosened floor —
-that divergence is gone, see the scenario design below). **Correctness has
-no floor and no scale exemption**: every quiet-tenant result must land
-complete and correctly scoped no matter what the neighbor does (guardrail 1
-under load).
+Two subtleties make these numbers honest:
+
+- **The inflation ratio only counts above a materiality floor of 5 ms.** If a
+  quiet tenant's latency goes from 50 microseconds to 5 milliseconds that's a
+  huge *ratio* but it's just scheduler noise — the experience is still excellent.
+  Below the floor, the ratio is ignored; above it, the ≤ 2× ceiling bites. The
+  floor is the **same 5 ms in CI and at full scale**, not a loosened CI value.
+- **Correctness has no floor and no scale exemption.** Throughput floors can scale
+  down for a CI run, but every quiet-tenant result must always land complete and
+  correctly tenant-scoped, no matter what the neighbor does. This is tenant
+  isolation, asserted under load.
 
 ## The noisy-neighbor scenario
 
-Each measurement is a temporally-adjacent **(solo, noisy) pair** on the
-shared pooled path: the quiet tenant alone — baseline p95 — then the same
-quiet workload immediately beside a neighbor flooding at 10× volume. The
-scenario runs **3 pairs and gates on the median pair** (U-055): host-wide
-slowness on a shared CI runner hits both sides of a pair (the ratio
-self-normalizes), and a transient stall poisons at most one pair (the
-median absorbs it) — which is what lets CI enforce the same documented
-floor as reference hardware instead of a loosened one. Sustained contention
-inflates every pair and still trips. Reported: the median pair's solo p95,
-under-noise p95 and inflation ratio, plus the hard correctness verdict
-(AND-ed over every phase of every pair).
+The measurement is a **(solo, noisy) pair**, run back-to-back on the shared pooled
+path: first the quiet tenant runs *alone* (its baseline p95), then the *same*
+quiet workload runs immediately beside a neighbor flooding the system at 10× the
+volume. The inflation ratio is the quiet tenant's under-noise p95 divided by its
+solo p95.
+
+The trick that lets this run reliably in CI: it runs **3 pairs and gates on the
+median pair**. Here's why that's robust. If the shared CI runner is slow
+host-wide, that slowness hits *both* halves of a pair, so the ratio
+self-normalizes. If there's a one-off stall, it poisons at most one pair, and the
+median absorbs it. Only *sustained* contention inflates every pair — and that
+still trips the gate. So CI can enforce the exact same documented floor as
+reference hardware, rather than a loosened one. The report records the median
+pair's solo p95, under-noise p95, and inflation ratio, plus a hard correctness
+verdict AND-ed over every phase of every pair.
 
 ## Running it
 
-- **CI (every pass):** `TestScaleGateCI` runs the M tier at 5% scale —
-  proving the GATE (profiles drive, SLOs evaluate, isolation holds), not
-  the platform. Absolute throughput floors don't apply at CI scale;
-  correctness and material inflation do.
-- **Flow plane (Sprint 17):** the drive set now includes the VOLUME plane.
-  `TestScaleGateFlowPlaneCI` (`internal/perf/flowplane.go`) drives 4× the
-  tier's result count as NetFlow records through the production
-  `FlowConsumer` (verify + fairness + enrich seams identical to runtime) and
-  fails on any rejected batch or incomplete storage. `make scale-gate` runs
-  both planes (`-run '^TestScaleGate'`).
-- **Nightly M-profile regression guard:** `make scale-gate-m` runs the M
-  tier (both planes, CI scale) plus the M-tier FULL-STACK gate against real
-  Kafka + Prometheus — the `scale-gate-m` job in `nightly.yml`. A
-  regression that breaks an SLO, drops a record, or leaks a tenant fails
-  the night's build; this is the standing guard until the L/XL reference
-  run lands.
-- **Full scale (reference hardware):** `make scale-gate TIER=L` (or `XL`)
-  sets `PROBECTL_SCALE=1` and runs the real shape with the absolute SLOs
-  armed. Record the numbers here when run:
+There are two harnesses, deliberately. An **in-process** one (fast, runs on every
+CI pass, exercises the bus → pipeline → store path) and a **full-stack** one (runs
+the same profiles through real Kafka and Prometheus). This section is the
+in-process gate; the next is the full-stack one.
+
+- **CI (every pass):** `TestScaleGateCI` runs the M tier at 5% scale. This proves
+  the *gate* (profiles drive, SLOs evaluate, isolation holds), not the platform —
+  the absolute throughput floors do not apply at 5% scale, but correctness and
+  material inflation do.
+- **The flow (volume) plane:** the drive set also includes the high-volume flow
+  plane. `TestScaleGateFlowPlaneCI` (`internal/perf/flowplane.go`) pushes 4× the
+  tier's result count as NetFlow records through the *production* `FlowConsumer`
+  (the verify + fairness + enrich seams are identical to runtime) and fails on any
+  rejected batch or incomplete storage. `make scale-gate` runs both planes.
+- **Nightly regression guard:** `make scale-gate-m` runs the M tier (both planes,
+  CI scale) plus the M-tier full-stack gate against real Kafka + Prometheus — this
+  is the `scale-gate-m` job in `nightly.yml`. A regression that breaks an SLO,
+  drops a record, or leaks a tenant fails the night's build. It's the standing
+  guard until the full L/XL reference run is recorded.
+- **Full scale (reference hardware):** `make scale-gate TIER=L` (or `XL`) sets
+  `PROBECTL_SCALE=1` and runs the real shape with the absolute SLOs armed. Record
+  the numbers here when run:
 
 | Date | Tier | Hardware | Throughput | Publish p95 | Inflation | Verdict |
 |---|---|---|---|---|---|---|
 | _pending_ | L | _reference hardware TBD_ | — | — | — | — |
 | _pending_ | XL | _reference hardware TBD_ | — | — | — | — |
 
-## The FULL-STACK load gate (U-005)
+## The full-stack load gate
 
-The in-process gate above excludes the real transports (see the honesty
-notes). The full-stack harness (`internal/perf/fullstack.go`) closes that
-gap with the SAME tier profiles and SLOs: synthetic agents publish through
-**real Kafka** (the async producer), the **production consumer** (retry/DLQ
-+ cardinality caps) remote-writes into a **real Prometheus**, and the run is
-confirmed back OUT of the store with tenant-scoped PromQL — completeness,
-per-tenant scoping, and query latency. Each run namespaces its tenants, and
-the gate fails on any SLO violation, incomplete ingest, or scoping error.
+The in-process gate above is fast but, by design, skips the real transports (see
+the honesty notes at the end). The full-stack harness (`internal/perf/fullstack.go`)
+closes that gap using the *same* tier profiles and SLOs, but end to end: synthetic
+agents publish through **real Kafka** (the async producer), the **production
+consumer** (retry/DLQ + cardinality caps) remote-writes into a **real
+Prometheus**, and the run is then confirmed back *out* of the store with
+tenant-scoped PromQL — checking completeness, per-tenant scoping, and query
+latency. Each run namespaces its own tenants, and the gate fails on any SLO
+violation, incomplete ingest, or scoping error.
 
-- **CI (every pass):** the `load-smoke` job — S tier at 5% scale against the
-  dev compose stack (`make load-test-smoke`). Proves the harness, not the
-  platform.
-- **Reference hardware (human-scheduled):** `make compose-up && make
-  load-test TIER=L` (then `XL`). The test logs a `RESULT ROW` line — commit
-  it below and flip the SLO labels above from PROVISIONAL once both tiers
-  pass.
+- **CI (every pass):** the `load-smoke` job — S tier at 5% scale against the dev
+  compose stack (`make load-test-smoke`). Proves the harness, not the platform.
+- **Reference hardware (human-scheduled):** `make compose-up && make load-test
+  TIER=L` (then `XL`). The test logs a `RESULT ROW` line — commit it below, and
+  flip the SLO labels above from PROVISIONAL once both tiers pass.
 
 | Date | Tier | Hardware | Throughput (results/s) | Publish p95 | Query p95 | Series confirmed | Verdict |
 |---|---|---|---|---|---|---|---|
 | _pending human run_ | L | _reference hardware TBD_ | — | — | — | — | — |
 | _pending human run_ | XL | _reference hardware TBD_ | — | — | — | — | — |
 
-Run against a fresh stack (`make compose-down && make compose-up`): the
-consumer reads its topic from the start, and a persistent Prometheus keeps
-prior runs' series (the namespace isolates correctness, not disk).
+Run against a fresh stack (`make compose-down && make compose-up`): the consumer
+reads its topic from the start, and a persistent Prometheus keeps prior runs'
+series (the per-run namespace isolates correctness, not disk).
 
 The pooled-Postgres side of multi-tenant isolation under load (RLS cost,
-per-tenant query p95) remains covered by the S18a `perf-smoke` integration
-job (`DrivePooled`); the S-T7 fairness sprint extends it per the plan.
+per-tenant query p95) stays covered by the `perf-smoke` integration job
+(`DrivePooled`, described in [`architecture.md`](architecture.md)); the fairness
+work extends it.
 
-Honesty notes: the in-process harness measures the bus→pipeline→store
-path — it excludes network hops, real ClickHouse, and gRPC agent
-transport, which the full-stack `test/` soak covers separately. CI-scale
-numbers prove the gate's mechanics only; never quote them as platform
-capability.
+**Honesty notes.** The in-process harness measures only the bus → pipeline → store
+path — it excludes network hops, real ClickHouse, and the gRPC agent transport,
+which the full-stack `test/` soak covers separately. And CI-scale numbers prove
+the gate's *mechanics* only: never quote them as platform capability.

@@ -1,21 +1,28 @@
-# Multi-region / active-active HA (S-EE2, F33)
+# Multi-region / active-active HA
 
-probectl runs **active-active across regions**: every region runs
-interchangeable, stateless control-plane + ingest replicas, all serving traffic
-at once. Durable state is **one PostgreSQL primary (writer)** with streaming
-replicas in the other regions. A region failover promotes a standby and
-re-points the writer; the control plane fences writes during the transition so
-a split-brain write can never corrupt state.
+probectl runs **active-active across regions** — but it's worth being precise
+about what that phrase does and does not mean here, because it's the source of
+most confusion about HA databases.
 
-This is the honest Postgres model: there is exactly one writable primary at a
-time. "Active-active" describes the **control-plane tier** (active everywhere);
-the database is **single-writer with read replicas** — the correct, conflict-free
-design for PostgreSQL. (A multi-writer global database is explicitly out of
-scope; PRD §4 pins Postgres.)
+- The **control-plane tier is active everywhere**: every region runs
+  interchangeable, *stateless* control-plane and ingest replicas, all serving
+  traffic at the same time.
+- The **database is single-writer with read replicas**: durable state is one
+  PostgreSQL primary (the writer), with streaming replicas in the other regions.
 
-**Edition:** the mechanics + docs are **core** — stateless replicas are inherent
-to S1/S34, and the split-brain fence protects any deployment. The validated
-failover **runbooks + support** are the Enterprise entitlement (`ha_support`).
+That split is deliberate and it's the *honest* Postgres model. There is exactly
+one writable primary at any instant — which is the correct, conflict-free design
+for PostgreSQL. A multi-writer global database (the CockroachDB/Yugabyte style) is
+explicitly out of scope. On failover, a standby is promoted and the writer
+endpoint re-points to it; during that transition the control plane **fences
+writes** so a split-brain situation can never corrupt state. (Fencing is explained
+in detail below — it is the safety core of this whole design.)
+
+**Edition note:** the *mechanics* and these docs are **core/free** — stateless
+replicas are inherent to how the control plane is built, and the split-brain
+fence protects any deployment, single-region or not. What's an Enterprise
+entitlement (`ha_support`) is the *validated failover runbooks and support*, not
+the code.
 
 ---
 
@@ -73,26 +80,32 @@ guarantee, run `sync` with at least one synchronous standby.
 
 ## Split-brain fencing (the safety core)
 
-Two failure modes must never silently corrupt state. The control plane probes
-the writer endpoint every 5s and **fails writes closed** (HTTP 503
-`writer_unavailable`, `Retry-After`) when the writer is not provably the current
-primary — while **reads keep serving** and **telemetry ingest never pauses**
-(degrade to read-only, never lose data):
+"Split-brain" is the nightmare of any failover system: two nodes both believe
+they are the primary and both accept writes, silently diverging. probectl's
+defense is an app-layer fence that refuses to write unless the target is
+*provably* the current primary. The control plane probes the writer endpoint
+every 5 seconds and **fails writes closed** (HTTP 503 `writer_unavailable`, with a
+`Retry-After`) whenever it can't prove that — while **reads keep serving** and
+**telemetry ingest never pauses**. The principle: degrade to read-only, never lose
+or corrupt data.
 
-1. **Writer endpoint points at a read-only standby** (a half-finished failover)
-   — detected by `pg_is_in_recovery()`.
-2. **Writer endpoint points at a stale ex-primary** (a partitioned old primary
-   still in primary-role) — detected by a monotonic **promotion epoch** in the
-   `cluster_state` table. Every promotion calls `cluster_promote(region)` which
-   bumps the epoch; the new epoch replicates to the standbys. A replica that
-   already follows the new primary carries the higher epoch, so a writer
-   endpoint still pointing at the old primary (lower epoch) is fenced. A lower
-   epoch can **never** reclaim the writer role — the high-water mark is
-   monotonic.
+There are two specific failure modes it catches:
 
-The fence is the app-layer complement to whatever failover controller you run
-(Patroni, a managed DB, etc.): even if the writer endpoint briefly resolves to
-the wrong node during a flip, probectl will not write to it.
+1. **The writer endpoint points at a read-only standby** — a half-finished
+   failover. Detected directly by `pg_is_in_recovery()` returning true.
+2. **The writer endpoint points at a stale ex-primary** — an old primary that got
+   partitioned off but is still in primary-role and would happily accept writes.
+   This is caught by a monotonic **promotion epoch** stored in the `cluster_state`
+   table. Every promotion calls the `cluster_promote(region)` function, which bumps
+   the epoch, and that new epoch replicates out to the standbys. A replica that
+   already follows the *new* primary carries the higher epoch — so a writer
+   endpoint still pointing at the *old* primary (lower epoch) is detected as stale
+   and fenced. Because the epoch is a monotonic high-water mark, a lower epoch can
+   **never** reclaim the writer role.
+
+This fence is the application-layer complement to whatever failover controller you
+actually run (Patroni, a managed database, etc.): even if your endpoint briefly
+resolves to the wrong node mid-flip, probectl will not write to it.
 
 ## RTO
 
@@ -102,38 +115,41 @@ failover controller's detection + promotion times. probectl resumes writes
 automatically on the next probe once the endpoint resolves to the promoted
 primary — no probectl restart required.
 
-## ⚠ The RPO/RTO targets are PROVISIONAL — sign-off required
+## The RPO/RTO targets are PROVISIONAL — pending sign-off
 
-Per CLAUDE.md §2, numeric SLO targets are a **human-owned open decision**.
-These are recorded so the failover gate is runnable end to end; they await
-explicit sign-off. Set them via `PROBECTL_RPO_SECONDS` / `PROBECTL_RTO_SECONDS`
-(surfaced on `/readyz` and in this table together).
+RPO (how much data you can lose) and RTO (how long recovery takes) are *numeric
+SLO targets*, and the exact numbers are an open decision still awaiting explicit
+sign-off. The values below are recorded so the failover gate is runnable end to
+end, not as a final commitment. They are configurable via `PROBECTL_RPO_SECONDS` /
+`PROBECTL_RTO_SECONDS` (surfaced together on `/readyz` and in this table).
 
 | Target | Provisional value | Determined by |
 |---|---|---|
 | **RPO** | `0` with `sync`; else ≈ lag (target ≤ 5 s) | replication mode + standby health |
 | **RTO** | ≤ **60 s** | DB failover controller detect+promote + a 5 s probe |
 
-## Per-region data residency (governance)
+## Per-region data residency
 
-`PROBECTL_RESIDENCY` records the default data-residency region; per-tenant
-residency is an S-T2 property (siloed tenants pin their stores to a region).
-Cross-region replication of a residency-restricted tenant's data must respect
-its residency — for strict tenants, use **siloed isolation** (S-T2) with the
-silo stores confined to the permitted region rather than replicating them
-globally.
+`PROBECTL_RESIDENCY` records the *default* data-residency region for the
+deployment. Per-tenant residency is a property of a siloed tenant — a siloed
+tenant pins its stores to a region (see [`isolation.md`](isolation.md)). The rule
+to internalize: cross-region replication of a residency-restricted tenant's data
+must respect that residency. So for a strict tenant, don't replicate its data
+globally — use **siloed isolation** with the silo stores confined to the permitted
+region.
 
 ## Operating it
 
 - **Health/status:** `/readyz` carries the cluster view (region, writer role,
-  `writes_usable`, replica lag). The node stays **ready (200) for reads** during
-  a failover; `writes_usable:false` tells operators/automation writes paused.
+  `writes_usable`, replica lag). The node stays **ready (200) for reads** during a
+  failover; `writes_usable: false` tells operators and automation that writes
+  paused.
 - **Metrics:** `probectl_cluster_writes_usable`, `probectl_cluster_writer_role`
   (writer=1 / reader=0 / stale=-1 / unknown=-2 — alert on `< 1`),
-  `probectl_cluster_epoch`, `probectl_cluster_replica_lag_seconds`, all labeled
-  by `region`.
-- **Failover:** see `docs/runbooks/region-failover.md`.
-- **Config:** see `docs/configuration.md` → "Multi-region / HA".
+  `probectl_cluster_epoch`, and `probectl_cluster_replica_lag_seconds`, all
+  labeled by `region`.
+- **Failover:** see [`runbooks/region-failover.md`](runbooks/region-failover.md).
+- **Config:** see [`configuration.md`](configuration.md) → "Multi-region / HA".
 
 ## Out of scope
 

@@ -15,16 +15,22 @@ pinned header set removes that whole class of version-skew breakage.
 - Obtained via: `make install_headers` at that tag (then copied the BPF-program subset).
 - License: LGPL-2.1 OR BSD-2-Clause (per each file's SPDX header).
 
+The files live in the `bpf/` subdirectory here (`headers/bpf/`), so the programs
+include them with the upstream path — `#include <bpf/bpf_helpers.h>`. The BPF
+compile reaches them via `-I./bpf/headers` in `gen_bpf.sh` (the single source of
+truth for the clang/`bpf2go` build; a `gen_bpf_test.go` guard fails the build if
+that flag is dropped).
+
 Files (BPF-program headers only; the userspace loader headers are intentionally
 NOT vendored — the Go side uses the `github.com/cilium/ebpf` library):
 
-| file               | included by                          |
-|--------------------|--------------------------------------|
-| bpf_helpers.h      | l4flow.bpf.c, sslsniff.bpf.c         |
-| bpf_helper_defs.h  | (via bpf_helpers.h)                  |
-| bpf_tracing.h      | sslsniff.bpf.c (BPF_UPROBE)          |
-| bpf_core_read.h    | available for CO-RE programs         |
-| bpf_endian.h       | available for byte-order helpers     |
+| file (`headers/bpf/`) | included by                          |
+|-----------------------|--------------------------------------|
+| bpf_helpers.h         | l4flow.bpf.c, sslsniff.bpf.c         |
+| bpf_helper_defs.h     | (via bpf_helpers.h)                  |
+| bpf_tracing.h         | sslsniff.bpf.c (BPF_UPROBE)          |
+| bpf_core_read.h       | available for CO-RE programs         |
+| bpf_endian.h          | available for byte-order helpers     |
 
 ## Updating
 

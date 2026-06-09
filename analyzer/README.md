@@ -16,9 +16,10 @@ side (`internal/bgp`) bridges those onto the bus as the canonical
 | `rislive.py` | RIS Live JSON parsing (replayable core) + a reconnecting websocket client |
 | `rpki.py` | RFC 6811 route-origin validation against a VRP set |
 | `monitor.py` | per-prefix baseline + origin-change / possible-hijack / possible-leak detection |
-| `events.py` | the `BGPEvent` schema (JSON form is the bridge contract) |
-| `config.py` | monitored prefixes, expected origins, no-transit ASNs, RPKI source, tenant |
-| `emit.py` | JSON-Lines event sink |
+| `events.py` | the `BGPEvent` schema (its JSON form is the contract with the Go bridge) |
+| `config.py` | monitored prefixes, expected origins, no-transit ASNs, RPKI source, tenant (loaded from JSON) |
+| `emit.py` | JSON-Lines event sink (a Kafka sink is a future addition) |
+| `log.py` | `structlog` setup (JSON log lines on stderr — no `print`) |
 | `pipeline.py` / `__main__.py` | wiring + CLI |
 
 ## Usage
@@ -34,12 +35,15 @@ python -m probectl_analyzer --config config.json --mrt rib.20260101.0000.bz2.mrt
 # replay a recorded RIS Live capture (JSON Lines)
 python -m probectl_analyzer --config config.json --replay ris-capture.jsonl
 
-# stream live from RIS Live
-python -m probectl_analyzer --config config.json --ris-live | probectl-bgp-bridge
+# stream live from RIS Live (writes JSONL to stdout)
+python -m probectl_analyzer --config config.json --ris-live --out /var/lib/probectl/bgp-events.jsonl
 ```
 
-Events are written as JSON Lines to stdout (or `--out FILE`); the Go bridge tails
-that stream and republishes onto the bus.
+Events are written as JSON Lines to stdout (or `--out FILE`). The Go side
+(`internal/bgp`) is a **bridge package embedded in the control plane**, not a
+standalone CLI: it reads this JSONL stream, validates each event's tenant, and
+republishes onto the bus as the `probectl.bgp.v1.BGPEvent` protobuf. Wire the
+analyzer's output to that reader (e.g. a file/pipe the control plane consumes).
 
 ### Config (`config.json`)
 

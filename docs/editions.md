@@ -1,49 +1,74 @@
-# Editions & licensing (S-T0)
+# Editions & licensing
 
-probectl ships as **one repo, one binary lineage, no edition branches**. The
-commercial boundary is a license file plus a directory fence — never a fork.
-This document is the engineering contract for that boundary: the rules every
-later sprint (S-T1+, S-EE1+) builds against.
+probectl is **open-core**: the core platform is source-available and free, and a
+commercial tier (Enterprise, plus a Provider/MSP tier) is gated. This document is
+the engineering contract for how that split is enforced in the codebase.
+
+The one-sentence version: **it is one repo with one binary lineage and no edition
+branches — the commercial boundary is a license file plus a directory fence, never
+a fork.** Everything below is an elaboration of that sentence.
 
 ## The model in one paragraph
 
-Commercial source lives in the top-level **`ee/`** tree under a commercial
-license header; when the repo goes public, `ee/` is publicly readable (the
-GitLab/CockroachDB model — the fence is the license + trademark, not source
-secrecy). Imports are **one-way**: `ee/` may import core, **core may never
-import `ee/`** — CI enforces this and the core-only build must stay green with
-`ee/` absent or inert. At runtime, commercial features activate only when an
-**offline-verifiable Ed25519-signed license file** grants them. Verification
-is local math against build-time-baked public keys — **never phone-home**.
+Commercial source lives in the top-level **`ee/`** tree under a commercial license
+header. When the repo goes public, `ee/` is publicly *readable* — the fence is the
+license and trademark, not source secrecy (the same model GitLab and CockroachDB
+use). Imports are strictly **one-way**: `ee/` may import core, but **core may never
+import `ee/`**. CI enforces that, and a "core-only" build must compile and pass its
+tests with `ee/` absent from the link. At runtime, a commercial feature activates
+only when an **offline-verifiable, Ed25519-signed license file** grants it.
+Verification is local math against public keys baked in at build time — it
+**never phones home**.
+
+Why this shape? Three goals at once: keep the platform genuinely open and
+auditable; let a single binary serve both the free and paid cases without a
+separate "enterprise edition" download; and make "we don't phone home" a claim you
+can *check by reading the open code*, not just trust.
 
 ## Tiers and the feature→tier table
 
-There is exactly **one** feature→tier table, in `internal/license`
-(`tierFeatures`). Never duplicate tier knowledge anywhere else.
+There is exactly **one** feature→tier table in the whole codebase:
+`tierFeatures` in `internal/license/license.go`. Tier knowledge is never
+duplicated anywhere else, so there is a single source of truth.
 
-| Tier | Features |
+| Tier | Gated features |
 |---|---|
-| `community` | Everything not listed below — the full core, free forever. |
-| `enterprise` | `fips` (distribution-gated build), `byok`, `governance`, `remediation` (S-EE5, still policy-sign-off-gated), `ha_support` |
-| `provider` | All enterprise features, plus `provider_plane`, `siloed_isolation`, `metering`, `white_label` |
+| `community` | None — everything not listed below is core and free forever. |
+| `enterprise` | `fips` (a build artifact, see below), `byok`, `governance`, `remediation`, `ha_support` |
+| `provider` | `provider_plane`, `siloed_isolation`, `metering`, `white_label` |
 
-**Deliberately core (free), per the ratified decisions:** per-tenant export /
-verifiable deletion (S-T5 — a compliance right, not a product), fairness
-*enforcement* (S-T7 — protects the pooled platform; provider-console *views*
-are `ee/`), and support-bundle *generation* (S-EE4 — the tool is core, the
-support entitlement is contract). **Starter/Pro pricing tiers need no code
-gating at all** — they are entitlement (support/SLA) tiers on the same core
-binary.
+**Read the tiers as independent feature sets, not a strict superset.** A
+`provider` license grants the four provider features — it does **not**
+automatically include the enterprise features. In the code, each feature is
+checked on its own (`granted()` looks only at `tierFeatures[the license's tier]`
+plus any explicit extras), and the license test asserts exactly this: a provider
+license has `provider_plane` but not `remediation` unless `remediation` is listed
+as an explicit extra. A real-world "provider that also wants BYOK" deal is
+expressed by issuing a `provider` license with `byok` in its `features` extras
+list (see the license file below) — not by an implied inheritance.
 
-**`fips` is the exception to runtime gating (S-EE1).** The FIPS 140-3 build is
-gated by the **artifact** (the build embedding the FIPS 140-3-validated Go
-Cryptographic Module v1.0.0, CMVP #5247 — see `docs/hardening.md` for the exact
-claim boundary), not a `lic.Has(fips)` check — there is no runtime
-license gate for FIPS anywhere in the binary. The validated distribution
-(`make build-fips`, `GOFIPS140` + the `probectl_fips` tag) is the Enterprise
-deliverable; the `fips` table row documents that entitlement. A running binary
-reports its FIPS posture on `/v1/editions` under `fips` (build tag, live module
-state, self-test result) as a status indicator only. See `docs/hardening.md`.
+**Some capabilities are deliberately core (free), even though they sound
+commercial:**
+
+- Per-tenant data export and verifiable deletion — a *compliance right*, not a
+  product to sell.
+- Fairness *enforcement* — it protects the shared pooled platform, so everyone
+  gets it. (The provider-console *views* of fairness live in `ee/`.)
+- Support-bundle *generation* — the tool is core; the support SLA is a contract,
+  not a code gate.
+
+And "Starter/Pro" pricing tiers need **no code gating at all**: they are
+entitlement (support/SLA) tiers riding the same core binary.
+
+**`fips` is the one exception to runtime gating.** The FIPS 140-3 build is gated by
+the **artifact**, not by a `lic.Has(fips)` check — there is *no* runtime license
+gate for FIPS anywhere in the binary. The validated distribution is what you build
+with `make build-fips` (which sets `GOFIPS140` and the `probectl_fips` tag); that
+build embeds the FIPS 140-3-validated Go Cryptographic Module, and *being that
+build* is the entitlement. The `fips` row in the table simply documents which tier
+that distribution belongs to. A running binary reports its FIPS posture on
+`/v1/editions` (build tag, live module state, self-test result) purely as a status
+indicator. The exact validation claim boundary is in [`hardening.md`](hardening.md).
 
 ## The license file
 
@@ -73,14 +98,17 @@ The claims inside:
 }
 ```
 
-- `tier` implies its feature set from the one table; `features` lists
-  *explicit extras* on top (e.g. a one-off grant).
-- `tenant_band` is the licensed tenant count band (informational until S-T1
-  consumes it; never an enforcement kill-switch on running telemetry).
-- Verification rejects: unknown payload version, unknown or `community` tier
-  (community needs no license), a signature that fails against every trusted
-  key, and an inverted validity window. An **expired license still loads** —
-  expiry is a *state*, not a parse error (see the ladder below).
+- `tier` implies its feature set from the one table; `features` lists *explicit
+  extras* on top (the mechanism for a one-off grant, like the "provider + byok"
+  deal above).
+- `tenant_band` is the licensed tenant-count band. It is enforced at tenant
+  *provisioning* time (the provider plane refuses to create a tenant past the
+  band), and is **never** a kill-switch on already-running telemetry.
+- Verification rejects: an unknown payload version, an unknown or `community` tier
+  (community needs no license at all), a signature that fails against every
+  trusted key, and an inverted validity window (expiry before issue). An
+  **expired license still loads** — expiry is a *state*, not a parse error (see
+  the ladder below).
 
 ## Trust anchor: build-time only
 
@@ -119,26 +147,33 @@ probectl-license inspect -file license.json
 
 ## Runtime states: the expiry ladder
 
+The guiding principle here: **an expired license must never break your
+observability.** A monitoring tool that goes dark the day a contract lapses is a
+liability during exactly the kind of incident you bought it for. So expiry
+degrades commercial *write* paths gradually and leaves the telemetry pipeline
+untouched.
+
 `PROBECTL_LICENSE_FILE` points the control plane at the license (see
-`docs/configuration.md`). States, in order:
+[`configuration.md`](configuration.md)). The states, in order:
 
 | State | When | Behavior |
 |---|---|---|
 | `community` | No license configured | Default-open core; commercial features hidden. |
 | `active` | Within validity | Granted features `enabled`. |
 | `grace` | 0–30 days past expiry | Features stay `enabled`; the UI banners the deadline. |
-| `read_only` | >30 days past expiry | Granted features degrade to `read_only`: existing views render, **no new tenants/config**; branding persists; **telemetry pipelines never break**. Expired ≠ broken observability. |
+| `read_only` | >30 days past expiry | Granted features degrade to `read_only`: existing views still render, but **no new tenants or config**; branding persists; **telemetry pipelines never break**. Expired is not the same as broken observability. |
 
-`Manager.Has(f)` stays true in `read_only` (read paths still construct);
-`Manager.Mode(f)` distinguishes `enabled` / `read_only` / `off` for write
-gating.
+In code, this is why there are two methods: `Manager.Has(f)` stays true in
+`read_only` (so read paths still construct and serve), while `Manager.Mode(f)`
+distinguishes `enabled` / `read_only` / `off` for *write* gating.
 
 ## Gating pattern (the only sanctioned shape)
 
 Tier checks are wired **only at the `main.go` `Build*` seams** — never inside
-handlers, engines, or stores. Since S-T1 the seam is concrete:
-**`cmd/probectl-control/ee_attach.go`** (the one file allowlisted by the
-editions guard), which MUST carry `//go:build !probectl_core`:
+handlers, engines, or stores. The concrete seam is one file:
+**`cmd/probectl-control/ee_attach.go`** (the only file the editions guard
+allowlists for importing `ee/`), which **must** carry the `//go:build
+!probectl_core` tag:
 
 ```go
 // ee_attach.go (build !probectl_core) — the ONE place core meets ee/.
@@ -148,22 +183,25 @@ func attachEE(srv *control.Server, ..., lic *license.Manager, ...) error {
         if err != nil { return err }
         srv.WithProviderPlane(h)                 // core sees an opaque http.Handler
     }
+    // ... one more `if lic.Has(...)` block per commercial feature ...
     return nil
 }
 ```
 
-`ee_attach_core.go` (`//go:build probectl_core`) is the no-op twin: the
-core-only build (`-tags probectl_core`, what `make editions-gate` builds)
-links **zero** `ee/` packages — verifiable with
-`go list -tags probectl_core -deps ./cmd/probectl-control | grep /ee` (empty).
-One binary lineage, two link sets; runtime activation stays license-gated in
-the default build.
+The trick that makes "core stands alone" literally true: there is a no-op twin,
+`ee_attach_core.go`, tagged `//go:build probectl_core`, whose `attachEE` does
+nothing. The core-only build (`-tags probectl_core`, which is what `make
+editions-gate` compiles) links that twin and therefore pulls in **zero** `ee/`
+packages — you can verify it directly with `go list -tags probectl_core -deps
+./cmd/probectl-control | grep /ee` (the output is empty). One binary lineage, two
+link sets; in the default build, activation stays license-gated.
 
 Scattering `if licensed` checks through business logic is a review-blocking
-defect: it multiplies the surface where a bug becomes a licensing bypass or,
-worse, a core regression. (A licensed feature may still consult
-`Mode(feature)` internally to implement its OWN read-only degrade — that is
-behavior of the feature, not gating.)
+defect, because every such check is one more place a bug could become a licensing
+*bypass* or — worse — a *core regression*. Keeping all the checks at one seam
+keeps that surface tiny. (A licensed feature may still consult `Mode(feature)`
+internally to implement its *own* read-only degrade — that is the feature's
+behavior, not gating.)
 
 ## Unlicensed UX
 
@@ -174,7 +212,7 @@ so an operator can see what exists and what their file grants.
 
 ## CI: the editions gate
 
-`make editions-gate` (a standing CI job from S-T0 on):
+`make editions-gate` is a standing CI job. It does two things:
 
 1. `scripts/check_editions_imports.sh` — greps for any core import of
    `…/probectl/ee/…`, allowing ONLY the `ee_attach.go` seam (and only when it

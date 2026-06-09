@@ -1,7 +1,7 @@
 # deploy/terraform/
 
-Terraform modules for deploying probectl (S35, F29). The core module deploys the
-hardened Helm chart plus the sensitive config as a Kubernetes Secret, on **any**
+Terraform modules for deploying probectl. The core module deploys the hardened
+Helm chart plus the sensitive config as a Kubernetes Secret, on **any**
 Kubernetes cluster (EKS/GKE/AKS/OpenShift/k3s) — provision the cluster + managed
 Postgres with your cloud's own modules and pass the DSN in.
 

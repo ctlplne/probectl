@@ -1,7 +1,8 @@
-# Scheduled backups (U-030)
+# Scheduled backups
 
-Cron examples for the two durable stores. The scripts they wrap, the restore
-procedure, RTO/RPO expectations, and the drill are in
+Cron examples for the two durable stores — PostgreSQL (control-plane state)
+and ClickHouse (high-cardinality events). The scripts they wrap, the restore
+procedure, RTO/RPO expectations, and the recovery drill are in
 [`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md).
 
 **Backups contain tenant data.** Store them encrypted at rest on an

@@ -6,6 +6,19 @@ its policy sign-off) guarded remediation. The legal license text is **TBD
 with counsel**; until it lands, every file here carries the placeholder
 commercial header from `ee/doc.go`.
 
+```
+ee/
+├── provider/      # provider / management plane (tenant lifecycle, fleet, break-glass)
+├── silo/          # siloed / hybrid per-tenant isolation
+├── billing/       # per-tenant metering + usage/billing export
+├── whitelabel/    # per-tenant white-label
+├── tenantkeys/    # per-tenant keys / BYOK (builds on internal/crypto)
+├── governance/    # governance controls (e.g. AI egress policy)
+├── remediation/   # guarded, human-gated remediation
+├── web/           # commercial UI source (aliased @ee in web/)
+└── doc.go         # the placeholder commercial-license header
+```
+
 The three rules (enforced by `make editions-gate` in CI):
 
 1. **One-way imports.** `ee/` may import core packages. Core may **never**

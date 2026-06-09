@@ -1,9 +1,25 @@
-# Hardened run profiles for probectl-ebpf-agent (U-052)
+# Hardened run profiles for probectl-ebpf-agent
+
+This directory holds the deployment artifacts that run the eBPF host agent
+under tight privilege limits — a systemd unit, a seccomp profile, a VM
+installer, and example configs.
 
 The eBPF agent is **observe-only** (the CI gate refuses enforcing program
 types), but it loads kernel programs — so it runs with the smallest
 capability set the kernel allows, a default-deny seccomp profile, and no
 root.
+
+## What's in this directory
+
+| File | What it is |
+| ---- | ---------- |
+| `probectl-ebpf-agent.service` | hardened systemd unit (ambient `CAP_BPF`+`CAP_PERFMON`, syscall filter, namespace lockdown) |
+| `seccomp.json` | default-deny (`EPERM`) syscall allowlist for the container runtime |
+| `install.sh` | VM / bare-metal installer (creates the system user, installs the binary + unit + a fail-closed sample config) |
+| `probectl-ebpf-agent.example.yml` | example config for the eBPF host/flow agent |
+| `probectl-flow-agent.example.yml` | example config for the standalone NetFlow/IPFIX/sFlow collector |
+| `probectl-device-agent.example.yml` | example config for the device-telemetry (SNMP/gNMI) agent |
+| `probectl-agent.example.yml` | example config for the canary/synthetic agent |
 
 ## Capability matrix by kernel
 
@@ -40,7 +56,7 @@ services:
       - /sys/kernel/btf/vmlinux:/sys/kernel/btf/vmlinux:ro
 ```
 
-## Kubernetes (DaemonSet securityContext — U-016 pairing)
+## Kubernetes (DaemonSet securityContext)
 
 **The supported artifact is the `deploy/helm/probectl-agent` chart** — it
 declares this exact contract (plus the BTF mount, resource limits, and

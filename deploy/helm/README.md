@@ -39,10 +39,9 @@ helm install probectl deploy/helm/probectl \
 
 Tenant isolation is enforced by the control plane (pooled RLS scoping) regardless
 of deployment shape; the multi-tenant values only size the runtime and spread
-replicas. Per-tenant white-label and the provider console arrive with the S-T
-track.
+replicas.
 
-## Reference values (S35)
+## Reference values
 
 Pick a sizing profile and layer your overrides on top:
 
@@ -53,18 +52,22 @@ Pick a sizing profile and layer your overrides on top:
 | medium | [`probectl/values-medium.yaml`](probectl/values-medium.yaml) | 3 replicas + PDB + spread |
 | large | [`probectl/values-large.yaml`](probectl/values-large.yaml) | HPA 4–12 + PDB + filled NetworkPolicy egress allow-list |
 | provider (MSP) | [`probectl/values-multitenant.yaml`](probectl/values-multitenant.yaml) | 3 replicas + anti-affinity + PDB |
+| multi-region | [`probectl/values-multiregion.yaml`](probectl/values-multiregion.yaml) | active-active HA, one release per region |
+| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | tightest egress + air-gapped-leaning defaults |
 
 `values.schema.json` types every key (Helm validates it). Security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
 `/readyz` drain probe, HSTS, no default credentials) are enforced by the CI
 hardening gate — `make helm-gate` (`helm lint` + `scripts/check_helm_hardening.sh`).
 
-**NetworkPolicy is ON by default (U-086)** in every profile, with two
+**NetworkPolicy is ON by default** in every profile, with two
 documented holes until tightened per deployment: empty `ingressFrom` admits
 any in-cluster pod to the API port, and empty `egressTo` allows all egress.
 `values-large.yaml` ships the filled reference egress allow-list (datastores/
 bus/TSDB on private ranges + a clearly-marked HTTPS-anywhere rule for IdP and
-open-data feeds — delete that rule when air-gapped). Enforcement needs a
+open-data feeds — delete that rule when air-gapped); `values-strict.yaml`
+closes **both** holes for regulated/air-gapped clusters (named ingress-controller
+selector + explicit egress allow-list). Enforcement needs a
 NetworkPolicy-capable CNI; the gate asserts the object renders by default.
 Terraform + GitOps wrap this same chart; see
 [`docs/iac-gitops.md`](../../docs/iac-gitops.md). Full guide:

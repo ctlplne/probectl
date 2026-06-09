@@ -1,11 +1,17 @@
 # deploy/compose/
 
-Docker Compose stacks.
+Docker Compose stacks for running probectl — one production-shaped all-in-one
+deploy, and one local dependency stack for developing the control plane from
+source.
 
-| File          | Purpose                                                                       |
-| ------------- | ----------------------------------------------------------------------------- |
-| `probectl.yml`  | **Shipped all-in-one deploy** — control plane (HTTPS-only) + Postgres         |
-| `dev.yml`     | Local dev *dependency* stack: Postgres, Kafka, ClickHouse, Prometheus         |
+| File | Purpose |
+| ---- | ------- |
+| `probectl.yml` | **Shipped all-in-one deploy** — control plane (HTTPS-only) + Postgres, with a one-shot self-signed-cert generator |
+| `.env.example` | template for the `.env` `probectl.yml` reads (Postgres password, envelope key, TLS hosts, OIDC) |
+| `dev.yml` | Local dev **dependency** stack: Postgres, Kafka, ClickHouse, Prometheus |
+| `prometheus.yml` | Prometheus config used by the `dev.yml` stack |
+| `clickhouse-backups.xml` | ClickHouse server config that whitelists `/backups` as a server-side `BACKUP`/`RESTORE` path (used by `dev.yml`) |
+| `dr-drill.yml` | overlay that adds a streaming Postgres replica so `scripts/failover_drill.sh` can time a real promote-the-standby failover |
 
 ## Shipped all-in-one (`probectl.yml`) — HTTPS-by-default
 

@@ -1,4 +1,4 @@
-# Hardening & FIPS 140-3 guide (S-EE1, F32)
+# Hardening and FIPS 140-3 guide
 
 This guide covers running probectl in a hardened, regulated, or air-gapped
 posture: the FIPS 140-3 build, a STIG/CIS-style hardening checklist, and a
@@ -13,14 +13,15 @@ and auditable.
 
 ---
 
-## 0. Prometheus-mode deployment restriction (U-025)
+## 0. Prometheus-mode deployment restriction
 
 In `tsdb=prometheus` mode the upstream Prometheus/VictoriaMetrics has **no
-server-side tenancy** — probectl's query proxy is the boundary. Two layers
-enforce it in code: every parsed selector is tenant-forced
-(`promapi.ForceTenant` strips caller `tenant_id` matchers and pins the
-authenticated tenant) and the upstream forwarder itself **refuses** any
-selector not pinned to exactly one tenant (`ErrUnscopedUpstreamQuery`).
+server-side tenancy** of its own — probectl's query proxy is the boundary. Two
+layers enforce that in code: every parsed selector is tenant-forced
+(`promapi.ForceTenant` strips any caller-supplied `tenant_id` matcher and pins
+the authenticated tenant), and the upstream forwarder itself **refuses** any
+selector not pinned to exactly one tenant (`ErrUnscopedUpstreamQuery` in
+`internal/promapi/upstream.go`).
 
 **Hard deployment restriction:** the upstream TSDB must be reachable ONLY by
 the probectl control plane (network policy / private listener / mTLS). Any
@@ -28,50 +29,58 @@ user, dashboard, or service with direct network access to the upstream can
 read ALL tenants' series. Grafana and federation must go through probectl's
 `/prom` endpoints, never the upstream directly.
 
-## 0b. Audit WORM export (U-041)
+## 0b. Audit WORM export
 
-The audit chains are tamper-evident (hash-chained; RLS grants no
-UPDATE/DELETE), but a database OWNER can still purge rows. Set
-`PROBECTL_AUDIT_WORM_DIR` to a mount backed by an **object-lock bucket**
-(S3 Object Lock / MinIO, compliance mode — the WORM property lives in the
-bucket): the provider audit chain exports hourly as Ed25519-signed segments
-(`worm/audit/provider/segment-*.json` + `.sig` + the public key), and every
-cycle re-verifies signatures, seq continuity, and the cross-segment hash
-chain — a purge or gap logs an unmissable error. Third parties can verify
-segments with nothing but the published key.
+**What:** an off-database, tamper-evident copy of the provider audit chain that
+survives a database owner deleting rows.
 
-The signing key is **persisted, not ephemeral** (KEYS-002): set
-`PROBECTL_WORM_SIGNING_KEY_FILE` to a PEM path (generated + persisted 0600 on
-first boot, reused thereafter) or inject `PROBECTL_WORM_SIGNING_KEY` (base64
-PEM) from your secret manager. **Back this key up like the envelope key** — it
-is the identity the whole exported history is signed under; losing it forfeits
-cross-restart verification of segments signed before the loss. Enabling WORM
-export (`PROBECTL_AUDIT_WORM_DIR`) with no key configured **fails closed** —
-the control plane refuses to start rather than mint a fresh key each boot
-(which would silently break verification of every prior segment).
+**Why it is needed.** The audit chains are already tamper-*evident* inside
+Postgres — each record hash-chains to the previous one (`internal/audit/audit.go`),
+and the app role has no UPDATE/DELETE on them. But a database *owner* can still
+truncate a table. WORM ("Write Once, Read Many") export defends against that: the
+record exists somewhere the database owner cannot reach.
 
-## 0c. At-rest encryption — who encrypts what (SEC-002 / COMPLY-004)
+**How.** Set `PROBECTL_AUDIT_WORM_DIR` to a mount backed by an **object-lock
+bucket** (S3 Object Lock or MinIO in compliance mode — the actual immutability
+guarantee lives in the bucket, not in probectl). The provider audit chain then
+exports hourly as Ed25519-signed segments (`worm/audit/provider/segment-*.json`
+plus a `.sig` and the public key), and every cycle re-verifies signatures,
+sequence continuity, and the cross-segment hash chain (`internal/audit/worm.go`).
+A purge or gap logs an unmissable error. Because the public key is published next
+to the segments, any third party can verify the export with nothing but that
+key — no access to probectl required.
 
-probectl is self-hosted: some at-rest encryption is the product's job, some is
-necessarily the operator's. This section is the contract;
-`probectl-control preflight` is the check that keeps it honest.
+The signing key is **persisted, not ephemeral**: set
+`PROBECTL_WORM_SIGNING_KEY_FILE` to a PEM path (generated and persisted `0600` on
+first boot, reused thereafter) or inject `PROBECTL_WORM_SIGNING_KEY` (base64 PEM)
+from your secret manager. **Back this key up like the envelope key** — it is the
+identity the whole exported history is signed under; lose it and you forfeit
+cross-restart verification of every segment signed before the loss. Enabling WORM
+export with no key configured **fails closed**: the control plane refuses to start
+rather than mint a fresh key each boot (which would silently invalidate every
+prior segment's signature).
 
-**What probectl encrypts (on by default).** Sealed tenant values
-(alert-channel secrets, integration credentials, ...) are envelope-encrypted
-through `internal/tenantcrypto` before they reach Postgres. The shipped
-recipes turn this on:
+## 0c. At-rest encryption — who encrypts what
 
-- compose sets `PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key` on
-  the `controldata` volume — on first boot the control plane **generates** a
-  KEK there (0600) and logs it loudly. **Back that volume up like key
-  material**: losing the key makes sealed values unreadable.
+probectl is self-hosted, so some at-rest encryption is the product's job and
+some is necessarily the operator's. This section is the contract that draws the
+line; `probectl-control preflight` is the check that keeps it honest.
+
+**What probectl encrypts (on by default).** Sealed tenant values (alert-channel
+secrets, integration credentials, ...) are envelope-encrypted through
+`internal/tenantcrypto` before they ever reach Postgres. The shipped recipes turn
+this on:
+
+- compose sets `PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key` on the
+  `controldata` volume — on first boot the control plane **generates** a master
+  key there (`0600`) and logs it loudly. **Back that volume up like key
+  material**: lose the key and sealed values become unreadable.
 - Helm refuses to template without `secrets.envelopeKey` / `existingSecret`.
-- Both set `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, so keyless
-  misconfiguration is a **fatal startup error** (TENANT-106) — never silent
-  plaintext.
-- Production should supply its own key: `PROBECTL_ENVELOPE_KEY` (always wins
-  over the file), injected from a KMS / secret manager; per-tenant BYOK on the
-  licensed tier (`docs/byok.md`).
+- Both set `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, so a keyless
+  misconfiguration is a **fatal startup error** — never silent plaintext.
+- Production should supply its own key: `PROBECTL_ENVELOPE_KEY` (which always
+  wins over the file), injected from a KMS / secret manager; or per-tenant BYOK
+  on the licensed tier ([byok.md](byok.md)).
 
 **What the operator encrypts (a documented duty, not an assumption).**
 probectl does not re-encrypt the bulk telemetry stores' data files — at that
@@ -104,40 +113,44 @@ reports probectl's own envelope-key posture.
 
 ### What the FIPS build is
 
-The crypto abstraction (S3) routes **every** cryptographic primitive through
-`internal/crypto`, enforced by a CI guard. That lets a FIPS 140-3 **validated**
-module compile in transparently: the FIPS artifact swaps the underlying
-implementations while the `Provider` API and all of its outputs stay byte-for-byte
-identical (proven by the transparent-swap test).
+probectl routes **every** cryptographic primitive through one package,
+`internal/crypto`, and a CI guard (`scripts/check_crypto_imports.sh`) blocks any
+handler or service from calling a crypto primitive directly. That single choke
+point is what makes a FIPS build possible: a FIPS 140-3 **validated** module can
+be compiled in transparently, swapping the underlying implementations while the
+`Provider` API and all of its outputs stay byte-for-byte identical. A test
+asserts that the standardized outputs are the same with or without FIPS compiled
+in, so "swap the module" is provably not "change the behavior."
 
-The FIPS artifact embeds **the Go Cryptographic Module v1.0.0** — validated
-under FIPS 140-3 as **CMVP certificate #5247** (CAVP algorithm certificate
-A6650; included in Go 1.24+) — selected at build time with `GOFIPS140` and
-marked with the `probectl_fips` build tag.
+The FIPS artifact embeds **the Go Cryptographic Module v1.0.0** — validated under
+FIPS 140-3 as **CMVP certificate #5247** (CAVP algorithm certificate A6650;
+included in Go 1.24+) — selected at build time with `GOFIPS140` and marked with
+the `probectl_fips` build tag.
 
-**Exactly what is and is not certified (read before quoting FIPS to an
-auditor):** the *module* holds the CMVP certificate; **probectl as a product
-holds no CMVP certificate of its own**. The accurate claim is "probectl's FIPS
-artifact builds against and operates the FIPS 140-3-validated Go Cryptographic
-Module v1.0.0 (CMVP #5247), with a power-on self-test asserting the validated
-module is live." Module version, certificate, and security policy:
-the [Go FIPS 140-3 documentation](https://go.dev/doc/security/fips140) and the
-NIST CMVP listing for certificate #5247. **Certification path:** if a
+**Exactly what is and is not certified — read this before quoting FIPS to an
+auditor.** The *module* holds the CMVP certificate; **probectl as a product holds
+no CMVP certificate of its own.** The accurate claim is: "probectl's FIPS artifact
+builds against and operates the FIPS 140-3-validated Go Cryptographic Module
+v1.0.0 (CMVP #5247), with a power-on self-test asserting the validated module is
+live." The authoritative sources are the
+[Go FIPS 140-3 documentation](https://go.dev/doc/security/fips140) and the NIST
+CMVP listing for certificate #5247 — verify the certificate number there yourself
+rather than taking this doc's word for it. **Certification path:** if a
 procurement requires a *product-level* validation (probectl itself listed with
-CMVP), that is a separate vendor engagement with an accredited lab — planned
-only on concrete regulated-buyer demand; until then no probectl-level
-certificate is claimed anywhere.
+CMVP), that is a separate vendor engagement with an accredited lab — planned only
+on concrete regulated-buyer demand. Until then, no probectl-level certificate is
+claimed anywhere.
 
 ```
 make build-fips                 # GOFIPS140=v1.0.0 -tags probectl_fips -> bin/*-fips
 make fips-gate                  # build + power-on self-test with the module active
 ```
 
-Per the ratified editions decision, **the FIPS build is gated by the artifact,
-not a runtime license check** — there is no `lic.Has(fips)` gate anywhere. The
-`fips` feature in the tier table documents the entitlement (the validated
-**distribution** is an Enterprise deliverable); the running binary enforces
-nothing license-side for FIPS.
+**The FIPS build is gated by the artifact, not by a runtime license check** —
+there is no `lic.Has(fips)` gate anywhere in the code. The `fips` entry in the
+tier table documents the entitlement (the validated *distribution* is an
+Enterprise deliverable), but the running binary enforces nothing license-side for
+FIPS. The build you run is the gate.
 
 ### Power-on self-test (POST)
 
@@ -245,16 +258,18 @@ these as defaults except where noted "operator action".
 - [x] At-rest sealing **on by default** in the shipped recipes (generated key
       file + `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, §0c); keyless = fatal.
 - [ ] **Operator action:** supply `PROBECTL_ENVELOPE_KEY` from a secret
-      manager in production; enable per-tenant BYOK (S-T6) for regulated
-      tenants; encrypt the bulk telemetry volumes (§0c — `preflight --strict`).
+      manager in production; enable per-tenant BYOK ([byok.md](byok.md)) for
+      regulated tenants; encrypt the bulk telemetry volumes (§0c —
+      `preflight --strict`).
 
-### Audit & data lifecycle (guardrails 7, and S-T5)
+### Audit and data lifecycle (guardrail 7)
 
 - [x] Config changes and data-access actions write to an immutable,
       tamper-evident audit chain; provider/break-glass actions go to a **separate**
       provider chain.
-- [x] Per-tenant export + **verifiable deletion** with a recomputable attestation
-      (S-T5); crypto-offboarding destroys per-tenant keys (S-T6).
+- [x] Per-tenant export + **verifiable deletion** with a recomputable
+      attestation; crypto-offboarding destroys per-tenant keys
+      ([byok.md](byok.md)).
 - [ ] **Operator action:** ship audit streams to your SIEM; set the backup-TTL
       statement (`PROBECTL_BACKUP_RETENTION_NOTE`) and retention policy.
 
@@ -294,12 +309,12 @@ posture. A green default means no action needed.
 | API / UI transport | HTTPS, TLS 1.2+, HSTS, CSP, secure cookies | Same; TLS 1.3-only at the ingress if clients allow | default ✓ |
 | Agent transport | mTLS, tenant-bound SPIFFE identity | Same | default ✓ |
 | Crypto module | stdlib (transparent-swappable) | FIPS build (`make build-fips`), `fips140=on` | operator |
-| Tenant isolation | pooled (RLS, storage-layer) | siloed/hybrid (S-T2) for regulated tenants | operator |
+| Tenant isolation | pooled (RLS, storage-layer) | siloed/hybrid (see [isolation.md](isolation.md)) for regulated tenants | operator |
 | Password KDF | PBKDF2-HMAC-SHA-256 ×600k | Same | default ✓ |
 | MFA | TOTP available | required for admin + all operators | operator |
 | Envelope key | generated-or-required, fail-closed (§0c) | `PROBECTL_ENVELOPE_KEY` from a KMS/secret manager | default ✓ |
 | Bulk telemetry volumes | operator's storage layer (§0c duty) | LUKS/ZFS/cloud-volume encryption + `preflight --strict` | operator |
-| Per-tenant keys | deployment envelope | BYOK (S-T6) for regulated tenants | operator |
+| Per-tenant keys | deployment envelope | BYOK ([byok.md](byok.md)) for regulated tenants | operator |
 | Secrets | env / references | Vault / CyberArk / cloud KMS references only | operator |
 | Phone-home | off | off | default ✓ |
 | Remediation | observe-only / human-gated | Same (never un-gated) | default ✓ |
@@ -316,36 +331,35 @@ hardening gate and your own controls.
 
 ---
 
-## 3a. Day-2 ops & the strict NetworkPolicy profile (OPS-001/004/005/009)
+## 3a. Day-2 ops and the strict NetworkPolicy profile
 
-The default Helm profile ships NetworkPolicy **on** with two documented
-holes (U-086): empty `ingressFrom` (any pod may reach the API port) and
-empty `egressTo` (allow-all egress) — deliberate, so a default install
-doesn't lock out an unknown ingress controller. For regulated/air-gapped
+The default Helm profile ships NetworkPolicy **on**, but with two deliberate
+holes: an empty `ingressFrom` (any pod may reach the API port) and an empty
+`egressTo` (allow-all egress). That is on purpose — a default install must not
+lock itself out of an unknown ingress controller. For regulated or air-gapped
 deployments, apply the **strict profile**, which closes both holes:
 
 ```sh
 helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml
 ```
 
-`values-strict.yaml` is full default-deny: a NAMED ingress-controller
-selector (plus the monitoring namespace for `/metrics` scraping) and an
-explicit datastore/bus/IdP egress allow-list — no allow-all rule survives.
-**Match the selectors and CIDRs to your cluster before applying**; a wrong
-selector fails CLOSED (the API becomes unreachable), which is the safe
-direction. The strict profile also turns on the ServiceMonitor (OPS-005)
-and the backup CronJobs (OPS-009).
+`values-strict.yaml` is full default-deny: a **named** ingress-controller
+selector (plus the monitoring namespace for `/metrics` scraping) and an explicit
+datastore / bus / IdP egress allow-list — no allow-all rule survives. **Match the
+selectors and CIDRs to your cluster before applying.** A wrong selector fails
+**closed** (the API becomes unreachable), which is the safe failure direction.
+The strict profile also turns on the ServiceMonitor and the backup CronJobs.
 
-Other day-2 surfaces, chart-managed:
+Other day-2 surfaces, all chart-managed:
 
-- **Probes (OPS-001):** the control Deployment and the agent DaemonSet both
-  ship liveness (`/healthz`) + readiness (`/readyz`) probes; agent readiness
-  reflects flow-source attachment, so a stuck `bpf()`/lockdown surfaces as
-  not-ready instead of a silently-dead pod.
-- **/metrics (OPS-005):** the control plane serves Prometheus self-metrics
-  (process/aggregate only — no tenant data) at `/metrics`, scraped by the
-  ServiceMonitor (`metrics.serviceMonitor.enabled`).
-- **Backups (OPS-009):** PG + CH backup CronJobs are folded into the chart
+- **Probes:** the control Deployment and the agent DaemonSet both ship liveness
+  (`/healthz`) and readiness (`/readyz`) probes. Agent readiness reflects
+  flow-source attachment, so a stuck `bpf()` call or a kernel lockdown surfaces
+  as *not ready* rather than a silently dead pod.
+- **/metrics:** the control plane serves Prometheus self-metrics (process and
+  aggregate only — no tenant data) at `/metrics`, scraped by the ServiceMonitor
+  (`metrics.serviceMonitor.enabled`).
+- **Backups:** Postgres and ClickHouse backup CronJobs are folded into the chart
   behind `backup.enabled` (off by default; supply the credentials secret).
 
 ---
@@ -353,8 +367,9 @@ Other day-2 surfaces, chart-managed:
 ## 4. References
 
 - FIPS module behavior: <https://go.dev/doc/security/fips140>
-- Editions / licensing: `docs/editions.md`
-- Per-tenant keys / BYOK: `docs/byok.md`
-- Tenant isolation: `docs/isolation.md`
-- Lifecycle / verifiable deletion: `docs/runbooks/tenant-offboarding.md`
+- Editions / licensing: [editions.md](editions.md)
+- Per-tenant keys / BYOK: [byok.md](byok.md)
+- Tenant isolation models: [isolation.md](isolation.md)
+- Storage-layer isolation threat model: [security/tenant-isolation.md](security/tenant-isolation.md)
+- Lifecycle / verifiable deletion: [runbooks/tenant-offboarding.md](runbooks/tenant-offboarding.md)
 - Security guardrails: `CLAUDE.md` §7

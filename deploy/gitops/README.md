@@ -1,12 +1,13 @@
 # deploy/gitops/
 
-GitOps manifests for reconciling probectl from Git (S35, F29). The hardened Helm
-chart (`deploy/helm/probectl`) is the unit of deployment; these wire it into ArgoCD
-or Flux so a `git push` is the only deploy action.
+GitOps manifests for reconciling probectl from Git. The hardened Helm chart
+(`deploy/helm/probectl`) is the unit of deployment; these manifests wire it into
+ArgoCD or Flux so a `git push` is the only deploy action — no `kubectl apply`,
+`helm install`, or click-ops.
 
 ```
 deploy/gitops/
-├── argocd/application.yaml          # ArgoCD Application
+├── argocd/application.yaml                 # ArgoCD Application
 └── flux/{gitrepository,helmrelease}.yaml   # Flux source + HelmRelease
 ```
 
@@ -16,11 +17,9 @@ The declarative probectl config IS the Helm values: `control.*`, `oidc.*`,
 `database.url`, and `control.extraEnv` map to `PROBECTL_*` env via the chart's
 ConfigMap; the size profiles (`values-{small,medium,large}.yaml`) and
 `values-multitenant.yaml` are the reference overlays. Put your chosen overlay in
-Git, point Argo/Flux at it, and the cluster converges — no `kubectl apply`,
-`helm install`, or click-ops.
+Git, point Argo/Flux at it, and the cluster converges.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   G[Git: values overlay] --> A[ArgoCD / Flux]
   A -- reconcile --> H[Helm chart render]
@@ -54,12 +53,14 @@ kubectl apply -f deploy/gitops/flux/helmrelease.yaml
 ```
 
 Edit the GitRepository `url` and the HelmRelease `values` (or `valuesFrom` a
-ConfigMap holding a full size profile). `install.createNamespace` and upgrade/
-install `remediation.retries` give automatic rollback on a failed reconcile.
+ConfigMap holding a full size profile). `install.createNamespace` and the
+upgrade/install `remediation.retries` give automatic rollback on a failed
+reconcile.
 
 ## Stand-up
 
 A clean stand-up is: pre-create the `probectl-secrets` Secret → apply the GitOps
 manifest → the controller renders the chart and applies the namespace,
-Deployment, Service, hardened ingress, NetworkPolicy/PDB/HPA, and migrations
-init-container. Rolling upgrades and rollback follow the S34 lifecycle.
+Deployment, Service, hardened ingress, NetworkPolicy/PDB/HPA, and the migrations
+init-container. Rolling upgrades and rollback are then driven by the same Git
+source — change the chart version or values in Git and the controller reconciles.

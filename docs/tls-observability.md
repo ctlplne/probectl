@@ -1,72 +1,132 @@
-# TLS / certificate observability (S27)
+# TLS / certificate observability
 
-probectl analyzes TLS/cert posture from the data it ALREADY captures — the HTTP
-synthetic canary (S13) and eBPF L7 (S21) — so it never re-handshakes (the S27
-watch-out). It is the trustctl-adjacent security win, cheap because the handshake
-is captured for free.
+## What it is
 
-## Flow
+Every time probectl makes an HTTPS request — through the HTTP synthetic canary,
+or by reading plaintext at the eBPF L7 layer — a TLS handshake happens, and that
+handshake *already tells you* the server's certificate, TLS version, and cipher.
+The **TLS observability** layer harvests that information probectl has **already
+captured** and analyzes it for posture problems: certs about to expire, weak
+keys, deprecated TLS versions, untrusted chains, and so on.
+
+The key design choice is in the name: it **observes**, it does not re-probe. It
+never opens a second connection or re-handshakes a target just to inspect the
+cert — that would be wasteful and would double the load on the very services
+you're watching. It reuses what the existing probe saw. This is the
+trustctl-adjacent security win: cheap, because the handshake came for free.
+
+## How it works
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
-  C["HTTPS synthetic (S13)<br/>captures version/cipher/leaf-DER/verified"] --> R["result attributes<br/>(carried over the bus)"]
+  C["HTTPS synthetic<br/>captures version/cipher/leaf-DER/verified"] --> R["result attributes<br/>(carried over the bus)"]
   R --> O["FromCanaryAttributes<br/>(reuse — no re-handshake)"]
   O --> A["Analyzer.Analyze"]
   A --> F["Findings"]
   A -. opt-in .-> CT["CT correlation (crt.sh)"]
   F --> S["threat-plane incident signals<br/>(+ trustctl handoff)"]
-  S --> I["unified timeline + alerting (S16/S17)"]
+  S --> I["unified timeline + alerting"]
 ```
+
+The flow, step by step:
+
+1. **Capture.** The HTTPS canary records the TLS facts it observed during its
+   normal handshake — the negotiated version and cipher, whether the chain
+   verified, and the leaf certificate's raw DER bytes — as result attributes
+   (`tls.protocol.version`, `tls.cipher`, `tls.server.verified`,
+   `tls.server.cert`, plus the JA3/JA3S fingerprints).
+2. **Rehydrate, don't re-fetch.** `threat.FromCanaryAttributes` turns those
+   attributes back into a `TLSObservation` — parsing the leaf DER into a real
+   certificate object. It opens **no** new connection. If the result carried no
+   TLS (a plain HTTP probe), it returns "nothing to analyze".
+3. **Analyze.** `threat.Analyzer.Analyze` inspects the handshake facts and the
+   parsed leaf, emits severity-scored findings, and (when there's a renewable
+   cert problem) builds a trustctl handoff payload.
 
 ## What it flags
 
-From the captured handshake + leaf certificate: **expired** / **expiring-soon**
-(configurable window) / **not-yet-valid** certs, **self-signed**, **weak RSA keys**
-(< 2048 bits), **deprecated TLS** (1.0 / 1.1), **weak ciphers** (RC4 / 3DES / NULL /
-EXPORT / MD5), and an **untrusted chain** (the capturer's verification failed).
-Each finding is severity-scored and surfaced as a **threat-plane incident signal**
-— it is a SIGNAL, not an IPS (probectl never blocks traffic; CLAUDE.md §7
-guardrail 9).
+From the captured handshake and the parsed leaf certificate, the analyzer flags:
+
+- **expired** certs (critical) and **expiring-soon** certs (within a configurable
+  window, default 21 days);
+- **not-yet-valid** certs;
+- **self-signed** certs (issuer == subject);
+- **weak RSA keys** (below 2048 bits);
+- **deprecated TLS** (1.0 or 1.1);
+- **weak ciphers** (anything matching RC4 / 3DES / DES / NULL / EXPORT / MD5 /
+  anonymous);
+- an **untrusted chain** — the capturing client's own verification failed
+  (critical).
+
+Each finding is severity-scored and surfaced as a **threat-plane incident
+signal**. Crucially, it is a **signal, not an IPS**: probectl never blocks
+traffic or sits inline. It tells you the cert is bad; acting on it is your call.
 
 ## trustctl handoff
 
-A certificate finding builds a **trustctl handoff** payload — subject, issuer,
-SANs, serial, expiry, reason — and, when `PROBECTL_TRUSTCTL_URL` is set, a one-click
-deep-link (`<trustctl>/renew?domain=…&serial=…`) carried in the signal attributes
-for renewal / replacement.
+A certificate finding is *actionable* — usually "renew or replace this cert" — so
+the analyzer builds a **trustctl handoff** payload: the cert's subject, issuer,
+SANs, serial, expiry, and the reason. When `PROBECTL_TRUSTCTL_URL` is set, it
+also assembles a one-click deep link
+(`<trustctl>/renew?domain=…&serial=…&reason=…`) carried in the signal
+attributes, so an operator can jump straight from "this cert is expiring" to the
+renewal flow in the sibling product.
 
 ## CT correlation (opt-in)
 
-When enabled (`PROBECTL_CT_ENABLED=true`), probectl correlates a leaf's serial against
-**Certificate Transparency** logs (crt.sh by default) and flags a serial absent
-from CT as a low-severity issuance anomaly. It is **off by default** — an external
-fetch (sovereignty / no-phone-home) — and it respects crt.sh's AUP / rate limits
-and **degrades gracefully** (a down or throttled CT source is a no-op, never an
-error that breaks posture). See [`configuration.md`](configuration.md).
+When you enable it with `PROBECTL_CT_ENABLED=true`, probectl correlates a leaf's
+serial number against **Certificate Transparency** logs (crt.sh by default). A
+serial that CT has **never seen** is flagged as a low-severity *issuance anomaly*
+— a possible sign a cert was minted outside the normal pipeline.
 
-## Coverage caveat
+It is **off by default** on purpose: it's an outbound fetch to a third party,
+which collides with the no-phone-home / sovereignty stance. When enabled it
+behaves like every external feed in probectl — it respects crt.sh's AUP and rate
+limits, fetches over validated TLS, and **degrades gracefully**: a CT source
+that's down or throttled is a silent no-op, never an error that breaks posture
+analysis.
 
-The HTTP synthetic path observes the certificate probectl's own client sees. The
-eBPF L7 path (S21) observes server-side TLS, but a **Go server's TLS terminates in
-the Go runtime**, so capturing it needs Go-runtime uprobes (the S21 caveat) — TLS
-from Go servers can be invisible to the eBPF path until those uprobes land. The
-synthetic path is unaffected.
+## Coverage caveat — the Go-server blind spot
+
+The two capture paths see different things:
+
+- The **HTTP synthetic** path sees the certificate **probectl's own client**
+  negotiated. This always works — it's probectl initiating the handshake.
+- The **eBPF L7** path sees **server-side** TLS by reading plaintext at the TLS
+  library's read/write calls. But a **Go server terminates TLS inside the Go
+  runtime**, not in a system TLS library probectl's uprobes attach to — so a Go
+  server's TLS can be invisible to the eBPF path until Go-runtime uprobes land
+  (the same Go-TLS limitation described in
+  [`ebpf-feasibility.md`](ebpf-feasibility.md)).
+
+The synthetic path is unaffected by this — it's a limitation of the
+*passively-observed* eBPF source only.
 
 ## Out of scope
 
-Malicious-cert / JA3 threat-intel correlation (S28 / S42 via SSLBL); full NDR
-detections (S42). JA3 / JA3S are surfaced as observed fields, not scored here.
+- **Malicious-cert / JA3 threat-intel correlation** — matching certs and JA3
+  fingerprints against feeds like SSLBL is the *threat-intel* layer's job (it
+  reuses the same captured TLS via the analyzer's `WithIntel` hook), not this
+  posture layer's. Here, **JA3 / JA3S are surfaced as observed fields, not
+  scored**.
+- **Full NDR detections** — also a separate layer.
 
-## The posture surface (S-FE2)
+## The posture surface
 
-The analyzed posture is retained as a tenant-scoped, in-memory **inventory**
-(latest posture per target, bounded per tenant, clean certs included) and
-served at `GET /v1/tls/posture` (RBAC `threat.read`, migration 0023;
-`collector_running=false` distinguishes an unwired collector from an empty
-fleet). The web surface lives at `/security`: the certificate inventory
-(filterable by issuer/SAN text and by flag — expired/expiring/weak/self-signed/
-CT/intel), an **expiring-soon worklist** (≤30 days, soonest first), and a
-per-cert detail view whose **trustctl handoff is the S27 analyzer's payload
-verbatim** (copy JSON + deep link via the payload's own URL) — never re-derived
-client-side. The inventory rebuilds from the result stream after a restart.
+The analyzed posture is retained as a tenant-scoped, in-memory **inventory** (the
+latest posture per target, bounded per tenant, clean certs included) and served
+at `GET /v1/tls/posture` (RBAC `threat.read`, added in migration 0023; a
+`collector_running=false` flag distinguishes an unwired collector from a
+genuinely empty fleet, so an empty page never lies about why).
+
+The web surface lives at `/security`:
+
+- the certificate inventory (filterable by issuer/SAN text and by flag —
+  expired / expiring / weak / self-signed / CT / intel);
+- an **expiring-soon worklist** (≤30 days, soonest first);
+- a per-cert detail view whose **trustctl handoff is the analyzer's payload
+  verbatim** — you copy the exact JSON and use the payload's own deep link, never
+  a value re-derived in the browser.
+
+The inventory rebuilds itself from the result stream after a restart.
