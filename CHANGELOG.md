@@ -12,7 +12,7 @@ link work to findings.
 - CI greening, round 13 (post-trivy: three independent reds + one transient): with
   round 12 in, run #215 surfaced three unrelated failures plus an infra blip — none
   shared a root cause. (1) **secret-scan** — self-inflicted: the round-12 CHANGELOG
-  entry planted the literal `sk_live_abc123def456`, which gitleaks (now the sole
+  entry planted the literal `sk_live_…` Stripe key, which gitleaks (now the sole
   secret gate) flagged in a non-allowlisted file; redacted to the `sk_live_…` form
   (the literal belongs only in the allowlisted `egressgate_test.go`). (2)
   **integration / TestTokenStores** — `mcp_tokens.token_hash` is GLOBAL-unique
