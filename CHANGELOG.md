@@ -9,6 +9,23 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- CI greening, round 14 (integration suite — proactive shared-DB hardening): rather
+  than chase one nondeterministic `make test-integration` failure at a time, swept all
+  39 `//go:build integration` test files for fixtures that collide in the single,
+  reused CI Postgres. Finding: the suite is already well-isolated — tenant slugs use
+  `UnixNano`, token hashes use `RandomToken`, and the control tests scope to a
+  `freshTenant`. The one real shared-state hazard was `TestAuditCapturesMutations`,
+  which ran on the seeded **default tenant**: it created a test, then read
+  `/v1/audit?limit=1000` to find its own event and called `/v1/audit/verify`. Every
+  other test that writes to the default tenant appends audit events there, so (a) once
+  that shared trail exceeds 1000 entries the just-created event falls off the page
+  (find-our-event fails), and (b) `/v1/audit/verify` walks a hash chain that parallel
+  package test-binaries append to concurrently (a verify race). Fixed by isolating the
+  test to its own `freshTenant`, so its audit trail + chain are written by it alone.
+  All other default-tenant assertions were already robust (find-by-id, unique names,
+  mock counters, envelope-shape, status-only) and were left unchanged. Tests only; no
+  production code.
+
 - CI greening, round 13 (post-trivy: three independent reds + one transient): with
   round 12 in, run #215 surfaced three unrelated failures plus an infra blip — none
   shared a root cause. (1) **secret-scan** — self-inflicted: the round-12 CHANGELOG

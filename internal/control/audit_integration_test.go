@@ -16,10 +16,15 @@ import (
 // test.create event with the right actor + target, the chain verifies, and the
 // audit read endpoint returns it.
 func TestAuditCapturesMutations(t *testing.T) {
-	h, _ := setupAPI(t) // dev auth mode → actor "dev@probectl.local"
+	h, db := setupAPI(t) // dev auth mode → actor "dev@probectl.local"
+	// Isolate this test's audit trail on its OWN tenant. The default tenant
+	// accumulates audit events from every other test that writes to it; once that
+	// shared trail exceeds `limit`, our just-created event falls off the page and
+	// the find-our-event check fails order-dependently under `go test ./...`.
+	tenant := freshTenant(t, db, "audit")
 
 	name := fmt.Sprintf("audit-%d", time.Now().UnixNano())
-	rec := apiReq(t, h, http.MethodPost, "/v1/tests", "",
+	rec := apiReq(t, h, http.MethodPost, "/v1/tests", tenant,
 		map[string]any{"name": name, "type": "icmp", "target": "1.1.1.1", "interval_seconds": 30})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create test = %d: %s", rec.Code, rec.Body)
@@ -30,7 +35,7 @@ func TestAuditCapturesMutations(t *testing.T) {
 	mustJSON(t, rec, &created)
 
 	// Read the audit trail and find the config action we just performed.
-	rec = apiReq(t, h, http.MethodGet, "/v1/audit?limit=1000", "", nil)
+	rec = apiReq(t, h, http.MethodGet, "/v1/audit?limit=1000", tenant, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list audit = %d: %s", rec.Code, rec.Body)
 	}
@@ -62,13 +67,13 @@ func TestAuditCapturesMutations(t *testing.T) {
 	}
 
 	// Delete it → a second config action is recorded.
-	rec = apiReq(t, h, http.MethodDelete, "/v1/tests/"+created.ID, "", nil)
+	rec = apiReq(t, h, http.MethodDelete, "/v1/tests/"+created.ID, tenant, nil)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete test = %d", rec.Code)
 	}
 
 	// The chain must verify intact end-to-end.
-	rec = apiReq(t, h, http.MethodGet, "/v1/audit/verify", "", nil)
+	rec = apiReq(t, h, http.MethodGet, "/v1/audit/verify", tenant, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("verify = %d: %s", rec.Code, rec.Body)
 	}
