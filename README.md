@@ -17,12 +17,13 @@
 Self-hosted, source-available, multi-tenant **network observability platform**.
 probectl unifies five observability planes — active/synthetic testing, BGP/routing
 intelligence, flow analytics, device telemetry, and eBPF host/L7 — into one
-**OpenTelemetry-native** control plane — OTel resource + network semantic
-conventions across every plane, with OTLP **metrics** ingest/export today and
-OTLP traces/logs ingest on the roadmap ([docs/otlp.md](docs/otlp.md)) — with an
-AI assistant for cross-plane root-cause analysis, a native security/threat
-layer, change-aware topology, and cost/SLO intelligence. Telemetry **never
-leaves the operator's network**.
+**OpenTelemetry-native** control plane: OTel resource + network semantic
+conventions describe every signal in every plane, and the platform ingests all
+three OTLP signals — **metrics, traces, and logs** — bounded for correlation, and
+re-exports its own signals as OTLP **metrics** ([docs/otlp.md](docs/otlp.md)).
+Layered on top: an AI assistant for cross-plane root-cause analysis, a native
+security/threat layer, change-aware topology, and cost/SLO intelligence.
+Telemetry **never leaves the operator's network**.
 
 One codebase serves two operating modes: **sovereign single-tenant** (a regulated
 or air-gapped org self-hosts; the deployment *is* the tenant) and
@@ -31,7 +32,7 @@ white-labeled tenants). The single-tenant install is just the one-tenant case �
 there is no separate code path. **Tenant is the outermost scope and security
 boundary** on every record, agent, query, metric, event, and object.
 
-> **Status: Phases 0–3 complete, plus the editions and Enterprise tracks.** All
+> **Status: the platform is built; the work now is hardening toward GA.** All
 > five observability planes are shipped, alongside cross-plane AI root-cause
 > analysis, an MCP server, change-aware topology + what-if, a security/threat
 > layer (TLS posture + NDR-lite), cost/SLO/compliance, RUM/carbon/chaos, and the
@@ -68,10 +69,12 @@ Three choices set it apart:
   requirement.
 - **It's unified and standard.** One **OpenTelemetry-native** model spans all
   five planes, so a flow record, a probe result, and a BGP event share the same
-  schema and the same query layer — no per-tool silos, and you can export to OTLP
-  or your SIEM without re-instrumenting anything. (Scope today: OTLP **metrics**
-  in/out; the schemas follow OTel semantic conventions everywhere, and OTLP
-  traces/logs ingest is roadmapped — see `docs/otlp.md`.)
+  schema and the same query layer — no per-tool silos, and you can feed standard
+  OTLP into it or hand its signals to your SIEM without re-instrumenting anything.
+  (Scope: the schemas follow OTel resource + network semantic conventions
+  everywhere; the receiver ingests all three OTLP signals — **metrics, traces,
+  and logs** — bounded for correlation, and it re-exports probectl's own signals
+  as OTLP **metrics**. See `docs/otlp.md`.)
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, white-labeled, individually-metered
   platform an MSP self-hosts and resells. **Tenant is the outermost security
@@ -111,8 +114,8 @@ unless you explicitly configure one; see the AI row below.)
   self-host once and serve hard-isolated, white-labeled, individually-metered
   tenants from one control plane.
 - **Network & platform engineers** tired of hand-correlating five dashboards who
-  want a single OTel-native source of truth they actually own (OTLP
-  metrics, traces, and logs ingest — bounded for correlation, not APM).
+  want a single OTel-native source of truth they actually own (OTLP metrics,
+  traces, and logs ingest — bounded for correlation, not an APM replacement).
 
 ## Capabilities
 
@@ -166,7 +169,7 @@ flowchart TB
         Subsys["subsystems: tenancy · path · bgp · opendata · threat · change ·<br/>topology · cost · slo · compliance · ai · remediation · …"]
     end
 
-    Agents["Agents — Go, single binary, tenant-bound<br/>canary plugins · path engine · eBPF (P2)"]
+    Agents["Agents — Go, single binary, tenant-bound<br/>canary plugins · path engine · eBPF host/L7"]
     Analyzer["BGP analyzer (Python)<br/>RouteViews/RIS MRT + RIS Live"]
     Bus["Bus — Kafka / NATS / in-process<br/>(tenant-tagged)"]
     Stores["Postgres · ClickHouse · Prometheus/VM<br/>topology graph · object store"]
@@ -257,7 +260,8 @@ make help           # list every target
 
 ```
 cmd/            # binaries: probectl-control, probectl-agent, probectl-ebpf-agent,
-                #           probectl-endpoint, probectl (CLI)
+                #           probectl-flow-agent, probectl-device-agent,
+                #           probectl-endpoint, probectl-license, probectl (CLI)
 internal/       # subsystem packages (control, tenancy, path, bgp, crypto, ai, ...)
 ee/             # commercial tree (provider plane, white-label, metering, BYOK,
                 #   remediation) — publicly readable; core never imports it
@@ -293,11 +297,13 @@ install guide. Going deeper:
 
 ## Contributing
 
-Read [`CONTRIBUTING.md`](CONTRIBUTING.md). Work proceeds one sprint at a time;
-commits follow **Conventional Commits** and reference their sprint + requirement
-IDs. The canonical product/engineering specs (`CLAUDE.md`, the PRD, and the
-sprint plan) are internal and are kept in the private working folder — they are
-**not committed** to this repository.
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md). Commits follow **Conventional
+Commits** (enforced by commitlint in CI) and carry a **DCO sign-off**
+(`git commit -s`). Before pushing, run `make ci` — it runs the linters, the unit
+tests, and the cross-tenant isolation gate, the same checks CI enforces on every
+pull request. The non-negotiable rules (tenant isolation, no phone-home, crypto
+only through `internal/crypto`, TLS on every listener) are summarized in
+`CONTRIBUTING.md` and enforced by standing CI gates.
 
 ## License
 

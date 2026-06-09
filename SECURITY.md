@@ -1,7 +1,10 @@
 # Security Policy
 
-probectl is a network *security and observability* product, so we hold its own
-posture to a high bar. Thank you for helping keep it and its users safe.
+probectl is a network *security and observability* product that many operators
+run in regulated or air-gapped environments, so we hold its own posture to a high
+bar. This page tells you how to report a vulnerability privately, what we treat
+as most serious, and what's in and out of scope. Thank you for helping keep
+probectl and its users safe.
 
 ## Reporting a vulnerability
 
@@ -44,8 +47,9 @@ We treat these as critical and ask for extra care in handling:
 
 ## Supported versions
 
-During Phase 1, the latest tagged release on `main` receives security fixes.
-Long-term support windows will be published as the project matures.
+probectl is pre-1.0. The **latest tagged release** receives security fixes;
+older tags do not. Formal long-term-support windows will be published as the
+project reaches GA.
 
 ## Scope
 

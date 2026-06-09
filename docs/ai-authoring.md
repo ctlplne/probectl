@@ -1,19 +1,46 @@
-# AI test authoring + auto-discovery (S26)
+# AI test authoring and auto-discovery
 
-probectl turns a natural-language request into a synthetic-test config, and mines
-observed telemetry to propose monitorable targets — both **propose-only**: nothing
-is created until a human confirms (CLAUDE.md §7 guardrail 8). It drives
-time-to-first-insight down.
+## What it is
 
-## One schema, validated before display
+Two ways to get from "I want to monitor this" to a configured synthetic test
+*without* hand-writing config:
 
-Every test config — typed in the UI, authored from natural language, or
-discovered — validates against the **canonical schema** (`internal/testspec`), so
-a config that is valid in one place is valid everywhere. An authored or discovered
-config is **always schema-checked before it is surfaced**; an invalid one is never
-shown for confirmation (S26 watch-out).
+- **Authoring** — you type a request in plain English ("monitor the Salesforce
+  login page", "ping 9.9.9.9 from every site"), and probectl proposes a ready-to-go
+  test config.
+- **Auto-discovery** — probectl mines the telemetry it has *already observed* for
+  things worth monitoring that have no test yet, and proposes those too.
 
-## Authoring (NL → config)
+Both are strictly **propose-only**: probectl never creates a test on its own. It
+hands you a candidate; you review it and click create. This is the platform's
+human-gated rule applied to authoring — an AI (or a discovery heuristic, or a
+prompt-injection riding in observed telemetry) can at most *suggest* a test, never
+make one. The point is to shrink time-to-first-monitor, not to take the wheel.
+
+## One schema, validated before you ever see it
+
+Every test config in probectl — whether you typed it in the UI, authored it from
+natural language, or it came from discovery — is the same canonical type,
+`testspec.Spec` (`internal/testspec`). That single source of truth means a config
+that's valid in one place is valid everywhere.
+
+The load-bearing rule: **an authored or discovered config is schema-validated
+*before* it's surfaced for confirmation.** The authoring engine
+(`internal/ai/author/author.go`) always runs the candidate through
+`testspec.Clean` and only returns it if it passes:
+
+```go
+clean, err := testspec.Clean(spec)
+if err != nil {
+    return Proposal{}, fmt.Errorf("%w: the authored config was invalid (%v)", ErrCannotAuthor, err)
+}
+```
+
+So an invalid config — including a malformed answer from a language model — is
+*rejected*, never shown to you as something to approve. You can't accidentally
+create garbage because garbage never reaches the review step.
+
+## Authoring: natural language to config
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -25,32 +52,70 @@ flowchart LR
   P --> U["user reviews →<br/>POST /v1/tests"]
 ```
 
-The default author is a deterministic, **air-gapped heuristic**: it extracts a
-target + type from the request (URLs, IPs, hostnames, ports, and a few well-known
-services — so "check Salesforce login" yields an HTTP test to login.salesforce.com).
-When a model is configured (the S24 model config), a **model-backed** author
-handles open-ended requests — and its output is still schema-checked, so a
-malformed answer is rejected, not shown.
+There are two authors behind the same interface (`author.Proposer`), and which one
+runs depends on your config:
 
-`POST /v1/ai/author` `{prompt}` → a `TestProposal`. It NEVER creates the test; the
-user applies it via `POST /v1/tests`.
+- **The heuristic author (default, air-gapped).** A deterministic parser that
+  needs no model and makes no network call (`HeuristicAuthor`). It pulls a target
+  and a test type out of your words: URLs become `http` tests, IPs become `icmp`
+  (or `tcp`/`udp` if you mention a port), hostnames default to a web check unless
+  you say "dns"/"resolve" or "ping", and a small list of well-known services is
+  recognised by name — so "check Salesforce login" yields an `http` test to
+  `login.salesforce.com`. If it can't find a host, IP, or URL, it returns a clear
+  "couldn't derive a test — include one, or configure a model."
+- **The model-backed author (when a model is configured).** When
+  `PROBECTL_AI_MODEL_PROVIDER` points at a model, a `ModelAuthor` handles
+  open-ended requests the heuristic can't. It asks the model for strict JSON, and
+  the engine schema-validates that answer exactly like any other — so a malformed
+  or invalid model response is rejected, not shown.
 
-## Auto-discovery
+Because the model-backed author can send your prompt to a remote model, it rides
+the **same egress gate** as remote-model RCA: per-tenant consent, redaction, and
+audit (`docs/ai-egress.md`). A remote authoring call for a tenant that hasn't
+consented is denied — and the air-gapped heuristic still works for everyone.
 
-`POST /v1/ai/discover` mines the tenant's observed telemetry for monitorable
-targets that have no test: it suggests a test type (by port/kind), **thresholds
-low-signal noise**, **dedups against existing tests**, ranks, and caps the result.
-Today it sources targets from incidents; the eBPF service map, flows,
-BGP-monitored prefixes, and DNS plug into the same `Observation` input as those
-sources are wired. Proposals only.
+**API:** `POST /v1/ai/author` with body `{prompt}` → a `Proposal` (the spec plus a
+short rationale and which author produced it). It **never creates the test**; you
+apply the returned spec via `POST /v1/tests`.
+
+## Auto-discovery: mine what's already observed
+
+`POST /v1/ai/discover` looks at the tenant's own observed telemetry and proposes
+monitorable targets that currently have *no* test (`internal/ai/author/discovery.go`,
+handler in `internal/control/authoring.go`). It:
+
+- **suggests a test type** from what it saw (port 443 → `http` over https, port 53
+  → `dns`, a bare IP → `icmp`, and so on);
+- **thresholds low-signal noise** so it doesn't propose every stray packet;
+- **dedups against your existing tests** (a discovered `host:443` is recognised as
+  already covered by an existing `https://host` test);
+- **ranks and caps** the result so you get a short, high-value list.
+
+Today the discovery input is **incident targets** — already-correlated signals, so
+even a single occurrence is worth proposing. The eBPF service map, flows,
+BGP-monitored prefixes, and DNS feed the *same* `Observation` input as those
+sources get wired, so discovery gets richer without changing the propose-only
+contract. (A bare CIDR is deliberately *not* proposed as a synthetic test — a
+prefix is BGP-monitored, not pinged.)
 
 ## Surface
 
-The Targets page hosts the **review-and-apply** flow: an "Author with AI" box
-(describe → proposal → Create) and a "Suggested to monitor" list (Add). Nothing is
-created without confirmation. Both routes require `test.write`.
+The Targets page hosts the review-and-apply flow: an "Author with AI" box (describe
+→ proposal → Create) and a "Suggested to monitor" list (Add). **Nothing is created
+without your confirmation.** Both routes require the `test.write` permission.
 
-## Out of scope
+## What it deliberately does not do
 
-Auto-applying tests; remediation (S-EE5). Richer discovery sources arrive with the
-eBPF / flow / BGP / DNS wiring.
+- **It never auto-applies a test.** Authoring and discovery both stop at a
+  proposal; creation is a separate, authenticated, human action.
+- **It never surfaces an invalid config.** Schema validation happens *before*
+  display, on every path.
+- **It does not do remediation.** Creating monitoring is not the same as changing
+  the network — that's the separate, human-gated remediation path
+  (`docs/remediation.md`).
+
+## See also
+
+- `docs/ai-rca.md` — the RCA assistant and the shared model configuration.
+- `docs/ai-egress.md` — the consent/redaction/audit gate the model-backed author rides.
+- `docs/configuration.md` — the `PROBECTL_AI_*` model keys.
