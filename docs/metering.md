@@ -1,89 +1,122 @@
-# Per-tenant metering, usage & billing export (S-T3, F53)
+# Per-tenant metering, usage & billing export
 
-The MSP-tier metering plane: per-tenant usage counters and snapshots, a
-usage/showback API, per-tenant creation quotas, and a billing-export feed for
-the MSP's existing PSA/billing system. Lives in **`ee/billing`**, unlocked by
-the `metering` license feature; community/unlicensed deployments meter
-nothing (the core seam is a no-op) and the provider-console usage surfaces
-stay hidden.
+## What this is
 
-probectl deliberately does **not** build an invoicing engine — it exports.
-The ratified first export target is **generic CSV + JSON Lines** (vendor-
-neutral; every PSA imports CSV). Vendor-shaped connectors (ConnectWise,
-Autotask, Stripe) are follow-ups once a design partner names one.
+When an MSP self-hosts probectl and serves many tenants, it needs to answer
+"how much did each tenant use this month?" — to bill them. This is the plane
+that produces those numbers: per-tenant usage counters and snapshots, a
+usage/showback API, per-tenant creation quotas, and a billing-export feed the
+MSP feeds into its existing PSA or billing system.
+
+It is a **commercial (Provider/MSP tier)** feature. The implementation lives in
+`ee/billing` and is unlocked by the `metering` license feature; the core
+platform ships only an inert seam (`internal/usage`). A community or unlicensed
+deployment therefore **meters nothing** — the seam is a no-op that records
+nothing and allows everything — and the provider-console usage surfaces stay
+hidden. (For why the line is drawn here, see
+[`docs/editions.md`](editions.md).)
+
+probectl deliberately does **not** build an invoicing engine — it *exports*. The
+first export target is **generic CSV + JSON Lines**: vendor-neutral, because
+every PSA imports CSV. Vendor-shaped connectors (ConnectWise, Autotask, Stripe)
+are follow-ups, to be built once a design partner names the one they need.
 
 ## The meters
 
+There are two kinds of meter, and the distinction drives everything downstream:
+a **counter** only ever goes up (you sum it over a period), and a **gauge** is a
+point-in-time level (you take the peak over a period).
+
 | Meter | Kind | Unit | Source |
 |---|---|---|---|
-| `agents` | gauge | count | snapshot: counted inside the tenant's own scope |
-| `tests` | gauge | count | snapshot: counted inside the tenant's own scope |
+| `agents` | gauge | count | periodic snapshot, counted inside the tenant's own scope |
+| `tests` | gauge | count | periodic snapshot, counted inside the tenant's own scope |
 | `results_ingested` | counter | count | the result pipeline, as results flow |
 | `ingest_bytes` | counter | bytes | result payload bytes, same stream |
 | `flow_events` | counter | count | flow batches landing in the flow store |
 | `ai_calls` | counter | count | AI assistant questions |
 
-Metering derives from the tenant-tagged streams **already flowing** (the
-`internal/usage` seam in the pipeline/AI paths) — never a parallel pipeline.
-Counters bucket **hourly at record time** and flush every minute; a failed
-flush merges deltas back and retries (billing-critical losslessness: counts
-are delayed, never lost, never doubled — the flush batch is one transaction).
+The counters are derived from the tenant-tagged streams that are **already
+flowing** — the core call sites call the `internal/usage` seam as results, flow
+batches, and AI questions pass through. There is no parallel metering pipeline.
+Counters are bucketed **hourly at the moment of recording** (so an hour boundary
+is exact regardless of when the buffer flushes), buffered in memory, and flushed
+to Postgres every minute. If a flush fails, the buffered deltas are **merged
+back** and retried on the next tick — billing-critical losslessness: counts can
+be delayed, but never lost and never double-counted, because each flush is one
+transaction.
 
-**Accuracy / reconciliation (the watch-out):** gauges ARE the
-source-of-truth counts — the collector runs `count(*)` per tenant **inside
-that tenant's own scope** (`tenancy.InTenant`: RLS-bound, silo-routed), so
-there is no cross-tenant read path, and a siloed tenant's resources are
-counted exactly once, in its own schema. No double-counting across
-pooled/siloed by construction.
+### Why the gauges are exact
 
-## Usage API + export feed (the contract)
+The gauges (`agents`, `tests`) are the source-of-truth counts, and they are
+collected carefully. A snapshot collector lists the tenants, then counts each
+tenant's resources by running `count(*)` **inside that tenant's own scope**
+(`tenancy.InTenant`: row-level-security-bound for pooled tenants, schema-routed
+for siloed tenants). There is no cross-tenant read path at all, so a siloed
+tenant's resources are counted exactly once, in its own schema, and pooled and
+siloed tenants cannot double-count each other by construction.
 
-Provider-plane routes (operator session; hidden 404 when unlicensed):
+## Usage API + export feed
 
-- `GET /provider/v1/usage?from&to&tenant_id&rollup=hour|day` — UsageRecords
-  (defaults: month-to-date, day rollup). Counters **sum** across periods;
-  gauges take the **peak** (the fair capacity snapshot).
-- `GET /provider/v1/usage/export?format=csv|jsonl&…` — the billing feed.
-  **Stable column contract** (additive changes only):
+These are provider-plane routes (operator session). When the `metering` feature
+is not licensed they are hidden — a request gets a 404, not a 403, so the
+feature's existence isn't even advertised.
+
+- `GET /provider/v1/usage?from&to&tenant_id&rollup=hour|day` — usage records.
+  Defaults are month-to-date with day rollup. Counters **sum** across the
+  period; gauges take the **peak** (the fair capacity snapshot — you bill for
+  the most agents a tenant ran, not their average).
+- `GET /provider/v1/usage/export?format=csv|jsonl&…` — the billing feed
+  (`csv` is the default). The column set is a **stable contract** — only
+  additive changes are allowed, so an importer never breaks:
 
 ```
 tenant_id,tenant_slug,meter,kind,period_start,period_end,value,unit
 ```
 
-Timestamps are RFC 3339 UTC. JSONL carries the same field names, one object
-per line. Records persist in `usage_records` (migration 0026): provider-plane
-billing data about tenants — written/read by the `probectl_provider` role via
-an explicit policy, still tenant-RLS'd so a tenant can read its own usage,
-and **never copied into silo schemas** (billing stays pooled by design).
+Timestamps are RFC 3339 in UTC. JSON Lines carries the same field names, one
+object per line.
+
+Records persist in the `usage_records` table (migration `0026_metering.sql`).
+This is provider-plane billing data *about* tenants: it is written and read by
+the `probectl_provider` database role through an explicit row-level-security
+policy, but it still carries the standard per-tenant policy too, so a tenant can
+read **its own** usage through tenant-scoped paths. It is never copied into silo
+schemas — billing stays pooled by design.
 
 ## Quotas
 
-`tenant_quotas` (per tenant): `max_agents`, `max_tests` — `null` = unlimited.
-Managed by **admins** (SoD; audited as `provider.quota_set`; the read-only
-license ladder blocks quota writes) via
-`GET/PUT /provider/v1/tenants/{id}/quotas` or the console's Usage card.
+The `tenant_quotas` table (one row per tenant) holds `max_agents` and
+`max_tests`; `null` means unlimited. Quotas are managed by an **admin** operator
+(separation of duties; the action is audited as `provider.quota_set`; and when
+the license has lapsed into read-only degrade, quota writes are blocked) via
+`GET`/`PUT /provider/v1/tenants/{id}/quotas` or the console's Usage card.
 
-**Semantics (the house doctrine):**
+What a quota does — and deliberately does not do:
 
-- Quotas gate **control-plane resource creation only**: creating a test
-  (403 `quota_exceeded`) and registering a **new** agent
-  (gRPC `ResourceExhausted`). An existing agent re-registering is never
-  rejected — a running fleet must not break on restart.
-- **Telemetry is never quota-dropped.** Fairness throttling of pooled ingest
-  is S-T7's job.
-- Enforcement counts live state inside the tenant's scope (exact, not
-  cached); quota lookups cache 30s and invalidate on update.
-- Infrastructure failures **degrade open**: a quota is a billing control,
-  not a security boundary.
+- It gates **control-plane resource creation only**: creating a test (denied
+  with `403 quota_exceeded`) and registering a **new** agent (denied with the
+  gRPC `ResourceExhausted` status). An *existing* agent re-registering is never
+  rejected — a running fleet must not break on a restart.
+- **Telemetry is never quota-dropped.** Observability must not silently lose
+  data; throttling pooled ingest is the fairness layer's job, not the quota
+  layer's (see [`docs/fairness.md`](fairness.md)).
+- Enforcement counts live state inside the tenant's own scope (exact, not
+  cached); quota lookups cache for 30 seconds and invalidate immediately on
+  update.
+- An infrastructure failure (a database blip) **degrades open** — the create is
+  allowed. A quota is a billing control, not a security boundary, and the
+  metering trail still records what actually happened.
 
 ## Console
 
-The provider console's **Usage & showback** card: month-to-date per-tenant
-meters, one-click CSV/JSONL export, and (admins) the per-tenant quota editor.
-Hidden entirely when the metering feature is not licensed.
+The provider console's **Usage & showback** card shows month-to-date per-tenant
+meters, offers one-click CSV/JSONL export, and (for admins) the per-tenant quota
+editor. It is hidden entirely when the `metering` feature is not licensed.
 
 ## Configuration
 
-No keys. Flush (1m) and snapshot (15m) cadences are fixed; the feature
-activates with a license granting `metering` (provider/MSP tier). Quotas and
-usage live in Postgres alongside the tenant registry.
+There are no configuration keys. The flush cadence (1 minute) and snapshot
+cadence (15 minutes) are fixed; the feature activates when the license grants
+`metering` (Provider/MSP tier). Quotas and usage live in Postgres alongside the
+tenant registry.
