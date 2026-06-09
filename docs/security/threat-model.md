@@ -136,7 +136,7 @@ B7 build/release↔deployments · B8 agent↔monitored host.
 | Multi-region RTO/RPO at representative scale | U-053 — CI drill continuous; representative run + sign-off pending |
 | Reference-host agent overhead row (live ring buffer) | U-051 — userspace pipeline measured; live-host row pending |
 | `LICENSE` is a TBD placeholder pending counsel | CLAUDE.md §2 — legal artifact, outside the codebase |
-| Procurement/legal docs are drafts for counsel | U-065 — `docs/compliance/` drafts, not executed agreements |
+| Procurement/legal docs are drafts for counsel | Kept outside the public repo until counsel finalizes them |
 | Anything newly filed | the unified diligence register is the single source of truth for open findings |
 
 ## 6. Review log

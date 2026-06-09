@@ -8,7 +8,7 @@ import (
 )
 
 // TLS-plaintext capture policy (U-003, C13; path map in
-// docs/audit/ebpf-capture-redaction.md). Live sslsniff capture is
+// the agent security whitepaper). Live sslsniff capture is
 // PII-class — it reads application plaintext on customer hosts — so it is:
 //
 //  1. OFF by default: l7_capture_enabled must be set true;

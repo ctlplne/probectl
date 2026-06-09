@@ -69,7 +69,7 @@ need **no eBPF toolchain and no extra dependency**.
   are filtered in-kernel. The blind spot is **measurable** — a per-CPU BPF
   counter is summed and surfaced as `filtered_non_ipv4_total` in the agent's
   flush telemetry, so an IPv6-heavy host shows a rising count rather than
-  silent gaps. IPv6 capture is roadmapped (`docs/roadmap.md`): the
+  silent gaps. IPv6 capture is planned: the
   tracepoint already carries the family; it needs the 16-byte address path
   and the wider event struct.
 - **Go `crypto/tls` (U-074):** the L7 capture uprobes attach to the system

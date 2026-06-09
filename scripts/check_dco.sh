@@ -6,7 +6,7 @@
 #
 # This gate applies GOING FORWARD only. The ~230 historical unsigned commits and
 # the dev@netctl.local provenance are a retroactive chain-of-title item for
-# counsel (Appendix B of docs/diligence/REMEDIATION-PLAN-v2.md) — not gated here.
+# counsel (counsel-owned legal docs (maintained outside the repo)) — not gated here.
 set -euo pipefail
 
 base="${BASE_SHA:-${1:-}}"
