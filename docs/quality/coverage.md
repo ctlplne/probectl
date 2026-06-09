@@ -1,20 +1,26 @@
 # Quality receipts (coverage + scan artifacts)
 
-Sprint 1 (TEST-008, DATAROOM-005, DATAROOM-011): every CI run retains the
-evidence a diligence reviewer asks for — as **workflow artifacts**, never as
-bot commits to `main` (artifacts keep the audit trail without mutating the
-release branch).
+Think of this as the "show your work" drawer for CI. Every CI run leaves behind
+the evidence a reviewer (or a future you) would ask for — "is the code actually
+tested? did the vulnerability scan run? what did it find?" — and it leaves that
+evidence as **downloadable run artifacts**, never as a bot pushing files back to
+`main`. Why artifacts and not commits: you keep a full audit trail without the
+release branch growing extra commits or a bot ever needing write access.
 
 ## What is retained, where (90-day retention)
 
+Each row is a zipped artifact attached to a CI run. The "producing job" is the
+CI job (in `.github/workflows/ci.yml`) that creates it.
+
 | Artifact | Producing job | Contents |
 |---|---|---|
-| `coverage-receipt` | `coverage` | `coverage.out` (atomic profile over the gated packages) + `coverage-summary.txt` (per-function tail + total) |
-| `test-go-log` | `test-go` | full `make test` output (`-race`, all workspace modules) |
-| `dependency-scan-receipts` | `dependency-scan` | `govulncheck-report.txt` + `trivy-fs-report.txt` (CRITICAL/HIGH, vuln scanner; secrets are the gitleaks secret-scan job) |
-| `rca-eval-report` | `rca-eval` | RCA quality scores (answer accuracy / citation precision), tracked since U-049 |
+| `coverage-receipt` | `coverage` | `coverage.out` (the raw Go cover profile over the gated packages) + `coverage-summary.txt` (a per-function tail + the total) |
+| `test-go-log` | `test-go` | the full `make test` output — every Go workspace module, run with the race detector (`-race`) |
+| `dependency-scan-receipts` | `dependency-scan` | `govulncheck-report.txt` (Go vulnerability scan) + `trivy-fs-report.txt` (filesystem vuln scan, CRITICAL/HIGH only). Committed secrets are a *different* job — the `secret-scan` gitleaks gate. |
+| `rca-eval-report` | `rca-eval` | the AI root-cause-analysis quality scores — `answer_accuracy` and `mean_citation_precision` (plus the raw eval log) |
 
-PRs additionally get a best-effort coverage summary comment.
+On a pull request, the `coverage` job additionally posts a best-effort comment
+with the coverage summary, so you see the numbers without downloading anything.
 
 ## Fetching a receipt
 
@@ -26,9 +32,24 @@ gh run download <run-id> -n dependency-scan-receipts
 
 ## Floors (enforced, not aspirational)
 
-- Per-package Go floors: `scripts/check_coverage.sh` (the `coverage` job).
-- `internal/store` integration floor: 60% inside the `integration` job (U-057).
-- Python analyzer: 85% floor via `[tool.coverage.report] fail_under`
-  (`test-python` job, U-094).
+A "floor" is a minimum coverage percentage a package must keep. Drop below it
+and CI goes red — that is the whole point: a floor turns "we should test this"
+into "the build won't pass if you don't."
 
-Raise floors with coverage; never lower one to make a regression pass.
+- **Per-package Go floors** live in `scripts/check_coverage.sh` and run in the
+  `coverage` job. The script measures statement coverage from `coverage.out`
+  and fails if any package is under its declared floor. It covers the
+  service-free packages (pure logic, parsers, probes) — the ones whose coverage
+  is meaningful without a live database or message bus.
+- **`internal/store` integration floor: 60%**, enforced inside the
+  `integration` job — not the `coverage` job. The store package only does
+  anything useful against a real Postgres (with row-level security on), so its
+  coverage is measured *with* the integration tests running, then held to the
+  floor.
+- **Python analyzer: 85%**, via `fail_under = 85` in
+  `analyzer/pyproject.toml`'s `[tool.coverage.report]`, enforced in the
+  `test-python` job.
+
+The rule for all three: **raise a floor when coverage goes up; never lower one
+just to make a regression pass.** Lowering a floor to get green is how a
+codebase quietly loses its test coverage.

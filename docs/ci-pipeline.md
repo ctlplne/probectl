@@ -25,10 +25,11 @@ The repo's other three workflows do **not** run on a normal push:
 
 A push is like sending the change through a checkpoint with **32 specialist
 inspectors**, each examining one thing, all in parallel. A 33rd job —
-`verify-all` — is the supervisor: it `needs:` (almost) all of them, runs with
-`if: always()`, writes a receipt artifact, and **fails loudly listing any
-non-green gate**. It is the one
-status you actually watch: green `verify-all` = the whole pipeline passed.
+`verify-all` — is the supervisor: it `needs:` 28 of them (the four that don't
+gate a merge — `commitlint`, `dco`, `image-scan`, `sbom` — are left out of the
+roll-up), runs with `if: always()`, writes a receipt artifact, and **fails
+loudly listing any non-green gate**. It is the one status you actually watch:
+green `verify-all` = the whole pipeline passed.
 
 The guiding principle, visible throughout the repo: **every guardrail in
 `CLAUDE.md` has a matching CI gate, and the gates _execute_ the thing rather than

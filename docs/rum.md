@@ -1,29 +1,35 @@
-# RUM convergence (S47b, F20)
+# RUM convergence
 
-probectl's real-user monitoring exists for ONE question: **when something
-breaks, are real users actually affected?** Synthetic tests answer "can a
-robot reach it"; RUM answers "are humans hurting". The convergence verdict
-joins both, per (app, host):
+## What it is, and why
+
+Real-user monitoring (RUM) exists to answer **one** question: when something
+breaks, are real users actually affected? Synthetic tests answer "can a robot
+reach it?"; RUM answers "are humans hurting?". probectl's value-add is joining
+the two — the *convergence verdict*, computed per (app, host):
 
 | Verdict | Meaning |
 |---|---|
-| `healthy` | neither plane degraded |
-| `user_impact_confirmed` | synthetics AND real users degraded — the page-worthy case |
-| `synthetic_only_no_user_impact` | synthetics red, users fine — a canary, not a crisis (wording deliberate: *no user impact **observed***) |
+| `healthy` | neither plane is degraded |
+| `user_impact_confirmed` | synthetics **and** real users are degraded — the page-worthy case |
+| `synthetic_only_no_user_impact` | synthetics red, users fine — a canary, not a crisis (the wording is deliberate: *no user impact **observed***) |
 | `user_only_synthetic_blind` | users degraded, synthetics green — your synthetic coverage has a blind spot |
 
-Verdict transitions raise warning signals into incidents (plane `rum`):
-`rum.user_impact_correlated` and `rum.user_impact_unseen_by_synthetics` —
-latched per episode, re-armed on recovery. Healthy and synthetic-only states
-never page from the RUM plane (alerting/SLOs own those stories).
+When the verdict *transitions* into a noteworthy state, the engine raises a
+warning signal that flows into the incident pipeline (plane `rum`):
+`rum.user_impact_correlated` and `rum.user_impact_unseen_by_synthetics`. These
+are **latched** per episode (you get one signal, not a storm) and re-arm on
+recovery. The `healthy` and `synthetic_only` states never page from the RUM
+plane — alerting and SLOs own those stories. The logic lives in
+`internal/rum/engine.go`.
 
 ## The beacon contract (schema v1)
 
-`POST /ingest/rum` — mounted OUTSIDE the session-authenticated API (the
-change-webhook model): each beacon authenticates itself with its **app key**
-and is bound to the KEY's configured tenant, never the payload's. The key is
-an identifier, not a secret (it ships in page source, like every RUM
-product's site key) — it scopes and rate-limits; it grants no read access.
+`POST /ingest/rum` is mounted **outside** the session-authenticated API — same
+model as the change webhook. Each beacon authenticates *itself* with its **app
+key** and is bound to the key's configured tenant, never to whatever the payload
+claims. The key is an *identifier, not a secret*: it ships in page source like
+every RUM product's site key. It scopes and rate-limits the beacon; it grants no
+read access to anything.
 
 ```json
 {"v": 1, "key": "pk_storefront", "consent": true,
@@ -33,37 +39,42 @@ product's site key) — it scopes and rate-limits; it grants no read access.
  "errors": 0, "failed_requests": 0, "sdk": "0.1.0"}
 ```
 
-`host` is the synthetic↔RUM join key (synthetic http/browser tests against
-the same host complete the convergence). Vitals follow web-vitals naming;
-attributes are stored under OTel semconv names where one exists (`url.path`,
-`browser.name`). Beacons normalize into the **canonical result schema**
-(`canary_type: "rum"`) on `probectl.rum.events` — so RUM rides the existing
-pipeline into the TSDB (Grafana dashboards get `rum.*` metrics for free).
+`host` is the **join key** between the two planes: a synthetic http/browser test
+run against the same host is what completes the convergence. Vitals use
+web-vitals naming; stored attributes follow OpenTelemetry semantic-convention
+names where one exists (`url.path`, `browser.name`). A validated beacon is
+normalized into probectl's **one canonical result schema** (with
+`canary_type: "rum"`) and published on the `probectl.rum.events` bus topic — so
+RUM rides the *existing* pipeline into the time-series database, and Grafana
+dashboards get `rum.*` metrics for free, with no parallel plumbing.
 
-## Privacy (the watch-out — enforced server-side, fail closed)
+## Privacy (enforced server-side, fail closed)
 
-The SDK minimizes; the **server enforces** (the trust boundary is the
-server, and it assumes a hostile client):
+The SDK minimizes what it sends, but the **server** is the real trust boundary,
+and it assumes a hostile client. Enforcement is in `internal/rum/beacon.go`:
 
-- **No consent → rejected.** `consent: true` must be explicit.
-- **Unknown fields → rejected.** The strict decoder refuses any payload
-  carrying fields outside the schema — a beacon smuggling `user_id`,
-  `email`, or `ip` never ingests, structurally.
-- **URLs re-redacted server-side**: query strings + fragments stripped,
-  volatile path segments (numbers, UUIDs, long hex) collapsed to `:id` —
-  privacy and bounded page-group cardinality in one pass.
-- **No IP, no user agent stored** — the schema has no place to put them;
-  `browser` is family-level only (chrome/firefox/safari/edge/other).
-- **Client clocks untrusted** — the stored timestamp is the server's.
-- Rejection counters (`rejected_no_consent`, …) are served at `/v1/rum` so
-  the operator SEES what is being dropped — and the coverage note states the
-  inverse honestly: *absence of RUM data is not proof of health* (opted-out
-  users and uninstrumented apps are invisible).
+- **No consent → rejected.** `consent: true` must be explicitly present.
+- **Unknown fields → rejected.** The decoder is strict (`DisallowUnknownFields`):
+  any payload carrying a field outside the schema is refused outright. A beacon
+  trying to smuggle `user_id`, `email`, or `ip` *structurally* cannot ingest.
+- **URLs re-redacted server-side.** Query strings and fragments are stripped,
+  and volatile path segments (numbers, UUIDs, long hex) collapse to `:id` — one
+  pass that buys both privacy and bounded page-group cardinality.
+- **No IP, no user agent stored.** The schema has nowhere to put them; `browser`
+  is family-level only (`chrome` / `firefox` / `safari` / `edge` / `other`).
+- **Client clocks are untrusted** — the stored timestamp is the server's
+  receive time.
+- **Rejections are counted and served.** `/v1/rum` returns the per-tenant
+  reject counters (`rejected_no_consent`, `rejected_malformed`,
+  `rejected_invalid_field`) so the operator can *see* what's being dropped. The
+  coverage note states the honest inverse too: *absence of RUM data is not proof
+  of health* — opted-out users and uninstrumented apps are simply invisible.
 
-The browser SDK (`web/public/probectl-rum.js`, < 2 KiB) sends nothing until
-your consent hook calls `window.probectlRUM.consent()`, honors DNT/GPC by
-never arming, uses passive PerformanceObservers + one `sendBeacon` on
-pagehide (no performance tax), and transmits the page **path only**.
+The browser SDK is `web/public/probectl-rum.js` (under 2 KiB minified). It sends
+nothing until your consent hook calls `window.probectlRUM.consent()`, honors
+Do-Not-Track / Global Privacy Control by never arming, uses passive
+`PerformanceObserver`s plus one `sendBeacon` on `pagehide` (no performance tax),
+and transmits the page **path only**.
 
 ```html
 <script src="https://probectl.example/probectl-rum.js"
@@ -77,41 +88,49 @@ pagehide (no performance tax), and transmits the page **path only**.
 
 ## Ingest hardening (guardrail 12)
 
-App-key auth (unknown key → 401, attributed rejection counters per tenant),
-16 KiB size cap (413), per-key token-bucket rate limit (429 + Retry-After),
-strict untrusted-input parsing, CORS wildcard on this write-only,
-credential-less endpoint only (browsers post cross-origin; `text/plain`
-sendBeacon avoids preflights, OPTIONS answers the rest).
+The ingest endpoint treats every beacon as untrusted input
+(`internal/control/rumapi.go`):
+
+- **App-key auth.** An unknown key gets a `401`, and its rejection is still
+  attributed to the right tenant (the key is parsed leniently first, precisely
+  for this).
+- **Size cap.** 16 KiB max; over that is a `413`.
+- **Rate limit.** A per-key token bucket; over the limit is a `429` with
+  `Retry-After`. (Set the limit to `0` to disable it.)
+- **CORS.** This endpoint is write-only and credential-less, so a wildcard
+  origin is safe and required — browsers post cross-origin from the customer's
+  own site. The SDK uses a `text/plain` `sendBeacon` to dodge the CORS preflight
+  entirely; an `OPTIONS` handler answers the rest.
 
 ## Degradation semantics
 
-RUM is called degraded only with **≥20 views in the 15m window** AND (error
-rate ≥10% OR p75 LCP ≥4000ms — the web-vitals "poor" line). A trickle of
-views is never called an outage. Synthetic degraded = ≥50% failures over ≥2
-samples for the host (web-facing types: http/https/browser).
+RUM is only called *degraded* with **≥ 20 views in the 15-minute window** AND
+(error rate ≥ 10% OR p75 LCP ≥ 4000 ms — the web-vitals "poor" line). A trickle
+of views is never called an outage. The synthetic side is *degraded* at ≥ 50%
+failures over ≥ 2 samples for the host (web-facing types: http/https/browser).
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   B[browser SDK<br/>consent-gated, path-only] -->|POST /ingest/rum| H[beacon ingest<br/>key→tenant, redact, cap, rate-limit]
   H -->|canonical Result| T[(probectl.rum.events)]
-  T --> P[S6 pipeline → TSDB<br/>rum.* metrics for dashboards]
+  T --> P[result pipeline → TSDB<br/>rum.* metrics for dashboards]
   T --> C[RUMConsumer]
   N[(probectl.network.results)] -->|http/browser outcomes| C
   C --> E[rum.Engine<br/>per-tenant convergence verdicts]
-  E -->|latched signals| I[S17 incidents]
+  E -->|latched signals| I[incidents]
   E -->|Snapshot per caller| API[GET /v1/rum]
-  API --> UI[Endpoints/DEM surface — RUM card]
+  API --> UI[Endpoints / DEM surface — RUM card]
 ```
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PROBECTL_RUM_ENABLED` | `false` | the beacon ingest + convergence engine (an inbound surface — opt-in) |
-| `PROBECTL_RUM_APPS` | (none) | app-key registry: `pk_key1=tenant/app,pk_key2=tenant2/app2` (enabled-but-empty fails startup) |
-| `PROBECTL_RUM_RATE_PER_MIN` | `300` | per-key beacon rate limit (0 = unlimited) |
+| `PROBECTL_RUM_ENABLED` | `false` | turns on the beacon ingest + convergence engine (it's an inbound surface, so it's opt-in) |
+| `PROBECTL_RUM_APPS` | (none) | the app-key registry: `pk_key1=tenant/app,pk_key2=tenant2/app2` (enabled but empty is a startup error — a mis-bound key could file beacons under the wrong tenant) |
+| `PROBECTL_RUM_RATE_PER_MIN` | `300` | per-key beacon rate limit (`0` = unlimited) |
 
-Out of scope by design (PRD): full APM — no traces, no session replay, no
-user journeys. RUM here is page-level vitals + errors, converged with
-synthetics.
+Deliberately out of scope (per the PRD): full APM — no traces, no session
+replay, no user-journey reconstruction. RUM here is page-level vitals and
+errors, converged with synthetics.

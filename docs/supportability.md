@@ -1,94 +1,111 @@
-# Supportability (S-EE4, F35)
+# Supportability
 
-probectl is built to be diagnosable: a one-command **support bundle** captures
-triage-grade diagnostics, **deep health checks** report per-component status,
-and **self-monitoring** series let probectl observe itself. These are **core**
-by the ratified editions decision — better bug reports serve every deployment.
-The support *org / SLA* is a commercial contract (the Enterprise entitlement),
-not code.
+## What this is
 
-**The non-negotiable property (guardrail 6): a support bundle never contains
-secrets, credentials, or PII.**
+When a probectl deployment misbehaves, you want to hand a diagnostician a single
+file that says what's wrong — without that file leaking any secrets. That's what
+this layer provides:
+
+- a one-command **support bundle** (triage-grade diagnostics, packaged),
+- **deep health checks** (per-component status, plus one "is it healthy?" answer),
+- **self-monitoring** (probectl emits metrics *about itself*).
+
+All three are **core** (free, every deployment gets them) — better bug reports
+help everyone. The paid part is the support *organization and SLA* (the
+Enterprise entitlement); that's a contract, not code.
+
+**The non-negotiable property (guardrail 6 in `CLAUDE.md`): a support bundle
+never contains secrets, credentials, or PII.** Everything below is built to keep
+that true even if someone slips up.
 
 ---
 
 ## Support bundle
 
-A `tar.gz` of JSON diagnostics:
+A `.tar.gz` of JSON files. The code lives in `internal/support/bundle.go`.
 
 | File | Contents |
 |---|---|
-| `manifest.json` | format version, generated-at, probectl version, file list |
+| `manifest.json` | format version, when it was generated, probectl version, the file list |
 | `version.json` | build version / commit / Go version / OS / arch |
-| `config-redacted.json` | operational config — **allowlist** (no secrets) |
-| `health.json` | the deep-health report (per component + aggregate) |
+| `config-redacted.json` | operational config — an **allowlist** (no secrets) |
+| `health.json` | the deep-health report (each component + the aggregate) |
 | `self-metrics.json` | goroutines, memory, uptime, GC, GOMAXPROCS |
-| `topology-summary.json` | **anonymized** counts (tenants, agents, isolation models, region) — no tenant identifiers or telemetry |
-| `runtime.json` | runtime snapshot |
+| `topology-summary.json` | **anonymized** counts (tenants, agents, isolation models, region) — no tenant identifiers, no telemetry |
+| `runtime.json` | a runtime snapshot of the process |
 
 ### How it stays secret-free (defense in depth)
 
-1. **Allowlist config.** `config.Redacted()` only includes known-non-secret
-   operational keys; DSNs are password-redacted; the envelope key appears only
-   as the boolean `envelope_key_configured`. A new secret field added later
-   cannot leak because it is simply not on the list.
-2. **Anonymized topology.** Counts only — never a tenant ID, hostname, IP, or
-   any telemetry.
-3. **A final scrub.** The bundle is additionally scrubbed of the deployment's
-   known sensitive values (envelope key, OIDC/CMDB/SIEM/AI secrets,
-   bootstrap/OTLP tokens, the DSN password) — so even an accidental inclusion
-   is replaced with `***REDACTED***`. The test asserts these values never
-   appear anywhere in the bundle bytes.
+Three independent layers, so no single mistake leaks a secret:
 
-Each file is bounded (4 MiB) and the whole bundle is gzip'd.
+1. **Allowlist config, not blocklist.** `config.Redacted()` builds the config
+   snapshot from a fixed list of *known-non-secret* keys. Database URLs have
+   their passwords stripped; the envelope encryption key shows up only as the
+   boolean `envelope_key_configured` (true/false), never the key itself. The
+   safety here is structural: a secret field someone adds *later* can't leak,
+   because it simply isn't on the allowlist.
+2. **Anonymized topology.** The deployment-shape file is counts only — never a
+   tenant ID, hostname, IP, or any telemetry.
+3. **A final scrub.** Before the bundle is written, it's swept once more for the
+   *specific* sensitive values this deployment actually holds — the envelope
+   key, the OIDC / CMDB / SIEM / AI-model secrets, the provider-bootstrap and
+   OTLP tokens, and the database password. Any of those found anywhere in the
+   bundle bytes is replaced with `***REDACTED***`. A test asserts these values
+   never appear in the output. So even an accidental inclusion is caught.
+
+Each file is bounded (4 MiB max) and the whole bundle is gzip'd.
 
 ### Getting a bundle
 
 | Method | Use |
 |---|---|
-| `GET /v1/diagnostics/bundle` | the live bundle (topology, deep health, self-metrics) — admin `diagnostics.read`; Admin → Support & diagnostics has the download button |
-| `probectl-control support-bundle [-o file]` | an **offline** bundle from this install (version, redacted config, a DB health check, runtime) — no running server needed |
+| `GET /v1/diagnostics/bundle` | the **live** bundle (topology, deep health, self-metrics). Admin-only — requires the `diagnostics.read` permission. The Admin → Support & diagnostics page has the download button. |
+| `probectl-control support-bundle [-o file]` | an **offline** bundle straight from the binary (version, redacted config, a database health check, runtime) — no running server needed. |
 
 ## Deep health checks
 
-`GET /v1/diagnostics` (admin `diagnostics.read`) returns each component's
-status — `ok` / `degraded` / `down` — and an **aggregate that is the worst
-component**, so a single field tells you whether the deployment is healthy:
+`GET /v1/diagnostics` (admin `diagnostics.read`) returns each component's status
+— `ok` / `degraded` / `down` — plus an **aggregate that equals the worst
+component**, so one field tells you whether the deployment is healthy. The
+checks are wired up in `internal/control/diagnostics.go`:
 
 | Check | Degraded / down when |
 |---|---|
-| `database` | the writer pool ping fails (down) |
-| `secrets_resolver` | a secret backend is failing (degraded) |
-| `cluster` | writes are fenced during a failover (degraded, S-EE2) |
-| `license` | expired into grace / read-only (degraded, S-T0) |
+| `database` | the writer connection-pool ping fails → `down` |
+| `secrets_resolver` | a configured secret backend is failing → `degraded` |
+| `cluster` | writes are fenced during a multi-region failover → `degraded` |
+| `license` | expired into the grace period or read-only state → `degraded` |
 
-This is distinct from the liveness/readiness probes (`/healthz`, `/readyz`):
-those gate load-balancer traffic; the deep report is for human triage and the
-support bundle.
+This is separate from the liveness/readiness probes (`/healthz`, `/readyz`):
+those exist to gate load-balancer traffic and answer a blunt up/down. The deep
+report is richer — it's for a human doing triage and for the support bundle.
 
 ## Self-monitoring (probectl observes probectl)
 
-The control plane emits `probectl_self_*` series every 30s — `goroutines`,
-`mem_alloc_bytes`, `mem_sys_bytes`, `num_gc`, `uptime_seconds`, `max_procs` —
-plus `probectl_build_info{version,commit,go}` (value 1, the Prometheus
-build-info idiom). With the S-EE2 `probectl_cluster_*` and S-T7
-`probectl_fairness_*` series, these feed a self-monitoring dashboard:
+The control plane emits `probectl_self_*` metrics every 30 seconds —
+`goroutines`, `mem_alloc_bytes`, `mem_sys_bytes`, `num_gc`, `uptime_seconds`,
+`max_procs` — plus `probectl_build_info{version,commit,go}` (value `1`, the
+standard Prometheus build-info trick: the *labels* carry the info, the value is
+just a constant). Together with the multi-region `probectl_cluster_*` series and
+the per-tenant fairness `probectl_fairness_*` series, these feed a ready-made
+dashboard:
 
 ```
 deploy/grafana/dashboards/probectl-self.json
 ```
 
 Import it into Grafana (or drop it into a provisioned dashboards folder). It
-shows build/uptime/goroutines/memory, the cluster writer role + replica lag per
-region, and per-tenant fairness shedding + query rejections.
+shows build/uptime/goroutines/memory, the cluster writer role and per-region
+replica lag, and per-tenant fairness shedding plus query rejections.
 
 ## Configuration
 
 No new config keys. The diagnostics endpoints and the offline CLI read the
-existing config; `diagnostics.read` (migration 0034, admin-seeded) gates the
-endpoints.
+existing config. The `diagnostics.read` permission that gates the endpoints is
+seeded for admins by migration `0034_diagnostics.sql`.
 
 ## Out of scope
 
-The support **organization / SLAs** (Enterprise/acquirer-provided — contract,
-not code). In MSP mode, tier-1 support to end customers is the MSP's job.
+The support **organization and SLAs** (the Enterprise/acquirer-provided
+contract — not code). In MSP mode, tier-1 support to end customers is the MSP's
+job.
