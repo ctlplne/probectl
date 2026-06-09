@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- CI greening, round 7 (eBPF kernel-matrix — TCG too slow, skip instead): round
+  6's `VIMTO_DISABLE_KVM=true` got the arm64 boot past the missing-KVM error, but
+  on run #209 the TCG-emulated arm64 kernel boot stalled past the 11m `go test`
+  timeout (the goroutine sat in VM I/O wait for ~10m). Switched to **skipping**
+  the live boot when `/dev/kvm` is absent — the step emits a `::notice` and exits
+  0 rather than emulate. The arm64 BPF objects are still compiled + U-014
+  digest-verified in the prior step (the cross-arch coverage that mattered), and
+  the amd64 entries run the full live load+attach under KVM. Non-required check;
+  the skip-branch logic was validated locally. Native arm64 *runtime* testing
+  would need a KVM-capable arm64 runner.
+
 - CI greening, round 6 (eBPF kernel-matrix KVM + coverage gate): round 5 greened
   the arm64 compile, and the run surfaced the last two reds.
   (1) `ebpf-kernel-matrix (6.6-arm64)` reached its QEMU boot step and failed with
