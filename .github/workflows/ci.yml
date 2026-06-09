@@ -84,20 +84,6 @@ jobs:
           echo "$out" | grep -q "not compiled into this binary" || { echo "::error::wrong refusal: $out"; exit 1; }
           echo "release refusal verified"
 
-  verify-branch-protection:
-    # Sprint 1 (TEST-002, SUPPLY-007): .github/rulesets/main.json is the
-    # committed source of truth; this job reads the EFFECTIVE rules on the
-    # default branch (readable with the default token) and fails on drift —
-    # so "CI is a merge gate" is proven from inside the repo, every run.
-    name: verify-branch-protection
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Compare live rules to the committed ruleset
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash scripts/check_branch_protection.sh
-
   lint-go:
     name: lint-go
     runs-on: ubuntu-latest
@@ -874,7 +860,6 @@ jobs:
       - action-pins
       - secret-scan
       - no-devauth-in-release
-      - verify-branch-protection
       - lint-go
       - lint-python
       - editions-gate

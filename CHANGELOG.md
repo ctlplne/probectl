@@ -9,6 +9,17 @@ link work to findings.
 
 ## Unreleased — second-audit remediation (post-triage plan)
 
+- CI greening, round 11 (drop verify-branch-protection): the last remaining red
+  was not a bug — `verify-branch-protection` checks that the committed ruleset is
+  *enforced* on the default branch, which needs a one-time admin action the CI
+  token deliberately cannot perform, so the gate stayed permanently red. For a
+  solo, pre-GA repo that branch-protection governance is premature ceremony, so
+  per operator decision it is removed: the `verify-branch-protection` CI job (and
+  its entry in the `verify-all` umbrella), both `scripts/*_branch_protection.sh`
+  helpers, and `.github/rulesets/main.json` are deleted. No product or code
+  impact — the ruleset was never enforced. Re-introduce a ruleset + gate if/when
+  a team or a public repo makes branch protection worthwhile.
+
 - CI greening, round 10 (integration — the last four reds): with rounds 8–9 in,
   the integration job's remaining failures were all test/code, none guardrail.
   (1) agenttransport `TestAgentRegistersOverMTLS` opened the results stream

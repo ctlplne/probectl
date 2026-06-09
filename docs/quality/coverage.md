@@ -2,8 +2,8 @@
 
 Sprint 1 (TEST-008, DATAROOM-005, DATAROOM-011): every CI run retains the
 evidence a diligence reviewer asks for — as **workflow artifacts**, never as
-bot commits to `main` (a bot push would violate the branch ruleset in
-`.github/rulesets/main.json`).
+bot commits to `main` (artifacts keep the audit trail without mutating the
+release branch).
 
 ## What is retained, where (90-day retention)
 
