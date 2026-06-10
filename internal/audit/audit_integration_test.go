@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,6 +79,81 @@ func TestTenantAuditTamperDetection(t *testing.T) {
 		t.Fatal("TenantVerify should detect tampering, but reported a valid chain")
 	}
 	t.Logf("tamper correctly detected: %v", verr)
+}
+
+// TestAppendConcurrencySafe is the regression test for the read-head→insert
+// race: before the per-chain advisory locks, two concurrent appends on the
+// same chain could both read head seq N and both insert N+1 — UNIQUE
+// (tenant_id, seq) then failed one of them with 23505, which surfaced as a
+// 500 on whatever API write was being audited (first seen as TestAgentsAPI
+// flaking in CI, where parallel test packages share this database).
+func TestAppendConcurrencySafe(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	// Per-tenant chain: a fresh tenant, hammered from N goroutines.
+	tn, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("audit-race-%d", time.Now().UnixNano()), "AuditRace")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tid := tenancy.ID(tn.ID)
+
+	const n = 12
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = tenancy.InTenant(tenancy.WithTenant(ctx, tid), pool, func(ctx context.Context, s tenancy.Scope) error {
+				_, err := TenantAppend(ctx, s, "racer", "race.append", fmt.Sprintf("t-%d", i), map[string]any{"i": i})
+				return err
+			})
+		}(i)
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent TenantAppend %d: %v", i, err)
+		}
+	}
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tid), pool, TenantVerify); err != nil {
+		t.Fatalf("chain verify after concurrent appends: %v", err)
+	}
+	var head int64
+	if err := pool.QueryRow(ctx,
+		`SELECT COALESCE(MAX(seq),0) FROM audit_events WHERE tenant_id = $1`, tn.ID).Scan(&head); err != nil {
+		t.Fatalf("head: %v", err)
+	}
+	if head != n {
+		t.Fatalf("head seq = %d, want %d (lost or duplicated appends)", head, n)
+	}
+
+	// Provider chain: same race, global stream. Anchor on the current head and
+	// verify only the suffix (the database is shared across test packages).
+	phead, err := ProviderHeadSeq(ctx, pool)
+	if err != nil {
+		t.Fatalf("provider head: %v", err)
+	}
+	perrs := make([]error, n)
+	var pwg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		pwg.Add(1)
+		go func(i int) {
+			defer pwg.Done()
+			_, perrs[i] = ProviderAppend(ctx, pool, "racer", "race.provider", fmt.Sprintf("p-%d", i), map[string]any{"i": i})
+		}(i)
+	}
+	pwg.Wait()
+	for i, err := range perrs {
+		if err != nil {
+			t.Fatalf("concurrent ProviderAppend %d: %v", i, err)
+		}
+	}
+	if err := ProviderVerifyFrom(ctx, pool, phead); err != nil {
+		t.Fatalf("provider chain verify after concurrent appends: %v", err)
+	}
 }
 
 func TestProviderAuditTamperDetection(t *testing.T) {

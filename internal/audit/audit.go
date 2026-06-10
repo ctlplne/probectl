@@ -56,7 +56,19 @@ func computeHash(streamKey string, seq int64, actor, action, target string, data
 // TenantAppend appends an event to the calling tenant's audit chain. It is
 // written inside the scope's transaction so it commits or rolls back atomically
 // with the action being audited, and RLS confines it to the tenant.
+//
+// Appends are serialized per tenant with a transaction-scoped advisory lock:
+// the chain is a read-head→insert sequence, so two concurrent audited writes
+// for the same tenant would otherwise both read seq N and both insert N+1 —
+// and UNIQUE (tenant_id, seq) turns the loser into a 23505/500. The lock is
+// released with the surrounding commit/rollback, so the append stays atomic
+// with the action being audited; different tenants never contend.
 func TenantAppend(ctx context.Context, s tenancy.Scope, actor, action, target string, data map[string]any) (Event, error) {
+	if _, err := s.Q.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('audit:'||$1::text, 0))`,
+		s.Tenant.String()); err != nil {
+		return Event{}, fmt.Errorf("lock audit chain: %w", err)
+	}
 	var lastSeq int64
 	prevHash := genesis
 	err := s.Q.QueryRow(ctx,
@@ -100,10 +112,25 @@ func TenantVerify(ctx context.Context, s tenancy.Scope) error {
 }
 
 // ProviderAppend appends an event to the global provider/break-glass chain.
+// It opens its own transaction so the same advisory-lock serialization that
+// protects the per-tenant chains protects the global one (see TenantAppend) —
+// a transaction-scoped lock on a bare pool statement would release
+// immediately and protect nothing.
 func ProviderAppend(ctx context.Context, pool *pgxpool.Pool, actor, action, target string, data map[string]any) (Event, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return Event{}, fmt.Errorf("begin provider audit append: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
+
+	if _, err := tx.Exec(ctx,
+		`SELECT pg_advisory_xact_lock(hashtextextended('audit:provider', 0))`); err != nil {
+		return Event{}, fmt.Errorf("lock provider audit chain: %w", err)
+	}
+
 	var lastSeq int64
 	prevHash := genesis
-	err := pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT seq, hash FROM provider_audit_events ORDER BY seq DESC LIMIT 1`).Scan(&lastSeq, &prevHash)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Event{}, fmt.Errorf("read provider audit head: %w", err)
@@ -121,12 +148,15 @@ func ProviderAppend(ctx context.Context, pool *pgxpool.Pool, actor, action, targ
 	if err != nil {
 		return Event{}, err
 	}
-	if err := pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`INSERT INTO provider_audit_events (seq, actor, action, target, data, prev_hash, hash)
 		 VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7) RETURNING created_at`,
 		ev.Seq, actor, action, target, string(dataJSON), prevHash, ev.Hash,
 	).Scan(&ev.CreatedAt); err != nil {
 		return Event{}, fmt.Errorf("insert provider audit event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Event{}, fmt.Errorf("commit provider audit event: %w", err)
 	}
 	return ev, nil
 }
