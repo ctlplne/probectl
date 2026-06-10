@@ -1,6 +1,10 @@
 # ADR: rebuild-on-restart for the in-process derived stores
 
-- **Status:** Accepted — 2026-06-07
+- **Status:** Accepted — 2026-06-07. **Addendum:** the one durability gap this
+  ADR tracked (alert silences/acks, the exception below) has since been closed
+  — they now persist in a tenant-scoped Postgres table and are restored on
+  boot. The rebuild-on-restart decision for the three *derived* stores is
+  unchanged.
 - **Context:** a review noted that topology, threat detections, and alert
   firing state live in process memory and are lost when the control plane
   restarts. This ADR decides whether that is a bug to fix or a property to
@@ -18,8 +22,9 @@ Think of them like a search index over your email: if the index is wiped, you
 don't lose any email; the index just rebuilds itself by re-reading the mailbox.
 Same here. So we **formally adopt rebuild-on-restart** for them rather than
 adding persistence — and we prove the cold-start behavior with tests. One
-genuinely non-derivable piece of state (alert silences/acks) is the exception
-and is called out as a tracked gap rather than silently dropped.
+genuinely non-derivable piece of state (alert silences/acks) is the exception:
+it was called out as a tracked gap rather than silently dropped, and has since
+been fixed with a small persisted table (see the exception section).
 
 ## Decision
 
@@ -60,23 +65,30 @@ re-derived from that tenant's own inputs.
 Silences and acks are **operator inputs**, not derivable from any stream.
 Re-deriving firing state can reconstruct *what is firing*, but it cannot
 reconstruct "operator X silenced this alert until 3pm" — that fact existed only
-because a human typed it. Today silences/acks are in-process and **lost on
-restart**: a silenced-but-still-firing alert simply reappears un-silenced.
+because a human typed it. When this ADR was accepted, silences/acks were
+in-process and **lost on restart** — deliberately failing in the safe
+direction, **louder, not quieter**: a restart could never *hide* a firing
+alert; the worst case was a human re-applying a silence.
 
-That failure mode is deliberately the safe direction — **louder, not
-quieter.** A restart can never *hide* a firing alert; the worst case is that a
-human has to re-apply a silence. This is the one real durability gap. It is
-documented in code (`internal/alert/active.go`) and tracked as a follow-up:
-silences/acks should ride a small Postgres-backed table the same way alert
-*rules* already do. Until then, operators re-apply silences after a
-control-plane restart.
+That tracked follow-up has since landed. Silences and acks now ride a small
+tenant-scoped Postgres table (`alert_ops`, RLS-confined) the same way alert
+*rules* already do: written when the operator acts, reloaded at boot,
+re-applied when their series fires again, and deleted when the episode
+resolves — so restart-restored state never outlives the episode semantics the
+in-memory engine always had. The fail-louder ordering is preserved: if the
+reload itself fails, alerting continues without the saved silences (logged
+loudly) rather than blocking on the table.
 
 ## Consequences
 
-- A control-plane restart shows a briefly empty topology/detection view and
-  reappearing (un-silenced) firing alerts — expected and documented.
-- No new migration, write path, or snapshot-consistency surface for derived
-  state.
+- A control-plane restart shows a briefly empty topology/detection view while
+  the streams re-fill — expected and documented. Firing alerts re-derive on
+  the first evaluation, with persisted silences/acks re-applied as their
+  series fire.
+- No new migration, write path, or snapshot-consistency surface for *derived*
+  state. (The silences/acks fix is exactly the carve-out the exception
+  predicted: one small table for non-derivable operator input — not a second
+  copy of any stream.)
 - The cold-start contract is enforced by tests in `internal/topology` and
   `internal/alert`: a fresh store is empty and correct, and re-derives from its
   inputs.
@@ -88,4 +100,6 @@ control-plane restart.
   replay.
 - `internal/alert`: a new `Engine` has no active alerts and no silences/acks at
   construction, and re-derives firing state from the metric source on the first
-  evaluation after a restart (modeled as a fresh engine).
+  evaluation after a restart (modeled as a fresh engine). The engine itself
+  stays memory-only by design — durability is the wiring around it, which
+  persists operator actions and restores them at boot.

@@ -78,8 +78,10 @@ is ever held open.** Two tests lock this in:
 
 - `TestStreamConfigExplicitDeny` — fails the build if a frame ever sneaks back
   onto the wire.
-- `TestAgentHasNoStreamConfigInvocation` — a static check asserting the agent
-  binary contains no client-side call to `StreamConfig` at all.
+- `TestAgentHasNoStreamConfigInvocation` — a static scan of the agent runtime
+  and binary sources asserting they contain no client-side call to
+  `StreamConfig` at all (the generated client stub exists by design — the
+  schema keeps the RPC; nothing invokes it).
 
 The RPC remains in the schema (zero wire change, buf-breaking stays green), so
 the "de-document, don't implement" posture is now also "enforce, don't serve."

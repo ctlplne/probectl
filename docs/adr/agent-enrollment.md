@@ -1,6 +1,7 @@
 # ADR: Agent enrollment & SVID issuance
 
-**Status:** ACCEPTED (founder-approved 2026-06-07; mint surface: admin API + CLI)
+**Status:** Accepted (2026-06-07). The token-mint surface is both the admin
+API and the operator CLI.
 
 > This is the **decision record** — what we decided and why. The operator
 > how-to (mint a token, enroll an agent, rotate, revoke) lives in
@@ -38,12 +39,15 @@ bootstrapped by a one-time join token.
 
 ## Decision 1 — Bootstrap: single-use, tenant-scoped join tokens
 
-An operator (admin RBAC, audited) mints an **enrollment token** scoped to a
-tenant (and optionally pinned to a fixed agent id): 32 random bytes via
-`internal/crypto`, shown once, **stored only as a hash** — the same pattern as
-session tokens. The agent presents it exactly once; the row is consumed
-atomically (`UPDATE ... WHERE used_at IS NULL`, so a replay finds no row and is
-refused). Tokens expire (default 1h) and are revocable before use.
+An operator — through the `agent.write`-gated, audited admin API or the
+database-direct CLI — mints an **enrollment token** scoped to a tenant (and
+optionally pinned to a fixed agent id): 32 random bytes via `internal/crypto`,
+shown once, **stored only as a hash** — the same pattern as session tokens.
+The agent presents it exactly once; the row is consumed atomically
+(`UPDATE ... WHERE used_at IS NULL`, so a replay finds no row and is refused).
+Tokens expire (default 1h), and the storage supports voiding an unused token
+before use (no operator command is wired to that yet — the short expiry is the
+working bound).
 
 *Why not cloud-IID/OIDC attestation now:* probectl's primary deployments are
 sovereign/air-gapped, where there is no cloud identity document to attest
@@ -84,29 +88,32 @@ agent id → signs a leaf → records the issued identity (serial, SPIFFE id,
 expiry) in the registry → returns the leaf plus the CA bundle. The agent is now
 registered, so ingest verification immediately vouches for it.
 
-**Rotate (identified, mTLS):** before expiry (at roughly 2/3 of TTL) the agent
-calls `POST /enroll/agent/rotate` over its EXISTING mTLS channel. The server
-authenticates the CURRENT SVID (the presented cert must chain to *our*
-hierarchy and be time-valid), requires the new CSR's identity to EQUAL the
-proven identity (no privilege change on rotation), checks key possession (an
-ECDSA signature over the new CSR by the current key), checks the revocation
-list, issues a fresh leaf, and records it. `ClientMTLSConfigRotating` hot-swaps
-the files and connections re-handshake naturally.
+**Rotate (identified, HTTPS):** before expiry (at roughly 2/3 of TTL) the
+agent calls `POST /enroll/agent/rotate` on the same HTTPS bootstrap surface,
+carrying its CURRENT leaf in the request. Authentication is cryptographic
+rather than channel-level: the presented cert must chain to *our* hierarchy
+and be time-valid, its serial must be one we recorded at issuance, and the
+request must prove possession of the current key (an ECDSA signature over the
+new CSR). The server checks the revocation list, then issues a fresh leaf for
+the PROVEN identity — the SAN is set server-side and CSR-requested names are
+ignored, so identity can never change on rotation — and records it.
+`ClientMTLSConfigRotating` hot-swaps the files and connections re-handshake
+naturally.
 
 **Agent CLI:** `probectl-agent enroll --server https://control:8443
 --token <jt> --dir /var/lib/probectl-agent/identity [--ca-pin <sha256>]`
 writes key/cert/bundle (0600) and exits; the runtime config points at those
-paths and rotates them automatically. `--ca-pin` (printed when the token is
-minted) authenticates the SERVER on first contact in self-signed / quickstart
-deployments — trust-on-first-use is refused when a pin is provided and
-mismatched.
+paths and rotates them automatically. `--ca-pin` (printed at token mint when
+the CLI can read the serving certificate) authenticates the SERVER on first
+contact in self-signed / quickstart deployments — trust-on-first-use is
+refused when a pin is provided and mismatched.
 
 ## Threat-model delta (what changes, honestly)
 
 | Threat | Before | After |
 |---|---|---|
 | Forged tenant claim on the bus | possible with another tenant's REGISTERED agent id over pooled bus creds | agent ids exist only via enrollment; identity is cryptographic end-to-end — registry rows now have an issuance provenance |
-| Token theft in transit/at rest | n/a (no tokens) | single-use + short expiry + hash-at-rest + tenant-scoped: a stolen UNUSED token is a bounded, audited window; a USED one is inert; minting and consumption are both audited |
+| Token theft in transit/at rest | n/a (no tokens) | single-use + short expiry + hash-at-rest + tenant-scoped: a stolen UNUSED token is a bounded window; a USED one is inert; API mints are audited, and every issuance is recorded with provenance (serial, SPIFFE id, expiry) |
 | Control-plane DB read | cert material was operator-managed, outside the DB | the intermediate CA key is sealed via `tenantcrypto` (envelope/BYOK); a DB read without the KEK yields ciphertext; token hashes are one-way |
 | Stolen agent key | manual revocation of a manually-tracked cert | the 24h leaf TTL bounds exposure; every serial is recorded at issuance and feeds the handshake revocation list |
 | Rogue/compromised control plane | already total (it terminates ingest) | unchanged — the issuer *is* the control plane; keeping the root key offline limits blast radius to the intermediate's lifetime |
