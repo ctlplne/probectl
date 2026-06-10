@@ -93,6 +93,91 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	return id.SPIFFEID, id.NotAfter, nil
 }
 
+// EnrollStatusError is returned when the control plane answers an enrollment
+// request with a non-200 status. A 4xx is a DEFINITIVE rejection (a bad, used,
+// expired, or revoked token; a malformed CSR) — first-boot enrollment fails
+// fast on it. A 5xx is transient and worth retrying (a transport error surfaces
+// as a different error type and is likewise treated as transient).
+type EnrollStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *EnrollStatusError) Error() string {
+	return fmt.Sprintf("enroll: server answered %d: %s", e.StatusCode, e.Body)
+}
+
+// Definitive reports whether the rejection is permanent (4xx) and must not be
+// retried with the same token.
+func (e *EnrollStatusError) Definitive() bool {
+	return e.StatusCode >= 400 && e.StatusCode < 500
+}
+
+// EnsureIdentity performs OPTIONAL first-boot enrollment. It is idempotent and
+// fail-closed:
+//   - if an identity already exists in o.Dir it does nothing (a present
+//     identity is never overwritten — renewal is RotationLoop's job);
+//   - else if o.Token is empty it does nothing (the caller's normal
+//     "pre-provisioned identity" path applies, unchanged);
+//   - else it enrolls, retrying on TRANSIENT failures (e.g. the control plane
+//     is not up yet) with capped backoff up to a bounded window, and failing
+//     fast on a DEFINITIVE token rejection (4xx). The token is never logged.
+func EnsureIdentity(ctx context.Context, o EnrollOptions, log *slog.Logger) error {
+	if identityPresent(o.Dir) {
+		return nil
+	}
+	if o.Token == "" {
+		return nil
+	}
+	if o.Server == "" {
+		return fmt.Errorf("enroll-on-boot: a join token was provided but no control-plane server is set (set identity.server or enroll.server)")
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	const maxWindow = 5 * time.Minute
+	deadline := time.Now().Add(maxWindow)
+	backoff := time.Second
+	for attempt := 1; ; attempt++ {
+		spiffeID, notAfter, err := Enroll(ctx, o)
+		if err == nil {
+			log.Info("enroll-on-boot: enrolled", "spiffe_id", spiffeID,
+				"svid_expires", notAfter.UTC().Format(time.RFC3339))
+			return nil
+		}
+		var se *EnrollStatusError
+		if errors.As(err, &se) && se.Definitive() {
+			return fmt.Errorf("enroll-on-boot: control plane refused the join token (%w) — mint a fresh single-use token and retry", err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("enroll-on-boot: giving up after %s of transient failures: %w", maxWindow, err)
+		}
+		log.Warn("enroll-on-boot: attempt failed (transient), retrying",
+			"attempt", attempt, "retry_in", backoff.String(), "error", err.Error())
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 30*time.Second {
+			backoff *= 2
+		}
+	}
+}
+
+// identityPresent reports whether a cert + key already exist in dir — the
+// "already enrolled" signal. Expiry is deliberately not checked: an existing
+// identity is left to the rotation loop, never silently re-minted (which would
+// mint a second identity for the same agent).
+func identityPresent(dir string) bool {
+	for _, name := range []string{IdentityCertFile, IdentityKeyFile} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // Rotate re-issues the on-disk identity over proof of the current one and
 // atomically replaces the files. The new identity ALWAYS equals the old
 // (the server refuses anything else).
@@ -242,7 +327,7 @@ func postIdentity(ctx context.Context, hc *http.Client, url string, body map[str
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("enroll: server answered %d: %s", resp.StatusCode, truncate(string(raw), 200))
+		return nil, &EnrollStatusError{StatusCode: resp.StatusCode, Body: truncate(string(raw), 200)}
 	}
 	var id issuedIdentity
 	if err := json.Unmarshal(raw, &id); err != nil {

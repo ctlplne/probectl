@@ -5,6 +5,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -36,6 +37,7 @@ type Config struct {
 	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
 	TLS          TLSConfig          `yaml:"tls"`
 	Identity     IdentityConfig     `yaml:"identity"`
+	Enroll       EnrollConfig       `yaml:"enroll"`
 	Agent        Meta               `yaml:"agent"`
 	Buffer       BufferConfig       `yaml:"buffer"`
 	Canaries     []CanaryConfig     `yaml:"canaries"`
@@ -53,6 +55,24 @@ type IdentityConfig struct {
 	Server string `yaml:"server"`
 	// AutoRotate defaults true when Server is set; set false to only enroll.
 	AutoRotate *bool `yaml:"auto_rotate"`
+}
+
+// EnrollConfig wires OPTIONAL first-boot enrollment. When the agent starts with
+// NO identity yet and a one-time join token is available (the
+// PROBECTL_AGENT_JOIN_TOKEN env var or TokenFile), it enrolls before running —
+// so a container/DaemonSet can ship a token (e.g. a mounted Secret) instead of
+// a pre-provisioned identity. It is strictly idempotent: once an identity
+// exists it is never re-enrolled or overwritten (renewal is the rotation loop's
+// job). With no token, behavior is unchanged (you enroll out of band).
+type EnrollConfig struct {
+	// TokenFile is a path to a file holding the one-time join token (a mounted
+	// secret, read once). The PROBECTL_AGENT_JOIN_TOKEN env var takes precedence.
+	TokenFile string `yaml:"token_file"`
+	// Server overrides the enrollment target; defaults to identity.server.
+	Server string `yaml:"server"`
+	// CAPin optionally pins the server certificate on first contact (hex
+	// sha256); otherwise tls.ca_file verifies the server.
+	CAPin string `yaml:"ca_pin"`
 }
 
 // A2AConfig controls participation in brokered agent-to-agent tests. When
@@ -124,6 +144,24 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// JoinToken returns the one-time enrollment token for optional first-boot
+// enrollment, from PROBECTL_AGENT_JOIN_TOKEN (preferred) or enroll.token_file.
+// An empty string means none is configured (the agent expects a
+// pre-provisioned identity). The token is never logged.
+func (c *Config) JoinToken() (string, error) {
+	if t := strings.TrimSpace(os.Getenv("PROBECTL_AGENT_JOIN_TOKEN")); t != "" {
+		return t, nil
+	}
+	if c.Enroll.TokenFile != "" {
+		b, err := os.ReadFile(c.Enroll.TokenFile)
+		if err != nil {
+			return "", fmt.Errorf("read enroll.token_file: %w", err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	return "", nil
+}
+
 func (c *Config) applyEnv() {
 	override := func(env string, dst *string) {
 		if v := os.Getenv(env); v != "" {
@@ -137,6 +175,9 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_TLS_KEY_FILE", &c.TLS.KeyFile)
 	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
 	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
+	override("PROBECTL_AGENT_ENROLL_TOKEN_FILE", &c.Enroll.TokenFile)
+	override("PROBECTL_AGENT_ENROLL_SERVER", &c.Enroll.Server)
+	override("PROBECTL_AGENT_ENROLL_CA_PIN", &c.Enroll.CAPin)
 }
 
 func (c *Config) applyDefaults() {

@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/imfeelingtheagi/probectl/internal/agent"
@@ -75,6 +76,33 @@ func run() error {
 			"fips_module_active", st.ModuleActive, "module_version", st.ModuleVersion)
 	}
 
+	// Signal context first, so SIGTERM cancels a first-boot enrollment retry.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	// First-boot enrollment (optional, RED-002): with no identity yet and a
+	// one-time join token available (PROBECTL_AGENT_JOIN_TOKEN or
+	// enroll.token_file), enroll before starting — idempotent and fail-closed.
+	joinToken, err := cfg.JoinToken()
+	if err != nil {
+		return err
+	}
+	enrollServer := cfg.Enroll.Server
+	if enrollServer == "" {
+		enrollServer = cfg.Identity.Server
+	}
+	if err := agent.EnsureIdentity(ctx, agent.EnrollOptions{
+		Server:   enrollServer,
+		Token:    joinToken,
+		Dir:      filepath.Dir(cfg.TLS.CertFile),
+		Hostname: cfg.Agent.Hostname,
+		Version:  version.Get().Version,
+		CAFile:   cfg.TLS.CAFile,
+		CAPin:    cfg.Enroll.CAPin,
+	}, log); err != nil {
+		return err
+	}
+
 	// RED-008: constrain probe ca_file parameters to the allowlisted dir
 	// ("" = the parameter is refused — fail closed).
 	canary.SetCAFileDir(cfg.TLS.CanaryCADir)
@@ -94,8 +122,6 @@ func run() error {
 		return err
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	// Automatic SVID rotation (Sprint 11): rotate the on-disk identity at
 	// ~2/3 of its lifetime; the mTLS client hot-reloads the swap.
 	if cfg.Identity.Server != "" && (cfg.Identity.AutoRotate == nil || *cfg.Identity.AutoRotate) {
