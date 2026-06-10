@@ -193,7 +193,9 @@ The agent gRPC transport (`probectl.agent.v1.AgentService`) runs only when
 certificate, and its tenant and id are read **out of that certificate's identity**
 (`spiffe://probectl/tenant/<t>/agent/<a>`), never from the request body. So even a
 misbehaving or malicious agent can only ever write to its own tenant — the identity
-is cryptographic, not self-asserted. Generate dev mTLS material with the
+is cryptographic, not self-asserted. Populate `PROBECTL_AGENT_TLS_CA_FILE` (the
+client-cert CA pool) with `probectl-control agent-ca export <file>`, which writes the
+public agent-CA bundle (root + intermediate, no key). Generate dev mTLS material with the
 `internal/crypto` CA helpers. The `.proto` lives under `proto/probectl/agent/v1/`;
 regenerate Go with `make proto` (tools via `make proto-tools`).
 
@@ -231,6 +233,10 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_TLS_CA_FILE` | `tls.ca` | the CA that signed the control plane's server cert (PEM) |
 | `PROBECTL_AGENT_BUFFER_DIR` | `buffer.dir` | on-disk store-and-forward directory (see below) |
 | `PROBECTL_AGENT_IDENTITY_SERVER` | `identity.server` | control-plane HTTPS base URL enabling automatic certificate rotation — the agent rotates its mTLS identity at ~2/3 of its lifetime via `/enroll/agent/rotate`. See [`agent/enrollment.md`](agent/enrollment.md) |
+| `PROBECTL_AGENT_JOIN_TOKEN` | — | a one-time join token for **first-boot enrollment**: with no identity present yet, the agent redeems it, writes its identity, then runs. Idempotent (a present identity is never overwritten) and fail-closed. See [`agent/enrollment.md`](agent/enrollment.md) |
+| `PROBECTL_AGENT_ENROLL_TOKEN_FILE` | `enroll.token_file` | a file holding the join token (a mounted secret, read once); `PROBECTL_AGENT_JOIN_TOKEN` takes precedence |
+| `PROBECTL_AGENT_ENROLL_SERVER` | `enroll.server` | enrollment target for first-boot enrollment; defaults to `identity.server` |
+| `PROBECTL_AGENT_ENROLL_CA_PIN` | `enroll.ca_pin` | optional hex sha256 pin of the server cert for first contact; otherwise `tls.ca_file` verifies the server |
 | `PROBECTL_AGENT_CANARY_CA_DIR` | `tls.canary_ca_dir` | the **one** directory that probe `ca_file:` parameters may reference (a trust-anchor allowlist for HTTP/DNS-over-TLS probes); empty = the `ca_file` parameter is refused |
 | `PROBECTL_AGENT_LOG_LEVEL` | — | `debug` \| `info` (default) \| `warn` \| `error` |
 | `PROBECTL_AGENT_LOG_FORMAT` | — | `json` (default) \| `text` |

@@ -26,6 +26,18 @@ stdout for offline custody (HSM / sealed envelope / offline vault) and is never
 stored — runtime operation never needs it. Re-running refuses to overwrite the
 trust root.
 
+The control plane's agent-transport listener verifies enrolling agents against
+this agent CA, which it reads from a file (`PROBECTL_AGENT_TLS_CA_FILE`). Export
+that public trust bundle (root + intermediate — never the key) with:
+
+```
+probectl-control agent-ca export /etc/probectl/agent-ca.crt   # "-" writes to stdout
+```
+
+Point `PROBECTL_AGENT_TLS_CA_FILE` at the result. `export` copies only public
+certificates, so it needs no envelope key and works anywhere the database is
+reachable.
+
 ## Enrolling an agent
 
 **1. Mint a join token** (operator action; both surfaces audit the mint and
@@ -72,6 +84,33 @@ tls:
 identity:
   server: https://control.example:8443   # enables automatic rotation
 ```
+
+### Enroll on first boot (token-on-boot)
+
+Steps 2–3 can also happen **automatically on startup**, which suits containers
+and DaemonSets: ship a join token instead of a pre-provisioned identity, and the
+agent enrolls itself the first time it boots. If the identity files don't exist
+yet **and** a token is available, the agent enrolls (writing the identity dir),
+then runs:
+
+```yaml
+identity:
+  server: https://control.example:8443
+enroll:
+  token_file: /var/run/secrets/probectl/join-token   # or the env var below
+```
+
+```
+# equivalently, env-only (e.g. a token mounted from a Kubernetes Secret):
+PROBECTL_AGENT_JOIN_TOKEN=pjt_...  probectl-agent -config agent.yml
+```
+
+It is **idempotent and fail-closed**: an existing identity is never overwritten
+(renewal stays the rotation loop's job); a transient failure (e.g. the control
+plane isn't up yet) retries with capped backoff; a definitive token rejection
+(used / expired / invalid) exits with a clear error instead of looping. The
+token is never logged. With no token, behavior is unchanged — you enroll out of
+band with the steps above.
 
 ## Rotation
 

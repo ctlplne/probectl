@@ -90,7 +90,8 @@ Tear it all down with `docker compose -f deploy/compose/eval.yml down -v`.
 Active probes need an enrolled, mutually-authenticated agent, so they layer on
 [`deploy/compose/eval-synthetic.yml`](../deploy/compose/eval-synthetic.yml),
 which provisions the agent CA and turns on the control plane's agent gRPC
-listener. Mint a join token, enroll the canary, run it, then read its results:
+listener. Mint a join token, hand it to the canary (which **self-enrolls on
+boot**), then read its results:
 
 ```sh
 docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml up --build -d
@@ -100,13 +101,11 @@ docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
   exec control /usr/local/bin/app enroll-token \
   -tenant 00000000-0000-0000-0000-000000000001 -name laptop
 
-# 2. enroll the canary with that token:
+# 2. hand the token to the canary — it enrolls itself on boot, then probes:
 PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
-  -f deploy/compose/eval-synthetic.yml --profile synthetic run --rm canary-enroll
+  -f deploy/compose/eval-synthetic.yml --profile synthetic up --build -d canary
 
-# 3. start the canary, then read its synthetic results:
-docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
-  --profile synthetic up -d canary
+# 3. read its synthetic results:
 docker compose -f deploy/compose/eval.yml --profile tools run --rm \
   -e URL=/v1/results/latest viewer
 ```
