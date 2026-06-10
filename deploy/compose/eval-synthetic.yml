@@ -1,0 +1,142 @@
+# probectl — EVALUATION overlay: add SYNTHETIC (canary) probes to eval.yml.
+# ============================================================================
+# Layer this ON TOP OF eval.yml to also exercise Path 1 (active probes), which —
+# unlike the eBPF fixture path — requires agent enrollment + mTLS:
+#
+#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml up --build -d
+#     # 1) mint a one-time join token:
+#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+#         exec control /usr/local/bin/app enroll-token \
+#         -tenant 00000000-0000-0000-0000-000000000001 -name laptop
+#     # 2) enroll the canary with that token (writes its identity to a volume):
+#     PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
+#         -f deploy/compose/eval-synthetic.yml --profile synthetic run --rm canary-enroll
+#     # 3) start the canary; then read its results:
+#     docker compose -f deploy/compose/eval.yml -f deploy/compose/eval-synthetic.yml \
+#         --profile synthetic up -d canary
+#     docker compose -f deploy/compose/eval.yml --profile tools run --rm \
+#         -e URL=/v1/results/latest viewer
+#
+# This overlay adds the agent CA + turns ON the control plane's agent gRPC
+# listener. It is the most intricate part of the eval and is AUTHORED-UNRUN
+# (no Docker in the authoring environment) — give it one real pass and expect to
+# nudge a detail. The fully ground-truthed, step-by-step canary path that does
+# not depend on this overlay is the "from source" walkthrough in
+# docs/getting-started.md — use that if this overlay misbehaves.
+#
+# How the mTLS trust is wired without an enroll-first chicken-and-egg:
+#   agent-ca-init  -> creates the agent CA hierarchy in Postgres (the SVID signer)
+#   ca-export      -> copies the agent CA *certificate* out of the DB into a file
+#                     (/certs/agent-ca.crt) that the gRPC server trusts as its
+#                     client-verification pool (PROBECTL_AGENT_TLS_CA_FILE).
+# The two CAs do different jobs: the agent verifies the SERVER with the quickstart
+# server CA (/certs/ca.crt); the control plane verifies the AGENT with the agent
+# CA (/certs/agent-ca.crt). See docs/getting-started.md for the full explanation.
+# ============================================================================
+
+services:
+  # ---- one-shots that provision the agent CA before `control` starts --------
+  # Explicit migrate first, so `agent-ca init` finds the agent_ca table (0041).
+  migrate:
+    # Reuses the probectl-control-eval:dev image that eval.yml builds (eval.yml is
+    # always in the -f set with this overlay), so no build stanza is needed here.
+    # (YAML anchors do not cross -f files, so eval.yml's build anchor can't be
+    # referenced from this document.)
+    image: probectl-control-eval:dev
+    command: ["migrate"]
+    environment:
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [probectl]
+    restart: "no"
+
+  agent-ca-init:
+    image: probectl-control-eval:dev
+    command: ["agent-ca", "init"]
+    environment:
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    networks: [probectl]
+    restart: "no"
+
+  # Pull the agent CA certs (root + intermediate) out of Postgres into the shared
+  # certs volume. Uses the postgres image (it has psql + a shell). The login role
+  # is the DB superuser, so it can read the global agent_ca table directly.
+  ca-export:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        psql "postgresql://probectl:probectl@postgres:5432/probectl" -tAc
+        "SELECT cert_pem FROM agent_ca WHERE kind='root'" > /certs/agent-ca.crt &&
+        psql "postgresql://probectl:probectl@postgres:5432/probectl" -tAc
+        "SELECT cert_pem FROM agent_ca WHERE kind='intermediate'" >> /certs/agent-ca.crt &&
+        test -s /certs/agent-ca.crt
+    depends_on:
+      agent-ca-init: { condition: service_completed_successfully }
+    volumes:
+      - certs:/certs
+    networks: [probectl]
+    restart: "no"
+
+  # ---- turn ON the agent gRPC listener (merges into eval.yml's `control`) ----
+  # The four PROBECTL_AGENT_* values are all-or-nothing (AgentTransportEnabled).
+  # gRPC binds loopback (127.0.0.1:9443) — the canary reaches it by sharing this
+  # container's network namespace. control now also waits for the CA file.
+  control:
+    environment:
+      PROBECTL_AGENT_GRPC_ADDR: "127.0.0.1:9443"
+      PROBECTL_AGENT_TLS_CERT_FILE: /certs/tls.crt        # server presents the quickstart cert
+      PROBECTL_AGENT_TLS_KEY_FILE: /certs/tls.key
+      PROBECTL_AGENT_TLS_CA_FILE: /certs/agent-ca.crt     # verifies agent SVIDs (from ca-export)
+    depends_on:
+      ca-export: { condition: service_completed_successfully }
+
+  # ---- the canary: enroll once, then run (two invocations of one binary) ----
+  # Both share the control plane's netns so they reach the loopback HTTPS API
+  # (enroll) and the loopback gRPC listener (run). `synthetic` profile keeps them
+  # off the default `up`.
+  canary-enroll:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        COMPONENT: probectl-agent   # portable canary build (no tags)
+    image: probectl-agent-eval:dev
+    profiles: ["synthetic"]
+    network_mode: "service:control"
+    volumes:
+      - identity:/identity
+      - certs:/certs:ro
+    command:
+      - "enroll"
+      - "--server"
+      - "https://127.0.0.1:8443"
+      - "--token"
+      - "${PROBECTL_JOIN_TOKEN:?set PROBECTL_JOIN_TOKEN to the pjt_ token from `enroll-token`}"
+      - "--dir"
+      - "/identity"
+      - "--ca-file"
+      - "/certs/ca.crt"
+
+  canary:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        COMPONENT: probectl-agent
+    image: probectl-agent-eval:dev
+    profiles: ["synthetic"]
+    network_mode: "service:control"
+    depends_on: [control]
+    volumes:
+      - identity:/identity
+      - certs:/certs:ro
+      - ./eval-agent.yml:/etc/probectl/agent.yml:ro
+    command: ["-config", "/etc/probectl/agent.yml"]
+    restart: unless-stopped
+
+volumes:
+  identity: {}

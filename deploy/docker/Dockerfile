@@ -16,6 +16,11 @@ ARG TARGETARCH
 ARG VERSION=0.0.0-dev
 ARG COMMIT=unknown
 ARG DATE=unknown
+# GO_TAGS: optional Go build tags. EMPTY for release builds (the default), so
+# release/CI images are byte-for-byte unaffected. The evaluation compose
+# (deploy/compose/eval.yml) passes GO_TAGS=devauth to compile the LOCAL-ONLY
+# dev-auth control plane (RED-001) — release pipelines must never set it.
+ARG GO_TAGS=""
 WORKDIR /src
 
 # Cache dependencies first for faster rebuilds.
@@ -26,7 +31,7 @@ COPY . .
 RUN test -n "$COMPONENT" || { echo "COMPONENT build-arg is required"; exit 1; }
 RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
-    go build -trimpath \
+    go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \
       -ldflags "-s -w \
         -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
         -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} \

@@ -1,0 +1,34 @@
+# probectl EVALUATION canary config — mounted into the `canary` service by
+# eval-synthetic.yml. One inline HTTP probe so you see a synthetic result
+# immediately (probes run straight from this config — nothing to create
+# server-side first). See deploy/agent/probectl-agent.example.yml for the full
+# set of probe types and parameters.
+
+control_plane:
+  # The canary shares the control plane's network namespace, so the loopback
+  # gRPC listener (PROBECTL_AGENT_GRPC_ADDR=127.0.0.1:9443) is reachable here.
+  grpc_addr: "127.0.0.1:9443"
+
+tls:
+  # The agent's own identity (SVID), written by `canary-enroll` into /identity.
+  cert_file: /identity/cert.pem
+  key_file: /identity/key.pem
+  # Verifies the SERVER to the agent. This is the quickstart SERVER CA
+  # (/certs/ca.crt) — NOT /identity/ca.pem — because in this eval the gRPC
+  # listener presents the quickstart server cert, which is signed by a different
+  # CA than the agent SVIDs. (See docs/getting-started.md, "two CAs, two jobs".)
+  ca_file: /certs/ca.crt
+  server_name: "localhost"   # must match a SAN on the server cert
+
+agent:
+  capabilities: ["http"]
+  heartbeat_interval: 30s
+
+canaries:
+  - type: http
+    target: "https://example.com/"
+    interval: 30s
+    timeout: 10s
+    params:
+      method: "GET"
+      expect_status: "2xx,3xx"

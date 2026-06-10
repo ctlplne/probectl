@@ -1,0 +1,188 @@
+# probectl — EVALUATION stack (LOCAL ONLY — never production).
+# ============================================================================
+# What this is for: the *shipped* all-in-one (deploy/compose/probectl.yml) brings
+# up a production-shaped control plane that, by design, (a) publishes no agent
+# port, (b) ships no evaluation auth, and (c) requires an external identity
+# provider — so on a laptop it answers /readyz and then shows you an empty
+# dashboard. This file removes all three obstacles so you can watch REAL DATA
+# flow end-to-end with one command and no Go toolchain:
+#
+#     docker compose -f deploy/compose/eval.yml up --build -d
+#     # wait ~20s for the control plane to migrate + start, then:
+#     docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+#     # -> a JSON service-map (topology) built from sample flows = first data.
+#
+# How it reaches data with zero enrollment: the eBPF agent runs in FIXTURE mode
+# (replaying a recorded, clearly-labelled SAMPLE flow file — no kernel, works on
+# macOS/Windows/Linux) and publishes to Kafka; the control plane consumes the bus
+# and folds the flows into the in-memory topology graph at GET /v1/topology.
+# (Synthetic/canary probes need agent enrollment + mTLS — see eval-synthetic.yml.)
+#
+# WHY IT IS EVAL-ONLY — three deliberate weakenings, each loud on purpose:
+#   * PROBECTL_AUTH_MODE=dev  -> EVERY request is an all-powerful admin with NO
+#     authentication. The control plane refuses to boot with this unless it is a
+#     dev-auth BUILD (GO_TAGS=devauth below), the ack env is set, AND it binds
+#     loopback only (RED-001). That is why the API binds 127.0.0.1 and is NOT
+#     published to your host — you read it through the in-namespace `viewer`.
+#   * plaintext Kafka + sslmode=disable Postgres — convenience, not production.
+#   * a self-signed TLS cert from `gen-cert`.
+# None of this is reachable from your network: the no-auth API is loopback-only.
+# For anything real, use deploy/compose/probectl.yml + docs/install.md.
+# ============================================================================
+name: probectl-eval
+
+# Shared build for the control-plane image: built LOCALLY from the repo with the
+# dev-auth tag. `certgen` and `control` share one build/image (built once).
+x-control-eval-build: &control-eval-build
+  context: ../..
+  dockerfile: deploy/docker/Dockerfile
+  args:
+    COMPONENT: probectl-control
+    GO_TAGS: devauth   # RED-001: LOCAL-EVAL dev-auth build. Never in release/CI.
+
+services:
+  # ---- backing stores (plaintext/dev creds — eval convenience) --------------
+  postgres:
+    image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
+    environment:
+      POSTGRES_USER: probectl
+      POSTGRES_PASSWORD: probectl   # eval-only fixed dev credential (cf. dev.yml)
+      POSTGRES_DB: probectl
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U probectl -d probectl"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+    networks: [probectl]
+
+  # Single-node KRaft Kafka (verbatim from dev.yml — the proven local config).
+  # PLAINTEXT (9092) is for the host; INTERNAL (kafka:19092) is for containers.
+  kafka:
+    image: apache/kafka:3.9.0@sha256:fbc7d7c428e3755cf36518d4976596002477e4c052d1f80b5b9eafd06d0fff2f # digest-pinned (U-061)
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093,INTERNAL://0.0.0.0:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+    networks: [probectl]
+
+  # ---- one-shot: self-signed server TLS into the shared `certs` volume ------
+  # Uses the same locally-built image as `control`; `gen-cert` is mode-agnostic.
+  # SANs include `control` so in-network HTTPS to the service name verifies; the
+  # loopback API the viewer hits is covered by 127.0.0.1. Re-running regenerates
+  # the cert (fine for eval) — the binary entrypoint takes args, no shell needed.
+  certgen:
+    build: *control-eval-build
+    image: probectl-control-eval:dev
+    command: ["gen-cert", "/certs"]
+    environment:
+      PROBECTL_CERT_HOSTS: localhost,127.0.0.1,control
+    volumes:
+      - certs:/certs
+    networks: [probectl]
+    restart: "no"
+
+  # ---- the control plane (consumer) -----------------------------------------
+  # Dev-auth + loopback-only HTTPS (RED-001). NO host port: the no-auth API is
+  # deliberately unreachable from your network; read it via the `viewer` helper,
+  # which shares this container's network namespace. Bus = the plaintext Kafka.
+  control:
+    build: *control-eval-build
+    image: probectl-control-eval:dev
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      certgen: { condition: service_completed_successfully }
+    environment:
+      # Loopback-only HTTPS — required for dev auth, and why nothing is published.
+      PROBECTL_HTTP_ADDR: "127.0.0.1:8443"
+      PROBECTL_TLS_CERT_FILE: /certs/tls.crt
+      PROBECTL_TLS_KEY_FILE: /certs/tls.key
+      PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
+      PROBECTL_MIGRATE_ON_BOOT: "true"        # creates schema + the probectl_app role (0007)
+      PROBECTL_REQUIRE_AT_REST_ENCRYPTION: "false"  # eval-only: skip envelope-key setup
+      # Dev auth: all three are mandatory or the control plane refuses to start.
+      PROBECTL_AUTH_MODE: "dev"
+      PROBECTL_DEV_AUTH_ACK: "i-understand"
+      # Result bus → the plaintext eval Kafka (in-network listener).
+      PROBECTL_BUS_MODE: "kafka"
+      PROBECTL_BUS_BROKERS: "kafka:19092"
+      PROBECTL_BUS_ALLOW_PLAINTEXT: "true"    # opt-in: production Kafka is TLS (U-010)
+      PROBECTL_LOG_FORMAT: "json"
+    volumes:
+      - certs:/certs:ro
+      - controldata:/var/lib/probectl
+    networks: [probectl]
+    restart: unless-stopped
+
+  # ---- producer: eBPF agent in FIXTURE mode (no kernel, any OS) -------------
+  # Built locally WITHOUT the `ebpf` tag = the portable fixture/replay build (the
+  # live CO-RE loader needs Linux + CAP_BPF and is a separate -tags ebpf image).
+  # Replays a recorded SAMPLE flow file -> Kafka -> control -> topology graph.
+  ebpf-agent:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      args:
+        COMPONENT: probectl-ebpf-agent   # no GO_TAGS => fixture-capable portable build
+    image: probectl-ebpf-agent-eval:dev
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      PROBECTL_EBPF_TENANT_ID: "00000000-0000-0000-0000-000000000001"  # built-in default tenant
+      PROBECTL_EBPF_FIXTURE_PATH: "/flows.json"      # SAMPLE data, mounted below
+      PROBECTL_EBPF_BUS_MODE: "kafka"
+      PROBECTL_EBPF_BUS_BROKERS: "kafka:19092"
+      PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT: "true"
+    volumes:
+      # The recorded sample (a few synthetic connections like 10.0.1.5->10.0.2.9:443)
+      # — NOT real traffic on your machine. Source of truth for "the pipeline works".
+      - ../../internal/ebpf/testdata/flows.json:/flows.json:ro
+    networks: [probectl]
+    # Kafka retains the published batches, so an emit-and-exit is fine; only retry
+    # on real failure rather than re-emitting forever on a clean exit.
+    restart: on-failure
+
+  # ---- helper: read first data through the loopback API ---------------------
+  # Shares the control plane's network namespace so it can reach 127.0.0.1:8443
+  # (which is not published to your host). `--profile tools` keeps it off the
+  # default `up`; run it on demand:
+  #   docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
+  viewer:
+    image: curlimages/curl:8.11.1   # eval-only helper; operators may digest-pin (SUPPLY-001)
+    profiles: ["tools"]
+    network_mode: "service:control"
+    depends_on: [control]
+    volumes:
+      - certs:/certs:ro
+    # dev auth needs no token; --cacert trusts the self-signed quickstart cert.
+    # Defaults to the topology; override the path, e.g. -e URL=/v1/results/latest.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'curl -sS --cacert /certs/ca.crt "https://127.0.0.1:8443${URL:-/v1/topology}"'
+
+volumes:
+  pgdata: {}
+  certs: {}
+  controldata: {}
+
+networks:
+  probectl: {}
