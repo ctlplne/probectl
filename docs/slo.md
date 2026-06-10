@@ -112,6 +112,10 @@ fire long after recovery).
 | medium | 6h | 30m | 6 | critical (page) |
 | slow | 3d | 6h | 1 | warning (ticket) |
 
+(A long window is clamped to the SLO window itself — for a `12h` SLO the slow
+tier's 3-day window evaluates over 12 hours, since no window can be longer than
+the budget it measures.)
+
 Worked example, against the 99% checkout SLO above (so `1 − target` = 0.01). Say
 over the last hour 14.4% of probes failed: `0.144 / 0.01` = burn rate 14.4. If
 the last 5 minutes are also failing at ~14.4% or worse, **both** the fast long

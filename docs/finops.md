@@ -88,8 +88,8 @@ data is worse than none. (To run with no pricing at all, set
 - **Budget alerts** — crossing a monthly budget raises a `cost.budget_exceeded`
   signal (plane `cost`) into the incident pipeline. It fires **once per budget
   per month** (alert-fatigue control) and re-arms on month rollover. Signals
-  only: probectl never throttles traffic or touches your bill (guardrail 9 —
-  detection is a signal, not an enforcement point).
+  only: probectl never throttles traffic or touches your bill — a detection is
+  a signal, never an enforcement point.
 - **Cost page** (`/cost`) — the light native summary: totals with pricing
   provenance, team showback, chatty cross-AZ conversations, budget status, and
   explicit volume-only / zones-unmapped notices. Deep dashboarding is federated
@@ -112,12 +112,13 @@ flowchart LR
   API --> UI[Cost page + Grafana]
 ```
 
-All state is tenant-partitioned (guardrail 1 — tenant isolation). Attribution
-maps are bounded: once a per-tenant map hits 1024 keys, further entries collapse
-into `(other)` so memory can't grow without limit. A flow record arriving
-without a tenant is dropped at the boundary. The in-memory engine is rebuilt
-from the stream on restart — the durable, queryable cost series live in the
-TSDB/Grafana path, not in this process.
+All state is tenant-partitioned — tenant isolation is the platform's outermost
+boundary (see the [Non-negotiables](../CONTRIBUTING.md#non-negotiables)).
+Attribution maps are bounded: once a per-tenant map hits 1024 keys, further
+entries collapse into `(other)` so memory can't grow without limit. A flow
+record arriving without a tenant is dropped at the boundary. The in-memory
+engine is rebuilt from the stream on restart — the durable, queryable series
+live in the TSDB/Grafana path, not in this process.
 
 ## Configuration
 

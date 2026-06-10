@@ -12,7 +12,9 @@ It lives in the control plane (`internal/carbon`) and reuses the FinOps engine's
 plumbing: the *same* flow stream and the *same* zone/owner attribution, so the
 dollar view and the carbon view always agree on who owns which traffic. It is
 fully local: no external calls, and the grid carbon intensity is operator-set
-configuration (guardrail 2 — no phone-home).
+configuration — per the no-phone-home rule in the
+[Non-negotiables](../CONTRIBUTING.md#non-negotiables), nothing is fetched and
+nothing leaves your network.
 
 ## The estimate, and its honesty
 
@@ -72,8 +74,9 @@ yet.
 
 Deferred by design:
 
-- **Device-measured power.** The seam exists to upgrade an estimate to a
-  measurement where a device actually reports its PSU watts over SNMP — but no
-  supported device reports watts today, and the engine never fabricates them.
+- **Device-measured power.** The methodology block's `measured` flag is the
+  structural seam for one day distinguishing real device power (e.g. PSU watts
+  over SNMP) from coefficient estimates — today it is always `false`, no
+  supported device reports watts, and the engine never fabricates them.
 - **Per-region grid intensities.** For now a deployment uses one grid figure;
   there is no per-region split.

@@ -9,8 +9,8 @@ and **correlates** recent changes to incidents — so the AI root-cause analysis
 
 A change event is **context, not an alarm.** A deploy is a *candidate cause* —
 surfaced and ranked when an incident opens nearby in time and topology. It is
-never raised as an alert on its own. (That keeps this on the right side of the
-"detection is a signal, not an action" guardrail.)
+never raised as an alert on its own. (That keeps this on the right side of
+probectl's standing rule that a detection is a signal, never an action.)
 
 It lives in `internal/change` (pure: no datastore/bus/HTTP-server dependency, so
 the normalizers and the correlator are independently testable), with the inbound
@@ -20,8 +20,9 @@ HTTP receiver in `internal/control` (`change.go`).
 
 A webhook is an unauthenticated POST from the public internet that ends up
 feeding the RCA. So every inbound delivery is treated as **untrusted** and must
-clear all of these before anything is stored (this is guardrail 12 — verified,
-authenticated, untrusted ingestion — applied to a new surface):
+clear all of these before anything is stored — the same verified, authenticated,
+untrusted-ingestion discipline every probectl inbound surface follows (see the
+[Non-negotiables](../CONTRIBUTING.md#non-negotiables)):
 
 - **TLS.** The API (and the shipped compose/Helm) are HTTPS-only.
 - **Per-provider signature verification.** The sender's HMAC (GitHub / probectl's
@@ -39,8 +40,9 @@ authenticated, untrusted ingestion — applied to a new surface):
   stored.
 
 All cryptographic checks route through `internal/crypto` (`crypto.Verify`,
-`crypto.ConstantTimeEqual`) — never a direct `crypto/hmac` call — so a FIPS module
-swaps in cleanly (guardrail 3).
+`crypto.ConstantTimeEqual`) — never a direct `crypto/hmac` call — so a FIPS
+module swaps in cleanly (the crypto-abstraction rule: handlers never touch
+primitives).
 
 ## Pipeline
 
@@ -155,16 +157,16 @@ The webhook **id** is a non-secret URL selector; the **secret** is the HMAC key 
 shared token. Provision a distinct id + secret per tenant. Secrets are runtime
 config (inject from a secret manager) — never commit them.
 
-## Security guardrails upheld
+## Security properties
 
 - **Untrusted + signature-verified + TLS + tenant-scoped** ingestion; a forged or
-  unsigned event is rejected before normalization (guardrail 12).
+  unsigned event is rejected before normalization.
 - **Tenant binding** to the verified credential — cross-tenant injection is
-  structurally impossible (guardrail 1).
+  structurally impossible.
 - **Signal, not action.** Changes are context fed to the RCA, not alarms, and
-  trigger no remediation (guardrails 8, 9).
+  trigger no remediation.
 - **FIPS crypto abstraction.** HMAC + constant-time compare route through
-  `internal/crypto` (guardrail 3).
+  `internal/crypto`.
 - **Audited.** Each ingest appends a tenant audit event (`change.ingest`).
 
 ## Out of scope (deferred)

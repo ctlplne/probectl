@@ -6,7 +6,8 @@ When an MSP self-hosts probectl and serves many tenants, it needs to answer
 "how much did each tenant use this month?" — to bill them. This is the plane
 that produces those numbers: per-tenant usage counters and snapshots, a
 usage/showback API, per-tenant creation quotas, and a billing-export feed the
-MSP feeds into its existing PSA or billing system.
+MSP feeds into its existing professional-services-automation (PSA) or billing
+system.
 
 It is a **commercial (Provider/MSP tier)** feature. The implementation lives in
 `ee/billing` and is unlocked by the `metering` license feature; the core

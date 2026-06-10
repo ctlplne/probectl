@@ -23,12 +23,13 @@ and flow consumers. The admission check happens **before** the expensive work
 (decode → enrich → write to the store), so an over-rate tenant's burst is shed
 in O(1) and never stalls the shared pipeline — the cost of saying "no" is tiny.
 Because the gate wraps the *consumer* (not the bus), it behaves identically
-whether the bus is Kafka or one of the lightweight modes. The meters share the
-metering vocabulary — `results_ingested`, `flow_events`, `ingest_bytes`, and
-`device_metrics` (the SNMP/gNMI device plane) — so metering, quotas, and
-fairness all agree on what one "unit" is. Shed messages are **not** counted for
-billing (billing reflects stored work); fairness accounting records the shed
-separately.
+whether the bus is Kafka or one of the lightweight modes. The meter names match
+the metering vocabulary — `results_ingested`, `flow_events`, `ingest_bytes` —
+so metering, quotas, and fairness all agree on what one "unit" is; fairness adds
+a fourth meter of its own, `device_metrics` (the SNMP/gNMI device plane), which
+is bounded here but is not a billing meter. Shed messages are **not** counted
+for billing (billing reflects stored work); fairness accounting records the
+shed separately.
 
 **Query-cost guards.** Two limits per tenant on the expensive query surfaces:
 how many queries it may have **in flight at once** (concurrency), and how many
@@ -73,9 +74,12 @@ tenant can wreck, so it is protected by default.
 table (migration `0031_fairness.sql`) and are set from the provider console
 (`PUT /provider/v1/tenants/{id}/fairness`, audited `provider.fairness_set`,
 blocked under read-only license degrade). An override field that is left unset
-**inherits the deployment default** for that bound — so an override only changes
-the bounds you explicitly name. (Stored override values must be positive; the
-table enforces it.)
+(or sent as `0`) **inherits the deployment default** for that bound — so an
+override only changes the bounds you explicitly name. (Stored override values
+must be positive; the table enforces it.) One bound is deployment-wide only:
+the `tenant_fairness` row has no `device_metrics_per_sec` column, so the
+device-metrics rate is always the deployment default and cannot be overridden
+per tenant today.
 
 **The hot path never blocks on Postgres.** The first time the gate sees a
 tenant it enforces the deployment defaults immediately, then fetches that
@@ -127,8 +131,15 @@ enforced.
 | `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `0` (unlimited) | per-tenant in-flight query cap |
 | `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `0` (unlimited) | per-tenant query budget |
 
-These keys take positive numbers only. Raise a ceiling for a deployment whose
-tenants legitimately run hotter; lower it to tighten the wall.
+Three rules govern what a value means:
+
+- A **positive** number is the bound. Raise a ceiling for a deployment whose
+  tenants legitimately run hotter; lower it to tighten the wall.
+- An **explicit `0` means unlimited** — the deliberate opt-out for a bound
+  (`PROBECTL_FAIRNESS_BURST_SECONDS=0` is the one exception: burst falls back
+  to its default of 10, since a zero-capacity bucket would admit nothing).
+- A **negative** number is rejected at startup with a configuration error —
+  there is no negative-value semantics, by design.
 
 ## Relationship to neighbors
 

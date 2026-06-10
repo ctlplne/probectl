@@ -12,6 +12,16 @@ something is wrong. It has two halves that together form one truth:
   the web UI only *render* its state and *forward* operator actions; nothing about
   what is firing is computed client-side.
 
+Two honesty notes on delivery. The **webhook** channel is the fully-wired path
+(HTTPS POST, body signed with HMAC-SHA256 in `X-Probectl-Signature`). The
+**email** channel type exists end to end (a plain-text message via an SMTP
+sender), but the shipped control plane does not yet wire a mail sender or
+expose SMTP configuration — a rule with an email channel is skipped with a
+logged warning until one is wired. And per-rule channels are only half the
+notification story: incident-level paging, chat, and ticketing connectors
+(PagerDuty, Opsgenie, Slack, Teams, ServiceNow, Jira) ride the *incident*
+pipeline, not alert rules — see [`docs/oncall-itsm.md`](oncall-itsm.md).
+
 Why split it this way? Rules are operator intent and must survive restarts, so
 they live in the database. "What is firing" is a live computation over the latest
 samples — deriving it from the engine on every read means the UI can never drift
@@ -28,6 +38,15 @@ flowchart LR
   E -- "Active() / Silence / Acknowledge" --> A["/v1/alerts/active*"]
   A --> W[web: Alerts page]
 ```
+
+The evaluator ticks every `PROBECTL_ALERT_EVAL_INTERVAL` (default `30s`),
+re-reading the tenant's enabled rules through the row-level-security choke
+point on each pass. Two scope limits worth knowing, both surfaced honestly as
+`evaluator_running: false` rather than hidden: the default deployment wires the
+evaluator for the default tenant (per-tenant fan-out across many tenants is a
+noted follow-up), and the evaluator needs an in-process TSDB to query — in
+`PROBECTL_TSDB_MODE=prometheus` (remote-write-out) mode there is no in-process
+query backend, so the loop is skipped.
 
 ## Active-alert API
 

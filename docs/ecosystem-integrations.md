@@ -28,7 +28,8 @@ flowchart LR
 
 The dangerous part of exposing a metrics query API is that a query language is
 powerful enough to ask for *anyone's* data. probectl closes that hole by
-enforcing **tenant first, then RBAC** on every surface here (CLAUDE.md §7):
+enforcing **tenant first, then RBAC** on every surface here (the tenant-isolation
+rule in the [Non-negotiables](../CONTRIBUTING.md#non-negotiables)):
 
 - **Only plain series selectors are accepted** — `metric{label="value",...}`.
   PromQL functions and operators are rejected outright, because *a query probectl
@@ -138,7 +139,8 @@ Surfaces:
 query (`ip_address=<k>^ORfqdn=<k>^ORname=<k>`), capped at 10 CIs per lookup
 (`maxCIsPerLookup`), over verified TLS (the `PROBECTL_CMDB_URL` must be HTTPS).
 Results — including misses — are TTL-cached, so **a down CMDB serves stale cache
-and never breaks core function** (CLAUDE.md §7, rule 10). Keys are canonicalized
+and never breaks core function** — the same read-only, cached, degrade-gracefully
+discipline probectl applies to every external source. Keys are canonicalized
 (case, ports, schemes), and non-keys (CIDR prefixes, free text) are dropped
 before a query is ever made.
 

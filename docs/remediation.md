@@ -1,5 +1,10 @@
 # Guarded agentic remediation (Enterprise: `remediation`)
 
+> **The contract in one line:** probectl proposes; a human decides; nothing in
+> probectl ever executes a network change. This rule has the same standing as
+> the project's [Non-negotiables](../CONTRIBUTING.md#non-negotiables) and is
+> enforced structurally below.
+
 **What this is.** probectl's assistant can already do cross-plane root-cause
 analysis (RCA) and simulate the impact of a topology change (the "what-if"). This
 feature lets it take one more step: **propose** a remediation grounded in that
@@ -13,8 +18,8 @@ Approving a proposal changes a database row and writes an audit entry; it never
 reroutes traffic, mutates a device, or touches the network.
 
 This is the highest-care feature in the product. It is built to the letter of
-guardrail 8 (*remediation is observe-only / human-gated by default; never ship
-un-gated autonomous network actions*) and the standing rule that **ingested data
+probectl's remediation rule — *observe-only / human-gated by default; never ship
+un-gated autonomous network actions* — and the standing rule that **ingested data
 must never trigger or approve an action**. The core model + seam are in
 `internal/remediation`; the workflow is the Enterprise `remediation` feature in
 `ee/remediation`, installed at the editions attach seam (core never imports `ee/`).
@@ -23,16 +28,17 @@ must never trigger or approve an action**. The core model + seam are in
 
 ## The ratified policy
 
-These parameters were signed off by the human owner before any code was written
-(the guardrail requires it). They are not defaults to tune away in code — changing
-them is a product decision, not an engineering one.
+These parameters were signed off by the human owner before any code was written —
+that sign-off is itself part of the policy. They are not defaults to tune away in
+code — changing them is a product decision, not an engineering one.
 
 1. **Proposal-only — there is no executor.** The lifecycle is
    `proposed → approved | rejected`. "Approve" is a recorded human authorization;
    an operator then performs the change out-of-band. There is deliberately no
    `executed` state and no `Apply` / `Execute` / `Run` method on the service — a
    unit test (`TestNoExecutor`) fails the build if anyone ever adds an
-   `Apply`/`Execute`/`Run`/`Perform`/`Act`/`Remediate` method. A fourth state,
+   `Apply`/`Execute`/`Run`/`Perform`/`Act`/`Remediate`/`Dispatch`/`Enact`
+   method. A fourth state,
    `applied`, exists only as an **operator's note** that they carried the
    suggestion out elsewhere; it changes nothing in probectl.
 
@@ -149,8 +155,8 @@ admin role in migration `0035`.
 
 ## What this is NOT
 
-By design and per guardrail 8, probectl does **not** ship un-gated autonomous
-remediation. There is no auto-apply, no "remediate now", no inline enforcement, and
+By design, probectl does **not** ship un-gated autonomous remediation — ever.
+There is no auto-apply, no "remediate now", no inline enforcement, and
 no background actor that acts on a proposal. Approve is a human record, not a
 trigger. If a future change ever adds an execution integration, it must remain
 human-gated, dry-run-first, blast-radius-limited, tenant- and RBAC-scoped, and
