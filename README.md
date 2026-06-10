@@ -11,16 +11,13 @@
 and an AI assistant that explains root cause <em>across</em> them. Telemetry never leaves your network.</p>
 
 <p align="center">
+<a href="https://github.com/imfeelingtheagi/probectl/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/imfeelingtheagi/probectl/actions/workflows/ci.yml/badge.svg"></a>
+<a href="https://github.com/imfeelingtheagi/probectl/tags"><img alt="tag" src="https://img.shields.io/github/v/tag/imfeelingtheagi/probectl?label=tag&sort=semver"></a>
+<a href="https://goreportcard.com/report/github.com/imfeelingtheagi/probectl"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/imfeelingtheagi/probectl"></a>
 <img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
 <img alt="status" src="https://img.shields.io/badge/status-active%20development-orange">
 <img alt="license" src="https://img.shields.io/badge/license-source--available%20%C2%B7%20not%20OSS%20yet-lightgrey">
 </p>
-<!-- Restore the dynamic badges at public launch (they 404 against a private repo,
-     and goreportcard has no data until the repo is public):
-[![CI](https://github.com/imfeelingtheagi/probectl/actions/workflows/ci.yml/badge.svg)](https://github.com/imfeelingtheagi/probectl/actions/workflows/ci.yml)
-[![tag](https://img.shields.io/github/v/tag/imfeelingtheagi/probectl?label=tag&sort=semver)](https://github.com/imfeelingtheagi/probectl/tags)
-[![Go Report Card](https://goreportcard.com/badge/github.com/imfeelingtheagi/probectl)](https://goreportcard.com/report/github.com/imfeelingtheagi/probectl)
--->
 
 <p align="center">
 <a href="#why-probectl">Why</a> ·
