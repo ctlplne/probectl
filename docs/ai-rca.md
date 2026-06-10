@@ -117,14 +117,76 @@ The synthesis backend is pluggable (`internal/ai/model.go`, `model_http.go`):
 | Provider    | Wire path                                 | Notes                                                                 |
 | ----------- | ----------------------------------------- | --------------------------------------------------------------------- |
 | `builtin`   | in-process, deterministic                 | **the default** — air-gapped, no network; also the deterministic baseline the CI RCA eval harness (`internal/ai/eval`, a fixed labeled scenario set run through the real pipeline) scores against |
-| `ollama`    | local Ollama / vLLM (`/api/chat`)         | the first-class sovereign path; a loopback endpoint may be plain `http` |
-| `openai`    | OpenAI-compatible `/v1/chat/completions`  | OpenAI, Azure OpenAI, vLLM, LM Studio, …                              |
-| `anthropic` | Anthropic `/v1/messages`                  | Claude models                                                          |
+| `ollama`    | Ollama's native API (`/api/chat`)         | the first-class sovereign path; a loopback endpoint may be plain `http` |
+| `openai`    | OpenAI-compatible `/v1/chat/completions`  | OpenAI, Azure OpenAI, **vLLM**, LM Studio, …                          |
+| `anthropic` | Anthropic `/v1/messages`                  | Claude models (`x-api-key` required)                                   |
 
 Every **remote** adapter dials over a hardened, certificate-validating TLS client
 (`crypto.HardenedHTTPClient`); a non-loopback endpoint that isn't `https` is
 **refused at startup** (the platform's TLS-everywhere guardrail). Plain `http` is
 allowed only to loopback, for a co-located local model.
+
+### Copy-paste recipes
+
+`PROBECTL_AI_MODEL_ENDPOINT` is always the **base URL** — the adapter appends its
+wire path from the table above. Loopback endpoints (`127.0.0.1` / `localhost` /
+`::1`) are treated as **local**: no egress acknowledgment, no tenant consent.
+Anything else is **remote** and additionally needs the two-gate enablement chain
+in [`ai-egress.md`](ai-egress.md).
+
+**Air-gapped default — nothing to set.** With no `PROBECTL_AI_*` keys at all, Ask
+runs the deterministic builtin synthesizer. This is the shipped posture.
+
+**Ollama on the same host (sovereign, no consent needed):**
+
+```sh
+ollama pull llama3.1            # any model you've pulled works
+PROBECTL_AI_MODEL_PROVIDER=ollama \
+PROBECTL_AI_MODEL_ENDPOINT=http://127.0.0.1:11434 \
+PROBECTL_AI_MODEL_NAME=llama3.1 \
+  ./bin/probectl-control
+```
+
+**vLLM on the same host** — there is deliberately **no `vllm` provider**: vLLM
+serves the OpenAI-compatible API, so you use the `openai` adapter pointed at it.
+vLLM's default port is 8000; `PROBECTL_AI_MODEL_TOKEN` stays unset unless your
+vLLM enforces auth:
+
+```sh
+vllm serve mistralai/Mistral-7B-Instruct-v0.3        # OpenAI-compatible on :8000
+PROBECTL_AI_MODEL_PROVIDER=openai \
+PROBECTL_AI_MODEL_ENDPOINT=http://127.0.0.1:8000 \
+PROBECTL_AI_MODEL_NAME=mistralai/Mistral-7B-Instruct-v0.3 \
+  ./bin/probectl-control
+```
+
+**OpenAI (remote — consent chain required):** the token comes from your provider's
+console and should be a secret *reference*, never a literal in unit files
+([`secrets.md`](secrets.md)):
+
+```sh
+PROBECTL_AI_MODEL_PROVIDER=openai \
+PROBECTL_AI_MODEL_ENDPOINT=https://api.openai.com \
+PROBECTL_AI_MODEL_NAME=gpt-4o-mini \
+PROBECTL_AI_MODEL_TOKEN=vault:ai/openai#key \
+PROBECTL_AI_EGRESS_ACK=yes-send-tenant-data-to-the-remote-model \
+  ./bin/probectl-control
+# …then consent each tenant — see ai-egress.md "Turning it on".
+```
+
+**Anthropic (remote — consent chain required):** same shape; the adapter sends the
+required `x-api-key` header for you:
+
+```sh
+PROBECTL_AI_MODEL_PROVIDER=anthropic \
+PROBECTL_AI_MODEL_ENDPOINT=https://api.anthropic.com \
+PROBECTL_AI_MODEL_NAME=<model-id-from-your-provider> \
+PROBECTL_AI_MODEL_TOKEN=vault:ai/anthropic#key \
+PROBECTL_AI_EGRESS_ACK=yes-send-tenant-data-to-the-remote-model \
+  ./bin/probectl-control
+```
+
+**Azure OpenAI** rides the `openai` recipe with your deployment's base URL.
 
 The built-in synthesizer (`internal/ai/model_builtin.go`) is worth understanding
 because it's the default and the safety net: it ranks evidence by

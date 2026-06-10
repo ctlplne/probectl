@@ -114,19 +114,35 @@ privilege.
 PROBECTL_MCP_TOKEN=<token> PROBECTL_DATABASE_URL=... probectl-control mcp-stdio
 ```
 
-Example Claude Desktop config:
+Worked end-to-end (every value real except the secrets):
+
+```sh
+# 1. mint a token for the user the AI client should act as (prints ONCE — copy it):
+PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable' \
+  ./bin/probectl-control mcp-token --user 7b1e6c9a-0000-4000-8000-000000000001 --name laptop-claude
+# → prints the token secret once; only its hash is stored.
+```
 
 ```json
+// 2. Claude Desktop → Settings → Developer → Edit Config (claude_desktop_config.json):
 {
   "mcpServers": {
     "probectl": {
-      "command": "probectl-control",
+      "command": "/usr/local/bin/probectl-control",
       "args": ["mcp-stdio"],
-      "env": { "PROBECTL_MCP_TOKEN": "...", "PROBECTL_DATABASE_URL": "..." }
+      "env": {
+        "PROBECTL_MCP_TOKEN": "<the value mcp-token printed>",
+        "PROBECTL_DATABASE_URL": "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable"
+      }
     }
   }
 }
 ```
+
+The same `command`/`args`/`env` triple works in any MCP client that launches a
+local stdio server (Claude Code, IDE integrations, agent frameworks). Restart the
+client; the eight probectl tools appear in its tool list. The token acts as that
+user — what they can't see, the AI can't see.
 
 ### HTTP (network-reachable)
 
@@ -137,6 +153,27 @@ network-reachable (the platform's TLS-everywhere guardrail). Set
 config validation** on purpose, so the endpoint can't come up anonymous. Then POST
 a JSON-RPC request with `Authorization: Bearer <token>`. See
 [`configuration.md`](configuration.md) for the `PROBECTL_MCP_*` keys.
+
+Worked example — enable the bridge, then prove it answers:
+
+```sh
+# control plane env (alongside the usual keys):
+PROBECTL_MCP_HTTP_ADDR=:9444
+PROBECTL_MCP_TLS_CERT_FILE=./certs/tls.crt
+PROBECTL_MCP_TLS_KEY_FILE=./certs/tls.key
+
+# list the tools (token from `mcp-token`; --cacert trusts the quickstart CA):
+curl -sS --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer <token>" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  https://localhost:9444/
+```
+
+A consent-gated call behaves honestly rather than silently: invoking
+`explain_degradation` against a **remote** model before the tenant has consented
+returns a tool **error** carrying the exact denial text from
+[`ai-egress.md`](ai-egress.md) — nothing is sent, and the denial is the signal to
+run that page's enablement chain.
 
 ## Methods
 

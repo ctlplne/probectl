@@ -103,15 +103,44 @@ PROBECTL_AI_MODEL_PROVIDER=anthropic
 PROBECTL_AI_MODEL_ENDPOINT=https://api.anthropic.com
 PROBECTL_AI_MODEL_TOKEN=vault:ai/anthropic#key   # a secret reference (docs/secrets.md)
 PROBECTL_AI_EGRESS_ACK=yes-send-tenant-data-to-the-remote-model
-
-# 2. then, per tenant that may use it, via the provider/MSP governance console:
-#    PUT /provider/v1/tenants/{id}/governance  {"ai_remote_egress": true, ...}
 ```
 
-The per-tenant consent toggle lives on the **provider/management plane** (the
-governance route is part of the commercial provider console). In a single-tenant
-deployment that's just the one tenant; in a multi-tenant/MSP deployment each tenant
-is consented individually.
+(Per-provider model wiring, including the local Ollama/vLLM recipes that need
+**none** of this, is in [`ai-rca.md`](ai-rca.md) → *Copy-paste recipes*.)
+
+**2. Then consent each tenant that may use it.** The consent bit is
+`tenant_governance.ai_remote_egress` (default **false**), and there are two ways
+to set it depending on your edition:
+
+- **Enterprise / Provider (the governance feature):** the governance console or
+  its API —
+
+  ```sh
+  curl -sS --cacert ca.crt -X PUT \
+    -H "Authorization: Bearer $PROVIDER_TOKEN" -H 'Content-Type: application/json' \
+    https://probectl.example.com/provider/v1/tenants/<tenant-uuid>/governance \
+    -d '{"ai_remote_egress": true}'
+  ```
+
+- **Core / community:** the governance *API and console* are part of the
+  commercial governance feature, so a core deployment sets the bit directly in
+  its own database (you are the operator the error message tells users to ask):
+
+  ```sql
+  INSERT INTO tenant_governance (tenant_id, ai_remote_egress, updated_at, updated_by)
+  VALUES ('<tenant-uuid>', true, now(), 'dba')
+  ON CONFLICT (tenant_id) DO UPDATE SET ai_remote_egress = true, updated_at = now();
+  ```
+
+In a single-tenant deployment that's just the one tenant; in a multi-tenant/MSP
+deployment each tenant is consented individually.
+
+**What "not yet consented" looks like:** a remote model with the gate closed
+fails the Ask/authoring/MCP call with exactly —
+
+> `ai: this tenant has not consented to sending data to a remote model
+> (tenant_governance.ai_remote_egress; ask an operator) — the air-gapped builtin
+> and loopback local models need no consent`
 
 ## Remote-provider resilience
 

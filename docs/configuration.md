@@ -939,6 +939,10 @@ The ServiceNow CMDB correlation is off unless configured:
 
 ### AI assistant
 
+Worked per-provider setups (Ollama, vLLM, OpenAI, Anthropic, Azure) are in
+[`ai-rca.md`](ai-rca.md) → *Copy-paste recipes*; the remote-egress enablement
+chain (operator ack + per-tenant consent) is in [`ai-egress.md`](ai-egress.md).
+
 The assistant (root-cause analysis + natural-language query) works **out of the
 box with zero network access** — the default `builtin` provider is an in-process
 synthesizer that writes its answers locally. You only point it at a real language
