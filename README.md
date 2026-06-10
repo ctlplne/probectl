@@ -4,45 +4,67 @@
 | '_ \| '__/ _ \| '_ \ / _ \/ __| __| |
 | |_) | | | (_) | |_) |  __/ (__| |_| |
 | .__/|_|  \___/|_.__/ \___|\___|\__|_|
-|_|        see everything · send nothing
+|_|
 ```
 
+<p align="center"><strong>see everything · send nothing</strong><br>
+Self-hosted, multi-tenant network observability — five planes, one OpenTelemetry-native control plane,<br>
+and an AI assistant that explains root cause <em>across</em> them. Telemetry never leaves your network.</p>
+
+<p align="center">
+<img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
+<img alt="status" src="https://img.shields.io/badge/status-active%20development-orange">
+<img alt="license" src="https://img.shields.io/badge/license-source--available%20%C2%B7%20not%20OSS%20yet-lightgrey">
+</p>
+<!-- Restore the dynamic badges at public launch (they 404 against a private repo,
+     and goreportcard has no data until the repo is public):
 [![CI](https://github.com/imfeelingtheagi/probectl/actions/workflows/ci.yml/badge.svg)](https://github.com/imfeelingtheagi/probectl/actions/workflows/ci.yml)
 [![tag](https://img.shields.io/github/v/tag/imfeelingtheagi/probectl?label=tag&sort=semver)](https://github.com/imfeelingtheagi/probectl/tags)
 [![Go Report Card](https://goreportcard.com/badge/github.com/imfeelingtheagi/probectl)](https://goreportcard.com/report/github.com/imfeelingtheagi/probectl)
-![Go](https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white)
-![status](https://img.shields.io/badge/status-active%20development-orange)
-![license](https://img.shields.io/badge/license-source--available%20%C2%B7%20not%20OSS%20yet-lightgrey)
+-->
 
-Self-hosted, source-available, multi-tenant **network observability platform**.
-probectl unifies five observability planes — active/synthetic testing, BGP/routing
-intelligence, flow analytics, device telemetry, and eBPF host/L7 — into one
-**OpenTelemetry-native** control plane: OTel resource + network semantic
-conventions describe every signal in every plane, and the platform ingests all
-three OTLP signals — **metrics, traces, and logs** — bounded for correlation, and
-re-exports its own signals as OTLP **metrics** ([docs/otlp.md](docs/otlp.md)).
-Layered on top: an AI assistant for cross-plane root-cause analysis, a native
-security/threat layer, change-aware topology, and cost/SLO intelligence.
-Telemetry **never leaves the operator's network**.
+<p align="center">
+<a href="#why-probectl">Why</a> ·
+<a href="#what-it-answers">What it answers</a> ·
+<a href="#capabilities">Capabilities</a> ·
+<a href="#how-it-works">How it works</a> ·
+<a href="#quickstart-run-it">Quickstart</a> ·
+<a href="#documentation">Docs</a> ·
+<a href="#license">License</a>
+</p>
 
-One codebase serves two operating modes: **sovereign single-tenant** (a regulated
-or air-gapped org self-hosts; the deployment *is* the tenant) and
-**multi-tenant / provider** (an MSP self-hosts once and serves many hard-isolated,
-white-labeled tenants). The single-tenant install is just the one-tenant case —
-there is no separate code path. **Tenant is the outermost scope and security
-boundary** on every record, agent, query, metric, event, and object.
+<!-- HERO MEDIA SLOT — add before public launch. Best candidates: a 10–15s GIF of
+     the topology what-if view simulating a node failure, or the AI assistant
+     answering "why is checkout slow?" with cited cross-plane evidence.
+     <p align="center"><img src="docs/assets/hero-topology.gif" width="820"></p> -->
 
-> **Status: the platform is built; the work now is hardening toward GA.** All
-> five observability planes are shipped, alongside cross-plane AI root-cause
-> analysis, an MCP server, change-aware topology + what-if, a security/threat
-> layer (TLS posture + NDR-lite), cost/SLO/compliance, RUM/carbon/chaos, and the
-> multi-tenant provider/MSP plane (hard isolation, white-label, metering, BYOK,
-> governance) — plus the Enterprise track: a build against the FIPS 140-3-validated
-> Go Cryptographic Module (CMVP #5247), multi-region HA,
-> supportability, and guarded (proposal-only, human-gated) remediation.
-> Compose + Helm are **HTTPS-by-default**. The license is intentionally **`TBD`** —
-> **source-available, not open source (yet)** (the open-core / reseller boundary is
-> an open decision).
+probectl unifies five observability planes — **active/synthetic testing,
+BGP/routing intelligence, flow analytics, device telemetry, and eBPF host/L7** —
+into one **OpenTelemetry-native** control plane, then layers cross-plane AI
+root-cause analysis, a security/threat signal layer, change-aware topology with
+what-if simulation, and cost/SLO intelligence on top.
+
+One codebase serves two operating modes: **sovereign single-tenant** (a
+regulated or air-gapped org self-hosts; the deployment *is* the tenant) and
+**multi-tenant / provider** (an MSP self-hosts once and serves many
+hard-isolated, white-labeled tenants). The single-tenant install is just the
+one-tenant case — there is no separate code path, no enterprise fork to drift
+out of sync. **Tenant is the outermost scope and security boundary** on every
+record, agent, query, metric, event, and object.
+
+> **Status:** the platform is built — all five planes plus the intelligence,
+> security, and provider/MSP layers in the tables below are shipped; the work
+> now is hardening toward GA. Compose + Helm are **HTTPS-by-default**. The
+> license is intentionally **`TBD`** — **source-available, not open source
+> (yet)** ([details](#license)).
+
+**Try it in ~60 seconds** (Docker only, no Go toolchain — full walkthrough in
+the [Quickstart](#quickstart-run-it)):
+
+```sh
+docker compose -f deploy/compose/eval.yml up --build -d
+docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer   # → your first data
+```
 
 ## Why probectl
 
@@ -53,33 +75,27 @@ that shipped ten minutes ago — and the tools that each see one of those are
 typically five separate products with five separate dashboards. You find out at
 2 a.m., by stitching them together by hand.
 
-probectl collapses that. It pulls every plane — synthetic probes, BGP/routing,
-flow records, device telemetry, and eBPF host/L7 — into **one** tenant-scoped
-control plane, correlates them into a single incident, and lets an AI assistant
-explain the root cause *across* planes instead of leaving you to guess which
-dashboard to open first.
+probectl collapses that. Every plane lands in **one** tenant-scoped control
+plane, gets correlated into a single incident, and an AI assistant explains the
+root cause *across* planes instead of leaving you to guess which dashboard to
+open first.
 
 Three choices set it apart:
 
-- **It stays yours.** probectl is self-hosted and **never phones home** — no
-  telemetry beacons, no "call home," nothing. Hosted observability SaaS works by
-  shipping your network data to a vendor's cloud; probectl keeps every byte
-  inside your own infrastructure. For regulated, air-gapped, or
-  sovereignty-conscious operators, that isn't a nice-to-have — it's the
-  requirement.
-- **It's unified and standard.** One **OpenTelemetry-native** model spans all
-  five planes, so a flow record, a probe result, and a BGP event share the same
-  schema and the same query layer — no per-tool silos, and you can feed standard
-  OTLP into it or hand its signals to your SIEM without re-instrumenting anything.
-  (Scope: the schemas follow OTel resource + network semantic conventions
-  everywhere; the receiver ingests all three OTLP signals — **metrics, traces,
-  and logs** — bounded for correlation, and it re-exports probectl's own signals
-  as OTLP **metrics**. See `docs/otlp.md`.)
+- **It stays yours.** Self-hosted and **never phones home** — no telemetry
+  beacons, no "call home," nothing. Hosted observability SaaS works by shipping
+  your network data to a vendor's cloud; probectl keeps every byte inside your
+  own infrastructure. For regulated, air-gapped, or sovereignty-conscious
+  operators that isn't a nice-to-have — it's the requirement.
+- **It's unified and standard.** One OpenTelemetry-native model spans all five
+  planes, so a flow record, a probe result, and a BGP event share the same
+  schema and the same query layer. The receiver ingests all three OTLP signals
+  — **metrics, traces, and logs** — bounded for correlation, and re-exports
+  probectl's own signals as OTLP **metrics**; the schemas follow OTel resource +
+  network semantic conventions everywhere ([`docs/otlp.md`](docs/otlp.md)).
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, white-labeled, individually-metered
-  platform an MSP self-hosts and resells. **Tenant is the outermost security
-  boundary** on every record — there is no separate enterprise fork to drift out
-  of sync.
+  platform an MSP resells — one codebase, one security boundary.
 
 ## What it answers
 
@@ -100,22 +116,18 @@ probectl is organized around the questions operators actually ask at 2 a.m.:
 
 Or just ask the built-in assistant *"why is checkout slow for tenant X?"* — it
 runs the cross-plane correlation and answers with **cited evidence**, scoped to
-exactly what the caller is allowed to see. (The default engine is a
-**deterministic, air-gapped heuristic** — no LLM is involved or contacted
-unless you explicitly configure one; see the AI row below.)
+exactly what the caller is allowed to see.
 
 ## Who it's for
 
-- **Regulated & sovereignty-conscious orgs** (finance, healthcare, public sector,
-  defense, critical infrastructure) that need deep network observability but
-  cannot send telemetry to a third-party cloud. You self-host; the deployment
-  *is* your tenant.
+- **Regulated & sovereignty-conscious orgs** (finance, healthcare, public
+  sector, defense, critical infrastructure) that need deep network
+  observability but cannot send telemetry to a third-party cloud.
 - **MSPs & internal platform teams** serving many customers or business units —
-  self-host once and serve hard-isolated, white-labeled, individually-metered
+  self-host once, serve hard-isolated, white-labeled, individually-metered
   tenants from one control plane.
-- **Network & platform engineers** tired of hand-correlating five dashboards who
-  want a single OTel-native source of truth they actually own (OTLP metrics,
-  traces, and logs ingest — bounded for correlation, not an APM replacement).
+- **Network & platform engineers** tired of hand-correlating five dashboards
+  who want a single OTel-native source of truth they actually own.
 
 ## Capabilities
 
@@ -133,14 +145,14 @@ Intelligence, security, and platform layers built across the planes:
 
 | Layer | What it does |
 |---|---|
-| **AI assistant** | cross-plane RCA grounded in correlated incidents, natural-language semantic query, AI test authoring, and an **MCP server** (read-only tools + a proposal-only remediation tool) — all **tenant- then RBAC-scoped**, with a fully air-gapped local-model path. **Default engine: a deterministic in-process heuristic (no LLM)** — connecting a model (local Ollama/vLLM or a cloud provider) is explicit opt-in ([`docs/ai-rca.md`](docs/ai-rca.md)) |
+| **AI assistant** | cross-plane RCA grounded in correlated incidents, natural-language semantic query, AI test authoring, and an **MCP server** (read-only tools + a proposal-only remediation tool) — all **tenant- then RBAC-scoped**. **Default engine: a deterministic in-process heuristic — no LLM is involved or contacted unless you explicitly connect one** (local Ollama/vLLM for full air-gap, or a cloud provider as explicit opt-in; [`docs/ai-rca.md`](docs/ai-rca.md)) |
 | **Topology** | a versioned, change-aware dependency graph with **what-if** impact simulation |
 | **Security / threat** | TLS/cert posture + NDR-lite, **confidence-scored detections** (a signal exported to your SIEM — never an inline IPS) |
 | **Cost / SLO** | FinOps egress-cost attribution, an OpenSLO engine, and segmentation/compliance validation with evidence |
 | **Guarded remediation** | the AI **proposes** a fix grounded in RCA + a dry-run; a human **approves**; probectl **never executes** — proposal-only, blast-radius-limited, fully audited |
-| **Multi-tenancy** | tenant is the outermost boundary; **pooled / siloed / hybrid** isolation, selectable per deployment and per tenant |
+| **Multi-tenancy** | **pooled / siloed / hybrid** isolation, selectable per deployment and per tenant |
 | **Provider / MSP plane** | tenant lifecycle, fleet-across-tenants, per-tenant metering + quotas, white-label branding, and audited break-glass (no implicit access to tenant telemetry) |
-| **Sovereignty & crypto** | no phone-home, mTLS/SPIFFE agent identity, envelope encryption, per-tenant **BYOK**, per-tenant export + verifiable erasure, and an optional build against the **FIPS 140-3-validated Go Cryptographic Module** (CMVP cert **#5247**; probectl itself holds no product-level certificate — see [`docs/hardening.md`](docs/hardening.md)) |
+| **Sovereignty & crypto** | mTLS/SPIFFE agent identity, envelope encryption, per-tenant **BYOK**, per-tenant export + verifiable erasure, and an optional build against the **FIPS 140-3-validated Go Cryptographic Module** (CMVP cert **#5247**; probectl itself holds no product-level certificate — see [`docs/hardening.md`](docs/hardening.md)) |
 
 ## How it works
 
@@ -150,9 +162,9 @@ probes and watch the wire, then push results onto a **bus**. The stateless
 fits it (Postgres for state, ClickHouse for high-cardinality events,
 Prometheus/VictoriaMetrics for metrics), and continuously builds incidents and a
 versioned topology graph. Every record, query, metric, and message is scoped by
-`tenant_id` **first**, then by your RBAC — so the API, web UI, AI assistant, and
-MCP server all read through the same tenant-then-RBAC boundary, and a query
-cannot cross a tenant line even by mistake.
+`tenant_id` **first**, then by your RBAC — the API, web UI, AI assistant, and
+MCP server all read through that same boundary, so a query cannot cross a
+tenant line even by mistake.
 
 External intelligence (RouteViews, RIPE RIS/Atlas, RPKI, threat-intel, cloud
 pricing) is fetched **once**, cached, and enriched per tenant; if a feed is
@@ -160,7 +172,7 @@ rate-limited or down, that view degrades gracefully instead of taking the
 platform with it.
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
+%%{init: {'theme':'base','themeVariables':{'background':'transparent','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#768390','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','titleColor':'#e6edf3','edgeLabelBackground':'#161b22','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart TB
     Provider["Provider / Management Plane — MSP operators (distinct privilege domain)<br/>tenant lifecycle · fleet-across-tenants · metering/billing · white-label<br/>audited break-glass (no implicit tenant-data access)"]
 
@@ -171,7 +183,7 @@ flowchart TB
 
     Agents["Agents — Go, single binary, tenant-bound<br/>canary plugins · path engine · eBPF host/L7"]
     Analyzer["BGP analyzer (Python)<br/>RouteViews/RIS MRT + RIS Live"]
-    Bus["Bus — Kafka / NATS / in-process<br/>(tenant-tagged)"]
+    Bus["Bus — Kafka / in-process<br/>(tenant-tagged)"]
     Stores["Postgres · ClickHouse · Prometheus/VM<br/>topology graph · object store"]
     External["External (read-only, cached, degrade gracefully)<br/>RouteViews · RIPE RIS/Atlas · RPKI · PeeringDB · MaxMind/Cymru · CT logs · threat-intel · cloud pricing"]
 
@@ -214,15 +226,16 @@ platform. probectl is honest about its edges by design.
 
 ## Editions
 
-The full five-plane platform — all observability, the AI assistant, security/threat,
-topology, cost/SLO, and single-tenant self-hosting — is **core, and free**.
-Commercial code lives in a **publicly-readable `ee/` tree** (the fence is the
-license + trademark, not source secrecy) and is gated at runtime by an
-**offline-verifiable, signed license** that **never phones home**. **Enterprise**
-adds the validated-module (FIPS) build, BYOK/governance, multi-region HA, and guarded remediation;
-**Provider/MSP** adds the management plane, hard tenant isolation, metering/billing,
-and white-label. Unlicensed commercial features are simply hidden (no lockware).
-See **[`docs/editions.md`](docs/editions.md)**.
+The full five-plane platform — all observability, the AI assistant,
+security/threat, topology, cost/SLO, and single-tenant self-hosting — is
+**core, and free**. Commercial code lives in a **publicly-readable `ee/` tree**
+(the fence is the license + trademark, not source secrecy) and is gated at
+runtime by an **offline-verifiable, signed license** that never phones home.
+**Enterprise** adds the validated-module (FIPS) build, BYOK/governance,
+multi-region HA, and guarded remediation; **Provider/MSP** adds the management
+plane, hard tenant isolation, metering/billing, and white-label. Unlicensed
+commercial features are simply hidden (no lockware). See
+**[`docs/editions.md`](docs/editions.md)**.
 
 ## Quickstart (run it)
 
@@ -247,12 +260,42 @@ docker compose -f deploy/compose/eval.yml --profile tools run --rm viewer
 ```
 
 `viewer` prints the `/v1/topology` service map the control plane folded out of
-those sample flows — that JSON **is your first data**. This stack is
-**evaluation-only** (loopback dev-auth — every request is an unauthenticated
-admin — plus plaintext Kafka and a self-signed cert), so it's never reachable
-from your network and never for production. Walk it all the way through —
-including synthetic (canary) probes and the build-from-source path — in
-**[`docs/getting-started.md`](docs/getting-started.md)**, and meet every
+those sample flows — and that JSON **is your first data** (pretty-printed here;
+your `at` timestamp will differ):
+
+```json
+{
+  "at": "2026-06-10T18:42:07Z",
+  "coverage": {
+    "path_edges": 0, "flow_edges": 2, "routing_edges": 0, "device_edges": 0,
+    "notes": [
+      "no routing-plane (BGP) edges — prefix impact may be incomplete",
+      "no device→hop interface links — device-level impact unavailable"
+    ]
+  },
+  "edges": [
+    {"from": "service:10.0.1.5", "to": "service:10.0.2.9", "kind": "flow"},
+    {"from": "service:10.0.1.5", "to": "service:10.0.3.3", "kind": "flow"}
+  ],
+  "nodes": [
+    {"id": "service:10.0.1.5", "kind": "service", "label": "10.0.1.5"},
+    {"id": "service:10.0.2.9", "kind": "service", "label": "10.0.2.9"},
+    {"id": "service:10.0.3.3", "kind": "service", "label": "10.0.3.3"}
+  ],
+  "topology_running": true
+}
+```
+
+That's the whole pipeline in one read: the agent replayed three sample flows
+(one host talking to an HTTPS endpoint and a Postgres), the control plane
+folded them into two service edges, and the `coverage` block honestly reports
+which planes this little graph does *not* yet see.
+
+This stack is **evaluation-only** (loopback dev-auth — every request is an
+unauthenticated admin — plus plaintext Kafka and a self-signed cert), so it's
+never reachable from your network and never for production. Walk it all the way
+through — including synthetic (canary) probes and the build-from-source path —
+in **[`docs/getting-started.md`](docs/getting-started.md)**, and meet every
 producer you can attach in **[`docs/deploying-agents.md`](docs/deploying-agents.md)**.
 
 ### Production-shaped stack
@@ -331,6 +374,14 @@ zero-to-first-data journey in getting started. Going deeper:
 | Development & CI | [`docs/development.md`](docs/development.md) |
 | Vulnerability disclosure | [`SECURITY.md`](SECURITY.md) |
 
+## Getting help
+
+Bug reports and questions: **GitHub Issues** on this repo. Security
+vulnerabilities: **never** a public issue — follow
+[`SECURITY.md`](SECURITY.md). Most "how do I…" answers live in the
+[documentation table](#documentation) above; start with
+[`docs/getting-started.md`](docs/getting-started.md).
+
 ## Contributing
 
 Read [`CONTRIBUTING.md`](CONTRIBUTING.md). Commits follow **Conventional
@@ -339,7 +390,7 @@ Commits** (enforced by commitlint in CI) and carry a **DCO sign-off**
 tests, and the cross-tenant isolation gate, the same checks CI enforces on every
 pull request. The non-negotiable rules (tenant isolation, no phone-home, crypto
 only through `internal/crypto`, TLS on every listener) are summarized in
-`CONTRIBUTING.md` and enforced by standing CI gates.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) and enforced by standing CI gates.
 
 ## License
 
