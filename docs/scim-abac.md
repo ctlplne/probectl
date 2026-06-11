@@ -59,7 +59,11 @@ Endpoints — twelve routes, mounted at `/scim/v2`, outside the `/v1` API, in
 - **Users** — `POST` (provision), `GET` (list with a `userName eq` filter plus
   `startIndex`/`count`), `GET/{id}`, `PUT/{id}`, `PATCH/{id}`, `DELETE/{id}`.
 - **Groups** — `POST`, `GET`, `GET/{id}`, `PATCH/{id}` (member
-  add/remove/replace), `DELETE`. A SCIM **Group maps to a probectl role**, and
+  add/remove/replace, plus `displayName` rename — the role's display name
+  changes while its slug, the stable identity bindings join on, does not),
+  `DELETE`. A group PATCH is **atomic**: it runs in one database transaction,
+  so a failed sync applies nothing and returns a real error for the IdP to
+  retry — never a 200 over half-applied state. A SCIM **Group maps to a probectl role**, and
   group membership is a role binding — that is the **group-sync mapping** that
   gives users their permissions.
 - **Discovery** — `GET /scim/v2/ServiceProviderConfig` (the machine-readable

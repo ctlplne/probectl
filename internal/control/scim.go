@@ -318,11 +318,26 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 		return
 	}
 	gp := scim.ParseGroupPatch(patch.Operations)
+	if gp.DisplayName != nil && strings.TrimSpace(*gp.DisplayName) == "" {
+		writeSCIMError(w, http.StatusBadRequest, "invalidValue", "displayName must not be empty")
+		return
+	}
 	var g scim.Group
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		role, e := store.Roles{}.Get(ctx, sc, id)
 		if e != nil {
 			return e
+		}
+		// The whole PATCH runs inside this one transaction, and every write
+		// below propagates its error: the first failure returns, the
+		// transaction rolls back EVERYTHING in the request, and the IdP gets
+		// a real error to retry — never a 200 over a half-applied sync.
+		if gp.DisplayName != nil {
+			renamed, e := (store.Roles{}).Rename(ctx, sc, role.ID, strings.TrimSpace(*gp.DisplayName))
+			if e != nil {
+				return e
+			}
+			role = renamed
 		}
 		if gp.ReplaceAll != nil {
 			cur, e := store.RoleBindings{}.MembersOfRole(ctx, sc, role.ID)
@@ -330,23 +345,42 @@ func (s *Server) scimPatchGroup(w http.ResponseWriter, r *http.Request, tenantID
 				return e
 			}
 			for _, m := range cur {
-				_ = store.RoleBindings{}.Unbind(ctx, sc, "user", m, role.ID)
+				if e := (store.RoleBindings{}).Unbind(ctx, sc, "user", m, role.ID); e != nil {
+					return e
+				}
 			}
 			for _, m := range *gp.ReplaceAll {
-				_ = store.RoleBindings{}.Bind(ctx, sc, "user", m, role.ID)
+				if e := (store.RoleBindings{}).Bind(ctx, sc, "user", m, role.ID); e != nil {
+					return e
+				}
 			}
 		}
 		for _, m := range gp.Add {
-			_ = store.RoleBindings{}.Bind(ctx, sc, "user", m, role.ID)
+			if e := (store.RoleBindings{}).Bind(ctx, sc, "user", m, role.ID); e != nil {
+				return e
+			}
 		}
 		for _, m := range gp.Remove {
-			_ = store.RoleBindings{}.Unbind(ctx, sc, "user", m, role.ID)
+			if e := (store.RoleBindings{}).Unbind(ctx, sc, "user", m, role.ID); e != nil {
+				return e
+			}
 		}
 		g = s.groupToSCIMScoped(ctx, sc, r, *role)
-		return auditSCIM(ctx, sc, "directory.group_update", role.ID, map[string]any{"added": len(gp.Add), "removed": len(gp.Remove)})
+		return auditSCIM(ctx, sc, "directory.group_update", role.ID, map[string]any{
+			"added": len(gp.Add), "removed": len(gp.Remove), "renamed": gp.DisplayName != nil,
+		})
 	})
 	if err != nil {
-		writeSCIMError(w, http.StatusNotFound, "", "group not found")
+		var ae *apierror.Error
+		if errors.As(err, &ae) && ae.Kind == apierror.KindNotFound {
+			writeSCIMError(w, http.StatusNotFound, "", "group not found")
+			return
+		}
+		// A failed sync must look failed: the transaction rolled back, so
+		// nothing was applied — tell the IdP so it retries. Pre-fix, every
+		// error here (including write failures) masqueraded as 404 after
+		// silently keeping whatever half of the PATCH had "succeeded".
+		writeSCIMError(w, http.StatusInternalServerError, "", "directory update failed; no changes were applied")
 		return
 	}
 	writeSCIM(w, http.StatusOK, g)

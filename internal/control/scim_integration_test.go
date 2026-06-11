@@ -307,3 +307,69 @@ func TestABACEnforcedOverRBAC(t *testing.T) {
 		t.Fatalf("RBAC-permitted write with no policy should succeed: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// --- SCIM Group PATCH: rename applies, and a failed sync is atomic + honest ---
+
+// Regression for two silent-failure bugs in scimPatchGroup: (1) a PATCH that
+// replaced displayName parsed the rename and then dropped it on the floor
+// (the handler never applied gp.DisplayName); (2) every Bind/Unbind error was
+// discarded (`_ =`), so a half-failed membership sync answered 200 OK and the
+// IdP believed state that didn't exist.
+func TestSCIMGroupRenameAndAtomicPatch(t *testing.T) {
+	h, db := setupAPI(t)
+	tenant := freshTenant(t, db, "scimren")
+	token := scimToken(t, db, tenant, "okta")
+
+	uid := scimID(t, scimReq(t, h, http.MethodPost, "/scim/v2/Users", token, scimUserBody("ren@x.com", "g-ren-1", "eng")))
+	gBody := `{"schemas":["urn:ietf:params:scim:schemas:core:2.0:Group"],"displayName":"Engineers","members":[{"value":"` + uid + `"}]}`
+	grec := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token, gBody)
+	if grec.Code != http.StatusCreated {
+		t.Fatalf("create group: %d %s", grec.Code, grec.Body)
+	}
+	gid := scimID(t, grec)
+
+	// 1. Rename via PATCH replace displayName — silently dropped before the fix.
+	ren := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":"Platform Engineers"}]}`
+	pr := scimReq(t, h, http.MethodPatch, "/scim/v2/Groups/"+gid, token, ren)
+	if pr.Code != http.StatusOK {
+		t.Fatalf("patch rename: %d %s", pr.Code, pr.Body)
+	}
+	if !strings.Contains(pr.Body.String(), "Platform Engineers") {
+		t.Errorf("rename not applied in the PATCH response: %s", pr.Body)
+	}
+	g := scimReq(t, h, http.MethodGet, "/scim/v2/Groups/"+gid, token, "")
+	if !strings.Contains(g.Body.String(), "Platform Engineers") {
+		t.Errorf("rename not persisted: %s", g.Body)
+	}
+	if !strings.Contains(g.Body.String(), uid) {
+		t.Errorf("membership must survive a rename: %s", g.Body)
+	}
+
+	// An empty displayName is rejected up front, applying nothing.
+	empty := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[{"op":"replace","path":"displayName","value":""}]}`
+	if er := scimReq(t, h, http.MethodPatch, "/scim/v2/Groups/"+gid, token, empty); er.Code != http.StatusBadRequest {
+		t.Errorf("empty displayName = %d, want 400", er.Code)
+	}
+
+	// 2. Atomicity: one PATCH adding a valid member AND a malformed member id
+	// must fail as a WHOLE — a real error (not 200, and not the old lying
+	// 404) — and apply NOTHING from the request.
+	u2 := scimID(t, scimReq(t, h, http.MethodPost, "/scim/v2/Users", token, scimUserBody("ren2@x.com", "g-ren-2", "eng")))
+	bad := `{"schemas":["urn:ietf:params:scim:api:messages:2.0:PatchOp"],"Operations":[` +
+		`{"op":"add","path":"members","value":[{"value":"` + u2 + `"}]},` +
+		`{"op":"add","path":"members","value":[{"value":"not-a-uuid"}]}]}`
+	br := scimReq(t, h, http.MethodPatch, "/scim/v2/Groups/"+gid, token, bad)
+	if br.Code == http.StatusOK {
+		t.Fatalf("a failed sync must not answer 200: %s", br.Body)
+	}
+	if br.Code == http.StatusNotFound {
+		t.Fatalf("a write failure must not masquerade as 404: %s", br.Body)
+	}
+	after := scimReq(t, h, http.MethodGet, "/scim/v2/Groups/"+gid, token, "")
+	if strings.Contains(after.Body.String(), u2) {
+		t.Errorf("atomicity: the valid member from the failed PATCH must be rolled back: %s", after.Body)
+	}
+	if !strings.Contains(after.Body.String(), uid) {
+		t.Errorf("pre-existing membership must be untouched by the failed PATCH: %s", after.Body)
+	}
+}

@@ -50,6 +50,21 @@ func (Roles) GetBySlug(ctx context.Context, s tenancy.Scope, slug string) (*Role
 	return &r, nil
 }
 
+// Rename updates a role's human display name (a SCIM Group's displayName).
+// The slug — the stable identity bindings and references join on — is
+// deliberately untouched, so a rename can never strand a member or collide
+// with the UNIQUE (tenant_id, slug) constraint. System roles are not
+// renameable through this path (0 rows → not found), mirroring Delete's guard.
+func (Roles) Rename(ctx context.Context, s tenancy.Scope, id, name string) (*Role, error) {
+	var r Role
+	if err := scanRole(s.Q.QueryRow(ctx,
+		`UPDATE roles SET name = $2, updated_at = now() WHERE id = $1 AND is_system = false RETURNING `+roleCols,
+		id, name), &r); err != nil {
+		return nil, notFound("role", err)
+	}
+	return &r, nil
+}
+
 // Delete removes a non-system role (its bindings cascade via the FK).
 func (Roles) Delete(ctx context.Context, s tenancy.Scope, id string) error {
 	_, err := s.Q.Exec(ctx, `DELETE FROM roles WHERE id = $1 AND is_system = false`, id)
