@@ -232,6 +232,14 @@ probectl-control revoke-agent -tenant <uuid> -agent <id>     # CLI (database-dir
 POST /v1/agents/{id}/revoke                                  # admin API (agent.write, audited)
 ```
 
+A *join token* that leaked before anyone redeemed it has its own, smaller
+revoke — voiding the invitation rather than the badge (the id is printed when
+the token is minted; single-use + the ~1h expiry already bound the exposure):
+
+```sh
+probectl-control revoke-enroll-token -id <token-id>
+```
+
 Both persist the revocation (so it survives a restart) and feed the mTLS
 handshake deny-list. The API pushes it live immediately; the running control
 plane also reloads the persisted list every 30s, which is how CLI-side

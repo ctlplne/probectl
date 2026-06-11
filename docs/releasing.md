@@ -35,9 +35,10 @@ exactly which tag it was cut from.
 
 Pushing a `v*` tag runs `release.yml`, which publishes:
 
-- **Multi-arch container images** (`linux/amd64`, `linux/arm64`) for five
+- **Multi-arch container images** (`linux/amd64`, `linux/arm64`) for all seven
   components — `probectl-control`, `probectl-agent`, `probectl-ebpf-agent`,
-  `probectl-endpoint`, and `probectl` (the CLI) — to
+  `probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`, and
+  `probectl` (the CLI) — to
   `ghcr.io/imfeelingtheagi/<component>`, tagged with the exact version and
   `latest`. Each image carries **SLSA provenance and an SBOM** attestation
   (Buildx `provenance: true` + `sbom: true`). **SLSA provenance** is a signed

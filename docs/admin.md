@@ -185,6 +185,11 @@ If an agent (or its key) is compromised, revoke it:
 probectl-control revoke-agent -tenant <uuid> -agent <id>
 ```
 
+(A leaked join token that nobody has redeemed yet is the smaller case — void
+the invitation itself with `probectl-control revoke-enroll-token -id
+<token-id>`; the id prints at mint time, and single-use + the ~1h expiry
+already bound the exposure.)
+
 This **persists** the revocation (so it survives a control-plane restart) and
 feeds the mTLS handshake **deny-list**. A *running* control plane reloads that
 persisted list every **30 seconds**, so from its next connection the agent's

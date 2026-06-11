@@ -119,13 +119,12 @@ identity can never change on rotation — and records it.
 `ClientMTLSConfigRotating` hot-swaps the files and connections re-handshake
 naturally.
 
-> **Honesty note — token revocation today:** the store exposes
-> `EnrollTokens.Revoke` (cancel an unredeemed join token early), but **no CLI
-> command or API route calls it yet** — the only operational mitigations for a
-> leaked token are its single-use semantics and the ~1h expiry, which bound the
-> exposure tightly. (Issued *certificates* are revocable via `revoke-agent`;
-> this note is about unredeemed join tokens only.) If a
-> `revoke-enroll-token` surface lands, update this note.
+> **Token revocation:** a leaked-but-unredeemed join token can be voided early
+> with `probectl-control revoke-enroll-token -id <token-id>` (the id is printed
+> at mint time). Single-use semantics and the ~1h expiry remain the
+> defense-in-depth behind it — even an unrevoked leak self-destructs on first
+> use or at expiry. Issued *certificates* are a separate surface, revoked via
+> `revoke-agent`.
 
 **Agent CLI:** `probectl-agent enroll --server https://control:8443
 --token <jt> --dir /var/lib/probectl-agent/identity [--ca-pin <sha256>]`
