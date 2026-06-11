@@ -2,10 +2,17 @@
 
 ## What this is
 
-probectl ships a declarative, secure-by-default deployment stack: a hardened Helm
-chart, Terraform modules that wrap it, and ArgoCD/Flux manifests so that a
-`git push` is the only deploy action you take. Everything is HTTPS-by-default and
-**refuses to run with default credentials**.
+**Infrastructure as code** (IaC) means your deployment is a reviewed, versioned
+file instead of a sequence of console clicks; **GitOps** runs that idea on a
+loop — a controller inside the cluster watches a Git repository and continually
+**reconciles** the cluster to match the file. Like a thermostat: you set the
+temperature in Git, the controller keeps nudging the room until it matches, and
+a hand-edit on the live cluster is an opened window the controller quietly
+closes again. probectl ships that whole stack, **declarative** (you state the
+desired end state; the tooling works out the steps) and secure-by-default: a
+hardened Helm chart, Terraform modules that wrap it, and ArgoCD/Flux manifests
+so that a `git push` is the only deploy action you take. Everything is
+HTTPS-by-default and **refuses to run with default credentials**.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -31,7 +38,12 @@ All three deploy the **same** hardened chart — Terraform and GitOps just wrap 
 ## Hardened Helm chart
 
 `values.schema.json` types every key (Helm validates input against it on
-install/upgrade). The secure defaults below are enforced by the CI hardening gate
+install/upgrade). Three Kubernetes objects in the table deserve a one-line
+introduction: a **NetworkPolicy** is the pod's firewall (which traffic may come
+in, where traffic may go out); a **PodDisruptionBudget** (PDB) is the floor on
+how many replicas voluntary maintenance — a node drain, an upgrade — may take
+down at once; a **HorizontalPodAutoscaler** (HPA) adds and removes replicas to
+follow load. The secure defaults below are enforced by the CI hardening gate
 (`make helm-gate`), which renders the chart and greps for each invariant — a
 regression here fails the build:
 
@@ -49,7 +61,10 @@ regression here fails the build:
 
 **About the default NetworkPolicy.** It is on in every profile, but as shipped it
 has two deliberately open "holes": it allows in-cluster ingress to the API port,
-and allows all egress. Those are placeholders — you close them by setting the
+and allows all egress. Think of a new house delivered with every door fitted
+but propped open — the frames are in (so closing is a values change, not a
+retrofit), and they stay open only because the builder cannot know which keys
+to cut for *your* cluster. You close them by setting the
 allow-lists (`networkPolicy.ingressFrom` / `networkPolicy.egressTo`) for your
 cluster. `values-large.yaml` ships the filled-in reference shape (ingress from
 the ingress-controller namespace, egress to the database CIDR/port); copy that
@@ -98,9 +113,13 @@ runs `terraform fmt -check` and `terraform validate` against the example root in
 
 `deploy/gitops/` has an ArgoCD `Application` (`argocd/application.yaml`) and a
 Flux `GitRepository` + `HelmRelease` (`flux/`). Both reference
-`secrets.existingSecret` rather than inlining credentials — manage that Secret
-with **Sealed Secrets** or the **External Secrets Operator**. ArgoCD `automated`
-sync (`prune` + `selfHeal`) and Flux's install/upgrade `remediation.retries`
+`secrets.existingSecret` rather than inlining credentials — Git history is
+forever, so a secret must never enter it. Manage that Secret
+with **Sealed Secrets** or the **External Secrets Operator** (both keep only an
+encrypted or referenced form in Git; a cluster-side controller materializes the
+real value). ArgoCD `automated`
+sync (`prune` deletes resources removed from Git; `selfHeal` re-applies the
+desired state over hand-edits) and Flux's install/upgrade `remediation.retries`
 together give a self-correcting, auto-rolling-back deployment. See
 [deploy/gitops/README.md](../deploy/gitops/README.md). `make gitops-gate`
 structurally validates the manifests (every doc has an `apiVersion` + `kind`).

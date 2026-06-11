@@ -2,13 +2,24 @@
 
 ## What this is
 
-The multi-region model ([multi-region.md](../multi-region.md)) is stateless
-control-plane replicas everywhere, backed by **one Postgres writer with
-streaming replicas**. A region failover **promotes a standby** to be the new
-writer and re-points the writer endpoint behind a split-brain fence. This page
-is the drill that **times** that mechanism, plus the table where the measured
-numbers live. The step-by-step procedure a human follows during a real failover
-is the separate runbook, [region-failover.md](../runbooks/region-failover.md).
+**Disaster recovery** (DR) is the plan for losing a whole region — not one pod,
+the building. The multi-region model ([multi-region.md](../multi-region.md)) is
+stateless control-plane replicas everywhere, backed by **one Postgres writer
+with streaming replicas**: the writer is the single database all changes go to,
+and each streaming replica is a continuously updated copy in another region —
+an understudy kept word-perfect on the current script. A region failover
+**promotes a standby** (tells one understudy "you're the lead now") and
+re-points the writer endpoint behind a split-brain fence — the guard that stops
+the *old* writer from also accepting writes, because two databases each
+believing they're the writer (**split-brain**) is the worst failure a database
+can have. This page is the drill that **times** that mechanism, plus the table
+where the measured numbers live.
+
+Two numbers summarize the whole exercise: **RTO** (recovery time objective —
+how long until writes work again) and **RPO** (recovery point objective — how
+much just-written data the failover loses). The step-by-step procedure a human
+follows during a real failover is the separate runbook,
+[region-failover.md](../runbooks/region-failover.md).
 
 > **PROVISIONAL until signed off.** The CI drill below measures the real
 > promote-and-accept-writes mechanism continuously, but at dev size on shared
@@ -22,7 +33,9 @@ is the separate runbook, [region-failover.md](../runbooks/region-failover.md).
 make failover-drill     # DESTRUCTIVE to the dev stack
 ```
 
-The drill (`scripts/failover_drill.sh` + the `deploy/compose/dr-drill.yml`
+A **drill** is a rehearsal that runs the real mechanism, not a simulation of
+it — this one builds a real replica, really kills the primary, and really
+promotes. It (`scripts/failover_drill.sh` + the `deploy/compose/dr-drill.yml`
 overlay) needs `POSTGRES_PASSWORD` set in your `.env` — the replica reuses the
 same password the primary stack already requires; there is no embedded default.
 It then:
@@ -41,18 +54,24 @@ It then:
    node (async streaming replication's honest loss window), reported in rows and
    in seconds at the measured write rate.
 
+**Client-acked** means the database confirmed the commit back to the client —
+these are writes a caller was *told* succeeded, which is why they're the honest
+currency for measuring loss: losing a row nobody was promised is noise; losing
+an acknowledged one is broken trust, so that is what the drill counts.
+
 It runs in CI on every run (the `failover-drill` job), so the failover
 mechanism — replication hookup, promotion, write-readiness — cannot silently
 rot, and it exits non-zero on any divergence. The final line looks like:
 
-```
+```text
 failover drill: PASS — RTO <ms> (kill → promoted+writable); RPO <n> acked rows (~<s>s at <rate> writes/s)
 ```
 
 ## What the dev drill does NOT measure
 
 It is dev-sized, single-host, and replicates over the LAN loopback. It therefore
-**excludes**: WAN replication lag (which widens RPO); DNS/proxy writer
+**excludes**: WAN replication lag (replicas separated by real wide-area-network
+distance run further behind, which widens RPO); DNS/proxy writer
 re-pointing and the control-plane fence release (which widen RTO — see
 [region-failover.md](../runbooks/region-failover.md)); agent geo-DNS shedding;
 and the ClickHouse / object-store regional strategies (those are covered by

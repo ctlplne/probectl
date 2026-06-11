@@ -3,7 +3,16 @@
 ## What this is
 
 Promote a standby Postgres and move the writer to a new region, with **no
-split-brain** and **bounded data loss**. The conceptual model — why there is
+split-brain** and **bounded data loss**. The terms, once, before the clock
+starts: the **writer** (primary) is the one database accepting changes; a
+**standby** is a streaming replica — a continuously updated copy — usually in
+another region; **promoting** a standby turns that copy into the new writer;
+and **split-brain** is two databases both believing they are the writer and
+accepting different writes — the failure this whole runbook is shaped to
+prevent. probectl's **fence** is a promotion **epoch**: a counter stored in the
+database itself that only ever goes up. Think of it as the deed number on a
+house — whoever holds the highest-numbered deed is the owner, and an old
+photocopy can't reclaim the property. The conceptual model — why there is
 exactly one writer, how the fence works — is [multi-region.md](../multi-region.md);
 this is the step-by-step you follow during an actual failover.
 
@@ -24,6 +33,10 @@ code `writer_unavailable`), while reads and telemetry ingest keep flowing.
 
 ## 1. Confirm the standby is caught up (this sets your RPO)
 
+**RPO** (recovery point objective) is how much just-written data you lose;
+**RTO** (recovery time objective, measured in step 5) is how long until writes
+work again. The standby's replication lag at the moment of loss *is* your RPO:
+
 - **Synchronous** replication: the synchronous standby has every committed row →
   **RPO 0**.
 - **Asynchronous**: check the standby's replay lag at the moment of loss with
@@ -35,7 +48,9 @@ code `writer_unavailable`), while reads and telemetry ingest keep flowing.
 
 Use your Postgres failover tooling: `pg_ctl promote`, Patroni
 `switchover`/`failover`, or your managed-DB failover action. After promotion the
-new primary is **writable** and on a **new timeline**.
+new primary is **writable** and on a **new timeline** — Postgres's history fork
+counter: promotion branches the history, so anything the old primary might
+still write lands on the abandoned branch, not this one.
 
 ## 3. Stamp the promotion epoch — this is the fence (do not skip)
 
@@ -67,7 +82,7 @@ their own local node — reads stay local.
 probectl re-probes the database every 5 s and resumes writes automatically —
 **no restart needed.** Confirm on a replica in a surviving region:
 
-```
+```text
 GET /readyz  →  cluster.writes_usable:        true
                 cluster.writer.writer_region: <new-writer-region>
                 cluster.highest_epoch:        <bumped value>
@@ -83,9 +98,10 @@ provisional target: 60 s).
 ## 6. Rebuild the old region as a standby
 
 Bring the former primary back as a **standby** of the new primary (re-clone, or
-`pg_rewind` it onto the new timeline). It rejoins on the current epoch. Until it
-does, probectl correctly fences it (it is either on a lower epoch or in
-recovery).
+`pg_rewind` it onto the new timeline — `pg_rewind` unwinds the diverged copy's
+history just far enough that it can follow the new branch). It rejoins on the
+current epoch. Until it does, probectl correctly fences it (it is either on a
+lower epoch or in recovery).
 
 ## Watch-outs
 

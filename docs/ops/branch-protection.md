@@ -2,10 +2,14 @@
 
 ## What this is
 
-CI runs a long list of checks on every pull request. By themselves those
-checks are only **advisory** — GitHub will happily let you click "Merge" on a
-red PR unless you tell it not to. This page is how you make the checks
-**blocking**, so a change cannot land on `main` until CI is green.
+CI runs a long list of checks on every **pull request** (PR — a proposed
+change, reviewed before it lands). By themselves those checks are only
+**advisory** — GitHub will happily let you click "Merge" on a red PR unless you
+tell it not to. CI is an inspector who files reports; **branch protection** is
+the rule that a red report locks the door. Without it, the reports pile up and
+the door opens anyway. This page is how you make the checks **blocking** — a
+**required status check** is one whose green result the merge button refuses to
+work without — so a change cannot land on `main` until CI is green.
 
 There are two independent layers, and you want both:
 
@@ -56,10 +60,14 @@ tag in the first place.)
 ## Which checks to require
 
 The simplest, lowest-maintenance choice is to require the **`verify-all`** job
-and nothing else. `verify-all` is an umbrella job in `ci.yml` that `needs:` the
-whole verification suite and fails red if any of them is red or skipped — so
-requiring it is equivalent to requiring all of them, but you never have to edit
-the branch-protection rule again when a job is added or renamed.
+and nothing else. `verify-all` is an **umbrella job** in `ci.yml` — it runs no
+tests itself; it `needs:` (declares a dependency on) the whole verification
+suite and fails red if any of them is red **or skipped** — so requiring it is
+equivalent to requiring all of them, but you never have to edit the
+branch-protection rule again when a job is added or renamed. Treating
+*skipped* as failure is deliberate fail-closed behavior: a gate that quietly
+didn't run looks exactly like a gate that passed unless something forces the
+distinction.
 
 A few jobs run *outside* the `verify-all` umbrella (they are not in its
 `needs:` list). If you want belt-and-suspenders, add them explicitly:
@@ -74,9 +82,10 @@ A few jobs run *outside* the `verify-all` umbrella (they are not in its
 
 If your organization's policy instead requires listing every job by name (some
 auditors prefer the explicit list), the **complete** set of top-level `ci.yml`
-jobs is below. Keep it in sync with the workflow — **a job you forget to list
-is advisory again**, so prefer the `verify-all` approach unless you have a
-reason not to.
+jobs is below — 32 of them, which with the `verify-all` umbrella itself makes
+33 top-level jobs in the workflow. Keep the list in sync with the workflow —
+**a job you forget to list is advisory again**, so prefer the `verify-all`
+approach unless you have a reason not to.
 
 | Required check | Gate it enforces |
 |---|---|
@@ -118,10 +127,12 @@ already covers — listing them is redundant (though harmless).
 
 ## How the release gate works (`release.yml`)
 
-Pushing a `v*` tag does not trigger `ci` (tag pushes and branch pushes are
-different events), so the release workflow can't just "wait for its own CI". The
-`require-green-ci` job instead **looks up** the `ci` run for the tagged commit
-via the GitHub Actions API (`ci.yml/runs?head_sha=<the tag's commit>`):
+A **tag** is a named pointer to one exact commit — `v1.2.3` names the precise
+source a release is built from. Pushing a `v*` tag does not trigger `ci` (tag
+pushes and branch pushes are different events), so the release workflow can't
+just "wait for its own CI". The `require-green-ci` job instead **looks up** the
+`ci` run for the tagged commit via the GitHub Actions API
+(`ci.yml/runs?head_sha=<the tag's commit>`):
 
 - **completed + success** → the `images` and `binaries` jobs (which `needs:` it)
   proceed and publish.

@@ -1,16 +1,21 @@
 # On-call + ITSM integration
 
 **What this is.** probectl correlates faults into incidents — but the team's
-*workflow* lives in the tools they already run: PagerDuty/Opsgenie for paging,
-Slack/Teams for chat, ServiceNow/Jira for tickets. This feature mirrors a probectl
-incident into those tools: it **pages on-call**, **posts to chat**, and **opens +
-bidirectionally syncs tickets**.
+*workflow* lives in the tools they already run: PagerDuty/Opsgenie for **paging**
+(waking the **on-call** engineer — whoever holds the pager this week),
+Slack/Teams for chat, ServiceNow/Jira for tickets (**ITSM** — IT service
+management — systems, where work is queued, assigned, and audited). This feature
+mirrors a probectl incident into those tools through **connectors** — one
+outbound integration per tool: it **pages on-call**, **posts to chat**, and
+**opens + bidirectionally syncs tickets**.
 
-Two boundaries to keep in mind. First, probectl stays the **system of record** for
-the incident; these connectors are a thin, best-effort *mirror*. Second, a
-connector only ever pages or posts or opens a ticket — it never auto-blocks or
-auto-remediates. (Notification is confidence in the incident, not control over the
-network.) The code is in `internal/notify`, wired from `internal/control/notify.go`.
+Two boundaries to keep in mind. First, probectl stays the **system of record**
+for the incident — the one authoritative copy; the connectors are a thin,
+best-effort *mirror* of it, the stadium scoreboard to the referee's scorecard:
+glanceable everywhere, authoritative nowhere. Second, a connector only ever
+pages or posts or opens a ticket — it never auto-blocks or auto-remediates.
+(Notification is confidence in the incident, not control over the network.) The
+code is in `internal/notify`, wired from `internal/control/notify.go`.
 
 **Off by default.** A connector is an *outbound* connection to the operator's
 tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is set
@@ -59,19 +64,25 @@ flowchart LR
 
 ## Idempotency
 
-Ticket creation and paging are **idempotent**. A `UNIQUE (tenant, incident,
-connector)` link row means an incident is opened at most once per connector, so a
+Ticket creation and paging are **idempotent** — doing it twice has the same
+effect as doing it once, a doorbell rather than a counter. A `UNIQUE (tenant,
+incident, connector)` link row means an incident is opened at most once per
+connector, so a
 delivery retry or a control-plane restart never double-pages or duplicates a
 ticket — the dispatcher checks for an existing link before opening. Pager
 connectors additionally pass a stable `dedup_key` / `alias` derived from the
-incident id (`probectl-<id>`), so even a duplicate trigger coalesces server-side.
+incident id (`probectl-<id>`) — the identity the pager service itself
+deduplicates on — so even a duplicate trigger that slips past the link row
+coalesces server-side. Two layers, because a 3 a.m. double-page erodes exactly
+the trust a pager runs on.
 
 ## Bidirectional sync + loop protection
 
 The tricky case: an on-call engineer closes the ServiceNow ticket. probectl
 resolves the incident and syncs that resolution to the *other* connectors — but
 **never echoes it back to its origin** (the ServiceNow ticket is already closed;
-re-closing it could ping-pong forever between two systems). The dispatch carries
+re-closing it could ping-pong forever between two systems, each politely
+confirming the other's confirmation). The dispatch carries
 the origin as its `source`, and the dispatcher skips that connector when fanning
 out — while still marking the origin's link `resolved` so the mirror stays
 accurate (`Dispatcher.Resolved(..., source)`). A duplicate inbound webhook for an
@@ -80,10 +91,17 @@ already-resolved incident is a no-op.
 ## Inbound contract + security
 
 `POST /ingest/itsm/{provider}/{id}` is an ingest surface (mounted off `/v1`, like
-the change webhook). It authenticates **each delivery**, not a session:
+the change webhook). A **webhook** is an HTTP POST another system makes to you
+when something happens — which means anyone who can reach the URL can attempt
+one, so it authenticates **each delivery**, not a session:
 
 - Include `X-Probectl-Signature: sha256=<hmac-of-body-under-secret>` **or**
-  `X-Probectl-Token: <secret>` (constant-time compared). An unsigned, forged, or
+  `X-Probectl-Token: <secret>` (constant-time compared). An **HMAC** is a keyed
+  hash over the body — only a sender holding the shared secret can produce a
+  valid one, and it covers the *content*, so a tampered body fails too;
+  **constant-time** comparison takes the same time whether a guess is nearly
+  right or completely wrong, so response timing can't leak the secret
+  byte-by-byte. An unsigned, forged, or
   wrong-token delivery is rejected with `401` **before any state change** (fail
   closed). Verification routes through `internal/crypto` (`crypto.Verify` /
   `crypto.ConstantTimeEqual`).
@@ -110,7 +128,7 @@ See [`configuration.md`](configuration.md#on-call--itsm-integration) for the
 key reference. Example (a tenant paging PagerDuty + ticketing Jira, with inbound
 sync from Jira):
 
-```
+```text
 PROBECTL_NOTIFY_CONNECTORS=00000000-0000-0000-0000-000000000001|pagerduty|https://events.pagerduty.com/v2/enqueue|<routing-key>,00000000-0000-0000-0000-000000000001|jira|https://acme.atlassian.net/rest/api/2/issue?project=OPS&resolve_transition=31|alice@acme.com:<api-token>
 PROBECTL_NOTIFY_INBOUND=jira1:00000000-0000-0000-0000-000000000001:jira:<webhook-secret>
 ```

@@ -2,20 +2,29 @@
 
 ## What this is
 
-probectl keeps its durable state in two databases. This runbook is how you copy
-that state somewhere safe (backup), how you put it back (restore), how long
-each takes, and the automated drill that proves the restore path actually
-works. Read it before you need it — a restore is the kind of thing you do under
-stress.
+probectl keeps its durable state in two databases. A **backup** is a copy of
+that state placed where a failure can't reach it; a **restore** is putting the
+copy back and getting a working deployment out of it. This runbook is how you
+take the copy, how you put it back, how long each takes, and the automated
+**drill** — a scheduled rehearsal that performs a real restore and checks the
+result — that proves the restore path actually works. The drill matters
+because an untested backup is a fire escape you've never walked down: it looks
+fine on the wall map right up until the night you need it. Read this page
+before you need it — a restore is the kind of thing you do under stress.
 
 ## What is stateful (and what is deliberately not backed up)
+
+**Stateful** means the data lives nowhere else — lose the store and it's gone,
+which is what makes it worth copying. Anything rebuildable from another source
+is deliberately left out: backing it up would only slow down a restore you'll
+one day be running under pressure.
 
 | Store | Holds | Backup? |
 |---|---|---|
 | **Postgres** | tenants, config/state, RBAC, audit chains, SLOs, incidents | **Yes** — logical `pg_dump` (custom format), nightly |
 | **ClickHouse** | flow/path/threat/change/cost events + the `probectl_ch_migrations` ledger | **Yes** — native `BACKUP DATABASE … TO File()`, nightly |
 | Prometheus/VictoriaMetrics | metric series | Optional — operational telemetry, rebuildable by re-ingesting the retention window. Use the snapshot API if your org requires it. |
-| Object store | support bundles, WORM audit exports | Replicate the bucket. The WORM export is itself the tamper-evident off-database copy of the provider audit chain. |
+| Object store | support bundles, WORM audit exports | Replicate the bucket. WORM = write-once-read-many (appendable, never rewritable); that export is itself the tamper-evident off-database copy of the provider audit chain. |
 | Kafka | results/events in transit | No — it's transit, not a system of record. Consumers drain it into the stores above. |
 
 **Backups contain tenant data**, so they are **encrypted at rest by default.**
@@ -23,6 +32,11 @@ The chart's Postgres backup CronJob pipes the dump through
 `probectl-control backup-seal`, so plaintext never touches the backups volume —
 the artifact is a `.dump.pbk` envelope-encrypted container, sealed with the
 deployment's at-rest key (the **same** `PROBECTL_ENVELOPE_KEY` as live storage).
+**Envelope encryption** means the data is encrypted under a one-off data key,
+and that data key is itself wrapped by the deployment's master key (the KEK,
+key-encryption key) — so an attacker holding the artifact but not the KEK
+holds nothing readable, and a restore on a fresh machine needs exactly one
+secret.
 ClickHouse's `BACKUP TO File` runs *inside* the ClickHouse server, so it can't
 be piped through that filter; it is encrypted by the **backups volume** instead
 (the encrypted-volume operator duty in [hardening.md](../hardening.md) §0c, which
@@ -42,8 +56,11 @@ One-shot (any time — e.g. right before an upgrade):
 
 Both scripts run the dump *inside* the running compose container (so you need
 no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to the
-artifact, and copy the artifact **off-box** into the output directory you pass —
-that off-box file is exactly what the restore scripts consume. For a non-dev
+artifact (a **checksum** — a fingerprint that changes if even one byte of the
+artifact does, so corruption is caught before a restore starts), and copy the
+artifact **off-box** into the output directory you pass — that off-box file is
+exactly what the restore scripts consume. Off-box is the point: a backup that
+lives on the same disk as the database shares the database's fate. For a non-dev
 deployment, override the env vars the scripts read: `COMPOSE_FILE` (default
 `deploy/compose/dev.yml`), `PG_SERVICE`/`PGUSER`/`PGDATABASE`, and
 `CH_SERVICE`/`CH_USER`/`CH_PASSWORD`/`CH_DB`.
@@ -64,14 +81,18 @@ ClickHouse server pod's `securityContext.fsGroup: 101` (or pre-chown the PVC)
 instead.
 
 At larger scale, move Postgres to pgBackRest / WAL archiving for point-in-time
-recovery, and ClickHouse to incremental `BACKUP … SETTINGS base_backup = …`. The
+recovery — the **WAL** (write-ahead log) is Postgres's journal of every change,
+so where a nightly dump is a midnight photograph of the house, an archived WAL
+is the diary that lets you replay the day and stop at any minute you choose —
+and move ClickHouse to incremental `BACKUP … SETTINGS base_backup = …`. The
 scripts here are the supported baseline and the contract the drill verifies.
 
 ## Restoring
 
 **Both restore scripts are destructive: they drop and recreate the database.**
-Stop the control plane first — agents store-and-forward (buffer locally) while
-it is down, so no probe results are lost.
+Stop the control plane first — agents **store-and-forward** (buffer results on
+their own disk and replay them once the control plane returns), so no probe
+results are lost while it is down.
 
 ```sh
 # 1. Stop probectl-control. Agents buffer; the UI is down from here.
@@ -104,10 +125,12 @@ on mismatch.
 
 ## RPO / RTO expectations
 
-- **RPO** (how much data you can lose) = the backup cadence — 24 h with the
-  example nightly cron. Tighten the schedule (or add WAL archiving) for less. The
-  WORM audit exports run on their own interval, so they are not lost with the DB.
-- **RTO** (how long a restore takes):
+- **RPO** (recovery point objective — how much data you can lose) = the backup
+  cadence — 24 h with the example nightly cron: a failure just before tonight's
+  backup loses everything since last night's. Tighten the schedule (or add WAL
+  archiving) for less. The WORM audit exports run on their own interval, so
+  they are not lost with the DB.
+- **RTO** (recovery time objective — how long a restore takes):
   - *Small / dev-sized:* minutes — usually single-digit seconds at drill size.
     The CI drill measures the real number on every run and prints
     `backup Ns, restore Ms`.
@@ -129,7 +152,10 @@ make backup-restore-drill
 This seeds nonce-marked rows in **both** stores (137 rows in Postgres, 251 in
 ClickHouse), backs them up, **drops both databases**, restores from the off-box
 artifacts, then asserts every marker row survived — both the count *and* the
-nonce — and prints the measured backup/restore times. It runs against the dev
-compose stack, exits non-zero on any divergence, and runs in CI on every run
-(the `backup-drill` job), so the restore path cannot silently rot. Run it
-against staging after any storage-layer change.
+nonce — and prints the measured backup/restore times. The **nonce** (a one-time
+random marker) is what makes the check honest: a row count alone could pass on
+leftovers from an earlier run, but only *this* run's rows carry this run's
+nonce, so a pass proves the restore really round-tripped today's data. It runs
+against the dev compose stack, exits non-zero on any divergence, and runs in CI
+on every run (the `backup-drill` job), so the restore path cannot silently rot.
+Run it against staging after any storage-layer change.

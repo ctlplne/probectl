@@ -6,9 +6,12 @@ When a probectl deployment misbehaves, you want to hand a diagnostician a single
 file that says what's wrong — without that file leaking any secrets. That's what
 this layer provides:
 
-- a one-command **support bundle** (triage-grade diagnostics, packaged),
+- a one-command **support bundle** (triage-grade diagnostics, packaged — a
+  flight data recorder for the deployment: it captures the instruments, never
+  the passengers' conversations),
 - **deep health checks** (per-component status, plus one "is it healthy?" answer),
-- **self-monitoring** (probectl emits metrics *about itself*).
+- **self-monitoring** (probectl emits metrics *about itself* — the monitoring
+  platform is also a service someone has to operate).
 
 All three are **core** (free, every deployment gets them) — better bug reports
 help everyone. The paid part is the support *organization and SLA* (the
@@ -39,11 +42,14 @@ A `.tar.gz` of JSON files. The code lives in `internal/support/bundle.go`.
 
 Three independent layers, so no single mistake leaks a secret:
 
-1. **Allowlist config, not blocklist.** `config.Redacted()` builds the config
-   snapshot from a fixed list of *known-non-secret* keys. Database URLs have
-   their passwords stripped; the envelope encryption key shows up only as the
-   boolean `envelope_key_configured` (true/false), never the key itself. The
-   safety here is structural: a secret field someone adds *later* can't leak,
+1. **Allowlist config, not blocklist.** An **allowlist** names what may enter —
+   a guest list; a **blocklist** names what may not — a bouncer's memory of past
+   troublemakers, which fails precisely when a *stranger* walks up. Secrets
+   added in next year's release are strangers. So `config.Redacted()` builds the
+   config snapshot from a fixed list of *known-non-secret* keys. Database URLs
+   have their passwords stripped; the envelope encryption key shows up only as
+   the boolean `envelope_key_configured` (true/false), never the key itself. The
+   safety is structural: a secret field someone adds *later* can't leak,
    because it simply isn't on the allowlist.
 2. **Anonymized topology.** The deployment-shape file is counts only — never a
    tenant ID, hostname, IP, or any telemetry.
@@ -67,7 +73,9 @@ Each file is bounded (4 MiB max) and the whole bundle is gzip'd.
 
 `GET /v1/diagnostics` (admin `diagnostics.read`) returns each component's status
 — `ok` / `degraded` / `down` — plus an **aggregate that equals the worst
-component**, so one field tells you whether the deployment is healthy. The
+component**, so one field tells you whether the deployment is healthy. Worst,
+not average, because a deployment is only as healthy as its sickest dependency
+— one amber bulb makes the whole panel amber. The
 checks are wired up in `internal/control/diagnostics.go`:
 
 | Check | Degraded / down when |
@@ -77,9 +85,12 @@ checks are wired up in `internal/control/diagnostics.go`:
 | `cluster` | writes are fenced during a multi-region failover → `degraded` |
 | `license` | expired into the grace period or read-only state → `degraded` |
 
-This is separate from the liveness/readiness probes (`/healthz`, `/readyz`):
-those exist to gate load-balancer traffic and answer a blunt up/down. The deep
-report is richer — it's for a human doing triage and for the support bundle.
+This is separate from the liveness/readiness probes (`/healthz`, `/readyz`) —
+**liveness** asks "is the process alive at all?" and **readiness** asks "should
+the load balancer send it traffic right now?". Those answer a blunt up/down for
+machines making routing decisions. The deep report is richer — it's for a human
+doing **triage** (deciding what is broken and what to look at first) and for
+the support bundle.
 
 ## Self-monitoring (probectl observes probectl)
 
@@ -91,7 +102,7 @@ just a constant). Together with the multi-region `probectl_cluster_*` series and
 the per-tenant fairness `probectl_fairness_*` series, these feed a ready-made
 dashboard:
 
-```
+```text
 deploy/grafana/dashboards/probectl-self.json
 ```
 

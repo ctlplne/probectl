@@ -2,22 +2,28 @@
 
 **What this is.** The feature that answers "is it us, or is the internet broken?"
 When a test starts failing, the operator needs to know whether the fault is inside
-their network or out in some ISP / region they don't control. probectl answers
-that by joining two things it can *honestly* know — and being explicit about the
-limits of both. It lives in `internal/outage`, surfaced at `GET /v1/outages`.
+their network or out in some ISP / region they don't control. It's the
+porch-light check: before blaming your own wiring, you look down the street —
+your own lamps, plus the utility company's outage map. probectl answers the
+question by joining exactly those two things — the only two it can *honestly*
+know — and being explicit about the limits of both. It lives in
+`internal/outage`, surfaced at `GET /v1/outages`.
 
 The two inputs:
 
-1. **Public outage signals** — IODA (Georgia Tech) and the Cloudflare Radar outage
-   annotations. These are fetched **opt-in**, ingested **once** (shared across all
+1. **Public outage signals** — IODA (Georgia Tech's public internet-outage
+   observatory) and the Cloudflare Radar outage annotations: the utility's
+   outage map. These are fetched **opt-in**, ingested **once** (shared across all
    tenants, never tenant-owned data), and cached so a feed failure keeps the
    last-good events instead of going blank.
-2. **Your own vantage points** — the synthetic-result stream your agents already
-   produce. When several *distinct* targets inside one external scope (an ISP's
-   ASN, a country) start failing together, that is a **vantage-detected outage**.
-   When one of your failing tests sits inside the scope of an *active external
-   event*, that is a **correlation** ("your checkout test is failing because
-   AS64500 is melting").
+2. **Your own vantage points** — the places you already observe the internet
+   *from*: the synthetic-result stream your agents produce. When several
+   *distinct* targets inside one external scope (an ISP's ASN — an
+   **autonomous-system number**, the unit of internet routing, roughly "one
+   ISP or one large network" — or a country) start failing together, that is a
+   **vantage-detected outage**. When one of your failing tests sits inside the
+   scope of an *active external event*, that is a **correlation** ("your
+   checkout test is failing because AS64500 is melting").
 
 The honesty contract — the thing that keeps this feature truthful:
 
@@ -57,9 +63,12 @@ awareness*, not a pager. (All values live in `engine.go`.)
 - **Vantage detection** (per tenant, per scope, 15-minute window): fires when
   **≥2 distinct** targets in the scope are failing (each ≥50% failure rate over
   ≥2 samples) *and* those failing targets are ≥50% of the scope's observed
-  targets. The episode is latched (it won't re-fire while live), clears on
-  recovery (failing ratio drops below 25%), and then re-arms. One target failing
-  alone is **never** an outage — that case is what ordinary alerting is for.
+  targets. The episode is **latched** — it fires once and holds, instead of
+  re-firing every evaluation window — clears on recovery (failing ratio drops
+  below 25%), and then re-arms. Note the clear bar (25%) sits well below the
+  fire bar (50%) on purpose: a scope hovering at the threshold would otherwise
+  flap on/off with every sample. One target failing alone is **never** an
+  outage — that case is what ordinary alerting is for.
 - **Correlation**: a failing result whose peer IP resolves into the scope of an
   active external event raises `outage.external_correlated` — once per
   `(tenant, event)`, carrying the affected test as evidence.
@@ -79,8 +88,9 @@ response says plainly that vantage detection and correlation are off.
 outbound fetches, so the no-phone-home default holds. Fetches use a hardened,
 certificate-validating TLS client; fetched bodies are untrusted input with size
 caps; and a down or rate-limited feed keeps its last-good events rather than
-breaking the view. Per-feed AUP / provenance is tracked and served, which matters
-for MSP resale:
+breaking the view — degraded means stale-and-labeled, never blank. Per-feed
+**AUP** (acceptable-use policy — the terms a data source attaches to reusing its
+data) and provenance are tracked and served, which matters for MSP resale:
 
 | Feed | License / terms | Commercial use |
 |---|---|---|
