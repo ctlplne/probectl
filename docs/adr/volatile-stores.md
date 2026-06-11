@@ -7,29 +7,35 @@
   unchanged.
 - **Context:** a review noted that topology, threat detections, and alert
   firing state live in process memory and are lost when the control plane
-  restarts. This ADR decides whether that is a bug to fix or a property to
-  accept.
+  restarts. This ADR — an architecture decision record, a dated note capturing
+  a decision and its why, kept even after the code moves on — decides whether
+  that is a bug to fix or a property to accept.
 
 ## The plain version
 
-Some of probectl's state lives only in RAM inside the control plane. When the
-process restarts, that RAM is gone. The question is: do we add a database to
-persist it, or is losing it actually fine?
+A **volatile** store lives in process RAM and vanishes when the process exits;
+a **durable** one is written to disk or a database and survives. Some of
+probectl's state is volatile: it lives only in RAM inside the control plane,
+and when the process restarts, that RAM is gone. The question is: do we add a
+database to persist it, or is losing it actually fine?
 
 The answer for three of these stores is: **it's fine, because they are
 *derived* — they are a cache of something durable, not the original copy.**
 Think of them like a search index over your email: if the index is wiped, you
 don't lose any email; the index just rebuilds itself by re-reading the mailbox.
 Same here. So we **formally adopt rebuild-on-restart** for them rather than
-adding persistence — and we prove the cold-start behavior with tests. One
-genuinely non-derivable piece of state (alert silences/acks) is the exception:
-it was called out as a tracked gap rather than silently dropped, and has since
-been fixed with a small persisted table (see the exception section).
+adding persistence — and we prove the **cold-start** behavior (what each store
+looks like in the first moments after a restart, before anything has been
+re-derived) with tests. One genuinely non-derivable piece of state (alert
+silences/acks) is the exception: it was called out as a tracked gap rather
+than silently dropped, and has since been fixed with a small persisted table
+(see the exception section).
 
 ## Decision
 
 Three in-process stores are **derived views of a durable source**, not systems
-of record:
+of record (the system of record is the authoritative copy you would restore
+from — these are never that):
 
 | Store | What it holds | Durable source it re-derives from | Restart behavior |
 |---|---|---|---|
@@ -41,8 +47,10 @@ of record:
 
 These are **caches of a stream**, not the system of record. The authoritative
 data already lives durably: flows and paths in ClickHouse, metric series in the
-TSDB, the detections' forensic copy in incidents plus the SIEM export, and the
-audit trail in its tamper-evident chain.
+TSDB (the time-series database), the detections' forensic copy in incidents
+plus the SIEM export (security information and event management — the
+organization's central security-event collector), and the audit trail in its
+tamper-evident chain.
 
 Persisting a *second* copy of a derived view would buy us nothing and cost
 three things:
@@ -62,22 +70,26 @@ re-derived from that tenant's own inputs.
 
 ## The exception: alert silences and acknowledgements
 
-Silences and acks are **operator inputs**, not derivable from any stream.
-Re-deriving firing state can reconstruct *what is firing*, but it cannot
-reconstruct "operator X silenced this alert until 3pm" — that fact existed only
-because a human typed it. When this ADR was accepted, silences/acks were
-in-process and **lost on restart** — deliberately failing in the safe
-direction, **louder, not quieter**: a restart could never *hide* a firing
-alert; the worst case was a human re-applying a silence.
+A **silence** mutes an alert's notifications until a chosen time; an **ack**
+(acknowledgement) marks who has taken ownership of it. Both are **operator
+inputs**, not derivable from any stream. Re-deriving firing state can
+reconstruct *what is firing*, but it cannot reconstruct "operator X silenced
+this alert until 3pm" — that fact existed only because a human typed it. When
+this ADR was accepted, silences/acks were in-process and **lost on restart** —
+deliberately failing in the safe direction, **louder, not quieter**: a restart
+could never *hide* a firing alert; the worst case was a human re-applying a
+silence.
 
 That tracked follow-up has since landed. Silences and acks now ride a small
-tenant-scoped Postgres table (`alert_ops`, RLS-confined) the same way alert
-*rules* already do: written when the operator acts, reloaded at boot,
-re-applied when their series fires again, and deleted when the episode
-resolves — so restart-restored state never outlives the episode semantics the
-in-memory engine always had. The fail-louder ordering is preserved: if the
-reload itself fails, alerting continues without the saved silences (logged
-loudly) rather than blocking on the table.
+tenant-scoped Postgres table (`alert_ops`, migration `0043_alert_ops.sql`,
+RLS-confined — row-level security, where the database itself filters every
+query to the calling tenant's rows) the same way alert *rules* already do:
+written when the operator acts, reloaded at boot, re-applied when their series
+fires again, and deleted when the episode resolves — so restart-restored state
+never outlives the episode semantics the in-memory engine always had. The
+fail-louder ordering is preserved: if the reload itself fails, alerting
+continues without the saved silences (logged loudly) rather than blocking on
+the table.
 
 ## Consequences
 

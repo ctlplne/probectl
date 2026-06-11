@@ -3,24 +3,30 @@
 **Status:** Accepted (2026-06-07). The token-mint surface is both the admin
 API and the operator CLI.
 
-> This is the **decision record** — what we decided and why. The operator
-> how-to (mint a token, enroll an agent, rotate, revoke) lives in
-> `docs/agent/enrollment.md`. If you want to *run* enrollment, read that; if
-> you want to know *why it works this way*, read this.
+> This is the **decision record**. An ADR — architecture decision record — is
+> a dated note capturing a decision and its why, kept even after the code
+> moves on: it records what was decided *then*, and gains status addenda when
+> anything changes *since*. The operator how-to (mint a token, enroll an
+> agent, rotate, revoke) lives in `docs/agent/enrollment.md`. If you want to
+> *run* enrollment, read that; if you want to know *why it works this way*,
+> read this.
 
 ## The plain version
 
 An agent only gets to talk to the control plane if it presents a valid mTLS
-client certificate whose SPIFFE identity names a tenant and an agent. The
-server reads the tenant/agent from that *verified* certificate — never from the
-request body — so a result can never lie about which tenant it belongs to.
+client certificate — mutual TLS, where both ends of the connection prove
+themselves with certificates — whose SPIFFE identity (a standard URI scheme
+for naming workloads) names a tenant and an agent. The server reads the
+tenant/agent from that *verified* certificate — never from the request body —
+so a result can never lie about which tenant it belongs to.
 
 There was a hole: the code *verifies* those certificates, but nothing in the
 repo *issued* them. The trust root was an operator running `gen-cert` by hand
 and copying files around. So the single strongest isolation mechanism in the
 product rested on an undocumented manual step. This ADR closes that hole: a
-repo-managed certificate authority issues short-lived agent identities,
-bootstrapped by a one-time join token.
+repo-managed certificate authority (a **CA** — the signer whose signature
+makes a certificate trusted) issues short-lived agent identities (**SVIDs**,
+SPIFFE Verifiable Identity Documents), bootstrapped by a one-time join token.
 
 ## What already existed (this ADR builds on, not around)
 
@@ -42,22 +48,30 @@ bootstrapped by a one-time join token.
 An operator — through the `agent.write`-gated, audited admin API or the
 database-direct CLI — mints an **enrollment token** scoped to a tenant (and
 optionally pinned to a fixed agent id): 32 random bytes via `internal/crypto`,
-shown once, **stored only as a hash** — the same pattern as session tokens.
+shown once, **stored only as a hash** — the same pattern as session tokens,
+so the database can confirm a presented token but can never reproduce one.
 The agent presents it exactly once; the row is consumed atomically
 (`UPDATE ... WHERE used_at IS NULL`, so a replay finds no row and is refused).
 Tokens expire (default 1h), and the storage supports voiding an unused token
 before use (no operator command is wired to that yet — the short expiry is the
 working bound).
 
-*Why not cloud-IID/OIDC attestation now:* probectl's primary deployments are
-sovereign/air-gapped, where there is no cloud identity document to attest
-against — a join token works everywhere. The enrollment endpoint is left as a
-seam: an `attestor` field on the request leaves room for `aws-iid` / `gcp` /
-`oidc` attestors later without changing the *shape* of the issued identity.
-(Today only `join-token`, or empty, is accepted; `internal/enroll/enroll.go`
-rejects anything else.)
+*Why not cloud-IID/OIDC attestation now:* **attestation** here means proving
+facts about the machine an agent runs on — e.g. presenting a cloud-signed
+instance-identity document — instead of presenting a shared secret. probectl's
+primary deployments are sovereign/air-gapped, where there is no cloud identity
+document to attest against — a join token works everywhere. The enrollment
+endpoint is left as a seam: an `attestor` field on the request leaves room for
+`aws-iid` / `gcp` / `oidc` attestors later without changing the *shape* of the
+issued identity. (Today only `join-token`, or empty, is accepted;
+`internal/enroll/enroll.go` rejects anything else.)
 
 ## Decision 2 — CA hierarchy: repo-managed root → intermediate → leaf
+
+The shape is a passport system: master printing plates in a vault (the root),
+a passport office that prints daily (the intermediate), and passports that
+expire in a day (the leaves) — losing the office never forces re-cutting the
+plates.
 
 - **Agent root CA** (10y, P-256): generated once by
   `probectl-control agent-ca init`; signs ONLY intermediates (`MaxPathLen=1`).
@@ -66,9 +80,13 @@ rejects anything else.)
 - **Issuing intermediate** (1y default): held by the control plane and
   **sealed at rest through `internal/tenantcrypto`** (the deployment envelope /
   BYOK — the same posture as every other secret). Signs leaves only.
-- **Leaf SVIDs** (default TTL **24h**): issued from a **CSR**, so the private
-  key is generated on the agent and never leaves it. The leaf carries the
-  SPIFFE URI SAN binding `tenant + agent`, with client-auth EKU only.
+- **Leaf SVIDs** (default TTL — time-to-live — **24h**): issued from a **CSR** — a certificate
+  signing request, which carries only the public key, so the private key is
+  generated on the agent and never leaves it. The leaf carries the SPIFFE URI
+  SAN (subject alternative name — the certificate field holding the identity)
+  binding `tenant + agent`, with client-auth EKU only (extended key usage —
+  the field restricting what a certificate may be used *for*; client-auth-only
+  means an SVID can never pose as a server).
 - The CA **bundle** (root + intermediate) is what transports trust: agents get
   it at enrollment and on every rotation, so an intermediate roll-over is
   picked up automatically on the next rotation.
@@ -89,14 +107,15 @@ expiry) in the registry → returns the leaf plus the CA bundle. The agent is no
 registered, so ingest verification immediately vouches for it.
 
 **Rotate (identified, HTTPS):** before expiry (at roughly 2/3 of TTL) the
-agent calls `POST /enroll/agent/rotate` on the same HTTPS bootstrap surface,
-carrying its CURRENT leaf in the request. Authentication is cryptographic
-rather than channel-level: the presented cert must chain to *our* hierarchy
-and be time-valid, its serial must be one we recorded at issuance, and the
-request must prove possession of the current key (an ECDSA signature over the
-new CSR). The server checks the revocation list, then issues a fresh leaf for
-the PROVEN identity — the SAN is set server-side and CSR-requested names are
-ignored, so identity can never change on rotation — and records it.
+agent calls `POST /enroll/agent/rotate` on the same HTTPS bootstrap surface —
+not the mTLS data channel — carrying its CURRENT leaf in the request.
+Authentication is cryptographic rather than channel-level: the presented cert
+must chain to *our* hierarchy and be time-valid, its serial must be one we
+recorded at issuance, and the request must prove possession of the current key
+(an ECDSA signature over the new CSR — producible only by the key's holder).
+The server checks the revocation list, then issues a fresh leaf for the PROVEN
+identity — the SAN is set server-side and CSR-requested names are ignored, so
+identity can never change on rotation — and records it.
 `ClientMTLSConfigRotating` hot-swaps the files and connections re-handshake
 naturally.
 
@@ -109,6 +128,9 @@ contact in self-signed / quickstart deployments — trust-on-first-use is
 refused when a pin is provided and mismatched.
 
 ## Threat-model delta (what changes, honestly)
+
+Each row is a concrete attack; before/after is the honest delta — several
+threats are *bounded* by this design, not eliminated.
 
 | Threat | Before | After |
 |---|---|---|
@@ -132,5 +154,6 @@ refused when a pin is provided and mismatched.
 ## Out of scope (deliberate)
 
 External CA integration (the `trustctl` seam is documented above), cloud
-attestors, CRL/OCSP distribution (the in-process revocation list is the
+attestors, CRL/OCSP distribution (the standard protocols for publishing
+revocations to third parties — here the in-process revocation list is the
 mechanism), and per-probe identities.

@@ -8,23 +8,37 @@ every wave, and any failure **halting the train**. The goal is that a bad
 version reaches a small canary first and stops there, instead of taking out
 the whole fleet at once.
 
+Terms, quickly. A **wave** is one slice of the fleet upgraded together. A
+**canary** — named for the coal-mine bird — is the deliberately small first
+wave that meets trouble while trouble is still small. A **digest pin** means
+deploying by content hash (`@sha256:…`) instead of by tag: a tag is a movable
+label that can be repointed at different bytes, while a digest names exactly
+one artifact, forever. The **agent registry** is the control plane's
+per-tenant record of agents, their versions, and their last **heartbeat** (the
+periodic "still alive" check-in). **Skew** is the version distance between the
+control plane and an agent. The shape of the whole process is a railway
+timetable: each wave is a train that departs alone, the next never leaves
+until every car of the previous one is confirmed arrived, and one missing car
+stops the entire schedule until a human signs the incident book.
+
 ## The model — and what is deliberately absent
 
 **There is no agent self-update channel.** An agent never fetches or executes new
 code on its own. Update authority stays with the operator's orchestrator (Helm /
 `install.sh` / your config management), exactly like any other workload — a
-self-update channel would be a fleet-wide remote-code-execution primitive, which
-is precisely what this design refuses. The control plane's job is to **plan**
-waves from the agent registry and **verify** each wave back out of it — never to
-push bits.
+self-update channel would be a fleet-wide remote-code-execution primitive (one
+lever that runs attacker-chosen code on every host), which is precisely what
+this design refuses. The control plane's job is to **plan** waves from the
+agent registry and **verify** each wave back out of it — never to push bits.
 
 The engine is `internal/agent/rollout.go` — a pure, fully-tested state machine
 (plan → advance → verify → resume) that operator tooling drives; the agent
 registry is both its only input and its only evidence. It builds
 **deterministic waves** from the lifecycle cohorts — canary (~5% of the fleet)
 → early (~20%) → main (the rest) — fixed at plan time by a stable hash of each
-agent's id, with agents already on the target version excluded. Planning
-**fails closed** on three things:
+agent's id (the same id always lands in the same cohort, so membership can
+never flap mid-rollout), with agents already on the target version excluded.
+Planning **fails closed** on three things:
 
 - an artifact with no recorded signature verification (you must verify it first);
 - a target version outside the supported N/N-1 version-skew window against the
@@ -48,17 +62,22 @@ by this repository's release workflow before you plan anything. The two
 artifact kinds verify differently:
 
 - **Container images** are published with **SLSA provenance + SBOM
-  attestations** (not detached cosign signatures). Inspect the provenance and
-  take the exact digest you will deploy:
+  attestations** (not detached cosign signatures). Provenance is a signed
+  build receipt naming the workflow and commit that produced the image; an
+  SBOM — software bill of materials — is its ingredient list; an attestation
+  is such a statement signed and attached to the image. Inspect the provenance
+  and take the exact digest you will deploy:
 
   ```sh
   docker buildx imagetools inspect ghcr.io/imfeelingtheagi/probectl-ebpf-agent:<version>
   ```
 
-- **VM binaries** are **cosign-keyless signed**; run the `cosign verify-blob`
-  checks from [verify-artifacts.md](verify-artifacts.md) against the binary
-  and the signed `checksums.txt` — the identity pin proves the signature
-  chains to this repository's release workflow running on a release tag.
+- **VM binaries** are **cosign-keyless signed** — signed via a short-lived
+  certificate tied to the release workflow's identity, so there is no
+  long-lived signing key to steal. Run the `cosign verify-blob` checks from
+  [verify-artifacts.md](verify-artifacts.md) against the binary and the signed
+  `checksums.txt` — the identity pin proves the signature chains to this
+  repository's release workflow running on a release tag.
 
 The plan requires the exact **digest**, the verification **method**, and **who
 verified** it — an unattested artifact refuses to plan.
@@ -72,7 +91,8 @@ membership — the exact agent ids in each wave — is the orchestrator's workli
 ### 2. Advance one wave
 
 `Advance` releases exactly **one** wave (never two, never out of order) and
-starts its verify window (default 15 m). Apply that wave with your orchestrator,
+starts its verify window (default 15 m) — the train departs, and the clock for
+confirming its arrival starts. Apply that wave with your orchestrator,
 **by digest**:
 
 - **Kubernetes** (the agent chart): `helm upgrade probectl-agent
@@ -85,8 +105,10 @@ starts its verify window (default 15 m). Apply that wave with your orchestrator,
 ### 3. Verify from the registry — the agents are the evidence
 
 Every wave member must re-register on the **target version** with a **fresh
-heartbeat** (seen within the last 5 m). All good → the wave completes and you can
-advance the next one. Stragglers still inside the window: keep waiting, re-verify.
+heartbeat** (seen within the last 5 m). The orchestrator's "applied
+successfully" is *not* proof — only the agent itself reporting back, alive and
+on the new version, counts. All good → the wave completes and you can advance
+the next one. Stragglers still inside the window: keep waiting, re-verify.
 
 ### 4. Halt-on-error
 

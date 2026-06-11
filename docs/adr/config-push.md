@@ -2,22 +2,27 @@
 
 **Status:** accepted (2026-06)
 
-**Context:** `StreamConfig` was a *documented stub* — the docs implied a
-config-push capability that the code does not actually have. This ADR records
-the decision to keep it that way, and why.
+**Context:** `StreamConfig` was a *documented stub* — a stub is a declared
+call with no real behavior behind it, and the docs implied a config-push
+capability that the code does not actually have. This ADR — an architecture
+decision record, a dated note capturing a decision and its why, kept even
+after the code moves on — records the decision to keep it that way, and why.
 
 ## The plain version
 
-An agent could, in principle, ask the control plane "what should I be doing?"
-and have the server stream down a new configuration — new probe targets, new
-schedules. probectl deliberately does **not** do this. Agents read their
-configuration from local YAML/env on their own host, full stop. This ADR is
-the decision to leave that door closed and to make the codebase say so
-honestly instead of hinting at a feature that isn't there.
+There are two ways an agent can learn its configuration. **Pull/local**: the
+agent reads a file on its own host. **Push**: the agent asks the control
+plane "what should I be doing?" and the server streams down a new
+configuration — new probe targets, new schedules. probectl deliberately does
+**not** do push. Agents read their configuration from local YAML/env on their
+own host, full stop. This ADR is the decision to leave that door closed and to
+make the codebase say so honestly instead of hinting at a feature that isn't
+there.
 
 ## Decision
 
-**De-document, don't implement.** The `StreamConfig` RPC stays in
+**De-document, don't implement.** The `StreamConfig` RPC (remote procedure
+call — a function one machine exposes for another to invoke) stays in
 `probectl.agent.v1.AgentService` (`proto/probectl/agent/v1/agent.proto`) as an
 explicitly-labeled unimplemented stub, and every place that once described it
 as a capability now describes it as a stub. Agents load configuration from
@@ -25,14 +30,17 @@ local YAML/env only.
 
 ## Why not implement push now
 
-Intuition first: **a remote config channel is a remote control channel.** If
-the control plane can tell an agent "probe this target on that schedule," then
-anyone who can *impersonate* the control plane can repoint probes, silence
-packet capture, or change targets across the whole fleet at once. probectl's
-agent security story leans on the *absence* of exactly that surface — there is
-no agent self-update and no server-driven behavior change beyond the scheduled
-probes the agent already runs locally (see the "no self-update channel"
-section of `docs/security/agent-whitepaper.md`).
+Intuition first: **a remote config channel is a remote control channel** — a
+universal remote for every screen in the building. Whoever holds it, or
+counterfeits it, changes every screen at once; the only remote that cannot be
+stolen is the one that was never manufactured. If the control plane can tell
+an agent "probe this target on that schedule," then anyone who can
+*impersonate* the control plane can repoint probes, silence packet capture, or
+change targets across the whole fleet at once. probectl's agent security story
+leans on the *absence* of exactly that surface — there is no agent self-update
+and no server-driven behavior change beyond the scheduled probes the agent
+already runs locally (see the "no self-update channel" section of
+`docs/security/agent-whitepaper.md`).
 
 The depth: the system-wide threat model (`docs/security/threat-model.md`)
 names the control plane's blast radius as the top asset to protect. A careless
@@ -42,7 +50,8 @@ plane fleet-wide reach. Config push is therefore only acceptable as a
 
 - payloads signed by an offline key the control plane does **not** hold (so a
   compromised control plane cannot forge a config);
-- epoch-monotonic (an old config can't be replayed over a newer one);
+- epoch-monotonic — each config carries a counter that only increases, so an
+  old config can't be replayed over a newer one;
 - agent-side verification *before* apply (the agent refuses anything it can't
   verify — fail closed);
 - fully audited.
@@ -61,8 +70,11 @@ not a side effect of closing a documentation gap.
   deny.
 
 The RPC itself is kept because removing it from the schema is a buf-breaking
-change and the stub costs nothing. `Heartbeat.config_stale` likewise remains a
-no-op field until a signed design lands.
+change (buf is the schema linter for Protobuf, the binary message format
+agents and the control plane share; "breaking" means already-deployed agents
+would no longer match the wire contract) and the stub costs nothing.
+`Heartbeat.config_stale` likewise remains a no-op field until a signed design
+lands.
 
 ## Hardening: enforce, don't merely document
 
@@ -72,9 +84,10 @@ triage verdict: the concern was overstated (the agent has no config-apply path
 at all), but holding a stream open for a non-capability was pointless surface.
 
 The decision above stands unchanged. Within it, the server now answers
-`StreamConfig` with an immediate, explicit `codes.Unimplemented` citing this
-ADR (`internal/agenttransport/service.go`): **no frame is ever sent, no stream
-is ever held open.** Two tests lock this in:
+`StreamConfig` with an immediate, explicit `codes.Unimplemented` — the gRPC
+status that tells a caller "this method exists in the schema but has no server
+behavior" — citing this ADR (`internal/agenttransport/service.go`): **no frame
+is ever sent, no stream is ever held open.** Two tests lock this in:
 
 - `TestStreamConfigExplicitDeny` — fails the build if a frame ever sneaks back
   onto the wire.
