@@ -18,10 +18,15 @@ never trips anything.
 
 ## The three mechanisms
 
-**Ingest rate bounds.** A token bucket per `(tenant, meter)` wraps the result
-and flow consumers. The admission check happens **before** the expensive work
+**Ingest rate bounds.** A **token bucket** per `(tenant, meter)` wraps the
+result and flow consumers. A token bucket is a bucket sitting under a steadily
+dripping tap: the drip is the permitted rate, the bucket's size is the burst
+allowance, every admitted unit scoops a token out, and an empty bucket means the
+unit is **shed** — turned away at the door, before any money is spent on it.
+The admission check happens **before** the expensive work
 (decode → enrich → write to the store), so an over-rate tenant's burst is shed
-in O(1) and never stalls the shared pipeline — the cost of saying "no" is tiny.
+in O(1) — constant time, however large the burst — and never stalls the shared
+pipeline: the cost of saying "no" is tiny.
 Because the gate wraps the *consumer* (not the bus), it behaves identically
 whether the bus is Kafka or one of the lightweight modes. The meter names match
 the metering vocabulary — `results_ingested`, `flow_events`, `ingest_bytes` —
@@ -37,14 +42,15 @@ it may run **per minute** (a budget). This extends the deployment-wide row and
 timeout guards with a per-*tenant* dimension. The guarded surfaces are
 `/v1/ai/ask`, the Grafana-compatible PromQL proxy (`query` / `query_range`), and
 the MCP events tool. A rejection is **`429 rate_limited` with a `Retry-After`
-header** — an over-budget tenant gets a clear, immediate signal instead of a
+header** — HTTP's "too many requests" answer, with a header naming when to try
+again — so an over-budget tenant gets a clear, immediate signal instead of a
 slow platform for everyone.
 
 **Accounting.** Per-tenant admitted / shed / rejected counters surface in three
 places: `GET /v1/fairness` (the tenant's own view — debugging a fairness dispute
 never requires the provider's word), the provider console's Fairness card (a
-commercial surface), and as TSDB series (Grafana-federable; written every 30
-seconds).
+commercial surface), and as TSDB series (TSDB — time-series database;
+Grafana-federable, written every 30 seconds).
 
 ## The policy model
 
@@ -143,9 +149,12 @@ Three rules govern what a value means:
 
 ## Relationship to neighbors
 
-- **Quotas** gate resource *creation* (agents, tests) and **never** drop
-  telemetry; fairness bounds *rates* on the shared pipeline. They share the meter
-  vocabulary. See [`docs/metering.md`](metering.md).
+- **Metering and quotas** answer a different question than fairness does:
+  metering counts what a tenant *used* (billing), quotas gate resource
+  *creation* (agents, tests) and **never** drop telemetry; fairness bounds
+  *rates* on the shared pipeline (protection). They share the meter vocabulary,
+  so a billed unit and a bounded unit are the same unit. See
+  [`docs/metering.md`](metering.md).
 - **Siloed mode** is the *hard*-isolation answer (separate schemas/databases per
   tenant); fairness is what keeps *pooled* mode safe. See
   [`docs/isolation.md`](isolation.md).

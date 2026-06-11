@@ -11,11 +11,18 @@ feature lets it take one more step: **propose** a remediation grounded in that
 analysis — and then **stop**.
 
 The single most important sentence in this document: **probectl never executes a
-remediation.** A human reviews each proposal and, if approvals are enabled, records
-an **approval** — a signed, audited sign-off that an operator then carries out in
-their *own* change process. There is **no executor anywhere in the codebase**.
-Approving a proposal changes a database row and writes an audit entry; it never
-reroutes traffic, mutates a device, or touches the network.
+remediation** (a remediation being a corrective network change — a reroute, a
+traffic shift, a renewal). A human reviews each proposal and, if approvals are
+enabled, records an **approval** — a signed, audited sign-off that an operator
+then carries out in their *own* change process. There is **no executor anywhere
+in the codebase**. Approving a proposal changes a database row and writes an
+audit entry; it never reroutes traffic, mutates a device, or touches the network.
+
+The whole feature has the shape of a building-permit office: the assistant
+drafts the permit application, complete with an impact study (the dry-run); an
+inspector with the right stamp may approve or refuse it; and the construction
+crew — your own change process — works entirely outside this building.
+Approving a permit never swings a hammer.
 
 This is the highest-care feature in the product. It is built to the letter of
 probectl's remediation rule — *observe-only / human-gated by default; never ship
@@ -40,13 +47,18 @@ code — changing them is a product decision, not an engineering one.
    `Apply`/`Execute`/`Run`/`Perform`/`Act`/`Remediate`/`Dispatch`/`Enact`
    method. A fourth state,
    `applied`, exists only as an **operator's note** that they carried the
-   suggestion out elsewhere; it changes nothing in probectl.
+   suggestion out elsewhere; it changes nothing in probectl, and no probectl
+   workflow transitions into it today — the state exists in the model and
+   schema for that record.
 
 2. **Ingested data can never trigger or approve an action.** The AI's
-   `propose_remediation` MCP tool can only ever create a `proposed` proposal. The
+   `propose_remediation` MCP tool (MCP — the Model Context Protocol, the
+   standard by which external AI clients call probectl tools) can only ever
+   create a `proposed` proposal. The
    *only* path to `approved` is the authenticated `POST
    /v1/remediation/proposals/{id}/approve` route, which requires a human holding
    the `remediation.approve` permission. A prompt-injection buried in telemetry
+   (malicious instructions hidden inside data the AI reads)
    can, at worst, cause a proposal to appear in the review queue — never an
    approval, and never an action.
 
@@ -62,7 +74,9 @@ code — changing them is a product decision, not an engineering one.
 
 5. **Blast-radius limited.** Every proposal carries a **dry-run** — a read-only
    topology what-if that sizes how many services, prefixes, and hosts the change
-   would affect. A proposal whose blast radius exceeds
+   would affect. That count is the **blast radius**: how many things the change
+   could plausibly take down, the way you'd count which rooms go dark before
+   flipping a breaker. A proposal whose blast radius exceeds
    `PROBECTL_REMEDIATION_MAX_BLAST_RADIUS` (default `50`) **cannot be approved**.
    An *unknown* blast radius (topology unavailable) is also blocked — **fail
    closed**. Blocked approval attempts are themselves audited.

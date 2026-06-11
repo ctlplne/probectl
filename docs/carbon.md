@@ -2,10 +2,14 @@
 
 ## What this is
 
-The sustainability (ESG) view of network traffic: an **estimate** of how much
-electricity (kWh) and carbon (gCO2e) the network spends moving your bytes,
-broken down by traffic class, service, and team. It is the same idea as
-Kepler — attributing energy to workloads — applied to the network plane, and it
+The sustainability view of network traffic, for **ESG** reporting
+(environmental, social, governance — the corporate-disclosure framework that
+asks "what is your footprint?"): an **estimate** of how much electricity
+(**kWh** — kilowatt-hours, the unit on your power bill) and carbon (**gCO2e** —
+grams of CO₂-equivalent, the standard unit that folds every greenhouse gas into
+one number) the network spends moving your bytes, broken down by traffic class,
+service, and team. It is the same idea as Kepler — the Kubernetes project that
+attributes datacenter energy to workloads — applied to the network plane, and it
 is computed entirely from telemetry probectl already has.
 
 It lives in the control plane (`internal/carbon`) and reuses the FinOps engine's
@@ -20,13 +24,14 @@ nothing leaves your network.
 
 Two multiplications:
 
-```
+```text
 kWh   = (bytes / GiB) × kWh-per-GB(traffic class)
 gCO2e = kWh × grid intensity (gCO2e/kWh)
 ```
 
-- **Energy coefficients** — fixed-network transmission energy, from the
-  published literature (the Aslan et al. 2017 band and its successors). probectl
+- **Energy coefficients** — a coefficient here is a fixed kWh-per-GB
+  multiplier for fixed-network transmission energy, taken from the published
+  literature (the Aslan et al. 2017 band and its successors). probectl
   scales the coefficient by path locality, because traffic crossing more network
   hops costs more energy to move. The defaults span roughly 0.004 to 0.06
   kWh/GB:
@@ -48,13 +53,17 @@ gCO2e = kWh × grid intensity (gCO2e/kWh)
   (`PROBECTL_COST_ZONES` / `PROBECTL_COST_SERVICES`), so dollars and grams line
   up on the same services and teams.
 
-**The honesty contract is structural, not a footnote.** Every response carries a
-methodology block: `measured: false`, the coefficient source, the grid intensity
-used, and a note stating plainly that these are coefficient-based **estimates of
-transmission energy**, not measured device power. They are good for relative
-attribution ("service A moves ~3× the carbon of service B"), trends over time,
-and ESG reporting that *cites its methodology* — they are not audited absolute
-footprints, and the engine never pretends otherwise.
+**The honesty contract is structural, not a footnote.** The estimate has the
+same shape as planning a road trip's fuel burn from distance × the
+manufacturer's litres-per-100km figure: excellent for comparing routes, drivers,
+and months — and never a substitute for the receipt at the pump. Every response
+therefore carries a methodology block: `measured: false`, the coefficient
+source, the grid intensity used, and a note stating plainly that these are
+coefficient-based **estimates of transmission energy**, not measured device
+power. They are good for relative attribution ("service A moves ~3× the carbon
+of service B"), trends over time, and ESG reporting that *cites its
+methodology* — they are not audited absolute footprints, and the engine never
+pretends otherwise.
 
 ## Serving
 

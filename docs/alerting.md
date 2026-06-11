@@ -3,9 +3,15 @@
 **What this is.** The part of probectl that watches metrics and tells a human when
 something is wrong. It has two halves that together form one truth:
 
-- **Alert rules** — durable config in Postgres. A rule is a threshold or baseline
-  condition over any time-series (TSDB) metric, with debounce (`for_n`), a
-  renotify cadence, a severity, and delivery channels (HMAC-signed webhook or
+- **Alert rules** — durable config in Postgres. A rule is a **threshold**
+  condition (value crosses a fixed line) or a **baseline** condition (value
+  deviates from its own learned normal) over any metric in the TSDB (the
+  time-series database), with **debounce** (`for_n` — the condition must hold
+  for N consecutive evaluations before firing, so one noisy sample can't page
+  anyone), a **renotify cadence** (how often a still-firing alert may repeat its
+  notification), a severity, and delivery channels (HMAC-signed webhook — a
+  webhook is an HTTP POST to a URL you choose; the HMAC is a signature computed
+  over the body with a shared secret so the receiver can verify the sender — or
   email). Full CRUD at `/v1/alerts` (RBAC `alert.read` / `alert.write`).
 - **Active alerts** — the engine's live truth: what is firing *right now*. The
   evaluator engine (`internal/alert`) is the single source of truth. The API and
@@ -41,7 +47,8 @@ flowchart LR
 
 The evaluator ticks every `PROBECTL_ALERT_EVAL_INTERVAL` (default `30s`),
 re-reading the tenant's enabled rules through the row-level-security choke
-point on each pass. Two scope limits worth knowing, both surfaced honestly as
+point (RLS — the database itself filters every query to one tenant's rows) on
+each pass. Two scope limits worth knowing, both surfaced honestly as
 `evaluator_running: false` rather than hidden: the default deployment wires the
 evaluator for the default tenant (per-tenant fan-out across many tenants is a
 noted follow-up), and the evaluator needs an in-process TSDB to query — in
@@ -66,6 +73,12 @@ identity, which is the handle for actions. Both actions are:
 - they return the engine's *updated* view, so the UI re-renders from engine truth.
 
 ## Semantics (the operator contract)
+
+Silence and acknowledge are the two things an operator can do to a firing
+alert, and they are deliberately different: **silence is the smoke alarm's hush
+button** — the detector keeps detecting and the light stays on, it just stops
+sounding for a while; **acknowledge is signing the station logbook** — it says
+"this one is mine" and changes nothing about the alarm itself.
 
 - **Silence** suppresses channel notifications *and* the incident sink for one
   series until the deadline. Mechanically, a silenced series short-circuits the

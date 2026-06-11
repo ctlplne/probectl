@@ -5,11 +5,17 @@
 probectl is built to **slot into the observability stack you already run**, not
 to demand you rip it out and start over. Three integrations make that real:
 
-- **Grafana** queries probectl directly, as if probectl were a Prometheus.
-- **Prometheus** either scrapes metrics out of probectl (federation) or pushes
-  metrics into it (remote-write).
+- **Grafana** (the open-source dashboarding tool) queries probectl directly, as
+  if probectl were a Prometheus.
+- **Prometheus** (the de-facto open-source metrics database, which collects by
+  *scraping* — periodically fetching metrics over HTTP) either scrapes metrics
+  out of probectl (**federation** — one metrics system serving selected series
+  for another to scrape) or pushes metrics into it (**remote-write** —
+  Prometheus's standard push protocol).
 - **ServiceNow CMDB** correlation links probectl incidents and assets to your
-  existing configuration items (CIs).
+  existing configuration items (a **CMDB** is a configuration management
+  database — the organization's asset inventory; a **CI**, configuration item,
+  is one tracked asset in it).
 
 The metrics surfaces live in `internal/promapi`; the ServiceNow client lives in
 `internal/cmdb`; both are wired into the control plane in `internal/control`.
@@ -28,17 +34,21 @@ flowchart LR
 
 The dangerous part of exposing a metrics query API is that a query language is
 powerful enough to ask for *anyone's* data. probectl closes that hole by
-enforcing **tenant first, then RBAC** on every surface here (the tenant-isolation
+enforcing **tenant first, then RBAC** (role-based access control — the caller's
+permission set) on every surface here (the tenant-isolation
 rule in the [Non-negotiables](../CONTRIBUTING.md#non-negotiables)):
 
-- **Only plain series selectors are accepted** — `metric{label="value",...}`.
-  PromQL functions and operators are rejected outright, because *a query probectl
-  cannot fully parse is a query it cannot tenant-scope.* (The parser in
+- **Only plain series selectors are accepted** — `metric{label="value",...}`, a
+  metric name plus label filters. The rest of PromQL (Prometheus's full query
+  language) — functions and operators — is rejected outright, because *a query
+  probectl cannot fully parse is a query it cannot tenant-scope.* (The parser in
   `internal/promapi/selector.go` returns an explicit error for anything beyond a
   selector.)
 - **The tenant is forced, not trusted.** Whatever `tenant_id` matcher the caller
   wrote is **removed**, and a single `tenant_id="<caller's tenant>"` equality is
-  injected (`ForceTenant`). In `PROBECTL_TSDB_MODE=prometheus` mode, only the
+  injected (`ForceTenant`) — the bank teller ignores whatever account number you
+  wrote on the slip and uses the one on your ID. In `PROBECTL_TSDB_MODE=prometheus`
+  mode, only the
   canonical reconstructed selector is forwarded upstream — never the caller's
   raw text.
 - **Remote-write payloads are untrusted:** size/series/sample/label caps apply,
@@ -79,8 +89,9 @@ through.
 ## Prometheus federation (probectl → Prometheus)
 
 `GET /v1/prometheus/federate?match[]=<selector>` serves the **latest sample**
-of every matching series in the Prometheus text exposition format — drop it into
-a Prometheus scrape config:
+of every matching series in the Prometheus text exposition format (the
+plain-text `name{labels} value` lines a Prometheus scrape expects) — drop it
+into a Prometheus scrape config:
 
 ```yaml
 scrape_configs:
@@ -93,7 +104,8 @@ scrape_configs:
     static_configs: [{ targets: ["probectl.example.com"] }]
 ```
 
-**Cardinality guard:** a scrape matching more than the series cap
+**Cardinality guard:** cardinality is the number of distinct series — every
+unique label combination is one more. A scrape matching more than the series cap
 (`DefaultMaxSeries`, 5000) **fails closed** with an explicit error rather than
 melting the scraper — narrow the selector. This is the thing to watch for when
 federating: an over-broad `match[]` is rejected on purpose, not silently
@@ -102,8 +114,9 @@ truncated.
 ## Prometheus remote-write (external → probectl)
 
 `POST /v1/prometheus/write` accepts the standard snappy-compressed protobuf
-`WriteRequest`, so an existing Prometheus (or vmagent / Grafana Alloy) can push
-metrics **into** probectl:
+`WriteRequest` (snappy — a fast compression format; protobuf — a compact binary
+encoding; together, the remote-write wire format), so an existing Prometheus
+(or vmagent / Grafana Alloy) can push metrics **into** probectl:
 
 ```yaml
 remote_write:
@@ -135,10 +148,14 @@ Surfaces:
   resolved tenant-scoped and correlated to CIs with deep links.
 - `GET /v1/agents/{id}/ci` — asset correlation by agent hostname.
 
-**Behavior:** lookups hit the ServiceNow Table API with an encoded disjunction
-query (`ip_address=<k>^ORfqdn=<k>^ORname=<k>`), capped at 10 CIs per lookup
-(`maxCIsPerLookup`), over verified TLS (the `PROBECTL_CMDB_URL` must be HTTPS).
-Results — including misses — are TTL-cached, so **a down CMDB serves stale cache
+**Behavior:** lookups hit the ServiceNow Table API (ServiceNow's REST interface
+to its tables) with an encoded disjunction
+query (`ip_address=<k>^ORfqdn=<k>^ORname=<k>` — "match the key as an IP, *or* a
+fully-qualified domain name, *or* a name"), capped at 10 CIs per lookup
+(`maxCIsPerLookup`), over verified TLS (the `PROBECTL_CMDB_URL` must be HTTPS;
+plain `http` is allowed only for loopback test instances).
+Results — including misses — are TTL-cached (each cache entry expires after its
+time-to-live), so **a down CMDB serves stale cache
 and never breaks core function** — the same read-only, cached, degrade-gracefully
 discipline probectl applies to every external source. Keys are canonicalized
 (case, ports, schemes), and non-keys (CIDR prefixes, free text) are dropped

@@ -2,12 +2,15 @@
 
 ## What this is
 
-When an MSP self-hosts probectl and serves many tenants, it needs to answer
-"how much did each tenant use this month?" — to bill them. This is the plane
-that produces those numbers: per-tenant usage counters and snapshots, a
-usage/showback API, per-tenant creation quotas, and a billing-export feed the
-MSP feeds into its existing professional-services-automation (PSA) or billing
-system.
+When an MSP (managed service provider) self-hosts probectl and serves many
+tenants, it needs to answer "how much did each tenant use this month?" — to
+bill them. **Metering** is that counting: recording each tenant's usage,
+accurately enough to invoice from. This is the plane that produces those
+numbers: per-tenant usage counters and snapshots, a usage/showback API
+(showback — showing each tenant its consumption without probectl doing the
+charging), per-tenant creation quotas (a quota — a cap on how many of a
+resource a tenant may create), and a billing-export feed the MSP feeds into its
+existing professional-services-automation (PSA) or billing system.
 
 It is a **commercial (Provider/MSP tier)** feature. The implementation lives in
 `ee/billing` and is unlocked by the `metering` license feature; the core
@@ -26,7 +29,10 @@ are follow-ups, to be built once a design partner names the one they need.
 
 There are two kinds of meter, and the distinction drives everything downstream:
 a **counter** only ever goes up (you sum it over a period), and a **gauge** is a
-point-in-time level (you take the peak over a period).
+point-in-time level (you take the peak over a period). A counter is a car's
+odometer — it only climbs, and "how far this month" is a sum; a gauge is the
+fuel gauge — a level at a glance, and the honest monthly question is "how full
+did it get at most?"
 
 | Meter | Kind | Unit | Source |
 |---|---|---|---|
@@ -52,10 +58,11 @@ transaction.
 The gauges (`agents`, `tests`) are the source-of-truth counts, and they are
 collected carefully. A snapshot collector lists the tenants, then counts each
 tenant's resources by running `count(*)` **inside that tenant's own scope**
-(`tenancy.InTenant`: row-level-security-bound for pooled tenants, schema-routed
-for siloed tenants). There is no cross-tenant read path at all, so a siloed
-tenant's resources are counted exactly once, in its own schema, and pooled and
-siloed tenants cannot double-count each other by construction.
+(`tenancy.InTenant`: bound by row-level security — RLS, where the database
+itself filters every query to one tenant's rows — for pooled tenants,
+schema-routed for siloed tenants). There is no cross-tenant read path at all,
+so a siloed tenant's resources are counted exactly once, in its own schema, and
+pooled and siloed tenants cannot double-count each other by construction.
 
 ## Usage API + export feed
 
@@ -71,7 +78,7 @@ feature's existence isn't even advertised.
   (`csv` is the default). The column set is a **stable contract** — only
   additive changes are allowed, so an importer never breaks:
 
-```
+```text
 tenant_id,tenant_slug,meter,kind,period_start,period_end,value,unit
 ```
 

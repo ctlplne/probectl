@@ -2,11 +2,13 @@
 
 ## What this is
 
-An SLO is a promise about reliability, written as a number: "checkout should
-succeed 99% of the time." This engine turns that promise into something probectl
-watches continuously, and translates it into the language an executive cares
-about: *are we keeping the promise, how much room do we have left before we
-break it, and is something burning that room down right now?*
+An **SLO** (service-level objective) is a promise about reliability, written as
+a number: "checkout should succeed 99% of the time." The thing you actually
+measure to check the promise — the ratio of good probes to total probes — is the
+**SLI** (service-level indicator). This engine turns that promise into something
+probectl watches continuously, and translates it into the language an executive
+cares about: *are we keeping the promise, how much room do we have left before
+we break it, and is something burning that room down right now?*
 
 It sits in the control plane (`internal/slo`). It reads the same synthetic
 probe results probectl already collects, evaluates each SLO **per tenant**, and
@@ -20,7 +22,8 @@ Four pieces fit together:
   target you hold it to.
 - **Error budgets** — the small amount of failure the target *allows*, treated
   as a spendable balance.
-- **Multi-window, multi-burn-rate alerts** — the Google SRE method for paging
+- **Multi-window, multi-burn-rate alerts** — the Google SRE method (SRE — site
+  reliability engineering, Google's discipline for running services) for paging
   on real problems without paging on noise.
 - **Service/team mapping** — every SLO carries a business owner, so reliability
   rolls up to a team, not just a probe target.
@@ -35,7 +38,8 @@ about it:
   `metricSource.type` is `probectl`
 - `budgetingMethod: Occurrences` (count successes vs. attempts — not a
   time-slice method)
-- exactly one **rolling** `timeWindow` (`30d`, `7d`, `12h`, …)
+- exactly one **rolling** `timeWindow` (`30d`, `7d`, `12h`, … — *rolling* means
+  the window always ends now and slides forward, never a fixed calendar month)
 - exactly one objective `target`, a ratio strictly between 0 and 1
 
 Anything outside that subset is **rejected loudly when the file loads** — the
@@ -91,13 +95,16 @@ Start with the intuition. If your target is 99%, you are *allowed* to fail 1% of
 the time. That 1% is your **error budget** — a balance you spend as failures
 happen. **Burn rate** is how fast you are spending it:
 
-```
+```text
 burn rate = errorRate(window) / (1 − target)
 ```
 
-At burn rate 1, you spend exactly the whole budget over the SLO window and land
-on empty right at the end — sustainable by definition. At burn rate 14.4, you
-spend the entire month's budget in about two days — an emergency.
+The budget behaves exactly like a monthly mobile-data allowance: burn rate 1 is
+the pace at which you use precisely your whole allowance by the end of the
+month — fine, by definition. At burn rate 1 you spend exactly the whole budget
+over the SLO window and land on empty right at the end — sustainable. At burn
+rate 14.4, you spend the entire month's budget in about two days — an
+emergency.
 
 The hard part of alerting is telling a real outage apart from a blip. probectl
 uses the Google SRE answer: require **two** windows — a long one and a short one
@@ -124,10 +131,13 @@ has already recovered, nothing fires — the incident is over.
 
 When a tier first crosses, the engine raises a `slo.burn_rate` signal (plane
 `slo`) into the incident pipeline. Signals are **latched per window per
-episode**: one signal when a tier starts firing, and it re-arms only after the
-*long* window drops back under the threshold. Clearing on the long window (not
-the short one) is deliberate hysteresis — it stops a single episode from
-flapping out a stream of alerts on short-window jitter.
+episode** — latched meaning the signal fires once and then stays armed-off: one
+signal when a tier starts firing, and it re-arms only after the *long* window
+drops back under the threshold. Clearing on the long window (not the short one)
+is deliberate **hysteresis** — a gap between the turn-on and turn-off
+conditions, the way a thermostat that heats *to* 21° refuses to restart until
+the room falls below 19° — and it stops a single episode from flapping out a
+stream of alerts on short-window jitter.
 
 ## Cold start — an empty baseline is not an outage
 
@@ -157,8 +167,9 @@ enough history overall.
 - **SLOs page** (`/slos`) — the executive dashboard: attainment vs. objective,
   an error-budget bar, burn-rate badges, service/team labels, and honest
   cold-start and not-wired states.
-- **What-if integration** — a failure simulation reports `impacted_slos`, the
-  SLOs whose service or probe target sits inside the simulated blast radius, so
+- **What-if integration** — the topology what-if (a read-only simulation that
+  fails an element in a copy of the graph) reports `impacted_slos`, the SLOs
+  whose service or probe target sits inside the simulated blast radius, so
   "what breaks if this link dies?" answers in SLO terms.
 
 ```mermaid

@@ -4,10 +4,13 @@
 
 probectl already sees your network traffic (the flow stream). This engine puts
 **dollars** on that traffic. It lives in the control plane (`internal/cost`) and
-answers FinOps questions: which service or team is spending money on the
-network, which conversations are crossing expensive boundaries ("chatty
-services"), how cost trends hour to hour, and whether a team is about to blow its
-monthly budget.
+answers **FinOps** questions — FinOps being the practice of making cloud spend
+visible and attributable to the teams who create it: which service or team is
+spending money on the network, which conversations are crossing expensive
+boundaries ("chatty services"), how cost trends hour to hour, and whether a team
+is about to blow its monthly budget. Clouds bill for **egress** — traffic that
+*leaves* a boundary (a zone, a region, or the provider's network entirely) —
+which is why where a byte travels matters more than how many bytes there are.
 
 The mechanism, in one line: take the bytes probectl observes, label each flow
 with a **traffic class** (same zone, cross-AZ, cross-region, internet egress),
@@ -18,10 +21,13 @@ Three ground rules shape the whole feature:
 
 1. **Volume × public pricing, not billing.** Cloud billing APIs differ between
    providers and lag by hours or days, so the engine prices *observed egress
-   volume* against published list rates. This is an attribution-and-detection
-   tool — "who is generating cross-region traffic and roughly what does it
-   cost" — not a reconciliation of your actual invoice. Full cloud-billing
-   reconciliation is out of scope by design.
+   volume* against published list rates. Think of it as the taxi's own meter
+   rather than your credit-card statement: it prices the distance it personally
+   watched at the published tariff, so it can tell you *who rode where* in real
+   time — squaring it against the invoice stays your bank's job. This is an
+   attribution-and-detection tool — "who is generating cross-region traffic and
+   roughly what does it cost" — not a reconciliation of your actual invoice.
+   Full cloud-billing reconciliation is out of scope by design.
 2. **Degrade gracefully.** With no price table, the engine runs in **volume-only
    mode**: bytes are still attributed, dollars are never invented, and
    `priced: false` is surfaced everywhere. With no zone rules, locality classes
@@ -34,9 +40,13 @@ Three ground rules shape the whole feature:
 
 ## How traffic is classified and priced
 
-First the flow is classified by where its two ends sit. probectl resolves each
-address to a zone/region using operator-declared CIDR rules (it cannot guess
-your subnet layout), then:
+First the flow is classified by where its two ends sit. A **zone** (an
+availability zone, AZ) is one isolated datacenter within a cloud **region**;
+clouds charge nothing inside a zone, a little to cross zones, more to cross
+regions, and the most to reach the public internet. probectl resolves each
+address to a zone/region using operator-declared **CIDR** rules — CIDR notation
+names an IP address range by prefix, e.g. `10.0.1.0/24` is 256 addresses — (it
+cannot guess your subnet layout), then:
 
 | Class | Meaning | Default rate ($/GiB) |
 |---|---|---|
@@ -48,9 +58,12 @@ your subnet layout), then:
 
 `unknown` is the honest fallback: the bytes are counted, but no dollar figure is
 attached (the default price table simply has no rate for it). Classification
-uses longest-prefix matching, so a `/24` rule wins over an overlapping `/16`.
+uses longest-prefix matching — the most specific rule wins — so a `/24` rule
+beats an overlapping `/16`.
 
-Zone and ownership maps are operator-declared:
+Zone and ownership maps are operator-declared. The ownership map is what makes
+**showback** possible: showing each team its share of the network bill without
+actually charging anyone — visibility, not invoicing:
 
 ```sh
 # CIDR → zone (region is derived from the trailing zone letter, or set explicit zone/region)
@@ -118,7 +131,7 @@ Attribution maps are bounded: once a per-tenant map hits 1024 keys, further
 entries collapse into `(other)` so memory can't grow without limit. A flow
 record arriving without a tenant is dropped at the boundary. The in-memory
 engine is rebuilt from the stream on restart — the durable, queryable series
-live in the TSDB/Grafana path, not in this process.
+live in the TSDB (time-series database) / Grafana path, not in this process.
 
 ## Configuration
 

@@ -2,10 +2,12 @@
 
 **What this is.** Most outages have a human cause: someone deployed, changed a
 config, flipped a route, or ran a Terraform apply. probectl pulls those *change
-events* in from the systems that already record them (GitHub, GitLab, CI, IaC
-tools), normalizes them into one shape, keeps a per-tenant **change timeline**,
-and **correlates** recent changes to incidents — so the AI root-cause analysis
-(RCA) can answer the one question that resolves most outages: **"what changed?"**
+events* in from the systems that already record them (GitHub, GitLab, CI —
+continuous-integration pipelines — and IaC tools, infrastructure-as-code like
+Terraform), normalizes them into one shape, keeps a per-tenant **change
+timeline**, and **correlates** recent changes to incidents — so the AI
+root-cause analysis (RCA) can answer the one question that resolves most
+outages: **"what changed?"**
 
 A change event is **context, not an alarm.** A deploy is a *candidate cause* —
 surfaced and ranked when an incident opens nearby in time and topology. It is
@@ -18,15 +20,22 @@ HTTP receiver in `internal/control` (`change.go`).
 
 ## Security model (the webhook is an inbound attack surface)
 
-A webhook is an unauthenticated POST from the public internet that ends up
-feeding the RCA. So every inbound delivery is treated as **untrusted** and must
-clear all of these before anything is stored — the same verified, authenticated,
-untrusted-ingestion discipline every probectl inbound surface follows (see the
+A **webhook** is an unauthenticated POST from the public internet — a sender
+(GitHub, your CI) calls a URL you gave it whenever something happens — and here
+it ends up feeding the RCA. So every inbound delivery is treated as
+**untrusted** and must clear all of these before anything is stored — the same
+verified, authenticated, untrusted-ingestion discipline every probectl inbound
+surface follows (see the
 [Non-negotiables](../CONTRIBUTING.md#non-negotiables)):
 
 - **TLS.** The API (and the shipped compose/Helm) are HTTPS-only.
-- **Per-provider signature verification.** The sender's HMAC (GitHub / probectl's
-  generic scheme) or shared token (GitLab) is verified in **constant time**
+- **Per-provider signature verification.** The sender's **HMAC** (a hash-based
+  message authentication code: a signature computed over the body with a shared
+  secret, which only a holder of that secret can produce — a wax seal that the
+  handler checks before opening the envelope; GitHub / probectl's
+  generic scheme) or shared token (GitLab) is verified in **constant time** —
+  a comparison that takes the same time whether the first or the last byte
+  differs, so response timing leaks nothing about the secret —
   against that webhook's configured secret. An unsigned or forged delivery is
   rejected with `401` **before** the body is parsed, so a forged change can never
   reach the timeline or the RCA. (`change.go`: `p.Verify(...)` → `apierror.Unauthorized`.)
@@ -71,7 +80,8 @@ flowchart LR
 Every source is normalized onto one record (`internal/change.Event`): an `id`,
 `source`, `kind` (`deploy` / `config` / `route` / `iac` / `commit` / `release` /
 `other`), `title` / `summary`, a correlation **`target`** (host / service / IP)
-and/or **`prefix`** (CIDR), `actor`, `ref` (commit / deploy id), `url`, free-form
+and/or **`prefix`** (a CIDR — an IP range in prefix notation, like
+`10.0.0.0/24`), `actor`, `ref` (commit / deploy id), `url`, free-form
 `attributes`, and `occurred_at`.
 
 `target` and `prefix` are the anchors that tie a change to an incident — they are
@@ -94,7 +104,7 @@ deploy's `environment_url` host becomes the correlation target.
 
 ### Sending a generic change
 
-```
+```text
 POST /ingest/changes/generic/<webhook-id>
 X-Probectl-Signature: sha256=<hmac-sha256(secret, body)>
 
@@ -110,7 +120,9 @@ an error — it stores zero events.
 
 The hard part of "what changed?" is *not* collecting changes — it is **not**
 burying the operator under every deploy that happened that day. `change.Candidates`
-(in `correlate.go`) scores each recent change as a candidate cause of an incident,
+(in `correlate.go`) scores each recent change as a candidate cause of an incident
+by asking the two questions a detective asks of any suspect: *were you near the
+scene* (topology), and *were you there just before it happened* (time) —
 combining two signals:
 
 - **Topology proximity.** Exact target match scores highest (`1.0`), then
