@@ -5,7 +5,8 @@ it is shaped that way*. Read it top to bottom and you get the mental model; jump
 to a section and you get the real mechanism — package names, wire formats, the
 guardrail each piece serves.
 
-The single idea that explains almost every decision below: **a tenant is the
+The single idea that explains almost every decision below: **a tenant — one
+isolated customer/organization sharing the deployment — is the
 outermost boundary in the system, enforced underneath the application code, not
 on top of it.** Everything else — the bus, the stores, the AI layer, the
 provider plane — is arranged so that a forgotten check cannot leak one tenant's
@@ -40,8 +41,12 @@ flowchart TB
 ```
 
 **Reading the diagram:** an agent probes the network, ships each result onto the
-bus *stamped with its tenant*, a control-plane consumer persists it and folds it
-into incidents/topology, and then the API, UI, AI, and MCP server read the
+**bus** — the publish/subscribe message pipe (Kafka, or an in-process memory
+mode) that decouples whoever produces data from whoever stores it — *stamped
+with its tenant*; a **control-plane consumer** (the control plane is the
+central, stateless Go service; a consumer is the part of it that reads messages
+off the bus) persists it and folds it
+into incidents/topology; and then the API, UI, AI, and MCP server read the
 unified stores — always **filtering to the caller's tenant first, then applying
 that user's role permissions (RBAC)**. The external feeds on the right (route
 collectors, geo data, threat intel) are pulled in *once*, shared, and then
@@ -58,10 +63,14 @@ that producers ship in. (The one thing it triggers itself is operator-initiated
 path discovery; see [Path visualization](#path-visualization). Everything else
 arrives from a producer.)
 
-The practical consequence: **a brand-new control plane with nothing attached is
+The control plane is an editor, not a reporter: it prints only what the field
+reporters file. The practical consequence: **a brand-new control plane with
+nothing attached is
 an empty system — by design, not by fault.** It will start, serve a healthy UI
 and API, pass its own health checks, and show *zero* network data, because
-nothing is observing the network yet. Data appears only once you attach
+nothing is observing the network yet — an empty newsroom still lights up and
+answers the phone; the paper is just blank until someone files a story. Data
+appears only once you attach
 producers. So the first question when a fresh install "shows nothing" is never
 "is the control plane broken?" — it is "what's producing?"
 
@@ -105,26 +114,39 @@ sections below are concrete instances of them.
 
 - **A tenant is the outermost scope and the security boundary.** Every
   tenant-owned record, bus message, metric series, and object key is scoped by
-  `tenant_id` *at the storage/query layer* — in Postgres Row-Level Security and
-  ClickHouse row policies — never in handler code alone. The reasoning: handler
+  `tenant_id` *at the storage/query layer* — in Postgres Row-Level Security
+  (**RLS**: the database itself appends a tenant filter to every statement, so
+  an unscoped query returns nothing rather than everything) and
+  ClickHouse row policies (the ClickHouse analogue) — never in handler code
+  alone. The reasoning: handler
   code has bugs; a `WHERE tenant_id = ?` you forgot to write leaks data, but a
   database that *physically refuses* to return another tenant's rows does not. A
   cross-tenant isolation test is a permanent CI gate (the `cross-tenant-isolation`
   job).
-- **OpenTelemetry-native.** probectl ingests and exports OpenTelemetry (OTLP);
+- **OpenTelemetry-native.** **OpenTelemetry** (OTel) is the vendor-neutral
+  standard for describing telemetry — what a metric, trace, or resource
+  attribute is called — and **OTLP** is its wire protocol. probectl ingests and
+  exports OTLP;
   see [`otlp.md`](otlp.md). Result and event schemas are modeled on OTel resource
   + network semantic conventions *from the first line of code that emits them*,
   so exposing OTLP later is just surfacing the schema, not retrofitting it.
   (Traces/logs are kept bounded for correlation — probectl is deliberately not an
-  APM/tracing product.)
+  APM/tracing product; **APM** is application performance monitoring, the
+  per-request code-level tracing that products like Datadog APM do.)
 - **Self-hosted, never phones home.** No outbound telemetry is on by default. The
   operator's network data stays in the operator's network.
 - **Crypto is abstracted behind `internal/crypto`.** Handlers and services never
-  call a crypto primitive directly. The payoff: a FIPS 140-3 validated module can
-  be compiled in without touching business logic. mTLS secures every
+  call a crypto primitive directly. The payoff: a FIPS 140-3 validated module
+  (FIPS 140-3 being the U.S. federal standard a crypto module is certified
+  against) can
+  be compiled in without touching business logic. **mTLS** — TLS where *both*
+  sides present certificates, so the server also knows cryptographically who
+  dialed in — secures every
   agent↔control-plane link; every listener serves TLS.
 - **Remediation is observe-only and human-gated; threat detection is a signal,
-  not an inline IPS.** probectl tells you what is wrong and, at most, proposes a
+  not an inline IPS** (an intrusion-prevention system — a device that sits in
+  the traffic path and actively blocks it). probectl tells you what is wrong
+  and, at most, proposes a
   fix a human approves — it never silently acts on the network.
 
 ## Tenant-scoped data model
@@ -155,12 +177,14 @@ in `migrations/`, e.g. `0002_tenancy_core.sql`.)
 
 "Pooled" means many tenants share the same physical Postgres tables, told apart
 by `tenant_id`. The obvious worry: one mistyped query and tenant A reads tenant
-B. probectl makes that impossible with **two independent layers** — so a bug in
-either one is caught by the other.
+B. probectl makes that impossible with **two independent layers** — a seatbelt
+and an airbag: either one catches the crash the other misses.
 
 1. **Storage layer — Postgres Row-Level Security (RLS).** Every tenant-owned
    table has RLS `ENABLE`d and `FORCE`d, with a policy keyed on a per-transaction
-   setting, `probectl.tenant_id`. If that setting is unset, the policy matches
+   setting, `probectl.tenant_id` (a **GUC** in Postgres jargon — a
+   session/transaction-scoped configuration variable a client can set). If that
+   setting is unset, the policy matches
    *zero* rows — it fails closed. Even a raw `SELECT * FROM organizations` with no
    `WHERE` clause returns only the current tenant's rows, because the database
    itself rewrites the query.
@@ -191,7 +215,10 @@ reads go through `InTenant` for the target tenant and are audited per access. Se
 
 There are two append-only, hash-chained logs: the **tenant** stream
 (`audit_events`, one hash chain per tenant) and the **provider** stream
-(`provider_audit_events`, for operator and break-glass actions). Each record
+(`provider_audit_events`, for operator and break-glass actions). A **hash
+chain** makes a log tamper-evident: each record's hash covers the previous
+record's hash, so the entries form a ledger where rewriting page 50 visibly
+invalidates every page after it. Each record
 chains over the previous record's hash via `internal/crypto`, so deleting,
 reordering, or editing any entry breaks the chain and `internal/audit`'s `Verify`
 detects it. The two streams are kept separate so provider activity can never hide
@@ -199,15 +226,20 @@ inside tenant logs, or vice versa.
 
 ## Agent transport
 
-Agents talk to the control plane over **gRPC with mutual TLS**
+Agents talk to the control plane over **gRPC with mutual TLS** — gRPC being the
+HTTP/2-based RPC framework both binaries speak, and mutual TLS meaning the agent
+must present a certificate too, not just the server
 (`internal/agenttransport`; the service is `probectl.agent.v1.AgentService` with
 `Register` / `Attest` / `Heartbeat` / `StreamResults`, plus the
 `PollCoordination` / `ReportEndpoint` pair that brokers agent-to-agent
 measurement — see [Network tests and agent-to-agent](#network-tests-and-agent-to-agent)).
 The server demands and verifies a client certificate, and reads the agent's
-**tenant and id from that certificate's SPIFFE identity** —
+**tenant and id from that certificate's SPIFFE identity** (**SPIFFE** — a
+standard for naming a workload *inside* its certificate as a URI) —
 `spiffe://probectl/tenant/<t>/agent/<a>` — never from the request body. That
-single design choice binds an agent to exactly one tenant cryptographically: a
+single design choice binds an agent to exactly one tenant cryptographically:
+border control reads the passport, never the traveler's own account of their
+citizenship. A
 compromised or malicious agent cannot claim to be in a different tenant, because
 it would need that tenant's certificate.
 
@@ -230,7 +262,9 @@ multi-arch, database-free binary. Inside it:
 
 The point of the buffer: **probing is decoupled from connectivity.** If the
 control plane is unreachable, the agent keeps measuring; results pile up locally
-and drain on reconnect (at-least-once delivery). Every buffered and emitted
+and drain on reconnect — a mailbox that keeps accepting letters while the postal
+van is away. Delivery is **at-least-once**: a result may arrive twice (the
+consumer tolerates that), but never zero times. Every buffered and emitted
 result is stamped with the agent's tenant and id.
 
 ## Result pipeline
@@ -244,7 +278,9 @@ attribute names follow OTel resource + network semantic conventions — see
 
 **Tenant integrity at ingest is the load-bearing detail.** Before publishing, the
 control plane *overwrites* the result's `tenant_id`/`agent_id` with the identity
-from the verified mTLS certificate, and keys the bus message by tenant. So a
+from the verified mTLS certificate, and keys the bus message by tenant (the
+**key** decides which partition — which ordered lane of the topic — a message
+rides, so one tenant's results stay together). So a
 malformed or hostile payload can never get itself attributed to another tenant —
 the cryptographic identity always wins over the bytes on the wire.
 
@@ -254,7 +290,9 @@ default for tiny deployments, roughly under five agents) and a **kafka** mode;
 the writer has a **memory** mode and a **prometheus** remote-write mode
 (Prometheus/VictoriaMetrics). The consumer converts each result into
 `probectl_probe_*` time-series labeled by
-`tenant_id`/`agent_id`/`canary_type`/`server_address`. Because a TSDB has no
+`tenant_id`/`agent_id`/`canary_type`/`server_address`. Because a TSDB — a
+**time-series database**, which stores numeric samples over time indexed by
+labels — has no
 row-level security of its own, tenant isolation there is enforced by always
 scoping reads to a `tenant_id` label at query time.
 
@@ -272,7 +310,8 @@ discover each other directly. The broker assigns roles, relays the responder's
 listen endpoint to the initiator, and hands each agent its task when it polls
 (`ReportEndpoint` and the polling API). All broker state is tenant-scoped: an
 agent only ever receives its own tasks, and only a session's responder may report
-an endpoint. The measurement itself is TWAMP-lite (`internal/canary/a2a.go`):
+an endpoint. The measurement itself is TWAMP-lite (a lightweight take on TWAMP,
+the standard two-way active-measurement protocol; `internal/canary/a2a.go`):
 four timestamps T1–T4 yield round-trip = (T4−T1)−(T3−T2), forward one-way = T2−T1,
 and reverse one-way = T4−T3. The one-way figures assume the two hosts' clocks are
 NTP-synced. Both agents' results flow through the same pipeline into the TSDB.
@@ -290,6 +329,9 @@ resolver's certificate; DoH is RFC 8484 `application/dns-message` over HTTPS, wi
 outbound TLS validated and the response treated as untrusted input.
 
 **DNSSEC validation (`dnssec.go`) verifies the zone's signature, not the AD bit.**
+(**DNSSEC** signs DNS records so forgeries are detectable; the **AD bit** is
+merely a resolver's own "I checked" flag — trusting it means trusting whoever
+set it, which is exactly what a forger controls.)
 `verifyRRSIG` is a pure check — given the answer RRset, its `RRSIG`s, and the zone
 `DNSKEY`s it returns `secure` (a matching-keytag signature inside its validity
 window that verifies), `insecure` (no RRSIG — the zone is unsigned), or `bogus`
@@ -306,7 +348,8 @@ paths hermetically, with skip-safe live DoT + trace tests.
 
 The `http` canary (`internal/canary/http.go`) measures HTTP(S) availability and,
 crucially, *where the time went*: a per-phase **response-time breakdown** captured
-via Go's `net/http/httptrace` (`httptrace.go`) — DNS, TCP connect, TLS handshake,
+via Go's `net/http/httptrace` (`httptrace.go`) — callback hooks the HTTP client
+fires as each connection phase begins and ends — DNS, TCP connect, TLS handshake,
 time-to-first-byte, and total — plus status, content length, and throughput.
 Availability is decided by an `expect_status` matcher (exact codes, `Nxx` classes
 like `2xx`, or ranges). The resolved peer IP is recorded as
@@ -336,13 +379,17 @@ across many equal-cost paths (ECMP), so a naive traceroute gives you a smeared,
 incoherent picture. The engine runs **Paris-style traceroutes** — each trace
 *fixes a flow identifier* so that a load-balancing router keeps that one trace on
 a single stable path, and varying the identifier deliberately explores the
-different ECMP branches.
+different ECMP branches. Fixing the flow is choosing your motorway lane before
+setting off — and then deliberately driving each lane once, instead of letting
+every packet drift across lanes at random.
 
 The clever bit is how the flow is fixed in ICMP mode: a **forced ICMP checksum**.
 The engine solves for a 2-byte payload "balance" word so that the checksum field
 comes out equal to a chosen value while the packet stays valid — which keeps ECMP
 hashing stable per flow. In TCP mode the flow is just the fixed 5-tuple. The
-engine also detects **MPLS label stacks** (RFC 4884/4950) quoted back on Time
+engine also detects **MPLS label stacks** (**MPLS** — label-switched forwarding
+used inside carrier networks; the labels expose the carrier's internal pathing)
+(RFC 4884/4950) quoted back on Time
 Exceeded responses, and merges several per-flow traces into one multi-path `Path`:
 each TTL becomes a hop whose multiple responders are ECMP branches, with per-node
 RTT/loss and MPLS, and the **links** observed *within* individual flows. It never
@@ -381,12 +428,17 @@ nodes + links even for dense graphs, and animation respects
 
 ## BGP / routing intelligence
 
-The BGP plane is the one probectl component written in **Python** (`analyzer/`),
+**BGP** — the Border Gateway Protocol — is the routing system by which the
+internet's networks announce which IP prefixes they can reach; each
+independently-operated network is an **AS** (autonomous system), numbered by an
+ASN. The BGP plane is the one probectl component written in **Python** (`analyzer/`),
 because Python has the richest BGP/MRT tooling; it is bridged into the Go control
 plane by `internal/bgp`. It ingests **public** collector data — RouteViews/RIPE-RIS
-**MRT** dumps and the **RIS Live** websocket — and never peers with a customer's
+**MRT** dumps (MRT is the standard archive format for routing data) and the
+**RIS Live** websocket — and never peers with a customer's
 routers. It does per-prefix AS-path monitoring with **origin-change /
-possible-hijack / possible-leak** detection and **RPKI** (RFC 6811) validation,
+possible-hijack / possible-leak** detection and **RPKI** (RFC 6811) validation
+(**RPKI** — signed statements of which AS may legitimately originate a prefix),
 and emits `probectl.bgp.events`.
 
 ```mermaid
@@ -434,7 +486,10 @@ resale, and are irrelevant to single-tenant self-hosted use.
 ## Open-data enrichment
 
 `internal/opendata` annotates an IP with internet-wide context — ASN, geo, IXP
-presence, and RIR allocation — drawn from public datasets, without probectl owning
+presence (an **IXP** is an internet exchange point, the physical meet-me rooms
+where networks interconnect), and RIR allocation (an **RIR** is a regional
+internet registry, the body that allocates address space) — drawn from public
+datasets, without probectl owning
 any measurement fleet. It is a **pluggable** framework: each `Source` implements
 `Enrich(ctx, addr, *Enrichment)`, and the `Enricher` runs an IP through every
 enabled source and merges the result.
@@ -501,8 +556,9 @@ cold start**, refusing to fire until the window is full, so a fresh deployment
 does not alarm on its first few samples. Evaluation is **per series** (per label
 set), so a single rule independently covers many targets.
 
-**Storm avoidance.** State advances `ok → pending → firing`: a `for_n` debounce
-requires N consecutive breaches before firing, and while firing the engine
+**Storm avoidance.** State advances `ok → pending → firing`: a `for_n`
+**debounce** requires N consecutive breaches before firing (so one blip pages
+nobody), and while firing the engine
 **dedupes** — it notifies once, then re-notifies only every `renotify_seconds`,
 and emits a single `resolved` notification on recovery. This is what keeps a
 flapping target from generating a thousand pages.
@@ -511,7 +567,8 @@ flapping target from generating a thousand pages.
 and **degrades per channel** — one failing or misconfigured channel never blocks
 the others. The **webhook** channel POSTs a stable JSON payload
 (`probectl.alert.v1`) over TLS and, when a secret is set, signs the body with
-**HMAC-SHA256** (via `internal/crypto`) in an `X-Probectl-Signature` header, so
+**HMAC-SHA256** (an **HMAC** is a keyed hash — only a holder of the shared
+secret can produce it; via `internal/crypto`) in an `X-Probectl-Signature` header, so
 the receiver can verify the sender. The **email** channel sends via SMTP behind an
 injectable sender. Webhook secrets are **redacted (`***`) from API responses**.
 
@@ -567,7 +624,9 @@ same incident model.
 
 ## SSO and RBAC
 
-`internal/auth` is the identity and access foundation: **OIDC single sign-on**,
+`internal/auth` is the identity and access foundation: **OIDC single sign-on**
+(**OIDC** — OpenID Connect, the standard log-in-via-your-identity-provider
+protocol built on OAuth 2),
 server-side **sessions**, and **RBAC** over the role model from the data model
 above. It enforces the **two-level boundary** — resolve the **tenant first**, then
 check RBAC — on every `/v1` path.
@@ -602,7 +661,8 @@ Hashing and the RNG go through `internal/crypto`, so `auth` imports no crypto
 primitive directly and the import guard stays satisfied; ID-token verification
 lives inside the go-oidc / go-jose libraries.
 
-**Per-tenant IdP.** A `ProviderFactory.For(tenant)` resolves the OIDC provider for
+**Per-tenant IdP.** (An **IdP** — identity provider — is the system that owns
+logins: Okta, Entra, Keycloak, …) A `ProviderFactory.For(tenant)` resolves the OIDC provider for
 a given tenant — the seam that lets a tenant bring its own SSO. The shipped
 default is env-configured, and a login always resolves to exactly one tenant.
 Provider/MSP operators authenticate into the *provider domain* instead, never into
@@ -612,7 +672,8 @@ tenant data here.
 `requirePermission` returns **401** when unauthenticated and **403** when
 unauthorized — *before* the handler runs. Effective permissions are loaded **per
 request** from the user's role bindings (RLS-scoped), so a grant or revoke takes
-effect immediately. New users are provisioned with **no roles** (the secure
+effect immediately. New users are **JIT-provisioned** — the account is
+created just-in-time, on first successful login — with **no roles** (the secure
 default — you opt in to access, you do not opt out). The AI and MCP query layer
 reuses this same `Principal`: tenant first, then RBAC.
 
@@ -647,7 +708,8 @@ lightweight path, and asserts every result is ingested with its series tagged by
 the right tenant. **Pooled multi-tenant** runs tenant-scoped queries concurrently
 across many tenants sharing the pooled Postgres stores, and asserts isolation
 *under load* — every query must return exactly its own tenant's rows — plus a
-bounded p95. This is the first place a pooled-cardinality or RLS-cost problem
+bounded p95 (the 95th-percentile latency: what the slowest one-in-twenty query
+experiences). This is the first place a pooled-cardinality or RLS-cost problem
 would surface. `Baseline` holds the generous floors and ceilings that the CI
 `perf-smoke` job asserts; the larger L/XL scale gate and the fairness work both
 build on this same harness (see [`scale-gate.md`](scale-gate.md)).

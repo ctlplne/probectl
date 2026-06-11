@@ -2,7 +2,9 @@
 
 ## What this is
 
-An MSP reselling probectl wants its customers to see *its* brand, not probectl's
+**White-labeling** is shipping a product under the buyer's brand, with the
+maker's name nowhere in sight. An MSP reselling probectl wants its customers to
+see *its* brand, not probectl's
 — and if it serves many customers, each of those may want *their own* brand
 too. White-labeling makes that possible: per-tenant (and provider-master)
 overrides of the design tokens, logo, product name, branded login page,
@@ -17,11 +19,15 @@ brand**: branding is **not lockware**, and the public brand endpoint never
 
 ### The mechanism in one sentence: it is a runtime token override
 
-Every screen in the UI styles itself from **design tokens** — CSS custom
+Every screen in the UI styles itself from **design tokens** — named design
+values delivered as CSS custom
 properties like `--color-primary`, never hardcoded colors (a CI gate enforces
 "no hardcoded colors," including the commercial `ee/web` screens). Because
 *everything* reads from tokens, branding is just a matter of **overriding those
-token values at runtime** — zero per-screen work. If some screen can't be themed
+token values at runtime** — zero per-screen work. The tokens are a theater's
+lighting board: every scene is lit from the same named channels, so re-lighting
+the whole show is sliding a few faders once — nobody repaints the sets. If some
+screen can't be themed
 by tokens alone, that is a token-coverage bug to fix in the design system
 upstream, never a per-screen override bolted on here.
 
@@ -29,7 +35,11 @@ upstream, never a per-screen override bolted on here.
 
 A brand is stored per tenant (`tenant_branding`) or as the provider master
 (`provider_branding`, the default for any tenant without its own row). Both
-tables ship in migration `0027_branding.sql`. The fields:
+tables ship in migration `0027_branding.sql`. Two terms the field table leans
+on: a **data URI** is an image embedded directly in the page as text
+(`data:image/…;base64,…`), so displaying it requires no network fetch at all;
+an **allowlist** names the only things permitted and refuses everything else by
+default. The fields:
 
 | Field | Notes |
 |---|---|
@@ -50,7 +60,9 @@ tenant's brand.
 
 Token overrides become CSS that probectl injects into the page. If an attacker
 could smuggle `url(...)` or arbitrary expressions into a token value, that would
-be a CSS-injection foothold. So the validator accepts only a narrow set of
+be a CSS-injection foothold — a `url()` value, for instance, makes every
+visitor's browser silently call a server of the attacker's choosing. So the
+validator accepts only a narrow set of
 shapes — a hex/`rgb()`/`hsl()` color for `--color-*`, a simple length for
 `--radius-*`, a plain font list for fonts — and rejects everything else. The
 logo is constrained the same way: only a small inline `data:` image URI of a
@@ -59,7 +71,9 @@ safe type, never a fetchable URL.
 ## The no-bleed rule
 
 The cardinal regression to prevent: **one tenant's brand must never bleed into
-another's resolution.** Three mechanisms guarantee it:
+another's resolution.** The model is a coat check: every ticket names exactly
+one coat — there is no "hand me whatever came in last." Three mechanisms
+guarantee it:
 
 - **Cache keys are strictly scoped.** The resolver caches under `t:<tenant-id>`,
   `h:<exact-host>`, or `master` — nothing broader (`Resolver` in
@@ -91,8 +105,10 @@ certificates in this release. Each custom domain needs a certificate at the
 TLS-terminating ingress — issue and manage it there (cert-manager / ACME) or via
 **trustctl**, the sibling certificate-lifecycle product (probectl's own TLS
 posture view will then flag that domain's cert like any other). The onboarding
-steps per domain are therefore: a DNS `CNAME` pointing at the deployment, plus
-an ingress certificate.
+steps per domain are therefore: a DNS `CNAME` (an alias record pointing the
+customer's hostname at the deployment), plus
+an ingress certificate (the **ingress** being the TLS-terminating front door in
+front of the control plane).
 
 ## Branded email templates
 
@@ -103,7 +119,9 @@ integrations (Slack, Teams, PagerDuty, Opsgenie, ServiceNow, Jira —
 **branded-HTML template contract** rather than wiring a mailer of its own:
 `whitelabel.RenderEmail(brand, email)` wraps any notification body in the
 tenant's brand (logo, product name, footer). It uses Go's `html/template`, so
-every brand field is **escaped**, and the logo is restricted to the
+every brand field is **escaped** — characters that could be read as HTML are
+neutralized, so a brand string can never smuggle markup into the message — and
+the logo is restricted to the
 already-validated inline data URI (no external fetches in mail clients). When a
 branded (HTML) email path lands, it renders through this and is branded for
 free.

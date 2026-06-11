@@ -16,9 +16,11 @@ license and trademark, not source secrecy (the same model GitLab and CockroachDB
 use). Imports are strictly **one-way**: `ee/` may import core, but **core may never
 import `ee/`**. CI enforces that, and a "core-only" build must compile and pass its
 tests with `ee/` absent from the link. At runtime, a commercial feature activates
-only when an **offline-verifiable, Ed25519-signed license file** grants it.
-Verification is local math against public keys baked in at build time — it
-**never phones home**.
+only when an **offline-verifiable, Ed25519-signed license file** grants it
+(Ed25519 is a modern public-key signature scheme: the vendor signs the license
+with a private key only it holds; the binary verifies with a public key it
+carries). Verification is local math against public keys baked in at build time
+— it **never phones home**.
 
 Why this shape? Three goals at once: keep the platform genuinely open and
 auditable; let a single binary serve both the free and paid cases without a
@@ -73,8 +75,10 @@ indicator. The exact validation claim boundary is in [`hardening.md`](hardening.
 ## The license file
 
 A license is a small JSON envelope: base64 of the exact signed payload bytes
-plus a detached Ed25519 signature (no JSON canonicalization games — the bytes
-that were signed are the bytes that are verified).
+plus a detached Ed25519 signature (no JSON canonicalization games — the same
+JSON can be serialized many byte-different ways, so probectl signs and verifies
+the *encoded bytes themselves*: the bytes that were signed are the bytes that
+are verified).
 
 ```json
 {
@@ -113,12 +117,15 @@ The claims inside:
 
 ## Trust anchor: build-time only
 
-Trusted public keys are **baked at build time** via ldflags into
-`internal/license.builtinPubKeysB64` (comma-separated base64 PEMs, so keys can
-rotate by baking two). The trust anchor is **never** an env var, config key,
-or file — otherwise anyone could point a build at their own key.
+Trusted public keys are **baked at build time** via ldflags — the Go linker's
+`-X` flag, which stamps a string value into a variable as the binary is linked —
+into `internal/license.builtinPubKeysB64` (comma-separated base64 PEMs, so keys
+can rotate by baking two). The trust anchor is **never** an env var, config key,
+or file — otherwise anyone could point a build at their own key. The lock is
+cast into the door at the factory; a key slot the operator could swap would let
+anyone bring their own lock.
 
-```
+```sh
 go build -ldflags "-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=<base64 PEM>[,<base64 PEM>]" ./cmd/probectl-control
 ```
 
@@ -131,7 +138,7 @@ shrug).
 
 Vendor-side tooling; never shipped in customer images.
 
-```
+```sh
 # 1) Generate the signing pair (private key 0600; prints the ldflags bake line)
 probectl-license gen-key -out-priv signing.key -out-pub signing.pub
 
@@ -206,7 +213,8 @@ behavior, not gating.)
 
 ## Unlicensed UX
 
-Commercial features are **hidden** when unlicensed — no lockware, no upsell
+Commercial features are **hidden** when unlicensed — no lockware (features
+rendered visibly locked mainly to advertise an upgrade), no upsell
 chrome. The single exception is **Admin → Editions** (`/v1/editions`, the
 `EditionsCard`): it renders the license state and the full feature→tier map
 so an operator can see what exists and what their file grants.

@@ -3,13 +3,17 @@
 The goal of this page: **upgrade probectl at scale without an outage, and be able
 to roll back at every step.** Four things make that possible, and the sections
 below are each one of them — the control plane is stateless replicas behind a load
-balancer, migrations are additive (expand/contract), the agent fleet rolls out
+balancer (the traffic distributor in front of them), migrations are additive
+(expand/contract), the agent fleet rolls out
 version by version, and nothing is irreversible until you choose to make it so.
 
-If you remember one rule, remember this one: during any rolling upgrade, the old
+If you remember one rule, remember this one: during any **rolling upgrade** —
+replacing replicas one at a time while the rest keep serving — the old
 release (N) and the new release (N+1) are *running side by side*, so everything
 they share — the database schema, the agent protocol — must work for both at once.
-Every constraint below falls out of that rule.
+It is resurfacing a bridge one lane at a time: traffic in both the old and new
+lanes keeps flowing throughout, so every intermediate state of the bridge must
+carry both. Every constraint below falls out of that rule.
 
 ## Rolling control-plane upgrade
 
@@ -32,12 +36,15 @@ flowchart LR
 
 1. Apply migrations first (they are additive, so they're safe for the
    still-running release N — see the next section).
-2. Roll replicas one at a time. On `SIGTERM`/`SIGINT` a replica **flips `/readyz`
+2. Roll replicas one at a time. On `SIGTERM`/`SIGINT` (the polite
+   please-shut-down signals) a replica **flips `/readyz`
    to `503 draining` immediately** — so the load balancer stops sending it new
-   requests — then drains its in-flight requests within `PROBECTL_SHUTDOWN_TIMEOUT`
+   requests — then drains its in-flight requests (finishes what it already
+   accepted, accepts nothing new) within `PROBECTL_SHUTDOWN_TIMEOUT`
    before exiting. (`/healthz` stays `200` the whole time: the process is still
    *serving*, it's just no longer *accepting* new traffic. The two probes mean
-   different things on purpose.)
+   different things on purpose — the lights are on, but the door sign says
+   Closed.)
 3. Bring up the replacement; it starts serving once `/readyz` is `200` — meaning
    the database is reachable and it's not draining.
 
@@ -46,7 +53,9 @@ same schema**, which the migration policy below guarantees.
 
 ## Migrations: expand/contract (the rollback contract)
 
-This is the heart of zero-downtime. A safe upgrade *and* a safe rollback both
+This is the heart of zero-downtime. A **migration** is a versioned SQL script
+that moves the database schema from one shape to the next; probectl's are
+sequential numbered files in `migrations/`. A safe upgrade *and* a safe rollback both
 require one thing: **release N's schema has to work with both N's code and N−1's
 code.** You get that by never making a destructive change in a single step.
 Instead you split it across two releases:
@@ -73,7 +82,9 @@ job: the checker in `internal/store/migrate` walks every embedded `*.sql` in
 Allowed (and used throughout): `CREATE TABLE/INDEX IF NOT EXISTS`, `ADD COLUMN IF
 NOT EXISTS …` (nullable or defaulted), `DROP POLICY`/`DROP INDEX`, `ADD CONSTRAINT
 … NOT VALID`, RLS enable/force. Migrations remain **idempotent** (safe re-run) and
-each applies in its own transaction under an advisory lock (one applier wins; the
+each applies in its own transaction under an advisory lock — a named,
+application-level Postgres lock, used here to elect exactly one migration
+applier when several replicas start at once (one applier wins; the
 rest find the schema already current).
 
 **Rollback** is then trivial: roll the replicas back to N. N's code already works
@@ -83,7 +94,9 @@ is deliberately deferred to a later release precisely so this stays true.)
 
 ## Agent version skew
 
-The control plane is the authority on whether an agent is compatible. At
+**Skew** is the version distance between two sides that must interoperate —
+here, the control plane and an agent, which inevitably differ mid-rollout. The
+control plane is the authority on whether an agent is compatible. At
 registration it compares the agent's version to its own using an **N/N−1 window**
 (`internal/lifecycle`):
 
@@ -109,7 +122,10 @@ upgrading the control plane never strands an agent that's one version behind.
 You don't push a new agent version to the whole fleet at once — you promote it
 **ring by ring**, watching health between rings. `internal/lifecycle` assigns each
 agent to a **cohort** by a stable hash of its id (stable so an agent never flaps
-between rings from one evaluation to the next): a small **canary** ring first,
+between rings from one evaluation to the next — the way students assigned to
+homerooms by surname always land in the same room): a small **canary** ring
+first (named for the coal-mine canary: it meets the new version first, so a bad
+release hurts a few percent of the fleet, not all of it),
 then **early**, then the **main** fleet. A `Rollout` carries the target version
 and a `Stage` that the operator advances one ring at a time:
 
@@ -119,7 +135,8 @@ flowchart LR
   S0[Stage 0: none] --> S1[Stage 1: canary] --> S2[Stage 2: + early] --> S3[Stage 3: all]
 ```
 
-`DesiredVersion(agentID)` returns the target version once that agent's cohort has
+`DesiredVersion(agentID, current)` returns the target version once that agent's
+cohort has
 been released, and the agent's current version otherwise. The cohort split is
 configurable (default 5% canary / 20% early, leaving the remaining ~75% as the
 main fleet). Note the boundary: this is the cohort + pace *model* plus the

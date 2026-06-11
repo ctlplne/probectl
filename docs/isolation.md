@@ -1,7 +1,9 @@
 # Tenant isolation models
 
 "Isolation model" answers a simple question: **how physically separate is one
-tenant's data from another's?** probectl offers three answers, and you can pick
+tenant's data from another's?** (A **tenant** is one isolated
+customer/organization sharing the deployment — the outermost security boundary
+in probectl.) probectl offers three answers, and you can pick
 per deployment *and* per tenant — a single install can run most tenants pooled
 and a few high-compliance ones siloed. This page covers the *models*; the
 storage-layer enforcement mechanics they all share (forced RLS, partition keys,
@@ -17,8 +19,22 @@ The mental model is a spectrum:
 - **Hybrid** — pooled control plane (the cheap, shared part) but a *per-tenant*
   ClickHouse database for the high-volume flow telemetry. A middle ground.
 
+As housing: pooled is an apartment building — one structure, a hard lock on
+every unit; siloed is a street of detached houses; hybrid is an apartment with
+a detached private garage for the bulky stuff (the flow telemetry). The
+spectrum trades cost and density against physical distance.
+
 Siloed and hybrid are `ee/` features, unlocked by the `siloed_isolation` license
 feature (an MSP-tier capability); pooled always works regardless of license.
+
+Reading the table needs three terms. **RLS** is Postgres Row-Level Security:
+the database itself appends an invisible tenant filter to every statement, so
+even an unscoped `SELECT` returns only the current tenant's rows — or nothing,
+when no tenant is bound. A **partition key** is the column ClickHouse uses to
+decide which physical chunk of disk a row lands in — partitioning by
+`tenant_id` keeps each tenant's rows physically grouped. The **bus** is the
+publish/subscribe message pipe between producers and the control plane; its
+named channels are **topics**.
 
 | Model | Postgres (control/config state) | ClickHouse (flows) | Bus topics | Object store |
 |---|---|---|---|---|
@@ -31,10 +47,13 @@ never *instead of* it.** A siloed schema still re-creates the
 `tenant_isolation` RLS policies, every transaction still binds the tenant setting,
 bus messages stay tenant-keyed, and every read is still tenant-scoped at the query
 layer. So even if routing sent a query to the wrong silo, the query would return
-*nothing* rather than another tenant's rows — the defenses stack, they don't
-replace each other.
+*nothing* rather than another tenant's rows — walking into the wrong house still
+leaves you facing a locked safe whose key you don't hold. The defenses stack,
+they don't replace each other.
 
-**Fail closed on routing — everywhere, including the bus.** The isolation router
+**Fail closed on routing — everywhere, including the bus.** ("Fail closed":
+when the system cannot prove the safe answer, it refuses the operation rather
+than guessing.) The isolation router
 (`ee/silo.Router`, installed at the editions attach seam) resolves each tenant's
 storage targets from the tenant registry. A routing **error fails the
 operation** — a siloed tenant is never silently downgraded to the pooled stores,
@@ -45,9 +64,11 @@ Bus lanes are no exception: if a siloed tenant's lane cannot be resolved when a
 result arrives, the control plane **drops that result with a loud error** rather
 than publishing it onto the shared topic
 (`internal/agenttransport/service.go`) — a siloed tenant's telemetry must never
-silently ride the shared lane. Availability comes from the *agent*, not from a
-fallback: the agent's store-and-forward buffer retries delivery, so a transient
-routing blip delays the data instead of mis-routing it.
+silently ride the shared lane. Think of a courier with an unreadable address
+label: the parcel goes back to the depot, never onto the public loading dock.
+Availability comes from the *agent*, not from a
+fallback: the agent's store-and-forward buffer (the depot) retries delivery, so
+a transient routing blip delays the data instead of mis-routing it.
 
 ## How each leg works
 
@@ -75,7 +96,9 @@ routing blip delays the data instead of mis-routing it.
 
 ## Residency: exactly what is and is not pinned
 
-This section is deliberately precise because **a residency claim you cannot back
+**Residency** is a legal or contractual constraint on *where* — which
+jurisdiction's hardware — data may be stored. This section is deliberately
+precise because **a residency claim you cannot back
 up is a compliance liability.** `PROBECTL_DATAPLANES` names the available planes
 (e.g. `eu=https://ch-eu:8123;us=https://ch-us:8123`); a siloed or hybrid tenant
 provisioned with `residency: eu` gets its ClickHouse database **created on and
@@ -98,7 +121,9 @@ Code-level scoping is the first line of defense — every flow/path query pins a
 `tenant_id`, and an unscoped call refuses with `ErrNoTenant`. But that only
 protects access *through probectl*. To also protect a tenant credential used
 *directly* against ClickHouse, `EnsureRowPolicies` installs **database-level row
-policies**: per shared table, a policy filtering every user to `tenant_id =
+policies** (a **row policy** is ClickHouse's analogue of Postgres RLS — a
+server-side filter attached to the table itself): per shared table, a policy
+filtering every user to `tenant_id =
 currentUser()` (by convention each per-tenant ClickHouse user is named exactly the
 tenant id), plus a permissive policy for probectl's own service account. So even
 someone holding a tenant's raw ClickHouse credentials cannot read another tenant's
@@ -110,7 +135,9 @@ gate exercises flowstore + pathstore against a *real* ClickHouse to prove it.
 Provisioning a tenant (`POST /provider/v1/tenants` with `isolation_model` +
 `residency`, or the console's Isolation selector) creates the isolated stores
 **before the call returns** — a siloed tenant never exists without its silo. A
-provisioning failure is loud, and because the DDL is idempotent the call is simply
+provisioning failure is loud, and because the DDL — the CREATE/ALTER/DROP class
+of SQL statements — is **idempotent** (safe to run twice; a second run finds the
+work already done), the call is simply
 re-runnable. Offboarding **tears the isolated stores down** (`DROP SCHEMA …
 CASCADE`, `DROP DATABASE`) — they are per-tenant containers, safe to drop. Pooled
 rows (a hybrid tenant's shared control state) are left untouched; their export and
@@ -128,7 +155,8 @@ missing tables (the same `LIKE` + RLS recipe), and adds any missing columns (an
 add-missing-columns covers every migration the gate allows. The rarer
 destructive "contract" phases (drops/renames) are run by the operator across
 silos. Catch-up runs **automatically at startup for every siloed tenant** and is
-idempotent, and per-tenant drift is computable (`DriftFor`) so the lag is always
+idempotent, and per-tenant **drift** — the gap between a silo's schema and the
+current `public` shape — is computable (`DriftFor`) so the lag is always
 *visible*, never silent. The window between a freshly-deployed replica writing a
 new `public` table and an old silo catching up is bounded by the deploy itself —
 roll the control plane, then let catch-up converge.

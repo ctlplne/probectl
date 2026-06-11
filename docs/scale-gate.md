@@ -2,8 +2,14 @@
 
 This is the test that proves probectl actually holds up at scale — not just that
 the unit tests pass. It drives the reference-architecture load profiles against
-explicit numeric SLOs, and critically it includes a **multi-tenant
-"noisy-neighbor" scenario**: a proof that one tenant hammering the system does not
+explicit numeric SLOs (an **SLO** — service-level objective — is a measurable
+promise, e.g. "publish p95 stays under 50 ms"; **p95** is the 95th-percentile
+latency, the experience of the slowest one-in-twenty request), and critically it
+includes a **multi-tenant
+"noisy-neighbor" scenario** ("noisy neighbor" is the cloud term for one
+tenant's load degrading another's experience — one person sprinting should not
+make every other treadmill in the gym drag): a proof that one tenant hammering
+the system does not
 degrade a quiet tenant's experience (no cross-tenant performance bleed). It is the
 same harness as the lighter perf smoke (`internal/perf`) — same drivers, just
 bigger shapes and stricter SLOs.
@@ -51,7 +57,9 @@ solo p95.
 The trick that lets this run reliably in CI: it runs **3 pairs and gates on the
 median pair**. Here's why that's robust. If the shared CI runner is slow
 host-wide, that slowness hits *both* halves of a pair, so the ratio
-self-normalizes. If there's a one-off stall, it poisons at most one pair, and the
+self-normalizes — like weighing yourself before and after lunch on the same
+miscalibrated scale: the scale's error cancels out of the *difference*. If
+there's a one-off stall, it poisons at most one pair, and the
 median absorbs it. Only *sustained* contention inflates every pair — and that
 still trips the gate. So CI can enforce the exact same documented floor as
 reference hardware, rather than a loosened one. The report records the median
@@ -96,9 +104,12 @@ The in-process gate above is fast but, by design, skips the real transports (see
 the honesty notes at the end). The full-stack harness (`internal/perf/fullstack.go`)
 closes that gap using the *same* tier profiles and SLOs, but end to end: synthetic
 agents publish through **real Kafka** (the async producer), the **production
-consumer** (retry/DLQ + cardinality caps) remote-writes into a **real
+consumer** (retry/DLQ — a **dead-letter queue**, the parking lot where a message
+that repeatedly fails processing is kept for inspection instead of being
+dropped — plus cardinality caps) remote-writes into a **real
 Prometheus**, and the run is then confirmed back *out* of the store with
-tenant-scoped PromQL — checking completeness, per-tenant scoping, and query
+tenant-scoped PromQL (Prometheus's query language) — checking completeness,
+per-tenant scoping, and query
 latency. Each run namespaces its own tenants, and the gate fails on any SLO
 violation, incomplete ingest, or scoping error.
 

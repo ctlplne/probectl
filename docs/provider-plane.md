@@ -1,6 +1,8 @@
 # Provider / management plane
 
-This is the operator surface an MSP (or an internal platform team) uses to run a
+This is the operator surface an **MSP** (a managed service provider — an
+organization that self-hosts probectl once and resells it to many customer
+tenants) or an internal platform team uses to run a
 *multi-tenant* probectl: provisioning and suspending tenants, watching
 fleet-wide health across all of them, and — under tight controls — reaching into
 a single tenant's telemetry. It lives in **`ee/provider`** and activates only when
@@ -10,26 +12,37 @@ plain 404: the feature is *hidden*, not locked behind an upsell wall.
 The single most important thing to understand: **a provider operator is a
 different kind of user from a tenant user, in a different security domain, and
 running a tenant gives an operator zero ability to read that tenant's data.**
-Everything below enforces that line.
+The operator is the landlord: the master key opens the boiler room and the
+breaker panel, never the tenants' filing cabinets. Everything below enforces
+that line.
 
 ## The privilege model
 
-Provider operators are not tenant users. They are a distinct privilege domain,
-with their own everything:
+Provider operators are not tenant users. They are a distinct **privilege
+domain** — a self-contained authentication world with its own accounts,
+sessions, and audit, whose credentials mean nothing in the tenant world (and
+vice versa) — with their own everything:
 
 - **Their own accounts** (`provider_operators`), **their own sessions** (a
-  separate cookie, `probectl_provider_session`, `SameSite=Strict`, a 4-hour TTL,
+  separate cookie, `probectl_provider_session`; `SameSite=Strict`, meaning the
+  browser refuses to attach it to any navigation that starts on another site, so
+  a malicious page cannot ride an operator's session; a 4-hour TTL,
   held in memory by design — a restart deliberately re-authenticates this
   high-privilege domain rather than persisting its sessions), and **their own
   tamper-evident audit chain** (`provider_audit_events`).
 - **Multi-factor auth is mandatory** — there is no password-only login. Every
   sign-in is email + password (hashed with PBKDF2-HMAC-SHA256, per NIST SP
-  800-132) **plus** a TOTP code (RFC 6238, the standard authenticator-app
-  6-digit code). TOTP secrets are envelope-sealed at rest, which is exactly why
+  800-132 — a deliberately *slow*, salted password hash, so a stolen database of
+  hashes resists brute force) **plus** a TOTP code (RFC 6238, the standard
+  authenticator-app
+  6-digit code). TOTP secrets are envelope-sealed at rest — encrypted under the
+  deployment's envelope key rather than stored readable — which is exactly why
   the provider plane refuses to even start without `PROBECTL_ENVELOPE_KEY`.
-- **Separation of duties.** Two roles: `admin` manages operators; `operator` runs
+- **Separation of duties** — the principle that no single account both grants a
+  power and wields it. Two roles: `admin` manages operators; `operator` runs
   tenant lifecycle and break-glass. An admin holds both. Disabling an operator
-  revokes their live sessions immediately, not at the next TTL.
+  revokes their live sessions immediately, not at the next TTL (**TTL** —
+  time-to-live, the lifespan after which a session or grant self-expires).
 - **No implicit read access to tenant telemetry — and this is enforced in the
   database, not just in handler code.** Every provider query runs as the
   `probectl_provider` Postgres role (via `tenancy.InProvider`). That role's only
@@ -74,7 +87,10 @@ on the provider audit stream with the acting operator's identity.
 ## Break-glass: the only path to tenant telemetry
 
 Since operators have no standing access to tenant data, "break-glass" is the one,
-narrow, heavily-controlled way in. A grant is **explicit, time-bounded,
+narrow, heavily-controlled way in. The name is the fire-alarm cover: access
+exists for genuine emergencies, but using it means visibly shattering the glass
+— it cannot be done quietly, and everyone can see it was done. A grant is
+**explicit, time-bounded,
 tenant-consented, operator-bound, and audited on every single access**:
 
 1. **An operator requests access** to a tenant: a reason (required) and a TTL
@@ -107,7 +123,8 @@ telemetry is never touched — expired is not the same as broken observability.
 The console lives at `/provider` in the web app and is a **deliberately
 visually-separate surface** — its own shell, a loud "PROVIDER PLANE — operator
 domain, no tenant context" banner, no tenant indicator, and no entry in the
-tenant navigation (it is marked `offNav` in the surface registry). The separation
+tenant navigation (it is marked `offNav` in the surface registry — the web
+app's machine-checked list of every screen and where it is reachable). The separation
 is intentional: an operator should never be able to confuse "I'm running the
 platform" with "I'm inside a tenant." Its source lives in **`ee/web/provider`**
 (the editions boundary applies to frontend code too — the `@ee` Vite alias,
@@ -130,7 +147,9 @@ mirrors the core OpenAPI gate — so the spec can't drift from the handlers. Cor
 mounts the whole surface as an **opaque `http.Handler`** via
 `Server.WithProviderPlane`, handed in from the `attachEE` seam
 (`cmd/probectl-control/ee_attach.go`, `//go:build !probectl_core`). Core never
-imports the provider package directly; it only ever sees an `http.Handler`, which
+imports the provider package directly; it only ever sees an `http.Handler` —
+Go's standard "thing that answers HTTP requests" interface, so core forwards
+requests without knowing any provider types exist — which
 is what keeps the "core never imports `ee/`" rule intact.
 
 ## Configuration

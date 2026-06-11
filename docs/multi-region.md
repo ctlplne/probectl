@@ -2,13 +2,20 @@
 
 probectl runs **active-active across regions** — but it's worth being precise
 about what that phrase does and does not mean here, because it's the source of
-most confusion about HA databases.
+most confusion about HA databases. (**HA** — high availability: the property
+that the service survives a machine, or here a whole region, dying.
+**Active-active** means every region serves real traffic all the time, as
+opposed to active-passive, where a standby region idles until disaster.)
 
 - The **control-plane tier is active everywhere**: every region runs
-  interchangeable, *stateless* control-plane and ingest replicas, all serving
+  interchangeable, *stateless* control-plane and ingest replicas — stateless
+  meaning a replica holds no durable data of its own, so any replica can serve
+  any request and killing one loses nothing — all serving
   traffic at the same time.
 - The **database is single-writer with read replicas**: durable state is one
-  PostgreSQL primary (the writer), with streaming replicas in the other regions.
+  PostgreSQL primary (the writer), with streaming replicas in the other regions
+  (**streaming replication** — the primary ships its write log to each replica
+  in near-real-time, so replicas trail it by seconds at most).
 
 That split is deliberate and it's the *honest* Postgres model. There is exactly
 one writable primary at any instant — which is the correct, conflict-free design
@@ -52,7 +59,8 @@ flowchart LR
     PGA -. "on failover: endpoint re-points; B's REPLICA is promoted to PRIMARY" .-> RLB
 ```
 
-- **Regional ingest:** agents connect to the nearest region (geo-DNS / their
+- **Regional ingest:** agents connect to the nearest region (**geo-DNS** — DNS
+  that answers each client with the nearest region's address — or their
   configured endpoint). Each region's replicas ingest locally; tenant-tagged
   data converges in the replicated stores. A region outage sheds its agents to
   the next-nearest region.
@@ -66,7 +74,10 @@ flowchart LR
 
 ## Replication model & RPO
 
-The Postgres replication mode sets the achievable RPO. probectl behaves
+**RPO** — recovery point objective — is the amount of just-committed data you
+can lose in a failover, measured in time: an RPO of five seconds means at most
+the last five seconds of writes may vanish. The Postgres replication mode sets
+the achievable RPO. probectl behaves
 identically either way — it is a deployment choice:
 
 | Mode (`PROBECTL_REPLICATION_MODE`) | RPO | Trade-off |
@@ -82,7 +93,9 @@ guarantee, run `sync` with at least one synchronous standby.
 
 "Split-brain" is the nightmare of any failover system: two nodes both believe
 they are the primary and both accept writes, silently diverging. probectl's
-defense is an app-layer fence that refuses to write unless the target is
+defense is an app-layer **fence** — *fencing* is refusing to let a
+possibly-confused node touch shared state — that refuses to write unless the
+target is
 *provably* the current primary. The control plane probes the writer endpoint
 every 5 seconds and **fails writes closed** (HTTP 503 `writer_unavailable`, with a
 `Retry-After`) whenever it can't prove that — while **reads keep serving** and
@@ -95,12 +108,17 @@ There are two specific failure modes it catches:
    failover. Detected directly by `pg_is_in_recovery()` returning true.
 2. **The writer endpoint points at a stale ex-primary** — an old primary that got
    partitioned off but is still in primary-role and would happily accept writes.
-   This is caught by a monotonic **promotion epoch** stored in the `cluster_state`
+   This is caught by a monotonic **promotion epoch** — *monotonic* meaning it only
+   ever increases — stored in the `cluster_state`
    table. Every promotion calls the `cluster_promote(region)` function, which bumps
    the epoch, and that new epoch replicates out to the standbys. A replica that
    already follows the *new* primary carries the higher epoch — so a writer
    endpoint still pointing at the *old* primary (lower epoch) is detected as stale
-   and fenced. Because the epoch is a monotonic high-water mark, a lower epoch can
+   and fenced. The epoch works like a reign number: each coronation increments
+   it, the new number propagates through the kingdom, and a decree stamped with
+   an old reign number is void on sight — an ex-king cannot resume ruling merely
+   because he still wears a crown. Because the epoch is a monotonic high-water
+   mark, a lower epoch can
    **never** reclaim the writer role.
 
 This fence is the application-layer complement to whatever failover controller you
@@ -109,7 +127,8 @@ resolves to the wrong node mid-flip, probectl will not write to it.
 
 ## RTO
 
-RTO = failover detection + standby promotion + writer-endpoint repoint +
+**RTO** — recovery time objective — is how long until writes flow again after a
+failure. Here, RTO = failover detection + standby promotion + writer-endpoint repoint +
 probectl re-probe (≤ one 5s cycle). The dominant terms are your Postgres
 failover controller's detection + promotion times. probectl resumes writes
 automatically on the next probe once the endpoint resolves to the promoted
