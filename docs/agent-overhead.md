@@ -14,18 +14,25 @@ live in different worlds:
 
 1. **Userspace pipeline** — `Observe → ServiceMap → Drain → protobuf → bus
    publish`: everything the agent does *per flow event* once the kernel has handed
-   the event up. This is pure Go and runs **everywhere**, so it's measured
-   everywhere, CI included, by `internal/ebpf/bench_test.go` under a defined
-   synthetic profile (50 destination peers × 8 ports, mixed ingress/egress, varied
-   sizes — the same shape the recorded fixtures replay). It reports CPU time (via
-   `Getrusage`), wall-clock throughput, and heap/RSS.
+   the event up. (**Userspace** is where ordinary programs run, outside the
+   privileged **kernel** core of the OS.) This is pure Go and runs **everywhere**,
+   so it's measured everywhere, CI included, by `internal/ebpf/bench_test.go`
+   under a defined synthetic profile (50 destination peers × 8 ports, mixed
+   ingress/egress, varied sizes — the same shape the recorded fixtures replay). It
+   reports CPU time (via `Getrusage` — the OS's own per-process accounting of CPU
+   seconds consumed), wall-clock throughput, and heap/RSS (**heap** is the memory
+   the Go runtime manages for the program's data; **RSS**, resident set size, is
+   the process's total physical-RAM footprint as the OS accounts it).
 
-2. **Kernel + ring buffer** — the BPF programs and the ring-buffer drain. This
-   half needs a **live kernel with real traffic**, so it can't be priced in
-   ordinary CI. Instead, CI proves the load/attach path works on real LTS kernels
-   (the `ebpf-kernel-matrix` job), and the live overhead numbers are taken on
-   **reference hosts** with the script below while driving a defined iperf3 / wrk
-   profile. (The reference-host rows are pending — see the table.)
+2. **Kernel + ring buffer** — the BPF programs and the drain of the **ring
+   buffer** (the fixed-size kernel→userspace event queue; see
+   [`ebpf-agent.md`](ebpf-agent.md)). This half needs a **live kernel with real
+   traffic**, so it can't be priced in ordinary CI. Instead, CI proves the
+   load/attach path works on real LTS kernels (the `ebpf-kernel-matrix` job), and
+   the live overhead numbers are taken on **reference hosts** with the script
+   below while driving a defined iperf3 / wrk profile (the standard load
+   generators: bulk TCP streams and HTTP requests, respectively). (The
+   reference-host rows are pending — see the table.)
 
 The split matters because the two halves have very different cost profiles, and
 conflating them would let a cheap userspace number hide an expensive kernel one
@@ -42,9 +49,12 @@ scripts/bench/agent_overhead.sh results.txt   # host context + benches + report
 `TestAgentOverheadReport` runs inside `make test` and **fails the build** if the
 userspace pipeline throughput drops below **20,000 events/s**. That floor is
 deliberately loose — roughly 20–40× below the real numbers — because CI runners
-are shared and noisy and `-race` runs many times slower than a plain build. The
-point isn't to measure performance precisely in CI; it's to catch a *regression*:
-if the pipeline suddenly does less than 20k/s, something got at least ~20× slower,
+are shared and noisy and `-race` (Go's race detector, which instruments every
+memory access and is many times slower by design) runs many times slower than a
+plain build. The point isn't to measure performance precisely in CI; it's to
+catch a *regression*. The floor is a smoke alarm, not a thermometer: it says
+nothing about how warm the kitchen is, but it cannot sleep through a fire — if
+the pipeline suddenly does less than 20k/s, something got at least ~20× slower,
 and that's a real change, not noise. A commit that makes the agent meaningfully
 heavier cannot land unnoticed.
 

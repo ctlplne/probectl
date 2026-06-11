@@ -18,25 +18,33 @@ kernel floor, the ring-buffer choice, or the Go-TLS limitation.
 ## 1. The short version
 
 **L3/L4 flow capture + a service map is well-trodden and portable** on modern
-kernels via CO-RE; the toolchain (`cilium/ebpf` + `bpf2go`, pure Go, no cgo) fits
-probectl's single-static-binary model. **L7-over-TLS is feasible but is the
-genuinely hard, partial-coverage part** — and **Go-encrypted traffic is its own
-sub-project**, not a library variant.
+kernels via CO-RE; the toolchain (`cilium/ebpf` + `bpf2go`, pure Go, no cgo —
+no C linked into the Go binary at build time, which is what keeps the agent a
+single static binary) fits probectl's single-static-binary model. **L7-over-TLS
+is feasible but is the genuinely hard, partial-coverage part** — and
+**Go-encrypted traffic is its own sub-project**, not a library variant.
 
 Three risks have to be **decided, not discovered**:
 
-1. **BTF-less kernels.** CO-RE needs a BTF-exposing kernel. Most current distros
-   ship it; some older/embedded ones do not. → a clean, decided "unsupported
-   kernel" degradation, never a crash. (The shipped agent degrades immediately
-   with the reason; the automatic BTFHub fallback this study floated was not
-   shipped — see §4.)
+1. **BTF-less kernels.** CO-RE needs a BTF-exposing kernel (**BTF**, the BPF
+   Type Format, is the kernel's machine-readable description of its own internal
+   data-structure layouts — §4). Most current distros ship it; some
+   older/embedded ones do not. → a clean, decided "unsupported kernel"
+   degradation, never a crash. (The shipped agent degrades immediately with the
+   reason; the automatic BTFHub fallback this study floated was not shipped —
+   see §4.)
 2. **The Go-runtime TLS problem.** Go's `crypto/tls` does not call OpenSSL, and
-   `uretprobe` is unsafe on Go binaries. Capturing Go plaintext needs binary
-   disassembly + goroutine tracking — a separate strategy from the `SSL_write`
-   uprobe used for C libraries.
-3. **Stripped / statically-linked binaries.** Uprobe symbol resolution fails
-   without symbols. → socket-layer plaintext only for those; document the gap per
-   service.
+   `uretprobe` — the return-side variant of a **uprobe**, the breakpoint-like
+   hook placed on a function in an ordinary userspace binary — is unsafe on Go
+   binaries. Capturing Go plaintext needs binary disassembly + goroutine
+   tracking — a separate strategy from the `SSL_write` uprobe used for C
+   libraries.
+3. **Stripped / statically-linked binaries.** *Stripped* means the symbol table
+   — the function-name → address index — was removed to shrink the binary;
+   *statically linked* means the TLS library was baked into the executable
+   instead of loaded as a shared `libssl.so`. Either way, uprobe symbol
+   resolution fails without symbols. → socket-layer plaintext only for those;
+   document the gap per service.
 
 None of these block L3/L4. Risks 1 and 3 are relevant only to the L7/TLS layer;
 the L4 capture path is unaffected by them.
@@ -71,8 +79,10 @@ stating plainly because they explain the build/runtime split:
   to the target kernel at load time.
 - **No-kernel CI is the norm.** Most CI runners (and macOS dev laptops) cannot
   load eBPF at all. So the tests split into (a) userspace flow-aggregation unit
-  tests that run anywhere, plus recorded-data fixtures, and (b) a privileged
-  load+attach integration test gated behind a real BTF-kernel CI runner.
+  tests that run anywhere, plus recorded-data **fixtures** (a fixture is a
+  captured sample of real output, replayed in tests in place of the live
+  source), and (b) a privileged load+attach integration test gated behind a real
+  BTF-kernel CI runner.
 
 macOS/Windows note: eBPF is **Linux-only**. On a Mac the agent runs inside a Linux
 VM — a documented constraint, not a gap.
@@ -83,9 +93,12 @@ VM — a documented constraint, not a gap.
 
 CO-RE ("Compile Once – Run Everywhere") compiles the program once against BTF type
 information and **relocates field offsets at load time** against the *target*
-kernel's BTF. The two hard requirements are **a BTF-exposing kernel** and **BPF
-ring-buffer support**; both are mainstream from **Linux 5.8** onward, with some
-distros backporting earlier.
+kernel's BTF. BTF is, in effect, the kernel's published floor plan: CO-RE
+compiles the program against a reference plan, and at load time re-aims every
+field access against the floor plan of the building it actually finds itself in
+— one shipped object, every supported kernel. The two hard requirements are **a
+BTF-exposing kernel** and **BPF ring-buffer support**; both are mainstream from
+**Linux 5.8** onward, with some distros backporting earlier.
 
 | Platform | Ships kernel BTF by default? | Ring buffer (≥5.8)? | Support |
 |---|---|---|---|
@@ -117,6 +130,12 @@ distros backporting earlier.
 
 ## 5. Capture mechanism: ring buffer vs perf buffer
 
+The kernel offers two mechanisms for streaming events up to userspace: the
+**ring buffer** — one shared, ordered, fixed-size queue all CPUs write into
+(MPSC: many producers, a single consumer) — and the older **perf buffer**, a
+separate queue per CPU, like a basket at every checkout lane that userspace must
+poll in turn and re-order afterwards.
+
 | | `BPF_MAP_TYPE_RINGBUF` (≥5.8) | `BPF_MAP_TYPE_PERF_EVENT_ARRAY` (older) |
 |---|---|---|
 | Shape | single MPSC buffer shared across CPUs | per-CPU buffers |
@@ -137,9 +156,12 @@ surfaces ring-buffer drops as `dropped_total`; see
 
 ## 6. L3/L4 flow capture — the mechanism
 
-The capture attaches to the **`sock:inet_sock_set_state` tracepoint** — a stable
-kernel ABI that carries the 5-tuple and the socket state **directly**, so the
-common path needs **no fragile CO-RE struct-field reads**. The program filters for
+The capture attaches to the **`sock:inet_sock_set_state` tracepoint** — a named
+hook point with a stable kernel ABI (application binary interface — its argument
+layout is a kernel compatibility promise, not an internal detail) that carries
+the **5-tuple** (source IP + port, destination IP + port, protocol — a
+connection's identity) and the socket state **directly**, so the common path
+needs **no fragile CO-RE struct-field reads**. The program filters for
 TCP sockets entering `ESTABLISHED` and emits `{pid, comm, saddr, daddr, sport,
 dport, family, state}` to the ring buffer. Userspace reads the ring buffer and
 folds events into directed **service edges**.
@@ -191,10 +213,15 @@ return.
 so the OpenSSL uprobe approach is **completely inapplicable**. Worse, `uretprobe`
 does not work reliably on Go binaries because of Go's stack management and ABI. The
 established technique is to **disassemble the target Go binary to locate `RET`
-instruction offsets and attach uprobes there**, extract arguments per the **Go
-register ABI (1.17+)**, and **track the goroutine ID** (goroutines aren't pinned
-1:1 to OS threads) via DWARF/offset tables. This is a meaningfully more brittle
-code path than the C-library case, with real Go-version sensitivity.
+instruction offsets and attach uprobes there** (entry-style probes placed at every
+point the function returns — sidestepping the unsafe `uretprobe` mechanism),
+extract arguments per the **Go register ABI (1.17+)** (the calling convention —
+which CPU registers carry a function's arguments — which Go changed in 1.17), and
+**track the goroutine ID** (a goroutine is Go's lightweight thread, multiplexed by
+the Go runtime across OS threads — so the OS thread ID can't correlate a call's
+request with its response) via DWARF/offset tables (DWARF is the debug-information
+format mapping binary offsets back to source-level names). This is a meaningfully
+more brittle code path than the C-library case, with real Go-version sensitivity.
 
 **The decisions for the L7/TLS layer:** ship the C-library uprobe path
 (OpenSSL/BoringSSL/GnuTLS) first; treat **Go-TLS as an explicitly-scoped,

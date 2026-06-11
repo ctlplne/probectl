@@ -2,10 +2,14 @@
 
 ## What it is, and why
 
-Real-user monitoring (RUM) exists to answer **one** question: when something
-breaks, are real users actually affected? Synthetic tests answer "can a robot
-reach it?"; RUM answers "are humans hurting?". probectl's value-add is joining
-the two — the *convergence verdict*, computed per (app, host):
+Real-user monitoring (RUM) measures what **actual visitors'** browsers
+experienced — load times, errors — as opposed to **synthetic** tests, which are
+scheduled robots probing on a timer. RUM exists to answer **one** question: when
+something breaks, are real users actually affected? Synthetics answer "can a
+robot reach it?"; RUM answers "are humans hurting?". probectl's value-add is
+joining the two — putting both witnesses on the stand and ruling on how their
+testimony lines up. That ruling is the *convergence verdict*, computed per
+(app, host):
 
 | Verdict | Meaning |
 |---|---|
@@ -24,10 +28,12 @@ plane — alerting and SLOs own those stories. The logic lives in
 
 ## The beacon contract (schema v1)
 
-`POST /ingest/rum` is mounted **outside** the session-authenticated API — same
-model as the change webhook. Each beacon authenticates *itself* with its **app
-key** and is bound to the key's configured tenant, never to whatever the payload
-claims. The key is an *identifier, not a secret*: it ships in page source like
+A **beacon** is one tiny, fire-and-forget HTTP POST a page sends as the user
+leaves it — named like the lighthouse flash: a single small signal, no session,
+no reply expected. `POST /ingest/rum` is mounted **outside** the
+session-authenticated API — same model as the change webhook. Each beacon
+authenticates *itself* with its **app key** and is bound to the key's configured
+tenant, never to whatever the payload claims. The key is an *identifier, not a secret*: it ships in page source like
 every RUM product's site key. It scopes and rate-limits the beacon; it grants no
 read access to anything.
 
@@ -41,8 +47,13 @@ read access to anything.
 
 `host` is the **join key** between the two planes: a synthetic http/browser test
 run against the same host is what completes the convergence. Vitals use
-web-vitals naming; stored attributes follow OpenTelemetry semantic-convention
-names where one exists (`url.path`, `browser.name`). A validated beacon is
+**web-vitals** naming — the standard set of browser user-experience timings:
+`ttfb_ms` (time to first byte), `fcp_ms` / `lcp_ms` (first / largest contentful
+paint — when the first thing, and the main thing, became visible), `cls`
+(cumulative layout shift — how much the page jumped around while loading;
+unitless), `inp_ms` (interaction to next paint — input responsiveness), and
+`load_ms` (full page load). Stored attributes follow OpenTelemetry
+semantic-convention names where one exists (`url.path`, `browser.name`). A validated beacon is
 normalized into probectl's **one canonical result schema** (with
 `canary_type: "rum"`) and published on the `probectl.rum.events` bus topic — so
 RUM rides the *existing* pipeline into the time-series database, and Grafana
@@ -59,7 +70,9 @@ and it assumes a hostile client. Enforcement is in `internal/rum/beacon.go`:
   trying to smuggle `user_id`, `email`, or `ip` *structurally* cannot ingest.
 - **URLs re-redacted server-side.** Query strings and fragments are stripped,
   and volatile path segments (numbers, UUIDs, long hex) collapse to `:id` — one
-  pass that buys both privacy and bounded page-group cardinality.
+  pass that buys both privacy and bounded page-group **cardinality** (how many
+  distinct series the time-series database must hold — un-collapsed URLs would
+  mint one per checkout number).
 - **No IP, no user agent stored.** The schema has nowhere to put them; `browser`
   is family-level only (`chrome` / `firefox` / `safari` / `edge` / `other`).
 - **Client clocks are untrusted** — the stored timestamp is the server's
@@ -72,9 +85,12 @@ and it assumes a hostile client. Enforcement is in `internal/rum/beacon.go`:
 
 The browser SDK is `web/public/probectl-rum.js` (under 2 KiB minified). It sends
 nothing until your consent hook calls `window.probectlRUM.consent()`, honors
-Do-Not-Track / Global Privacy Control by never arming, uses passive
-`PerformanceObserver`s plus one `sendBeacon` on `pagehide` (no performance tax),
-and transmits the page **path only**.
+Do-Not-Track / Global Privacy Control (the browser-level privacy signals) by
+never arming, uses passive `PerformanceObserver`s (the browser's built-in
+timing-event listener — it receives measurements the browser was already taking)
+plus one `sendBeacon` on `pagehide` (`navigator.sendBeacon` is the browser API
+built for exactly this: a tiny async POST the browser delivers even as the page
+is being torn down — no performance tax), and transmits the page **path only**.
 
 ```html
 <script src="https://probectl.example/probectl-rum.js"
@@ -95,18 +111,25 @@ The ingest endpoint treats every beacon as untrusted input
   attributed to the right tenant (the key is parsed leniently first, precisely
   for this).
 - **Size cap.** 16 KiB max; over that is a `413`.
-- **Rate limit.** A per-key token bucket; over the limit is a `429` with
-  `Retry-After`. (Set the limit to `0` to disable it.)
-- **CORS.** This endpoint is write-only and credential-less, so a wildcard
-  origin is safe and required — browsers post cross-origin from the customer's
-  own site. The SDK uses a `text/plain` `sendBeacon` to dodge the CORS preflight
-  entirely; an `OPTIONS` handler answers the rest.
+- **Rate limit.** A per-key **token bucket** — the classic rate limiter: each
+  key holds a bucket of tokens refilled at the configured per-minute rate, each
+  beacon spends one, and an empty bucket means wait; over the limit is a `429`
+  with `Retry-After`. (Set the limit to `0` to disable it.)
+- **CORS.** Cross-origin resource sharing — the browser's rules for which
+  sites' pages may call which endpoints. This endpoint is write-only and
+  credential-less, so a wildcard origin is safe and required — browsers post
+  cross-origin from the customer's own site. The SDK uses a `text/plain`
+  `sendBeacon` to dodge the CORS **preflight** entirely (the preflight is the
+  `OPTIONS` permission request browsers send ahead of cross-origin calls that
+  need it; `text/plain` is one of the content types exempt from it); an
+  `OPTIONS` handler answers the rest.
 
 ## Degradation semantics
 
 RUM is only called *degraded* with **≥ 20 views in the 15-minute window** AND
-(error rate ≥ 10% OR p75 LCP ≥ 4000 ms — the web-vitals "poor" line). A trickle
-of views is never called an outage. The synthetic side is *degraded* at ≥ 50%
+(error rate ≥ 10% OR p75 LCP ≥ 4000 ms — the web-vitals "poor" line; **p75** is
+the 75th percentile, the point three-quarters of views were faster than). A
+trickle of views is never called an outage. The synthetic side is *degraded* at ≥ 50%
 failures over ≥ 2 samples for the host (web-facing types only: `http`, `https`,
 `browser` — results real users could also hit).
 

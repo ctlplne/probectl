@@ -2,11 +2,15 @@
 
 ## What it is
 
-This is the canary that drives a **scripted multi-step transaction** — a login,
-a checkout — and reports per-step timings, a page-load **waterfall**, DOM/paint
-timings, and a **screenshot when it fails**. It's the heaviest test type
-(running a real browser is expensive), so it runs as a managed worker fleet that
-caps how many run at once, isolates each run, and recycles workers.
+This is the **canary** (probectl's name for one scheduled synthetic test type)
+that drives a **scripted multi-step transaction** — a login, a checkout — and
+reports per-step timings, a page-load **waterfall** (the per-request timing
+ladder: when each resource's DNS lookup, connection, TLS handshake, and first
+byte happened — a Gantt chart of the page load), **DOM/paint timings** (when the
+browser finished building the page's element tree, and when it put the first
+pixels on screen), and a **screenshot when it fails**. It's the heaviest test
+type (running a real browser is expensive), so it runs as a managed worker fleet
+that caps how many run at once, isolates each run, and recycles workers.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -32,11 +36,17 @@ changing anything else:
 | Screenshot | the failed page's HTML body | a visual PNG |
 | Runs | anywhere (incl. air-gapped, CI) | needs the Playwright image |
 
-The HTTPDriver makes transaction monitoring available *everywhere* and is fully
-unit-tested; the Playwright worker adds true rendering on top. The browser
-rendering is delegated to a separate worker process (over the `ExecDriver`
-contract) precisely to keep a whole browser *out* of probectl's single-binary
-agent.
+(**Playwright** is the browser-automation framework the worker is built on — it
+drives a real Chrome engine from code; **headless** Chromium is that engine run
+without a visible window.) The two drivers are a table read versus a full dress
+rehearsal: the HTTPDriver *reads the script* as raw HTTP — every request,
+timing, and status real, nothing rendered; the Playwright worker *stages it* in
+a real browser, adding what only rendering can show (DOM/paint timings, a
+visual screenshot). The HTTPDriver makes transaction monitoring available
+*everywhere* and is fully unit-tested; the Playwright worker adds true rendering
+on top. The browser rendering is delegated to a separate worker process (over
+the `ExecDriver` contract) precisely to keep a whole browser *out* of probectl's
+single-binary agent.
 
 ## Transaction script format
 
@@ -91,8 +101,9 @@ Because browser workers are CPU- and memory-heavy, the `Fleet`
 
 ## Screenshots → object store
 
-A failure artifact is uploaded to the pluggable **object store**
-(`internal/objectstore`) under a **tenant-prefixed key**
+A failure artifact is uploaded to the pluggable **object store** — a key → blob
+store: `Put` bytes under a string key, `Get` them back (`internal/objectstore`)
+— under a **tenant-prefixed key**
 (`tenant/<id>/browser/<script>-<ts>.png`), so one tenant's artifacts are
 isolated from another's at the storage layer (siloed tenants get their own
 prefix via isolation routing; a routing failure stores nothing — fail closed).
@@ -111,7 +122,9 @@ the store itself.
 The Playwright worker ships as `browser-worker/` — a `Dockerfile` built on the
 official Playwright image (Chromium + OS deps preinstalled), run as the image's
 non-root `pwuser`. The worker reads one Script as JSON on stdin and writes the
-Result as JSON on stdout; the fleet owns concurrency, isolation, and recycling.
+Result as JSON on stdout (the process's standard input and output pipes — no
+listening port, no API surface); the fleet owns concurrency, isolation, and
+recycling.
 Scale the worker fleet horizontally, separately from the control plane. CI runs
 the worker's real-browser smoke test (a scripted login against a local app)
 inside the Playwright image. For the surrounding stack — bringing up the control

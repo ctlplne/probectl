@@ -3,11 +3,12 @@
 ## What it is
 
 `probectl-endpoint` is a lightweight, cross-OS (Linux / macOS / Windows) agent
-that runs **on a user's own device** and measures the **last mile** — the part of
-the path that probectl's server-side canaries physically cannot see. Your data-
-center probes can tell you the service is up; they can't tell you that a
-particular remote employee's Wi-Fi is weak or their home ISP is dropping packets.
-This agent fills that gap.
+that runs **on a user's own device** and measures the **last mile** — the final
+stretch between that device and the wider internet (its Wi-Fi link, the home
+router, the ISP's access line): the part of the path that probectl's server-side
+canaries physically cannot see. Your data-center probes can tell you the service
+is up; they can't tell you that a particular remote employee's Wi-Fi is weak or
+their home ISP is dropping packets. This agent fills that gap.
 
 It captures four things from where the user actually sits — Wi-Fi link health,
 the local gateway, the ISP / last-mile path, and browser-session timings — and
@@ -42,6 +43,14 @@ flowchart LR
 | **Last-mile** | per-hop RTT/loss; derived local / ISP-edge / beyond segments | `traceroute -n` (Unix), `tracert -d` (Windows) |
 | **Session** | DNS / connect / TLS / TTFB / total to each target | Go `httptrace` over the hardened (cert-validating) client |
 
+(**RSSI** is received signal strength in **dBm** — decibels relative to one
+milliwatt; the values are negative and closer to zero is stronger, so −50 is
+excellent and −80 is weak. **RSRP / RSRQ / SINR** are the cellular equivalents.
+**RTT** is round-trip time. `traceroute` / `tracert` is the OS's own
+path-mapping tool — it elicits a reply from each router along the way, hop by
+hop. `httptrace` is Go's hook set that timestamps each phase — DNS, connect,
+TLS, first byte — of a real HTTP request.)
+
 Every metric is **best-effort**. A device with no Wi-Fi, or an OS that doesn't
 expose a given field, degrades that field to "unavailable" rather than reporting
 a false reading. A `Have.*` flag travels with each signal so the rest of the
@@ -64,7 +73,10 @@ wifi  →  local (gateway/LAN)  →  isp (access edge)  →  network (beyond)
 ISP, *and* session numbers that are all measured *through* that link. If you
 naively looked at the slow session and blamed "the network," you'd be wrong — the
 real fault is the user's Wi-Fi, and the downstream numbers are just collateral.
-Walking outward and stopping at the first impaired layer avoids that trap.
+It's checking your own tap before calling the water company: when the pressure
+is low at the tap, every reading downstream of it is low too, and the nearest
+fault owns the verdict. Walking outward and stopping at the first impaired layer
+avoids that trap.
 
 The verdicts (`endpoint.cause`):
 
@@ -92,8 +104,8 @@ person) and **gate the identifiers**.
 | Field | Default | Why |
 | ----- | ------- | --- |
 | SSID (network name) | collected | low sensitivity (the user's own network) |
-| **BSSID (AP MAC)** | **NOT collected** | geolocatable PII — public wardriving databases map BSSID → physical location |
-| Gateway IP (RFC1918) | collected | local, low sensitivity |
+| **BSSID (AP MAC)** | **NOT collected** | geolocatable PII — public wardriving databases map BSSID → physical location (**wardriving**: the long-running hobby of logging Wi-Fi access points with GPS, published in queryable databases — an AP's MAC resolves to a street address) |
+| Gateway IP (RFC1918) | collected | local, low sensitivity (RFC1918 = the private `10.x` / `172.16.x` / `192.168.x` ranges that never route on the public internet) |
 | **Public last-mile hop IPs** | **NOT collected** | reveal the user's ISP and geography; the per-hop RTT/loss is kept, only the IP is dropped |
 
 Two properties make this trustworthy:
@@ -115,11 +127,12 @@ Two properties make this trustworthy:
 | Last-mile path | `traceroute -n` | `traceroute -n` | `tracert -d` | unavailable |
 | Session timings | httptrace | httptrace | httptrace | (always available) |
 
-The per-OS readers are **build-tag gated** (`wifi_linux.go`, `wifi_darwin.go`,
-`wifi_windows.go`, `wifi_unsupported.go`, `netprobe_unix.go`,
-`netprobe_windows.go`), each defining `newPlatformWiFiCollector` /
-`newPlatformLastMileCollector` so the package **compiles on every OS** (the
-`endpoint-cross` CI build proves it). The pattern mirrors the eBPF and browser
+The per-OS readers are **build-tag gated** — build tags are Go's compile-time
+switches: each file carries an OS constraint and compiles only on that OS —
+(`wifi_linux.go`, `wifi_darwin.go`, `wifi_windows.go`, `wifi_unsupported.go`,
+`netprobe_unix.go`, `netprobe_windows.go`), each defining
+`newPlatformWiFiCollector` / `newPlatformLastMileCollector` so the package
+**compiles on every OS** (the `endpoint-cross` CI build proves it). The pattern mirrors the eBPF and browser
 layers: a fully-tested portable core with thin, gated platform edges — the
 fragile per-OS bit is small, and the **output parsers are portable and
 fixture-tested** on every platform.
@@ -129,7 +142,8 @@ fixture-tested** on every platform.
 A sample maps onto the canonical `canary.Result` envelope (`ToResults`), one
 result per signal, typed `endpoint.attribution` / `.wifi` / `.gateway` /
 `.lastmile` / `.session`. Numeric fields become Metrics (TSDB series);
-identifiers and labels become Attributes (OTel attributes — no cardinality
+identifiers and labels become Attributes (OTel attributes — kept out of the
+time-series keyspace, so identifiers can't mint unbounded series: no cardinality
 blow-up). The **attribution result is the headline**: its `endpoint.cause`
 attribute *is* the Wi-Fi / ISP / network verdict.
 
@@ -140,9 +154,10 @@ consumer group alongside `probectl.network.results`.
 
 ## Deploy
 
-Ship the single static binary to managed devices via your MDM (Intune, Jamf). It
-needs **no elevated privileges**: it uses the OS's own `traceroute` / `tracert`
-and read-only Wi-Fi queries. Point it at the bus (Kafka in a fleet, or the
+Ship the single static binary to managed devices via your **MDM** (mobile-device
+management — the fleet tool that pushes software and policy to managed laptops;
+Intune, Jamf). It needs **no elevated privileges**: it uses the OS's own
+`traceroute` / `tracert` and read-only Wi-Fi queries. Point it at the bus (Kafka in a fleet, or the
 lightweight in-memory bus for a single-node dev deploy) with a tenant id.
 
 First deployment? The cross-producer journey — control plane, bus, and each
@@ -159,8 +174,10 @@ verdict — not when the process starts.
   simpler and needs no raw sockets. A dedicated low-overhead gateway probe is a
   possible future refinement.
 - **Out of scope (by design):** full real-user monitoring (RUM) and deep packet
-  capture. For roaming devices behind NAT, a future option is to forward results
-  over the tenant-bound mTLS agent gRPC stream instead of the bus.
+  capture. For roaming devices behind NAT (network address translation — the
+  router trick that hides many devices behind one shared public address, which
+  also blocks connections inbound to them), a future option is to forward
+  results over the tenant-bound mTLS agent gRPC stream instead of the bus.
 
 ## The fleet surface
 

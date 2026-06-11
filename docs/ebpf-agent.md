@@ -14,15 +14,22 @@ with **zero instrumentation**:
 This is the shared host/L4 substrate the security, segmentation, and cost planes
 later build on. The single most important thing to understand about it: it is
 **observe-only**. It loads only *observation* programs and never *enforcement* —
-it watches, it does not block, redirect, or modify a single packet. probectl's
-eBPF layer is **not a CNI and not an inline IPS**. (This is a hard guardrail, and
-a build-failing test enforces it — see below.)
+it watches, it does not block, redirect, or modify a single packet. Think of a
+court stenographer: admitted into the room to record every word, never permitted
+to speak. probectl's eBPF layer is **not a CNI** (the Kubernetes networking layer
+that *routes* pod traffic) **and not an inline IPS** (an intrusion-prevention
+system that *drops* traffic it dislikes). (This is a hard guardrail, and a
+build-failing test enforces it — see below.)
 
-> **New to eBPF?** eBPF lets you load tiny, sandboxed programs *into the running
-> Linux kernel* that fire on kernel events (a socket changing state, a function
-> being called) and report what they saw back to userspace. It's how modern tools
-> see all network activity on a box without touching the applications. The kernel
-> verifies these programs can't crash or hang it before letting them run.
+> **New to eBPF?** The **kernel** is the privileged core of the operating system
+> — every packet, socket, and process on the host passes through it; **userspace**
+> is everything outside it, where ordinary programs run. eBPF lets you load tiny,
+> sandboxed programs *into the running Linux kernel* that fire on kernel events
+> (a socket changing state, a function being called) and report what they saw
+> back to userspace. It's how modern tools see all network activity on a box
+> without touching the applications — the kernel already sees everything, so a
+> program admitted into the kernel sees it too. The kernel verifies these
+> programs can't crash or hang it before letting them run.
 
 ## How it works — the path of a flow
 
@@ -44,12 +51,20 @@ flowchart LR
   AGG -. drops .-> DROPS["dropped_total metric"]
 ```
 
-1. **Kernel hook.** A CO-RE eBPF program attaches to the stable
-   `sock:inet_sock_set_state` tracepoint. Every time a TCP socket changes state,
-   the program runs. It keeps the ones entering `ESTABLISHED` and writes the
-   5-tuple plus the PID and command name into a **ring buffer**
-   (`internal/ebpf/bpf/l4flow.bpf.c`). Using a *tracepoint* (whose arguments carry
-   the tuple directly) instead of fishing fields out of kernel structs is
+1. **Kernel hook.** A CO-RE eBPF program (CO-RE, "Compile Once – Run
+   Everywhere", is the portability mechanism — see
+   [Kernel compatibility](#kernel-compatibility)) attaches to the stable
+   `sock:inet_sock_set_state` **tracepoint** — a named hook point the kernel
+   itself exposes, with a documented argument layout the kernel promises not to
+   break. Every time a TCP socket changes state, the program runs. It keeps the
+   ones entering `ESTABLISHED` and writes the **5-tuple** (source IP + port,
+   destination IP + port, protocol — the values that uniquely name a connection)
+   plus the PID and command name into a **ring buffer** — a fixed-size queue
+   shared between kernel and userspace, a conveyor belt of bounded length: the
+   kernel places events on one end, userspace lifts them off the other, and when
+   userspace falls behind, new events fall off and are *counted*, never silently
+   lost (`internal/ebpf/bpf/l4flow.bpf.c`). Using a *tracepoint* (whose arguments
+   carry the tuple directly) instead of fishing fields out of kernel structs is
    deliberate — it sidesteps per-kernel struct-layout drift for the common path.
 2. **Userspace read.** The Go **`liveSource`** (built on `cilium/ebpf`) drains the
    ring buffer.
@@ -73,9 +88,13 @@ The agent is split in two on purpose, so the bulk of it runs and is tested
   the **`FixtureSource`** (recorded flows replayed from JSON), which is also the
   no-kernel CI path.
 
-**Why split it this way?** The build host needs `clang`; the *target* host needs
-only a BTF-capable kernel and `CAP_BPF`. And most CI runners and macOS laptops
-can't load eBPF at all. By making the `-tags ebpf` files a separate, off-by-
+**Why split it this way?** The build host needs `clang` (the C compiler that
+produces BPF bytecode); the *target* host needs only a BTF-capable kernel
+(**BTF**, the BPF Type Format, is the kernel's machine-readable index of its own
+data-structure layouts — what CO-RE relocates against) and `CAP_BPF` (a Linux
+**capability**: one entry in the kernel's fine-grained permission list, granting
+exactly the right to load BPF programs rather than all of root). And most CI
+runners and macOS laptops can't load eBPF at all. By making the `-tags ebpf` files a separate, off-by-
 default compilation unit, the default `make build` and ordinary CI need **no eBPF
 toolchain and no extra dependency** — yet the shipped agent image is still the
 live build (see [Building](#building)).
@@ -84,7 +103,9 @@ live build (see [Building](#building)).
 
 Beyond raw connections, the agent can parse **application-protocol calls** —
 HTTP/1.1, HTTP/2, gRPC, DNS, and Kafka — and roll **per-call method / resource /
-status / latency** onto each service edge. Each call is emitted as an `L7Call`
+status / latency** onto each service edge. (**L7** is layer 7 of the network
+stack, the application layer: not "host A talked to host B" but *what they said*
+— the HTTP request, the DNS query, the Kafka produce.) Each call is emitted as an `L7Call`
 plus an `l7_*` rollup on the `ServiceEdge`. Parsing is pure Go and kernel-
 independent (`internal/ebpf/l7`), driven by the live capture layer in production
 and by an L7 fixture (`PROBECTL_EBPF_L7_FIXTURE_PATH`) in CI and demos.
@@ -92,10 +113,16 @@ and by an L7 fixture (`PROBECTL_EBPF_L7_FIXTURE_PATH`) in CI and demos.
 probectl gets the plaintext two ways:
 
 - **Cleartext traffic:** parsed straight from socket reads/writes.
-- **TLS traffic:** captured **before encryption / after decryption** via uprobes
-  on the TLS library's `SSL_write` / `SSL_read` — **no CA, no man-in-the-middle**.
-  (`SSL_read` is read at the *return* uprobe, because the destination buffer is
-  only filled when the call returns.)
+- **TLS traffic:** the **TLS plaintext** — the readable bytes that exist inside
+  the application just before encryption and just after decryption — is captured
+  via **uprobes** (user-space probes: breakpoint-like hooks placed on a named
+  function in an ordinary program or library) on the TLS library's `SSL_write` /
+  `SSL_read`. This reads the letter over the writer's shoulder before it's
+  sealed, and over the reader's after it's opened — it never steams open the
+  envelope in transit, so there is **no CA** (no certificate authority to forge
+  the server's identity with) and **no man-in-the-middle** (no interception
+  point inserted into the network path). (`SSL_read` is read at the *return*
+  uprobe, because the destination buffer is only filled when the call returns.)
 
 The OTel mapping (`internal/otel.L7CallAttributes`) emits `http.*` / `rpc.*` /
 `dns.*` / `messaging.*` attributes per protocol. Calls are attributed to the
@@ -131,15 +158,17 @@ Even for an allowlisted workload, payload bodies are redacted by default
 (`internal/ebpf/l7policy.go`). Redaction happens at two boundaries:
 
 - **The kernel capture window** (`l7_capture_kernel_window`, default 1024 bytes)
-  bounds how much plaintext per chunk may transit the ring buffer *at all* — body
-  bytes past the window **never leave kernel space**. The BPF policy map's zero
-  default is length-only, so an unprogrammed kernel ships **no** plaintext: it
-  fails closed.
+  bounds how much plaintext per chunk may transit the ring buffer *at all* — a
+  mail slot cut to a fixed height: only the first N bytes fit through, and what
+  doesn't fit isn't shredded after delivery — body bytes past the window **never
+  leave kernel space**. The BPF policy map's zero default is length-only, so an
+  unprogrammed kernel ships **no** plaintext: it fails closed.
 - **At the ring-buffer → userspace boundary**, on the only surviving copy, payload
   bodies are zeroed in place. This is `l7_capture_redaction: headers` (the
   default): protocol metadata (request line, headers) survives, the body is
   killed. (A consequence: HTTP/2 / gRPC call extraction is degraded under `headers`
-  redaction, by design — the HPACK frames live in the zeroed region.)
+  redaction, by design — the HPACK frames, HTTP/2's compressed header encoding,
+  live in the zeroed region.)
 
 The three redaction modes:
 
@@ -188,9 +217,12 @@ cleartext for those), and **Go-encrypted** traffic needs its own capture path.
 
 ## Privileges and the observe-only guarantee
 
-Loading the programs needs **`CAP_BPF` + `CAP_PERFMON`** (Linux ≥ 5.8) or, on
-older kernels, `CAP_SYS_ADMIN`. The capability probe and the enrichment lookups
-are read-only and need no privileges.
+Loading the programs needs **`CAP_BPF` + `CAP_PERFMON`** (Linux ≥ 5.8) — the
+load right and the attach right respectively: attaching tracepoints and uprobes
+goes through the kernel's performance-monitoring interface, which `CAP_PERFMON`
+governs. On older kernels the only available grant is the much broader
+`CAP_SYS_ADMIN`. The capability probe and the enrichment lookups are read-only
+and need no privileges.
 
 The observe-only guarantee is enforced in code, not just by convention. The agent
 attaches only tracepoints / kprobes / uprobes and calls no traffic-altering
@@ -225,19 +257,25 @@ kernel ring buffer for the live source; it's rounded at load to a valid power-of
 two page multiple (default 16 MiB). Raise it on high-flow hosts to reduce ring-
 buffer-full drops (which `dropped_total` will show you).
 
-**Kernel lockdown:** if the kernel runs in lockdown **confidentiality** mode, the
-`bpf()` syscall is blocked *even with* `CAP_BPF`. The capability probe reports this
-explicitly (`lockdown="confidentiality"`, mode unavailable) and a load attempt
-returns a clear message instead of a bare `EPERM`. Boot without
-`lockdown=confidentiality` (integrity mode is fine) to run the agent.
+**Kernel lockdown** is a hardening mode (commonly enabled alongside Secure Boot)
+that restricts what even a privileged process may do to the running kernel: if
+the kernel runs in lockdown **confidentiality** mode, the `bpf()` syscall — the
+one door every BPF load goes through — is blocked *even with* `CAP_BPF`. The
+capability probe reports this explicitly (`lockdown="confidentiality"`, mode
+unavailable) and a load attempt returns a clear message instead of a bare
+`EPERM`. Boot without `lockdown=confidentiality` (integrity mode is fine) to run
+the agent.
 
 ## Kernel compatibility
 
-CO-RE ("Compile Once – Run Everywhere") needs a **BTF-exposing kernel** and the
-**BPF ring buffer**, both mainstream from **Linux 5.8** — that pair is the hard
-floor. On a BTF-less kernel the capability probe reports eBPF **unavailable**
-(the reason string points at BTFHub as a manual avenue; no automatic external-BTF
-fallback ships today). The full matrix and distro coverage live in
+CO-RE ("Compile Once – Run Everywhere" — the program is compiled once, and the
+loader re-aims its memory reads against the *running* kernel's BTF at load time,
+so one shipped object fits every supported kernel) needs a **BTF-exposing
+kernel** and the **BPF ring buffer**, both mainstream from **Linux 5.8** — that
+pair is the hard floor. On a BTF-less kernel the capability probe reports eBPF
+**unavailable** (the reason string points at **BTFHub** — a public archive of
+pre-generated BTF files for older kernels that didn't ship their own — as a
+manual avenue; no automatic external-BTF fallback ships today). The full matrix and distro coverage live in
 [`ebpf-feasibility.md`](ebpf-feasibility.md). eBPF is **Linux-only**; on
 macOS/Windows, run the agent inside a Linux VM.
 
@@ -248,10 +286,14 @@ state — never a silent failure.
 ## Kernel-matrix CI
 
 Static checks aren't enough for kernel code, so the `ebpf-kernel-matrix` CI job
-actually **loads and attaches** every BPF program on real LTS kernels (digest-
-pinned `ghcr.io/cilium/ci-kernels` images) under QEMU via `vimto`. It runs the
-live smoke: l4flow tracepoint attach, sslsniff uprobe attach (consented + scoped),
-one full agent flush cycle, with object-digest verification on the load path.
+actually **loads and attaches** every BPF program on real LTS kernels (LTS —
+long-term support — the kernel lines distros actually ship; the images are
+digest-pinned, i.e. referenced by cryptographic hash rather than a floating tag)
+under **QEMU** — a machine emulator that boots a complete kernel inside an
+ephemeral VM — via `vimto`, a small tool that runs a Go test suite inside such a
+booted kernel. It runs the live smoke: l4flow tracepoint attach, sslsniff uprobe
+attach (consented + scoped), one full agent flush cycle, with object-digest
+verification on the load path. The images are `ghcr.io/cilium/ci-kernels`.
 
 The matrix is **5.15** and **6.6** on x86_64, **6.6 on arm64**, plus a **hardened
 entry** on x86_64 that raises kernel lockdown to **integrity** inside the
@@ -261,10 +303,12 @@ while the probe reports the mode truthfully (confidentiality is the blocking mod
 the test skips loudly if the CI kernel lacks the lockdown LSM — a secure-boot
 distro-kernel image is the remaining infrastructure gap).
 
-One arch nuance worth knowing: the live QEMU boot needs KVM for usable speed. The
-x86_64 runners have `/dev/kvm` and run the **full live load+attach**; the arm64
-runner (`ubuntu-24.04-arm`) has **no** KVM, and software emulation is too slow, so
-on arm64 the job **compiles and digest-verifies the BPF objects but skips the live
+One arch nuance worth knowing: the live QEMU boot needs KVM (the kernel's
+hardware-assisted virtualization, which lets the VM run at near-native speed
+instead of instruction-by-instruction emulation) for usable speed. The x86_64
+runners have `/dev/kvm` and run the **full live load+attach**; the arm64 runner
+(`ubuntu-24.04-arm`) has **no** KVM, and software emulation is too slow, so on
+arm64 the job **compiles and digest-verifies the BPF objects but skips the live
 boot**. That's still meaningful cross-arch coverage — it proves the arm64 objects
 build through the exact path operators use (`make ebpf-agent`) — but the live
 attach itself is exercised on x86_64. Bump the matrix when adopting a new LTS.
@@ -278,20 +322,23 @@ attach itself is exercised on x86_64. Bump the matrix when adopting a new LTS.
 
 **The shipped image is the live build.** Fixture mode is dev/test-only. The
 shipped agent image is the live `-tags ebpf` build: `deploy/docker/Dockerfile.ebpf`
-runs the same `bpf2go` + digest-generation path, and the release publishes
-`probectl-ebpf-agent` from it. The `ebpf-image-live` CI job extracts the binary
+runs the same `bpf2go` + digest-generation path (`bpf2go` is the `cilium/ebpf`
+generator that compiles the C with `clang` and embeds the resulting BPF object
+into Go source), and the release publishes `probectl-ebpf-agent` from it. The `ebpf-image-live` CI job extracts the binary
 from the built image and **fails unless its Go build metadata records
 `-tags=ebpf`** — so a fixture-only image cannot ship unnoticed.
 
 **Trust boundary (decided):** operator-supplied BPF objects are deliberately **not
 supported**. The chain is: source → `bpf2go` (pinned `clang`) → objects **embedded
 in the binary** → a SHA-256 manifest baked at the same build → `VerifyObjectDigest`
-before any kernel load → the binary/image **cosign-signed** at release. The release
-signature covers the objects + manifest *together*, so a swapped object can't ride
-a signed binary. A static gate (`TestNoOperatorSuppliedBPFObjectPath`) trips if
+before any kernel load → the binary/image **cosign-signed** at release (cosign is
+the Sigstore artifact-signing tool — the signature proves the artifact came from
+this repo's release workflow). The release signature covers the objects +
+manifest *together*, so a swapped object can't ride a signed binary. A static gate (`TestNoOperatorSuppliedBPFObjectPath`) trips if
 anyone adds a filesystem/env object-load path.
 
-The live build regenerates `vmlinux.h` from the running kernel's BTF, runs
+The live build regenerates `vmlinux.h` (a generated header containing the
+kernel's type definitions, dumped from its BTF) from the running kernel, runs
 `bpf2go`, and writes the SHA-256 manifest (`gendigests` → `bpf_digests_ebpf.go`)
 that the loaders verify before **any** kernel load — a tampered or stale object
 refuses to load. The `cilium/ebpf` loader dependency is already pinned in
@@ -319,10 +366,12 @@ agent-specific contract.
 
 ### Kubernetes
 
-The `deploy/helm/probectl-agent` chart deploys the agent as a **DaemonSet** with
-the privilege contract declared in the manifest: drop **all** capabilities and add
+The `deploy/helm/probectl-agent` chart deploys the agent as a **DaemonSet** (one
+pod per node — host-level capture needs an agent on every host) with the
+privilege contract declared in the manifest: drop **all** capabilities and add
 back only `CAP_BPF` / `CAP_PERFMON` (set `capabilityMode: legacy` for 5.4–5.7
-kernels → `CAP_SYS_ADMIN`), a seccomp profile (`RuntimeDefault`; point
+kernels → `CAP_SYS_ADMIN`), a **seccomp** profile (a kernel syscall filter — the
+process may invoke only the listed system calls; `RuntimeDefault`, or point
 `seccomp.type: Localhost` at the installed default-deny profile for tighter
 filtering), read-only root, the BTF host mount, and resource limits. Rendering
 **fails closed**: no `tenantID`, or plaintext kafka without the explicit
@@ -339,7 +388,8 @@ helm install probectl-agent deploy/helm/probectl-agent \
 (In Kubernetes the container runs as uid 0 with everything dropped except the
 minimal pair — Kubernetes grants added capabilities to root only, with no ambient-
 capability support. The VM unit below instead runs **fully non-root** via ambient
-capabilities.)
+capabilities — the Linux mechanism that lets a systemd service hand specific
+capabilities to a non-root process.)
 
 ### VM / bare metal
 

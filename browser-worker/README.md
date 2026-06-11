@@ -1,13 +1,19 @@
 # browser-worker
 
-The Playwright browser worker for probectl's browser/transaction synthetic. It
-runs **one transaction script** in headless Chromium (Playwright `1.55.1`) and
-emits a JSON `Result` — step timings, a resource waterfall, DOM/paint timings,
-and a PNG screenshot on failure. probectl's `internal/browser` Fleet invokes it
-(the `ExecDriver`), one process per run, and owns concurrency, per-run isolation
-(it kills the process on timeout), and worker recycling.
+The **Playwright** browser worker for probectl's browser/transaction synthetic —
+Playwright is the browser-automation framework that drives a real Chrome engine
+from code; **headless** means that engine runs without a visible window. The
+worker runs **one transaction script** in headless Chromium (Playwright
+`1.55.1`) and emits a JSON `Result` — step timings, a resource waterfall,
+DOM/paint timings, and a PNG screenshot on failure. probectl's
+`internal/browser` Fleet invokes it (the `ExecDriver`), one process per run, and
+owns concurrency, per-run isolation (it kills the process on timeout), and
+worker recycling.
 
 ## Contract
+
+The worker speaks plain process pipes — one JSON document in, one out; no
+listening port, no API surface:
 
 - **stdin**: the transaction Script JSON (`internal/browser/script.go`).
 - **stdout**: the Result JSON (`step` results, `waterfall`, `dom`, `screenshot_b64`
