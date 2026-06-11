@@ -60,8 +60,8 @@ build: ## Build all Go binaries into ./bin.
 build-fips: ## Build the FIPS 140-3 distribution artifact (S-EE1): validated Go Cryptographic Module (GOFIPS140) + the probectl_fips marker tag. The artifact is the gate — no runtime license check.
 	@mkdir -p $(BIN_DIR)
 	@for b in probectl-control probectl-agent; do \
-		echo ">> building $$b (FIPS 140-3, GOFIPS140=$(FIPS_MODULE))"; \
-		GOFIPS140=$(FIPS_MODULE) CGO_ENABLED=0 $(GO) build -trimpath -tags probectl_fips \
+		echo ">> building $$b (FIPS 140-3, GOFIPS140=$(FIPS_MODULE), GOTOOLCHAIN=local)"; \
+		GOTOOLCHAIN=local GOFIPS140=$(FIPS_MODULE) CGO_ENABLED=0 $(GO) build -trimpath -tags probectl_fips \
 			-ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$$b-fips ./cmd/$$b || exit 1; \
 	done
 	@echo "FIPS build OK -> $(BIN_DIR)/*-fips"

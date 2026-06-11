@@ -60,6 +60,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # DELIBERATELY 5 of the Makefile's 7 BINARIES: probectl-flow-agent and
+        # probectl-device-agent build from source (`make build`) and are fully
+        # documented (docs/deploying-agents.md) but are NOT published as release
+        # artifacts/images yet — unpublished on purpose until those planes get
+        # packaged install paths. Revisit at GA. Adding a component here is the
+        # whole change when that day comes.
         component:
           - probectl-control
           - probectl-agent
