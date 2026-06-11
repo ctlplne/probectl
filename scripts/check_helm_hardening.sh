@@ -76,14 +76,16 @@ for f in values-medium.yaml values-multitenant.yaml; do
   need "kind: PodDisruptionBudget" "$(render -f "$CHART/$f")" "$f missing PodDisruptionBudget"
 done
 
-# 5. Every profile lints clean.
-for f in values.yaml values-small.yaml values-medium.yaml values-large.yaml values-multitenant.yaml; do
+# 5. Every profile lints clean — EVERY values-*.yaml in the chart, so a new
+# profile can never ship un-linted by being forgotten here (the strict and
+# multiregion profiles once were).
+for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
   helm lint "$CHART" -f "$CHART/$f" \
     --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
     --set secrets.envelopeKey="$KEY" >/dev/null || fail "$f failed helm lint"
 done
 
-echo "helm hardening gate: OK (default + small/medium/large/multitenant)"
+echo "helm hardening gate: OK (default + every values-* profile)"
 
 # ── Agent chart (U-016): the eBPF agent's privilege contract is EXPLICIT ────
 AGENT="${AGENT_CHART:-deploy/helm/probectl-agent}"
