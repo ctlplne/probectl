@@ -2,8 +2,11 @@
 
 ## What it is
 
-Every time probectl's HTTP synthetic canary makes an HTTPS request, a TLS
-handshake happens, and that handshake *already tells you* the server's
+Every time probectl's HTTP synthetic canary makes an HTTPS request, a **TLS
+handshake** happens — the opening exchange of every HTTPS connection, in which
+the server presents its **certificate** (its signed identity document) and the
+two sides agree a protocol version and a **cipher** (the encryption suite).
+That handshake *already tells you* the server's
 certificate, TLS version, and cipher. The **TLS observability** layer harvests
 that information probectl has **already captured** and analyzes it for posture
 problems: certs about to expire, weak keys, deprecated TLS versions, untrusted
@@ -14,7 +17,9 @@ the live source. See the coverage caveat below.)
 The key design choice is in the name: it **observes**, it does not re-probe. It
 never opens a second connection or re-handshakes a target just to inspect the
 cert — that would be wasteful and would double the load on the very services
-you're watching. It reuses what the existing probe saw. This is the
+you're watching. It reuses what the existing probe saw, the way a doctor reads
+the X-ray already taken during the visit instead of ordering a second scan.
+This is the
 trustctl-adjacent security win: cheap, because the handshake came for free.
 
 ## How it works
@@ -35,10 +40,14 @@ The flow, step by step:
 
 1. **Capture.** The HTTPS canary records the TLS facts it observed during its
    normal handshake — the negotiated version and cipher, whether the chain
-   verified, and the leaf certificate's raw DER bytes — as result attributes
+   verified (i.e. whether the cert traces back to a trusted authority), and the
+   **leaf** certificate's (the server's own cert, the end of the chain) raw
+   **DER** bytes (the certificate's binary encoding) — as result attributes
    (`tls.protocol.version`, `tls.cipher`, `tls.server.verified`,
    `tls.server.cert`). The observation also carries `tls.ja3` / `tls.ja3s`
-   fingerprint fields when a capture source supplies them — the HTTPS canary
+   fingerprint fields when a capture source supplies them (**JA3** hashes a
+   *client's* handshake parameters into a fingerprint of the client software;
+   **JA3S** is the server-side counterpart) — the HTTPS canary
    does not emit them today.
 2. **Rehydrate, don't re-fetch.** `threat.FromCanaryAttributes` turns those
    attributes back into a `TLSObservation` — parsing the leaf DER into a real
@@ -71,19 +80,24 @@ traffic or sits inline. It tells you the cert is bad; acting on it is your call.
 
 A certificate finding is *actionable* — usually "renew or replace this cert" — so
 the analyzer builds a **trustctl handoff** payload: the cert's subject, issuer,
-SANs, serial, expiry, and the reason. When `PROBECTL_TRUSTCTL_URL` is set, it
+SANs (Subject Alternative Names — the hostnames the cert is valid for),
+serial, expiry, and the reason. When `PROBECTL_TRUSTCTL_URL` is set, it
 also assembles a one-click deep link
 (`<trustctl>/renew?domain=…&serial=…&reason=…`) carried in the signal
 attributes, so an operator can jump straight from "this cert is expiring" to the
-renewal flow in the sibling product.
+renewal flow in the sibling product — the finding arrives with the renewal form
+pre-filled.
 
 ## CT correlation (opt-in)
 
 When you enable it with `PROBECTL_CT_ENABLED=true`, probectl correlates a leaf's
-serial number against **Certificate Transparency** logs (crt.sh by default;
+serial number against **Certificate Transparency** (CT) logs — the public,
+append-only registries where every legitimately-issued certificate is supposed
+to be recorded (crt.sh by default;
 `PROBECTL_CT_ENDPOINT` overrides). A serial that CT has **never seen** is
-flagged as an info-severity *issuance anomaly* — a possible sign a cert was
-minted outside the normal pipeline.
+flagged as an info-severity *issuance anomaly* — like a person with no entry
+in the birth registry: not proof of forgery, but a possible sign the cert was
+minted outside the normal pipeline, and worth a look.
 
 It is **off by default** on purpose: it's an outbound fetch to a third party,
 which collides with the no-phone-home / sovereignty stance. When enabled it
@@ -103,7 +117,8 @@ things:
   inventory today.
 - The **eBPF L7** path (`source: ebpf`) is the designed-in second source: it
   would see **server-side** TLS by reading plaintext at the TLS library's
-  read/write calls. It is not wired into the posture pipeline yet — and when it
+  read/write calls, via **uprobes** — hooks attached to a userspace library's
+  functions. It is not wired into the posture pipeline yet — and when it
   is, it carries a structural blind spot: a **Go server terminates TLS inside
   the Go runtime**, not in a system TLS library probectl's uprobes attach to,
   so a Go server's TLS stays invisible to the eBPF path until Go-runtime

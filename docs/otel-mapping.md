@@ -4,9 +4,16 @@
 
 probectl is OpenTelemetry-native, and this file is the contract that makes that
 claim true: it lists, for every signal probectl produces, exactly which
-OpenTelemetry attribute each field becomes. The point of being OTel-native is
+OpenTelemetry attribute each field becomes. First, three words: an
+**attribute** is one key/value tag on a signal (`server.address=db1`); OTel's
+**semantic conventions** are its published dictionary of standard attribute
+names; and a **resource** is the attribute set describing *who produced* a
+signal (which agent, which tenant) rather than what it says. The point of
+being OTel-native is
 that probectl's internal schemas were modeled on OTel **resource** and
-**network** semantic conventions *from their first field* — so the OTLP layer
+**network** semantic conventions *from their first field* — the address written
+in the post office's format from the first letter, so nothing needs
+re-addressing at the border: the OTLP layer
 (see [`otlp.md`](otlp.md)) *exposes* probectl signals as OTLP instead of
 remapping a divergent model into it.
 
@@ -15,7 +22,10 @@ The discipline is enforced, not aspirational: a CI conformance test
 invents an attribute name where an OTel convention already exists. The allowed
 set is "OTel-standard names, plus the `probectl.*` namespace for things OTel
 has no convention for" — chiefly tenant/agent identity, since OTel defines no
-tenancy attribute. Each mapping function below registers its keys into that
+tenancy attribute. It works like radio phraseology: only words from the
+approved list may go on the air, and CI fails the checkride for an invented
+one. Each mapping file below registers its keys (an `init` in the file) into
+that
 shared `KnownAttributes` set, and the test rejects anything outside it.
 
 A quick orientation to the two namespaces you'll see:
@@ -56,14 +66,17 @@ standard tenancy attribute; everything else follows the OTel specification.
 ## TSDB metric / label schema (Prometheus / VictoriaMetrics)
 
 A probe Result becomes time series in `internal/pipeline` (`ResultToSeries`),
-which writes through `internal/store/tsdb`:
+which writes through `internal/store/tsdb` (a time series is one metric name
+plus one exact label combination, tracked over time):
 
 - `probectl_probe_success` — 1 on success / 0 on failure;
 - `probectl_probe_duration_seconds` — the probe duration in seconds;
 - `probectl_probe_<metric>` — one series per entry in `metrics{}`, with the key
   sanitized to a valid Prometheus name (e.g. `rtt.avg.ms` → `rtt_avg_ms`).
 
-**Labels** (deliberately cardinality-bounded): `tenant_id`, `agent_id`,
+**Labels** (deliberately cardinality-bounded — **cardinality** is the number of
+distinct values a label takes, and every new value mints a whole new series):
+`tenant_id`, `agent_id`,
 `canary_type`, `server_address`. `tenant_id` is a label in pooled mode; siloed
 mode uses per-tenant series, and query-time tenant scoping enforces isolation at
 the TSDB. High-cardinality per-hop / per-target detail belongs in ClickHouse,
@@ -97,9 +110,10 @@ One application-protocol call, captured before encryption. Mapping in
 | dns           | `dns.question.name`, `dns.response.code`                               |
 | kafka         | `messaging.system=kafka`, `messaging.operation.name`, `messaging.destination.name` |
 
-Plus `network.protocol.name` (the protocol itself) and `probectl.l7.encrypted`
-on every call (set when the call was captured via a TLS-library uprobe, i.e.
-plaintext read before encryption).
+Plus `network.protocol.name` (the protocol itself) on every call, and
+`probectl.l7.encrypted` when the call was captured via a TLS-library uprobe
+(a hook on a userspace library's functions — here, reading the plaintext
+before the library encrypts it).
 
 ## Device flow — NetFlow / IPFIX / sFlow (`probectl.flow.v1.FlowRecord`)
 
@@ -145,7 +159,9 @@ under `probectl.device.*` — and the metric *names* themselves
 BGP has no OTel semantic convention, so the routing signal uses the
 `probectl.bgp.*` namespace. Mapping in `internal/otel/bgp.go`
 (`BGPEventAttributes`): `probectl.bgp.event_type`, `.severity`, `.confidence`,
-`.prefix`, `.origin_asn`, `.peer_asn`, `.rpki_status`, `.collector`. The one
+`.prefix`, `.origin_asn`, `.peer_asn`, `.rpki_status` (RPKI is the
+cryptographic registry of which AS may originate which prefix), `.collector`.
+The one
 standard key it can reuse is the collector peer's address →
 `network.peer.address`.
 

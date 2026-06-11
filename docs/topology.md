@@ -3,13 +3,17 @@
 ## What this is
 
 A network has a *shape*: agents reach targets through a chain of router hops,
-services call other services, autonomous systems originate prefixes, devices
+services call other services, autonomous systems originate prefixes (an
+**autonomous system** is one independently-operated network, like an ISP; a
+**prefix** is the block of IP addresses it announces to the world), devices
 carry interfaces. `internal/topology` is probectl's live model of that shape — a
-**tenant-scoped**, **versioned (time-travelling)** graph that stitches together
+**tenant-scoped**, **versioned (time-travelling)** graph (a graph is just
+nodes — the things — and edges — who touches whom) that stitches together
 the signals the other planes already produce:
 
 - **path** discoveries (traceroute) → agent → hop → hop → host adjacency;
-- the **eBPF service map** → service → service call edges;
+- the **eBPF service map** (eBPF watches connections from inside the kernel) →
+  service → service call edges;
 - **BGP routing** events → autonomous-system → prefix origin edges;
 - **device telemetry** → device nodes (and device → hop links where the
   telemetry exposes interface IPs).
@@ -23,7 +27,9 @@ which back these services, which back these SLOs."
 ## Model
 
 A node and an edge each have a **kind** and a **stable id**, so the same router
-or service observed by two different planes folds into one vertex.
+or service observed by two different planes folds into one vertex — the id
+derives from the identity itself (a passport number, not a visitor badge), so
+every sighting lands on the same vertex.
 
 - **Nodes** (`NodeKind`): `agent`, `hop` (a traceroute responder / L3 hop),
   `host` (a path target), `service` (an eBPF workload), `prefix` (a BGP prefix),
@@ -41,7 +47,9 @@ or service observed by two different planes folds into one vertex.
 
 Every node and edge carries a **validity interval** `[FirstSeen, LastSeen]`.
 Re-observing an element extends its interval and merges its attributes, so the
-graph remembers *when* each thing existed — which is exactly what root-cause
+graph remembers *when* each thing existed. It is a ledger of sightings, not a
+photo that gets repainted — and replaying the ledger to any moment is exactly
+what root-cause
 analysis needs (the graph as it was at the incident moment, not as it is now).
 
 - `SnapshotAt(tenant, t)` returns the graph **as it was at time `t`**.
@@ -68,9 +76,10 @@ isolation is probectl's outermost boundary (see
 [`security/tenant-isolation.md`](security/tenant-isolation.md)).
 
 - `SnapshotAt(tenant, t)` / `Latest(tenant)` — the graph, or its state at `t`.
-- `Neighbors(tenant, nodeID, t)` — a node's adjacency at `t`.
+- `Neighbors(tenant, nodeID, t)` — a node's adjacency (the nodes touching it)
+  at `t`.
 - `Traverse(tenant, from, to, t)` — the shortest directed path between two nodes
-  (the traversal RCA walks).
+  (the traversal RCA — root-cause analysis — walks).
 - `Observe{Path,ServiceEdge,Routing,Device}(tenant, …, at)` — fold one plane's
   telemetry into the graph.
 
@@ -97,7 +106,8 @@ today — the device node still exists, but **without** links, and that gap is
 
 ## What-if / impact simulation
 
-`Simulate` answers: *"if node or link X fails, what breaks?"* It runs on a
+`Simulate` answers: *"if node or link X fails, what breaks?"* — a fire drill
+run on the floor plan, never the building. It runs on a
 snapshot of the versioned graph (a zero time = the live graph), removes the
 failed element, and recomputes reachability. Fail any node (`hop:…`, `service:…`,
 `as:…`, `prefix:…`, `device:…`, `agent:…`) or any edge (`from|kind|to`) and you
@@ -105,7 +115,9 @@ get:
 
 - **broken** agent→target paths — routes with no surviving alternative;
 - **rerouted** paths — with the surviving route returned alongside the original;
-- **impacted services** — the transitive callers of a failed service/host
+- **impacted services** — the transitive callers of a failed service/host:
+  walk the call arrows *backwards* and collect everyone that depends on it,
+  directly or through intermediaries
   (reverse reachability over `flow` edges);
 - **impacted prefixes** — prefixes a failed AS originated (a failed prefix is its
   own impact);
@@ -117,7 +129,9 @@ Two honesty rules matter. First, an **unknown target is an error**, never an
 empty "no impact" — a typo in a simulation must not look like a clean result.
 Second, simulation accuracy depends on graph completeness, so every result
 carries a **coverage block** — per-plane edge counts plus notes for missing
-planes ("no flow-plane (eBPF) edges — service impact may be incomplete"). The
+planes ("no flow-plane (eBPF) edges — service impact may be incomplete"). Read
+it like the station count printed on a weather forecast: trust the prediction
+in proportion to how many stations reported. The
 simulation is strictly **read-only**: it runs on a copy and never mutates the
 graph. Acting on a prediction is a separate, human-gated capability (see
 [`remediation.md`](remediation.md)) — probectl predicts, a human decides.
@@ -132,7 +146,8 @@ computes positions client-side, so the server stays layout-agnostic.
 
 `IndexedStore` implements the same `Store` contract as `MemoryStore`, but backs
 it with forward/reverse adjacency indexes, so `Neighbors` and `Traverse` are
-proportional to a node's degree instead of the whole edge set — the behaviour
+proportional to a node's degree (how many edges touch it) instead of the whole
+edge set — the behaviour
 large graphs need. The engine is selected by `PROBECTL_TOPOLOGY_ENGINE`
 (`indexed`, the default | `memory`); the switch is transparent behind the query
 API. A scale test exercises both correctness and interactivity at roughly 30k

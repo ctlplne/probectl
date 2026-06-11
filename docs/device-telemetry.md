@@ -12,10 +12,20 @@ the gear.
 One agent, `probectl-device-agent`, talks to network devices two ways and turns
 both into one shape:
 
-- **SNMP** (v2c or v3) — the agent *polls*: every interval it asks the device a
+- **SNMP** (the Simple Network Management Protocol, v2c or v3) — the agent
+  *polls*: every interval it asks the device a
   list of questions ("what's your uptime? how many bytes has port 7 sent?").
-- **gNMI / OpenConfig** — the agent *subscribes*: the device *streams* updates as
+  The questions come from **MIBs** (Management Information Bases — the
+  published catalogs of what a device can answer), and each question has an
+  **OID** — its numeric address in that catalog (sysUpTime lives at
+  `.1.3.6.1.2.1.1.3.0`).
+- **gNMI / OpenConfig** (the gRPC Network Management Interface, speaking the
+  vendor-neutral OpenConfig path schema) — the agent *subscribes*: the device
+  *streams* updates as
   they change, over a gRPC channel.
+
+The shape difference is a nurse doing rounds versus a wearable monitor: SNMP
+takes vitals on a schedule; gNMI reports the moment something changes.
 
 Either way, both transports are normalized into a single `DeviceMetric` with the
 **same metric names**, published to the bus, and landed in the time-series
@@ -61,7 +71,8 @@ if_name` (`source` is `snmp` or `gnmi`).
 
 **Why one model matters:** a counter like "interface 7 out-octets" should look
 identical whether a 15-year-old switch coughed it up over SNMP or a modern box
-streamed it over gNMI. Unifying at the *metric* layer means the rest of the
+streamed it over gNMI — two thermometers, one chart column. Unifying at the
+*metric* layer means the rest of the
 platform — alerting, AI, correlation — is written once.
 
 ### Graceful degradation over MIB variance
@@ -70,14 +81,20 @@ Not every device exposes every table. A cheap access switch may have no
 HOST-RESOURCES MIB (so no CPU/memory), or no sensor table. probectl handles this
 with **independent, best-effort table walks**: each walk fails on its own, so a
 device that lacks HOST-RESOURCES simply yields no CPU/memory samples — the rest
-still flow. Only an unreachable or mis-authenticated device (the system group
+still flow. Think of a survey whose sections are each optional: a skipped
+section yields blanks, not a voided form — only an unreachable respondent
+voids it. Only an unreachable or mis-authenticated device (the system group
 itself fails) fails the whole poll. You get partial truth instead of an all-or-
 nothing error.
 
 ## Correlation — tying device interfaces to the other planes
 
-A device interface is the join point between planes. Each SNMP poll also builds
-an **interface inventory**: for every interface, its `ifIndex`, `ifName` (falling
+A device interface is the join point between planes — the way a flight number
+joins the departure board, the baggage belt, and the crew roster. Each SNMP
+poll also builds
+an **interface inventory**: for every interface, its `ifIndex` (the interface's
+numeric slot on the device — the same number flow exports use), its `ifName`
+(falling
 back to `ifDescr`), and the IP addresses from `ipAddrTable`. The
 `device.Correlator` then joins the other planes on it:
 
@@ -99,7 +116,9 @@ secrets, and probectl treats them like the guardrails demand: **config files
 reference a credential by *name* only** — the secret material itself is resolved
 at runtime through `device.CredentialSource` and is **never written to config or
 git, and never logged** (the `Credential` type's `String()`/`GoString()` render
-as `credential(redacted)`).
+as `credential(redacted)`). Think coat check: the config holds only the
+ticket; the cloakroom — the environment today, a secrets backend later — holds
+the coat.
 
 The default source reads the environment. For a credential named `core-ro`
 (uppercased, with `-`/`.` mapped to `_`):
@@ -120,7 +139,8 @@ to start instead. The named-credential seam is also the integration point for a
 real secrets backend (Vault, CyberArk, a cloud KMS) plugging in later without
 touching any device config.
 
-A note for **FIPS deployments**: the SNMPv3 USM auth/privacy algorithms run
+A note for **FIPS deployments**: the SNMPv3 USM (User-based Security Model —
+SNMPv3's built-in authentication/encryption layer) algorithms run
 inside the SNMP library — they are protocol-mandated, exactly like a TLS
 handshake, not a probectl crypto path. SNMPv3's older MD5 and DES options are not
 FIPS-approved, so prefer SHA-2 + AES, or use gNMI over TLS.

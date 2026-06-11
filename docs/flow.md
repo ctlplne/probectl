@@ -6,15 +6,24 @@ Every router and switch can tell you, after the fact, *who talked to whom*: it
 summarizes the packets it forwarded into **flow records** (a 5-tuple — source IP,
 destination IP, source port, destination port, protocol — plus byte/packet
 counts) and ships them off the box. NetFlow, IPFIX, and sFlow are the three
-common wire formats for that export.
+common wire formats for that export: **NetFlow** is Cisco's original (v5 with a
+fixed layout, v9 template-based), **IPFIX** is the IETF standard that grew out
+of v9, and **sFlow** ships sampled raw packet headers instead of summaries.
 
-probectl's **flow plane** is the passive, after-the-fact view of real traffic —
-the complement to the active testing plane (synthetic probes the agent sends on
-purpose). Network gear exports flow records to a small collector,
-`probectl-flow-agent`; the collector decodes every format into one normalized,
-tenant-bound record; the control plane enriches and stores them in ClickHouse;
-and the API serves the three questions operators actually ask of flow data:
-*who are my top talkers, is a link filling up, and is anything anomalous?*
+If a synthetic probe is placing a test call yourself, a flow record is a line
+on the itemized phone bill: it can't tell you how the call *sounded*, but it
+tells you — for every call, after the fact — who talked to whom, when, and for
+how many bytes. probectl's **flow plane** is that bill: the passive,
+after-the-fact view of real traffic, the complement to the active testing
+plane (synthetic probes the agent sends on purpose). Network gear exports flow
+records to a small collector, `probectl-flow-agent`; the collector decodes
+every format into one normalized, **tenant-bound** record (a tenant is one
+isolated customer/organization in the deployment, and every record is stamped
+with its tenant before anything downstream sees it); the control plane
+enriches and stores them in ClickHouse (a column-oriented database built for
+high-volume event data); and the API serves the three questions operators
+actually ask of flow data: *who are my top talkers, is a link filling up, and
+is anything anomalous?*
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -53,24 +62,30 @@ IANA ports. Disable any listener you don't run.
 | sFlow v5   | `:6343`        | raw-packet-header samples, parsed Ethernet / 802.1Q / IPv4 / IPv6 / TCP / UDP far enough for the 5-tuple |
 
 **Templates (v9 / IPFIX).** Unlike v5's fixed layout, v9 and IPFIX describe
-their record shape in a *template* the exporter sends periodically; a data
-record is undecodable until its template arrives. Data that shows up before its
+their record shape in a *template* the exporter sends periodically — the legend
+mailed separately from the map: until the legend arrives, the symbols on a data
+record mean nothing, so the record is undecodable. Data that shows up before its
 template is counted as a **template miss** and dropped — the exporter re-sends
 templates on its refresh cycle, so the gap self-heals. Template state is keyed
-per `(exporter, observation domain)`, expires on a TTL (default 30m,
+per `(exporter, observation domain)` (the observation domain is the exporter's
+own sub-source ID — a line card or engine — so two engines on one box never mix
+templates), expires on a TTL (default 30m,
 `PROBECTL_FLOW_TEMPLATE_TTL`), and is size-capped (default 4096,
 `PROBECTL_FLOW_MAX_TEMPLATES`) so a hostile or misconfigured exporter cannot
 grow collector memory without bound.
 
 **Sampling.** High-rate links don't export every flow — they sample (say, 1 in
-1000) to keep export volume sane. A record that represents 1-in-N traffic would
+1000) to keep export volume sane, the way an exit poll asks one voter in a
+thousand and multiplies up. A record that represents 1-in-N traffic would
 undercount by Nx if you trusted its raw counters, so every `Record` keeps the
 **raw exported counters** *and* the sampling rate, and carries pre-scaled
 estimates (`bytes_scaled = bytes × rate`, `packets_scaled = packets × rate`)
-that all analytics read. The rate is sourced — in precedence order — from the v5
-header, the v9/IPFIX options-template sampler elements (information elements
-34 / 50 / 305), an inline element, or the sFlow sample itself. Unsampled traffic
-is rate 1, so scaling is always safe (it never multiplies by zero).
+that all analytics read. The rate comes from wherever each protocol declares
+it: the v5 header's sampling field; for v9/IPFIX, the options-template sampler
+elements (information elements 34 / 50 / 305) set a per-exporter rate, which an
+inline element on the record itself overrides; and an sFlow sample carries its
+own. Unsampled traffic is rate 1, so scaling is always safe (it never
+multiplies by zero).
 
 ## Normalized record and its OpenTelemetry names
 
@@ -90,7 +105,8 @@ signals rather than remapping them. The mapping (see
   `probectl.flow.interface.in` / `.interface.out`, `probectl.flow.sampling.rate`;
 - enrichment uses the ECS-aligned `source.as.number`,
   `source.as.organization.name`, `source.geo.country.iso_code` (and the
-  `destination.*` equivalents), because OTel has no AS/geo convention.
+  `destination.*` equivalents), because OTel has no AS/geo convention (ECS is
+  the Elastic Common Schema — another widely-used naming dictionary).
 
 ## Security posture
 
@@ -103,8 +119,9 @@ untrusted ingestion surface (see
   record counts and template state are capped, and malformed input is counted
   and dropped — never a panic in a production path;
 - the tenant on every record comes from the **collector's own tenant binding**
-  (its config / SPIFFE identity), never from anything the datagram claims — a
-  datagram cannot assert which tenant it belongs to;
+  (its config, or the SPIFFE workload identity on its client certificate),
+  never from anything the datagram claims — a datagram cannot assert which
+  tenant it belongs to;
 - deploy the collector **adjacent to its exporters** (management network / same
   site) so flow datagrams never cross an untrusted segment;
 - everything downstream of the collector rides the standard authenticated paths
@@ -114,7 +131,9 @@ untrusted ingestion surface (see
 
 ## Enrichment (opt-in)
 
-Raw flow records often lack the AS number and country of an IP. The
+Raw flow records often lack the AS number and country of an IP — the **AS**
+(autonomous system) being the independently-operated network an address
+belongs to, like "AS13335, Cloudflare". The
 control-plane consumer can fill `source.as.number` / `destination.as.number`,
 the AS organization name, and the ISO country code via the opendata enricher —
 but it is **opt-in** (`PROBECTL_FLOW_ENRICH_ASN=true`), because the Team Cymru
@@ -129,12 +148,15 @@ Records land in the ClickHouse table `probectl_flows`, created idempotently by
 the flow store (`internal/store/flowstore/clickhouse.go`):
 
 - `PARTITION BY (tenant_id, toYYYYMMDD(ts))` and
-  `ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr)` — the tenant leads
-  both keys, so a tenant-scoped read prunes at the storage layer (it never scans
-  another tenant's data, which is the tenancy guardrail enforced *below* the
-  query) and a single day's parts stay bounded even at NetFlow volumes;
+  `ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr)` — think one labeled
+  drawer per (tenant, day): because the tenant leads
+  both keys, a tenant-scoped read prunes at the storage layer — it opens only
+  that tenant's drawers and never scans another tenant's data (the tenancy
+  guardrail enforced *below* the
+  query) — and a single day's parts stay bounded even at NetFlow volumes;
 - `PROBECTL_FLOW_RETENTION_DAYS=N` (when > 0) applies a ClickHouse delete-TTL
-  (`toDateTime(ts) + INTERVAL N DAY DELETE`);
+  (`toDateTime(ts) + INTERVAL N DAY DELETE` — a time-to-live: ClickHouse
+  deletes expired rows itself);
 - a `memory` store (the default) implements the same `Store` contract for the
   lightweight / single-node deploy, and is the reference implementation the
   ClickHouse SQL must agree with (the two share one anomaly detector, so both
@@ -163,13 +185,17 @@ GET /v1/flows/anomalies?window=1h&bucket=3m&k=3&min_bps=1000
   by the requested key and returns the highest contributors (`limit` defaults to
   10, capped at 1000). `by=pair` groups source→destination; `by=src_asn` /
   `dst_asn` group by enriched AS number.
-- **Capacity** buckets per-`(exporter, interface)` throughput into bps/pps over
+- **Capacity** buckets per-`(exporter, interface)` throughput into bps/pps
+  (bits per second / packets per second) over
   time. `direction` selects which interface (ingress/egress) to group by
   (default `in`); `bucket` defaults to `window/20`, with a one-minute floor.
 - **Anomalies** runs the capacity series through a baseline detector: for each
   interface, the latest bucket is compared against the mean + `k`·stddev of its
-  *own* preceding buckets (it needs at least three baseline buckets plus the one
-  under test). `k` defaults to 3 and `min_bps` to 1000 (so tiny links don't
+  *own* preceding buckets — each link is judged against its own history, never
+  against other links (stddev is the standard deviation, the usual measure of
+  how much a series wobbles; `k` is how many wobbles above normal counts as
+  anomalous). It needs at least three baseline buckets plus the one
+  under test. `k` defaults to 3 and `min_bps` to 1000 (so tiny links don't
   trip). The same detector runs over both store backends.
 
 ## Operations
@@ -180,8 +206,10 @@ GET /v1/flows/anomalies?window=1h&bucket=3m&k=3&min_bps=1000
   templates. probectl observes probectl.
 - **High-volume tuning.** Raise `PROBECTL_FLOW_READ_BUFFER_BYTES` (the kernel
   socket buffer that absorbs bursts) and `PROBECTL_FLOW_WORKERS` (readers per
-  socket) first. Queue overflow is *counted*, not back-pressured: on a UDP
-  reader, back-pressure only moves the drop into the kernel, so probectl drops
+  socket) first. Queue overflow is *counted*, not back-pressured: UDP has no
+  brakes — senders never wait — so on a UDP
+  reader, back-pressure only moves the drop into the kernel, where it's
+  invisible. probectl drops
   visibly and keeps a counter instead.
 - Decode throughput is gated in CI (`TestHighVolumeDecode`, with a deliberately
   conservative 50k records/s floor so slow runners stay green; real hardware is

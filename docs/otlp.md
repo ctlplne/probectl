@@ -3,14 +3,18 @@
 ## What this is
 
 OTLP (the OpenTelemetry Protocol) is the standard wire format for shipping
-telemetry — metrics, traces, and logs — between systems. Because probectl's
+telemetry between systems. It carries three signal types: **metrics** (numeric
+measurements over time — counters, gauges), **traces** (the tree of timed
+**spans** — one span per operation — that a single request leaves behind as it
+crosses services), and **logs** (timestamped text records). Because probectl's
 internal signal schemas already follow OpenTelemetry conventions (see
 [`otel-mapping.md`](otel-mapping.md)), it can speak OTLP in both directions
 without a translation layer:
 
 - a **receiver** (`internal/otel/otlp`) — a TLS-only, authenticated,
   tenant-scoped endpoint that ingests all three OTLP signals, so a stock
-  OpenTelemetry Collector or an OBI agent can push straight into probectl;
+  OpenTelemetry Collector (the standard relay daemon most OTel pipelines
+  already run) or an OBI agent can push straight into probectl;
 - an **exporter** — emits probectl's own signals as OTLP metrics to an external
   collector;
 - the **conversion** between probectl signals and OTLP `ResourceMetrics`, built
@@ -26,17 +30,24 @@ store (see "Deliberate bounds" below).
 - **Conventions.** OTel resource + network semantic conventions on every signal
   in every plane ([`otel-mapping.md`](otel-mapping.md)); eBPF capture follows the
   OBI model.
-- **OTLP ingest (all three signals).** gRPC `MetricsService` + `TraceService` +
+- **OTLP ingest (all three signals).** gRPC (the HTTP/2-based RPC protocol)
+  `MetricsService` + `TraceService` +
   `LogsService`, and HTTP `POST /v1/metrics` + `/v1/traces` + `/v1/logs` — each
   authenticated, tenant-scoped server-side, and bounded. Ingested **metrics**
-  land in the TSDB; **traces + logs** land in the otelstore (memory, or
+  land in the TSDB (the time-series database); **traces + logs** land in the
+  otelstore (memory, or
   ClickHouse with `(tenant_id, day)` partitioning + a retention TTL) and are
   queryable, tenant-scoped, at `GET /v1/otlp/traces` and `GET /v1/otlp/logs`. A
   standard OTel Collector exports straight to the receiver — there's a reference
   config at `deploy/otel-collector/config.yaml`.
-- **OTLP export.** Metrics only. Re-exporting ingested traces/logs is not a goal.
+- **OTLP export.** Metrics only. Re-exporting ingested traces/logs is not a goal
+  — probectl's own signals are metric-shaped, and replaying other systems'
+  traces/logs back out would make probectl their store of record, the exact
+  role the bounds below refuse.
 - **Deliberate bounds.** probectl ingests traces + logs for **correlation** —
-  bounded attributes, capped bodies, retention-limited. It is **not** an APM /
+  bounded attributes, capped bodies, retention-limited. It keeps the receipts,
+  not the warehouse: enough of each span and log line to join evidence across
+  planes, never the full archive. It is **not** an APM /
   distributed-tracing replacement and **not** a log-analytics store. probectl
   claims three-signal OTLP ingest with exactly those bounds — and no more.
 
@@ -55,11 +66,17 @@ missing makes it **fail closed**.
   OpenAPI surface even though two of them happen to start with `/v1`.
 - **TLS.** The gRPC server refuses to start without a TLS config; the HTTP
   handlers are served over an HTTPS listener. No plaintext OTLP, ever.
-- **Auth.** A bearer token (`Authorization: Bearer <token>`) maps to a tenant via
+- **Auth.** A **bearer token** — a secret string that grants access to whoever
+  carries it, hence the name — sent as `Authorization: Bearer <token>` maps
+  to a tenant via
   `PROBECTL_OTLP_TOKENS`. Missing/invalid → gRPC `Unauthenticated` / HTTP `401`.
-  mTLS / SPIFFE is the stronger option; the transport already requires TLS
+  mTLS / SPIFFE (mutual TLS, where the client presents a certificate too;
+  SPIFFE is the workload-identity standard for those certs) is the stronger
+  option; the transport already requires TLS
   regardless.
-- **Tenant scoping.** The authenticated tenant *is* the scope. A resource that
+- **Tenant scoping.** The authenticated tenant *is* the scope — the token works
+  like a hotel keycard: whatever floor a guest claims, the card only ever opens
+  their own. A resource that
   names a **different** tenant is rejected (`PermissionDenied` / `403`); a
   resource with **no** tenant is **stamped** with the authenticated one (the
   `probectl.tenant.id` resource attribute). The same enforcement applies
@@ -83,7 +100,8 @@ validation** if an address is set without TLS + tokens.
 Bearer tokens map to tenants (`PROBECTL_OTLP_TOKENS=token=tenant,...`). The
 comparison is **constant-time over a SHA-256 of the token**: the authenticator
 keeps only the hash (never the plaintext after construction) and checks *every*
-configured token without an early exit, so neither a near-miss nor the matching
+configured token without an early exit — it tries every key on the ring even
+after one fits — so neither a near-miss nor the matching
 token's position can leak through timing (`internal/otel/otlp/auth.go`).
 
 **Rotate** without downtime by running two tokens during the migration: add the
@@ -110,7 +128,10 @@ uses internally.
 
 ## OBI (OpenTelemetry eBPF Instrumentation)
 
-probectl's eBPF flow/L7 signals already follow the OTel network conventions
+**eBPF** lets a program observe the kernel's network and library activity from
+inside the kernel, without touching application code; **OBI** is
+OpenTelemetry's instrumentation agent built on it, emitting standard OTLP.
+probectl's own eBPF flow/L7 signals already follow the OTel network conventions
 (`source.*` / `destination.*` / `network.*` / `http.*` / `rpc.*`), so **OBI's
 OTLP output is ingested by the receiver without a translation shim** — probectl
 integrates OBI rather than forking it, and the eBPF signals probectl exports are

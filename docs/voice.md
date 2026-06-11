@@ -4,14 +4,21 @@
 
 The **`voice` canary** answers one question: *if you placed a phone call across
 this path right now, how good would it sound?* It does that not by guessing from
-ping times, but by sending **real RTP packets** — the same packet format and
+ping times, but by sending **real RTP packets** (RTP — the Real-time Transport
+Protocol — is what virtually all VoIP audio rides in) — the same
+packet format and
 timing a softphone uses — to a target that echoes them back, then scoring the
-echoes the way a phone's own quality meter would.
+echoes the way a phone's own quality meter would. The probe is a stunt double
+for a call: dressed exactly like one (packet size, 20 ms cadence, QoS
+marking), so the network treats it like one — but nobody is talking.
 
 From those echoes it computes three numbers operators recognize:
 
 - **MOS** (Mean Opinion Score, 1.0–4.5) — the headline "call quality" score,
-  derived from the ITU-T G.107 **E-model**.
+  derived from the ITU-T G.107 **E-model** (the standard formula for
+  predicting how listeners would rate a call from measurable impairments —
+  delay, loss, codec) by mapping its **R-factor**, a 0–100
+  transmission-quality rating, onto the familiar opinion scale.
 - **Jitter** — how unevenly packets arrived (RFC 3550 interarrival estimator).
 - **Packet loss** — how many of the RTP packets never came back.
 
@@ -35,6 +42,12 @@ POST /v1/tests
 | `duration_seconds` | `3` | simulated call length (1–10 s; the codec sends 50 packets/s) |
 | `dscp` | `46` | DSCP marking (EF = 46 by convention for voice) |
 
+A **codec** is the voice encoder: G.711 is the uncompressed classic (bigger
+packets, robust to loss; PCMU is its μ-law variant), G.729 the compressed one
+(smaller packets, more sensitive to loss). **DSCP** (Differentiated Services
+Code Point) is the priority tag in the IP header; **EF** (Expedited
+Forwarding, value 46) is the class real voice conventionally rides.
+
 The target must **echo the UDP datagrams** back — that can be a probectl agent
 acting as a responder, or any plain UDP echo service. A target that does *not*
 echo shows up as **100% loss** and an explicit *"voice path unmeasurable"*
@@ -46,11 +59,13 @@ The canary opens a UDP connection and, for the configured duration, streams
 RTP-framed packets at the codec's cadence:
 
 1. **Frame and send.** Each packet carries a real RTP header (version 2, the
-   codec's payload type, a per-packet sequence number, and an 8 kHz timestamp)
+   codec's payload type — its registered RTP number — a per-packet sequence
+   number, and an 8 kHz timestamp, the narrowband audio clock)
    followed by a payload of the codec's size. For G.711 that's a 12-byte header +
    160-byte payload every 20 ms — exactly 50 packets per second.
 2. **Match the echoes.** A reader goroutine receives the reflected packets and
-   matches each one to the packet it sent, keyed by the stream's SSRC and the RTP
+   matches each one to the packet it sent, keyed by the stream's SSRC (the
+   random stream ID stamped in every RTP header) and the RTP
    sequence number. The send time and the receive time of every matched packet
    are recorded.
 3. **Score from the round-trips.** From those send/receive pairs the canary
@@ -74,14 +89,19 @@ runs, and what each piece assumes:
   baseline).
 - **Delay impairment** `Id = 0.024·d + 0.11·(d − 177.3)·H(d − 177.3)` — the G.107
   delay curve, with its characteristic 177.3 ms "knee" past which delay hurts much
-  more. The one-way delay `d` is **estimated** (you can't measure one-way delay
+  more: the satellite-call threshold, below which delay is barely felt and past
+  which people start talking over each other. The one-way delay `d` is
+  **estimated** (you can't measure one-way delay
   from an echo) as `RTT/2 + codec delay + a modeled jitter buffer` — and the
-  result discloses that estimate (`voice.one_way_estimate`). The jitter buffer is
+  result discloses that estimate (`voice.one_way_estimate`). The **jitter
+  buffer** — the small reservoir a real phone uses to smooth uneven packet
+  arrival into steady audio, at the price of added delay — is
   modeled as twice the measured jitter, floored at 40 ms and capped at 120 ms,
   matching what a real endpoint would add.
 - **Loss impairment** `Ie,eff = Ie + (95 − Ie)·Ppl/(Ppl + Bpl)` — using the G.113
   codec parameters (`g711`: Ie 0, Bpl 25.1; `g729`: Ie 11, Bpl 19) under a
-  random-loss assumption.
+  random-loss assumption (losses spread out, not bursty — bursty loss degrades
+  real calls more than this formula credits).
 - **MOS** is mapped from R via the G.107 Annex-B cubic, clamped to a 1.0 floor and
   a 4.5 ceiling.
 - **Jitter** is the RFC 3550 §6.4.1 interarrival estimator over the received
@@ -112,4 +132,5 @@ listening test.
   quality only. It does not register, dial, or tear down a call.
 - **No wideband codecs** (see the narrowband note above).
 - **No reflector infrastructure to own.** Agent-to-agent reflection reuses the
-  existing a2a responder rather than standing up a separate echo fleet.
+  existing a2a responder (a2a — agent-to-agent: one probectl agent echoing
+  another's probes) rather than standing up a separate echo fleet.
