@@ -100,6 +100,19 @@ func NewEngine(slos []SLO) *Engine {
 	}
 }
 
+// WithClock overrides the engine's time source and returns the engine.
+// Deterministic tests need it: evaluation windows are anchored at "now", so a
+// test that feeds fixed-timestamp events but evaluates against the wall clock
+// is a time bomb — it fails the day its events age past the SLO window (the
+// sloapi tests did exactly that). Production code never calls this; the
+// default is time.Now.
+func (e *Engine) WithClock(now func() time.Time) *Engine {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.clock = now
+	return e
+}
+
 // SLOs returns the loaded definitions (sorted by name).
 func (e *Engine) SLOs() []SLO {
 	out := append([]SLO(nil), e.slos...)

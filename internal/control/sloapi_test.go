@@ -83,7 +83,11 @@ func TestSLOConsumerTracksAndAlerts(t *testing.T) {
 	correlator := incident.NewCorrelator(incident.NewMemoryStore(), time.Hour, intelTestLog())
 	sc := NewSLOConsumer(nil, eng, correlator, intelTestLog())
 
+	// Fixed event times need a fixed clock: windows are anchored at "now", so
+	// against the wall clock this test was a time bomb — it failed the day the
+	// events below aged past the SLO's 7d window (2026-06-11, as it happens).
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.WithClock(func() time.Time { return at.Add(130 * time.Minute) })
 	push := func(success bool, when time.Time) {
 		raw, err := proto.Marshal(&resultv1.Result{
 			TenantId: "t1", CanaryType: "http", ServerAddress: "web.acme.example",
@@ -127,9 +131,11 @@ func TestSLOConsumerTracksAndAlerts(t *testing.T) {
 
 func TestSLOEndpointsAndIsolation(t *testing.T) {
 	eng := sloTestEngine(t)
-	// Events for the default tenant only.
+	// Events for the default tenant only. Same fixed-clock rule as the
+	// consumer test above: fixed event times, fixed "now".
 	tid := tenancy.DefaultTenantID.String()
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.WithClock(func() time.Time { return at.Add(60 * time.Minute) })
 	for i := 0; i < 60; i++ {
 		eng.ObserveResult(tid, "http", "web.acme.example", true, at.Add(time.Duration(i)*time.Minute))
 	}
