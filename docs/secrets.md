@@ -4,13 +4,18 @@
 credential, or an API token into a config file. Anywhere it accepts a secret, you
 can instead hand it a *reference* — a short string like
 `vault:kv/netops/snmp#auth` — and probectl resolves the real material from your
-enterprise secret store at the moment it is needed. Supported backends:
-HashiCorp Vault, CyberArk CCP, AWS Secrets Manager, Azure Key Vault, and GCP
-Secret Manager.
+enterprise secret store at the moment it is needed. A reference works like a
+library call number: the config file holds the catalog card, not the book —
+stealing the card tells a thief which shelf to look at, but the library still
+checks *probectl's* credentials at the desk before handing anything over.
+Supported backends: HashiCorp Vault, CyberArk CCP, AWS Secrets Manager, Azure
+Key Vault, and GCP Secret Manager.
 
 The same machinery closes the loop with **trustctl** (the sibling
 certificate/identity product): agents present trustctl-issued machine identities
-for mTLS and pick up in-place certificate renewals without restarting.
+for mTLS — mutual TLS, where both ends of a connection prove their identity
+with certificates — and pick up in-place certificate renewals without
+restarting.
 
 This serves three of the project's security
 [non-negotiables](../CONTRIBUTING.md): crypto only through `internal/crypto`,
@@ -20,13 +25,15 @@ no hardcoded or logged secrets, and TLS on every channel.
 
 1. **No plaintext at rest.** References resolve in memory, at use time. The
    resolver's short-lived lease cache holds values only AES-256-GCM-sealed (via
-   the `internal/crypto` provider) under an ephemeral per-process key — so even a
-   memory dump of the cache yields ciphertext, and a restart re-resolves
-   everything fresh.
-2. **Short-lived leases.** A resolved value is served from cache for the lease
-   TTL (default 5 minutes), then re-resolved. Rotate a secret upstream and the
-   new value applies without restarting probectl. Device credentials re-resolve
-   even more often — on **every poll cycle or stream reconnect**.
+   the `internal/crypto` provider) under an ephemeral per-process key — one
+   minted at process start and never written anywhere — so even a memory dump
+   of the cache yields ciphertext, and a restart re-resolves everything fresh.
+2. **Short-lived leases.** A **lease** is permission to keep using a resolved
+   value for a bounded time — a borrow with an expiry, not a copy to keep. A
+   resolved value is served from cache for the lease TTL (default 5 minutes),
+   then re-resolved. Rotate a secret upstream and the new value applies without
+   restarting probectl. Device credentials re-resolve even more often — on
+   **every poll cycle or stream reconnect**.
 3. **Fail closed.** An unreachable backend or an unresolvable reference is an
    **error** — never an empty, partial, or stale credential silently substituted.
    A secret that has been rotated away stops being used at lease expiry.
@@ -54,11 +61,14 @@ How probectl *reaches* each backend is configured through the **environment
 only** — never probectl config files, so the access credentials themselves never
 sit in a file probectl reads. Every backend call rides TLS with certificate
 verification — never disabled. No cloud SDKs are linked in: it is stdlib HTTP plus
-SigV4 / OAuth2 / JWT signing through `internal/crypto`.
+SigV4 / OAuth2 / JWT signing through `internal/crypto` (SigV4 is AWS's
+request-signing scheme; OAuth2 client-credentials is the machine-to-machine
+login grant; the GCP path signs a JWT — a self-contained signed token — to
+obtain its access token).
 
 | Backend | Variables |
 |---|---|
-| Vault | `PROBECTL_SECRETS_VAULT_ADDR`, then `PROBECTL_SECRETS_VAULT_TOKEN` **or** `_ROLE_ID` + `_SECRET_ID` (AppRole, re-login at ⅔ of TTL); optional `_NAMESPACE` |
+| Vault | `PROBECTL_SECRETS_VAULT_ADDR`, then `PROBECTL_SECRETS_VAULT_TOKEN` **or** `_ROLE_ID` + `_SECRET_ID` (AppRole — Vault's machine login: the pair is exchanged for a short-lived token; probectl re-logs in at ⅔ of that token's TTL); optional `_NAMESPACE` |
 | CyberArk CCP | `PROBECTL_SECRETS_CYBERARK_URL`, `_APP_ID`; optional client cert `_CERT_FILE` + `_KEY_FILE` (+ `_CA_FILE`) |
 | AWS | `AWS_REGION` (or `AWS_DEFAULT_REGION`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; optional `AWS_SESSION_TOKEN` |
 | Azure | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (client-credentials grant) |
@@ -108,11 +118,15 @@ unwired resolver from one that is simply idle.
 The agent's client certificate is loaded through `crypto.RotatingIdentity`. On
 each handshake it checks the cert file's mtime and size (at most every 10
 seconds), so a trustctl renewal **written in place** is presented on the next
-connection — including gRPC reconnects — with no agent restart. An optional
-SPIFFE URI prefix pins the identity: a renewal carrying the *wrong* identity is
-refused (the last attested key pair keeps serving; a half-written renewal caught
-mid-write is also skipped). On the server side, `ServerMTLSConfigRotating` gives
-the agent-transport listener the same hot-rotation behavior.
+connection — including gRPC reconnects — with no agent restart. The identity is
+**always pinned** to a SPIFFE URI prefix (SPIFFE is a standard for naming
+workloads inside certificates as `spiffe://` URIs): the deployment's trust
+domain by default, a narrower operator-configured prefix if set — there is no
+unpinned mode (`crypto.NewRotatingIdentity`). A renewal carrying the *wrong*
+identity is refused (the last attested key pair keeps serving; a half-written
+renewal caught mid-write is also skipped). On the server side,
+`ServerMTLSConfigRotating` gives the agent-transport listener the same
+hot-rotation behavior.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%

@@ -1,9 +1,12 @@
 # Hardening and FIPS 140-3 guide
 
+**Hardening** is the work of removing slack from a deployment — fewer defaults
+trusted, fewer ports open, every security claim checked rather than assumed.
 This guide covers running probectl in a hardened, regulated, or air-gapped
-posture: the FIPS 140-3 build, a STIG/CIS-style hardening checklist, and a
-secure-defaults review. It is written for operators of sovereign single-tenant
-and MSP/provider deployments alike.
+posture: the FIPS 140-3 build, a STIG/CIS-style hardening checklist (STIG and
+CIS are the two widely-used catalogs of security configuration requirements —
+the checklists auditors walk), and a secure-defaults review. It is written for
+operators of sovereign single-tenant and MSP/provider deployments alike.
 
 probectl is sovereign by design — it never phones home, all crypto routes
 through one validated-swappable module, and every listener is TLS with
@@ -15,13 +18,13 @@ guide makes the posture explicit and auditable.
 
 ## 0. Prometheus-mode deployment restriction
 
-In `tsdb=prometheus` mode the upstream Prometheus/VictoriaMetrics has **no
-server-side tenancy** of its own — probectl's query proxy is the boundary. Two
-layers enforce that in code: every parsed selector is tenant-forced
-(`promapi.ForceTenant` strips any caller-supplied `tenant_id` matcher and pins
-the authenticated tenant), and the upstream forwarder itself **refuses** any
-selector not pinned to exactly one tenant (`ErrUnscopedUpstreamQuery` in
-`internal/promapi/upstream.go`).
+In `tsdb=prometheus` mode the upstream Prometheus/VictoriaMetrics (the TSDB —
+the time-series database holding metrics) has **no server-side tenancy** of its
+own — probectl's query proxy is the boundary. Two layers enforce that in code:
+every parsed selector is tenant-forced (`promapi.ForceTenant` strips any
+caller-supplied `tenant_id` matcher and pins the authenticated tenant), and the
+upstream forwarder itself **refuses** any selector not pinned to exactly one
+tenant (`ErrUnscopedUpstreamQuery` in `internal/promapi/upstream.go`).
 
 **Hard deployment restriction:** the upstream TSDB must be reachable ONLY by
 the probectl control plane (network policy / private listener / mTLS). Any
@@ -35,17 +38,21 @@ read ALL tenants' series. Grafana and federation must go through probectl's
 survives a database owner deleting rows.
 
 **Why it is needed.** The audit chains are already tamper-*evident* inside
-Postgres — each record hash-chains to the previous one (`internal/audit/audit.go`),
-and the app role has no UPDATE/DELETE on them. But a database *owner* can still
-truncate a table. WORM ("Write Once, Read Many") export defends against that: the
-record exists somewhere the database owner cannot reach.
+Postgres — each record hash-chains to the previous one (its hash covers the
+previous record's hash, so editing, deleting, or reordering any record breaks
+every later link; `internal/audit/audit.go`), and the app role has no
+UPDATE/DELETE on them. Tamper-evident means tampering cannot be *hidden* — it
+does not mean the rows cannot be destroyed: a database *owner* can still
+truncate a table. WORM ("Write Once, Read Many") export defends against that:
+the record exists somewhere the database owner cannot reach.
 
 **How.** Set `PROBECTL_AUDIT_WORM_DIR` to a mount backed by an **object-lock
 bucket** (S3 Object Lock or MinIO in compliance mode — the actual immutability
 guarantee lives in the bucket, not in probectl). The provider audit chain then
-exports hourly as Ed25519-signed segments (`worm/audit/provider/segment-*.json`
-plus a `.sig` and the public key), and every cycle re-verifies signatures,
-sequence continuity, and the cross-segment hash chain (`internal/audit/worm.go`).
+exports hourly as Ed25519-signed segments (Ed25519 is a compact, fast signature
+algorithm; the files are `worm/audit/provider/segment-*.json` plus a `.sig` and
+the public key), and every cycle re-verifies signatures, sequence continuity,
+and the cross-segment hash chain (`internal/audit/worm.go`).
 A purge or gap logs an unmissable error. Because the public key is published next
 to the segments, any third party can verify the export with nothing but that
 key — no access to probectl required.
@@ -68,8 +75,12 @@ line; `probectl-control preflight` is the check that keeps it honest.
 
 **What probectl encrypts (on by default).** Sealed tenant values (alert-channel
 secrets, integration credentials, ...) are envelope-encrypted through
-`internal/tenantcrypto` before they ever reach Postgres. The shipped recipes turn
-this on:
+`internal/tenantcrypto` before they ever reach Postgres. **Envelope encryption**
+means the value is encrypted under a data key, and data keys are themselves
+encrypted ("wrapped") under one master **key-encryption key** (KEK) — like a
+hotel key cabinet: every room has its own key, and the one master key opens
+only the cabinet the room keys hang in, so stealing a single room key opens one
+room, never the building. The shipped recipes turn this on:
 
 - compose sets `PROBECTL_ENVELOPE_KEY_FILE=/var/lib/probectl/envelope.key` on the
   `controldata` volume — on first boot the control plane **generates** a master
@@ -96,7 +107,7 @@ the volumes backing:**
 
 **The preflight check.**
 
-```
+```text
 probectl-control preflight [--strict] [--paths /var/lib/postgresql,/var/lib/clickhouse,/var/lib/probectl]
 ```
 
@@ -113,17 +124,22 @@ reports probectl's own envelope-key posture.
 
 ### What the FIPS build is
 
+FIPS 140-3 is the U.S./Canada government standard for validating cryptographic
+modules; **CMVP** — the Cryptographic Module Validation Program — is the body
+that tests them and issues the certificate numbers an auditor accepts as proof.
 probectl routes **every** cryptographic primitive through one package,
 `internal/crypto`, and a CI guard (`scripts/check_crypto_imports.sh`) blocks any
 handler or service from calling a crypto primitive directly. That single choke
 point is what makes a FIPS build possible: a FIPS 140-3 **validated** module can
 be compiled in transparently, swapping the underlying implementations while the
-`Provider` API and all of its outputs stay byte-for-byte identical. A test
-asserts that the standardized outputs are the same with or without FIPS compiled
-in, so "swap the module" is provably not "change the behavior."
+`Provider` API and all of its outputs stay byte-for-byte identical — the same
+dashboard and controls, a certified engine under the hood. A test asserts that
+the standardized outputs are the same with or without FIPS compiled in, so
+"swap the module" is provably not "change the behavior."
 
 The FIPS artifact embeds **the Go Cryptographic Module v1.0.0** — validated under
-FIPS 140-3 as **CMVP certificate #5247** (CAVP algorithm certificate A6650;
+FIPS 140-3 as **CMVP certificate #5247** (CAVP algorithm certificate A6650 —
+CAVP is CMVP's sibling program that validates the individual algorithms;
 included in Go 1.24+) — selected at build time with `GOFIPS140` and marked with
 the `probectl_fips` build tag.
 
@@ -141,7 +157,7 @@ CMVP), that is a separate vendor engagement with an accredited lab — planned o
 on concrete regulated-buyer demand. Until then, no probectl-level certificate is
 claimed anywhere.
 
-```
+```sh
 make build-fips                 # GOFIPS140=v1.0.0 -tags probectl_fips -> bin/*-fips
 make fips-gate                  # build + power-on self-test with the module active
 ```
@@ -155,13 +171,18 @@ FIPS. The build you run is the gate.
 ### Power-on self-test (POST)
 
 Both `probectl-control` and `probectl-agent` run `crypto.PowerOnSelfTest()` at
-startup, before serving any traffic, and **fail closed** if it errors. The POST:
+startup, before serving any traffic, and **fail closed** if it errors (an
+errored self-test means the process refuses to start — never "warn and serve").
+The POST:
 
-- Known-answer tests: SHA-256 (FIPS 180-4), HMAC-SHA-256 (RFC 4231),
+- Known-answer tests (a KAT feeds an algorithm a fixed input and demands the
+  standard's exact published output — catching a swapped or miscompiled
+  primitive): SHA-256 (FIPS 180-4), HMAC-SHA-256 (RFC 4231),
   PBKDF2-HMAC-SHA-256 (SP 800-132).
 - Operational tests: AES-256-GCM seal/open with authenticity (tampered AAD
   rejected); Ed25519 sign/verify through the full PEM round-trip (tampered
-  message and foreign key rejected); DRBG draw.
+  message and foreign key rejected); DRBG draw (DRBG — deterministic random
+  bit generator, the approved construction behind `crypto/rand`).
 - In a `probectl_fips` build: asserts the validated module is **actually active**
   (`crypto/fips140.Enabled()`), catching an artifact tagged FIPS but built
   without `GOFIPS140`.
@@ -185,7 +206,10 @@ Editions card shows a FIPS badge when the build or module is present. This is a
 ### FIPS coverage / boundary
 
 The **validated cryptographic boundary** is the Go Cryptographic Module. probectl
-uses only algorithms inside that boundary for security functions:
+uses only algorithms inside that boundary for security functions. (In the table,
+AEAD means authenticated encryption with associated data — ciphertext that
+detects tampering rather than merely hiding content; a KDF is a key-derivation
+function, the deliberately-slow transform between a password and a key.)
 
 | Operation | Algorithm | FIPS status |
 |---|---|---|
@@ -229,9 +253,12 @@ where noted "operator action".
 - [x] Agent ↔ control-plane is **mTLS** with SPIFFE-style tenant-bound
       identity; no plaintext agent transport.
 - [x] REST API, web UI, OTLP, MCP are **HTTPS**; shipped compose + Helm are
-      **HTTPS-by-default** (TLS-terminating ingress, HSTS).
-- [x] UI sets a **CSP** and **Secure + HttpOnly + SameSite** session cookies.
-- [x] Inbound webhooks verify the sender's **HMAC signature**; all ingestion is
+      **HTTPS-by-default** (TLS-terminating ingress, HSTS — the response header
+      telling browsers to never retry plain HTTP).
+- [x] UI sets a **CSP** (Content-Security-Policy — the page's allowlist of what
+      may load or execute) and **Secure + HttpOnly + SameSite** session cookies.
+- [x] Inbound webhooks verify the sender's **HMAC signature** (a keyed hash
+      proving the sender held the shared secret); all ingestion is
       authenticated, tenant-scoped, and treated as untrusted input.
 - [x] Outbound fetches **validate certificates** (never disabled); fetched
       content is untrusted.
@@ -245,7 +272,8 @@ where noted "operator action".
       tenant **then** RBAC.
 - [x] Provider/MSP operators get **no implicit read** of tenant telemetry;
       access is time-bounded, consented, separately-audited break-glass.
-- [x] Passwords: PBKDF2-HMAC-SHA-256, 600k iterations. TOTP MFA available.
+- [x] Passwords: PBKDF2-HMAC-SHA-256, 600k iterations. TOTP MFA available
+      (TOTP — the six-digit time-based authenticator-app code).
 - [x] Dev auth is **physically absent from release builds**: a release binary
       refuses `PROBECTL_AUTH_MODE=dev` at boot with a fatal error — never a
       warning. Even the local-evaluation build (`make build-devauth`,
@@ -253,8 +281,9 @@ where noted "operator action".
       `PROBECTL_DEV_AUTH_ACK=i-understand` AND a loopback-only bind. The
       `no-devauth-in-release` CI job proves both the symbol absence and the
       boot refusal on every pass.
-- [ ] **Operator action:** wire per-tenant SSO/SCIM; require MFA for admin and
-      all provider operators; set least-privilege RBAC roles.
+- [ ] **Operator action:** wire per-tenant SSO/SCIM (SCIM — automated user
+      provisioning and deprovisioning from your identity provider); require MFA
+      for admin and all provider operators; set least-privilege RBAC roles.
 
 ### Crypto & secrets
 
@@ -266,9 +295,9 @@ where noted "operator action".
 - [x] At-rest sealing **on by default** in the shipped recipes (generated key
       file + `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, §0c); keyless = fatal.
 - [ ] **Operator action:** supply `PROBECTL_ENVELOPE_KEY` from a secret
-      manager in production; enable per-tenant BYOK ([byok.md](byok.md)) for
-      regulated tenants; encrypt the bulk telemetry volumes (§0c —
-      `preflight --strict`).
+      manager in production; enable per-tenant BYOK (Bring Your Own Key —
+      [byok.md](byok.md)) for regulated tenants; encrypt the bulk telemetry
+      volumes (§0c — `preflight --strict`).
 
 ### Audit and data lifecycle
 
@@ -343,7 +372,9 @@ hardening gate and your own controls.
 
 ## 3a. Day-2 ops and the strict NetworkPolicy profile
 
-The default Helm profile ships NetworkPolicy **on**, but with two deliberate
+A **NetworkPolicy** is Kubernetes's pod-level firewall rule — it declares which
+peers may talk to a pod (ingress) and which the pod may reach (egress). The
+default Helm profile ships NetworkPolicy **on**, but with two deliberate
 holes: an empty `ingressFrom` (any pod may reach the API port) and an empty
 `egressTo` (allow-all egress). That is on purpose — a default install must not
 lock itself out of an unknown ingress controller. For regulated or air-gapped
@@ -358,7 +389,8 @@ selector (plus the monitoring namespace for `/metrics` scraping) and an explicit
 datastore / bus / IdP egress allow-list — no allow-all rule survives. **Match the
 selectors and CIDRs to your cluster before applying.** A wrong selector fails
 **closed** (the API becomes unreachable), which is the safe failure direction.
-The strict profile also turns on the ServiceMonitor and the backup CronJobs.
+The strict profile also turns on the ServiceMonitor (the Prometheus operator's
+scrape-config object) and the backup CronJobs.
 
 Other day-2 surfaces, all chart-managed:
 

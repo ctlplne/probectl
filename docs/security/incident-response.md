@@ -9,14 +9,24 @@ deliberately distinct:
   code, releases, or build infrastructure. Vendor-led; affects all
   deployments.
 - **Deployment incidents** — a compromise inside one operator's
-  installation. Operator-led under their own IR; probectl's job is to give
-  them the evidence tooling and this playbook's deployment sections.
+  installation. Operator-led under their own IR (incident-response process);
+  probectl's job is to give them the evidence tooling and this playbook's
+  deployment sections.
+
+The shape to keep in mind: a product incident is a manufacturer's recall — one
+defect, every car on the road; a deployment incident is a break-in at one
+owner's garage — their site, their locks, their police report, with probectl
+supplying the forensic toolkit.
 
 ## 1. Severity matrix
 
+Severity is the dial that sets response speed: judge the impact, read off the
+clock. Cross-tenant exposure sits alone at the top because tenant isolation is
+the product's outermost security boundary.
+
 | Sev | Definition | Examples | Acknowledge | Mitigation target |
 |---|---|---|---|---|
-| **SEV-1** | Cross-tenant data exposure (the declared highest-severity failure — tenant isolation is the outermost boundary); RCE in agent/control plane; compromised release artifact or signing path | tenant A reads B; malicious artifact signed | 4h | fix or kill-switch ≤ 24h; advisory ≤ 72h |
+| **SEV-1** | Cross-tenant data exposure (the declared highest-severity failure — tenant isolation is the outermost boundary); RCE in agent/control plane (RCE — remote code execution: an attacker running their code on your machines); compromised release artifact or signing path | tenant A reads B; malicious artifact signed | 4h | fix or kill-switch ≤ 24h; advisory ≤ 72h |
 | **SEV-2** | Auth/RBAC bypass within a tenant; audit-chain integrity break; secret exposure; AI egress gate bypass | consent gate skipped; WORM verify fails | 24h | ≤ 7 days |
 | **SEV-3** | Vulnerability with significant mitigating factors; DoS of a plane; dependency CVE in a reachable path | fairness bypass; exploitable parser crash | 72h | next patch release |
 | **SEV-4** | Hardening gap, defense-in-depth finding, non-reachable dep CVE | scanner findings | 7 days | scheduled |
@@ -31,9 +41,10 @@ investigator, and fixer**. The compensating structure is this written plan;
 predefined external deputies (counsel for notification-duty questions; the
 affected operator's security team for deployment incidents — co-responders by
 design, since they hold the infrastructure); and an immutable trail (the signed
-WORM audit export, see [../hardening.md](../hardening.md) §0b) so every action is
-reviewable after the fact. The role table will be re-cut at the first security
-hire.
+WORM audit export — WORM, Write Once, Read Many: an off-database copy a
+database owner cannot rewrite or quietly purge; see
+[../hardening.md](../hardening.md) §0b) so every action is reviewable after the
+fact. The role table will be re-cut at the first security hire.
 
 | Role | Holder today | Duties |
 |---|---|---|
@@ -49,8 +60,9 @@ hire.
 2. **Declare + log.** Assign a severity; open a private timeline doc; record UTC
    timestamps for every action from this point on.
 3. **Contain.**
-   - *Product scope:* pull or revoke the affected artifacts (cosign identities
-     make "which artifact" provable) and gate the release lane.
+   - *Product scope:* pull or revoke the affected artifacts (every release is
+     cosign-signed, so its signing identity makes "which artifact" provable)
+     and gate the release lane.
    - *Deployment scope:* the operator isolates per the runbooks — agents
      halt-on-error via the rollout machinery, credentials rotate, and any
      `insecure` override is audited.
@@ -60,7 +72,8 @@ hire.
      the tenant streams.
    - Run `scripts/backup_postgres.sh` and `scripts/backup_clickhouse.sh` to
      capture store state with SHA-256 manifests.
-   - Generate a support bundle (`internal/support`) for config/version posture.
+   - Generate a support bundle (`internal/support` — the redacted
+     config-and-version snapshot) for posture evidence.
    - Hash and retain the agent binaries/objects in question, comparing against
      the baked-in integrity manifest and the release signatures.
 5. **Eradicate + recover.** Fix forward; release through the normal lane (the
@@ -81,8 +94,9 @@ telling **operators** what to check and what to ship, fast.
   notes; direct contact for known enterprise/MSP operators.
 - **SEV-1:** an initial notice within **72h of confirmation**, even if
   incomplete — affected versions, severity, interim mitigations, and indicators
-  of compromise (how an operator checks *their own* audit chains and registry for
-  the pattern). Update cadence at least every 72h until resolved.
+  of compromise (the concrete fingerprints of the attack: how an operator checks
+  *their own* audit chains and registry for the pattern). Update cadence at
+  least every 72h until resolved.
 - **SEV-2:** notice with the fix release.
 - **Content discipline:** facts only — affected versions, the upgrade path
   ([../ops/fleet-rollout.md](../ops/fleet-rollout.md)), and verification steps
@@ -93,15 +107,17 @@ telling **operators** what to check and what to ship, fast.
 ## 5. Disclosure
 
 Coordinated disclosure per [SECURITY.md](../../SECURITY.md): reporter
-credit, advisory published when a fix is available, CVE requested via
-GitHub for qualifying issues. Embargo target ≤ 90 days, shorter when
-exploitation is observed.
+credit, advisory published when a fix is available, CVE (the public
+vulnerability-catalog entry) requested via GitHub for qualifying issues.
+Embargo — the agreed quiet period before details go public — target ≤ 90
+days, shorter when exploitation is observed.
 
 ## 6. Drill
 
-Tabletop this plan twice yearly (one product-scope, one
-deployment-scope using the backup/failover drills as the recovery legs)
-and after any SEV-1/2. Record outcomes in the review log below.
+Tabletop this plan twice yearly — a tabletop is a paper walk-through of the
+plan, no production systems touched — one product-scope, one deployment-scope
+(using the backup/failover drills as the recovery legs), and after any SEV-1/2.
+Record outcomes in the review log below.
 
 | Version | Date | Change |
 |---|---|---|

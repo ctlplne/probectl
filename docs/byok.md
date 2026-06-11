@@ -24,8 +24,10 @@ locked-feature error.
 Every sensitive tenant-owned value passes through one core seam,
 `internal/tenantcrypto`. (Today that means alert-channel secrets — webhook HMAC
 keys, integration tokens; the set grows consumer-by-consumer, not by changing the
-mechanism.) Stored values are **self-describing** — a short prefix tells the
-reader exactly how the value was sealed:
+mechanism.) "Sealing" is authenticated encryption: the value goes into the
+database as ciphertext that detects tampering, not merely hides content. Stored
+values are **self-describing** — a short prefix tells the reader exactly how
+the value was sealed:
 
 | Stored prefix | Sealed by | Notes |
 |---|---|---|
@@ -71,14 +73,20 @@ flowchart TD
 
 In **managed** mode probectl generates a random 32-byte key per tenant, encrypts
 ("wraps") it under the deployment master key, and stores the wrapped form in the
-`tenant_keys` table. In **BYOK** mode the key lives in your secret manager;
-probectl stores only the *reference* and resolves it at use time.
+`tenant_keys` table. "Wrapping" is encryption applied to a key: the master acts
+as a **KEK** — a key-encryption key, whose only job is to lock up other keys —
+so the database holds tenant keys the way a bank vault holds safe-deposit
+boxes: physically inside, but each one openable only with its own key. In
+**BYOK** mode the key lives in your secret manager; probectl stores only the
+*reference* and resolves it at use time.
 
 A tenant's first seal **auto-provisions** a managed v1 key. The encryption binds
 `tenant:<id>:<caller-context>:v<version>` as additional authenticated data (AAD)
-into every ciphertext, so a sealed blob cannot be replayed into another tenant's
-row even by a direct database write — the decrypt would fail the authenticity
-check.
+into every ciphertext — AES-256-GCM is an **AEAD** ("authenticated encryption
+with associated data"): decryption recomputes an integrity check that covers
+both the ciphertext *and* that AAD label, so a sealed blob cannot be replayed
+into another tenant's row even by a direct database write — the decrypt would
+fail the authenticity check.
 
 ## Rotation (no downtime)
 
@@ -111,10 +119,12 @@ material-free. Any `tk1:` ciphertext that ever escaped into a backup window is
 now permanently unreadable.
 
 The deletion attestation carries a `tenant_keys` line recording how many key
-versions were crypto-shredded. Deployments *without* the `byok` feature record
-"no per-tenant keyring installed" — stated honestly, never implied. Destroyed
-chains refuse re-keying: a destroyed tenant cannot silently get a fresh v1 by
-writing new data.
+versions were crypto-shredded (**crypto-shredding**: destroying the only key is
+equivalent to shredding every copy of the data at once — including copies in
+backups and snapshots you can no longer enumerate or reach). Deployments
+*without* the `byok` feature record "no per-tenant keyring installed" — stated
+honestly, never implied. Destroyed chains refuse re-keying: a destroyed tenant
+cannot silently get a fresh v1 by writing new data.
 
 ## API and UI surfaces
 
