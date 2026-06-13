@@ -19,13 +19,24 @@ const DefaultMemoryBuffer = 1024
 // subscribes, which matches the pipeline (the consumer starts at boot, before
 // agents connect). Messages are not persisted.
 type Memory struct {
-	mu      sync.Mutex
-	subs    map[string][]chan Message
-	closed  bool
-	bufSize int
-	dropOn  bool          // overflow policy: true = drop+count, false = block (U-079)
-	dropped atomic.Uint64 // messages dropped under the drop policy
+	mu          sync.Mutex
+	subs        map[string][]chan Message
+	closed      bool
+	bufSize     int
+	dropOn      bool          // overflow policy: true = drop+count, false = block (U-079)
+	dropped     atomic.Uint64 // messages dropped under the drop policy
+	handlerErr  atomic.Uint64 // handler errors observed (CORRECT-007 — never silent)
+	handlerLost atomic.Uint64 // records dropped after redelivery attempts exhausted
 }
+
+// memoryMaxRedeliver bounds how many times the in-memory bus re-delivers a
+// record whose handler returned an error before giving up (CORRECT-007). A
+// small bound matches the lightweight-mode contract: a transient handler error
+// gets a few retries, but a permanently-failing handler cannot wedge the
+// subscriber loop forever. Kafka redelivers via the uncommitted offset; this is
+// the in-process analogue. After the bound the record is counted as lost
+// (HandlerLost) — never silently swallowed.
+const memoryMaxRedeliver = 3
 
 // MemoryOption configures the in-memory bus (U-079).
 type MemoryOption func(*Memory)
@@ -60,6 +71,17 @@ func NewMemory(opts ...MemoryOption) *Memory {
 // Dropped returns the number of messages dropped under the drop overflow
 // policy (always 0 under the default block policy).
 func (m *Memory) Dropped() uint64 { return m.dropped.Load() }
+
+// HandlerErrors returns how many times a subscriber handler returned an error
+// (CORRECT-007). Each error triggers a bounded redelivery; this counts the
+// errors, so they are observable rather than silently swallowed — parity with
+// the Kafka bus's HandlerErrors counter.
+func (m *Memory) HandlerErrors() uint64 { return m.handlerErr.Load() }
+
+// HandlerLost returns how many records were dropped after their redelivery
+// budget was exhausted (a permanently-failing handler). It is a real loss and
+// is counted — never silent.
+func (m *Memory) HandlerLost() uint64 { return m.handlerLost.Load() }
 
 // subscriberCount returns the live subscriber count for a topic under the
 // lock — the race-free way for tests (and callers) to await registration.
@@ -118,9 +140,28 @@ func (m *Memory) Subscribe(ctx context.Context, topic, _ string, handler Handler
 		case <-ctx.Done():
 			return nil
 		case msg := <-ch:
-			// Handler errors are the handler's concern (it retries/logs); the
-			// in-memory bus does not redeliver.
-			_ = handler(ctx, msg)
+			// CORRECT-007: a handler error is no longer silently discarded — it is
+			// counted and the record is REDELIVERED up to memoryMaxRedeliver times
+			// (the in-process analogue of Kafka's uncommitted-offset redelivery),
+			// then counted as lost if the handler keeps failing. The handler that
+			// has already accounted for a message (its own DLQ etc.) returns nil.
+			m.deliver(ctx, handler, msg)
+		}
+	}
+}
+
+// deliver runs handler on msg, redelivering on error up to memoryMaxRedeliver
+// times before counting the record lost (CORRECT-007). A canceled context stops
+// retrying promptly so shutdown never hangs.
+func (m *Memory) deliver(ctx context.Context, handler Handler, msg Message) {
+	for attempt := 0; ; attempt++ {
+		if err := handler(ctx, msg); err == nil {
+			return
+		}
+		m.handlerErr.Add(1)
+		if attempt >= memoryMaxRedeliver || ctx.Err() != nil {
+			m.handlerLost.Add(1)
+			return
 		}
 	}
 }
