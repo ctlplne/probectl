@@ -2,7 +2,14 @@
 #
 # install.sh — VM/bare-metal installer for the probectl eBPF agent (U-016).
 #
-#   sudo ./install.sh <path-to-probectl-ebpf-agent-binary> [config.yaml]
+#   sudo ./install.sh [--verify] <path-to-probectl-ebpf-agent-binary> [config.yaml]
+#
+# --verify (SUPPLY-002): before installing, cryptographically verify the binary
+# against its cosign keyless signature. Looks for <binary>.sig + <binary>.pem
+# (or set PROBECTL_COSIGN_SIG / PROBECTL_COSIGN_CERT) and runs `cosign
+# verify-blob` pinned to the probectl release-workflow identity. Requires cosign
+# on PATH; FAILS CLOSED if cosign is missing, the sig/cert are absent, or
+# verification fails — an unsigned/tampered binary is never installed.
 #
 # Installs the binary, the dedicated non-root system user, the hardened
 # systemd unit (deploy/agent/probectl-ebpf-agent.service — ambient
@@ -16,8 +23,40 @@ UNIT=probectl-ebpf-agent.service
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 [ "$(id -u)" -eq 0 ] || { echo "install.sh: run as root (sudo)" >&2; exit 1; }
-BIN="${1:?usage: install.sh <path-to-probectl-ebpf-agent-binary> [config.yaml]}"
+
+# SUPPLY-002: optional --verify (or PROBECTL_VERIFY_COSIGN=1) gates install on a
+# cosign signature check. Repo identity is the probectl release workflow on a
+# tag — the same identity release.yml signs with.
+VERIFY=0
+[ "${PROBECTL_VERIFY_COSIGN:-0}" = "1" ] && VERIFY=1
+if [ "${1:-}" = "--verify" ]; then VERIFY=1; shift; fi
+COSIGN_ISSUER="${PROBECTL_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}"
+COSIGN_IDENTITY_REGEXP="${PROBECTL_COSIGN_IDENTITY_REGEXP:-^https://github.com/[^/]+/probectl/\.github/workflows/release\.yml@refs/tags/}"
+
+BIN="${1:?usage: install.sh [--verify] <path-to-probectl-ebpf-agent-binary> [config.yaml]}"
 [ -f "${BIN}" ] || { echo "install.sh: no binary at ${BIN}" >&2; exit 1; }
+
+if [ "${VERIFY}" = "1" ]; then
+  command -v cosign >/dev/null 2>&1 || {
+    echo "install.sh: --verify requires cosign on PATH (https://docs.sigstore.dev) — refusing to install unverified (SUPPLY-002)" >&2
+    exit 1
+  }
+  SIG="${PROBECTL_COSIGN_SIG:-${BIN}.sig}"
+  CERT="${PROBECTL_COSIGN_CERT:-${BIN}.pem}"
+  [ -f "${SIG}" ]  || { echo "install.sh: --verify: signature not found at ${SIG} (set PROBECTL_COSIGN_SIG)" >&2; exit 1; }
+  [ -f "${CERT}" ] || { echo "install.sh: --verify: certificate not found at ${CERT} (set PROBECTL_COSIGN_CERT)" >&2; exit 1; }
+  echo "install.sh: verifying ${BIN} with cosign (identity ${COSIGN_IDENTITY_REGEXP})..."
+  cosign verify-blob \
+    --certificate "${CERT}" \
+    --signature "${SIG}" \
+    --certificate-oidc-issuer "${COSIGN_ISSUER}" \
+    --certificate-identity-regexp "${COSIGN_IDENTITY_REGEXP}" \
+    "${BIN}" || {
+      echo "install.sh: COSIGN VERIFICATION FAILED for ${BIN} — refusing to install (SUPPLY-002, fail closed)" >&2
+      exit 1
+    }
+  echo "install.sh: cosign verification OK"
+fi
 [ -f "${HERE}/${UNIT}" ] || { echo "install.sh: ${UNIT} not next to this script" >&2; exit 1; }
 
 # Preflight: the kernel matrix (deploy/agent/README.md).

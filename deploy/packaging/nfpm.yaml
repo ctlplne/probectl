@@ -53,6 +53,10 @@ overrides:
       postinstall: ./deploy/packaging/scripts/postinstall.sh
       preremove: ./deploy/packaging/scripts/preremove.sh
 
-# Signed repos: release.yml signs the packages (cosign/gpg) and publishes to the
-# apt/yum repositories; cosign verification is also baked into install.sh and
-# the Ansible role (docs/ops/verify-artifacts.md).
+# Signed repos: release.yml signs the packages (cosign keyless: a .sig + .pem
+# per artifact) and publishes them to the apt/yum repositories. cosign
+# verification is wired into the installers (SUPPLY-002): install.sh --verify
+# (or PROBECTL_VERIFY_COSIGN=1) verifies a local binary before install, and the
+# Ansible role's package_url method runs `cosign verify-blob` gated on
+# probectl_verify_cosign (fail-closed) before installing. apt/yum repo installs
+# rely on the repository's own signed-metadata trust (signed-by= keyring).

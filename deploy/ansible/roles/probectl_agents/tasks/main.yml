@@ -35,6 +35,66 @@
     name: "{{ probectl_airgap_dir }}/probectl-{{ probectl_agent_type }}_{{ probectl_version }}_{{ ansible_architecture }}.deb"
     state: present
 
+# SUPPLY-002: the package_url method downloads a release package directly and,
+# when probectl_verify_cosign is true, cryptographically verifies it with cosign
+# BEFORE install. Verification is fail-closed: a missing cosign, missing
+# signature/cert, or a failed check aborts the play before the package is
+# installed. (Previously package_url had no task block at all — selecting it
+# installed nothing — and probectl_verify_cosign was referenced nowhere.)
+- name: Install from a package URL
+  when: probectl_install_method == 'package_url'
+  block:
+    - name: Assert a package URL was given
+      ansible.builtin.assert:
+        that: probectl_package_url | length > 0
+        fail_msg: "probectl_install_method=package_url requires probectl_package_url"
+
+    - name: Download the package
+      ansible.builtin.get_url:
+        url: "{{ probectl_package_url }}"
+        dest: "/tmp/probectl-{{ probectl_agent_type }}-{{ probectl_version }}.pkg"
+        mode: "0644"
+      register: probectl_pkg
+
+    - name: Verify the package with cosign (fail-closed)
+      when: probectl_verify_cosign | bool
+      block:
+        - name: Ensure cosign is available
+          ansible.builtin.command: cosign version
+          changed_when: false
+
+        - name: Download the cosign signature + certificate
+          ansible.builtin.get_url:
+            url: "{{ probectl_package_url }}{{ item.suffix }}"
+            dest: "{{ probectl_pkg.dest }}{{ item.suffix }}"
+            mode: "0644"
+          loop:
+            - { suffix: ".sig" }
+            - { suffix: ".pem" }
+
+        - name: cosign verify-blob (pinned to the probectl release identity)
+          ansible.builtin.command:
+            argv:
+              - cosign
+              - verify-blob
+              - --certificate
+              - "{{ probectl_pkg.dest }}.pem"
+              - --signature
+              - "{{ probectl_pkg.dest }}.sig"
+              - --certificate-oidc-issuer
+              - "{{ probectl_cosign_issuer }}"
+              - --certificate-identity-regexp
+              - "{{ probectl_cosign_identity_regexp }}"
+              - "{{ probectl_pkg.dest }}"
+          changed_when: false
+          # A non-zero exit (tampered/unsigned package) fails the play here,
+          # before the install task below runs — the package is never installed.
+
+    - name: Install the (verified) package
+      ansible.builtin.package:
+        name: "{{ probectl_pkg.dest }}"
+        state: present
+
 - name: Template the agent config
   ansible.builtin.template:
     src: agent.yaml.j2

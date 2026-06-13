@@ -98,3 +98,25 @@ do not verify simply does not publish — so a published release is, by
 construction, a verifiable one. This is why the copy-paste block above can be
 trusted to work: it isn't parallel documentation that could drift from the
 release process; it *is* the release's own exit gate, run from your side.
+
+## The installers verify for you (SUPPLY-002)
+
+You don't have to run `cosign verify-blob` by hand — the installers do it,
+fail-closed, before anything lands on the host:
+
+- **`install.sh --verify`** (or `PROBECTL_VERIFY_COSIGN=1 ./install.sh …`):
+  before copying the binary into place it runs the exact `cosign verify-blob`
+  check above, pinned to the probectl release-workflow identity. It looks for
+  `<binary>.sig` + `<binary>.pem` next to the binary (override with
+  `PROBECTL_COSIGN_SIG` / `PROBECTL_COSIGN_CERT`). If cosign is missing, the
+  signature/cert are absent, or verification fails, it refuses to install —
+  an unsigned or tampered binary never reaches `/usr/local/bin`.
+
+- **The Ansible role** (`probectl_agents`), `package_url` install method: when
+  `probectl_verify_cosign: true` (the default) it downloads the package's `.sig`
+  and `.pem`, runs `cosign verify-blob` (identity pinned via
+  `probectl_cosign_identity_regexp`), and only installs if it passes. A
+  tampered package fails the play *before* the install task runs.
+
+`apt`/`yum` repo installs rely instead on the repository's own signed-metadata
+trust (the `signed-by=` keyring), which apt/dnf enforce on every fetch.

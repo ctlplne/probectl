@@ -30,6 +30,8 @@ jobs:
         run: ./scripts/check_action_pins.sh
       - name: supply-pins gate (SUPPLY-001/002/006 — no :latest, no unpinned installs)
         run: ./scripts/check_supply_pins.sh SELFTEST && ./scripts/check_supply_pins.sh
+      - name: cosign-wiring gate (SUPPLY-002 — installer signature verification is wired + fail-closed)
+        run: ./scripts/check_cosign_wiring.sh
 
   secret-scan:
     # Sprint 1 (CODE-006): no committed secrets, ever. gitleaks scans the

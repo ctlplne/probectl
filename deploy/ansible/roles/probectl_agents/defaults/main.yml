@@ -13,5 +13,9 @@ probectl_airgap_dir: ""               # when install_method=airgap (path to the 
 # the playbook or inventory. Set probectl_enroll_token via a vault lookup, e.g.
 #   probectl_enroll_token: "{{ lookup('community.hashi_vault.vault_kv2_get', 'probectl/enroll').secret.token }}"
 probectl_enroll_token: ""
-probectl_verify_cosign: true          # verify the package signature before install
+probectl_verify_cosign: true          # SUPPLY-002: cosign-verify the package before install (package_url method; fail-closed)
+# The release workflow signs keyless; these pin WHO may have signed (the probectl
+# release workflow on a tag). Override only for a fork/private build pipeline.
+probectl_cosign_issuer: "https://token.actions.githubusercontent.com"
+probectl_cosign_identity_regexp: "^https://github.com/[^/]+/probectl/\\.github/workflows/release\\.yml@refs/tags/"
 probectl_state_dir: "/var/lib/probectl-{{ probectl_agent_type }}"
