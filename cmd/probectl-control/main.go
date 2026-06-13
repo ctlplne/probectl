@@ -508,12 +508,16 @@ func run(cmd string) error {
 	// no in-process query backend. Built before the API server so the active-alert
 	// surface (S-FE1) can read the evaluator engine's state.
 	var alertEngine *alert.Engine
+	alertingActive := false
 	if ev, ok := control.BuildAlertEvaluator(db.Pool(), tsdbWriter, alert.ChannelDeps{},
 		cfg.AlertEvalInterval, tenancy.DefaultTenantID, control.AlertSink(correlator, log), log); ok {
 		alertEngine = ev.Engine()
+		alertingActive = true
 		g.Go(func() error { ev.Run(gctx); return nil })
 	} else {
-		log.Info("alert evaluation disabled (no in-process TSDB query backend in this mode)")
+		// ARCH-002/CORRECT-006: the rules API now surfaces this loudly so the
+		// operator isn't lulled into thinking stored rules fire.
+		log.Warn("ALERTING INACTIVE: no query backend wired in this profile — stored rules will NOT evaluate")
 	}
 
 	// TLS/cert posture inventory (S-FE2): the latest analyzed posture per
@@ -704,6 +708,9 @@ func run(cmd string) error {
 		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
 		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
 	}
+	// ARCH-002: tell the rules API whether evaluation is actually live so it can
+	// warn instead of silently accepting dead rules.
+	srv.WithAlertingActive(alertingActive)
 	g.Go(func() error { return srv.Run(gctx) })
 	// Siloed bus lanes (S-T2): subscribe the result pipeline to every siloed/
 	// hybrid tenant's namespaced topics known at startup (the shared lanes stay
@@ -783,7 +790,9 @@ func run(cmd string) error {
 	// SLO + compliance consumers (engines built above, before the API server).
 	if sloOn {
 		g.Go(func() error {
-			return control.NewSLOConsumer(resultBus, sloEngine, correlator, log).Run(gctx)
+			return control.NewSLOConsumer(resultBus, sloEngine, correlator, log).
+				WithNamespaceTenants(nsTenants). // CORRECT-005: evaluate SLOs for siloed tenants too
+				Run(gctx)
 		})
 	}
 	if complianceOn {
@@ -807,6 +816,7 @@ func run(cmd string) error {
 	}
 	if ndrOn {
 		ndrc := control.NewNDRConsumer(resultBus, ndrEngine, correlator, log).
+			WithTenantBinding(tenantBinding). // ARCH-012: verify flow/eBPF tenants before raising detections
 			WithSIEM(siemFwd).
 			WithDetections(detections)
 		resultSinks = append(resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})
