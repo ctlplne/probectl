@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 )
@@ -41,7 +42,9 @@ type OTLPTraceConsumer struct {
 	store    otelstore.Store
 	log      *slog.Logger
 	consumed atomic.Uint64
-	dlq      *otlpDLQ // retry + dead-letter on store-write failure (SCALE-003)
+	shed     atomic.Uint64  // spans shed by the per-tenant fairness gate (SCALE-003)
+	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
+	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
 }
 
 // NewOTLPTraceConsumer builds the consumer.
@@ -59,6 +62,12 @@ func (c *OTLPTraceConsumer) WithMetrics(reg *metrics.Registry) *OTLPTraceConsume
 	return c
 }
 
+// WithFairness bounds per-tenant OTLP span admission (SCALE-003).
+func (c *OTLPTraceConsumer) WithFairness(g *fairness.Gate) *OTLPTraceConsumer {
+	c.gate = g
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPTraceConsumer) Run(ctx context.Context) error {
 	c.log.Info("otlp traces consumer starting", "topic", bus.OTLPTracesTopic)
@@ -67,6 +76,9 @@ func (c *OTLPTraceConsumer) Run(ctx context.Context) error {
 
 // Consumed reports stored spans (the round-trip test's hook).
 func (c *OTLPTraceConsumer) Consumed() uint64 { return c.consumed.Load() }
+
+// Shed reports spans shed by the per-tenant fairness gate (SCALE-003).
+func (c *OTLPTraceConsumer) Shed() uint64 { return c.shed.Load() }
 
 func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	var req coltracepb.ExportTraceServiceRequest
@@ -77,6 +89,12 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	tenant := string(tenantFromKey(msg.Key))
 	spans := convertSpans(&req, tenant)
 	if len(spans) == 0 {
+		return nil
+	}
+	// SCALE-003: per-tenant fairness shed before the store write.
+	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterOTLPSeries, int64(len(spans))) {
+		c.shed.Add(uint64(len(spans)))
+		c.log.Debug("otlp spans shed by fairness bounds", "tenant_id", tenant, "spans", len(spans))
 		return nil
 	}
 	// SCALE-003 / ARCH-002: retry the store write, then dead-letter the original
@@ -136,7 +154,9 @@ type OTLPLogConsumer struct {
 	store    otelstore.Store
 	log      *slog.Logger
 	consumed atomic.Uint64
-	dlq      *otlpDLQ // retry + dead-letter on store-write failure (SCALE-003)
+	shed     atomic.Uint64  // records shed by the per-tenant fairness gate (SCALE-003)
+	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
+	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
 }
 
 // NewOTLPLogConsumer builds the consumer.
@@ -154,6 +174,12 @@ func (c *OTLPLogConsumer) WithMetrics(reg *metrics.Registry) *OTLPLogConsumer {
 	return c
 }
 
+// WithFairness bounds per-tenant OTLP log-record admission (SCALE-003).
+func (c *OTLPLogConsumer) WithFairness(g *fairness.Gate) *OTLPLogConsumer {
+	c.gate = g
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPLogConsumer) Run(ctx context.Context) error {
 	c.log.Info("otlp logs consumer starting", "topic", bus.OTLPLogsTopic)
@@ -162,6 +188,9 @@ func (c *OTLPLogConsumer) Run(ctx context.Context) error {
 
 // Consumed reports stored records (the round-trip test's hook).
 func (c *OTLPLogConsumer) Consumed() uint64 { return c.consumed.Load() }
+
+// Shed reports records shed by the per-tenant fairness gate (SCALE-003).
+func (c *OTLPLogConsumer) Shed() uint64 { return c.shed.Load() }
 
 func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 	var req collogspb.ExportLogsServiceRequest
@@ -172,6 +201,12 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 	tenant := string(tenantFromKey(msg.Key))
 	recs := convertLogs(&req, tenant)
 	if len(recs) == 0 {
+		return nil
+	}
+	// SCALE-003: per-tenant fairness shed before the store write.
+	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterOTLPSeries, int64(len(recs))) {
+		c.shed.Add(uint64(len(recs)))
+		c.log.Debug("otlp logs shed by fairness bounds", "tenant_id", tenant, "records", len(recs))
 		return nil
 	}
 	// SCALE-003 / ARCH-002: retry the store write, then dead-letter the original

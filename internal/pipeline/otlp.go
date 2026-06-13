@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
@@ -39,7 +40,15 @@ type OTLPConsumer struct {
 
 	consumed atomic.Uint64
 	skipped  atomic.Uint64 // unsupported point kinds (histogram/summary/exp-histogram)
+	shed     atomic.Uint64 // series shed by the per-tenant fairness gate (SCALE-003)
 	dlq      *otlpDLQ      // retry + dead-letter on store-write failure (SCALE-003)
+
+	// SCALE-003: the OTLP plane gets the same per-tenant bounds as the native
+	// planes. gate sheds an over-rate tenant's series (fairness); card caps a
+	// tenant's distinct series identities (cardinality). OTLP has no agent id,
+	// so cardinality is keyed by tenant alone (agent="").
+	gate *fairness.Gate
+	card *CardinalityLimiter
 }
 
 // otlpMaxLabels bounds per-series labels (cardinality stance, U-017).
@@ -61,6 +70,22 @@ func (c *OTLPConsumer) WithMetrics(reg *metrics.Registry) *OTLPConsumer {
 	return c
 }
 
+// WithFairness bounds per-tenant OTLP series admission (SCALE-003): an over-rate
+// tenant's series are shed BEFORE the store write, so an OTLP-flooding tenant
+// cannot starve others — the same contract as the native planes.
+func (c *OTLPConsumer) WithFairness(g *fairness.Gate) *OTLPConsumer {
+	c.gate = g
+	return c
+}
+
+// WithCardinalityCaps bounds per-tenant distinct OTLP series identities
+// (SCALE-003). OTLP carries no agent id, so the per-agent cap is unused and the
+// per-tenant cap is the wall against a unique-attribute flood.
+func (c *OTLPConsumer) WithCardinalityCaps(perTenant int) *OTLPConsumer {
+	c.card = NewCardinalityLimiter(0, perTenant)
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPConsumer) Run(ctx context.Context) error {
 	c.log.Info("otlp metrics consumer starting", "topic", bus.OTLPMetricsTopic)
@@ -75,9 +100,29 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	}
 	// The RECEIVER stamped/verified the tenant resource attribute (Sprint 6
 	// covered the injection cases); the bus key carries the same tenant.
-	series := c.convert(&req, string(tenantFromKey(msg.Key)))
+	tenant := string(tenantFromKey(msg.Key))
+	series := c.convert(&req, tenant)
 	if len(series) == 0 {
 		return nil
+	}
+	// SCALE-003: per-tenant fairness shed BEFORE the expensive store write — an
+	// OTLP-flooding tenant cannot starve others (identical to the native planes).
+	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterOTLPSeries, int64(len(series))) {
+		c.shed.Add(uint64(len(series)))
+		c.log.Debug("otlp metrics shed by fairness bounds", "tenant_id", tenant, "series", len(series))
+		return nil
+	}
+	// SCALE-003: per-tenant series-cardinality cap — a unique-attribute flood is
+	// dropped+counted per series; known identities keep flowing.
+	if c.card != nil {
+		var dropped int
+		series, dropped = c.card.Filter(tenant, "", series)
+		if dropped > 0 {
+			c.log.Warn("otlp series rejected by cardinality cap", "tenant_id", tenant, "rejected", dropped)
+		}
+		if len(series) == 0 {
+			return nil
+		}
 	}
 	// SCALE-003 / ARCH-002: retry the store write, then dead-letter the original
 	// bytes (replayable) + count — no longer a silent best-effort drop.
@@ -91,6 +136,9 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 
 // Consumed reports stored series (the round-trip test's hook).
 func (c *OTLPConsumer) Consumed() uint64 { return c.consumed.Load() }
+
+// Shed reports series shed by the per-tenant fairness gate (SCALE-003).
+func (c *OTLPConsumer) Shed() uint64 { return c.shed.Load() }
 
 // tenantFromKey strips the Sprint 15 |bucket suffix if present.
 func tenantFromKey(key []byte) []byte {

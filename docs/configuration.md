@@ -1545,6 +1545,7 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 | `PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC` | `10000` | per-tenant flow-record admission rate. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` | per-tenant ingest byte rate (2 MiB/s). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant SNMP/gNMI device-sample admission rate. Explicit `0` = unlimited |
+| `PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC` | `5000` | per-tenant OTLP metric/trace/log series admission rate (SCALE-003). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | burst window: bucket capacity = rate × this. `0` falls back to 10 — an enforced bucket always has a burst |
 | `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `0` (unlimited) | per-tenant in-flight query cap (HTTP 429 over it) |
 | `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `0` (unlimited) | per-tenant query budget per minute (HTTP 429 over it) |

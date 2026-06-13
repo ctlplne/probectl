@@ -48,6 +48,7 @@ const (
 	MeterFlowEvents    = "flow_events"      // flow records admitted to the flow store
 	MeterBytes         = "ingest_bytes"     // result payload bytes admitted
 	MeterDeviceMetrics = "device_metrics"   // device samples admitted (SCALE-005)
+	MeterOTLPSeries    = "otlp_series"      // OTLP metric/trace/log series admitted (SCALE-003)
 	meterQueries       = "queries"          // query-budget bucket (internal)
 )
 
@@ -66,6 +67,7 @@ func DefaultPolicy() Policy {
 		FlowEventsPerSec:    10000,
 		IngestBytesPerSec:   2 << 20, // 2 MiB/s
 		DeviceMetricsPerSec: 2000,
+		OTLPSeriesPerSec:    5000,
 		BurstSeconds:        10,
 	}
 }
@@ -76,6 +78,10 @@ type Policy struct {
 	IngestBytesPerSec float64 `json:"ingest_bytes_per_sec,omitempty"`
 	// DeviceMetricsPerSec bounds the SNMP/gNMI device plane (SCALE-005).
 	DeviceMetricsPerSec float64 `json:"device_metrics_per_sec,omitempty"`
+	// OTLPSeriesPerSec bounds externally-ingested OTLP series (metrics, trace
+	// spans, log records) per tenant (SCALE-003) — the OTLP planes had no
+	// fairness gate, unlike the native planes.
+	OTLPSeriesPerSec float64 `json:"otlp_series_per_sec,omitempty"`
 	// BurstSeconds sizes every bucket: capacity = rate × BurstSeconds
 	// (default 10 — a tenant may burst ten seconds of its rate).
 	BurstSeconds float64 `json:"burst_seconds,omitempty"`
@@ -102,6 +108,9 @@ func (p Policy) merged(def Policy) Policy {
 	}
 	if out.DeviceMetricsPerSec == 0 {
 		out.DeviceMetricsPerSec = def.DeviceMetricsPerSec
+	}
+	if out.OTLPSeriesPerSec == 0 {
+		out.OTLPSeriesPerSec = def.OTLPSeriesPerSec
 	}
 	if out.BurstSeconds == 0 {
 		out.BurstSeconds = def.BurstSeconds
@@ -131,6 +140,8 @@ func (p Policy) rateFor(meter string) float64 {
 		return p.IngestBytesPerSec
 	case MeterDeviceMetrics:
 		return p.DeviceMetricsPerSec
+	case MeterOTLPSeries:
+		return p.OTLPSeriesPerSec
 	case meterQueries:
 		return p.QueriesPerMin / 60
 	}

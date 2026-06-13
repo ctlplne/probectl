@@ -666,6 +666,7 @@ func run(cmd string) error {
 		FlowEventsPerSec:    cfg.FairnessFlowEventsPerSec,
 		IngestBytesPerSec:   cfg.FairnessIngestBytesPerSec,
 		DeviceMetricsPerSec: cfg.FairnessDeviceMetricsPerSec,
+		OTLPSeriesPerSec:    cfg.FairnessOTLPSeriesPerSec, // SCALE-003
 		BurstSeconds:        cfg.FairnessBurstSeconds,
 		QueryConcurrency:    cfg.FairnessQueryConcurrency,
 		QueriesPerMin:       cfg.FairnessQueriesPerMin,
@@ -1046,7 +1047,7 @@ func run(cmd string) error {
 		// ARCH-002: the consumers are supervised too (subscribe-path faults).
 		g.Go(func() error {
 			return superviseRestart(gctx, "otlp-metrics-consumer", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).WithMetrics(srv.Metrics()).Run(ctx)
+				return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).WithMetrics(srv.Metrics()).WithFairness(fairGate).WithCardinalityCaps(cfg.IngestMaxSeriesPerTenant).Run(ctx) // SCALE-003
 			})
 		})
 		// ARCH-007: config-driven OTLP export — forward ingested metrics on to an
@@ -1080,12 +1081,12 @@ func run(cmd string) error {
 		// ARCH-002: the trace + log ingest consumers are supervised too.
 		g.Go(func() error {
 			return superviseRestart(gctx, "otlp-traces-consumer", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).Run(ctx)
+				return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).WithFairness(fairGate).Run(ctx) // SCALE-003
 			})
 		})
 		g.Go(func() error {
 			return superviseRestart(gctx, "otlp-logs-consumer", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).Run(ctx)
+				return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).WithFairness(fairGate).Run(ctx) // SCALE-003
 			})
 		})
 	}

@@ -479,9 +479,11 @@ type Config struct {
 	FairnessIngestBytesPerSec float64
 	// FairnessDeviceMetricsPerSec bounds the SNMP/gNMI plane (SCALE-005).
 	FairnessDeviceMetricsPerSec float64
-	FairnessBurstSeconds        float64
-	FairnessQueryConcurrency    int
-	FairnessQueriesPerMin       float64
+	// FairnessOTLPSeriesPerSec bounds the OTLP metric/trace/log planes (SCALE-003).
+	FairnessOTLPSeriesPerSec float64
+	FairnessBurstSeconds     float64
+	FairnessQueryConcurrency int
+	FairnessQueriesPerMin    float64
 
 	// BackupRetentionNote (S-T5): the operator's backup-TTL statement,
 	// included verbatim in every deletion attestation (the explicit
@@ -772,6 +774,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		FairnessFlowEventsPerSec:    l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 10000),
 		FairnessIngestBytesPerSec:   l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 2<<20),
 		FairnessDeviceMetricsPerSec: l.float("PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC", 2000),
+		FairnessOTLPSeriesPerSec:    l.float("PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC", 5000),
 		FairnessBurstSeconds:        l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10),
 		// SCALE-011: bound query load by DEFAULT (was 0/0 = unbounded, so one
 		// tenant could monopolize the query path). 4 concurrent queries and 120
