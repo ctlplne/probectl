@@ -142,7 +142,8 @@ func TestQueryRoutesToTenantStore(t *testing.T) {
 			strings.Contains(qs, "tenant_id={tenant:String}") && strings.Contains(qs, "param_tenant=siloed") {
 			siloedSeen = true
 		}
-		if strings.Contains(qs, "FROM probectl_flows WHERE tenant_id={tenant:String}") &&
+		// CORRECT-003: aggregations read the ReplacingMergeTree with FINAL.
+		if strings.Contains(qs, "FROM probectl_flows FINAL WHERE tenant_id={tenant:String}") &&
 			strings.Contains(qs, "param_tenant=pooled") {
 			pooledSeen = true
 		}
