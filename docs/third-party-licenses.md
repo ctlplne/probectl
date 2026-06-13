@@ -23,7 +23,7 @@ provenance duty in `docs/opendata-aup.md`).
 | `github.com/twmb/franz-go/pkg/kmsg` | v1.13.1 | BSD |
 | `github.com/twmb/franz-go` | v1.21.2 | BSD |
 | `go.opentelemetry.io/proto/otlp` | v1.10.0 | Apache-2.0 |
-| `golang.org/x/crypto` | v0.51.0 | BSD |
+| `golang.org/x/crypto` | v0.52.0 | BSD |
 | `golang.org/x/net` | v0.55.0 | BSD |
 | `golang.org/x/oauth2` | v0.36.0 | BSD |
 | `golang.org/x/sync` | v0.20.0 | BSD |

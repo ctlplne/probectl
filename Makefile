@@ -186,6 +186,12 @@ browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
 
 .PHONY: editions-gate
+third-party: ## SUPPLY-009: regenerate the third-party license inventory (NOTICE + docs/third-party-licenses.md) from the module graph.
+	./scripts/gen_third_party.sh
+
+third-party-gate: third-party ## SUPPLY-009 gate: regenerate the inventory and fail on drift (mirrors the proto drift gate).
+	git diff --exit-code -- NOTICE docs/third-party-licenses.md || { echo "third-party license inventory is stale — commit NOTICE + docs/third-party-licenses.md"; exit 1; }
+
 editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test) + the core-only build/test (-tags probectl_core links ZERO ee/ code via the attach-seam twin).
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	$(GO) build -tags probectl_core $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')

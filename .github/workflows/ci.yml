@@ -801,6 +801,15 @@ jobs:
         run: |
           set -o pipefail
           go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./... 2>&1 | tee govulncheck-report.txt
+      - name: Third-party license inventory is current (SUPPLY-009 drift gate)
+        # NOTICE + docs/third-party-licenses.md are generated from the module
+        # graph by scripts/gen_third_party.sh. A go.mod change that adds/removes
+        # a dependency without regenerating these would silently stale the
+        # attribution inventory. Mirror the proto drift gate: regenerate, then
+        # fail on any diff.
+        run: |
+          ./scripts/gen_third_party.sh
+          git diff --exit-code -- NOTICE docs/third-party-licenses.md             || { echo "::error::third-party license inventory is stale — run 'make third-party' (scripts/gen_third_party.sh) and commit NOTICE + docs/third-party-licenses.md"; exit 1; }
       - name: Trivy filesystem scan (vuln)
         # Secret scanning is the dedicated secret-scan job (gitleaks), which owns
         # the .gitleaks.toml allowlist for deliberate redaction-test fixtures.
