@@ -158,6 +158,13 @@ type Config struct {
 	// WORM) and chain-verified; gaps alert loudly.
 	AuditWORMDir      string
 	AuditWORMInterval time.Duration
+	// AuditRetention (EXC-ORG-01) is how long audit events are kept before the
+	// retention pruner is eligible to remove them. 0 (the default) keeps audit
+	// history forever — pruning never runs. A positive window prunes only events
+	// that are BOTH older than it AND already durably WORM/SIEM-exported (fail
+	// closed; the in-DB hash chain a verifier walks is never gapped). Set per the
+	// org's SOC2 CC7 / ISO A.12.4 evidence-retention requirement.
+	AuditRetention time.Duration
 	// WORM signing key (KEYS-002 / D2): the Ed25519 key that signs WORM
 	// segments. WormSigningKey is a base64-encoded PKCS#8 PEM private key
 	// (KMS/secret-manager injected, like EnvelopeKey); WormSigningKeyFile is a
@@ -641,6 +648,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		TSDBMemoryMaxBytes:       l.intRange("PROBECTL_TSDB_MEMORY_MAX_BYTES", 0, 0, 1<<31-1),
 		AuditWORMDir:             l.str("PROBECTL_AUDIT_WORM_DIR", ""),
 		AuditWORMInterval:        l.dur("PROBECTL_AUDIT_WORM_INTERVAL", time.Hour),
+		AuditRetention:           l.dur("PROBECTL_AUDIT_RETENTION", 0),
 		WormSigningKey:           l.str("PROBECTL_WORM_SIGNING_KEY", ""),
 		WormSigningKeyFile:       l.str("PROBECTL_WORM_SIGNING_KEY_FILE", ""),
 		TestSyncSigningKeyFile:   l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", ""),
