@@ -61,9 +61,14 @@ flowchart LR
 
 - **Regional ingest:** agents connect to the nearest region (**geo-DNS** — DNS
   that answers each client with the nearest region's address — or their
-  configured endpoint). Each region's replicas ingest locally; tenant-tagged
-  data converges in the replicated stores. A region outage sheds its agents to
-  the next-nearest region.
+  configured endpoint). Each region's replicas ingest locally. A region outage
+  sheds its agents to the next-nearest region. **Be precise about what "converges"
+  here:** the **metadata database (Postgres)** streams to the standby region, so
+  durable *state* (tenants, tests, RBAC, incidents) carries over with a seconds-scale
+  RPO. The **telemetry store (ClickHouse)** ships with a **single-node MergeTree by
+  default — it does NOT replicate cross-region**; its regional RPO equals the
+  backup cadence unless the operator runs ClickHouse replication (see
+  [Telemetry-store regional DR](#telemetry-store-regional-dr-clickhouse) below).
 - **Writer endpoint:** a single DNS name / proxy (e.g. a managed-DB failover
   endpoint, Patroni + a VIP, or PgBouncer/HAProxy tracking the leader) that
   always resolves to the current primary. `PROBECTL_DATABASE_URL` points here.
@@ -76,8 +81,15 @@ flowchart LR
 
 **RPO** — recovery point objective — is the amount of just-committed data you
 can lose in a failover, measured in time: an RPO of five seconds means at most
-the last five seconds of writes may vanish. The Postgres replication mode sets
-the achievable RPO. probectl behaves
+the last five seconds of writes may vanish.
+
+**The HA RPO/RTO numbers in this section describe the metadata database
+(Postgres) only.** That is the tier with streaming replication and the
+seconds-scale failover. The telemetry store (ClickHouse) has a *different,
+backup-cadence* RPO unless you opt into replication — see
+[Metadata vs telemetry: the RPO asymmetry](#metadata-vs-telemetry-the-rpo-asymmetry).
+
+The Postgres replication mode sets the achievable metadata RPO. probectl behaves
 identically either way — it is a deployment choice:
 
 | Mode (`PROBECTL_REPLICATION_MODE`) | RPO | Trade-off |
@@ -148,6 +160,45 @@ and in this table).
 | **RPO** | `0` with `sync`; else ≈ lag (target ≤ 5 s) | replication mode + standby health |
 | **RTO** | ≤ **60 s** | DB failover controller detect+promote + a 5 s probe |
 
+## Metadata vs telemetry: the RPO asymmetry
+
+probectl has **two durable stores with two different regional-DR stories**, and
+honesty about the gap matters more than a tidy claim:
+
+| Store | What it holds | Cross-region default | Regional RPO (default) | How to tighten |
+|---|---|---|---|---|
+| **Postgres (metadata)** | tenants, tests, RBAC, audit, SLOs, incidents, cluster state | **streaming replication** (this doc) | `0` with `sync`, else ≈ replica lag (target ≤ 5 s) | run `sync` with a synchronous standby |
+| **ClickHouse (telemetry)** | flow, eBPF, OTLP, threat, change, cost rows | **NONE — single-node `MergeTree`** (`values.yaml`) | **≈ backup cadence** (e.g. last snapshot) | enable ClickHouse replication *or* tighten off-region incrementals |
+| **Object store** | support bundles, exports, large artifacts | per the operator's bucket replication | bucket-dependent | enable cross-region bucket replication |
+
+So a region loss recovers the *control plane and its state* in seconds, but the
+**telemetry written since the last off-region backup is lost** — that window is
+your telemetry RPO. This is a deliberate trade (replicating high-cardinality
+ClickHouse globally is expensive and often residency-restricted), but it must not
+be papered over: the metadata seconds-RPO does **not** extend to telemetry.
+
+### Telemetry-store regional DR (ClickHouse)
+
+Two supported paths, in increasing cost/RPO-tightness order:
+
+1. **Backup-only (default).** The shipped topology is a single-node
+   `MergeTree` plus the encrypted ClickHouse backups in
+   [`backup-restore.md`](ops/backup-restore.md). Regional RPO = backup cadence;
+   shorten it with more frequent off-region incrementals. The recovery path on a
+   region loss is: stand up ClickHouse in the surviving region, restore the most
+   recent off-region backup, and re-point the control plane's ClickHouse host.
+2. **Operator-run ClickHouse replication (config-gated, opt-in).** Convert the
+   telemetry tables to `ReplicatedMergeTree` backed by a ClickHouse Keeper /
+   ZooKeeper quorum spanning regions, so committed rows replicate with a
+   seconds-scale RPO like Postgres. probectl does not ship this topology, but it
+   does not get in the way: the schema is engine-agnostic and the store talks the
+   standard HTTP interface. This is an operator infrastructure decision (quorum
+   placement, residency, cost), not a probectl config flag — track it in your
+   own runbook.
+
+Whichever you choose, record the chosen telemetry RPO next to the metadata RPO
+in your DR plan so the asymmetry is visible to whoever is on call.
+
 ## Per-region data residency
 
 `PROBECTL_RESIDENCY` records the *default* data-residency region for the
@@ -176,3 +227,9 @@ region.
 A multi-writer global database (CockroachDB/Yugabyte-style); a probectl-operated
 hosted SaaS; FedRAMP authorization. The control plane is region-agnostic and
 stateless — scaling out a region is adding replicas.
+
+**Cross-region telemetry replication is not shipped.** The default ClickHouse
+topology is single-node `MergeTree`; its regional RPO is the backup cadence, not
+the metadata's seconds-scale RPO (see
+[the asymmetry section](#metadata-vs-telemetry-the-rpo-asymmetry)). Running
+`ReplicatedMergeTree` across regions is an operator decision, not a built-in.

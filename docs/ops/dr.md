@@ -74,10 +74,14 @@ It is dev-sized, single-host, and replicates over the LAN loopback. It therefore
 distance run further behind, which widens RPO); DNS/proxy writer
 re-pointing and the control-plane fence release (which widen RTO — see
 [region-failover.md](../runbooks/region-failover.md)); agent geo-DNS shedding;
-and the ClickHouse / object-store regional strategies (those are covered by
-replication and backups per [backup-restore.md](backup-restore.md) — restore RTO
-is measured by *its* own drill). The representative run measures the full
-sequence end to end.
+and the ClickHouse / object-store regional strategies. **Be explicit about the
+telemetry store:** ClickHouse ships as a single-node `MergeTree` and does **not**
+replicate cross-region by default, so its regional RPO is the **backup cadence**
+(not the metadata DB's seconds-scale RPO) unless the operator runs ClickHouse
+replication — see [multi-region.md → the RPO asymmetry](../multi-region.md#metadata-vs-telemetry-the-rpo-asymmetry)
+and the backup recovery path in [backup-restore.md](backup-restore.md) (restore
+RTO is measured by *its* own drill). The representative run measures the full
+metadata-tier sequence end to end.
 
 ## Measured results
 
@@ -101,6 +105,8 @@ This is the short version; the full procedure is
 3. Re-point the writer endpoint (DNS/proxy) and release the fence by stamping
    the new promotion epoch.
 4. Verify: a write succeeds; `/readyz` is green in the surviving regions; agents
-   re-shed via geo-DNS; ClickHouse / object store follow their regional plan.
+   re-shed via geo-DNS; ClickHouse / object store follow their regional plan
+   (telemetry RPO = backup cadence by default — restore the latest off-region
+   backup; see [multi-region.md](../multi-region.md#telemetry-store-regional-dr-clickhouse)).
 5. Record the timeline in the table above. When you rebuild the lost region, the
    `make backup-restore-drill` logic is how you validate the restore into it.
