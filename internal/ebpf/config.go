@@ -187,7 +187,7 @@ func (c *Config) validate() error {
 		return fmt.Errorf("ebpf: flush_interval must be > 0")
 	}
 	if c.L7CaptureRedaction != "" && !validRedactionMode(c.L7CaptureRedaction) {
-		return fmt.Errorf("ebpf: l7_capture_redaction %q (want %s|%s)", c.L7CaptureRedaction, RedactHeaders, RedactFull)
+		return fmt.Errorf("ebpf: l7_capture_redaction %q (want %s|%s|%s)", c.L7CaptureRedaction, RedactHeaders, RedactLengthOnly, RedactFull)
 	}
 	if c.L7CaptureEnabled && c.L7CaptureConsentTenant == "" {
 		return fmt.Errorf("ebpf: l7_capture_enabled requires l7_capture_consent_tenant (the EXPLICIT per-tenant consent, U-003)")
