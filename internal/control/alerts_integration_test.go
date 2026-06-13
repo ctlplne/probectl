@@ -32,6 +32,14 @@ func TestAlertsCRUDAPI(t *testing.T) {
 	if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/v1/alerts/") {
 		t.Errorf("Location = %q", loc)
 	}
+	// ARCH-002/CORRECT-006: setupAPI wires no query backend, so alerting is
+	// inactive. The create must still return the BARE rule (the web client +
+	// API contract decode alert.Rule) and signal "won't fire yet" via a HEADER,
+	// never by wrapping the body. Lock both: the header is set AND the body
+	// decodes as a bare rule below.
+	if rec.Header().Get("X-Probectl-Alerting-Active") != "false" {
+		t.Errorf("inactive-alerting warning header missing on create: %v", rec.Header())
+	}
 	var created alert.Rule
 	mustJSON(t, rec, &created)
 	if created.ID == "" || created.Name != name || created.Type != alert.Threshold || created.ForN != 2 {

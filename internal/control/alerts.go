@@ -128,15 +128,14 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 	w.Header().Set("Location", "/v1/alerts/"+created.ID)
 	out := redactRule(created)
 	if !s.alertingActive {
-		// ARCH-002/CORRECT-006: accept+persist the rule (so config survives a
-		// profile change) but warn that it will NOT fire until a query backend
-		// is wired — never silently store a dead rule.
-		writeJSON(w, http.StatusCreated, map[string]any{
-			"rule":            &out,
-			"alerting_active": false,
-			"warning":         "rule stored but NOT evaluated: alerting is inactive in this deployment profile (no query backend); see docs/alerting.md",
-		})
-		return nil
+		// ARCH-002/CORRECT-006: the rule is persisted (config survives a profile
+		// change) but will NOT fire until a query backend is wired. Surface that
+		// as a Warning HEADER, NOT by wrapping the body: the create response must
+		// stay a consistent bare alert.Rule — the web client (web/src/api/alerts.ts
+		// expects AlertRule) and the API contract depend on it. This keeps the
+		// "never silently store a dead rule" guarantee without breaking the shape.
+		w.Header().Set("Warning", `199 - "alert rule stored but NOT evaluated: alerting is inactive in this deployment profile (no query backend); see docs/alerting.md"`)
+		w.Header().Set("X-Probectl-Alerting-Active", "false")
 	}
 	writeJSON(w, http.StatusCreated, &out)
 	return nil
