@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/breaker"
@@ -71,10 +72,17 @@ func tableFor(t Target) (string, error) {
 // ClickHouse persists flows over the ClickHouse HTTP interface (pathstore
 // pattern: zero driver dependencies; https URL = TLS in transit).
 type ClickHouse struct {
+	// breaker is the circuit breaker for the DEFAULT (pooled) endpoint.
 	breaker *breaker.Breaker
-	base    string
-	client  *http.Client
-	router  TargetRouter // nil = everything pooled
+	// breakers holds one breaker PER routed silo BaseURL (SCALE-021). A single
+	// shared breaker meant one down tenant silo tripped writes for EVERY tenant
+	// — a per-tenant ClickHouse outage became a platform-wide one. Keying the
+	// breaker by data-plane endpoint isolates the blast radius: a dead silo
+	// short-circuits only its own target while every other silo keeps serving.
+	breakers sync.Map // baseURL -> *breaker.Breaker
+	base     string
+	client   *http.Client
+	router   TargetRouter // nil = everything pooled
 	// tenantScoping (TENANT-102) attaches the per-request custom setting
 	// SQL_probectl_tenant to every tenant-scoped read, so a row policy can
 	// constrain the query path at the DB even if app-layer WHERE scoping is
@@ -502,7 +510,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if err != nil {
 		return 0, err
 	}
-	resp, err := chDo(c.breaker, c.client, req)
+	resp, err := chDo(c.breakerFor(t.BaseURL), c.client, req)
 	if err != nil {
 		return 0, fmt.Errorf("flowstore: export: %w", err)
 	}
@@ -557,6 +565,21 @@ func (c *ClickHouse) baseFor(base string) string {
 	return strings.TrimRight(base, "/")
 }
 
+// breakerFor returns the circuit breaker for a routed endpoint (SCALE-021).
+// The pooled default ("") uses the long-lived c.breaker; each siloed BaseURL
+// gets its own breaker so one silo's outage can't trip another's writes.
+func (c *ClickHouse) breakerFor(base string) *breaker.Breaker {
+	if base == "" {
+		return c.breaker
+	}
+	key := strings.TrimRight(base, "/")
+	if b, ok := c.breakers.Load(key); ok {
+		return b.(*breaker.Breaker)
+	}
+	b, _ := c.breakers.LoadOrStore(key, breaker.New(0, 0))
+	return b.(*breaker.Breaker)
+}
+
 // chParams carries SERVER-BOUND query parameters (SEC-005/TENANT-108): each
 // key k is sent as the HTTP parameter param_k and bound by ClickHouse to the
 // {k:Type} placeholder in the SQL. Values never enter the SQL text — a value
@@ -589,19 +612,19 @@ func (c *ClickHouse) queryScoped(ctx context.Context, base, tenantID, sql string
 	if c.tenantScoping && tenantID != "" {
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenantID)
 	}
-	return c.doQuery(ctx, u)
+	return c.doQuery(ctx, base, u)
 }
 
 func (c *ClickHouse) query(ctx context.Context, base, sql string, p chParams) ([]map[string]any, error) {
-	return c.doQuery(ctx, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
+	return c.doQuery(ctx, base, c.baseFor(base)+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
 }
 
-func (c *ClickHouse) doQuery(ctx context.Context, u string) ([]map[string]any, error) {
+func (c *ClickHouse) doQuery(ctx context.Context, base, u string) ([]map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := chDo(c.breaker, c.client, req)
+	resp, err := chDo(c.breakerFor(base), c.client, req)
 	if err != nil {
 		return nil, fmt.Errorf("flowstore: clickhouse query: %w", err)
 	}
@@ -630,7 +653,7 @@ func (c *ClickHouse) exec(ctx context.Context, base, query string, p chParams, b
 	if err != nil {
 		return err
 	}
-	resp, err := chDo(c.breaker, c.client, req)
+	resp, err := chDo(c.breakerFor(base), c.client, req)
 	if err != nil {
 		return fmt.Errorf("flowstore: clickhouse request: %w", err)
 	}
