@@ -35,6 +35,21 @@ import (
 const (
 	magic     = "PBK1"
 	chunkSize = 1 << 20 // 1 MiB plaintext per sealed chunk
+
+	// maxWrappedDEK bounds the wrapped-DEK header length we will allocate
+	// from an untrusted/semi-trusted container before reading it. A wrapped
+	// DEK is a few hundred bytes; 64 KiB is generous and prevents a crafted
+	// u32 length (up to ~4 GiB) from forcing an unbounded allocation
+	// (FUZZ-004 allocation-DoS on the restore path).
+	maxWrappedDEK = 64 << 10 // 64 KiB
+	// maxKeyID bounds the key-id header length (a u16, so already <=64 KiB,
+	// but we cap tighter to a sane identifier size).
+	maxKeyID = 4 << 10 // 4 KiB
+	// maxChunkCiphertext bounds a single sealed-chunk frame: plaintext is
+	// chunkSize, plus AEAD nonce+tag overhead; 1 MiB slack is ample. Caps
+	// the per-frame allocation in Open so a crafted frame length cannot
+	// force a multi-GiB make.
+	maxChunkCiphertext = chunkSize + (1 << 20) // 2 MiB
 )
 
 // KeyProvider wraps/unwraps the data key (the deployment KEK side). The
@@ -109,6 +124,12 @@ func Open(ctx context.Context, dst io.Writer, src io.Reader, keys KeyProvider) e
 		if n == 0 {
 			return nil // clean EOF
 		}
+		// Bound the per-frame allocation: a sealed chunk is at most
+		// chunkSize plus AEAD overhead, so a crafted frame length cannot
+		// force a multi-GiB make (FUZZ-004 allocation-DoS).
+		if n > maxChunkCiphertext {
+			return fmt.Errorf("backup: chunk %d frame length %d exceeds cap %d (corrupt/hostile container)", index, n, maxChunkCiphertext)
+		}
 		ct := make([]byte, n)
 		if _, err := io.ReadFull(src, ct); err != nil {
 			return fmt.Errorf("backup: short read on chunk %d (corrupt): %w", index, err)
@@ -160,6 +181,9 @@ func openHeader(ctx context.Context, src io.Reader, keys KeyProvider) ([]byte, e
 	if err != nil {
 		return nil, err
 	}
+	if int(keyIDLen) > maxKeyID {
+		return nil, fmt.Errorf("backup: key id length %d exceeds cap %d (corrupt/hostile header)", keyIDLen, maxKeyID)
+	}
 	keyID := make([]byte, keyIDLen)
 	if _, err := io.ReadFull(src, keyID); err != nil {
 		return nil, fmt.Errorf("backup: read key id: %w", err)
@@ -167,6 +191,12 @@ func openHeader(ctx context.Context, src io.Reader, keys KeyProvider) ([]byte, e
 	wrappedLen, err := readU32(src)
 	if err != nil {
 		return nil, err
+	}
+	// Bound the allocation before reading: a crafted u32 length (up to
+	// ~4 GiB) must not force an unbounded make on the restore path
+	// (FUZZ-004). A wrapped DEK is a few hundred bytes.
+	if wrappedLen > maxWrappedDEK {
+		return nil, fmt.Errorf("backup: wrapped-dek length %d exceeds cap %d (corrupt/hostile header)", wrappedLen, maxWrappedDEK)
 	}
 	wrapped := make([]byte, wrappedLen)
 	if _, err := io.ReadFull(src, wrapped); err != nil {
