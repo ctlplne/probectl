@@ -56,6 +56,15 @@ if [ "${VERIFY}" = "1" ]; then
       exit 1
     }
   echo "install.sh: cosign verification OK"
+else
+  # SUPPLY-003: installing + enabling a privileged (CAP_BPF) binary with no
+  # signature check. Not fatal (air-gap operators may verify out-of-band), but
+  # print a loud, unmissable reminder so an unverified install is a conscious
+  # choice, not an accident.
+  echo "install.sh: WARNING — installing ${BIN} WITHOUT signature verification." >&2
+  echo "install.sh:   This binary is granted CAP_BPF/CAP_PERFMON. Verify it first:" >&2
+  echo "install.sh:     re-run with --verify (needs <binary>.sig + <binary>.pem), or" >&2
+  echo "install.sh:     follow docs/verify-artifacts.md to cosign-verify before installing." >&2
 fi
 [ -f "${HERE}/${UNIT}" ] || { echo "install.sh: ${UNIT} not next to this script" >&2; exit 1; }
 

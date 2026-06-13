@@ -81,6 +81,14 @@ by the ingress, not Vite). HTTPS-by-default and no external origins are the
 sovereignty contract
 ([Non-negotiables](../CONTRIBUTING.md#non-negotiables)).
 
+> **SUPPLY-008 — the Vite dev server is a local-only tool, never exposed.**
+> The build toolchain (`esbuild`/`vite`) carries HIGH advisories
+> (dev-server SSRF / arbitrary file read) that affect `npm run dev` only — they
+> are **not** in the shipped bundle, so the production audit gate
+> (`npm audit --omit=dev --audit-level=high`, CI) stays green. Bind `npm run dev`
+> to localhost only and never expose it off the developer's machine. The fix is
+> a semver-major `vite@8` bump, tracked as its own change.
+
 ## Editions boundary in the UI
 
 Commercial UI source lives in `ee/web` and is aliased as `@ee` (the editions

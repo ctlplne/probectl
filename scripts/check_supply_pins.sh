@@ -72,9 +72,27 @@ if [[ -f deploy/docker/Dockerfile.ebpf ]]; then
   done < <(grep -rni 'clang' deploy/docker/Dockerfile.ebpf 2>/dev/null; grep -rni 'llvm' deploy/docker/Dockerfile.ebpf 2>/dev/null || true)
 fi
 
+# 5) SUPPLY-006: tag-only (non-digest) image refs under deploy/helm. A `:tag`
+#    with no `@sha256:` is mutable — the restore Job once fell back to a bare
+#    postgres:16. Flag any concrete image ref that is not digest-pinned. Skips
+#    template expressions ({{ ... }}), empty defaults (image: ""), and lines
+#    opting out with "# tag-only-ok".
+while IFS= read -r line; do
+  echo "$line" | grep -q 'tag-only-ok' && continue
+  val="${line#*image:}"; val="${val%%#*}"          # value after image:, drop comment
+  val="$(echo "$val" | tr -d '[:space:]"'\''')"     # strip ws + quotes
+  [[ -z "$val" ]] && continue                        # image: "" default
+  echo "$val" | grep -q '{{' && continue             # helm template expression
+  echo "$val" | grep -q '@sha256:' && continue       # digest-pinned — good
+  echo "$val" | grep -q ':' || continue              # no tag at all (rare); skip
+  echo "TAG-ONLY image ref under deploy/helm (digest-pin it; SUPPLY-006):"
+  echo "  $line"
+  fail=1
+done < <(grep -rn 'image:' deploy/helm --include='*.yaml' --include='*.yml' | grep -v '^\s*#' || true)
+
 if [[ $fail -ne 0 ]]; then
   echo
   echo "supply-pins gate FAILED — pin the inputs above (docs/dependency-policy.md)."
   exit 1
 fi
-echo "supply-pins gate: OK (no :latest, no unpinned go install / pip install)"
+echo "supply-pins gate: OK (no :latest, no unpinned go install / pip install, no tag-only helm image)"

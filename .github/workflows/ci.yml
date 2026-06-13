@@ -738,6 +738,13 @@ jobs:
         run: npm ci
       - name: Audit gate (U-028 — no critical advisories)
         run: npm audit --audit-level=critical
+      - name: Prod-dependency audit gate (SUPPLY-008 — no high in shipped deps)
+        # The shipped bundle contains only runtime deps; build-time tooling
+        # (esbuild/vite) carries HIGH advisories that don't reach the artifact
+        # and whose fix is a semver-major vite bump tracked separately. Gate the
+        # *production* dependency tree at --audit-level=high so a high in a
+        # shipped dep blocks the build, without failing on dev-only tooling.
+        run: npm audit --omit=dev --audit-level=high
       - name: Typecheck
         run: npm run typecheck
       - name: Format check (CODE-009 — prettier)

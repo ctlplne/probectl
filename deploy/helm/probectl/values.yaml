@@ -244,7 +244,7 @@ restore:
   backupFile: ""              # filename on the backups PVC (e.g. pg-2026-06-13.sql.sealed)
   host: probectl-postgres
   database: probectl
-  image: ""                   # defaults to postgres:16
+  image: ""                   # SUPPLY-006: defaults to the digest-pinned backup.postgres.image
   # OPS-007: chart-managed ClickHouse restore (mirrors the PG restore Job and the
   # CH backup CronJob). Set clickhouse.enabled=true and clickhouse.backupFile to
   # the BACKUP-produced .zip on the backups PVC. The RESTORE runs SERVER-SIDE

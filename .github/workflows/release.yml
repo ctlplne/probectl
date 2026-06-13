@@ -293,6 +293,20 @@ jobs:
             [ -e "$f" ] || continue
             cosign sign-blob --yes --output-signature "${f}.sig" --output-certificate "${f}.pem" "$f"
           done
+      - name: Verify own package signatures (SUPPLY-004 — mirror the binaries gate)
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in *.deb *.rpm; do
+            [ -e "$f" ] || continue
+            cosign verify-blob \
+              --certificate "${f}.pem" \
+              --signature "${f}.sig" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+              "$f"
+          done
+          echo "all packages verify"
       - name: Attach to the release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:

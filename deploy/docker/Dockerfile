@@ -27,7 +27,8 @@ COPY web/ ./
 COPY ee/web /ee/web
 RUN npm run build   # → /web/dist (hashed assets)
 
-# Digest-pinned (U-061); dependabot bumps the digest. Tag kept for humans.
+# Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
+# auto-update bot). Tag kept for humans.
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d AS build
 ARG COMPONENT
 ARG TARGETOS

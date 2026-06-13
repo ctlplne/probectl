@@ -33,7 +33,11 @@ spec:
             - { name: shared, mountPath: /shared }
       containers:
         - name: restore
-          image: {{ .Values.restore.image | default "postgres:16" }}
+          {{- /* SUPPLY-006: default to the SAME digest-pinned ref as the backup
+             CronJob (values.yaml backup.postgres.image), never a tag-only
+             postgres:16 — a mutable tag drifts the restore tool out from under a
+             sealed dump. An operator override is still honoured. */}}
+          image: {{ .Values.restore.image | default .Values.backup.postgres.image }}
           command: ["/bin/sh", "-ec"]
           args:
             - |
