@@ -8,6 +8,25 @@ import (
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
+// SemConvVersion pins the OpenTelemetry semantic-convention version whose
+// attribute names probectl's mapping follows (SCHEMA-004). It is emitted as the
+// OTLP Resource/ScopeMetrics SchemaUrl and as the InstrumentationScope Version,
+// so a downstream collector can machine-detect which convention version the
+// hand-mapped keys (server.address, network.transport, ...) conform to. When we
+// adopt a newer semconv revision (renames/unit changes), bump this single
+// constant and re-verify the mapping — the conformance test fails if the emitted
+// SchemaUrl drifts from it.
+const (
+	SemConvVersion = "1.27.0"
+	// SchemaURL is the canonical OTel schema URL for SemConvVersion. The OTLP
+	// spec carries the convention version as this URL, never a bare version.
+	SchemaURL = "https://opentelemetry.io/schemas/" + SemConvVersion
+	// ScopeName / ScopeVersion identify probectl as the instrumentation scope.
+	// ScopeVersion is the probectl build's mapping version (tracks SemConvVersion).
+	ScopeName    = "probectl"
+	ScopeVersion = SemConvVersion
+)
+
 // OTel resource + network semantic-convention attribute keys probectl emits. The
 // names follow the OpenTelemetry specification; probectl-specific identity uses the
 // probectl.* namespace, since OTel has no standard tenancy attribute.

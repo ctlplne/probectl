@@ -14,7 +14,14 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
-const scopeName = "probectl"
+// scopeName / scopeVersion identify probectl as the OTLP instrumentation scope
+// (SCHEMA-004); schemaURL pins the semantic-convention version the attribute
+// keys follow. All three come from internal/otel so there is ONE pinned version.
+const (
+	scopeName    = otel.ScopeName
+	scopeVersion = otel.ScopeVersion
+	schemaURL    = otel.SchemaURL
+)
 
 // ResultResourceMetrics converts a probe Result to OTLP ResourceMetrics, using
 // the canonical S6 resource attributes.
@@ -78,11 +85,16 @@ func ResourceTenant(rm *metricspb.ResourceMetrics) string {
 // --- builders -------------------------------------------------------------
 
 func resourceMetrics(attrs map[string]string, metrics ...*metricspb.Metric) *metricspb.ResourceMetrics {
+	// SchemaUrl (resource + scope) and the scope Version carry the pinned
+	// semantic-convention version (SCHEMA-004) so a downstream collector can
+	// machine-detect which OTel convention the attribute keys follow.
 	return &metricspb.ResourceMetrics{
-		Resource: &resourcepb.Resource{Attributes: kvAttrs(attrs)},
+		Resource:  &resourcepb.Resource{Attributes: kvAttrs(attrs)},
+		SchemaUrl: schemaURL,
 		ScopeMetrics: []*metricspb.ScopeMetrics{{
-			Scope:   &commonpb.InstrumentationScope{Name: scopeName},
-			Metrics: metrics,
+			Scope:     &commonpb.InstrumentationScope{Name: scopeName, Version: scopeVersion},
+			SchemaUrl: schemaURL,
+			Metrics:   metrics,
 		}},
 	}
 }
