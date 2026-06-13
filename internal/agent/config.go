@@ -42,6 +42,17 @@ type Config struct {
 	Buffer       BufferConfig       `yaml:"buffer"`
 	Canaries     []CanaryConfig     `yaml:"canaries"`
 	A2A          A2AConfig          `yaml:"a2a"`
+	Security     SecurityConfig     `yaml:"security"`
+}
+
+// SecurityConfig holds agent-level safety toggles. They default to the secure
+// stance; an operator must opt in to relax them.
+type SecurityConfig struct {
+	// AllowInsecureSkipVerify gates the per-probe http insecure_skip_verify
+	// parameter (WIRE-004). OFF by default: a probe spec requesting
+	// insecure_skip_verify=true is REFUSED unless the operator turns this on.
+	// When enabled, an insecure probe still runs but is stamped + logged.
+	AllowInsecureSkipVerify bool `yaml:"allow_insecure_skip_verify"`
 }
 
 // IdentityConfig wires automatic SVID rotation (Sprint 11): when Server is

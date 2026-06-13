@@ -467,10 +467,13 @@ the result to path/traceroute data** for the same destination.
 `ca_file`) **after** capturing the certificate, so the handshake details are
 recorded **even when the certificate is invalid or expired** — an invalid cert
 fails the probe but its details are still attached. Set `insecure_skip_verify:
-"true"` to capture posture without failing the availability check. probectl performs
-no TLS *posture analysis* here (issuer trust, weak-cipher/expiry policy, CT) — that
-is the *TLS / certificate observability* feature below, which consumes these
-captured fields.
+"true"` to capture posture without failing the availability check. **WIRE-004:**
+at the agent, `insecure_skip_verify=true` is *refused* unless the agent config
+sets `security.allow_insecure_skip_verify: true` (default false); when permitted,
+the probe runs but its result carries `tls.verification_disabled="true"` so every
+verification-disabled probe is auditable. probectl performs no TLS *posture
+analysis* here (issuer trust, weak-cipher/expiry policy, CT) — that is the *TLS /
+certificate observability* feature below, which consumes these captured fields.
 
 ### Agent-to-agent tests
 

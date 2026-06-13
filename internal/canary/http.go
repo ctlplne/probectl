@@ -98,6 +98,14 @@ func NewHTTP(cfg Config) (Canary, error) {
 		c.follow = false
 	}
 	if p["insecure_skip_verify"] == "true" {
+		// WIRE-004: TLS verification may be disabled only when the agent has
+		// explicitly opted in (Config.AllowInsecureSkipVerify). Otherwise the
+		// probe spec is REFUSED — a probe cannot silently turn off cert
+		// verification. When allowed, the probe still runs but Run() stamps an
+		// attribute so every insecure probe is auditable.
+		if !cfg.AllowInsecureSkipVerify {
+			return nil, errors.New("http: insecure_skip_verify=true is refused — the agent must set security.allow_insecure_skip_verify to permit it (WIRE-004)")
+		}
 		c.insecure = true
 	}
 	if err := c.guard.CheckHost(c.host); err != nil {
@@ -134,6 +142,11 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		"url.full":              c.url,
 		"http.request.method":   c.method,
 	}}
+	if c.insecure {
+		// WIRE-004: make every verification-disabled probe auditable on the
+		// result itself (the agent already gated this behind an explicit opt-in).
+		res.Attributes["tls.verification_disabled"] = "true"
+	}
 
 	roots, err := c.trustRoots()
 	if err != nil {

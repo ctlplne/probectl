@@ -37,6 +37,10 @@ type Config struct {
 	Interval time.Duration     `json:"interval"`
 	Timeout  time.Duration     `json:"timeout"`
 	Params   map[string]string `json:"params,omitempty"`
+	// AllowInsecureSkipVerify is the agent-level opt-in that lets a probe set
+	// the http insecure_skip_verify=true parameter (WIRE-004). Default false:
+	// NewHTTP REFUSES an insecure probe unless this is set.
+	AllowInsecureSkipVerify bool `json:"allow_insecure_skip_verify,omitempty"`
 }
 
 // Result is one measurement. Identity (tenant/agent) is stamped by the agent

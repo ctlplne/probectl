@@ -589,6 +589,13 @@ jobs:
           done
           echo "prometheus did not become ready" >&2; docker logs prometheus; exit 1
       - name: Integration tests (migrations + readiness + result pipeline)
+        # WIRE-005: require services so the mTLS/enroll wire-defense integration
+        # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
+        # TestEnrollTokenReplayRejected, TestWrongTenantCannotBeRequested,
+        # TestRevokeAgentPersistsAndBlocksReissuance) FAIL the build if Postgres
+        # is missing instead of silently skipping.
+        env:
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: make test-integration
       - name: Store integration coverage floor (U-057)
         # The store package is correctness-gated here (real PG + RLS), not in

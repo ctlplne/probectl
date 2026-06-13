@@ -41,8 +41,9 @@ func TestNewHTTPDefaults(t *testing.T) {
 
 func TestNewHTTPParams(t *testing.T) {
 	c, err := NewHTTP(Config{
-		Target:  "http://svc.internal:8080/ping",
-		Timeout: 3 * time.Second,
+		Target:                  "http://svc.internal:8080/ping",
+		Timeout:                 3 * time.Second,
+		AllowInsecureSkipVerify: true, // WIRE-004: opt-in so insecure_skip_verify is honored
 		Params: map[string]string{
 			"method":               "post",
 			"expect_status":        "200,201",
@@ -87,6 +88,8 @@ func TestNewHTTPErrors(t *testing.T) {
 		{"no host", Config{Target: "http://"}},
 		{"bad max_body", Config{Target: "http://x.test", Params: map[string]string{"max_body_bytes": "-5"}}},
 		{"bad expect", Config{Target: "http://x.test", Params: map[string]string{"expect_status": "wat"}}},
+		// WIRE-004: insecure_skip_verify=true is refused unless the agent opts in.
+		{"insecure not allowed", Config{Target: "https://x.test", Params: map[string]string{"insecure_skip_verify": "true"}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

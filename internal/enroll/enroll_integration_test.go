@@ -24,6 +24,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -42,7 +43,10 @@ func setup(ctx context.Context, t *testing.T) (*pgxpool.Pool, *enroll.Service, s
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		t.Skipf("no database available: %v", err)
+		// WIRE-005: in CI (PROBECTL_TEST_REQUIRE_SERVICES=1) a missing Postgres
+		// is a RED build — the enroll-replay / wrong-tenant / rotation defenses
+		// MUST execute, not silently skip.
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, pool); err != nil {
 		pool.Close()

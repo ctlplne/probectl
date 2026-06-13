@@ -51,7 +51,10 @@ func runHTTP(t *testing.T, target string, params map[string]string) canary.Resul
 		params = map[string]string{}
 	}
 	params["allow_private_targets"] = "true" // loopback test servers (U-002 override, audited in prod)
-	c, err := canary.NewHTTP(canary.Config{Type: "http", Target: target, Timeout: 5 * time.Second, Params: params})
+	// WIRE-004: when a test opts a probe into insecure_skip_verify, mirror the
+	// agent-level opt-in the runtime would require.
+	allowInsecure := params["insecure_skip_verify"] == "true"
+	c, err := canary.NewHTTP(canary.Config{Type: "http", Target: target, Timeout: 5 * time.Second, Params: params, AllowInsecureSkipVerify: allowInsecure})
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
