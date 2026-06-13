@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
@@ -43,6 +44,13 @@ type NoisyConfig struct {
 	// Repeats is the number of (solo, noisy) PAIRS to run; the reported
 	// inflation is the MEDIAN pair's (default 3 — see the U-055 note below).
 	Repeats int
+	// Fairness is the per-tenant fairness gate installed on the harness'
+	// consumer (SCALE-004). When set, the noisy-neighbor scenario actually
+	// exercises the gate it claims to validate: a flooding tenant is shed so
+	// the in-process gate has a TIMING-INDEPENDENT isolation signal (the
+	// in-memory bus has microsecond latency, so a p95-inflation gate alone is
+	// noise). nil = no gate (the negative control: the flood is NOT shed).
+	Fairness *fairness.Gate
 }
 
 // NoisyReport is the scenario outcome.
@@ -54,7 +62,15 @@ type NoisyReport struct {
 	QuietCorrect bool          // every quiet series landed, correctly scoped, in EVERY phase
 	QuietSeries  int
 	NoisySeries  int
-	Pairs        int // (solo, noisy) pairs run
+	// SCALE-004: the TIMING-INDEPENDENT isolation signal. NoisyPublished is how
+	// many results the flooding neighbor sent in the noisy phase; NoisyAdmitFrac
+	// is NoisySeries/NoisyPublished. With the fairness gate installed the flood
+	// is shed (frac < 1); with NO gate (negative control) nearly all of it lands
+	// (frac ≈ 1). FairnessOn records whether a gate was installed.
+	NoisyPublished int
+	NoisyAdmitFrac float64
+	FairnessOn     bool
+	Pairs          int // (solo, noisy) pairs run
 }
 
 // String renders the report for logs and docs.
@@ -94,27 +110,32 @@ func DriveNoisyNeighbor(ctx context.Context, cfg NoisyConfig) (NoisyReport, erro
 	pairs := make([]noisyPair, 0, cfg.Repeats)
 	for k := 0; k < cfg.Repeats; k++ {
 		// Phase A — solo: the quiet tenant alone.
-		soloP95, _, soloOK, err := runPhase(ctx, cfg, false)
+		soloP95, _, _, soloOK, err := runPhase(ctx, cfg, false)
 		if err != nil {
 			return NoisyReport{}, fmt.Errorf("perf: solo phase (pair %d): %w", k+1, err)
 		}
 		// Phase B — the same quiet workload beside a flooding neighbor,
 		// immediately after its own baseline.
-		noisyP95, counts, noisyOK, err := runPhase(ctx, cfg, true)
+		noisyP95, counts, noisyPublished, noisyOK, err := runPhase(ctx, cfg, true)
 		if err != nil {
 			return NoisyReport{}, fmt.Errorf("perf: noisy phase (pair %d): %w", k+1, err)
 		}
-		pairs = append(pairs, newNoisyPair(soloP95, noisyP95, counts, soloOK && noisyOK))
+		pr := newNoisyPair(soloP95, noisyP95, counts, soloOK && noisyOK)
+		pr.noisyPublished = noisyPublished
+		pairs = append(pairs, pr)
 	}
-	return aggregatePairs(pairs), nil
+	rep := aggregatePairs(pairs)
+	rep.FairnessOn = cfg.Fairness != nil
+	return rep, nil
 }
 
 // noisyPair is one temporally-adjacent (solo, noisy) measurement.
 type noisyPair struct {
-	solo, noisy time.Duration
-	inflation   float64
-	counts      phaseCounts
-	correct     bool
+	solo, noisy    time.Duration
+	inflation      float64
+	counts         phaseCounts
+	noisyPublished int
+	correct        bool
 }
 
 func newNoisyPair(solo, noisy time.Duration, counts phaseCounts, correct bool) noisyPair {
@@ -142,6 +163,10 @@ func aggregatePairs(pairs []noisyPair) NoisyReport {
 	med := sorted[(len(sorted)-1)/2]
 	rep.SoloP95, rep.NoisyP95, rep.Inflation = med.solo, med.noisy, med.inflation
 	rep.QuietSeries, rep.NoisySeries = med.counts.quiet, med.counts.noisy
+	rep.NoisyPublished = med.noisyPublished
+	if med.noisyPublished > 0 {
+		rep.NoisyAdmitFrac = float64(med.counts.noisy) / float64(med.noisyPublished)
+	}
 	return rep
 }
 
@@ -150,12 +175,18 @@ type phaseCounts struct{ quiet, noisy int }
 // runPhase publishes the quiet tenant's workload (and, when withNoise, the
 // neighbor's flood concurrently), waits for the drain, and verifies the
 // quiet tenant's series count + scoping.
-func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 time.Duration, counts phaseCounts, quietCorrect bool, err error) {
+func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 time.Duration, counts phaseCounts, noisyPublished int, quietCorrect bool, err error) {
 	b := bus.NewMemory()
 	defer b.Close()
 	w := tsdb.NewMemory()
 
 	consumer := pipeline.NewConsumer(b, w, "perf-noisy", logging.New(io.Discard, "error", "json"))
+	if cfg.Fairness != nil {
+		// SCALE-004: the harness now actually installs the fairness gate it
+		// claims to validate — without this the noisy-neighbor scenario never
+		// exercised the gate (the audited gap).
+		consumer = consumer.WithFairness(cfg.Fairness)
+	}
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan struct{})
@@ -210,7 +241,14 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 
 	var noisyWG *sync.WaitGroup
 	if withNoise {
-		noisyWG = publish(noisyTenant, quietN*cfg.NoisyFactor, nil, cfg.Producers*2)
+		noisyN := quietN * cfg.NoisyFactor
+		noisyProducers := cfg.Producers * 2
+		// what the workers actually send (per-worker floor div, matches publish())
+		noisyPublished = (noisyN / noisyProducers) * noisyProducers
+		if noisyN < noisyProducers {
+			noisyPublished = noisyN
+		}
+		noisyWG = publish(noisyTenant, noisyN, nil, noisyProducers)
 	}
 	quietWG := publish(quietTenant, quietN, &quietLat, cfg.Producers)
 	quietWG.Wait()
@@ -231,7 +269,7 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 	<-done
 
 	if e := firstErr.Load(); e != nil {
-		return 0, phaseCounts{}, false, e.(error)
+		return 0, phaseCounts{}, noisyPublished, false, e.(error)
 	}
 
 	counts.quiet = quietSeries()
@@ -239,5 +277,5 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 	// Correctness: every quiet result landed under the quiet tenant — and the
 	// store never mixed the neighbor's series into the quiet tenant's label set.
 	quietCorrect = counts.quiet == expectQuiet
-	return quietLat.Summary().P95, counts, quietCorrect, nil
+	return quietLat.Summary().P95, counts, noisyPublished, quietCorrect, nil
 }

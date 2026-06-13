@@ -66,6 +66,28 @@ reference hardware, rather than a loosened one. The report records the median
 pair's solo p95, under-noise p95, and inflation ratio, plus a hard correctness
 verdict AND-ed over every phase of every pair.
 
+**The fairness gate is the primary, timing-independent isolation signal
+(SCALE-004).** On the in-process stack the in-memory bus has *microsecond*
+latency, so the p95-inflation ratio sits far below the 5 ms materiality floor —
+the inflation gate is structurally blind there and cannot, on its own, prove
+isolation. So the in-process gate now does the honest thing: it **installs the
+per-tenant `fairness.Gate`** the platform actually ships and asserts the gate
+**sheds the flooding neighbor** — the neighbor's admitted fraction of its 10×
+flood must be materially below 1, while the quiet tenant's results all land
+correctly. That assertion is independent of timing, runs on every CI pass, and a
+**negative control** (the gate disabled / not installed → the flood is admitted
+in full) trips it — so a regression that silently stops wiring the gate fails the
+build. The p95-inflation ceiling still applies, but only as the *secondary*
+check that arms on reference hardware where latency is material.
+
+**SLO status: UNVERIFIED.** The numeric throughput/latency SLOs remain
+PROVISIONAL engineering estimates. They become *verified* only when a full L/XL
+run on reference hardware is recorded in the tables below — that run is the
+separate EXC-GATE-01 epic and is **not** performed by this in-process gate. Until
+then, treat every absolute SLO number here as unverified; the in-process gate
+proves the *gate's machinery* (profiles drive, the fairness gate sheds, isolation
+and correctness hold), not the platform's absolute numbers.
+
 ## Running it
 
 There are two harnesses, deliberately. An **in-process** one (fast, runs on every

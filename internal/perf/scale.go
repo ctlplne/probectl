@@ -7,10 +7,16 @@ package perf
 // multi-tenant NOISY-NEIGHBOR scenario (one tenant flooding must not bleed
 // into another tenant's experience — F57, the M14 milestone line).
 //
-// ⚠ The numeric SLO targets are PROVISIONAL. CLAUDE.md §2 lists numeric SLO
-// targets as a human-owned open decision: these values are engineering
-// estimates recorded so the gate is runnable end to end, awaiting explicit
-// sign-off in docs/scale-gate.md. Change them there and here together.
+// ⚠ The numeric SLO targets are PROVISIONAL / UNVERIFIED (SCALE-004). CLAUDE.md
+// §2 lists numeric SLO targets as a human-owned open decision: these values are
+// engineering estimates recorded so the gate is runnable end to end. They become
+// VERIFIED only when a full L/XL run on reference hardware is recorded in
+// docs/scale-gate.md — that run is the separate EXC-GATE-01 epic, NOT this
+// in-process gate. The in-process gate proves the gate's machinery (profiles
+// drive, the per-tenant fairness gate SHEDS a flooding neighbor — a timing-
+// independent isolation signal that runs on every CI pass and has a negative
+// control — and correctness holds), not the platform's absolute numbers. Change
+// the SLO numbers in docs/scale-gate.md and here together.
 //
 // Two run scales, one harness:
 //   - CI scale (Scale < 1): a downscaled smoke proving the GATE itself —
@@ -25,6 +31,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
@@ -39,8 +46,9 @@ const (
 	TierXL Tier = "XL" // MSP-scale pooled+siloed mix, tens of thousands of agents
 )
 
-// ScaleSLO is the numeric gate for one tier — PROVISIONAL (see the package
-// note): recorded so the gate runs, awaiting human sign-off.
+// ScaleSLO is the numeric gate for one tier — PROVISIONAL / UNVERIFIED (see the
+// package note): recorded so the gate runs, awaiting the EXC-GATE-01 reference-
+// hardware run + human sign-off.
 type ScaleSLO struct {
 	// MinIngestThroughput floors end-to-end results/sec at full scale.
 	MinIngestThroughput float64
@@ -172,6 +180,25 @@ func (r *ScaleReport) evaluate() {
 				"%s: NOISY-NEIGHBOR CORRECTNESS BROKEN — the quiet tenant saw wrong results under load (F57)",
 				r.Profile.Tier))
 		}
+		// SCALE-004: the TIMING-INDEPENDENT isolation assertion that ALWAYS runs
+		// when a fairness gate is installed. On the in-memory stack latency is
+		// microseconds, so the p95-inflation gate below is structurally blind
+		// (NoisyP95 < the 5ms materiality floor); the gate's real job — shedding
+		// a flooding tenant so it cannot starve the platform — is asserted here
+		// regardless of timing. With the gate installed the flood MUST be shed
+		// (admit fraction materially below 1); a fraction near 1 means the gate
+		// is not wired (the audited gap) and is a hard violation.
+		if r.Noisy.FairnessOn {
+			if r.Noisy.NoisyPublished == 0 {
+				r.Violations = append(r.Violations, fmt.Sprintf(
+					"%s: noisy-neighbor harness published no flood — the scenario did not exercise the fairness gate (SCALE-004)",
+					r.Profile.Tier))
+			} else if r.Noisy.NoisyAdmitFrac > maxNoisyAdmitFrac {
+				r.Violations = append(r.Violations, fmt.Sprintf(
+					"%s: fairness gate did NOT shed the flooding neighbor — admitted %.0f%% of %d flood results (want <= %.0f%%); the noisy-neighbor gate is not actually installed (SCALE-004 / F57)",
+					r.Profile.Tier, r.Noisy.NoisyAdmitFrac*100, r.Noisy.NoisyPublished, maxNoisyAdmitFrac*100))
+			}
+		}
 		if r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= noisyMaterialityFloor {
 			r.Violations = append(r.Violations, fmt.Sprintf(
 				"%s: noisy-neighbor p95 inflation %.2fx (at %s) above the %.1fx ceiling (F57; PROVISIONAL SLO)",
@@ -179,6 +206,14 @@ func (r *ScaleReport) evaluate() {
 		}
 	}
 }
+
+// maxNoisyAdmitFrac is the SCALE-004 timing-independent isolation ceiling: with
+// the fairness gate installed, a flooding neighbor (10x the quiet workload) must
+// have at most this fraction of its flood admitted — the rest is shed. A
+// fraction above this means the gate is not actually bounding the flood. Set
+// conservatively (0.95) so it fires on an UNINSTALLED gate (~1.0) without
+// false-positiving on a gate that sheds even modestly.
+const maxNoisyAdmitFrac = 0.95
 
 // RunScaleGate drives one tier end to end on the lightweight in-process
 // stack: the ingest profile, then the noisy-neighbor scenario (multi-tenant
@@ -200,10 +235,28 @@ func RunScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, e
 	}
 
 	if profile.Ingest.Tenants > 1 {
+		// SCALE-004: install the fairness gate the noisy-neighbor scenario is
+		// supposed to validate. A flooding tenant is bounded so the in-process
+		// gate has a TIMING-INDEPENDENT isolation signal (the in-memory bus has
+		// microsecond latency — a p95-inflation gate alone is structurally
+		// blind below the materiality floor). The quiet tenant's rate is
+		// generous; the noisy tenant's flood far exceeds its bound, so it is shed.
+		quietN := clampInt(profile.Ingest.TotalResults()/profile.Ingest.Tenants, 200, 5000)
+		// Size the per-tenant bound so the quiet workload fits comfortably across
+		// BOTH phases of a pair (each pair runs solo then noisy on the SAME gate,
+		// so the quiet bucket must hold ~2x its per-phase load with headroom)
+		// while the 10x flood blows through it — the gate must shed the flood
+		// (the timing-independent isolation signal). Capacity = rate ×
+		// BurstSeconds = quietN × 5: quiet (2 phases × 1x) admits fully, the
+		// noisy 10x flood sheds.
+		rate := float64(quietN) * 5
+		gate := fairness.NewGate(fairness.Policy{ResultsPerSec: rate, BurstSeconds: 1}, nil)
 		rep.Noisy, err = DriveNoisyNeighbor(ctx, NoisyConfig{
-			QuietResults: clampInt(profile.Ingest.TotalResults()/profile.Ingest.Tenants, 200, 5000),
-			NoisyFactor:  10,
-			Producers:    profile.Ingest.Producers,
+			QuietResults:  quietN,
+			NoisyFactor:   10,
+			Producers:     profile.Ingest.Producers,
+			SettleTimeout: 15 * time.Second, // bounded drain (shed flood drains fast)
+			Fairness:      gate,
 		})
 		if err != nil {
 			return rep, fmt.Errorf("perf: %s noisy-neighbor: %w", tier, err)
