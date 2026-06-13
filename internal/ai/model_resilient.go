@@ -12,6 +12,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/breaker"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Remote-model resilience (AIRCA-004): a slow or down provider must degrade
@@ -97,7 +98,7 @@ func (m *ResilientModel) CacheHits() uint64 { return m.cacheHits.Load() }
 
 // Synthesize: cache → breaker(remote with timeout) → builtin fallback.
 func (m *ResilientModel) Synthesize(ctx context.Context, in SynthesisInput) (Synthesis, error) {
-	key := synthKey(m.remote.Name(), in)
+	key := synthKey(ctx, m.remote.Name(), in)
 	if syn, ok := m.cache.get(key, in); ok {
 		m.cacheHits.Add(1)
 		return syn, nil
@@ -188,12 +189,26 @@ func newSynthCache(maxEntries int, ttl time.Duration) *synthCache {
 	return &synthCache{entries: map[string]cacheEntry{}, maxEntries: maxEntries, ttl: ttl, now: time.Now}
 }
 
-// synthKey hashes the model + question + evidence CONTENT in order —
+// synthKey hashes the tenant + model + question + evidence CONTENT in order —
 // deliberately excluding the session-random evidence IDs (U-037), so the
 // same question over the same signals hits across sessions. Hashing routes
 // through internal/crypto (guardrail 3 — FIPS-swappable).
-func synthKey(model string, in SynthesisInput) string {
+//
+// AIRCA-001: the tenant ID is the FIRST component of the key so two tenants
+// asking the identical question over identical evidence can never collide on a
+// cache entry (defense-in-depth above the egress/RBAC gates — fail closed if
+// the tenant is somehow absent by keying on an explicit empty sentinel that
+// only ever collides with itself). The cache is process-wide and shared across
+// tenants, so without this prefix a future content-key change could bleed one
+// tenant's synthesized answer to another.
+func synthKey(ctx context.Context, model string, in SynthesisInput) string {
+	tenant := ""
+	if id, ok := tenancy.FromContext(ctx); ok {
+		tenant = id.String()
+	}
 	var b bytes.Buffer
+	b.WriteString(tenant)
+	b.WriteByte(0)
 	b.WriteString(model)
 	b.WriteByte(0)
 	b.WriteString(in.Question)

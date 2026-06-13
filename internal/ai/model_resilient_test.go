@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/breaker"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // flakySynth is a remote-shaped adapter scripted to fail/hang/succeed.
@@ -169,6 +170,55 @@ func TestCacheHitsAcrossSessionsWithCitationRemap(t *testing.T) {
 	}
 	if remote.calls.Load() != 2 {
 		t.Fatalf("different content must miss the cache: %d calls", remote.calls.Load())
+	}
+}
+
+// AIRCA-001: the synthesis cache is keyed tenant-FIRST. Two tenants asking the
+// identical question over identical evidence must NEVER share a cache entry —
+// tenant A's cached answer can never be served to tenant B. This is
+// defense-in-depth above the egress/RBAC gates: even if those were bypassed, a
+// cross-tenant answer can't bleed through the process-wide cache.
+func TestSynthCacheIsTenantScoped(t *testing.T) {
+	remote := &flakySynth{}
+	m := NewResilientModel(remote, NewBuiltinModel(), time.Second)
+
+	ctxA := tenancy.WithTenant(context.Background(), tenancy.ID("tenant-a"))
+	ctxB := tenancy.WithTenant(context.Background(), tenancy.ID("tenant-b"))
+
+	// Tenant A populates the cache with one provider call.
+	if _, err := m.Synthesize(ctxA, synthInput("ev-1")); err != nil {
+		t.Fatal(err)
+	}
+	if remote.calls.Load() != 1 {
+		t.Fatalf("tenant A should have made 1 provider call: %d", remote.calls.Load())
+	}
+
+	// Tenant B with IDENTICAL question + evidence must MISS — a second provider
+	// call, not a served-from-cache hit.
+	if _, err := m.Synthesize(ctxB, synthInput("ev-1")); err != nil {
+		t.Fatal(err)
+	}
+	if remote.calls.Load() != 2 {
+		t.Fatalf("tenant B identical input must MISS the cache (no cross-tenant bleed): got %d provider calls, want 2", remote.calls.Load())
+	}
+	if m.CacheHits() != 0 {
+		t.Fatalf("no cross-tenant cache hit may be counted: %d", m.CacheHits())
+	}
+
+	// Tenant A repeating its OWN question hits its OWN entry.
+	if _, err := m.Synthesize(ctxA, synthInput("ev-2")); err != nil {
+		t.Fatal(err)
+	}
+	if remote.calls.Load() != 2 {
+		t.Fatalf("tenant A repeat must hit its own cache entry: %d provider calls", remote.calls.Load())
+	}
+	if m.CacheHits() != 1 {
+		t.Fatalf("tenant A same-tenant repeat must count one cache hit: %d", m.CacheHits())
+	}
+
+	// The two tenants' keys must differ at the key level too.
+	if synthKey(ctxA, remote.Name(), synthInput("x")) == synthKey(ctxB, remote.Name(), synthInput("x")) {
+		t.Fatal("synthKey must differ across tenants for identical input")
 	}
 }
 

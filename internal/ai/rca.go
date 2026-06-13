@@ -12,6 +12,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // DefaultMaxConcurrent is the default process-wide cap on concurrent Analyze
@@ -165,7 +166,12 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	if err != nil {
 		return Answer{}, err
 	}
-	syn, err := a.model.Synthesize(ctx, in)
+	// AIRCA-001: the synthesis cache is keyed tenant-first. The principal's
+	// tenant is the authoritative scope here, so bind it onto the context the
+	// resilient model derives the cache key from — defense-in-depth so two
+	// tenants' identical questions can never share a cache entry.
+	synCtx := tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
+	syn, err := a.model.Synthesize(synCtx, in)
 	if err != nil {
 		return Answer{}, err
 	}
