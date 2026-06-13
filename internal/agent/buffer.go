@@ -21,6 +21,18 @@ var ErrBufferFull = errors.New("agent: store-and-forward buffer full")
 
 const bufferFileName = "buffer.log"
 
+// maxFrameLen bounds the length prefix readFrame will honor before allocating
+// (RESIL-006). A corrupt or maliciously-large length prefix (a crash-torn tail,
+// or a tampered buffer file on a customer host) would otherwise request up to
+// ~4 GiB from a single uint32, OOM-ing the agent. Result payloads are small
+// (protobuf probe results); 8 MiB is far above any legitimate frame, so an
+// over-cap length is treated as a torn tail, not honored.
+const maxFrameLen = 8 << 20 // 8 MiB
+
+// ErrFrameTooLarge marks a length prefix that exceeds maxFrameLen. readAll
+// treats it like any read error: the readable log ends there (torn tail).
+var ErrFrameTooLarge = errors.New("agent: buffer frame length exceeds cap (corrupt/torn tail)")
+
 // Buffer is a disk-backed, bounded, FIFO store-and-forward queue of result
 // payloads. Results accumulate while the control plane is unreachable and drain
 // in order on reconnect. The on-disk file holds exactly the undrained records as
@@ -225,7 +237,14 @@ func readFrame(r io.Reader) ([]byte, error) {
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return nil, err
 	}
-	payload := make([]byte, binary.BigEndian.Uint32(hdr[:]))
+	n := binary.BigEndian.Uint32(hdr[:])
+	// RESIL-006: bound the allocation. A corrupt length prefix (e.g. 0xFFFFFFFF)
+	// must not drive a multi-GiB make() and OOM the agent — treat an over-cap
+	// length as a torn tail (the caller stops reading on any error).
+	if n > maxFrameLen {
+		return nil, ErrFrameTooLarge
+	}
+	payload := make([]byte, n)
 	if _, err := io.ReadFull(r, payload); err != nil {
 		return nil, err
 	}
