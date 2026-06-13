@@ -49,5 +49,14 @@ run_fuzz FuzzDecode            15s ./internal/flow/      || exit 1
 run_fuzz FuzzSNMPPoll          10s ./internal/device/    || exit 1
 run_fuzz FuzzOTLPPayload       15s ./internal/otel/otlp/ || exit 1
 run_fuzz FuzzParseBeacon       10s ./internal/rum/       || exit 1
+# FUZZ-004: the backup container header/frame length math (restore path).
+run_fuzz FuzzBackupOpen        10s ./internal/backup/    || exit 1
+# FUZZ-002: the L7 application-protocol parsers — the rawest attacker-controlled
+# content on a privileged host agent (HTTP/1, HTTP/2, gRPC, Kafka, DNS framing).
+run_fuzz FuzzL7Manager         15s ./internal/ebpf/l7/   || exit 1
+run_fuzz FuzzL7Detect          10s ./internal/ebpf/l7/   || exit 1
+run_fuzz FuzzKafkaScan         10s ./internal/ebpf/l7/   || exit 1
+run_fuzz FuzzHTTP1Scan         10s ./internal/ebpf/l7/   || exit 1
+run_fuzz FuzzHTTP2Frame        10s ./internal/ebpf/l7/   || exit 1
 
 echo "fuzz-smoke: all targets clean"
