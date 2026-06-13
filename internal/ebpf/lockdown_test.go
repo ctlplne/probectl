@@ -38,6 +38,7 @@ func TestRingBufferBytes(t *testing.T) {
 		{5000, 8192},       // round up to next power of two
 		{1 << 20, 1 << 20}, // already a power of two
 		{(1 << 20) + 1, 1 << 21},
+		{maxRingBufferBytes, maxRingBufferBytes}, // EBPF-005: 256 MiB is a valid power-of-two ceiling
 	}
 	for _, c := range cases {
 		if got := ringBufferBytes(c.req); got != c.want {

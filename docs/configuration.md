@@ -812,7 +812,7 @@ fail-closed posture for the most sensitive thing this agent can do.
 | `PROBECTL_EBPF_BUS_NAMESPACE`  | (none)      | publish on this tenant's siloed bus lane (`probectl.<ns>.ebpf.flows`) instead of the shared topic; for per-tenant-namespaced (siloed) deployments |
 | `PROBECTL_EBPF_FIXTURE_PATH`   | (none)      | replay recorded flows instead of loading eBPF (no-kernel path) |
 | `PROBECTL_EBPF_L7_FIXTURE_PATH` | (none)     | replay recorded layer-7 events (no-kernel L7 path)             |
-| `PROBECTL_EBPF_RING_BUFFER_BYTES` | `16777216` | size of the kernel→userspace ring buffer (16 MiB; live loader only). Bigger absorbs bigger traffic bursts at the cost of memory |
+| `PROBECTL_EBPF_RING_BUFFER_BYTES` | `16777216` | size of the kernel→userspace ring buffer (16 MiB; live loader only). Bigger absorbs bigger traffic bursts at the cost of memory. Rounded up to the next power of two at load; **capped at 268435456 (256 MiB)** — a larger value fails validation (EBPF-005) |
 | `PROBECTL_EBPF_LIBSSL`         | (auto)      | explicit libssl path for TLS-plaintext (uprobe) L7 capture; auto-discovered when unset (`ebpf` build) |
 | `PROBECTL_EBPF_L7_CAPTURE`     | `false`     | master switch — live TLS-plaintext capture is OFF by default. `true` alone is **not** enough; consent AND scope below are also required |
 | `PROBECTL_EBPF_L7_CONSENT_TENANT` | (none)   | the explicit per-tenant consent: must equal this agent's bound tenant id exactly, else capture stays off |

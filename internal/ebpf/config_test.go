@@ -53,4 +53,16 @@ func TestConfigValidate(t *testing.T) {
 	if err := kafkaNoBrokers.validate(); err == nil {
 		t.Error("kafka without brokers should fail")
 	}
+
+	// EBPF-005: the ring buffer has an upper bound.
+	atMax := base()
+	atMax.RingBufferBytes = maxRingBufferBytes
+	if err := atMax.validate(); err != nil {
+		t.Errorf("ring_buffer_bytes at the max (%d) should be accepted: %v", maxRingBufferBytes, err)
+	}
+	overMax := base()
+	overMax.RingBufferBytes = maxRingBufferBytes + 1
+	if err := overMax.validate(); err == nil {
+		t.Errorf("ring_buffer_bytes over the max (%d) should fail validation", overMax.RingBufferBytes)
+	}
 }

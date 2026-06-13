@@ -21,6 +21,12 @@ func parseLockdown(content string) string {
 // permits signed/normal BPF loading.
 func lockdownBlocksBPF(mode string) bool { return mode == "confidentiality" }
 
+// maxRingBufferBytes caps the configurable ring buffer (EBPF-005). The ring
+// buffer is unswappable kernel memory pinned per agent; 256 MiB is already far
+// beyond any sane flow-buffering need. config.validate() rejects anything
+// larger before Load() rounds it up to the next power of two.
+const maxRingBufferBytes = 256 << 20 // 256 MiB
+
 // ringBufferBytes rounds a requested ring-buffer size to a value the kernel
 // accepts for BPF_MAP_TYPE_RINGBUF: a power of two that is at least one page
 // (4 KiB). 0/negative requests fall back to the 16 MiB default (U-050).
