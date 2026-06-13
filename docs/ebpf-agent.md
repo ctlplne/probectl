@@ -174,12 +174,20 @@ The three redaction modes:
 
 | Mode | What transits | What you can parse |
 |---|---|---|
-| `headers` (default) | metadata up to the header terminator; the body is zeroed | full L7 calls; HTTP/2-gRPC bodies degraded |
+| `headers` (default) | metadata up to the header terminator; the body is zeroed (credential header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
 | `length` | **no payload bytes** — kernel window forced to 0; only chunk direction + true size (`DataEvent.Size`) | traffic *shape* only; no parsed L7 calls |
 | `full` | everything (consented debugging only — still behind the enable+consent+scope gates) | full L7 calls including bodies |
 
 Parser byte-counts reflect the *captured* window; `DataEvent.Size` always carries
 the *true* chunk size, so loss-to-redaction is visible rather than silent.
+
+> **Header secrecy vs. header metadata (EBPF-006).** Under the default `headers`
+> mode, the **values** of credential-bearing headers (`Authorization`,
+> `Cookie`, `Set-Cookie`, `Proxy-Authorization`) are zeroed in place — only the
+> header *names* and line framing survive, so bearer tokens and session cookies
+> never reach the control plane. If you need *all* header secrecy (not just
+> credentials), choose `length` mode, which captures no payload bytes at all.
+> This default is enforced by `TestRedactPayloadZeroesSensitiveHeaderValues`.
 
 ## Capture limitations (measured, not hidden)
 

@@ -84,7 +84,74 @@ var (
 	// HPACK frames after it are zeroed — http2/grpc call extraction under
 	// "headers" redaction is a documented limitation).
 	http2Preface = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	// sensitiveHeaders are credential-bearing HTTP/1.x headers whose VALUES
+	// are zeroed even inside the kept (metadata) region under "headers"
+	// redaction — so bearer tokens, session cookies, and basic-auth blobs
+	// never reach the control plane just because they precede the body
+	// terminator (EBPF-006). The header NAME survives (a protocol/metadata
+	// signal); only the value bytes after the ':' are zeroed, preserving line
+	// framing so detection and Content-Length accounting stay parseable.
+	// Operators who need header SECRECY (not just body secrecy) pick the
+	// "length" mode — see docs/ebpf-agent.md.
+	sensitiveHeaders = [][]byte{
+		[]byte("authorization"),
+		[]byte("proxy-authorization"),
+		[]byte("cookie"),
+		[]byte("set-cookie"),
+	}
 )
+
+// asciiToLower lowercases an ASCII byte for case-insensitive header-name
+// matching without allocating.
+func asciiToLower(b byte) byte {
+	if b >= 'A' && b <= 'Z' {
+		return b + ('a' - 'A')
+	}
+	return b
+}
+
+// headerNameMatches reports whether line begins with name (case-insensitive)
+// immediately followed by a ':'.
+func headerNameMatches(line, name []byte) bool {
+	if len(line) <= len(name) {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		if asciiToLower(line[i]) != name[i] {
+			return false
+		}
+	}
+	return line[len(name)] == ':'
+}
+
+// redactSensitiveHeaderValues zeroes the VALUE bytes of credential-bearing
+// header lines within region (the kept header bytes), in place. The header
+// name and the CRLF line framing are preserved; only the bytes after the
+// colon up to the line's CRLF are zeroed. Runs only in "headers" mode.
+func redactSensitiveHeaderValues(region []byte) {
+	start := 0
+	for start < len(region) {
+		eol := bytes.Index(region[start:], []byte("\r\n"))
+		var line []byte
+		var next int
+		if eol < 0 {
+			line = region[start:]
+			next = len(region)
+		} else {
+			line = region[start : start+eol]
+			next = start + eol + 2
+		}
+		for _, h := range sensitiveHeaders {
+			if headerNameMatches(line, h) {
+				for i := len(h) + 1; i < len(line); i++ {
+					line[i] = 0
+				}
+				break
+			}
+		}
+		start = next
+	}
+}
 
 // l7CaptureAuthorized is the consent gate — now THREE explicit statements
 // (U-003 + EBPF-001): the enable flag, the per-tenant consent (matching the
@@ -130,6 +197,15 @@ func RedactPayload(p []byte, mode string) []byte {
 	if bytes.HasPrefix(p, http2Preface) && keep < len(http2Preface) {
 		keep = len(http2Preface)
 	}
+	// EBPF-006: even in the kept (metadata) region, zero the VALUES of
+	// credential-bearing headers (Authorization/Cookie/Set-Cookie/
+	// Proxy-Authorization) so bearer tokens and session cookies never reach
+	// the control plane. Header names and line framing survive.
+	kept := p
+	if keep < len(p) {
+		kept = p[:keep]
+	}
+	redactSensitiveHeaderValues(kept)
 	if keep >= len(p) {
 		return p
 	}

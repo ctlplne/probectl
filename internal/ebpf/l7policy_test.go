@@ -177,3 +177,81 @@ func TestRedactPayloadFullMode(t *testing.T) {
 		t.Fatal("full mode must not modify the payload")
 	}
 }
+
+// TestRedactPayloadZeroesSensitiveHeaderValues is the EBPF-006 regression
+// guard: under the default "headers" mode, the VALUES of credential-bearing
+// headers (Authorization/Cookie/Set-Cookie/Proxy-Authorization) are zeroed
+// even though they sit inside the kept metadata region, while the header
+// NAMES, line framing, and protocol detection survive. If a future change
+// lets bearer tokens or session cookies transit to the control plane, this
+// fails.
+func TestRedactPayloadZeroesSensitiveHeaderValues(t *testing.T) {
+	req := []byte("GET /api HTTP/1.1\r\n" +
+		"Host: app.example\r\n" +
+		"Authorization: Bearer sk-secret-token-abc123\r\n" +
+		"Cookie: session=deadbeefcafe; csrf=zzz\r\n" +
+		"Proxy-Authorization: Basic dXNlcjpwYXNz\r\n" +
+		"Accept: application/json\r\n\r\n")
+	red := RedactPayload(append([]byte(nil), req...), RedactHeaders)
+
+	if len(red) != len(req) {
+		t.Fatalf("length must be preserved for framing: %d != %d", len(red), len(req))
+	}
+	// Secret VALUES must be gone.
+	for _, secret := range [][]byte{
+		[]byte("sk-secret-token-abc123"),
+		[]byte("deadbeefcafe"),
+		[]byte("csrf=zzz"),
+		[]byte("dXNlcjpwYXNz"),
+	} {
+		if bytes.Contains(red, secret) {
+			t.Fatalf("sensitive header value leaked through headers-mode redaction: %q in %q", secret, red)
+		}
+	}
+	// Header NAMES, host, and a benign header survive (protocol metadata).
+	for _, keep := range [][]byte{
+		[]byte("Authorization:"),
+		[]byte("Cookie:"),
+		[]byte("Set-Cookie:"),
+		[]byte("Proxy-Authorization:"),
+		[]byte("Host: app.example"),
+		[]byte("Accept: application/json"),
+	} {
+		_ = keep
+	}
+	for _, keep := range [][]byte{
+		[]byte("Authorization:"),
+		[]byte("Cookie:"),
+		[]byte("Proxy-Authorization:"),
+		[]byte("Host: app.example"),
+		[]byte("Accept: application/json"),
+		[]byte("GET /api HTTP/1.1"),
+	} {
+		if !bytes.Contains(red, keep) {
+			t.Fatalf("metadata that must survive was clobbered: %q missing from %q", keep, red)
+		}
+	}
+
+	// Protocol detection still works on the redacted stream.
+	p := l7.NewTracker(443)
+	p.OnData(l7.DataEvent{Kind: l7.Request, Payload: red})
+	calls := p.OnData(l7.DataEvent{Kind: l7.Response, Payload: []byte("HTTP/1.1 200 OK\r\n\r\n")})
+	if len(calls) != 1 || calls[0].Method != "GET" || calls[0].Resource != "/api" || calls[0].Status != "200" {
+		t.Fatalf("redacted stream must still parse to metadata: %+v", calls)
+	}
+}
+
+// TestRedactSensitiveHeaderResponseSetCookie guards the Set-Cookie response
+// case explicitly (the value carries the session secret a server issues).
+func TestRedactSensitiveHeaderResponseSetCookie(t *testing.T) {
+	resp := []byte("HTTP/1.1 200 OK\r\n" +
+		"Set-Cookie: session=topsecretvalue; HttpOnly\r\n" +
+		"Content-Type: text/html\r\n\r\n")
+	red := RedactPayload(append([]byte(nil), resp...), RedactHeaders)
+	if bytes.Contains(red, []byte("topsecretvalue")) {
+		t.Fatalf("Set-Cookie value leaked: %q", red)
+	}
+	if !bytes.Contains(red, []byte("Set-Cookie:")) || !bytes.Contains(red, []byte("Content-Type: text/html")) {
+		t.Fatalf("Set-Cookie name / other headers must survive: %q", red)
+	}
+}
