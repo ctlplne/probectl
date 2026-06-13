@@ -8,7 +8,9 @@
 package enroll_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +26,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
@@ -53,6 +56,17 @@ func setup(ctx context.Context, t *testing.T) (*pgxpool.Pool, *enroll.Service, s
 		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(pool.Close)
+
+	// KEYS-003: agent-ca init refuses to persist the CA intermediate key as
+	// plaintext, so configure a deployment envelope sealer first — exactly as a
+	// real deployment does via PROBECTL_ENVELOPE_KEY/BYOK. Test-only KEK; mirrors
+	// seal_test.go's success path. SetPrimary is process-global + idempotent.
+	kek := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	sealer, err := tenantcrypto.NewEnvelopeSealer("test", kek)
+	if err != nil {
+		t.Fatalf("test envelope sealer: %v", err)
+	}
+	tenantcrypto.SetPrimary(sealer)
 
 	// Init the hierarchy once per database (idempotent across test runs).
 	if _, err := enroll.InitCA(ctx, pool); err != nil && !strings.Contains(err.Error(), "already initialized") {
