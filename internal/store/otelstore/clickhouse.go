@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
@@ -32,6 +33,9 @@ const (
 	logsTable  = "probectl_otel_logs"
 )
 
+// createSpansDDL is the ORIGINAL plain MergeTree shape (v1). Kept verbatim so
+// the v1 migration's checksum is immutable; the v2 migration rebuilds it into
+// the dedup ReplacingMergeTree below (CORRECT-004).
 func createSpansDDL(table string) string {
 	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
   tenant_id String,
@@ -58,12 +62,61 @@ PARTITION BY (tenant_id, toYYYYMMDD(ts))
 ORDER BY (tenant_id, ts, service)`
 }
 
+// CORRECT-004: at-least-once OTLP delivery (otlpsignals.go) can redeliver a
+// span/log batch on retry. On a plain MergeTree those become PERMANENT
+// duplicates (inflated trace/log counts, double-rendered spans). The dedup
+// shape is a ReplacingMergeTree whose sort key ends in the row's natural dedup
+// identity — (trace_id, span_id) for spans (the W3C-unique span key) and a
+// deterministic dedup_id hash for logs (which carry no native unique id) — so a
+// redelivered identical row collapses at merge while genuine rows stay distinct.
+// Reads use FINAL to collapse not-yet-merged duplicates at query time.
+func createSpansDedupDDL(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String,
+  trace_id String, span_id String, parent_span_id String,
+  name String, kind LowCardinality(String), service LowCardinality(String),
+  start DateTime64(6), duration_ns UInt64,
+  status_code LowCardinality(String),
+  attrs String
+) ENGINE = ReplacingMergeTree
+PARTITION BY (tenant_id, toYYYYMMDD(start))
+ORDER BY (tenant_id, start, service, trace_id, span_id)`
+}
+
+func createLogsDedupDDL(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String,
+  ts DateTime64(6),
+  severity_num Int32, severity_text LowCardinality(String),
+  service LowCardinality(String), body String,
+  trace_id String, span_id String,
+  attrs String,
+  dedup_id String
+) ENGINE = ReplacingMergeTree
+PARTITION BY (tenant_id, toYYYYMMDD(ts))
+ORDER BY (tenant_id, ts, service, dedup_id)`
+}
+
 // chMigrations is the otelstore's versioned ClickHouse schema (U-046).
 // Shipped versions are immutable — changes are NEW versions.
 func chMigrations() []chmigrate.Migration {
 	return []chmigrate.Migration{
 		{Version: 1, Name: "create_otel_spans_logs", Statements: []string{
 			createSpansDDL(spansTable), createLogsDDL(logsTable),
+		}},
+		// CORRECT-004: rebuild spans + logs into dedup ReplacingMergeTrees. The
+		// RENAME is atomic in ClickHouse, so reads never see a missing table.
+		// Pre-existing rows carry over (logs get an empty dedup_id — they predate
+		// dedup); fresh installs run v1 then v2 and land on the dedup shape.
+		{Version: 2, Name: "otel_dedup_replacingmergetree", Statements: []string{
+			createSpansDedupDDL(spansTable + "_dedup"),
+			"INSERT INTO " + spansTable + "_dedup SELECT * FROM " + spansTable,
+			"RENAME TABLE " + spansTable + " TO " + spansTable + "_pre_dedup, " +
+				spansTable + "_dedup TO " + spansTable,
+			createLogsDedupDDL(logsTable + "_dedup"),
+			"INSERT INTO " + logsTable + "_dedup SELECT *, '' AS dedup_id FROM " + logsTable,
+			"RENAME TABLE " + logsTable + " TO " + logsTable + "_pre_dedup, " +
+				logsTable + "_dedup TO " + logsTable,
 		}},
 	}
 }
@@ -166,6 +219,20 @@ type chLog struct {
 	TraceID      string `json:"trace_id"`
 	SpanID       string `json:"span_id"`
 	Attrs        string `json:"attrs"`
+	DedupID      string `json:"dedup_id"` // CORRECT-004: deterministic per-record dedup key
+}
+
+// logDedupID derives the deterministic dedup key for a log record (CORRECT-004):
+// a hash over every field that distinguishes one log line from another. A
+// redelivered identical record hashes identically (collapsed by the
+// ReplacingMergeTree); any genuine difference yields a different id. Logs carry
+// no native unique id, so this stands in for the spans' (trace_id, span_id).
+func logDedupID(r LogRecord) string {
+	seed := r.TenantID + "|" + timeOrNow(r.TS).UTC().Format(time.RFC3339Nano) + "|" +
+		strconv.Itoa(int(r.SeverityNum)) + "|" + r.SeverityText + "|" + r.Service + "|" +
+		r.TraceID + "|" + r.SpanID + "|" + r.Body
+	h := crypto.Hash([]byte(seed))
+	return fmt.Sprintf("%x", h[:16])
 }
 
 // WriteLogs inserts one JSONEachRow batch.
@@ -184,6 +251,7 @@ func (c *ClickHouse) WriteLogs(ctx context.Context, recs []LogRecord) error {
 			TenantID: r.TenantID, TS: timeOrNow(r.TS).UTC().Format("2006-01-02 15:04:05.000000"),
 			SeverityNum: r.SeverityNum, SeverityText: r.SeverityText,
 			Service: r.Service, Body: r.Body, TraceID: r.TraceID, SpanID: r.SpanID, Attrs: string(attrs),
+			DedupID: logDedupID(r), // CORRECT-004
 		}
 		if err := enc.Encode(row); err != nil {
 			return fmt.Errorf("otelstore: encode log: %w", err)
@@ -196,9 +264,12 @@ func (c *ClickHouse) WriteLogs(ctx context.Context, recs []LogRecord) error {
 
 // QuerySpans returns the tenant's matching spans, newest first.
 func (c *ClickHouse) QuerySpans(ctx context.Context, tenant string, q SpanQuery) ([]Span, error) {
+	// CORRECT-004: FINAL collapses redelivered-duplicate spans (same
+	// tenant/start/service/trace/span sort key) at read time so a redelivered
+	// trace batch returns each span once.
 	sql := `SELECT tenant_id, trace_id, span_id, parent_span_id, name, kind, service,
   toUnixTimestamp64Micro(start) AS start_us, duration_ns, status_code, attrs
-FROM ` + spansTable + `
+FROM ` + spansTable + ` FINAL
 WHERE tenant_id = {tenant:String}
   AND ({trace:String} = '' OR trace_id = {trace:String})
   AND ({svc:String} = '' OR service = {svc:String})
@@ -236,9 +307,11 @@ LIMIT {lim:UInt32}`
 
 // QueryLogs returns the tenant's matching records, newest first.
 func (c *ClickHouse) QueryLogs(ctx context.Context, tenant string, q LogQuery) ([]LogRecord, error) {
+	// CORRECT-004: FINAL collapses redelivered-duplicate log records (same
+	// dedup_id) at read time so a redelivered log batch returns each record once.
 	sql := `SELECT tenant_id, toUnixTimestamp64Micro(ts) AS ts_us, severity_num, severity_text,
   service, body, trace_id, span_id, attrs
-FROM ` + logsTable + `
+FROM ` + logsTable + ` FINAL
 WHERE tenant_id = {tenant:String}
   AND ({svc:String} = '' OR service = {svc:String})
   AND ({trace:String} = '' OR trace_id = {trace:String})

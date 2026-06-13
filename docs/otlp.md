@@ -169,3 +169,17 @@ The token determines the tenant: probectl verifies or stamps `probectl.tenant.id
 server-side, so a mislabeled resource is rejected — never misfiled. The
 three-signal round-trip is pinned in CI (`TestOTLPThreeSignalRoundTrip` in
 `internal/pipeline`).
+
+## Exactly-once-effective storage (dedup)
+
+OTLP delivery is at-least-once: the receiver→bus→consumer→store path can
+redeliver a span/log batch on retry. To stop a redelivery becoming a permanent
+duplicate, the span and log tables are `ReplacingMergeTree`s (CORRECT-004):
+spans collapse on their natural `(trace_id, span_id)` key; logs — which carry no
+native unique id — collapse on a deterministic `dedup_id` hashed over the
+record's distinguishing fields (ts, severity, service, trace/span, body). Reads
+(`GET /v1/otlp/traces`, `GET /v1/otlp/logs`) use `FINAL`, so a redelivered span
+or log is returned exactly once even before background merges run. The schema
+ships as a versioned `chmigrate` migration (otelstore v2); pre-existing rows
+carry over (logs get an empty `dedup_id`, since they predate dedup).
+Future-dated event times are clamped on ingest (CORRECT-006).
