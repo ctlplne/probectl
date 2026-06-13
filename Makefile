@@ -221,6 +221,19 @@ load-test: ## U-005 full-stack L/XL load gate on reference hardware: make load-t
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
 		$(GO) test -tags=integration -count=1 -v -timeout 60m -run '^TestFullStackLoadGate$$' ./internal/perf/
 
+.PHONY: scale-fullstack
+scale-fullstack: ## EXC-GATE-01: the full reference-hardware scale gate — in-process scale gate + full-stack load gate at TIER (L|XL) end to end through real Kafka + Prometheus. Run on reference HW, then record the result rows in docs/scale-gate.md and promote the PROVISIONAL SLOs. See the "Reference-hardware full run + 72h soak" runbook there.
+	@echo ">> scale-fullstack TIER=$(or $(TIER),L) — armed absolute SLOs (PROBECTL_SCALE=1)"
+	@echo ">> step 1/2: in-process scale gate (bus -> pipeline -> store, both planes)"
+	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
+		$(GO) test -count=1 -v -timeout 60m -run '^TestScaleGate' ./internal/perf/
+	@echo ">> step 2/2: full-stack load gate (real Kafka + Prometheus, end to end)"
+	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
+	PROBECTL_PROM_URL=$(or $(PROBECTL_PROM_URL),http://localhost:9090) \
+	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
+		$(GO) test -tags=integration -count=1 -v -timeout 90m -run '^TestFullStackLoadGate$$' ./internal/perf/
+	@echo ">> scale-fullstack TIER=$(or $(TIER),L) PASSED — record the RESULT ROW lines in docs/scale-gate.md and promote the SLOs (they stay UNVERIFIED until recorded)."
+
 .PHONY: perf-smoke
 perf-smoke: ## Load/perf smoke (S18a): ingest baseline (no DB) + pooled multi-tenant (needs Postgres).
 	# Run without -race: this measures throughput/latency, and race instrumentation

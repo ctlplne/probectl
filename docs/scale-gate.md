@@ -159,3 +159,91 @@ work extends it.
 path — it excludes network hops, real ClickHouse, and the gRPC agent transport,
 which the full-stack `test/` soak covers separately. And CI-scale numbers prove
 the gate's *mechanics* only: never quote them as platform capability.
+
+## Reference-hardware full run + 72h soak (the EXC-GATE-01 runbook)
+
+This is the operator runbook for the single command that promotes the
+PROVISIONAL SLOs to committed numbers — `make scale-fullstack`. It runs **both**
+harnesses above at full scale, back to back, with the absolute SLOs armed
+(`PROBECTL_SCALE=1`): first the in-process scale gate (both result + flow planes,
+the noisy-neighbor fairness assertion at the material 5 ms floor), then the
+full-stack load gate end to end through real Kafka + Prometheus. It is **not run
+in CI** and is **not runnable on a laptop** — it needs reference hardware (below)
+because the absolute throughput/latency SLOs only mean anything on the sizing a
+real deployment uses.
+
+> **Until a row is recorded in both tables above, the SLOs remain UNVERIFIED /
+> PROVISIONAL** (see the status note near the top). `make scale-fullstack`
+> passing on reference hardware — and the result rows committed here — is what
+> flips them to committed. Do not edit the SLO numbers to "pass"; ratchet only
+> from a recorded run.
+
+### Required reference hardware
+
+The L/XL profiles are sized for, at minimum:
+
+- **Control plane:** 16 vCPU / 32 GiB, NVMe-backed, on a low-latency LAN to the
+  data stores (not a shared CI runner — CI numbers are mechanics-only).
+- **Kafka:** a 3-broker cluster (or a single broker provisioned for the tier's
+  results/s floor — 10k/s at L, 25k/s at XL) with TLS in transit.
+- **Postgres** (pooled RLS) and **ClickHouse** (flow/eBPF) sized for the tier,
+  plus a persistent **Prometheus** with the remote-write receiver enabled.
+- For the 72h soak: the same stack left running undisturbed, with host-level
+  RSS / file-descriptor / Kafka-lag / ClickHouse-part-count metrics scraped so
+  drift is visible.
+
+### The command
+
+```sh
+# one-time, on the reference host:
+make compose-down && make compose-up        # fresh stack (consumer reads from start)
+
+# the full run, per tier — record each RESULT ROW in the tables above:
+make scale-fullstack TIER=L
+make scale-fullstack TIER=XL
+```
+
+Point it at a real cluster by exporting the brokers / Prometheus instead of the
+compose defaults:
+
+```sh
+PROBECTL_TEST_KAFKA=broker1:9093,broker2:9093,broker3:9093 \
+PROBECTL_PROM_URL=https://prom.internal:9090 \
+  make scale-fullstack TIER=XL
+```
+
+### The 72h soak (leak / compaction-drift guard)
+
+The scale gate is a *burst* test; the soak is the *endurance* test — it catches
+slow leaks (heap, goroutines, file descriptors), Kafka consumer-lag creep, and
+ClickHouse part-count / compaction drift that a short run hides. The harness
+itself runs a single bounded pass, so the soak is *driven by the operator* — loop
+`make scale-fullstack` against one long-lived reference stack for 72 hours while
+scraping host + store trend metrics. A minimal driver:
+
+```sh
+# 72h of repeated waves against ONE long-lived reference stack (do NOT
+# compose-down between waves — the point is to watch drift accumulate):
+end=$(( $(date +%s) + 72*3600 ))
+while [ "$(date +%s)" -lt "$end" ]; do
+  PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=L make scale-fullstack TIER=L || break
+done
+# in parallel: scrape control-plane RSS/goroutines/FDs, Kafka consumer lag,
+# and ClickHouse active-part count for the full window.
+```
+
+Pass criteria for the soak (record alongside the burst result row):
+
+- **No unbounded growth:** control-plane RSS, goroutine count, and open FDs
+  return to baseline between load waves (a sawtooth, not a staircase).
+- **No consumer-lag creep:** Kafka lag stays bounded — the consumer keeps up for
+  the full window, not just the first hour.
+- **No compaction drift:** ClickHouse active part count stays bounded (merges
+  keep pace); query p95 at hour 72 is within tolerance of hour 1.
+- **Correctness holds throughout:** every quiet-tenant result lands complete and
+  correctly tenant-scoped for the entire window (isolation under sustained load).
+
+> The 72h soak requires a continuously-running reference stack and is therefore
+> **infrastructure-blocked in this environment** — it is the operator action
+> above. The in-process and CI gates prove the *machinery*; this run proves the
+> *platform*.
