@@ -104,13 +104,27 @@
     mode: "0640"
   notify: restart probectl agent
 
-- name: Check whether the agent already has an identity
+- name: Check whether the mTLS agent already has an identity
+  when: probectl_agent_type in probectl_mtls_agent_types
   ansible.builtin.stat:
     path: "{{ probectl_state_dir }}/identity/agent.crt"
   register: probectl_identity
 
-- name: Enroll the agent (one-time; token from vault, never persisted)
-  when: not probectl_identity.stat.exists and probectl_enroll_token | length > 0
+# OPS-004: only the canary `agent` ships an `enroll` subcommand — it mints an
+# mTLS identity by redeeming a one-time token against the control-plane gRPC
+# endpoint (cmd/probectl-agent/enroll.go). The bus collectors (ebpf-agent,
+# flow-agent, device-agent, endpoint) have NO per-host enroll command: they are
+# registered ONCE on the control plane with `probectl-control register-collector`
+# (cmd/probectl-control/enroll.go), which mints a tenant_id/agent_id the
+# collector stamps on the records it publishes to the bus — no certificate is
+# issued. Running `<binary> enroll` for those types would fail (unknown
+# subcommand). So the enroll task is gated to the mTLS `agent` only; collectors
+# get a one-time guidance message instead.
+- name: Enroll the mTLS canary agent (one-time; token from vault, never persisted)
+  when:
+    - probectl_agent_type in probectl_mtls_agent_types
+    - not probectl_identity.stat.exists
+    - probectl_enroll_token | length > 0
   ansible.builtin.command:
     cmd: >-
       /usr/bin/probectl-{{ probectl_agent_type }} enroll
@@ -119,6 +133,15 @@
       --dir {{ probectl_state_dir }}/identity
   no_log: true   # the token must never reach the Ansible log
   notify: restart probectl agent
+
+- name: Remind operator how bus collectors register (no per-host enroll)
+  when: probectl_agent_type not in probectl_mtls_agent_types
+  ansible.builtin.debug:
+    msg: >-
+      probectl-{{ probectl_agent_type }} is a bus collector and has no `enroll`
+      subcommand. Register it ONCE on the control plane with:
+      `probectl-control register-collector --token <pjt_...> --plane {{ probectl_collector_plane | default(probectl_agent_type | regex_replace('-agent$', '')) }} --hostname {{ inventory_hostname }}`,
+      then set the minted tenant_id/agent_id in /etc/probectl/{{ probectl_agent_type }}.yaml.
 
 - name: Enable + start the agent
   ansible.builtin.systemd:

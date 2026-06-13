@@ -1,6 +1,14 @@
 ---
 # OPS-004: defaults for the probectl.agents role. Override per inventory group.
 probectl_agent_type: agent            # agent | ebpf-agent | flow-agent | device-agent | endpoint
+# OPS-004: only these agent types ship an `enroll` subcommand (mTLS identity via
+# the control-plane gRPC endpoint, cmd/probectl-agent/enroll.go). Every other
+# type is a bus collector registered ONCE on the control plane with
+# `probectl-control register-collector` — it has NO per-host enroll command, so
+# the role must never run `<binary> enroll` for them.
+probectl_mtls_agent_types:
+  - agent
+probectl_collector_plane: ""          # ebpf|flow|device for the register-collector hint; defaults from the type
 probectl_version: ""                  # required: the release to install (e.g. 0.2.0)
 probectl_control_grpc_addr: ""        # required: https://control-host:8443
 probectl_install_method: repo         # repo | package_url | airgap
