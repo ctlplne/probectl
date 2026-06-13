@@ -6,6 +6,7 @@ package testsupport
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -49,4 +50,24 @@ func PostgresDSN() string {
 		return v
 	}
 	return "postgres://probectl:probectl@localhost:5432/probectl"
+}
+
+// KafkaBrokers resolves the test Kafka bootstrap brokers from the environment.
+// PROBECTL_TEST_KAFKA is what the full-stack CI jobs export (e.g.
+// "localhost:9092"); it is comma-separated for a multi-broker cluster. An empty
+// result means no bus is configured — a caller pairs this with SkipOrFatal so
+// the suite fails (not skips) under PROBECTL_TEST_REQUIRE_SERVICES=1 and skips
+// cleanly on a laptop without a broker.
+func KafkaBrokers() []string {
+	v := os.Getenv("PROBECTL_TEST_KAFKA")
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for _, b := range strings.Split(v, ",") {
+		if b = strings.TrimSpace(b); b != "" {
+			out = append(out, b)
+		}
+	}
+	return out
 }

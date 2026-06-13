@@ -16,10 +16,12 @@ import (
 // evidence from ≥2 distinct planes. A regression that splits cross-plane
 // evidence into separate incidents (or correlates across tenants) fails here.
 //
-// This is the unit-level gate over the correlator and runs in verify-all. A
-// full fault-injection e2e over a real bus + stores is NOT yet wired (the
-// test/e2e suite currently asserts topology tenant-isolation, not cross-plane
-// correlation); promoting this assertion end-to-end is tracked as TEST-006.
+// This is the unit-level gate over the correlator and runs in verify-all. The
+// full fault-injection e2e over a real bus + stores — injecting a multi-plane
+// fault through real Kafka into the RLS-backed Postgres correlator and asserting
+// ONE tenant-scoped incident — is TestCrossPlaneCorrelationE2E in
+// internal/control (build tag integration; wired into the CI integration job,
+// EXC-GATE-05). This unit gate stays the fast every-pass guard.
 func TestCrossPlaneCorrelationGate(t *testing.T) {
 	store := NewMemoryStore()
 	c := NewCorrelator(store, 10*time.Minute, slog.New(slog.NewTextHandler(io.Discard, nil)))

@@ -614,14 +614,23 @@ jobs:
             sleep 1
           done
           echo "prometheus did not become ready" >&2; docker logs prometheus; exit 1
-      - name: Integration tests (migrations + readiness + result pipeline)
+      - name: Boot Kafka (cross-plane correlation e2e needs the real bus — EXC-GATE-05)
+        # The full-stack cross-plane correlation e2e (TestCrossPlaneCorrelationE2E)
+        # injects a multi-plane fault through real Kafka + real Postgres and asserts
+        # ONE tenant-scoped correlated incident (CLAUDE.md §8 standing gate #2). It
+        # FAILS (not skips) under PROBECTL_TEST_REQUIRE_SERVICES=1, so the broker
+        # must be up before make test-integration.
+        run: docker compose -f deploy/compose/dev.yml up -d --wait kafka
+      - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,
         # TestEnrollTokenReplayRejected, TestWrongTenantCannotBeRequested,
-        # TestRevokeAgentPersistsAndBlocksReissuance) FAIL the build if Postgres
-        # is missing instead of silently skipping.
+        # TestRevokeAgentPersistsAndBlocksReissuance) and the cross-plane
+        # correlation e2e (TestCrossPlaneCorrelationE2E, EXC-GATE-05) FAIL the
+        # build if a required service is missing instead of silently skipping.
         env:
           PROBECTL_TEST_REQUIRE_SERVICES: "1"
+          PROBECTL_TEST_KAFKA: "localhost:9092"
         run: make test-integration
       - name: Store integration coverage floor (U-057)
         # The store package is correctness-gated here (real PG + RLS), not in
