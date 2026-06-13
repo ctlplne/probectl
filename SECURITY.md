@@ -70,10 +70,34 @@ project reaches GA.
 In scope: the control plane (`probectl-control`), agents, the Python BGP analyzer,
 the web UI, the shipped Docker images, Helm chart, and compose deploys.
 
-Out of scope: issues requiring a malicious operator with existing administrative
-access; vulnerabilities in third-party dependencies already tracked upstream
-(report those upstream, and tell us so we can bump); and findings against the
-intentionally non-production `deploy/compose/dev.yml` dependency stack.
+### A note on "operator" privilege (in scope vs out of scope)
+
+probectl has **two distinct privilege domains**, and they are treated very
+differently here:
+
+- A **tenant-scoped administrator** is the most-privileged user *inside a single
+  tenant*. Issues that require such an admin acting *within their own tenant's*
+  legitimate scope are generally out of scope.
+- A **provider / MSP operator** runs the shared platform across many tenants.
+  This operator is explicitly **not** trusted with tenant telemetry. Per the
+  project [non-negotiables](CONTRIBUTING.md) (§7.1/§7.7), the following are
+  **IN SCOPE and high severity**, even though they involve a privileged
+  operator:
+  - **Break-glass-gate bypass** — any path that lets a provider operator read
+    tenant telemetry without an explicit, time-bounded, tenant-consented,
+    separately-audited break-glass grant.
+  - **Implicit operator telemetry reads** — any path granting the provider
+    plane silent/default read access to a tenant's data.
+  - **Missing or evadable provider-audit records** — provider-plane and
+    break-glass actions that are not written to the separate, tamper-evident
+    provider audit stream (or that can evade it).
+
+Out of scope: issues requiring a malicious **tenant-scoped** administrator
+acting within that tenant's own legitimate scope (provider/MSP-operator abuse of
+the kind listed above is IN scope); vulnerabilities in third-party dependencies
+already tracked upstream (report those upstream, and tell us so we can bump);
+and findings against the intentionally non-production
+`deploy/compose/dev.yml` dependency stack.
 
 ## Our commitments
 

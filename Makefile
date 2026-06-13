@@ -248,6 +248,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	golangci-lint run
 	./scripts/check_crypto_imports.sh
 	./scripts/check_repo_hygiene.sh SELFTEST && ./scripts/check_repo_hygiene.sh
+	./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	./scripts/check_swallowed_errors.sh
 	./scripts/check_http_clients.sh

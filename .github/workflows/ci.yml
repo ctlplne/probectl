@@ -106,6 +106,8 @@ jobs:
         run: make lint-go
       - name: No time-bomb dates in tests (TEST-002)
         run: ./scripts/check-test-clocks.sh
+      - name: Docs/claims drift gate (DOCS-S01..S14, SEC-004)
+        run: ./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
 
   lint-python:
     name: lint-python
