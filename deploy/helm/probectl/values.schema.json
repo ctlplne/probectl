@@ -47,7 +47,18 @@
         "backupFile": { "type": "string" },
         "host": { "type": "string" },
         "database": { "type": "string" },
-        "image": { "type": "string" }
+        "image": { "type": "string" },
+        "clickhouse": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "backupFile": { "type": "string" },
+            "host": { "type": "string" },
+            "database": { "type": "string" },
+            "image": { "type": "string" }
+          }
+        }
       }
     },
     "backup": {

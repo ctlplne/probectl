@@ -68,3 +68,54 @@ spec:
         - name: shared
           emptyDir: {}
 {{- end }}
+{{- if .Values.restore.clickhouse.enabled }}
+---
+# OPS-007: chart-managed ClickHouse restore Job, mirroring the CH backup CronJob
+# (the RESTORE runs SERVER-SIDE, so it cannot be piped through backup-open like
+# the PG dump — the CH backups volume is encrypted at rest, docs/hardening.md
+# §0c). One-shot Job: set restore.clickhouse.enabled=true + backupFile, apply,
+# delete after. Drilled on kind in CI alongside the PG restore.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "probectl.fullname" . }}-clickhouse-restore
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook-weight": "0"
+spec:
+  backoffLimit: 0   # a restore must not silently retry-and-clobber; fail loud
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101 # the clickhouse image's clickhouse uid
+      containers:
+        - name: ch-restore
+          image: {{ .Values.restore.clickhouse.image | default .Values.backup.clickhouse.image | quote }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              echo "ch-restore: verifying backup is readable…"
+              test -s "/backups/{{ .Values.restore.clickhouse.backupFile }}"
+              echo "ch-restore: dropping + restoring {{ .Values.restore.clickhouse.database }} (DESTRUCTIVE)…"
+              clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
+                --user "$CH_USER" --password "$CH_PASSWORD" \
+                --query "DROP DATABASE IF EXISTS {{ .Values.restore.clickhouse.database }} SYNC"
+              clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
+                --user "$CH_USER" --password "$CH_PASSWORD" \
+                --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('/backups/{{ .Values.restore.clickhouse.backupFile }}')"
+              echo "ch-restore: done. Verify /readyz on the control plane before resuming traffic."
+          env:
+            - name: CH_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-username } }
+            - name: CH_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-password } }
+          volumeMounts:
+            - { name: backups, mountPath: /backups, readOnly: true }
+      volumes:
+        - name: backups
+          persistentVolumeClaim:
+            claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
+{{- end }}

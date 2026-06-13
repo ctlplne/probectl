@@ -123,6 +123,32 @@ CronJob produces; a plain `.dump` from `backup_postgres.sh` goes straight to
 restore scripts verify it automatically before touching the database, and abort
 on mismatch.
 
+### Restoring on Kubernetes (chart-managed restore Jobs)
+
+The compose scripts above are the host/dev path. On Kubernetes the chart ships
+one-shot restore Jobs so the restore is reproducible and audited, NOT a manual
+`kubectl exec` (OPS-001 for Postgres, OPS-007 for ClickHouse). Both read the
+artifact from the backups PVC.
+
+```sh
+# Postgres — decrypts the sealed .pbk in-pipe (backup-open) then pg_restore:
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set restore.enabled=true \
+  --set restore.backupFile=postgres-probectl-<ts>.dump.pbk
+
+# ClickHouse — server-side RESTORE DATABASE ... FROM File(...) (mirrors the
+# CH backup CronJob; the CH backups volume is encrypted at rest, §0c):
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set restore.clickhouse.enabled=true \
+  --set restore.clickhouse.backupFile=clickhouse-probectl-<ts>.zip
+
+# Each is a Job with backoffLimit 0 (fail loud, never silently retry-and-clobber).
+# Watch it to completion, then DISABLE it again so a later upgrade doesn't re-run it:
+kubectl logs -f job/probectl-clickhouse-restore
+helm upgrade probectl deploy/helm/probectl --reuse-values \
+  --set restore.clickhouse.enabled=false
+```
+
 ## RPO / RTO expectations
 
 - **RPO** (recovery point objective — how much data you can lose) = the backup

@@ -245,3 +245,15 @@ restore:
   host: probectl-postgres
   database: probectl
   image: ""                   # defaults to postgres:16
+  # OPS-007: chart-managed ClickHouse restore (mirrors the PG restore Job and the
+  # CH backup CronJob). Set clickhouse.enabled=true and clickhouse.backupFile to
+  # the BACKUP-produced .zip on the backups PVC. The RESTORE runs SERVER-SIDE
+  # (clickhouse-client RESTORE DATABASE ... FROM File(...)), exactly like the
+  # CronJob's BACKUP — no envelope filter (the CH backups volume is encrypted at
+  # rest per docs/hardening.md §0c). DESTRUCTIVE: the database is dropped first.
+  clickhouse:
+    enabled: false
+    backupFile: ""            # filename on the backups PVC (e.g. clickhouse-probectl-...zip)
+    host: probectl-clickhouse
+    database: probectl
+    image: ""                 # defaults to backup.clickhouse.image
