@@ -1,25 +1,45 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LicenseRef-probectl-TBD
 #
-# check-test-clocks.sh (TEST-002) — fail if a _test.go file hardcodes a FUTURE
-# calendar date. Such dates are time-bombs: the test passes today and silently
-# starts failing the day real time crosses the literal. Tests must derive time
-# from an injected clock (WithClock / a fixed base) instead. This is the
-# durable guard so the time-bomb class can't creep back after the sweep.
+# check-test-clocks.sh (TEST-002 / RESIL-002) — prevent the SLO-engine time-bomb
+# regression class.
 #
-# Allowlist: a file may opt out with the marker comment
-#   //clocklint:allow <reason>
-# on the line with the literal (for a deliberately-far-future constant).
+# THE BOMB (RESIL-002): a test constructs the SLO engine, feeds it FIXED-timestamp
+# events, but lets the engine evaluate its rolling error-budget window against the
+# default WALL clock (time.Now). It passes the day it's written and silently fails
+# later, when the fixed events age past the window. TestChaosRunDetectedBySLO did
+# exactly this and was failing in CI by the time the audit ran.
+#
+# THE RULE: any test that uses the SLO engine cross-package (`slo.NewEngine(`)
+# MUST inject a deterministic clock with `.WithClock(...)`, so evaluation is
+# anchored to the same synthetic timeline as the events. In-package slo tests set
+# the unexported `e.clock` field directly and are inherently clock-aware, so the
+# guard is intentionally scoped to the QUALIFIED `slo.NewEngine(` call.
+#
+# Why scoped, not "flag every future date": the repo standardizes on 2026-06-xx as
+# a fixed test epoch, fed through per-test injected clocks — flagging all of those
+# is ~55 false positives and the guard would just get disabled. Precision beats
+# noise. A line may still opt out explicitly with  //clocklint:allow <reason> .
+#
+# To extend: if another clock-windowed evaluator gains a `WithClock`-style seam,
+# add its qualified constructor to CTORS below.
 set -euo pipefail
 
-# Future years to flag (this + the next several). Update the floor yearly, or
-# wire it to $(date +%Y) in CI for an always-current check.
-PATTERN='(time\.Date\([[:space:]]*20(2[7-9]|[3-9][0-9])|"20(2[7-9]|[3-9][0-9])-[0-1][0-9]-[0-3][0-9])'
+CTORS='slo\.NewEngine\('
 
-hits="$(grep -rnE "$PATTERN" --include='*_test.go' . 2>/dev/null | grep -v 'clocklint:allow' || true)"
+hits=""
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    grep -q 'WithClock' "$f" && continue                       # clock injected — safe
+    fh="$(grep -nE "$CTORS" "$f" 2>/dev/null | grep -v 'clocklint:allow' || true)"
+    [ -n "$fh" ] && hits="${hits}${f}:
+${fh}
+"
+done < <(grep -rlE "$CTORS" --include='*_test.go' . 2>/dev/null || true)
+
 if [ -n "$hits" ]; then
-    echo "::error::TEST-002: hardcoded FUTURE dates in tests are time-bombs — use an injected clock (WithClock / fixed base), or annotate the line //clocklint:allow <reason>:"
-    echo "$hits"
+    echo "::error::RESIL-002: a test uses the SLO engine cross-package without injecting a clock (.WithClock) — feeding fixed-timestamp events while it evaluates against the wall clock is a time-bomb. Add .WithClock(func() time.Time { return <synthetic now> }), or annotate //clocklint:allow <reason>:"
+    printf '%s\n' "$hits"
     exit 1
 fi
-echo "no hardcoded future-date time-bombs in tests"
+echo "no SLO-engine time-bombs (every cross-package slo.NewEngine injects a clock)"

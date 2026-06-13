@@ -87,7 +87,13 @@ func TestChaosRunDetectedBySLO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := slo.NewEngine(slos)
+	// Synthetic, compressed timeline (one tick per minute). The engine MUST
+	// evaluate against THIS clock, not the wall clock: feeding fixed-timestamp
+	// events while Statuses() reads time.Now() is a time bomb that fails once the
+	// events age past the SLO window (RESIL-002 — exactly what happened here).
+	// WithClock anchors evaluation to tick, so the test is deterministic forever.
+	tick := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	engine := slo.NewEngine(slos).WithClock(func() time.Time { return tick })
 
 	probe, err := canary.NewUDP(canary.Config{
 		Type: "udp", Target: proxy.Addr(), Timeout: 250 * time.Millisecond,
@@ -98,8 +104,7 @@ func TestChaosRunDetectedBySLO(t *testing.T) {
 	}
 
 	// run executes n REAL probes through the proxy and feeds outcomes into
-	// the SLO engine on a compressed synthetic timeline (one per minute).
-	tick := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	// the SLO engine on the compressed synthetic timeline declared above.
 	fired := false
 	run := func(n int) {
 		for i := 0; i < n; i++ {
