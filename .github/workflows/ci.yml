@@ -982,6 +982,14 @@ jobs:
       - name: Render every shipped compose file
         run: |
           set -euo pipefail
+          # OPS-006: some shipped compose files intentionally REQUIRE secrets via
+          # ${VAR:?...} (no default ships — SEC-006/OPS-003), so a bare `config`
+          # errors before it can validate structure. Provide throwaway
+          # render-time values so interpolation resolves and we still catch real
+          # YAML/interpolation typos; the :? guards keep protecting actual
+          # deployments (operators must set these in .env).
+          export POSTGRES_PASSWORD="ci-render-only"
+          export PROBECTL_JOIN_TOKEN="pjt_ci-render-only"
           for f in deploy/compose/*.yml; do
             echo "rendering $f"
             docker compose -f "$f" config >/dev/null
