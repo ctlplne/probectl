@@ -7,6 +7,25 @@
 # Build context is the repository root.
 
 ARG GO_VERSION=1.26
+ARG NODE_VERSION=22
+
+# UX-002: build the web UI FIRST, on the build platform, and hand its bundle to
+# the Go stage so go:embed (internal/webui) ships the REAL single-page app — not
+# the "not bundled" placeholder. The release image previously compiled Go without
+# ever running `npm run build`, so every shipped binary served the stub. Building
+# it here makes the default production image serve the real UI.
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim@sha256:e21fc383b50d5347dc7a9f1cae45b8f4e2f0d39f7ade28e4eef7d2934522b752 AS web
+WORKDIR /web
+# Cache npm deps on the lockfile only.
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+# The ee/ web seam is aliased to ../ee/web (vite.config.ts: resolve(__dirname,
+# '../ee/web')). WORKDIR is /web, so ../ee/web resolves to /ee/web — COPY the
+# commercial UI source there so the import resolves (the bundle always includes
+# it; visibility is runtime-gated by the API, per the editions boundary).
+COPY ee/web /ee/web
+RUN npm run build   # → /web/dist (hashed assets)
 
 # Digest-pinned (U-061); dependabot bumps the digest. Tag kept for humans.
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d AS build
@@ -29,6 +48,11 @@ RUN go mod download
 
 COPY . .
 RUN test -n "$COMPONENT" || { echo "COMPONENT build-arg is required"; exit 1; }
+# UX-002: overlay the real Vite bundle over the committed placeholder so the
+# control plane's go:embed (internal/webui) ships the actual UI. The build above
+# always runs, so the shipped image can never silently serve the stub.
+COPY --from=web /web/dist/ ./internal/webui/dist/
+RUN test -d ./internal/webui/dist/assets || { echo "UX-002: web bundle missing — internal/webui/dist has no assets/"; exit 1; }
 RUN --mount=type=cache,target=/root/.cache/go-build \
     GOOS=${TARGETOS} GOARCH=${TARGETARCH} CGO_ENABLED=0 \
     go build -trimpath ${GO_TAGS:+-tags ${GO_TAGS}} \

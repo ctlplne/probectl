@@ -37,6 +37,12 @@ venv/
 node_modules/
 web/dist/
 web/.cache/
+# UX-002: the REAL UI bundle is built at image-build time and overlaid onto
+# internal/webui/dist (deploy/docker/Dockerfile). Only the placeholder
+# index.html is tracked; the generated assets must never be committed.
+internal/webui/dist/assets/
+internal/webui/dist/probectl-rum.js
+internal/webui/dist/*.del.*
 
 # Local environment & secrets — never commit secrets (CLAUDE.md §7 guardrail 6)
 .env

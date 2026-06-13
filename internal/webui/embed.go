@@ -4,10 +4,14 @@
 // binary so the documented quickstart serves a SCREEN, not just an API
 // (ARCH-004). The control plane previously shipped no UI serving path at all —
 // the getting-started doc implied a UI that nothing served. The Vite build
-// (web/) outputs to web/dist; the release build copies it over the placeholder
-// committed here, and the binary serves it behind the existing CSP. The
-// placeholder keeps the embed (and therefore the build) green when the UI has
-// not been bundled, and says so honestly rather than 404ing.
+// (web/) outputs to web/dist; the release image's `web` stage runs `npm run
+// build` and overlays that bundle onto internal/webui/dist BEFORE compiling the
+// control plane (deploy/docker/Dockerfile), so shipped binaries embed the REAL
+// UI and serve it behind the existing CSP. The committed placeholder keeps the
+// embed (and the from-source build) green when the UI has not been bundled —
+// and says so honestly rather than 404ing or masquerading as the app. A release
+// build that still has only the placeholder fails the build-tagged guard
+// TestRealBundleRequiredInReleaseBuild (UX-002), so the stub can never ship.
 package webui
 
 import (
