@@ -66,10 +66,16 @@ func (e EnrollTokens) Consume(ctx context.Context, tokenHash []byte, usedByAgent
 }
 
 // Revoke voids an UNUSED token (operator path; a used token is already inert).
-func (e EnrollTokens) Revoke(ctx context.Context, id string) error {
-	_, err := e.pool.Exec(ctx,
-		`UPDATE agent_enroll_tokens SET revoked_at = now() WHERE id = $1 AND used_at IS NULL`, id)
-	return err
+// It reports whether a row changed: false means no unredeemed token had that
+// id — already redeemed, already revoked, or never existed — so the CLI can
+// tell the operator the truth instead of a blind "ok".
+func (e EnrollTokens) Revoke(ctx context.Context, id string) (bool, error) {
+	tag, err := e.pool.Exec(ctx,
+		`UPDATE agent_enroll_tokens SET revoked_at = now() WHERE id = $1 AND used_at IS NULL AND revoked_at IS NULL`, id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // AgentIdentities records every issued SVID — the issuance provenance behind

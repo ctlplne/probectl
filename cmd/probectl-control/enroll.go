@@ -145,3 +145,28 @@ func runRevokeAgent(ctx context.Context, db *store.DB, args []string) error {
 		*agent, spiffeID, len(serials))
 	return nil
 }
+
+// runRevokeEnrollToken cancels an UNREDEEMED join token early — the
+// "kill that invitation" button. The id is the value `enroll-token` printed
+// at mint time. A token that was already redeemed is immutable history (the
+// agent exists now — revoking the AGENT is `revoke-agent`'s job); this
+// command only voids invitations that nobody has used yet.
+func runRevokeEnrollToken(ctx context.Context, db *store.DB, args []string) error {
+	fs := flag.NewFlagSet("revoke-enroll-token", flag.ContinueOnError)
+	id := fs.String("id", "", "token id to void (printed by enroll-token; REQUIRED)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *id == "" {
+		return fmt.Errorf("usage: probectl-control revoke-enroll-token -id <token-id>")
+	}
+	revoked, err := store.NewEnrollTokens(db.Pool()).Revoke(ctx, *id)
+	if err != nil {
+		return err
+	}
+	if !revoked {
+		return fmt.Errorf("no unredeemed token with id %s — it was already redeemed, already revoked, or never existed; nothing changed (a redeemed token's agent is revoked with revoke-agent)", *id)
+	}
+	fmt.Printf("voided enroll token %s: it can no longer be redeemed (it was single-use and expiring anyway — this just ends it early)\n", *id)
+	return nil
+}

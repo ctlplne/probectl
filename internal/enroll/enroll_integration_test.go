@@ -152,6 +152,35 @@ func TestEnrollTokenReplayRejected(t *testing.T) {
 	}
 }
 
+// TestEnrollTokenRevokeBlocksRedeem is the regression test for the
+// revoke-enroll-token surface: voiding an unredeemed token must make
+// redemption fail, the outcome must be reported truthfully (true only when a
+// row actually changed), and a second revoke must report false.
+func TestEnrollTokenRevokeBlocksRedeem(t *testing.T) {
+	ctx := context.Background()
+	pool, svc, tenantID := setup(ctx, t)
+
+	display, tokenID, err := svc.MintToken(ctx, tenantID, "", "", "test", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := store.NewEnrollTokens(pool).Revoke(ctx, tokenID)
+	if err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if !revoked {
+		t.Fatal("revoke reported false for a fresh unredeemed token")
+	}
+	csr, _, _ := crypto.CreateCSR("host-revoked")
+	if _, err := svc.Enroll(ctx, enroll.Request{Token: display, CSRPEM: string(csr)}); err == nil {
+		t.Fatal("revoked token was redeemed (revocation not enforced)")
+	}
+	// Idempotence honesty: a second revoke changed nothing and says so.
+	if again, err := store.NewEnrollTokens(pool).Revoke(ctx, tokenID); err != nil || again {
+		t.Fatalf("second revoke = (%v, %v), want (false, nil)", again, err)
+	}
+}
+
 func TestRotationKeepsIdentityAndRecordsNewSerial(t *testing.T) {
 	ctx := context.Background()
 	pool, svc, tenantID := setup(ctx, t)

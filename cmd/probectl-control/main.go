@@ -4,10 +4,21 @@
 //
 // Subcommands:
 //
-//	probectl-control [serve]   run the stateless HTTP API server (default)
-//	probectl-control migrate   apply database migrations and exit
-//	probectl-control gen-cert  write a self-signed TLS cert (HTTPS quickstart)
-//	probectl-control version   print build metadata and exit
+//	probectl-control [serve]              run the stateless HTTP API server (default)
+//	probectl-control migrate              apply database migrations and exit
+//	probectl-control gen-cert             write a self-signed TLS cert (HTTPS quickstart)
+//	probectl-control agent-ca             init/export the agent-enrollment CA
+//	probectl-control enroll-token         mint a one-time agent join token
+//	probectl-control revoke-enroll-token  void an unredeemed join token early
+//	probectl-control revoke-agent         revoke an enrolled agent's identity
+//	probectl-control mcp-stdio            serve MCP over stdio (local AI clients)
+//	probectl-control mcp-token            mint an MCP access token
+//	probectl-control scim-token           mint a SCIM provisioning token
+//	probectl-control support-bundle       write a redacted diagnostics bundle
+//	probectl-control backup-seal          encrypt a backup container
+//	probectl-control backup-open          decrypt a backup container for restore
+//	probectl-control preflight            validate config/connectivity and exit
+//	probectl-control version              print build metadata and exit
 //
 // Configuration is read from PROBECTL_-prefixed environment variables
 // (see docs/configuration.md).
@@ -96,10 +107,10 @@ func run(cmd string) error {
 	case "backup-open":
 		// OPS-002: decrypt an encrypted backup container for restore.
 		return backupOpen(os.Args[2:])
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent":
+	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token":
 		// fall through to the configured path below
 	default:
-		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | gen-cert | support-bundle | preflight | backup-seal | backup-open | version)", cmd)
+		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | gen-cert | support-bundle | preflight | backup-seal | backup-open | version)", cmd)
 	}
 
 	cfg, err := config.LoadFromEnv()
@@ -235,6 +246,10 @@ func run(cmd string) error {
 		// Sprint 12 (WIRE-003): persisted revocation; the RUNNING control
 		// plane picks it up via its periodic deny-list refresh.
 		return runRevokeAgent(context.Background(), db, os.Args[2:])
+	case "revoke-enroll-token":
+		// Voids an unredeemed join token early (redemption checks
+		// revoked_at, so this takes effect immediately, no restart).
+		return runRevokeEnrollToken(context.Background(), db, os.Args[2:])
 	case "scim-token":
 		return runSCIMToken(log, db, os.Args[2:])
 	}
