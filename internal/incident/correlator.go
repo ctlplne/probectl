@@ -48,6 +48,23 @@ type Correlator struct {
 	window   time.Duration
 	log      *slog.Logger
 	observer Observer
+
+	// tenantLocks serializes the read-then-create sequence PER TENANT
+	// (CORRECT-013). Two signals for the same tenant arriving concurrently (the
+	// NDR, BGP, TLS, and IOC consumers all call Ingest from independent
+	// goroutines) could both observe "no open incident" and both Create —
+	// opening duplicate incidents for one event and splitting its evidence. A
+	// per-tenant lock makes the check-and-open atomic within the process.
+	// Locks are keyed by tenant so distinct tenants never contend (isolation +
+	// throughput). Cross-replica serialization (HA) rides the DB advisory lock
+	// added with the durable view layer in S3 (ARCH-003).
+	tenantLocks sync.Map // tenant id -> *sync.Mutex
+}
+
+// tenantLock returns the per-tenant mutex, creating it on first use.
+func (c *Correlator) tenantLock(tenant string) *sync.Mutex {
+	m, _ := c.tenantLocks.LoadOrStore(tenant, &sync.Mutex{})
+	return m.(*sync.Mutex)
 }
 
 // NewCorrelator builds a correlator over store with the given time window.
@@ -84,6 +101,13 @@ func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) 
 	if sig.Severity == "" {
 		sig.Severity = SeverityInfo
 	}
+
+	// CORRECT-013: hold the per-tenant lock across the whole read→correlate→
+	// create sequence so concurrent signals for one tenant cannot both open a
+	// fresh incident for the same event.
+	lock := c.tenantLock(sig.TenantID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	open, err := c.store.OpenIncidents(ctx, sig.TenantID)
 	if err != nil {
