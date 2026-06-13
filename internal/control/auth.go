@@ -213,14 +213,19 @@ func (s *Server) loadSubjectAttributes(ctx context.Context, p *auth.Principal) {
 		return
 	}
 	attrs := map[string]string{"mfa": boolStr(p.MFASatisfied)}
-	_ = s.inTenantID(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
+	if err := s.inTenantID(ctx, p.TenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		if u, err := (store.Users{}).Get(ctx, sc, p.UserID); err == nil {
 			for k, v := range u.Attributes {
 				attrs[k] = v
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		// CODE-002: a scope-setup fault means we couldn't load subject ABAC
+		// attributes — log it (a transient fault should not silently evaluate
+		// ABAC against an empty attribute set).
+		s.log.Warn("loadSubjectAttributes: tenant scope failed", "tenant_id", p.TenantID, "user_id", p.UserID, "error", err.Error())
+	}
 	p.Attributes = attrs
 }
 

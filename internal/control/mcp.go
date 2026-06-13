@@ -54,7 +54,7 @@ func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 		if pool == nil {
 			return
 		}
-		_ = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			actor := ev.UserID
 			if actor == "" {
 				actor = "mcp-client"
@@ -63,7 +63,10 @@ func mcpCallAuditor(pool *pgxpool.Pool, log *slog.Logger) mcp.CallAudit {
 				"allowed": ev.Allowed, "denial": ev.Denial,
 			})
 			return err
-		})
+		}); err != nil {
+			// CODE-002: surface a failed MCP-call audit write (the call already happened).
+			log.Warn("failed to persist mcp.tool_call audit record", "tenant_id", ev.TenantID, "tool", ev.Tool, "error", err.Error())
+		}
 	}
 }
 

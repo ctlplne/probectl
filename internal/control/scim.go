@@ -405,10 +405,14 @@ func (s *Server) scimDeleteGroup(w http.ResponseWriter, r *http.Request, tenantI
 
 func (s *Server) groupToSCIM(r *http.Request, tenantID string, role store.Role) scim.Group {
 	var g scim.Group
-	_ = s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+	if err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
 		g = s.groupToSCIMScoped(ctx, sc, r, role)
 		return nil
-	})
+	}); err != nil {
+		// CODE-002: a scope-setup fault means group membership couldn't be
+		// resolved — log it (the response would otherwise omit members silently).
+		s.log.Warn("groupToSCIM: tenant scope failed", "tenant_id", tenantID, "role_id", role.ID, "error", err.Error())
+	}
 	return g
 }
 

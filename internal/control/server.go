@@ -351,12 +351,16 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 			"local evaluation ONLY (this required a -tags devauth build, PROBECTL_DEV_AUTH_ACK, and a loopback bind)")
 		if pool != nil {
 			go func() {
-				_ = tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.DefaultTenantID), pool,
+				if err := tenancy.InTenant(tenancy.WithTenant(context.Background(), tenancy.DefaultTenantID), pool,
 					func(ctx context.Context, sc tenancy.Scope) error {
 						_, err := audit.TenantAppend(ctx, sc, "system", "auth.dev_mode_active", "control-plane",
 							map[string]any{"ack": "i-understand", "bind": cfg.HTTPAddr})
 						return err
-					})
+					}); err != nil {
+					// CODE-002: surface the dev-mode audit failure (the active
+					// dev-auth posture must be recorded; never drop it silently).
+					log.Warn("failed to persist auth.dev_mode_active audit record", "error", err.Error())
+				}
 			}()
 		}
 	}

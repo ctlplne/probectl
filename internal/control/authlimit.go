@@ -35,12 +35,16 @@ func (s *Server) newAuthLimiter(cfg *config.Config) *auth.Limiter {
 		if !ok || s.pool == nil {
 			return
 		}
-		_ = s.inTenantID(context.Background(), tid, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := s.inTenantID(context.Background(), tid, func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := audit.TenantAppend(ctx, sc, email, "auth.lockout", email, map[string]any{
 				"failures": failures, "lockout": lockout.String(), "dimension": "account",
 			})
 			return err
-		})
+		}); err != nil {
+			// CODE-002: surface a failed lockout-audit write (the lockout already
+			// applied; the audit record must not vanish silently).
+			s.log.Warn("failed to persist auth.lockout audit record", "tenant_id", tid, "error", err.Error())
+		}
 	}
 	return l
 }

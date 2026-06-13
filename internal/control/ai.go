@@ -111,12 +111,16 @@ func egressAuditor(pool *pgxpool.Pool, log *slog.Logger) ai.EgressAudit {
 		if pool == nil {
 			return
 		}
-		_ = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
 			_, err := audit.TenantAppend(ctx, sc, "system", "ai.remote_egress", ev.Endpoint, map[string]any{
 				"model": ev.Model, "evidence_count": ev.EvidenceCount, "planes": ev.Planes,
 			})
 			return err
-		})
+		}); err != nil {
+			// CODE-002: never silently drop the egress audit record on a transient
+			// fault — surface it (the egress itself already happened).
+			log.Warn("failed to persist ai.remote_egress audit record", "tenant_id", ev.TenantID, "error", err.Error())
+		}
 	}
 }
 

@@ -202,10 +202,14 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	engine.SetResolveHook(func(fingerprint string) {
 		hctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = tenancy.InTenant(tenancy.WithTenant(hctx, tenant), pool,
+		if err := tenancy.InTenant(tenancy.WithTenant(hctx, tenant), pool,
 			func(ctx context.Context, sc tenancy.Scope) error {
 				return (store.AlertOps{}).Delete(ctx, sc, fingerprint)
-			})
+			}); err != nil {
+			// CODE-002: a failed resolve-cleanup leaves a stale ops row; log it
+			// (the alert still resolves) rather than discard silently.
+			log.Warn("alert resolve-hook cleanup failed", "tenant", tenant.String(), "fingerprint", fingerprint, "error", err.Error())
+		}
 	})
 	provider := tenantRuleProvider{pool: pool, tenant: tenant}
 	return alert.NewEvaluator(engine, provider, interval, log), true

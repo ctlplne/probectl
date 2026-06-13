@@ -12,6 +12,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -49,13 +50,28 @@ func (c *abacCache) policies(ctx context.Context, tenantID string) []auth.Policy
 		return e.policies
 	}
 	var pols []auth.Policy
-	_ = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	loadErr := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), c.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		p, err := store.ABACPolicies{}.List(ctx, sc)
 		if err == nil {
 			pols = p
 		}
 		return err
 	})
+	if loadErr != nil {
+		// CODE-002: a transient scope-setup/query fault must NOT be cached as
+		// "no policies" — that would poison the cache for the whole TTL and
+		// silently widen access (an empty policy set). Log it with tenant_id and
+		// return the PRIOR cached entry if we have one (stale-but-correct), else
+		// nothing for THIS call without caching the empty result. tenancy.InTenant
+		// sets the scope BEFORE running fn, so a setup failure cannot leak another
+		// tenant's rows (fail closed).
+		logging.FromContext(ctx).Warn("ABAC policy load failed; not caching empty result",
+			"tenant_id", tenantID, "error", loadErr.Error())
+		if ok {
+			return e.policies // serve the previous (expired) entry rather than nothing
+		}
+		return nil
+	}
 	c.mu.Lock()
 	c.data[tenantID] = abacEntry{policies: pols, expiry: time.Now().Add(c.ttl)}
 	c.mu.Unlock()
