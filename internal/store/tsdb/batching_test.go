@@ -30,6 +30,66 @@ func (c *countingWriter) Write(_ context.Context, s []Series) error {
 }
 func (c *countingWriter) Close() error { return nil }
 
+// blockingUnderWriter holds a write open until released, recording call count.
+type blockingUnderWriter struct {
+	release chan struct{}
+	mu      sync.Mutex
+	calls   int
+	series  int
+}
+
+func (w *blockingUnderWriter) Write(_ context.Context, s []Series) error {
+	<-w.release
+	w.mu.Lock()
+	w.calls++
+	w.series += len(s)
+	w.mu.Unlock()
+	return nil
+}
+func (w *blockingUnderWriter) Close() error { return nil }
+
+// CORRECT-011: flush() runs under its own background context, so a caller whose
+// context is canceled mid-flush must still learn the write's REAL outcome — the
+// row landed exactly once. Pre-fix, Write returned a bare ctx.Err() the instant
+// the caller canceled, even though the flush succeeded under Background, so the
+// result pipeline saw a "failure" and dead-lettered a row that had already
+// stored (a double-write + dead-letter). Now Write gives the in-flight batch a
+// brief grace to report success before surfacing the cancel.
+func TestBatchingWriterCanceledCallerSeesRealOutcomeNoDoubleWrite(t *testing.T) {
+	under := &blockingUnderWriter{release: make(chan struct{})}
+	bw := NewBatchingWriter(under, 1, time.Hour) // maxSeries=1 → flush triggers immediately
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() {
+		errc <- bw.Write(ctx, []Series{{Metric: "m", Value: 1, TimeMillis: 1}})
+	}()
+
+	// Let the size-triggered flush start (it blocks inside the under-writer).
+	time.Sleep(20 * time.Millisecond)
+	// Cancel the caller WHILE the flush is in flight.
+	cancel()
+	// Release the in-flight write: it completes successfully under Background.
+	close(under.release)
+
+	select {
+	case err := <-errc:
+		// The write actually landed, so the caller must see success — not a
+		// cancellation that would make the pipeline dead-letter a stored row.
+		if err != nil {
+			t.Fatalf("Write returned %v after the flush succeeded; the pipeline would dead-letter a stored row (double-write)", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Write did not return")
+	}
+
+	under.mu.Lock()
+	defer under.mu.Unlock()
+	if under.calls != 1 {
+		t.Fatalf("underlying writer called %d times, want exactly 1 (no double-write)", under.calls)
+	}
+}
+
 // SCALE-001: concurrent Writes within the window coalesce into ONE underlying
 // remote-write request, and every caller still gets that request's result (so
 // per-message DLQ attribution is preserved).

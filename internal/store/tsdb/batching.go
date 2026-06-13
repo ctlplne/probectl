@@ -71,9 +71,28 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 	case <-batch.done:
 		return batch.err
 	case <-ctx.Done():
-		return ctx.Err()
+		// CORRECT-011: the caller's context fired while this batch is in flight.
+		// flush() runs under its OWN background context (one caller's cancel must
+		// not abort a write shared by other callers), so the write may ALREADY
+		// have landed — returning a bare ctx.Err() here told the result pipeline
+		// the write FAILED while the row actually stored, which then dead-lettered
+		// a duplicate. Give the in-flight batch a brief grace to report its REAL
+		// outcome before surfacing the cancel, so the common race resolves to the
+		// truth; only a genuinely-still-pending write returns ctx.Err() (which the
+		// pipeline now treats as "unknown" and does NOT dead-letter).
+		select {
+		case <-batch.done:
+			return batch.err
+		case <-time.After(batchCancelGrace):
+			return ctx.Err()
+		}
 	}
 }
+
+// batchCancelGrace is how long Write waits for an in-flight shared batch to
+// report its real result after the caller's context is canceled, before
+// surfacing the cancellation (CORRECT-011). Small: the flush is already running.
+const batchCancelGrace = 250 * time.Millisecond
 
 // flush writes the current pending batch and releases everyone waiting on it.
 // Safe to call from the timer and from a size-triggered Write; it swaps the

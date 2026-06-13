@@ -285,6 +285,16 @@ type writeItem struct {
 // offset UNCOMMITTED and the record is redelivered (CORRECT-001).
 func (c *Consumer) writeOne(ctx context.Context, it writeItem) error {
 	if err := c.writeWithRetry(ctx, it.series); err != nil {
+		// CORRECT-011: a context-cancellation error is an UNKNOWN outcome, not a
+		// confirmed failure — the underlying batched write may have ALREADY landed
+		// (BatchingWriter flushes under its own context, so one caller's cancel
+		// does not abort the in-flight write). Dead-lettering here would risk a
+		// double: the row both stored AND in the DLQ. Instead leave the offset
+		// UNCOMMITTED and let redelivery + the row stores' idempotency/dedup
+		// (CORRECT-002/003/004) settle it on replay. Never meter (unknown).
+		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
 		before := c.dropped.Load()
 		c.deadLetter(ctx, it.msg, it.r, err)
 		if c.dropped.Load() > before {
