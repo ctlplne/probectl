@@ -77,6 +77,16 @@ func (c *Consumer) Stats() ConsumerStats {
 	return ConsumerStats{Retried: c.retried.Load(), DeadLettered: c.deadLettered.Load(), Dropped: c.dropped.Load()}
 }
 
+// WriteChDepth reports the current depth of the bounded write-stage queue
+// (CORRECT-001 observability — how close the write stage is to backpressure).
+// 0 when the decoupled stage is not running.
+func (c *Consumer) WriteChDepth() int {
+	if ch := c.writeCh; ch != nil {
+		return len(ch)
+	}
+	return 0
+}
+
 // NewConsumer builds the result-pipeline consumer.
 func NewConsumer(b bus.Bus, w tsdb.Writer, group string, log *slog.Logger) *Consumer {
 	if group == "" {
@@ -214,11 +224,7 @@ func (c *Consumer) Run(ctx context.Context) error {
 		go func() {
 			defer writeWG.Done()
 			for it := range c.writeCh {
-				if err := c.writeWithRetry(ctx, it.series); err != nil {
-					c.deadLetter(ctx, it.msg, it.r, err)
-					continue
-				}
-				c.meterStored(it.r, it.bytes) // CORRECT-005: meter stored-only
+				it.done <- c.writeOne(ctx, it) // CORRECT-001: report durability back
 			}
 		}()
 	}
@@ -267,7 +273,29 @@ type writeItem struct {
 	series []tsdb.Series
 	msg    bus.Message
 	r      *resultv1.Result
-	bytes  int // ingest bytes to meter once the write is durable (CORRECT-005)
+	bytes  int        // ingest bytes to meter once the write is durable (CORRECT-005)
+	done   chan error // CORRECT-001: write-stage signals durability back to the handler
+}
+
+// writeOne is the write stage's per-record body: store (with retry), then either
+// meter on durability or dead-letter. It returns nil when the record is safely
+// handled — durably stored OR dead-lettered (replayable, so the offset may
+// advance) — and a non-nil error ONLY on TRUE LOSS (store exhausted AND the DLQ
+// publish failed). The handler propagates that error so the bus leaves the
+// offset UNCOMMITTED and the record is redelivered (CORRECT-001).
+func (c *Consumer) writeOne(ctx context.Context, it writeItem) error {
+	if err := c.writeWithRetry(ctx, it.series); err != nil {
+		before := c.dropped.Load()
+		c.deadLetter(ctx, it.msg, it.r, err)
+		if c.dropped.Load() > before {
+			// DLQ publish failed too — not safely handled; keep the offset so the
+			// record is redelivered rather than silently lost.
+			return err
+		}
+		return nil // dead-lettered: replayable, safe to commit
+	}
+	c.meterStored(it.r, it.bytes) // CORRECT-005: meter stored-only
+	return nil
 }
 
 // WithWriteWorkers sets the write-stage parallelism (default 4 in Run).
@@ -346,18 +374,28 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 		return nil
 	}
 	if ch := c.writeCh; ch != nil {
-		// Decoupled: block on the BOUNDED queue (backpressure), the write
-		// stage owns retry + DLQ + metering-on-success. The decode stage moves
-		// on to the next message — no per-record synchronous remote-write here.
-		ch <- writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value)}
-		return nil
+		// Decoupled (SCALE-001): block on the BOUNDED queue (backpressure), the
+		// write stage owns retry + DLQ + metering-on-success. CORRECT-001: the
+		// handler now WAITS for THIS record's durability before returning, so the
+		// bus only commits the offset AFTER the write is durable-or-dead-lettered
+		// (mirroring the agent→control ack-after-broker-durable barrier). Distinct
+		// keys still process concurrently across the worker pool — the decode
+		// stage of OTHER records keeps running while this one awaits its write.
+		done := make(chan error, 1)
+		select {
+		case ch <- writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value), done: done}:
+		case <-ctx.Done():
+			return ctx.Err() // shutting down: don't commit a record we never wrote
+		}
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	if err := c.writeWithRetry(ctx, series); err != nil {
-		c.deadLetter(ctx, msg, &r, err)
-		return nil
-	}
-	c.meterStored(&r, len(msg.Value)) // CORRECT-005: meter stored-only
-	return nil
+	// Synchronous path (unit tests, lightweight mode): same durability contract.
+	return c.writeOne(ctx, writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value)})
 }
 
 // meterStored records ingest usage for a result whose series actually landed in

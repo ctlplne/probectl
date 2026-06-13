@@ -136,8 +136,12 @@ func (deadBus) Publish(context.Context, string, []byte, []byte) error {
 func TestDLQPublishFailureIsCountedLoss(t *testing.T) {
 	c := fastConsumer(deadBus{Bus: bus.NewMemory()}, &flakyWriter{failN: 1 << 30})
 	msg, _ := testResult(t)
-	if err := c.handle(context.Background(), msg); err != nil {
-		t.Fatalf("handle: %v", err)
+	// CORRECT-001: when the store is exhausted AND the DLQ publish also fails,
+	// the record is NOT safely handled. handle must return the error so the bus
+	// leaves the offset UNCOMMITTED and the record is redelivered — not commit it
+	// and silently rely on the (also-failing) DLQ. The loss is still counted.
+	if err := c.handle(context.Background(), msg); err == nil {
+		t.Fatal("handle returned nil on true loss — the offset would commit and the record would be lost")
 	}
 	if st := c.Stats(); st.Dropped != 1 {
 		t.Fatalf("stats = %+v, want the loss counted", st)
