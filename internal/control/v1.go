@@ -120,6 +120,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/abac/policies", s.handleListPolicies, permDirectoryRead},
 		{http.MethodPost, "/v1/abac/policies", s.handleCreatePolicy, permDirectoryWrite},
 		{http.MethodDelete, "/v1/abac/policies/{id}", s.handleDeletePolicy, permDirectoryWrite},
+		{http.MethodPost, "/v1/a2a/sessions", s.handleStartA2ASession, permAgentWrite},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
 }

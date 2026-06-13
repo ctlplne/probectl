@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/a2a"
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/ai/author"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
@@ -150,6 +151,10 @@ type Server struct {
 	// are NEVER evaluated; the alerts API surfaces that loudly instead of
 	// silently accepting dead rules. Set via WithAlertingActive.
 	alertingActive bool
+
+	// a2aBroker brokers agent-to-agent measurement sessions (ARCH-009). Set via
+	// WithA2ABroker; nil makes POST /v1/a2a/sessions report 503.
+	a2aBroker *a2a.Broker
 
 	// Compliance validator (S46). Set via WithCompliance; nil reports
 	// compliance_running=false.

@@ -4190,6 +4190,74 @@
           }
         }
       }
+    },
+    "/v1/a2a/sessions": {
+      "post": {
+        "operationId": "startA2ASession",
+        "summary": "Start a brokered agent-to-agent measurement session",
+        "description": "Brokers a session between two of the caller's tenant's agents (ARCH-009). The tenant is taken from the authenticated principal, never the body; requires agent:write.",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "responder_agent",
+                  "initiator_agent",
+                  "mode"
+                ],
+                "properties": {
+                  "responder_agent": {
+                    "type": "string"
+                  },
+                  "initiator_agent": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string"
+                  },
+                  "count": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The brokered session id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
     }
   },
   "components": {

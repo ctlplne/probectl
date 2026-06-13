@@ -626,6 +626,7 @@ func run(cmd string) error {
 		QueriesPerMin:       cfg.FairnessQueriesPerMin,
 	}, fairnessSource)
 	srv.WithFairness(fairGate)
+	srv.WithA2ABroker(a2aBroker) // ARCH-009: session-start API over the broker
 	// Fairness accounting as per-tenant TSDB series (Grafana-federable).
 	g.Go(func() error { fairness.RunMetrics(gctx, tsdbWriter, fairGate, 30*time.Second, log); return nil })
 	// Self-monitoring (S-EE4): probectl observes probectl — goroutines, mem,
