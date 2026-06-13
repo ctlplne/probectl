@@ -431,7 +431,11 @@ func run(cmd string) error {
 	}
 	if carbonOn {
 		g.Go(func() error {
-			return control.NewCarbonConsumer(resultBus, carbonEngine, log).Run(gctx)
+			// ARCH-020: a sidecar plane restarts on failure instead of killing
+			// the whole errgroup (and with it the API + result pipeline).
+			return superviseRestart(gctx, "carbon-consumer", log, func(ctx context.Context) error {
+				return control.NewCarbonConsumer(resultBus, carbonEngine, log).Run(ctx)
+			})
 		})
 	}
 
@@ -500,7 +504,9 @@ func run(cmd string) error {
 	}
 
 	g.Go(func() error {
-		return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(gctx)
+		return superviseRestart(gctx, "bgp-incident-consumer", log, func(ctx context.Context) error {
+			return control.NewBGPIncidentConsumer(resultBus, correlator, log).Run(ctx)
+		})
 	})
 
 	// Alerting (S16): evaluate enabled rules over the TSDB, notify channels, and
@@ -790,17 +796,21 @@ func run(cmd string) error {
 	// SLO + compliance consumers (engines built above, before the API server).
 	if sloOn {
 		g.Go(func() error {
-			return control.NewSLOConsumer(resultBus, sloEngine, correlator, log).
-				WithNamespaceTenants(nsTenants). // CORRECT-005: evaluate SLOs for siloed tenants too
-				Run(gctx)
+			return superviseRestart(gctx, "slo-consumer", log, func(ctx context.Context) error {
+				return control.NewSLOConsumer(resultBus, sloEngine, correlator, log).
+					WithNamespaceTenants(nsTenants). // CORRECT-005: evaluate SLOs for siloed tenants too
+					Run(ctx)
+			})
 		})
 	}
 	if complianceOn {
 		g.Go(func() error {
-			return control.NewComplianceConsumer(resultBus, complianceEngine, correlator, log).
-				WithSIEM(siemFwd).
-				WithTenantBinding(tenantBinding).
-				Run(gctx)
+			return superviseRestart(gctx, "compliance-consumer", log, func(ctx context.Context) error {
+				return control.NewComplianceConsumer(resultBus, complianceEngine, correlator, log).
+					WithSIEM(siemFwd).
+					WithTenantBinding(tenantBinding).
+					Run(ctx)
+			})
 		})
 	}
 
