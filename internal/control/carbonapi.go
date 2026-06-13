@@ -20,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/cost"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 )
 
 // BuildCarbon builds the engine from config. Returns (nil, false, nil) when
@@ -74,9 +75,10 @@ func (s *Server) handleCarbon(w http.ResponseWriter, r *http.Request) error {
 
 // CarbonConsumer feeds the engine from the flow topic (own consumer group).
 type CarbonConsumer struct {
-	engine *carbon.Engine
-	bus    bus.Bus
-	log    *slog.Logger
+	engine    *carbon.Engine
+	bus       bus.Bus
+	log       *slog.Logger
+	nsTenants map[string]string // CORRECT-005: namespace -> tenant for siloed lanes
 }
 
 // NewCarbonConsumer builds the consumer over a non-nil engine.
@@ -87,12 +89,23 @@ func NewCarbonConsumer(b bus.Bus, e *carbon.Engine, log *slog.Logger) *CarbonCon
 	return &CarbonConsumer{engine: e, bus: b, log: log}
 }
 
-// Run subscribes to the flow topic until ctx ends.
-func (cc *CarbonConsumer) Run(ctx context.Context) error {
-	return cc.bus.Subscribe(ctx, bus.FlowEventsTopic, "carbon-flow", cc.handle)
+// WithNamespaceTenants subscribes the consumer to each siloed tenant's
+// namespaced flow lane (CORRECT-005).
+func (cc *CarbonConsumer) WithNamespaceTenants(ns map[string]string) *CarbonConsumer {
+	cc.nsTenants = ns
+	return cc
 }
 
-func (cc *CarbonConsumer) handle(_ context.Context, msg bus.Message) error {
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cc *CarbonConsumer) LaneFanoutEnabled() bool { return true }
+
+// Run subscribes to the shared flow topic plus every siloed-tenant lane until
+// ctx ends (CORRECT-005).
+func (cc *CarbonConsumer) Run(ctx context.Context) error {
+	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, "carbon-flow", cc.nsTenants, cc.handleLane)
+}
+
+func (cc *CarbonConsumer) handleLane(_ context.Context, msg bus.Message, laneTenant string) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("carbon: skipping malformed flow batch", "error", err)
@@ -100,6 +113,9 @@ func (cc *CarbonConsumer) handle(_ context.Context, msg bus.Message) error {
 	}
 	for _, f := range batch.GetFlows() {
 		tenant := f.GetTenantId()
+		if laneTenant != "" {
+			tenant = laneTenant // namespaced lane is authoritative (CORRECT-005)
+		}
 		if tenant == "" {
 			continue // unscoped records are dropped (guardrail 1)
 		}

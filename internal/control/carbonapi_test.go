@@ -72,11 +72,11 @@ func TestCarbonConsumerAndEndpointIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := cc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+	if err := cc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Malformed payloads skip, never fail.
-	if err := cc.handle(context.Background(), bus.Message{Value: []byte("junk")}); err != nil {
+	if err := cc.handleLane(context.Background(), bus.Message{Value: []byte("junk")}, ""); err != nil {
 		t.Fatal(err)
 	}
 

@@ -96,7 +96,7 @@ func TestSLOConsumerTracksAndAlerts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := sc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+		if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -121,7 +121,7 @@ func TestSLOConsumerTracksAndAlerts(t *testing.T) {
 	}
 	// Unscoped records are dropped.
 	raw, _ := proto.Marshal(&resultv1.Result{CanaryType: "http", ServerAddress: "web.acme.example"})
-	if err := sc.handle(context.Background(), bus.Message{Value: raw}); err != nil {
+	if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if eng.Statuses("t1")[0].TotalEvents != 130 {

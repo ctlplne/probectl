@@ -20,6 +20,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 )
 
@@ -110,6 +111,7 @@ type SLOConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	log        *slog.Logger
+	nsTenants  map[string]string // CORRECT-005: namespace -> tenant for siloed lanes
 }
 
 // NewSLOConsumer builds the consumer over a non-nil engine.
@@ -120,18 +122,33 @@ func NewSLOConsumer(b bus.Bus, e *slo.Engine, c *incident.Correlator, log *slog.
 	return &SLOConsumer{engine: e, bus: b, correlator: c, log: log}
 }
 
-// Run subscribes to the network-results topic (own group) until ctx ends.
-func (sc *SLOConsumer) Run(ctx context.Context) error {
-	return sc.bus.Subscribe(ctx, bus.NetworkResultsTopic, "slo-results", sc.handle)
+// WithNamespaceTenants subscribes the consumer to each siloed tenant's
+// namespaced results lane (CORRECT-005), so SLO burn-rate is evaluated for
+// siloed tenants too — not just pooled ones.
+func (sc *SLOConsumer) WithNamespaceTenants(ns map[string]string) *SLOConsumer {
+	sc.nsTenants = ns
+	return sc
 }
 
-func (sc *SLOConsumer) handle(ctx context.Context, msg bus.Message) error {
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (sc *SLOConsumer) LaneFanoutEnabled() bool { return true }
+
+// Run subscribes to the shared results topic plus every siloed-tenant lane
+// until ctx ends (CORRECT-005).
+func (sc *SLOConsumer) Run(ctx context.Context) error {
+	return pipeline.RunLanes(ctx, sc.bus, bus.NetworkResultsTopic, "slo-results", sc.nsTenants, sc.handleLane)
+}
+
+func (sc *SLOConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		sc.log.Warn("slo: skipping malformed result", "error", err)
 		return nil
 	}
 	tenant := r.GetTenantId()
+	if laneTenant != "" {
+		tenant = laneTenant // namespaced lane is authoritative (CORRECT-005)
+	}
 	if tenant == "" {
 		return nil // unscoped records are dropped (guardrail 1)
 	}
