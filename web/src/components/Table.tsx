@@ -84,7 +84,8 @@ export function Table<Row>({
               {truncated > 0 && (
                 <tr>
                   <td className={styles.emptyCell} colSpan={columns.length}>
-                    Showing {rendered.length} of {rows.length} — load more or refine to see the rest.
+                    Showing {rendered.length} of {rows.length} — load more or refine to see the
+                    rest.
                   </td>
                 </tr>
               )}

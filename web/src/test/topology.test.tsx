@@ -119,9 +119,7 @@ describe('topology + what-if (S43)', () => {
   test('honesty: unwired topology renders as not wired', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        jsonResponse({ topology_running: false, nodes: [], edges: [] }),
-      ),
+      vi.fn(async () => jsonResponse({ topology_running: false, nodes: [], edges: [] })),
     )
     renderApp('/topology')
     expect(await screen.findByText(/topology not wired/i)).toBeInTheDocument()
@@ -145,7 +143,10 @@ describe('topology + what-if (S43)', () => {
       label: `10.1.${Math.floor(i / 250)}.${i % 250}`,
     }))
     big.edges = []
-    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(big)))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(big)),
+    )
     renderApp('/topology')
     expect(await screen.findByText(/showing 400 of 450 nodes/i)).toBeInTheDocument()
   })

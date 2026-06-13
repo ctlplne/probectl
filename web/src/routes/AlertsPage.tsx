@@ -195,8 +195,7 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           })
           onClose()
         },
-        onError: (err) =>
-          push({ tone: 'danger', title: 'Save failed', message: (err).message }),
+        onError: (err) => push({ tone: 'danger', title: 'Save failed', message: err.message }),
       },
     )
   }
@@ -391,7 +390,7 @@ export function AlertsPage() {
               del.mutate(r.id, {
                 onSuccess: () => push({ tone: 'success', title: 'Rule deleted', message: r.name }),
                 onError: (e) =>
-                  push({ tone: 'danger', title: 'Delete failed', message: (e).message }),
+                  push({ tone: 'danger', title: 'Delete failed', message: e.message }),
               })
             }
           >

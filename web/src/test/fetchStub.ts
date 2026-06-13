@@ -92,14 +92,12 @@ export function defaultFetch(): typeof fetch {
     if (path === '/v1/agents') return jsonResponse({ items: sampleAgents })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
-    if (path === '/v1/alerts/active')
-      return jsonResponse({ items: [], evaluator_running: true })
+    if (path === '/v1/alerts/active') return jsonResponse({ items: [], evaluator_running: true })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/threat/detections')
       return jsonResponse({ items: [], detections_running: true })
     if (path === '/v1/endpoints') return jsonResponse({ items: [], collector_running: true })
-    if (path === '/v1/results/latest')
-      return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/results/latest') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/topology')
       return jsonResponse({
         topology_running: true,
@@ -172,8 +170,7 @@ export function defaultFetch(): typeof fetch {
         ],
       })
     if (path === '/branding') return jsonResponse({ product_name: 'probectl' })
-    if (path === '/v1/security/keys')
-      return jsonResponse({ error: { message: 'not found' } }, 404)
+    if (path === '/v1/security/keys') return jsonResponse({ error: { message: 'not found' } }, 404)
     if (path === '/v1/lifecycle/retention')
       return jsonResponse({ flow_retention_days: null, isolation_model: 'pooled' })
     if (path === '/v1/editions')

@@ -109,8 +109,7 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
           reset()
           onClose()
         },
-        onError: (e) =>
-          push({ tone: 'danger', title: 'Create failed', message: (e).message }),
+        onError: (e) => push({ tone: 'danger', title: 'Create failed', message: e.message }),
       },
     )
   }
@@ -174,8 +173,7 @@ export function TargetsPage() {
   function remove(t: Test) {
     del.mutate(t.id, {
       onSuccess: () => push({ tone: 'success', title: 'Test deleted', message: t.name }),
-      onError: (e) =>
-        push({ tone: 'danger', title: 'Delete failed', message: (e).message }),
+      onError: (e) => push({ tone: 'danger', title: 'Delete failed', message: e.message }),
     })
   }
 
@@ -265,7 +263,7 @@ export function TargetsPage() {
           {isPending ? (
             <LoadingState label="Loading tests…" />
           ) : isError ? (
-            <ErrorState description={(error)?.message ?? 'Could not load tests.'} />
+            <ErrorState description={error?.message ?? 'Could not load tests.'} />
           ) : (
             <Table
               caption="Synthetic tests"

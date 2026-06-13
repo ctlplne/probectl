@@ -18,9 +18,9 @@ describe('support & diagnostics (S-EE4)', () => {
       '/v1/diagnostics/bundle',
     )
     // Per-component deep health.
-    const table = (await screen.findByRole('table', {
+    const table = await screen.findByRole('table', {
       name: /component health/i,
-    }))
+    })
     const clusterRow = within(table).getByText('cluster').closest('tr')!
     expect(within(clusterRow).getByText('Degraded')).toBeInTheDocument()
     const dbRow = within(table).getByText('database').closest('tr')!

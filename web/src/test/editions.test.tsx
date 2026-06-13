@@ -44,9 +44,9 @@ describe('editions card (S-T0)', () => {
 
     expect(await screen.findByText('COMMUNITY')).toBeInTheDocument()
     expect(screen.getByText(/the full core, free forever/i)).toBeInTheDocument()
-    const table = (await screen.findByRole('table', {
+    const table = await screen.findByRole('table', {
       name: /commercial features by tier/i,
-    }))
+    })
     // The full feature map renders (9 commercial features), all "Not licensed".
     expect(within(table).getByText('provider_plane')).toBeInTheDocument()
     expect(within(table).getByText('fips')).toBeInTheDocument()
@@ -61,9 +61,9 @@ describe('editions card (S-T0)', () => {
     expect(await screen.findByText('PROVIDER')).toBeInTheDocument()
     expect(screen.getByText(/licensed to Reseller GmbH/)).toBeInTheDocument()
     expect(screen.getByText(/tenant band 25/)).toBeInTheDocument()
-    const table = (await screen.findByRole('table', {
+    const table = await screen.findByRole('table', {
       name: /commercial features by tier/i,
-    }))
+    })
     const provRow = within(table).getByText('provider_plane').closest('tr')!
     expect(within(provRow).getByText('Enabled')).toBeInTheDocument()
     const fipsRow = within(table).getByText('fips').closest('tr')!

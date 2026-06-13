@@ -54,9 +54,7 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
     vi.stubGlobal('location', { assign, href: '', pathname: '/' })
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        jsonResponse({ error: { message: 'authentication required' } }, 401),
-      ),
+      vi.fn(async () => jsonResponse({ error: { message: 'authentication required' } }, 401)),
     )
     render(
       <AuthProvider>

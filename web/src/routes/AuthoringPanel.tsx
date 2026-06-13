@@ -98,8 +98,7 @@ export function AuthoringPanel() {
         push({ tone: 'success', title: 'Test created', message: label })
         author.reset()
       },
-      onError: (err) =>
-        push({ tone: 'danger', title: 'Create failed', message: (err).message }),
+      onError: (err) => push({ tone: 'danger', title: 'Create failed', message: err.message }),
     })
   }
 
@@ -123,9 +122,7 @@ export function AuthoringPanel() {
         </form>
 
         {author.isError ? (
-          <ErrorState
-            description={(author.error)?.message ?? 'Could not author a test.'}
-          />
+          <ErrorState description={author.error?.message ?? 'Could not author a test.'} />
         ) : author.data ? (
           <ProposalCard
             proposal={author.data}

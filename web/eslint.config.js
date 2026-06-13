@@ -51,13 +51,13 @@ export default tseslint.config(
           selector:
             "CallExpression[callee.name='apiFetch'] > Literal.arguments:first-child[value=/^\\/v1(\\/|$)/]",
           message:
-            "apiFetch path must be relative to API_BASE — drop the /v1 prefix (it is prepended). Use publicFetch for off-/v1 surfaces. (UX-006)",
+            'apiFetch path must be relative to API_BASE — drop the /v1 prefix (it is prepended). Use publicFetch for off-/v1 surfaces. (UX-006)',
         },
         {
           selector:
             "CallExpression[callee.name='apiFetch'] > TemplateLiteral.arguments:first-child > TemplateElement:first-child[value.raw=/^\\/v1(\\/|$)/]",
           message:
-            "apiFetch path must be relative to API_BASE — drop the /v1 prefix (it is prepended). Use publicFetch for off-/v1 surfaces. (UX-006)",
+            'apiFetch path must be relative to API_BASE — drop the /v1 prefix (it is prepended). Use publicFetch for off-/v1 surfaces. (UX-006)',
         },
       ],
     },

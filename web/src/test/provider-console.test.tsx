@@ -242,9 +242,9 @@ describe('provider console (S-T1)', () => {
     renderApp('/provider')
 
     // Tenant inventory with lifecycle states.
-    const tenantsTable = (await screen.findByRole('table', {
+    const tenantsTable = await screen.findByRole('table', {
       name: /tenant inventory/i,
-    }))
+    })
     const acmeRow = within(tenantsTable).getByText('acme').closest('tr')!
     expect(within(acmeRow).getByText('Active')).toBeInTheDocument()
     expect(within(acmeRow).getByRole('button', { name: /suspend/i })).toBeInTheDocument()
@@ -253,17 +253,17 @@ describe('provider console (S-T1)', () => {
     expect(within(globexRow).getByRole('button', { name: /resume/i })).toBeInTheDocument()
 
     // Fleet: per-tenant counts + versions, metadata only.
-    const fleetTable = (await screen.findByRole('table', {
+    const fleetTable = await screen.findByRole('table', {
       name: /fleet across tenants/i,
-    }))
+    })
     const fleetAcme = within(fleetTable).getByText('acme').closest('tr')!
     expect(within(fleetAcme).getByText('2/3')).toBeInTheDocument()
     expect(within(fleetAcme).getByText('0.3.0×3')).toBeInTheDocument()
 
     // Break-glass: states + audited use count.
-    const bgTable = (await screen.findByRole('table', {
+    const bgTable = await screen.findByRole('table', {
       name: /break-glass grants/i,
-    }))
+    })
     const active = within(bgTable).getByText('incident #42').closest('tr')!
     expect(within(active).getByText('active')).toBeInTheDocument()
     expect(within(active).getByText('2')).toBeInTheDocument() // audited uses
@@ -370,9 +370,9 @@ describe('provider console (S-T1)', () => {
     const stub = providerStub()
     vi.stubGlobal('fetch', stub)
     renderApp('/provider')
-    const tenantsTable = (await screen.findByRole('table', {
+    const tenantsTable = await screen.findByRole('table', {
       name: /tenant inventory/i,
-    }))
+    })
     const acmeRow = within(tenantsTable).getByText('acme').closest('tr')!
     await userEvent.click(within(acmeRow).getByRole('button', { name: /suspend/i }))
     const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
@@ -392,9 +392,9 @@ describe('provider console (S-T1)', () => {
   test('S-T3 showback: month-to-date usage per tenant + the export feed links', async () => {
     vi.stubGlobal('fetch', providerStub())
     renderApp('/provider')
-    const usageTable = (await screen.findByRole('table', {
+    const usageTable = await screen.findByRole('table', {
       name: /usage and showback/i,
-    }))
+    })
     const acme = within(usageTable).getByText('acme').closest('tr')!
     expect(within(acme).getByText('1,042')).toBeInTheDocument()
     expect(within(acme).getByText('3')).toBeInTheDocument()
@@ -438,10 +438,7 @@ describe('provider console (S-T1)', () => {
     const wrapped = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes('/provider/v1/usage'))
         return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
-      return (stub)(
-        input,
-        init,
-      )
+      return stub(input, init)
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', wrapped)
     renderApp('/provider')

@@ -122,7 +122,7 @@ export function RemediationCard() {
         )}
         {decide.isError ? (
           <p role="alert" className={styles.editionsLede}>
-            {(decide.error).message}
+            {decide.error.message}
           </p>
         ) : null}
       </CardBody>
@@ -214,7 +214,7 @@ export function KeysCard() {
             ) : null}
             {rotate.isError ? (
               <p role="alert" className={styles.editionsLede}>
-                {(rotate.error).message}
+                {rotate.error.message}
               </p>
             ) : null}
           </>
@@ -223,4 +223,3 @@ export function KeysCard() {
     </Card>
   )
 }
-

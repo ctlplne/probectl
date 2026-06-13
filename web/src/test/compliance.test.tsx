@@ -83,9 +83,9 @@ describe('compliance / segmentation validation (S46)', () => {
     vi.stubGlobal('fetch', stubWith(fixture()))
     renderApp('/compliance')
 
-    const table = (await screen.findByRole('table', {
+    const table = await screen.findByRole('table', {
       name: /segmentation verdicts/i,
-    }))
+    })
     expect(within(table).getByText('violation')).toBeInTheDocument()
     expect(within(table).getByText('observed clean')).toBeInTheDocument()
     // The honest verdict: never "compliant" for unobserved pairs.

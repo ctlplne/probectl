@@ -12,9 +12,7 @@ function brandStub(brand: unknown) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/branding')) return jsonResponse(brand)
-    return (
-      defaultFetch()
-    )(input, init)
+    return defaultFetch()(input, init)
   }) as unknown as typeof fetch
 }
 

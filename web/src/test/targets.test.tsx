@@ -54,8 +54,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     await screen.findByRole('button', { name: /delete my-test/i })
 
     const postCall = fetchMock.mock.calls.find(
-      ([url, init]) =>
-        String(url).endsWith('/v1/tests') && (init)?.method === 'POST',
+      ([url, init]) => String(url).endsWith('/v1/tests') && init?.method === 'POST',
     )
     expect(postCall).toBeTruthy()
     expect(String((postCall![1] as RequestInit).body)).toContain('"name":"my-test"')
@@ -69,9 +68,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
   test('shows an error state when the API fails', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        jsonResponse({ error: { code: 'internal', message: 'boom' } }, 500),
-      ),
+      vi.fn(async () => jsonResponse({ error: { code: 'internal', message: 'boom' } }, 500)),
     )
     renderApp('/targets')
     expect(await screen.findByText(/boom/i, {}, { timeout: 4000 })).toBeInTheDocument()

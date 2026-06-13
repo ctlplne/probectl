@@ -59,7 +59,7 @@ describe('SLO dashboard (S45)', () => {
     vi.stubGlobal('fetch', stubWith(fixture()))
     renderApp('/slos')
 
-    const table = (await screen.findByRole('table', { name: /slo statuses/i }))
+    const table = await screen.findByRole('table', { name: /slo statuses/i })
     expect(within(table).getByText('Checkout availability')).toBeInTheDocument()
     expect(within(table).getByText(/checkout · payments · 30d/)).toBeInTheDocument()
     expect(within(table).getByText('96.00%')).toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('SLO dashboard (S45)', () => {
   test('cold start renders honestly, not as healthy', async () => {
     vi.stubGlobal('fetch', stubWith(fixture()))
     renderApp('/slos')
-    const table = (await screen.findByRole('table', { name: /slo statuses/i }))
+    const table = await screen.findByRole('table', { name: /slo statuses/i })
     expect(within(table).getByText('cold start')).toBeInTheDocument()
   })
 

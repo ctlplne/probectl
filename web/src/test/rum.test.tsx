@@ -79,9 +79,9 @@ describe('rum convergence on the DEM surface (S47b)', () => {
     vi.stubGlobal('fetch', stubWith(fixture()))
     renderApp('/endpoints')
 
-    const table = (await screen.findByRole('table', {
+    const table = await screen.findByRole('table', {
       name: /rum convergence by application/i,
-    }))
+    })
     // The exit-criterion row: synthetic + RUM correlate for the same service.
     expect(within(table).getByText('storefront')).toBeInTheDocument()
     expect(within(table).getByText('user impact confirmed')).toBeInTheDocument()

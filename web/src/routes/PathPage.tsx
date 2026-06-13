@@ -55,8 +55,7 @@ export function PathPage() {
   function runDiscover() {
     discover.mutate(undefined, {
       onSuccess: () => push({ tone: 'success', title: 'Path discovered' }),
-      onError: (e) =>
-        push({ tone: 'danger', title: 'Discovery failed', message: (e).message }),
+      onError: (e) => push({ tone: 'danger', title: 'Discovery failed', message: e.message }),
     })
   }
 
@@ -120,9 +119,7 @@ export function PathPage() {
               {discover.isPending || path.isPending ? (
                 <LoadingState label="Discovering path…" />
               ) : path.isError ? (
-                <ErrorState
-                  description={(path.error)?.message ?? 'Could not load the path.'}
-                />
+                <ErrorState description={path.error?.message ?? 'Could not load the path.'} />
               ) : !path.data ? (
                 <EmptyState
                   icon="path"

@@ -230,7 +230,7 @@ describe('alerting surface (S-FE1)', () => {
       if (url.endsWith('/v1/alerts/active') && (init?.method ?? 'GET') === 'GET') {
         return jsonResponse({ items: [], evaluator_running: false })
       }
-      return (fetcher)(input, init)
+      return fetcher(input, init)
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', offFetcher)
     renderApp('/alerts')

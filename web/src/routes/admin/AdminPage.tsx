@@ -147,11 +147,7 @@ export function AdminPage() {
                 }
               />
               {hasNextPage && (
-                <button
-                  type="button"
-                  onClick={() => fetchNextPage()}
-                  disabled={isFetchingNextPage}
-                >
+                <button type="button" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
                   {isFetchingNextPage ? 'Loading…' : 'Load more agents'}
                 </button>
               )}

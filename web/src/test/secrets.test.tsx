@@ -40,9 +40,9 @@ describe('secret backends card (S41)', () => {
     vi.stubGlobal('fetch', stubWith(healthFixture()))
     renderApp('/admin')
 
-    const table = (await screen.findByRole('table', {
+    const table = await screen.findByRole('table', {
       name: /secret backend health/i,
-    }))
+    })
     const vaultRow = within(table).getByText('vault').closest('tr')!
     expect(within(vaultRow).getByText('41')).toBeInTheDocument()
     expect(within(vaultRow).getByText('2')).toBeInTheDocument()
