@@ -30,16 +30,31 @@ func (s *Server) handleFlowTop(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	rows, err := s.flowStore.TopTalkers(r.Context(), flowstore.TopQuery{
+	q := flowstore.TopQuery{
 		TenantID: tid,
 		By:       r.URL.Query().Get("by"),
 		Window:   window,
 		Limit:    limit,
-	})
+	}
+	rows, err := s.flowStore.TopTalkers(r.Context(), q)
 	if err != nil {
 		return apierror.BadRequest(err.Error())
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": rows})
+	// CORRECT-016: echo the EFFECTIVE limit the store applied (it clamps to
+	// <=1000), so a caller that asked for more knows its request was bounded
+	// rather than silently assuming it got everything.
+	effLimit := limit
+	if effLimit <= 0 {
+		effLimit = 10
+	}
+	if effLimit > 1000 {
+		effLimit = 1000
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":           rows,
+		"effective_limit": effLimit,
+		"window":          window.String(),
+	})
 	return nil
 }
 
