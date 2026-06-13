@@ -643,6 +643,17 @@ func run(cmd string) error {
 	}, fairnessSource)
 	srv.WithFairness(fairGate)
 	srv.WithA2ABroker(a2aBroker) // ARCH-009: session-start API over the broker
+	// ARCH-001: load (or first-boot generate) the test-bundle signing key so
+	// GET /v1/tests/bundle serves SIGNED bundles agents verify against the
+	// build-baked public half. Off when no key file is configured.
+	if cfg.TestSyncSigningKeyFile != "" {
+		tsPriv, _, _, gerr := crypto.LoadOrGenerateEd25519KeyFile(cfg.TestSyncSigningKeyFile)
+		if gerr != nil {
+			return fmt.Errorf("testsync signing key: %w", gerr)
+		}
+		srv.WithTestSyncKey(tsPriv)
+		log.Info("central test distribution enabled (signed bundles)", "key_file", cfg.TestSyncSigningKeyFile)
+	}
 	// ARCH-003: pure in-RAM views (topology, endpoint) fan in per replica using
 	// a STABLE per-replica id (hostname/pod name — survives restarts so groups
 	// don't sprawl) so every replica builds the complete view and answers

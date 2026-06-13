@@ -157,6 +157,11 @@ type Server struct {
 	// WithA2ABroker; nil makes POST /v1/a2a/sessions report 503.
 	a2aBroker *a2a.Broker
 
+	// testSyncKey is the Ed25519 private-key PEM used to sign pull-able test
+	// bundles (ARCH-001). Set via WithTestSyncKey; empty leaves
+	// GET /v1/tests/bundle reporting 503.
+	testSyncKey []byte
+
 	// Compliance validator (S46). Set via WithCompliance; nil reports
 	// compliance_running=false.
 	complianceEngine *compliance.Engine

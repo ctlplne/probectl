@@ -4258,6 +4258,45 @@
           }
         }
       }
+    },
+    "/v1/tests/bundle": {
+      "get": {
+        "operationId": "getTestBundle",
+        "summary": "Signed, pull-able bundle of the tenant's enabled tests (ARCH-001)",
+        "description": "Returns the caller's tenant's enabled tests as an Ed25519-SIGNED bundle. Agents poll this and verify the signature against a build-baked public key before applying \u2014 central test distribution without config push (StreamConfig stays denied). 503 when no signing key is configured.",
+        "tags": [
+          "tests"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The signed test bundle (JSON: {bundle, signature}).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "bundle": {
+                      "type": "object"
+                    },
+                    "signature": {
+                      "type": "string",
+                      "format": "byte"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
     }
   },
   "components": {

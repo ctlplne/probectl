@@ -164,8 +164,14 @@ type Config struct {
 	// breaks cross-restart chain verification). Back it up like the envelope key.
 	WormSigningKey     string
 	WormSigningKeyFile string
-	TSDBMode           string
-	TSDBURL            string
+	// TestSyncSigningKeyFile (ARCH-001) is the Ed25519 PKCS#8 PEM the control
+	// plane signs pull-able test bundles with (generated + persisted on first
+	// boot, like the WORM key). Empty = central test distribution is off
+	// (GET /v1/tests/bundle reports 503). Agents verify against the build-baked
+	// public half.
+	TestSyncSigningKeyFile string
+	TSDBMode               string
+	TSDBURL                string
 
 	// Alerting (S16): how often the engine evaluates enabled rules over the TSDB.
 	AlertEvalInterval time.Duration
@@ -580,6 +586,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		AuditWORMInterval:        l.dur("PROBECTL_AUDIT_WORM_INTERVAL", time.Hour),
 		WormSigningKey:           l.str("PROBECTL_WORM_SIGNING_KEY", ""),
 		WormSigningKeyFile:       l.str("PROBECTL_WORM_SIGNING_KEY_FILE", ""),
+		TestSyncSigningKeyFile:   l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", ""),
 		TSDBMode:                 l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus"),
 		TSDBURL:                  l.str("PROBECTL_TSDB_URL", ""),
 		PathStoreMode:            l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),

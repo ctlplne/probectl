@@ -39,6 +39,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/tests/{id}", s.handleGetTest, permTestRead},
 		{http.MethodPut, "/v1/tests/{id}", s.handleUpdateTest, permTestWrite},
 		{http.MethodDelete, "/v1/tests/{id}", s.handleDeleteTest, permTestWrite},
+		{http.MethodGet, "/v1/tests/bundle", s.handleTestBundle, permTestRead},
 		{http.MethodGet, "/v1/tests/{id}/path", s.handleGetPath, permTestRead},
 		{http.MethodPost, "/v1/tests/{id}/path", s.handleDiscoverPath, permTestWrite},
 		{http.MethodGet, "/v1/agents", s.handleListAgents, permAgentRead},
