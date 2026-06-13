@@ -1,0 +1,13 @@
+# Canonical author/committer identity for probectl.
+#
+# probectl was built solo (founder + AI agents). Early commits were authored
+# under throwaway local identities (netctl/probectl <dev@netctl.local>) and an
+# alias (imfeelingtheagi) before the canonical identity was settled. This
+# .mailmap collapses every one of those to the single real author so `git log`,
+# `git shortlog -sne`, and any provenance tooling report one contributor — the
+# truth — instead of four ghosts. (CODE-002, repo half; the signed founder
+# identity declaration lives in the data room, not the repo.)
+Shankar <skreddy040@gmail.com> imfeelingtheagi <skreddy040@gmail.com>
+Shankar <skreddy040@gmail.com> netctl <dev@netctl.local>
+Shankar <skreddy040@gmail.com> probectl <dev@netctl.local>
+Shankar <skreddy040@gmail.com> <dev@netctl.local>
