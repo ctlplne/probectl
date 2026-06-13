@@ -57,6 +57,6 @@ export interface RUMResponse {
 export function useRUM() {
   return useQuery({
     queryKey: ['rum'],
-    queryFn: () => apiFetch<RUMResponse>('/v1/rum'),
+    queryFn: () => apiFetch<RUMResponse>('/rum'),
   })
 }

@@ -39,7 +39,7 @@ export interface SLOsResponse {
 export function useSLOs() {
   return useQuery({
     queryKey: ['slos'],
-    queryFn: () => apiFetch<SLOsResponse>('/v1/slos'),
+    queryFn: () => apiFetch<SLOsResponse>('/slos'),
   })
 }
 

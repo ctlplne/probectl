@@ -55,6 +55,6 @@ export interface ComplianceResponse {
 export function useCompliance() {
   return useQuery({
     queryKey: ['compliance'],
-    queryFn: () => apiFetch<ComplianceResponse>('/v1/compliance'),
+    queryFn: () => apiFetch<ComplianceResponse>('/compliance'),
   })
 }

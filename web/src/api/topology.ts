@@ -63,14 +63,14 @@ export function useTopology(at?: string) {
   const qs = at ? `?at=${encodeURIComponent(at)}` : ''
   return useQuery({
     queryKey: ['topology', at ?? 'live'],
-    queryFn: () => apiFetch<TopologyResponse>(`/v1/topology${qs}`),
+    queryFn: () => apiFetch<TopologyResponse>(`/topology${qs}`),
   })
 }
 
 export function useWhatIf() {
   return useMutation({
     mutationFn: (req: { target: string; at?: string }) =>
-      apiFetch<WhatIfImpact>('/v1/topology/whatif', {
+      apiFetch<WhatIfImpact>('/topology/whatif', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),

@@ -45,6 +45,6 @@ export interface CarbonResponse {
 export function useCarbon() {
   return useQuery({
     queryKey: ['carbon'],
-    queryFn: () => apiFetch<CarbonResponse>('/v1/carbon'),
+    queryFn: () => apiFetch<CarbonResponse>('/carbon'),
   })
 }

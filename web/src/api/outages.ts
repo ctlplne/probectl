@@ -64,6 +64,6 @@ export interface OutagesResponse {
 export function useOutages() {
   return useQuery({
     queryKey: ['outages'],
-    queryFn: () => apiFetch<OutagesResponse>('/v1/outages'),
+    queryFn: () => apiFetch<OutagesResponse>('/outages'),
   })
 }

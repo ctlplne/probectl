@@ -62,7 +62,7 @@ export interface CostResponse {
 export function useCostSummary() {
   return useQuery({
     queryKey: ['cost-summary'],
-    queryFn: () => apiFetch<CostResponse>('/v1/cost/summary'),
+    queryFn: () => apiFetch<CostResponse>('/cost/summary'),
   })
 }
 

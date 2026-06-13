@@ -42,6 +42,6 @@ export interface EditionsInfo {
 export function useEditions() {
   return useQuery({
     queryKey: ['editions'],
-    queryFn: () => apiFetch<EditionsInfo>('/v1/editions'),
+    queryFn: () => apiFetch<EditionsInfo>('/editions'),
   })
 }

@@ -29,6 +29,6 @@ export interface SecretsHealthResponse {
 export function useSecretsHealth() {
   return useQuery({
     queryKey: ['secrets-health'],
-    queryFn: () => apiFetch<SecretsHealthResponse>('/v1/secrets/health'),
+    queryFn: () => apiFetch<SecretsHealthResponse>('/secrets/health'),
   })
 }
