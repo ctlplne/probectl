@@ -219,7 +219,7 @@ func (c *DeviceConsumer) writeWithRetry(ctx context.Context, series []tsdb.Serie
 		if err = c.tsdb.Write(ctx, series); err == nil {
 			return nil
 		}
-		if attempt >= c.maxRetries || ctx.Err() != nil {
+		if attempt >= c.maxRetries || ctx.Err() != nil || permanentWrite(err) {
 			return err
 		}
 		c.retried.Add(1)

@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math/rand/v2"
 	"sync"
@@ -21,6 +22,13 @@ import (
 
 // DefaultGroup is the consumer-group name for the control-plane result pipeline.
 const DefaultGroup = "probectl-control"
+
+// permanentWrite reports whether a store-write error is one the upstream will
+// never accept on retry (a 4xx remote-write reject — out-of-order/too-old
+// sample). The result, device, and flow retry loops all short-circuit on it
+// and dead-letter immediately rather than burning the backoff budget on a
+// write that cannot succeed (CORRECT-003).
+func permanentWrite(err error) bool { return errors.Is(err, tsdb.ErrPermanentReject) }
 
 // Consumer drains result messages from the bus and writes them to the TSDB.
 type Consumer struct {
@@ -355,7 +363,7 @@ func (c *Consumer) writeWithRetry(ctx context.Context, series []tsdb.Series) err
 		if err = c.tsdb.Write(ctx, series); err == nil {
 			return nil
 		}
-		if attempt >= c.maxRetries || ctx.Err() != nil {
+		if attempt >= c.maxRetries || ctx.Err() != nil || permanentWrite(err) {
 			return err
 		}
 		c.retried.Add(1)

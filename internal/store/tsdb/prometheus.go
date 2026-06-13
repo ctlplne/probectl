@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/klauspost/compress/snappy"
@@ -29,10 +30,30 @@ import (
 // with --web.enable-remote-write-receiver) and VictoriaMetrics. TLS in transit is
 // supported by using an https URL (CLAUDE.md §7 guardrail 12).
 type Prometheus struct {
-	url     string
-	client  *http.Client
-	breaker *breaker.Breaker
+	url               string
+	client            *http.Client
+	breaker           *breaker.Breaker
+	rejectedPermanent atomic.Uint64 // samples remote-write rejected with a 4xx (CORRECT-003)
 }
+
+// ErrPermanentReject marks a remote-write rejection the server will NEVER
+// accept on retry: a 4xx status. By far the most common cause is a sample that
+// is out-of-order or older than the TSDB's out-of-order ingestion window
+// (Prometheus rejects these with HTTP 400). Retrying such a sample only burns
+// the backoff budget and delays the DLQ, so the pipeline retry loops treat it
+// as permanent and dead-letter it immediately rather than retrying (CORRECT-003).
+//
+// To let legitimately-late samples (store-and-forward backlog drains after an
+// agent reconnects) actually land instead of being rejected, widen the
+// receiver's out-of-order window: Prometheus `tsdb.out_of_order_time_window`
+// (>=0; we recommend at least the max store-and-forward buffer horizon) or
+// VictoriaMetrics `-search.maxStalenessInterval` / `-dedup.minScrapeInterval`.
+// See docs/configuration.md and docs/ops/tsdb.md.
+var ErrPermanentReject = errors.New("tsdb: remote-write permanently rejected (4xx; out-of-order or too-old sample, or malformed request)")
+
+// RejectedPermanent reports the cumulative count of samples the upstream
+// remote-write endpoint rejected with a 4xx (CORRECT-003 observability).
+func (p *Prometheus) RejectedPermanent() uint64 { return p.rejectedPermanent.Load() }
 
 // NewPrometheus returns a remote-write writer targeting the base URL (e.g.
 // http://localhost:9090). Egress uses the hardened TLS client (U-036): an
@@ -213,6 +234,14 @@ func (p *Prometheus) Write(ctx context.Context, series []Series) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		// CORRECT-003: a 4xx is the server saying "I will never accept this" —
+		// almost always an out-of-order / too-old sample. Mark it permanent so
+		// the retry loop dead-letters it immediately instead of retrying (which
+		// can never succeed). 5xx / network errors stay transient (retryable).
+		if resp.StatusCode/100 == 4 {
+			p.rejectedPermanent.Add(1)
+			return fmt.Errorf("tsdb: remote-write status %d: %s: %w", resp.StatusCode, body, ErrPermanentReject)
+		}
 		return fmt.Errorf("tsdb: remote-write status %d: %s", resp.StatusCode, body)
 	}
 	return nil
