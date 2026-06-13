@@ -68,13 +68,20 @@ func TestNonV1SurfacesDocumentedOrExcluded(t *testing.T) {
 		"/scim/v2/",        // SCIM is RFC 7644, documented separately
 		"/ingest/changes/", // signed CI/CD change webhooks (HMAC; docs/change.md)
 		"/ingest/itsm/",    // signed ITSM webhooks (HMAC; docs/change.md)
+		// ARCH-006: the provider/management plane is a separate privilege domain
+		// (CLAUDE.md §3), mounted method-less as a sub-router and documented in
+		// ee/provider/openapi.json — not in the tenant-facing spec.
+		"/provider/",
 	}
 
 	src, err := os.ReadFile("server.go")
 	if err != nil {
 		t.Fatalf("read server.go: %v", err)
 	}
-	re := regexp.MustCompile(`mux\.Handle\("[A-Z]+ (/[^"]*)"`)
+	// ARCH-006: also catch HandleFunc and method-less mounts (e.g. the method-less
+	// "/provider/" sub-router). The method prefix is optional so a future
+	// method-less or HandleFunc mount cannot slip past the documentation gate.
+	re := regexp.MustCompile(`mux\.Handle(?:Func)?\("(?:[A-Z]+ )?(/[^"]*)"`)
 	for _, m := range re.FindAllStringSubmatch(string(src), -1) {
 		path := m[1]
 		if strings.HasPrefix(path, "/v1/") {
@@ -92,6 +99,29 @@ func TestNonV1SurfacesDocumentedOrExcluded(t *testing.T) {
 		}
 		if !excluded {
 			t.Errorf("mounted surface %q is neither documented in openapi.json nor in the explicit exclusion list (ARCH-013)", path)
+		}
+	}
+}
+
+// ARCH-006: the mount-scanning regex must catch method-less Handle and
+// HandleFunc mounts, not only the "VERB /path" form. A method-less or
+// HandleFunc mount that escaped the regex would never be checked against the
+// spec or the exclusion list — a silent undocumented surface.
+func TestMountRegexCatchesMethodlessAndHandleFunc(t *testing.T) {
+	re := regexp.MustCompile(`mux\.Handle(?:Func)?\("(?:[A-Z]+ )?(/[^"]*)"`)
+	fixture := `
+		mux.Handle("GET /v1/tests", h)
+		mux.Handle("/provider/", sub)            // method-less sub-router
+		mux.HandleFunc("GET /{$}", root)          // HandleFunc form
+		mux.HandleFunc("/legacy/", legacy)        // method-less HandleFunc
+	`
+	got := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(fixture, -1) {
+		got[m[1]] = true
+	}
+	for _, want := range []string{"/v1/tests", "/provider/", "/{$}", "/legacy/"} {
+		if !got[want] {
+			t.Errorf("regex failed to match mounted surface %q (ARCH-006: method-less/HandleFunc mounts must be caught)", want)
 		}
 	}
 }
