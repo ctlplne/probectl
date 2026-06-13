@@ -76,6 +76,23 @@ type Service struct {
 // intermediate key is sealed via tenantcrypto before storage; the ROOT key is
 // returned to the caller for offline custody and never persisted. Refuses to
 // overwrite an existing hierarchy.
+// sealCAKey seals the agent-CA intermediate key and REFUSES a plaintext result
+// (KEYS-003). tenantcrypto.Seal returns the input UNCHANGED (no scheme prefix)
+// when no envelope key is configured (keyless dev); the CA-forging intermediate
+// key is far too sensitive for that passthrough, so persisting a
+// non-scheme-prefixed value is refused — `agent-ca init` must run with a
+// configured envelope key. Fail closed.
+func sealCAKey(ctx context.Context, interKey []byte) (string, error) {
+	sealed, err := tenantcrypto.Seal(ctx, caSealScope, interKey, []byte(caSealAAD))
+	if err != nil {
+		return "", fmt.Errorf("enroll: seal intermediate key: %w", err)
+	}
+	if !tenantcrypto.HasScheme(sealed) {
+		return "", errors.New("enroll: refusing to persist the agent-CA intermediate key as plaintext — configure an envelope key (PROBECTL_ENVELOPE_KEY / BYOK) before `agent-ca init` (KEYS-003)")
+	}
+	return sealed, nil
+}
+
 func InitCA(ctx context.Context, pool *pgxpool.Pool) (rootKeyPEM []byte, err error) {
 	cas := store.NewAgentCA(pool)
 	if _, _, err := cas.Load(ctx, "root"); err == nil {
@@ -95,9 +112,9 @@ func InitCA(ctx context.Context, pool *pgxpool.Pool) (rootKeyPEM []byte, err err
 	if err != nil {
 		return nil, err
 	}
-	sealed, err := tenantcrypto.Seal(ctx, caSealScope, interKey, []byte(caSealAAD))
+	sealed, err := sealCAKey(ctx, interKey)
 	if err != nil {
-		return nil, fmt.Errorf("enroll: seal intermediate key: %w", err)
+		return nil, err
 	}
 	if err := cas.Save(ctx, "root", string(root.CertPEM()), ""); err != nil {
 		return nil, err

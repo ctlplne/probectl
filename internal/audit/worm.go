@@ -58,30 +58,40 @@ type WormExporter struct {
 	gaps uint64 // chain-verification failures observed (never silent)
 }
 
-// NewWormExporter wires the exporter. The signing keypair is generated on
-// first use and the PUBLIC key is published next to the segments, so any
-// third party can verify the export without probectl.
+// NewWormExporter wires the exporter with an EXPLICIT, persisted signing key.
+// KEYS-004: the per-boot ephemeral-key fallback is gone from this constructor —
+// a missing key is an error, so production can never silently mint a key that
+// breaks cross-restart chain verification. Tests that genuinely want a throwaway
+// key use NewWormExporterEphemeralForTest.
 func NewWormExporter(source WormSource, objects objectstore.Store, privPEM, pubPEM []byte, log *slog.Logger) (*WormExporter, error) {
 	if source == nil || objects == nil {
 		return nil, fmt.Errorf("audit: worm export requires a source and an object store")
 	}
+	if len(privPEM) == 0 || len(pubPEM) == 0 {
+		return nil, fmt.Errorf("audit: worm export requires a persisted Ed25519 signing key " +
+			"(resolve it via ResolveWormSigningKey; refusing to mint an ephemeral per-boot key — KEYS-004)")
+	}
 	if log == nil {
 		log = slog.Default()
-	}
-	if len(privPEM) == 0 {
-		var err error
-		privPEM, pubPEM, err = crypto.GenerateEd25519KeyPEM()
-		if err != nil {
-			return nil, fmt.Errorf("audit: worm signing key: %w", err)
-		}
 	}
 	return &WormExporter{source: source, objects: objects, privPEM: privPEM, pubPEM: pubPEM, log: log}, nil
 }
 
+// NewWormExporterEphemeralForTest mints a throwaway signing key — TEST/DEV ONLY.
+// Never wire this into a production path: an ephemeral per-boot key breaks
+// cross-restart verification of the tamper-evident chain (KEYS-004).
+func NewWormExporterEphemeralForTest(source WormSource, objects objectstore.Store, log *slog.Logger) (*WormExporter, error) {
+	priv, pub, err := crypto.GenerateEd25519KeyPEM()
+	if err != nil {
+		return nil, fmt.Errorf("audit: worm signing key: %w", err)
+	}
+	return NewWormExporter(source, objects, priv, pub, log)
+}
+
 // NewWormExporterPG is the production wiring over the provider audit table.
 // The signing key (privPEM/pubPEM) is resolved by the caller via
-// ResolveWormSigningKey (KEYS-002 / D2) and MUST be persisted — passing empty
-// PEMs lets NewWormExporter mint an ephemeral key, which is test/dev only.
+// ResolveWormSigningKey (KEYS-002 / D2) and MUST be persisted — empty PEMs are
+// REFUSED (KEYS-004), never auto-minted.
 func NewWormExporterPG(pool *pgxpool.Pool, objects objectstore.Store, privPEM, pubPEM []byte, log *slog.Logger) (*WormExporter, error) {
 	return NewWormExporter(func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
 		return ListProvider(ctx, pool, afterSeq, limit)

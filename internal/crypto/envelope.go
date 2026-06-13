@@ -91,6 +91,9 @@ func (e *Envelope) Seal(ctx context.Context, plaintext, aad []byte) (Sealed, err
 	if err != nil {
 		return Sealed{}, err
 	}
+	// KEYS-002: best-effort wipe the per-value DEK once it has been used and
+	// wrapped (it is never returned to the caller).
+	defer Zeroize(dek)
 	ct, err := e.provider.Encrypt(dek, plaintext, aad)
 	if err != nil {
 		return Sealed{}, err
@@ -108,6 +111,8 @@ func (e *Envelope) Open(ctx context.Context, s Sealed, aad []byte) ([]byte, erro
 	if err != nil {
 		return nil, fmt.Errorf("crypto: unwrap dek: %w", err)
 	}
+	// KEYS-002: best-effort wipe the unwrapped DEK after the AEAD op.
+	defer Zeroize(dek)
 	return e.provider.Decrypt(dek, s.Ciphertext, aad)
 }
 

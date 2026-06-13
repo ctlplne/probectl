@@ -11,6 +11,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
@@ -197,6 +198,50 @@ func TestBYOKFailSafe(t *testing.T) {
 	}
 	if _, err := k.Seal(ctx, "tnA", []byte("more"), aad); !errors.Is(err, ErrKeyUnavailable) {
 		t.Fatalf("revoked byok seal must fail unavailable: %v", err)
+	}
+}
+
+// TestBYOKRevocationInstantTTLZero: KEYS-002. With the default BYOK TTL of 0
+// (resolve-on-every-use), revoking the customer's reference makes Open fail
+// within the SAME process WITHOUT any explicit cache purge — there is no 30s
+// window during which a revoked BYOK key still decrypts.
+func TestBYOKRevocationInstantTTLZero(t *testing.T) {
+	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	live := true
+	resolve := func(_ context.Context, ref string) (string, error) {
+		if !live {
+			return "", errors.New("revoked")
+		}
+		return material, nil
+	}
+	k, _ := newRing(t, resolve)
+	// Pin the clock so the test cannot accidentally rely on wall-clock TTL expiry.
+	now := time.Unix(1_000, 0)
+	k.WithClock(func() time.Time { return now })
+	// Default byokTTL is 0; assert it (the property under test).
+	if k.byokTTL != 0 {
+		t.Fatalf("default byokTTL = %v, want 0 (resolve-on-every-use)", k.byokTTL)
+	}
+	ctx := context.Background()
+	aad := []byte("x")
+
+	kv, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek")
+	if err != nil || kv.Mode != ModeBYOK {
+		t.Fatalf("byok rotate: %+v %v", kv, err)
+	}
+	blob, err := k.Seal(ctx, "tnA", []byte("secret"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := k.Open(ctx, "tnA", blob, aad); err != nil || string(p) != "secret" {
+		t.Fatalf("pre-revocation open: %q %v", p, err)
+	}
+
+	// Revoke. NO purgeTenant, NO clock advance — TTL 0 means the next Open
+	// re-resolves and finds the reference gone.
+	live = false
+	if _, err := k.Open(ctx, "tnA", blob, aad); !errors.Is(err, ErrKeyUnavailable) {
+		t.Fatalf("revoked byok open must fail unavailable immediately (TTL 0): %v", err)
 	}
 }
 

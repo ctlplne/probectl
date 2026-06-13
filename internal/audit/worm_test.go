@@ -16,6 +16,31 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
+// TestWormExporterRefusesEmptyKey: KEYS-004. The production constructors must
+// REFUSE an empty signing key rather than mint an ephemeral per-boot key (which
+// would break cross-restart chain verification). Only the explicit test
+// constructor mints a throwaway key.
+func TestWormExporterRefusesEmptyKey(t *testing.T) {
+	store := objectstore.NewMemory()
+	src := sourceOf(chainedEvents(1))
+
+	if _, err := NewWormExporter(src, store, nil, nil, testLog()); err == nil {
+		t.Error("NewWormExporter with empty PEMs must error (KEYS-004)")
+	}
+	if _, err := NewWormExporter(src, store, []byte("priv"), nil, testLog()); err == nil {
+		t.Error("NewWormExporter with empty pubPEM must error (KEYS-004)")
+	}
+	// The production PG wiring must also refuse empty PEMs (it errors before
+	// touching the pool, so a nil pool is fine here).
+	if _, err := NewWormExporterPG(nil, store, nil, nil, testLog()); err == nil {
+		t.Error("NewWormExporterPG with empty PEMs must error (KEYS-004)")
+	}
+	// The explicit test constructor still works.
+	if _, err := NewWormExporterEphemeralForTest(src, store, testLog()); err != nil {
+		t.Errorf("ephemeral test constructor failed: %v", err)
+	}
+}
+
 // chainedEvents builds a synthetic, correctly-chained provider stream.
 func chainedEvents(n int) []Event {
 	out := make([]Event, n)
@@ -50,7 +75,7 @@ func TestWormExportAndChainVerify(t *testing.T) {
 	ctx := context.Background()
 
 	// First export sees only the first 4 events.
-	w, err := NewWormExporter(sourceOf(all[:4]), store, nil, nil, testLog())
+	w, err := NewWormExporterEphemeralForTest(sourceOf(all[:4]), store, testLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +108,7 @@ func TestWormExportAndChainVerify(t *testing.T) {
 func TestWormTamperedSegmentFailsVerification(t *testing.T) {
 	store := objectstore.NewMemory()
 	ctx := context.Background()
-	w, _ := NewWormExporter(sourceOf(chainedEvents(3)), store, nil, nil, testLog())
+	w, _ := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(3)), store, testLog())
 	if _, err := w.ExportOnce(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +217,7 @@ func TestWormDetectsPurgeGap(t *testing.T) {
 	all := chainedEvents(6)
 	purged := append(append([]Event{}, all[:2]...), all[4:]...) // 3 and 4 are gone
 
-	w, _ := NewWormExporter(sourceOf(purged), store, nil, nil, testLog())
+	w, _ := NewWormExporterEphemeralForTest(sourceOf(purged), store, testLog())
 	if _, err := w.ExportOnce(ctx); err != nil {
 		t.Fatal(err)
 	}

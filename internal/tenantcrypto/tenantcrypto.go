@@ -131,6 +131,16 @@ func DestroyKeys(ctx context.Context, tenantID string) (int, bool, error) {
 	return n, true, err
 }
 
+// HasScheme reports whether a stored value carries a REGISTERED sealer scheme
+// prefix (e.g. "dv1:...", "tk1:...") — i.e. it was genuinely sealed, not the
+// keyless-dev plaintext passthrough (KEYS-003). Callers handling especially
+// sensitive material (the agent-CA key) use this to refuse persisting an
+// unsealed value.
+func HasScheme(stored string) bool {
+	scheme, _, ok := strings.Cut(stored, ":")
+	return ok && schemeRegistered(scheme)
+}
+
 func schemeRegistered(scheme string) bool {
 	mu.RLock()
 	defer mu.RUnlock()

@@ -152,3 +152,15 @@ func Verify(key, data, mac []byte) bool { return Default.Verify(key, data, mac) 
 // HMAC. It lives in internal/crypto so callers never import crypto/subtle or
 // crypto/hmac directly (the FIPS import guard).
 func ConstantTimeEqual(a, b []byte) bool { return hmac.Equal(a, b) }
+
+// Zeroize best-effort overwrites key material with zeros (KEYS-002). Go's
+// garbage collector may copy a slice before this runs and the compiler may not
+// guarantee the write survives if the buffer is otherwise dead, so this is
+// defense-in-depth — it shrinks the window a plaintext DEK/KEK lingers in the
+// heap, it does not guarantee erasure. It lives here so callers do not reach
+// for crypto primitives directly (the FIPS import guard).
+func Zeroize(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
