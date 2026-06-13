@@ -35,6 +35,61 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+// TENANT-004: DB-enforced ClickHouse tenant isolation must default ON across
+// ALL four telemetry planes in the multi-tenant/regulated profile (defense in
+// depth above app-layer WHERE scoping, guardrail 7.1) and stay OFF in the
+// single-tenant profile.
+func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
+	t.Run("single keeps app-layer scoping", func(t *testing.T) {
+		cfg, err := Load(envFunc(nil)) // default profile = single
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if cfg.DeploymentProfile != "single" {
+			t.Fatalf("DeploymentProfile = %q, want single", cfg.DeploymentProfile)
+		}
+		for name, on := range map[string]bool{
+			"flow": cfg.FlowCHTenantScoping, "otel": cfg.OTelCHTenantScoping,
+			"ebpf": cfg.EBPFCHTenantScoping, "path": cfg.PathCHTenantScoping,
+		} {
+			if on {
+				t.Errorf("single profile: %s CH scoping defaulted ON, want OFF", name)
+			}
+		}
+	})
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile+" enables DB-layer isolation on every plane", func(t *testing.T) {
+			cfg, err := Load(envFunc(map[string]string{"PROBECTL_DEPLOYMENT_PROFILE": profile}))
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			for name, on := range map[string]bool{
+				"flow": cfg.FlowCHTenantScoping, "otel": cfg.OTelCHTenantScoping,
+				"ebpf": cfg.EBPFCHTenantScoping, "path": cfg.PathCHTenantScoping,
+			} {
+				if !on {
+					t.Errorf("%s profile: %s CH scoping defaulted OFF, want ON (DB-layer isolation)", profile, name)
+				}
+			}
+		})
+	}
+	t.Run("explicit env overrides the profile default", func(t *testing.T) {
+		cfg, err := Load(envFunc(map[string]string{
+			"PROBECTL_DEPLOYMENT_PROFILE":      "regulated",
+			"PROBECTL_OTELSTORE_TENANT_SCOPING": "false",
+		}))
+		if err != nil {
+			t.Fatalf("load: %v", err)
+		}
+		if cfg.OTelCHTenantScoping {
+			t.Error("explicit PROBECTL_OTELSTORE_TENANT_SCOPING=false did not override the profile default")
+		}
+		if !cfg.FlowCHTenantScoping {
+			t.Error("flow scoping should still be ON from the regulated profile")
+		}
+	})
+}
+
 func TestResultPipelineConfig(t *testing.T) {
 	// Defaults: in-process bus + TSDB, no external dependencies.
 	cfg, err := Load(envFunc(nil))

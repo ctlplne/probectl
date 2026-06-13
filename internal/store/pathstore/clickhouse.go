@@ -51,7 +51,21 @@ const createLinks = `CREATE TABLE IF NOT EXISTS ` + linksTable + ` (
 type ClickHouse struct {
 	base string
 	conn *chclient.Conn // shared transport (TLS client + breaker), CODE-006
+	// tenantScoping (TENANT-004): attach the per-request tenant custom setting
+	// to tenant-scoped reads so the setting-scoped reader row policy can
+	// constrain the query path at the DB. Off by default; defaulted on by the
+	// multi-tenant/regulated profile.
+	tenantScoping bool
 }
+
+// tenantSettingName is the ClickHouse custom setting carrying the request
+// tenant; the setting-scoped reader row policy binds SELECTs to getSetting()
+// of it (parity with flowstore/otelstore/ebpfstore).
+const tenantSettingName = "SQL_probectl_tenant"
+
+// WithTenantScoping enables per-request custom-setting tenant scoping on reads
+// (pair with EnsureReaderRowPolicy on the reader user).
+func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
 // chMigrations is the pathstore's versioned ClickHouse schema (U-046),
 // applied through internal/store/chmigrate with a server-side ledger.
@@ -156,6 +170,25 @@ type linkRow struct {
 // (U-026 defense in depth).
 var ErrNoTenant = errors.New("pathstore: tenant_id is required (refusing an unscoped ClickHouse query)")
 
+// EnsureReaderRowPolicy installs the SETTING-SCOPED row policy (TENANT-004
+// parity): the readerUser's SELECTs on the path tables are constrained to rows
+// whose tenant_id equals the per-request custom setting SQL_probectl_tenant.
+// An UNSET setting matches NO rows — fail closed.
+func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser string) error {
+	if !chUserRe.MatchString(readerUser) {
+		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", readerUser)
+	}
+	for _, table := range []string{hopsTable, linksTable} {
+		ddl := fmt.Sprintf(
+			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
+			table, tenantSettingName, readerUser)
+		if err := c.exec(ctx, ddl, nil, nil); err != nil {
+			return fmt.Errorf("pathstore: reader row policy: %w", err)
+		}
+	}
+	return nil
+}
+
 // EnsureRowPolicies installs DB-level tenancy on the path tables (U-026) —
 // same model as flowstore: per-tenant CH users see only their rows;
 // serviceUser keeps full access.
@@ -248,7 +281,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 	}
 	tp := chParams{"tenant": tenantID}
 	for _, table := range []string{hopsTable, linksTable} {
-		out, qerr := c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
+		out, qerr := c.queryScoped(ctx, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
@@ -256,7 +289,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 		if eerr := c.exec(ctx, "DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", tp, nil); eerr != nil {
 			return deleted, -1, eerr
 		}
-		out, qerr = c.query(ctx, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
+		out, qerr = c.queryScoped(ctx, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
@@ -274,7 +307,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	// what makes a redelivered duplicate save harmless — it is never aggregated
 	// across snapshots, so no dedup engine is needed (see doc.go). Do not widen
 	// this to a cross-snapshot scan.
-	meta, err := c.query(ctx,
+	meta, err := c.queryScoped(ctx, tenantID,
 		"SELECT path_id, target_ip, mode FROM "+hopsTable+" WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1",
 		chParams{"tenant": tenantID, "target": target})
 	if err != nil {
@@ -286,7 +319,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	pathID := chToString(meta[0]["path_id"])
 	p := &path.Path{Target: target, TargetIP: chToString(meta[0]["target_ip"]), Mode: chToString(meta[0]["mode"])}
 
-	hopRows, err := c.query(ctx,
+	hopRows, err := c.queryScoped(ctx, tenantID,
 		"SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsTable+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
@@ -325,7 +358,7 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	}
 	p.MaxHops = maxTTL
 
-	linkRows, err := c.query(ctx,
+	linkRows, err := c.queryScoped(ctx, tenantID,
 		"SELECT ttl, from_ip, to_ip FROM "+linksTable+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, from_ip, to_ip",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
@@ -359,9 +392,24 @@ func (p chParams) qs() string {
 	return sb.String()
 }
 
+// queryScoped is query with the per-request tenant custom setting attached
+// (TENANT-004) when scoping is enabled, so the reader row policy can constrain
+// the result at the DB. tenant "" means an admin/cross-tenant read (none here).
+func (c *ClickHouse) queryScoped(ctx context.Context, tenant, sql string, p chParams) ([]map[string]any, error) {
+	if !c.tenantScoping || tenant == "" {
+		return c.query(ctx, sql, p)
+	}
+	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs() +
+		"&" + tenantSettingName + "=" + url.QueryEscape(tenant)
+	return c.doQuery(ctx, u)
+}
+
 // query runs a SELECT and parses the JSONEachRow response into row maps.
 func (c *ClickHouse) query(ctx context.Context, sql string, p chParams) ([]map[string]any, error) {
-	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
+	return c.doQuery(ctx, c.base+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
+}
+
+func (c *ClickHouse) doQuery(ctx context.Context, u string) ([]map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err

@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +20,11 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
+
+// ErrNoTenant refuses any tenant-keyed ClickHouse operation without a tenant
+// (TENANT-003 — parity with flowstore/pathstore/ebpfstore: the predicate can
+// never be omitted by a caller; the PII-heaviest plane fails closed too).
+var ErrNoTenant = errors.New("otelstore: tenant_id is required (refusing an unscoped ClickHouse query)")
 
 // ClickHouse persists OTLP traces + logs over the ClickHouse HTTP interface
 // (the pathstore/flowstore pattern: zero driver dependencies; an https URL
@@ -264,6 +271,9 @@ func (c *ClickHouse) WriteLogs(ctx context.Context, recs []LogRecord) error {
 
 // QuerySpans returns the tenant's matching spans, newest first.
 func (c *ClickHouse) QuerySpans(ctx context.Context, tenant string, q SpanQuery) ([]Span, error) {
+	if tenant == "" {
+		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
+	}
 	// CORRECT-004: FINAL collapses redelivered-duplicate spans (same
 	// tenant/start/service/trace/span sort key) at read time so a redelivered
 	// trace batch returns each span once.
@@ -307,6 +317,9 @@ LIMIT {lim:UInt32}`
 
 // QueryLogs returns the tenant's matching records, newest first.
 func (c *ClickHouse) QueryLogs(ctx context.Context, tenant string, q LogQuery) ([]LogRecord, error) {
+	if tenant == "" {
+		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
+	}
 	// CORRECT-004: FINAL collapses redelivered-duplicate log records (same
 	// dedup_id) at read time so a redelivered log batch returns each record once.
 	sql := `SELECT tenant_id, toUnixTimestamp64Micro(ts) AS ts_us, severity_num, severity_text,
@@ -352,6 +365,9 @@ LIMIT {lim:UInt32}`
 // returns only once the rows are gone — making the post-delete count a REAL
 // verification: deleted = before-after, remaining = after (0 when clean).
 func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, remaining int, err error) {
+	if tenant == "" {
+		return 0, -1, ErrNoTenant // TENANT-003: never mutate across all tenants
+	}
 	for _, table := range []string{spansTable, logsTable} {
 		before, err := c.countTenant(ctx, table, tenant)
 		if err != nil {
@@ -374,6 +390,9 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 // countTenant counts one tenant's rows in a table (erase verification),
 // tenant-scoped like every other read.
 func (c *ClickHouse) countTenant(ctx context.Context, table, tenant string) (int, error) {
+	if tenant == "" {
+		return 0, ErrNoTenant // TENANT-003: never count across all tenants
+	}
 	rows, err := c.queryScoped(ctx, tenant,
 		"SELECT count() AS n FROM "+table+" WHERE tenant_id = {tenant:String}", chParams{"tenant": tenant})
 	if err != nil {
@@ -387,6 +406,65 @@ func (c *ClickHouse) countTenant(ctx context.Context, table, tenant string) (int
 
 // Close is a no-op (stateless HTTP client).
 func (c *ClickHouse) Close() error { return nil }
+
+// chUserRe is the shape a ClickHouse USER identifier may take in our DDL
+// (identifiers cannot travel as bound parameters; validated, never escaped —
+// fail closed on anything else). Parity with flowstore/pathstore.
+var chUserRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$`)
+
+func chValidUser(u string) error {
+	if !chUserRe.MatchString(u) {
+		return fmt.Errorf("refusing malformed ClickHouse user identifier %q", u)
+	}
+	return nil
+}
+
+// EnsureReaderRowPolicy installs the SETTING-SCOPED row policy (TENANT-003 /
+// TENANT-102 parity): the readerUser's SELECTs on the spans+logs tables are
+// constrained to rows whose tenant_id equals the per-request custom setting
+// SQL_probectl_tenant. An UNSET setting matches NO rows — fail closed. The
+// PII-heaviest plane now has the same DB backstop as flowstore: a query path
+// that omits the WHERE still cannot cross tenants. See
+// docs/security/tenant-isolation.md.
+func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser string) error {
+	if err := chValidUser(readerUser); err != nil {
+		return fmt.Errorf("otelstore: reader user: %w", err)
+	}
+	for _, table := range []string{spansTable, logsTable} {
+		ddl := fmt.Sprintf(
+			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
+			table, tenantSettingName, readerUser)
+		if err := c.exec(ctx, ddl, nil, nil); err != nil {
+			return fmt.Errorf("otelstore: reader row policy: %w", err)
+		}
+	}
+	return nil
+}
+
+// EnsureRowPolicies installs DB-LEVEL tenancy on the spans+logs tables
+// (TENANT-003 / U-026 parity with flowstore): per-tenant ClickHouse users
+// (named exactly the tenant id) are row-filtered to tenant_id = currentUser(),
+// while serviceUser keeps full access. Direct CH access with a tenant
+// credential can then never cross tenants, independent of this codebase.
+func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+	if serviceUser == "" {
+		serviceUser = "default"
+	}
+	if err := chValidUser(serviceUser); err != nil {
+		return fmt.Errorf("otelstore: service user: %w", err)
+	}
+	for _, table := range []string{spansTable, logsTable} {
+		for _, ddl := range []string{
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
+			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
+		} {
+			if err := c.exec(ctx, ddl, nil, nil); err != nil {
+				return fmt.Errorf("otelstore: row policy: %w", err)
+			}
+		}
+	}
+	return nil
+}
 
 var _ Store = (*ClickHouse)(nil)
 

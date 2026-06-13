@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,13 +20,27 @@ import (
 
 const edgesTable = "probectl_ebpf_edges"
 
+// tenantSettingName is the ClickHouse custom setting carrying the request
+// tenant; the setting-scoped reader row policy binds SELECTs to getSetting()
+// of it (TENANT-004 parity with flowstore/otelstore).
+const tenantSettingName = "SQL_probectl_tenant"
+
 // ClickHouse persists eBPF aggregates over the ClickHouse HTTP interface. The
 // transport (TLS-hardened client, circuit breaker, JSONEachRow decode) is the
 // shared chclient (CODE-006); this type owns only the eBPF schema + queries.
 type ClickHouse struct {
 	base string
 	conn *chclient.Conn
+	// tenantScoping (TENANT-004): attach the per-request tenant custom setting
+	// to tenant-scoped reads so the reader row policy can constrain the query
+	// path at the DB even if app-layer WHERE scoping is bypassed. Off by
+	// default; defaulted on by the multi-tenant/regulated profile.
+	tenantScoping bool
 }
+
+// WithTenantScoping enables per-request custom-setting tenant scoping on reads
+// (pair with EnsureReaderRowPolicy on the reader user).
+func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
 // edgesDDL is tenant-led (partition + ORDER BY) and a ReplacingMergeTree so a
 // redelivered identical aggregate collapses (CORRECT-002 discipline). The day
@@ -118,6 +133,9 @@ func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery)
 		where += " AND window_start<={until:DateTime64(3)}"
 		params.Set("param_until", q.Until.UTC().Format("2006-01-02 15:04:05.000"))
 	}
+	if c.tenantScoping {
+		params.Set(tenantSettingName, tenantID) // TENANT-004: DB-level scope
+	}
 	sql := fmt.Sprintf("SELECT tenant_id, agent_id, toString(window_start) AS window_start, src_workload, dst_workload, dst_port, l7_protocol, sum(bytes) AS bytes, sum(packets) AS packets, sum(connections) AS connections FROM %s FINAL WHERE %s GROUP BY tenant_id, agent_id, window_start, src_workload, dst_workload, dst_port, l7_protocol ORDER BY bytes DESC LIMIT %d FORMAT JSONEachRow",
 		edgesTable, where, clampLimit(q.Limit))
 	rows, err := c.queryParams(ctx, sql, params)
@@ -156,6 +174,56 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 }
 
 func (c *ClickHouse) Close() error { return nil }
+
+// chUserRe validates a ClickHouse USER identifier in our DDL (identifiers
+// cannot be bound parameters; validated, fail closed). Parity with flowstore.
+var chUserRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,62}$`)
+
+func chValidUser(u string) error {
+	if !chUserRe.MatchString(u) {
+		return fmt.Errorf("refusing malformed ClickHouse user identifier %q", u)
+	}
+	return nil
+}
+
+// EnsureReaderRowPolicy installs the SETTING-SCOPED row policy (TENANT-004
+// parity): the readerUser's SELECTs on the edges table are constrained to rows
+// whose tenant_id equals the per-request custom setting SQL_probectl_tenant.
+// An UNSET setting matches NO rows — fail closed.
+func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser string) error {
+	if err := chValidUser(readerUser); err != nil {
+		return fmt.Errorf("ebpfstore: reader user: %w", err)
+	}
+	ddl := fmt.Sprintf(
+		"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
+		edgesTable, tenantSettingName, readerUser)
+	if err := c.exec(ctx, ddl, nil); err != nil {
+		return fmt.Errorf("ebpfstore: reader row policy: %w", err)
+	}
+	return nil
+}
+
+// EnsureRowPolicies installs DB-LEVEL tenancy on the edges table (TENANT-004 /
+// U-026 parity with flowstore): per-tenant CH users (named exactly the tenant
+// id) are row-filtered to tenant_id = currentUser(); serviceUser keeps full
+// access.
+func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) error {
+	if serviceUser == "" {
+		serviceUser = "default"
+	}
+	if err := chValidUser(serviceUser); err != nil {
+		return fmt.Errorf("ebpfstore: service user: %w", err)
+	}
+	for _, ddl := range []string{
+		fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", edgesTable, serviceUser),
+		fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", edgesTable, serviceUser),
+	} {
+		if err := c.exec(ctx, ddl, nil); err != nil {
+			return fmt.Errorf("ebpfstore: row policy: %w", err)
+		}
+	}
+	return nil
+}
 
 // --- HTTP helpers over the shared chclient (CODE-006) ---
 

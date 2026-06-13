@@ -272,6 +272,21 @@ func run(cmd string) error {
 	if err != nil {
 		return fmt.Errorf("path store: %w", err)
 	}
+	// TENANT-004: DB-level reader scoping on the path plane (applied before the
+	// batching wrapper). Defaults ON under multi-tenant/regulated.
+	if cfg.PathCHTenantScoping {
+		if ch, ok := pathStore.(*pathstore.ClickHouse); ok {
+			ch.WithTenantScoping(true)
+			if cfg.PathCHReaderUser != "" {
+				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.PathCHReaderUser); perr != nil {
+					return fmt.Errorf("path store reader policy: %w", perr)
+				}
+				log.Info("pathstore: ClickHouse reader row policy installed (TENANT-004)", "reader_user", cfg.PathCHReaderUser)
+			} else {
+				log.Warn("pathstore: tenant scoping on but PROBECTL_PATHSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
+			}
+		}
+	}
 	if cfg.PathStoreMode == "clickhouse" {
 		// SCALE-009: cross-path batching window — N discoveries inside the
 		// window cost one insert per table instead of a pair each.
@@ -289,6 +304,24 @@ func run(cmd string) error {
 		return fmt.Errorf("otelstore: %w", err)
 	}
 	defer otelStore.Close()
+	// TENANT-003/004: DB-level reader scoping on the PII-heaviest plane. Under
+	// the multi-tenant/regulated profile this defaults ON (defense-in-depth
+	// above app WHERE scoping). EnsureReaderRowPolicy installs the
+	// setting-scoped policy on the reader user so the query path cannot cross
+	// tenants even if the WHERE is bypassed.
+	if cfg.OTelCHTenantScoping {
+		if ch, ok := otelStore.(*otelstore.ClickHouse); ok {
+			ch.WithTenantScoping(true)
+			if cfg.OTelCHReaderUser != "" {
+				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.OTelCHReaderUser); perr != nil {
+					return fmt.Errorf("otel store reader policy: %w", perr)
+				}
+				log.Info("otelstore: ClickHouse reader row policy installed (TENANT-003)", "reader_user", cfg.OTelCHReaderUser)
+			} else {
+				log.Warn("otelstore: tenant scoping on but PROBECTL_OTELSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
+			}
+		}
+	}
 
 	flowStore, err := flowstore.New(cfg.FlowStoreMode, cfg.FlowStoreURL, cfg.FlowRetentionDays)
 	if err != nil {
@@ -394,6 +427,21 @@ func run(cmd string) error {
 		return fmt.Errorf("ebpf store: %w", err)
 	}
 	defer ebpfStore.Close()
+	// TENANT-004: DB-level reader scoping on the eBPF L7 edge plane. Defaults ON
+	// under multi-tenant/regulated.
+	if cfg.EBPFCHTenantScoping {
+		if ch, ok := ebpfStore.(*ebpfstore.ClickHouse); ok {
+			ch.WithTenantScoping(true)
+			if cfg.EBPFCHReaderUser != "" {
+				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.EBPFCHReaderUser); perr != nil {
+					return fmt.Errorf("ebpf store reader policy: %w", perr)
+				}
+				log.Info("ebpfstore: ClickHouse reader row policy installed (TENANT-004)", "reader_user", cfg.EBPFCHReaderUser)
+			} else {
+				log.Warn("ebpfstore: tenant scoping on but PROBECTL_EBPFSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
+			}
+		}
+	}
 	g.Go(func() error {
 		return control.NewTopologyConsumer(resultBus, topoStore, log).
 			WithTenantBinding(tenantBinding).

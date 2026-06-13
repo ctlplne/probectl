@@ -4,9 +4,35 @@ package otelstore
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+// TENANT-003: the PII-heaviest plane must FAIL CLOSED on an unscoped read —
+// a query with no tenant returns ErrNoTenant (nothing), not all rows. Covers
+// both store implementations' guard; the ClickHouse guard runs before any
+// HTTP call, so this exercises the same contract without a server.
+func TestQueriesFailClosedWithoutTenant(t *testing.T) {
+	ctx := context.Background()
+	stores := map[string]Store{
+		"memory":     NewMemory(),
+		"clickhouse": &ClickHouse{base: "http://127.0.0.1:0"}, // guard precedes any request
+	}
+	for name, s := range stores {
+		if _, err := s.QuerySpans(ctx, "", SpanQuery{}); !errors.Is(err, ErrNoTenant) {
+			t.Fatalf("%s QuerySpans(\"\"): err = %v, want ErrNoTenant (fail closed)", name, err)
+		}
+		if _, err := s.QueryLogs(ctx, "", LogQuery{}); !errors.Is(err, ErrNoTenant) {
+			t.Fatalf("%s QueryLogs(\"\"): err = %v, want ErrNoTenant (fail closed)", name, err)
+		}
+	}
+	// EraseTenant must also refuse an unscoped mutation (never mutate all tenants).
+	ch := &ClickHouse{base: "http://127.0.0.1:0"}
+	if _, _, err := ch.EraseTenant(ctx, ""); !errors.Is(err, ErrNoTenant) {
+		t.Fatalf("clickhouse EraseTenant(\"\"): err = %v, want ErrNoTenant", err)
+	}
+}
 
 func TestMemorySpanAndLogQueriesScopedAndFiltered(t *testing.T) {
 	m := NewMemory()

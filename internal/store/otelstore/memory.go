@@ -60,6 +60,9 @@ func (m *Memory) WriteLogs(_ context.Context, recs []LogRecord) error {
 
 // QuerySpans returns the tenant's matching spans, newest first.
 func (m *Memory) QuerySpans(_ context.Context, tenant string, q SpanQuery) ([]Span, error) {
+	if tenant == "" {
+		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
+	}
 	limit := clampLimit(q.Limit)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -88,6 +91,9 @@ func (m *Memory) QuerySpans(_ context.Context, tenant string, q SpanQuery) ([]Sp
 
 // QueryLogs returns the tenant's matching records, newest first.
 func (m *Memory) QueryLogs(_ context.Context, tenant string, q LogQuery) ([]LogRecord, error) {
+	if tenant == "" {
+		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
+	}
 	limit := clampLimit(q.Limit)
 	m.mu.RLock()
 	defer m.mu.RUnlock()

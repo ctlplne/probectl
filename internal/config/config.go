@@ -248,6 +248,31 @@ type Config struct {
 	FlowCHTenantScoping bool
 	FlowCHReaderUser    string
 
+	// DeploymentProfile (TENANT-004) selects the isolation posture:
+	//   single       — single-tenant / sovereign: app-layer WHERE scoping is
+	//                   the boundary (the deployment IS the tenant boundary).
+	//   multi-tenant  — pooled multi-tenant: DB-enforced row policies default ON
+	//                   across ALL ClickHouse planes (defense-in-depth above app
+	//                   code — guardrail 7.1).
+	//   regulated     — multi-tenant + the strictest profile: same as
+	//                   multi-tenant for the CH planes (siloing/BYOK are
+	//                   selected separately).
+	// The per-plane CHTenantScoping flags below default to true under
+	// multi-tenant/regulated unless an explicit env value overrides them.
+	DeploymentProfile string
+
+	// {OTel,EBPF,Path}CHTenantScoping + readers (TENANT-003/004 parity): each
+	// ClickHouse plane attaches the per-request tenant custom setting and
+	// installs a setting-scoped reader row policy on its reader user, so the
+	// query path cannot cross tenants even if app-layer WHERE scoping is
+	// bypassed. Defaulted ON by the multi-tenant/regulated profile.
+	OTelCHTenantScoping bool
+	OTelCHReaderUser    string
+	EBPFCHTenantScoping bool
+	EBPFCHReaderUser    string
+	PathCHTenantScoping bool
+	PathCHReaderUser    string
+
 	// CMDB integration (S40): read-only CI correlation. CMDBProvider "" keeps
 	// the feature off; "servicenow" requires CMDBURL (https, or http loopback
 	// for tests) and CMDBSecret ("user:password" — env only, never logged).
@@ -533,6 +558,13 @@ type NotifyInbound struct {
 // and returned together.
 func Load(getenv func(string) string) (*Config, error) {
 	l := &loader{getenv: getenv}
+	// TENANT-004: the deployment profile decides whether DB-enforced ClickHouse
+	// tenant isolation is ON by default. multi-tenant/regulated turn it on for
+	// every CH plane (defense-in-depth above app code, guardrail 7.1); single
+	// keeps app-layer WHERE scoping as the boundary. Resolved BEFORE the
+	// per-plane scoping flags so they can default off it.
+	deploymentProfile := l.enum("PROBECTL_DEPLOYMENT_PROFILE", "single", "single", "multi-tenant", "regulated")
+	chScopeDefault := deploymentProfile == "multi-tenant" || deploymentProfile == "regulated"
 	cfg := &Config{
 		HTTPAddr:                 l.str("PROBECTL_HTTP_ADDR", ":8080"),
 		ReadTimeout:              l.dur("PROBECTL_HTTP_READ_TIMEOUT", 15*time.Second),
@@ -616,8 +648,17 @@ func Load(getenv func(string) string) (*Config, error) {
 		FlowRetentionDays:   l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650),
 		PathRetentionDays:   l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650),
 		FlowEnrichASN:       l.boolean("PROBECTL_FLOW_ENRICH_ASN", false),
-		FlowCHTenantScoping: l.boolean("PROBECTL_FLOWSTORE_TENANT_SCOPING", false),
+		// TENANT-004: profile-defaulted (multi-tenant/regulated => ON) so the
+		// DB-level row policy is the boundary by default, not just app WHERE.
+		DeploymentProfile:   deploymentProfile,
+		FlowCHTenantScoping: l.boolean("PROBECTL_FLOWSTORE_TENANT_SCOPING", chScopeDefault),
 		FlowCHReaderUser:    l.str("PROBECTL_FLOWSTORE_READER_USER", ""),
+		OTelCHTenantScoping: l.boolean("PROBECTL_OTELSTORE_TENANT_SCOPING", chScopeDefault),
+		OTelCHReaderUser:    l.str("PROBECTL_OTELSTORE_READER_USER", ""),
+		EBPFCHTenantScoping: l.boolean("PROBECTL_EBPFSTORE_TENANT_SCOPING", chScopeDefault),
+		EBPFCHReaderUser:    l.str("PROBECTL_EBPFSTORE_READER_USER", ""),
+		PathCHTenantScoping: l.boolean("PROBECTL_PATHSTORE_TENANT_SCOPING", chScopeDefault),
+		PathCHReaderUser:    l.str("PROBECTL_PATHSTORE_READER_USER", ""),
 		CMDBProvider:        l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow"),
 		CMDBURL:             l.str("PROBECTL_CMDB_URL", ""),
 		CMDBSecret:          l.str("PROBECTL_CMDB_SECRET", ""),

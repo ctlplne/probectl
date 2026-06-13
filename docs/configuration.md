@@ -925,8 +925,15 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | -------------------------------- | -------- | -------------------------------------------------------------------- |
 | `PROBECTL_FLOWSTORE_MODE`         | `memory` | where flow records live: `memory` (lightweight/single-binary) \| `clickhouse` (durable, high-cardinality) |
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode         |
-| `PROBECTL_FLOWSTORE_TENANT_SCOPING` | `false` | defense-in-depth: also constrain flow reads at the **database** by attaching a per-request tenant setting that a ClickHouse row policy enforces (needs server-side `custom_settings_prefixes=SQL_` + a reader user). Tenant scoping already happens above this; this pushes it down one more layer |
+| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path) — defense-in-depth above app code (guardrail 7.1). The per-plane `*_TENANT_SCOPING` toggles below default off this profile; set one explicitly to override |
+| `PROBECTL_FLOWSTORE_TENANT_SCOPING` | profile | defense-in-depth: also constrain flow reads at the **database** by attaching a per-request tenant setting that a ClickHouse row policy enforces (needs server-side `custom_settings_prefixes=SQL_` + a reader user). Defaults ON under `multi-tenant`/`regulated`, off under `single` |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | the ClickHouse reader user the setting-scoped row policy is installed on at boot (pairs with the toggle above) |
+| `PROBECTL_OTELSTORE_TENANT_SCOPING` | profile | TENANT-003/004: DB-level reader scoping on the OTLP traces+logs plane (the PII-heaviest). Same mechanism as flow; defaults ON under `multi-tenant`/`regulated` |
+| `PROBECTL_OTELSTORE_READER_USER` | (none) | the ClickHouse reader user the otel setting-scoped row policy is installed on at boot |
+| `PROBECTL_EBPFSTORE_TENANT_SCOPING` | profile | TENANT-004: DB-level reader scoping on the eBPF L7 edge plane; defaults ON under `multi-tenant`/`regulated` |
+| `PROBECTL_EBPFSTORE_READER_USER` | (none) | the ClickHouse reader user the eBPF setting-scoped row policy is installed on at boot |
+| `PROBECTL_PATHSTORE_TENANT_SCOPING` | profile | TENANT-004: DB-level reader scoping on the path plane; defaults ON under `multi-tenant`/`regulated` |
+| `PROBECTL_PATHSTORE_READER_USER` | (none) | the ClickHouse reader user the path setting-scoped row policy is installed on at boot |
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `0` (keep) | when `> 0`, applies a delete-after-N-days TTL to the `probectl_flows` ClickHouse table; `0` keeps flows indefinitely |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
 
