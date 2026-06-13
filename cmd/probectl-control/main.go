@@ -58,12 +58,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/store"
-	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
-	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
-	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
@@ -87,30 +82,12 @@ func main() {
 }
 
 func run(cmd string) error {
-	switch cmd {
-	case "version", "-version", "--version":
-		fmt.Println("probectl-control", version.Get())
-		return nil
-	case "gen-cert":
-		// Self-signed TLS cert for the HTTPS-by-default quickstart; no DB needed.
-		return genCert(os.Args[2:])
-	case "support-bundle":
-		// S-EE4: offline, secret-stripped diagnostics bundle.
-		return supportBundle(os.Args[2:])
-	case "preflight":
-		// Sprint 8 (SEC-002/COMPLY-004): deployment self-check — envelope key
-		// + operator storage-encryption duties (docs/hardening.md).
-		return runPreflight(os.Args[2:])
-	case "backup-seal":
-		// OPS-002: stdin→stdout envelope-encryption filter for backup dumps.
-		return backupSeal(os.Args[2:])
-	case "backup-open":
-		// OPS-002: decrypt an encrypted backup container for restore.
-		return backupOpen(os.Args[2:])
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter":
-		// fall through to the configured path below
-	default:
-		return fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | gen-cert | support-bundle | preflight | backup-seal | backup-open | version)", cmd)
+	// CODE-001: the no-DB subcommands (version/gen-cert/support-bundle/preflight/
+	// backup-*) dispatch first; serve + the configured-path subcommands fall
+	// through to the wiring below. Behavior is identical — this is mechanical
+	// extraction of the leading dispatch switch off run()'s spine.
+	if handled, err := dispatchEarlyCommand(cmd); handled {
+		return err
 	}
 
 	cfg, err := config.LoadFromEnv()
@@ -180,49 +157,12 @@ func run(cmd string) error {
 		return err
 	}
 
-	switch cmd {
-	case "migrate":
-		return runMigrations(context.Background(), db, log)
-	case "mcp-stdio":
-		return runMCPStdio(cfg, log, db)
-	case "mcp-token":
-		return runMCPToken(log, db, os.Args[2:])
-	case "agent-ca":
-		// Sprint 11: `agent-ca init` generates the enrollment hierarchy once.
-		// `agent-ca export <file>` writes the public trust bundle (root +
-		// intermediate) for PROBECTL_AGENT_TLS_CA_FILE.
-		if len(os.Args) < 3 {
-			return fmt.Errorf("usage: probectl-control agent-ca <init|export>")
-		}
-		switch os.Args[2] {
-		case "init":
-			return runAgentCAInit(context.Background(), db)
-		case "export":
-			return runAgentCAExport(context.Background(), db, os.Args[3:])
-		default:
-			return fmt.Errorf("usage: probectl-control agent-ca <init|export>")
-		}
-	case "enroll-token":
-		return runEnrollToken(context.Background(), cfg, db, os.Args[2:])
-	case "revoke-agent":
-		// Sprint 12 (WIRE-003): persisted revocation; the RUNNING control
-		// plane picks it up via its periodic deny-list refresh.
-		return runRevokeAgent(context.Background(), db, os.Args[2:])
-	case "revoke-enroll-token":
-		// Voids an unredeemed join token early (redemption checks
-		// revoked_at, so this takes effect immediately, no restart).
-		return runRevokeEnrollToken(context.Background(), db, os.Args[2:])
-	case "scim-token":
-		return runSCIMToken(log, db, os.Args[2:])
-	case "register-collector":
-		// ARCH-011: register a bus-publishing collector (eBPF/flow/device) and
-		// print its UUID identity; no cert (bus auth is separate).
-		return runRegisterCollector(context.Background(), db, os.Args[2:])
-	case "replay-deadletter":
-		// ARCH-001: drain a probectl.deadletter.* topic and re-ingest each parked
-		// record onto its source topic (operator-driven recovery after a store
-		// outage outlived the retry budget).
-		return runReplayDeadLetter(cfg, log, os.Args[2:])
+	// CODE-001: the DB-backed one-shot subcommands (migrate, mcp-*, agent-ca,
+	// *-token, revoke-*, register-collector, replay-deadletter) dispatch here,
+	// after the DB is open (so `defer db.Close()` above still fires). `serve`
+	// falls through to the long wiring path below. Pure mechanical extraction.
+	if handled, err := dispatchDBCommand(cmd, cfg, db, log); handled {
+		return err
 	}
 
 	if cfg.MigrateOnBoot {
@@ -241,123 +181,24 @@ func run(cmd string) error {
 
 	log.Info("starting probectl-control", "version", version.Get().Version, "config", cfg)
 
-	// Result pipeline: a message bus that the control plane consumes and writes
-	// to the TSDB. The bus is shared with the agent transport (the publisher).
-	memOpts := []bus.MemoryOption{bus.WithBuffer(cfg.BusMemoryBuffer)}
-	if cfg.BusMemoryOverflow == "drop" {
-		memOpts = append(memOpts, bus.WithOverflowDrop())
-	}
-	resultBus, err := bus.New(cfg.BusMode, cfg.BusBrokers, cfg.BusSecurity(), memOpts...)
-	if k, ok := resultBus.(*bus.Kafka); ok {
-		// SCALE-001: key-sharded parallel consume per subscription.
-		k.WithSubscribeWorkers(cfg.BusWorkers)
-	}
+	// Bus + per-plane stores (result bus, TSDB, ingest-batching writer, path,
+	// otel, flow, ebpf) with their DB-level tenant reader scoping. Extracted to
+	// buildServeStores (CODE-001): it returns the bundle plus ONE aggregate
+	// closer that retires the long defer chain and closes everything on an early
+	// error too.
+	st, closeStores, err := buildServeStores(cfg, log)
 	if err != nil {
-		return fmt.Errorf("result bus: %w", err)
+		return err
 	}
-	defer resultBus.Close()
-	tsdbWriter, err := tsdb.NewWithLimits(cfg.TSDBMode, cfg.TSDBURL, cfg.TSDBMemoryRetention, int64(cfg.TSDBMemoryMaxBytes)) // U-018 bounds
-	if err != nil {
-		return fmt.Errorf("tsdb: %w", err)
-	}
-	defer tsdbWriter.Close()
-	// SCALE-001: the INGEST write path coalesces concurrent remote-writes into
-	// one POST (per window/size), preserving per-message DLQ attribution.
-	// Batching is ON by default in prometheus mode (see config). Only the write
-	// path is wrapped — read/query paths keep the concrete writer so their type
-	// assertions (alerting, snapshot, breaker gauges) hold.
-	ingestWriter, ingestWriterClose := buildIngestWriter(cfg, tsdbWriter)
-	if ingestWriterClose != nil {
-		defer ingestWriterClose()
-		log.Info("remote-write batching enabled (ingest path)", "max_series", cfg.RemoteWriteBatchSeries, "max_wait", cfg.RemoteWriteBatchWait.String())
-	}
-
-	pathStore, err := pathstore.NewRetained(cfg.PathStoreMode, cfg.PathStoreURL, cfg.PathRetentionDays)
-	if err != nil {
-		return fmt.Errorf("path store: %w", err)
-	}
-	// TENANT-001: keep the concrete *pathstore.ClickHouse (before the batching
-	// wrapper) so the ee silo router can be installed on it — the wrapper shares
-	// the same pointer, so routing applies to all path writes/reads.
-	pathCH, _ := pathStore.(*pathstore.ClickHouse)
-	// TENANT-004: DB-level reader scoping on the path plane (applied before the
-	// batching wrapper). Defaults ON under multi-tenant/regulated.
-	if cfg.PathCHTenantScoping {
-		if ch := pathCH; ch != nil {
-			ch.WithTenantScoping(true)
-			if cfg.PathCHReaderUser != "" {
-				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.PathCHReaderUser); perr != nil {
-					return fmt.Errorf("path store reader policy: %w", perr)
-				}
-				log.Info("pathstore: ClickHouse reader row policy installed (TENANT-004)", "reader_user", cfg.PathCHReaderUser)
-			} else {
-				log.Warn("pathstore: tenant scoping on but PROBECTL_PATHSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
-			}
-		}
-	}
-	if cfg.PathStoreMode == "clickhouse" {
-		// SCALE-009: cross-path batching window — N discoveries inside the
-		// window cost one insert per table instead of a pair each.
-		pathStore = pathstore.NewBatchingSaver(pathStore, log, 0, 0)
-	}
-	defer pathStore.Close()
-
-	// Flow analytics store (S38): where NetFlow/IPFIX/sFlow records land
-	// (ClickHouse at volume; memory in the lightweight deploy) and the
-	// /v1/flows/* views are served from.
-	// OTLP traces + logs store (ARCH-001): memory in lightweight mode,
-	// ClickHouse in production (tenant_id-led partition + retention TTL).
-	otelStore, err := otelstore.New(cfg.OTelStoreMode, cfg.OTelStoreURL, cfg.OTelRetentionDays)
-	if err != nil {
-		return fmt.Errorf("otelstore: %w", err)
-	}
-	defer otelStore.Close()
-	// TENANT-003/004: DB-level reader scoping on the PII-heaviest plane. Under
-	// the multi-tenant/regulated profile this defaults ON (defense-in-depth
-	// above app WHERE scoping). EnsureReaderRowPolicy installs the
-	// setting-scoped policy on the reader user so the query path cannot cross
-	// tenants even if the WHERE is bypassed.
-	if cfg.OTelCHTenantScoping {
-		if ch, ok := otelStore.(*otelstore.ClickHouse); ok {
-			ch.WithTenantScoping(true)
-			if cfg.OTelCHReaderUser != "" {
-				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.OTelCHReaderUser); perr != nil {
-					return fmt.Errorf("otel store reader policy: %w", perr)
-				}
-				log.Info("otelstore: ClickHouse reader row policy installed (TENANT-003)", "reader_user", cfg.OTelCHReaderUser)
-			} else {
-				log.Warn("otelstore: tenant scoping on but PROBECTL_OTELSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
-			}
-		}
-	}
-
-	flowStore, err := flowstore.New(cfg.FlowStoreMode, cfg.FlowStoreURL, cfg.FlowRetentionDays)
-	if err != nil {
-		return fmt.Errorf("flow store: %w", err)
-	}
-	defer flowStore.Close()
-	// SCALE-016: flow is the platform's highest-volume table. Keep-forever is a
-	// legitimate choice (compliance) but must be a LOUD, explicit one — never
-	// the silent default that grows the store unbounded.
-	if cfg.FlowRetentionDays == 0 {
-		log.Warn("FLOW RETENTION DISABLED: PROBECTL_FLOW_RETENTION_DAYS=0 — flows are kept FOREVER and the flow table will grow without bound. Set a finite value (default 90) unless you have an explicit retention requirement.")
-	}
-	// TENANT-102: DB-level reader scoping. When enabled, reads attach the
-	// per-request tenant custom setting and the reader row policy constrains
-	// the query path even if app-layer WHERE scoping is bypassed.
-	if cfg.FlowCHTenantScoping {
-		if ch, ok := flowStore.(*flowstore.ClickHouse); ok {
-			ch.WithTenantScoping(true)
-			if cfg.FlowCHReaderUser != "" {
-				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.FlowCHReaderUser); perr != nil {
-					return fmt.Errorf("flow store reader policy: %w", perr)
-				}
-				log.Info("flowstore: ClickHouse reader row policy installed (TENANT-102)", "reader_user", cfg.FlowCHReaderUser)
-			} else {
-				log.Warn("flowstore: tenant scoping on but PROBECTL_FLOWSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
-			}
-		}
-	}
+	defer closeStores()
+	resultBus := st.resultBus
+	tsdbWriter := st.tsdbWriter
+	ingestWriter := st.ingestWriter
+	pathStore := st.pathStore
+	pathCH := st.pathCH
+	otelStore := st.otelStore
+	flowStore := st.flowStore
+	ebpfStore := st.ebpfStore
 
 	// ASN/geo enrichment for flows (S15 via S38): OPT-IN — Team Cymru is an
 	// outbound DNS dependency, so it stays off unless explicitly enabled
@@ -428,28 +269,8 @@ func run(cmd string) error {
 	} else {
 		topoStore = topology.NewIndexedStore() // the L/XL dedicated engine
 	}
-	// ARCH-008: durable eBPF flow/L7 aggregate store — the differentiator plane
-	// gets history + restart survival instead of an in-RAM-only service map.
-	ebpfStore, err := ebpfstore.New(cfg.EBPFStoreMode, cfg.EBPFStoreURL, cfg.EBPFRetentionDays)
-	if err != nil {
-		return fmt.Errorf("ebpf store: %w", err)
-	}
-	defer ebpfStore.Close()
-	// TENANT-004: DB-level reader scoping on the eBPF L7 edge plane. Defaults ON
-	// under multi-tenant/regulated.
-	if cfg.EBPFCHTenantScoping {
-		if ch, ok := ebpfStore.(*ebpfstore.ClickHouse); ok {
-			ch.WithTenantScoping(true)
-			if cfg.EBPFCHReaderUser != "" {
-				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.EBPFCHReaderUser); perr != nil {
-					return fmt.Errorf("ebpf store reader policy: %w", perr)
-				}
-				log.Info("ebpfstore: ClickHouse reader row policy installed (TENANT-004)", "reader_user", cfg.EBPFCHReaderUser)
-			} else {
-				log.Warn("ebpfstore: tenant scoping on but PROBECTL_EBPFSTORE_READER_USER unset — reads carry the setting but no policy enforces it yet")
-			}
-		}
-	}
+	// ebpfStore (ARCH-008: durable eBPF flow/L7 aggregate store) is built in
+	// buildServeStores above and consumed here.
 	g.Go(func() error {
 		return superviseRestart(gctx, "topology-consumer", log, func(ctx context.Context) error {
 			return control.NewTopologyConsumer(resultBus, topoStore, log).

@@ -29,7 +29,7 @@ func TestMediumReferenceShipsCoherentTopology(t *testing.T) {
 	// (The per-view table marks such views with a bare "1" in the safe-replica
 	// column.) We detect it via the documented constraint phrase.
 	stillIncoherent := strings.Contains(ha, "Consistent latest-result / threat / TLS views | **1**") ||
-		regexp.MustCompile(`want\s+` + "`replicaCount: 1`").MatchString(ha)
+		regexp.MustCompile(`want\s+`+"`replicaCount: 1`").MatchString(ha)
 
 	if stillIncoherent && replicas != 1 {
 		t.Errorf("values-medium.yaml defaults replicaCount=%d while docs/ha.md still documents in-RAM views that require replicaCount 1 — the reference ships a known-incoherent topology (OPS-010). Default to 1 or land the view coherence first.", replicas)
