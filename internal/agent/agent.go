@@ -148,8 +148,15 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 }
 
 // drainOnce forwards the buffered results in one client stream. At-least-once:
-// records are removed only after the control plane acks the batch, so a failure
-// mid-batch retains everything to retry (duplicates possible; S6 handles dedup).
+// records are removed only after the control plane acks the batch (and that ack
+// now follows broker durability — CORRECT-004), so a failure mid-batch retains
+// everything to retry. Retries CAN therefore redeliver a result. For the
+// TSDB-backed results plane this is harmless: Prometheus remote-write is
+// idempotent on (series, timestamp, value), so a redelivered identical sample
+// is a no-op, not a double-count. (The earlier "S6 handles dedup" claim was
+// false — there is no dedup layer; the idempotent TSDB write is what makes
+// redelivery safe here. Per-record-ID dedup for the append-only row stores is
+// tracked in CORRECT-002.)
 func (a *Agent) drainOnce(ctx context.Context, client *Client) error {
 	frames, err := a.buffer.PeekAll()
 	if err != nil {
