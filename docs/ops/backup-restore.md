@@ -159,3 +159,52 @@ nonce, so a pass proves the restore really round-tripped today's data. It runs
 against the dev compose stack, exits non-zero on any divergence, and runs in CI
 on every run (the `backup-drill` job), so the restore path cannot silently rot.
 Run it against staging after any storage-layer change.
+
+## Point-in-time recovery (PITR) — WAL archiving (OPS-008)
+
+The nightly logical dump above gives you a daily restore point. For tighter
+RPO — recovering to *any* moment, not just the last dump — enable Postgres
+continuous WAL archiving. This is a tested recipe, not just a pointer.
+
+What PITR buys you: with a base backup plus the WAL stream, you can replay to a
+chosen timestamp (e.g. "the instant before the bad migration"), so your recovery
+point objective drops from "up to 24h of loss" to "seconds".
+
+Postgres server settings (set, then restart):
+
+```
+wal_level = replica
+archive_mode = on
+# Archive each completed WAL segment to durable, OFF-host storage. The archive
+# MUST be encrypted at rest (it contains tenant data) and MUST NOT live on the
+# same volume as the data directory — a disk loss would take both.
+archive_command = 'probectl-control backup-seal --in %p --out - | aws s3 cp - s3://YOUR-BUCKET/wal/%f'
+archive_timeout = 60   # force a segment at least every 60s, bounding RPO
+```
+
+Take a base backup (also sealed) on a schedule:
+
+```
+pg_basebackup -D - -Ft -z -Xnone | probectl-control backup-seal --in - --out - \
+  | aws s3 cp - s3://YOUR-BUCKET/base/$(date -u +%Y%m%dT%H%M%SZ).tar.gz.sealed
+```
+
+Restore to a point in time:
+
+1. Provision a fresh Postgres data directory.
+2. `backup-open` the most recent base backup taken *before* your target time and
+   unpack it into the data directory.
+3. Create `recovery.signal` and set the recovery target:
+   ```
+   restore_command = 'aws s3 cp s3://YOUR-BUCKET/wal/%f - | probectl-control backup-open --in - --out %p'
+   recovery_target_time = '2026-06-12 09:14:00+00'
+   recovery_target_action = 'promote'
+   ```
+4. Start Postgres; it replays WAL up to the target and promotes.
+5. Run `probectl-control migrate` (idempotent) and verify `/readyz`, then run the
+   backup-restore drill's verify pass against the recovered instance.
+
+**Strict profile:** in regulated deployments WAL archiving is required, not
+optional — `archive_mode = on` with a sealed, off-host, encrypted archive and an
+`archive_timeout` that meets your RPO. ClickHouse PITR uses its native
+`BACKUP ... TO` incrementals to the same off-host, encrypted store (see OPS-011).
