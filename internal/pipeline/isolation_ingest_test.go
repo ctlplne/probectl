@@ -36,6 +36,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -45,7 +46,9 @@ func pgPool(ctx context.Context, t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	dsn := os.Getenv("PROBECTL_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("PROBECTL_DATABASE_URL not set — ingest isolation gate runs in CI")
+		// TEST-003: in CI (PROBECTL_TEST_REQUIRE_SERVICES=1) a missing service
+		// FAILS the isolation gate instead of skipping it (no vacuous green).
+		testsupport.SkipOrFatal(t, "PROBECTL_DATABASE_URL not set — ingest isolation gate runs in CI")
 	}
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -53,7 +56,7 @@ func pgPool(ctx context.Context, t *testing.T) *pgxpool.Pool {
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		t.Skipf("no database available: %v", err)
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, pool); err != nil {
 		pool.Close()
@@ -145,7 +148,7 @@ func flowBatchMsg(tenant, agent string) bus.Message {
 func TestFlowIngestCrossTenantInjectionRealStores(t *testing.T) {
 	ctx := context.Background()
 	if os.Getenv("PROBECTL_FLOWSTORE_URL") == "" {
-		t.Skip("PROBECTL_FLOWSTORE_URL not set — flow ingest isolation gate runs in CI")
+		testsupport.SkipOrFatal(t, "PROBECTL_FLOWSTORE_URL not set — flow ingest isolation gate runs in CI")
 	}
 	pool := pgPool(ctx, t)
 	defer pool.Close()

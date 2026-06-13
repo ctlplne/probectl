@@ -25,6 +25,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
 	"github.com/imfeelingtheagi/probectl/migrations"
 )
 
@@ -45,7 +46,9 @@ func setup(ctx context.Context, t *testing.T) *pgxpool.Pool {
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
-		t.Skipf("no database available: %v", err)
+		// TEST-003: CI (PROBECTL_TEST_REQUIRE_SERVICES=1) fails the isolation
+		// gate on a missing DB rather than skipping it.
+		testsupport.SkipOrFatal(t, "no database available: %v", err)
 	}
 	if _, err := migrate.New(migrations.FS, nil).Apply(ctx, pool); err != nil {
 		pool.Close()
