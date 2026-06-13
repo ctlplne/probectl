@@ -9,11 +9,17 @@ metadata:
   labels:
     {{- include "probectl.labels" . | nindent 4 }}
   annotations:
-    # HTTPS-by-default: force redirect to TLS and emit HSTS on every response.
+    # HTTPS-by-default: force redirect to TLS. These are first-class
+    # ingress-nginx annotations (NOT snippet annotations), so they apply even
+    # when allow-snippet-annotations is false (the default since ingress-nginx
+    # v1.9, post CVE-2023-5043/5044).
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      more_set_headers "Strict-Transport-Security: max-age={{ .Values.ingress.hstsMaxAge }}; includeSubDomains";
+    # OPS-009: HSTS is emitted by the APPLICATION (PROBECTL_HSTS_ENABLED, wired
+    # from the ConfigMap; the header passes straight through the ingress) rather
+    # than via a configuration-snippet annotation — modern ingress-nginx ignores
+    # snippet annotations by default, so a snippet-delivered HSTS would silently
+    # vanish. The app path is on-by-default and ingress-controller-agnostic.
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

@@ -40,7 +40,15 @@ need "drop:"                           "$base" "capabilities not dropped"
 need "automountServiceAccountToken: false" "$base" "service-account token automount not disabled"
 need "path: /readyz"                   "$base" "missing /readyz readiness probe (S34 drain)"
 need "path: /healthz"                  "$base" "missing /healthz liveness probe"
-need "Strict-Transport-Security"       "$base" "HSTS not set (HTTPS-by-default)"
+# OPS-009: HSTS is delivered by the APPLICATION (PROBECTL_HSTS_ENABLED), not via
+# a configuration-snippet annotation that modern ingress-nginx disables by
+# default. Assert the app-HSTS env is rendered on; and that the ingress does NOT
+# fall back to a snippet-delivered header (which would silently vanish).
+need 'PROBECTL_HSTS_ENABLED: "true"'   "$base" "app HSTS not enabled (HTTPS-by-default, OPS-009)"
+need "PROBECTL_HSTS_MAX_AGE"           "$base" "app HSTS max-age not set (OPS-009)"
+if grep -q "configuration-snippet" <<<"$base" && grep -q "Strict-Transport-Security" <<<"$base"; then
+  fail "HSTS delivered via configuration-snippet — disabled by default in ingress-nginx >=1.9 (OPS-009)"
+fi
 need "kind: NetworkPolicy"             "$base" "default profile missing NetworkPolicy (default-on, U-086)"
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 

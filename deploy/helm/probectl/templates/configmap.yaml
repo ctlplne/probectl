@@ -15,7 +15,12 @@ data:
   # ingress — the explicit, loud opt-in (TLS is the binary's default).
   PROBECTL_ALLOW_PLAINTEXT_HTTP: {{ .Values.allowPlaintextHTTP | default true | quote }}
   PROBECTL_HTTP_ADDR: ":8080"
+  # OPS-009: HSTS is emitted by the application (the header passes through the
+  # ingress), NOT via a configuration-snippet annotation that modern
+  # ingress-nginx disables by default. The max-age tracks the chart's
+  # ingress.hstsMaxAge so operators tune one value.
   PROBECTL_HSTS_ENABLED: "true"
+  PROBECTL_HSTS_MAX_AGE: "{{ .Values.ingress.hstsMaxAge | default 31536000 }}s"
   PROBECTL_LOG_FORMAT: {{ .Values.control.logFormat | quote }}
   PROBECTL_LOG_LEVEL: {{ .Values.control.logLevel | quote }}
   PROBECTL_AUTH_MODE: {{ .Values.control.authMode | quote }}
