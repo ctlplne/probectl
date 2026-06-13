@@ -1,0 +1,35 @@
+[Unit]
+# OPS-004: systemd unit for the eBPF host agent. Unlike the other agents this
+# one needs kernel privileges to attach its programs — the SHIPPED, MINIMAL set
+# (CAP_BPF + CAP_PERFMON), not blanket root. The privilege manifest is encoded
+# here AND in the deb/rpm metadata so an operator sees exactly what it asks for.
+Description=probectl eBPF host/L7 agent
+Documentation=https://docs.probectl.example/ebpf
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=probectl
+Group=probectl
+ExecStart=/usr/bin/probectl-ebpf-agent --config /etc/probectl/ebpf-agent.yaml
+Restart=on-failure
+RestartSec=5s
+
+# eBPF needs exactly these — NOT full root. CAP_BPF loads programs/maps;
+# CAP_PERFMON opens the perf/tracepoint links. A shipped seccomp profile
+# further bounds the syscall surface (deploy/packaging/seccomp/ebpf.json).
+AmbientCapabilities=CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_BPF CAP_PERFMON
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/probectl-ebpf-agent
+StateDirectory=probectl-ebpf-agent
+LockPersonality=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @bpf
+
+[Install]
+WantedBy=multi-user.target

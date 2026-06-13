@@ -1,0 +1,18 @@
+# probectl canary agent configuration (shipped as a CONFFILE in the deb/rpm so
+# operator edits survive upgrades). Fill in the control-plane address and point
+# tls.* / enrollment at the material the registration step provisioned.
+# Full key reference: docs/configuration.md.
+control_plane:
+  grpc_addr: "https://CONTROL-HOST:8443"   # mTLS agent transport (never plaintext)
+tls:
+  cert_file: /var/lib/probectl-agent/identity/agent.crt
+  key_file: /var/lib/probectl-agent/identity/agent.key
+  ca_file: /var/lib/probectl-agent/identity/ca.crt
+  server_name: ""                          # SNI/cert name if it differs from the host
+agent:
+  hostname: ""                             # defaults to the OS hostname
+  capabilities: []
+  heartbeat_interval: 30s
+# The one-time enrollment token is NOT stored here. Provide it once to
+# `probectl-agent enroll` (or the Ansible vault lookup); the agent then keeps
+# only its issued certificate under tls.* above.

@@ -1,0 +1,11 @@
+{# OPS-004: rendered to /etc/probectl/<agent>.yaml. The enrollment token is NOT
+   written here — it is passed once to `enroll` (tasks/main.yml, no_log). #}
+control_plane:
+  grpc_addr: "{{ probectl_control_grpc_addr }}"
+tls:
+  cert_file: {{ probectl_state_dir }}/identity/agent.crt
+  key_file: {{ probectl_state_dir }}/identity/agent.key
+  ca_file: {{ probectl_state_dir }}/identity/ca.crt
+agent:
+  hostname: "{{ inventory_hostname }}"
+  heartbeat_interval: 30s

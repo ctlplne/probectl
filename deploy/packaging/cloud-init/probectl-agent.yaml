@@ -1,0 +1,32 @@
+#cloud-config
+# OPS-004: cloud-init user-data that installs and enrolls a probectl agent on
+# first boot. The enrollment token comes from instance metadata / the cloud
+# secrets manager (NEVER hard-coded here) — replace the runcmd lookup with your
+# platform's metadata path. A thin Terraform module
+# (deploy/terraform/modules/probectl-agent) injects this as user_data.
+apt:
+  sources:
+    probectl:
+      source: "deb [signed-by=/usr/share/keyrings/probectl.gpg] https://apt.probectl.example stable main"
+      keyid: "REPLACE-WITH-REPO-KEY-FINGERPRINT"
+packages:
+  - probectl-agent
+write_files:
+  - path: /etc/probectl/agent.yaml
+    permissions: "0640"
+    content: |
+      control_plane:
+        grpc_addr: "https://CONTROL-HOST:8443"
+      tls:
+        cert_file: /var/lib/probectl-agent/identity/agent.crt
+        key_file: /var/lib/probectl-agent/identity/agent.key
+        ca_file: /var/lib/probectl-agent/identity/ca.crt
+      agent:
+        heartbeat_interval: 30s
+runcmd:
+  # Pull the one-time enrollment token from instance metadata (example: a
+  # secrets-manager-backed metadata key). Adjust for your cloud; the token must
+  # never be baked into the image or this file.
+  - 'TOKEN="$(cloud-init query -f "{{ ds.meta_data.probectl_enroll_token }}" 2>/dev/null || true)"'
+  - '[ -n "$TOKEN" ] && /usr/bin/probectl-agent enroll --server https://CONTROL-HOST:8443 --token "$TOKEN" --dir /var/lib/probectl-agent/identity'
+  - 'systemctl enable --now probectl-agent'

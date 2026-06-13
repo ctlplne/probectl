@@ -273,6 +273,11 @@ proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bi
 	$(GO) install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
 	$(GO) install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
 
+# ---- packaging / air-gap ------------------------------------------------
+.PHONY: airgap-bundle
+airgap-bundle: ## OPS-003: build the offline install bundle (images+chart+binaries+docs): make airgap-bundle VERSION=0.2.0
+	VERSION=$(VERSION) ./scripts/airgap-bundle.sh
+
 # ---- migrate -------------------------------------------------------------
 .PHONY: migrate
 migrate: ## Apply DB migrations against PROBECTL_DATABASE_URL.

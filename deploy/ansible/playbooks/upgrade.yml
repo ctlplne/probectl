@@ -1,0 +1,14 @@
+---
+# OPS-004: serial-batched fleet upgrade that respects the N/N-1 version-skew
+# gate. `serial` upgrades in waves so the control plane never sees more than a
+# fraction of the fleet mid-upgrade; the control plane itself refuses an agent
+# outside the supported window at registration (S34), so a bad batch halts
+# rather than poisoning the fleet. Pair with the /v1/rollouts API (OPS-002) for
+# the control-plane-side wave gating.
+- name: Upgrade probectl agents in waves
+  hosts: probectl_agents
+  serial: "20%"           # five waves; tune per fleet size
+  max_fail_percentage: 0  # any wave failure halts the rollout (fail closed)
+  become: true
+  roles:
+    - role: probectl_agents

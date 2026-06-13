@@ -236,3 +236,58 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm package deploy/helm/probectl --version "${GITHUB_REF_NAME#v}"
           helm push "probectl-${GITHUB_REF_NAME#v}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts"
+
+  packages:
+    name: deb/rpm packages (${{ matrix.agent }})
+    # OPS-004: build a signed deb + rpm per agent type via nfpm and attach them
+    # to the release. The binaries job produces the cross-compiled static
+    # binaries this consumes; the signed apt/yum repo publish is a follow-on
+    # step against the org's package repositories.
+    needs: [require-green-ci, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        agent: [agent, ebpf-agent, flow-agent, device-agent, endpoint]
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.0
+      - name: Fetch release binaries
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" \
+            --pattern "probectl-${{ matrix.agent }}_${GITHUB_REF_NAME}_linux_${{ matrix.arch }}" --dir dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Build deb + rpm
+        env:
+          AGENT: ${{ matrix.agent }}
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION#v}"
+          export VERSION
+          for pkg in deb rpm; do
+            nfpm package -f deploy/packaging/nfpm.yaml -p "$pkg" -t dist/
+          done
+      - name: Sign packages (cosign keyless)
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in *.deb *.rpm; do
+            [ -e "$f" ] || continue
+            cosign sign-blob --yes --output-signature "${f}.sig" --output-certificate "${f}.pem" "$f"
+          done
+      - name: Attach to the release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.sig
+            dist/*.pem

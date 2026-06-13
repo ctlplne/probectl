@@ -1,0 +1,65 @@
+{{- if .Values.restore.enabled }}
+# OPS-007: parameterized restore Job for Kubernetes, mirroring the compose
+# restore scripts (verify → backup-open → drop → restore → migrate → readyz).
+# It is a one-shot Job (NOT a CronJob): an operator sets restore.enabled=true
+# and restore.backupFile to the sealed dump on the backups PVC, applies, and
+# deletes it after. Drilled on kind in CI (the backup-drill job) so the path
+# can't silently rot. See docs/ops/backup-restore.md.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "probectl.fullname" . }}-restore
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook-weight": "0"
+spec:
+  backoffLimit: 0   # a restore must not silently retry-and-clobber; fail loud
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+      initContainers:
+        # Stage the control-plane binary so backup-open can decrypt the sealed
+        # dump in-pipe — plaintext never lands on disk (OPS-002 symmetry).
+        - name: stage-probectl
+          image: {{ include "probectl.image" . }}
+          command: ["/bin/sh", "-c", "cp /usr/bin/probectl-control /shared/"]
+          volumeMounts:
+            - { name: shared, mountPath: /shared }
+      containers:
+        - name: restore
+          image: {{ .Values.restore.image | default "postgres:16" }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              echo "restore: verifying backup is readable…"
+              test -s "/backups/{{ .Values.restore.backupFile }}"
+              echo "restore: decrypting + restoring into {{ .Values.restore.database }}…"
+              /shared/probectl-control backup-open \
+                --in "/backups/{{ .Values.restore.backupFile }}" --out - \
+                | pg_restore --clean --if-exists --no-owner \
+                    -h "{{ .Values.restore.host }}" -U "$PGUSER" -d "{{ .Values.restore.database }}"
+              echo "restore: applying migrations (idempotent)…"
+              /shared/probectl-control migrate
+              echo "restore: done. Verify /readyz on the control plane before resuming traffic."
+          env:
+            - name: PGUSER
+              valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: username } }
+            - name: PGPASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: password } }
+            - name: PROBECTL_DATABASE_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.existingSecret | default (printf "%s-secrets" (include "probectl.fullname" .)) }}, key: PROBECTL_DATABASE_URL } }
+            - name: PROBECTL_ENVELOPE_KEY
+              valueFrom: { secretKeyRef: { name: {{ .Values.backup.encryption.keySecret }}, key: {{ .Values.backup.encryption.keySecretKey }} } }
+          volumeMounts:
+            - { name: backups, mountPath: /backups, readOnly: true }
+            - { name: shared, mountPath: /shared }
+      volumes:
+        - name: backups
+          persistentVolumeClaim:
+            claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
+        - name: shared
+          emptyDir: {}
+{{- end }}

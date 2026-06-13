@@ -1,0 +1,17 @@
+---
+# OPS-004: defaults for the probectl.agents role. Override per inventory group.
+probectl_agent_type: agent            # agent | ebpf-agent | flow-agent | device-agent | endpoint
+probectl_version: ""                  # required: the release to install (e.g. 0.2.0)
+probectl_control_grpc_addr: ""        # required: https://control-host:8443
+probectl_install_method: repo         # repo | package_url | airgap
+probectl_apt_repo: "deb [signed-by=/usr/share/keyrings/probectl.gpg] https://apt.probectl.example stable main"
+probectl_yum_repo_baseurl: "https://yum.probectl.example/stable"
+probectl_package_url: ""              # when install_method=package_url
+probectl_airgap_dir: ""               # when install_method=airgap (path to the .deb/.rpm on the host)
+
+# Enrollment: the token is pulled from the vault at run time, NEVER written into
+# the playbook or inventory. Set probectl_enroll_token via a vault lookup, e.g.
+#   probectl_enroll_token: "{{ lookup('community.hashi_vault.vault_kv2_get', 'probectl/enroll').secret.token }}"
+probectl_enroll_token: ""
+probectl_verify_cosign: true          # verify the package signature before install
+probectl_state_dir: "/var/lib/probectl-{{ probectl_agent_type }}"

@@ -1,0 +1,75 @@
+---
+# OPS-004: install + enroll + run a probectl agent, idempotently. Re-runs are
+# no-ops once the agent is installed and enrolled. The serial-batched upgrade
+# play (see playbooks/upgrade.yml) drives this respecting the N/N-1 skew gate.
+
+- name: Assert required vars
+  ansible.builtin.assert:
+    that:
+      - probectl_version | length > 0
+      - probectl_control_grpc_addr | length > 0
+    fail_msg: "probectl_version and probectl_control_grpc_addr are required"
+
+- name: Install from the signed apt repo (Debian/Ubuntu)
+  when: probectl_install_method == 'repo' and ansible_os_family == 'Debian'
+  block:
+    - name: Add probectl apt repo
+      ansible.builtin.apt_repository:
+        repo: "{{ probectl_apt_repo }}"
+        state: present
+    - name: Install package
+      ansible.builtin.apt:
+        name: "probectl-{{ probectl_agent_type }}={{ probectl_version }}*"
+        state: present
+        update_cache: true
+
+- name: Install from the signed yum repo (RHEL family)
+  when: probectl_install_method == 'repo' and ansible_os_family == 'RedHat'
+  ansible.builtin.yum:
+    name: "probectl-{{ probectl_agent_type }}-{{ probectl_version }}"
+    state: present
+
+- name: Install from the air-gap bundle
+  when: probectl_install_method == 'airgap'
+  ansible.builtin.package:
+    name: "{{ probectl_airgap_dir }}/probectl-{{ probectl_agent_type }}_{{ probectl_version }}_{{ ansible_architecture }}.deb"
+    state: present
+
+- name: Template the agent config
+  ansible.builtin.template:
+    src: agent.yaml.j2
+    dest: "/etc/probectl/{{ probectl_agent_type }}.yaml"
+    owner: probectl
+    group: probectl
+    mode: "0640"
+  notify: restart probectl agent
+
+- name: Check whether the agent already has an identity
+  ansible.builtin.stat:
+    path: "{{ probectl_state_dir }}/identity/agent.crt"
+  register: probectl_identity
+
+- name: Enroll the agent (one-time; token from vault, never persisted)
+  when: not probectl_identity.stat.exists and probectl_enroll_token | length > 0
+  ansible.builtin.command:
+    cmd: >-
+      /usr/bin/probectl-{{ probectl_agent_type }} enroll
+      --server {{ probectl_control_grpc_addr }}
+      --token {{ probectl_enroll_token }}
+      --dir {{ probectl_state_dir }}/identity
+  no_log: true   # the token must never reach the Ansible log
+  notify: restart probectl agent
+
+- name: Enable + start the agent
+  ansible.builtin.systemd:
+    name: "probectl-{{ probectl_agent_type }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Verify the agent registered (heartbeat reached the control plane)
+  ansible.builtin.command:
+    cmd: "systemctl is-active probectl-{{ probectl_agent_type }}"
+  register: probectl_active
+  changed_when: false
+  failed_when: probectl_active.stdout != "active"

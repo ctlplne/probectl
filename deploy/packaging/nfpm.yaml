@@ -1,0 +1,52 @@
+# OPS-004: nfpm config that builds a signed deb AND rpm for ONE agent type.
+# release.yml loops it per agent (AGENT=agent|ebpf-agent|flow-agent|
+# device-agent|endpoint), each producing a package that bundles the static
+# binary, its systemd unit, and an /etc/probectl/<agent>.yaml conffile, then
+# pushes to the signed apt/yum repos. This is the baseline every other
+# automation tool (Ansible/Puppet/Chef) shells out to.
+#
+#   AGENT=ebpf-agent VERSION=0.2.0 ARCH=amd64 \
+#     nfpm package -f deploy/packaging/nfpm.yaml -p deb -t dist/
+#
+name: "probectl-${AGENT}"
+arch: "${ARCH}"
+version: "v${VERSION}"
+section: "net"
+priority: "optional"
+maintainer: "probectl <security@probectl.example>"
+description: |
+  probectl ${AGENT} — a single static probe/collector agent for the probectl
+  network observability platform. Enrolls to a control plane over mTLS (or, for
+  the bus-publishing collectors, a registered identity) and reports telemetry.
+vendor: "probectl"
+homepage: "https://docs.probectl.example"
+license: "LicenseRef-probectl-TBD"
+
+contents:
+  - src: ./dist/probectl-${AGENT}_${VERSION}_linux_${ARCH}
+    dst: /usr/bin/probectl-${AGENT}
+    file_info:
+      mode: 0755
+  - src: ./deploy/packaging/systemd/probectl-${AGENT}.service
+    dst: /lib/systemd/system/probectl-${AGENT}.service
+  - src: ./deploy/packaging/config/${AGENT}.yaml
+    dst: /etc/probectl/${AGENT}.yaml
+    type: config|noreplace   # operator edits survive upgrades
+    file_info:
+      mode: 0640
+
+overrides:
+  deb:
+    scripts:
+      preinstall: ./deploy/packaging/scripts/preinstall.sh
+      postinstall: ./deploy/packaging/scripts/postinstall.sh
+      preremove: ./deploy/packaging/scripts/preremove.sh
+  rpm:
+    scripts:
+      preinstall: ./deploy/packaging/scripts/preinstall.sh
+      postinstall: ./deploy/packaging/scripts/postinstall.sh
+      preremove: ./deploy/packaging/scripts/preremove.sh
+
+# Signed repos: release.yml signs the packages (cosign/gpg) and publishes to the
+# apt/yum repositories; cosign verification is also baked into install.sh and
+# the Ansible role (docs/ops/verify-artifacts.md).

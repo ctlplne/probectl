@@ -1,0 +1,41 @@
+[Unit]
+# OPS-004: systemd unit shipped inside the deb/rpm for the canary agent. The
+# deb/rpm for each agent type substitutes its own ExecStart binary + config
+# (see deploy/packaging/nfpm.yaml). The agent is a single static binary with a
+# compiled-in plugin set; it reads its config from /etc/probectl/<agent>.yaml
+# and its enrollment token from the credential file (never the unit/env, so the
+# token never lands in `systemctl show` or the journal).
+Description=probectl canary agent
+Documentation=https://docs.probectl.example/deploying-agents
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run unprivileged. The eBPF agent's unit overrides this with the exact
+# capabilities it needs (CAP_BPF/CAP_PERFMON) — the canary/flow/device agents
+# need none.
+User=probectl
+Group=probectl
+ExecStart=/usr/bin/probectl-agent --config /etc/probectl/agent.yaml
+Restart=on-failure
+RestartSec=5s
+# Decorrelate fleet restarts (SCALE-008 in the agent; systemd adds jitter too).
+RestartSteps=3
+RestartMaxDelaySec=60s
+
+# Hardening: the agent needs no write access to the host beyond its own state.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/probectl-agent
+StateDirectory=probectl-agent
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
