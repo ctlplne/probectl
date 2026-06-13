@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,21 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
+
+// tenantRejected is a process-wide count of batches/records dropped by tenant
+// verification across ALL bus-published planes (WIRE-001). Surfaced on
+// /metrics so an operator can alert on cross-tenant injection attempts — the
+// rejections are no longer only visible in the logs.
+var tenantRejected atomic.Uint64
+
+// TenantRejectedTotal reports the process-wide count of records dropped
+// fail-closed by tenant verification (the tenant-isolation rejection counter,
+// WIRE-001). Exposed as a /metrics gauge.
+func TenantRejectedTotal() uint64 { return tenantRejected.Load() }
+
+// noteTenantRejection bumps the process-wide tenant-rejection counter. Called
+// by every consumer's reject path in addition to its own per-consumer counter.
+func noteTenantRejection() { tenantRejected.Add(1) }
 
 // TENANT-101 / WIRE-001: the bus-published planes (flow, device, eBPF,
 // endpoint) used to trust the payload's tenant_id — whatever tenant the agent
@@ -31,12 +47,17 @@ import (
 //     identity, never the request (F50). An unknown agent, a mismatched
 //     pair, or a registry error REJECTS the batch (fail closed).
 //
-// The remaining gap is honest: on a shared lane an attacker who holds one
-// tenant's bus credentials AND knows another tenant's registered agent id can
-// still forge that pair. Closing it fully requires per-record cryptographic
-// identity, which is the Sprint 11 enrollment/SVID work; until then the
-// registry check reduces the forgery surface to known-registered ids and the
-// rejection counters make attempts visible.
+// The residual shared-lane gap — an attacker holding one tenant's bus
+// credentials who knows another tenant's registered agent id could forge that
+// pair on the shared lane — is closed in the default multi-tenant/regulated
+// posture by STRICT-LANE mode (WIRE-001): the shared pooled lane is refused for
+// agent-published planes, so the only authoritative path is a tenant-namespaced
+// lane (single-tenant by construction + broker-ACL isolated), which a forged
+// payload tenant_id cannot reach. Non-strict (single-tenant) deployments keep
+// the registry check. A future per-record cryptographic identity (SVID-signed
+// batches, the Sprint 11 enrollment work) would additionally let the SHARED
+// lane be safe; until then strict-lane is the closure. All rejections increment
+// a process-wide counter surfaced on /metrics (probectl_pipeline_tenant_rejected_total).
 
 // Verification/rejection errors (fail closed — callers drop and count).
 var (
@@ -44,6 +65,13 @@ var (
 	ErrMixedBatch         = errors.New("pipeline: batch mixes tenant/agent identities (fail closed)")
 	ErrNoTenant           = errors.New("pipeline: record carries no tenant id (fail closed)")
 	ErrBindingUnavailable = errors.New("pipeline: tenant binding lookup unavailable (fail closed)")
+	// ErrSharedLaneForbidden (WIRE-001): in strict-lane mode the shared
+	// pooled lane is refused for agent-published collector planes — the only
+	// authoritative path is a tenant-namespaced lane (single-tenant by
+	// construction + broker-ACL isolated), which a payload tenant_id cannot
+	// forge. Closes the residual shared-lane forgery surface in
+	// multi-tenant/regulated deployments. Fail closed.
+	ErrSharedLaneForbidden = errors.New("pipeline: shared pooled lane is forbidden for agent-published planes in strict-lane mode — publish on a tenant-namespaced lane (WIRE-001, fail closed)")
 )
 
 // TenantBinding answers "is this agent registered to this tenant?".
@@ -156,6 +184,20 @@ type Identity struct{ Tenant, Agent string }
 // and overwritten=true when the payload disagreed with the lane (counted by
 // callers — visible, never silent).
 func VerifyBatchTenant(ctx context.Context, binding TenantBinding, laneTenant string, ids []Identity) (authoritative string, overwritten bool, err error) {
+	return VerifyBatchTenantStrict(ctx, binding, laneTenant, false, ids)
+}
+
+// VerifyBatchTenantStrict is VerifyBatchTenant with the WIRE-001 strict-lane
+// option. When strict is true and the batch arrives on the SHARED pooled lane
+// (laneTenant == ""), the batch is REJECTED with ErrSharedLaneForbidden: in
+// strict mode the only authoritative path for an agent-published collector
+// plane is a tenant-namespaced lane, where the lane (broker-ACL isolated,
+// single-tenant by construction) names the tenant and a forged payload
+// tenant_id cannot be honored. On a namespaced lane strict has no effect (the
+// lane is already authoritative). strict=false preserves the prior behavior
+// (registry-verified shared lane), so non-strict/single-tenant deployments are
+// unchanged.
+func VerifyBatchTenantStrict(ctx context.Context, binding TenantBinding, laneTenant string, strict bool, ids []Identity) (authoritative string, overwritten bool, err error) {
 	if len(ids) == 0 {
 		return "", false, ErrNoTenant
 	}
@@ -182,7 +224,15 @@ func VerifyBatchTenant(ctx context.Context, binding TenantBinding, laneTenant st
 		return laneTenant, overwritten, nil
 	}
 
-	// Shared lane (pooled): the claimed pair must exist in the registry.
+	// Shared lane (pooled). In strict-lane mode the shared lane is refused for
+	// agent-published planes — the residual forgery surface (WIRE-001) is the
+	// shared lane, so closing it means requiring the namespaced lane.
+	if strict {
+		return "", false, ErrSharedLaneForbidden
+	}
+	// Non-strict: the claimed pair must exist in the registry (reduces but does
+	// not eliminate the forgery surface — a known-registered pair can still be
+	// forged by a credential holder; that residual is documented above).
 	if binding != nil {
 		if err := binding.Verify(ctx, first.Tenant, first.Agent); err != nil {
 			return "", false, err

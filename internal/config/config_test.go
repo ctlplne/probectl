@@ -282,6 +282,38 @@ func TestRemoteWriteBatchDefaultsOnForPrometheus(t *testing.T) {
 	}
 }
 
+// WIRE-001: strict tenant lanes (refuse the shared pooled lane for collector
+// planes) default ON under multi-tenant/regulated and OFF under single.
+func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
+	cfg, err := Load(envFunc(nil)) // single
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.IngestStrictTenantLanes {
+		t.Error("single profile: strict tenant lanes should default OFF")
+	}
+	for _, p := range []string{"multi-tenant", "regulated"} {
+		cfg, err := Load(envFunc(map[string]string{"PROBECTL_DEPLOYMENT_PROFILE": p}))
+		if err != nil {
+			t.Fatalf("load %s: %v", p, err)
+		}
+		if !cfg.IngestStrictTenantLanes {
+			t.Errorf("%s profile: strict tenant lanes should default ON (WIRE-001)", p)
+		}
+	}
+	// Explicit override wins.
+	cfg, err = Load(envFunc(map[string]string{
+		"PROBECTL_DEPLOYMENT_PROFILE":         "regulated",
+		"PROBECTL_INGEST_STRICT_TENANT_LANES": "false",
+	}))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.IngestStrictTenantLanes {
+		t.Error("explicit PROBECTL_INGEST_STRICT_TENANT_LANES=false must override the profile default")
+	}
+}
+
 func TestLogValueRedactsPassword(t *testing.T) {
 	cfg := &Config{DatabaseURL: "postgres://probectl:supersecret@db:5432/probectl"}
 	var buf bytes.Buffer

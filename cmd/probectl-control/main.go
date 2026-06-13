@@ -814,7 +814,8 @@ func run(cmd string) error {
 		return pipeline.NewConsumer(resultBus, ingestWriter, pipeline.DefaultGroup, log).
 			WithNamespaces(busNamespaces).
 			WithNamespaceTenants(nsTenants).
-			WithTenantBinding(tenantBinding). // TENANT-101: endpoint lane verified
+			WithTenantBinding(tenantBinding).                   // TENANT-101: endpoint lane verified
+			WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
 			WithFairness(fairGate).
 			WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
 			Run(gctx)
@@ -824,6 +825,7 @@ func run(cmd string) error {
 		return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).
 			WithTenantBinding(tenantBinding).
 			WithNamespaceTenants(nsTenants).
+			WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
 			WithFairness(fairGate).Run(gctx)
 	})
 	// Device pipeline (S39): probectl.device.metrics -> verify tenant -> TSDB.
@@ -832,6 +834,7 @@ func run(cmd string) error {
 			WithFairness(fairGate). // SCALE-005: device plane bounded like every plane
 			WithTenantBinding(tenantBinding).
 			WithNamespaceTenants(nsTenants).
+			WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
 			Run(gctx)
 	})
 	// Endpoint DEM view (S-FE4): probectl.endpoint.results -> snapshot store.

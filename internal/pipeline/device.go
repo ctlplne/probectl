@@ -48,9 +48,10 @@ type DeviceConsumer struct {
 	log   *slog.Logger
 
 	// Server-side tenant binding (TENANT-101) + siloed lanes (TENANT-107).
-	binding   TenantBinding
-	nsTenants map[string]string
-	rejected  atomic.Uint64
+	binding    TenantBinding
+	nsTenants  map[string]string
+	strictLane bool // WIRE-001: refuse the shared pooled lane
+	rejected   atomic.Uint64
 
 	// SCALE-005: the device plane rides the SAME bounds as every other
 	// plane — per-tenant rate (fairness gate) + per-(tenant,agent) series
@@ -81,6 +82,14 @@ func (c *DeviceConsumer) DeadLettered() uint64 { return c.deadLettered.Load() }
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101).
 func (c *DeviceConsumer) WithTenantBinding(b TenantBinding) *DeviceConsumer {
 	c.binding = b
+	return c
+}
+
+// WithStrictTenantLanes enables WIRE-001 strict-lane mode: device batches are
+// refused on the shared pooled lane and must arrive on a tenant-namespaced
+// lane. Off by default; on in the multi-tenant/regulated profile.
+func (c *DeviceConsumer) WithStrictTenantLanes(strict bool) *DeviceConsumer {
+	c.strictLane = strict
 	return c
 }
 
@@ -167,9 +176,10 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	for i, m := range batch.Metrics {
 		ids[i] = Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()}
 	}
-	tenant, overwritten, verr := VerifyBatchTenant(ctx, c.binding, laneTenant, ids)
+	tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, c.binding, laneTenant, c.strictLane, ids)
 	if verr != nil {
 		c.rejected.Add(1)
+		noteTenantRejection()
 		c.log.Error("REJECTED device batch: tenant verification failed (TENANT-101, fail closed)",
 			"claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent, "lane_tenant", laneTenant,
 			"metrics", len(batch.Metrics), "rejected_total", c.rejected.Load(), "error", verr.Error())

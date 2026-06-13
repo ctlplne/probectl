@@ -39,6 +39,7 @@ type Consumer struct {
 	namespaces []string          // siloed bus lanes (S-T2), known at startup
 	nsTenants  map[string]string // namespace -> tenant id (lane authority, TENANT-101)
 	binding    TenantBinding     // registry-backed verification; nil = unit tests
+	strictLane bool              // WIRE-001: refuse the shared pooled lane for agent-published planes
 	gate       *fairness.Gate    // per-tenant ingest bounds (S-T7); nil = unbounded
 
 	rejectedTenant atomic.Uint64 // results dropped by tenant verification
@@ -142,6 +143,16 @@ func (c *Consumer) WithNamespaceTenants(m map[string]string) *Consumer {
 // (TENANT-101). nil keeps legacy behavior for DB-less unit tests.
 func (c *Consumer) WithTenantBinding(b TenantBinding) *Consumer {
 	c.binding = b
+	return c
+}
+
+// WithStrictTenantLanes enables WIRE-001 strict-lane mode: agent-published
+// planes are refused on the shared pooled lane and must arrive on a
+// tenant-namespaced lane (broker-ACL isolated, forgery-proof). Defaults off so
+// single-tenant/pooled deployments are unchanged; the control plane turns it on
+// in the multi-tenant/regulated profile.
+func (c *Consumer) WithStrictTenantLanes(strict bool) *Consumer {
+	c.strictLane = strict
 	return c
 }
 
@@ -338,10 +349,11 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 		if !lane.verify {
 			binding = nil // control-published lane: re-stamp only, no agent check
 		}
-		tenant, overwritten, verr := VerifyBatchTenant(ctx, binding, lane.laneTenant,
+		tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, binding, lane.laneTenant, c.strictLane,
 			[]Identity{{Tenant: r.GetTenantId(), Agent: r.GetAgentId()}})
 		if verr != nil {
 			c.rejectedTenant.Add(1)
+			noteTenantRejection()
 			c.log.Error("REJECTED result: tenant verification failed (TENANT-101, fail closed)",
 				"claimed_tenant", r.GetTenantId(), "agent_id", r.GetAgentId(),
 				"lane_tenant", lane.laneTenant, "topic", lane.topic,

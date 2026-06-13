@@ -45,8 +45,9 @@ type FlowConsumer struct {
 	// Server-side tenant binding (TENANT-101): payload tenants are verified
 	// against the agents registry (shared lane) or overwritten by the lane
 	// tenant (namespaced lanes). nil binding = unit tests only.
-	binding   TenantBinding
-	nsTenants map[string]string // bus namespace -> tenant id (siloed lanes)
+	binding    TenantBinding
+	nsTenants  map[string]string // bus namespace -> tenant id (siloed lanes)
+	strictLane bool              // WIRE-001: refuse the shared pooled lane
 
 	rejected    atomic.Uint64 // batches dropped fail-closed (TENANT-101)
 	overwritten atomic.Uint64 // payload tenant corrected to the lane tenant
@@ -150,6 +151,14 @@ func (c *FlowConsumer) WithTenantBinding(b TenantBinding) *FlowConsumer {
 	return c
 }
 
+// WithStrictTenantLanes enables WIRE-001 strict-lane mode: flow batches are
+// refused on the shared pooled lane and must arrive on a tenant-namespaced
+// lane. Off by default; on in the multi-tenant/regulated profile.
+func (c *FlowConsumer) WithStrictTenantLanes(strict bool) *FlowConsumer {
+	c.strictLane = strict
+	return c
+}
+
 // WithNamespaceTenants subscribes the consumer to each siloed tenant's
 // namespaced flow lane (TENANT-107) and makes the lane the authoritative
 // tenant for records arriving on it.
@@ -185,9 +194,10 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	for i, f := range batch.Flows {
 		ids[i] = Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
 	}
-	tenant, overwritten, verr := VerifyBatchTenant(ctx, c.binding, laneTenant, ids)
+	tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, c.binding, laneTenant, c.strictLane, ids)
 	if verr != nil {
 		c.rejected.Add(1)
+		noteTenantRejection()
 		c.log.Error("REJECTED flow batch: tenant verification failed (TENANT-101, fail closed)",
 			"claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent,
 			"lane_tenant", laneTenant, "rows", len(batch.Flows),

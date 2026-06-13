@@ -937,6 +937,7 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_EBPFSTORE_READER_USER` | (none) | the ClickHouse reader user the eBPF setting-scoped row policy is installed on at boot |
 | `PROBECTL_PATHSTORE_TENANT_SCOPING` | profile | TENANT-004: DB-level reader scoping on the path plane; defaults ON under `multi-tenant`/`regulated` |
 | `PROBECTL_PATHSTORE_READER_USER` | (none) | the ClickHouse reader user the path setting-scoped row policy is installed on at boot |
+| `PROBECTL_INGEST_STRICT_TENANT_LANES` | profile | WIRE-001: refuse agent-published collector planes (flow/eBPF/device/endpoint) on the **shared pooled bus lane**, forcing them onto tenant-namespaced lanes (broker-ACL isolated, forgery-proof). Closes the residual shared-lane forgery surface. Defaults ON under `multi-tenant`/`regulated`, OFF under `single`. Rejections increment `probectl_pipeline_tenant_rejected_total` on `/metrics` |
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `0` (keep) | when `> 0`, applies a delete-after-N-days TTL to the `probectl_flows` ClickHouse table; `0` keeps flows indefinitely |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
 

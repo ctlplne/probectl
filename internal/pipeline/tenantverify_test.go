@@ -133,6 +133,34 @@ func TestVerifyBatchTenant(t *testing.T) {
 			t.Fatalf("empty batch must be rejected, got %v", err)
 		}
 	})
+
+	// WIRE-001: the residual forgery surface was the SHARED pooled lane — a
+	// credential holder who knows a victim's registered (tenant, agent) pair
+	// could publish a record that the registry check happily vouches for. In
+	// strict-lane mode the shared lane is refused outright, so the only
+	// authoritative path is a tenant-namespaced (broker-ACL isolated) lane.
+	t.Run("WIRE-001 strict: a registry-VALID pair on the shared lane is REFUSED", func(t *testing.T) {
+		// {tenant-a, agent-1} is a perfectly valid registered pair — non-strict
+		// accepts it. Strict mode must still refuse it on the shared lane.
+		_, _, err := VerifyBatchTenantStrict(ctx, b, "", true, []Identity{{Tenant: "tenant-a", Agent: "agent-1"}})
+		if !errors.Is(err, ErrSharedLaneForbidden) {
+			t.Fatalf("strict mode must refuse the shared lane even for a valid pair, got %v", err)
+		}
+		// Sanity: non-strict still accepts the same valid pair (proves the test
+		// is exercising the strict path, not a pre-existing rejection).
+		if got, _, err := VerifyBatchTenant(ctx, b, "", []Identity{{Tenant: "tenant-a", Agent: "agent-1"}}); err != nil || got != "tenant-a" {
+			t.Fatalf("non-strict must still accept the valid pair: got=%q err=%v", got, err)
+		}
+	})
+
+	t.Run("WIRE-001 strict: the namespaced lane stays authoritative", func(t *testing.T) {
+		// Strict mode does not change namespaced lanes — they were never the
+		// forgery surface. The lane tenant wins and the agent must be bound to it.
+		got, ow, err := VerifyBatchTenantStrict(ctx, b, "tenant-a", true, []Identity{{Tenant: "tenant-b", Agent: "agent-1"}})
+		if err != nil || got != "tenant-a" || !ow {
+			t.Fatalf("strict namespaced lane must stay authoritative: got=%q ow=%v err=%v", got, ow, err)
+		}
+	})
 }
 
 // ── End-to-end through the flow consumer: the red-team scenario ─────────────
@@ -184,6 +212,51 @@ func TestFlowConsumerCrossTenantInjection(t *testing.T) {
 	}
 	if rows := st.RowsForTenant("tenant-b"); len(rows) != 0 {
 		t.Fatalf("lane override leaked %d rows to tenant-b", len(rows))
+	}
+}
+
+// WIRE-001 end-to-end: with strict-lane mode on, a forged-but-registry-valid
+// record on the SHARED lane is dropped and stored nowhere; the SAME record on
+// the agent's own namespaced lane flows through. Proves the residual shared-
+// lane forgery surface is closed in the default multi-tenant/regulated posture.
+func TestFlowConsumerStrictLaneClosesSharedLaneForgery(t *testing.T) {
+	ctx := context.Background()
+	st := &captureFlowStore{Store: flowstore.NewMemory()}
+	b := &fakeBinding{pairs: map[[2]string]bool{
+		{"tenant-a", "agent-1"}: true, // a real, registered pair
+	}}
+	// Strict mode ON (the multi-tenant/regulated default).
+	c := NewFlowConsumer(nil, st, nil, testLogger()).
+		WithTenantBinding(b).WithStrictTenantLanes(true)
+
+	mkBatch := func(tenant, agent string) bus.Message {
+		batch := &flowv1.FlowBatch{Flows: []*flowv1.FlowRecord{{
+			TenantId: tenant, AgentId: agent,
+			SourceAddress: "10.0.0.1", DestinationAddress: "192.0.2.9", Bytes: 100,
+		}}}
+		v, _ := proto.Marshal(batch)
+		return bus.Message{Key: []byte(tenant), Value: v}
+	}
+
+	// FORGERY on the shared lane: a registry-VALID pair (the residual gap) is
+	// now refused outright — strict mode does not even consult the registry.
+	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), ""); err != nil {
+		t.Fatalf("handler must drop, not error: %v", err)
+	}
+	if got := c.RejectedBatches(); got != 1 {
+		t.Fatalf("shared-lane batch must be refused in strict mode, rejected=%d", got)
+	}
+	if rows := st.RowsForTenant("tenant-a"); len(rows) != 0 {
+		t.Fatalf("strict mode stored %d rows from the shared lane (must be 0)", len(rows))
+	}
+
+	// The SAME record on the agent's namespaced lane flows through (the lane is
+	// the authoritative, forgery-proof path).
+	if err := c.handleLane(ctx, mkBatch("tenant-a", "agent-1"), "tenant-a"); err != nil {
+		t.Fatalf("namespaced lane batch: %v", err)
+	}
+	if rows := st.RowsForTenant("tenant-a"); len(rows) != 1 {
+		t.Fatalf("namespaced lane rows = %d, want 1", len(rows))
 	}
 }
 

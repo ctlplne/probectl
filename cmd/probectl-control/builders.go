@@ -91,6 +91,12 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 	m.Gauge("probectl_pipeline_max_future_skew_ms",
 		"Largest future clock skew observed across all samples, in milliseconds.",
 		func() float64 { return float64(pipeline.MaxObservedFutureSkewMillis()) })
+	// WIRE-001: cross-tenant injection attempts dropped fail-closed by tenant
+	// verification across every bus-published plane — surfaced so the
+	// tenant-isolation dashboard can alert on it instead of it hiding in logs.
+	m.Gauge("probectl_pipeline_tenant_rejected_total",
+		"Records dropped fail-closed by tenant verification (cross-tenant injection attempts / shared-lane refusals, WIRE-001).",
+		func() float64 { return float64(pipeline.TenantRejectedTotal()) })
 	if kb, ok := resultBus.(*bus.Kafka); ok {
 		m.Gauge("probectl_bus_produced", "Broker-acked records published to the bus.",
 			func() float64 { return float64(kb.Stats().Produced) })
