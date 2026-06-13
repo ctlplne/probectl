@@ -6,6 +6,11 @@
 *.out
 # Stray gofmt/editor backups (ARCH-007): *.go.<numeric> must never be committed.
 *.go.[0-9]*
+# Editor/merge scratch litter (AIRCA-005/CODE-004): never commit these.
+*.orig
+*.bak
+*.rej
+*.trash*
 # stray root-level cmd binaries (normal builds go to /bin/)
 /probectl
 /probectl-control

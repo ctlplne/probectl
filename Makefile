@@ -247,6 +247,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
 	golangci-lint run
 	./scripts/check_crypto_imports.sh
+	./scripts/check_repo_hygiene.sh SELFTEST && ./scripts/check_repo_hygiene.sh
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	./scripts/check_swallowed_errors.sh
 	./scripts/check_http_clients.sh
