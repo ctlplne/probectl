@@ -627,6 +627,26 @@ func run(cmd string) error {
 	}, fairnessSource)
 	srv.WithFairness(fairGate)
 	srv.WithA2ABroker(a2aBroker) // ARCH-009: session-start API over the broker
+
+	// CORRECT-009: the pipeline/bus/clock-skew loss counters that already exist
+	// finally get a production reader. Expose them as sampled gauges on /metrics
+	// (probectl observes probectl, §8) so operators can alert on data loss
+	// instead of it being invisible until a customer notices missing data.
+	{
+		m := srv.Metrics()
+		m.Gauge("probectl_pipeline_future_clamped", "Samples clamped because their timestamp was implausibly far in the future (agent clock skew, CORRECT-012).", func() float64 { return float64(pipeline.FutureClamped()) })
+		m.Gauge("probectl_pipeline_max_future_skew_ms", "Largest future clock skew observed across all samples, in milliseconds.", func() float64 { return float64(pipeline.MaxObservedFutureSkewMillis()) })
+		if kb, ok := resultBus.(*bus.Kafka); ok {
+			m.Gauge("probectl_bus_produced", "Broker-acked records published to the bus.", func() float64 { return float64(kb.Stats().Produced) })
+			m.Gauge("probectl_bus_failed", "Records accepted into the producer buffer that failed asynchronously after retries.", func() float64 { return float64(kb.Stats().Failed) })
+			m.Gauge("probectl_bus_shed", "Records shed at the full in-flight buffer (broker degraded backpressure drop).", func() float64 { return float64(kb.Stats().Shed) })
+			m.Gauge("probectl_bus_handler_errors", "Consumed records whose handler errored, leaving the offset uncommitted for redelivery (SCALE-007/CODE-007).", func() float64 { return float64(kb.Stats().HandlerErrors) })
+			m.Gauge("probectl_bus_buffered", "Records currently buffered in the async producer (in flight).", func() float64 { return float64(kb.Stats().Buffered) })
+		}
+		if p, ok := tsdbWriter.(*tsdb.Prometheus); ok {
+			m.Gauge("probectl_tsdb_remote_write_rejected", "Samples permanently rejected by the remote-write upstream with a 4xx (out-of-order/too-old, CORRECT-003).", func() float64 { return float64(p.RejectedPermanent()) })
+		}
+	}
 	// Fairness accounting as per-tenant TSDB series (Grafana-federable).
 	g.Go(func() error { fairness.RunMetrics(gctx, tsdbWriter, fairGate, 30*time.Second, log); return nil })
 	// Self-monitoring (S-EE4): probectl observes probectl — goroutines, mem,
