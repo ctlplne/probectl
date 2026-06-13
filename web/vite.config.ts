@@ -40,7 +40,12 @@ export default defineConfig({
       // real total, bump each metric to (measured − 2); only ever increase it.
       // Deleting a tested component's test must drop coverage below the floor
       // and red the build — that is the gate doing its job.
-      thresholds: { lines: 30, functions: 25, statements: 30, branches: 22 },
+      //
+      // EXC-GATE-03 / TEST-001: floors set to the MEASURED total − 2pts from a
+      // full vitest --coverage run (statements 87.38, branches 73.02, functions
+      // 86.75, lines 89.53 → floor = measured − 2, rounded down). Ratchet up as
+      // the suite grows; never lower these to make a regression pass.
+      thresholds: { lines: 87, functions: 84, statements: 85, branches: 71 },
       exclude: ['**/*.test.{ts,tsx}', 'src/test/**', 'dist/**', '**/*.config.*'],
     },
   },
