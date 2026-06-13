@@ -251,6 +251,64 @@ func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
 	return s.issue(ctx, tenantID, agentID, hostname, req.Version, req.CSRPEM, "" /* first issuance */)
 }
 
+// CollectorIdentity is what a bus-only collector gets from registration: a
+// UUID agent id (and its tenant) to stamp on the records it publishes. No
+// certificate — these collectors authenticate to the bus separately; the
+// registry row is what the control-plane tenant-binding verifies against.
+type CollectorIdentity struct {
+	TenantID string `json:"tenant_id"`
+	AgentID  string `json:"agent_id"`
+}
+
+// RegisterCollector is the sanctioned registration path for bus-publishing
+// collectors — the eBPF, flow, and device planes (ARCH-011). They publish
+// straight to the bus rather than streaming over the agent gRPC, so they never
+// went through Enroll and had NO registry row; the tenant-binding then rejected
+// their batches fail-closed (the three planes were effectively un-ingestable
+// without this). RegisterCollector consumes a one-time enroll token, mints a
+// UUID identity, and writes the agents-registry row, returning the UUID for the
+// collector to stamp on its records. It issues no certificate (bus auth is
+// separate) — that is the only difference from Enroll.
+func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane string) (*CollectorIdentity, error) {
+	if !strings.HasPrefix(token, "pjt_") {
+		return nil, ErrInvalidToken
+	}
+	hostname = strings.TrimSpace(hostname)
+	tenantID, pinned, err := store.NewEnrollTokens(s.pool).Consume(ctx, crypto.Hash([]byte(token)), hostname)
+	if err != nil {
+		if errors.Is(err, store.ErrEnrollTokenInvalid) {
+			return nil, ErrInvalidToken
+		}
+		return nil, err
+	}
+	agentID := pinned
+	if agentID == "" {
+		if agentID, err = newAgentID(); err != nil {
+			return nil, err
+		}
+	}
+	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
+	name := hostname
+	if name == "" {
+		name = agentID
+	}
+	caps := []string{"collector"}
+	if plane != "" {
+		caps = append(caps, plane)
+	}
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			_, e := (store.Agents{}).Register(ctx, sc, agentID, name, hostname, "", spiffe, caps)
+			return e
+		})
+	if err != nil {
+		return nil, err
+	}
+	s.log.Info("bus collector registered",
+		"tenant_id", tenantID, "agent_id", agentID, "plane", plane, "hostname", hostname)
+	return &CollectorIdentity{TenantID: tenantID, AgentID: agentID}, nil
+}
+
 // newAgentID mints a random v4 UUID for an agent. The agents registry keys on
 // a uuid column (migrations/0006), so the id must be a UUID — not the old
 // "agent-<hex>" form. No external uuid dependency: 16 crypto-random bytes with

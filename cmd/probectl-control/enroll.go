@@ -99,6 +99,39 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 	return nil
 }
 
+// runRegisterCollector registers a bus-publishing collector (eBPF/flow/device)
+// from a one-time enroll token and prints the minted UUID identity for it to
+// stamp on its records (ARCH-011). No certificate is issued — bus collectors
+// authenticate to the broker separately; the registry row is what the
+// control-plane tenant-binding verifies their batches against.
+func runRegisterCollector(ctx context.Context, db *store.DB, args []string) error {
+	fs := flag.NewFlagSet("register-collector", flag.ContinueOnError)
+	token := fs.String("token", "", "one-time enroll token (pjt_...; REQUIRED)")
+	plane := fs.String("plane", "", "collector plane: ebpf | flow | device")
+	hostname := fs.String("hostname", "", "operator label / source host")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *token == "" {
+		return fmt.Errorf("-token is required (mint one with enroll-token)")
+	}
+	svc, err := enroll.Load(ctx, db.Pool(), nil)
+	if err != nil {
+		return err
+	}
+	id, err := svc.RegisterCollector(ctx, *token, *hostname, *plane)
+	if err != nil {
+		return err
+	}
+	fmt.Println("collector registered. Configure the collector with:")
+	fmt.Println("  tenant_id:", id.TenantID)
+	fmt.Println("  agent_id: ", id.AgentID)
+	fmt.Println()
+	fmt.Println("stamp agent_id on every record the collector publishes to the bus;")
+	fmt.Println("the control plane verifies it against this registry row (TENANT-101).")
+	return nil
+}
+
 // serverCertPin is the sha256 of the serving certificate (DER), hex — the
 // first-contact pin printed alongside minted tokens (ADR decision 3).
 func serverCertPin(certFile string) string {
