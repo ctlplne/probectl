@@ -1,0 +1,3 @@
+go test fuzz v1
+uint32(80)
+[]byte("GET / HTTP/1.1\x0d\x0a")

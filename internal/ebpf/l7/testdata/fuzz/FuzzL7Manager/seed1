@@ -1,0 +1,4 @@
+go test fuzz v1
+uint32(443)
+byte(1)
+[]byte("HTTP/1.1 200 OK\x0d\x0aContent-Length: 0\x0d\x0a\x0d\x0a")
