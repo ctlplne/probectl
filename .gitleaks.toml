@@ -24,6 +24,10 @@ paths = [
   # key (sk_live_abc123def456) to prove redactText() masks them (AIRCA-002).
   # The strings are the test's INPUT, not credentials.
   '''internal/ai/egressgate_test\.go''',
+  # KEYS-003: this test plants a literal "fake" EC PRIVATE KEY PEM to prove
+  # sealCAKey REFUSES a plaintext CA key (the bytes inside the block are
+  # literally "fake"). The string is the test's INPUT, not a credential.
+  '''internal/enroll/seal_test\.go''',
 ]
 regexes = [
   # gosnmp protocol constants (e.g. AuthenticationProtocol = gosnmp.SHA512)
