@@ -232,6 +232,7 @@ func envToResult(env *resultEnvelope) *resultv1.Result {
 	return &resultv1.Result{
 		TenantId:          env.TenantID,
 		AgentId:           env.AgentID,
+		ResultId:          env.ResultID, // CORRECT-002: stable across retries (minted at probe time)
 		CanaryType:        r.Type,
 		ServerAddress:     r.Target,
 		Success:           r.Success,

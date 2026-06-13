@@ -127,7 +127,7 @@ func (co *Coordinator) runInitiator(ctx context.Context, task *agentv1.A2ATask) 
 }
 
 func (co *Coordinator) enqueue(res canary.Result) {
-	payload, err := json.Marshal(resultEnvelope{TenantID: co.tenantID, AgentID: co.agentID, Result: res})
+	payload, err := json.Marshal(resultEnvelope{TenantID: co.tenantID, AgentID: co.agentID, ResultID: newResultID(), Result: res})
 	if err != nil {
 		co.log.Error("a2a marshal result", "error", err.Error())
 		return

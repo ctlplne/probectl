@@ -224,6 +224,15 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	// Authoritative identity comes from the mTLS certificate, not the payload.
 	r.TenantId = id.TenantID
 	r.AgentId = id.AgentID
+	// CORRECT-002: a current agent mints a stable result_id (constant across
+	// retries). An OLDER agent leaves it empty; stamp a DETERMINISTIC id derived
+	// from the result's stable content so a redelivered identical record still
+	// collapses in the row stores' ReplacingMergeTree. The derivation excludes
+	// nothing that distinguishes two genuine results, so distinct results keep
+	// distinct ids.
+	if r.GetResultId() == "" {
+		r.ResultId = deterministicResultID(&r)
+	}
 	if svc.bus == nil {
 		return nil // no bus wired (minimal server): accept and count only
 	}
@@ -251,6 +260,20 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	// SCALE-007: tenant|bucket key (agent entropy) — one large tenant spreads
 	// across partitions; each agent's stream keeps its FIFO.
 	return svc.bus.Publish(ctx, topic, bus.TenantKey(r.TenantId, r.AgentId), value)
+}
+
+// deterministicResultID derives a stable dedup id for a result that arrived
+// without one (older agent), from the fields that identify it: tenant, agent,
+// canary type, target, and the start/duration timestamps. Two redeliveries of
+// the same probe hash identically (so they dedup); two genuinely distinct
+// probes differ (different start time at minimum). Formatted as a UUID-shaped
+// hex string so it is indistinguishable from an agent-minted id downstream.
+func deterministicResultID(r *resultv1.Result) string {
+	seed := fmt.Sprintf("%s|%s|%s|%s|%d|%d|%t|%s",
+		r.GetTenantId(), r.GetAgentId(), r.GetCanaryType(), r.GetServerAddress(),
+		r.GetStartTimeUnixNano(), r.GetDurationNano(), r.GetSuccess(), r.GetErrorMessage())
+	h := crypto.Hash([]byte(seed)) // sha256
+	return fmt.Sprintf("%x-%x-%x-%x-%x", h[0:4], h[4:6], h[6:8], h[8:10], h[10:16])
 }
 
 // PollCoordination returns the next brokered agent-to-agent task for the calling

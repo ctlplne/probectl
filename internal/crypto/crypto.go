@@ -119,6 +119,19 @@ func Hash(data []byte) []byte { return Default.Hash(data) }
 // Random returns n cryptographically secure random bytes.
 func Random(n int) ([]byte, error) { return Default.Random(n) }
 
+// UUIDv4 mints a canonical random v4 UUID via the crypto provider (no external
+// dependency): 16 secure-random bytes with the version (4) and variant (10x)
+// bits set. Used for per-record dedup ids (CORRECT-002) and agent identities.
+func UUIDv4() (string, error) {
+	b, err := Random(16)
+	if err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
+}
+
 // Encrypt seals plaintext with key (AES-256-GCM) binding aad.
 func Encrypt(key, plaintext, aad []byte) ([]byte, error) { return Default.Encrypt(key, plaintext, aad) }
 

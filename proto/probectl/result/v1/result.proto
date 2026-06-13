@@ -39,6 +39,14 @@ message Result {
 
   // --- Additional OTel-convention attributes (network.*, server.*, client.*, ...) ---
   map<string, string> attributes = 13;
+
+  // result_id is a per-result UUID minted AT THE AGENT (CORRECT-002). It is the
+  // dedup key for append-only row stores: at-least-once delivery can redeliver a
+  // result on retry, and a ReplacingMergeTree keyed on result_id collapses the
+  // duplicate at merge time so cross-plane counts are not inflated. Empty on
+  // older agents; the control plane then mints a deterministic id so a
+  // redelivered identical record still dedups. Additive field — tag 14.
+  string result_id = 14;
 }
 
 message ResultBatch {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 type scheduled struct {
@@ -20,9 +21,26 @@ type scheduled struct {
 // resultEnvelope stamps tenant + agent identity onto a canary result so it is
 // tenant-attributable end to end (F50). It is the buffered and streamed payload.
 type resultEnvelope struct {
-	TenantID string        `json:"tenant_id"`
-	AgentID  string        `json:"agent_id"`
+	TenantID string `json:"tenant_id"`
+	AgentID  string `json:"agent_id"`
+	// ResultID is a per-result UUID minted ONCE at probe time and persisted in
+	// the buffer (CORRECT-002). Because it is stamped before the result is
+	// buffered, a retried/redelivered frame carries the SAME id — the dedup key
+	// the row stores collapse on. Minted here, not at send time, precisely so a
+	// resend does not get a fresh id.
+	ResultID string        `json:"result_id"`
 	Result   canary.Result `json:"result"`
+}
+
+// newResultID mints the per-result dedup UUID (CORRECT-002); on the vanishingly
+// rare RNG failure it returns "" and the control plane stamps a deterministic
+// fallback id instead, so dedup still holds.
+func newResultID() string {
+	id, err := crypto.UUIDv4()
+	if err != nil {
+		return ""
+	}
+	return id
 }
 
 // Host schedules canaries and writes their results into the buffer. It runs
@@ -66,7 +84,7 @@ func (h *Host) probe(ctx context.Context, c canary.Canary) {
 		h.log.Error("canary fault", "type", c.Describe().Type, "error", err.Error())
 		return
 	}
-	payload, err := json.Marshal(resultEnvelope{TenantID: h.tenantID, AgentID: h.agentID, Result: res})
+	payload, err := json.Marshal(resultEnvelope{TenantID: h.tenantID, AgentID: h.agentID, ResultID: newResultID(), Result: res})
 	if err != nil {
 		h.log.Error("marshal result", "error", err.Error())
 		return

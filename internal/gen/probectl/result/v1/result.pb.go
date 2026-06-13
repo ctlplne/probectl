@@ -51,7 +51,14 @@ type Result struct {
 	// --- Measurements: metric name -> value (e.g. "rtt.avg.ms", "packet.loss.ratio") ---
 	Metrics map[string]float64 `protobuf:"bytes,12,rep,name=metrics,proto3" json:"metrics,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
 	// --- Additional OTel-convention attributes (network.*, server.*, client.*, ...) ---
-	Attributes    map[string]string `protobuf:"bytes,13,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Attributes map[string]string `protobuf:"bytes,13,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// result_id is a per-result UUID minted AT THE AGENT (CORRECT-002). It is the
+	// dedup key for append-only row stores: at-least-once delivery can redeliver a
+	// result on retry, and a ReplacingMergeTree keyed on result_id collapses the
+	// duplicate at merge time so cross-plane counts are not inflated. Empty on
+	// older agents; the control plane then mints a deterministic id so a
+	// redelivered identical record still dedups. Additive field — tag 14.
+	ResultId      string `protobuf:"bytes,14,opt,name=result_id,json=resultId,proto3" json:"result_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -177,6 +184,13 @@ func (x *Result) GetAttributes() map[string]string {
 	return nil
 }
 
+func (x *Result) GetResultId() string {
+	if x != nil {
+		return x.ResultId
+	}
+	return ""
+}
+
 type ResultBatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Results       []*Result              `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
@@ -225,7 +239,7 @@ var File_probectl_result_v1_result_proto protoreflect.FileDescriptor
 
 const file_probectl_result_v1_result_proto_rawDesc = "" +
 	"\n" +
-	"\x1fprobectl/result/v1/result.proto\x12\x12probectl.result.v1\"\xa9\x05\n" +
+	"\x1fprobectl/result/v1/result.proto\x12\x12probectl.result.v1\"\xc6\x05\n" +
 	"\x06Result\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1f\n" +
@@ -244,7 +258,8 @@ const file_probectl_result_v1_result_proto_rawDesc = "" +
 	"\ametrics\x18\f \x03(\v2'.probectl.result.v1.Result.MetricsEntryR\ametrics\x12J\n" +
 	"\n" +
 	"attributes\x18\r \x03(\v2*.probectl.result.v1.Result.AttributesEntryR\n" +
-	"attributes\x1a:\n" +
+	"attributes\x12\x1b\n" +
+	"\tresult_id\x18\x0e \x01(\tR\bresultId\x1a:\n" +
 	"\fMetricsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x01R\x05value:\x028\x01\x1a=\n" +

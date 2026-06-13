@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/breaker"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
 
@@ -38,6 +39,44 @@ func createFlowsDDL(table string) string {
 ) ENGINE = MergeTree
 PARTITION BY (tenant_id, toYYYYMMDD(ts))
 ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr)`
+}
+
+// createFlowsDedupDDL is the CORRECT-002 dedup shape: a ReplacingMergeTree with
+// a per-row row_id in the sort key. At-least-once delivery can redeliver a flow
+// batch; ReplacingMergeTree collapses rows whose ENTIRE sort key matches at
+// merge time, and row_id (a deterministic hash of the flow's identifying
+// fields) is identical for a redelivered identical row but distinct for genuine
+// flows — so duplicates are removed without collapsing real traffic. New
+// deployments and newly-provisioned siloed tenants get this shape; the v2
+// migration rebuilds an existing shared table into it.
+func createFlowsDedupDDL(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String, agent_id String, exporter String, obs_domain UInt32,
+  protocol LowCardinality(String),
+  ts DateTime64(3), start_ts DateTime64(3),
+  src_addr String, dst_addr String, src_port UInt16, dst_port UInt16,
+  transport LowCardinality(String), net_type LowCardinality(String),
+  in_if UInt32, out_if UInt32, vlan UInt16, tos UInt8, tcp_flags UInt8, next_hop String,
+  bytes UInt64, packets UInt64, sampling UInt64, bytes_scaled UInt64, packets_scaled UInt64,
+  src_asn UInt32, src_as_name String, src_country LowCardinality(String),
+  dst_asn UInt32, dst_as_name String, dst_country LowCardinality(String),
+  row_id String
+) ENGINE = ReplacingMergeTree
+PARTITION BY (tenant_id, toYYYYMMDD(ts))
+ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr, src_port, dst_port, protocol, row_id)`
+}
+
+// flowRowID derives the deterministic dedup key for a flow row (CORRECT-002):
+// a hash over every field that distinguishes one observed flow from another.
+// A redelivered identical row hashes identically (collapsed by the
+// ReplacingMergeTree); any genuine difference yields a different id.
+func flowRowID(r Row) string {
+	seed := fmt.Sprintf("%s|%s|%s|%d|%d|%s|%s|%d|%d|%s|%d|%d|%d|%d",
+		r.TenantID, r.AgentID, r.Exporter, r.ObsDomain, r.TS.UnixNano(),
+		r.SrcAddr, r.DstAddr, r.SrcPort, r.DstPort, r.Protocol,
+		r.Bytes, r.Packets, r.InIf, r.OutIf)
+	h := crypto.Hash([]byte(seed))
+	return fmt.Sprintf("%x", h[:16])
 }
 
 const sharedFlowsTable = "probectl_flows"
@@ -111,6 +150,20 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 func chMigrations() []chmigrate.Migration {
 	return []chmigrate.Migration{
 		{Version: 1, Name: "create_flows", Statements: []string{createFlowsDDL(sharedFlowsTable)}},
+		// CORRECT-002: rebuild the shared flows table into a dedup
+		// ReplacingMergeTree keyed on row_id. Existing rows are carried over with
+		// an empty row_id (they predate dedup); the RENAME is atomic in
+		// ClickHouse, so reads never see a missing table. Fresh installs run v1
+		// then v2 and end on the dedup shape. (Siloed per-tenant tables created
+		// AFTER this ships get the dedup shape directly via EnsureTenantDatabase;
+		// pre-existing siloed tables are rebuilt with the same recipe — see
+		// docs/ops/data-plane.md.)
+		{Version: 2, Name: "flows_dedup_replacingmergetree", Statements: []string{
+			createFlowsDedupDDL(sharedFlowsTable + "_dedup"),
+			"INSERT INTO " + sharedFlowsTable + "_dedup SELECT *, '' AS row_id FROM " + sharedFlowsTable,
+			"RENAME TABLE " + sharedFlowsTable + " TO " + sharedFlowsTable + "_pre_dedup, " +
+				sharedFlowsTable + "_dedup TO " + sharedFlowsTable,
+		}},
 	}
 }
 
@@ -174,7 +227,8 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if err != nil {
 		return err
 	}
-	if err := c.exec(ctx, t.BaseURL, createFlowsDDL(table), nil, nil); err != nil {
+	// CORRECT-002: newly-provisioned siloed tenants get the dedup shape directly.
+	if err := c.exec(ctx, t.BaseURL, createFlowsDedupDDL(table), nil, nil); err != nil {
 		return fmt.Errorf("flowstore: create tenant table: %w", err)
 	}
 	if retentionDays > 0 {
@@ -200,6 +254,7 @@ type chRow struct {
 	Row
 	TSStr    string `json:"ts"`
 	StartStr string `json:"start_ts"`
+	RowID    string `json:"row_id"` // CORRECT-002 dedup key
 }
 
 // Insert streams rows as JSONEachRow batches — one request per routed target
@@ -227,7 +282,8 @@ func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 		for i := range group {
 			r := chRow{Row: group[i],
 				TSStr:    group[i].TS.UTC().Format("2006-01-02 15:04:05.000"),
-				StartStr: group[i].StartTS.UTC().Format("2006-01-02 15:04:05.000")}
+				StartStr: group[i].StartTS.UTC().Format("2006-01-02 15:04:05.000"),
+				RowID:    flowRowID(group[i])} // CORRECT-002 dedup key
 			if err := enc.Encode(r); err != nil {
 				return fmt.Errorf("flowstore: encode row: %w", err)
 			}
