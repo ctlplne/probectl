@@ -45,8 +45,17 @@ func (f Fault) Validate() error {
 	if f.LatencyMs < 0 || f.LatencyMs > 60_000 {
 		return fmt.Errorf("chaos: latency_ms %d out of range [0,60000]", f.LatencyMs)
 	}
-	if f.JitterMs < 0 || f.JitterMs > f.LatencyMs && f.JitterMs > 1000 {
-		return fmt.Errorf("chaos: jitter_ms %d out of range", f.JitterMs)
+	// RESIL-008: jitter is bounded relative to latency. The previous expression
+	// `JitterMs > LatencyMs && JitterMs > 1000` bound to the wrong precedence
+	// (an && riding the ||), so Fault{LatencyMs:0, JitterMs:500} slipped through:
+	// a ±500ms swing around a 0ms base is nonsensical (and underflows to a
+	// negative delay). Jitter must be non-negative and may exceed the base
+	// latency by at most a small slack (100ms) — so a tiny base latency can
+	// still carry a little jitter, but a swing that dwarfs the latency is
+	// rejected.
+	const jitterSlackMs = 100
+	if f.JitterMs < 0 || f.JitterMs > f.LatencyMs+jitterSlackMs {
+		return fmt.Errorf("chaos: jitter_ms %d out of range (must be in [0, latency_ms+%d])", f.JitterMs, jitterSlackMs)
 	}
 	if f.LossPct < 0 || f.LossPct > 100 {
 		return fmt.Errorf("chaos: loss_pct %.1f out of range [0,100]", f.LossPct)

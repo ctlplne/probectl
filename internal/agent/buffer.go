@@ -41,21 +41,47 @@ type Buffer struct {
 	mu         sync.Mutex
 	path       string
 	maxRecords int
+	maxBytes   int64 // RESIL-009: on-disk byte cap (0 = unbounded by bytes)
 	fsync      bool
 	count      int
+	bytes      int64 // current on-disk footprint (frame headers + payloads)
 	dropped    uint64
 }
 
-// OpenBuffer opens (creating if needed) a buffer in dir bounded to maxRecords. It
-// compacts the file on open, discarding any torn tail frame left by a crash.
+// frameOverhead is the per-frame length-prefix header byte count (RESIL-009).
+const frameOverhead = 4
+
+// defaultMaxBytes bounds the buffer's on-disk footprint (RESIL-009). At the
+// default 10000 records this caps the worst case at 256 MiB even before the
+// record count fills — guarding against ENOSPC from many large frames.
+const defaultMaxBytes = 256 << 20 // 256 MiB
+
+// OpenBuffer opens (creating if needed) a buffer in dir bounded to maxRecords
+// and the default on-disk byte cap. It compacts the file on open, discarding
+// any torn tail frame left by a crash.
 func OpenBuffer(dir string, maxRecords int) (*Buffer, error) {
+	return OpenBufferWithBytes(dir, maxRecords, defaultMaxBytes)
+}
+
+// OpenBufferWithBytes is OpenBuffer with an explicit on-disk byte cap
+// (RESIL-009). maxBytes == 0 uses defaultMaxBytes; maxBytes < 0 disables the
+// byte bound (records-only). Enqueue fails closed with ErrBufferFull when
+// EITHER the record OR the byte cap would be exceeded, shedding the newest
+// result rather than risking ENOSPC.
+func OpenBufferWithBytes(dir string, maxRecords int, maxBytes int64) (*Buffer, error) {
 	if maxRecords <= 0 {
 		maxRecords = 10000
+	}
+	switch {
+	case maxBytes == 0:
+		maxBytes = defaultMaxBytes
+	case maxBytes < 0:
+		maxBytes = 0 // 0 internally means "no byte bound"
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("agent: buffer dir: %w", err)
 	}
-	b := &Buffer{path: filepath.Join(dir, bufferFileName), maxRecords: maxRecords, fsync: true}
+	b := &Buffer{path: filepath.Join(dir, bufferFileName), maxRecords: maxRecords, maxBytes: maxBytes, fsync: true}
 	frames, err := b.readAll()
 	if err != nil {
 		return nil, err
@@ -66,11 +92,13 @@ func OpenBuffer(dir string, maxRecords int) (*Buffer, error) {
 	return b, nil
 }
 
-// Enqueue appends a payload, returning ErrBufferFull when at capacity.
+// Enqueue appends a payload, returning ErrBufferFull when at capacity (record
+// OR byte cap).
 func (b *Buffer) Enqueue(payload []byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.count >= b.maxRecords {
+	frameSize := int64(frameOverhead + len(payload))
+	if b.count >= b.maxRecords || (b.maxBytes > 0 && b.bytes+frameSize > b.maxBytes) {
 		b.dropped++
 		return ErrBufferFull
 	}
@@ -88,6 +116,7 @@ func (b *Buffer) Enqueue(payload []byte) error {
 		}
 	}
 	b.count++
+	b.bytes += frameSize
 	return nil
 }
 
@@ -139,11 +168,35 @@ func (b *Buffer) Len() int {
 	return b.count
 }
 
-// Dropped returns the number of records shed due to overflow.
+// Dropped returns the number of records shed due to overflow (record OR byte cap).
 func (b *Buffer) Dropped() uint64 {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.dropped
+}
+
+// Bytes returns the current on-disk footprint of undrained records, including
+// per-frame headers (RESIL-009). Useful for a low-disk gauge.
+func (b *Buffer) Bytes() int64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.bytes
+}
+
+// NearFull reports whether the buffer has crossed the given fraction (0..1) of
+// EITHER its record or byte cap — a low-disk / impending-overflow early warning
+// (RESIL-009). With the byte bound disabled (maxBytes == 0) only the record cap
+// is considered.
+func (b *Buffer) NearFull(frac float64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.maxRecords > 0 && float64(b.count) >= frac*float64(b.maxRecords) {
+		return true
+	}
+	if b.maxBytes > 0 && float64(b.bytes) >= frac*float64(b.maxBytes) {
+		return true
+	}
+	return false
 }
 
 // PeekAll returns all undrained records without removing them. With Remove this
@@ -217,6 +270,11 @@ func (b *Buffer) rewriteLocked(frames [][]byte) error {
 		return fmt.Errorf("agent: buffer rename: %w", err)
 	}
 	b.count = len(frames)
+	var total int64
+	for _, fr := range frames {
+		total += int64(frameOverhead + len(fr))
+	}
+	b.bytes = total
 	return nil
 }
 

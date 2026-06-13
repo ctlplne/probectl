@@ -91,5 +91,13 @@ func (h *Host) probe(ctx context.Context, c canary.Canary) {
 	}
 	if err := h.buffer.Enqueue(payload); err != nil {
 		h.log.Warn("dropping result (buffer full)", "type", res.Type, "error", err.Error())
+		return
+	}
+	// RESIL-009: warn early when the store-and-forward buffer is approaching
+	// either bound (records or on-disk bytes) — a control-plane outage is filling
+	// it and shedding is imminent. Observable before data loss starts.
+	if h.buffer.NearFull(0.9) {
+		h.log.Warn("store-and-forward buffer nearing capacity (impending low-disk drop)",
+			"records", h.buffer.Len(), "bytes", h.buffer.Bytes(), "dropped", h.buffer.Dropped())
 	}
 }

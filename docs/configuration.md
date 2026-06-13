@@ -274,6 +274,14 @@ while the control plane is unreachable and drain on reconnect (at-least-once
 delivery). Probing keeps running regardless of connectivity, so a control-plane
 outage never blocks measurement — the agent just queues and catches up.
 
+The buffer is also bounded by **on-disk bytes** (`buffer.max_bytes`, RESIL-009) to
+pre-empt ENOSPC: `0`/unset uses the built-in default of 256 MiB; a negative value
+disables the byte bound (records-only). Each frame costs `4` header bytes plus the
+payload, so the footprint of a full record-capped buffer is roughly
+`max_records × (4 + avg_payload_bytes)`. `Enqueue` fails closed (sheds the newest
+result, counted as `dropped`) when **either** the record or byte cap would be
+exceeded, and the agent logs a WARN when the buffer crosses 90% of either bound.
+
 ### Result pipeline
 
 This is the path every measurement takes from an agent to a queryable metric, and

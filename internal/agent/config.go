@@ -115,6 +115,9 @@ type Meta struct {
 type BufferConfig struct {
 	Dir        string `yaml:"dir"`
 	MaxRecords int    `yaml:"max_records"`
+	// MaxBytes bounds the on-disk footprint (RESIL-009). 0 ⇒ the package
+	// default (256 MiB); negative ⇒ unbounded by bytes (records-only).
+	MaxBytes int64 `yaml:"max_bytes"`
 }
 
 // CanaryConfig configures one scheduled canary.

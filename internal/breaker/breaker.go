@@ -43,6 +43,7 @@ type Breaker struct {
 	consec    int
 	open      bool
 	openUntil time.Time
+	probing   bool // RESIL-007: a half-open probe is in flight (single-flight gate)
 	now       func() time.Time
 
 	trips         atomic.Uint64
@@ -67,18 +68,31 @@ func New(threshold int, cooldown time.Duration) *Breaker {
 // errors) — application-level responses are the caller's concern.
 func (b *Breaker) Do(fn func() error) error {
 	b.mu.Lock()
-	if b.open && b.now().Before(b.openUntil) {
-		b.mu.Unlock()
-		b.shortCircuits.Add(1)
-		return ErrOpen
+	if b.open {
+		if b.now().Before(b.openUntil) {
+			b.mu.Unlock()
+			b.shortCircuits.Add(1)
+			return ErrOpen
+		}
+		// Cooldown elapsed → half-open. RESIL-007: admit EXACTLY ONE probe.
+		// Concurrent callers must not all rush the recovering upstream (a
+		// thundering herd); only the caller that wins the probing flag gets
+		// through, the rest short-circuit until the probe resolves.
+		if b.probing {
+			b.mu.Unlock()
+			b.shortCircuits.Add(1)
+			return ErrOpen
+		}
+		b.probing = true
 	}
-	// Closed, or open-but-cooldown-elapsed (half-open: allow this one probe).
+	// Closed, or the single elected half-open probe.
 	b.mu.Unlock()
 
 	err := fn()
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.probing = false // the probe (if any) has resolved; release the gate
 	if err != nil {
 		b.consec++
 		if !b.open && b.consec >= b.threshold {

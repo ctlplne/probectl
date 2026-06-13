@@ -128,6 +128,55 @@ func TestBufferBoundedBackpressure(t *testing.T) {
 	}
 }
 
+// RESIL-009: the buffer is bounded by BYTES as well as record count. A run of
+// large frames must be shed (counted) once the on-disk byte cap is hit, even
+// though the record count is nowhere near its limit — pre-empting ENOSPC.
+func TestBufferByteBoundRejectsAndCounts(t *testing.T) {
+	// Record cap is high (1000) so only the byte cap can bite. Byte cap allows
+	// ~2 frames of 100B payload (each frame = 4B header + 100B = 104B).
+	b, err := OpenBufferWithBytes(t.TempDir(), 1000, 220)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := make([]byte, 100)
+	if err := b.Enqueue(payload); err != nil { // 104B
+		t.Fatal(err)
+	}
+	if err := b.Enqueue(payload); err != nil { // 208B
+		t.Fatal(err)
+	}
+	if got := b.Bytes(); got != 208 {
+		t.Fatalf("bytes = %d, want 208", got)
+	}
+	// Third would push to 312B > 220B cap → shed (record count is only 2).
+	if err := b.Enqueue(payload); !errors.Is(err, ErrBufferFull) {
+		t.Errorf("over-byte-cap enqueue = %v, want ErrBufferFull", err)
+	}
+	if b.Dropped() != 1 {
+		t.Errorf("dropped = %d, want 1", b.Dropped())
+	}
+	if b.Len() != 2 {
+		t.Errorf("len = %d, want 2 (byte cap, not record cap)", b.Len())
+	}
+}
+
+// RESIL-009: a negative byte cap disables the byte bound (records-only).
+func TestBufferNegativeBytesIsUnbounded(t *testing.T) {
+	b, err := OpenBufferWithBytes(t.TempDir(), 1000, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	big := make([]byte, 1<<20) // 1 MiB
+	for i := 0; i < 5; i++ {
+		if err := b.Enqueue(big); err != nil {
+			t.Fatalf("enqueue %d with byte bound disabled = %v", i, err)
+		}
+	}
+	if b.Len() != 5 {
+		t.Errorf("len = %d, want 5", b.Len())
+	}
+}
+
 func TestBufferPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	b, err := OpenBuffer(dir, 100)

@@ -48,7 +48,7 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("agent identity: %w", err)
 	}
-	buffer, err := OpenBuffer(cfg.Buffer.Dir, cfg.Buffer.MaxRecords)
+	buffer, err := OpenBufferWithBytes(cfg.Buffer.Dir, cfg.Buffer.MaxRecords, cfg.Buffer.MaxBytes)
 	if err != nil {
 		return nil, err
 	}

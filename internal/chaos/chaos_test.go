@@ -67,6 +67,10 @@ func TestFaultValidation(t *testing.T) {
 		"absurd latency":   {LatencyMs: 120_000},
 		"loss over 100":    {LossPct: 120},
 		"negative loss":    {LossPct: -5},
+		"negative jitter":  {JitterMs: -10},
+		// RESIL-008: jitter wildly larger than latency must be rejected. The old
+		// precedence bug accepted this (jitter 500 with zero base latency).
+		"jitter dwarfs latency": {LatencyMs: 0, JitterMs: 500},
 	} {
 		if err := f.Validate(); err == nil {
 			t.Errorf("%s must fail validation", name)
@@ -74,6 +78,14 @@ func TestFaultValidation(t *testing.T) {
 	}
 	if err := (Fault{LatencyMs: 200, JitterMs: 50, LossPct: 30}).Validate(); err != nil {
 		t.Errorf("sane fault rejected: %v", err)
+	}
+	// RESIL-008: a small base latency may still carry a little jitter (within the
+	// +100ms slack); jitter <= latency is always fine.
+	if err := (Fault{LatencyMs: 0, JitterMs: 80}).Validate(); err != nil {
+		t.Errorf("jitter within the latency+100 slack rejected: %v", err)
+	}
+	if err := (Fault{LatencyMs: 5000, JitterMs: 5000}).Validate(); err != nil {
+		t.Errorf("jitter equal to latency rejected: %v", err)
 	}
 	if _, err := NewUDPProxy("127.0.0.1:9", Fault{LossPct: 200}); err == nil {
 		t.Error("proxy must reject an invalid initial fault (fail closed)")
