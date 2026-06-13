@@ -318,6 +318,12 @@ func run(cmd string) error {
 		return fmt.Errorf("flow store: %w", err)
 	}
 	defer flowStore.Close()
+	// SCALE-016: flow is the platform's highest-volume table. Keep-forever is a
+	// legitimate choice (compliance) but must be a LOUD, explicit one — never
+	// the silent default that grows the store unbounded.
+	if cfg.FlowRetentionDays == 0 {
+		log.Warn("FLOW RETENTION DISABLED: PROBECTL_FLOW_RETENTION_DAYS=0 — flows are kept FOREVER and the flow table will grow without bound. Set a finite value (default 90) unless you have an explicit retention requirement.")
+	}
 	// TENANT-102: DB-level reader scoping. When enabled, reads attach the
 	// per-request tenant custom setting and the reader row policy constrains
 	// the query path even if app-layer WHERE scoping is bypassed.
