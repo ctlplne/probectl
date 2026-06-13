@@ -182,9 +182,12 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 			s.audit(ctx, CallEvent{TenantID: p.TenantID, UserID: p.UserID, Tool: params.Name, Allowed: allowed, Denial: denial})
 		}
 	}
-	// RBAC: the caller must hold the tool's permission (tenant already checked) —
-	// the out-of-scope caller gets nothing.
-	if !p.Has(t.Permission) {
+	// Tenant boundary FIRST, then RBAC (the documented MCP order) — routed through
+	// the single auth.Authorize decision. The tool acts within the caller's own
+	// tenant, so the resource is tagged with it; a future cross-tenant resource
+	// would fail closed at the boundary before RBAC is even consulted. An
+	// out-of-scope caller gets nothing.
+	if !auth.Authorize(p, t.Permission, nil, map[string]string{auth.ResourceTenantKey: p.TenantID}) {
 		emit(false, "permission")
 		return errorResponse(req.ID, codeForbidden, "missing permission: "+t.Permission)
 	}

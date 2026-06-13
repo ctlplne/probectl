@@ -69,6 +69,37 @@ func Permit(p *Principal, permission string, policies []Policy, resource map[str
 	return Evaluate(policies, permission, attrsOf(p), resource) != PolicyDeny
 }
 
+// ResourceTenantKey is the resource-attribute key carrying the tenant a resource
+// belongs to. Authorize compares it against the principal's tenant so a request
+// can never be authorized against another tenant's resource (defense-in-depth
+// ABOVE the storage-layer RLS, per CLAUDE.md guardrail 1 — "tenant first, then
+// RBAC"). When the key is absent the resource is tenant-agnostic (no boundary
+// check applies; RBAC/ABAC still do).
+const ResourceTenantKey = "tenant"
+
+// Authorize is the single access decision in the documented order: the TENANT
+// BOUNDARY is checked first (fail closed on a cross-tenant resource), THEN RBAC
+// (the permission must be held), THEN ABAC (no deny policy fires). It returns
+// false the moment any layer refuses — there is no path where a stronger inner
+// grant overrides the outer tenant boundary. A nil principal is never authorized.
+//
+// This is the one place the "tenant first, then RBAC" rule (guardrail 1, also the
+// AI/MCP enforcement order) is encoded; handlers and the MCP tool layer route
+// their decision through it rather than re-implementing the order ad hoc.
+func Authorize(p *Principal, permission string, policies []Policy, resource map[string]string) bool {
+	if p == nil {
+		return false
+	}
+	// 1. Tenant boundary (outermost). If the resource names a tenant, it must be
+	// the principal's. A provider operator is a SEPARATE privilege domain and is
+	// not modeled as a tenant principal here, so it likewise fails closed.
+	if rt, ok := resource[ResourceTenantKey]; ok && rt != "" && rt != p.TenantID {
+		return false
+	}
+	// 2 + 3. RBAC baseline AND ABAC non-deny.
+	return Permit(p, permission, policies, resource)
+}
+
 // attrsSubset reports whether every key/value in required is present and equal in
 // actual. An empty requirement matches anything.
 func attrsSubset(required, actual map[string]string) bool {

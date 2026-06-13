@@ -107,7 +107,14 @@ probectl-control scim-token --tenant <tenant-uuid> --name okta
 
 ## ABAC over RBAC
 
-ABAC is a **third** check, after the tenant boundary and after RBAC. The mental
+ABAC is a **third** check, after the tenant boundary and after RBAC. All three
+layers are evaluated in that order by a single function, `auth.Authorize`
+(`internal/auth/abac.go`) — the tenant boundary fails closed on a cross-tenant
+resource *before* RBAC is consulted, so a stronger inner grant can never override
+the outer boundary. The MCP tool layer routes its decision through it; the
+table-driven matrix in `internal/auth/authz_matrix_test.go` covers in-tenant
+grants, the RBAC baseline, ABAC overlays, cross-tenant denial, and
+least-privilege provider-role denial. The mental
 model: **RBAC is the baseline grant; ABAC can only take away from it.** RBAC
 says "this role may write tests"; ABAC can add "…but not if the subject is a
 contractor." The model is **deny-override** — an `allow` policy is just a silent
