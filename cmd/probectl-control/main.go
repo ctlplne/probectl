@@ -451,10 +451,12 @@ func run(cmd string) error {
 		}
 	}
 	g.Go(func() error {
-		return control.NewTopologyConsumer(resultBus, topoStore, log).
-			WithTenantBinding(tenantBinding).
-			WithEBPFStore(ebpfStore).
-			Run(gctx)
+		return superviseRestart(gctx, "topology-consumer", log, func(ctx context.Context) error {
+			return control.NewTopologyConsumer(resultBus, topoStore, log).
+				WithTenantBinding(tenantBinding).
+				WithEBPFStore(ebpfStore).
+				Run(ctx)
+		})
 	})
 	log.Info("topology graph enabled", "engine", cfg.TopologyEngine, "ebpf_store", cfg.EBPFStoreMode)
 
@@ -815,35 +817,52 @@ func run(cmd string) error {
 	if ntErr != nil {
 		log.Warn("isolation: namespace-tenant map unavailable", "error", ntErr.Error())
 	}
+	// ARCH-002: the CORE ingest consumers (result/flow/device/endpoint) and the
+	// result-fan are SUPERVISED — a transient broker/registry fault while
+	// (re)establishing a subscription restarts just that consumer instead of
+	// cancelling the shared errgroup and taking the API + every plane down. Only
+	// srv.Run and migrations stay fatal by design (if they can't run, the process
+	// SHOULD exit). Steady-state handler/store errors are already absorbed by the
+	// per-consumer retry/DLQ, so the supervised trigger is the subscribe path.
 	g.Go(func() error {
-		return pipeline.NewConsumer(resultBus, ingestWriter, pipeline.DefaultGroup, log).
-			WithNamespaces(busNamespaces).
-			WithNamespaceTenants(nsTenants).
-			WithTenantBinding(tenantBinding).                   // TENANT-101: endpoint lane verified
-			WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
-			WithFairness(fairGate).
-			WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
-			Run(gctx)
+		return superviseRestart(gctx, "result-pipeline", log, func(ctx context.Context) error {
+			return pipeline.NewConsumer(resultBus, ingestWriter, pipeline.DefaultGroup, log).
+				WithNamespaces(busNamespaces).
+				WithNamespaceTenants(nsTenants).
+				WithTenantBinding(tenantBinding).                   // TENANT-101: endpoint lane verified
+				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
+				WithFairness(fairGate).
+				WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
+				Run(ctx)
+		})
 	})
 	// Flow pipeline (S38): probectl.flow.events -> verify tenant -> enrich -> flow store.
 	g.Go(func() error {
-		return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).
-			WithTenantBinding(tenantBinding).
-			WithNamespaceTenants(nsTenants).
-			WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
-			WithFairness(fairGate).Run(gctx)
+		return superviseRestart(gctx, "flow-pipeline", log, func(ctx context.Context) error {
+			return pipeline.NewFlowConsumer(resultBus, flowStore, flowEnricher, log).
+				WithTenantBinding(tenantBinding).
+				WithNamespaceTenants(nsTenants).
+				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
+				WithFairness(fairGate).Run(ctx)
+		})
 	})
 	// Device pipeline (S39): probectl.device.metrics -> verify tenant -> TSDB.
 	g.Go(func() error {
-		return pipeline.NewDeviceConsumer(resultBus, ingestWriter, log).
-			WithFairness(fairGate). // SCALE-005: device plane bounded like every plane
-			WithTenantBinding(tenantBinding).
-			WithNamespaceTenants(nsTenants).
-			WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
-			Run(gctx)
+		return superviseRestart(gctx, "device-pipeline", log, func(ctx context.Context) error {
+			return pipeline.NewDeviceConsumer(resultBus, ingestWriter, log).
+				WithFairness(fairGate). // SCALE-005: device plane bounded like every plane
+				WithTenantBinding(tenantBinding).
+				WithNamespaceTenants(nsTenants).
+				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
+				Run(ctx)
+		})
 	})
 	// Endpoint DEM view (S-FE4): probectl.endpoint.results -> snapshot store.
-	g.Go(func() error { return control.NewEndpointViewConsumer(resultBus, endpointViews, log).Run(gctx) })
+	g.Go(func() error {
+		return superviseRestart(gctx, "endpoint-view", log, func(ctx context.Context) error {
+			return control.NewEndpointViewConsumer(resultBus, endpointViews, log).Run(ctx)
+		})
+	})
 	// Latest-result view (S-FE5): probectl.network.results -> latest-result store.
 	resultSinks = append(resultSinks, control.ResultSink{
 		Name: "result-view", Fn: control.NewResultViewConsumer(resultBus, latestResults, log).SinkResult})
@@ -931,7 +950,14 @@ func run(cmd string) error {
 	resultSinks = append(resultSinks, control.ResultSink{Name: "tls-posture", Fn: tlsc.SinkResult})
 	// ONE subscription, ONE decode, every sink (SCALE-013).
 	resultFan := control.NewResultFan(resultBus, log, resultSinks...)
-	g.Go(func() error { return resultFan.Run(gctx) })
+	// ARCH-002: the result-fan carries every result-derived sink (latest-result
+	// view, threat-intel, TLS posture, NDR, …) on ONE subscription — supervise it
+	// so a subscribe-path fault restarts the fan, not the whole process.
+	g.Go(func() error {
+		return superviseRestart(gctx, "result-fan", log, func(ctx context.Context) error {
+			return resultFan.Run(ctx)
+		})
+	})
 
 	if cfg.AgentTransportEnabled() {
 		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)
@@ -1005,13 +1031,23 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("otlp receiver: %w", err)
 		}
-		g.Go(func() error { return otlpSrv.Run(gctx) })
+		// ARCH-002: supervise the OTLP receiver — an ingest listener failure
+		// (e.g. a transient bind/TLS fault) restarts the receiver instead of
+		// killing the whole control plane.
+		g.Go(func() error {
+			return superviseRestart(gctx, "otlp-receiver", log, func(ctx context.Context) error {
+				return otlpSrv.Run(ctx)
+			})
+		})
 		// SCALE-010 + ARCH-001: every topic has a CONSUMER — metrics land in
 		// the TSDB; traces + logs land in the otelstore.
 		// SCALE-003/ARCH-002: each consumer retries + dead-letters store-write
 		// failures; .WithMetrics surfaces the DLQ/drop counters at /metrics.
+		// ARCH-002: the consumers are supervised too (subscribe-path faults).
 		g.Go(func() error {
-			return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).WithMetrics(srv.Metrics()).Run(gctx)
+			return superviseRestart(gctx, "otlp-metrics-consumer", log, func(ctx context.Context) error {
+				return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).WithMetrics(srv.Metrics()).Run(ctx)
+			})
 		})
 		// ARCH-007: config-driven OTLP export — forward ingested metrics on to an
 		// external collector when an endpoint is configured (the dormant exporter
@@ -1041,11 +1077,16 @@ func run(cmd string) error {
 			})
 			log.Info("otlp export enabled (metrics+traces+logs)", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
 		}
+		// ARCH-002: the trace + log ingest consumers are supervised too.
 		g.Go(func() error {
-			return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).Run(gctx)
+			return superviseRestart(gctx, "otlp-traces-consumer", log, func(ctx context.Context) error {
+				return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).Run(ctx)
+			})
 		})
 		g.Go(func() error {
-			return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).Run(gctx)
+			return superviseRestart(gctx, "otlp-logs-consumer", log, func(ctx context.Context) error {
+				return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).Run(ctx)
+			})
 		})
 	}
 
