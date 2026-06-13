@@ -206,3 +206,33 @@ jobs:
           generate_release_notes: true
           files: |
             dist/*
+
+  publish-chart:
+    name: publish helm chart (OCI)
+    # OPS-001: a chart that lags the app version is the
+    # 0.1.0-chart-deploys-a-control-plane-that-refuses-v0.4.0-agents trap. Assert
+    # the chart's appVersion matches the release tag before publishing, and push
+    # the chart as an OCI artifact to GHCR alongside the images.
+    needs: require-green-ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: appVersion must match the release tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          appv="$(grep -E '^appVersion:' deploy/helm/probectl/Chart.yaml | awk '{print $2}' | tr -d '"')"
+          if [ "$appv" != "$tag" ]; then
+            echo "::error::Chart.yaml appVersion ($appv) != release tag ($tag) — bump the chart before tagging (OPS-001)."
+            exit 1
+          fi
+          echo "chart appVersion matches tag $tag"
+      - name: Helm login + push (OCI to GHCR)
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package deploy/helm/probectl --version "${GITHUB_REF_NAME#v}"
+          helm push "probectl-${GITHUB_REF_NAME#v}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts"
