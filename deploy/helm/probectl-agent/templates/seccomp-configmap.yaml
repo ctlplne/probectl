@@ -1,0 +1,15 @@
+{{- if and (eq .Values.seccomp.type "Localhost") .Values.seccomp.installProfile }}
+# EBPF-003: the strict default-deny seccomp profile bundled with the chart.
+# A per-node initContainer (see daemonset.yaml) copies this onto the kubelet
+# seccomp root so the Localhost profile resolves out of the box — no manual
+# node bootstrap. Source of truth: deploy/agent/seccomp.json.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "probectl-agent.fullname" . }}-seccomp
+  labels:
+    {{- include "probectl-agent.labels" . | nindent 4 }}
+data:
+  seccomp.json: |-
+{{ .Files.Get "files/seccomp.json" | indent 4 }}
+{{- end }}

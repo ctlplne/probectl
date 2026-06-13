@@ -37,11 +37,27 @@ l7Capture:
 capabilityMode: modern
 
 seccomp:
-  # RuntimeDefault works on every cluster. For the strict default-deny
-  # profile (U-052), install deploy/agent/seccomp.json on each node at
-  # /var/lib/kubelet/seccomp/probectl/seccomp.json and set type: Localhost.
-  type: RuntimeDefault
+  # EBPF-003: this is a PRIVILEGED, kernel-touching agent, so the strict
+  # default-deny profile (U-052) is the DEFAULT — parity with the deb/rpm
+  # systemd unit's SystemCallFilter. The chart installs the profile onto each
+  # node itself (installProfile, below) so Localhost works out of the box with
+  # no manual node bootstrap.
+  #
+  # Set type: RuntimeDefault for the portable baseline (e.g. managed clusters
+  # that forbid hostPath installs or pin a node-managed profile).
+  type: Localhost
   localhostProfile: probectl/seccomp.json
+  # installProfile runs a privileged initContainer (per node, via the
+  # DaemonSet) that writes the bundled profile to the kubelet seccomp root
+  # before the agent starts. Disable it if your nodes already ship the profile
+  # or you manage seccomp out-of-band.
+  installProfile: true
+  # kubeletSeccompRoot is the node directory the kubelet resolves Localhost
+  # profiles against; localhostProfile is relative to it.
+  kubeletSeccompRoot: /var/lib/kubelet/seccomp
+  # installerImage copies the profile in (busybox-class; any image with /bin/sh
+  # + cp). Pinned by the operator for air-gapped/regulated installs.
+  installerImage: busybox:1.36
 
 resources:
   requests:

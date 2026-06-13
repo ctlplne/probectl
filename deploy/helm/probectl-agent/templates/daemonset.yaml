@@ -43,6 +43,37 @@ spec:
           {{- if eq .Values.seccomp.type "Localhost" }}
           localhostProfile: {{ .Values.seccomp.localhostProfile }}
           {{- end }}
+      {{- if and (eq .Values.seccomp.type "Localhost") .Values.seccomp.installProfile }}
+      # EBPF-003: install the strict default-deny profile onto this node's
+      # kubelet seccomp root BEFORE the agent starts, so the Localhost profile
+      # resolves with no manual node bootstrap. The initContainer is the only
+      # thing that needs the hostPath write; the agent itself does not mount it.
+      initContainers:
+        - name: install-seccomp-profile
+          image: {{ .Values.seccomp.installerImage | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              dest="$(dirname "/host-seccomp/{{ .Values.seccomp.localhostProfile }}")"
+              mkdir -p "$dest"
+              cp /profile/seccomp.json "/host-seccomp/{{ .Values.seccomp.localhostProfile }}"
+              echo "installed strict seccomp profile to {{ .Values.seccomp.kubeletSeccompRoot }}/{{ .Values.seccomp.localhostProfile }}"
+          securityContext:
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["DAC_OVERRIDE", "CHOWN", "FOWNER"] # write under the kubelet dir
+          volumeMounts:
+            - name: seccomp-profile
+              mountPath: /profile
+              readOnly: true
+            - name: kubelet-seccomp
+              mountPath: /host-seccomp
+      {{- end }}
       containers:
         - name: agent
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -119,6 +150,17 @@ spec:
         - name: config
           configMap:
             name: {{ include "probectl-agent.fullname" . }}
+        {{- if and (eq .Values.seccomp.type "Localhost") .Values.seccomp.installProfile }}
+        # EBPF-003: the bundled strict profile + the node kubelet seccomp root,
+        # used only by the install-seccomp-profile initContainer.
+        - name: seccomp-profile
+          configMap:
+            name: {{ include "probectl-agent.fullname" . }}-seccomp
+        - name: kubelet-seccomp
+          hostPath:
+            path: {{ .Values.seccomp.kubeletSeccompRoot }}
+            type: DirectoryOrCreate
+        {{- end }}
         # CO-RE relocation source: the running kernel's BTF (read-only).
         - name: btf
           hostPath:

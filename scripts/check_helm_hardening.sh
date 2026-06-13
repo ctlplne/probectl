@@ -98,6 +98,15 @@ need "kind: DaemonSet"                  "$agent" "agent: not a DaemonSet"
 need 'drop: \["ALL"\]'                  "$agent" "agent: capabilities not dropped to ALL"
 need '"BPF", "PERFMON"'                 "$agent" "agent: minimal capability pair not declared"
 need "seccompProfile"                   "$agent" "agent: no seccomp profile"
+# EBPF-003: the strict default-deny profile is the DEFAULT for this privileged
+# agent — not RuntimeDefault — and the chart installs it onto the node itself.
+need "type: Localhost"                  "$agent" "agent: seccomp not Localhost by default (EBPF-003)"
+need "localhostProfile: probectl/seccomp.json" "$agent" "agent: strict seccomp profile path missing"
+need "install-seccomp-profile"          "$agent" "agent: no initContainer installing the strict seccomp profile (EBPF-003)"
+need "kind: ConfigMap"                  "$agent" "agent: bundled seccomp ConfigMap missing"
+grep -q "type: RuntimeDefault" <<<"$agent" && fail "agent: RuntimeDefault in the DEFAULT profile — strict Localhost is the hardened default (EBPF-003)"
+# The opt-out portable baseline still renders cleanly.
+need "type: RuntimeDefault" "$(arender --set seccomp.type=RuntimeDefault)" "agent: RuntimeDefault opt-out broken"
 need "readOnlyRootFilesystem: true"     "$agent" "agent: root filesystem not read-only"
 need "allowPrivilegeEscalation: false"  "$agent" "agent: privilege escalation not disabled"
 need "automountServiceAccountToken: false" "$agent" "agent: SA token automounted"
