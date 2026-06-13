@@ -287,6 +287,16 @@ func TestEnrollmentStore(t *testing.T) {
 	if ok, err := ai.IsAgentRevoked(ctx, tn.ID, agentID); err != nil || !ok {
 		t.Fatalf("isAgentRevoked(after): %v / %v", err, ok)
 	}
+	// TENANT-009: the known-tenant reads run under InTenant, so a DIFFERENT
+	// tenant's scope can never see this tenant's serial — RLS confines the
+	// lookup even though both share the bare pool.
+	other, err := NewTenants(pool).Create(ctx, fmt.Sprintf("enr-other-%d", time.Now().UnixNano()), "Other")
+	if err != nil {
+		t.Fatalf("other tenant: %v", err)
+	}
+	if ok, err := ai.KnownSerial(ctx, other.ID, agentID, serial); err != nil || ok {
+		t.Fatalf("cross-tenant KnownSerial saw another tenant's serial: %v / %v (RLS leak)", err, ok)
+	}
 	if rs, sps, err := ai.ListRevoked(ctx); err != nil || len(rs) == 0 || len(sps) == 0 {
 		t.Fatalf("listRevoked: %v / %v / %v", err, rs, sps)
 	}

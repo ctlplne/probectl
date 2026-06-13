@@ -10,12 +10,18 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Agent enrollment storage (Sprint 11; ADR docs/adr/agent-enrollment.md).
-// Like MCPTokens, the consume path is PRE-TENANT: the token hash IS the
-// tenant selector, so lookups run on the pool (the 0041 RLS policy is
-// permissive with no tenant context, tenant-confined with one — U-091).
+// Like MCPTokens, the CONSUME path is PRE-TENANT: the token hash IS the
+// tenant selector, so that one lookup runs on the bare pool (the 0041 RLS
+// policy is permissive with no tenant context, tenant-confined with one —
+// U-091). TENANT-009: every KNOWN-TENANT operation (Create, Record,
+// KnownSerial, IsAgentRevoked, RevokeAgent) instead runs UNDER tenancy.InTenant
+// so RLS confines it — the permissive-on-null policy is reserved strictly for
+// the pre-tenant Consume/ListRevoked paths that have no tenant in hand.
 
 // ErrEnrollTokenInvalid is the single, deliberately uninformative refusal for
 // every bad-token shape: unknown, replayed, expired, revoked, wrong tenant.
@@ -31,11 +37,17 @@ func NewEnrollTokens(pool *pgxpool.Pool) EnrollTokens { return EnrollTokens{pool
 // Create mints a token row. agentID "" lets the server assign one at
 // enrollment; non-empty pins the enrolling agent's identity.
 func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, createdBy string, tokenHash []byte, ttl time.Duration) (string, error) {
+	// TENANT-009: the caller's tenant is known here, so run UNDER InTenant — RLS
+	// confines the write to this tenant (defense in depth above the explicit
+	// tenant_id). The permissive-on-null policy is reserved for the pre-tenant
+	// token-hash Consume path alone.
 	var id string
-	err := e.pool.QueryRow(ctx,
-		`INSERT INTO agent_enroll_tokens (tenant_id, agent_id, name, token_hash, created_by, expires_at)
-		 VALUES ($1, NULLIF($2,''), $3, $4, $5, now() + $6) RETURNING id::text`,
-		tenantID, agentID, name, tokenHash, createdBy, ttl).Scan(&id)
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx,
+			`INSERT INTO agent_enroll_tokens (tenant_id, agent_id, name, token_hash, created_by, expires_at)
+			 VALUES ($1, NULLIF($2,''), $3, $4, $5, now() + $6) RETURNING id::text`,
+			tenantID, agentID, name, tokenHash, createdBy, ttl).Scan(&id)
+	})
 	if err != nil {
 		return "", mapWriteErr("agent_enroll_token", err)
 	}
@@ -87,10 +99,14 @@ func NewAgentIdentities(pool *pgxpool.Pool) AgentIdentities { return AgentIdenti
 
 // Record stores one issued leaf. rotatedFrom "" marks first issuance.
 func (a AgentIdentities) Record(ctx context.Context, tenantID, agentID, spiffeID, serial string, notAfter time.Time, rotatedFrom string) error {
-	_, err := a.pool.Exec(ctx,
-		`INSERT INTO agent_identities (tenant_id, agent_id, spiffe_id, serial, not_after, rotated_from)
-		 VALUES ($1, $2, $3, $4, $5, NULLIF($6,''))`,
-		tenantID, agentID, spiffeID, serial, notAfter, rotatedFrom)
+	// TENANT-009: known tenant => RLS-confined write under InTenant.
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		_, err := sc.Q.Exec(ctx,
+			`INSERT INTO agent_identities (tenant_id, agent_id, spiffe_id, serial, not_after, rotated_from)
+			 VALUES ($1, $2, $3, $4, $5, NULLIF($6,''))`,
+			tenantID, agentID, spiffeID, serial, notAfter, rotatedFrom)
+		return err
+	})
 	if err != nil {
 		return mapWriteErr("agent_identity", err)
 	}
@@ -100,10 +116,15 @@ func (a AgentIdentities) Record(ctx context.Context, tenantID, agentID, spiffeID
 // KnownSerial reports whether a serial was issued by this deployment for the
 // given tenant+agent — the rotation path's "this cert is ours" check.
 func (a AgentIdentities) KnownSerial(ctx context.Context, tenantID, agentID, serial string) (bool, error) {
+	// TENANT-009: known tenant => RLS-confined read under InTenant, so a wrong
+	// tenant id can never match another tenant's serial even if the app WHERE
+	// were dropped.
 	var n int
-	err := a.pool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_identities WHERE tenant_id = $1 AND agent_id = $2 AND serial = $3`,
-		tenantID, agentID, serial).Scan(&n)
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx,
+			`SELECT count(*) FROM agent_identities WHERE tenant_id = $1 AND agent_id = $2 AND serial = $3`,
+			tenantID, agentID, serial).Scan(&n)
+	})
 	return n > 0, err
 }
 
@@ -150,53 +171,66 @@ func (c AgentCA) Load(ctx context.Context, kind string) (certPEM, sealedKey stri
 // Pre-tenant by design — revocation is an operator action that must also work
 // from the CLI; RLS on agent_identities follows the consume-path pattern.
 func (a AgentIdentities) RevokeAgent(ctx context.Context, tenantID, agentID, revokedBy string) (serials []string, spiffeID string, err error) {
-	_, err = a.pool.Exec(ctx,
-		`UPDATE agent_identities SET revoked_at = now(), revoked_by = $3
-		  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NULL`,
-		tenantID, agentID, revokedBy)
+	// TENANT-009: known tenant => run the whole operator revocation UNDER
+	// InTenant so RLS confines every statement to this tenant.
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := sc.Q.Exec(ctx,
+			`UPDATE agent_identities SET revoked_at = now(), revoked_by = $3
+			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NULL`,
+			tenantID, agentID, revokedBy); err != nil {
+			return err
+		}
+		rows, err := sc.Q.Query(ctx,
+			`SELECT serial, spiffe_id FROM agent_identities
+			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL AND not_after > now()`,
+			tenantID, agentID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var s, sp string
+			if err := rows.Scan(&s, &sp); err != nil {
+				return err
+			}
+			serials = append(serials, s)
+			spiffeID = sp
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if spiffeID == "" {
+			// No live rows (all expired or none issued): still revoke the IDENTITY
+			// so re-enrollment under the same id is refused.
+			var count int
+			if err := sc.Q.QueryRow(ctx,
+				`SELECT count(*) FROM agent_identities WHERE tenant_id=$1 AND agent_id=$2`,
+				tenantID, agentID).Scan(&count); err != nil {
+				return err
+			}
+			if count == 0 {
+				return fmt.Errorf("store: agent %s has no issued identities in tenant %s", agentID, tenantID)
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, "", err
 	}
-	rows, err := a.pool.Query(ctx,
-		`SELECT serial, spiffe_id FROM agent_identities
-		  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL AND not_after > now()`,
-		tenantID, agentID)
-	if err != nil {
-		return nil, "", err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var s, sp string
-		if err := rows.Scan(&s, &sp); err != nil {
-			return nil, "", err
-		}
-		serials = append(serials, s)
-		spiffeID = sp
-	}
-	if spiffeID == "" {
-		// No live rows (all expired or none issued): still revoke the IDENTITY
-		// so re-enrollment under the same id is refused.
-		var count int
-		if err := a.pool.QueryRow(ctx,
-			`SELECT count(*) FROM agent_identities WHERE tenant_id=$1 AND agent_id=$2`,
-			tenantID, agentID).Scan(&count); err != nil {
-			return nil, "", err
-		}
-		if count == 0 {
-			return nil, "", fmt.Errorf("store: agent %s has no issued identities in tenant %s", agentID, tenantID)
-		}
-	}
-	return serials, spiffeID, rows.Err()
+	return serials, spiffeID, nil
 }
 
 // IsAgentRevoked reports whether (tenant, agent) has been operator-revoked —
 // enrollment and rotation refuse a revoked agent id (no resurrection).
 func (a AgentIdentities) IsAgentRevoked(ctx context.Context, tenantID, agentID string) (bool, error) {
+	// TENANT-009: known tenant => RLS-confined read under InTenant.
 	var n int
-	err := a.pool.QueryRow(ctx,
-		`SELECT count(*) FROM agent_identities
-		  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL`,
-		tenantID, agentID).Scan(&n)
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), a.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx,
+			`SELECT count(*) FROM agent_identities
+			  WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NOT NULL`,
+			tenantID, agentID).Scan(&n)
+	})
 	return n > 0, err
 }
 

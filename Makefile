@@ -240,6 +240,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	./scripts/check_http_clients.sh
 	SELFTEST=1 ./scripts/check_stringbuilt_sql.sh
 	SELFTEST=1 ./scripts/check_tls_configs.sh
+	SELFTEST=1 ./scripts/check_enrollment_scoping.sh
 
 .PHONY: lint-python
 lint-python: ## Lint the Python analyzer (ruff + black --check).
