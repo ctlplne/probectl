@@ -48,7 +48,8 @@ func TestOTLPPushIsConsumedAndQueryable(t *testing.T) {
 							Value:        &metricspb.NumberDataPoint_AsDouble{AsDouble: 12.5},
 						}},
 					}}},
-					// Histograms are Sprint 22 scope: counted, skipped, never an error.
+					// An empty histogram has no points: it yields no series and
+					// is not counted (ARCH-006 conversion handles populated ones).
 					{Name: "latency", Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{}}},
 				},
 			}},
@@ -76,8 +77,10 @@ func TestOTLPPushIsConsumedAndQueryable(t *testing.T) {
 	if g := mem.Query("probectl_otlp_process_memory", map[string]string{"tenant_id": "t-otlp"}); len(g) != 1 || g[0].Value != 12.5 {
 		t.Fatalf("gauge not queryable: %+v", g)
 	}
-	if c.skipped.Load() != 1 {
-		t.Fatalf("histogram must be counted as skipped: %d", c.skipped.Load())
+	// ARCH-006: histograms are now CONVERTED, not skipped. The empty histogram
+	// above has no data points, so it yields no series and nothing is skipped.
+	if c.skipped.Load() != 0 {
+		t.Fatalf("empty histogram should yield nothing (not skipped): skipped=%d", c.skipped.Load())
 	}
 
 	// Malformed payloads drop without failing the stream.

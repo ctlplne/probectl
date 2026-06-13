@@ -6,6 +6,7 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -123,8 +124,15 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 					points = d.Gauge.GetDataPoints()
 				case *metricspb.Metric_Sum:
 					points = d.Sum.GetDataPoints()
+				case *metricspb.Metric_Histogram:
+					// ARCH-006: convert OTLP explicit-bucket histograms to the
+					// Prometheus _bucket/_sum/_count series triple instead of
+					// dropping them, so histogram_quantile() works and latency
+					// SLOs over OTLP histograms are queryable.
+					out = append(out, c.histogramSeries(m.GetName(), d.Histogram.GetDataPoints(), tenant, resAttrs)...)
+					continue
 				default:
-					c.skipped.Add(1) // histogram/summary: Sprint 22 scope
+					c.skipped.Add(1) // summary / exponential histogram: not yet converted
 					continue
 				}
 				name := "probectl_otlp_" + sanitize(m.GetName())
@@ -152,6 +160,56 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 					out = append(out, tsdb.Series{Metric: name, Labels: labels, Value: v, TimeMillis: tms})
 				}
 			}
+		}
+	}
+	return out
+}
+
+// histogramSeries converts OTLP explicit-bucket histogram points into the
+// Prometheus convention: cumulative <name>_bucket{le=...} series (with a +Inf
+// bucket), plus <name>_sum and <name>_count (ARCH-006). Without this the points
+// were dropped, so any latency/size histogram pushed over OTLP was invisible to
+// queries and SLOs.
+func (c *OTLPConsumer) histogramSeries(metricName string, points []*metricspb.HistogramDataPoint, tenant string, resAttrs map[string]string) []tsdb.Series {
+	base := "probectl_otlp_" + sanitize(metricName)
+	var out []tsdb.Series
+	for _, p := range points {
+		labels := map[string]string{"tenant_id": tenant}
+		addBounded(labels, resAttrs)
+		pointAttrs := map[string]string{}
+		for _, kv := range p.GetAttributes() {
+			if v := kv.GetValue().GetStringValue(); v != "" {
+				pointAttrs[kv.GetKey()] = v
+			}
+		}
+		addBounded(labels, pointAttrs)
+
+		tms := int64(p.GetTimeUnixNano() / 1e6)
+		if tms == 0 {
+			tms = time.Now().UnixMilli()
+		}
+
+		// Cumulative buckets with le labels. ExplicitBounds has N entries;
+		// BucketCounts has N+1 (the last is the +Inf overflow bucket).
+		bounds := p.GetExplicitBounds()
+		counts := p.GetBucketCounts()
+		var cumulative uint64
+		for i, cnt := range counts {
+			cumulative += cnt
+			le := "+Inf"
+			if i < len(bounds) {
+				le = strconv.FormatFloat(bounds[i], 'g', -1, 64)
+			}
+			bl := make(map[string]string, len(labels)+1)
+			for k, v := range labels {
+				bl[k] = v
+			}
+			bl["le"] = le
+			out = append(out, tsdb.Series{Metric: base + "_bucket", Labels: bl, Value: float64(cumulative), TimeMillis: tms})
+		}
+		out = append(out, tsdb.Series{Metric: base + "_count", Labels: labels, Value: float64(p.GetCount()), TimeMillis: tms})
+		if p.Sum != nil {
+			out = append(out, tsdb.Series{Metric: base + "_sum", Labels: labels, Value: p.GetSum(), TimeMillis: tms})
 		}
 	}
 	return out

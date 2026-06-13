@@ -3,6 +3,7 @@
 package otlp
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -19,6 +20,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	// ARCH-006: register the gRPC gzip decompressor so the OTLP/gRPC receiver
+	// can decode gzip-compressed messages (the OTel Collector's otlp exporter
+	// gzips by default). Without this blank import the server returns
+	// Unimplemented for "gzip" and every default-config push fails.
+	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -121,7 +127,7 @@ func MetricsHTTPHandler(auth Authenticator, sink Sink, maxBytes int64) http.Hand
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
+		body, err := readOTLPBody(w, r, maxBytes)
 		if err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -143,6 +149,25 @@ func MetricsHTTPHandler(auth Authenticator, sink Sink, maxBytes int64) http.Hand
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		_, _ = w.Write(resp)
 	})
+}
+
+// readOTLPBody reads the request body with a hard size bound and transparently
+// decompresses gzip (ARCH-005): the OTel Collector's otlphttp exporter gzips by
+// default, so a receiver that ignores Content-Encoding silently rejected every
+// stock-config push as an "invalid OTLP payload". The MaxBytesReader bound is
+// applied to the COMPRESSED stream and the decompressed output is bounded again
+// to maxBytes, so a gzip bomb can't blow past the limit (untrusted input).
+func readOTLPBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byte, error) {
+	limited := http.MaxBytesReader(w, r.Body, maxBytes)
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(limited)
+		if err != nil {
+			return nil, err
+		}
+		defer gz.Close()
+		return io.ReadAll(io.LimitReader(gz, maxBytes))
+	}
+	return io.ReadAll(limited)
 }
 
 // scopeToTenant enforces tenant isolation on ingested OTLP: a ResourceMetrics

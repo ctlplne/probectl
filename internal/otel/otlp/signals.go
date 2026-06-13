@@ -5,7 +5,6 @@ package otlp
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -214,7 +213,7 @@ func signalHTTPHandler[Req proto.Message, Resp proto.Message](
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBytes))
+		body, err := readOTLPBody(w, r, maxBytes) // ARCH-005: gzip-aware, bounded
 		if err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
