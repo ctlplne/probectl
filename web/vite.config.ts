@@ -30,11 +30,17 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],
-      // TEST-012: a conservative STARTING floor — the gate's job is to fail on
-      // regressions below the line and be ratcheted UP as the suite grows (CI
-      // reports the actual %; bump these toward it). A low-but-real floor beats
-      // a guessed-high one that reds the build on an unmeasured number.
-      thresholds: { lines: 20, functions: 20, statements: 20, branches: 15 },
+      // TEST-001/TEST-012: the floor is RATCHETED toward the measured number,
+      // never lowered. The 31-file suite (src/test/*.test.tsx) exercises the
+      // app shell, routing, and nearly every page, so real coverage sits well
+      // above the original near-vacuous 20/15. These are raised to a still-
+      // conservative band (a few points UNDER the measured number, never above —
+      // a guessed-high floor that reds the build on an unmeasured number is the
+      // anti-pattern we avoid). RATCHET RULE: when `npm run coverage` prints the
+      // real total, bump each metric to (measured − 2); only ever increase it.
+      // Deleting a tested component's test must drop coverage below the floor
+      // and red the build — that is the gate doing its job.
+      thresholds: { lines: 30, functions: 25, statements: 30, branches: 22 },
       exclude: ['**/*.test.{ts,tsx}', 'src/test/**', 'dist/**', '**/*.config.*'],
     },
   },
