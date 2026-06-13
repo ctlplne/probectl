@@ -109,3 +109,30 @@ under concurrency, complementing the dedicated cross-tenant-isolation gate.
   load) is deferred to that full-stack soak, where it is meaningful against real
   services. This baseline focuses on the load-bearing early-warning signals —
   throughput, query latency, and isolation correctness.
+
+## Producing the soak + scale-gate rows (SCALE-002 / SCALE-020)
+
+The L/XL scale-gate rows, the 24-hour reduced-L soak row, and the DR sign-off
+(OPS-005) are **executed measurements on reference hardware** — they are not
+filled from estimates, so the tables stay marked _pending_ until a real run
+produces them. The harness to produce each is committed so the runs are
+reproducible:
+
+- **Scale gate (SCALE-002):** `make scale-gate TIER=L` and `make load-test TIER=L`
+  (then `TIER=XL`) on reference hardware; commit the emitted result row here and
+  in `docs/scale-gate.md`.
+- **24h soak (SCALE-020):** `DURATION=24h ./scripts/soak.sh` against a brought-up
+  stack with the control plane running. It samples RSS, bus buffer/shed/handler-
+  error, remote-write rejects, and lag (the CORRECT-009 gauges) on an interval
+  into a CSV; summarize the trend (flat RSS = no leak) into the soak row. Wire it
+  on the nightly reference-hardware runner.
+- **DR / region failover (OPS-005):** run the backup-restore drill and a
+  representative 2-region failover; record the measured RPO/RTO into the
+  sign-off blocks in `docs/ops/dr.md` and `docs/multi-region.md`.
+- **Receipts bundle (TEST-011):** `./scripts/export-receipts.sh` captures the
+  branch-protection ruleset, the latest green verify-all receipt, and the
+  coverage report into a dated data-room bundle.
+
+These execute outside the build sandbox (they need real services, reference
+hardware, and a 24-hour window); this commit lands the reproducible harness, not
+fabricated numbers.
