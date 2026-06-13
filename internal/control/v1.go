@@ -331,15 +331,24 @@ func (s *Server) handleDeleteTest(w http.ResponseWriter, r *http.Request) error 
 // --- agents (registered via mTLS; the API manages their labels + lifecycle) ---
 
 func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error {
+	// SCALE-010: cursor pagination (?after=<id>&limit=<n>) keeps a fleet-scale
+	// response bounded instead of loading every agent row.
+	after := r.URL.Query().Get("after")
+	limit := intQuery(r, "limit", store.DefaultAgentPageSize)
 	var agents []store.Agent
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		a, e := store.Agents{}.List(ctx, sc)
+		a, e := store.Agents{}.ListPage(ctx, sc, after, limit)
 		agents = a
 		return e
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": agents})
+	resp := map[string]any{"items": agents}
+	// next_cursor is the last id; absent when the page wasn't full (end of set).
+	if len(agents) == limit && limit > 0 {
+		resp["next_cursor"] = agents[len(agents)-1].ID
+	}
+	writeJSON(w, http.StatusOK, resp)
 	return nil
 }
 

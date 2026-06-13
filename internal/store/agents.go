@@ -138,6 +138,35 @@ func (Agents) List(ctx context.Context, s tenancy.Scope) ([]Agent, error) {
 	return out, rows.Err()
 }
 
+// DefaultAgentPageSize bounds an unspecified agents page (SCALE-010).
+const DefaultAgentPageSize = 200
+
+// ListPage returns one cursor page of agents ordered by id, starting AFTER the
+// given cursor id (empty = first page), capped at limit (SCALE-010). Cursor
+// pagination keeps a fleet-scale /v1/agents response bounded — the unbounded
+// List() loaded every row, which falls over at 10k+ agents. The id ordering is
+// stable (UUID PK), so the next cursor is simply the last returned id.
+func (Agents) ListPage(ctx context.Context, s tenancy.Scope, afterID string, limit int) ([]Agent, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = DefaultAgentPageSize
+	}
+	rows, err := s.Q.Query(ctx,
+		`SELECT `+agentCols+` FROM agents WHERE id > $1 ORDER BY id LIMIT $2`, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Agent
+	for rows.Next() {
+		var a Agent
+		if err := scanAgent(rows, &a); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
 // HeartbeatBatch marks a WINDOW of agents online in one statement (Sprint 14,
 // SCALE-012): the per-RPC UPDATE scaled linearly with fleet size; the
 // transport now coalesces heartbeats and flushes per tenant. Within-window

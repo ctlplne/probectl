@@ -288,7 +288,14 @@ func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 				return fmt.Errorf("flowstore: encode row: %w", err)
 			}
 		}
-		if err := c.exec(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", nil, &buf); err != nil {
+		// SCALE-006: async_insert batches small high-frequency inserts
+		// server-side into larger parts, so the flow plane's many small batches
+		// don't mint a part per insert (the part-explosion that wedges
+		// ClickHouse at NetFlow volumes). wait_for_async_insert keeps the call
+		// synchronous-to-durable so the retry+DLQ contract (CORRECT-010) still
+		// sees real failures.
+		insert := "INSERT INTO " + table + " SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow"
+		if err := c.exec(ctx, t.BaseURL, insert, nil, &buf); err != nil {
 			return err
 		}
 	}

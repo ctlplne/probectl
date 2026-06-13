@@ -100,7 +100,9 @@ func (c *ClickHouse) Insert(ctx context.Context, edges []Edge) error {
 			return fmt.Errorf("ebpfstore: encode: %w", err)
 		}
 	}
-	return c.exec(ctx, "INSERT INTO "+edgesTable+" FORMAT JSONEachRow", &buf)
+	// SCALE-006: async_insert coalesces the many small eBPF batches server-side
+	// instead of minting a part each; wait_for_async_insert keeps it durable.
+	return c.exec(ctx, "INSERT INTO "+edgesTable+" SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow", &buf)
 }
 
 // TopEdges returns the tenant's heaviest edges in the window (bytes-desc),
