@@ -21,11 +21,61 @@ type Graph struct {
 	// recent collects edge upserts since the last drainRecentEdges call — the
 	// O(touched) feed for the S43 indexed engine's adjacency indexes.
 	recent []Edge
+
+	// Bounds (SCALE-004 / CORRECT-014). maxNodes/maxEdges cap per-tenant memory:
+	// when an upsert of a NEW element would exceed the cap, the least-recently-
+	// seen element is evicted (a runaway agent minting churn identities can't
+	// grow the graph without bound). staleness, when > 0, is the horizon Latest()
+	// applies: elements not re-observed within it are treated as gone, so the
+	// "current" graph reflects what is actually live instead of accreting every
+	// node/edge ever seen. Zero values keep the previous unbounded behavior.
+	maxNodes  int
+	maxEdges  int
+	staleness time.Duration
+	now       func() time.Time // injectable clock (tests)
 }
 
 // NewGraph returns an empty graph for a tenant.
 func NewGraph(tenant string) *Graph {
-	return &Graph{tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{}}
+	return &Graph{tenant: tenant, nodes: map[string]*Node{}, edges: map[string]*Edge{}, now: time.Now}
+}
+
+// SetBounds configures per-tenant node/edge caps and the Latest() staleness
+// horizon (SCALE-004 / CORRECT-014). A non-positive value leaves that bound
+// unset (unbounded / no horizon). Safe to call at construction.
+func (g *Graph) SetBounds(maxNodes, maxEdges int, staleness time.Duration) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.maxNodes, g.maxEdges, g.staleness = maxNodes, maxEdges, staleness
+}
+
+// evictOldestNodeLocked drops the least-recently-seen node when at the cap.
+// Caller holds g.mu.
+func (g *Graph) evictOldestNodeLocked() {
+	var oldestID string
+	var oldest time.Time
+	for id, n := range g.nodes {
+		if oldestID == "" || n.LastSeen.Before(oldest) {
+			oldestID, oldest = id, n.LastSeen
+		}
+	}
+	if oldestID != "" {
+		delete(g.nodes, oldestID)
+	}
+}
+
+// evictOldestEdgeLocked drops the least-recently-seen edge when at the cap.
+func (g *Graph) evictOldestEdgeLocked() {
+	var oldestID string
+	var oldest time.Time
+	for id, e := range g.edges {
+		if oldestID == "" || e.LastSeen.Before(oldest) {
+			oldestID, oldest = id, e.LastSeen
+		}
+	}
+	if oldestID != "" {
+		delete(g.edges, oldestID)
+	}
 }
 
 // Tenant returns the graph's tenant.
@@ -41,6 +91,9 @@ func (g *Graph) UpsertNode(n Node, at time.Time) {
 		n.FirstSeen, n.LastSeen = at, at
 		if n.Attributes == nil {
 			n.Attributes = map[string]string{}
+		}
+		if g.maxNodes > 0 && len(g.nodes) >= g.maxNodes {
+			g.evictOldestNodeLocked() // SCALE-004: bound per-tenant node count
 		}
 		g.nodes[n.ID] = &n
 		return
@@ -74,6 +127,9 @@ func (g *Graph) UpsertEdge(e Edge, at time.Time) {
 		e.FirstSeen, e.LastSeen = at, at
 		if e.Attributes == nil {
 			e.Attributes = map[string]string{}
+		}
+		if g.maxEdges > 0 && len(g.edges) >= g.maxEdges {
+			g.evictOldestEdgeLocked() // SCALE-004: bound per-tenant edge count
 		}
 		g.edges[e.ID] = &e
 		g.recent = append(g.recent, Edge{ID: e.ID, From: e.From, To: e.To, Kind: e.Kind})
@@ -119,13 +175,31 @@ func (g *Graph) Latest() Snapshot {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	s := Snapshot{Tenant: g.tenant}
+	// CORRECT-014: when a staleness horizon is set, "latest" means "still live"
+	// — elements not re-observed within the horizon are excluded, so the graph
+	// reflects current reality instead of every node/edge ever seen.
+	var cutoff time.Time
+	if g.staleness > 0 {
+		clock := g.now
+		if clock == nil {
+			clock = time.Now
+		}
+		cutoff = clock().Add(-g.staleness)
+	}
+	fresh := func(lastSeen time.Time) bool { return cutoff.IsZero() || !lastSeen.Before(cutoff) }
 	for _, n := range g.nodes {
+		if !fresh(n.LastSeen) {
+			continue
+		}
 		s.Nodes = append(s.Nodes, *n)
 		if n.LastSeen.After(s.At) {
 			s.At = n.LastSeen
 		}
 	}
 	for _, e := range g.edges {
+		if !fresh(e.LastSeen) {
+			continue
+		}
 		s.Edges = append(s.Edges, *e)
 	}
 	sortSnapshot(&s)
