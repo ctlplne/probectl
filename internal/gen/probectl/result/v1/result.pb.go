@@ -52,12 +52,21 @@ type Result struct {
 	Metrics map[string]float64 `protobuf:"bytes,12,rep,name=metrics,proto3" json:"metrics,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
 	// --- Additional OTel-convention attributes (network.*, server.*, client.*, ...) ---
 	Attributes map[string]string `protobuf:"bytes,13,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// result_id is a per-result UUID minted AT THE AGENT (CORRECT-002). It is the
-	// dedup key for append-only row stores: at-least-once delivery can redeliver a
-	// result on retry, and a ReplacingMergeTree keyed on result_id collapses the
-	// duplicate at merge time so cross-plane counts are not inflated. Empty on
-	// older agents; the control plane then mints a deterministic id so a
-	// redelivered identical record still dedups. Additive field — tag 14.
+	// result_id is a stable per-result identity minted AT THE AGENT, constant
+	// across retries (CORRECT-002). Empty on older agents; the control plane then
+	// mints a DETERMINISTIC id from the result's content so a redelivered identical
+	// record still carries the same identity.
+	//
+	// Idempotency note (CORRECT-002): probe results are stored as TIME SERIES in
+	// the TSDB (Prometheus), NOT as rows in a ReplacingMergeTree — so result_id is
+	// an identity/trace field here, not a row-store dedup key. TSDB idempotency is
+	// provided by the sample's (series, event-timestamp): a redelivery with the
+	// SAME event time collapses to one sample. A result that carries NO agent event
+	// time (start_time_unix_nano == 0) is stamped at INGEST time, so its
+	// redeliveries are distinct samples — set start_time_unix_nano to make a result
+	// idempotent across replay. (The row-store planes — flow row_id, eBPF, OTLP —
+	// do key their ReplacingMergeTrees on their natural identity; that is where
+	// merge-time dedup applies.) Additive field — tag 14.
 	ResultId      string `protobuf:"bytes,14,opt,name=result_id,json=resultId,proto3" json:"result_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

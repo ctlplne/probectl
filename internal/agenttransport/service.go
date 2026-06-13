@@ -226,10 +226,13 @@ func (svc *service) ingest(ctx context.Context, id crypto.SPIFFEID, req *agentv1
 	r.AgentId = id.AgentID
 	// CORRECT-002: a current agent mints a stable result_id (constant across
 	// retries). An OLDER agent leaves it empty; stamp a DETERMINISTIC id derived
-	// from the result's stable content so a redelivered identical record still
-	// collapses in the row stores' ReplacingMergeTree. The derivation excludes
-	// nothing that distinguishes two genuine results, so distinct results keep
-	// distinct ids.
+	// from the result's stable content so a redelivered identical record keeps a
+	// stable identity (for tracing/correlation). NOTE: probe results land in the
+	// TSDB as time series, where idempotency is provided by (series,
+	// event-timestamp) — result_id is the row-store dedup key only for the planes
+	// that DO use row stores (flow/eBPF/OTLP), not for results (see the result_id
+	// proto field doc). The derivation excludes nothing that distinguishes two
+	// genuine results, so distinct results keep distinct ids.
 	if r.GetResultId() == "" {
 		r.ResultId = deterministicResultID(&r)
 	}
