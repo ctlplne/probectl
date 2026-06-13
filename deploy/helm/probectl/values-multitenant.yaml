@@ -12,6 +12,13 @@ replicaCount: 3
 
 control:
   authMode: session      # provider deployments always use real SSO
+  # AIRCA-003: in a multi-tenant/MSP deployment, mask hostnames before any
+  # prompt egresses to a remote LLM (a tenant's internal hostnames are
+  # sensitive across the shared platform). Single-tenant keeps the default
+  # (false) where hostnames are usually the question's subject; here we close
+  # the egress hole by default. Override only with explicit tenant consent.
+  extraEnv:
+    PROBECTL_AI_REDACT_HOSTNAMES: "true"
 
 # Keep a quorum during the S34 rolling upgrade / node drains.
 podDisruptionBudget:

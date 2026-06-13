@@ -11,9 +11,12 @@
 // The harness runs the REAL pipeline (planner → engine → synthesize →
 // citation-grounding) against the air-gapped builtin model, so the score is a
 // deterministic baseline tracked over time; a model-adapter change that
-// regresses grounding shows up as a score drop. Wired into CI as a
-// NON-BLOCKING job (rca-eval) that uploads the JSON report as an artifact —
-// the structural test always passes as long as the harness itself runs.
+// regresses grounding shows up as a score drop. Wired into CI as the rca-eval
+// job that uploads the JSON report as an artifact. The builtin path is now
+// gated by a committed regression FLOOR (AIRCA-004) on answer accuracy and mean
+// citation precision in eval_test.go, so a grounding/accuracy regression fails
+// the build; nondeterministic remote adapters (Run with a non-nil model) stay
+// artifact-only and are never floor-gated.
 package eval
 
 import (

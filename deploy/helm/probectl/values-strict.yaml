@@ -68,3 +68,12 @@ podSecurityContext:
   runAsNonRoot: true
   seccompProfile:
     type: RuntimeDefault
+
+# AIRCA-003: the regulated profile masks hostnames before any prompt egresses
+# to a remote LLM (internal hostnames are sensitive in regulated/air-gapped
+# orgs). The product default is false (hostnames are usually the question's
+# subject); this profile flips it closed. Combine with a local/sovereign model
+# adapter to keep telemetry fully on-network.
+control:
+  extraEnv:
+    PROBECTL_AI_REDACT_HOSTNAMES: "true"

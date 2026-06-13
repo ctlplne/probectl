@@ -128,8 +128,12 @@ func (e *Engine) Correlate(ctx context.Context, p *auth.Principal, subject map[s
 			return Result{}, err
 		}
 		for _, row := range rows {
-			row["_domain"] = string(d)
-			res.Rows = append(res.Rows, row)
+			// AIRCA-002: reduce each raw row to the per-domain allow-list
+			// (U-092) before it leaves the engine — a correlation must not
+			// egress a key the answer path would have stripped.
+			clean := sanitizeRowFields(d, row)
+			clean["_domain"] = string(d)
+			res.Rows = append(res.Rows, clean)
 		}
 		if len(rows) > 0 {
 			res.Domains = append(res.Domains, d)

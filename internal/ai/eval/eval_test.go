@@ -39,6 +39,26 @@ func TestRCAEval(t *testing.T) {
 		t.Error("negative control fabricated an answer (insufficient-evidence honesty broke)")
 	}
 
+	// AIRCA-004: a committed regression FLOOR on the deterministic builtin path.
+	// The builtin model is fully deterministic, so its scores cannot drift on
+	// model noise — a drop below these floors means a real grounding/accuracy
+	// regression (e.g. a scenario's expected label was dropped from the builtin
+	// output, or citation grounding loosened). This makes rca-eval BLOCKING for
+	// the builtin (remote/nondeterministic adapters stay artifact-only via
+	// Run(..., model)). Floors sit safely below the observed baseline
+	// (accuracy 0.91, precision 0.92) so legitimate scenario churn has headroom;
+	// ratchet UP, never down (anti-vacuous-green §3).
+	const (
+		minAnswerAccuracy        = 0.85
+		minMeanCitationPrecision = 0.85
+	)
+	if rep.AnswerAccuracy < minAnswerAccuracy {
+		t.Errorf("builtin answer_accuracy %.2f < floor %.2f (AIRCA-004 regression)", rep.AnswerAccuracy, minAnswerAccuracy)
+	}
+	if rep.MeanCitationPrecision < minMeanCitationPrecision {
+		t.Errorf("builtin mean_citation_precision %.2f < floor %.2f (AIRCA-004 regression)", rep.MeanCitationPrecision, minMeanCitationPrecision)
+	}
+
 	t.Log(rep.Summary())
 	for _, r := range rep.Results {
 		t.Logf("  %-36s answer=%-5t precision=%.2f cited=%d conf=%s", r.Name, r.AnswerCorrect, r.CitationPrecision, r.Cited, r.Confidence)

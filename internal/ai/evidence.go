@@ -72,6 +72,25 @@ func sanitizeEvidenceFields(evs []Evidence) {
 	}
 }
 
+// sanitizeRowFields returns a copy of a raw query row reduced to the per-domain
+// allow-list (AIRCA-002), mirroring sanitizeEvidenceFields but for the raw Row
+// shape that Engine.Correlate emits. The cross-domain "_domain" provenance
+// marker is always preserved. Fail closed: unknown domains fall back to the
+// universal allow-list, so a future source/column cannot leak raw row data.
+func sanitizeRowFields(domain Domain, row Row) Row {
+	allowed, ok := evidenceFieldAllowList[domain]
+	if !ok {
+		allowed = universalEvidenceFields
+	}
+	clean := make(Row, len(row))
+	for k, v := range row {
+		if k == "_domain" || allowed[k] {
+			clean[k] = v
+		}
+	}
+	return clean
+}
+
 // collectEvidence turns query rows from one domain into citable Evidence,
 // deriving the well-known display/correlation fields from each row when present.
 // nextID is the running evidence counter so IDs are unique across domains;
