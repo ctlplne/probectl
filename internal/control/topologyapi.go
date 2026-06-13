@@ -26,6 +26,7 @@ import (
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
@@ -143,6 +144,18 @@ type TopologyConsumer struct {
 	bus     bus.Bus
 	log     *slog.Logger
 	binding pipeline.TenantBinding // TENANT-101; nil = unit tests
+	// ebpf is the durable eBPF aggregate store (ARCH-008). When set, every
+	// verified service edge is also persisted, so the differentiator plane has
+	// history and survives a restart instead of living only in the RAM graph.
+	// nil = not wired (in-RAM graph only, the previous behavior).
+	ebpf ebpfstore.Store
+}
+
+// WithEBPFStore wires durable persistence of eBPF service-edge aggregates
+// (ARCH-008). nil keeps the in-RAM-only behavior.
+func (tc *TopologyConsumer) WithEBPFStore(s ebpfstore.Store) *TopologyConsumer {
+	tc.ebpf = s
+	return tc
 }
 
 // NewTopologyConsumer builds the consumer over a non-nil store.
@@ -175,12 +188,17 @@ func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane string, ids [
 	return false
 }
 
-// Run subscribes (independent consumer groups) until ctx is canceled.
+// Run subscribes until ctx is canceled. The topology graph is a pure in-RAM
+// view, so it uses PER-REPLICA consumer groups (viewGroup) — each replica fans
+// in the whole stream and builds the complete graph, making /v1/topology
+// coherent at any replica count (ARCH-003).
 func (tc *TopologyConsumer) Run(ctx context.Context) error {
 	errc := make(chan error, 3)
-	go func() { errc <- tc.bus.Subscribe(ctx, bus.EBPFFlowsTopic, "topology-ebpf", tc.handleEBPF) }()
-	go func() { errc <- tc.bus.Subscribe(ctx, bus.BGPEventsTopic, "topology-bgp", tc.handleBGP) }()
-	go func() { errc <- tc.bus.Subscribe(ctx, bus.DeviceMetricsTopic, "topology-device", tc.handleDevice) }()
+	go func() { errc <- tc.bus.Subscribe(ctx, bus.EBPFFlowsTopic, viewGroup("topology-ebpf"), tc.handleEBPF) }()
+	go func() { errc <- tc.bus.Subscribe(ctx, bus.BGPEventsTopic, viewGroup("topology-bgp"), tc.handleBGP) }()
+	go func() {
+		errc <- tc.bus.Subscribe(ctx, bus.DeviceMetricsTopic, viewGroup("topology-device"), tc.handleDevice)
+	}()
 	return <-errc
 }
 
@@ -211,11 +229,28 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 		}
 	}
 	now := time.Now()
+	var durable []ebpfstore.Edge
 	for _, e := range batch.GetEdges() {
 		if e.GetTenantId() == "" {
 			continue
 		}
 		tc.store.ObserveServiceEdge(e.GetTenantId(), topology.FromServiceEdge(e), now)
+		if tc.ebpf != nil {
+			durable = append(durable, ebpfstore.Edge{
+				TenantID: e.GetTenantId(), AgentID: e.GetSource(),
+				WindowStart: now.Truncate(time.Minute),
+				SrcWorkload: e.GetSource(), DstWorkload: e.GetDestination(),
+				DstPort: uint16(e.GetDestinationPort()), L7Protocol: e.GetL7Protocol(),
+				Bytes: e.GetBytes(), Packets: e.GetPackets(), Connections: e.GetConnections(),
+			})
+		}
+	}
+	// ARCH-008: persist the aggregates (best-effort — a store blip must not drop
+	// the in-RAM graph update above; the durable copy backfills on the next batch).
+	if tc.ebpf != nil && len(durable) > 0 {
+		if err := tc.ebpf.Insert(ctx, durable); err != nil {
+			tc.log.Warn("ebpf aggregate persist failed (in-RAM graph unaffected)", "error", err.Error())
+		}
 	}
 	return nil
 }

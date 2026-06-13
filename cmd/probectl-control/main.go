@@ -58,6 +58,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/secrets"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
@@ -410,10 +411,20 @@ func run(cmd string) error {
 	} else {
 		topoStore = topology.NewIndexedStore() // the L/XL dedicated engine
 	}
+	// ARCH-008: durable eBPF flow/L7 aggregate store — the differentiator plane
+	// gets history + restart survival instead of an in-RAM-only service map.
+	ebpfStore, err := ebpfstore.New(cfg.EBPFStoreMode, cfg.EBPFStoreURL, cfg.EBPFRetentionDays)
+	if err != nil {
+		return fmt.Errorf("ebpf store: %w", err)
+	}
+	defer ebpfStore.Close()
 	g.Go(func() error {
-		return control.NewTopologyConsumer(resultBus, topoStore, log).WithTenantBinding(tenantBinding).Run(gctx)
+		return control.NewTopologyConsumer(resultBus, topoStore, log).
+			WithTenantBinding(tenantBinding).
+			WithEBPFStore(ebpfStore).
+			Run(gctx)
 	})
-	log.Info("topology graph enabled", "engine", cfg.TopologyEngine)
+	log.Info("topology graph enabled", "engine", cfg.TopologyEngine, "ebpf_store", cfg.EBPFStoreMode)
 
 	// FinOps egress cost (S44): volume x public pricing over the local flow
 	// stream — attribution, chatty-pair detection, budgets. Purely local (no
@@ -627,6 +638,14 @@ func run(cmd string) error {
 	}, fairnessSource)
 	srv.WithFairness(fairGate)
 	srv.WithA2ABroker(a2aBroker) // ARCH-009: session-start API over the broker
+	// ARCH-003: pure in-RAM views (topology, endpoint) fan in per replica using
+	// a STABLE per-replica id (hostname/pod name — survives restarts so groups
+	// don't sprawl) so every replica builds the complete view and answers
+	// coherently. Single-replica/dev (empty/duplicate hostname) keeps the shared
+	// group name. Side-effecting consumers keep their shared groups.
+	if hn, herr := os.Hostname(); herr == nil && hn != "" {
+		control.SetInstanceGroupSuffix(hn)
+	}
 
 	// CORRECT-009: the pipeline/bus/clock-skew loss counters that already exist
 	// finally get a production reader. Expose them as sampled gauges on /metrics

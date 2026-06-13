@@ -218,6 +218,13 @@ type Config struct {
 	OTelStoreURL      string
 	OTelRetentionDays int
 	FlowRetentionDays int
+	// EBPFStore{Mode,URL,RetentionDays} (ARCH-008): durable eBPF flow/L7
+	// service-edge aggregates. memory (default) keeps the prior in-RAM-only
+	// behavior; clickhouse persists them so the differentiator plane has history
+	// and survives restarts.
+	EBPFStoreMode     string
+	EBPFStoreURL      string
+	EBPFRetentionDays int
 	// PathRetentionDays bounds the path/traceroute tables (SCALE-006).
 	PathRetentionDays int
 	FlowEnrichASN     bool
@@ -573,6 +580,9 @@ func Load(getenv func(string) string) (*Config, error) {
 		OTelStoreMode:            l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse"),
 		OTelStoreURL:             l.str("PROBECTL_OTELSTORE_URL", ""),
 		OTelRetentionDays:        l.intRange("PROBECTL_OTEL_RETENTION_DAYS", 30, 0, 3650),
+		EBPFStoreMode:            l.enum("PROBECTL_EBPFSTORE_MODE", "memory", "memory", "clickhouse"),
+		EBPFStoreURL:             l.str("PROBECTL_EBPFSTORE_URL", ""),
+		EBPFRetentionDays:        l.intRange("PROBECTL_EBPF_RETENTION_DAYS", 30, 0, 3650),
 		// SCALE-016: default to a FINITE 90-day flow retention rather than the
 		// old keep-forever (0) default, which silently let the highest-volume
 		// table on the platform grow without bound. 0 still means keep-forever,
