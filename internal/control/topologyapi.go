@@ -219,6 +219,19 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 	if tc.rejectBatch(ctx, "ebpf", ids) {
 		return nil
 	}
+	// TENANT-006: an edges-only batch carries no agent id, so its tenant claim
+	// is UNVERIFIABLE against the registry — a credential holder could forge a
+	// foreign tenant on edges alone (the residual pooled-lane injection vector).
+	// When registry verification is active (production), an edges-only batch
+	// FAILS CLOSED. Emitters always batch flows alongside edges in practice, so
+	// this rejects only the spoof shape, not legitimate traffic. (Unit tests
+	// run with no binding and keep the prior in-RAM behavior.)
+	if tc.binding != nil && len(ids) == 0 && len(batch.GetEdges()) > 0 {
+		tc.log.Error("REJECTED batch: edges-only eBPF batch has no agent identity to verify (TENANT-006, fail closed)",
+			"view", "topology", "plane", "ebpf", "edges", len(batch.GetEdges()),
+			"claimed_tenant", batch.GetEdges()[0].GetTenantId())
+		return nil
+	}
 	if len(ids) > 0 {
 		for _, e := range batch.GetEdges() {
 			if e.GetTenantId() != "" && e.GetTenantId() != ids[0].Tenant {
