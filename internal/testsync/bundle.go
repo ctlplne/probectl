@@ -13,7 +13,6 @@
 package testsync
 
 import (
-	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,15 +56,16 @@ func canonical(b Bundle) ([]byte, error) { return json.Marshal(b) }
 // private-key PEM (the same key kind as the license/WORM signer). The control
 // plane holds the private half; agents hold only the build-baked public half.
 func Sign(b Bundle, privPEM []byte) ([]byte, error) {
-	priv, err := crypto.ParseEd25519PrivatePEM(privPEM)
-	if err != nil {
-		return nil, fmt.Errorf("testsync: signing key: %w", err)
-	}
 	raw, err := canonical(b)
 	if err != nil {
 		return nil, err
 	}
-	sig := ed25519.Sign(priv, raw)
+	// All crypto goes through internal/crypto (CLAUDE.md §7.3, FIPS-swappable);
+	// never call crypto/ed25519 primitives directly here.
+	sig, err := crypto.SignEd25519(privPEM, raw)
+	if err != nil {
+		return nil, fmt.Errorf("testsync: signing key: %w", err)
+	}
 	return json.Marshal(Signed{Bundle: raw, Signature: sig})
 }
 
@@ -79,15 +79,16 @@ var ErrBadSignature = errors.New("testsync: bundle signature does not verify (re
 // one the agent is already running) is passed so a replayed OLDER bundle is
 // refused even if correctly signed.
 func Verify(signed []byte, pubPEM []byte, currentEpoch int64) (*Bundle, error) {
-	pub, err := crypto.ParseEd25519PublicPEM(pubPEM)
-	if err != nil {
-		return nil, fmt.Errorf("testsync: verify key: %w", err)
-	}
 	var s Signed
 	if err := json.Unmarshal(signed, &s); err != nil {
 		return nil, fmt.Errorf("testsync: malformed signed bundle: %w", err)
 	}
-	if !ed25519.Verify(pub, s.Bundle, s.Signature) {
+	// All crypto goes through internal/crypto (CLAUDE.md §7.3, FIPS-swappable).
+	ok, err := crypto.VerifyEd25519(pubPEM, s.Bundle, s.Signature)
+	if err != nil {
+		return nil, fmt.Errorf("testsync: verify key: %w", err)
+	}
+	if !ok {
 		return nil, ErrBadSignature
 	}
 	var b Bundle
