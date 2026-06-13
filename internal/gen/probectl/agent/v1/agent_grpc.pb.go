@@ -48,12 +48,12 @@ type AgentServiceClient interface {
 	Attest(ctx context.Context, in *AttestRequest, opts ...grpc.CallOption) (*AttestResponse, error)
 	// Heartbeat reports liveness and the agent's current config epoch.
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
-	// StreamConfig is an UNIMPLEMENTED STUB (U-044) — config push is NOT a
-	// shipped capability. The server sends a single empty epoch-0 frame and
-	// holds the stream open; no configuration is ever delivered. Agents load
-	// config from local YAML/env only (deliberate: no remote config/control
-	// channel, matching the no-agent-self-update posture). Kept in the schema
-	// for wire compatibility; implementing real push requires a signed
+	// StreamConfig is an EXPLICIT DENY (U-044, ARCH-003) — config push is NOT a
+	// shipped capability. The server returns codes.Unimplemented immediately: no
+	// frame is sent and no stream is held open (see service.go StreamConfig).
+	// Agents load config from local YAML/env only (deliberate: no remote
+	// config/control channel, matching the no-agent-self-update posture). Kept in
+	// the schema for wire compatibility; implementing real push requires a signed
 	// config-push ADR first (docs/adr/config-push.md).
 	StreamConfig(ctx context.Context, in *StreamConfigRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[StreamConfigResponse], error)
 	// StreamResults streams probe results to the control plane (agent -> server).
@@ -168,12 +168,12 @@ type AgentServiceServer interface {
 	Attest(context.Context, *AttestRequest) (*AttestResponse, error)
 	// Heartbeat reports liveness and the agent's current config epoch.
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
-	// StreamConfig is an UNIMPLEMENTED STUB (U-044) — config push is NOT a
-	// shipped capability. The server sends a single empty epoch-0 frame and
-	// holds the stream open; no configuration is ever delivered. Agents load
-	// config from local YAML/env only (deliberate: no remote config/control
-	// channel, matching the no-agent-self-update posture). Kept in the schema
-	// for wire compatibility; implementing real push requires a signed
+	// StreamConfig is an EXPLICIT DENY (U-044, ARCH-003) — config push is NOT a
+	// shipped capability. The server returns codes.Unimplemented immediately: no
+	// frame is sent and no stream is held open (see service.go StreamConfig).
+	// Agents load config from local YAML/env only (deliberate: no remote
+	// config/control channel, matching the no-agent-self-update posture). Kept in
+	// the schema for wire compatibility; implementing real push requires a signed
 	// config-push ADR first (docs/adr/config-push.md).
 	StreamConfig(*StreamConfigRequest, grpc.ServerStreamingServer[StreamConfigResponse]) error
 	// StreamResults streams probe results to the control plane (agent -> server).

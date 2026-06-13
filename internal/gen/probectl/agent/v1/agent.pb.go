@@ -524,8 +524,10 @@ func (x *StreamConfigResponse) GetPayload() []byte {
 
 type StreamResultsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Placeholder result envelope. The canonical OTel-aligned result schema arrives
-	// in S6 (proto/result.proto); StreamResults will carry it then.
+	// type is an advisory hint; observed_unix_nanos is the agent's observation
+	// time. payload carries a marshaled probectl.result.v1.Result (see
+	// proto/result.proto), which the server unmarshals and re-stamps with the
+	// authoritative tenant/agent from the mTLS certificate (service.go ingest()).
 	Type              string `protobuf:"bytes,1,opt,name=type,proto3" json:"type,omitempty"`
 	Payload           []byte `protobuf:"bytes,2,opt,name=payload,proto3" json:"payload,omitempty"`
 	ObservedUnixNanos int64  `protobuf:"varint,3,opt,name=observed_unix_nanos,json=observedUnixNanos,proto3" json:"observed_unix_nanos,omitempty"`
