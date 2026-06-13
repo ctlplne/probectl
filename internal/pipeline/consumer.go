@@ -216,7 +216,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 			for it := range c.writeCh {
 				if err := c.writeWithRetry(ctx, it.series); err != nil {
 					c.deadLetter(ctx, it.msg, it.r, err)
+					continue
 				}
+				c.meterStored(it.r, it.bytes) // CORRECT-005: meter stored-only
 			}
 		}()
 	}
@@ -265,6 +267,7 @@ type writeItem struct {
 	series []tsdb.Series
 	msg    bus.Message
 	r      *resultv1.Result
+	bytes  int // ingest bytes to meter once the write is durable (CORRECT-005)
 }
 
 // WithWriteWorkers sets the write-stage parallelism (default 4 in Run).
@@ -325,10 +328,6 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 			return nil
 		}
 	}
-	// Metering (S-T3): derived from the stream already flowing — a no-op
-	// unless the ee/billing recorder is installed at the attach seam.
-	usage.Record(r.GetTenantId(), usage.MeterResultsIngested, 1)
-	usage.Record(r.GetTenantId(), usage.MeterIngestBytes, int64(len(msg.Value)))
 	// Cardinality caps (U-017): NEW series identities past the per-agent /
 	// per-tenant caps are rejected per-series and counted; known identities
 	// keep flowing, other tenants are untouched.
@@ -338,20 +337,36 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
 			"rejected", droppedSeries, "rejected_total", c.card.Stats().Dropped)
 	}
+	// CORRECT-005: a fully cardinality-dropped result stores nothing — it must
+	// NOT be metered (the comment promised stored-only billing, but metering
+	// fired here before the filter + write). Metering now happens ONLY after a
+	// confirmed store write (meterStored), so cardinality-dropped and
+	// dead-lettered results record zero, matching the flow plane.
 	if len(series) == 0 {
 		return nil
 	}
 	if ch := c.writeCh; ch != nil {
 		// Decoupled: block on the BOUNDED queue (backpressure), the write
-		// stage owns retry + DLQ. The decode stage moves on to the next
-		// message — no per-record synchronous remote-write on this path.
-		ch <- writeItem{series: series, msg: msg, r: &r}
+		// stage owns retry + DLQ + metering-on-success. The decode stage moves
+		// on to the next message — no per-record synchronous remote-write here.
+		ch <- writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value)}
 		return nil
 	}
 	if err := c.writeWithRetry(ctx, series); err != nil {
 		c.deadLetter(ctx, msg, &r, err)
+		return nil
 	}
+	c.meterStored(&r, len(msg.Value)) // CORRECT-005: meter stored-only
 	return nil
+}
+
+// meterStored records ingest usage for a result whose series actually landed in
+// the store (CORRECT-005). Billing reflects STORED work — cardinality-dropped
+// and dead-lettered results are never metered, mirroring flow.go. A no-op
+// unless the ee/billing recorder is installed at the attach seam (S-T3).
+func (c *Consumer) meterStored(r *resultv1.Result, bytes int) {
+	usage.Record(r.GetTenantId(), usage.MeterResultsIngested, 1)
+	usage.Record(r.GetTenantId(), usage.MeterIngestBytes, int64(bytes))
 }
 
 // writeWithRetry attempts the store write up to 1+maxRetries times with
