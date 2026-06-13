@@ -116,8 +116,21 @@ No new config keys. The diagnostics endpoints and the offline CLI read the
 existing config. The `diagnostics.read` permission that gates the endpoints is
 seeded for admins by migration `0034_diagnostics.sql`.
 
+## Completeness gate
+
+The bundle's section set is pinned by a CI test
+(`internal/support/completeness_test.go`, EXC-ORG-03): version, redacted config,
+health, self-metrics, topology summary, runtime, and the manifest. Dropping a
+section — the bundle silently shrinking so it no longer carries what an F500
+support contract needs to triage — reds the build, as does the manifest index
+drifting from the actual contents or a secret slipping through (the companion
+`TestBundleHasNoSecrets`).
+
 ## Out of scope
 
 The support **organization and SLAs** (the Enterprise/acquirer-provided
 contract — not code). In MSP mode, tier-1 support to end customers is the MSP's
-job.
+job. The **DR drill on real multi-region infrastructure** is likewise an operator
+action: the runbook + the CI failover drill exist (`docs/ops/dr.md`), but the
+live cross-region exercise needs real DR infra and is run by the operator, not in
+CI.
