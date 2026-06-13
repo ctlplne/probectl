@@ -27,8 +27,10 @@ for c in $COMPONENTS; do
   docker save "$ref" -o "$OUT/images/${c}.tar"
 done
 
-# 2. Helm chart (versioned, OCI-publishable too — OPS-001).
-helm package deploy/helm/probectl --version "$VERSION" --destination "$OUT/charts" >/dev/null
+# 2. Helm chart (versioned, OCI-publishable too — OPS-001). OPS-008: stamp BOTH
+#    the chart version and appVersion from $VERSION so the bundled chart targets
+#    exactly the images carried alongside it (no appVersion/tag skew).
+helm package deploy/helm/probectl --version "$VERSION" --app-version "$VERSION" --destination "$OUT/charts" >/dev/null
 
 # 3. Binaries (the binaries release job produces these into dist/).
 if [ -d dist ]; then cp dist/probectl-*_"v${VERSION}"_linux_* "$OUT/bin/" 2>/dev/null || true; fi

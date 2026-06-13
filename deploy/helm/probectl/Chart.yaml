@@ -6,9 +6,12 @@ description: >-
   exposure). Ships single-tenant and multi-tenant/provider reference values.
 type: application
 # Chart version (independent of the app). Bump on chart changes.
-version: 0.1.0
+version: 0.4.0
 # The default probectl version this chart targets; override image.tag to pin.
-appVersion: "0.1.0"
+# OPS-008: this MUST equal the repo-root VERSION file (the single source of
+# version truth) and the compose image pin — enforced by the version-consistency
+# gate (cmd/probectl-control/version_consistency_test.go + scripts/check_version_consistency.sh).
+appVersion: "0.4.0"
 keywords:
   - observability
   - network

@@ -144,6 +144,8 @@ jobs:
           sudo apt-get update -y && sudo apt-get install -y gettext-base
       - name: deb + rpm build smoke
         run: PATH="$PATH:$(go env GOPATH)/bin" bash scripts/packaging-smoke.sh
+      - name: version consistency (compose == chart appVersion == VERSION) (OPS-008)
+        run: bash scripts/check_version_consistency.sh
 
   fips-gate:
     name: fips-gate

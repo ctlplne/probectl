@@ -18,7 +18,11 @@ FIPS_MODULE ?= v1.0.0
 GO_MODULE_DIRS := . test
 
 # Build metadata, injected into internal/version via -ldflags.
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "0.0.0-dev")
+# OPS-008: the repo-root VERSION file is the single source of version truth
+# (binary == chart appVersion == compose image pin). A tagged release overrides
+# it via `git describe` (the tag is authoritative on release); otherwise the
+# VERSION file is stamped into the binary so dev/compose/chart all agree.
+VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null | sed 's/^v//' || cat VERSION 2>/dev/null || echo "0.0.0-dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS := -s -w \
