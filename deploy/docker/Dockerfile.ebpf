@@ -33,8 +33,14 @@ WORKDIR /src
 # below), so NO libbpf-dev: the compile is independent of the distro's libbpf
 # version. (bookworm's libbpf 1.1 lacked BPF_UPROBE — the exact break this fixes;
 # see internal/ebpf/bpf/headers/VENDOR.md.)
+# SUPPLY-001: pin the clang/llvm MAJOR version (clang-14 = Debian bookworm's
+# versioned package) instead of the floating `clang` meta-package, so the BPF
+# objects (and their U-014 SHA-256 digests) are reproducible across rebuilds.
+# gen_bpf.sh defaults CLANG=clang-14 to match. (The exact patch version still
+# tracks the pinned bookworm base image's apt snapshot, which the digest-pinned
+# golang:${GO_VERSION}-bookworm@sha256 freezes.)
 RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
-      clang llvm bpftool && rm -rf /var/lib/apt/lists/*
+      clang-14 llvm-14 bpftool && rm -rf /var/lib/apt/lists/*
 
 # Cache dependencies first for faster rebuilds.
 COPY go.mod go.sum ./

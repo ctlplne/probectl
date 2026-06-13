@@ -22,6 +22,19 @@ cd "$(dirname "$0")" # -> internal/ebpf
 # `go generate` / the CI + Docker callers.
 GO="${GO:-go}"
 
+# SUPPLY-001: pin the BPF compiler. clang/llvm is the one floating input on the
+# privileged eBPF build path — a distro-default `clang` drifts across rebuilds
+# and breaks reproducibility of the U-014 BPF digests. Default to the pinned
+# clang-14 (Debian bookworm's versioned package; the Dockerfile installs exactly
+# that), overridable via CLANG for an operator on a different pinned toolchain.
+CLANG="${CLANG:-clang-14}"
+# Fall back to a bare `clang` only if the pinned one is genuinely absent (e.g. a
+# dev box) — and say so, so a silent unpinned compile is visible.
+if ! command -v "$CLANG" >/dev/null 2>&1; then
+	echo "gen_bpf.sh: pinned $CLANG not found; falling back to unpinned 'clang' (reproducibility NOT guaranteed — install ${CLANG} or set CLANG)" >&2
+	CLANG="clang"
+fi
+
 what="${1:-all}"
 ssl_target="${2:-$("$GO" env GOARCH)}"
 
@@ -42,7 +55,7 @@ if grep -q 'struct user_pt_regs {' bpf/vmlinux.h; then
 	compat=(-DPROBECTL_VMLINUX_HAS_USER_PT_REGS)
 fi
 
-b2g() { "$GO" run github.com/cilium/ebpf/cmd/bpf2go -cc clang -tags ebpf -go-package ebpf "$@"; }
+b2g() { "$GO" run github.com/cilium/ebpf/cmd/bpf2go -cc "$CLANG" -tags ebpf -go-package ebpf "$@"; }
 
 # l4flow: arch-neutral tracepoint program (no arch_compat.h, no per-arch object).
 gen_l4flow() {

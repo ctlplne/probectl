@@ -18,6 +18,8 @@ if [[ "${1:-}" == "SELFTEST" ]]; then
   grep -q ':latest' "$tmp/bad.yml" || { echo "SELFTEST broken"; exit 1; }
   echo 'pip install ruff' > "$tmp/bad.sh"
   if grep -E 'pip install' "$tmp/bad.sh" | grep -vqE '(==|--require-hashes|--no-deps|-r [^ ]+\.lock)'; then :; else echo "SELFTEST broken"; exit 1; fi
+  echo 'apt-get install -y clang llvm bpftool' > "$tmp/bad.dockerfile"
+  if grep -qE '(^| )clang( |$)' "$tmp/bad.dockerfile"; then :; else echo "SELFTEST broken (clang pin)"; exit 1; fi
   echo "supply-pins SELFTEST: OK"
   exit 0
 fi
@@ -48,6 +50,27 @@ while IFS= read -r line; do
   echo "  $line"
   fail=1
 done < <(grep -rn 'pip install' .github/workflows Makefile | grep -v '^\s*#' || true)
+
+# 4) bare clang/llvm install on the eBPF build path (SUPPLY-001): the BPF
+#    compiler must be a PINNED versioned package (clang-NN / llvm-NN), never the
+#    floating meta-package, or the BPF objects + U-014 digests drift. The
+#    install spans a line-continuation, so tokenize each matching line and flag
+#    a BARE clang/llvm token (pinned forms clang-14 / llvm-14 carry a -NN/=ver).
+if [[ -f deploy/docker/Dockerfile.ebpf ]]; then
+  while IFS= read -r raw; do
+    code="${raw#*:}"; code="${code%%#*}"   # strip file:line prefix + trailing comment
+    stripped="${code#"${code%%[![:space:]]*}"}"
+    [[ "$stripped" == \#* ]] && continue   # skip full-comment lines
+    code="${code//\\/ }"                  # drop the line-continuation backslash
+    for tok in $code; do
+      if [[ "$tok" == clang || "$tok" == llvm ]]; then
+        echo "UNPINNED clang/llvm on the eBPF build path (want clang-NN / llvm-NN; SUPPLY-001):"
+        echo "  $raw"
+        fail=1
+      fi
+    done
+  done < <(grep -rni 'clang' deploy/docker/Dockerfile.ebpf 2>/dev/null; grep -rni 'llvm' deploy/docker/Dockerfile.ebpf 2>/dev/null || true)
+fi
 
 if [[ $fail -ne 0 ]]; then
   echo
