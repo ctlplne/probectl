@@ -46,16 +46,131 @@ const createLinks = `CREATE TABLE IF NOT EXISTS ` + linksTable + ` (
   ttl UInt8, from_ip String, to_ip String
 ) ENGINE = MergeTree PARTITION BY (tenant_id, toYYYYMMDD(ts)) ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
 
+// createHopsFor / createLinksFor render the v2 (day-partitioned) shape for an
+// arbitrary (possibly database-qualified) table name — used to provision a
+// siloed tenant's per-tenant database tables (TENANT-001). They mirror the
+// createHops/createLinks consts verbatim except for the table name.
+func createHopsFor(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String, path_id String, target String, target_ip String, mode String,
+  ts DateTime64(3), ttl UInt8, responder String,
+  sent UInt32, received UInt32, loss_ratio Float64,
+  rtt_min_ms Float64, rtt_avg_ms Float64, rtt_max_ms Float64,
+  mpls_labels Array(UInt32)
+) ENGINE = MergeTree PARTITION BY (tenant_id, toYYYYMMDD(ts)) ORDER BY (tenant_id, target, ts, ttl, responder)`
+}
+
+func createLinksFor(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String, path_id String, target String, ts DateTime64(3),
+  ttl UInt8, from_ip String, to_ip String
+) ENGINE = MergeTree PARTITION BY (tenant_id, toYYYYMMDD(ts)) ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
+}
+
+// chIdentRe validates a ClickHouse database identifier (names derive from
+// UUIDs, never user input — validated, fail closed). Parity with flowstore.
+var chIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// Target is where one tenant's path rows live (S-T2 siloed/hybrid isolation,
+// TENANT-001). Zero value = the shared (pooled) store; Database routes to a
+// per-tenant ClickHouse database; BaseURL pins a residency data plane.
+type Target struct {
+	BaseURL  string
+	Database string
+}
+
+// TargetRouter resolves a tenant's path-store target. FAIL CLOSED: a routing
+// error fails the operation rather than landing a siloed tenant's rows in the
+// pooled tables.
+type TargetRouter func(tenantID string) (Target, error)
+
+// qualify renders <database>.<table> for a routed target ("" db = pooled).
+func qualify(t Target, table string) (string, error) {
+	if t.Database == "" {
+		return table, nil
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return "", fmt.Errorf("pathstore: refusing malformed database name %q", t.Database)
+	}
+	return t.Database + "." + table, nil
+}
+
 // ClickHouse persists paths to a ClickHouse HTTP endpoint. TLS in transit is
 // supported by using an https URL (CLAUDE.md §7 guardrail 12).
 type ClickHouse struct {
-	base string
-	conn *chclient.Conn // shared transport (TLS client + breaker), CODE-006
+	base   string
+	conn   *chclient.Conn // shared transport (TLS client + breaker), CODE-006
+	router TargetRouter   // nil = everything pooled (TENANT-001)
 	// tenantScoping (TENANT-004): attach the per-request tenant custom setting
 	// to tenant-scoped reads so the setting-scoped reader row policy can
 	// constrain the query path at the DB. Off by default; defaulted on by the
 	// multi-tenant/regulated profile.
 	tenantScoping bool
+}
+
+// WithRouter installs the silo/residency isolation router (TENANT-001; the
+// main.go attach seam). nil keeps everything pooled.
+func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse { c.router = r; return c }
+
+func (c *ClickHouse) route(tenantID string) (Target, error) {
+	if c.router == nil {
+		return Target{}, nil
+	}
+	return c.router(tenantID)
+}
+
+func (c *ClickHouse) baseFor(base string) string {
+	if base == "" {
+		return c.base
+	}
+	return strings.TrimRight(base, "/")
+}
+
+// EnsureTenantDatabase creates a tenant's isolated database + path tables on
+// its data plane (idempotent — the silo provisioner calls it at provision and
+// on catch-up). Siloed tenants get the v2 (day-partitioned) shape directly.
+// TENANT-001.
+func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
+	if t.Database == "" {
+		return fmt.Errorf("pathstore: a tenant database name is required")
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("pathstore: refusing malformed database name %q", t.Database)
+	}
+	if err := c.execAt(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil, nil); err != nil {
+		return fmt.Errorf("pathstore: create tenant database: %w", err)
+	}
+	hops, err := qualify(t, hopsTable)
+	if err != nil {
+		return err
+	}
+	links, err := qualify(t, linksTable)
+	if err != nil {
+		return err
+	}
+	if err := c.execAt(ctx, t.BaseURL, createHopsFor(hops), nil, nil); err != nil {
+		return fmt.Errorf("pathstore: create tenant hops table: %w", err)
+	}
+	if err := c.execAt(ctx, t.BaseURL, createLinksFor(links), nil, nil); err != nil {
+		return fmt.Errorf("pathstore: create tenant links table: %w", err)
+	}
+	if retentionDays > 0 {
+		for _, table := range []string{hops, links} {
+			ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", table, retentionDays)
+			if err := c.execAt(ctx, t.BaseURL, ttl, nil, nil); err != nil {
+				return fmt.Errorf("pathstore: tenant retention TTL: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// DropTenantDatabase removes a siloed tenant's database (offboard teardown).
+func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
+	if t.Database == "" || !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("pathstore: refusing to drop malformed database name %q", t.Database)
+	}
+	return c.execAt(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil, nil)
 }
 
 // tenantSettingName is the ClickHouse custom setting carrying the request
@@ -223,17 +338,29 @@ func (c *ClickHouse) Save(ctx context.Context, tenantID string, p *path.Path) er
 // SCALE-009 — the cross-path batching window): N paths cost 2 requests, not
 // 2N. Used by BatchingSaver; Save is the single-item case.
 func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
-	var hops, links bytes.Buffer
-	henc, lenc := json.NewEncoder(&hops), json.NewEncoder(&links)
+	// TENANT-001: group rows by routed Target so a siloed tenant's hops/links
+	// land in its own database/data-plane. Buffers are per target.
+	type buf struct{ hops, links bytes.Buffer }
+	bufs := map[Target]*buf{}
 	for _, it := range items {
 		if it.TenantID == "" {
 			return ErrNoTenant
+		}
+		t, err := c.route(it.TenantID)
+		if err != nil {
+			return fmt.Errorf("pathstore: route tenant %s: %w", it.TenantID, err)
+		}
+		b := bufs[t]
+		if b == nil {
+			b = &buf{}
+			bufs[t] = b
 		}
 		pathID, err := randomID()
 		if err != nil {
 			return err
 		}
 		ts := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+		henc, lenc := json.NewEncoder(&b.hops), json.NewEncoder(&b.links)
 		for _, h := range it.P.Hops {
 			for _, n := range h.Nodes {
 				labels := make([]uint32, 0, len(n.MPLS))
@@ -257,14 +384,24 @@ func (c *ClickHouse) SaveBatch(ctx context.Context, items []PathItem) error {
 			}
 		}
 	}
-	if hops.Len() > 0 {
-		if err := c.exec(ctx, "INSERT INTO "+hopsTable+" FORMAT JSONEachRow", nil, &hops); err != nil {
+	for t, b := range bufs {
+		hopsT, err := qualify(t, hopsTable)
+		if err != nil {
 			return err
 		}
-	}
-	if links.Len() > 0 {
-		if err := c.exec(ctx, "INSERT INTO "+linksTable+" FORMAT JSONEachRow", nil, &links); err != nil {
+		linksT, err := qualify(t, linksTable)
+		if err != nil {
 			return err
+		}
+		if b.hops.Len() > 0 {
+			if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+hopsT+" FORMAT JSONEachRow", nil, &b.hops); err != nil {
+				return err
+			}
+		}
+		if b.links.Len() > 0 {
+			if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+linksT+" FORMAT JSONEachRow", nil, &b.links); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -279,17 +416,29 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 	if tenantID == "" {
 		return 0, 0, ErrNoTenant
 	}
+	t, rerr := c.route(tenantID)
+	if rerr != nil {
+		return 0, -1, rerr
+	}
+	// TENANT-001: a siloed tenant's whole database is DROPPED (both tables go
+	// together) — verified zero.
+	if t.Database != "" {
+		if derr := c.DropTenantDatabase(ctx, t); derr != nil {
+			return 0, -1, derr
+		}
+		return 0, 0, nil
+	}
 	tp := chParams{"tenant": tenantID}
 	for _, table := range []string{hopsTable, linksTable} {
-		out, qerr := c.queryScoped(ctx, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
+		out, qerr := c.queryScoped(ctx, t.BaseURL, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
 		deleted += chCount(out)
-		if eerr := c.exec(ctx, "DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", tp, nil); eerr != nil {
+		if eerr := c.execAt(ctx, t.BaseURL, "DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2", tp, nil); eerr != nil {
 			return deleted, -1, eerr
 		}
-		out, qerr = c.queryScoped(ctx, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
+		out, qerr = c.queryScoped(ctx, t.BaseURL, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
 		}
@@ -302,13 +451,25 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	if tenantID == "" {
 		return nil, false, ErrNoTenant
 	}
+	t, err := c.route(tenantID)
+	if err != nil {
+		return nil, false, err
+	}
+	hopsT, err := qualify(t, hopsTable)
+	if err != nil {
+		return nil, false, err
+	}
+	linksT, err := qualify(t, linksTable)
+	if err != nil {
+		return nil, false, err
+	}
 	// CORRECT-010: select the SINGLE newest snapshot (ORDER BY ts DESC LIMIT 1),
 	// then read exactly that path_id's hops/links below. This newest-only read is
 	// what makes a redelivered duplicate save harmless — it is never aggregated
 	// across snapshots, so no dedup engine is needed (see doc.go). Do not widen
 	// this to a cross-snapshot scan.
-	meta, err := c.queryScoped(ctx, tenantID,
-		"SELECT path_id, target_ip, mode FROM "+hopsTable+" WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1",
+	meta, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT path_id, target_ip, mode FROM "+hopsT+" WHERE tenant_id={tenant:String} AND target={target:String} ORDER BY ts DESC LIMIT 1",
 		chParams{"tenant": tenantID, "target": target})
 	if err != nil {
 		return nil, false, err
@@ -319,8 +480,8 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	pathID := chToString(meta[0]["path_id"])
 	p := &path.Path{Target: target, TargetIP: chToString(meta[0]["target_ip"]), Mode: chToString(meta[0]["mode"])}
 
-	hopRows, err := c.queryScoped(ctx, tenantID,
-		"SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsTable+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder",
+	hopRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, responder",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
 		return nil, false, err
@@ -358,8 +519,8 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 	}
 	p.MaxHops = maxTTL
 
-	linkRows, err := c.queryScoped(ctx, tenantID,
-		"SELECT ttl, from_ip, to_ip FROM "+linksTable+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, from_ip, to_ip",
+	linkRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT ttl, from_ip, to_ip FROM "+linksT+" WHERE tenant_id={tenant:String} AND path_id={path:String} ORDER BY ttl, from_ip, to_ip",
 		chParams{"tenant": tenantID, "path": pathID})
 	if err != nil {
 		return nil, false, err
@@ -392,29 +553,29 @@ func (p chParams) qs() string {
 	return sb.String()
 }
 
-// queryScoped is query with the per-request tenant custom setting attached
-// (TENANT-004) when scoping is enabled, so the reader row policy can constrain
-// the result at the DB. tenant "" means an admin/cross-tenant read (none here).
-func (c *ClickHouse) queryScoped(ctx context.Context, tenant, sql string, p chParams) ([]map[string]any, error) {
-	if !c.tenantScoping || tenant == "" {
-		return c.query(ctx, sql, p)
+// queryScoped is query against a routed data-plane endpoint with the
+// per-request tenant custom setting attached (TENANT-004) when scoping is
+// enabled, so the reader row policy can constrain the result at the DB. tenant
+// "" means an admin/cross-tenant read.
+func (c *ClickHouse) queryScoped(ctx context.Context, base, tenant, sql string, p chParams) ([]map[string]any, error) {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs()
+	if c.tenantScoping && tenant != "" {
+		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenant)
 	}
-	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + p.qs() +
-		"&" + tenantSettingName + "=" + url.QueryEscape(tenant)
-	return c.doQuery(ctx, u)
+	return c.doQuery(ctx, base, u)
 }
 
-// query runs a SELECT and parses the JSONEachRow response into row maps.
+// query runs a SELECT against the deployment-default endpoint (migrations).
 func (c *ClickHouse) query(ctx context.Context, sql string, p chParams) ([]map[string]any, error) {
-	return c.doQuery(ctx, c.base+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
+	return c.doQuery(ctx, "", c.base+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
 }
 
-func (c *ClickHouse) doQuery(ctx context.Context, u string) ([]map[string]any, error) {
+func (c *ClickHouse) doQuery(ctx context.Context, base, u string) ([]map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.Do("", req)
+	resp, err := c.conn.Do(base, req)
 	if err != nil {
 		return nil, fmt.Errorf("pathstore: clickhouse query: %w", err)
 	}
@@ -440,13 +601,20 @@ func chToFloat(v any) float64           { return chclient.Float(v) }
 func chToInt(v any) int                 { return chclient.Int(v) }
 func chToUintSlice(v any) []uint32      { return chclient.UintSlice(v) }
 
+// exec runs against the deployment-default endpoint (DDL/migrations/policies).
 func (c *ClickHouse) exec(ctx context.Context, query string, p chParams, body io.Reader) error {
-	u := c.base + "/?query=" + url.QueryEscape(query) + p.qs()
+	return c.execAt(ctx, "", query, p, body)
+}
+
+// execAt runs against a routed data-plane endpoint ("" = default) so siloed
+// tenants on a residency plane hit the right server (TENANT-001).
+func (c *ClickHouse) execAt(ctx context.Context, base, query string, p chParams, body io.Reader) error {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(query) + p.qs()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
 	if err != nil {
 		return err
 	}
-	resp, err := c.conn.Do("", req)
+	resp, err := c.conn.Do(base, req)
 	if err != nil {
 		return fmt.Errorf("pathstore: clickhouse request: %w", err)
 	}

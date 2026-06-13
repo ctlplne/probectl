@@ -40,6 +40,34 @@ const (
 	logsTable  = "probectl_otel_logs"
 )
 
+// chIdentRe validates a ClickHouse database identifier (names derive from
+// UUIDs, never user input — validated, fail closed). Parity with flowstore.
+var chIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// Target is where one tenant's traces+logs live (S-T2 siloed/hybrid isolation,
+// TENANT-001). Zero value = the shared (pooled) store; Database routes to a
+// per-tenant ClickHouse database; BaseURL pins a residency data plane.
+type Target struct {
+	BaseURL  string
+	Database string
+}
+
+// TargetRouter resolves a tenant's otel-store target. FAIL CLOSED: a routing
+// error fails the operation rather than landing a siloed tenant's PII in the
+// pooled tables.
+type TargetRouter func(tenantID string) (Target, error)
+
+// qualify renders <database>.<table> for a routed target ("" db = pooled).
+func qualify(t Target, table string) (string, error) {
+	if t.Database == "" {
+		return table, nil
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return "", fmt.Errorf("otelstore: refusing malformed database name %q", t.Database)
+	}
+	return t.Database + "." + table, nil
+}
+
 // createSpansDDL is the ORIGINAL plain MergeTree shape (v1). Kept verbatim so
 // the v1 migration's checksum is immutable; the v2 migration rebuilds it into
 // the dedup ReplacingMergeTree below (CORRECT-004).
@@ -130,8 +158,9 @@ func chMigrations() []chmigrate.Migration {
 
 // ClickHouse is the production Store.
 type ClickHouse struct {
-	base string
-	conn *chclient.Conn // shared transport (TLS client + breaker), CODE-006
+	base   string
+	conn   *chclient.Conn // shared transport (TLS client + breaker), CODE-006
+	router TargetRouter   // nil = everything pooled (TENANT-001)
 	// tenantScoping (TENANT-102 parity): attach the per-request custom
 	// setting so the reader row policy can constrain reads at the DB.
 	tenantScoping bool
@@ -143,13 +172,78 @@ const tenantSettingName = "SQL_probectl_tenant"
 // reads (pair with the reader row policy; see docs/security/tenant-isolation.md).
 func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
+// WithRouter installs the silo/residency isolation router (TENANT-001; the
+// main.go attach seam). nil keeps everything pooled.
+func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse { c.router = r; return c }
+
+// route resolves one tenant's target (pooled when no router is installed).
+func (c *ClickHouse) route(tenantID string) (Target, error) {
+	if c.router == nil {
+		return Target{}, nil
+	}
+	return c.router(tenantID)
+}
+
+func (c *ClickHouse) baseFor(base string) string {
+	if base == "" {
+		return c.base
+	}
+	return strings.TrimRight(base, "/")
+}
+
+// EnsureTenantDatabase creates a tenant's isolated database + spans/logs tables
+// on its data plane (idempotent). TENANT-001.
+func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
+	if t.Database == "" {
+		return fmt.Errorf("otelstore: a tenant database name is required")
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("otelstore: refusing malformed database name %q", t.Database)
+	}
+	if err := c.execAt(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil, nil); err != nil {
+		return fmt.Errorf("otelstore: create tenant database: %w", err)
+	}
+	spans, err := qualify(t, spansTable)
+	if err != nil {
+		return err
+	}
+	logs, err := qualify(t, logsTable)
+	if err != nil {
+		return err
+	}
+	// Siloed tenants get the dedup shape directly (parity with the pooled v2).
+	if err := c.execAt(ctx, t.BaseURL, createSpansDedupDDL(spans), nil, nil); err != nil {
+		return fmt.Errorf("otelstore: create tenant spans table: %w", err)
+	}
+	if err := c.execAt(ctx, t.BaseURL, createLogsDedupDDL(logs), nil, nil); err != nil {
+		return fmt.Errorf("otelstore: create tenant logs table: %w", err)
+	}
+	if retentionDays > 0 {
+		for table, col := range map[string]string{spans: "start", logs: "ts"} {
+			ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(%s) + INTERVAL %d DAY DELETE", table, col, retentionDays)
+			if err := c.execAt(ctx, t.BaseURL, ttl, nil, nil); err != nil {
+				return fmt.Errorf("otelstore: tenant retention TTL: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// DropTenantDatabase removes a siloed tenant's database (offboard teardown).
+func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
+	if t.Database == "" || !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("otelstore: refusing to drop malformed database name %q", t.Database)
+	}
+	return c.execAt(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil, nil)
+}
+
 type chExec struct{ c *ClickHouse }
 
 func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
 	return e.c.exec(ctx, sql, chParams(p), nil)
 }
 func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
-	return e.c.query(ctx, "", sql, chParams(p))
+	return e.c.query(ctx, "", "", sql, chParams(p))
 }
 
 // NewClickHouse connects, applies the versioned schema, and (when
@@ -191,29 +285,47 @@ type chSpan struct {
 	Attrs        string `json:"attrs"`
 }
 
-// WriteSpans inserts one JSONEachRow batch.
+// WriteSpans inserts JSONEachRow batches, routed per tenant (TENANT-001):
+// siloed tenants' spans land in their own database/data-plane.
 func (c *ClickHouse) WriteSpans(ctx context.Context, spans []Span) error {
 	if len(spans) == 0 {
 		return nil
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	for _, s := range spans {
-		if s.TenantID == "" {
+	groups := map[Target][]Span{}
+	for i := range spans {
+		if spans[i].TenantID == "" {
 			continue // never store an unowned row
 		}
-		attrs, _ := json.Marshal(s.Attrs)
-		row := chSpan{
-			TenantID: s.TenantID, TraceID: s.TraceID, SpanID: s.SpanID, ParentSpanID: s.ParentSpanID,
-			Name: s.Name, Kind: s.Kind, Service: s.Service,
-			Start:      timeOrNow(s.Start).UTC().Format("2006-01-02 15:04:05.000000"),
-			DurationNS: uint64(max64(int64(s.Duration), 0)), StatusCode: s.StatusCode, Attrs: string(attrs),
+		t, err := c.route(spans[i].TenantID)
+		if err != nil {
+			return fmt.Errorf("otelstore: route tenant %s: %w", spans[i].TenantID, err)
 		}
-		if err := enc.Encode(row); err != nil {
-			return fmt.Errorf("otelstore: encode span: %w", err)
+		groups[t] = append(groups[t], spans[i])
+	}
+	for t, group := range groups {
+		table, err := qualify(t, spansTable)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		for _, s := range group {
+			attrs, _ := json.Marshal(s.Attrs)
+			row := chSpan{
+				TenantID: s.TenantID, TraceID: s.TraceID, SpanID: s.SpanID, ParentSpanID: s.ParentSpanID,
+				Name: s.Name, Kind: s.Kind, Service: s.Service,
+				Start:      timeOrNow(s.Start).UTC().Format("2006-01-02 15:04:05.000000"),
+				DurationNS: uint64(max64(int64(s.Duration), 0)), StatusCode: s.StatusCode, Attrs: string(attrs),
+			}
+			if err := enc.Encode(row); err != nil {
+				return fmt.Errorf("otelstore: encode span: %w", err)
+			}
+		}
+		if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", nil, &buf); err != nil {
+			return err
 		}
 	}
-	return c.exec(ctx, "INSERT INTO "+spansTable+" FORMAT JSONEachRow", nil, &buf)
+	return nil
 }
 
 type chLog struct {
@@ -242,29 +354,46 @@ func logDedupID(r LogRecord) string {
 	return fmt.Sprintf("%x", h[:16])
 }
 
-// WriteLogs inserts one JSONEachRow batch.
+// WriteLogs inserts JSONEachRow batches, routed per tenant (TENANT-001).
 func (c *ClickHouse) WriteLogs(ctx context.Context, recs []LogRecord) error {
 	if len(recs) == 0 {
 		return nil
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	for _, r := range recs {
-		if r.TenantID == "" {
+	groups := map[Target][]LogRecord{}
+	for i := range recs {
+		if recs[i].TenantID == "" {
 			continue
 		}
-		attrs, _ := json.Marshal(r.Attrs)
-		row := chLog{
-			TenantID: r.TenantID, TS: timeOrNow(r.TS).UTC().Format("2006-01-02 15:04:05.000000"),
-			SeverityNum: r.SeverityNum, SeverityText: r.SeverityText,
-			Service: r.Service, Body: r.Body, TraceID: r.TraceID, SpanID: r.SpanID, Attrs: string(attrs),
-			DedupID: logDedupID(r), // CORRECT-004
+		t, err := c.route(recs[i].TenantID)
+		if err != nil {
+			return fmt.Errorf("otelstore: route tenant %s: %w", recs[i].TenantID, err)
 		}
-		if err := enc.Encode(row); err != nil {
-			return fmt.Errorf("otelstore: encode log: %w", err)
+		groups[t] = append(groups[t], recs[i])
+	}
+	for t, group := range groups {
+		table, err := qualify(t, logsTable)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		for _, r := range group {
+			attrs, _ := json.Marshal(r.Attrs)
+			row := chLog{
+				TenantID: r.TenantID, TS: timeOrNow(r.TS).UTC().Format("2006-01-02 15:04:05.000000"),
+				SeverityNum: r.SeverityNum, SeverityText: r.SeverityText,
+				Service: r.Service, Body: r.Body, TraceID: r.TraceID, SpanID: r.SpanID, Attrs: string(attrs),
+				DedupID: logDedupID(r), // CORRECT-004
+			}
+			if err := enc.Encode(row); err != nil {
+				return fmt.Errorf("otelstore: encode log: %w", err)
+			}
+		}
+		if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", nil, &buf); err != nil {
+			return err
 		}
 	}
-	return c.exec(ctx, "INSERT INTO "+logsTable+" FORMAT JSONEachRow", nil, &buf)
+	return nil
 }
 
 // --- queries (server-bound parameters only) ---
@@ -274,12 +403,20 @@ func (c *ClickHouse) QuerySpans(ctx context.Context, tenant string, q SpanQuery)
 	if tenant == "" {
 		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
 	}
+	t, err := c.route(tenant)
+	if err != nil {
+		return nil, err
+	}
+	table, err := qualify(t, spansTable)
+	if err != nil {
+		return nil, err
+	}
 	// CORRECT-004: FINAL collapses redelivered-duplicate spans (same
 	// tenant/start/service/trace/span sort key) at read time so a redelivered
 	// trace batch returns each span once.
 	sql := `SELECT tenant_id, trace_id, span_id, parent_span_id, name, kind, service,
   toUnixTimestamp64Micro(start) AS start_us, duration_ns, status_code, attrs
-FROM ` + spansTable + ` FINAL
+FROM ` + table + ` FINAL
 WHERE tenant_id = {tenant:String}
   AND ({trace:String} = '' OR trace_id = {trace:String})
   AND ({svc:String} = '' OR service = {svc:String})
@@ -292,7 +429,7 @@ LIMIT {lim:UInt32}`
 		"since": msOrZero(q.Since), "until": msOrZero(q.Until),
 		"lim": strconv.Itoa(clampLimit(q.Limit)),
 	}
-	rows, err := c.queryScoped(ctx, tenant, sql, p)
+	rows, err := c.queryScoped(ctx, t.BaseURL, tenant, sql, p)
 	if err != nil {
 		return nil, err
 	}
@@ -320,11 +457,19 @@ func (c *ClickHouse) QueryLogs(ctx context.Context, tenant string, q LogQuery) (
 	if tenant == "" {
 		return nil, ErrNoTenant // TENANT-003: fail closed on an unscoped read
 	}
+	t, err := c.route(tenant)
+	if err != nil {
+		return nil, err
+	}
+	table, err := qualify(t, logsTable)
+	if err != nil {
+		return nil, err
+	}
 	// CORRECT-004: FINAL collapses redelivered-duplicate log records (same
 	// dedup_id) at read time so a redelivered log batch returns each record once.
 	sql := `SELECT tenant_id, toUnixTimestamp64Micro(ts) AS ts_us, severity_num, severity_text,
   service, body, trace_id, span_id, attrs
-FROM ` + logsTable + ` FINAL
+FROM ` + table + ` FINAL
 WHERE tenant_id = {tenant:String}
   AND ({svc:String} = '' OR service = {svc:String})
   AND ({trace:String} = '' OR trace_id = {trace:String})
@@ -339,7 +484,7 @@ LIMIT {lim:UInt32}`
 		"since":  msOrZero(q.Since), "until": msOrZero(q.Until),
 		"lim": strconv.Itoa(clampLimit(q.Limit)),
 	}
-	rows, err := c.queryScoped(ctx, tenant, sql, p)
+	rows, err := c.queryScoped(ctx, t.BaseURL, tenant, sql, p)
 	if err != nil {
 		return nil, err
 	}
@@ -368,16 +513,28 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 	if tenant == "" {
 		return 0, -1, ErrNoTenant // TENANT-003: never mutate across all tenants
 	}
+	t, err := c.route(tenant)
+	if err != nil {
+		return 0, -1, err
+	}
+	// TENANT-001: a siloed tenant's whole database is DROPPED (the spans + logs
+	// tables and the database go together) — count-verified as zero.
+	if t.Database != "" {
+		if err := c.DropTenantDatabase(ctx, t); err != nil {
+			return 0, -1, err
+		}
+		return 0, 0, nil
+	}
 	for _, table := range []string{spansTable, logsTable} {
-		before, err := c.countTenant(ctx, table, tenant)
+		before, err := c.countTenant(ctx, t, table, tenant)
 		if err != nil {
 			return 0, -1, err
 		}
-		if err := c.exec(ctx, "ALTER TABLE "+table+" DELETE WHERE tenant_id = {tenant:String} SETTINGS mutations_sync = 2",
+		if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+table+" DELETE WHERE tenant_id = {tenant:String} SETTINGS mutations_sync = 2",
 			chParams{"tenant": tenant}, nil); err != nil {
 			return 0, -1, err
 		}
-		after, err := c.countTenant(ctx, table, tenant)
+		after, err := c.countTenant(ctx, t, table, tenant)
 		if err != nil {
 			return 0, -1, err
 		}
@@ -387,14 +544,18 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 	return deleted, remaining, nil
 }
 
-// countTenant counts one tenant's rows in a table (erase verification),
+// countTenant counts one tenant's rows in a routed table (erase verification),
 // tenant-scoped like every other read.
-func (c *ClickHouse) countTenant(ctx context.Context, table, tenant string) (int, error) {
+func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant string) (int, error) {
 	if tenant == "" {
 		return 0, ErrNoTenant // TENANT-003: never count across all tenants
 	}
-	rows, err := c.queryScoped(ctx, tenant,
-		"SELECT count() AS n FROM "+table+" WHERE tenant_id = {tenant:String}", chParams{"tenant": tenant})
+	qt, err := qualify(t, table)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := c.queryScoped(ctx, t.BaseURL, tenant,
+		"SELECT count() AS n FROM "+qt+" WHERE tenant_id = {tenant:String}", chParams{"tenant": tenant})
 	if err != nil {
 		return 0, err
 	}
@@ -483,21 +644,21 @@ func (p chParams) qs() string {
 	return b.String()
 }
 
-func (c *ClickHouse) queryScoped(ctx context.Context, tenant, sql string, p chParams) ([]map[string]any, error) {
+func (c *ClickHouse) queryScoped(ctx context.Context, base, tenant, sql string, p chParams) ([]map[string]any, error) {
 	scope := ""
 	if c.tenantScoping {
 		scope = "&" + url.QueryEscape(tenantSettingName) + "=" + url.QueryEscape(tenant)
 	}
-	return c.query(ctx, scope, sql, p)
+	return c.query(ctx, base, scope, sql, p)
 }
 
-func (c *ClickHouse) query(ctx context.Context, extraQS, sql string, p chParams) ([]map[string]any, error) {
-	u := c.base + "/?query=" + url.QueryEscape(sql+" FORMAT JSON") + p.qs() + extraQS
+func (c *ClickHouse) query(ctx context.Context, base, extraQS, sql string, p chParams) ([]map[string]any, error) {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSON") + p.qs() + extraQS
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.do(req)
+	resp, err := c.do(base, req)
 	if err != nil {
 		return nil, fmt.Errorf("otelstore: clickhouse request: %w", err)
 	}
@@ -515,13 +676,20 @@ func (c *ClickHouse) query(ctx context.Context, extraQS, sql string, p chParams)
 	return out.Data, nil
 }
 
+// exec runs against the deployment-default endpoint (DDL, migrations, policies).
 func (c *ClickHouse) exec(ctx context.Context, query string, p chParams, body io.Reader) error {
-	u := c.base + "/?query=" + url.QueryEscape(query) + p.qs()
+	return c.execAt(ctx, "", query, p, body)
+}
+
+// execAt runs against a routed data-plane endpoint ("" = default) so siloed
+// tenants on a residency plane hit the right server (TENANT-001).
+func (c *ClickHouse) execAt(ctx context.Context, base, query string, p chParams, body io.Reader) error {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(query) + p.qs()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
 	if err != nil {
 		return err
 	}
-	resp, err := c.do(req)
+	resp, err := c.do(base, req)
 	if err != nil {
 		return fmt.Errorf("otelstore: clickhouse request: %w", err)
 	}
@@ -533,8 +701,8 @@ func (c *ClickHouse) exec(ctx context.Context, query string, p chParams, body io
 	return nil
 }
 
-func (c *ClickHouse) do(req *http.Request) (*http.Response, error) {
-	return c.conn.Do("", req) // shared transport + breaker (CODE-006)
+func (c *ClickHouse) do(base string, req *http.Request) (*http.Response, error) {
+	return c.conn.Do(base, req) // shared transport + breaker (CODE-006); base picks the per-silo breaker
 }
 
 // --- result coercion helpers (ClickHouse JSON renders numbers as strings) ---

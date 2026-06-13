@@ -12,16 +12,46 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
-// FlowDDL is the ClickHouse side of provisioning (implemented by
-// *flowstore.ClickHouse; nil when the deployment runs the memory flow store —
-// then only the Postgres/bus/object legs apply).
+// FlowDDL is the ClickHouse side of provisioning the FLOW plane (implemented by
+// *flowstore.ClickHouse; nil when the deployment runs the memory flow store).
 type FlowDDL interface {
 	EnsureTenantDatabase(ctx context.Context, t flowstore.Target, retentionDays int) error
 	DropTenantDatabase(ctx context.Context, t flowstore.Target) error
+}
+
+// PathDDL / EBPFDDL / OtelDDL are the ClickHouse provisioning seams for the
+// remaining three telemetry planes (TENANT-001). Each is implemented by the
+// store's *ClickHouse; nil when that plane runs the memory store. Without
+// these a siloed tenant got physical isolation for FLOW ONLY — path traces,
+// eBPF L7 edges and OTLP spans+logs (highest PII) leaked into the shared
+// pooled tables and ignored residency pinning.
+type PathDDL interface {
+	EnsureTenantDatabase(ctx context.Context, t pathstore.Target, retentionDays int) error
+	DropTenantDatabase(ctx context.Context, t pathstore.Target) error
+}
+type EBPFDDL interface {
+	EnsureTenantDatabase(ctx context.Context, t ebpfstore.Target, retentionDays int) error
+	DropTenantDatabase(ctx context.Context, t ebpfstore.Target) error
+}
+type OtelDDL interface {
+	EnsureTenantDatabase(ctx context.Context, t otelstore.Target, retentionDays int) error
+	DropTenantDatabase(ctx context.Context, t otelstore.Target) error
+}
+
+// CHPlanes bundles every ClickHouse plane's provisioning seam. A nil field =
+// that plane runs the memory store (no per-tenant database leg).
+type CHPlanes struct {
+	Flows FlowDDL
+	Paths PathDDL
+	EBPF  EBPFDDL
+	Otel  OtelDDL
 }
 
 // Provisioner creates, catches up, and tears down per-tenant isolated stores.
@@ -29,21 +59,22 @@ type FlowDDL interface {
 // applies migrations — schema creation is a migration-class operation).
 type Provisioner struct {
 	pool          *pgxpool.Pool
-	flows         FlowDDL
+	ch            CHPlanes
 	planes        map[string]DataPlane
 	retentionDays int
 	log           *slog.Logger
 }
 
-// NewProvisioner wires the silo provisioner.
-func NewProvisioner(pool *pgxpool.Pool, flows FlowDDL, planes map[string]DataPlane, retentionDays int, log *slog.Logger) *Provisioner {
+// NewProvisioner wires the silo provisioner across every ClickHouse plane
+// (TENANT-001). nil plane fields are skipped (that plane is memory-backed).
+func NewProvisioner(pool *pgxpool.Pool, ch CHPlanes, planes map[string]DataPlane, retentionDays int, log *slog.Logger) *Provisioner {
 	if log == nil {
 		log = slog.Default()
 	}
 	if planes == nil {
 		planes = map[string]DataPlane{}
 	}
-	return &Provisioner{pool: pool, flows: flows, planes: planes, retentionDays: retentionDays, log: log}
+	return &Provisioner{pool: pool, ch: ch, planes: planes, retentionDays: retentionDays, log: log}
 }
 
 // ValidResidency reports whether a residency name is provisionable ("" =
@@ -59,13 +90,77 @@ func (p *Provisioner) ValidResidency(name string) bool {
 // Planes lists the configured residency names.
 func (p *Provisioner) Planes() []string { return PlaneNames(p.planes) }
 
-// chTarget resolves a tenant's ClickHouse target for its residency.
-func (p *Provisioner) chTarget(tenantID, residency string) flowstore.Target {
-	t := flowstore.Target{Database: CHDatabase(tenantID)}
+// chBaseURL resolves a tenant's residency ClickHouse endpoint ("" = default).
+func (p *Provisioner) chBaseURL(residency string) string {
 	if plane, ok := p.planes[residency]; ok {
-		t.BaseURL = plane.CHURL
+		return plane.CHURL
 	}
-	return t
+	return ""
+}
+
+// Per-store targets (the Target types are package-local). All carry the same
+// per-tenant database + residency BaseURL (TENANT-001).
+func (p *Provisioner) flowTarget(tenantID, residency string) flowstore.Target {
+	return flowstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
+}
+func (p *Provisioner) pathTarget(tenantID, residency string) pathstore.Target {
+	return pathstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
+}
+func (p *Provisioner) ebpfTarget(tenantID, residency string) ebpfstore.Target {
+	return ebpfstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
+}
+func (p *Provisioner) otelTarget(tenantID, residency string) otelstore.Target {
+	return otelstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
+}
+
+// provisionCH creates every configured CH plane's per-tenant database (idempotent).
+func (p *Provisioner) provisionCH(ctx context.Context, tenantID, residency string) error {
+	if p.ch.Flows != nil {
+		if err := p.ch.Flows.EnsureTenantDatabase(ctx, p.flowTarget(tenantID, residency), p.retentionDays); err != nil {
+			return fmt.Errorf("silo: provision flow plane: %w", err)
+		}
+	}
+	if p.ch.Paths != nil {
+		if err := p.ch.Paths.EnsureTenantDatabase(ctx, p.pathTarget(tenantID, residency), p.retentionDays); err != nil {
+			return fmt.Errorf("silo: provision path plane: %w", err)
+		}
+	}
+	if p.ch.EBPF != nil {
+		if err := p.ch.EBPF.EnsureTenantDatabase(ctx, p.ebpfTarget(tenantID, residency), p.retentionDays); err != nil {
+			return fmt.Errorf("silo: provision ebpf plane: %w", err)
+		}
+	}
+	if p.ch.Otel != nil {
+		if err := p.ch.Otel.EnsureTenantDatabase(ctx, p.otelTarget(tenantID, residency), p.retentionDays); err != nil {
+			return fmt.Errorf("silo: provision otel plane: %w", err)
+		}
+	}
+	return nil
+}
+
+// teardownCH drops every configured CH plane's per-tenant database.
+func (p *Provisioner) teardownCH(ctx context.Context, tenantID, residency string) error {
+	if p.ch.Flows != nil {
+		if err := p.ch.Flows.DropTenantDatabase(ctx, p.flowTarget(tenantID, residency)); err != nil {
+			return fmt.Errorf("silo: teardown flow plane: %w", err)
+		}
+	}
+	if p.ch.Paths != nil {
+		if err := p.ch.Paths.DropTenantDatabase(ctx, p.pathTarget(tenantID, residency)); err != nil {
+			return fmt.Errorf("silo: teardown path plane: %w", err)
+		}
+	}
+	if p.ch.EBPF != nil {
+		if err := p.ch.EBPF.DropTenantDatabase(ctx, p.ebpfTarget(tenantID, residency)); err != nil {
+			return fmt.Errorf("silo: teardown ebpf plane: %w", err)
+		}
+	}
+	if p.ch.Otel != nil {
+		if err := p.ch.Otel.DropTenantDatabase(ctx, p.otelTarget(tenantID, residency)); err != nil {
+			return fmt.Errorf("silo: teardown otel plane: %w", err)
+		}
+	}
+	return nil
 }
 
 // readCatalog loads the planner's facts from information_schema.
@@ -159,10 +254,10 @@ func (p *Provisioner) Provision(ctx context.Context, tenantID, residency string,
 	default:
 		return nil // pooled: nothing to provision
 	}
-	if p.flows != nil {
-		if err := p.flows.EnsureTenantDatabase(ctx, p.chTarget(tenantID, residency), p.retentionDays); err != nil {
-			return err
-		}
+	// TENANT-001: provision EVERY ClickHouse plane's per-tenant database, not
+	// just flow — so path/eBPF/otel are physically separated + residency-pinned.
+	if err := p.provisionCH(ctx, tenantID, residency); err != nil {
+		return err
 	}
 	p.log.Info("silo provisioned", "tenant", tenantID, "model", string(model), "residency", residency)
 	return nil
@@ -204,8 +299,9 @@ func (p *Provisioner) Teardown(ctx context.Context, tenantID, residency string, 
 			return err
 		}
 	}
-	if (model == tenancy.IsolationSiloed || model == tenancy.IsolationHybrid) && p.flows != nil {
-		if err := p.flows.DropTenantDatabase(ctx, p.chTarget(tenantID, residency)); err != nil {
+	if model == tenancy.IsolationSiloed || model == tenancy.IsolationHybrid {
+		// TENANT-001: tear down every CH plane's per-tenant database.
+		if err := p.teardownCH(ctx, tenantID, residency); err != nil {
 			return err
 		}
 	}

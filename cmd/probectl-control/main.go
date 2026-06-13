@@ -272,10 +272,14 @@ func run(cmd string) error {
 	if err != nil {
 		return fmt.Errorf("path store: %w", err)
 	}
+	// TENANT-001: keep the concrete *pathstore.ClickHouse (before the batching
+	// wrapper) so the ee silo router can be installed on it — the wrapper shares
+	// the same pointer, so routing applies to all path writes/reads.
+	pathCH, _ := pathStore.(*pathstore.ClickHouse)
 	// TENANT-004: DB-level reader scoping on the path plane (applied before the
 	// batching wrapper). Defaults ON under multi-tenant/regulated.
 	if cfg.PathCHTenantScoping {
-		if ch, ok := pathStore.(*pathstore.ClickHouse); ok {
+		if ch := pathCH; ch != nil {
 			ch.WithTenantScoping(true)
 			if cfg.PathCHReaderUser != "" {
 				if perr := ch.EnsureReaderRowPolicy(context.Background(), cfg.PathCHReaderUser); perr != nil {
@@ -779,7 +783,7 @@ func run(cmd string) error {
 	// The ee attach seam (S-T1+): licensed commercial features are constructed
 	// and mounted here — and ONLY here. The core-only build (-tags
 	// probectl_core) compiles the no-op twin, proving core stands alone.
-	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, lifeEngine, secretsResolver.Resolve, fairGate, topoStore); err != nil {
+	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, pathCH, ebpfStore, otelStore, lifeEngine, secretsResolver.Resolve, fairGate, topoStore); err != nil {
 		return err
 	}
 	if alertEngine != nil {

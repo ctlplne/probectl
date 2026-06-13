@@ -36,7 +36,10 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
@@ -50,7 +53,8 @@ import (
 // surfaces stay hidden (404).
 func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log *slog.Logger,
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
-	flowStore flowstore.Store, life *tenantlife.Engine,
+	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store,
+	life *tenantlife.Engine,
 	resolveSecret func(context.Context, string) (string, error),
 	fairGate *fairness.Gate, topoStore topology.Store) error {
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
@@ -62,18 +66,20 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		if err != nil {
 			return err
 		}
-		// The ClickHouse leg exists only when the deployment runs ClickHouse;
-		// the memory flow store is process-local (logically tenant-keyed).
-		var flows silo.FlowDDL
-		var chRouter *flowstore.ClickHouse
-		if ch, ok := flowStore.(*flowstore.ClickHouse); ok {
-			flows, chRouter = ch, ch
-		}
-		prov := silo.NewProvisioner(pool, flows, planes, cfg.FlowRetentionDays, log)
+		// The ClickHouse leg exists per plane only when that store runs
+		// ClickHouse; memory stores are process-local (logically tenant-keyed).
+		// TENANT-001: ALL FOUR planes (flow/path/eBPF/otel) get the silo router
+		// and a per-tenant database, not flow alone.
 		router := silo.NewRouter(pool, planes, 0)
 		tenancy.SetRouter(router) // Postgres search_path + bus lanes + object prefixes
-		if chRouter != nil {
-			chRouter.WithRouter(func(tenantID string) (flowstore.Target, error) {
+
+		var ch silo.CHPlanes
+		var flowCH *flowstore.ClickHouse
+		var ebpfCH *ebpfstore.ClickHouse
+		var otelCH *otelstore.ClickHouse
+		if c, ok := flowStore.(*flowstore.ClickHouse); ok {
+			flowCH, ch.Flows = c, c
+			c.WithRouter(func(tenantID string) (flowstore.Target, error) {
 				t, err := router.TargetsFor(context.Background(), tenantID)
 				if err != nil {
 					return flowstore.Target{}, err
@@ -81,6 +87,37 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 				return flowstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
 			})
 		}
+		if pathCH != nil {
+			ch.Paths = pathCH
+			pathCH.WithRouter(func(tenantID string) (pathstore.Target, error) {
+				t, err := router.TargetsFor(context.Background(), tenantID)
+				if err != nil {
+					return pathstore.Target{}, err
+				}
+				return pathstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+			})
+		}
+		if c, ok := ebpfStore.(*ebpfstore.ClickHouse); ok {
+			ebpfCH, ch.EBPF = c, c
+			c.WithRouter(func(tenantID string) (ebpfstore.Target, error) {
+				t, err := router.TargetsFor(context.Background(), tenantID)
+				if err != nil {
+					return ebpfstore.Target{}, err
+				}
+				return ebpfstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+			})
+		}
+		if c, ok := otelStore.(*otelstore.ClickHouse); ok {
+			otelCH, ch.Otel = c, c
+			c.WithRouter(func(tenantID string) (otelstore.Target, error) {
+				t, err := router.TargetsFor(context.Background(), tenantID)
+				if err != nil {
+					return otelstore.Target{}, err
+				}
+				return otelstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+			})
+		}
+		prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log)
 		// Startup catch-up: bring every siloed tenant's schema up to the
 		// current public shape (new tables/columns from later migrations) —
 		// the S-T2 migration-multiplication answer (docs/isolation.md).
@@ -90,8 +127,10 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			}
 		}()
 		siloOps, routerInvalidate = prov, router.Invalidate
-		log.Info("siloed/hybrid isolation attached (S-T2)",
-			"data_planes", silo.PlaneNames(planes), "clickhouse_routed", chRouter != nil)
+		log.Info("siloed/hybrid isolation attached (S-T2; TENANT-001 all planes)",
+			"data_planes", silo.PlaneNames(planes),
+			"flow_routed", flowCH != nil, "path_routed", pathCH != nil,
+			"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil)
 	}
 
 	// Per-tenant metering + quotas (S-T3). The recorder hooks the core usage

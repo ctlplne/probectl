@@ -18,19 +18,51 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
 
-const edgesTable = "probectl_ebpf_edges"
+const sharedEdgesTable = "probectl_ebpf_edges"
+
+// edgesTable is the pooled table name; siloed tenants route to
+// <database>.probectl_ebpf_edges via Target (TENANT-001).
+const edgesTable = sharedEdgesTable
 
 // tenantSettingName is the ClickHouse custom setting carrying the request
 // tenant; the setting-scoped reader row policy binds SELECTs to getSetting()
 // of it (TENANT-004 parity with flowstore/otelstore).
 const tenantSettingName = "SQL_probectl_tenant"
 
+// chIdentRe validates a ClickHouse database identifier (names derive from
+// UUIDs, never user input — validated, fail closed). Parity with flowstore.
+var chIdentRe = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
+
+// Target is where one tenant's eBPF edges live (S-T2 siloed/hybrid isolation).
+// The zero value is the shared (pooled) store; Database routes to a per-tenant
+// ClickHouse database; BaseURL pins a residency data plane (TENANT-001).
+type Target struct {
+	BaseURL  string
+	Database string
+}
+
+// TargetRouter resolves a tenant's eBPF-store target. It must FAIL CLOSED: a
+// routing error fails the operation rather than silently landing a siloed
+// tenant's rows in the pooled table.
+type TargetRouter func(tenantID string) (Target, error)
+
+func tableFor(t Target) (string, error) {
+	if t.Database == "" {
+		return sharedEdgesTable, nil
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return "", fmt.Errorf("ebpfstore: refusing malformed database name %q", t.Database)
+	}
+	return t.Database + "." + sharedEdgesTable, nil
+}
+
 // ClickHouse persists eBPF aggregates over the ClickHouse HTTP interface. The
 // transport (TLS-hardened client, circuit breaker, JSONEachRow decode) is the
 // shared chclient (CODE-006); this type owns only the eBPF schema + queries.
 type ClickHouse struct {
-	base string
-	conn *chclient.Conn
+	base   string
+	conn   *chclient.Conn
+	router TargetRouter // nil = everything pooled (TENANT-001)
 	// tenantScoping (TENANT-004): attach the per-request tenant custom setting
 	// to tenant-scoped reads so the reader row policy can constrain the query
 	// path at the DB even if app-layer WHERE scoping is bypassed. Off by
@@ -42,11 +74,67 @@ type ClickHouse struct {
 // (pair with EnsureReaderRowPolicy on the reader user).
 func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = on; return c }
 
+// WithRouter installs the silo/residency isolation router (TENANT-001; the
+// main.go attach seam). nil keeps everything pooled.
+func (c *ClickHouse) WithRouter(r TargetRouter) *ClickHouse { c.router = r; return c }
+
+// route resolves one tenant's target (pooled when no router is installed).
+func (c *ClickHouse) route(tenantID string) (Target, error) {
+	if c.router == nil {
+		return Target{}, nil
+	}
+	return c.router(tenantID)
+}
+
+func (c *ClickHouse) baseFor(base string) string {
+	if base == "" {
+		return c.base
+	}
+	return strings.TrimRight(base, "/")
+}
+
+// EnsureTenantDatabase creates a tenant's isolated database + edges table on
+// its data plane (idempotent — the silo provisioner calls it at provision and
+// on catch-up). TENANT-001.
+func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
+	if t.Database == "" {
+		return fmt.Errorf("ebpfstore: a tenant database name is required")
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("ebpfstore: refusing malformed database name %q", t.Database)
+	}
+	if err := c.execAt(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil); err != nil {
+		return fmt.Errorf("ebpfstore: create tenant database: %w", err)
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return err
+	}
+	if err := c.execAt(ctx, t.BaseURL, edgesDDLFor(table), nil); err != nil {
+		return fmt.Errorf("ebpfstore: create tenant table: %w", err)
+	}
+	if retentionDays > 0 {
+		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(window_start) + INTERVAL %d DAY DELETE", table, retentionDays)
+		if err := c.execAt(ctx, t.BaseURL, ttl, nil); err != nil {
+			return fmt.Errorf("ebpfstore: tenant retention TTL: %w", err)
+		}
+	}
+	return nil
+}
+
+// DropTenantDatabase removes a siloed tenant's database (offboard teardown).
+func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
+	if t.Database == "" || !chIdentRe.MatchString(t.Database) {
+		return fmt.Errorf("ebpfstore: refusing to drop malformed database name %q", t.Database)
+	}
+	return c.execAt(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil)
+}
+
 // edgesDDL is tenant-led (partition + ORDER BY) and a ReplacingMergeTree so a
 // redelivered identical aggregate collapses (CORRECT-002 discipline). The day
 // partition keeps the per-tenant delete-TTL cheap.
-func edgesDDL() string {
-	return `CREATE TABLE IF NOT EXISTS ` + edgesTable + ` (
+func edgesDDLFor(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
   tenant_id String, agent_id String, window_start DateTime64(3),
   src_workload String, dst_workload String, dst_port UInt16,
   l7_protocol LowCardinality(String),
@@ -58,7 +146,7 @@ ORDER BY (tenant_id, window_start, src_workload, dst_workload, dst_port, l7_prot
 
 func chMigrations() []chmigrate.Migration {
 	return []chmigrate.Migration{
-		{Version: 1, Name: "create_ebpf_edges", Statements: []string{edgesDDL()}},
+		{Version: 1, Name: "create_ebpf_edges", Statements: []string{edgesDDLFor(sharedEdgesTable)}},
 	}
 }
 
@@ -97,24 +185,43 @@ type chEdge struct {
 	WindowStr string `json:"window_start"`
 }
 
-// Insert streams the batch as JSONEachRow.
+// Insert streams the batch as JSONEachRow, routed per tenant (TENANT-001):
+// siloed tenants' edges land in their own database/data-plane, pooled tenants
+// in the shared table. A routing failure fails the batch (fail closed).
 func (c *ClickHouse) Insert(ctx context.Context, edges []Edge) error {
 	if len(edges) == 0 {
 		return nil
 	}
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	for _, e := range edges {
-		if e.TenantID == "" {
+	groups := map[Target][]Edge{}
+	for i := range edges {
+		if edges[i].TenantID == "" {
 			continue // unscoped rows are dropped fail-closed
 		}
-		if err := enc.Encode(chEdge{Edge: e, WindowStr: e.WindowStart.UTC().Format("2006-01-02 15:04:05.000")}); err != nil {
-			return fmt.Errorf("ebpfstore: encode: %w", err)
+		t, err := c.route(edges[i].TenantID)
+		if err != nil {
+			return fmt.Errorf("ebpfstore: route tenant %s: %w", edges[i].TenantID, err)
+		}
+		groups[t] = append(groups[t], edges[i])
+	}
+	for t, group := range groups {
+		table, err := tableFor(t)
+		if err != nil {
+			return err
+		}
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		for _, e := range group {
+			if err := enc.Encode(chEdge{Edge: e, WindowStr: e.WindowStart.UTC().Format("2006-01-02 15:04:05.000")}); err != nil {
+				return fmt.Errorf("ebpfstore: encode: %w", err)
+			}
+		}
+		// SCALE-006: async_insert coalesces the many small eBPF batches server-side
+		// instead of minting a part each; wait_for_async_insert keeps it durable.
+		if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+table+" SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow", nil, &buf); err != nil {
+			return err
 		}
 	}
-	// SCALE-006: async_insert coalesces the many small eBPF batches server-side
-	// instead of minting a part each; wait_for_async_insert keeps it durable.
-	return c.exec(ctx, "INSERT INTO "+edgesTable+" SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow", &buf)
+	return nil
 }
 
 // TopEdges returns the tenant's heaviest edges in the window (bytes-desc),
@@ -122,6 +229,14 @@ func (c *ClickHouse) Insert(ctx context.Context, edges []Edge) error {
 func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery) ([]Edge, error) {
 	if tenantID == "" {
 		return nil, ErrNoTenant
+	}
+	t, err := c.route(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return nil, err
 	}
 	where := "tenant_id={tenant:String}"
 	params := url.Values{"param_tenant": {tenantID}}
@@ -137,8 +252,8 @@ func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery)
 		params.Set(tenantSettingName, tenantID) // TENANT-004: DB-level scope
 	}
 	sql := fmt.Sprintf("SELECT tenant_id, agent_id, toString(window_start) AS window_start, src_workload, dst_workload, dst_port, l7_protocol, sum(bytes) AS bytes, sum(packets) AS packets, sum(connections) AS connections FROM %s FINAL WHERE %s GROUP BY tenant_id, agent_id, window_start, src_workload, dst_workload, dst_port, l7_protocol ORDER BY bytes DESC LIMIT %d FORMAT JSONEachRow",
-		edgesTable, where, clampLimit(q.Limit))
-	rows, err := c.queryParams(ctx, sql, params)
+		table, where, clampLimit(q.Limit))
+	rows, err := c.queryAt(ctx, t.BaseURL, sql, params)
 	if err != nil {
 		return nil, err
 	}
@@ -155,17 +270,29 @@ func (c *ClickHouse) TopEdges(ctx context.Context, tenantID string, q EdgeQuery)
 	return out, nil
 }
 
-// DeleteTenant erases a tenant's aggregates and verifies they are gone.
+// DeleteTenant erases a tenant's aggregates and verifies they are gone. A
+// siloed tenant's whole database is DROPPED (TENANT-001); a pooled tenant gets
+// a row delete + count-verify.
 func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, error) {
 	if tenantID == "" {
 		return 0, ErrNoTenant
 	}
-	del := fmt.Sprintf("ALTER TABLE %s DELETE WHERE tenant_id={tenant:String}", edgesTable)
-	if err := c.execParams(ctx, del, url.Values{"param_tenant": {tenantID}}); err != nil {
+	t, err := c.route(tenantID)
+	if err != nil {
+		return -1, err
+	}
+	if t.Database != "" { // siloed/hybrid: drop the per-tenant database whole
+		if err := c.DropTenantDatabase(ctx, t); err != nil {
+			return -1, err
+		}
+		return 0, nil
+	}
+	del := fmt.Sprintf("ALTER TABLE %s DELETE WHERE tenant_id={tenant:String}", sharedEdgesTable)
+	if err := c.execAt(ctx, t.BaseURL, del, url.Values{"param_tenant": {tenantID}}); err != nil {
 		return 0, err
 	}
-	rows, err := c.queryParams(ctx,
-		fmt.Sprintf("SELECT count() AS n FROM %s WHERE tenant_id={tenant:String} FORMAT JSONEachRow", edgesTable),
+	rows, err := c.queryAt(ctx, t.BaseURL,
+		fmt.Sprintf("SELECT count() AS n FROM %s WHERE tenant_id={tenant:String} FORMAT JSONEachRow", sharedEdgesTable),
 		url.Values{"param_tenant": {tenantID}})
 	if err != nil || len(rows) == 0 {
 		return -1, err
@@ -228,11 +355,14 @@ func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) 
 // --- HTTP helpers over the shared chclient (CODE-006) ---
 
 func (c *ClickHouse) exec(ctx context.Context, query string, body io.Reader) error {
-	return c.execParams(ctx, query, nil, body)
+	return c.execAt(ctx, "", query, nil, body)
 }
 
-func (c *ClickHouse) execParams(ctx context.Context, query string, params url.Values, body ...io.Reader) error {
-	u := c.base + "/?query=" + url.QueryEscape(query)
+// execAt runs against a routed data-plane endpoint ("" = the deployment
+// default), so siloed tenants on a residency plane hit the right server
+// (TENANT-001).
+func (c *ClickHouse) execAt(ctx context.Context, base, query string, params url.Values, body ...io.Reader) error {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(query)
 	if len(params) > 0 {
 		u += "&" + params.Encode()
 	}
@@ -244,7 +374,7 @@ func (c *ClickHouse) execParams(ctx context.Context, query string, params url.Va
 	if err != nil {
 		return err
 	}
-	resp, err := c.conn.Do(c.base, req)
+	resp, err := c.conn.Do(base, req)
 	if err != nil {
 		return fmt.Errorf("ebpfstore: request: %w", err)
 	}
@@ -257,11 +387,11 @@ func (c *ClickHouse) execParams(ctx context.Context, query string, params url.Va
 }
 
 func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, error) {
-	return c.queryParams(ctx, sql+" FORMAT JSONEachRow", nil)
+	return c.queryAt(ctx, "", sql+" FORMAT JSONEachRow", nil)
 }
 
-func (c *ClickHouse) queryParams(ctx context.Context, sql string, params url.Values) ([]map[string]any, error) {
-	u := c.base + "/?query=" + url.QueryEscape(sql)
+func (c *ClickHouse) queryAt(ctx context.Context, base, sql string, params url.Values) ([]map[string]any, error) {
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql)
 	if len(params) > 0 {
 		u += "&" + params.Encode()
 	}
@@ -269,7 +399,7 @@ func (c *ClickHouse) queryParams(ctx context.Context, sql string, params url.Val
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.conn.Do(c.base, req)
+	resp, err := c.conn.Do(base, req)
 	if err != nil {
 		return nil, fmt.Errorf("ebpfstore: query: %w", err)
 	}

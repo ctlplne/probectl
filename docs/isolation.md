@@ -81,9 +81,12 @@ a transient routing blip delays the data instead of mis-routing it.
   the RLS policy recreated and the app-role grants applied. `tenancy.InTenant`
   routes a siloed tenant by running `SET LOCAL search_path TO <schema>, public`,
   so global tables (permissions, tenants) still resolve in `public`.
-- **ClickHouse:** a per-tenant database `probectl_t_<uuid>` holding the same flow
-  table; inserts are split per target and reads route by the query's tenant. With
-  a **residency** pin, both run against that data plane's ClickHouse URL.
+- **ClickHouse:** a per-tenant database `probectl_t_<uuid>` holding **every**
+  telemetry plane's tables — flow, path (hops/links), eBPF L7 edges, and OTLP
+  traces+logs (TENANT-001). Inserts are split per target and reads route by the
+  query's tenant. With a **residency** pin, all of them run against that data
+  plane's ClickHouse URL. (Earlier releases physically separated flow only; the
+  other three planes have been brought up to the same contract.)
 - **Bus:** topics gain a namespace segment, e.g.
   `probectl.t-<slug>.network.results`. The control plane publishes a siloed
   tenant's results/RUM onto its own lane and subscribes to every siloed lane known
@@ -104,8 +107,10 @@ up is a compliance liability.** `PROBECTL_DATAPLANES` names the available planes
 provisioned with `residency: eu` gets its ClickHouse database **created on and
 routed to** that plane.
 
-**Pinned today:** the tenant's ClickHouse flow data — the high-volume telemetry
-store, which is what residency rules usually care about most.
+**Pinned today:** the tenant's ClickHouse telemetry across all four planes —
+flow, path, eBPF L7 edges, and OTLP traces+logs (the PII-heaviest plane). Each
+plane's per-tenant database is created on and routed to the residency data
+plane (TENANT-001).
 
 **Not pinned today** (and you should not claim otherwise): the Postgres
 control/config state (it is a shared control plane), the metrics TSDB (metrics

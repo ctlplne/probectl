@@ -83,7 +83,7 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	pooledID := mkTenant(t, pool, "it-pool-"+stamp, "pooled", "")
 	schema := SchemaName(siloedID)
 
-	prov := NewProvisioner(pool, nil, nil, 0, log)
+	prov := NewProvisioner(pool, CHPlanes{}, nil, 0, log)
 	if err := prov.Provision(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
