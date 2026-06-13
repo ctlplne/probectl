@@ -122,6 +122,13 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/abac/policies", s.handleCreatePolicy, permDirectoryWrite},
 		{http.MethodDelete, "/v1/abac/policies/{id}", s.handleDeletePolicy, permDirectoryWrite},
 		{http.MethodPost, "/v1/a2a/sessions", s.handleStartA2ASession, permAgentWrite},
+		// OPS-002: staged rollout operator surface over the rollout engine.
+		{http.MethodGet, "/v1/rollouts", s.handleListRollouts, permAgentRead},
+		{http.MethodPost, "/v1/rollouts", s.handleCreateRollout, permAgentWrite},
+		{http.MethodGet, "/v1/rollouts/{id}", s.handleGetRollout, permAgentRead},
+		{http.MethodPost, "/v1/rollouts/{id}/advance", s.handleAdvanceRollout, permAgentWrite},
+		{http.MethodPost, "/v1/rollouts/{id}/halt", s.handleHaltRollout, permAgentWrite},
+		{http.MethodPost, "/v1/rollouts/{id}/resume", s.handleResumeRollout, permAgentWrite},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
 }

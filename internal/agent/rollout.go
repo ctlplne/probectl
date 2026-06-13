@@ -230,6 +230,25 @@ func (p *RolloutPlan) Verify(fleet []FleetAgent, now time.Time) (complete bool, 
 	return false, nil // inside the window: keep converging, verify again
 }
 
+// Halt stops the rollout immediately on operator command (OPS-002): the
+// current applying wave is marked halted and no wave advances until Resume.
+// Idempotent — halting an already-halted rollout keeps the first reason.
+func (p *RolloutPlan) Halt(reason string) {
+	if p.Halted {
+		return
+	}
+	if strings.TrimSpace(reason) == "" {
+		reason = "halted by operator"
+	}
+	for i := range p.Waves {
+		if p.Waves[i].Status == WaveApplying {
+			p.Waves[i].Status = WaveHalted
+		}
+	}
+	p.Halted = true
+	p.HaltReason = reason
+}
+
 // Resume clears a halt after explicit operator remediation (recorded in
 // reason) and returns the failed wave to applying with a fresh window. It is
 // the ONLY way past a halt — a halted rollout never advances on its own.

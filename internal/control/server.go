@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -161,6 +162,10 @@ type Server struct {
 	// bundles (ARCH-001). Set via WithTestSyncKey; empty leaves
 	// GET /v1/tests/bundle reporting 503.
 	testSyncKey []byte
+
+	// rollouts holds active staged-rollout plans (OPS-002), lazily created.
+	rollouts     *rolloutManager
+	rolloutsOnce sync.Once
 
 	// Compliance validator (S46). Set via WithCompliance; nil reports
 	// compliance_running=false.
