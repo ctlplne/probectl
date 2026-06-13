@@ -45,6 +45,23 @@ func clampFutureSample(tms, nowMillis int64) int64 {
 	return tms
 }
 
+// clampFutureTime is the time.Time form of clampFutureSample for the row-store
+// planes (OTLP traces/logs, flow), whose event time lands as a ClickHouse
+// DateTime, not a Prometheus millis sample (CORRECT-006). A zero time is left
+// untouched (callers apply their own "no event time" fallback); a far-future
+// time is clamped to now and counted on the same skew counters, so every ingest
+// path shares one clamp and one /metrics surface.
+func clampFutureTime(t, now time.Time) time.Time {
+	if t.IsZero() {
+		return t
+	}
+	clamped := clampFutureSample(t.UnixMilli(), now.UnixMilli())
+	if clamped == now.UnixMilli() && t.UnixMilli() != now.UnixMilli() {
+		return now
+	}
+	return t
+}
+
 // FutureClamped reports how many samples have been clamped for being stamped
 // too far in the future (CORRECT-012 observability — exported to /metrics).
 func FutureClamped() uint64 { return futureClamped.Load() }

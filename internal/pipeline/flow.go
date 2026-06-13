@@ -305,6 +305,16 @@ func rowFromProto(f *flowv1.FlowRecord) flowstore.Row {
 	if f.GetStartUnixNano() != 0 {
 		startTS = time.Unix(0, f.GetStartUnixNano()).UTC()
 	}
+	// CORRECT-006: clamp far-future exporter clocks so a drifting NetFlow/sFlow
+	// exporter cannot land rows in the future and poison capacity/top-talker
+	// windows. The clamp is the shared one (FutureClamped counter); benign sub-
+	// window skew passes through. startTS is never left after ts.
+	now := time.Now()
+	ts = clampFutureTime(ts, now)
+	startTS = clampFutureTime(startTS, now)
+	if startTS.After(ts) {
+		startTS = ts
+	}
 	return flowstore.Row{
 		TenantID:      f.GetTenantId(),
 		AgentID:       f.GetAgentId(),

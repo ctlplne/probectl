@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
@@ -24,7 +25,7 @@ func TestHistogramConversion(t *testing.T) {
 		ExplicitBounds: []float64{1, 5},   // 2 bounds → 3 buckets
 		BucketCounts:   []uint64{2, 3, 1}, // le1=2, le5=2+3=5, le+Inf=6
 	}
-	series := c.histogramSeries("request.latency", []*metricspb.HistogramDataPoint{dp}, "t-a", map[string]string{})
+	series := c.histogramSeries("request.latency", []*metricspb.HistogramDataPoint{dp}, "t-a", map[string]string{}, false)
 
 	byKey := map[string]float64{}
 	for _, s := range series {
@@ -35,6 +36,9 @@ func TestHistogramConversion(t *testing.T) {
 		byKey[k] = s.Value
 		if s.Labels["tenant_id"] != "t-a" {
 			t.Fatalf("series %s missing tenant label", s.Metric)
+		}
+		if _, tagged := s.Labels["otel_temporality"]; tagged {
+			t.Errorf("cumulative histogram series %s wrongly tagged delta", s.Metric)
 		}
 	}
 	want := map[string]float64{
@@ -47,6 +51,46 @@ func TestHistogramConversion(t *testing.T) {
 	for k, v := range want {
 		if byKey[k] != v {
 			t.Errorf("%s = %v, want %v", k, byKey[k], v)
+		}
+	}
+}
+
+// CORRECT-008: a DELTA histogram is NOT cumulative-over-time. The converter must
+// tag every emitted series (buckets, _sum, _count) otel_temporality="delta" so a
+// query never rate()s it as if it were a monotonic cumulative histogram. A
+// CUMULATIVE histogram (the case above) stays untagged. This proves the
+// temporality is honored rather than silently misread as cumulative.
+func TestHistogramConversionDeltaTemporality(t *testing.T) {
+	c := NewOTLPConsumer(nil, tsdb.NewMemory(), testLogger())
+	now := uint64(time.Now().UnixNano())
+	dp := &metricspb.HistogramDataPoint{
+		TimeUnixNano:   now,
+		Count:          6,
+		Sum:            proto64(13.5),
+		ExplicitBounds: []float64{1, 5},
+		BucketCounts:   []uint64{2, 3, 1},
+	}
+	// Drive the real conversion entry point so the temporality branch is exercised.
+	req := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			ScopeMetrics: []*metricspb.ScopeMetrics{{
+				Metrics: []*metricspb.Metric{{
+					Name: "request.latency",
+					Data: &metricspb.Metric_Histogram{Histogram: &metricspb.Histogram{
+						AggregationTemporality: metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA,
+						DataPoints:             []*metricspb.HistogramDataPoint{dp},
+					}},
+				}},
+			}},
+		}},
+	}
+	series := c.convert(req, "t-a")
+	if len(series) == 0 {
+		t.Fatal("delta histogram produced no series")
+	}
+	for _, s := range series {
+		if s.Labels["otel_temporality"] != "delta" {
+			t.Errorf("delta histogram series %s not tagged otel_temporality=delta (labels=%v)", s.Metric, s.Labels)
 		}
 	}
 }

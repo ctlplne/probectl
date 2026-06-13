@@ -106,6 +106,10 @@ func convertSpans(req *coltracepb.ExportTraceServiceRequest, tenant string) []ot
 				if dur < 0 {
 					dur = 0
 				}
+				// CORRECT-006: clamp a far-future span start so it cannot poison
+				// time-window queries / "latest" trace views; duration is preserved
+				// (computed from the raw end-start above).
+				start = clampFutureTime(start, time.Now())
 				attrs := boundedAttrs(resAttrs, sp.GetAttributes())
 				out = append(out, otelstore.Span{
 					TenantID:     tenant,
@@ -194,13 +198,16 @@ func convertLogs(req *collogspb.ExportLogsServiceRequest, tenant string) []otels
 				if ts == 0 {
 					ts = lr.GetObservedTimeUnixNano()
 				}
+				// CORRECT-006: clamp a far-future log timestamp so it cannot poison
+				// time-window queries / newest-first ordering.
+				logTS := clampFutureTime(time.Unix(0, int64(ts)).UTC(), time.Now())
 				body := anyValueString(lr.GetBody())
 				if len(body) > otlpMaxBody {
 					body = body[:otlpMaxBody]
 				}
 				out = append(out, otelstore.LogRecord{
 					TenantID:     tenant,
-					TS:           time.Unix(0, int64(ts)).UTC(),
+					TS:           logTS,
 					SeverityNum:  int32(lr.GetSeverityNumber()),
 					SeverityText: lr.GetSeverityText(),
 					Service:      service,

@@ -137,7 +137,16 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 					// Prometheus _bucket/_sum/_count series triple instead of
 					// dropping them, so histogram_quantile() works and latency
 					// SLOs over OTLP histograms are queryable.
-					out = append(out, c.histogramSeries(m.GetName(), d.Histogram.GetDataPoints(), tenant, resAttrs)...)
+					// CORRECT-008: honor aggregation temporality. A DELTA histogram
+					// reports the counts SINCE THE LAST EXPORT, not a monotonically
+					// cumulative-over-time total. Emitting it as a plain Prometheus
+					// histogram (which readers treat as cumulative and rate()) would
+					// misread it — so DELTA points are tagged otel_temporality="delta"
+					// exactly like the SUM path, letting a query distinguish them and
+					// not apply rate()/increase() as if cumulative. The within-point
+					// across-bucket cumulation (le buckets) is correct either way.
+					histDelta := d.Histogram.GetAggregationTemporality() == metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA
+					out = append(out, c.histogramSeries(m.GetName(), d.Histogram.GetDataPoints(), tenant, resAttrs, histDelta)...)
 					continue
 				default:
 					c.skipped.Add(1) // summary / exponential histogram: not yet converted
@@ -165,8 +174,11 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 						v = float64(nv.AsInt)
 					}
 					tms := int64(p.GetTimeUnixNano() / 1e6)
+					now := time.Now().UnixMilli()
 					if tms == 0 {
-						tms = time.Now().UnixMilli()
+						tms = now
+					} else {
+						tms = clampFutureSample(tms, now) // CORRECT-006: clamp far-future push clocks
 					}
 					out = append(out, tsdb.Series{Metric: name, Labels: labels, Value: v, TimeMillis: tms})
 				}
@@ -181,11 +193,14 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 // bucket), plus <name>_sum and <name>_count (ARCH-006). Without this the points
 // were dropped, so any latency/size histogram pushed over OTLP was invisible to
 // queries and SLOs.
-func (c *OTLPConsumer) histogramSeries(metricName string, points []*metricspb.HistogramDataPoint, tenant string, resAttrs map[string]string) []tsdb.Series {
+func (c *OTLPConsumer) histogramSeries(metricName string, points []*metricspb.HistogramDataPoint, tenant string, resAttrs map[string]string, delta bool) []tsdb.Series {
 	base := "probectl_otlp_" + sanitize(metricName)
 	var out []tsdb.Series
 	for _, p := range points {
 		labels := map[string]string{"tenant_id": tenant}
+		if delta {
+			labels["otel_temporality"] = "delta" // CORRECT-008: not cumulative-over-time
+		}
 		addBounded(labels, resAttrs)
 		pointAttrs := map[string]string{}
 		for _, kv := range p.GetAttributes() {
@@ -196,8 +211,11 @@ func (c *OTLPConsumer) histogramSeries(metricName string, points []*metricspb.Hi
 		addBounded(labels, pointAttrs)
 
 		tms := int64(p.GetTimeUnixNano() / 1e6)
+		now := time.Now().UnixMilli()
 		if tms == 0 {
-			tms = time.Now().UnixMilli()
+			tms = now
+		} else {
+			tms = clampFutureSample(tms, now) // CORRECT-006: clamp far-future push clocks
 		}
 
 		// Cumulative buckets with le labels. ExplicitBounds has N entries;
