@@ -3,6 +3,7 @@
 package store_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -39,6 +40,46 @@ func TestClickHouseMigrationGate(t *testing.T) {
 			b.WriteString("\n  " + x.String())
 		}
 		t.Fatalf("ClickHouse migrations break the destructive-DDL gate:%s", b.String())
+	}
+}
+
+// goldenCHChecksums pins the Checksum() of every SHIPPED ClickHouse migration
+// (SCHEMA-007). chmigrate enforces checksum-immutability only at APPLY time on a
+// POPULATED ledger; a fresh-install edit to a shipped statement is caught by no
+// integration test. This OFFLINE golden assertion fails the build the moment a
+// shipped chMigrations() statement is edited — add a NEW version instead. When a
+// version is legitimately added, append its entry here (the dump is in the test
+// log on mismatch).
+var goldenCHChecksums = map[string]string{
+	"ebpfstore|1": "aa012aac6d4d404946fdd39def7560d56b3943bfd8f0b191fc793519c04a80e9",
+	"flowstore|1": "875071f5ce661cb0cd28321315d4eff9ea89081c1c5795165b4049bad28d27db",
+	"flowstore|2": "026b57e815a6cbcd0ee70cd6b000f339846573305cd75dc57de7735db2ea4855",
+	"otelstore|1": "386721d17bf79ac6ddd91eb798f920fdf28ce4d0c80919a44055a3922569acd0",
+	"otelstore|2": "c7eddbb7f304453dfe47a5f53398d2346da81d190cf892732780ece08ff28a67",
+	"pathstore|1": "487d228b1b871ef223a377bb47e8621a61e56e8f2f9ef3469490c66061ff8b42",
+	"pathstore|2": "53f0f1079adfc037e3e481d3397a523a2e8049c79be9fbef87b7edcff964a76f",
+}
+
+// TestClickHouseMigrationChecksumsAreImmutable: SCHEMA-007. Editing any shipped
+// statement changes its Checksum() and reddens this OFFLINE test — closing the
+// fresh-install edit gap that the apply-time drift check (populated ledger only)
+// leaves open.
+func TestClickHouseMigrationChecksumsAreImmutable(t *testing.T) {
+	got := map[string]string{}
+	for comp, ms := range liveCHMigrations() {
+		for _, m := range ms {
+			got[comp+"|"+strconv.Itoa(m.Version)] = chmigrate.Checksum(m)
+		}
+	}
+	if len(got) != len(goldenCHChecksums) {
+		t.Fatalf("migration count changed: got %d, golden %d — update goldenCHChecksums (dump: %v)", len(got), len(goldenCHChecksums), got)
+	}
+	for key, want := range goldenCHChecksums {
+		if g, ok := got[key]; !ok {
+			t.Errorf("shipped migration %s is missing (renumbered/removed?) — shipped versions are immutable", key)
+		} else if g != want {
+			t.Errorf("migration %s checksum drift: golden %s, code %s — DO NOT edit a shipped migration; add a new version", key, want, g)
+		}
 	}
 }
 

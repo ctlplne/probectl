@@ -42,7 +42,25 @@ toolchain — linter, breaking-change checker, code generator) with **local**
 plugins: no remote BSR calls (the Buf Schema Registry, a hosted service —
 deliberately never contacted, per the sovereignty/air-gap posture). Schemas are
 **versioned and backward-compatible**: additive changes only, never renumber or
-reuse a field tag. The `proto` CI job enforces this with a blocking
+reuse a field tag.
+
+**Retiring a field (SCHEMA-006):** when a field is removed, its number **and**
+name are immediately fenced with a `reserved` clause in the same message, e.g.
+
+```proto
+message Foo {
+  reserved 4, 7;            // numbers of removed fields
+  reserved "old_name";      // names of removed fields
+  string current = 8;
+}
+```
+
+This makes "never reuse a retired tag" a compiler-enforced invariant rather than
+a convention `buf breaking` only catches indirectly. `TestProtoNoUnreservedTagGaps`
+(internal/gen) flags any gap in a message's field numbers that is not covered by
+a `reserved` entry, so a silent reuse cannot slip in.
+
+The `proto` CI job enforces append-only with a blocking
 `buf breaking` check against `main` and then asserts the committed generated
 code in `internal/gen/` is current — regeneration must reproduce the reviewed
 tree exactly, so neither hand-edits nor codegen drift can hide there. If you
