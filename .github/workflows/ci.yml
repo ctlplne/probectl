@@ -990,9 +990,23 @@ jobs:
           # deployments (operators must set these in .env).
           export POSTGRES_PASSWORD="ci-render-only"
           export PROBECTL_JOIN_TOKEN="pjt_ci-render-only"
-          for f in deploy/compose/*.yml; do
-            echo "rendering $f"
-            docker compose -f "$f" config >/dev/null
+          cd deploy/compose
+          # Overlays are validated MERGED with the base they extend (each file's
+          # header documents the `-f <base> -f <overlay>` invocation): they
+          # reference the base's networks/services and CANNOT render standalone.
+          declare -A OVERLAY_BASE=( [dr-drill.yml]=dev.yml [eval-synthetic.yml]=eval.yml )
+          for f in *.yml; do
+            # Only real docker-compose files have a top-level `services:` key.
+            # eval-agent.yml (agent canary config) and prometheus.yml (prometheus
+            # config) live here but are service CONFIGS, not compose files — skip.
+            grep -qE '^services:' "$f" || { echo "skip (not a compose file): $f"; continue; }
+            if [ -n "${OVERLAY_BASE[$f]:-}" ]; then
+              echo "rendering ${OVERLAY_BASE[$f]} + $f (overlay)"
+              docker compose -f "${OVERLAY_BASE[$f]}" -f "$f" config >/dev/null
+            else
+              echo "rendering $f"
+              docker compose -f "$f" config >/dev/null
+            fi
           done
           echo "all compose files render"
 
