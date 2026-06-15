@@ -120,3 +120,37 @@ func AssertPostureTx(ctx context.Context, q postureQuerier) error {
 	}
 	return nil
 }
+
+// profileCountQuerier is the minimal surface AssertDeploymentProfilePosture
+// needs (a pgxpool.Pool satisfies it; the unit test passes a fake).
+type profileCountQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// AssertDeploymentProfilePosture (RED-001) fails closed at boot when the control
+// plane is running the single-tenant profile — which leaves ClickHouse
+// row-policies AND the bus strict-lane OFF by default (chScopeDefault=false in
+// config) — but Postgres actually holds more than one tenant. Postgres-resident
+// data stays isolated by always-on FORCE-RLS (AssertIsolationPosture above), but
+// the high-cardinality CH planes (flow/eBPF/path/threat) would serve many
+// tenants with their storage-layer tenant scoping degraded. An MSP that forgets
+// PROBECTL_DEPLOYMENT_PROFILE must not silently serve multiple tenants with that
+// defense-in-depth off (guardrail 1, fail closed). If the operator has
+// explicitly enabled CH tenant scoping (chTenantScoped), the posture is not
+// degraded and the check is a no-op.
+func AssertDeploymentProfilePosture(ctx context.Context, q profileCountQuerier, profile string, chTenantScoped bool) error {
+	if profile != "single" || chTenantScoped {
+		return nil
+	}
+	var n int
+	if err := q.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&n); err != nil {
+		return fmt.Errorf("profile posture: count tenants: %w", err)
+	}
+	if n > 1 {
+		return fmt.Errorf("deployment posture: PROBECTL_DEPLOYMENT_PROFILE=single leaves ClickHouse "+
+			"row-policies and the bus strict-lane OFF, but Postgres holds %d tenants — set "+
+			"PROBECTL_DEPLOYMENT_PROFILE=multi-tenant (or regulated), or enable PROBECTL_*_TENANT_SCOPING, "+
+			"before serving multiple tenants (refusing to start; RED-001, fail closed)", n)
+	}
+	return nil
+}

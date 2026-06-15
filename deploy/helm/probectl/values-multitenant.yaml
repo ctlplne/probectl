@@ -5,8 +5,11 @@
 #     --set ingress.host=probectl.msp.example --set database.url=...
 #
 # Same HTTPS-by-default posture as single-tenant; the difference is scale +
-# provider operation. Tenant isolation (RLS / pooled scoping) is enforced by the
-# control plane regardless of deployment shape — this file only sizes the runtime.
+# provider operation. Postgres-resident tenant data is isolated by always-on
+# FORCE-RLS regardless of deployment shape, but the ClickHouse row-policies and
+# the bus strict-lane are gated on PROBECTL_DEPLOYMENT_PROFILE — so a provider
+# deployment MUST set it to multi-tenant (below), or the control plane refuses to
+# serve more than one tenant (RED-001, fail closed).
 
 replicaCount: 3
 
@@ -19,6 +22,9 @@ control:
   # the egress hole by default. Override only with explicit tenant consent.
   extraEnv:
     PROBECTL_AI_REDACT_HOSTNAMES: "true"
+    # RED-001: enable ClickHouse row-policies + bus strict-lane for multi-tenant.
+    # Without this the single-profile default leaves them OFF and boot fails closed.
+    PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"
 
 # Keep a quorum during the S34 rolling upgrade / node drains.
 podDisruptionBudget:

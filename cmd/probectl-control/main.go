@@ -179,6 +179,17 @@ func run(cmd string) error {
 	}
 	log.Info("tenant isolation posture verified (RLS forced, app role non-bypass)")
 
+	// RED-001: the single-tenant profile leaves ClickHouse row-policies and the
+	// bus strict-lane OFF by default; refuse to serve more than one tenant in
+	// that posture (an MSP that forgets PROBECTL_DEPLOYMENT_PROFILE must not run
+	// multi-tenant with that defense-in-depth silently off). Fail closed.
+	chScoped := cfg.FlowCHTenantScoping && cfg.OTelCHTenantScoping &&
+		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.IngestStrictTenantLanes
+	if err := tenancy.AssertDeploymentProfilePosture(context.Background(), db.Pool(), cfg.DeploymentProfile, chScoped); err != nil {
+		return fmt.Errorf("deployment profile self-check failed: %w", err)
+	}
+	log.Info("deployment profile posture verified", "profile", cfg.DeploymentProfile, "ch_tenant_scoped", chScoped)
+
 	log.Info("starting probectl-control", "version", version.Get().Version, "config", cfg)
 
 	// Bus + per-plane stores (result bus, TSDB, ingest-batching writer, path,
