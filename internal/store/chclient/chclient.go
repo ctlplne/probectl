@@ -21,6 +21,8 @@ package chclient
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,6 +31,41 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/breaker"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
+
+// MaxResponseBytes bounds how many bytes a single ClickHouse HTTP response body
+// is read into memory on the result-read path (RED-003a / SCALE-001). The
+// ClickHouse endpoint is authenticated infrastructure, but a huge or malicious
+// response (a runaway query, a compromised/spoofed data plane) must not be
+// buffered without limit: an unbounded io.ReadAll on a multi-GiB body is an
+// all-tenant memory DoS in the shared control plane. 64 MiB comfortably holds
+// any legitimate JSONEachRow result the stores aggregate (top-talkers,
+// capacity buckets, counts) while turning an oversized body into a bounded
+// error instead of an allocation.
+const MaxResponseBytes = 64 << 20 // 64 MiB
+
+// ErrResponseTooLarge is returned by ReadResponseBody when the ClickHouse
+// response exceeds MaxResponseBytes. It is a fail-closed signal: the caller
+// errors the read rather than returning a truncated (and therefore wrong) decode.
+var ErrResponseTooLarge = fmt.Errorf("chclient: clickhouse response exceeds %d-byte limit", MaxResponseBytes)
+
+// ReadResponseBody reads a ClickHouse HTTP response body into memory under a
+// hard MaxResponseBytes cap (RED-003a / SCALE-001). It reads at most
+// MaxResponseBytes+1 via an io.LimitReader and treats hitting the +1 sentinel
+// byte as an overflow — so an oversized/malicious body returns
+// ErrResponseTooLarge after allocating ≤64 MiB, never the full body. Every
+// store's live ClickHouse read funnels through this one helper (the CODE-006
+// shared-transport seam), so the bound holds for flowstore, ebpfstore,
+// pathstore, and otelstore on the path the consumer actually calls.
+func ReadResponseBody(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, MaxResponseBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("chclient: read clickhouse response: %w", err)
+	}
+	if len(body) > MaxResponseBytes {
+		return nil, ErrResponseTooLarge
+	}
+	return body, nil
+}
 
 // errServerError is the sentinel the breaker callback returns for an
 // upstream-fault HTTP response (5xx / 429). It counts the response as a breaker

@@ -408,7 +408,13 @@ func (c *ClickHouse) queryAt(ctx context.Context, base, sql string, params url.V
 		return nil, fmt.Errorf("ebpfstore: query: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
+	// RED-003a/SCALE-001: bound the response read — an unbounded io.ReadAll on a
+	// huge/malicious ClickHouse body is an all-tenant memory DoS. Fails closed
+	// (ErrResponseTooLarge) on overflow rather than allocating the whole body.
+	raw, err := chclient.ReadResponseBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ebpfstore: query: %w", err)
+	}
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("ebpfstore: query status %d: %s", resp.StatusCode, raw)
 	}

@@ -1561,6 +1561,7 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | burst window: bucket capacity = rate × this. `0` falls back to 10 — an enforced bucket always has a burst |
 | `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `0` (unlimited) | per-tenant in-flight query cap (HTTP 429 over it) |
 | `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `0` (unlimited) | per-tenant query budget per minute (HTTP 429 over it) |
+| `PROBECTL_FAIRNESS_TENANT_IDLE_TTL` | `24h` | evict a tenant's in-memory fairness state after it is idle this long (SCALE-002), bounding the gate's per-tenant map under tenant churn. A returning tenant's state is re-created (defaults re-enforced) on its next message. `0` falls back to 24h |
 
 ### Multi-region / active-active HA (core)
 

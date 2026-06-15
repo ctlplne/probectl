@@ -38,6 +38,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -208,6 +209,14 @@ type tenantState struct {
 	policyFetched  time.Time
 	policyKnown    bool
 	policyFetching bool
+
+	// lastSeen is the last time this tenant touched the gate (an admit or a
+	// query). The amortized idle sweep (SCALE-002 / RED-003b) evicts state idle
+	// past the TTL so per-tenant churn — short-lived tenants, offboarded
+	// tenants, transient ids — no longer grows the gate's map forever (an
+	// unbounded-allocation memory DoS). Live tenants refresh it on every call,
+	// so a busy tenant never evicts.
+	lastSeen time.Time
 }
 
 // gateShards stripes the Gate's per-tenant state so admissions for DIFFERENT
@@ -219,9 +228,27 @@ type tenantState struct {
 // cross-tenant contention is removed.
 const gateShards = 32
 
+// Idle eviction (SCALE-002 / RED-003b), mirroring pipeline.CardinalityLimiter:
+// the gate's per-tenant state is swept on the admit hot path, at most once per
+// gateSweepInterval per shard, and any tenant idle past idleTTL is deleted.
+// This bounds the gate's memory under tenant churn (the unbounded-map DoS)
+// without a background goroutine to leak — the sweep is amortized into the
+// admission call that already holds the shard lock.
+const (
+	// DefaultGateIdleTTL is how long a tenant's fairness state survives with no
+	// admits/queries before the idle sweep reclaims it. Generous: a tenant
+	// silent for a full day is treated as gone; the next message re-creates its
+	// state (and re-enforces defaults immediately) at negligible cost.
+	DefaultGateIdleTTL = 24 * time.Hour
+	// gateSweepInterval bounds how often a shard runs the O(tenants-in-shard)
+	// sweep, so the hot path pays for it at most once per minute per shard.
+	gateSweepInterval = time.Minute
+)
+
 type gateShard struct {
-	mu      sync.Mutex
-	tenants map[string]*tenantState
+	mu        sync.Mutex
+	tenants   map[string]*tenantState
+	lastSweep time.Time
 }
 
 // Gate is the fairness enforcement point. One Gate serves the whole process
@@ -230,8 +257,11 @@ type Gate struct {
 	defaults  Policy
 	source    PolicySource
 	policyTTL time.Duration
+	idleTTL   time.Duration // SCALE-002: per-tenant idle eviction window
 
 	shards [gateShards]gateShard
+
+	evicted atomic.Uint64 // tenants reclaimed by the idle sweep (observability)
 
 	now func() time.Time
 }
@@ -243,10 +273,20 @@ func NewGate(defaults Policy, source PolicySource) *Gate {
 		defaults:  defaults.merged(Policy{}),
 		source:    source,
 		policyTTL: time.Minute,
+		idleTTL:   DefaultGateIdleTTL,
 		now:       time.Now,
 	}
 	for i := range g.shards {
 		g.shards[i].tenants = map[string]*tenantState{}
+	}
+	return g
+}
+
+// WithIdleTTL overrides the per-tenant idle eviction window (SCALE-002; config
+// via PROBECTL_FAIRNESS_TENANT_IDLE_TTL). Non-positive keeps the default.
+func (g *Gate) WithIdleTTL(d time.Duration) *Gate {
+	if d > 0 {
+		g.idleTTL = d
 	}
 	return g
 }
@@ -279,15 +319,47 @@ func (g *Gate) WithNow(now func() time.Time) *Gate {
 }
 
 // state returns (creating if needed) the tenant's state within its shard. The
-// caller MUST hold sh.mu.
+// caller MUST hold sh.mu. A freshly created state is stamped lastSeen=now so a
+// tenant just brought into the map (by an admit, a query, or a read surface) is
+// never immediately evicted by the idle sweep — only genuine idleness past
+// idleTTL reclaims it (SCALE-002).
 func (g *Gate) state(sh *gateShard, tenantID string) *tenantState {
 	st, ok := sh.tenants[tenantID]
 	if !ok {
-		st = &tenantState{buckets: map[string]*bucket{}, ingest: map[string]*Counters{}}
+		st = &tenantState{buckets: map[string]*bucket{}, ingest: map[string]*Counters{}, lastSeen: g.now()}
 		sh.tenants[tenantID] = st
 	}
 	return st
 }
+
+// sweepShardLocked evicts tenants in this shard idle past idleTTL, at most once
+// per gateSweepInterval (SCALE-002 / RED-003b — the CardinalityLimiter.sweepLocked
+// pattern). The caller MUST hold sh.mu. It is amortized onto the admission call
+// that already holds the lock, so it adds no goroutine and bounds the map under
+// tenant churn. Tenants currently in a fetch (policyFetching) or holding
+// in-flight queries are kept — evicting them would race the async refresh or
+// drop a live release accounting.
+func (g *Gate) sweepShardLocked(sh *gateShard, now time.Time) {
+	if now.Sub(sh.lastSweep) < gateSweepInterval {
+		return
+	}
+	sh.lastSweep = now
+	cutoff := now.Add(-g.idleTTL)
+	for id, st := range sh.tenants {
+		if st.policyFetching || st.queries.InFlight > 0 {
+			continue
+		}
+		if st.lastSeen.Before(cutoff) {
+			delete(sh.tenants, id)
+			g.evicted.Add(1)
+		}
+	}
+}
+
+// Evicted reports how many tenants the idle sweep has reclaimed (SCALE-002
+// observability — exposed so the unbounded-map fix is provable in production,
+// not just in tests).
+func (g *Gate) Evicted() uint64 { return g.evicted.Load() }
 
 // policyFor resolves the tenant's effective policy under the tenant's shard
 // lock (held by the caller). The stored
@@ -385,7 +457,10 @@ func (g *Gate) AdmitN(ctx context.Context, tenantID, meter string, n int64) bool
 	sh := g.shardFor(tenantID)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
+	now := g.now()
+	g.sweepShardLocked(sh, now) // SCALE-002: amortized idle eviction
 	st := g.state(sh, tenantID)
+	st.lastSeen = now // live tenants never evict
 	pol := g.policyFor(ctx, st, tenantID)
 	rate := pol.rateFor(meter)
 	c, ok := st.ingest[meter]
@@ -413,7 +488,10 @@ func (g *Gate) BeginQuery(ctx context.Context, tenantID string) (release func(),
 	sh := g.shardFor(tenantID)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
+	now := g.now()
+	g.sweepShardLocked(sh, now) // SCALE-002: amortized idle eviction
 	st := g.state(sh, tenantID)
+	st.lastSeen = now // live tenants (and any with in-flight queries) never evict
 	pol := g.policyFor(ctx, st, tenantID)
 	if pol.QueryConcurrency > 0 && st.queries.InFlight >= int64(pol.QueryConcurrency) {
 		st.queries.RejectedConcurrency++

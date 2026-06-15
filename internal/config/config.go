@@ -495,6 +495,10 @@ type Config struct {
 	FairnessBurstSeconds     float64
 	FairnessQueryConcurrency int
 	FairnessQueriesPerMin    float64
+	// FairnessTenantIdleTTL bounds the fairness gate's per-tenant state map
+	// (SCALE-002): a tenant idle this long is evicted by the amortized sweep so
+	// tenant churn can't grow the map without bound. Default 24h.
+	FairnessTenantIdleTTL time.Duration
 
 	// BackupRetentionNote (S-T5): the operator's backup-TTL statement,
 	// included verbatim in every deletion attestation (the explicit
@@ -800,6 +804,10 @@ func Load(getenv func(string) string) (*Config, error) {
 		// who deliberately opt out.
 		FairnessQueryConcurrency: l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 4, 0, 100000),
 		FairnessQueriesPerMin:    l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 120),
+		// SCALE-002: evict per-tenant fairness state idle past this window so the
+		// gate's map stays bounded under tenant churn. 24h default; 0 falls back
+		// to the engine default (also 24h).
+		FairnessTenantIdleTTL: l.dur("PROBECTL_FAIRNESS_TENANT_IDLE_TTL", 24*time.Hour),
 
 		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
 		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),

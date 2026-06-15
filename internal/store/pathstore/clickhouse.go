@@ -592,7 +592,13 @@ func (c *ClickHouse) doQuery(ctx context.Context, base, u string) ([]map[string]
 		return nil, fmt.Errorf("pathstore: clickhouse query: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	// RED-003a/SCALE-001: bound the response read — a huge/malicious ClickHouse
+	// body must not be buffered unbounded (all-tenant memory DoS). Fails closed
+	// (ErrResponseTooLarge) on overflow instead of allocating the body.
+	body, err := chclient.ReadResponseBody(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("pathstore: clickhouse query: %w", err)
+	}
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("pathstore: clickhouse query status %d: %s", resp.StatusCode, body)
 	}

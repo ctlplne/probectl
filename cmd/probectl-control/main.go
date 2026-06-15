@@ -502,7 +502,7 @@ func run(cmd string) error {
 		BurstSeconds:        cfg.FairnessBurstSeconds,
 		QueryConcurrency:    cfg.FairnessQueryConcurrency,
 		QueriesPerMin:       cfg.FairnessQueriesPerMin,
-	}, fairnessSource)
+	}, fairnessSource).WithIdleTTL(cfg.FairnessTenantIdleTTL) // SCALE-002: bound the per-tenant state map
 	srv.WithFairness(fairGate)
 	srv.WithA2ABroker(a2aBroker) // ARCH-009: session-start API over the broker
 	// ARCH-001: load (or first-boot generate) the test-bundle signing key so
