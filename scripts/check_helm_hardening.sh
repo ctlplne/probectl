@@ -18,7 +18,8 @@ render() {
   helm template probectl "$CHART" "$@" \
     --set ingress.host=h.example.com \
     --set ingress.tlsSecretName=probectl-tls \
-    --set secrets.envelopeKey="$KEY"
+    --set secrets.envelopeKey="$KEY" \
+    --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require"
 }
 
 need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
@@ -28,6 +29,31 @@ need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls >/dev/null 2>&1; then
   fail "chart rendered with no secrets.envelopeKey — that would be a default credential"
+fi
+
+# 1b. OPS-001: no default DATABASE credential. Rendering with NO database.url must
+#     fail closed, and rendering WITH the shipped dev credential (probectl:probectl)
+#     must fail too — an operator who forgets to override must never materialize a
+#     known password into a Kubernetes Secret.
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set secrets.envelopeKey="$KEY" >/dev/null 2>&1; then
+  fail "chart rendered with no database.url — that would be a blank/default DB credential (OPS-001)"
+fi
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set secrets.envelopeKey="$KEY" \
+  --set database.url="postgres://probectl:probectl@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered with the dev credential probectl:probectl (OPS-001)"
+fi
+# The rendered manifests must never carry the dev credential.
+if grep -q "probectl:probectl@" <<<"$(render)"; then
+  fail "rendered manifests contain the dev credential probectl:probectl (OPS-001)"
+fi
+# 1c. Static: no values file may SHIP the dev credential as a default — a render
+#     override can't paper over a committed default, so catch it in source.
+if grep -rnE 'probectl:probectl@' "$CHART"/values*.yaml 2>/dev/null; then
+  fail "a values file ships the dev credential probectl:probectl as a default (OPS-001)"
 fi
 
 # 2. Default profile: the hardened pod posture + HTTPS-by-default.
@@ -90,7 +116,9 @@ done
 for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
   helm lint "$CHART" -f "$CHART/$f" \
     --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
-    --set secrets.envelopeKey="$KEY" >/dev/null || fail "$f failed helm lint"
+    --set secrets.envelopeKey="$KEY" \
+    --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
+    >/dev/null || fail "$f failed helm lint"
 done
 
 echo "helm hardening gate: OK (default + every values-* profile)"

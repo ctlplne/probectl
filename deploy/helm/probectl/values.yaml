@@ -73,9 +73,11 @@ allowPlaintextHTTP: true
 #   PROBECTL_BUS_SASL_PASSWORD: vault:kafka/probectl#password  # S41 secret ref
 
 database:
-  # Full DSN. Point at your managed Postgres, or the bundled subchart-less
-  # Postgres you run separately. TLS in transit is expected in production.
-  url: "postgres://probectl:probectl@probectl-postgres:5432/probectl?sslmode=require"
+  # Full DSN — REQUIRED. No default credential ships (OPS-001): rendering fails
+  # closed unless you set this (or secrets.existingSecret). Point at your managed
+  # Postgres. TLS in transit is expected in production (sslmode=require), e.g.:
+  #   --set database.url='postgres://probectl:<STRONG_PASSWORD>@host:5432/probectl?sslmode=require'
+  url: ""
 
 service:
   type: ClusterIP        # never NodePort/LoadBalancer with a plaintext port

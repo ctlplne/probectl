@@ -29,8 +29,10 @@ control:
     PROBECTL_REGION: "us-east"
     # Every region in the deployment:
     PROBECTL_REGIONS: "us-east,eu-west"
-    # The local read replica (read locality); writes always use the writer:
-    PROBECTL_DATABASE_READ_URL: "postgres://probectl:probectl@probectl-postgres-replica:5432/probectl?sslmode=require"
+    # The local read replica (read locality); writes always use the writer.
+    # REQUIRED override — no default credential ships (OPS-001); set your DSN:
+    #   --set-string control.extraEnv.PROBECTL_DATABASE_READ_URL='postgres://<user>:<password>@<replica-host>:5432/probectl?sslmode=require'
+    PROBECTL_DATABASE_READ_URL: ""
     # Replication mode the Postgres tier is configured for: sync (RPO 0) | async:
     PROBECTL_REPLICATION_MODE: "sync"
     # Provisional RPO/RTO targets (human sign-off — see docs/multi-region.md):
@@ -40,8 +42,10 @@ control:
     PROBECTL_RESIDENCY: "us-east"
 
 database:
-  # The GLOBAL WRITER endpoint — re-pointed on failover. TLS in transit.
-  url: "postgres://probectl:probectl@pg-writer.global.example:5432/probectl?sslmode=require"
+  # The GLOBAL WRITER endpoint — re-pointed on failover. TLS in transit. REQUIRED
+  # override; no default credential ships (OPS-001). On failover, re-point this:
+  #   --set database.url='postgres://<user>:<password>@<writer-host>:5432/probectl?sslmode=require'
+  url: ""
 
 # Keep a quorum during S34 rolling upgrades / node drains, in every region.
 podDisruptionBudget:
