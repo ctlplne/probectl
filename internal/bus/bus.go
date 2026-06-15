@@ -120,6 +120,20 @@ type Flusher interface {
 	Flush(ctx context.Context) error
 }
 
+// SubscriberWaiter is an optional Bus capability: block until at least n
+// subscribers are registered on a topic (or ctx is done). The in-memory bus is
+// a LIVE pub/sub — it only delivers to subscribers present at publish time — so
+// a producer that starts a consumer goroutine and then publishes must
+// SYNCHRONIZE on the consumer's registration rather than sleep a guessed
+// duration (TEST-002 / SCALE-003: a fixed sleep is non-deterministic under
+// load and silently drops the messages published in the race window). Callers
+// type-assert for it; on a bus without it (Kafka, where the broker persists
+// and a group joins independently) the wait is unnecessary, so a missing
+// implementation is treated as "ready".
+type SubscriberWaiter interface {
+	WaitForSubscribers(ctx context.Context, topic string, n int) bool
+}
+
 // namespaceRe is the shape a per-tenant topic namespace must have (S-T2,
 // siloed bus isolation): lowercase alphanumerics and hyphens, no dots — it
 // becomes one topic segment.

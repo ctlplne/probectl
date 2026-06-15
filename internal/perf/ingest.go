@@ -99,9 +99,21 @@ func DriveIngest(ctx context.Context, b bus.Bus, w tsdb.Writer, confirmed func()
 	defer cancel()
 	consumerDone := make(chan struct{})
 	go func() { _ = consumer.Run(cctx); close(consumerDone) }()
-	// The in-memory bus only delivers to current subscribers; give the consumer a
-	// moment to register before publishing.
-	time.Sleep(150 * time.Millisecond)
+	// SCALE-003 / TEST-002: the in-memory bus is a LIVE pub/sub — it only delivers
+	// to subscribers present at publish time. Synchronize on the consumer's
+	// registration instead of sleeping a guessed 150ms: under load that sleep was
+	// non-deterministic and silently dropped any results published before the
+	// consumer subscribed (an undercount that flaked the settle assertion). On a
+	// bus without this capability (Kafka, where a group joins independently of the
+	// producer) we proceed immediately.
+	if w, ok := b.(bus.SubscriberWaiter); ok {
+		wctx, wcancel := context.WithTimeout(cctx, 5*time.Second)
+		if !w.WaitForSubscribers(wctx, bus.NetworkResultsTopic, 1) {
+			wcancel()
+			return IngestReport{}, fmt.Errorf("perf: consumer did not subscribe to %s within 5s", bus.NetworkResultsTopic)
+		}
+		wcancel()
+	}
 
 	ids := buildIdentities(cfg)
 
@@ -109,7 +121,13 @@ func DriveIngest(ctx context.Context, b bus.Bus, w tsdb.Writer, confirmed func()
 	start := time.Now()
 	published, pubErr := publishIdentities(cctx, b, ids, cfg.Producers, &pubLat)
 
-	// Wait for the consumer to drain the bus into the store.
+	// Wait for the consumer to drain the bus into the store. This is a settle
+	// POLL on a monotonic completion signal (confirmed() rises to
+	// expectedSeries), not a guessed delay: it terminates deterministically the
+	// instant every series lands, bounded by SettleTimeout. WaitForSubscribers
+	// does not apply here — the subscriber is long since registered; what we
+	// await is downstream drain, which only confirmed() can report. The short
+	// sleep is just the poll interval.
 	deadline := time.Now().Add(cfg.SettleTimeout)
 	for confirmed() < expectedSeries && time.Now().Before(deadline) {
 		time.Sleep(2 * time.Millisecond)
