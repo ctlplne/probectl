@@ -318,7 +318,7 @@ jobs:
     # failure screenshot. The Go side (internal/browser) is covered by the unit job.
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    container: mcr.microsoft.com/playwright:v1.55.1-noble
+    container: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
     defaults:
       run:
         working-directory: browser-worker

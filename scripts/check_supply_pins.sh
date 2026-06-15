@@ -20,6 +20,15 @@ if [[ "${1:-}" == "SELFTEST" ]]; then
   if grep -E 'pip install' "$tmp/bad.sh" | grep -vqE '(==|--require-hashes|--no-deps|-r [^ ]+\.lock)'; then :; else echo "SELFTEST broken"; exit 1; fi
   echo 'apt-get install -y clang llvm bpftool' > "$tmp/bad.dockerfile"
   if grep -qE '(^| )clang( |$)' "$tmp/bad.dockerfile"; then :; else echo "SELFTEST broken (clang pin)"; exit 1; fi
+  # SUPPLY-003: camelCase *Image: keys (e.g. installerImage:) must be reachable
+  # by the digest scan — the case-sensitive `image:` scan in (5) misses them.
+  line='installerImage: busybox:1.36'; val="${line#*[Ii]mage:}"; val="$(echo "$val" | tr -d '[:space:]')"
+  if echo "$val" | grep -q '@sha256:'; then echo "SELFTEST broken (installerImage extract)"; exit 1; fi
+  echo "$val" | grep -q ':' || { echo "SELFTEST broken (installerImage tag)"; exit 1; }
+  # SUPPLY-002: workflow `container:` images must be reachable too.
+  line='container: mcr.microsoft.com/playwright:v1.55.1-noble'; val="${line#*container:}"; val="$(echo "$val" | tr -d '[:space:]')"
+  if echo "$val" | grep -q '@sha256:'; then echo "SELFTEST broken (container extract)"; exit 1; fi
+  echo "$val" | grep -q ':' || { echo "SELFTEST broken (container tag)"; exit 1; }
   echo "supply-pins SELFTEST: OK"
   exit 0
 fi
@@ -90,9 +99,45 @@ while IFS= read -r line; do
   fail=1
 done < <(grep -rn 'image:' deploy/helm --include='*.yaml' --include='*.yml' | grep -v '^\s*#' || true)
 
+# 6) SUPPLY-003: camelCase image keys under deploy/helm — e.g. `installerImage:`
+#    (capital-I 'Image') — slip past the case-sensitive `image:` scan in (5).
+#    The agent seccomp-installer runs a PRIVILEGED initContainer on every node,
+#    so a tag-hijack executes code before the agent starts. Require a digest pin
+#    on every `<name>Image:` value under deploy/helm.
+while IFS= read -r line; do
+  echo "$line" | grep -q 'tag-only-ok' && continue
+  val="${line#*[Ii]mage:}"; val="${val%%#*}"          # value after *Image:, drop comment
+  val="$(echo "$val" | tr -d '[:space:]"'\''')"        # strip ws + quotes
+  [[ -z "$val" ]] && continue                          # empty default
+  echo "$val" | grep -q '{{' && continue               # helm template expression
+  echo "$val" | grep -q '@sha256:' && continue         # digest-pinned — good
+  echo "$val" | grep -q ':' || continue                # no tag at all; skip
+  echo "TAG-ONLY camelCase image ref under deploy/helm (digest-pin it; SUPPLY-003):"
+  echo "  $line"
+  fail=1
+done < <(grep -rnE '[A-Za-z]+Image:' deploy/helm --include='*.yaml' --include='*.yml' | grep -v '^\s*#' || true)
+
+# 7) SUPPLY-002: CI `container:` job images run outside the deploy/ scan. A
+#    tag-only `container:` (e.g. the Playwright browser-worker) is a mutable
+#    input — a pin-gate blind-spot. Require a digest pin on every concrete
+#    `container:` image value in the workflows (string form; the nested mapping
+#    form `container:\n  image:` is left for a future deploy-style scan).
+while IFS= read -r line; do
+  echo "$line" | grep -q 'tag-only-ok' && continue
+  val="${line#*container:}"; val="${val%%#*}"          # value after container:, drop comment
+  val="$(echo "$val" | tr -d '[:space:]"'\''')"        # strip ws + quotes
+  [[ -z "$val" ]] && continue                          # mapping form / empty — skip
+  echo "$val" | grep -q '{{' && continue               # ${{ }} expression
+  echo "$val" | grep -q '@sha256:' && continue         # digest-pinned — good
+  echo "$val" | grep -q ':' || continue                # no tag (rare); skip
+  echo "TAG-ONLY container: image in workflows (digest-pin it; SUPPLY-002):"
+  echo "  $line"
+  fail=1
+done < <(grep -rnE '^[[:space:]]*container:[[:space:]]*[^[:space:]]' .github/workflows --include='*.yml' --include='*.yaml' | grep -v '^\s*#' || true)
+
 if [[ $fail -ne 0 ]]; then
   echo
   echo "supply-pins gate FAILED — pin the inputs above (docs/dependency-policy.md)."
   exit 1
 fi
-echo "supply-pins gate: OK (no :latest, no unpinned go install / pip install, no tag-only helm image)"
+echo "supply-pins gate: OK (no :latest, no unpinned go install / pip install, no tag-only helm/container image)"
