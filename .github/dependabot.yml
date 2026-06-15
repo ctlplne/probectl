@@ -1,0 +1,45 @@
+# Dependabot keeps the supply chain current (SUPPLY-001 / RED-002): Go modules,
+# the web npm tree, Docker base images, and GitHub Actions. Pins stay
+# digest/version-exact (docs/dependency-policy.md) — Dependabot proposes the
+# bumps, a human reviews and merges. Conventional-commit prefixes keep the
+# commitlint gate green; actions stay SHA-pinned (check_action_pins.sh).
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: gomod
+    directory: "/test"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: npm
+    directory: "/web"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: docker
+    directory: "/deploy/docker"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: docker
+    directory: "/browser-worker"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "build(deps)"
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci(deps)"
