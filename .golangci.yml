@@ -31,7 +31,8 @@ linters:
       - legacy
       - std-error-handling
     paths:
-      - internal/gen   # generated protobuf code (S4+)
+      - internal/gen     # generated protobuf code (S4+)
+      - node_modules     # untracked third-party JS deps (e.g. flatted/golang) — never our Go
 
 formatters:
   enable:
@@ -44,3 +45,4 @@ formatters:
   exclusions:
     paths:
       - internal/gen
+      - node_modules     # untracked third-party JS deps — keep gofmt/goimports scope to our Go

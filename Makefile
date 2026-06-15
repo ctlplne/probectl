@@ -254,7 +254,7 @@ lint: lint-go lint-python ## Run all linters (Go + Python).
 # tree was removed from main in U-080 — git history preserves it.)
 .PHONY: lint-go
 lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-sql/unified-TLS guards.
-	@files=$$(find . -name '*.go' -not -path '*/gen/*'); \
+	@files=$$(find . -name '*.go' -not -path '*/gen/*' -not -path '*/node_modules/*'); \
 		bad=$$(gofmt -l $$files); \
 		test -z "$$bad" || { echo "gofmt needed on:"; echo "$$bad"; exit 1; }
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) vet ./... ) || exit 1; done
