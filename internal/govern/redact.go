@@ -110,11 +110,19 @@ func columnCategory(column string) (Category, bool) {
 	switch {
 	case c == "secret" || c == "wrapped_kek" || c == "byok_ref" ||
 		strings.Contains(c, "password") || strings.Contains(c, "token") ||
-		strings.HasSuffix(c, "_secret") || strings.Contains(c, "private_key"):
+		strings.HasSuffix(c, "_secret") || strings.Contains(c, "private_key") ||
+		// GOVERN-001: API/secret-key columns were unclassified and leaked in
+		// cleartext through "redacted" exports. Treat key columns as credentials
+		// by default (fail closed); a tenant may re-classify via Policy.Overrides.
+		strings.Contains(c, "api_key") || strings.Contains(c, "apikey") ||
+		strings.HasSuffix(c, "_key") || c == "key":
 		return CatCredential, true
 	case c == "email" || strings.HasSuffix(c, "_email"):
 		return CatEmail, true
-	case strings.Contains(c, "mac_address") || c == "mac":
+	// GOVERN-001: MAC columns (mac_addr, mac_address, *_mac) must be caught here,
+	// BEFORE the IP "_addr" net below — otherwise "mac_addr" ends with "_addr"
+	// and is misclassified as an IP (wrong category + wrong redaction strategy).
+	case strings.Contains(c, "mac_addr") || c == "mac" || strings.HasSuffix(c, "_mac"):
 		return CatMAC, true
 	case strings.Contains(c, "user_agent"):
 		return CatUserAgent, true

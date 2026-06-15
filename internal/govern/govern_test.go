@@ -169,3 +169,48 @@ func TestClassRoundTrip(t *testing.T) {
 		t.Error("unknown class must parse to unset")
 	}
 }
+
+// TestColumnCategory locks GOVERN-001: mac_addr must classify as MAC (not IP via
+// the _addr net), and api_key / *_key columns as credentials (not left
+// unclassified and leaked in cleartext through a "redacted" export). Table-driven
+// so the heuristic's case ORDERING can't silently regress.
+func TestColumnCategory(t *testing.T) {
+	cases := []struct {
+		column  string
+		wantCat Category
+		wantOK  bool
+	}{
+		// GOVERN-001 — these were the bug (mac_addr->IP, api_key->unclassified):
+		{"mac_addr", CatMAC, true},
+		{"mac_address", CatMAC, true},
+		{"src_mac", CatMAC, true},
+		{"mac", CatMAC, true},
+		{"api_key", CatCredential, true},
+		{"apikey", CatCredential, true},
+		{"access_key", CatCredential, true},
+		{"signing_key", CatCredential, true},
+		{"key", CatCredential, true},
+		// existing credential/PII columns must keep classifying (regression guard):
+		{"password", CatCredential, true},
+		{"api_token", CatCredential, true},
+		{"wrapped_kek", CatCredential, true},
+		{"private_key", CatCredential, true},
+		{"user_email", CatEmail, true},
+		// IP columns must STAY IP — the MAC broadening must not steal the _addr net:
+		{"src_addr", CatIPAddress, true},
+		{"dst_addr", CatIPAddress, true},
+		{"ip_addr", CatIPAddress, true},
+		{"next_hop", CatIPAddress, true},
+		{"exporter", CatIPAddress, true},
+		// non-sensitive columns stay unclassified:
+		{"bytes", "", false},
+		{"timestamp", "", false},
+	}
+	for _, tc := range cases {
+		gotCat, gotOK := columnCategory(tc.column)
+		if gotCat != tc.wantCat || gotOK != tc.wantOK {
+			t.Errorf("columnCategory(%q) = (%q,%v), want (%q,%v)",
+				tc.column, gotCat, gotOK, tc.wantCat, tc.wantOK)
+		}
+	}
+}
