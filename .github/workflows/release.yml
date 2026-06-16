@@ -186,7 +186,7 @@ jobs:
       # and the checksum manifest. The OIDC identity baked into each .pem is
       # THIS repository's release workflow — verifiers pin it (see
       # docs/ops/verify-artifacts.md). id-token: write is already granted.
-      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign artifacts (cosign keyless)
         run: |
           set -euo pipefail
