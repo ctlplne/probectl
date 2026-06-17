@@ -845,6 +845,8 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("otlp tls: %w", err)
 		}
+		otlpAuth := otlp.NewDBTokenAuthenticator(store.NewOTLPTokens(db.Pool()), cfg.OTLPTokens, log)
+		srv.WithOTLPTokenAuth(otlpAuth)
 		// ARCH-001 (Sprint 22): all THREE OTLP signals — metrics, traces,
 		// logs — are received, tenant-scoped, published per-signal, consumed,
 		// stored, and queryable (/v1/otlp/*).
@@ -861,7 +863,7 @@ func run(cmd string) error {
 		}
 		otlpSrv, err := otlp.NewServer(
 			otlp.ServerConfig{GRPCAddr: cfg.OTLPGRPCAddr, HTTPAddr: cfg.OTLPHTTPAddr},
-			tlsCfg, otlp.NewTokenAuthenticator(cfg.OTLPTokens), sinks, log)
+			tlsCfg, otlpAuth, sinks, log)
 		if err != nil {
 			return fmt.Errorf("otlp receiver: %w", err)
 		}

@@ -32,7 +32,15 @@ type tokenEntry struct {
 	tenant  string
 	expires time.Time // zero = never
 	revoked bool
+	source  tokenSource
 }
+
+type tokenSource string
+
+const (
+	tokenSourceConfig tokenSource = "config"
+	tokenSourceDB     tokenSource = "db"
+)
 
 func (e tokenEntry) live(now time.Time) bool {
 	return !e.revoked && (e.expires.IsZero() || now.Before(e.expires))
@@ -56,7 +64,7 @@ func NewTokenAuthenticator(tokenToTenant map[string]string) *TokenAuthenticator 
 	a := &TokenAuthenticator{now: time.Now}
 	for tok, tenant := range tokenToTenant {
 		if tok != "" && tenant != "" {
-			a.entries = append(a.entries, tokenEntry{hash: crypto.Hash([]byte(tok)), tenant: tenant})
+			a.entries = append(a.entries, tokenEntry{hash: crypto.Hash([]byte(tok)), tenant: tenant, source: tokenSourceConfig})
 		}
 	}
 	return a
@@ -65,12 +73,16 @@ func NewTokenAuthenticator(tokenToTenant map[string]string) *TokenAuthenticator 
 // Add registers an additional valid token (rotation): both old and new are
 // accepted until the old is revoked. expires of zero means no expiry.
 func (a *TokenAuthenticator) Add(token, tenant string, expires time.Time) {
+	a.add(token, tenant, expires, tokenSourceDB)
+}
+
+func (a *TokenAuthenticator) add(token, tenant string, expires time.Time, source tokenSource) {
 	if token == "" || tenant == "" {
 		return
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.entries = append(a.entries, tokenEntry{hash: crypto.Hash([]byte(token)), tenant: tenant, expires: expires})
+	a.entries = append(a.entries, tokenEntry{hash: crypto.Hash([]byte(token)), tenant: tenant, expires: expires, source: source})
 }
 
 // Revoke marks every entry for token as revoked (immediate). Returns whether
@@ -112,27 +124,34 @@ func (a *TokenAuthenticator) ActiveTokens() int {
 // comparison is constant-time and checks EVERY entry (no early exit), so
 // neither match position nor a near-miss leaks through timing.
 func (a *TokenAuthenticator) Authenticate(token string) (string, error) {
+	tenant, _, err := a.authenticateEntry(token)
+	return tenant, err
+}
+
+func (a *TokenAuthenticator) authenticateEntry(token string) (string, tokenSource, error) {
 	if token == "" {
-		return "", ErrUnauthenticated
+		return "", "", ErrUnauthenticated
 	}
 	h := crypto.Hash([]byte(token))
 	now := a.now()
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	tenant := ""
+	source := tokenSource("")
 	matched := 0
 	for _, e := range a.entries {
 		// Constant-time secret compare on EVERY entry (no early exit), so
 		// neither match position nor a near-miss leaks through timing.
 		if crypto.ConstantTimeEqual(h, e.hash) && e.live(now) {
 			tenant = e.tenant
+			source = e.source
 			matched = 1
 		}
 	}
 	if matched == 1 {
-		return tenant, nil
+		return tenant, source, nil
 	}
-	return "", ErrUnauthenticated
+	return "", "", ErrUnauthenticated
 }
 
 type tenantKey struct{}

@@ -214,6 +214,11 @@ type Server struct {
 	// the attach seam; nil = the /v1/security/keys surface hides (404).
 	keyManager tenantcrypto.KeyManager
 
+	// OTLP token admin (WIRE-008): DB-backed, rotatable OTLP bearer tokens.
+	// Set via WithOTLPTokenAuth; nil authenticator = /v1/otlp-tokens hides (404).
+	// The store is accessed via s.pool (same pattern as scim/mcp tokens).
+	otlpTokenAuth OTLPTokenAuthManager
+
 	// Fairness gate (S-T7, core): per-tenant ingest bounds + query-cost
 	// guards. Set via WithFairness; nil = no enforcement (small/dev
 	// deployments), self-view reports enforcing=false.

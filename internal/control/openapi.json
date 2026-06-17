@@ -4212,6 +4212,116 @@
         }
       }
     },
+    "/v1/otlp-tokens": {
+      "get": {
+        "operationId": "listOTLPTokens",
+        "summary": "List OTLP bearer token metadata for the caller's tenant",
+        "tags": [
+          "otlp"
+        ],
+        "responses": {
+          "200": {
+            "description": "Token metadata; hashes and plaintext secrets are never returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      },
+      "post": {
+        "operationId": "createOTLPToken",
+        "summary": "Mint a DB-backed OTLP bearer token for the caller's tenant",
+        "tags": [
+          "otlp"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Token created; plaintext token is returned once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "token": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required."
+          }
+        }
+      }
+    },
+    "/v1/otlp-tokens/{id}": {
+      "delete": {
+        "operationId": "revokeOTLPToken",
+        "summary": "Revoke a DB-backed OTLP bearer token for the caller's tenant",
+        "tags": [
+          "otlp"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Token revoked."
+          },
+          "401": {
+            "description": "Authentication required."
+          },
+          "404": {
+            "description": "Token not found or already revoked."
+          }
+        }
+      }
+    },
     "/v1/a2a/sessions": {
       "post": {
         "operationId": "startA2ASession",
