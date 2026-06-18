@@ -145,17 +145,17 @@ func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (str
 	if err := c.gate.Authorize(ctx, p.TenantID); err != nil {
 		return "", err
 	}
-	// The adapter redacts again on its own remote path (defense in depth);
-	// masking is stable so double application cannot leak or churn tokens.
-	out, err := c.inner.Complete(ctx, system, c.gate.Redact(user))
-	if err != nil {
-		return "", err
-	}
 	c.gate.Emit(ctx, EgressEvent{
 		TenantID: p.TenantID,
 		Endpoint: rm.Endpoint(),
 		Model:    c.inner.Name(),
 		Surface:  "author",
 	})
+	// The adapter redacts again on its own remote path (defense in depth);
+	// masking is stable so double application cannot leak or churn tokens.
+	out, err := c.inner.Complete(ctx, system, c.gate.Redact(user))
+	if err != nil {
+		return "", err
+	}
 	return out, nil
 }

@@ -26,6 +26,7 @@ func allowTenants(allowed ...string) EgressPolicy {
 type remoteFake struct {
 	gotUser string
 	reply   string
+	err     error
 }
 
 func (r *remoteFake) Name() string       { return "fake:remote" }
@@ -33,7 +34,7 @@ func (r *remoteFake) RemoteEgress() bool { return true }
 func (r *remoteFake) Endpoint() string   { return "https://api.example/v1" }
 func (r *remoteFake) Complete(_ context.Context, _, user string) (string, error) {
 	r.gotUser = user
-	return r.reply, nil
+	return r.reply, r.err
 }
 
 // localFake never egresses (loopback model).
@@ -92,6 +93,35 @@ func TestGatedCompleterConsentGate(t *testing.T) {
 	}
 	if len(audited) != 1 {
 		t.Fatal("local model must not emit egress audit")
+	}
+}
+
+// AIRCA-001: the audit records the authorized egress attempt even when the
+// provider fails, because the prompt may already have crossed the boundary.
+func TestGatedCompleterAuditsFailedRemoteAuthoringAttempt(t *testing.T) {
+	var audited []EgressEvent
+	gate := NewEgressGate(allowTenants("t-yes"), func(_ context.Context, ev EgressEvent) {
+		audited = append(audited, ev)
+	}, DefaultRedaction)
+
+	inner := &remoteFake{err: errors.New("provider down")}
+	c := NewGatedCompleter(inner, gate)
+	ctx := auth.WithPrincipal(context.Background(), &auth.Principal{TenantID: "t-yes"})
+
+	if _, err := c.Complete(ctx, "sys", "probe 10.1.2.3 token=hunter2secret"); err == nil {
+		t.Fatal("provider failure must still be returned")
+	}
+	for _, leak := range []string{"10.1.2.3", "hunter2secret"} {
+		if strings.Contains(inner.gotUser, leak) {
+			t.Fatalf("unredacted value %q reached the remote model: %q", leak, inner.gotUser)
+		}
+	}
+	if len(audited) != 1 {
+		t.Fatalf("failed remote authoring attempt must emit one audit event: %+v", audited)
+	}
+	ev := audited[0]
+	if ev.Surface != "author" || ev.TenantID != "t-yes" || ev.Endpoint != "https://api.example/v1" || ev.Model != "fake:remote" {
+		t.Fatalf("unexpected failed-attempt audit event: %+v", ev)
 	}
 }
 
