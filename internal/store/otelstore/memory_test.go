@@ -100,6 +100,33 @@ func TestMemorySpanAndLogQueriesScopedAndFiltered(t *testing.T) {
 	}
 }
 
+func TestMemoryDedupsRedeliveredSpansAndLogs(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	base := time.Now().UTC()
+	span := Span{TenantID: "t1", TraceID: "aa", SpanID: "01", Service: "checkout", Name: "GET /pay", Start: base}
+	log := LogRecord{TenantID: "t1", TS: base, SeverityNum: 9, Service: "checkout", Body: "paid", TraceID: "aa", SpanID: "01"}
+
+	if err := m.WriteSpans(ctx, []Span{span, span}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.WriteLogs(ctx, []LogRecord{log, log}); err != nil {
+		t.Fatal(err)
+	}
+	if spans, logs := m.Len("t1"); spans != 1 || logs != 1 {
+		t.Fatalf("redelivered OTLP signals should dedup: spans=%d logs=%d", spans, logs)
+	}
+
+	log2 := log
+	log2.Body = "paid again"
+	if err := m.WriteLogs(ctx, []LogRecord{log2}); err != nil {
+		t.Fatal(err)
+	}
+	if _, logs := m.Len("t1"); logs != 2 {
+		t.Fatalf("distinct log body must remain a distinct fact, got logs=%d", logs)
+	}
+}
+
 func TestMemoryBoundedPerTenant(t *testing.T) {
 	m := NewMemory()
 	ctx := context.Background()

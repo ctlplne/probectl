@@ -116,6 +116,26 @@ func TestRangeAndLookbackAndCap(t *testing.T) {
 	}
 }
 
+func TestRangeDedupsRedeliveredPoints(t *testing.T) {
+	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	ts := at.Add(-30 * time.Second).UnixMilli()
+	snapshot := []tsdb.Series{
+		{Metric: "probectl_result_rtt_ms", Labels: map[string]string{"tenant_id": "t-a", "agent_id": "a1"}, Value: 12, TimeMillis: ts},
+		{Metric: "probectl_result_rtt_ms", Labels: map[string]string{"agent_id": "a1", "tenant_id": "t-a"}, Value: 15, TimeMillis: ts},
+	}
+	sel, _ := ParseSelector(`probectl_result_rtt_ms`)
+	res, err := Range(snapshot, ForceTenant(sel, "t-a"), at.Add(-time.Minute), at, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || len(res[0].Points) != 1 {
+		t.Fatalf("redelivered point should collapse to one query fact: %+v", res)
+	}
+	if res[0].Points[0].Value != 15 {
+		t.Fatalf("latest duplicate value should win, got %+v", res[0].Points[0])
+	}
+}
+
 func TestLabelsSeriesValues(t *testing.T) {
 	at := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	sels := []Selector{ForceTenant(Selector{}, "t-a")}

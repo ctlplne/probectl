@@ -34,6 +34,10 @@ func (m *Memory) WriteSpans(_ context.Context, spans []Span) error {
 		if s.TenantID == "" {
 			continue // never store an unowned row (fail closed)
 		}
+		if i := findSpan(m.spans[s.TenantID], s); i >= 0 {
+			m.spans[s.TenantID][i] = s
+			continue
+		}
 		m.spans[s.TenantID] = append(m.spans[s.TenantID], s)
 		if over := len(m.spans[s.TenantID]) - memoryMaxPerTenant; over > 0 {
 			m.spans[s.TenantID] = m.spans[s.TenantID][over:]
@@ -48,6 +52,10 @@ func (m *Memory) WriteLogs(_ context.Context, recs []LogRecord) error {
 	defer m.mu.Unlock()
 	for _, r := range recs {
 		if r.TenantID == "" {
+			continue
+		}
+		if i := findLog(m.logs[r.TenantID], r); i >= 0 {
+			m.logs[r.TenantID][i] = r
 			continue
 		}
 		m.logs[r.TenantID] = append(m.logs[r.TenantID], r)
@@ -128,6 +136,34 @@ func (m *Memory) Len(tenant string) (spans, logs int) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.spans[tenant]), len(m.logs[tenant])
+}
+
+func findSpan(spans []Span, needle Span) int {
+	key := spanDedupKey(needle)
+	for i := range spans {
+		if spanDedupKey(spans[i]) == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func spanDedupKey(s Span) string {
+	if s.TraceID != "" && s.SpanID != "" {
+		return s.TenantID + "|" + s.TraceID + "|" + s.SpanID
+	}
+	return s.TenantID + "|" + timeOrNow(s.Start).UTC().Format(time.RFC3339Nano) + "|" +
+		s.Service + "|" + s.Name + "|" + s.Kind + "|" + s.StatusCode
+}
+
+func findLog(logs []LogRecord, needle LogRecord) int {
+	key := logDedupID(needle)
+	for i := range logs {
+		if logDedupID(logs[i]) == key {
+			return i
+		}
+	}
+	return -1
 }
 
 // Close is a no-op for the memory store.

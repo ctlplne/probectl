@@ -58,6 +58,7 @@ func collect(snapshot []tsdb.Series, sel Selector, startMs, endMs int64, maxSeri
 		maxSeries = DefaultMaxSeries
 	}
 	idx := map[string]int{}
+	pointIdx := map[string]map[int64]int{}
 	var out []ResultSeries
 	for _, s := range snapshot {
 		if s.TimeMillis < startMs || s.TimeMillis > endMs {
@@ -80,7 +81,16 @@ func collect(snapshot []tsdb.Series, sel Selector, startMs, endMs int64, maxSeri
 			i = len(out) - 1
 			idx[k] = i
 		}
-		out[i].Points = append(out[i].Points, Point{TimeMillis: s.TimeMillis, Value: s.Value})
+		if pointIdx[k] == nil {
+			pointIdx[k] = map[int64]int{}
+		}
+		p := Point{TimeMillis: s.TimeMillis, Value: s.Value}
+		if pi, ok := pointIdx[k][s.TimeMillis]; ok {
+			out[i].Points[pi] = p
+			continue
+		}
+		pointIdx[k][s.TimeMillis] = len(out[i].Points)
+		out[i].Points = append(out[i].Points, p)
 	}
 	for i := range out {
 		sort.Slice(out[i].Points, func(a, b int) bool { return out[i].Points[a].TimeMillis < out[i].Points[b].TimeMillis })

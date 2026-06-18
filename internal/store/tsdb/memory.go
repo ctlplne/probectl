@@ -4,6 +4,9 @@ package tsdb
 
 import (
 	"context"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,6 +34,7 @@ type Memory struct {
 	// position p maps to entries[p-base]. Eviction (front-only) just
 	// advances base and trims index heads — no rewrites.
 	byMetric  map[string][]int64
+	bySample  map[string]int64
 	base      int64
 	retention time.Duration
 	maxBytes  int64
@@ -58,7 +62,7 @@ func NewMemoryWithLimits(retention time.Duration, maxBytes int64) *Memory {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMemoryMaxBytes
 	}
-	return &Memory{retention: retention, maxBytes: maxBytes, byMetric: map[string][]int64{}, now: time.Now}
+	return &Memory{retention: retention, maxBytes: maxBytes, byMetric: map[string][]int64{}, bySample: map[string]int64{}, now: time.Now}
 }
 
 // sampleSize is the accounted footprint of one sample (struct + strings).
@@ -70,14 +74,50 @@ func sampleSize(s Series) int64 {
 	return n
 }
 
+func sampleKey(s Series) string {
+	if s.TimeMillis == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(s.Labels))
+	for k := range s.Labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString(s.Metric)
+	b.WriteByte(0)
+	b.WriteString(strconv.FormatInt(s.TimeMillis, 10))
+	for _, k := range keys {
+		b.WriteByte(0)
+		b.WriteString(k)
+		b.WriteByte(1)
+		b.WriteString(s.Labels[k])
+	}
+	return b.String()
+}
+
 // Write retains the series, then enforces retention + the byte wall.
 func (m *Memory) Write(_ context.Context, series []Series) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.enforceLocked()
 	nowMs := m.now().UnixMilli()
 	for _, s := range series {
+		key := sampleKey(s)
+		if key != "" {
+			if pos, ok := m.bySample[key]; ok && pos >= m.base && pos < m.base+int64(len(m.entries)) {
+				i := pos - m.base
+				old := m.entries[i].s
+				m.bytes += sampleSize(s) - sampleSize(old)
+				m.entries[i].s = s
+				continue
+			}
+		}
 		m.bytes += sampleSize(s)
 		m.byMetric[s.Metric] = append(m.byMetric[s.Metric], m.base+int64(len(m.entries)))
+		if key != "" {
+			m.bySample[key] = m.base + int64(len(m.entries))
+		}
 		m.entries = append(m.entries, memEntry{s: s, arrivalMs: nowMs})
 	}
 	m.enforceLocked()
@@ -100,6 +140,11 @@ func (m *Memory) enforceLocked() {
 		drop++
 	}
 	if drop > 0 {
+		for i := 0; i < drop; i++ {
+			if key := sampleKey(m.entries[i].s); key != "" {
+				delete(m.bySample, key)
+			}
+		}
 		// Trim the per-metric index heads to the new logical floor.
 		newBase := m.base + int64(drop)
 		for metric, idx := range m.byMetric {
@@ -205,9 +250,11 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int, error) {
 	// rare and already O(n); queries stay sub-linear).
 	m.base = 0
 	m.byMetric = map[string][]int64{}
+	m.bySample = map[string]int64{}
 	for i := range m.entries {
 		s := m.entries[i].s
 		m.byMetric[s.Metric] = append(m.byMetric[s.Metric], int64(i))
+		m.bySample[sampleKey(s)] = int64(i)
 	}
 	return removed, nil
 }

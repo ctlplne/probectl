@@ -30,6 +30,31 @@ func TestMemoryWriteQuery(t *testing.T) {
 	}
 }
 
+func TestMemoryWriteDedupsRedelivery(t *testing.T) {
+	m := NewMemory()
+	first := Series{
+		Metric:     "probectl_probe_success",
+		Labels:     map[string]string{"tenant_id": "t1", "agent_id": "a1"},
+		Value:      1,
+		TimeMillis: 1000,
+	}
+	redelivered := first
+	redelivered.Value = 0
+	if err := m.Write(context.Background(), []Series{first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Write(context.Background(), []Series{redelivered}); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Len(); got != 1 {
+		t.Fatalf("redelivered sample appended duplicate: len=%d, want 1", got)
+	}
+	got := m.Query("probectl_probe_success", map[string]string{"tenant_id": "t1"})
+	if len(got) != 1 || got[0].Value != 0 {
+		t.Fatalf("redelivery should upsert latest value at same timestamp: %+v", got)
+	}
+}
+
 func TestNewModes(t *testing.T) {
 	if _, err := New("memory", ""); err != nil {
 		t.Errorf("memory: %v", err)
