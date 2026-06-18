@@ -54,6 +54,42 @@ func readRepoFile(t *testing.T, rel string) string {
 	return string(b)
 }
 
+// TestGeneratedOpenAPIHasCurrentAuthModel prevents the public integration
+// contract from drifting back to sprint-era auth prose. DOCS-001: the shipped
+// control-plane spec used to say tenant identity was a dev stub and real
+// SSO/SCIM identity would land later, even though sessions, OIDC, tenant-first
+// authorization, RBAC, and ABAC are wired in the default served path.
+func TestGeneratedOpenAPIHasCurrentAuthModel(t *testing.T) {
+	banned := []string{
+		"dev stub",
+		"Dev stub",
+		"S9",
+		"lands in S18",
+		"real identity",
+	}
+	mustContain := []string{
+		"authenticated session/OIDC principal",
+		"tenant boundary before RBAC/ABAC",
+		"release binaries do not accept it as an identity source",
+	}
+
+	for _, rel := range []string{"internal/control/openapi.json", "ee/provider/openapi.json"} {
+		body := readRepoFile(t, rel)
+		for _, phrase := range banned {
+			if strings.Contains(body, phrase) {
+				t.Errorf("%s still contains stale sprint-era auth wording %q (DOCS-001)", rel, phrase)
+			}
+		}
+		if rel == "internal/control/openapi.json" {
+			for _, want := range mustContain {
+				if !strings.Contains(body, want) {
+					t.Errorf("%s missing current auth-model wording %q (DOCS-001)", rel, want)
+				}
+			}
+		}
+	}
+}
+
 // TestMultiRegion_NoTelemetryReplicationOverclaim asserts the multi-region doc
 // does not claim telemetry "converges in the replicated stores" (the false
 // claim that triggered RESIL-003) and that it explicitly distinguishes the

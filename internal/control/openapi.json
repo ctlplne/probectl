@@ -3,7 +3,7 @@
   "info": {
     "title": "probectl control-plane API",
     "version": "0.1.0",
-    "description": "Operational endpoints plus the versioned /v1 resource API. All /v1 routes are tenant-scoped; in S9 the tenant is resolved by a dev stub (default tenant, optional X-Probectl-Tenant override) \u2014 real identity (SSO/SCIM, per-tenant IdP) lands in S18."
+    "description": "Operational endpoints plus the versioned /v1 resource API. Protected /v1 routes resolve the tenant from the authenticated session/OIDC principal, then enforce the tenant boundary before RBAC/ABAC. The X-Probectl-Tenant header is a local dev-auth/test override only; release binaries do not accept it as an identity source."
   },
   "servers": [
     {
@@ -4668,7 +4668,7 @@
         "name": "X-Probectl-Tenant",
         "in": "header",
         "required": false,
-        "description": "Dev stub (S9): a tenant UUID to scope the request to. Omitted \u2192 the default tenant. Replaced by session-resolved identity in S18.",
+        "description": "Local dev-auth/test tenant override. In release/session mode the tenant is resolved from the authenticated principal, and this header is not an identity credential.",
         "schema": {
           "type": "string",
           "format": "uuid"
