@@ -80,24 +80,33 @@ syft at release time. It ships with its own `.sig` and `.pem` and verifies with
 the **same** `cosign verify-blob` invocation as any binary above. Feed it
 straight into your SCA / license tooling.
 
-Container images carry their SBOM and build provenance differently: they are
-pushed with **SLSA provenance + SBOM attestations** — an **attestation** is a
-signed statement attached to the image, and **provenance** is the one that says
-*how and where* it was built (`docker buildx` with `provenance: true,
-sbom: true`). Inspect them with:
+Container images are also signed by immutable digest. First resolve the digest
+you will deploy, then verify that exact image reference:
 
 ```sh
-docker buildx imagetools inspect ghcr.io/imfeelingtheagi/probectl-control:<tag>
+IMG=ghcr.io/imfeelingtheagi/probectl-ebpf-agent:0.2.0
+DIGEST="$(docker buildx imagetools inspect "$IMG" --format '{{.Manifest.Digest}}')"
+cosign verify \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp \
+    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+  "ghcr.io/imfeelingtheagi/probectl-ebpf-agent@${DIGEST}"
 ```
+
+Images also carry SLSA provenance + SBOM attestations — an **attestation** is a
+signed statement attached to the image, and **provenance** is the one that says
+*how and where* it was built (`docker buildx` with `provenance: true,
+sbom: true`). Inspect them with `docker buildx imagetools inspect`.
 
 ## The release self-checks too
 
 After signing, the release workflow runs `cosign verify-blob` on its **own**
-artifacts (the exact check above) before publishing. A release whose artifacts
-do not verify simply does not publish — so a published release is, by
-construction, a verifiable one. This is why the copy-paste block above can be
-trusted to work: it isn't parallel documentation that could drift from the
-release process; it *is* the release's own exit gate, run from your side.
+artifacts and `cosign verify` on every pushed image digest before publishing. A
+release whose artifacts do not verify simply does not publish — so a published
+release is, by construction, a verifiable one. This is why the copy-paste block
+above can be trusted to work: it isn't parallel documentation that could drift
+from the release process; it *is* the release's own exit gate, run from your
+side.
 
 ## The installers verify for you (SUPPLY-002)
 
@@ -119,5 +128,15 @@ fail-closed, before anything lands on the host:
   `probectl_cosign_identity_regexp`), and only installs if it passes. A
   tampered package fails the play *before* the install task runs.
 
+- **The Ansible role**, `airgap` install method: it verifies the copied local
+  package with the bundled `<package>.sig` and `<package>.pem` before invoking
+  the package manager. This is the offline equivalent of the `package_url`
+  verifier: a tampered USB/mirror copy stops before install.
+
 `apt`/`yum` repo installs rely instead on the repository's own signed-metadata
 trust (the `signed-by=` keyring), which apt/dnf enforce on every fetch.
+
+For Kubernetes, apply
+`deploy/admission/probectl-agent-image-integrity.kyverno.yaml` in clusters that
+run Kyverno. It enforces digest references plus the same keyless release
+workflow identity for the privileged eBPF-agent image at admission time.

@@ -40,14 +40,15 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   `probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`, and
   `probectl` (the CLI) — to
   `ghcr.io/imfeelingtheagi/<component>`, tagged with the exact version and
-  `latest`. Each image carries **SLSA provenance and an SBOM** attestation
-  (Buildx `provenance: true` + `sbom: true`). **SLSA provenance** is a signed
-  build receipt — *which* workflow, on *which* commit, with *which* inputs,
-  produced these bytes — and an **attestation** is such a statement
-  cryptographically attached to the image, so a cluster or auditor can demand
-  it before trusting the artifact. The `probectl-ebpf-agent` image is
-  built from `deploy/docker/Dockerfile.ebpf` so it ships the *live* eBPF loader,
-  not the fixture replayer.
+  `latest`. Each image is **cosign-keyless signed by immutable digest** and
+  carries **SLSA provenance and an SBOM** attestation (Buildx
+  `provenance: true` + `sbom: true`). **SLSA provenance** is a signed build
+  receipt — *which* workflow, on *which* commit, with *which* inputs, produced
+  these bytes — and an **attestation** is such a statement cryptographically
+  attached to the image, so a cluster or auditor can demand it before trusting
+  the artifact. The `probectl-ebpf-agent` image is built from
+  `deploy/docker/Dockerfile.ebpf` so it ships the *live* eBPF loader, not the
+  fixture replayer.
 - **Cross-compiled binaries** for `linux/{amd64,arm64}` plus a `checksums.txt`
   (SHA-256), attached to the GitHub Release.
 - A **source SBOM** in SPDX JSON (`probectl_<tag>_sbom.spdx.json`), generated over
@@ -58,14 +59,14 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   workflow proves who it is via GitHub **OIDC** (the same short-lived identity
   tokens cloud logins use), Sigstore's certificate authority (**Fulcio**)
   issues it a minutes-lived signing certificate, and that certificate (the
-  `.pem`) ships alongside the signature (the `.sig`). It works like a notary
-  who checks your government ID at the desk and stamps the document right
-  there — verification later trusts the recorded identity, not a house key
-  that could have been copied years ago. The signing identity is this
-  repository's release
-  workflow (Sigstore/Fulcio, GitHub OIDC); the same job re-verifies its own
-  signatures before finishing, so a release that cannot be verified fails the
-  build. Verifiers pin the workflow identity — see
+  `.pem`) ships alongside the signature (the `.sig`). Image signatures use the
+  same keyless identity but are attached to the image digest in the registry. It
+  works like a notary who checks your government ID at the desk and stamps the
+  document right there — verification later trusts the recorded identity, not a
+  house key that could have been copied years ago. The signing identity is this
+  repository's release workflow (Sigstore/Fulcio, GitHub OIDC); the same job
+  re-verifies its own signatures before finishing, so a release that cannot be
+  verified fails the build. Verifiers pin the workflow identity — see
   [`ops/verify-artifacts.md`](ops/verify-artifacts.md).
 - An auto-generated **release notes** entry on the GitHub Release.
 
@@ -111,9 +112,10 @@ Practically, that means: get the commit green on `main` first, *then* tag it.
 
 ## Provenance & supply chain
 
-Every released artifact is **verifiable end to end**: images ship build provenance
-and an SBOM attestation; binaries, checksums, and the source SBOM are
-cosign-signed (keyless / OIDC) and self-verified inside the release job.
+Every released artifact is **verifiable end to end**: images are cosign-signed
+by digest and ship build provenance plus an SBOM attestation; binaries,
+checksums, and the source SBOM are cosign-signed (keyless / OIDC) and
+self-verified inside the release job.
 Dependency and image vulnerability scanning run in CI on every PR
 (`dependency-scan`, `image-scan`) and weekly on a schedule
 ([`.github/workflows/security-scan.yml`](../.github/workflows/security-scan.yml)),

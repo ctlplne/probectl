@@ -49,10 +49,63 @@
       No probectl package is shipped for ansible_architecture={{ ansible_architecture }}
       (shipped: x86_64->amd64, aarch64->arm64).
 
+- name: Resolve the air-gap package path
+  when: probectl_install_method == 'airgap'
+  ansible.builtin.set_fact:
+    probectl_airgap_pkg_path: "{{ probectl_airgap_dir }}/probectl-{{ probectl_agent_type }}_{{ probectl_version }}_{{ probectl_pkg_arch }}.deb"
+
+# SUPPLY-001: air-gap packages are local files, so apt/yum repository metadata
+# cannot protect this path. Verify the copied package's detached cosign
+# signature/certificate BEFORE the package module sees it. Missing cosign,
+# missing .sig/.pem, or a bad signature fails the play before install.
+- name: Verify the air-gap package with cosign (fail-closed)
+  when:
+    - probectl_install_method == 'airgap'
+    - probectl_verify_cosign | bool
+  block:
+    - name: Ensure cosign is available
+      ansible.builtin.command: cosign version
+      changed_when: false
+
+    - name: Check local air-gap signature material
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ probectl_airgap_pkg_path }}"
+        - "{{ probectl_airgap_pkg_path }}.sig"
+        - "{{ probectl_airgap_pkg_path }}.pem"
+      register: probectl_airgap_sig_files
+
+    - name: Require package, signature, and certificate before install
+      ansible.builtin.assert:
+        that:
+          - probectl_airgap_sig_files.results | selectattr('stat.exists', 'equalto', false) | list | length == 0
+        fail_msg: >-
+          Air-gap install requires {{ probectl_airgap_pkg_path }},
+          {{ probectl_airgap_pkg_path }}.sig, and {{ probectl_airgap_pkg_path }}.pem.
+          Build the bundle with scripts/airgap-bundle.sh and do not install
+          unsigned privileged agent packages.
+
+    - name: cosign verify-blob for the local air-gap package
+      ansible.builtin.command:
+        argv:
+          - cosign
+          - verify-blob
+          - --certificate
+          - "{{ probectl_airgap_pkg_path }}.pem"
+          - --signature
+          - "{{ probectl_airgap_pkg_path }}.sig"
+          - --certificate-oidc-issuer
+          - "{{ probectl_cosign_issuer }}"
+          - --certificate-identity-regexp
+          - "{{ probectl_cosign_identity_regexp }}"
+          - "{{ probectl_airgap_pkg_path }}"
+      changed_when: false
+
 - name: Install from the air-gap bundle
   when: probectl_install_method == 'airgap'
   ansible.builtin.package:
-    name: "{{ probectl_airgap_dir }}/probectl-{{ probectl_agent_type }}_{{ probectl_version }}_{{ probectl_pkg_arch }}.deb"
+    name: "{{ probectl_airgap_pkg_path }}"
     state: present
 
 # SUPPLY-002: the package_url method downloads a release package directly and,

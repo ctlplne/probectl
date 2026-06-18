@@ -1,9 +1,9 @@
 name: release
 
 # Cut a release by pushing a semver tag: `git tag -a v0.1.0 -m "Phase 1 GA" &&
-# git push origin v0.1.0`. This builds + publishes multi-arch images (with SLSA
-# provenance + SBOM attestations), cross-compiled binaries + SHA-256 checksums,
-# and a GitHub release. See docs/releasing.md.
+# git push origin v0.1.0`. This builds + publishes multi-arch images (cosign
+# signed by digest, with SLSA provenance + SBOM attestations), cross-compiled
+# binaries + SHA-256 checksums, and a GitHub release. See docs/releasing.md.
 on:
   push:
     tags:
@@ -124,7 +124,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=raw,value=latest
-      - name: Build + push multi-arch image (with provenance + SBOM)
+      - id: build
+        name: Build + push multi-arch image (with provenance + SBOM)
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -139,6 +140,20 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           provenance: true
           sbom: true
+      # SUPPLY-002: sign the immutable multi-arch image digest. Helm already
+      # refuses tag-only privileged eBPF-agent deploys; this signature is what
+      # the shipped admission policy verifies at cluster admission time.
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      - name: Sign and self-verify image digest (cosign keyless)
+        env:
+          IMAGE_REF: ${{ env.IMAGE_PREFIX }}/${{ matrix.component }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "${IMAGE_REF}"
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "${IMAGE_REF}"
 
   compose-image-anonymous-pull:
     name: compose image anonymous pull smoke

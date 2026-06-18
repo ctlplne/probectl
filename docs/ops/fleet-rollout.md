@@ -61,15 +61,21 @@ Per [verify-artifacts.md](verify-artifacts.md), confirm the artifact was built
 by this repository's release workflow before you plan anything. The two
 artifact kinds verify differently:
 
-- **Container images** are published with **SLSA provenance + SBOM
-  attestations** (not detached cosign signatures). Provenance is a signed
-  build receipt naming the workflow and commit that produced the image; an
-  SBOM — software bill of materials — is its ingredient list; an attestation
-  is such a statement signed and attached to the image. Inspect the provenance
-  and take the exact digest you will deploy:
+- **Container images** are **cosign-keyless signed by digest** and also carry
+  **SLSA provenance + SBOM attestations**. Provenance is a signed build receipt
+  naming the workflow and commit that produced the image; an SBOM — software
+  bill of materials — is its ingredient list; an attestation is such a
+  statement signed and attached to the image. Resolve the exact digest you will
+  deploy and verify that digest before planning:
 
   ```sh
-  docker buildx imagetools inspect ghcr.io/imfeelingtheagi/probectl-ebpf-agent:<version>
+  IMG=ghcr.io/imfeelingtheagi/probectl-ebpf-agent:<version>
+  DIGEST="$(docker buildx imagetools inspect "$IMG" --format '{{.Manifest.Digest}}')"
+  cosign verify \
+    --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+    --certificate-identity-regexp \
+      "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+    "ghcr.io/imfeelingtheagi/probectl-ebpf-agent@${DIGEST}"
   ```
 
 - **VM binaries** are **cosign-keyless signed** — signed via a short-lived
@@ -120,7 +126,9 @@ curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/advance" \
 - **Kubernetes** (the agent chart): `helm upgrade probectl-agent
   deploy/helm/probectl-agent --reuse-values --set
   image.tag="<version>@sha256:<digest>"`. Scope a wave to a set of nodes with
-  `nodeSelector` or a separate release per ring.
+  `nodeSelector` or a separate release per ring. In clusters with Kyverno,
+  apply `deploy/admission/probectl-agent-image-integrity.kyverno.yaml` so
+  admission also enforces the release-workflow cosign signature on that digest.
 - **VMs**: `sudo deploy/agent/install.sh ./probectl-ebpf-agent-<version>` on the
   wave's hosts (after `cosign verify-blob`).
 

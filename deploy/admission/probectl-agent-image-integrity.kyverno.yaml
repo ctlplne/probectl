@@ -1,0 +1,31 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: probectl-agent-image-integrity
+  annotations:
+    policies.kyverno.io/title: Verify probectl eBPF agent image signatures
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    probectl.dev/finding: SUPPLY-002
+spec:
+  validationFailureAction: Enforce
+  background: false
+  rules:
+    - name: verify-probectl-ebpf-agent-signature-and-digest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            - ghcr.io/imfeelingtheagi/probectl-ebpf-agent*
+          required: true
+          mutateDigest: false
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    issuer: https://token.actions.githubusercontent.com
+                    subjectRegExp: ^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/.*

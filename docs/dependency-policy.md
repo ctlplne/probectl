@@ -149,6 +149,10 @@ The repo pins what *it* controls; operators should pin what *they* deploy:
   The privileged eBPF agent Helm chart goes further: it refuses to render unless
   `image.tag` includes an `@sha256:` digest. `image.allowTagOnly=true` is an
   explicit break-glass for already-verified private registries, not a default.
+  In Kubernetes clusters with Kyverno, apply
+  `deploy/admission/probectl-agent-image-integrity.kyverno.yaml` so admission
+  also verifies the digest's cosign signature against the probectl release
+  workflow identity.
 
 - **Python (the analyzer):** the dependency set is **hash-locked** in
   `analyzer/requirements-dev.lock` (generated with
