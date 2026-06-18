@@ -22,9 +22,18 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
 
 ## Prerequisites
 
-- A released image (e.g. `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0` — the
-  version the shipped compose stack pins), or the ability to build one
-  (`make images`).
+- A released image. The shipped compose stack pins
+  `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0` for both `certgen` and
+  `control`. If that GHCR package is public in your environment, Docker pulls it
+  anonymously. If GHCR returns `401 Unauthorized`, log in first with a token that
+  has `read:packages`, or set `PROBECTL_IMAGE` in `deploy/compose/.env` to a
+  locally built / mirrored / digest-pinned image:
+
+  ```sh
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
+  # or:
+  PROBECTL_IMAGE=registry.internal/probectl-control:v0.4.0
+  ```
 - **Compose path:** Docker with Compose v2.
 - **Helm path:** a Kubernetes cluster with an ingress controller (the cluster's
   HTTP front door, which routes outside traffic to in-cluster services — nginx

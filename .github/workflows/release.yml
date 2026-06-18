@@ -140,6 +140,22 @@ jobs:
           provenance: true
           sbom: true
 
+  compose-image-anonymous-pull:
+    name: compose image anonymous pull smoke
+    # OPS-002: if the repository is configured to promise anonymous GHCR pulls,
+    # prove that the exact image pinned by deploy/compose/probectl.yml can be
+    # pulled without credentials after the image publish job completes.
+    if: vars.PROBECTL_COMPOSE_IMAGE_PUBLIC == 'true'
+    needs: images
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Anonymous pull exact compose image
+        env:
+          PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL: "1"
+        run: bash scripts/check_compose_image_contract.sh
+
   binaries:
     name: binaries + checksums + release
     needs: require-green-ci

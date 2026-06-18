@@ -73,6 +73,13 @@ Image tags follow `ghcr.io/imfeelingtheagi/probectl-control:<version>` (and
 `:latest`). **Pin the exact version in production deploys** — compose
 `PROBECTL_IMAGE`, Helm `image.tag` — and digest-pin for full immutability (see
 [`dependency-policy.md`](dependency-policy.md)).
+GHCR package visibility is an operator-facing install contract, not something
+Compose can repair at startup: if a release image is not public, the install docs
+must say to authenticate (`docker login ghcr.io` with `read:packages`) or use a
+mirrored `PROBECTL_IMAGE`. If the repository setting
+`PROBECTL_COMPOSE_IMAGE_PUBLIC=true` is enabled, `release.yml` runs an
+anonymous-pull smoke against the exact image pinned in
+[`deploy/compose/probectl.yml`](../deploy/compose/probectl.yml) after publishing.
 
 ## Cutting a release
 

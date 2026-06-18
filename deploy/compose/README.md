@@ -38,6 +38,9 @@ for an immediate quickstart — production replaces it with a CA-issued cert.
 
 ```sh
 cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD (required) + envelope key
+# If GHCR returns 401 for the pinned release image, run `docker login ghcr.io`
+# with a token that has read:packages, or set PROBECTL_IMAGE in .env to a
+# locally built / mirrored image.
 docker compose -f deploy/compose/probectl.yml up -d
 docker compose -f deploy/compose/probectl.yml cp control:/certs/ca.crt ./ca.crt
 curl --cacert ./ca.crt https://localhost:8443/readyz

@@ -115,6 +115,7 @@ This is the full list; `ci.yml` is the source of truth.
 | `openapi-gate`           | spec is valid OpenAPI 3.1 and the registered `/v1` routes exactly match it (no undocumented routes) |
 | `migration-gate`         | expand/contract migrations only — rejects destructive/blocking schema changes |
 | `helm-gate`              | chart hardening for every profile + the agent chart (`make helm-gate`), kubeconform on the rendered charts, GitOps manifest validation (`make gitops-gate`), compose config validation |
+| `compose-image-gate`     | shipped Compose image, install docs, GHCR auth/mirror instructions, and optional anonymous-pull smoke stay in lockstep |
 | `terraform-gate`         | `terraform fmt -check` + `terraform validate` of the module's example root |
 | `ebpf-kernel-matrix`     | the BPF programs **load and attach** on real LTS kernels (5.15/6.6 plus a lockdown-hardened entry) booted under QEMU/KVM on amd64; the arm64 entry compiles + digest-verifies the BPF objects (its runner has no KVM, so the live boot is skipped there) |
 | `ebpf-image-live`        | the shipped eBPF-agent image is the live `-tags ebpf` build, not the fixture replayer |

@@ -306,6 +306,11 @@ proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bi
 airgap-bundle: ## OPS-003: build the offline install bundle (images+chart+binaries+docs): make airgap-bundle VERSION=0.2.0
 	VERSION=$(VERSION) ./scripts/airgap-bundle.sh
 
+.PHONY: compose-image-gate
+compose-image-gate: ## OPS-002: shipped compose image, GHCR auth docs, and optional anonymous-pull smoke stay in lockstep.
+	bash scripts/check_compose_image_contract.sh SELFTEST
+	bash scripts/check_compose_image_contract.sh
+
 # ---- migrate -------------------------------------------------------------
 .PHONY: migrate
 migrate: ## Apply DB migrations against PROBECTL_DATABASE_URL.

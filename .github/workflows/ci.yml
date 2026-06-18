@@ -155,6 +155,8 @@ jobs:
         run: PATH="$PATH:$(go env GOPATH)/bin" bash scripts/packaging-smoke.sh
       - name: version consistency (compose == chart appVersion == VERSION) (OPS-008)
         run: bash scripts/check_version_consistency.sh
+      - name: compose image access contract (OPS-002)
+        run: make compose-image-gate
 
   fips-gate:
     name: fips-gate
