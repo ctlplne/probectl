@@ -6,6 +6,8 @@
 #   - `go install ...` in CI without an exact @vX.Y.Z
 #   - `pip install` in CI/Makefile without exact ==pins, --require-hashes,
 #     or --no-deps
+#   - npm/Python manifest dependency ranges (`^`, `~`, `>=`, etc.) in direct
+#     dependency manifests (lockfiles still pin the transitive tree)
 # SELFTEST: check_supply_pins.sh SELFTEST exercises the failure paths.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -18,6 +20,21 @@ if [[ "${1:-}" == "SELFTEST" ]]; then
   grep -q ':latest' "$tmp/bad.yml" || { echo "SELFTEST broken"; exit 1; }
   echo 'pip install ruff' > "$tmp/bad.sh"
   if grep -E 'pip install' "$tmp/bad.sh" | grep -vqE '(==|--require-hashes|--no-deps|-r [^ ]+\.lock)'; then :; else echo "SELFTEST broken"; exit 1; fi
+  cat > "$tmp/package.json" <<'JSON'
+{
+  "dependencies": {
+    "left-pad": "^1.3.0"
+  }
+}
+JSON
+  if awk '/"dependencies"[[:space:]]*:[[:space:]]*\{/ {in_deps=1; next} in_deps && /\}/ {in_deps=0; next} in_deps {spec=$0; sub(/^[^:]*:[[:space:]]*"/, "", spec); sub(/".*$/, "", spec); if (spec !~ /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/) bad=1} END {exit bad ? 0 : 1}' "$tmp/package.json"; then :; else echo "SELFTEST broken (npm manifest range)"; exit 1; fi
+  cat > "$tmp/pyproject.toml" <<'TOML'
+[project]
+dependencies = [
+  "structlog>=24.1.0",
+]
+TOML
+  if awk '/^[[:space:]]*(dependencies|dev)[[:space:]]*=[[:space:]]*\[/ {in_deps=1; next} in_deps && /^[[:space:]]*\]/ {in_deps=0; next} in_deps && /"/ {spec=$0; sub(/^[^"]*"/, "", spec); sub(/".*$/, "", spec); if (spec !~ /==/) bad=1} END {exit bad ? 0 : 1}' "$tmp/pyproject.toml"; then :; else echo "SELFTEST broken (python manifest range)"; exit 1; fi
   echo 'apt-get install -y clang llvm bpftool' > "$tmp/bad.dockerfile"
   if grep -qE '(^| )clang( |$)' "$tmp/bad.dockerfile"; then :; else echo "SELFTEST broken (clang pin)"; exit 1; fi
   # SUPPLY-003: camelCase *Image: keys (e.g. installerImage:) must be reachable
@@ -59,6 +76,47 @@ while IFS= read -r line; do
   echo "  $line"
   fail=1
 done < <(grep -rn 'pip install' .github/workflows Makefile | grep -v '^\s*#' || true)
+
+# 3b) Direct package manifests must declare exact top-level dependency pins.
+#     Lockfiles pin the resolved transitive tree, but a range in package.json /
+#     pyproject.toml still tells humans and package managers "floating intent".
+#     Keep the manifest, policy, and gate saying the same thing (CODE-006).
+for manifest in web/package.json browser-worker/package.json; do
+  [[ -f "$manifest" ]] || continue
+  while IFS= read -r line; do
+    echo "UNPINNED npm manifest dependency (want exact X.Y.Z, no ^/~/>=):"
+    echo "  $line"
+    fail=1
+  done < <(awk '
+    /"(dependencies|devDependencies|optionalDependencies|peerDependencies)"[[:space:]]*:[[:space:]]*\{/ { in_deps=1; next }
+    in_deps && /^[[:space:]]*\}/ { in_deps=0; next }
+    in_deps && /^[[:space:]]*"[^"]+"[[:space:]]*:/ {
+      spec=$0
+      sub(/^[^:]*:[[:space:]]*"/, "", spec)
+      sub(/".*$/, "", spec)
+      if (spec !~ /^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/) {
+        printf "%s:%d:%s\n", FILENAME, FNR, $0
+      }
+    }' "$manifest")
+done
+
+if [[ -f analyzer/pyproject.toml ]]; then
+  while IFS= read -r line; do
+    echo "UNPINNED Python manifest dependency (want exact name==X.Y.Z):"
+    echo "  $line"
+    fail=1
+  done < <(awk '
+    /^[[:space:]]*(dependencies|dev)[[:space:]]*=[[:space:]]*\[/ { in_deps=1; next }
+    in_deps && /^[[:space:]]*\]/ { in_deps=0; next }
+    in_deps && /"/ {
+      spec=$0
+      sub(/^[^"]*"/, "", spec)
+      sub(/".*$/, "", spec)
+      if (spec !~ /==/) {
+        printf "%s:%d:%s\n", FILENAME, FNR, $0
+      }
+    }' analyzer/pyproject.toml)
+fi
 
 # 4) bare clang/llvm install on the eBPF build path (SUPPLY-001): the BPF
 #    compiler must be a PINNED versioned package (clang-NN / llvm-NN), never the
@@ -140,4 +198,4 @@ if [[ $fail -ne 0 ]]; then
   echo "supply-pins gate FAILED — pin the inputs above (docs/dependency-policy.md)."
   exit 1
 fi
-echo "supply-pins gate: OK (no :latest, no unpinned go install / pip install, no tag-only helm/container image)"
+echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, no tag-only helm/container image)"
