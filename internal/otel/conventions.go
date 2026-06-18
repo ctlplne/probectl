@@ -44,14 +44,54 @@ const (
 // standard names plus the probectl.* namespace. The conformance test asserts
 // ResultAttributes never emits a key outside this set, i.e. probectl does not
 // invent an attribute name where an OTel convention already exists.
+//
+// OTel semconv 1.27.0 standard keys are used where a standard exists; keys
+// with no OTel equivalent live under the probectl.* namespace (ARCH-001).
 var KnownAttributes = map[string]bool{
-	AttrTenantID:         true,
-	AttrAgentID:          true,
-	AttrCanaryType:       true,
+	// Core identity (probectl namespace — no OTel standard for tenancy).
+	AttrTenantID:   true,
+	AttrAgentID:    true,
+	AttrCanaryType: true,
+	// OTel network semantic conventions (semconv 1.27.0).
 	AttrServerAddress:    true,
 	AttrServerPort:       true,
 	AttrNetworkTransport: true,
 	AttrNetworkProtocol:  true,
+	// OTel network peer (semconv 1.27.0) — emitted by HTTP + ICMP canaries.
+	"network.peer.address":     true,
+	"network.peer.port":        true,
+	"network.protocol.version": true,
+	// OTel HTTP semantic conventions (semconv 1.27.0) — emitted by HTTP canary.
+	"http.response.status_code": true,
+	// OTel TLS semantic conventions (semconv 1.27.0) — emitted by HTTP canary.
+	"tls.protocol.version": true,
+	"tls.cipher.suite":     true, // was "tls.cipher" — renamed to OTel standard (ARCH-001)
+	// probectl.* namespace: ICMP canary specifics (no OTel standard).
+	"probectl.icmp.mode":                 true,
+	"probectl.icmp.dropped_seqs":         true,
+	"probectl.icmp.drop_send_offsets_ms": true,
+	// probectl.* namespace: DNS canary specifics (no OTel standard).
+	"probectl.dns.rcode":     true,
+	"probectl.dns.answer":    true,
+	"probectl.dns.dnssec":    true,
+	"probectl.dns.trace":     true,
+	"probectl.dns.qtype":     true,
+	"probectl.dns.transport": true,
+	"probectl.dns.mode":      true,
+	"probectl.dns.server":    true,
+	// probectl.* namespace: TLS detail keys (no OTel standard).
+	"probectl.tls.resumed":               true,
+	"probectl.tls.verification_disabled": true,
+	"probectl.tls.server.verified":       true,
+	"probectl.tls.server.subject":        true,
+	"probectl.tls.server.issuer":         true,
+	"probectl.tls.server.not_before":     true,
+	"probectl.tls.server.not_after":      true,
+	"probectl.tls.server.san":            true,
+	"probectl.tls.server.chain":          true,
+	"probectl.tls.server.cert":           true,
+	// probectl.* namespace: voice/RTP canary specifics (no OTel standard).
+	"probectl.voice.jitter_buffer_ms": true,
 }
 
 // ResultAttributes maps a Result to its OTel resource + network attributes — the

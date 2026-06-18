@@ -23,17 +23,17 @@ func FromCanaryAttributes(target string, attrs map[string]string, observedAt tim
 		Target:     target,
 		Source:     "http",
 		TLSVersion: version,
-		Cipher:     attrs["tls.cipher"],
+		Cipher:     attrs["tls.cipher.suite"], // renamed from tls.cipher (ARCH-001: OTel standard name)
 		JA3:        attrs["tls.ja3"],
 		JA3S:       attrs["tls.ja3s"],
 		ObservedAt: observedAt,
 	}
-	if v, ok := attrs["tls.server.verified"]; ok {
+	if v, ok := attrs["probectl.tls.server.verified"]; ok {
 		if b, err := strconv.ParseBool(strings.TrimSpace(v)); err == nil {
 			obs.Verified = &b
 		}
 	}
-	if raw := attrs["tls.server.cert"]; raw != "" {
+	if raw := attrs["probectl.tls.server.cert"]; raw != "" {
 		if der, err := base64.StdEncoding.DecodeString(raw); err == nil {
 			if cert, err := x509.ParseCertificate(der); err == nil {
 				obs.Leaf = cert

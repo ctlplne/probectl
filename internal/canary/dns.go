@@ -100,10 +100,10 @@ func (c *dnsCanary) Describe() Spec {
 func (c *dnsCanary) Run(ctx context.Context) (Result, error) {
 	start := time.Now()
 	res := Result{Type: dnsType, Target: strings.TrimSuffix(c.name, "."), StartedAt: start, Attributes: map[string]string{
-		"dns.qtype":     dns.TypeToString[c.qtype],
-		"dns.transport": c.transport,
-		"dns.mode":      c.mode,
-		"dns.server":    c.server,
+		"probectl.dns.qtype":     dns.TypeToString[c.qtype],
+		"probectl.dns.transport": c.transport,
+		"probectl.dns.mode":      c.mode,
+		"probectl.dns.server":    c.server,
 	}}
 	if c.mode == "trace" {
 		return c.runTrace(ctx, res), nil
@@ -124,12 +124,12 @@ func (c *dnsCanary) runResolver(ctx context.Context, res Result) Result {
 		"dns.query.ms": round(float64(rtt)/float64(time.Millisecond), 3),
 		"dns.answers":  float64(countAnswers(msg)),
 	}
-	res.Attributes["dns.rcode"] = dns.RcodeToString[msg.Rcode]
-	res.Attributes["dns.answer"] = summarizeAnswers(msg)
+	res.Attributes["probectl.dns.rcode"] = dns.RcodeToString[msg.Rcode]
+	res.Attributes["probectl.dns.answer"] = summarizeAnswers(msg)
 
 	if c.dnssec {
 		status := validateDNSSEC(ctx, c, msg)
-		res.Attributes["dns.dnssec"] = status
+		res.Attributes["probectl.dns.dnssec"] = status
 		res.Metrics["dns.dnssec.secure"] = boolFloat(status == dnssecSecure)
 		if status == dnssecBogus {
 			res.Success = false
@@ -137,7 +137,7 @@ func (c *dnsCanary) runResolver(ctx context.Context, res Result) Result {
 			return res
 		}
 	} else {
-		res.Attributes["dns.dnssec"] = "disabled"
+		res.Attributes["probectl.dns.dnssec"] = "disabled"
 	}
 
 	res.Success = msg.Rcode == dns.RcodeSuccess && countAnswers(msg) > 0

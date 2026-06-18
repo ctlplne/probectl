@@ -29,10 +29,10 @@ func TestAttachTLSCapturesLeafAndVerified(t *testing.T) {
 	verified := true
 	attachTLS(&res, cs, &verified, time.Now())
 
-	if res.Attributes["tls.server.verified"] != "true" {
-		t.Errorf("tls.server.verified = %q, want true", res.Attributes["tls.server.verified"])
+	if res.Attributes["probectl.tls.server.verified"] != "true" {
+		t.Errorf("probectl.tls.server.verified = %q, want true", res.Attributes["probectl.tls.server.verified"])
 	}
-	raw, err := base64.StdEncoding.DecodeString(res.Attributes["tls.server.cert"])
+	raw, err := base64.StdEncoding.DecodeString(res.Attributes["probectl.tls.server.cert"])
 	if err != nil {
 		t.Fatalf("leaf cert not captured as base64 DER: %v", err)
 	}

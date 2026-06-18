@@ -145,7 +145,7 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	if c.insecure {
 		// WIRE-004: make every verification-disabled probe auditable on the
 		// result itself (the agent already gated this behind an explicit opt-in).
-		res.Attributes["tls.verification_disabled"] = "true"
+		res.Attributes["probectl.tls.verification_disabled"] = "true"
 	}
 
 	roots, err := c.trustRoots()
@@ -379,27 +379,29 @@ func attachTLS(res *Result, cs *tls.ConnectionState, verified *bool, start time.
 	if cs == nil {
 		return
 	}
+	// OTel semconv 1.27 standard TLS keys (ARCH-001):
 	res.Attributes["tls.protocol.version"] = tlsVersionName(cs.Version)
-	res.Attributes["tls.cipher"] = tls.CipherSuiteName(cs.CipherSuite)
-	res.Attributes["tls.resumed"] = strconv.FormatBool(cs.DidResume)
+	res.Attributes["tls.cipher.suite"] = tls.CipherSuiteName(cs.CipherSuite)
+	// probectl-specific TLS detail keys (no OTel standard equivalent):
+	res.Attributes["probectl.tls.resumed"] = strconv.FormatBool(cs.DidResume)
 	if verified != nil {
-		res.Attributes["tls.server.verified"] = strconv.FormatBool(*verified)
+		res.Attributes["probectl.tls.server.verified"] = strconv.FormatBool(*verified)
 	}
 	if len(cs.PeerCertificates) == 0 {
 		return
 	}
 	leaf := cs.PeerCertificates[0]
-	res.Attributes["tls.server.subject"] = leaf.Subject.String()
-	res.Attributes["tls.server.issuer"] = leaf.Issuer.String()
-	res.Attributes["tls.server.not_before"] = leaf.NotBefore.UTC().Format(time.RFC3339)
-	res.Attributes["tls.server.not_after"] = leaf.NotAfter.UTC().Format(time.RFC3339)
+	res.Attributes["probectl.tls.server.subject"] = leaf.Subject.String()
+	res.Attributes["probectl.tls.server.issuer"] = leaf.Issuer.String()
+	res.Attributes["probectl.tls.server.not_before"] = leaf.NotBefore.UTC().Format(time.RFC3339)
+	res.Attributes["probectl.tls.server.not_after"] = leaf.NotAfter.UTC().Format(time.RFC3339)
 	if len(leaf.DNSNames) > 0 {
-		res.Attributes["tls.server.san"] = strings.Join(leaf.DNSNames, ",")
+		res.Attributes["probectl.tls.server.san"] = strings.Join(leaf.DNSNames, ",")
 	}
-	res.Attributes["tls.server.chain"] = chainSummary(cs.PeerCertificates)
+	res.Attributes["probectl.tls.server.chain"] = chainSummary(cs.PeerCertificates)
 	// Capture the leaf DER (base64) so the S27 TLS-posture observer can parse the
 	// full leaf (key type/size, self-signed) without re-handshaking.
-	res.Attributes["tls.server.cert"] = base64.StdEncoding.EncodeToString(leaf.Raw)
+	res.Attributes["probectl.tls.server.cert"] = base64.StdEncoding.EncodeToString(leaf.Raw)
 	res.Metrics["http.tls.cert_expiry_days"] = round(leaf.NotAfter.Sub(start).Hours()/24, 2)
 }
 

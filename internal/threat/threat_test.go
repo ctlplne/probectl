@@ -125,10 +125,10 @@ func TestFromCanaryAttributes(t *testing.T) {
 	now := time.Now()
 	c := cert(t, crypto.TestCertOptions{CommonName: "obs.example", DNSNames: []string{"obs.example"}})
 	attrs := map[string]string{
-		"tls.protocol.version": "1.2",
-		"tls.cipher":           "TLS_AES_128_GCM_SHA256",
-		"tls.server.verified":  "true",
-		"tls.server.cert":      base64.StdEncoding.EncodeToString(c.Raw),
+		"tls.protocol.version":         "1.2",
+		"tls.cipher.suite":             "TLS_AES_128_GCM_SHA256", // renamed from tls.cipher (ARCH-001)
+		"probectl.tls.server.verified": "true",
+		"probectl.tls.server.cert":     base64.StdEncoding.EncodeToString(c.Raw),
 	}
 	obs, ok := FromCanaryAttributes("obs.example", attrs, now)
 	if !ok || obs.TLSVersion != "1.2" || obs.Leaf == nil || obs.Verified == nil || !*obs.Verified {

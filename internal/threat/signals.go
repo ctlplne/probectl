@@ -18,9 +18,9 @@ func ToSignals(tenantID string, p Posture) []incident.Signal {
 		return nil
 	}
 	base := map[string]string{
-		"tls.version": p.TLSVersion,
-		"tls.cipher":  p.Cipher,
-		"source":      p.Source,
+		"tls.version":      p.TLSVersion,
+		"tls.cipher.suite": p.Cipher, // ARCH-001: OTel standard name (was tls.cipher)
+		"source":           p.Source,
 	}
 	if p.Leaf != nil {
 		base["cert.subject"] = p.Leaf.Subject

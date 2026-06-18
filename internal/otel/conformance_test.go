@@ -16,8 +16,77 @@ import (
 // signal type's attribute mapping may emit ONLY OTel-standard or probectl.* names
 // (the S6 ResultAttributes discipline, now enforced across all planes), and each
 // carries the tenant as the outermost scope (F50).
+//
+// ARCH-001: the "result" case now populates Attributes with the full set of
+// canary passthrough keys (one per canary type) so the gate actually catches any
+// unregistered key a plugin might add. Previously the map was empty and the
+// passthrough loop never exercised.
 func TestAllSignalMappingsConform(t *testing.T) {
+	// icmpAttrs represents the attribute set the ICMP canary writes after a probe.
+	icmpAttrs := map[string]string{
+		"probectl.icmp.mode":                 "privileged",
+		"network.peer.address":               "93.184.216.34",
+		"probectl.icmp.dropped_seqs":         "1,2",
+		"probectl.icmp.drop_send_offsets_ms": "10,20",
+	}
+	// dnsAttrs represents the attribute set the DNS canary writes after a query.
+	dnsAttrs := map[string]string{
+		"probectl.dns.qtype":     "A",
+		"probectl.dns.transport": "udp",
+		"probectl.dns.mode":      "resolver",
+		"probectl.dns.server":    "8.8.8.8:53",
+		"probectl.dns.rcode":     "NOERROR",
+		"probectl.dns.answer":    "A 93.184.216.34",
+		"probectl.dns.dnssec":    "secure",
+		"probectl.dns.trace":     "ns1 > ns2",
+	}
+	// tlsAttrs represents the attribute set the HTTP canary writes for a TLS probe.
+	tlsAttrs := map[string]string{
+		"http.response.status_code":          "200",
+		"network.protocol.version":           "HTTP/1.1",
+		"network.peer.address":               "93.184.216.34",
+		"network.peer.port":                  "443",
+		"tls.protocol.version":               "1.3",
+		"tls.cipher.suite":                   "TLS_AES_128_GCM_SHA256",
+		"probectl.tls.resumed":               "false",
+		"probectl.tls.verification_disabled": "false",
+		"probectl.tls.server.verified":       "true",
+		"probectl.tls.server.subject":        "CN=example.com",
+		"probectl.tls.server.issuer":         "CN=DigiCert",
+		"probectl.tls.server.not_before":     "2024-01-01T00:00:00Z",
+		"probectl.tls.server.not_after":      "2025-01-01T00:00:00Z",
+		"probectl.tls.server.san":            "example.com,www.example.com",
+		"probectl.tls.server.chain":          "example.com > DigiCert",
+		"probectl.tls.server.cert":           "base64==",
+	}
+	// voiceAttrs represents the attribute set the voice/RTP canary writes.
+	voiceAttrs := map[string]string{
+		"probectl.voice.jitter_buffer_ms": "20",
+	}
 	mappings := map[string]map[string]string{
+		// Canary passthrough: exercise each plugin's attribute set so the gate
+		// catches any unregistered key (ARCH-001 fix — was empty attrs map).
+		"result/icmp": ResultAttributes(&resultv1.Result{
+			TenantId: "t", AgentId: "a", CanaryType: "icmp",
+			ServerAddress: "x", ServerPort: 443, NetworkTransport: "icmp",
+			Attributes: icmpAttrs,
+		}),
+		"result/dns": ResultAttributes(&resultv1.Result{
+			TenantId: "t", AgentId: "a", CanaryType: "dns",
+			ServerAddress: "8.8.8.8", ServerPort: 53, NetworkTransport: "udp",
+			Attributes: dnsAttrs,
+		}),
+		"result/http+tls": ResultAttributes(&resultv1.Result{
+			TenantId: "t", AgentId: "a", CanaryType: "http",
+			ServerAddress: "example.com", ServerPort: 443, NetworkTransport: "tcp", NetworkProtocolName: "https",
+			Attributes: tlsAttrs,
+		}),
+		"result/voice": ResultAttributes(&resultv1.Result{
+			TenantId: "t", AgentId: "a", CanaryType: "voice",
+			ServerAddress: "203.0.113.1", ServerPort: 5004, NetworkTransport: "udp",
+			Attributes: voiceAttrs,
+		}),
+		// Original minimal case (no passthrough — still must pass).
 		"result": ResultAttributes(&resultv1.Result{
 			TenantId: "t", AgentId: "a", CanaryType: "icmp",
 			ServerAddress: "x", ServerPort: 443, NetworkTransport: "tcp", NetworkProtocolName: "http",

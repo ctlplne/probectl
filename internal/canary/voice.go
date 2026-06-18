@@ -156,7 +156,7 @@ func (c *voiceCanary) Run(ctx context.Context) (Result, error) {
 	res.Metrics["voice.jitter.ms"] = round(jitterMs, 3)
 	res.Metrics["voice.one_way.ms"] = round(oneWayMs, 2)
 	res.Metrics["voice.loss.pct"] = round(lossPct, 2)
-	res.Attributes["voice.jitter_buffer_ms"] = fmt.Sprintf("%.0f", jbMs)
+	res.Attributes["probectl.voice.jitter_buffer_ms"] = fmt.Sprintf("%.0f", jbMs)
 	return res, nil
 }
 

@@ -35,7 +35,7 @@ func (c *dnsCanary) runTrace(ctx context.Context, res Result) Result {
 		"dns.query.ms":   round(float64(total)/float64(time.Millisecond), 3),
 		"dns.trace.hops": float64(len(chain)),
 	}
-	res.Attributes["dns.trace"] = strings.Join(chain, " > ")
+	res.Attributes["probectl.dns.trace"] = strings.Join(chain, " > ")
 	res.Success = err == nil && len(chain) > 1
 	if !res.Success && res.Error == "" {
 		res.Error = "trace did not reach an authoritative answer"

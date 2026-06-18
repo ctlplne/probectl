@@ -76,11 +76,11 @@ func TestDNSResolverUDPAndTCP(t *testing.T) {
 			if _, ok := res.Metrics["dns.query.ms"]; !ok {
 				t.Error("missing dns.query.ms")
 			}
-			if res.Attributes["dns.rcode"] != "NOERROR" {
-				t.Errorf("rcode = %q", res.Attributes["dns.rcode"])
+			if res.Attributes["probectl.dns.rcode"] != "NOERROR" {
+				t.Errorf("rcode = %q", res.Attributes["probectl.dns.rcode"])
 			}
-			if res.Attributes["dns.answer"] != "A 203.0.113.10" {
-				t.Errorf("answer = %q", res.Attributes["dns.answer"])
+			if res.Attributes["probectl.dns.answer"] != "A 203.0.113.10" {
+				t.Errorf("answer = %q", res.Attributes["probectl.dns.answer"])
 			}
 		})
 	}
@@ -107,8 +107,8 @@ func TestDNSResolverNXDOMAIN(t *testing.T) {
 	if res.Success {
 		t.Error("NXDOMAIN should be success=false")
 	}
-	if res.Attributes["dns.rcode"] != "NXDOMAIN" {
-		t.Errorf("rcode = %q, want NXDOMAIN", res.Attributes["dns.rcode"])
+	if res.Attributes["probectl.dns.rcode"] != "NXDOMAIN" {
+		t.Errorf("rcode = %q, want NXDOMAIN", res.Attributes["probectl.dns.rcode"])
 	}
 }
 
@@ -138,8 +138,8 @@ func TestDNSOverHTTPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Success || res.Attributes["dns.answer"] != "A 198.51.100.7" {
-		t.Fatalf("doh: success=%v answer=%q err=%q", res.Success, res.Attributes["dns.answer"], res.Error)
+	if !res.Success || res.Attributes["probectl.dns.answer"] != "A 198.51.100.7" {
+		t.Fatalf("doh: success=%v answer=%q err=%q", res.Success, res.Attributes["probectl.dns.answer"], res.Error)
 	}
 }
 
@@ -213,8 +213,8 @@ func TestDNSSECSecure(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("success=false err=%q", res.Error)
 	}
-	if res.Attributes["dns.dnssec"] != "secure" {
-		t.Errorf("dns.dnssec = %q, want secure", res.Attributes["dns.dnssec"])
+	if res.Attributes["probectl.dns.dnssec"] != "secure" {
+		t.Errorf("probectl.dns.dnssec = %q, want secure", res.Attributes["probectl.dns.dnssec"])
 	}
 	if res.Metrics["dns.dnssec.secure"] != 1 {
 		t.Errorf("dns.dnssec.secure = %v, want 1", res.Metrics["dns.dnssec.secure"])
@@ -238,8 +238,8 @@ func TestDNSSECBogus(t *testing.T) {
 	if res.Success {
 		t.Error("bogus DNSSEC must fail the probe")
 	}
-	if res.Attributes["dns.dnssec"] != "bogus" {
-		t.Errorf("dns.dnssec = %q, want bogus", res.Attributes["dns.dnssec"])
+	if res.Attributes["probectl.dns.dnssec"] != "bogus" {
+		t.Errorf("probectl.dns.dnssec = %q, want bogus", res.Attributes["probectl.dns.dnssec"])
 	}
 }
 
@@ -259,8 +259,8 @@ func TestDNSLiveDoT(t *testing.T) {
 	if !res.Success {
 		t.Skipf("DoT unavailable in this environment: %v", res.Error)
 	}
-	if res.Attributes["dns.transport"] != "dot" {
-		t.Errorf("transport attr = %q", res.Attributes["dns.transport"])
+	if res.Attributes["probectl.dns.transport"] != "dot" {
+		t.Errorf("transport attr = %q", res.Attributes["probectl.dns.transport"])
 	}
 }
 
@@ -280,7 +280,7 @@ func TestDNSLiveTrace(t *testing.T) {
 	if res.Metrics["dns.trace.hops"] < 2 {
 		t.Errorf("trace hops = %v, want a multi-step delegation", res.Metrics["dns.trace.hops"])
 	}
-	if res.Attributes["dns.trace"] == "" {
+	if res.Attributes["probectl.dns.trace"] == "" {
 		t.Error("missing dns.trace chain")
 	}
 }

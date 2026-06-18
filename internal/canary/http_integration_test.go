@@ -104,12 +104,12 @@ func TestHTTPSuccessWithTimingAndTLS(t *testing.T) {
 	if v := res.Attributes["tls.protocol.version"]; v != "1.3" && v != "1.2" {
 		t.Errorf("tls.protocol.version = %q", v)
 	}
-	if res.Attributes["tls.cipher"] == "" {
-		t.Error("missing tls.cipher")
+	if res.Attributes["tls.cipher.suite"] == "" {
+		t.Error("missing tls.cipher.suite")
 	}
-	notAfter, err := time.Parse(time.RFC3339, res.Attributes["tls.server.not_after"])
+	notAfter, err := time.Parse(time.RFC3339, res.Attributes["probectl.tls.server.not_after"])
 	if err != nil {
-		t.Fatalf("tls.server.not_after %q: %v", res.Attributes["tls.server.not_after"], err)
+		t.Fatalf("probectl.tls.server.not_after %q: %v", res.Attributes["probectl.tls.server.not_after"], err)
 	}
 	if !notAfter.After(time.Now()) {
 		t.Errorf("not_after %s should be in the future", notAfter)
@@ -193,9 +193,9 @@ func TestHTTPExpiredCertCapturedAndFailed(t *testing.T) {
 	}
 	// Crucially, the cert details are captured even though verification failed —
 	// S27 needs them (sprint watch-out: capture TLS details now).
-	notAfter, err := time.Parse(time.RFC3339, res.Attributes["tls.server.not_after"])
+	notAfter, err := time.Parse(time.RFC3339, res.Attributes["probectl.tls.server.not_after"])
 	if err != nil {
-		t.Fatalf("expected captured not_after, got %q (%v)", res.Attributes["tls.server.not_after"], err)
+		t.Fatalf("expected captured not_after, got %q (%v)", res.Attributes["probectl.tls.server.not_after"], err)
 	}
 	if notAfter.After(time.Now()) {
 		t.Errorf("not_after %s should be in the past", notAfter)
@@ -217,7 +217,7 @@ func TestHTTPInsecureSkipVerifyCaptures(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("insecure probe should succeed: %q", res.Error)
 	}
-	if res.Attributes["tls.cipher"] == "" {
+	if res.Attributes["tls.cipher.suite"] == "" {
 		t.Error("TLS details should be captured even in insecure mode")
 	}
 }

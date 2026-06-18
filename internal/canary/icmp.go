@@ -95,7 +95,7 @@ func (c *icmpCanary) Describe() Spec {
 func (c *icmpCanary) Run(ctx context.Context) (Result, error) {
 	start := time.Now()
 	res := Result{Type: icmpType, Target: c.target, StartedAt: start, Attributes: map[string]string{}}
-	res.Attributes["icmp.mode"] = c.modeName()
+	res.Attributes["probectl.icmp.mode"] = c.modeName()
 
 	ipAddr, err := net.ResolveIPAddr("ip", c.target)
 	if err != nil {
@@ -122,8 +122,8 @@ func (c *icmpCanary) Run(ctx context.Context) (Result, error) {
 	stats := computeLatencyStats(rtts, c.count)
 	res.Metrics = stats.latencyMetrics("rtt")
 	if seqs, offs := dropRecord(rtts, sendOffsets); seqs != "" {
-		res.Attributes["icmp.dropped_seqs"] = seqs
-		res.Attributes["icmp.drop_send_offsets_ms"] = offs
+		res.Attributes["probectl.icmp.dropped_seqs"] = seqs
+		res.Attributes["probectl.icmp.drop_send_offsets_ms"] = offs
 	}
 	if stats.Received == 0 {
 		res.Success = false
