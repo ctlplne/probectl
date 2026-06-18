@@ -141,24 +141,24 @@ ORDER BY (tenant_id, ts, service, dedup_id)`
 
 // chMigrations is the otelstore's versioned ClickHouse schema (U-046).
 // Shipped versions are immutable — changes are NEW versions.
-func chMigrations() []chmigrate.Migration {
+func chMigrationsFor(spans, logs string) []chmigrate.Migration {
 	return []chmigrate.Migration{
 		{Version: 1, Name: "create_otel_spans_logs", Statements: []string{
-			createSpansDDL(spansTable), createLogsDDL(logsTable),
+			createSpansDDL(spans), createLogsDDL(logs),
 		}},
 		// CORRECT-004: rebuild spans + logs into dedup ReplacingMergeTrees. The
 		// RENAME is atomic in ClickHouse, so reads never see a missing table.
 		// Pre-existing rows carry over (logs get an empty dedup_id — they predate
 		// dedup); fresh installs run v1 then v2 and land on the dedup shape.
 		{Version: 2, Name: "otel_dedup_replacingmergetree", Statements: []string{
-			createSpansDedupDDL(spansTable + "_dedup"),
-			"INSERT INTO " + spansTable + "_dedup SELECT * FROM " + spansTable,
-			"RENAME TABLE " + spansTable + " TO " + spansTable + "_pre_dedup, " +
-				spansTable + "_dedup TO " + spansTable,
-			createLogsDedupDDL(logsTable + "_dedup"),
-			"INSERT INTO " + logsTable + "_dedup SELECT *, '' AS dedup_id FROM " + logsTable,
-			"RENAME TABLE " + logsTable + " TO " + logsTable + "_pre_dedup, " +
-				logsTable + "_dedup TO " + logsTable,
+			createSpansDedupDDL(spans + "_dedup"),
+			"INSERT INTO " + spans + "_dedup SELECT * FROM " + spans,
+			"RENAME TABLE " + spans + " TO " + spans + "_pre_dedup, " +
+				spans + "_dedup TO " + spans,
+			createLogsDedupDDL(logs + "_dedup"),
+			"INSERT INTO " + logs + "_dedup SELECT *, '' AS dedup_id FROM " + logs,
+			"RENAME TABLE " + logs + " TO " + logs + "_pre_dedup, " +
+				logs + "_dedup TO " + logs,
 		},
 			// SCHEMA-001: the RENAMEs are flagged by the ClickHouse migration-gate.
 			// Data-PRESERVING (INSERT...SELECT first, v1 tables kept as _pre_dedup),
@@ -168,6 +168,8 @@ func chMigrations() []chmigrate.Migration {
 		},
 	}
 }
+
+func chMigrations() []chmigrate.Migration { return chMigrationsFor(spansTable, logsTable) }
 
 // CHMigrations exposes the otelstore's ClickHouse migration list to the
 // migration-gate (SCHEMA-001).
@@ -267,8 +269,8 @@ func (c *ClickHouse) baseFor(base string) string {
 	return strings.TrimRight(base, "/")
 }
 
-// EnsureTenantDatabase creates a tenant's isolated database + spans/logs tables
-// on its data plane (idempotent). TENANT-001.
+// EnsureTenantDatabase creates/migrates a tenant's isolated database +
+// spans/logs tables on its data plane (idempotent). TENANT-001.
 func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
 	if t.Database == "" {
 		return fmt.Errorf("otelstore: a tenant database name is required")
@@ -287,12 +289,8 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if err != nil {
 		return err
 	}
-	// Siloed tenants get the dedup shape directly (parity with the pooled v2).
-	if err := c.execAt(ctx, t.BaseURL, createSpansDedupDDL(spans), nil, nil); err != nil {
-		return fmt.Errorf("otelstore: create tenant spans table: %w", err)
-	}
-	if err := c.execAt(ctx, t.BaseURL, createLogsDedupDDL(logs), nil, nil); err != nil {
-		return fmt.Errorf("otelstore: create tenant logs table: %w", err)
+	if _, err := chmigrate.Apply(ctx, chExec{c: c, base: t.BaseURL}, "otelstore:"+t.Database, chMigrationsFor(spans, logs), nil); err != nil {
+		return fmt.Errorf("otelstore: migrate tenant database: %w", err)
 	}
 	if retentionDays > 0 {
 		for table, col := range map[string]string{spans: "start", logs: "ts"} {
@@ -313,13 +311,16 @@ func (c *ClickHouse) DropTenantDatabase(ctx context.Context, t Target) error {
 	return c.execAt(ctx, t.BaseURL, "DROP DATABASE IF EXISTS "+t.Database, nil, nil)
 }
 
-type chExec struct{ c *ClickHouse }
+type chExec struct {
+	c    *ClickHouse
+	base string
+}
 
 func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
-	return e.c.exec(ctx, sql, chParams(p), nil)
+	return e.c.execAt(ctx, e.base, sql, chParams(p), nil)
 }
 func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
-	return e.c.query(ctx, "", "", sql, chParams(p))
+	return e.c.query(ctx, e.base, "", sql, chParams(p))
 }
 
 // NewClickHouse connects, applies the versioned schema, and (when
@@ -331,7 +332,7 @@ func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
 	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.New(30 * time.Second)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if _, err := chmigrate.Apply(ctx, chExec{c}, "otelstore", chMigrations(), nil); err != nil {
+	if _, err := chmigrate.Apply(ctx, chExec{c: c}, "otelstore", chMigrations(), nil); err != nil {
 		return nil, fmt.Errorf("otelstore: migrate: %w", err)
 	}
 	if retentionDays > 0 {

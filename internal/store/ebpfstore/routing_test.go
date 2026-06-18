@@ -130,10 +130,12 @@ func TestEBPFQueryRoutesToTenantStore(t *testing.T) {
 func TestEBPFEnsureAndDropTenantDatabase(t *testing.T) {
 	var mu sync.Mutex
 	var queries []string
+	var raws []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		q, _ := url.QueryUnescape(r.URL.Query().Get("query"))
 		queries = append(queries, q)
+		raws = append(raws, r.URL.RawQuery)
 		mu.Unlock()
 		w.WriteHeader(200)
 	}))
@@ -153,14 +155,20 @@ func TestEBPFEnsureAndDropTenantDatabase(t *testing.T) {
 	}
 	mu.Lock()
 	joined := strings.Join(queries, "\n")
+	joinedRaw := strings.Join(raws, "\n")
 	mu.Unlock()
 	for _, want := range []string{
 		"CREATE DATABASE IF NOT EXISTS probectl_t_y",
+		"CREATE TABLE IF NOT EXISTS probectl_ch_migrations",
 		"CREATE TABLE IF NOT EXISTS probectl_t_y.probectl_ebpf_edges",
+		"INSERT INTO probectl_ch_migrations",
 		"DROP DATABASE IF EXISTS probectl_t_y",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("DDL missing %q in:\n%s", want, joined)
 		}
+	}
+	if !strings.Contains(joinedRaw, "param_component=ebpfstore%3Aprobectl_t_y") {
+		t.Fatalf("tenant ebpf migrations were not recorded with a tenant-specific component key:\n%s", joinedRaw)
 	}
 }

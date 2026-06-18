@@ -126,9 +126,10 @@ func (c *ClickHouse) baseFor(base string) string {
 	return strings.TrimRight(base, "/")
 }
 
-// EnsureTenantDatabase creates a tenant's isolated database + path tables on
-// its data plane (idempotent — the silo provisioner calls it at provision and
-// on catch-up). Siloed tenants get the v2 (day-partitioned) shape directly.
+// EnsureTenantDatabase creates/migrates a tenant's isolated database + path
+// tables on its data plane (idempotent — the silo provisioner calls it at
+// provision and on catch-up). The tenant component key keeps the silo schema
+// ledger separate from the pooled pathstore ledger.
 // TENANT-001.
 func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
 	if t.Database == "" {
@@ -140,6 +141,14 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if err := c.execAt(ctx, t.BaseURL, "CREATE DATABASE IF NOT EXISTS "+t.Database, nil, nil); err != nil {
 		return fmt.Errorf("pathstore: create tenant database: %w", err)
 	}
+	hopsV1, err := qualify(t, "probectl_path_hops")
+	if err != nil {
+		return err
+	}
+	linksV1, err := qualify(t, "probectl_path_links")
+	if err != nil {
+		return err
+	}
 	hops, err := qualify(t, hopsTable)
 	if err != nil {
 		return err
@@ -148,11 +157,9 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if err != nil {
 		return err
 	}
-	if err := c.execAt(ctx, t.BaseURL, createHopsFor(hops), nil, nil); err != nil {
-		return fmt.Errorf("pathstore: create tenant hops table: %w", err)
-	}
-	if err := c.execAt(ctx, t.BaseURL, createLinksFor(links), nil, nil); err != nil {
-		return fmt.Errorf("pathstore: create tenant links table: %w", err)
+	if _, err := chmigrate.Apply(ctx, chExec{c: c, base: t.BaseURL}, "pathstore:"+t.Database,
+		chMigrationsFor(hopsV1, linksV1, hops, links), nil); err != nil {
+		return fmt.Errorf("pathstore: migrate tenant database: %w", err)
 	}
 	if retentionDays > 0 {
 		for _, table := range []string{hops, links} {
@@ -186,9 +193,9 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 // applied through internal/store/chmigrate with a server-side ledger.
 // Shipped versions are immutable — schema changes are NEW versions with
 // idempotent (IF NOT EXISTS / additive) statements.
-func chMigrations() []chmigrate.Migration {
+func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migration {
 	return []chmigrate.Migration{
-		{Version: 1, Name: "create_path_tables", Statements: []string{createHopsV1, createLinksV1}},
+		{Version: 1, Name: "create_path_tables", Statements: []string{createHopsV1For(hopsV1), createLinksV1For(linksV1)}},
 		// v2 (Sprint 16, SCALE-006): (tenant_id, day) partitioning so the
 		// retention TTL drops whole parts. PARTITION BY is immutable in
 		// ClickHouse, so v2 creates NEW tables (_hops2/_links2) and discards the
@@ -200,14 +207,18 @@ func chMigrations() []chmigrate.Migration {
 		// prose-only README note — and the gate fails if any OTHER store copies
 		// this discard pattern without the same explicit, justified annotation.
 		{Version: 2, Name: "path_tables_day_partitioned", Statements: []string{
-			createHops, createLinks,
-			"DROP TABLE IF EXISTS probectl_path_hops",
-			"DROP TABLE IF EXISTS probectl_path_links",
+			createHopsFor(hopsV2), createLinksFor(linksV2),
+			"DROP TABLE IF EXISTS " + hopsV1,
+			"DROP TABLE IF EXISTS " + linksV1,
 		},
 			Destructive:   true,
 			Justification: "PARTITION BY is immutable in ClickHouse; path-discovery snapshots are a re-discoverable cache (continuously re-probed), not durable telemetry — the day-partition re-partition discards only cache that is rebuilt over time (SCHEMA-002)",
 		},
 	}
+}
+
+func chMigrations() []chmigrate.Migration {
+	return chMigrationsFor("probectl_path_hops", "probectl_path_links", hopsTable, linksTable)
 }
 
 // CHMigrations exposes the pathstore's ClickHouse migration list to the
@@ -229,14 +240,35 @@ const createLinksV1 = `CREATE TABLE IF NOT EXISTS probectl_path_links (
   ttl UInt8, from_ip String, to_ip String
 ) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
 
+func createHopsV1For(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String, path_id String, target String, target_ip String, mode String,
+  ts DateTime64(3), ttl UInt8, responder String,
+  sent UInt32, received UInt32, loss_ratio Float64,
+  rtt_min_ms Float64, rtt_avg_ms Float64, rtt_max_ms Float64,
+  mpls_labels Array(UInt32)
+) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, responder)`
+}
+
+func createLinksV1For(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String, path_id String, target String, ts DateTime64(3),
+  ttl UInt8, from_ip String, to_ip String
+) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
+}
+
 // chExec adapts the store's HTTP client to the chmigrate runner.
-type chExec struct{ c *ClickHouse }
+type chExec struct {
+	c    *ClickHouse
+	base string
+}
 
 func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
-	return e.c.exec(ctx, sql, chParams(p), nil)
+	return e.c.execAt(ctx, e.base, sql, chParams(p), nil)
 }
 func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
-	return e.c.query(ctx, sql, chParams(p))
+	u := e.c.baseFor(e.base) + "/?query=" + url.QueryEscape(sql+" FORMAT JSONEachRow") + chParams(p).qs()
+	return e.c.doQuery(ctx, e.base, u)
 }
 
 // NewClickHouse connects to a ClickHouse HTTP endpoint and ensures the schema
@@ -250,7 +282,7 @@ func NewClickHouseRetained(rawURL string, retentionDays int) (*ClickHouse, error
 	c := &ClickHouse{base: strings.TrimRight(rawURL, "/"), conn: chclient.New(30 * time.Second)}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if _, err := chmigrate.Apply(ctx, chExec{c}, "pathstore", chMigrations(), nil); err != nil {
+	if _, err := chmigrate.Apply(ctx, chExec{c: c}, "pathstore", chMigrations(), nil); err != nil {
 		return nil, fmt.Errorf("pathstore: migrate: %w", err)
 	}
 	if retentionDays > 0 {

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
 
 func TestTableForRouting(t *testing.T) {
@@ -202,10 +204,12 @@ func TestQueryRoutesToTenantStore(t *testing.T) {
 func TestEnsureAndDropTenantDatabase(t *testing.T) {
 	var mu sync.Mutex
 	var queries []string
+	var raws []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		q, _ := url.QueryUnescape(r.URL.RawQuery)
 		queries = append(queries, q)
+		raws = append(raws, r.URL.RawQuery)
 		mu.Unlock()
 		w.WriteHeader(200)
 	}))
@@ -225,15 +229,88 @@ func TestEnsureAndDropTenantDatabase(t *testing.T) {
 	}
 	mu.Lock()
 	joined := strings.Join(queries, "\n")
+	joinedRaw := strings.Join(raws, "\n")
 	mu.Unlock()
 	for _, want := range []string{
 		"CREATE DATABASE IF NOT EXISTS probectl_t_y",
+		"CREATE TABLE IF NOT EXISTS probectl_ch_migrations",
 		"CREATE TABLE IF NOT EXISTS probectl_t_y.probectl_flows",
+		"INSERT INTO probectl_ch_migrations",
 		"ALTER TABLE probectl_t_y.probectl_flows MODIFY TTL",
 		"DROP DATABASE IF EXISTS probectl_t_y",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("DDL missing %q in:\n%s", want, joined)
 		}
+	}
+	if !strings.Contains(joinedRaw, "param_component=flowstore%3Aprobectl_t_y") {
+		t.Fatalf("tenant flow migrations were not recorded with a tenant-specific component key:\n%s", joinedRaw)
+	}
+}
+
+func TestEnsureTenantDatabaseUpgradesOldTenantLedger(t *testing.T) {
+	target := Target{Database: "probectl_t_old"}
+	table, err := tableFor(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	migs := chMigrationsFor(table)
+	v1Checksum := chmigrate.Checksum(migs[0])
+
+	type hit struct {
+		query     string
+		component string
+		version   string
+	}
+	var mu sync.Mutex
+	var hits []hit
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		qv := r.URL.Query()
+		query := qv.Get("query")
+		component := qv.Get("param_component")
+		mu.Lock()
+		hits = append(hits, hit{query: query, component: component, version: qv.Get("param_version")})
+		mu.Unlock()
+		if strings.Contains(query, "SELECT version, checksum FROM probectl_ch_migrations") &&
+			component == "flowstore:probectl_t_old" {
+			_, _ = w.Write([]byte(`{"version":1,"checksum":"` + v1Checksum + `"}` + "\n"))
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	c, err := NewClickHouse(srv.URL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.EnsureTenantDatabase(context.Background(), target, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	var joined []string
+	var sawTenantV2Record bool
+	for _, h := range hits {
+		joined = append(joined, h.query)
+		if strings.Contains(h.query, "INSERT INTO probectl_ch_migrations") &&
+			h.component == "flowstore:probectl_t_old" && h.version == "2" {
+			sawTenantV2Record = true
+		}
+	}
+	body := strings.Join(joined, "\n")
+	if strings.Contains(body, "CREATE TABLE IF NOT EXISTS probectl_t_old.probectl_flows (\n") {
+		t.Fatalf("tenant v1 was rerun even though the tenant ledger already recorded it:\n%s", body)
+	}
+	for _, want := range []string{
+		"CREATE TABLE IF NOT EXISTS probectl_t_old.probectl_flows_dedup",
+		"RENAME TABLE probectl_t_old.probectl_flows TO probectl_t_old.probectl_flows_pre_dedup",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("old tenant ledger did not apply pending v2 %q in:\n%s", want, body)
+		}
+	}
+	if !sawTenantV2Record {
+		t.Fatalf("pending tenant v2 was not recorded under the tenant component key: %+v", hits)
 	}
 }

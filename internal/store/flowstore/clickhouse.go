@@ -46,9 +46,9 @@ ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr)`
 // batch; ReplacingMergeTree collapses rows whose ENTIRE sort key matches at
 // merge time, and row_id (a deterministic hash of the flow's identifying
 // fields) is identical for a redelivered identical row but distinct for genuine
-// flows — so duplicates are removed without collapsing real traffic. New
-// deployments and newly-provisioned siloed tenants get this shape; the v2
-// migration rebuilds an existing shared table into it.
+// flows — so duplicates are removed without collapsing real traffic. Fresh
+// pooled and siloed installs run the versioned v1-to-v2 migration sequence and
+// end on this shape; an existing v1 table is rebuilt into it.
 func createFlowsDedupDDL(table string) string {
 	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
   tenant_id String, agent_id String, exporter String, obs_domain UInt32,
@@ -147,22 +147,20 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 // applied through internal/store/chmigrate with a server-side ledger.
 // Shipped versions are immutable — schema changes are NEW versions with
 // idempotent (IF NOT EXISTS / additive) statements.
-func chMigrations() []chmigrate.Migration {
+func chMigrationsFor(table string) []chmigrate.Migration {
 	return []chmigrate.Migration{
-		{Version: 1, Name: "create_flows", Statements: []string{createFlowsDDL(sharedFlowsTable)}},
+		{Version: 1, Name: "create_flows", Statements: []string{createFlowsDDL(table)}},
 		// CORRECT-002: rebuild the shared flows table into a dedup
 		// ReplacingMergeTree keyed on row_id. Existing rows are carried over with
 		// an empty row_id (they predate dedup); the RENAME is atomic in
 		// ClickHouse, so reads never see a missing table. Fresh installs run v1
-		// then v2 and end on the dedup shape. (Siloed per-tenant tables created
-		// AFTER this ships get the dedup shape directly via EnsureTenantDatabase;
-		// pre-existing siloed tables are rebuilt with the same recipe — see
-		// docs/ops/data-plane.md.)
+		// then v2 and end on the dedup shape; existing siloed tenant databases
+		// use the same per-tenant ledger and catch-up path.
 		{Version: 2, Name: "flows_dedup_replacingmergetree", Statements: []string{
-			createFlowsDedupDDL(sharedFlowsTable + "_dedup"),
-			"INSERT INTO " + sharedFlowsTable + "_dedup SELECT *, '' AS row_id FROM " + sharedFlowsTable,
-			"RENAME TABLE " + sharedFlowsTable + " TO " + sharedFlowsTable + "_pre_dedup, " +
-				sharedFlowsTable + "_dedup TO " + sharedFlowsTable,
+			createFlowsDedupDDL(table + "_dedup"),
+			"INSERT INTO " + table + "_dedup SELECT *, '' AS row_id FROM " + table,
+			"RENAME TABLE " + table + " TO " + table + "_pre_dedup, " +
+				table + "_dedup TO " + table,
 		},
 			// SCHEMA-001: the RENAME is flagged by the ClickHouse migration-gate.
 			// It is data-PRESERVING (INSERT...SELECT copies every row first and the
@@ -173,19 +171,24 @@ func chMigrations() []chmigrate.Migration {
 	}
 }
 
+func chMigrations() []chmigrate.Migration { return chMigrationsFor(sharedFlowsTable) }
+
 // CHMigrations exposes the flowstore's ClickHouse migration list to the
 // migration-gate (SCHEMA-001) so destructive DDL on this telemetry store is
 // linted in CI, not just at apply-time.
 func CHMigrations() []chmigrate.Migration { return chMigrations() }
 
 // chExec adapts the store's HTTP client (pooled base) to the chmigrate runner.
-type chExec struct{ c *ClickHouse }
+type chExec struct {
+	c    *ClickHouse
+	base string
+}
 
 func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
-	return e.c.exec(ctx, "", sql, chParams(p), nil)
+	return e.c.exec(ctx, e.base, sql, chParams(p), nil)
 }
 func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
-	return e.c.query(ctx, "", sql, chParams(p))
+	return e.c.query(ctx, e.base, sql, chParams(p))
 }
 
 func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
@@ -194,7 +197,7 @@ func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
 	defer cancel()
 	// Versioned, ledger-recorded schema (U-046). The retention TTL below
 	// stays a runtime ALTER: it is per-deployment configuration, not schema.
-	if _, err := chmigrate.Apply(ctx, chExec{c}, "flowstore", chMigrations(), nil); err != nil {
+	if _, err := chmigrate.Apply(ctx, chExec{c: c}, "flowstore", chMigrations(), nil); err != nil {
 		return nil, fmt.Errorf("flowstore: migrate: %w", err)
 	}
 	if retentionDays > 0 {
@@ -221,8 +224,8 @@ func (c *ClickHouse) route(tenantID string) (Target, error) {
 	return c.router(tenantID)
 }
 
-// EnsureTenantDatabase creates a tenant's isolated database + flow table on
-// its data plane (idempotent — the silo provisioner calls it at tenant
+// EnsureTenantDatabase creates/migrates a tenant's isolated database + flow
+// table on its data plane (idempotent — the silo provisioner calls it at tenant
 // provision and again on catch-up).
 func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
 	if t.Database == "" {
@@ -238,9 +241,8 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if err != nil {
 		return err
 	}
-	// CORRECT-002: newly-provisioned siloed tenants get the dedup shape directly.
-	if err := c.exec(ctx, t.BaseURL, createFlowsDedupDDL(table), nil, nil); err != nil {
-		return fmt.Errorf("flowstore: create tenant table: %w", err)
+	if _, err := chmigrate.Apply(ctx, chExec{c: c, base: t.BaseURL}, "flowstore:"+t.Database, chMigrationsFor(table), nil); err != nil {
+		return fmt.Errorf("flowstore: migrate tenant database: %w", err)
 	}
 	if retentionDays > 0 {
 		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(ts) + INTERVAL %d DAY DELETE", table, retentionDays)

@@ -93,9 +93,9 @@ func (c *ClickHouse) baseFor(base string) string {
 	return strings.TrimRight(base, "/")
 }
 
-// EnsureTenantDatabase creates a tenant's isolated database + edges table on
-// its data plane (idempotent — the silo provisioner calls it at provision and
-// on catch-up). TENANT-001.
+// EnsureTenantDatabase creates/migrates a tenant's isolated database + edges
+// table on its data plane (idempotent — the silo provisioner calls it at
+// provision and on catch-up). TENANT-001.
 func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retentionDays int) error {
 	if t.Database == "" {
 		return fmt.Errorf("ebpfstore: a tenant database name is required")
@@ -110,8 +110,8 @@ func (c *ClickHouse) EnsureTenantDatabase(ctx context.Context, t Target, retenti
 	if err != nil {
 		return err
 	}
-	if err := c.execAt(ctx, t.BaseURL, edgesDDLFor(table), nil); err != nil {
-		return fmt.Errorf("ebpfstore: create tenant table: %w", err)
+	if _, err := chmigrate.Apply(ctx, chExec{c: c, base: t.BaseURL}, "ebpfstore:"+t.Database, chMigrationsFor(table), nil); err != nil {
+		return fmt.Errorf("ebpfstore: migrate tenant database: %w", err)
 	}
 	if retentionDays > 0 {
 		ttl := fmt.Sprintf("ALTER TABLE %s MODIFY TTL toDateTime(window_start) + INTERVAL %d DAY DELETE", table, retentionDays)
@@ -144,23 +144,39 @@ PARTITION BY (tenant_id, toYYYYMMDD(window_start))
 ORDER BY (tenant_id, window_start, src_workload, dst_workload, dst_port, l7_protocol)`
 }
 
-func chMigrations() []chmigrate.Migration {
+func chMigrationsFor(table string) []chmigrate.Migration {
 	return []chmigrate.Migration{
-		{Version: 1, Name: "create_ebpf_edges", Statements: []string{edgesDDLFor(sharedEdgesTable)}},
+		{Version: 1, Name: "create_ebpf_edges", Statements: []string{edgesDDLFor(table)}},
 	}
 }
+
+func chMigrations() []chmigrate.Migration { return chMigrationsFor(sharedEdgesTable) }
 
 // CHMigrations exposes the ebpfstore's ClickHouse migration list to the
 // migration-gate (SCHEMA-001).
 func CHMigrations() []chmigrate.Migration { return chMigrations() }
 
-type chExec struct{ c *ClickHouse }
-
-func (e chExec) Exec(ctx context.Context, sql string, _ chmigrate.Params) error {
-	return e.c.exec(ctx, sql, nil)
+type chExec struct {
+	c    *ClickHouse
+	base string
 }
-func (e chExec) Query(ctx context.Context, sql string, _ chmigrate.Params) ([]map[string]any, error) {
-	return e.c.query(ctx, sql)
+
+func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error {
+	return e.c.execAt(ctx, e.base, sql, chParams(p))
+}
+func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
+	return e.c.queryAt(ctx, e.base, sql, chParams(p))
+}
+
+func chParams(p chmigrate.Params) url.Values {
+	if len(p) == 0 {
+		return nil
+	}
+	v := url.Values{}
+	for k, val := range p {
+		v.Set("param_"+k, val)
+	}
+	return v
 }
 
 // NewClickHouse connects, applies the versioned schema, and (retentionDays>0)
@@ -172,7 +188,7 @@ func NewClickHouse(rawURL string, retentionDays int) (*ClickHouse, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if _, err := chmigrate.Apply(ctx, chExec{c}, "ebpfstore", chMigrations(), nil); err != nil {
+	if _, err := chmigrate.Apply(ctx, chExec{c: c}, "ebpfstore", chMigrations(), nil); err != nil {
 		return nil, fmt.Errorf("ebpfstore: migrate: %w", err)
 	}
 	if retentionDays > 0 {
