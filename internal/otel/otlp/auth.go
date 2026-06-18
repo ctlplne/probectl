@@ -22,7 +22,7 @@ var ErrUnauthenticated = errors.New("otlp: unauthenticated")
 
 // Authenticator resolves an OTLP bearer token to the tenant it is scoped to.
 type Authenticator interface {
-	Authenticate(token string) (tenant string, err error)
+	Authenticate(ctx context.Context, token string) (tenant string, err error)
 }
 
 // tokenEntry holds the SHA-256 of a bearer secret (never the plaintext after
@@ -123,7 +123,7 @@ func (a *TokenAuthenticator) ActiveTokens() int {
 // Authenticate resolves a token to its tenant, failing closed. The secret
 // comparison is constant-time and checks EVERY entry (no early exit), so
 // neither match position nor a near-miss leaks through timing.
-func (a *TokenAuthenticator) Authenticate(token string) (string, error) {
+func (a *TokenAuthenticator) Authenticate(_ context.Context, token string) (string, error) {
 	tenant, _, err := a.authenticateEntry(token)
 	return tenant, err
 }
@@ -169,7 +169,7 @@ func tenantFromContext(ctx context.Context) (string, bool) {
 // resolved tenant on the context; it fails closed with Unauthenticated.
 func authUnaryInterceptor(auth Authenticator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		tenant, err := auth.Authenticate(bearerFromMetadata(ctx))
+		tenant, err := auth.Authenticate(ctx, bearerFromMetadata(ctx))
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
 		}

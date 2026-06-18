@@ -123,7 +123,7 @@ func MetricsHTTPHandler(auth Authenticator, sink Sink, maxBytes int64) http.Hand
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		tenant, err := auth.Authenticate(bearerFromHeader(r.Header.Get("Authorization")))
+		tenant, err := auth.Authenticate(r.Context(), bearerFromHeader(r.Header.Get("Authorization")))
 		if err != nil {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

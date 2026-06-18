@@ -53,7 +53,7 @@ func NewDBTokenAuthenticator(db OTLPTokenStore, configTokens map[string]string, 
 // Authenticate resolves a bearer token to a tenant. Config-seeded tokens are
 // accepted from the in-process authenticator. DB-issued tokens are checked
 // against the DB on every hit so revocation takes effect without restart.
-func (a *DBTokenAuthenticator) Authenticate(token string) (string, error) {
+func (a *DBTokenAuthenticator) Authenticate(ctx context.Context, token string) (string, error) {
 	if token == "" {
 		return "", ErrUnauthenticated
 	}
@@ -65,7 +65,7 @@ func (a *DBTokenAuthenticator) Authenticate(token string) (string, error) {
 		}
 		// DB-issued token: verify the DB row is still live. If someone revoked
 		// it via the admin API, the DB returns ErrInvalidOTLPToken immediately.
-		dbTenant, dbErr := a.db.Authenticate(context.Background(), crypto.Hash([]byte(token)))
+		dbTenant, dbErr := a.db.Authenticate(ctx, crypto.Hash([]byte(token)))
 		if dbErr != nil {
 			// Token was revoked in DB — evict from in-process cache immediately.
 			a.mem.Revoke(token)
@@ -78,7 +78,7 @@ func (a *DBTokenAuthenticator) Authenticate(token string) (string, error) {
 	}
 
 	// Slow path: not in in-process cache — try the DB (admin-issued token).
-	dbTenant, dbErr := a.db.Authenticate(context.Background(), crypto.Hash([]byte(token)))
+	dbTenant, dbErr := a.db.Authenticate(ctx, crypto.Hash([]byte(token)))
 	if dbErr != nil {
 		return "", ErrUnauthenticated
 	}

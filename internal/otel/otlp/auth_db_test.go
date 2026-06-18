@@ -4,7 +4,9 @@ package otlp
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
@@ -40,11 +42,23 @@ func (f *fakeOTLPTokenStore) revoke(token string) {
 	f.revoked[string(crypto.Hash([]byte(token)))] = true
 }
 
+type cancelAwareOTLPTokenStore struct {
+	called chan struct{}
+	done   chan error
+}
+
+func (s *cancelAwareOTLPTokenStore) Authenticate(ctx context.Context, _ []byte) (string, error) {
+	close(s.called)
+	<-ctx.Done()
+	s.done <- ctx.Err()
+	return "", ctx.Err()
+}
+
 func TestDBTokenAuthenticatorKeepsConfigTokensWorking(t *testing.T) {
 	db := newFakeOTLPTokenStore(nil)
 	auth := NewDBTokenAuthenticator(db, map[string]string{"config-token": "tenant-config"}, nil)
 
-	got, err := auth.Authenticate("config-token")
+	got, err := auth.Authenticate(context.Background(), "config-token")
 	if err != nil {
 		t.Fatalf("config token should authenticate without DB row: %v", err)
 	}
@@ -60,7 +74,7 @@ func TestDBTokenAuthenticatorCachesAndHotRevokesDBTokens(t *testing.T) {
 	db := newFakeOTLPTokenStore(map[string]string{"db-token": "tenant-db"})
 	auth := NewDBTokenAuthenticator(db, nil, nil)
 
-	got, err := auth.Authenticate("db-token")
+	got, err := auth.Authenticate(context.Background(), "db-token")
 	if err != nil {
 		t.Fatalf("db token first auth: %v", err)
 	}
@@ -71,7 +85,7 @@ func TestDBTokenAuthenticatorCachesAndHotRevokesDBTokens(t *testing.T) {
 		t.Fatalf("first DB token auth should query DB once, got %d", db.calls)
 	}
 
-	got, err = auth.Authenticate("db-token")
+	got, err = auth.Authenticate(context.Background(), "db-token")
 	if err != nil {
 		t.Fatalf("db token cached auth: %v", err)
 	}
@@ -83,10 +97,50 @@ func TestDBTokenAuthenticatorCachesAndHotRevokesDBTokens(t *testing.T) {
 	}
 
 	db.revoke("db-token")
-	if _, err := auth.Authenticate("db-token"); err != ErrUnauthenticated {
+	if _, err := auth.Authenticate(context.Background(), "db-token"); err != ErrUnauthenticated {
 		t.Fatalf("revoked DB token err = %v, want ErrUnauthenticated", err)
 	}
-	if _, err := auth.Authenticate("db-token"); err != ErrUnauthenticated {
+	if _, err := auth.Authenticate(context.Background(), "db-token"); err != ErrUnauthenticated {
 		t.Fatalf("revoked DB token should stay evicted, got %v", err)
+	}
+}
+
+func TestDBTokenAuthenticatorUsesRequestContext(t *testing.T) {
+	db := &cancelAwareOTLPTokenStore{
+		called: make(chan struct{}),
+		done:   make(chan error, 1),
+	}
+	auth := NewDBTokenAuthenticator(db, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := auth.Authenticate(ctx, "db-token")
+		result <- err
+	}()
+
+	select {
+	case <-db.called:
+	case <-time.After(time.Second):
+		t.Fatal("DB auth store was not called")
+	}
+	cancel()
+
+	select {
+	case err := <-db.done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("store saw context error %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("DB auth store did not observe request cancellation")
+	}
+	select {
+	case err := <-result:
+		if err != ErrUnauthenticated {
+			t.Fatalf("auth error = %v, want ErrUnauthenticated", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("auth did not return after request cancellation")
 	}
 }
