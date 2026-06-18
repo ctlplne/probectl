@@ -78,7 +78,17 @@ if grep -q "configuration-snippet" <<<"$base" && grep -q "Strict-Transport-Secur
   fail "HSTS delivered via configuration-snippet — disabled by default in ingress-nginx >=1.9 (OPS-009)"
 fi
 need "kind: NetworkPolicy"             "$base" "default profile missing NetworkPolicy (default-on, U-086)"
+base_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$base")"
+need "from:"                           "$base_np" "default profile NetworkPolicy has no ingress source selector (WIRE-002)"
+need "ingress-nginx"                   "$base_np" "default profile NetworkPolicy does not restrict API ingress to the ingress controller (WIRE-002)"
 grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set secrets.envelopeKey="$KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
+  --set-json 'networkPolicy.ingressFrom=[]' >/dev/null 2>&1; then
+  fail "chart rendered with NetworkPolicy enabled and empty ingressFrom (WIRE-002)"
+fi
 
 # 3. Large profile: NetworkPolicy + PodDisruptionBudget + HPA all present.
 large="$(render -f "$CHART/values-large.yaml")"
@@ -94,8 +104,8 @@ need "kind: NetworkPolicy"          "$strict" "strict profile missing NetworkPol
 need "ingress-nginx"                "$strict" "strict profile: ingress selector hole not closed (HOLE 1)"
 need "port: 5432"                   "$strict" "strict profile: datastore egress allow-list missing (HOLE 2)"
 # The default profile's allow-all egress rule ("- {}") must NOT survive in strict.
-npblock="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$strict")"
-grep -qE '^[[:space:]]*-[[:space:]]*\{\}[[:space:]]*$' <<<"$npblock" \
+strict_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$strict")"
+grep -qE '^[[:space:]]*-[[:space:]]*\{\}[[:space:]]*$' <<<"$strict_np" \
   && fail "strict profile still has an allow-all egress rule (a HOLE) — default-deny not achieved"
 need "kind: ServiceMonitor"         "$strict" "strict profile missing ServiceMonitor (OPS-005)"
 need "kind: CronJob"                "$strict" "strict profile missing backup CronJob (OPS-009)"

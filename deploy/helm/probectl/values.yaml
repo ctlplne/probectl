@@ -1,8 +1,10 @@
 # Default values for probectl — SINGLE-TENANT (sovereign) reference.
 #
 # HTTPS-by-default: the ingress terminates TLS and sets HSTS; the Service is
-# ClusterIP (no plaintext API is exposed externally). See values-multitenant.yaml
-# for the MSP / provider reference.
+# ClusterIP (no plaintext API is exposed externally), and the default
+# NetworkPolicy allows the plaintext in-cluster API hop only from the named
+# ingress-controller namespace. See values-multitenant.yaml for the MSP /
+# provider reference.
 
 image:
   repository: ghcr.io/imfeelingtheagi/probectl-control
@@ -51,13 +53,17 @@ secrets:
 # see docs/hardening.md and `probectl-control preflight --strict`.
 requireAtRestEncryption: true
 
-# SEC-009: the deployment edge (ingress) serves TLS, so session/OAuth cookies
-# carry the Secure attribute even though the in-cluster listener is plaintext
-# behind it. Only set false for a cluster-internal eval with no TLS anywhere.
+# SEC-009/WIRE-002: the deployment edge (ingress) serves TLS, so session/OAuth
+# cookies carry the Secure attribute even though the in-cluster listener is
+# plaintext behind it. NetworkPolicy restricts that plaintext pod hop to the
+# ingress controller by default. Only set false for a cluster-internal eval with
+# no TLS anywhere.
 publicTLS: true
 
-# WIRE-004: the chart's in-cluster listener is plaintext behind the ingress;
-# the binary refuses non-loopback plaintext without this explicit opt-in.
+# WIRE-004/WIRE-002: the chart's in-cluster listener is plaintext behind the
+# ingress; the binary refuses non-loopback plaintext without this explicit
+# opt-in, and the chart refuses an enabled NetworkPolicy with no ingress source
+# selector.
 allowPlaintextHTTP: true
 
 # Kafka bus tls policy (optional; PROBECTL_BUS_MODE=kafka): production runs the
@@ -152,12 +158,10 @@ autoscaling:
   # targetMemoryUtilizationPercentage: 80
 
 # NetworkPolicy: default-deny ingress + egress, with explicit allows. ON by
-# default (U-086) — the policy below is real but deliberately carries two
-# DOCUMENTED HOLES until you tighten it per deployment:
-#   HOLE 1: ingressFrom EMPTY ⇒ any pod in the cluster may reach the API port
-#           (everything else is still denied). Set your ingress-controller
-#           selector to close it.
-#   HOLE 2: egressTo EMPTY ⇒ all egress is allowed (plus DNS, always allowed).
+# default (U-086/WIRE-002). The policy below closes the plaintext API pod hop by
+# allowing ingress only from the named ingress-controller namespace. It still
+# carries one DOCUMENTED HOLE until you tighten egress per deployment:
+#   HOLE: egressTo EMPTY ⇒ all egress is allowed (plus DNS, always allowed).
 #           Set the datastore/bus/IdP/feed allow-list to close it —
 #           values-large.yaml ships a filled reference list.
 # Requires a CNI that enforces NetworkPolicy (Calico/Cilium/...); without one
@@ -165,14 +169,15 @@ autoscaling:
 # control (and note it in your hardening review).
 networkPolicy:
   enabled: true
-  # Sources allowed to reach the API on the container port. EMPTY ⇒ HOLE 1
-  # above; in production set your ingress-controller's namespace/pod selector.
-  ingressFrom: []
-    # - namespaceSelector:
-    #     matchLabels:
-    #       kubernetes.io/metadata.name: ingress-nginx
+  # Sources allowed to reach the API on the container port. This must stay
+  # non-empty when networkPolicy.enabled=true; the template fails closed if it
+  # is empty. Adjust the namespace label to your ingress controller.
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx
   # Egress beyond DNS (which is always allowed): the Postgres/bus/IdP/SIEM/feeds
-  # this deployment must reach. EMPTY ⇒ HOLE 2 above (allow-all egress); see
+  # this deployment must reach. EMPTY ⇒ the HOLE above (allow-all egress); see
   # values-large.yaml for the filled reference allow-list.
   egressTo: []
     # - to:

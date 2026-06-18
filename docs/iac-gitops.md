@@ -55,20 +55,19 @@ regression here fails the build:
 | Ingress | HTTPS-only, **HSTS**, HTTP→HTTPS redirect, ClusterIP service (no plaintext API) |
 | Credentials | render **fails** without an envelope key (no default creds); secrets supplied via `existingSecret` |
 | Probes | readiness `/readyz` (flips to 503 while draining, for zero-downtime rollouts), liveness `/healthz` |
-| Network | `NetworkPolicy` is **on by default** in every profile (see the note below) |
+| Network | `NetworkPolicy` is **on by default** in every profile; API ingress is restricted to the ingress-controller namespace by default (see the note below) |
 | Disruption | `PodDisruptionBudget` (medium / large / multitenant) for zero-downtime upgrades |
 | Scale | `HorizontalPodAutoscaler` (large profile; it then owns the replica count instead of the Deployment) |
 
-**About the default NetworkPolicy.** It is on in every profile, but as shipped it
-has two deliberately open "holes": it allows in-cluster ingress to the API port,
-and allows all egress. Think of a new house delivered with every door fitted
-but propped open — the frames are in (so closing is a values change, not a
-retrofit), and they stay open only because the builder cannot know which keys
-to cut for *your* cluster. You close them by setting the
-allow-lists (`networkPolicy.ingressFrom` / `networkPolicy.egressTo`) for your
-cluster. `values-large.yaml` ships the filled-in reference shape (ingress from
-the ingress-controller namespace, egress to the database CIDR/port); copy that
-pattern. The hardening gate checks the strict profile actually narrows these.
+**About the default NetworkPolicy.** It is on in every profile. API ingress is
+already limited to the named ingress-controller namespace, so ordinary
+in-cluster pods cannot bypass the TLS ingress and talk to the plaintext API
+listener. Adjust `networkPolicy.ingressFrom` to your ingress controller's
+labels. The remaining deliberate hole is egress: empty `egressTo` allows all
+non-DNS egress until you name your datastore, bus, IdP, and feed destinations.
+`values-large.yaml` ships the filled-in reference egress shape; copy that
+pattern and narrow the CIDRs. The hardening gate checks the default ingress
+selector and the strict profile's fully narrowed egress policy.
 
 ### Reference sizing
 

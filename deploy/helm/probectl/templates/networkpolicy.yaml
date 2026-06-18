@@ -1,4 +1,7 @@
 {{- if .Values.networkPolicy.enabled }}
+{{- if empty .Values.networkPolicy.ingressFrom }}
+{{- fail "networkPolicy.ingressFrom must name at least one ingress-controller source when networkPolicy.enabled=true (WIRE-002: do not expose plaintext in-cluster API broadly)" }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

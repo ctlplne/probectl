@@ -1,12 +1,11 @@
 # probectl — STRICT / regulated profile (OPS-004).
 #
-# The DEFAULT profile (values.yaml, U-086) ships NetworkPolicy on with two
-# documented holes (empty ingressFrom ⇒ any pod may reach the API; empty
-# egressTo ⇒ allow-all egress) — deliberately, so a default install doesn't
-# silently lock out an unknown ingress controller. THIS profile closes both
-# holes for regulated/air-gapped deployments: full default-deny with a NAMED
-# ingress-controller selector and an explicit datastore/scrape egress
-# allow-list. Nothing is reachable that isn't named here.
+# The DEFAULT profile (values.yaml, U-086/WIRE-002) ships NetworkPolicy on with
+# the API ingress already narrowed to the named ingress controller. It still has
+# allow-all egress so a first install can reach its database, IdP, bus, and
+# feeds. THIS profile closes the remaining egress hole for regulated/air-gapped
+# deployments and adds a monitoring namespace ingress selector for /metrics.
+# Nothing else is reachable unless it is named here.
 #
 #   helm install probectl deploy/helm/probectl -f deploy/helm/probectl/values-strict.yaml \
 #     --set 'networkPolicy.ingressFrom[0].namespaceSelector.matchLabels.kubernetes\.io/metadata\.name=ingress-nginx'

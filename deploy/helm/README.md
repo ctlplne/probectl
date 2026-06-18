@@ -27,9 +27,11 @@ HTTP → HTTPS; the
 Service is `ClusterIP` (a cluster-internal virtual IP, unreachable from
 outside), so no plaintext API is reachable from outside the
 cluster ("TLS on every listener" is a
-[non-negotiable](../../CONTRIBUTING.md#non-negotiables)). The database migration
-runs as an init container; the pod runs non-root with a read-only root
-filesystem.
+[non-negotiable](../../CONTRIBUTING.md#non-negotiables)). The in-cluster API pod
+hop is plaintext behind that ingress, so the default NetworkPolicy allows it
+only from the named ingress-controller namespace and fails closed if that source
+list is empty. The database migration runs as an init container; the pod runs
+non-root with a read-only root filesystem.
 
 ## Install (single-tenant / sovereign)
 
@@ -110,7 +112,7 @@ Pick a sizing profile and layer your overrides on top:
 | large | [`probectl/values-large.yaml`](probectl/values-large.yaml) | HPA 4–12 + PDB + filled NetworkPolicy egress allow-list |
 | provider (MSP) | [`probectl/values-multitenant.yaml`](probectl/values-multitenant.yaml) | 3 replicas + anti-affinity + PDB |
 | multi-region | [`probectl/values-multiregion.yaml`](probectl/values-multiregion.yaml) | active-active HA, one release per region ([`docs/multi-region.md`](../../docs/multi-region.md)) |
-| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | regulated/air-gapped: both NetworkPolicy holes closed + ServiceMonitor + backup CronJobs |
+| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | regulated/air-gapped: egress hole closed + ServiceMonitor + backup CronJobs |
 
 `values.schema.json` types every key (Helm validates it). The security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
@@ -133,21 +135,20 @@ CronJobs ([`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md));
 `metrics.serviceMonitor.enabled=true` renders a Prometheus-Operator
 ServiceMonitor.
 
-**NetworkPolicy is ON by default** in every profile, with two
-documented holes until tightened per deployment: empty `ingressFrom` admits
-any in-cluster pod to the API port, and empty `egressTo` allows all egress.
-The holes are deliberate — think of a new apartment handed over with the door
-fitted but two windows propped open and flagged with tape, because the
-installer can't know your furniture (your ingress controller, your datastore
-addresses); you close them once you do.
+**NetworkPolicy is ON by default** in every profile. API ingress is already
+restricted to the named ingress-controller namespace, so ordinary in-cluster
+pods cannot bypass the TLS ingress and hit the plaintext API listener. Adjust
+`networkPolicy.ingressFrom` to your ingress controller's labels. The remaining
+deliberate hole is egress: empty `egressTo` allows all non-DNS egress until you
+name your datastore, bus, IdP, and feed destinations.
 `values-large.yaml` ships the filled reference egress allow-list (datastores/
 bus/TSDB on private ranges + a clearly-marked HTTPS-anywhere rule for IdP and
 open-data feeds — delete that rule when air-gapped); `values-strict.yaml`
-closes **both** holes for regulated/air-gapped clusters (named ingress-controller
-selector + explicit egress allow-list). Enforcement needs a
+closes the egress hole for regulated/air-gapped clusters (and adds the
+monitoring namespace ingress selector for /metrics). Enforcement needs a
 NetworkPolicy-capable CNI (the cluster's container-network plugin, e.g.
 Calico or Cilium — without an enforcing one the object is accepted but inert);
-the gate asserts the object renders by default.
+the gate asserts the default ingress selector renders.
 Terraform + GitOps wrap this same chart; see
 [`docs/iac-gitops.md`](../../docs/iac-gitops.md). Full guide:
 [`docs/install.md`](../../docs/install.md).
