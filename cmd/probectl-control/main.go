@@ -59,6 +59,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
@@ -452,6 +453,9 @@ func run(cmd string) error {
 		WithCarbon(carbonEngine)      // energy/carbon estimates at /v1/carbon (S48)
 	if sloOn {
 		srv.WithSLO(sloEngine) // SLO statuses at /v1/slos + what-if impact (S45)
+	}
+	if ch, ok := otelStore.(*otelstore.ClickHouse); ok {
+		ch.WithMetrics(srv.Metrics())
 	}
 	if enrollSvc != nil {
 		srv.SetEnrollService(enrollSvc)

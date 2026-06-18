@@ -14,9 +14,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
@@ -39,6 +41,11 @@ const (
 	spansTable = "probectl_otel_spans"
 	logsTable  = "probectl_otel_logs"
 )
+
+// maxInsertChunk bounds the rows encoded into one OTLP trace/log INSERT body.
+// This mirrors flowstore: a hot collector can send sustained batches, so the
+// store must not mint one giant body/part per routed tenant group.
+const maxInsertChunk = 10_000
 
 // chIdentRe validates a ClickHouse database identifier (names derive from
 // UUIDs, never user input — validated, fail closed). Parity with flowstore.
@@ -171,12 +178,71 @@ type ClickHouse struct {
 	base   string
 	conn   *chclient.Conn // shared transport (TLS client + breaker), CODE-006
 	router TargetRouter   // nil = everything pooled (TENANT-001)
+	spans  *insertMetrics
+	logs   *insertMetrics
 	// tenantScoping (TENANT-102 parity): attach the per-request custom
 	// setting so the reader row policy can constrain reads at the DB.
 	tenantScoping bool
 }
 
 const tenantSettingName = "SQL_probectl_tenant"
+
+type insertMetrics struct {
+	rows             *metrics.Counter
+	chunks           *metrics.Counter
+	errors           *metrics.Counter
+	inflight         atomic.Int64
+	lastLatencyNanos atomic.Int64
+}
+
+func newInsertMetrics(reg *metrics.Registry, signal, title string) *insertMetrics {
+	if reg == nil {
+		return nil
+	}
+	m := &insertMetrics{}
+	m.rows = reg.Counter("probectl_otelstore_"+signal+"_insert_rows_total",
+		title+" rows successfully inserted into ClickHouse.")
+	m.chunks = reg.Counter("probectl_otelstore_"+signal+"_insert_chunks_total",
+		title+" ClickHouse INSERT chunks successfully written; this is the store-side part-pressure proxy.")
+	m.errors = reg.Counter("probectl_otelstore_"+signal+"_insert_errors_total",
+		title+" ClickHouse INSERT chunks that failed.")
+	reg.Gauge("probectl_otelstore_"+signal+"_insert_inflight",
+		title+" ClickHouse INSERT chunks currently in flight or queued in the store writer.", func() float64 {
+			return float64(m.inflight.Load())
+		})
+	reg.Gauge("probectl_otelstore_"+signal+"_insert_last_latency_seconds",
+		title+" latency of the most recent ClickHouse INSERT chunk.", func() float64 {
+			return float64(m.lastLatencyNanos.Load()) / float64(time.Second)
+		})
+	return m
+}
+
+func (m *insertMetrics) observe(rows int, dur time.Duration, err error) {
+	if m == nil {
+		return
+	}
+	m.lastLatencyNanos.Store(dur.Nanoseconds())
+	if err != nil {
+		if m.errors != nil {
+			m.errors.Inc()
+		}
+		return
+	}
+	if m.chunks != nil {
+		m.chunks.Inc()
+	}
+	if m.rows != nil {
+		m.rows.Add(uint64(rows))
+	}
+}
+
+// WithMetrics exposes aggregate store-write health at /metrics. These are
+// process-wide counters/gauges only: no tenant labels, no trace/log contents.
+func (c *ClickHouse) WithMetrics(reg *metrics.Registry) *ClickHouse {
+	c.spans = newInsertMetrics(reg, "spans", "OTLP span")
+	c.logs = newInsertMetrics(reg, "logs", "OTLP log")
+	return c
+}
 
 // WithTenantScoping enables per-request custom-setting tenant scoping on
 // reads (pair with the reader row policy; see docs/security/tenant-isolation.md).
@@ -317,22 +383,30 @@ func (c *ClickHouse) WriteSpans(ctx context.Context, spans []Span) error {
 		if err != nil {
 			return err
 		}
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		for _, s := range group {
-			attrs, _ := json.Marshal(s.Attrs)
-			row := chSpan{
-				TenantID: s.TenantID, TraceID: s.TraceID, SpanID: s.SpanID, ParentSpanID: s.ParentSpanID,
-				Name: s.Name, Kind: s.Kind, Service: s.Service,
-				Start:      timeOrNow(s.Start).UTC().Format("2006-01-02 15:04:05.000000"),
-				DurationNS: uint64(max64(int64(s.Duration), 0)), StatusCode: s.StatusCode, Attrs: string(attrs),
+		for start := 0; start < len(group); start += maxInsertChunk {
+			end := start + maxInsertChunk
+			if end > len(group) {
+				end = len(group)
 			}
-			if err := enc.Encode(row); err != nil {
-				return fmt.Errorf("otelstore: encode span: %w", err)
+			chunk := group[start:end]
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			for _, s := range chunk {
+				attrs, _ := json.Marshal(s.Attrs)
+				row := chSpan{
+					TenantID: s.TenantID, TraceID: s.TraceID, SpanID: s.SpanID, ParentSpanID: s.ParentSpanID,
+					Name: s.Name, Kind: s.Kind, Service: s.Service,
+					Start:      timeOrNow(s.Start).UTC().Format("2006-01-02 15:04:05.000000"),
+					DurationNS: uint64(max64(int64(s.Duration), 0)), StatusCode: s.StatusCode, Attrs: string(attrs),
+				}
+				if err := enc.Encode(row); err != nil {
+					return fmt.Errorf("otelstore: encode span: %w", err)
+				}
 			}
-		}
-		if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", nil, &buf); err != nil {
-			return err
+			insert := "INSERT INTO " + table + " SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow"
+			if err := c.execInsertChunk(ctx, t.BaseURL, insert, &buf, len(chunk), c.spans); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -385,25 +459,46 @@ func (c *ClickHouse) WriteLogs(ctx context.Context, recs []LogRecord) error {
 		if err != nil {
 			return err
 		}
-		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		for _, r := range group {
-			attrs, _ := json.Marshal(r.Attrs)
-			row := chLog{
-				TenantID: r.TenantID, TS: timeOrNow(r.TS).UTC().Format("2006-01-02 15:04:05.000000"),
-				SeverityNum: r.SeverityNum, SeverityText: r.SeverityText,
-				Service: r.Service, Body: r.Body, TraceID: r.TraceID, SpanID: r.SpanID, Attrs: string(attrs),
-				DedupID: logDedupID(r), // CORRECT-004
+		for start := 0; start < len(group); start += maxInsertChunk {
+			end := start + maxInsertChunk
+			if end > len(group) {
+				end = len(group)
 			}
-			if err := enc.Encode(row); err != nil {
-				return fmt.Errorf("otelstore: encode log: %w", err)
+			chunk := group[start:end]
+			var buf bytes.Buffer
+			enc := json.NewEncoder(&buf)
+			for _, r := range chunk {
+				attrs, _ := json.Marshal(r.Attrs)
+				row := chLog{
+					TenantID: r.TenantID, TS: timeOrNow(r.TS).UTC().Format("2006-01-02 15:04:05.000000"),
+					SeverityNum: r.SeverityNum, SeverityText: r.SeverityText,
+					Service: r.Service, Body: r.Body, TraceID: r.TraceID, SpanID: r.SpanID, Attrs: string(attrs),
+					DedupID: logDedupID(r), // CORRECT-004
+				}
+				if err := enc.Encode(row); err != nil {
+					return fmt.Errorf("otelstore: encode log: %w", err)
+				}
 			}
-		}
-		if err := c.execAt(ctx, t.BaseURL, "INSERT INTO "+table+" FORMAT JSONEachRow", nil, &buf); err != nil {
-			return err
+			insert := "INSERT INTO " + table + " SETTINGS async_insert=1, wait_for_async_insert=1 FORMAT JSONEachRow"
+			if err := c.execInsertChunk(ctx, t.BaseURL, insert, &buf, len(chunk), c.logs); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (c *ClickHouse) execInsertChunk(ctx context.Context, base, query string, body *bytes.Buffer, rows int, m *insertMetrics) error {
+	if m != nil {
+		m.inflight.Add(1)
+		defer m.inflight.Add(-1)
+	}
+	start := time.Now()
+	err := c.execAt(ctx, base, query, nil, body)
+	if m != nil {
+		m.observe(rows, time.Since(start), err)
+	}
+	return err
 }
 
 // --- queries (server-bound parameters only) ---
