@@ -33,6 +33,22 @@ re-running is safe.
   table (not a hot telemetry table), annotate the reviewed exception with a
   `-- lock-ok: <reason>` comment on the statement; a reason-less `-- lock-ok` is
   NOT honored.
+- **Concurrent indexes are non-transactional** (SCHEMA-001) — PostgreSQL rejects
+  `CREATE INDEX CONCURRENTLY` inside a transaction block, while normal probectl
+  migrations intentionally run in a transaction. Any migration that uses a
+  concurrent index must put a reviewed, reasoned file-level directive before the
+  first SQL statement:
+
+  ```sql
+  -- probectl:no-tx: CREATE INDEX CONCURRENTLY is rejected inside a PostgreSQL transaction
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS example_tenant_idx ON example (tenant_id);
+  ```
+
+  The `migration-gate` rejects a concurrent index without this directive, and
+  the runner applies the marked migration outside a transaction while still
+  recording it in `schema_migrations`. Keep no-tx migrations idempotent and
+  narrow; if the ledger write fails after the DDL succeeds, a re-run must be able
+  to converge safely.
 - **ClickHouse migrations are gated too** (SCHEMA-001) — the Go-embedded
   `chMigrations()` of every telemetry store (flow / eBPF / OTLP / path) is run
   through `chmigrate.CheckMigrations`, which rejects `DROP TABLE` / `RENAME

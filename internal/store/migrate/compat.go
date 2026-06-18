@@ -90,6 +90,7 @@ var (
 // `-- lock-ok: <reason>` annotation can authorize a confirmed-safe exception.
 func CheckSQL(file, sql string) []Violation {
 	var out []Violation
+	noTx := hasNoTxDirective(sql)
 	// Split on the RAW SQL so each statement retains its leading/inline
 	// comments; strip comments only for the body match.
 	raws := splitStatements(sql)
@@ -121,6 +122,13 @@ func CheckSQL(file, sql string) []Violation {
 		if addColumn.MatchString(norm) && notNull.MatchString(norm) && !hasDefault.MatchString(norm) {
 			out = append(out, Violation{
 				File: file, Rule: "add column NOT NULL without DEFAULT (add nullable or give a DEFAULT)",
+				Statement: trimStmt(stmt),
+			})
+		}
+		if createIndex.MatchString(norm) && concurrently.MatchString(norm) && !noTx {
+			out = append(out, Violation{
+				File:      file,
+				Rule:      "CREATE INDEX CONCURRENTLY requires a leading `-- probectl:no-tx: <reason>` directive because PostgreSQL forbids it inside the migration transaction",
 				Statement: trimStmt(stmt),
 			})
 		}

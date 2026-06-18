@@ -74,8 +74,10 @@ func TestCheckSQLRejectsLockingDDL(t *testing.T) {
 // CREATE TABLE constraints must pass clean.
 func TestCheckSQLAllowsOnlineDDL(t *testing.T) {
 	ok := []string{
-		`CREATE INDEX CONCURRENTLY IF NOT EXISTS foo ON t (col);`,
-		`CREATE UNIQUE INDEX CONCURRENTLY foo ON t (col);`,
+		`-- probectl:no-tx: CREATE INDEX CONCURRENTLY is rejected inside a PostgreSQL transaction
+CREATE INDEX CONCURRENTLY IF NOT EXISTS foo ON t (col);`,
+		`-- probectl:no-tx: CREATE UNIQUE INDEX CONCURRENTLY is rejected inside a PostgreSQL transaction
+CREATE UNIQUE INDEX CONCURRENTLY foo ON t (col);`,
 		`ALTER TABLE t ADD CONSTRAINT c CHECK (x > 0) NOT VALID;`,
 		`ALTER TABLE t VALIDATE CONSTRAINT c;`,
 		`CREATE TABLE IF NOT EXISTS t (id int, status text CHECK (status IN ('a','b')));`,
@@ -84,6 +86,21 @@ func TestCheckSQLAllowsOnlineDDL(t *testing.T) {
 		if v := CheckSQL("ok.sql", sql); len(v) != 0 {
 			t.Fatalf("online DDL should pass, got %v for %q", v, sql)
 		}
+	}
+}
+
+func TestCheckSQLRequiresNoTxForConcurrentIndex(t *testing.T) {
+	sql := `CREATE INDEX CONCURRENTLY IF NOT EXISTS foo ON existing_table (col);`
+	v := CheckSQL("needs_no_tx.sql", sql)
+	if len(v) != 1 || !strings.Contains(v[0].Rule, "probectl:no-tx") {
+		t.Fatalf("concurrent index without no-tx directive violations = %v, want no-tx violation", v)
+	}
+
+	bare := `-- probectl:no-tx
+CREATE INDEX CONCURRENTLY IF NOT EXISTS foo ON existing_table (col);`
+	v = CheckSQL("bare_no_tx.sql", bare)
+	if len(v) != 1 || !strings.Contains(v[0].Rule, "probectl:no-tx") {
+		t.Fatalf("reason-less no-tx directive violations = %v, want no-tx violation", v)
 	}
 }
 

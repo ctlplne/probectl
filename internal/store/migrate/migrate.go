@@ -36,6 +36,7 @@ type Migration struct {
 	Version int64
 	Name    string
 	SQL     string
+	NoTx    bool
 }
 
 // Runner loads migrations from an fs.FS and applies the pending ones.
@@ -59,8 +60,11 @@ const ledgerDDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
 )`
 
 // Apply runs every migration not yet recorded in schema_migrations, in version
-// order, each in its own transaction. It returns the versions applied during
-// this call — empty when the database is already up to date.
+// order. Most migrations run in their own transaction; migrations marked with
+// the reviewed no-tx directive run outside a transaction for PostgreSQL DDL
+// forms such as CREATE INDEX CONCURRENTLY, which PostgreSQL refuses inside a
+// transaction block. It returns the versions applied during this call — empty
+// when the database is already up to date.
 func (r *Runner) Apply(ctx context.Context, pool *pgxpool.Pool) ([]int64, error) {
 	migrations, err := r.load()
 	if err != nil {
@@ -99,7 +103,7 @@ func (r *Runner) Apply(ctx context.Context, pool *pgxpool.Pool) ([]int64, error)
 		if applied[m.Version] {
 			continue
 		}
-		if err := applyOne(ctx, db, m); err != nil {
+		if err := applyOne(ctx, conn, m); err != nil {
 			return done, fmt.Errorf("apply migration %04d_%s: %w", m.Version, m.Name, err)
 		}
 		r.log.Info("applied migration", "version", m.Version, "name", m.Name)
@@ -108,8 +112,11 @@ func (r *Runner) Apply(ctx context.Context, pool *pgxpool.Pool) ([]int64, error)
 	return done, nil
 }
 
-func applyOne(ctx context.Context, db DB, m Migration) (err error) {
-	tx, err := db.Begin(ctx)
+func applyOne(ctx context.Context, conn *pgxpool.Conn, m Migration) (err error) {
+	if m.NoTx {
+		return applyOneNoTx(ctx, conn, m)
+	}
+	tx, err := conn.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -128,6 +135,21 @@ func applyOne(ctx context.Context, db DB, m Migration) (err error) {
 	}
 	if e := tx.Commit(ctx); e != nil {
 		return fmt.Errorf("commit: %w", e)
+	}
+	return nil
+}
+
+func applyOneNoTx(ctx context.Context, conn *pgxpool.Conn, m Migration) error {
+	for i, stmt := range splitStatements(m.SQL) {
+		if strings.TrimSpace(stripComments(stmt)) == "" {
+			continue
+		}
+		if e := conn.Conn().PgConn().Exec(ctx, stmt).Close(); e != nil {
+			return fmt.Errorf("exec no-tx statement %d: %w", i+1, e)
+		}
+	}
+	if _, e := conn.Exec(ctx, `INSERT INTO schema_migrations (version, name) VALUES ($1, $2)`, m.Version, m.Name); e != nil {
+		return fmt.Errorf("record no-tx ledger: %w", e)
 	}
 	return nil
 }
@@ -170,7 +192,8 @@ func (r *Runner) load() ([]Migration, error) {
 		if err != nil {
 			return nil, err
 		}
-		migrations = append(migrations, Migration{Version: version, Name: label, SQL: string(body)})
+		sql := string(body)
+		migrations = append(migrations, Migration{Version: version, Name: label, SQL: sql, NoTx: hasNoTxDirective(sql)})
 	}
 	sort.Slice(migrations, func(i, j int) bool { return migrations[i].Version < migrations[j].Version })
 	return migrations, nil

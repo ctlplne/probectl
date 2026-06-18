@@ -51,6 +51,23 @@ func TestLoadSortsByVersion(t *testing.T) {
 	}
 }
 
+func TestLoadMarksNoTxMigrations(t *testing.T) {
+	fsys := fstest.MapFS{
+		"0001_a.sql": {Data: []byte("-- probectl:no-tx: concurrent index cannot run inside a transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS i ON t (a);")},
+		"0002_b.sql": {Data: []byte("-- probectl:no-tx\nCREATE INDEX CONCURRENTLY IF NOT EXISTS j ON t (b);")},
+	}
+	ms, err := New(fsys, nil).load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !ms[0].NoTx {
+		t.Fatal("reasoned no-tx directive was not recognized")
+	}
+	if ms[1].NoTx {
+		t.Fatal("reason-less no-tx directive must not enable non-transactional mode")
+	}
+}
+
 func TestLoadRejectsDuplicateVersions(t *testing.T) {
 	fsys := fstest.MapFS{
 		"0001_a.sql": {Data: []byte("x")},
