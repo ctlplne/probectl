@@ -3,7 +3,9 @@
 # Capability model (see deploy/agent/README.md for the kernel matrix):
 #   kernel >= 5.8: CAP_BPF + CAP_PERFMON (the minimal pair: program/map
 #                  loading + uprobe/tracepoint attachment) — preferred.
-#   kernel <  5.8: replace both with CAP_SYS_ADMIN (the legacy catch-all).
+#   legacy exception: CAP_SYS_ADMIN only when the runtime probe can still
+#                  confirm BTF + BPF ring-buffer support and the platform
+#                  cannot grant the split CAP_BPF/CAP_PERFMON pair.
 # The agent is observe-only either way (the CI gate forbids enforcing
 # program types); it never needs CAP_NET_ADMIN, CAP_SYS_PTRACE or root.
 [Unit]

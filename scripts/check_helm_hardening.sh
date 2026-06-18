@@ -168,9 +168,29 @@ need "readinessProbe:"                  "$agent" "agent: no readiness probe (OPS
 need "path: /healthz"                   "$agent" "agent: liveness probe not wired to /healthz"
 need "path: /readyz"                    "$agent" "agent: readiness probe not wired to /readyz"
 grep -q "SYS_ADMIN" <<<"$agent" && fail "agent: SYS_ADMIN in the DEFAULT profile (legacy mode only)"
+# EBPF-002: L7 capture must render the full runtime contract, and enabled
+# capture without scope must fail at template time.
+if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" \
+     --set l7Capture.enabled=true \
+     --set l7Capture.consentTenant=gate >/dev/null 2>&1; then
+  fail "agent chart rendered L7 capture without l7Capture.scope (EBPF-002)"
+fi
+l7="$(arender --set l7Capture.enabled=true --set l7Capture.consentTenant=gate \
+       --set-json 'l7Capture.scope=["exe:/usr/bin/nginx"]' \
+       --set l7Capture.redaction=length --set l7Capture.kernelWindow=0)"
+need "l7_capture_scope:"                "$l7" "agent: L7 scope not rendered (EBPF-002)"
+need "exe:/usr/bin/nginx"               "$l7" "agent: L7 scoped workload not rendered (EBPF-002)"
+need "l7_capture_redaction: \"length\"" "$l7" "agent: L7 redaction not rendered (EBPF-002)"
+need "l7_capture_kernel_window: 0"      "$l7" "agent: L7 kernel window not rendered (EBPF-002)"
 
-# legacy kernels get exactly the documented fallback
-need "SYS_ADMIN" "$(arender --set capabilityMode=legacy)" "agent: legacy mode missing SYS_ADMIN"
+# EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgement.
+if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set capabilityMode=legacy >/dev/null 2>&1; then
+  fail "agent chart rendered legacy SYS_ADMIN without legacyKernelRingBufferAck (EBPF-004)"
+fi
+legacy="$(arender --set capabilityMode=legacy --set legacyKernelRingBufferAck=i-confirm-runtime-ring-buffer-support)"
+need "SYS_ADMIN" "$legacy" "agent: acknowledged legacy mode missing SYS_ADMIN"
 
 # fail-closed rendering: no tenant, or plaintext kafka without the explicit
 # dev override, must refuse (guardrail 1 / U-010).

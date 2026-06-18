@@ -241,6 +241,49 @@ func TestRedactPayloadZeroesSensitiveHeaderValues(t *testing.T) {
 	}
 }
 
+// TestRedactPayloadZeroesNonStandardSecretHeaders is the EBPF-003 regression
+// guard: real services often carry secrets in vendor or custom headers rather
+// than the four standard credential headers. Header names and line framing may
+// survive as metadata; secret values must not.
+func TestRedactPayloadZeroesNonStandardSecretHeaders(t *testing.T) {
+	req := []byte("GET /api HTTP/1.1\r\n" +
+		"Host: app.example\r\n" +
+		"X-API-Key: api-key-secret\r\n" +
+		"Api-Key: second-api-key-secret\r\n" +
+		"X-Amz-Security-Token: aws-session-token-secret\r\n" +
+		"X-Auth-Token: auth-token-secret\r\n" +
+		"X-Client-Secret: client-secret-value\r\n" +
+		"X-Custom-Token: custom-token-value\r\n" +
+		"Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00\r\n\r\n")
+	red := RedactPayload(append([]byte(nil), req...), RedactHeaders)
+
+	for _, secret := range [][]byte{
+		[]byte("api-key-secret"),
+		[]byte("second-api-key-secret"),
+		[]byte("aws-session-token-secret"),
+		[]byte("auth-token-secret"),
+		[]byte("client-secret-value"),
+		[]byte("custom-token-value"),
+	} {
+		if bytes.Contains(red, secret) {
+			t.Fatalf("non-standard secret header value leaked through headers-mode redaction: %q in %q", secret, red)
+		}
+	}
+	for _, keep := range [][]byte{
+		[]byte("X-API-Key:"),
+		[]byte("Api-Key:"),
+		[]byte("X-Amz-Security-Token:"),
+		[]byte("X-Auth-Token:"),
+		[]byte("X-Client-Secret:"),
+		[]byte("X-Custom-Token:"),
+		[]byte("Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"),
+	} {
+		if !bytes.Contains(red, keep) {
+			t.Fatalf("metadata that must survive was clobbered: %q missing from %q", keep, red)
+		}
+	}
+}
+
 // TestRedactSensitiveHeaderResponseSetCookie guards the Set-Cookie response
 // case explicitly (the value carries the session secret a server issues).
 func TestRedactSensitiveHeaderResponseSetCookie(t *testing.T) {

@@ -33,7 +33,8 @@ else — not mount filesystems, not load modules, not inspect other processes.
 | Kernel | Capabilities | Notes |
 |---|---|---|
 | **>= 5.8** (preferred) | `CAP_BPF` + `CAP_PERFMON` | the minimal pair: `bpf()` program/map ops + `perf_event_open` for uprobe/tracepoint attach. The agent needs nothing else — not `CAP_NET_ADMIN` (observe-only, no tc/XDP), not `CAP_SYS_PTRACE`, not root |
-| **5.4 – 5.7** | `CAP_SYS_ADMIN` | pre-5.8 kernels gate `bpf()` behind SYS_ADMIN; upgrade when possible |
+| **< 5.8** | unsupported by default | the live agent requires BTF plus the BPF ring buffer. Do not broaden to `CAP_SYS_ADMIN` as a workaround; it still cannot make a kernel without ring-buffer support capture live events |
+| explicit legacy exception | `CAP_SYS_ADMIN` | use only when the runtime probe can still confirm BTF + BPF ring-buffer support but the platform cannot grant the split `CAP_BPF` / `CAP_PERFMON` pair. Record the exception and prefer upgrading the kernel/capability policy |
 | any | `LimitMEMLOCK=infinity` (or a sized `RLIMIT_MEMLOCK`) | BPF maps + the ring buffer are locked memory (pinned in RAM, never swapped to disk) |
 
 A BTF kernel (`/sys/kernel/btf/vmlinux`, >= 5.8 on all mainstream LTS
@@ -79,7 +80,7 @@ services:
       - no-new-privileges:true
       - seccomp=./deploy/agent/seccomp.json
     cap_drop: [ALL]
-    cap_add: [BPF, PERFMON]        # kernel >= 5.8; use SYS_ADMIN on older kernels
+    cap_add: [BPF, PERFMON]        # minimal pair; do not use SYS_ADMIN as a generic <5.8 workaround
     ulimits: { memlock: -1 }
     volumes:
       - /sys/kernel/btf/vmlinux:/sys/kernel/btf/vmlinux:ro
@@ -103,7 +104,7 @@ securityContext:
   readOnlyRootFilesystem: true
   capabilities:
     drop: ["ALL"]
-    add: ["BPF", "PERFMON"]   # SYS_ADMIN only on kernels < 5.8
+    add: ["BPF", "PERFMON"]   # SYS_ADMIN requires an explicit, audited legacy exception
   seccompProfile:
     type: Localhost
     localhostProfile: probectl/seccomp.json   # install on each node

@@ -84,20 +84,32 @@ var (
 	// HPACK frames after it are zeroed — http2/grpc call extraction under
 	// "headers" redaction is a documented limitation).
 	http2Preface = []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
-	// sensitiveHeaders are credential-bearing HTTP/1.x headers whose VALUES
-	// are zeroed even inside the kept (metadata) region under "headers"
-	// redaction — so bearer tokens, session cookies, and basic-auth blobs
-	// never reach the control plane just because they precede the body
-	// terminator (EBPF-006). The header NAME survives (a protocol/metadata
-	// signal); only the value bytes after the ':' are zeroed, preserving line
-	// framing so detection and Content-Length accounting stay parseable.
-	// Operators who need header SECRECY (not just body secrecy) pick the
-	// "length" mode — see docs/ebpf-agent.md.
-	sensitiveHeaders = [][]byte{
+	// sensitiveHeaders are exact credential-bearing HTTP/1.x headers whose
+	// VALUES are zeroed even inside the kept (metadata) region under
+	// "headers" redaction — so bearer tokens, session cookies, and
+	// basic-auth blobs never reach the control plane just because they
+	// precede the body terminator (EBPF-006). The header NAME survives (a
+	// protocol/metadata signal); only the value bytes after the ':' are
+	// zeroed, preserving line framing so detection and Content-Length
+	// accounting stay parseable. Operators who need header SECRECY (not just
+	// body secrecy) pick the "length" mode — see docs/ebpf-agent.md.
+	sensitiveHeadersExact = [][]byte{
 		[]byte("authorization"),
 		[]byte("proxy-authorization"),
 		[]byte("cookie"),
 		[]byte("set-cookie"),
+	}
+	// sensitiveHeaderFragments catches common non-standard secret header
+	// families without requiring operators to pre-declare every vendor
+	// spelling (EBPF-003): X-API-Key, Api-Key, X-Auth-Token,
+	// X-Amz-Security-Token, X-Client-Secret, etc.
+	sensitiveHeaderFragments = [][]byte{
+		[]byte("api-key"),
+		[]byte("apikey"),
+		[]byte("token"),
+		[]byte("secret"),
+		[]byte("credential"),
+		[]byte("x-amz-"),
 	}
 )
 
@@ -110,18 +122,58 @@ func asciiToLower(b byte) byte {
 	return b
 }
 
-// headerNameMatches reports whether line begins with name (case-insensitive)
-// immediately followed by a ':'.
-func headerNameMatches(line, name []byte) bool {
-	if len(line) <= len(name) {
+// headerNameEquals reports whether name equals want (case-insensitive).
+func headerNameEquals(name, want []byte) bool {
+	if len(name) != len(want) {
 		return false
 	}
-	for i := 0; i < len(name); i++ {
-		if asciiToLower(line[i]) != name[i] {
+	for i := 0; i < len(want); i++ {
+		if asciiToLower(name[i]) != want[i] {
 			return false
 		}
 	}
-	return line[len(name)] == ':'
+	return true
+}
+
+// headerNameContains reports whether name contains needle (case-insensitive).
+func headerNameContains(name, needle []byte) bool {
+	if len(needle) == 0 || len(name) < len(needle) {
+		return false
+	}
+	for start := 0; start <= len(name)-len(needle); start++ {
+		matched := true
+		for i := 0; i < len(needle); i++ {
+			if asciiToLower(name[start+i]) != needle[i] {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// sensitiveHeaderValueStart returns the byte offset of the value if line is a
+// credential-bearing header line.
+func sensitiveHeaderValueStart(line []byte) (int, bool) {
+	colon := bytes.IndexByte(line, ':')
+	if colon <= 0 {
+		return 0, false
+	}
+	name := line[:colon]
+	for _, h := range sensitiveHeadersExact {
+		if headerNameEquals(name, h) {
+			return colon + 1, true
+		}
+	}
+	for _, frag := range sensitiveHeaderFragments {
+		if headerNameContains(name, frag) {
+			return colon + 1, true
+		}
+	}
+	return 0, false
 }
 
 // redactSensitiveHeaderValues zeroes the VALUE bytes of credential-bearing
@@ -141,12 +193,9 @@ func redactSensitiveHeaderValues(region []byte) {
 			line = region[start : start+eol]
 			next = start + eol + 2
 		}
-		for _, h := range sensitiveHeaders {
-			if headerNameMatches(line, h) {
-				for i := len(h) + 1; i < len(line); i++ {
-					line[i] = 0
-				}
-				break
+		if valueStart, ok := sensitiveHeaderValueStart(line); ok {
+			for i := valueStart; i < len(line); i++ {
+				line[i] = 0
 			}
 		}
 		start = next
@@ -197,10 +246,10 @@ func RedactPayload(p []byte, mode string) []byte {
 	if bytes.HasPrefix(p, http2Preface) && keep < len(http2Preface) {
 		keep = len(http2Preface)
 	}
-	// EBPF-006: even in the kept (metadata) region, zero the VALUES of
-	// credential-bearing headers (Authorization/Cookie/Set-Cookie/
-	// Proxy-Authorization) so bearer tokens and session cookies never reach
-	// the control plane. Header names and line framing survive.
+	// EBPF-006/EBPF-003: even in the kept (metadata) region, zero the
+	// VALUES of credential-bearing headers: the standard auth/cookie family
+	// plus common non-standard API-key/token/secret/credential headers.
+	// Header names and line framing survive.
 	kept := p
 	if keep < len(p) {
 		kept = p[:keep]

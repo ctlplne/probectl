@@ -27,16 +27,30 @@ bus:
   # EXPLICITLY; production kafka requires TLS.
   allowPlaintext: false
 
-# TLS-plaintext L7 capture stays OFF unless both the enable flag AND the
-# per-tenant consent naming this agent's tenant are set (U-003).
+# TLS-plaintext L7 capture stays OFF unless enable, per-tenant consent naming
+# this agent's tenant, and explicit workload scope are all set (U-003/EBPF-002).
 l7Capture:
   enabled: false
   consentTenant: ""
+  # Scope entries: pid:<n>, exe:/abs/path, or cgroup:/abs/cgroup-dir.
+  # Host-wide capture is not expressible; the template fails when enabled
+  # without at least one scoped workload.
+  scope: []
+  # headers = keep protocol metadata but zero bodies + secret-bearing header
+  # values; length = no payload bytes; full = consented debugging only.
+  redaction: headers
+  # Max plaintext bytes/chunk that may transit the kernel ring in headers mode.
+  # 0 lets the agent default to 1024; valid explicit range is 128..4095.
+  kernelWindow: 1024
 
 # Kernel capability matrix (deploy/agent/README.md):
 #   modern — kernels >= 5.8: CAP_BPF + CAP_PERFMON (the minimal pair).
-#   legacy — kernels 5.4–5.7: CAP_SYS_ADMIN (the pre-5.8 catch-all).
+#   legacy — explicit break-glass: CAP_SYS_ADMIN only when the runtime probe
+#     can still prove BTF + BPF ring buffer support but the cluster cannot
+#     grant the split CAP_BPF/CAP_PERFMON pair. Generic <5.8 kernels remain
+#     unsupported because the agent requires BPF ring-buffer support.
 capabilityMode: modern
+legacyKernelRingBufferAck: ""
 
 seccomp:
   # EBPF-003: this is a PRIVILEGED, kernel-touching agent, so the strict

@@ -3,9 +3,10 @@ name: probectl-agent
 description: >-
   probectl eBPF host agent DaemonSet (U-016): observe-only L3/L4 flow capture
   with an explicit, minimal privilege contract — exact capabilities
-  (CAP_BPF+CAP_PERFMON; CAP_SYS_ADMIN only for pre-5.8 kernels), a seccomp
-  profile, a read-only root filesystem, and the BTF host mount declared in
-  the artifact rather than implied.
+  (CAP_BPF+CAP_PERFMON; fenced CAP_SYS_ADMIN break-glass only after runtime
+  ring-buffer support is confirmed), a seccomp profile, a read-only root
+  filesystem, and the BTF host mount declared in the artifact rather than
+  implied.
 type: application
 version: 0.1.0
 appVersion: "0.1.0"

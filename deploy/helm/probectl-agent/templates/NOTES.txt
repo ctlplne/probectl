@@ -1,7 +1,7 @@
 probectl eBPF agent deployed as a DaemonSet (tenant: {{ .Values.tenantID }}).
 
 Privilege contract on every node (U-016 / U-052):
-  capabilities : drop ALL, add {{ if eq .Values.capabilityMode "legacy" }}SYS_ADMIN (legacy <5.8 kernels){{ else }}BPF + PERFMON (kernels >= 5.8){{ end }}
+  capabilities : drop ALL, add {{ if eq .Values.capabilityMode "legacy" }}SYS_ADMIN (explicit legacy break-glass; runtime must still confirm BTF + BPF ring buffer){{ else }}BPF + PERFMON (kernels >= 5.8 minimal pair){{ end }}
   seccomp      : {{ .Values.seccomp.type }}{{ if eq .Values.seccomp.type "Localhost" }} ({{ .Values.seccomp.localhostProfile }}{{ if .Values.seccomp.installProfile }}, auto-installed per node{{ end }}){{ end }}
   filesystem   : read-only root; /sys/kernel/btf/vmlinux mounted read-only
 {{- if and (eq .Values.seccomp.type "Localhost") (not .Values.seccomp.installProfile) }}

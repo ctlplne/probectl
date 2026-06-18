@@ -115,7 +115,10 @@ spec:
             capabilities:
               drop: ["ALL"]
               {{- if eq .Values.capabilityMode "legacy" }}
-              add: ["SYS_ADMIN"] # kernels 5.4–5.7 gate bpf() behind SYS_ADMIN
+              {{- if ne .Values.legacyKernelRingBufferAck "i-confirm-runtime-ring-buffer-support" }}
+              {{- fail "capabilityMode=legacy grants CAP_SYS_ADMIN and requires legacyKernelRingBufferAck=i-confirm-runtime-ring-buffer-support after the runtime probe confirms BTF + BPF ring-buffer support; generic <5.8 kernels are unsupported" }}
+              {{- end }}
+              add: ["SYS_ADMIN"] # explicit break-glass only; runtime still requires BTF + BPF ring buffer
               {{- else }}
               add: ["BPF", "PERFMON"] # kernels >= 5.8 — the minimal pair
               {{- end }}

@@ -125,6 +125,6 @@ systemctl enable ${UNIT} >/dev/null
 
 echo
 echo "installed: /usr/local/bin/probectl-ebpf-agent ($(/usr/local/bin/probectl-ebpf-agent version 2>/dev/null || echo unknown))"
-echo "unit     : ${UNIT} (enabled; CAP_BPF+CAP_PERFMON — edit the unit per deploy/agent/README.md for kernels < 5.8)"
+echo "unit     : ${UNIT} (enabled; CAP_BPF+CAP_PERFMON — SYS_ADMIN requires the explicit legacy exception in deploy/agent/README.md)"
 echo "config   : /etc/probectl/ebpf-agent.yaml"
 echo "start    : systemctl start ${UNIT} && journalctl -fu ${UNIT}"

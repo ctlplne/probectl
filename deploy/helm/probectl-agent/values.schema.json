@@ -38,6 +38,47 @@
           }
         }
       ]
+    },
+    "l7Capture": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "consentTenant": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^(pid:[0-9]+|exe:/.*|cgroup:/.*)$"
+          }
+        },
+        "redaction": {
+          "type": "string",
+          "enum": ["headers", "length", "full"]
+        },
+        "kernelWindow": {
+          "type": "integer",
+          "anyOf": [
+            {
+              "const": 0
+            },
+            {
+              "minimum": 128,
+              "maximum": 4095
+            }
+          ]
+        }
+      }
+    },
+    "capabilityMode": {
+      "type": "string",
+      "enum": ["modern", "legacy"]
+    },
+    "legacyKernelRingBufferAck": {
+      "type": "string"
     }
   }
 }

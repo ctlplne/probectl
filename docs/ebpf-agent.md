@@ -174,7 +174,7 @@ The three redaction modes:
 
 | Mode | What transits | What you can parse |
 |---|---|---|
-| `headers` (default) | metadata up to the header terminator; the body is zeroed (credential header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
+| `headers` (default) | metadata up to the header terminator; the body is zeroed (credential header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization plus common `api-key`/`token`/`secret`/`credential`/`x-amz-*` headers — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
 | `length` | **no payload bytes** — kernel window forced to 0; only chunk direction + true size (`DataEvent.Size`) | traffic *shape* only; no parsed L7 calls |
 | `full` | everything (consented debugging only — still behind the enable+consent+scope gates) | full L7 calls including bodies |
 
@@ -183,11 +183,14 @@ the *true* chunk size, so loss-to-redaction is visible rather than silent.
 
 > **Header secrecy vs. header metadata (EBPF-006).** Under the default `headers`
 > mode, the **values** of credential-bearing headers (`Authorization`,
-> `Cookie`, `Set-Cookie`, `Proxy-Authorization`) are zeroed in place — only the
-> header *names* and line framing survive, so bearer tokens and session cookies
-> never reach the control plane. If you need *all* header secrecy (not just
-> credentials), choose `length` mode, which captures no payload bytes at all.
-> This default is enforced by `TestRedactPayloadZeroesSensitiveHeaderValues`.
+> `Cookie`, `Set-Cookie`, `Proxy-Authorization`) and common non-standard secret
+> families (`X-API-Key`, `Api-Key`, `X-Amz-Security-Token`, custom `*Token*`,
+> `*Secret*`, and `*Credential*` headers) are zeroed in place — only the header
+> *names* and line framing survive, so bearer tokens, API keys, and session
+> cookies never reach the control plane. If you need *all* header secrecy (not
+> just credentials), choose `length` mode, which captures no payload bytes at all.
+> This default is enforced by `TestRedactPayloadZeroesSensitiveHeaderValues` and
+> `TestRedactPayloadZeroesNonStandardSecretHeaders`.
 
 ## Capture limitations (measured, not hidden)
 
@@ -228,9 +231,12 @@ cleartext for those), and **Go-encrypted** traffic needs its own capture path.
 Loading the programs needs **`CAP_BPF` + `CAP_PERFMON`** (Linux ≥ 5.8) — the
 load right and the attach right respectively: attaching tracepoints and uprobes
 goes through the kernel's performance-monitoring interface, which `CAP_PERFMON`
-governs. On older kernels the only available grant is the much broader
-`CAP_SYS_ADMIN`. The capability probe and the enrichment lookups are read-only
-and need no privileges.
+governs. Generic older kernels are unsupported because the agent requires BTF
+and the BPF ring buffer; do not grant broad `CAP_SYS_ADMIN` as a workaround for a
+kernel that the runtime probe marks unavailable. A `CAP_SYS_ADMIN` legacy
+exception is only for hosts where the runtime probe can still confirm BTF + ring
+buffer support but the platform cannot grant the split capability pair. The
+capability probe and the enrichment lookups are read-only and need no privileges.
 
 The observe-only guarantee is enforced in code, not just by convention. The agent
 attaches only tracepoints / kprobes / uprobes and calls no traffic-altering
@@ -387,14 +393,17 @@ agent-specific contract.
 The `deploy/helm/probectl-agent` chart deploys the agent as a **DaemonSet** (one
 pod per node — host-level capture needs an agent on every host) with the
 privilege contract declared in the manifest: drop **all** capabilities and add
-back only `CAP_BPF` / `CAP_PERFMON` (set `capabilityMode: legacy` for 5.4–5.7
-kernels → `CAP_SYS_ADMIN`), a **seccomp** profile (a kernel syscall filter — the
-process may invoke only the listed system calls; `RuntimeDefault`, or point
-`seccomp.type: Localhost` at the installed default-deny profile for tighter
-filtering), read-only root, the BTF host mount, and resource limits. Rendering
-**fails closed**: no `tenantID`, or plaintext kafka without the explicit
-`bus.allowPlaintext`, refuses to template. CI helm-lints, hardening-asserts, and
-kubeconform-validates the chart on every run.
+back only `CAP_BPF` / `CAP_PERFMON`. `capabilityMode: legacy` renders
+`CAP_SYS_ADMIN` only with the explicit `legacyKernelRingBufferAck` acknowledgement
+after the runtime probe has confirmed BTF + BPF ring-buffer support; it is not a
+generic `<5.8` escape hatch. The chart also declares a **seccomp** profile (a
+kernel syscall filter — the process may invoke only the listed system calls;
+`RuntimeDefault`, or point `seccomp.type: Localhost` at the installed
+default-deny profile for tighter filtering), read-only root, the BTF host mount,
+and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture without
+`l7Capture.scope`, or plaintext kafka without the explicit `bus.allowPlaintext`,
+refuses to template. CI helm-lints, hardening-asserts, and kubeconform-validates
+the chart on every run.
 
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \
@@ -426,9 +435,10 @@ sudo systemctl start probectl-ebpf-agent
 
 Run the agent with the **minimal capability set** and the shipped seccomp profile
 — see [`deploy/agent/`](../deploy/agent/README.md): `CAP_BPF` + `CAP_PERFMON` on
-kernels ≥ 5.8 (`CAP_SYS_ADMIN` only as the pre-5.8 fallback), `LimitMEMLOCK`, no
-root, default-deny seccomp (`deploy/agent/seccomp.json`), plus a hardened systemd
-unit and container/K8s `securityContext` examples.
+kernels ≥ 5.8 (`CAP_SYS_ADMIN` only as an explicit legacy exception after the
+runtime probe confirms BTF + ring-buffer support), `LimitMEMLOCK`, no root,
+default-deny seccomp (`deploy/agent/seccomp.json`), plus a hardened systemd unit
+and container/K8s `securityContext` examples.
 
 ## Running
 
