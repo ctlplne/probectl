@@ -28,10 +28,10 @@ one day be running under pressure.
 | Kafka | results/events in transit | No — it's transit, not a system of record. Consumers drain it into the stores above. |
 
 **Backups contain tenant data**, so they are **encrypted at rest by default.**
-The chart's Postgres backup CronJob pipes the dump through
-`probectl-control backup-seal`, so plaintext never touches the backups volume —
-the artifact is a `.dump.pbk` envelope-encrypted container, sealed with the
-deployment's at-rest key (the **same** `PROBECTL_ENVELOPE_KEY` as live storage).
+The Postgres backup paths pipe the dump through `probectl-control backup-seal`,
+so plaintext never touches the backups volume — the artifact is a `.dump.pbk`
+envelope-encrypted container, sealed with the deployment's at-rest key (the
+**same** `PROBECTL_ENVELOPE_KEY` as live storage).
 **Envelope encryption** means the data is encrypted under a one-off data key,
 and that data key is itself wrapped by the deployment's master key (the KEK,
 key-encryption key) — so an attacker holding the artifact but not the KEK
@@ -50,23 +50,38 @@ leaves it (one of the project's
 One-shot (any time — e.g. right before an upgrade):
 
 ```sh
-./scripts/backup_postgres.sh   /srv/probectl-backups   # → postgres-<db>-<ts>.dump + .sha256
+./scripts/backup_postgres.sh   /srv/probectl-backups   # → postgres-<db>-<ts>.dump.pbk + .sha256
 ./scripts/backup_clickhouse.sh /srv/probectl-backups   # → clickhouse-<db>-<ts>.zip  + .sha256
 ```
 
 Both scripts run the dump *inside* the running compose container (so you need
-no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to the
-artifact (a **checksum** — a fingerprint that changes if even one byte of the
-artifact does, so corruption is caught before a restore starts), and copy the
-artifact **off-box** into the output directory you pass — that off-box file is
-exactly what the restore scripts consume. Off-box is the point: a backup that
-lives on the same disk as the database shares the database's fate. For a non-dev
-deployment, override the env vars the scripts read: `COMPOSE_FILE` (default
-`deploy/compose/dev.yml`), `PG_SERVICE`/`PGUSER`/`PGDATABASE`, and
+no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to
+the artifact (a **checksum** — a fingerprint that changes if even one byte of
+the artifact does, so corruption is caught before a restore starts), and copy
+the artifact **off-box** into the output directory you pass — that off-box file
+is exactly what the restore scripts consume. Postgres also needs
+`probectl-control` on the host so `backup-seal` can encrypt the stream:
+`PROBECTL_CONTROL_BIN` defaults to `probectl-control`, and the key comes from
+`PROBECTL_ENVELOPE_KEY` or
+`PROBECTL_BACKUP_KEY_FILE`/`PROBECTL_ENVELOPE_KEY_FILE`. Off-box is the point: a
+backup that lives on the same disk as the database shares the database's fate.
+For a non-dev deployment, override the env vars the scripts read:
+`COMPOSE_FILE` (default `deploy/compose/dev.yml`),
+`PG_SERVICE`/`PGUSER`/`PGDATABASE`, and
 `CH_SERVICE`/`CH_USER`/`CH_PASSWORD`/`CH_DB`.
+
+Plaintext Postgres dumps are break-glass only. The backup script and shipped
+cron examples refuse to write `.dump` unless
+`PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup` is set exactly.
+That path exists for disaster debugging, not normal operation; handle the file
+as raw tenant data and seal or destroy it immediately.
 
 Scheduled backups: `deploy/backup/` has a compose overlay for host cron and k8s
 CronJob examples (digest-pinned images, credentials sourced from a secret).
+Their Postgres jobs also produce `.dump.pbk` by default; the standalone
+Kubernetes manifest reads the envelope key from the `probectl-envelope-key`
+secret and expects a `probectl-backup-tools` PVC with the `probectl-control`
+sealing binary.
 A reasonable cadence: nightly, retain 7 daily + 4 weekly, and stagger Postgres
 and ClickHouse so they don't contend (the shipped chart schedules them at 02:00
 and 02:30).
@@ -117,11 +132,12 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 #    exported provider chain against object storage).
 ```
 
-The `backup-open` step is only for the encrypted `.dump.pbk` artifacts the chart
-CronJob produces; a plain `.dump` from `backup_postgres.sh` goes straight to
-`restore_postgres.sh`. If the `.sha256` manifest sits next to the artifact, both
-restore scripts verify it automatically before touching the database, and abort
-on mismatch.
+The `backup-open` step is the normal Postgres restore path because shipped
+backups are `.dump.pbk` by default. A plain `.dump` should exist only from the
+explicit plaintext break-glass acknowledgement; if you have one, it can go
+straight to `restore_postgres.sh`, but treat it as exposed tenant data. If the
+`.sha256` manifest sits next to the artifact, both restore scripts verify it
+automatically before touching the database, and abort on mismatch.
 
 ### Restoring on Kubernetes (chart-managed restore Jobs)
 

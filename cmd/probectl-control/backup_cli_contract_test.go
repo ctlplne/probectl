@@ -99,12 +99,11 @@ func TestPITRRecipesUseRealCLI(t *testing.T) {
 	assertNoBadBackupFlags(t, "docs/ops/backup-restore.md", body)
 }
 
-// OPS-005: the CI backup-drill must exercise the SEALED .pbk path end-to-end —
-// the path the shipped restore Job actually carries — not the plaintext pg_dump.
-// (The original "executed" claim drilled only the plaintext path.) This pins the
-// drill script to: set an envelope KEK, seal the dump with backup-seal into a
-// .pbk, then restore it with backup-open — so the encrypted round-trip can't
-// quietly regress to plaintext.
+// OPS-005 / RESIL-003: the CI backup-drill must exercise the SEALED .pbk path
+// end-to-end — the path the shipped restore Job actually carries — not the
+// plaintext pg_dump. The Postgres backup script now seals at write time, so the
+// drill must set an envelope KEK, receive a .dump.pbk from backup_postgres.sh,
+// verify no plaintext dump was left behind, then restore through backup-open.
 func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 	drill := readArtifact(t, "scripts/backup_restore_drill.sh")
 	assertNoBadBackupFlags(t, "scripts/backup_restore_drill.sh", drill)
@@ -112,8 +111,10 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 	stripped := stripComments(drill)
 	for _, want := range []struct{ substr, why string }{
 		{"PROBECTL_ENVELOPE_KEY", "the drill must set an envelope KEK so the sealed path is real"},
-		{"backup-seal", "the drill must SEAL the dump (produce the .pbk the restore Job carries)"},
+		{"PROBECTL_CONTROL_BIN", "the drill must pass the sealing binary to backup_postgres.sh"},
+		{"backup_postgres.sh", "the drill must exercise the shipped Postgres backup entrypoint"},
 		{".pbk", "the drill must produce/round-trip a .pbk artifact, not just a plaintext .dump"},
+		{"left a plaintext .dump", "the drill must fail if backup_postgres.sh writes the raw tenant dump"},
 		{"backup-open", "the drill must restore by DECRYPTING the .pbk via backup-open"},
 	} {
 		if !strings.Contains(stripped, want.substr) {
@@ -123,6 +124,33 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 	// backup-open must read the .pbk on stdin (the real CLI contract).
 	if !strings.Contains(stripped, "backup-open") || !strings.Contains(stripped, "< \"${PBK}\"") {
 		t.Error("backup_restore_drill.sh: backup-open must read the sealed .pbk on stdin (OPS-005)")
+	}
+}
+
+// RESIL-003: standalone backup examples used to write the tenant Postgres dump
+// directly to disk, then rely on later docs/drills to seal a copy. That leaves a
+// raw multi-tenant database artifact on the backups volume. Pin the literal
+// shipped artifacts to the safe shape: sealed .dump.pbk by default, and the old
+// plaintext .dump path only behind an exact break-glass acknowledgement.
+func TestStandalonePostgresBackupsAreSealedOrBreakGlass(t *testing.T) {
+	for _, rel := range []string{
+		"scripts/backup_postgres.sh",
+		"deploy/backup/compose-backup.yml",
+		"deploy/backup/k8s-cronjob-postgres.yaml",
+	} {
+		body := readArtifact(t, rel)
+		assertNoBadBackupFlags(t, rel, body)
+		stripped := stripComments(body)
+		for _, want := range []struct{ substr, why string }{
+			{"backup-seal", "the default Postgres backup path must stream through the envelope sealer"},
+			{".dump.pbk", "the default Postgres backup artifact must be sealed, not plaintext"},
+			{"PROBECTL_PLAINTEXT_BACKUP_ACK", "plaintext must require an explicit break-glass acknowledgement"},
+			{"allow-plaintext-tenant-backup", "the acknowledgement value must be exact and searchable"},
+		} {
+			if !strings.Contains(stripped, want.substr) {
+				t.Errorf("%s: missing %q — %s (RESIL-003)", rel, want.substr, want.why)
+			}
+		}
 	}
 }
 

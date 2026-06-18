@@ -16,6 +16,11 @@ every pass.
 access-controlled volume/bucket inside the operator's own infrastructure —
 telemetry, including its backups, never leaves the operator's network (a
 [non-negotiable](../../CONTRIBUTING.md#non-negotiables)).
+Postgres backups are additionally envelope-encrypted in the dump pipeline by
+default (`pg_dump | probectl-control backup-seal > .dump.pbk`), so the raw
+tenant database does not land on the backups volume. Plaintext `.dump` output
+requires the exact break-glass acknowledgement
+`PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup`.
 
 ## Compose (host cron)
 
@@ -30,12 +35,15 @@ command (`0 2 * * *` = minute 0, hour 2, every day):
 
 ```cron
 # Nightly at 02:00/02:15 — keep PG and CH staggered.
-0 2 * * *  cd /opt/probectl && docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm pg-backup
+0 2 * * *  cd /opt/probectl && make build && PROBECTL_CONTROL_BIN=./bin/probectl-control PROBECTL_BACKUP_KEY_FILE=/secure/probectl/envelope.key docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm pg-backup
 15 2 * * * cd /opt/probectl && docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm ch-backup
 ```
 
-Postgres dumps (plus a `.sha256` integrity fingerprint) land in the `backups`
-volume. ClickHouse's
+Postgres sealed dumps (`.dump.pbk`, plus a `.sha256` integrity fingerprint)
+land in the `backups` volume. The compose overlay deliberately fails closed
+unless it can run `probectl-control backup-seal` with either
+`PROBECTL_ENVELOPE_KEY` or the mounted key file
+(`PROBECTL_ENVELOPE_KEY_FILE`/`PROBECTL_BACKUP_KEY_FILE`). ClickHouse's
 `BACKUP` statement runs **server-side** — the SQL statement executes inside
 the ClickHouse server process, so its archives land on the ClickHouse
 container's own backups disk — the `chbackups` volume configured by
@@ -69,7 +77,10 @@ object that runs a pod on a schedule. Two supported paths:
   request slip for durable disk). Off by default; the strict profile enables it.
   See [`deploy/helm/`](../helm/README.md).
 - **Standalone manifests** — `k8s-cronjob-postgres.yaml` and
-  `k8s-cronjob-clickhouse.yaml` (images digest-pinned to the same versions the
-  compose stack runs) for clusters that don't use the chart: adjust the
-  namespace, the `probectl-backups` PVC, and the `probectl-db-credentials`
-  secret to your deployment, then `kubectl apply`.
+  `k8s-cronjob-clickhouse.yaml` for clusters that don't use the chart: adjust
+  the namespace, the `probectl-backups` PVC, the `probectl-db-credentials`
+  secret, the `probectl-envelope-key` secret, and a `probectl-backup-tools` PVC
+  containing an executable `probectl-control` binary to your deployment, then
+  `kubectl apply`. The database images are digest-pinned; the tools PVC should
+  be populated from the same mirrored/digest-pinned release artifact you run for
+  the control plane.

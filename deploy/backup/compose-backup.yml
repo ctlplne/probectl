@@ -8,15 +8,48 @@ services:
     profiles: [backup]
     environment:
       PGPASSWORD: probectl
-    entrypoint: ["/bin/sh", "-ec"]
+      PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
+      PROBECTL_ENVELOPE_KEY_ID: ${PROBECTL_ENVELOPE_KEY_ID:-file}
+      PROBECTL_PLAINTEXT_BACKUP_ACK: ${PROBECTL_PLAINTEXT_BACKUP_ACK:-}
+    entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
     command:
       - |
-        out="/backups/postgres-probectl-$$(date -u +%Y%m%dT%H%M%SZ).dump"
-        pg_dump -h postgres -U probectl -d probectl --format=custom --no-owner > "$$out"
+        if [ "$${PROBECTL_PLAINTEXT_BACKUP_ACK:-}" = "allow-plaintext-tenant-backup" ]; then
+          out="/backups/postgres-probectl-$$(date -u +%Y%m%dT%H%M%SZ).dump"
+          tmp="$$out.tmp"
+          echo "pg-backup: WARNING writing PLAINTEXT tenant backup under explicit break-glass ack" >&2
+          pg_dump -h postgres -U probectl -d probectl --format=custom --no-owner > "$$tmp"
+        else
+          out="/backups/postgres-probectl-$$(date -u +%Y%m%dT%H%M%SZ).dump.pbk"
+          tmp="$$out.tmp"
+          test -f /usr/local/bin/probectl-control && test -x /usr/local/bin/probectl-control || {
+            echo "pg-backup: mount a built probectl-control with PROBECTL_CONTROL_BIN=./bin/probectl-control" >&2
+            exit 1
+          }
+          if [ -z "$${PROBECTL_ENVELOPE_KEY:-}" ] && [ ! -s /tmp/probectl-envelope.key ]; then
+            echo "pg-backup: refusing plaintext backup; set PROBECTL_ENVELOPE_KEY or PROBECTL_BACKUP_KEY_FILE" >&2
+            echo "pg-backup: break-glass plaintext requires PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup" >&2
+            exit 1
+          fi
+          key_args=()
+          if [ -s /tmp/probectl-envelope.key ]; then
+            key_args=(--key-file=/tmp/probectl-envelope.key)
+          fi
+          pg_dump -h postgres -U probectl -d probectl --format=custom --no-owner \
+            | /usr/local/bin/probectl-control backup-seal "$${key_args[@]}" > "$$tmp"
+        fi
+        test -s "$$tmp" || { echo "pg-backup: empty backup $$out" >&2; exit 1; }
+        mv "$$tmp" "$$out"
         sha256sum "$$out" > "$$out.sha256"
         echo "pg-backup: wrote $$out"
     volumes:
       - backups:/backups
+      # Build locally with `make build`, or point PROBECTL_CONTROL_BIN at a
+      # mirrored/release probectl-control binary. Missing binary = fail closed.
+      - ${PROBECTL_CONTROL_BIN:-/dev/null}:/usr/local/bin/probectl-control:ro
+      # Optional key-file path. PROBECTL_ENVELOPE_KEY env also works; if both
+      # are absent, the sealed default fails closed before writing tenant data.
+      - ${PROBECTL_BACKUP_KEY_FILE:-/dev/null}:/tmp/probectl-envelope.key:ro
     networks: [probectl]
 
   ch-backup:

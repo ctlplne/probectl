@@ -30,6 +30,16 @@ ch() {
     clickhouse-client --user probectl --password probectl --query "$1"
 }
 
+step "prepare backup sealing key + probectl-control"
+PCTL_BIN="$(command -v probectl-control || true)"
+if [ -z "${PCTL_BIN}" ]; then
+  PCTL_BIN="${OUT}/probectl-control"
+  ( cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && go build -o "${PCTL_BIN}" ./cmd/probectl-control )
+fi
+# 32-byte KEK, base64 — the same env var the Helm restore Job feeds the binary.
+export PROBECTL_ENVELOPE_KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+export PROBECTL_CONTROL_BIN="${PCTL_BIN}"
+
 step "boot postgres + clickhouse (dev compose)"
 docker compose -f "${COMPOSE_FILE}" up -d --wait postgres clickhouse
 
@@ -49,6 +59,12 @@ t0=$(date +%s)
 ./scripts/backup_clickhouse.sh "${OUT}"
 backup_secs=$(( $(date +%s) - t0 ))
 ls -l "${OUT}"
+PBK="$(find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump.pbk' -print -quit)"
+test -n "${PBK}" && test -s "${PBK}" || { echo "drill: backup_postgres did not produce a sealed .dump.pbk" >&2; exit 1; }
+if find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump' -print -quit | grep -q .; then
+  echo "drill: backup_postgres left a plaintext .dump despite sealed default" >&2
+  exit 1
+fi
 
 step "WIPE both stores"
 docker compose -f "${COMPOSE_FILE}" exec -T postgres \
@@ -62,24 +78,6 @@ if ch "SELECT count() FROM probectl.probectl_drill_marker" >/dev/null 2>&1; then
   echo "drill: clickhouse database still present after wipe" >&2; exit 1
 fi
 echo "wipe confirmed: both databases gone"
-
-# OPS-001/RESIL-001: the SHIPPED restore path (restore-job.yaml) does NOT restore
-# the bare pg_dump — it pipes the ENCRYPTED .pbk through `probectl-control
-# backup-open` (stdin→stdout, KEK from PROBECTL_ENVELOPE_KEY). Drill that exact
-# path so a backup-open flag/contract break (the original defect: --in/--out the
-# binary never had) fails the drill instead of hiding behind the plaintext dump.
-step "seal the dump (encrypted .pbk — the artifact the restore Job actually carries)"
-PCTL_BIN="$(command -v probectl-control || true)"
-if [ -z "${PCTL_BIN}" ]; then
-  PCTL_BIN="${OUT}/probectl-control"
-  ( cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)" && go build -o "${PCTL_BIN}" ./cmd/probectl-control )
-fi
-# 32-byte KEK, base64 — the same env var the Helm restore Job feeds the binary.
-export PROBECTL_ENVELOPE_KEY="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
-PBK="${OUT}/postgres-probectl.pbk"
-# Seal exactly as the backup CronJob does: pg_dump | backup-seal > out.pbk.
-"${PCTL_BIN}" backup-seal < "${OUT}"/postgres-probectl-*.dump > "${PBK}"
-test -s "${PBK}" || { echo "drill: backup-seal produced an empty .pbk" >&2; exit 1; }
 
 step "restore from the ENCRYPTED .pbk via backup-open (the shipped Job's command)"
 t1=$(date +%s)

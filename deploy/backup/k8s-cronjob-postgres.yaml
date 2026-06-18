@@ -1,6 +1,8 @@
 # U-030: nightly logical Postgres backup (example — see README.md).
-# Prerequisites: a `probectl-backups` PVC and a `probectl-db-credentials`
-# secret (keys: username, password) in the release namespace.
+# Prerequisites: a `probectl-backups` PVC, a `probectl-db-credentials`
+# secret (keys: username, password), a `probectl-envelope-key` secret
+# (key: PROBECTL_ENVELOPE_KEY), and a `probectl-backup-tools` PVC containing
+# an executable `probectl-control` at its root in the release namespace.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -21,14 +23,26 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 999 # the postgres image's postgres uid
+            fsGroup: 999
           containers:
             - name: pg-dump
               image: postgres:16@sha256:4b7183ac05f8ef417db21fd72d71047a4238340c261d3cc3ddb6d579ab5071ae # digest-pinned (U-061)
-              command: ["/bin/sh", "-ec"]
+              command: ["/bin/bash", "-euo", "pipefail", "-c"]
               args:
                 - |
-                  out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
-                  pg_dump -h probectl-postgres -U "$PGUSER" -d probectl --format=custom --no-owner > "$out"
+                  if [ "${PROBECTL_PLAINTEXT_BACKUP_ACK:-}" = "allow-plaintext-tenant-backup" ]; then
+                    out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                    tmp="$out.tmp"
+                    echo "WARNING writing PLAINTEXT tenant backup under explicit break-glass ack" >&2
+                    pg_dump -h probectl-postgres -U "$PGUSER" -d probectl --format=custom --no-owner > "$tmp"
+                  else
+                    out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump.pbk"
+                    tmp="$out.tmp"
+                    pg_dump -h probectl-postgres -U "$PGUSER" -d probectl --format=custom --no-owner \
+                      | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "$tmp"
+                  fi
+                  test -s "$tmp" || { echo "empty backup $out" >&2; exit 1; }
+                  mv "$tmp" "$out"
                   sha256sum "$out" > "$out.sha256"
                   echo "wrote $out"
               env:
@@ -38,12 +52,27 @@ spec:
                 - name: PGPASSWORD
                   valueFrom:
                     secretKeyRef: { name: probectl-db-credentials, key: password }
+                # Leave empty. Setting this exact value is a conscious
+                # break-glass choice to write a plaintext tenant dump:
+                # allow-plaintext-tenant-backup
+                - name: PROBECTL_PLAINTEXT_BACKUP_ACK
+                  value: ""
               resources:
                 requests: { cpu: 100m, memory: 128Mi }
                 limits: { cpu: "1", memory: 512Mi }
               volumeMounts:
                 - { name: backups, mountPath: /backups }
+                - { name: tools, mountPath: /tools, readOnly: true }
+                - { name: envelope-key, mountPath: /keys, readOnly: true }
           volumes:
             - name: backups
               persistentVolumeClaim:
                 claimName: probectl-backups
+            - name: tools
+              persistentVolumeClaim:
+                claimName: probectl-backup-tools
+            - name: envelope-key
+              secret:
+                secretName: probectl-envelope-key
+                items:
+                  - { key: PROBECTL_ENVELOPE_KEY, path: envelope.key }
