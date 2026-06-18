@@ -110,6 +110,7 @@ func TestOTLPExportContractDocumentsAllSignals(t *testing.T) {
 	otlpDoc := readDoc(t, "otlp.md")
 	configDoc := readDoc(t, "configuration.md")
 	mainGo := readRepoFile(t, "cmd/probectl-control/main.go")
+	buildersGo := readRepoFile(t, "cmd/probectl-control/builders.go")
 	exportGo := readRepoFile(t, "internal/pipeline/otlpexport.go")
 
 	banned := []string{
@@ -145,7 +146,7 @@ func TestOTLPExportContractDocumentsAllSignals(t *testing.T) {
 		"NewOTLPLogExportConsumer",
 		"otlp export enabled (metrics+traces+logs)",
 	}
-	code := mainGo + "\n" + exportGo
+	code := mainGo + "\n" + buildersGo + "\n" + exportGo
 	for _, want := range codeMustContain {
 		if !strings.Contains(code, want) {
 			t.Errorf("OTLP export code no longer wires all-signal export consumer %q", want)

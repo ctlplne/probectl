@@ -13,7 +13,7 @@ import {
   LoadingState,
 } from '../components'
 import { useTopology, useWhatIf, type TopoNode, type WhatIfImpact } from '../api/topology'
-import { layoutTopology, T_NODE_H, T_NODE_W } from '../viz/topoLayout'
+import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
 
 /** TopologyPage (S43, PR1): the tenant's dependency graph — agents, hops,
  * devices, hosts, services, prefixes — with temporal time travel (?at) and
@@ -33,186 +33,291 @@ export function TopologyPage() {
     whatIf.mutate({ target, at: at || undefined })
   }
 
+  const updateTime = (value: string) => {
+    setSelected(null)
+    whatIf.reset()
+    setAt(value ? new Date(value).toISOString() : '')
+  }
+
   return (
     <Page
       title="Topology"
       subtitle="The dependency graph across planes — and what breaks if an element fails."
     >
-      <div className={styles.toolbar}>
-        <Field
-          label="As of"
-          hint="Empty = live; pick a time to view the graph as it was."
-          type="datetime-local"
-          value={at ? at.slice(0, 16) : ''}
-          onChange={(e) => {
-            setSelected(null)
-            whatIf.reset()
-            setAt(e.target.value ? new Date(e.target.value).toISOString() : '')
-          }}
-        />
-        {at !== '' && (
-          <Button variant="ghost" onClick={() => setAt('')}>
-            Back to live
-          </Button>
-        )}
-      </div>
+      <TopologyToolbar at={at} onTimeChange={updateTime} onLive={() => updateTime('')} />
 
       {isPending || isError || !data?.topology_running || layout.nodes.length === 0 ? (
-        <Card>
-          <CardHeader
-            title="Dependency graph"
-            description="Click a node to inspect it, then simulate its failure."
-          />
-          <CardBody>
-            {isPending ? (
-              <LoadingState label="Loading topology…" />
-            ) : isError ? (
-              <ErrorState description="Could not load the topology graph." />
-            ) : !data?.topology_running ? (
-              <EmptyState
-                icon="path"
-                title="Topology not wired"
-                description="The control plane started without a topology store."
-              />
-            ) : (
-              <EmptyState
-                icon="path"
-                title="No topology observed yet"
-                description="Run a path discovery, or let eBPF/BGP/device telemetry stream in."
-              />
-            )}
-          </CardBody>
-        </Card>
+        <TopologyFallbackCard
+          isPending={isPending}
+          isError={isError}
+          topologyRunning={data?.topology_running}
+        />
       ) : (
         <div className={styles.grid}>
-          <Card className={styles.graphCard}>
-            <CardHeader
-              title="Dependency graph"
-              description="Click a node to inspect it, then simulate its failure."
-            />
-            <CardBody>
-              {(data.coverage?.notes?.length ?? 0) > 0 && (
-                <div className={styles.coverage} role="note" aria-label="coverage gaps">
-                  {data.coverage?.notes?.map((n) => (
-                    <span key={n}>{n}</span>
-                  ))}
-                </div>
-              )}
-              {layout.truncated && (
-                <p className={styles.truncated}>
-                  Showing {layout.nodes.length} of {layout.total} nodes (densest view is capped for
-                  legibility).
-                </p>
-              )}
-              <div className={styles.graphWrap}>
-                <svg
-                  role="group"
-                  aria-label="Topology graph"
-                  width={layout.width}
-                  height={layout.height}
-                  viewBox={`0 0 ${layout.width} ${layout.height}`}
-                >
-                  {layout.edges.map((e) => (
-                    <line
-                      key={e.id}
-                      className={[
-                        styles.edge,
-                        e.kind === 'flow' ? styles.edgeFlow : '',
-                        e.kind === 'routing' ? styles.edgeRouting : '',
-                        e.kind === 'device' ? styles.edgeDevice : '',
-                        impacted.edges.has(e.id) ? styles.edgeImpacted : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      x1={e.x1}
-                      y1={e.y1}
-                      x2={e.x2}
-                      y2={e.y2}
-                    />
-                  ))}
-                  {layout.nodes.map((n) => (
-                    <g
-                      key={n.id}
-                      role="button"
-                      tabIndex={0}
-                      aria-label={`${n.kind} ${n.label}`}
-                      className={[
-                        styles.node,
-                        selected?.id === n.id ? styles.nodeSelected : '',
-                        impact?.target === n.id ? styles.nodeFailed : '',
-                        impacted.nodes.has(n.id) ? styles.nodeImpacted : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' ')}
-                      transform={`translate(${n.x}, ${n.y})`}
-                      onClick={() => setSelected(n)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault()
-                          setSelected(n)
-                        }
-                      }}
-                    >
-                      <rect className={styles.nodeBox} width={T_NODE_W} height={T_NODE_H} rx={8} />
-                      <text className={styles.nodeKind} x={10} y={15}>
-                        {n.kind}
-                      </text>
-                      <text className={styles.nodeLabel} x={10} y={30}>
-                        {n.label.length > 20 ? `${n.label.slice(0, 19)}…` : n.label}
-                      </text>
-                    </g>
-                  ))}
-                </svg>
-              </div>
-            </CardBody>
-          </Card>
-
-          <div className={styles.side}>
-            <Card>
-              <CardHeader title="Inspector" />
-              <CardBody>
-                {!selected ? (
-                  <EmptyState
-                    icon="path"
-                    title="No node selected"
-                    description="Click a node in the graph."
-                  />
-                ) : (
-                  <>
-                    <dl className={styles.detailList}>
-                      <dt>Node</dt>
-                      <dd>
-                        <code>{selected.id}</code>
-                      </dd>
-                      <dt>Kind</dt>
-                      <dd>
-                        <Badge tone="info">{selected.kind}</Badge>
-                      </dd>
-                      <dt>Label</dt>
-                      <dd>{selected.label}</dd>
-                    </dl>
-                    <p>
-                      <Button onClick={() => simulate(selected.id)} disabled={whatIf.isPending}>
-                        {whatIf.isPending ? 'Simulating…' : 'Simulate failure'}
-                      </Button>
-                    </p>
-                  </>
-                )}
-              </CardBody>
-            </Card>
-
-            {impact && <ImpactCard impact={impact} />}
-            {whatIf.isError && (
-              <Card>
-                <CardBody>
-                  <ErrorState description="Simulation failed — the element may not exist at that time." />
-                </CardBody>
-              </Card>
-            )}
-          </div>
+          <TopologyGraphCard
+            layout={layout}
+            coverageNotes={data.coverage?.notes ?? []}
+            selected={selected}
+            impact={impact}
+            impacted={impacted}
+            onSelect={setSelected}
+          />
+          <TopologySidePanel
+            selected={selected}
+            impact={impact}
+            isSimulating={whatIf.isPending}
+            simulationFailed={whatIf.isError}
+            onSimulate={simulate}
+          />
         </div>
       )}
     </Page>
+  )
+}
+
+function TopologyToolbar({
+  at,
+  onTimeChange,
+  onLive,
+}: {
+  at: string
+  onTimeChange: (value: string) => void
+  onLive: () => void
+}) {
+  return (
+    <div className={styles.toolbar}>
+      <Field
+        label="As of"
+        hint="Empty = live; pick a time to view the graph as it was."
+        type="datetime-local"
+        value={at ? at.slice(0, 16) : ''}
+        onChange={(e) => onTimeChange(e.target.value)}
+      />
+      {at !== '' && (
+        <Button variant="ghost" onClick={onLive}>
+          Back to live
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function TopologyFallbackCard({
+  isPending,
+  isError,
+  topologyRunning,
+}: {
+  isPending: boolean
+  isError: boolean
+  topologyRunning?: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader
+        title="Dependency graph"
+        description="Click a node to inspect it, then simulate its failure."
+      />
+      <CardBody>
+        {isPending ? (
+          <LoadingState label="Loading topology…" />
+        ) : isError ? (
+          <ErrorState description="Could not load the topology graph." />
+        ) : !topologyRunning ? (
+          <EmptyState
+            icon="path"
+            title="Topology not wired"
+            description="The control plane started without a topology store."
+          />
+        ) : (
+          <EmptyState
+            icon="path"
+            title="No topology observed yet"
+            description="Run a path discovery, or let eBPF/BGP/device telemetry stream in."
+          />
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function TopologyGraphCard({
+  layout,
+  coverageNotes,
+  selected,
+  impact,
+  impacted,
+  onSelect,
+}: {
+  layout: TopoLayout
+  coverageNotes: string[]
+  selected: TopoNode | null
+  impact: WhatIfImpact | null
+  impacted: ImpactOverlay
+  onSelect: (node: TopoNode) => void
+}) {
+  return (
+    <Card className={styles.graphCard}>
+      <CardHeader
+        title="Dependency graph"
+        description="Click a node to inspect it, then simulate its failure."
+      />
+      <CardBody>
+        {coverageNotes.length > 0 && (
+          <div className={styles.coverage} role="note" aria-label="coverage gaps">
+            {coverageNotes.map((n) => (
+              <span key={n}>{n}</span>
+            ))}
+          </div>
+        )}
+        {layout.truncated && (
+          <p className={styles.truncated}>
+            Showing {layout.nodes.length} of {layout.total} nodes (densest view is capped for
+            legibility).
+          </p>
+        )}
+        <div className={styles.graphWrap}>
+          <svg
+            role="group"
+            aria-label="Topology graph"
+            width={layout.width}
+            height={layout.height}
+            viewBox={`0 0 ${layout.width} ${layout.height}`}
+          >
+            {layout.edges.map((e) => (
+              <line
+                key={e.id}
+                className={[
+                  styles.edge,
+                  e.kind === 'flow' ? styles.edgeFlow : '',
+                  e.kind === 'routing' ? styles.edgeRouting : '',
+                  e.kind === 'device' ? styles.edgeDevice : '',
+                  impacted.edges.has(e.id) ? styles.edgeImpacted : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                x1={e.x1}
+                y1={e.y1}
+                x2={e.x2}
+                y2={e.y2}
+              />
+            ))}
+            {layout.nodes.map((n) => (
+              <TopologyNode
+                key={n.id}
+                node={n}
+                selected={selected?.id === n.id}
+                failed={impact?.target === n.id}
+                impacted={impacted.nodes.has(n.id)}
+                onSelect={onSelect}
+              />
+            ))}
+          </svg>
+        </div>
+      </CardBody>
+    </Card>
+  )
+}
+
+function TopologyNode({
+  node,
+  selected,
+  failed,
+  impacted,
+  onSelect,
+}: {
+  node: TopoLayout['nodes'][number]
+  selected: boolean
+  failed: boolean
+  impacted: boolean
+  onSelect: (node: TopoNode) => void
+}) {
+  const select = () => onSelect(node)
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={`${node.kind} ${node.label}`}
+      className={[
+        styles.node,
+        selected ? styles.nodeSelected : '',
+        failed ? styles.nodeFailed : '',
+        impacted ? styles.nodeImpacted : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      transform={`translate(${node.x}, ${node.y})`}
+      onClick={select}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          select()
+        }
+      }}
+    >
+      <rect className={styles.nodeBox} width={T_NODE_W} height={T_NODE_H} rx={8} />
+      <text className={styles.nodeKind} x={10} y={15}>
+        {node.kind}
+      </text>
+      <text className={styles.nodeLabel} x={10} y={30}>
+        {node.label.length > 20 ? `${node.label.slice(0, 19)}…` : node.label}
+      </text>
+    </g>
+  )
+}
+
+function TopologySidePanel({
+  selected,
+  impact,
+  isSimulating,
+  simulationFailed,
+  onSimulate,
+}: {
+  selected: TopoNode | null
+  impact: WhatIfImpact | null
+  isSimulating: boolean
+  simulationFailed: boolean
+  onSimulate: (target: string) => void
+}) {
+  return (
+    <div className={styles.side}>
+      <Card>
+        <CardHeader title="Inspector" />
+        <CardBody>
+          {!selected ? (
+            <EmptyState icon="path" title="No node selected" description="Click a node in the graph." />
+          ) : (
+            <>
+              <dl className={styles.detailList}>
+                <dt>Node</dt>
+                <dd>
+                  <code>{selected.id}</code>
+                </dd>
+                <dt>Kind</dt>
+                <dd>
+                  <Badge tone="info">{selected.kind}</Badge>
+                </dd>
+                <dt>Label</dt>
+                <dd>{selected.label}</dd>
+              </dl>
+              <p>
+                <Button onClick={() => onSimulate(selected.id)} disabled={isSimulating}>
+                  {isSimulating ? 'Simulating…' : 'Simulate failure'}
+                </Button>
+              </p>
+            </>
+          )}
+        </CardBody>
+      </Card>
+
+      {impact && <ImpactCard impact={impact} />}
+      {simulationFailed && (
+        <Card>
+          <CardBody>
+            <ErrorState description="Simulation failed — the element may not exist at that time." />
+          </CardBody>
+        </Card>
+      )}
+    </div>
   )
 }
 
@@ -277,11 +382,13 @@ function ImpactCard({ impact }: { impact: WhatIfImpact }) {
   )
 }
 
-/** impactedNodeIDs derives the overlay sets from a simulation result. */
-function impactedNodeIDs(impact: WhatIfImpact | null): {
+type ImpactOverlay = {
   nodes: Set<string>
   edges: Set<string>
-} {
+}
+
+/** impactedNodeIDs derives the overlay sets from a simulation result. */
+function impactedNodeIDs(impact: WhatIfImpact | null): ImpactOverlay {
   const nodes = new Set<string>()
   const edges = new Set<string>()
   if (!impact) return { nodes, edges }

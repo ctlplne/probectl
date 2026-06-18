@@ -14,10 +14,22 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/a2a"
+	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/cluster"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/control"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/enroll"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/secrets"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -26,8 +38,12 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
+	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/internal/version"
+	"golang.org/x/sync/errgroup"
 )
 
 // serveStores holds the message bus + the per-plane stores the serve path wires
@@ -43,6 +59,57 @@ type serveStores struct {
 	otelStore    otelstore.Store
 	flowStore    flowstore.Store
 	ebpfStore    ebpfstore.Store
+}
+
+var devAuthAvailable = control.DevModeAvailable
+
+// validateDevAuthMode is the RED-001/SEC-001 startup gate for the explicit
+// local-evaluation auth mode. In ELI5 terms: if the operator asks for the
+// "pretend every request is admin" mode, three locks must all be open:
+// the binary was built with that dev-only code, the operator typed the ack,
+// and the listener only binds loopback. Any missing lock fails closed.
+func validateDevAuthMode(cfg *config.Config) error {
+	if cfg.AuthMode != "dev" {
+		return nil
+	}
+	if !devAuthAvailable() {
+		return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth is not compiled into this binary (release build). " +
+			"For local evaluation build with -tags devauth (make build-devauth); production uses the default \"session\" mode (RED-001)")
+	}
+	if os.Getenv("PROBECTL_DEV_AUTH_ACK") != "i-understand" {
+		return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: set PROBECTL_DEV_AUTH_ACK=i-understand to acknowledge that " +
+			"EVERY request will receive an all-permissions principal with no authentication (local evaluation only)")
+	}
+	if !loopbackOnly(cfg.HTTPAddr) {
+		return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth requires a loopback bind (got %q) — "+
+			"set PROBECTL_HTTP_ADDR=127.0.0.1:<port>; never expose an unauthenticated all-permissions API on a network interface", cfg.HTTPAddr)
+	}
+	return nil
+}
+
+// verifyServePosture runs the DB-backed startup checks that must pass before
+// the API can serve traffic. Keeping these checks together makes the fail-closed
+// tenant boundary visible: migrations may run, then RLS/profile posture are
+// verified at the storage/query layer before any listener starts.
+func verifyServePosture(ctx context.Context, cfg *config.Config, db *store.DB, log *slog.Logger) error {
+	if cfg.MigrateOnBoot {
+		if err := runMigrations(ctx, db, log); err != nil {
+			return err
+		}
+	}
+
+	if err := tenancy.AssertIsolationPosture(ctx, db.Pool()); err != nil {
+		return fmt.Errorf("tenant isolation self-check failed: %w", err)
+	}
+	log.Info("tenant isolation posture verified (RLS forced, app role non-bypass)")
+
+	chScoped := cfg.FlowCHTenantScoping && cfg.OTelCHTenantScoping &&
+		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.IngestStrictTenantLanes
+	if err := tenancy.AssertDeploymentProfilePosture(ctx, db.Pool(), cfg.DeploymentProfile, chScoped); err != nil {
+		return fmt.Errorf("deployment profile self-check failed: %w", err)
+	}
+	log.Info("deployment profile posture verified", "profile", cfg.DeploymentProfile, "ch_tenant_scoped", chScoped)
+	return nil
 }
 
 // buildServeStores constructs the bus + every datastore the serve path needs,
@@ -373,6 +440,245 @@ func setupSecretsAndEnvelope(cfg *config.Config) (*secrets.Resolver, bool, error
 			"(set PROBECTL_ENVELOPE_KEY, or the licensed per-tenant keyring) — refusing to start with plaintext at-rest storage")
 	}
 	return resolver, envelopeGenerated, nil
+}
+
+// startAgentTransport wires the optional mTLS agent listener and its revocation
+// refresh loop. It stays disabled unless the agent TLS config is complete; when
+// enabled, every handshake is tenant-bound and checked against the persisted
+// revocation list before agent traffic reaches the bus.
+func startAgentTransport(
+	ctx context.Context,
+	g *errgroup.Group,
+	cfg *config.Config,
+	db *store.DB,
+	resultBus bus.Bus,
+	a2aBroker *a2a.Broker,
+	srv *control.Server,
+	enrollSvc *enroll.Service,
+	log *slog.Logger,
+) error {
+	if !cfg.AgentTransportEnabled() {
+		return nil
+	}
+	grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)
+	if err != nil {
+		return fmt.Errorf("agent transport: %w", err)
+	}
+	grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
+
+	if enrollSvc != nil {
+		reload := func() {
+			serials, ids, rerr := enrollSvc.ListRevoked(ctx)
+			if rerr != nil {
+				log.Error("revocation reload failed (keeping the previous deny-list)", "error", rerr.Error())
+				return
+			}
+			grpcSrv.RevocationList().Replace(serials, ids)
+		}
+		reload()
+		srv.SetAgentRevocationPush(func(serials, ids []string) {
+			for _, s := range serials {
+				grpcSrv.RevocationList().RevokeSerial(s)
+			}
+			for _, id := range ids {
+				grpcSrv.RevocationList().RevokeID(id)
+			}
+		})
+		g.Go(func() error {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return nil
+				case <-t.C:
+					reload()
+				}
+			}
+		})
+	}
+	g.Go(func() error { return grpcSrv.Serve(ctx, cfg.AgentGRPCAddr) })
+	return nil
+}
+
+// startOTLPSubsystems wires the TLS-only, authenticated OTLP receiver and the
+// consumers that persist/export all three OTLP signals. The receiver publishes
+// tenant-keyed bus records; the consumers keep the existing fairness, metrics,
+// and DLQ semantics at the edge of the extracted helper.
+func startOTLPSubsystems(
+	ctx context.Context,
+	g *errgroup.Group,
+	cfg *config.Config,
+	db *store.DB,
+	resultBus bus.Bus,
+	ingestWriter tsdb.Writer,
+	otelStore otelstore.Store,
+	fairGate *fairness.Gate,
+	srv *control.Server,
+	log *slog.Logger,
+) error {
+	if !cfg.OTLPEnabled() {
+		return nil
+	}
+	tlsCfg, err := crypto.ServerTLSConfig(cfg.OTLPTLSCertFile, cfg.OTLPTLSKeyFile)
+	if err != nil {
+		return fmt.Errorf("otlp tls: %w", err)
+	}
+	otlpAuth := otlp.NewDBTokenAuthenticator(store.NewOTLPTokens(db.Pool()), cfg.OTLPTokens, log)
+	srv.WithOTLPTokenAuth(otlpAuth)
+
+	sinks := otlp.Sinks{
+		Metrics: otlp.NewBusSink(func(ctx context.Context, tenant string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.OTLPMetricsTopic, []byte(tenant), payload)
+		}),
+		Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.OTLPTracesTopic, []byte(tenant), payload)
+		}),
+		Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.OTLPLogsTopic, []byte(tenant), payload)
+		}),
+	}
+	otlpSrv, err := otlp.NewServer(
+		otlp.ServerConfig{GRPCAddr: cfg.OTLPGRPCAddr, HTTPAddr: cfg.OTLPHTTPAddr},
+		tlsCfg, otlpAuth, sinks, log)
+	if err != nil {
+		return fmt.Errorf("otlp receiver: %w", err)
+	}
+	g.Go(func() error {
+		return superviseRestart(ctx, "otlp-receiver", log, func(ctx context.Context) error {
+			return otlpSrv.Run(ctx)
+		})
+	})
+	g.Go(func() error {
+		return superviseRestart(ctx, "otlp-metrics-consumer", log, func(ctx context.Context) error {
+			return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).
+				WithMetrics(srv.Metrics()).
+				WithFairness(fairGate).
+				WithCardinalityCaps(cfg.IngestMaxSeriesPerTenant).
+				Run(ctx)
+		})
+	})
+
+	if cfg.OTLPExportEnabled() {
+		exp, eerr := buildOTLPExporter(cfg)
+		if eerr != nil {
+			return fmt.Errorf("otlp export: %w", eerr)
+		}
+		g.Go(func() error {
+			return superviseRestart(ctx, "otlp-export", log, func(ctx context.Context) error {
+				return pipeline.NewOTLPExportConsumer(resultBus, exp, log).Run(ctx)
+			})
+		})
+		g.Go(func() error {
+			return superviseRestart(ctx, "otlp-trace-export", log, func(ctx context.Context) error {
+				return pipeline.NewOTLPTraceExportConsumer(resultBus, exp, log).Run(ctx)
+			})
+		})
+		g.Go(func() error {
+			return superviseRestart(ctx, "otlp-log-export", log, func(ctx context.Context) error {
+				return pipeline.NewOTLPLogExportConsumer(resultBus, exp, log).Run(ctx)
+			})
+		})
+		log.Info("otlp export enabled (metrics+traces+logs)", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
+	}
+	g.Go(func() error {
+		return superviseRestart(ctx, "otlp-traces-consumer", log, func(ctx context.Context) error {
+			return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).
+				WithMetrics(srv.Metrics()).
+				WithFairness(fairGate).
+				Run(ctx)
+		})
+	})
+	g.Go(func() error {
+		return superviseRestart(ctx, "otlp-logs-consumer", log, func(ctx context.Context) error {
+			return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).
+				WithMetrics(srv.Metrics()).
+				WithFairness(fairGate).
+				Run(ctx)
+		})
+	})
+	return nil
+}
+
+// startHAAndTenantLifecycle wires the optional multi-region fence plus the core
+// tenant lifecycle engine. These are grouped because both are platform-safety
+// services around the API: one decides when writes are safe, the other proves
+// tenant export/deletion/retention and provider-audit durability.
+func startHAAndTenantLifecycle(
+	ctx context.Context,
+	g *errgroup.Group,
+	cfg *config.Config,
+	db *store.DB,
+	log *slog.Logger,
+	srv *control.Server,
+	tsdbWriter tsdb.Writer,
+	flowStore flowstore.Store,
+	pathStore pathstore.Store,
+	topoStore topology.Store,
+	otelStore otelstore.Store,
+	ebpfStore ebpfstore.Store,
+) (*tenantlife.Engine, error) {
+	if cfg.Region != "" {
+		topo := cluster.Topology{
+			Region: cfg.Region, Regions: cfg.Regions, Residency: cfg.Residency,
+			ReplicationMode: cluster.ReplicationMode(cfg.ReplicationMode),
+			RPOSeconds:      cfg.RPOSeconds, RTOSeconds: cfg.RTOSeconds,
+		}
+		var readProbe cluster.Prober
+		if db.ReadPool() != db.Pool() {
+			readProbe = cluster.NewPGProber(db.ReadPool())
+		}
+		clusterMgr := cluster.NewManager(topo, cluster.NewPGProber(db.Pool()), readProbe)
+		srv.WithCluster(clusterMgr)
+		g.Go(func() error { clusterMgr.Run(ctx, 5*time.Second); return nil })
+		g.Go(func() error { cluster.RunMetrics(ctx, tsdbWriter, clusterMgr, 30*time.Second, log); return nil })
+		log.Info("multi-region HA active (S-EE2)", "region", cfg.Region,
+			"regions", cfg.Regions, "replication", cfg.ReplicationMode, "read_replica", readProbe != nil)
+	}
+
+	lifeEngine := tenantlife.NewWithBackupRetention(db.Pool(), flowStore, nil, tsdbWriter,
+		func(ctx context.Context, actor, action, target string, data map[string]any) error {
+			_, err := audit.ProviderAppend(ctx, db.Pool(), actor, action, target, data)
+			return err
+		}, cfg.BackupRetentionNote, cfg.BackupRetentionDays, log)
+	if pd, ok := pathStore.(tenantlife.PathDeleter); ok {
+		lifeEngine.WithPaths(pd)
+	}
+	if td, ok := topoStore.(tenantlife.TopologyDeleter); ok {
+		lifeEngine.WithTopology(td)
+	}
+	if od, ok := otelStore.(tenantlife.OtelDeleter); ok {
+		lifeEngine.WithOtel(od)
+	}
+	if ed, ok := ebpfStore.(tenantlife.EBPFDeleter); ok {
+		lifeEngine.WithEBPF(ed)
+	}
+	srv.WithTenantLife(lifeEngine)
+	g.Go(func() error { lifeEngine.RunRetention(ctx, 24*time.Hour); return nil })
+
+	if cfg.AuditWORMDir != "" {
+		wormStore, werr := objectstore.NewFS(cfg.AuditWORMDir)
+		if werr != nil {
+			return nil, fmt.Errorf("audit worm store: %w", werr)
+		}
+		wormPriv, wormPub, wormKeyGen, kerr := audit.ResolveWormSigningKey(cfg.WormSigningKey, cfg.WormSigningKeyFile, cfg.RequireAtRestEncryption)
+		if kerr != nil {
+			return nil, fmt.Errorf("audit worm signing key: %w", kerr)
+		}
+		if wormKeyGen {
+			log.Warn("GENERATED a new WORM audit signing key — back this file up like any key material; losing it forfeits cross-restart verification of the exported chain",
+				"key_file", cfg.WormSigningKeyFile)
+		}
+		worm, werr := audit.NewWormExporterPG(db.Pool(), wormStore, wormPriv, wormPub, log)
+		if werr != nil {
+			return nil, fmt.Errorf("audit worm exporter: %w", werr)
+		}
+		g.Go(func() error { worm.Run(ctx, cfg.AuditWORMInterval); return nil })
+		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
+	}
+
+	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
+	return lifeEngine, nil
 }
 
 // buildIngestWriter selects the tsdb.Writer used by the INGEST consumers.

@@ -39,11 +39,8 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/imfeelingtheagi/probectl/internal/a2a"
-	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
 	"github.com/imfeelingtheagi/probectl/internal/alert"
-	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
-	"github.com/imfeelingtheagi/probectl/internal/cluster"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -51,18 +48,14 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
-	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
-	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
-	"github.com/imfeelingtheagi/probectl/internal/otel/otlp"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/support"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/threat"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/internal/version"
@@ -113,23 +106,8 @@ func run(cmd string) error {
 			"key_file", cfg.EnvelopeKeyFile, "key_id", cfg.EnvelopeKeyID)
 	}
 
-	// Dev auth (RED-001/SEC-001): never a default (U-001), and in a RELEASE
-	// binary not even possible — the code path only exists behind the
-	// devauth build tag. Even then, an explicit acknowledgment AND a
-	// loopback-only bind are required. Fatal-exit, never just a warning.
-	if cfg.AuthMode == "dev" {
-		if !control.DevModeAvailable() {
-			return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth is not compiled into this binary (release build). " +
-				"For local evaluation build with -tags devauth (make build-devauth); production uses the default \"session\" mode (RED-001)")
-		}
-		if os.Getenv("PROBECTL_DEV_AUTH_ACK") != "i-understand" {
-			return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: set PROBECTL_DEV_AUTH_ACK=i-understand to acknowledge that " +
-				"EVERY request will receive an all-permissions principal with no authentication (local evaluation only)")
-		}
-		if !loopbackOnly(cfg.HTTPAddr) {
-			return fmt.Errorf("PROBECTL_AUTH_MODE=dev refused: dev auth requires a loopback bind (got %q) — "+
-				"set PROBECTL_HTTP_ADDR=127.0.0.1:<port>; never expose an unauthenticated all-permissions API on a network interface", cfg.HTTPAddr)
-		}
+	if err := validateDevAuthMode(cfg); err != nil {
+		return err
 	}
 
 	// FIPS power-on self-test (S-EE1): exercise every crypto primitive (KATs)
@@ -166,30 +144,9 @@ func run(cmd string) error {
 		return err
 	}
 
-	if cfg.MigrateOnBoot {
-		if err := runMigrations(context.Background(), db, log); err != nil {
-			return err
-		}
+	if err := verifyServePosture(context.Background(), cfg, db, log); err != nil {
+		return err
 	}
-
-	// TENANT-104: verify the RLS posture before serving — the app role must be
-	// non-super, non-bypassrls, and every tenant table must FORCE row security.
-	// Fail closed: a deployment where RLS is silently off must not run.
-	if err := tenancy.AssertIsolationPosture(context.Background(), db.Pool()); err != nil {
-		return fmt.Errorf("tenant isolation self-check failed: %w", err)
-	}
-	log.Info("tenant isolation posture verified (RLS forced, app role non-bypass)")
-
-	// RED-001: the single-tenant profile leaves ClickHouse row-policies and the
-	// bus strict-lane OFF by default; refuse to serve more than one tenant in
-	// that posture (an MSP that forgets PROBECTL_DEPLOYMENT_PROFILE must not run
-	// multi-tenant with that defense-in-depth silently off). Fail closed.
-	chScoped := cfg.FlowCHTenantScoping && cfg.OTelCHTenantScoping &&
-		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.IngestStrictTenantLanes
-	if err := tenancy.AssertDeploymentProfilePosture(context.Background(), db.Pool(), cfg.DeploymentProfile, chScoped); err != nil {
-		return fmt.Errorf("deployment profile self-check failed: %w", err)
-	}
-	log.Info("deployment profile posture verified", "profile", cfg.DeploymentProfile, "ch_tenant_scoped", chScoped)
 
 	log.Info("starting probectl-control", "version", version.Get().Version, "config", cfg)
 
@@ -527,91 +484,10 @@ func run(cmd string) error {
 	supportStart := time.Now()
 	g.Go(func() error { support.RunSelfMetrics(gctx, tsdbWriter, supportStart, 30*time.Second, log); return nil })
 
-	// Multi-region / active-active HA (S-EE2). Inert unless PROBECTL_REGION is
-	// set: a single-region deployment keeps writes always-allowed and omits
-	// cluster status. With a region configured, the split-brain fence probes
-	// the writer (and the read replica, if any) and pauses API writes during a
-	// failover while reads + telemetry keep flowing.
-	if cfg.Region != "" {
-		topo := cluster.Topology{
-			Region: cfg.Region, Regions: cfg.Regions, Residency: cfg.Residency,
-			ReplicationMode: cluster.ReplicationMode(cfg.ReplicationMode),
-			RPOSeconds:      cfg.RPOSeconds, RTOSeconds: cfg.RTOSeconds,
-		}
-		var readProbe cluster.Prober
-		if db.ReadPool() != db.Pool() {
-			readProbe = cluster.NewPGProber(db.ReadPool())
-		}
-		clusterMgr := cluster.NewManager(topo, cluster.NewPGProber(db.Pool()), readProbe)
-		srv.WithCluster(clusterMgr)
-		g.Go(func() error { clusterMgr.Run(gctx, 5*time.Second); return nil })
-		g.Go(func() error { cluster.RunMetrics(gctx, tsdbWriter, clusterMgr, 30*time.Second, log); return nil })
-		log.Info("multi-region HA active (S-EE2)", "region", cfg.Region,
-			"regions", cfg.Regions, "replication", cfg.ReplicationMode, "read_replica", readProbe != nil)
+	lifeEngine, err := startHAAndTenantLifecycle(gctx, g, cfg, db, log, srv, tsdbWriter, flowStore, pathStore, topoStore, otelStore, ebpfStore)
+	if err != nil {
+		return err
 	}
-	// Per-tenant lifecycle (S-T5, core): export / retention / verifiable
-	// erasure with attestation. The object store is agent-side (browser
-	// artifacts), so the control plane's engine runs without one — recorded
-	// honestly per store in every attestation. The daily sweeper enforces
-	// per-tenant flow retention.
-	lifeEngine := tenantlife.NewWithBackupRetention(db.Pool(), flowStore, nil, tsdbWriter,
-		func(ctx context.Context, actor, action, target string, data map[string]any) error {
-			_, err := audit.ProviderAppend(ctx, db.Pool(), actor, action, target, data)
-			return err
-		}, cfg.BackupRetentionNote, cfg.BackupRetentionDays, log)
-	// U-027: erasure coverage for the path store + topology graph; the
-	// attestation enumerates them (or records "store not deployed").
-	if pd, ok := pathStore.(tenantlife.PathDeleter); ok {
-		lifeEngine.WithPaths(pd)
-	}
-	if td, ok := topoStore.(tenantlife.TopologyDeleter); ok {
-		lifeEngine.WithTopology(td)
-	}
-	// TENANT-008: erasure coverage for the OTLP trace/log store — externally-
-	// ingested traces+logs are tenant PII; the attestation enumerates the
-	// "otel" store (count-verified) or records "store not deployed".
-	if od, ok := otelStore.(tenantlife.OtelDeleter); ok {
-		lifeEngine.WithOtel(od)
-	}
-	// TENANT-002: erasure coverage for the eBPF L7 edge store — workload edges,
-	// dest ports and L7 protocols are tenant telemetry; the attestation
-	// enumerates the "ebpf" store (count-verified) or records "store not
-	// deployed". Previously this whole plane survived offboarding while the
-	// attestation could still report Complete:true.
-	if ed, ok := ebpfStore.(tenantlife.EBPFDeleter); ok {
-		lifeEngine.WithEBPF(ed)
-	}
-	srv.WithTenantLife(lifeEngine)
-	g.Go(func() error { lifeEngine.RunRetention(gctx, 24*time.Hour); return nil })
-	// U-041: WORM export of the provider audit chain — signed segments into
-	// an (object-locked) store, chain-verified every cycle.
-	if cfg.AuditWORMDir != "" {
-		wormStore, werr := objectstore.NewFS(cfg.AuditWORMDir)
-		if werr != nil {
-			return fmt.Errorf("audit worm store: %w", werr)
-		}
-		// KEYS-002 (D2): resolve a PERSISTED signing key — env base64 wins, else a
-		// key file (generated + persisted on first boot); fail closed if WORM
-		// export is on but no key resolves (never an ephemeral per-boot key, which
-		// would break cross-restart verification of the chain).
-		wormPriv, wormPub, wormKeyGen, kerr := audit.ResolveWormSigningKey(cfg.WormSigningKey, cfg.WormSigningKeyFile, cfg.RequireAtRestEncryption)
-		if kerr != nil {
-			return fmt.Errorf("audit worm signing key: %w", kerr)
-		}
-		if wormKeyGen {
-			log.Warn("GENERATED a new WORM audit signing key — back this file up like any key material; losing it forfeits cross-restart verification of the exported chain",
-				"key_file", cfg.WormSigningKeyFile)
-		}
-		worm, werr := audit.NewWormExporterPG(db.Pool(), wormStore, wormPriv, wormPub, log)
-		if werr != nil {
-			return fmt.Errorf("audit worm exporter: %w", werr)
-		}
-		g.Go(func() error { worm.Run(gctx, cfg.AuditWORMInterval); return nil })
-		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
-	}
-	// Tenant lifecycle gate (S-T1): users of suspended/offboarded tenants are
-	// rejected at the API; data and ingestion are untouched.
-	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))
 	// The ee attach seam (S-T1+): licensed commercial features are constructed
 	// and mounted here — and ONLY here. The core-only build (-tags
 	// probectl_core) compiles the no-op twin, proving core stands alone.
@@ -796,137 +672,12 @@ func run(cmd string) error {
 		})
 	})
 
-	if cfg.AgentTransportEnabled() {
-		grpcSrv, err := agenttransport.New(cfg.AgentTLSCertFile, cfg.AgentTLSKeyFile, cfg.AgentTLSCAFile, db.Pool(), resultBus, a2aBroker, log)
-		if err != nil {
-			return fmt.Errorf("agent transport: %w", err)
-		}
-		// Version-skew policy (S34): reject agents outside the N/N-1 window (or an
-		// explicit floor) at registration.
-		grpcSrv.WithVersionPolicy(lifecycle.Policy{Window: cfg.AgentSkewWindow, Min: cfg.AgentMinVersion})
-		// Sprint 12 (WIRE-003 residual): FEED the handshake deny-list. Boot
-		// loads persisted revocations; the API pushes live; the refresher
-		// (30s) picks up CLI-side revocations and keeps restarts converged.
-		if enrollSvc != nil {
-			reload := func() {
-				serials, ids, rerr := enrollSvc.ListRevoked(gctx)
-				if rerr != nil {
-					log.Error("revocation reload failed (keeping the previous deny-list)", "error", rerr.Error())
-					return
-				}
-				grpcSrv.RevocationList().Replace(serials, ids)
-			}
-			reload()
-			srv.SetAgentRevocationPush(func(serials, ids []string) {
-				for _, s := range serials {
-					grpcSrv.RevocationList().RevokeSerial(s)
-				}
-				for _, id := range ids {
-					grpcSrv.RevocationList().RevokeID(id)
-				}
-			})
-			g.Go(func() error {
-				t := time.NewTicker(30 * time.Second)
-				defer t.Stop()
-				for {
-					select {
-					case <-gctx.Done():
-						return nil
-					case <-t.C:
-						reload()
-					}
-				}
-			})
-		}
-		g.Go(func() error { return grpcSrv.Serve(gctx, cfg.AgentGRPCAddr) })
+	if err := startAgentTransport(gctx, g, cfg, db, resultBus, a2aBroker, srv, enrollSvc, log); err != nil {
+		return err
 	}
 
-	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
-	// external OTLP. Ingested metrics are tenant-tagged and published to the bus.
-	if cfg.OTLPEnabled() {
-		tlsCfg, err := crypto.ServerTLSConfig(cfg.OTLPTLSCertFile, cfg.OTLPTLSKeyFile)
-		if err != nil {
-			return fmt.Errorf("otlp tls: %w", err)
-		}
-		otlpAuth := otlp.NewDBTokenAuthenticator(store.NewOTLPTokens(db.Pool()), cfg.OTLPTokens, log)
-		srv.WithOTLPTokenAuth(otlpAuth)
-		// ARCH-001 (Sprint 22): all THREE OTLP signals — metrics, traces,
-		// logs — are received, tenant-scoped, published per-signal, consumed,
-		// stored, and queryable (/v1/otlp/*).
-		sinks := otlp.Sinks{
-			Metrics: otlp.NewBusSink(func(ctx context.Context, tenant string, payload []byte) error {
-				return resultBus.Publish(ctx, bus.OTLPMetricsTopic, []byte(tenant), payload)
-			}),
-			Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant string, payload []byte) error {
-				return resultBus.Publish(ctx, bus.OTLPTracesTopic, []byte(tenant), payload)
-			}),
-			Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant string, payload []byte) error {
-				return resultBus.Publish(ctx, bus.OTLPLogsTopic, []byte(tenant), payload)
-			}),
-		}
-		otlpSrv, err := otlp.NewServer(
-			otlp.ServerConfig{GRPCAddr: cfg.OTLPGRPCAddr, HTTPAddr: cfg.OTLPHTTPAddr},
-			tlsCfg, otlpAuth, sinks, log)
-		if err != nil {
-			return fmt.Errorf("otlp receiver: %w", err)
-		}
-		// ARCH-002: supervise the OTLP receiver — an ingest listener failure
-		// (e.g. a transient bind/TLS fault) restarts the receiver instead of
-		// killing the whole control plane.
-		g.Go(func() error {
-			return superviseRestart(gctx, "otlp-receiver", log, func(ctx context.Context) error {
-				return otlpSrv.Run(ctx)
-			})
-		})
-		// SCALE-010 + ARCH-001: every topic has a CONSUMER — metrics land in
-		// the TSDB; traces + logs land in the otelstore.
-		// SCALE-003/ARCH-002: each consumer retries + dead-letters store-write
-		// failures; .WithMetrics surfaces the DLQ/drop counters at /metrics.
-		// ARCH-002: the consumers are supervised too (subscribe-path faults).
-		g.Go(func() error {
-			return superviseRestart(gctx, "otlp-metrics-consumer", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).WithMetrics(srv.Metrics()).WithFairness(fairGate).WithCardinalityCaps(cfg.IngestMaxSeriesPerTenant).Run(ctx) // SCALE-003
-			})
-		})
-		// ARCH-007: config-driven OTLP export — forward ingested metrics on to an
-		// external collector when an endpoint is configured (the dormant exporter
-		// is now live). A failed forward redelivers; never a silent drop.
-		if cfg.OTLPExportEnabled() {
-			exp, eerr := buildOTLPExporter(cfg)
-			if eerr != nil {
-				return fmt.Errorf("otlp export: %w", eerr)
-			}
-			g.Go(func() error {
-				return superviseRestart(gctx, "otlp-export", log, func(ctx context.Context) error {
-					return pipeline.NewOTLPExportConsumer(resultBus, exp, log).Run(ctx)
-				})
-			})
-			// ARCH-003: traces + logs are first-class export too — drain their
-			// ingest topics and re-export to the external collector, so a
-			// customer's own trace/log backend receives them (not ingest-only).
-			g.Go(func() error {
-				return superviseRestart(gctx, "otlp-trace-export", log, func(ctx context.Context) error {
-					return pipeline.NewOTLPTraceExportConsumer(resultBus, exp, log).Run(ctx)
-				})
-			})
-			g.Go(func() error {
-				return superviseRestart(gctx, "otlp-log-export", log, func(ctx context.Context) error {
-					return pipeline.NewOTLPLogExportConsumer(resultBus, exp, log).Run(ctx)
-				})
-			})
-			log.Info("otlp export enabled (metrics+traces+logs)", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
-		}
-		// ARCH-002: the trace + log ingest consumers are supervised too.
-		g.Go(func() error {
-			return superviseRestart(gctx, "otlp-traces-consumer", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).WithFairness(fairGate).Run(ctx) // SCALE-003
-			})
-		})
-		g.Go(func() error {
-			return superviseRestart(gctx, "otlp-logs-consumer", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).WithMetrics(srv.Metrics()).WithFairness(fairGate).Run(ctx) // SCALE-003
-			})
-		})
+	if err := startOTLPSubsystems(gctx, g, cfg, db, resultBus, ingestWriter, otelStore, fairGate, srv, log); err != nil {
+		return err
 	}
 
 	// MCP server (S25): the Model Context Protocol HTTP transport — TLS + bearer-
