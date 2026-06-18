@@ -7,6 +7,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"testing"
@@ -68,8 +69,9 @@ func TestOTLPTokenCreateAuditFailureRollsBack(t *testing.T) {
 func TestOTLPTokenRevokeAuditFailureRollsBack(t *testing.T) {
 	db := changeDB(t)
 	tenant := freshTenant(t, db, "otlp-audit-revoke")
-	tokenHash := crypto.Hash([]byte("token-to-revoke"))
-	id, err := store.NewOTLPTokens(db.Pool()).Create(context.Background(), tenant, "revoke-me", tokenHash)
+	seed := time.Now().UnixNano()
+	tokenHash := crypto.Hash([]byte(fmt.Sprintf("token-to-revoke-%d", seed)))
+	id, err := store.NewOTLPTokens(db.Pool()).Create(context.Background(), tenant, fmt.Sprintf("revoke-me-%d", seed), tokenHash)
 	if err != nil {
 		t.Fatalf("seed otlp token: %v", err)
 	}

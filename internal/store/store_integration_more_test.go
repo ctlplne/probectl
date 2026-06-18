@@ -334,6 +334,118 @@ func TestTokenStores(t *testing.T) {
 	}
 }
 
+func TestOTLPTokensStrictRLSAndPreTenantAuth(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	sfx := time.Now().UnixNano()
+	tnA, err := NewTenants(pool).Create(ctx, fmt.Sprintf("otlp-rls-a-%d", sfx), "OTLP RLS A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tnB, err := NewTenants(pool).Create(ctx, fmt.Sprintf("otlp-rls-b-%d", sfx), "OTLP RLS B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+
+	otlp := NewOTLPTokens(pool)
+	hashA := crypto.Hash([]byte(fmt.Sprintf("otlp-secret-a-%d", sfx)))
+	hashB := crypto.Hash([]byte(fmt.Sprintf("otlp-secret-b-%d", sfx)))
+	idA, err := otlp.Create(ctx, tnA.ID, "tenant-a", hashA)
+	if err != nil {
+		t.Fatalf("create tenant A token: %v", err)
+	}
+	idB, err := otlp.Create(ctx, tnB.ID, "tenant-b", hashB)
+	if err != nil {
+		t.Fatalf("create tenant B token: %v", err)
+	}
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin no-guc tx: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+tenancy.AppRole); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("assume app role: %v", err)
+	}
+	var count int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM otlp_tokens`).Scan(&count); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("count without tenant GUC: %v", err)
+	}
+	if count != 0 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("direct app-role SELECT without tenant GUC saw %d rows, want 0", count)
+	}
+	tag, err := tx.Exec(ctx, `UPDATE otlp_tokens SET revoked_at = now() WHERE id = $1`, idA)
+	if err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("direct app-role UPDATE without tenant GUC: %v", err)
+	}
+	if tag.RowsAffected() != 0 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("direct app-role UPDATE without tenant GUC touched %d rows, want 0", tag.RowsAffected())
+	}
+	var authTenant string
+	if err := tx.QueryRow(ctx, `SELECT tenant_id::text FROM otlp_authenticate_token($1)`, hashA).Scan(&authTenant); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("pre-tenant auth function: %v", err)
+	}
+	if authTenant != tnA.ID {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("pre-tenant auth tenant = %s, want %s", authTenant, tnA.ID)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback no-guc tx: %v", err)
+	}
+
+	tx, err = pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin tenant-guc tx: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SET LOCAL ROLE "+tenancy.AppRole); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("assume app role for tenant GUC: %v", err)
+	}
+	if _, err := tx.Exec(ctx, "SELECT set_config('probectl.tenant_id', $1, true)", tnA.ID); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("set tenant GUC: %v", err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM otlp_tokens`).Scan(&count); err != nil {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("count with tenant GUC: %v", err)
+	}
+	if count != 1 {
+		_ = tx.Rollback(ctx)
+		t.Fatalf("direct app-role SELECT with tenant A GUC saw %d rows, want 1", count)
+	}
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("rollback tenant-guc tx: %v", err)
+	}
+
+	gotTenant, err := otlp.Authenticate(ctx, hashA)
+	if err != nil || gotTenant != tnA.ID {
+		t.Fatalf("store auth tenant A: %v / %s", err, gotTenant)
+	}
+	listA, err := otlp.List(ctx, tnA.ID)
+	if err != nil {
+		t.Fatalf("list tenant A: %v", err)
+	}
+	if len(listA) != 1 || listA[0].ID != idA || listA[0].TenantID != tnA.ID {
+		t.Fatalf("tenant A list = %+v, want only %s", listA, idA)
+	}
+	listB, err := otlp.List(ctx, tnB.ID)
+	if err != nil {
+		t.Fatalf("list tenant B: %v", err)
+	}
+	if len(listB) != 1 || listB[0].ID != idB || listB[0].TenantID != tnB.ID {
+		t.Fatalf("tenant B list = %+v, want only %s", listB, idB)
+	}
+	if err := otlp.Revoke(ctx, tnA.ID, idB); err != ErrInvalidOTLPToken {
+		t.Fatalf("tenant A revoke of tenant B token = %v, want ErrInvalidOTLPToken", err)
+	}
+}
+
 func TestSIEMCursorAndIntegrationLinks(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)

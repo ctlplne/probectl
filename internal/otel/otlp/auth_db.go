@@ -36,10 +36,9 @@ type DBTokenAuthenticator struct {
 
 // NewDBTokenAuthenticator builds an authenticator that accepts legacy
 // config-seeded tokens and DB-issued tokens. DB-issued tokens are persisted and
-// hot-revocable; config-seeded tokens remain controlled by config+restart.
-//
-// At startup, call LoadFromDB to seed the in-memory layer with persisted tokens
-// so the DB is not hit on every request for long-running deployments.
+// hot-revocable; config-seeded tokens remain controlled by config+restart. The
+// first successful DB-issued token lookup seeds the in-memory layer, but each
+// later hit re-checks the DB so revocation takes effect without restart.
 func NewDBTokenAuthenticator(db OTLPTokenStore, configTokens map[string]string, log *slog.Logger) *DBTokenAuthenticator {
 	if log == nil {
 		log = slog.Default()

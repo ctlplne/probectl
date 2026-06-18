@@ -194,8 +194,12 @@ func (s *Server) handleOTLPTokenList(w http.ResponseWriter, r *http.Request) err
 		return apierror.NotFound("not found")
 	}
 
-	tokens, err := st.List(r.Context(), tid)
-	if err != nil {
+	var tokens []store.OTLPToken
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var listErr error
+		tokens, listErr = st.ListScoped(ctx, sc)
+		return listErr
+	}); err != nil {
 		s.log.Warn("otlp token list failed", "tenant", tid, "error", err)
 		return apierror.Internal("failed to list tokens").Wrap(err)
 	}
