@@ -45,6 +45,15 @@ func readDoc(t *testing.T, rel string) string {
 	return string(b)
 }
 
+func readRepoFile(t *testing.T, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+	if err != nil {
+		t.Fatalf("docslint: read %s: %v", rel, err)
+	}
+	return string(b)
+}
+
 // TestMultiRegion_NoTelemetryReplicationOverclaim asserts the multi-region doc
 // does not claim telemetry "converges in the replicated stores" (the false
 // claim that triggered RESIL-003) and that it explicitly distinguishes the
@@ -89,6 +98,57 @@ func TestDR_TelemetryRPOIsExplicit(t *testing.T) {
 		// allow either wrapped form
 		if !strings.Contains(strings.ReplaceAll(doc, "\n", " "), "does **not** replicate") {
 			t.Errorf("dr.md must state ClickHouse does not replicate cross-region by default")
+		}
+	}
+}
+
+// TestOTLPExportContractDocumentsAllSignals keeps the operator-facing docs in
+// lockstep with the shipped OTLP export wiring. ARCH-002: the old docs said
+// export was metrics-only while the control plane forwarded traces and logs too,
+// which is a bad surprise because traces/logs can be sensitive tenant telemetry.
+func TestOTLPExportContractDocumentsAllSignals(t *testing.T) {
+	otlpDoc := readDoc(t, "otlp.md")
+	configDoc := readDoc(t, "configuration.md")
+	mainGo := readRepoFile(t, "cmd/probectl-control/main.go")
+	exportGo := readRepoFile(t, "internal/pipeline/otlpexport.go")
+
+	banned := []string{
+		"OTLP export. " + "Metrics only",
+		"Re-exporting ingested traces/logs " + "is not a goal",
+		"probectl's own signals are " + "metric-shaped",
+		"replaying other systems'\n  " +
+			"traces/logs back out",
+	}
+	for _, phrase := range banned {
+		if strings.Contains(otlpDoc, phrase) || strings.Contains(configDoc, phrase) {
+			t.Errorf("OTLP docs still contain stale metrics-only export claim %q", phrase)
+		}
+	}
+
+	docMustContain := []string{
+		"metrics, traces, and logs",
+		"PROBECTL_OTLP_EXPORT_ENDPOINT",
+		"remote export is encrypted",
+	}
+	for _, want := range docMustContain {
+		if !strings.Contains(otlpDoc, want) {
+			t.Errorf("docs/otlp.md must disclose all-signal OTLP export detail %q", want)
+		}
+	}
+	if !strings.Contains(configDoc, "All three signals are\nforwarded") {
+		t.Errorf("docs/configuration.md must document that OTLP export forwards metrics, traces, and logs")
+	}
+
+	codeMustContain := []string{
+		"NewOTLPExportConsumer",
+		"NewOTLPTraceExportConsumer",
+		"NewOTLPLogExportConsumer",
+		"otlp export enabled (metrics+traces+logs)",
+	}
+	code := mainGo + "\n" + exportGo
+	for _, want := range codeMustContain {
+		if !strings.Contains(code, want) {
+			t.Errorf("OTLP export code no longer wires all-signal export consumer %q", want)
 		}
 	}
 }

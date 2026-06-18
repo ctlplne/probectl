@@ -40,16 +40,19 @@ store (see "Deliberate bounds" below).
   queryable, tenant-scoped, at `GET /v1/otlp/traces` and `GET /v1/otlp/logs`. A
   standard OTel Collector exports straight to the receiver — there's a reference
   config at `deploy/otel-collector/config.yaml`.
-- **OTLP export.** Metrics only. Re-exporting ingested traces/logs is not a goal
-  — probectl's own signals are metric-shaped, and replaying other systems'
-  traces/logs back out would make probectl their store of record, the exact
-  role the bounds below refuse.
+- **OTLP export (all three signals).** When `PROBECTL_OTLP_EXPORT_ENDPOINT` is
+  configured, probectl forwards ingested **metrics, traces, and logs** to the
+  operator's upstream OTLP collector. For OTLP/HTTP, the configured metrics
+  endpoint's signal suffix is used to derive the sibling trace/log endpoints.
+  Because this is tenant telemetry leaving probectl, remote export is encrypted
+  by default and fails closed if a remote collector is configured without TLS.
 - **Deliberate bounds.** probectl ingests traces + logs for **correlation** —
   bounded attributes, capped bodies, retention-limited. It keeps the receipts,
   not the warehouse: enough of each span and log line to join evidence across
   planes, never the full archive. It is **not** an APM /
   distributed-tracing replacement and **not** a log-analytics store. probectl
-  claims three-signal OTLP ingest with exactly those bounds — and no more.
+  claims three-signal OTLP ingest/export with exactly those bounds — and no
+  more.
 
 ## Receiver — inbound, TLS-only, authenticated, tenant-scoped
 
@@ -118,13 +121,17 @@ exposed for rotation visibility.
 
 ## Exporter — outbound
 
-`otlp.NewGRPCExporter` / `otlp.NewHTTPExporter` send probectl signals — built
-from the canonical mapping as OTLP `ResourceMetrics` — to an external collector
-over TLS with a bearer token. The gRPC exporter refuses to dial without TLS
-(unless an explicit dev-only `Insecure` is set). On the wire, exported metrics
-carry dotted `probectl.*` names (e.g. `probectl.probe.success`,
-`probectl.flow.bytes`) — distinct from the underscore Prometheus names the TSDB
-uses internally.
+`otlp.NewGRPCExporter` / `otlp.NewHTTPExporter` send OTLP
+`ExportMetricsServiceRequest`, `ExportTraceServiceRequest`, and
+`ExportLogsServiceRequest` batches to an external collector over TLS with a
+bearer token. The gRPC exporter refuses to dial a remote target without TLS
+(unless an explicit loopback/dev-only `Insecure` is set). On the wire, exported
+probectl metrics carry dotted `probectl.*` names (e.g.
+`probectl.probe.success`, `probectl.flow.bytes`) — distinct from the underscore
+Prometheus names the TSDB uses internally. Exported traces and logs are the
+already tenant-stamped OTLP batches accepted by the receiver; they are forwarded
+to the operator's own trace/log backend, not expanded into an unbounded
+probectl store.
 
 ## OBI (OpenTelemetry eBPF Instrumentation)
 
