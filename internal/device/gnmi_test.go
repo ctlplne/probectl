@@ -5,13 +5,17 @@ package device
 import (
 	"context"
 	"log/slog"
+	"math"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 
 	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
@@ -106,6 +110,35 @@ func (m *mockGNMI) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
 	return nil
 }
 
+type oversizedGNMI struct {
+	gnmipb.UnimplementedGNMIServer
+}
+
+func (oversizedGNMI) Subscribe(stream gnmipb.GNMI_SubscribeServer) error {
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	big := strings.Repeat("x", 4096)
+	return stream.Send(&gnmipb.SubscribeResponse{Response: &gnmipb.SubscribeResponse_Update{
+		Update: &gnmipb.Notification{
+			Timestamp: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC).UnixNano(),
+			Prefix:    &gnmipb.Path{Target: big},
+			Update: []*gnmipb.Update{
+				{
+					Path: &gnmipb.Path{Elem: []*gnmipb.PathElem{
+						{Name: "interfaces"},
+						{Name: "interface", Key: map[string]string{"name": "eth0"}},
+						{Name: "state"},
+						{Name: "counters"},
+						{Name: "in-octets"},
+					}},
+					Val: &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: big}},
+				},
+			},
+		},
+	}})
+}
+
 // TestGNMICollectorAgainstMockTarget runs the full client path — dial,
 // subscribe, normalize, emit — against the in-process target over bufconn.
 func TestGNMICollectorAgainstMockTarget(t *testing.T) {
@@ -189,6 +222,38 @@ func TestGNMICollectorAgainstMockTarget(t *testing.T) {
 	}
 }
 
+func TestGNMICollectorRejectsOversizedResponse(t *testing.T) {
+	lis := bufconn.Listen(1 << 20)
+	srv := grpc.NewServer()
+	gnmipb.RegisterGNMIServer(srv, oversizedGNMI{})
+	go func() { _ = srv.Serve(lis) }()
+	defer srv.Stop()
+
+	dev := Target{
+		Address: "192.0.2.51", Port: 9339, Transport: TransportGNMI,
+		GNMI: GNMIConfig{
+			Paths:          []string{"/interfaces/interface/state/counters"},
+			SampleInterval: time.Second,
+			Plaintext:      true,
+		},
+	}
+	c := &gnmiCollector{
+		dev: dev, tenant: "t-a", agent: "agent-1", emit: &captureEmitter{},
+		log:            slog.Default(),
+		targetOverride: "passthrough:///bufnet",
+		maxRecvMsgSize: 512,
+		dialOpts: []grpc.DialOption{grpc.WithContextDialer(
+			func(ctx context.Context, _ string) (net.Conn, error) { return lis.DialContext(ctx) })},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	err := c.streamOnce(ctx)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("streamOnce error = %v, want ResourceExhausted from explicit receive cap", err)
+	}
+}
+
 // TestTypedValueCoercion pins the TypedValue variants the collector maps.
 func TestTypedValueCoercion(t *testing.T) {
 	cases := []struct {
@@ -200,6 +265,8 @@ func TestTypedValueCoercion(t *testing.T) {
 		{"in-octets", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_UintVal{UintVal: 5}}, 5, true},
 		{"in-octets", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_IntVal{IntVal: -2}}, -2, true},
 		{"in-octets", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_DoubleVal{DoubleVal: 1.5}}, 1.5, true},
+		{"in-octets", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_DoubleVal{DoubleVal: math.Inf(1)}}, 0, false},
+		{"in-octets", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_DoubleVal{DoubleVal: math.NaN()}}, 0, false},
 		{"oper-status", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "up"}}, 1, true},
 		{"oper-status", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "DOWN"}}, 0, true},
 		{"in-octets", &gnmipb.TypedValue{Value: &gnmipb.TypedValue_StringVal{StringVal: "n/a"}}, 0, false},

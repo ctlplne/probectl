@@ -154,6 +154,11 @@ a normal path (a core guardrail: every outbound channel validates certs). A
 **loudly logged** so it can never hide in production. When a credential sets a
 username/password, it rides gRPC metadata per the gNMI convention.
 
+Each gNMI Subscribe response is capped at 4 MiB by an explicit client
+`MaxCallRecvMsgSize`, matching the agent and OTLP gRPC safety ceiling. Hostile
+or buggy devices that send an over-sized frame are rejected before normalization,
+and the normalization path is covered by `FuzzGNMINormalize`.
+
 ## Configuration
 
 See [`deploying-agents.md`](deploying-agents.md) for where the device agent

@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -19,6 +20,11 @@ import (
 
 	gnmipb "github.com/imfeelingtheagi/probectl/internal/gen/gnmi"
 )
+
+// gnmiMaxRecvBytes bounds each inbound gNMI SubscribeResponse. 4 MiB matches
+// the agent transport and OTLP receiver caps; normal OpenConfig samples are far
+// smaller, so this is a safety ceiling against hostile or buggy devices.
+const gnmiMaxRecvBytes = 4 << 20 // 4 MiB
 
 // ocLeafMetrics maps OpenConfig leaf names (the final path element under
 // /interfaces/interface/state/...) onto the shared device metric names — the
@@ -58,6 +64,7 @@ type gnmiCollector struct {
 	// host:port target (bufconn's passthrough address in tests).
 	dialOpts       []grpc.DialOption
 	targetOverride string
+	maxRecvMsgSize int
 }
 
 // run is the reconnect loop. Each failure backs off exponentially (1s..30s);
@@ -97,6 +104,7 @@ func (c *gnmiCollector) streamOnce(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	opts = append(opts, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(c.recvMsgSize())))
 	opts = append(opts, c.dialOpts...)
 	target := fmt.Sprintf("%s:%d", c.dev.Address, c.dev.Port)
 	if c.targetOverride != "" {
@@ -136,6 +144,13 @@ func (c *gnmiCollector) streamOnce(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (c *gnmiCollector) recvMsgSize() int {
+	if c.maxRecvMsgSize > 0 {
+		return c.maxRecvMsgSize
+	}
+	return gnmiMaxRecvBytes
 }
 
 // transport builds the gRPC transport credentials: TLS with certificate
@@ -230,6 +245,9 @@ func typedValueFloat(leaf string, v *gnmipb.TypedValue) (float64, bool) {
 	case *gnmipb.TypedValue_IntVal:
 		return float64(tv.IntVal), true
 	case *gnmipb.TypedValue_DoubleVal:
+		if math.IsNaN(tv.DoubleVal) || math.IsInf(tv.DoubleVal, 0) {
+			return 0, false
+		}
 		return tv.DoubleVal, true
 	case *gnmipb.TypedValue_BoolVal:
 		return boolFloat(tv.BoolVal), true
