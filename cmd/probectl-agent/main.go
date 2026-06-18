@@ -92,13 +92,14 @@ func run() error {
 		enrollServer = cfg.Identity.Server
 	}
 	if err := agent.EnsureIdentity(ctx, agent.EnrollOptions{
-		Server:   enrollServer,
-		Token:    joinToken,
-		Dir:      filepath.Dir(cfg.TLS.CertFile),
-		Hostname: cfg.Agent.Hostname,
-		Version:  version.Get().Version,
-		CAFile:   cfg.TLS.CAFile,
-		CAPin:    cfg.Enroll.CAPin,
+		Server:                 enrollServer,
+		Token:                  joinToken,
+		Dir:                    filepath.Dir(cfg.TLS.CertFile),
+		Hostname:               cfg.Agent.Hostname,
+		Version:                version.Get().Version,
+		CAFile:                 cfg.TLS.CAFile,
+		CAPin:                  cfg.Enroll.CAPin,
+		AllowPlaintextLoopback: cfg.Enroll.AllowPlaintextLoopback,
 	}, log); err != nil {
 		return err
 	}

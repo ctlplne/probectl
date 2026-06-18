@@ -266,6 +266,7 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_ENROLL_TOKEN_FILE` | `enroll.token_file` | a file holding the join token (a mounted secret, read once); `PROBECTL_AGENT_JOIN_TOKEN` takes precedence |
 | `PROBECTL_AGENT_ENROLL_SERVER` | `enroll.server` | enrollment target for first-boot enrollment; defaults to `identity.server` |
 | `PROBECTL_AGENT_ENROLL_CA_PIN` | `enroll.ca_pin` | optional hex sha256 pin of the server cert for first contact; otherwise `tls.ca_file` verifies the server |
+| — | `enroll.allow_plaintext_loopback` | dev/test-only escape hatch for `http://localhost` enrollment. Default `false`; non-loopback plaintext is always refused |
 | `PROBECTL_AGENT_CANARY_CA_DIR` | `tls.canary_ca_dir` | the **one** directory that probe `ca_file:` parameters may reference (a trust-anchor allowlist for HTTP/DNS-over-TLS probes); empty = the `ca_file` parameter is refused |
 | `PROBECTL_AGENT_LOG_LEVEL` | — | `debug` \| `info` (default) \| `warn` \| `error` |
 | `PROBECTL_AGENT_LOG_FORMAT` | — | `json` (default) \| `text` |

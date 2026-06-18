@@ -112,6 +112,11 @@ trust-on-first-use fallback (no "accept whoever answers first and remember
 them"). With neither `--ca-pin` nor `--ca-file`, the system trust roots verify
 the server (the right choice when the control plane serves a
 publicly-issued certificate).
+Plaintext `http://` enrollment is refused before any token or CSR can leave the
+host. The only exception is an explicit local-development override
+(`--allow-plaintext-loopback`, or `enroll.allow_plaintext_loopback: true` for
+first-boot config enrollment), and that override accepts only `localhost` /
+loopback IP addresses.
 
 **3. Point the agent config at the identity** (the paths `enroll` just wrote):
 

@@ -13,7 +13,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,11 +52,12 @@ type issuedIdentity struct {
 
 // EnrollOptions configures the first-contact bootstrap.
 type EnrollOptions struct {
-	Server   string // control-plane base URL (https://host:8443)
-	Token    string // one-time join token (pjt_...)
-	Dir      string // identity directory (key/cert/bundle land here, 0600)
-	Hostname string // defaults to os.Hostname()
-	Version  string
+	Server                 string // control-plane base URL (https://host:8443)
+	Token                  string // one-time join token (pjt_...)
+	Dir                    string // identity directory (key/cert/bundle land here, 0600)
+	Hostname               string // defaults to os.Hostname()
+	Version                string
+	AllowPlaintextLoopback bool // dev/test only: allow http://localhost or loopback IP
 	// CAPin authenticates the SERVER on first contact in self-signed
 	// deployments: hex sha256 of the server certificate (printed when the
 	// token is minted). A provided pin that mismatches REFUSES (no TOFU).
@@ -73,6 +76,10 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	if o.Hostname == "" {
 		o.Hostname, _ = os.Hostname()
 	}
+	endpoint, err := enrollmentEndpoint(o.Server, "/enroll/agent", o.AllowPlaintextLoopback)
+	if err != nil {
+		return "", time.Time{}, err
+	}
 	csrPEM, keyPEM, err := crypto.CreateCSR(o.Hostname)
 	if err != nil {
 		return "", time.Time{}, err
@@ -81,7 +88,7 @@ func Enroll(ctx context.Context, o EnrollOptions) (spiffeID string, notAfter tim
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	id, err := postIdentity(ctx, hc, strings.TrimRight(o.Server, "/")+"/enroll/agent", map[string]string{
+	id, err := postIdentity(ctx, hc, endpoint, map[string]string{
 		"token": o.Token, "csr_pem": string(csrPEM), "hostname": o.Hostname, "version": o.Version,
 	})
 	if err != nil {
@@ -182,6 +189,10 @@ func identityPresent(dir string) bool {
 // atomically replaces the files. The new identity ALWAYS equals the old
 // (the server refuses anything else).
 func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time.Time, error) {
+	endpoint, err := enrollmentEndpoint(server, "/enroll/agent/rotate", false)
+	if err != nil {
+		return time.Time{}, err
+	}
 	curCert, err := os.ReadFile(certFile)
 	if err != nil {
 		return time.Time{}, err
@@ -208,7 +219,7 @@ func Rotate(ctx context.Context, server, certFile, keyFile, caFile string) (time
 	if err != nil {
 		return time.Time{}, err
 	}
-	id, err := postIdentity(ctx, hc, strings.TrimRight(server, "/")+"/enroll/agent/rotate", map[string]string{
+	id, err := postIdentity(ctx, hc, endpoint, map[string]string{
 		"cert_pem": string(curCert), "csr_pem": string(csrPEM), "proof": hex.EncodeToString(proof),
 	})
 	if err != nil {
@@ -337,6 +348,40 @@ func postIdentity(ctx context.Context, hc *http.Client, url string, body map[str
 		return nil, errors.New("enroll: identity response missing certificate material")
 	}
 	return &id, nil
+}
+
+func enrollmentEndpoint(server, path string, allowPlaintextLoopback bool) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(server))
+	if err != nil {
+		return "", fmt.Errorf("enroll: invalid control-plane server URL: %w", err)
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", errors.New("enroll: control-plane server must be an absolute https:// URL")
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+	case "http":
+		if !allowPlaintextLoopback {
+			return "", errors.New("enroll: plaintext http:// enrollment is refused; use https:// or the explicit loopback-only dev override")
+		}
+		if !isLoopbackHost(u.Hostname()) {
+			return "", errors.New("enroll: plaintext enrollment override is limited to localhost/loopback addresses")
+		}
+	default:
+		return "", fmt.Errorf("enroll: unsupported control-plane server scheme %q (want https)", u.Scheme)
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return strings.TrimRight(u.String(), "/") + path, nil
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // writeIdentityDir lands key/cert/bundle atomically with owner-only modes —

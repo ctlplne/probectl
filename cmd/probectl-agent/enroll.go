@@ -28,6 +28,7 @@ func runEnroll(args []string) error {
 	caPin := fs.String("ca-pin", "", "hex sha256 of the server certificate (printed at token mint; first-contact trust for self-signed deployments)")
 	caFile := fs.String("ca-file", "", "CA bundle to verify the server against (CA-issued certs)")
 	hostname := fs.String("hostname", "", "agent hostname (defaults to os.Hostname)")
+	allowPlaintextLoopback := fs.Bool("allow-plaintext-loopback", false, "dev/test only: allow http://localhost or loopback enrollment")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -38,6 +39,7 @@ func runEnroll(args []string) error {
 		Server: *server, Token: *token, Dir: *dir,
 		Hostname: *hostname, Version: version.Get().Version,
 		CAPin: *caPin, CAFile: *caFile,
+		AllowPlaintextLoopback: *allowPlaintextLoopback,
 	})
 	if err != nil {
 		return err

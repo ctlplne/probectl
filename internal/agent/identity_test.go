@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,6 +85,67 @@ func TestEnrollRefusesPinMismatch(t *testing.T) {
 	}
 }
 
+func TestEnrollRejectsPlaintextServerByDefault(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "identity")
+	_, _, err := Enroll(context.Background(), EnrollOptions{
+		Server: "http://127.0.0.1:1", Token: "pjt_good", Dir: dir, Hostname: "h1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "plaintext http:// enrollment is refused") {
+		t.Fatalf("plaintext server should be refused before network use, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, IdentityKeyFile)); !os.IsNotExist(err) {
+		t.Fatal("identity material written despite plaintext URL refusal")
+	}
+}
+
+func TestEnrollPlaintextOverrideIsLoopbackOnly(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "identity")
+	_, _, err := Enroll(context.Background(), EnrollOptions{
+		Server:                 "http://control.example:8443",
+		Token:                  "pjt_good",
+		Dir:                    dir,
+		Hostname:               "h1",
+		AllowPlaintextLoopback: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "limited to localhost/loopback") {
+		t.Fatalf("non-loopback plaintext override should be refused, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, IdentityKeyFile)); !os.IsNotExist(err) {
+		t.Fatal("identity material written despite non-loopback plaintext URL refusal")
+	}
+}
+
+func TestEnrollAllowsPlaintextLoopbackWithExplicitOverride(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/enroll/agent" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"cert_pem":  "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n",
+			"ca_bundle": "-----BEGIN CERTIFICATE-----\nFAKECA\n-----END CERTIFICATE-----\n",
+			"spiffe_id": "spiffe://probectl/tenant/t-1/agent/a-1",
+			"tenant_id": "t-1", "agent_id": "a-1", "serial": "ab12",
+			"not_after": time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339Nano),
+		})
+	}))
+	defer srv.Close()
+
+	dir := filepath.Join(t.TempDir(), "identity")
+	if _, _, err := Enroll(context.Background(), EnrollOptions{
+		Server:                 srv.URL,
+		Token:                  "pjt_good",
+		Dir:                    dir,
+		Hostname:               "h1",
+		AllowPlaintextLoopback: true,
+	}); err != nil {
+		t.Fatalf("explicit loopback override should allow local dev enrollment: %v", err)
+	}
+	if !identityPresent(dir) {
+		t.Fatal("loopback plaintext override did not write the enrolled identity")
+	}
+}
+
 // A rejected token surfaces the server refusal (and writes nothing).
 func TestEnrollBadTokenWritesNothing(t *testing.T) {
 	srv, pin := fakeControl(t)
@@ -110,5 +172,12 @@ func TestRotationDueSVIDPolicy(t *testing.T) {
 	}
 	if !RotationDue(nb, na, na.Add(time.Hour)) {
 		t.Fatal("rotation NOT due after expiry")
+	}
+}
+
+func TestRotateRejectsPlaintextServerBeforeReadingIdentity(t *testing.T) {
+	if _, err := Rotate(context.Background(), "http://127.0.0.1:1", "missing-cert", "missing-key", "missing-ca"); err == nil ||
+		!strings.Contains(err.Error(), "plaintext http:// enrollment is refused") {
+		t.Fatalf("rotation should reject plaintext server before reading identity files, got %v", err)
 	}
 }

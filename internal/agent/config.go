@@ -84,6 +84,9 @@ type EnrollConfig struct {
 	// CAPin optionally pins the server certificate on first contact (hex
 	// sha256); otherwise tls.ca_file verifies the server.
 	CAPin string `yaml:"ca_pin"`
+	// AllowPlaintextLoopback is a dev/test escape hatch for http://localhost
+	// enrollment only. Production bootstrap remains HTTPS-only.
+	AllowPlaintextLoopback bool `yaml:"allow_plaintext_loopback"`
 }
 
 // A2AConfig controls participation in brokered agent-to-agent tests. When
@@ -228,6 +231,16 @@ func (c *Config) validate() error {
 	}
 	if c.TLS.CertFile == "" || c.TLS.KeyFile == "" || c.TLS.CAFile == "" {
 		return fmt.Errorf("config: tls.cert_file, tls.key_file, and tls.ca_file are required (mTLS)")
+	}
+	if c.Identity.Server != "" {
+		if _, err := enrollmentEndpoint(c.Identity.Server, "/enroll/agent/rotate", false); err != nil {
+			return fmt.Errorf("config: identity.server: %w", err)
+		}
+	}
+	if c.Enroll.Server != "" {
+		if _, err := enrollmentEndpoint(c.Enroll.Server, "/enroll/agent", c.Enroll.AllowPlaintextLoopback); err != nil {
+			return fmt.Errorf("config: enroll.server: %w", err)
+		}
 	}
 	for i, cc := range c.Canaries {
 		if cc.Type == "" {
