@@ -25,6 +25,7 @@ const (
 	KindConflict                 // state conflict (duplicate, version, ...)
 	KindUnavailable              // a dependency is not ready
 	KindRateLimited              // the caller exceeded a rate/fairness bound
+	KindTooLarge                 // the caller sent a body/payload beyond a hard cap
 )
 
 // Error is a domain error carrying a Kind, a stable machine-readable Code, a
@@ -72,6 +73,7 @@ func NotFound(message string) *Error     { return newError(KindNotFound, "not_fo
 func Conflict(message string) *Error     { return newError(KindConflict, "conflict", message) }
 func Unavailable(message string) *Error  { return newError(KindUnavailable, "unavailable", message) }
 func RateLimited(message string) *Error  { return newError(KindRateLimited, "rate_limited", message) }
+func TooLarge(message string) *Error     { return newError(KindTooLarge, "too_large", message) }
 
 // As returns the *Error in err's chain, or (nil, false) if there is none. The
 // transport layer treats a plain (non-domain) error as KindInternal.

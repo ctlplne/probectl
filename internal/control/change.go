@@ -4,7 +4,7 @@ package control
 
 import (
 	"context"
-	"io"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +15,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/change"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -45,8 +46,11 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 		return apierror.Unauthorized("unknown or unauthorized webhook")
 	}
 
-	body, err := io.ReadAll(io.LimitReader(r.Body, changeWebhookMaxBody))
+	body, err := httpbody.ReadLimited(r.Body, changeWebhookMaxBody)
 	if err != nil {
+		if errors.Is(err, httpbody.ErrTooLarge) {
+			return apierror.TooLarge("change webhook body exceeds size cap")
+		}
 		return apierror.BadRequest("cannot read request body")
 	}
 	if !p.Verify(cred.Secret, body, r.Header) {

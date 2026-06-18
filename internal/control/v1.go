@@ -4,8 +4,7 @@ package control
 
 import (
 	"context"
-	"encoding/json"
-	"io"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testspec"
@@ -422,10 +422,15 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) error
 	return nil
 }
 
-// decodeJSON decodes a size-limited JSON request body, mapping malformed input
-// to a 400.
+const maxJSONBody = 1 << 20
+
+// decodeJSON decodes one size-limited JSON request body. Oversized bodies map
+// to 413; malformed or trailing JSON maps to 400.
 func decodeJSON(r *http.Request, dst any) error {
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(dst); err != nil {
+	if err := httpbody.DecodeJSON(r.Body, maxJSONBody, dst); err != nil {
+		if errors.Is(err, httpbody.ErrTooLarge) {
+			return apierror.TooLarge("request body exceeds size cap")
+		}
 		return apierror.BadRequest("invalid JSON request body")
 	}
 	return nil

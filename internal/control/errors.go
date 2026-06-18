@@ -38,6 +38,8 @@ func httpStatus(kind apierror.Kind) int {
 		return http.StatusUnprocessableEntity // 422
 	case apierror.KindRateLimited:
 		return http.StatusTooManyRequests // 429
+	case apierror.KindTooLarge:
+		return http.StatusRequestEntityTooLarge // 413
 	case apierror.KindUnavailable:
 		return http.StatusServiceUnavailable // 503
 	case apierror.KindInternal:

@@ -4,11 +4,12 @@ package mcp
 
 import (
 	"context"
-	"io"
+	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 )
 
 // Authenticator resolves a bearer token to a principal (tenant + RBAC). The
@@ -45,8 +46,12 @@ func (s *Server) HTTPHandler(authn Authenticator) http.Handler {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
-		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		body, err := httpbody.ReadLimited(r.Body, 1<<20)
 		if err != nil {
+			if errors.Is(err, httpbody.ErrTooLarge) {
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "read error", http.StatusBadRequest)
 			return
 		}

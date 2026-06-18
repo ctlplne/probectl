@@ -4,7 +4,7 @@ package control
 
 import (
 	"context"
-	"io"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,6 +14,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -111,11 +112,11 @@ func (s *Server) handleITSMWebhook(w http.ResponseWriter, r *http.Request) error
 		// Unknown id, or the URL provider doesn't match: fail closed (no oracle).
 		return apierror.Unauthorized("unknown or unauthorized webhook")
 	}
-	if s.pool == nil {
-		return apierror.Internal("itsm sync requires a database")
-	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, itsmWebhookMaxBody))
+	body, err := httpbody.ReadLimited(r.Body, itsmWebhookMaxBody)
 	if err != nil {
+		if errors.Is(err, httpbody.ErrTooLarge) {
+			return apierror.TooLarge("ITSM webhook body exceeds size cap")
+		}
 		return apierror.BadRequest("cannot read request body")
 	}
 	if !notify.VerifyInbound(cred.Secret, body, r.Header) {
@@ -125,6 +126,9 @@ func (s *Server) handleITSMWebhook(w http.ResponseWriter, r *http.Request) error
 	res, ok := notify.ParseInbound(provider, body)
 	if !ok {
 		return apierror.BadRequest("cannot parse webhook payload")
+	}
+	if s.pool == nil {
+		return apierror.Internal("itsm sync requires a database")
 	}
 
 	var resolved *incident.Incident

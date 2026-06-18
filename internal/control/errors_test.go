@@ -25,6 +25,7 @@ func TestHTTPStatusMapping(t *testing.T) {
 		{apierror.KindValidation, http.StatusUnprocessableEntity},
 		{apierror.KindInternal, http.StatusInternalServerError},
 		{apierror.KindUnavailable, http.StatusServiceUnavailable},
+		{apierror.KindTooLarge, http.StatusRequestEntityTooLarge},
 	}
 	for _, c := range cases {
 		if got := httpStatus(c.kind); got != c.want {
@@ -45,6 +46,7 @@ func TestAPIHandlerMapsErrors(t *testing.T) {
 		{"conflict", apierror.Conflict("dup"), http.StatusConflict, "conflict"},
 		{"unauthorized", apierror.Unauthorized("no"), http.StatusUnauthorized, "unauthorized"},
 		{"forbidden", apierror.Forbidden("no"), http.StatusForbidden, "forbidden"},
+		{"too_large", apierror.TooLarge("no"), http.StatusRequestEntityTooLarge, "too_large"},
 		{"internal", apierror.Internal("boom"), http.StatusInternalServerError, "internal"},
 		{"plain", errors.New("leaky internal detail"), http.StatusInternalServerError, "internal"},
 	}

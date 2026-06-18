@@ -396,3 +396,21 @@ func TestHTTPHandlerRejectsBadToken(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPHandlerRejectsOversizedBody(t *testing.T) {
+	s := New(&fakeBackend{}, testGate())
+	h := s.HTTPHandler(fakeAuthn{p: principal("t", permTestRead)})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(strings.Repeat("x", (1<<20)+1)))
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", resp.StatusCode)
+	}
+}

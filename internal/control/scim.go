@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/scim"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -492,7 +492,11 @@ func statusFromActive(active bool) string {
 }
 
 func decodeSCIM(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := json.NewDecoder(io.LimitReader(r.Body, scimMaxBody)).Decode(dst); err != nil {
+	if err := httpbody.DecodeJSON(r.Body, scimMaxBody, dst); err != nil {
+		if errors.Is(err, httpbody.ErrTooLarge) {
+			writeSCIMError(w, http.StatusRequestEntityTooLarge, "tooLarge", "SCIM body exceeds size cap")
+			return false
+		}
 		writeSCIMError(w, http.StatusBadRequest, "invalidSyntax", "malformed SCIM body")
 		return false
 	}
