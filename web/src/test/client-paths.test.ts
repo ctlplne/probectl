@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { apiFetch } from '../api/client'
+import { apiFetch, apiURL } from '../api/client'
 import { assertNoDoublePrefix, pathOf } from './fetchStub'
 
 /**
@@ -28,6 +28,13 @@ describe('API path conventions', () => {
     await apiFetch('/topology')
     expect(stub).toHaveBeenCalledWith('/v1/topology', expect.anything())
     vi.unstubAllGlobals()
+  })
+
+  test('apiURL builds download paths without a double version prefix', () => {
+    expect(apiURL('/compliance/evidence')).toBe('/v1/compliance/evidence')
+    /* eslint-disable no-restricted-syntax */
+    expect(() => apiURL('/v1/compliance/evidence')).toThrow(/drop the \/v1 prefix/)
+    /* eslint-enable no-restricted-syntax */
   })
 
   test('pathOf strips query + origin to a bare pathname', () => {

@@ -13,7 +13,7 @@ import {
   type Column,
 } from '../components'
 import { useCompliance, type RuleResult, type Verdict } from '../api/compliance'
-import { API_BASE } from '../api/client'
+import { apiURL } from '../api/client'
 
 /** CompliancePage (S46): segmentation validation against OBSERVED traffic —
  * pass/fail per declared boundary, with the never-overclaim coverage block
@@ -99,7 +99,7 @@ export function CompliancePage() {
                 <Button
                   variant="ghost"
                   onClick={() => {
-                    window.location.href = `${API_BASE}/v1/compliance/evidence`
+                    window.location.assign(apiURL('/compliance/evidence'))
                   }}
                 >
                   Download audit evidence

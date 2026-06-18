@@ -17,6 +17,15 @@ export class ApiError extends Error {
   }
 }
 
+export function apiURL(path: string): string {
+  if (path.startsWith('/v1/') || path === '/v1') {
+    throw new Error(
+      `API path must be relative to API_BASE (got ${path}); drop the /v1 prefix — API_BASE already provides it (UX-001/UX-006)`,
+    )
+  }
+  return `${API_BASE}${path}`
+}
+
 /**
  * apiFetch targets the versioned API. The `path` is RELATIVE to API_BASE and
  * must NOT itself carry the `/v1` prefix — passing `/v1/...` here produces a
@@ -25,12 +34,7 @@ export class ApiError extends Error {
  * client unit test enforce it at build time too.
  */
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  if (path.startsWith('/v1/') || path === '/v1') {
-    throw new Error(
-      `apiFetch path must be relative to API_BASE (got ${path}); drop the /v1 prefix — apiFetch already prepends it (UX-006)`,
-    )
-  }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(apiURL(path), {
     credentials: 'same-origin',
     headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
     ...init,

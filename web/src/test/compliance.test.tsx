@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
@@ -101,6 +102,17 @@ describe('compliance / segmentation validation (S46)', () => {
 
     // Evidence download is offered.
     expect(screen.getByRole('button', { name: /download audit evidence/i })).toBeInTheDocument()
+  })
+
+  test('download evidence click uses exactly one version prefix', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { assign, href: '', pathname: '/' })
+    vi.stubGlobal('fetch', stubWith(fixture()))
+    renderApp('/compliance')
+
+    await userEvent.click(await screen.findByRole('button', { name: /download audit evidence/i }))
+
+    expect(assign).toHaveBeenCalledWith('/v1/compliance/evidence')
   })
 
   test('honesty: unwired validator renders as not wired', async () => {
