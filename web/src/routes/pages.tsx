@@ -164,7 +164,8 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 export function TargetsPage() {
-  const { data, isPending, isError, error } = useTests()
+  const { data, isPending, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
+    useTests()
   const del = useDeleteTest()
   const { push } = useToast()
   const [creating, setCreating] = useState(false)
@@ -265,23 +266,38 @@ export function TargetsPage() {
           ) : isError ? (
             <ErrorState description={error?.message ?? 'Could not load tests.'} />
           ) : (
-            <Table
-              caption="Synthetic tests"
-              columns={columns}
-              rows={data ?? []}
-              rowKey={(t) => t.id}
-              empty={
-                <EmptyState
-                  title="No tests yet"
-                  description="Create your first test to begin monitoring."
-                  action={
-                    <Button variant="primary" onClick={() => setCreating(true)}>
-                      New test
-                    </Button>
-                  }
-                />
-              }
-            />
+            <>
+              <Table
+                caption="Synthetic tests"
+                columns={columns}
+                rows={data ?? []}
+                rowKey={(t) => t.id}
+                empty={
+                  <EmptyState
+                    title="No tests yet"
+                    description="Create your first test to begin monitoring."
+                    action={
+                      <Button variant="primary" onClick={() => setCreating(true)}>
+                        New test
+                      </Button>
+                    }
+                  />
+                }
+              />
+              {hasNextPage ? (
+                <div className={styles.pagination}>
+                  <span>{data?.length ?? 0} tests loaded</span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => fetchNextPage()}
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? 'Loading…' : 'Load more tests'}
+                  </Button>
+                </div>
+              ) : null}
+            </>
           )}
         </CardBody>
       </Card>

@@ -73,6 +73,15 @@ export function PathPage() {
               onChange={(e) => setChosen(e.target.value)}
               options={(tests.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
             />
+            {tests.hasNextPage ? (
+              <Button
+                variant="secondary"
+                onClick={() => tests.fetchNextPage()}
+                disabled={tests.isFetchingNextPage}
+              >
+                {tests.isFetchingNextPage ? 'Loading…' : 'Load more tests'}
+              </Button>
+            ) : null}
             <Button
               variant="primary"
               onClick={runDiscover}

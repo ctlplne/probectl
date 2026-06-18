@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
 export interface Test {
@@ -24,12 +24,29 @@ export interface TestInput {
 }
 
 const key = ['tests'] as const
+const pageSize = 50
+
+interface TestList {
+  items: Test[]
+  next_cursor?: string
+}
 
 export function useTests() {
-  return useQuery({
+  const query = useInfiniteQuery({
     queryKey: key,
-    queryFn: () => apiFetch<{ items: Test[] }>('/tests').then((r) => r.items),
+    initialPageParam: '',
+    queryFn: ({ pageParam }) => {
+      const cursor = typeof pageParam === 'string' ? pageParam : ''
+      const params = new URLSearchParams({ limit: String(pageSize) })
+      if (cursor) params.set('after', cursor)
+      return apiFetch<TestList>(`/tests?${params}`)
+    },
+    getNextPageParam: (lastPage) => lastPage.next_cursor || undefined,
   })
+  return {
+    ...query,
+    data: query.data?.pages.flatMap((page) => page.items),
+  }
 }
 
 export function useCreateTest() {

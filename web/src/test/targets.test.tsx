@@ -2,7 +2,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { jsonResponse, pathOf } from './fetchStub'
 
 describe('Targets & Tests (live /v1/tests CRUD)', () => {
   test('lists, creates, and deletes tests through the UI', async () => {
@@ -22,17 +22,17 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
       },
     ]
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = String(input)
+      const path = pathOf(input)
       const method = init?.method ?? 'GET'
-      if (url.endsWith('/v1/tests') && method === 'GET') return jsonResponse({ items: tests })
-      if (url.endsWith('/v1/tests') && method === 'POST') {
+      if (path === '/v1/tests' && method === 'GET') return jsonResponse({ items: tests })
+      if (path === '/v1/tests' && method === 'POST') {
         const body = JSON.parse(String(init?.body))
         const created = { ...body, id: 'new', params: {}, created_at: '', updated_at: '' }
         tests = [created, ...tests]
         return jsonResponse(created, 201)
       }
-      if (/\/v1\/tests\/.+/.test(url) && method === 'DELETE') {
-        const id = url.split('/').pop()
+      if (/\/v1\/tests\/.+/.test(path) && method === 'DELETE') {
+        const id = path.split('/').pop()
         tests = tests.filter((t) => t.id !== id)
         return new Response(null, { status: 204 })
       }
@@ -54,7 +54,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     await screen.findByRole('button', { name: /delete my-test/i })
 
     const postCall = fetchMock.mock.calls.find(
-      ([url, init]) => String(url).endsWith('/v1/tests') && init?.method === 'POST',
+      ([url, init]) => pathOf(url) === '/v1/tests' && init?.method === 'POST',
     )
     expect(postCall).toBeTruthy()
     expect(String((postCall![1] as RequestInit).body)).toContain('"name":"my-test"')
@@ -63,6 +63,70 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('button', { name: /delete my-test/i })).not.toBeInTheDocument(),
     )
+  })
+
+  test('loads additional backend cursor pages', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input), 'http://t.invalid')
+      const method = init?.method ?? 'GET'
+      if (url.pathname === '/v1/tests' && method === 'GET') {
+        const after = url.searchParams.get('after')
+        if (!after) {
+          return jsonResponse({
+            items: [
+              {
+                id: 't1',
+                name: 'first-page',
+                type: 'dns',
+                target: '1.1.1.1',
+                interval_seconds: 30,
+                timeout_seconds: 3,
+                params: {},
+                enabled: true,
+                created_at: '',
+                updated_at: '',
+              },
+            ],
+            next_cursor: 'cursor-2',
+          })
+        }
+        if (after === 'cursor-2') {
+          return jsonResponse({
+            items: [
+              {
+                id: 't2',
+                name: 'second-page',
+                type: 'icmp',
+                target: '9.9.9.9',
+                interval_seconds: 60,
+                timeout_seconds: 3,
+                params: {},
+                enabled: true,
+                created_at: '',
+                updated_at: '',
+              },
+            ],
+          })
+        }
+      }
+      return jsonResponse({ error: { code: 'x', message: 'no route' } }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp('/targets')
+    await screen.findByText('first-page')
+    expect(screen.queryByText('second-page')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /load more tests/i }))
+
+    expect(await screen.findByText('second-page')).toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const url = new URL(String(input), 'http://t.invalid')
+        return url.pathname === '/v1/tests' && url.searchParams.get('after') === 'cursor-2'
+      }),
+    ).toBe(true)
   })
 
   test('shows an error state when the API fails', async () => {
