@@ -10,7 +10,15 @@ import (
 	"time"
 )
 
-var errClosed = errors.New("bus: closed")
+var (
+	errClosed = errors.New("bus: closed")
+
+	// ErrMemoryDropped is returned when the explicit in-memory drop policy
+	// sheds a record because a subscriber buffer is full. Returning an error is
+	// the important RESIL-002 contract: upstream senders must NOT ack/delete
+	// their local copy after a known in-process drop.
+	ErrMemoryDropped = errors.New("bus: memory subscriber buffer full - record dropped")
+)
 
 // DefaultMemoryBuffer is the per-subscriber channel depth when unset.
 const DefaultMemoryBuffer = 1024
@@ -28,6 +36,10 @@ type Memory struct {
 	dropped     atomic.Uint64 // messages dropped under the drop policy
 	handlerErr  atomic.Uint64 // handler errors observed (CORRECT-007 — never silent)
 	handlerLost atomic.Uint64 // records dropped after redelivery attempts exhausted
+
+	flushMu   sync.Mutex
+	inFlight  int
+	flushWait chan struct{}
 }
 
 // memoryMaxRedeliver bounds how many times the in-memory bus re-delivers a
@@ -52,17 +64,22 @@ func WithBuffer(n int) MemoryOption {
 }
 
 // WithOverflowDrop selects the drop+count overflow policy: when a subscriber's
-// buffer is full, the message is dropped and counted rather than blocking the
-// publisher (the default is block). Drops are surfaced via Dropped() — never
-// silent (an observability tool that loses data hides a correctness gap).
+// buffer is full, the message is dropped, counted, and Publish returns
+// ErrMemoryDropped rather than pretending the write succeeded. That keeps
+// agent-side at-least-once buffers intact: the sender retries instead of
+// deleting a frame that never reached storage.
 func WithOverflowDrop() MemoryOption {
 	return func(m *Memory) { m.dropOn = true }
 }
 
 // NewMemory returns an in-memory bus with the given options (defaults: 1024
-// buffer, block-on-full).
+// buffer, block-on-full, Flush waits for delivered handlers).
 func NewMemory(opts ...MemoryOption) *Memory {
-	m := &Memory{subs: make(map[string][]chan Message), bufSize: DefaultMemoryBuffer}
+	m := &Memory{
+		subs:      make(map[string][]chan Message),
+		bufSize:   DefaultMemoryBuffer,
+		flushWait: closedFlushWait(),
+	}
 	for _, o := range opts {
 		o(m)
 	}
@@ -112,7 +129,10 @@ func (m *Memory) WaitForSubscribers(ctx context.Context, topic string, n int) bo
 	}
 }
 
-// Publish delivers value to every current subscriber of topic.
+// Publish delivers value to every current subscriber of topic. In block mode it
+// back-pressures until each subscriber accepts the message. In explicit drop
+// mode it still returns ErrMemoryDropped if any subscriber buffer was full, so
+// upstream durability barriers can fail closed instead of ACKing lost telemetry.
 func (m *Memory) Publish(ctx context.Context, topic string, key, value []byte) error {
 	m.mu.Lock()
 	if m.closed {
@@ -123,22 +143,32 @@ func (m *Memory) Publish(ctx context.Context, topic string, key, value []byte) e
 	m.mu.Unlock()
 
 	msg := Message{Topic: topic, Key: key, Value: value}
+	var dropped bool
 	for _, ch := range chans {
 		if m.dropOn {
 			// Drop policy: never block the publisher — a slow/stuck subscriber
-			// cannot deadlock the bus in a burst (U-079); the drop is counted.
+			// cannot deadlock the bus in a burst (U-079); the drop is counted
+			// AND returned as an error (RESIL-002) so upstream does not ACK it.
+			m.addInFlight()
 			select {
 			case ch <- msg:
 			default:
+				m.doneInFlight()
 				m.dropped.Add(1)
+				dropped = true
 			}
 			continue
 		}
+		m.addInFlight()
 		select {
 		case ch <- msg:
 		case <-ctx.Done():
+			m.doneInFlight()
 			return ctx.Err()
 		}
+	}
+	if dropped {
+		return ErrMemoryDropped
 	}
 	return nil
 }
@@ -153,7 +183,17 @@ func (m *Memory) Subscribe(ctx context.Context, topic, _ string, handler Handler
 	}
 	m.subs[topic] = append(m.subs[topic], ch)
 	m.mu.Unlock()
-	defer m.removeSub(topic, ch)
+	defer func() {
+		m.removeSub(topic, ch)
+		for {
+			select {
+			case <-ch:
+				m.doneInFlight()
+			default:
+				return
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -166,6 +206,7 @@ func (m *Memory) Subscribe(ctx context.Context, topic, _ string, handler Handler
 			// then counted as lost if the handler keeps failing. The handler that
 			// has already accounted for a message (its own DLQ etc.) returns nil.
 			m.deliver(ctx, handler, msg)
+			m.doneInFlight()
 		}
 	}
 }
@@ -186,11 +227,54 @@ func (m *Memory) deliver(ctx context.Context, handler Handler, msg Message) {
 	}
 }
 
-// Flush is a no-op: Publish delivers synchronously to each subscriber's buffer
-// before returning, so there is nothing in flight to drain. Implementing the
-// Flusher interface lets durability-barrier callers (CORRECT-004) treat the
-// in-memory bus uniformly with Kafka.
-func (m *Memory) Flush(_ context.Context) error { return nil }
+// Flush waits until every message accepted by Publish has finished its
+// subscriber handler path. That turns the in-process bus into a real ACK
+// barrier for the agent stream: memory mode is still not a broker, but a result
+// is not acknowledged while it is merely sitting in a volatile Go channel.
+func (m *Memory) Flush(ctx context.Context) error {
+	for {
+		m.flushMu.Lock()
+		if m.inFlight == 0 {
+			m.flushMu.Unlock()
+			return nil
+		}
+		wait := m.flushWait
+		m.flushMu.Unlock()
+
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func (m *Memory) addInFlight() {
+	m.flushMu.Lock()
+	defer m.flushMu.Unlock()
+	if m.inFlight == 0 {
+		m.flushWait = make(chan struct{})
+	}
+	m.inFlight++
+}
+
+func (m *Memory) doneInFlight() {
+	m.flushMu.Lock()
+	defer m.flushMu.Unlock()
+	if m.inFlight == 0 {
+		return
+	}
+	m.inFlight--
+	if m.inFlight == 0 {
+		close(m.flushWait)
+	}
+}
+
+func closedFlushWait() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
 
 // Close marks the bus closed.
 func (m *Memory) Close() error {

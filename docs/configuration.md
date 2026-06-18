@@ -104,7 +104,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_BUS_MODE`                 | `memory`                                                         | result bus: `memory` (lightweight, in-process) \| `kafka`  |
 | `PROBECTL_BUS_BROKERS`              | (none)                                                           | comma-separated `host:port` Kafka brokers (required for `kafka`) |
 | `PROBECTL_BUS_MEMORY_BUFFER`        | `1024`                                                           | in-memory bus: per-subscriber channel depth (lightweight mode) |
-| `PROBECTL_BUS_MEMORY_OVERFLOW`      | `drop`                                                           | in-memory bus overflow policy (SCALE-006): `drop` (default — drop + count, no deadlock; a stuck consumer never stalls ingest; drops surface at `probectl_bus_memory_dropped`) \| `block` (back-pressure the publisher) |
+| `PROBECTL_BUS_MEMORY_OVERFLOW`      | `block`                                                          | in-memory bus overflow policy (RESIL-002): `block` (default — back-pressure the publisher so an agent is not ACKed after a known in-process drop) \| `drop` (explicit isolation mode; drops are counted at `probectl_bus_memory_dropped` and `Publish` returns an error so upstream retries) |
 | `PROBECTL_BUS_TLS_ENABLED`          | `false`     | TLS to the Kafka brokers. **Required in kafka mode** unless the explicit dev flag below is set |
 | `PROBECTL_BUS_TLS_CA_FILE`          | (none)      | private CA bundle for the brokers |
 | `PROBECTL_BUS_TLS_CERT_FILE`        | (none)      | client certificate (broker mTLS; with `_KEY_FILE`) |
@@ -305,8 +305,12 @@ cryptographic, never self-asserted. The bus key is the `tenant_id`.
 
 `PROBECTL_BUS_MODE` selects the bus: `memory` (default; in-process, for the
 lightweight <5-agent deployment and single-binary runs) or `kafka` (set
-`PROBECTL_BUS_BROKERS`). `PROBECTL_TSDB_MODE` selects the writer: `memory` (default;
-in-process) or `prometheus` remote-write to `PROBECTL_TSDB_URL` (Prometheus with
+`PROBECTL_BUS_BROKERS`). In memory mode, `Flush` waits for current subscriber
+handlers to finish before the agent stream is ACKed. That makes the lightweight
+path at-least-once with respect to the in-process store/DLQ handlers, but it is
+still not a broker log; use Kafka for crash-replayable production transit.
+`PROBECTL_TSDB_MODE` selects the writer: `memory` (default; in-process) or
+`prometheus` remote-write to `PROBECTL_TSDB_URL` (Prometheus with
 `--web.enable-remote-write-receiver`, or VictoriaMetrics; use an `https://` URL
 for TLS in transit). Each probe emits `probectl_probe_success`,
 `probectl_probe_duration_seconds`, and one `probectl_probe_<metric>` per custom

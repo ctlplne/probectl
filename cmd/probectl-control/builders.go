@@ -419,11 +419,12 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 		m.Gauge("probectl_bus_buffered", "Records currently buffered in the async producer (in flight).",
 			func() float64 { return float64(kb.Stats().Buffered) })
 	}
-	// SCALE-006: the lightweight in-memory bus defaults to drop-with-loss-
-	// accounting so a stuck consumer cannot stall ingest. Surface the drop and
-	// handler-loss counters so the loss is observable (never a silent drop).
+	// RESIL-002: the lightweight in-memory bus defaults to backpressure. If an
+	// operator explicitly selects drop isolation, drops are counted and Publish
+	// returns an error so upstream agent ACKs fail closed rather than deleting
+	// buffered frames.
 	if mb, ok := resultBus.(*bus.Memory); ok {
-		m.Gauge("probectl_bus_memory_dropped", "Messages dropped by the in-memory bus overflow policy when a subscriber buffer was full (SCALE-006). Nonzero = a lagging/stuck consumer.",
+		m.Gauge("probectl_bus_memory_dropped", "Messages dropped by the explicit in-memory bus drop policy when a subscriber buffer was full (RESIL-002). Nonzero also means Publish returned an error.",
 			func() float64 { return float64(mb.Dropped()) })
 		m.Gauge("probectl_bus_memory_handler_lost", "Records dropped after the in-memory bus exhausted its redelivery budget (a permanently-failing handler, CORRECT-007).",
 			func() float64 { return float64(mb.HandlerLost()) })

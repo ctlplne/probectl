@@ -288,7 +288,11 @@ Two pieces are pluggable behind one interface each, so the same code runs from a
 laptop to a cluster: the bus has a **memory** mode (in-process — the lightweight
 default for tiny deployments, roughly under five agents) and a **kafka** mode;
 the writer has a **memory** mode and a **prometheus** remote-write mode
-(Prometheus/VictoriaMetrics). The consumer converts each result into
+(Prometheus/VictoriaMetrics). In memory mode the agent ACK waits for the
+in-process consumer handler to finish, and the default overflow policy
+back-pressures rather than dropping. It is still not a replayable broker log, so
+Kafka is the production path for crash-durable transit. The consumer converts
+each result into
 `probectl_probe_*` time-series labeled by
 `tenant_id`/`agent_id`/`canary_type`/`server_address`. Because a TSDB — a
 **time-series database**, which stores numeric samples over time indexed by

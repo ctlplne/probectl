@@ -4,14 +4,15 @@ package bus
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
 )
 
 // Under the DROP overflow policy, a stuck subscriber cannot deadlock the
-// publisher in a burst (U-079): publishes past the buffer are dropped and
-// counted, never blocked.
+// publisher in a burst (U-079), but the loss is now returned as an error
+// (RESIL-002) so upstream agent ACK paths retry instead of deleting frames.
 func TestMemoryDropOverflowDoesNotBlock(t *testing.T) {
 	m := NewMemory(WithBuffer(2), WithOverflowDrop())
 	defer m.Close()
@@ -33,16 +34,20 @@ func TestMemoryDropOverflowDoesNotBlock(t *testing.T) {
 	close(subscribed)
 
 	// Publish far more than the buffer; with the drop policy this must return
-	// promptly (no deadlock) and count the overflow.
+	// promptly (no deadlock), count the overflow, and report it to the caller.
 	done := make(chan error, 1)
 	go func() {
 		for i := 0; i < 1000; i++ {
 			if err := m.Publish(context.Background(), "t", nil, []byte("x")); err != nil {
+				if errors.Is(err, ErrMemoryDropped) {
+					done <- nil
+					return
+				}
 				done <- err
 				return
 			}
 		}
-		done <- nil
+		done <- errors.New("drop policy did not report an overflow")
 	}()
 	select {
 	case err := <-done:
@@ -54,6 +59,54 @@ func TestMemoryDropOverflowDoesNotBlock(t *testing.T) {
 	}
 	if m.Dropped() == 0 {
 		t.Fatal("overflow under the drop policy must be counted")
+	}
+}
+
+func TestMemoryFlushWaitsForHandlers(t *testing.T) {
+	m := NewMemory(WithBuffer(2))
+	defer m.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_ = m.Subscribe(ctx, "t", "g", func(context.Context, Message) error {
+			close(started)
+			<-release
+			return nil
+		})
+	}()
+	for i := 0; i < 5000 && m.subscriberCount("t") == 0; i++ {
+		time.Sleep(time.Millisecond)
+	}
+	if m.subscriberCount("t") == 0 {
+		t.Fatal("subscriber did not register")
+	}
+	if err := m.Publish(context.Background(), "t", nil, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler did not start")
+	}
+
+	flushed := make(chan error, 1)
+	go func() { flushed <- m.Flush(context.Background()) }()
+	select {
+	case err := <-flushed:
+		t.Fatalf("Flush returned before handler completion: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-flushed:
+		if err != nil {
+			t.Fatalf("Flush after handler release: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Flush did not return after handler completion")
 	}
 }
 
@@ -98,13 +151,10 @@ func TestMemoryBlockPolicyLosesNothing(t *testing.T) {
 	}
 }
 
-// TestMemoryDefaultPolicyOneStuckSubDoesNotStarveOthers is the SCALE-006
-// behavioral acceptance: with the now-default drop policy, one stuck subscriber
-// cannot block the producer or starve a second, draining subscriber on the same
-// topic.
-func TestMemoryDefaultPolicyOneStuckSubDoesNotStarveOthers(t *testing.T) {
-	// The shipped default is drop (config default flipped to "drop" in SCALE-006,
-	// wired via WithOverflowDrop in main.go). Model that here.
+// TestMemoryDropPolicyReportsLossToPublisher is the RESIL-002 acceptance: a
+// stuck subscriber may be isolated with the explicit drop policy, but the
+// publisher gets ErrMemoryDropped so upstream does not ACK known loss.
+func TestMemoryDropPolicyReportsLossToPublisher(t *testing.T) {
 	m := NewMemory(WithBuffer(2), WithOverflowDrop())
 	defer m.Close()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -133,34 +183,33 @@ func TestMemoryDefaultPolicyOneStuckSubDoesNotStarveOthers(t *testing.T) {
 		t.Fatal("both subscribers did not register")
 	}
 
-	// The producer must never block on the stuck subscriber — the whole point of
-	// SCALE-006's default. With block-on-full this Publish loop would wedge on
-	// the stuck subscriber's full channel.
-	done := make(chan struct{})
+	done := make(chan error, 1)
 	go func() {
 		for i := 0; i < n; i++ {
-			// Small spacing so the drainer's bounded channel makes progress
-			// rather than the burst out-racing its single consumer goroutine.
 			if err := m.Publish(context.Background(), "t", nil, []byte("x")); err != nil {
+				done <- err
 				return
 			}
 			time.Sleep(100 * time.Microsecond)
 		}
-		close(done)
+		done <- nil
 	}()
 	select {
-	case <-done:
+	case err := <-done:
+		if !errors.Is(err, ErrMemoryDropped) {
+			t.Fatalf("drop policy publish error = %v, want ErrMemoryDropped", err)
+		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("producer blocked by a stuck subscriber under the default policy (SCALE-006)")
+		t.Fatal("drop policy blocked instead of returning ErrMemoryDropped")
 	}
-	// The draining subscriber must make real progress (it is NOT blocked behind
-	// the stuck one). Under the drop policy it may shed a few on a burst, so we
-	// assert substantial progress rather than an exact count.
-	deadline := time.Now().Add(2 * time.Second)
-	for received.Load() < n/2 && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	if m.Dropped() == 0 {
+		t.Fatal("drop policy returned ErrMemoryDropped but did not count the drop")
 	}
-	if got := received.Load(); got < n/2 {
-		t.Fatalf("draining subscriber starved by the stuck subscriber: received %d of %d", got, n)
+	deadline := time.Now().Add(time.Second)
+	for received.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := received.Load(); got == 0 {
+		t.Fatal("draining subscriber made no progress before the stuck lane overflowed")
 	}
 }
