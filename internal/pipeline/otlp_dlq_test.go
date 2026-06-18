@@ -109,3 +109,20 @@ func TestOTLPMetricsDropWhenDLQAlsoFails(t *testing.T) {
 		t.Fatalf("dlq stats = %+v, want 1 dropped (DLQ publish failed)", st)
 	}
 }
+
+func TestOTLPMetricsContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	dlqBus := &otlpDLQBus{}
+	c := NewOTLPConsumer(dlqBus, &otlpFailWriter{}, testLogger())
+	c.dlq.sleep = func(context.Context, time.Duration) {}
+
+	err := c.handle(ctx, bus.Message{Key: bus.TenantKey("t-cancel", "a"), Value: oneGaugeRequest("t-cancel")})
+	if err == nil {
+		t.Fatal("handle returned nil for an unknown canceled OTLP write outcome")
+	}
+	if st := c.dlq.stats(); st.DeadLettered != 0 || st.Dropped != 0 || len(dlqBus.published) != 0 {
+		t.Fatalf("unknown outcome must not DLQ/drop: stats=%+v published=%d", st, len(dlqBus.published))
+	}
+}

@@ -129,3 +129,22 @@ func TestDeviceWriteRetryDLQOnTransientFailure(t *testing.T) {
 		t.Fatalf("DLQ-down is the only true loss: dropped=%d, want 1", c3.Dropped())
 	}
 }
+
+func TestDeviceContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	w := &devFlakyWriter{failed: errors.New("store returned after caller canceled")}
+	b := &captureDLQBus{}
+	c := NewDeviceConsumer(b, w, testLogger())
+	c.sleep = func(context.Context, time.Duration) {}
+
+	err := c.handleLane(ctx, deviceMsg(t, "t-cancel", "agent-1"), "")
+	if err == nil {
+		t.Fatal("handleLane returned nil for an unknown canceled write outcome")
+	}
+	if c.DeadLettered() != 0 || c.Dropped() != 0 || len(b.dlq) != 0 {
+		t.Fatalf("unknown outcome must not DLQ/drop: dlq=%d dropped=%d published=%d",
+			c.DeadLettered(), c.Dropped(), len(b.dlq))
+	}
+}

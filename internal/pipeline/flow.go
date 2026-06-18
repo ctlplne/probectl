@@ -227,6 +227,9 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	// bytes to the flow DLQ — never a silent drop. Meter only what actually
 	// lands, so a dead-lettered batch is not counted as stored.
 	if err := c.insertWithRetry(ctx, rows); err != nil {
+		if unknownWriteOutcome(ctx, err) {
+			return err
+		}
 		c.deadLetter(ctx, msg, tenant, err)
 		return nil
 	}

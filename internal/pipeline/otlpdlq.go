@@ -69,14 +69,14 @@ func (d *otlpDLQ) withMetrics(reg *metrics.Registry) {
 
 // process attempts write up to 1+maxRetries times with jittered exponential
 // backoff; on exhaustion it dead-letters msg (original bytes) and counts it. It
-// reports whether the write SUCCEEDED (so the caller counts stored records) and
-// always "handles" the message — a permanently-failing payload must not loop
-// the bus forever; loss/dead-letter is counted + logged instead.
-func (d *otlpDLQ) process(ctx context.Context, msg bus.Message, write func(context.Context) error) (stored bool) {
-	var err error
+// reports whether the write SUCCEEDED (so the caller counts stored records). A
+// dead-lettered or dropped message is "handled" and returns nil; a
+// cancellation/deadline write result is an unknown outcome and returns an error
+// so the bus leaves the offset uncommitted instead of DLQing a possible double.
+func (d *otlpDLQ) process(ctx context.Context, msg bus.Message, write func(context.Context) error) (stored bool, err error) {
 	for attempt := 0; ; attempt++ {
 		if err = write(ctx); err == nil {
-			return true
+			return true, nil
 		}
 		if attempt >= d.maxRetries || ctx.Err() != nil {
 			break
@@ -85,8 +85,11 @@ func (d *otlpDLQ) process(ctx context.Context, msg bus.Message, write func(conte
 		backoff := d.retryBase << attempt
 		d.sleep(ctx, backoff+time.Duration(rand.Int64N(int64(backoff)/2+1)))
 	}
+	if unknownWriteOutcome(ctx, err) {
+		return false, err
+	}
 	d.deadLetter(ctx, msg, err)
-	return false
+	return false, nil
 }
 
 // deadLetter routes the ORIGINAL message bytes to the per-signal DLQ topic

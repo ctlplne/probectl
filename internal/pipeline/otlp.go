@@ -149,9 +149,13 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	}
 	// SCALE-003 / ARCH-002: retry the store write, then dead-letter the original
 	// bytes (replayable) + count — no longer a silent best-effort drop.
-	if stored := c.dlq.process(ctx, msg, func(ctx context.Context) error {
+	stored, err := c.dlq.process(ctx, msg, func(ctx context.Context) error {
 		return c.tsdb.Write(ctx, series)
-	}); stored {
+	})
+	if err != nil {
+		return err
+	}
+	if stored {
 		c.consumed.Add(uint64(len(series)))
 	}
 	return nil

@@ -217,6 +217,9 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	// SCALE-008 residual: retry with jittered backoff; exhaustion routes the
 	// ORIGINAL bytes to the device DLQ — never a silent drop.
 	if err := c.writeWithRetry(ctx, series); err != nil {
+		if unknownWriteOutcome(ctx, err) {
+			return err
+		}
 		c.deadLetter(ctx, msg, tenant, err)
 	}
 	return nil

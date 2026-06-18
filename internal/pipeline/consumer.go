@@ -303,7 +303,7 @@ func (c *Consumer) writeOne(ctx context.Context, it writeItem) error {
 		// double: the row both stored AND in the DLQ. Instead leave the offset
 		// UNCOMMITTED and let redelivery + the row stores' idempotency/dedup
 		// (CORRECT-002/003/004) settle it on replay. Never meter (unknown).
-		if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if unknownWriteOutcome(ctx, err) {
 			return err
 		}
 		before := c.dropped.Load()

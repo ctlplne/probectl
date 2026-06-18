@@ -130,6 +130,25 @@ func TestFlowWriteRetryDLQParity(t *testing.T) {
 	}
 }
 
+func TestFlowContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	st := &flowFlakyStore{hardErr: errors.New("store returned after caller canceled")}
+	b := &flowDLQBus{}
+	c := NewFlowConsumer(b, st, nil, testLogger())
+	c.sleep = func(context.Context, time.Duration) {}
+
+	err := c.handleLane(ctx, flowMsg(t, "t-cancel", "agent-1"), "")
+	if err == nil {
+		t.Fatal("handleLane returned nil for an unknown canceled insert outcome")
+	}
+	if c.DeadLettered() != 0 || c.Dropped() != 0 || len(b.dlq) != 0 {
+		t.Fatalf("unknown outcome must not DLQ/drop: dlq=%d dropped=%d published=%d",
+			c.DeadLettered(), c.Dropped(), len(b.dlq))
+	}
+}
+
 // CORRECT-015: an sFlow record carries no flow-start time (StartUnixNano == 0).
 // rowFromProto must fall back to the flow's own timestamp, never stamp 1970.
 func TestSFlowStartTimeFallback(t *testing.T) {
