@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import json
 
-from probectl_analyzer.rislive import iter_updates, parse_ris_message
+import pytest
+
+from probectl_analyzer.rislive import (
+    MAX_RIS_PATH_HOPS,
+    MAX_RIS_PREFIXES,
+    iter_updates,
+    parse_ris_message,
+)
 
 RIS_MESSAGE = {
     "type": "ris_message",
@@ -62,4 +69,39 @@ def test_iter_updates_replays_and_skips_malformed_lines():
         ),
     ]
     routes = list(iter_updates(lines))
-    assert [r.prefix for r in routes] == ["192.0.2.0/24", "192.0.2.128/25", "203.0.113.0/24"]
+    assert [r.prefix for r in routes] == [
+        "192.0.2.0/24",
+        "192.0.2.128/25",
+        "203.0.113.0/24",
+    ]
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"path": "not-a-list"},
+        {"path": [["not-asn"]]},
+        {"peer_asn": "not-asn"},
+        {"announcements": "not-a-list"},
+        {"announcements": [{"prefixes": "not-a-list"}]},
+        {"announcements": [{"prefixes": [True]}]},
+    ],
+)
+def test_type_hostile_ris_messages_are_skipped(patch):
+    msg = json.loads(json.dumps(RIS_MESSAGE))
+    msg["data"].update(patch)
+
+    assert parse_ris_message(msg) == []
+    assert list(iter_updates([json.dumps(msg)])) == []
+
+
+def test_ris_message_cardinality_limits_are_enforced():
+    msg = json.loads(json.dumps(RIS_MESSAGE))
+    msg["data"]["path"] = list(range(MAX_RIS_PATH_HOPS + 1))
+    assert parse_ris_message(msg) == []
+
+    msg = json.loads(json.dumps(RIS_MESSAGE))
+    msg["data"]["announcements"] = [
+        {"prefixes": [f"192.0.2.{i % 255}/32" for i in range(MAX_RIS_PREFIXES + 1)]}
+    ]
+    assert parse_ris_message(msg) == []

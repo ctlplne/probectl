@@ -3,10 +3,27 @@
 from __future__ import annotations
 
 import io
+import struct
+
+import pytest
 
 from mrt_fixtures import bgp4mp_update_as4, peer_index_table, rib_ipv4
 
-from probectl_analyzer.mrt import stream_mrt
+from probectl_analyzer.mrt import MAX_MRT_RECORD_LENGTH, MRTError, stream_mrt
+
+
+class CountingReader:
+    def __init__(self, header: bytes):
+        self._header = header
+        self._sent_header = False
+        self.read_calls: list[int] = []
+
+    def read(self, n: int) -> bytes:
+        self.read_calls.append(n)
+        if not self._sent_header:
+            self._sent_header = True
+            return self._header
+        return b""
 
 
 def test_parses_table_dump_v2_rib_with_peer_attribution():
@@ -52,9 +69,24 @@ def test_streams_multiple_records_without_buffering():
 def test_malformed_record_is_skipped_not_fatal():
     # A record whose declared length is honored but whose body is too short to be
     # a valid RIB: the parser logs and skips it, then continues with the good one.
-    import struct
-
     bad = struct.pack(">IHHI", 0, 13, 2, 3) + b"\x00\x00\x00"  # truncated RIB body
     data = bad + rib_ipv4("192.0.2.0/24", [64496])
     routes = list(stream_mrt(io.BytesIO(data)))
     assert [r.prefix for r in routes] == ["192.0.2.0/24"]
+
+
+def test_oversized_record_rejected_before_attacker_sized_read():
+    header = struct.pack(">IHHI", 0, 13, 2, 0xFFFFFFFF)
+    reader = CountingReader(header)
+
+    with pytest.raises(MRTError, match="exceeds max"):
+        list(stream_mrt(reader))
+
+    assert reader.read_calls == [12]
+
+
+def test_oversized_seekable_record_is_skipped_without_body_read():
+    header = struct.pack(">IHHI", 0, 13, 2, MAX_MRT_RECORD_LENGTH + 1)
+    data = header + rib_ipv4("192.0.2.0/24", [64496])
+
+    assert list(stream_mrt(io.BytesIO(data))) == []

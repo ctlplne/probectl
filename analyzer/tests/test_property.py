@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import ipaddress
+import json
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -16,9 +17,23 @@ from mrt_fixtures import rib_ipv4
 
 from probectl_analyzer.events import RPKIStatus
 from probectl_analyzer.mrt import MRTError, stream_mrt
+from probectl_analyzer.rislive import iter_updates, parse_ris_message
 from probectl_analyzer.rpki import VRPSet
 
 asns = st.integers(min_value=1, max_value=2**32 - 1)
+json_scalars = (
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats(allow_nan=False, allow_infinity=False)
+    | st.text(max_size=64)
+)
+json_values = st.recursive(
+    json_scalars,
+    lambda children: st.lists(children, max_size=8)
+    | st.dictionaries(st.text(max_size=32), children, max_size=8),
+    max_leaves=64,
+)
 
 
 @st.composite
@@ -36,6 +51,14 @@ def test_stream_mrt_never_crashes_on_arbitrary_bytes(data: bytes):
         list(stream_mrt(io.BytesIO(data)))
     except MRTError:
         pass  # controlled, expected for malformed framing
+
+
+@given(json_values)
+def test_ris_live_parser_is_total_over_arbitrary_json(value):
+    """Any syntactically valid JSON value is either normalized into routes or
+    skipped; it must not raise out of the parser loop."""
+    parse_ris_message(value)
+    list(iter_updates([json.dumps(value)]))
 
 
 @given(prefix=ipv4_networks(), as_path=st.lists(asns, min_size=1, max_size=8))

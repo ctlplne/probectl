@@ -11,6 +11,7 @@ aborting the whole stream.
 from __future__ import annotations
 
 import ipaddress
+import io
 import struct
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -42,6 +43,11 @@ AFI_IPV4 = 1
 AFI_IPV6 = 2
 
 BGP_UPDATE = 2
+
+# Public MRT dumps are untrusted external input. A single legitimate MRT record
+# is nowhere near multi-gigabyte scale; this cap rejects pathological record
+# headers before the parser asks the stream for attacker-sized memory.
+MAX_MRT_RECORD_LENGTH = 16 * 1024 * 1024
 
 
 class MRTError(Exception):
@@ -113,7 +119,10 @@ class _Reader:
 class MRTReader:
     """Stateful streaming reader (keeps the PEER_INDEX_TABLE for peer lookups)."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_record_length: int = MAX_MRT_RECORD_LENGTH) -> None:
+        if max_record_length <= 0:
+            raise ValueError("max_record_length must be positive")
+        self._max_record_length = max_record_length
         self._peers: list[tuple[int, str]] = []
         self._collector_id = 0
 
@@ -125,6 +134,12 @@ class MRTReader:
             if len(header) < 12:
                 raise MRTError("truncated MRT common header")
             _ts, mtype, subtype, length = struct.unpack(">IHHI", header)
+            if length > self._max_record_length:
+                if self._skip_oversized(fp, length, mtype, subtype):
+                    continue
+                raise MRTError(
+                    f"MRT record length {length} exceeds max {self._max_record_length}"
+                )
             body = fp.read(length)
             if len(body) < length:
                 raise MRTError("truncated MRT record body")
@@ -138,6 +153,29 @@ class MRTReader:
                     subtype=subtype,
                     error=str(err),
                 )
+
+    def _skip_oversized(self, fp: BinaryIO, length: int, mtype: int, subtype: int) -> bool:
+        try:
+            fp.seek(length, io.SEEK_CUR)
+        except (AttributeError, OSError):
+            _log.warning(
+                "rejecting oversized MRT record",
+                mtype=mtype,
+                subtype=subtype,
+                length=length,
+                max_length=self._max_record_length,
+                seekable=False,
+            )
+            return False
+        _log.warning(
+            "skipping oversized MRT record",
+            mtype=mtype,
+            subtype=subtype,
+            length=length,
+            max_length=self._max_record_length,
+            seekable=True,
+        )
+        return True
 
     def _dispatch(self, mtype: int, subtype: int, body: bytes) -> Iterator[BGPRoute]:
         if mtype == TYPE_TABLE_DUMP_V2:

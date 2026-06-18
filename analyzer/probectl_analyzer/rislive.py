@@ -19,37 +19,108 @@ from .mrt import BGPRoute
 _log = get_logger("probectl.analyzer.rislive")
 
 RIS_LIVE_URL = "wss://ris-live.ripe.net/v1/ws/"
+MAX_RIS_PATH_HOPS = 1024
+MAX_RIS_ANNOUNCEMENTS = 1024
+MAX_RIS_PREFIXES = 4096
 
 
-def _flatten_path(path: list) -> list[int]:
+class RISMessageError(ValueError):
+    """A type-hostile or over-large RIS Live message."""
+
+
+def _as_dict(value: object, field: str) -> dict:
+    if not isinstance(value, dict):
+        raise RISMessageError(f"{field} must be an object")
+    return value
+
+
+def _bounded_list(value: object, field: str, limit: int) -> list:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise RISMessageError(f"{field} must be a list")
+    if len(value) > limit:
+        raise RISMessageError(f"{field} has {len(value)} entries, max {limit}")
+    return value
+
+
+def _asn(value: object, field: str) -> int:
+    if value in (None, ""):
+        return 0
+    if isinstance(value, bool):
+        raise RISMessageError(f"{field} must be an ASN")
+    try:
+        asn = int(value)
+    except (TypeError, ValueError) as err:
+        raise RISMessageError(f"{field} must be an ASN") from err
+    if asn < 0 or asn > 2**32 - 1:
+        raise RISMessageError(f"{field} ASN out of range")
+    return asn
+
+
+def _string(value: object, field: str) -> str:
+    if value in (None, ""):
+        return ""
+    if isinstance(value, bool) or isinstance(value, (dict, list)):
+        raise RISMessageError(f"{field} must be a scalar string")
+    return str(value)
+
+
+def _flatten_path(path: object) -> list[int]:
     """Flatten a RIS Live AS path (which may nest AS_SETs as sub-lists)."""
+    hops = _bounded_list(path, "data.path", MAX_RIS_PATH_HOPS)
     out: list[int] = []
-    for hop in path:
+    for hop in hops:
         if isinstance(hop, list):
-            out.extend(int(a) for a in hop)
+            if len(hop) > MAX_RIS_PATH_HOPS:
+                raise RISMessageError("data.path AS_SET too large")
+            for asn in hop:
+                out.append(_asn(asn, "data.path[]"))
         else:
-            out.append(int(hop))
+            out.append(_asn(hop, "data.path[]"))
+        if len(out) > MAX_RIS_PATH_HOPS:
+            raise RISMessageError(f"data.path flattened length exceeds {MAX_RIS_PATH_HOPS}")
     return out
 
 
-def parse_ris_message(obj: dict) -> list[BGPRoute]:
+def parse_ris_message(obj: object) -> list[BGPRoute]:
     """Normalize one RIS Live message into zero or more announced routes."""
-    if obj.get("type") != "ris_message":
+    try:
+        return _parse_ris_message(obj)
+    except (RISMessageError, TypeError, ValueError, KeyError) as err:
+        _log.warning("skipping malformed RIS Live message", error=str(err))
         return []
-    data = obj.get("data", {})
+
+
+def _parse_ris_message(obj: object) -> list[BGPRoute]:
+    msg = _as_dict(obj, "message")
+    if msg.get("type") != "ris_message":
+        return []
+    data = _as_dict(msg.get("data", {}), "data")
     if data.get("type") != "UPDATE":
         return []
 
     as_path = _flatten_path(data.get("path", []))
-    peer_addr = str(data.get("peer", ""))
-    peer_asn = int(data["peer_asn"]) if data.get("peer_asn") else 0
+    peer_addr = _string(data.get("peer", ""), "data.peer")
+    peer_asn = _asn(data.get("peer_asn"), "data.peer_asn")
 
     routes: list[BGPRoute] = []
-    for ann in data.get("announcements", []):
-        for prefix in ann.get("prefixes", []):
+    emitted = 0
+    for ann in _bounded_list(
+        data.get("announcements", []), "data.announcements", MAX_RIS_ANNOUNCEMENTS
+    ):
+        ann_obj = _as_dict(ann, "data.announcements[]")
+        for prefix in _bounded_list(
+            ann_obj.get("prefixes", []), "data.announcements[].prefixes", MAX_RIS_PREFIXES
+        ):
+            emitted += 1
+            if emitted > MAX_RIS_PREFIXES:
+                raise RISMessageError(
+                    f"message has more than {MAX_RIS_PREFIXES} announced prefixes"
+                )
             routes.append(
                 BGPRoute(
-                    prefix=str(prefix),
+                    prefix=_string(prefix, "data.announcements[].prefixes[]"),
                     as_path=list(as_path),
                     peer_asn=peer_asn,
                     peer_address=peer_addr,
