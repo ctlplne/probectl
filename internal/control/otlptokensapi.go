@@ -31,6 +31,10 @@ type OTLPTokenAuthManager interface {
 	Revoke(token string) bool
 }
 
+var recordOTLPTokenAudit = func(s *Server, ctx context.Context, sc tenancy.Scope, r *http.Request, action, target string, data map[string]any) error {
+	return s.recordAudit(ctx, sc, r, action, target, data)
+}
+
 // WithOTLPTokenAuth attaches the in-process OTLP authenticator so the admin
 // API can hot-activate new tokens (Add) and signal revocation (Revoke). The DB
 // store is accessed via s.pool (same pattern as scim/mcp tokens). nil is a
@@ -89,24 +93,31 @@ func (s *Server) handleOTLPTokenCreate(w http.ResponseWriter, r *http.Request) e
 	// Hash via internal/crypto (SHA-256; the token itself has 256-bit entropy).
 	tokenHash := crypto.Hash([]byte(token))
 
-	id, err := st.Create(r.Context(), tid, in.Name, tokenHash)
-	if err != nil {
-		s.log.Warn("otlp token create failed", "tenant", tid, "error", err)
-		return apierror.Internal("failed to persist token").Wrap(err)
+	var id string
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		var createErr error
+		id, createErr = st.CreateScoped(ctx, sc, in.Name, tokenHash)
+		if createErr != nil {
+			s.log.Warn("otlp token create failed", "tenant", tid, "error", createErr)
+			return apierror.Internal("failed to persist token").Wrap(createErr)
+		}
+		if auditErr := recordOTLPTokenAudit(s, ctx, sc, r, "security.otlp_token_create", tid, map[string]any{
+			"id": id, "name": in.Name,
+		}); auditErr != nil {
+			s.log.Warn("otlp token create audit failed", "tenant", tid, "id", id, "error", auditErr)
+			return apierror.Internal("failed to audit token creation").Wrap(auditErr)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
-	// Seed the in-process authenticator immediately — the new token is usable
-	// without a restart (WIRE-008 hot-activation).
+	// Seed the in-process authenticator only after the DB row and audit row
+	// commit. If audit fails, the transaction rolls back and the token never
+	// becomes live.
 	if s.otlpTokenAuth != nil {
 		s.otlpTokenAuth.Add(token, tid, time.Time{})
 	}
-
-	// Audit the creation.
-	_ = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, "security.otlp_token_create", tid, map[string]any{
-			"id": id, "name": in.Name,
-		})
-	})
 
 	// Return the plaintext token ONCE (never retrievable again from the DB).
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -139,23 +150,28 @@ func (s *Server) handleOTLPTokenRevoke(w http.ResponseWriter, r *http.Request) e
 		return apierror.NotFound("not found")
 	}
 
-	if err := st.Revoke(r.Context(), tid, id); err != nil {
-		if err == store.ErrInvalidOTLPToken {
-			return apierror.NotFound("token not found or already revoked")
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		if err := st.RevokeScoped(ctx, sc, id); err != nil {
+			if err == store.ErrInvalidOTLPToken {
+				return apierror.NotFound("token not found or already revoked")
+			}
+			s.log.Warn("otlp token revoke failed", "tenant", tid, "id", id, "error", err)
+			return apierror.Internal("failed to revoke token").Wrap(err)
 		}
-		s.log.Warn("otlp token revoke failed", "tenant", tid, "id", id, "error", err)
-		return apierror.Internal("failed to revoke token").Wrap(err)
+		if auditErr := recordOTLPTokenAudit(s, ctx, sc, r, "security.otlp_token_revoke", tid, map[string]any{
+			"id": id,
+		}); auditErr != nil {
+			s.log.Warn("otlp token revoke audit failed", "tenant", tid, "id", id, "error", auditErr)
+			return apierror.Internal("failed to audit token revocation").Wrap(auditErr)
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	// The DBTokenAuthenticator consults the DB on every Authenticate call so
 	// the revoked token is rejected on the NEXT request without a restart.
 	// Config-seeded tokens (without a DB record) require a config change + restart.
-
-	_ = s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, "security.otlp_token_revoke", tid, map[string]any{
-			"id": id,
-		})
-	})
 
 	w.WriteHeader(http.StatusNoContent)
 	return nil

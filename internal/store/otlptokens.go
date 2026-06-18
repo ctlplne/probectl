@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // OTLPTokens persists OTLP bearer tokens (WIRE-008). Like MCP and SCIM tokens,
@@ -42,6 +44,18 @@ func (o OTLPTokens) Create(ctx context.Context, tenantID, name string, tokenHash
 	if err := o.pool.QueryRow(ctx,
 		`INSERT INTO otlp_tokens (tenant_id, name, token_hash) VALUES ($1, $2, $3) RETURNING id::text`,
 		tenantID, name, tokenHash).Scan(&id); err != nil {
+		return "", mapWriteErr("otlp_token", err)
+	}
+	return id, nil
+}
+
+// CreateScoped stores a token inside the caller's tenant transaction. Use this
+// from mutation handlers that must commit the token row and audit row together.
+func (o OTLPTokens) CreateScoped(ctx context.Context, s tenancy.Scope, name string, tokenHash []byte) (string, error) {
+	var id string
+	if err := s.Q.QueryRow(ctx,
+		`INSERT INTO otlp_tokens (tenant_id, name, token_hash) VALUES ($1, $2, $3) RETURNING id::text`,
+		s.Tenant.String(), name, tokenHash).Scan(&id); err != nil {
 		return "", mapWriteErr("otlp_token", err)
 	}
 	return id, nil
@@ -88,6 +102,22 @@ func (o OTLPTokens) Revoke(ctx context.Context, tenantID, id string) error {
 		`UPDATE otlp_tokens SET revoked_at = now()
 		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`,
 		tenantID, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInvalidOTLPToken
+	}
+	return nil
+}
+
+// RevokeScoped marks a tenant's OTLP token revoked inside the caller's tenant
+// transaction. Use this when the revocation and audit row must be atomic.
+func (o OTLPTokens) RevokeScoped(ctx context.Context, s tenancy.Scope, id string) error {
+	tag, err := s.Q.Exec(ctx,
+		`UPDATE otlp_tokens SET revoked_at = now()
+		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`,
+		s.Tenant.String(), id)
 	if err != nil {
 		return err
 	}
