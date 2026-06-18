@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -26,10 +27,9 @@ import (
 // human-gated by construction (guardrail §7.8): the engine never deploys —
 // it computes waves and gates advancement; the operator's orchestrator acts.
 //
-// State is held per control-plane instance (in-RAM); the engine is itself an
-// in-RAM state machine. Durable cross-restart persistence of in-flight rollout
-// state is a follow-up; an interrupted rollout is re-planned from the current
-// fleet, which is safe (planning is deterministic over the live registry).
+// State is persisted in tenant-scoped Postgres rows and mirrored in this
+// process as a hot cache. The database row is the truth: after a restart,
+// list/get/action paths rebuild the cache from storage before returning.
 
 // rolloutManager holds active rollout plans, tenant-scoped.
 type rolloutManager struct {
@@ -45,13 +45,33 @@ func newRolloutManager() *rolloutManager {
 func (m *rolloutManager) put(tenant string, p *agent.RolloutPlan) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	id := m.nextIDLocked(time.Now())
+	m.putLocked(tenant, id, p)
+	return id
+}
+
+func (m *rolloutManager) reserveID(now time.Time) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.nextIDLocked(now)
+}
+
+func (m *rolloutManager) remember(tenant, id string, p *agent.RolloutPlan) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.putLocked(tenant, id, p)
+}
+
+func (m *rolloutManager) nextIDLocked(now time.Time) string {
 	m.seq++
-	id := fmt.Sprintf("rollout-%d", m.seq)
+	return fmt.Sprintf("rollout-%d-%d", now.UnixNano(), m.seq)
+}
+
+func (m *rolloutManager) putLocked(tenant, id string, p *agent.RolloutPlan) {
 	if m.byID[tenant] == nil {
 		m.byID[tenant] = map[string]*agent.RolloutPlan{}
 	}
 	m.byID[tenant][id] = p
-	return id
 }
 
 func (m *rolloutManager) get(tenant, id string) (*agent.RolloutPlan, bool) {
@@ -84,6 +104,53 @@ func (s *Server) rolloutMgr() *rolloutManager {
 	return s.rollouts
 }
 
+func (s *Server) rolloutFleet(ctx context.Context, sc tenancy.Scope) ([]agent.FleetAgent, error) {
+	if sc.Q == nil {
+		return nil, apierror.Unavailable("agent registry is not available")
+	}
+	var fleet []agent.FleetAgent
+	// SCALE-008: enumerate the fleet via the bounded cursor (ListPage) instead
+	// of one unbounded List — a tens-of-thousands-agent fleet would otherwise
+	// load every row into memory in a single query.
+	after := ""
+	for {
+		page, err := (store.Agents{}).ListPage(ctx, sc, after, store.DefaultAgentPageSize)
+		if err != nil {
+			return nil, err
+		}
+		for _, a := range page {
+			fa := agent.FleetAgent{ID: a.ID, TenantID: a.TenantID, Version: a.AgentVersion}
+			if a.LastSeenAt != nil {
+				fa.LastSeen = *a.LastSeenAt
+			}
+			fleet = append(fleet, fa)
+		}
+		if len(page) < store.DefaultAgentPageSize {
+			break
+		}
+		after = page[len(page)-1].ID
+	}
+	return fleet, nil
+}
+
+func encodeRolloutPlan(p *agent.RolloutPlan) ([]byte, error) {
+	if p == nil {
+		return nil, fmt.Errorf("rollout plan is nil")
+	}
+	return json.Marshal(p)
+}
+
+func decodeRolloutPlan(rec *store.RolloutRecord) (*agent.RolloutPlan, error) {
+	if rec == nil {
+		return nil, apierror.NotFound("rollout not found")
+	}
+	var p agent.RolloutPlan
+	if err := json.Unmarshal(rec.Plan, &p); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
 // handleCreateRollout plans a wave-staged rollout over the caller's live fleet.
 func (s *Server) handleCreateRollout(w http.ResponseWriter, r *http.Request) error {
 	var req rolloutCreateRequest
@@ -97,53 +164,46 @@ func (s *Server) handleCreateRollout(w http.ResponseWriter, r *http.Request) err
 	if err != nil {
 		return err
 	}
-	var fleet []agent.FleetAgent
+	id := s.rolloutMgr().reserveID(time.Now())
+	var plan *agent.RolloutPlan
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		// SCALE-008: enumerate the fleet via the bounded cursor (ListPage)
-		// instead of one unbounded List — a tens-of-thousands-agent fleet would
-		// otherwise load every row into memory in a single query.
-		after := ""
-		for {
-			page, e := (store.Agents{}).ListPage(ctx, sc, after, store.DefaultAgentPageSize)
-			if e != nil {
-				return e
-			}
-			for _, a := range page {
-				fa := agent.FleetAgent{ID: a.ID, TenantID: a.TenantID, Version: a.AgentVersion}
-				if a.LastSeenAt != nil {
-					fa.LastSeen = *a.LastSeenAt
-				}
-				fleet = append(fleet, fa)
-			}
-			if len(page) < store.DefaultAgentPageSize {
-				break
-			}
-			after = page[len(page)-1].ID
+		fleet, err := s.rolloutFleet(ctx, sc)
+		if err != nil {
+			return err
 		}
+		split := lifecycle.DefaultSplit()
+		if req.CanaryPercent > 0 || req.EarlyPercent > 0 {
+			split = lifecycle.Split{CanaryPercent: req.CanaryPercent, EarlyPercent: req.EarlyPercent}
+		}
+		artifact := agent.VerifiedArtifact{
+			Version: req.Version, Digest: req.Digest, Method: req.VerifyMethod,
+			VerifiedBy: auditActor(r),
+		}
+		p, perr := agent.PlanRollout(fleet, artifact, split, version.Get().Version, lifecycle.DefaultPolicy())
+		if perr != nil {
+			return apierror.BadRequest(perr.Error())
+		}
+		raw, err := encodeRolloutPlan(p)
+		if err != nil {
+			return err
+		}
+		if _, err := (store.Rollouts{}).Create(ctx, sc, id, raw); err != nil {
+			return err
+		}
+		if err := (store.Rollouts{}).AppendEvent(ctx, sc, id, "rollout.create", raw); err != nil {
+			return err
+		}
+		if err := s.recordAudit(ctx, sc, r, "rollout.create", id, map[string]any{
+			"version": req.Version, "digest": req.Digest, "waves": len(p.Waves),
+		}); err != nil {
+			return err
+		}
+		plan = p
 		return nil
 	}); err != nil {
 		return err
 	}
-	split := lifecycle.DefaultSplit()
-	if req.CanaryPercent > 0 || req.EarlyPercent > 0 {
-		split = lifecycle.Split{CanaryPercent: req.CanaryPercent, EarlyPercent: req.EarlyPercent}
-	}
-	artifact := agent.VerifiedArtifact{
-		Version: req.Version, Digest: req.Digest, Method: req.VerifyMethod,
-		VerifiedBy: auditActor(r),
-	}
-	plan, perr := agent.PlanRollout(fleet, artifact, split, version.Get().Version, lifecycle.DefaultPolicy())
-	if perr != nil {
-		return apierror.BadRequest(perr.Error())
-	}
-	id := s.rolloutMgr().put(tid, plan)
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, "rollout.create", id, map[string]any{
-			"version": req.Version, "digest": req.Digest, "waves": len(plan.Waves),
-		})
-	}); err != nil {
-		return err
-	}
+	s.rolloutMgr().remember(tid, id, plan)
 	w.Header().Set("Location", "/v1/rollouts/"+id)
 	writeJSON(w, http.StatusCreated, rolloutView(id, plan))
 	return nil
@@ -153,6 +213,27 @@ func (s *Server) handleListRollouts(w http.ResponseWriter, r *http.Request) erro
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
+	}
+	if s.pool != nil {
+		var records []store.RolloutRecord
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			var e error
+			records, e = (store.Rollouts{}).List(ctx, sc)
+			return e
+		}); err != nil {
+			return err
+		}
+		items := make([]map[string]any, 0, len(records))
+		for _, rec := range records {
+			p, err := decodeRolloutPlan(&rec)
+			if err != nil {
+				return err
+			}
+			s.rolloutMgr().remember(tid, rec.ID, p)
+			items = append(items, rolloutView(rec.ID, p))
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items})
+		return nil
 	}
 	plans := s.rolloutMgr().list(tid)
 	ids := make([]string, 0, len(plans))
@@ -178,48 +259,127 @@ func (s *Server) handleGetRollout(w http.ResponseWriter, r *http.Request) error 
 }
 
 func (s *Server) handleAdvanceRollout(w http.ResponseWriter, r *http.Request) error {
-	return s.rolloutAction(w, r, "rollout.advance", func(p *agent.RolloutPlan) error {
+	return s.rolloutAction(w, r, "rollout.advance", func(_ context.Context, _ tenancy.Scope, p *agent.RolloutPlan) (map[string]any, error) {
 		_, e := p.Advance(time.Now())
-		return e
+		return map[string]any{"progress": p.Progress()}, e
+	})
+}
+
+func (s *Server) handleVerifyRollout(w http.ResponseWriter, r *http.Request) error {
+	return s.rolloutAction(w, r, "rollout.verify", func(ctx context.Context, sc tenancy.Scope, p *agent.RolloutPlan) (map[string]any, error) {
+		fleet, err := s.rolloutFleet(ctx, sc)
+		if err != nil {
+			return nil, err
+		}
+		complete, err := p.Verify(fleet, time.Now())
+		return map[string]any{"complete": complete, "progress": p.Progress()}, err
 	})
 }
 
 func (s *Server) handleHaltRollout(w http.ResponseWriter, r *http.Request) error {
-	return s.rolloutAction(w, r, "rollout.halt", func(p *agent.RolloutPlan) error {
+	return s.rolloutAction(w, r, "rollout.halt", func(_ context.Context, _ tenancy.Scope, p *agent.RolloutPlan) (map[string]any, error) {
 		p.Halt("halted by operator via API")
-		return nil
+		return map[string]any{"progress": p.Progress()}, nil
 	})
 }
 
 func (s *Server) handleResumeRollout(w http.ResponseWriter, r *http.Request) error {
-	return s.rolloutAction(w, r, "rollout.resume", func(p *agent.RolloutPlan) error {
-		return p.Resume("resumed by operator via API", time.Now())
+	return s.rolloutAction(w, r, "rollout.resume", func(_ context.Context, _ tenancy.Scope, p *agent.RolloutPlan) (map[string]any, error) {
+		err := p.Resume("resumed by operator via API", time.Now())
+		return map[string]any{"progress": p.Progress()}, err
 	})
 }
 
 // rolloutAction runs a state-machine step on a looked-up rollout and audits it.
-func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request, action string, step func(*agent.RolloutPlan) error) error {
-	p, err := s.lookupRollout(r)
+func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request, action string, step func(context.Context, tenancy.Scope, *agent.RolloutPlan) (map[string]any, error)) error {
+	id := r.PathValue("id")
+	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
 	}
-	if serr := step(p); serr != nil {
-		return apierror.BadRequest(serr.Error())
+	if s.pool == nil {
+		p, err := s.lookupRollout(r)
+		if err != nil {
+			return err
+		}
+		meta, serr := step(r.Context(), tenancy.Scope{}, p)
+		if serr != nil {
+			return rolloutStepErr(serr)
+		}
+		if meta == nil {
+			meta = map[string]any{}
+		}
+		writeJSON(w, http.StatusOK, rolloutView(id, p))
+		return nil
 	}
-	id := r.PathValue("id")
+	var view *agent.RolloutPlan
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, action, id, nil)
+		rec, err := (store.Rollouts{}).Get(ctx, sc, id)
+		if err != nil {
+			return err
+		}
+		p, err := decodeRolloutPlan(rec)
+		if err != nil {
+			return err
+		}
+		meta, serr := step(ctx, sc, p)
+		if serr != nil {
+			return rolloutStepErr(serr)
+		}
+		raw, err := encodeRolloutPlan(p)
+		if err != nil {
+			return err
+		}
+		if _, err := (store.Rollouts{}).Update(ctx, sc, id, rec.Revision, raw); err != nil {
+			return err
+		}
+		if err := (store.Rollouts{}).AppendEvent(ctx, sc, id, action, raw); err != nil {
+			return err
+		}
+		if meta == nil {
+			meta = map[string]any{}
+		}
+		if err := s.recordAudit(ctx, sc, r, action, id, meta); err != nil {
+			return err
+		}
+		view = p
+		return nil
 	}); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, rolloutView(id, p))
+	s.rolloutMgr().remember(tid, id, view)
+	writeJSON(w, http.StatusOK, rolloutView(id, view))
 	return nil
+}
+
+func rolloutStepErr(err error) error {
+	if _, ok := apierror.As(err); ok {
+		return err
+	}
+	return apierror.BadRequest(err.Error())
 }
 
 func (s *Server) lookupRollout(r *http.Request) (*agent.RolloutPlan, error) {
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return nil, err
+	}
+	if s.pool != nil {
+		id := r.PathValue("id")
+		var rec *store.RolloutRecord
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			var e error
+			rec, e = (store.Rollouts{}).Get(ctx, sc, id)
+			return e
+		}); err != nil {
+			return nil, err
+		}
+		p, err := decodeRolloutPlan(rec)
+		if err != nil {
+			return nil, err
+		}
+		s.rolloutMgr().remember(tid, id, p)
+		return p, nil
 	}
 	p, ok := s.rolloutMgr().get(tid, r.PathValue("id"))
 	if !ok {

@@ -204,6 +204,16 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'federated',
     evidence: ['openapi:/v1/cmdb/lookup', 'openapi:/v1/incidents/{id}/cis'],
   },
+  {
+    capability: 'Staged fleet rollout controls (API + operator runbook)',
+    sprint: 'S49',
+    kind: 'federated',
+    evidence: [
+      'file:docs/ops/fleet-rollout.md',
+      'openapi:/v1/rollouts',
+      'openapi:/v1/rollouts/{id}/verify',
+    ],
+  },
 
   // --- declared placeholders (engine lands with the named sprint) ---
 

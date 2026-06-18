@@ -130,6 +130,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/rollouts", s.handleCreateRollout, permAgentWrite},
 		{http.MethodGet, "/v1/rollouts/{id}", s.handleGetRollout, permAgentRead},
 		{http.MethodPost, "/v1/rollouts/{id}/advance", s.handleAdvanceRollout, permAgentWrite},
+		{http.MethodPost, "/v1/rollouts/{id}/verify", s.handleVerifyRollout, permAgentWrite},
 		{http.MethodPost, "/v1/rollouts/{id}/halt", s.handleHaltRollout, permAgentWrite},
 		{http.MethodPost, "/v1/rollouts/{id}/resume", s.handleResumeRollout, permAgentWrite},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},

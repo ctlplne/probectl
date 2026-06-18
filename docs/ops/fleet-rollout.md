@@ -87,6 +87,23 @@ verified** it — an unattested artifact refuses to plan.
 Snapshot the fleet from the registry (`GET /v1/agents`) and plan. Waves render
 like `canary[3]=pending early[11]=pending main[46]=pending`. The wave
 membership — the exact agent ids in each wave — is the orchestrator's worklist.
+The operator surface is deliberately **API + runbook only** (`web/src/surfaces.ts`
+declares it as federated): ordinary tenant navigation should not hide the fact
+that this is a fleet-change workflow driven by external orchestration, not a
+point-and-click agent self-update channel.
+
+```sh
+curl -X POST "$PROBECTL_URL/v1/rollouts" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "version": "v0.2.1",
+    "digest": "sha256:<exact artifact digest>",
+    "verify_method": "cosign verify-blob ...",
+    "canary_percent": 5,
+    "early_percent": 20
+  }'
+```
 
 ### 2. Advance one wave
 
@@ -94,6 +111,11 @@ membership — the exact agent ids in each wave — is the orchestrator's workli
 starts its verify window (default 15 m) — the train departs, and the clock for
 confirming its arrival starts. Apply that wave with your orchestrator,
 **by digest**:
+
+```sh
+curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/advance" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 - **Kubernetes** (the agent chart): `helm upgrade probectl-agent
   deploy/helm/probectl-agent --reuse-values --set
@@ -109,6 +131,11 @@ heartbeat** (seen within the last 5 m). The orchestrator's "applied
 successfully" is *not* proof — only the agent itself reporting back, alive and
 on the new version, counts. All good → the wave completes and you can advance
 the next one. Stragglers still inside the window: keep waiting, re-verify.
+
+```sh
+curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/verify" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ### 4. Halt-on-error
 

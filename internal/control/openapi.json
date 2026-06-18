@@ -4565,6 +4565,38 @@
         }
       }
     },
+    "/v1/rollouts/{id}/verify": {
+      "post": {
+        "operationId": "verifyRollout",
+        "summary": "Verify the applying rollout wave from the live agent registry",
+        "tags": [
+          "rollouts"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "rollout state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/rollouts/{id}/halt": {
       "post": {
         "operationId": "haltRollout",
