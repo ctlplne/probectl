@@ -10,9 +10,9 @@ import (
 )
 
 type fakeOTLPTokenStore struct {
-	byHash map[string]string
+	byHash  map[string]string
 	revoked map[string]bool
-	calls int
+	calls   int
 }
 
 func newFakeOTLPTokenStore(tokens map[string]string) *fakeOTLPTokenStore {

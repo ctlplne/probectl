@@ -29,9 +29,9 @@ type OTLPTokenStore interface {
 // immediately (no restart required). The in-process cache is ALSO updated so
 // the next request does not make a spurious DB round-trip.
 type DBTokenAuthenticator struct {
-	db   OTLPTokenStore // DB-backed source of truth
-	mem  *TokenAuthenticator
-	log  *slog.Logger
+	db  OTLPTokenStore // DB-backed source of truth
+	mem *TokenAuthenticator
+	log *slog.Logger
 }
 
 // NewDBTokenAuthenticator builds an authenticator that accepts legacy
