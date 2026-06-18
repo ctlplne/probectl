@@ -60,6 +60,31 @@ already firing before the fault proves nothing.
 Unit tests pin the injector itself: latency adds up per direction,
 partition blackholes and heals, loss dice roll, invalid faults rejected.
 
+## Dependency-chaos release matrix
+
+The UDP proxy proves that probectl detects a known network fault. Dependency
+chaos proves the platform keeps the right blast radius when one of its own
+dependencies fails. The machine-readable contract lives in
+`internal/chaos.DependencyChaosMatrix` and is pinned by
+`TestDependencyChaosMatrixCoversRequiredFaults`.
+
+The matrix is intentionally a release-gated evidence map, not an always-on
+fault injector. Each row names the dependency, the failure mode, the expected
+counters or health signals, the retry/DLQ behavior, and the recovery assertion,
+then points at the concrete test patterns that prove that row:
+
+| Dependency class | Failure modes covered | Required behavior |
+| --- | --- | --- |
+| Kafka / bus producer | broker unreachable, produce latency, async buffer pressure | publish errors or counted sheds are visible; accepted records are never silently acknowledged before durable broker acceptance |
+| In-memory bus | handler errors, subscriber overflow | the failing subscriber lane retries or sheds independently; the default block policy keeps drainable messages |
+| TSDB/result writer | transient writer error, persistent outage, batching flush error | writes retry, exhausted writes enter DLQ with original bytes, and DLQ publish failure preserves redelivery |
+| Flow/device/OTLP stores | store or exporter failure, tenant registry failure | each signal path retries or redelivers inside its tenant-scoped stream; tenant verification fails closed |
+| ClickHouse | 5xx/429 storms, oversized response, failed migration statement | the shared client trips breakers and bounds responses; failed migrations stop before recording success |
+| Postgres metadata writer | writer failover, writer unavailable, tenant-lifecycle source failure | mutating requests fail closed with `503`/`Retry-After`; readiness exposes write degradation |
+| Agent disk buffer | control-plane outage, partial reconnect, disk cap, corrupt frame tail | frames stay tenant-bound, capped, and FIFO; corrupt or over-cap frames are rejected and counted |
+| Memory pressure | cardinality flood, oversized labels, oversized ClickHouse response | noisy identities are dropped at the owning limiter while quiet tenants and known identities keep flowing |
+| Control-plane replica | one replica restarts during result-derived view updates | shared side effects remain single-consumer; replica-local read views rebuild from their own group |
+
 ## Using it against your own stack
 
 Point any echo-path test at a proxy you start in your own harness:
@@ -73,6 +98,6 @@ proxy.SetFault(chaos.Fault{LossPct: 50, LatencyMs: 200}) // chaos on
 
 Out of scope by design: TCP/HTTP stream faults (different semantics —
 connection-level faults, not datagram dice; a follow-up if needed),
-cluster-level chaos orchestration (Chaos Mesh et al. own that space —
-probectl validates that IT would notice), and any always-on or
-API-reachable injection.
+cluster-level chaos orchestration (Chaos Mesh et al. own killing pods and
+nodes; probectl validates the dependency failure contract above), and any
+always-on or API-reachable injection.
