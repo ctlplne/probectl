@@ -50,6 +50,25 @@ binary, no root parent), `NoNewPrivileges`, a `@system-service`-based syscall
 filter plus `bpf`/`perf_event_open` with mount/module/ptrace classes denied,
 and filesystem/namespace lockdown. Create the `probectl-agent` system user.
 
+`install.sh` verifies the binary's cosign keyless signature by default before it
+copies or enables anything. Put `<binary>.sig` and `<binary>.pem` next to the
+binary (or set `PROBECTL_COSIGN_SIG` / `PROBECTL_COSIGN_CERT`) and run:
+
+```sh
+sudo ./install.sh ./probectl-ebpf-agent ./probectl-ebpf-agent.example.yml
+```
+
+If an air-gapped site verifies the artifact out of band, the unverified install
+path is explicit break-glass:
+
+```sh
+sudo env PROBECTL_UNVERIFIED_INSTALL_ACK=allow-unsigned-cap-bpf-code \
+  ./install.sh --no-verify ./probectl-ebpf-agent ./probectl-ebpf-agent.example.yml
+```
+
+That command installs privileged host code, so keep the external verification
+receipt with the change record.
+
 ## Containers (docker / compose)
 
 ```yaml

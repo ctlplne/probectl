@@ -127,12 +127,14 @@ echo "helm hardening gate: OK (default + every values-* profile)"
 
 # ── Agent chart (U-016): the eBPF agent's privilege contract is EXPLICIT ────
 AGENT="${AGENT_CHART:-deploy/helm/probectl-agent}"
-helm lint "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' >/dev/null \
+AGENT_IMAGE_TAG="0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+helm lint "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null \
   || fail "agent chart does not lint"
 
-arender() { helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' "$@"; }
+arender() { helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' --set-string image.tag="$AGENT_IMAGE_TAG" "$@"; }
 agent="$(arender)"
 need "kind: DaemonSet"                  "$agent" "agent: not a DaemonSet"
+need "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$agent" "agent: digest-pinned image did not render"
 need 'drop: \["ALL"\]'                  "$agent" "agent: capabilities not dropped to ALL"
 need '"BPF", "PERFMON"'                 "$agent" "agent: minimal capability pair not declared"
 need "seccompProfile"                   "$agent" "agent: no seccomp profile"
@@ -162,11 +164,15 @@ need "SYS_ADMIN" "$(arender --set capabilityMode=legacy)" "agent: legacy mode mi
 
 # fail-closed rendering: no tenant, or plaintext kafka without the explicit
 # dev override, must refuse (guardrail 1 / U-010).
-if helm template agent "$AGENT" >/dev/null 2>&1; then
+if helm template agent "$AGENT" --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
   fail "agent chart rendered WITHOUT a tenantID"
 fi
+if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' --set-string image.tag="0.4.0" >/dev/null 2>&1; then
+  fail "agent chart rendered a privileged tag-only image without image.allowTagOnly=true (RED-003)"
+fi
+need "probectl-ebpf-agent:0.4.0" "$(arender --set image.allowTagOnly=true --set-string image.tag=0.4.0)" "agent: tag-only break-glass render failed"
 if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9092}' \
-     --set bus.tls.enabled=false >/dev/null 2>&1; then
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.enabled=false >/dev/null 2>&1; then
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"
 fi
 

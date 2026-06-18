@@ -5,6 +5,10 @@
 {{- if and (eq .Values.bus.mode "kafka") (not .Values.bus.tls.enabled) (not .Values.bus.allowPlaintext) -}}
 {{- fail "plaintext kafka refused (U-010): enable bus.tls (bus.tls.existingSecret) or set the explicit dev-only bus.allowPlaintext=true" -}}
 {{- end -}}
+{{- $imageTag := (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- if and (not .Values.image.allowTagOnly) (not (regexMatch "@sha256:[a-fA-F0-9]{64}$" $imageTag)) -}}
+{{- fail "privileged eBPF agent image must be digest-pinned: set image.tag='<version>@sha256:<digest>' or explicitly break glass with image.allowTagOnly=true" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -76,7 +80,7 @@ spec:
       {{- end }}
       containers:
         - name: agent
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: "{{ .Values.image.repository }}:{{ $imageTag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--config", "/etc/probectl/ebpf-agent.yaml"]
           {{- if .Values.health.enabled }}

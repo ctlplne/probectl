@@ -91,7 +91,8 @@ refuses plaintext Kafka unless you set the explicit dev-only
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=<tenant> \
-  --set 'bus.brokers={kafka.internal.example:9093}'
+  --set 'bus.brokers={kafka.internal.example:9093}' \
+  --set-string image.tag='0.4.0@sha256:<digest>'
 ```
 
 Details: [`docs/ebpf-agent.md`](../../docs/ebpf-agent.md) and the privilege

@@ -104,13 +104,14 @@ release process; it *is* the release's own exit gate, run from your side.
 You don't have to run `cosign verify-blob` by hand — the installers do it,
 fail-closed, before anything lands on the host:
 
-- **`install.sh --verify`** (or `PROBECTL_VERIFY_COSIGN=1 ./install.sh …`):
-  before copying the binary into place it runs the exact `cosign verify-blob`
-  check above, pinned to the probectl release-workflow identity. It looks for
-  `<binary>.sig` + `<binary>.pem` next to the binary (override with
-  `PROBECTL_COSIGN_SIG` / `PROBECTL_COSIGN_CERT`). If cosign is missing, the
-  signature/cert are absent, or verification fails, it refuses to install —
-  an unsigned or tampered binary never reaches `/usr/local/bin`.
+- **`install.sh`**: before copying the eBPF agent binary into place it runs the
+  exact `cosign verify-blob` check above, pinned to the probectl release-workflow
+  identity. It looks for `<binary>.sig` + `<binary>.pem` next to the binary
+  (override with `PROBECTL_COSIGN_SIG` / `PROBECTL_COSIGN_CERT`). If cosign is
+  missing, the signature/cert are absent, or verification fails, it refuses to
+  install — an unsigned or tampered binary never reaches `/usr/local/bin`.
+  `--no-verify` is break-glass only and requires
+  `PROBECTL_UNVERIFIED_INSTALL_ACK=allow-unsigned-cap-bpf-code`.
 
 - **The Ansible role** (`probectl_agents`), `package_url` install method: when
   `probectl_verify_cosign: true` (the default) it downloads the package's `.sig`

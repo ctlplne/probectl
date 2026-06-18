@@ -338,7 +338,7 @@ The privacy model, the attribution engine, the per-OS collection matrix, and the
 | Canary / synthetic | `probectl-agent` | any OS, unprivileged | **gRPC/mTLS → control plane** (`:9443`) | control plane only | `probectl-agent -config agent.yml` |
 | Flow | `probectl-flow-agent` | mgmt network (UDP `:2055/:4739/:6343`) | **bus** (`probectl.flow.events`) | Kafka + ClickHouse | `probectl-flow-agent -config flow-agent.yml` |
 | Device | `probectl-device-agent` | reaches device mgmt | **bus** (`probectl.device.metrics`) | Kafka (+ TSDB) | `probectl-device-agent -config device-agent.yml` |
-| eBPF host | `probectl-ebpf-agent` | **Linux**, `CAP_BPF`+`CAP_PERFMON`, BTF ≥5.8 | **bus** (`probectl.ebpf.flows`) | Kafka (+ ClickHouse) | `sudo deploy/agent/install.sh ./probectl-ebpf-agent` |
+| eBPF host | `probectl-ebpf-agent` | **Linux**, `CAP_BPF`+`CAP_PERFMON`, BTF ≥5.8 | **bus** (`probectl.ebpf.flows`) | Kafka (+ ClickHouse) | `sudo deploy/agent/install.sh ./probectl-ebpf-agent` (cosign verification is default) |
 | Endpoint / DEM | `probectl-endpoint` | Linux / macOS / Windows, unprivileged | **bus** (`probectl.endpoint.results`) | Kafka (or in-memory) | `probectl-endpoint -config endpoint.yml` |
 
 ## At scale
@@ -361,7 +361,8 @@ with your tooling.
   helm install probectl-agent deploy/helm/probectl-agent \
     --set tenantID=<tenant> \
     --set 'bus.brokers={kafka.probectl.svc:9093}' \
-    --set bus.tls.existingSecret=probectl-bus-tls
+    --set bus.tls.existingSecret=probectl-bus-tls \
+    --set-string image.tag='0.4.0@sha256:<digest>'
   ```
 
   > **Naming heads-up:** the chart is named `probectl-agent` but it deploys the

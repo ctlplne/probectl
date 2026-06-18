@@ -55,8 +55,8 @@ overrides:
 
 # Signed repos: release.yml signs the packages (cosign keyless: a .sig + .pem
 # per artifact) and publishes them to the apt/yum repositories. cosign
-# verification is wired into the installers (SUPPLY-002): install.sh --verify
-# (or PROBECTL_VERIFY_COSIGN=1) verifies a local binary before install, and the
+# verification is wired into the installers (SUPPLY-002): install.sh verifies a
+# local eBPF binary by default before install, and the
 # Ansible role's package_url method runs `cosign verify-blob` gated on
 # probectl_verify_cosign (fail-closed) before installing. apt/yum repo installs
 # rely on the repository's own signed-metadata trust (signed-by= keyring).

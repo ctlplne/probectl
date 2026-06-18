@@ -146,6 +146,10 @@ The repo pins what *it* controls; operators should pin what *they* deploy:
   docker inspect --format='{{index .RepoDigests 0}}' <image>
   ```
 
+  The privileged eBPF agent Helm chart goes further: it refuses to render unless
+  `image.tag` includes an `@sha256:` digest. `image.allowTagOnly=true` is an
+  explicit break-glass for already-verified private registries, not a default.
+
 - **Python (the analyzer):** the dependency set is **hash-locked** in
   `analyzer/requirements-dev.lock` (generated with
   `uv pip compile pyproject.toml --extra dev --generate-hashes`). CI installs it
