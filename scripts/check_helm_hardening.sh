@@ -24,6 +24,8 @@ render() {
 
 need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
 
+bash scripts/check_clickhouse_restore_contract.sh
+
 # 1. No default credentials: rendering without an envelope key (and no
 #    existingSecret) must FAIL closed.
 if helm template probectl "$CHART" \

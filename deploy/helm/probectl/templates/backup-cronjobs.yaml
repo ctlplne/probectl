@@ -133,8 +133,8 @@ spec:
                   name="clickhouse-probectl-$(date -u +%Y%m%dT%H%M%SZ).zip"
                   clickhouse-client --host {{ .Values.backup.clickhouse.host }} \
                     --user "$CH_USER" --password "$CH_PASSWORD" \
-                    --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('/backups/$name')"
-                  echo "wrote /backups/$name (encrypt the clickhouse backups volume — §0c)"
+                    --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('{{ required "backup.clickhouse.serverBackupPath is required" .Values.backup.clickhouse.serverBackupPath }}/$name')"
+                  echo "wrote {{ .Values.backup.clickhouse.serverBackupPath }}/$name on the ClickHouse server (encrypt that server backups volume — §0c)"
               env:
                 - name: CH_USER
                   valueFrom:

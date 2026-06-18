@@ -127,8 +127,12 @@ on mismatch.
 
 The compose scripts above are the host/dev path. On Kubernetes the chart ships
 one-shot restore Jobs so the restore is reproducible and audited, NOT a manual
-`kubectl exec` (OPS-001 for Postgres, OPS-007 for ClickHouse). Both read the
-artifact from the backups PVC.
+`kubectl exec` (OPS-001 for Postgres, OPS-007 for ClickHouse). Postgres reads
+its sealed `.pbk` from the chart backups PVC inside the restore Job. ClickHouse
+is different: `RESTORE ... FROM File(...)` runs inside the ClickHouse server, so
+the `.zip` must already be visible on the ClickHouse server's configured backup
+path (`restore.clickhouse.serverBackupPath`, default `/backups`). A PVC mounted
+only into the restore Job pod is the wrong filesystem.
 
 ```sh
 # Postgres — decrypts the sealed .pbk in-pipe (backup-open) then pg_restore:
@@ -137,10 +141,12 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
   --set restore.backupFile=postgres-probectl-<ts>.dump.pbk
 
 # ClickHouse — server-side RESTORE DATABASE ... FROM File(...) (mirrors the
-# CH backup CronJob; the CH backups volume is encrypted at rest, §0c):
+# CH backup CronJob; the server-visible CH backups volume is encrypted at rest,
+# §0c):
 helm upgrade probectl deploy/helm/probectl --reuse-values \
   --set restore.clickhouse.enabled=true \
-  --set restore.clickhouse.backupFile=clickhouse-probectl-<ts>.zip
+  --set restore.clickhouse.backupFile=clickhouse-probectl-<ts>.zip \
+  --set restore.clickhouse.serverBackupPath=/backups
 
 # Each is a Job with backoffLimit 0 (fail loud, never silently retry-and-clobber).
 # Watch it to completion, then DISABLE it again so a later upgrade doesn't re-run it:

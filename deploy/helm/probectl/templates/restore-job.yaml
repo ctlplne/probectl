@@ -74,11 +74,12 @@ spec:
 {{- end }}
 {{- if .Values.restore.clickhouse.enabled }}
 ---
-# OPS-007: chart-managed ClickHouse restore Job, mirroring the CH backup CronJob
-# (the RESTORE runs SERVER-SIDE, so it cannot be piped through backup-open like
-# the PG dump — the CH backups volume is encrypted at rest, docs/hardening.md
-# §0c). One-shot Job: set restore.clickhouse.enabled=true + backupFile, apply,
-# delete after. Drilled on kind in CI alongside the PG restore.
+# OPS-007 / RESIL-001: chart-managed ClickHouse restore Job, mirroring the CH
+# backup CronJob. RESTORE runs SERVER-SIDE: the path below is read by the
+# ClickHouse server, not by this Kubernetes Job pod. That is why this pod does
+# not mount the backups PVC; mounting it here would verify the wrong
+# filesystem. The CH server backups volume is encrypted at rest,
+# docs/hardening.md §0c.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -101,25 +102,20 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
-              echo "ch-restore: verifying backup is readable…"
-              test -s "/backups/{{ .Values.restore.clickhouse.backupFile }}"
+              server_backup_path="{{ required "restore.clickhouse.serverBackupPath is required" .Values.restore.clickhouse.serverBackupPath }}"
+              backup_file="{{ required "restore.clickhouse.backupFile is required" .Values.restore.clickhouse.backupFile }}"
+              echo "ch-restore: ClickHouse server {{ .Values.restore.clickhouse.host }} must already see ${server_backup_path}/${backup_file}"
               echo "ch-restore: dropping + restoring {{ .Values.restore.clickhouse.database }} (DESTRUCTIVE)…"
               clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
                 --user "$CH_USER" --password "$CH_PASSWORD" \
                 --query "DROP DATABASE IF EXISTS {{ .Values.restore.clickhouse.database }} SYNC"
               clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
                 --user "$CH_USER" --password "$CH_PASSWORD" \
-                --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('/backups/{{ .Values.restore.clickhouse.backupFile }}')"
+                --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('${server_backup_path}/${backup_file}')"
               echo "ch-restore: done. Verify /readyz on the control plane before resuming traffic."
           env:
             - name: CH_USER
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-username } }
             - name: CH_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-password } }
-          volumeMounts:
-            - { name: backups, mountPath: /backups, readOnly: true }
-      volumes:
-        - name: backups
-          persistentVolumeClaim:
-            claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
 {{- end }}

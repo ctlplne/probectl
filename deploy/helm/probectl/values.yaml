@@ -236,6 +236,7 @@ backup:
     schedule: "30 2 * * *"
     host: probectl-clickhouse
     database: probectl
+    serverBackupPath: /backups # path on the ClickHouse server, not this CronJob pod
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
 
 # OPS-007: one-shot restore Job. OFF by default — set enabled=true and
@@ -249,13 +250,15 @@ restore:
   image: ""                   # SUPPLY-006: defaults to the digest-pinned backup.postgres.image
   # OPS-007: chart-managed ClickHouse restore (mirrors the PG restore Job and the
   # CH backup CronJob). Set clickhouse.enabled=true and clickhouse.backupFile to
-  # the BACKUP-produced .zip on the backups PVC. The RESTORE runs SERVER-SIDE
-  # (clickhouse-client RESTORE DATABASE ... FROM File(...)), exactly like the
-  # CronJob's BACKUP — no envelope filter (the CH backups volume is encrypted at
-  # rest per docs/hardening.md §0c). DESTRUCTIVE: the database is dropped first.
+  # the BACKUP-produced .zip on the ClickHouse SERVER's backup path. The RESTORE
+  # runs SERVER-SIDE (clickhouse-client RESTORE DATABASE ... FROM File(...)),
+  # exactly like the CronJob's BACKUP — no envelope filter (the CH backups volume
+  # is encrypted at rest per docs/hardening.md §0c). DESTRUCTIVE: the database is
+  # dropped first.
   clickhouse:
     enabled: false
-    backupFile: ""            # filename on the backups PVC (e.g. clickhouse-probectl-...zip)
+    backupFile: ""            # filename on the ClickHouse server backup path (e.g. clickhouse-probectl-...zip)
+    serverBackupPath: /backups # path on the ClickHouse server, not the restore Job pod
     host: probectl-clickhouse
     database: probectl
     image: ""                 # defaults to backup.clickhouse.image
