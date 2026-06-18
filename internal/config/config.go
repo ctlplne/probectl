@@ -67,6 +67,10 @@ type Config struct {
 	// owners from S18. EnvelopeKey is a base64-encoded 32-byte KEK.
 	EnvelopeKey   string
 	EnvelopeKeyID string
+	// EnvelopeOpenerKeys is a comma-separated keyID=base64-KEK keyring for old
+	// deployment envelope keys during rotation overlap. The active key above is
+	// still the only key used for new writes.
+	EnvelopeOpenerKeys string
 	// EnvelopeKeyFile (SEC-002) makes encryption the shipped default: when
 	// EnvelopeKey is empty and this path is set, the control plane loads the
 	// KEK from the file — GENERATING and persisting one (0600) on first boot.
@@ -621,6 +625,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		TLSKeyFile:               l.str("PROBECTL_TLS_KEY_FILE", ""),
 		EnvelopeKey:              l.str("PROBECTL_ENVELOPE_KEY", ""),
 		EnvelopeKeyID:            l.str("PROBECTL_ENVELOPE_KEY_ID", "dev"),
+		EnvelopeOpenerKeys:       l.str("PROBECTL_ENVELOPE_OPENER_KEYS", ""),
 		EnvelopeKeyFile:          l.str("PROBECTL_ENVELOPE_KEY_FILE", ""),
 		PublicTLS:                l.boolean("PROBECTL_PUBLIC_TLS", false),
 		AllowPlaintextHTTP:       l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false),

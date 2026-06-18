@@ -3,6 +3,7 @@
 package crypto
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
@@ -19,8 +20,8 @@ type KeyProvider interface {
 	KeyID() string
 	// WrapKey encrypts (wraps) a data key.
 	WrapKey(ctx context.Context, dek []byte) ([]byte, error)
-	// UnwrapKey decrypts a wrapped data key.
-	UnwrapKey(ctx context.Context, wrapped []byte) ([]byte, error)
+	// UnwrapKey decrypts a wrapped data key using the KEK identified by keyID.
+	UnwrapKey(ctx context.Context, keyID string, wrapped []byte) ([]byte, error)
 }
 
 // StaticKeyProvider wraps data keys with a single static KEK. It is for
@@ -30,26 +31,64 @@ type StaticKeyProvider struct {
 	provider Provider
 	keyID    string
 	kek      []byte
+	openers  map[string][]byte
 }
 
 // NewStaticKeyProvider returns a StaticKeyProvider for a 32-byte KEK.
 func NewStaticKeyProvider(keyID string, kek []byte) (*StaticKeyProvider, error) {
+	return NewStaticKeyringProvider(keyID, kek, nil)
+}
+
+// NewStaticKeyringProvider returns a StaticKeyProvider with one active KEK for
+// new wraps plus optional opener KEKs for old key IDs during rotation overlap.
+func NewStaticKeyringProvider(keyID string, kek []byte, openerKeys map[string][]byte) (*StaticKeyProvider, error) {
 	if len(kek) != KeySize {
 		return nil, fmt.Errorf("crypto: KEK must be %d bytes, got %d", KeySize, len(kek))
 	}
 	if keyID == "" {
 		return nil, errors.New("crypto: KEK key id must not be empty")
 	}
-	return &StaticKeyProvider{provider: Default, keyID: keyID, kek: kek}, nil
+	active := append([]byte(nil), kek...)
+	openers := map[string][]byte{keyID: append([]byte(nil), kek...)}
+	for openerID, openerKEK := range openerKeys {
+		if openerID == "" {
+			return nil, errors.New("crypto: opener KEK key id must not be empty")
+		}
+		if openerID == keyID {
+			if !bytes.Equal(openerKEK, kek) {
+				return nil, fmt.Errorf("crypto: opener KEK key id %q duplicates active key id", openerID)
+			}
+			continue
+		}
+		if len(openerKEK) != KeySize {
+			return nil, fmt.Errorf("crypto: opener KEK %q must be %d bytes, got %d", openerID, KeySize, len(openerKEK))
+		}
+		openers[openerID] = append([]byte(nil), openerKEK...)
+	}
+	return &StaticKeyProvider{provider: Default, keyID: keyID, kek: active, openers: openers}, nil
 }
 
 // NewStaticKeyProviderFromBase64 decodes a base64 (std encoding) 32-byte KEK.
 func NewStaticKeyProviderFromBase64(keyID, b64 string) (*StaticKeyProvider, error) {
+	return NewStaticKeyProviderFromBase64Keyring(keyID, b64, nil)
+}
+
+// NewStaticKeyProviderFromBase64Keyring decodes one active base64 KEK and
+// optional opener base64 KEKs for rotation overlap.
+func NewStaticKeyProviderFromBase64Keyring(keyID, b64 string, openerKeys map[string]string) (*StaticKeyProvider, error) {
 	kek, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return nil, fmt.Errorf("crypto: decode KEK: %w", err)
 	}
-	return NewStaticKeyProvider(keyID, kek)
+	openers := make(map[string][]byte, len(openerKeys))
+	for openerID, openerB64 := range openerKeys {
+		openerKEK, err := base64.StdEncoding.DecodeString(openerB64)
+		if err != nil {
+			return nil, fmt.Errorf("crypto: decode opener KEK %q: %w", openerID, err)
+		}
+		openers[openerID] = openerKEK
+	}
+	return NewStaticKeyringProvider(keyID, kek, openers)
 }
 
 // KeyID returns the KEK identifier.
@@ -61,8 +100,15 @@ func (p *StaticKeyProvider) WrapKey(_ context.Context, dek []byte) ([]byte, erro
 }
 
 // UnwrapKey unwraps a data key wrapped by WrapKey.
-func (p *StaticKeyProvider) UnwrapKey(_ context.Context, wrapped []byte) ([]byte, error) {
-	return p.provider.Decrypt(p.kek, wrapped, []byte(p.keyID))
+func (p *StaticKeyProvider) UnwrapKey(_ context.Context, keyID string, wrapped []byte) ([]byte, error) {
+	if keyID == "" {
+		keyID = p.keyID
+	}
+	kek, ok := p.openers[keyID]
+	if !ok {
+		return nil, fmt.Errorf("crypto: unknown KEK key id %q", keyID)
+	}
+	return p.provider.Decrypt(kek, wrapped, []byte(keyID))
 }
 
 // Envelope performs envelope encryption: each value gets a fresh data key (DEK)
@@ -107,7 +153,7 @@ func (e *Envelope) Seal(ctx context.Context, plaintext, aad []byte) (Sealed, err
 
 // Open decrypts a Sealed value.
 func (e *Envelope) Open(ctx context.Context, s Sealed, aad []byte) ([]byte, error) {
-	dek, err := e.keys.UnwrapKey(ctx, s.WrappedDEK)
+	dek, err := e.keys.UnwrapKey(ctx, s.KeyID, s.WrappedDEK)
 	if err != nil {
 		return nil, fmt.Errorf("crypto: unwrap dek: %w", err)
 	}

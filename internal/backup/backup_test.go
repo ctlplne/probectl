@@ -96,6 +96,58 @@ func TestOpenWrongKeyFails(t *testing.T) {
 	}
 }
 
+func TestOpenUsesHeaderKeyIDForRotationKeyring(t *testing.T) {
+	ctx := context.Background()
+	oldKEK, err := crypto.Random(crypto.KeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKEK, err := crypto.Random(crypto.KeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKeys, err := crypto.NewStaticKeyProvider("old", oldKEK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldContainer bytes.Buffer
+	if err := Seal(ctx, &oldContainer, strings.NewReader("old backup"), oldKeys); err != nil {
+		t.Fatal(err)
+	}
+
+	newKeyring, err := crypto.NewStaticKeyringProvider("new", newKEK, map[string][]byte{"old": oldKEK})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored bytes.Buffer
+	if err := Open(ctx, &restored, bytes.NewReader(oldContainer.Bytes()), newKeyring); err != nil {
+		t.Fatalf("open old backup with rotation keyring: %v", err)
+	}
+	if restored.String() != "old backup" {
+		t.Fatalf("restored = %q", restored.String())
+	}
+
+	currentOnly, err := crypto.NewStaticKeyProvider("new", newKEK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Open(ctx, &bytes.Buffer{}, bytes.NewReader(oldContainer.Bytes()), currentOnly); err == nil {
+		t.Fatal("current-only key must not open a backup sealed with an old key id")
+	}
+
+	var newContainer bytes.Buffer
+	if err := Seal(ctx, &newContainer, strings.NewReader("new backup"), newKeyring); err != nil {
+		t.Fatal(err)
+	}
+	restored.Reset()
+	if err := Open(ctx, &restored, bytes.NewReader(newContainer.Bytes()), newKeyring); err != nil {
+		t.Fatalf("open new backup: %v", err)
+	}
+	if restored.String() != "new backup" {
+		t.Fatalf("new restored = %q", restored.String())
+	}
+}
+
 // Tamper + truncation are detected — backups are verified, not trusted.
 func TestTamperAndTruncationDetected(t *testing.T) {
 	keys := testKeys(t)

@@ -202,7 +202,7 @@ func openHeader(ctx context.Context, src io.Reader, keys KeyProvider) ([]byte, e
 	if _, err := io.ReadFull(src, wrapped); err != nil {
 		return nil, fmt.Errorf("backup: read wrapped dek: %w", err)
 	}
-	dek, err := keys.UnwrapKey(ctx, wrapped)
+	dek, err := keys.UnwrapKey(ctx, string(keyID), wrapped)
 	if err != nil {
 		return nil, fmt.Errorf("backup: unwrap dek (wrong KEK for key id %q?): %w", keyID, err)
 	}

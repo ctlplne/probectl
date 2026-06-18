@@ -428,7 +428,11 @@ func setupSecretsAndEnvelope(cfg *config.Config) (*secrets.Resolver, bool, error
 		envelopeGenerated = generated
 	}
 	if cfg.EnvelopeKey != "" {
-		sealer, serr := tenantcrypto.NewEnvelopeSealer(cfg.EnvelopeKeyID, cfg.EnvelopeKey)
+		openerKeys, perr := parseEnvelopeOpenerKeys(cfg.EnvelopeOpenerKeys)
+		if perr != nil {
+			return nil, false, perr
+		}
+		sealer, serr := tenantcrypto.NewEnvelopeKeyringSealer(cfg.EnvelopeKeyID, cfg.EnvelopeKey, openerKeys)
 		if serr != nil {
 			return nil, false, fmt.Errorf("envelope sealer: %w", serr)
 		}

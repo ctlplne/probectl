@@ -20,6 +20,15 @@ func testSealer(t *testing.T, keyID string) *EnvelopeSealer {
 	return s
 }
 
+func testKeyringSealer(t *testing.T, keyID string, keyByte byte, openerKeys map[string]string) *EnvelopeSealer {
+	t.Helper()
+	s, err := NewEnvelopeKeyringSealer(keyID, base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{keyByte}, 32)), openerKeys)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
 func TestPassthroughWithoutPrimary(t *testing.T) {
 	defer Reset()
 	Reset()
@@ -107,6 +116,38 @@ func TestOpenerChainAcrossPrimaryChange(t *testing.T) {
 	}
 	if stored, err := Seal(ctx, "tnA", []byte("new"), nil); err != nil || stored != "new" {
 		t.Fatalf("passthrough after clear: %q %v", stored, err)
+	}
+}
+
+func TestDV1KeyringOpensOldAndNewAfterRotation(t *testing.T) {
+	defer Reset()
+	Reset()
+	ctx := context.Background()
+	aad := []byte("alert-channel-secret")
+
+	SetPrimary(testKeyringSealer(t, "old", 1, nil))
+	oldStored, err := Seal(ctx, "tnA", []byte("old secret"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	oldB64 := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	SetPrimary(testKeyringSealer(t, "new", 2, map[string]string{"old": oldB64}))
+	newStored, err := Seal(ctx, "tnA", []byte("new secret"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(newStored, "dv1:new:") {
+		t.Fatalf("new format: %s", newStored)
+	}
+	for stored, want := range map[string]string{oldStored: "old secret", newStored: "new secret"} {
+		got, err := Open(ctx, "tnA", stored, aad)
+		if err != nil || string(got) != want {
+			t.Fatalf("open rotated value %q: %q %v", want, got, err)
+		}
+	}
+	if _, err := Open(ctx, "tnB", oldStored, aad); err == nil {
+		t.Fatal("old dv1 value must still be tenant-bound after keyring rotation")
 	}
 }
 

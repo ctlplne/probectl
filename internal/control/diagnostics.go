@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/support"
@@ -143,8 +144,14 @@ func (s *Server) topologySummary(ctx context.Context) support.TopologySummary {
 func (s *Server) knownSecrets() []string {
 	c := s.cfg
 	cand := []string{
-		c.EnvelopeKey, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken,
+		c.EnvelopeKey, c.EnvelopeOpenerKeys, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken,
 		c.OutageRadarToken, c.ProviderBootstrapToken, c.SIEMToken,
+	}
+	for _, item := range strings.Split(c.EnvelopeOpenerKeys, ",") {
+		_, keyB64, ok := strings.Cut(item, "=")
+		if ok {
+			cand = append(cand, strings.TrimSpace(keyB64))
+		}
 	}
 	for tok := range c.OTLPTokens {
 		cand = append(cand, tok)

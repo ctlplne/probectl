@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/imfeelingtheagi/probectl/internal/backup"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -66,7 +67,11 @@ func runBackup(args []string, seal bool) error {
 // keyless backup would defeat OPS-002.
 func backupKeyProvider(keyFile, keyID string) (crypto.KeyProvider, error) {
 	if b64 := os.Getenv("PROBECTL_ENVELOPE_KEY"); b64 != "" {
-		return crypto.NewStaticKeyProviderFromBase64(keyID, b64)
+		openerKeys, err := parseEnvelopeOpenerKeys(os.Getenv("PROBECTL_ENVELOPE_OPENER_KEYS"))
+		if err != nil {
+			return nil, err
+		}
+		return crypto.NewStaticKeyProviderFromBase64Keyring(keyID, b64, openerKeys)
 	}
 	if keyFile != "" {
 		// LoadOrGenerate would MINT a key on a restore node that lacks it,
@@ -79,7 +84,36 @@ func backupKeyProvider(keyFile, keyID string) (crypto.KeyProvider, error) {
 		if generated {
 			return nil, fmt.Errorf("backup key file %q did not exist — refusing to MINT a key for a backup (a sealed backup needs its ORIGINAL KEK; provide the existing key)", keyFile)
 		}
-		return crypto.NewStaticKeyProviderFromBase64(keyID, b64)
+		openerKeys, err := parseEnvelopeOpenerKeys(os.Getenv("PROBECTL_ENVELOPE_OPENER_KEYS"))
+		if err != nil {
+			return nil, err
+		}
+		return crypto.NewStaticKeyProviderFromBase64Keyring(keyID, b64, openerKeys)
 	}
 	return nil, fmt.Errorf("no envelope key: set PROBECTL_ENVELOPE_KEY or --key-file (OPS-002 — backups are never written unencrypted)")
+}
+
+func parseEnvelopeOpenerKeys(spec string) (map[string]string, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil, nil
+	}
+	out := map[string]string{}
+	for _, item := range strings.Split(spec, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		keyID, keyB64, ok := strings.Cut(item, "=")
+		keyID = strings.TrimSpace(keyID)
+		keyB64 = strings.TrimSpace(keyB64)
+		if !ok || keyID == "" || keyB64 == "" {
+			return nil, fmt.Errorf("envelope opener key %q must be keyID=base64", item)
+		}
+		if _, exists := out[keyID]; exists {
+			return nil, fmt.Errorf("duplicate envelope opener key id %q", keyID)
+		}
+		out[keyID] = keyB64
+	}
+	return out, nil
 }

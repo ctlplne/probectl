@@ -179,7 +179,13 @@ type EnvelopeSealer struct {
 
 // NewEnvelopeSealer builds the deployment-wide sealer from the base64 KEK.
 func NewEnvelopeSealer(keyID, kekB64 string) (*EnvelopeSealer, error) {
-	kp, err := crypto.NewStaticKeyProviderFromBase64(keyID, kekB64)
+	return NewEnvelopeKeyringSealer(keyID, kekB64, nil)
+}
+
+// NewEnvelopeKeyringSealer builds the deployment-wide sealer with opener KEKs
+// for old key IDs during envelope-key rotation overlap.
+func NewEnvelopeKeyringSealer(keyID, kekB64 string, openerKeys map[string]string) (*EnvelopeSealer, error) {
+	kp, err := crypto.NewStaticKeyProviderFromBase64Keyring(keyID, kekB64, openerKeys)
 	if err != nil {
 		return nil, err
 	}
