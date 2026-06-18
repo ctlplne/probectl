@@ -8,7 +8,14 @@
     that:
       - probectl_version | length > 0
       - probectl_control_grpc_addr | length > 0
-    fail_msg: "probectl_version and probectl_control_grpc_addr are required"
+      - not (probectl_verify_registry_heartbeat | bool) or probectl_control_api_url | length > 0
+      - not (probectl_verify_registry_heartbeat | bool) or probectl_control_api_token | length > 0
+      - not (probectl_verify_registry_heartbeat | bool) or probectl_registry_agent_id | length > 0
+    fail_msg: >-
+      probectl_version and probectl_control_grpc_addr are required. When
+      probectl_verify_registry_heartbeat=true, probectl_control_api_url,
+      probectl_control_api_token, and probectl_registry_agent_id are also
+      required so the role can prove the tenant-scoped control-plane heartbeat.
 
 - name: Install from the signed apt repo (Debian/Ubuntu)
   when: probectl_install_method == 'repo' and ansible_os_family == 'Debian'
@@ -216,6 +223,11 @@
       `probectl-control register-collector --token <pjt_...> --plane {{ probectl_collector_plane | default(probectl_agent_type | regex_replace('-agent$', '')) }} --hostname {{ inventory_hostname }}`,
       then set the minted tenant_id/agent_id in /etc/probectl/{{ probectl_agent_type }}.yaml.
 
+- name: Capture the earliest acceptable registry heartbeat time
+  when: probectl_verify_registry_heartbeat | bool
+  ansible.builtin.set_fact:
+    probectl_registry_verify_after: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+
 - name: Enable + start the agent
   ansible.builtin.systemd:
     name: "probectl-{{ probectl_agent_type }}"
@@ -223,9 +235,42 @@
     state: started
     daemon_reload: true
 
-- name: Verify the agent registered (heartbeat reached the control plane)
+- name: Verify local agent service liveness
   ansible.builtin.command:
     cmd: "systemctl is-active probectl-{{ probectl_agent_type }}"
   register: probectl_active
   changed_when: false
   failed_when: probectl_active.stdout != "active"
+
+- name: Read the tenant-scoped agent registry heartbeat
+  when: probectl_verify_registry_heartbeat | bool
+  ansible.builtin.uri:
+    url: "{{ probectl_control_api_url | regex_replace('/+$', '') }}/v1/agents/{{ probectl_registry_agent_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ probectl_control_api_token }}"
+      Accept: "application/json"
+    return_content: true
+    status_code: 200
+    validate_certs: true
+  register: probectl_registry_agent
+  changed_when: false
+  no_log: true
+  until:
+    - probectl_registry_agent.status == 200
+    - (probectl_registry_agent.json.id | default('')) == probectl_registry_agent_id
+    - (probectl_registry_agent.json.agent_version | default('')) == probectl_registry_expected_version
+    - (probectl_registry_agent.json.status | default('')) == "online"
+    - probectl_registry_agent.json.last_seen_at is defined
+    - (probectl_registry_agent.json.last_seen_at | default('') | regex_replace('\\.[0-9]+', '')) >= probectl_registry_verify_after
+  retries: "{{ [((probectl_registry_heartbeat_freshness_seconds | int) // 5), 1] | max }}"
+  delay: 5
+
+- name: Confirm control-plane registry heartbeat evidence
+  when: probectl_verify_registry_heartbeat | bool
+  ansible.builtin.debug:
+    msg: >-
+      control-plane registry confirmed probectl-{{ probectl_agent_type }}
+      id={{ probectl_registry_agent_id }} version={{ probectl_registry_expected_version }}
+      with a fresh tenant-scoped heartbeat after {{ probectl_registry_verify_after }}.
+  changed_when: false

@@ -11,6 +11,12 @@ probectl_mtls_agent_types:
 probectl_collector_plane: ""          # ebpf|flow|device for the register-collector hint; defaults from the type
 probectl_version: ""                  # required: the release to install (e.g. 0.2.0)
 probectl_control_grpc_addr: ""        # required: https://control-host:8443
+probectl_control_api_url: ""          # required when registry heartbeat verification is enabled, e.g. https://control-host:8443
+probectl_control_api_token: ""        # vault-sourced bearer token with agent.read; never logged
+probectl_registry_agent_id: ""        # expected control-plane registry id for this host
+probectl_registry_expected_version: "{{ probectl_version }}"
+probectl_verify_registry_heartbeat: true
+probectl_registry_heartbeat_freshness_seconds: 300
 probectl_install_method: repo         # repo | package_url | airgap
 probectl_apt_repo: "deb [signed-by=/usr/share/keyrings/probectl.gpg] https://apt.probectl.example stable main"
 probectl_yum_repo_baseurl: "https://yum.probectl.example/stable"

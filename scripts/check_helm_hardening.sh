@@ -6,6 +6,8 @@
 set -euo pipefail
 
 CHART="${CHART:-deploy/helm/probectl}"
+ANSIBLE_AGENT_TASKS="deploy/ansible/roles/probectl_agents/tasks/main.yml"
+ANSIBLE_AGENT_DEFAULTS="deploy/ansible/roles/probectl_agents/defaults/main.yml"
 # A throwaway base64 32-byte key just to let rendering proceed.
 KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 # A throwaway hex 32-byte key for keyed session-token hashing.
@@ -26,6 +28,29 @@ render() {
 }
 
 need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
+need_file() { grep -q -- "$1" "$2" || fail "$3"; }
+
+# OPS-005: the Ansible role's final health proof must not regress to local
+# systemd-only liveness. It must fail closed unless the operator supplies the
+# tenant-scoped control-plane API endpoint, an agent.read token, and the expected
+# agent id, then query /v1/agents/{id} for id/version/status/last_seen_at.
+need_file "probectl_verify_registry_heartbeat: true" "$ANSIBLE_AGENT_DEFAULTS" "Ansible registry heartbeat verification is not default-on (OPS-005)"
+need_file "probectl_control_api_url" "$ANSIBLE_AGENT_DEFAULTS" "Ansible role has no control-plane API URL variable (OPS-005)"
+need_file "probectl_control_api_token" "$ANSIBLE_AGENT_DEFAULTS" "Ansible role has no control-plane API token variable (OPS-005)"
+need_file "probectl_registry_agent_id" "$ANSIBLE_AGENT_DEFAULTS" "Ansible role has no expected registry agent id variable (OPS-005)"
+need_file "probectl_control_api_url" "$ANSIBLE_AGENT_TASKS" "Ansible role does not require the control-plane API URL (OPS-005)"
+need_file "probectl_control_api_token" "$ANSIBLE_AGENT_TASKS" "Ansible role does not require the control-plane API token (OPS-005)"
+need_file "probectl_registry_agent_id" "$ANSIBLE_AGENT_TASKS" "Ansible role does not require the expected agent id (OPS-005)"
+need_file "ansible.builtin.uri" "$ANSIBLE_AGENT_TASKS" "Ansible role does not query the control-plane registry (OPS-005)"
+need_file "/v1/agents/{{ probectl_registry_agent_id }}" "$ANSIBLE_AGENT_TASKS" "Ansible role does not query the expected agent registry row (OPS-005)"
+need_file "agent_version" "$ANSIBLE_AGENT_TASKS" "Ansible registry verification does not check agent_version (OPS-005)"
+need_file "last_seen_at" "$ANSIBLE_AGENT_TASKS" "Ansible registry verification does not check heartbeat last_seen_at (OPS-005)"
+need_file "no_log: true" "$ANSIBLE_AGENT_TASKS" "Ansible registry verification could log the bearer token (OPS-005)"
+local_line="$(grep -n 'Verify local agent service liveness' "$ANSIBLE_AGENT_TASKS" | head -n1 | cut -d: -f1 || true)"
+registry_line="$(grep -n 'Read the tenant-scoped agent registry heartbeat' "$ANSIBLE_AGENT_TASKS" | head -n1 | cut -d: -f1 || true)"
+if [[ -z "$local_line" || -z "$registry_line" || "$registry_line" -le "$local_line" ]]; then
+  fail "Ansible registry heartbeat proof must run after the local liveness precheck (OPS-005)"
+fi
 
 bash scripts/check_clickhouse_restore_contract.sh
 

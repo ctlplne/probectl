@@ -140,6 +140,16 @@ successfully" is *not* proof — only the agent itself reporting back, alive and
 on the new version, counts. All good → the wave completes and you can advance
 the next one. Stragglers still inside the window: keep waiting, re-verify.
 
+The `probectl_agents` Ansible role follows the same rule. Its local
+`systemctl is-active` check is only a liveness precheck; by default the role also
+queries `GET /v1/agents/{id}` and waits until the tenant-scoped registry row has
+the expected `agent_version`, `online` status, and a `last_seen_at` newer than
+the start of the role run. Provide `probectl_control_api_url`,
+`probectl_control_api_token` (an `agent.read` bearer token from vault),
+`probectl_registry_agent_id`, and optionally
+`probectl_registry_expected_version`/`probectl_registry_heartbeat_freshness_seconds`.
+Missing API credentials or a stale registry row fail the play closed.
+
 ```sh
 curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/verify" \
   -H "Authorization: Bearer $TOKEN"
