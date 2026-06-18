@@ -132,7 +132,7 @@ func (k *Keyring) WithClock(now func() time.Time) *Keyring {
 	return k
 }
 
-// WithTTL overrides the managed-KEK cache TTL (KEYS-002). A non-positive value
+// WithTTL overrides the managed-KEK cache TTL (KEYS-003). A non-positive value
 // means resolve-on-every-use (no caching) for managed keys.
 func (k *Keyring) WithTTL(ttl time.Duration) *Keyring {
 	k.ttl = ttl
@@ -156,7 +156,7 @@ func (k *Keyring) ttlFor(mode string) time.Duration {
 	return k.ttl
 }
 
-// zeroize best-effort wipes a key's bytes (KEYS-002) via the crypto provider
+// zeroize best-effort wipes a key's bytes (KEYS-003) via the crypto provider
 // helper, so key-handling stays inside internal/crypto's surface.
 func zeroize(b []byte) { crypto.Zeroize(b) }
 
@@ -221,12 +221,9 @@ func (k *Keyring) kekFor(ctx context.Context, kv *KeyVersion) ([]byte, error) {
 	ttl := k.ttlFor(kv.Mode)
 	key := kv.TenantID + ":" + strconv.Itoa(kv.Version)
 	if ttl > 0 {
-		k.mu.Lock()
-		if e, ok := k.cache[key]; ok && k.now().Sub(e.fetched) < ttl {
-			k.mu.Unlock()
-			return e.kek, nil
+		if kek, ok := k.cacheGet(key, ttl); ok {
+			return kek, nil
 		}
-		k.mu.Unlock()
 	}
 
 	var kek []byte
@@ -259,7 +256,25 @@ func (k *Keyring) kekFor(ctx context.Context, kv *KeyVersion) ([]byte, error) {
 	return kek, nil
 }
 
-// cachePut stores a KEK only when caching is enabled for its mode (KEYS-002).
+// cacheGet returns a cached KEK when still inside TTL. If the entry exists but
+// has expired, the cached raw bytes are zeroized and the entry is removed before
+// the caller unwraps/resolves a fresh copy (KEYS-003).
+func (k *Keyring) cacheGet(key string, ttl time.Duration) ([]byte, bool) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	e, ok := k.cache[key]
+	if !ok {
+		return nil, false
+	}
+	if k.now().Sub(e.fetched) < ttl {
+		return e.kek, true
+	}
+	zeroize(e.kek)
+	delete(k.cache, key)
+	return nil, false
+}
+
+// cachePut stores a KEK only when caching is enabled for its mode (KEYS-003).
 // With TTL 0 (the BYOK default) nothing is retained, so a revoked reference
 // cannot be served from a stale cache entry.
 func (k *Keyring) cachePut(tenantID string, version int, mode string, kek []byte) {
@@ -267,12 +282,16 @@ func (k *Keyring) cachePut(tenantID string, version int, mode string, kek []byte
 		return
 	}
 	k.mu.Lock()
-	k.cache[tenantID+":"+strconv.Itoa(version)] = cachedKEK{kek: kek, fetched: k.now()}
+	key := tenantID + ":" + strconv.Itoa(version)
+	if old, ok := k.cache[key]; ok {
+		zeroize(old.kek)
+	}
+	k.cache[key] = cachedKEK{kek: kek, fetched: k.now()}
 	k.mu.Unlock()
 }
 
 // purgeTenant drops every cached KEK of a tenant (rotation/destroy), zeroizing
-// the bytes on the way out (KEYS-002, best-effort).
+// the bytes on the way out (KEYS-003, best-effort).
 func (k *Keyring) purgeTenant(tenantID string) {
 	k.mu.Lock()
 	for key, e := range k.cache {

@@ -245,6 +245,63 @@ func TestBYOKRevocationInstantTTLZero(t *testing.T) {
 	}
 }
 
+// TestManagedKEKCacheTTLZeroizesExpiredEntry is the KEYS-003 regression guard:
+// an expired managed KEK cache hit must wipe the old cached bytes before the
+// keyring unwraps and caches a fresh copy.
+func TestManagedKEKCacheTTLZeroizesExpiredEntry(t *testing.T) {
+	k, _ := newRing(t, nil)
+	now := time.Unix(10_000, 0)
+	k.WithClock(func() time.Time { return now }).WithTTL(time.Second)
+	ctx := context.Background()
+	aad := []byte("x")
+
+	blob, err := k.Seal(ctx, "tnA", []byte("secret"), aad)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	expired := captureCachedKEK(t, k, "tnA", 1)
+	if expired == nil || allZero(expired) {
+		t.Fatalf("expected non-zero cached KEK before expiry: %x", expired)
+	}
+
+	now = now.Add(2 * time.Second)
+	plain, err := k.Open(ctx, "tnA", blob, aad)
+	if err != nil || string(plain) != "secret" {
+		t.Fatalf("open through refreshed cache: %q %v", plain, err)
+	}
+	if !allZero(expired) {
+		t.Fatalf("expired cached KEK was not zeroized: %x", expired)
+	}
+	refreshed := captureCachedKEK(t, k, "tnA", 1)
+	if refreshed == nil || allZero(refreshed) {
+		t.Fatalf("expected refreshed non-zero cached KEK after open: %x", refreshed)
+	}
+}
+
+// TestManagedKEKCacheOverwriteZeroizesPreviousEntry is the KEYS-003 overwrite
+// guard: replacing a cache entry must wipe the old entry's raw bytes first.
+func TestManagedKEKCacheOverwriteZeroizesPreviousEntry(t *testing.T) {
+	k, _ := newRing(t, nil)
+	k.WithTTL(time.Minute)
+
+	first := bytes.Repeat([]byte{0x11}, 32)
+	second := bytes.Repeat([]byte{0x22}, 32)
+	k.cachePut("tnA", 1, ModeManaged, first)
+	oldCached := captureCachedKEK(t, k, "tnA", 1)
+	if oldCached == nil || allZero(oldCached) {
+		t.Fatalf("expected non-zero first cached KEK: %x", oldCached)
+	}
+
+	k.cachePut("tnA", 1, ModeManaged, second)
+	if !allZero(oldCached) {
+		t.Fatalf("overwritten cached KEK was not zeroized: %x", oldCached)
+	}
+	current := captureCachedKEK(t, k, "tnA", 1)
+	if !bytes.Equal(current, second) {
+		t.Fatalf("current cached KEK = %x, want %x", current, second)
+	}
+}
+
 // TestSeamIntegration: the keyring rides the core tenantcrypto seam — new
 // seals are tenant-keyed, legacy deployment-sealed and plaintext values keep
 // opening, and the seam's DestroyKeys reaches the keyring.
