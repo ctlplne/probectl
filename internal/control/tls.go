@@ -78,6 +78,14 @@ func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
 	return runResultSink(ctx, cs.bus, "tls-posture", cs.log, cs.SinkResult)
 }
 
+// SinkPosture updates only the TLS posture read model. It is safe for
+// per-replica fan-in because it has no external side effects: no incident
+// correlation, no SIEM enqueue, and no detection-store append.
+func (cs *TLSPostureConsumer) SinkPosture(ctx context.Context, r *resultv1.Result) error {
+	cs.analyzeAndRecord(ctx, r)
+	return nil
+}
+
 // SinkResult analyzes one DECODED result (shared immutable — never mutated).
 func (cs *TLSPostureConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error {
 	for _, sig := range cs.analyzeAndRecord(ctx, r) {

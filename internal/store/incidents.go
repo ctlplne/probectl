@@ -8,6 +8,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/threat"
 )
 
 // Incidents is the tenant-scoped incident repository. RLS confines every row to
@@ -107,6 +108,51 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 		inc.Signals = append(inc.Signals, sig)
 	}
 	return &inc, rows.Err()
+}
+
+// ThreatDetections returns recent attributed threat signals from the durable
+// incident timeline. The caller supplies a tenant-scoped Scope, so RLS confines
+// the read before the WHERE clause runs; this is the shared-store backing for
+// GET /v1/threat/detections in HA deployments.
+func (Incidents) ThreatDetections(ctx context.Context, s tenancy.Scope, limit int) ([]threat.Detection, error) {
+	if limit <= 0 || limit > threat.DefaultMaxDetectionsPerTenant {
+		limit = threat.DefaultMaxDetectionsPerTenant
+	}
+	rows, err := s.Q.Query(ctx,
+		`SELECT incident_id::text, kind, severity, title, summary, target, attributes, occurred_at
+		   FROM incident_signals
+		  WHERE plane = 'threat'
+		    AND (attributes ? 'intel.source' OR attributes ? 'detector.rule')
+		  ORDER BY occurred_at DESC
+		  LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []threat.Detection{}
+	for rows.Next() {
+		var sig incident.Signal
+		var incidentID, severity string
+		var attrs []byte
+		if err := rows.Scan(&incidentID, &sig.Kind, &severity, &sig.Title, &sig.Summary,
+			&sig.Target, &attrs, &sig.OccurredAt); err != nil {
+			return nil, err
+		}
+		sig.TenantID = s.Tenant.String()
+		sig.Plane = "threat"
+		sig.Severity = incident.Severity(severity)
+		sig.Attributes = map[string]string{}
+		if len(attrs) > 0 {
+			if err := json.Unmarshal(attrs, &sig.Attributes); err != nil {
+				return nil, err
+			}
+		}
+		if d, ok := threat.DetectionFromSignal(sig, incidentID); ok {
+			out = append(out, d)
+		}
+	}
+	return out, rows.Err()
 }
 
 // AppendSignal inserts a signal and atomically updates the incident's last-seen,

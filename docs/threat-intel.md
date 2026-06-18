@@ -223,16 +223,16 @@ These are probectl's standing
 
 ## The triage surface
 
-Attributed matches are also retained as tenant-scoped, in-memory **detections**
-(newest first, bounded per tenant). The recognizer keys on threat-plane signals
-that carry `intel.*` provenance — and the same store accepts the NDR-lite
-detector signals (see [`ndr.md`](ndr.md)) without a separate pipeline, because
-both flow through one recognizer (`DetectionFromSignal` in
-`internal/threat/detections.go`).
+Attributed matches are also served as tenant-scoped **detections** (newest
+first, bounded per response) from the durable incident signal timeline. The
+recognizer keys on threat-plane signals that carry `intel.*` provenance — and
+the same projection accepts the NDR-lite detector signals (see [`ndr.md`](ndr.md))
+without a separate pipeline, because both flow through one recognizer
+(`DetectionFromSignal` in `internal/threat/detections.go`).
 
 They are served at `GET /v1/threat/detections` (RBAC `threat.read`; the
-response carries a `detections_running` honesty flag so a caller can tell the
-store is wired — distinguishing "nothing detected" from "nobody was watching").
+response carries a `detections_running` honesty flag so DB-less lightweight
+profiles can distinguish "nothing detected" from "nobody was watching").
 Each detection carries the flagged entity, the matched
 indicator, the attributing feed with **confidence + category + license
 (verbatim provenance)**, and the correlated **incident id** — the pivot into

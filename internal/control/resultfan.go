@@ -27,6 +27,7 @@ import (
 type ResultFan struct {
 	bus   bus.Bus
 	log   *slog.Logger
+	group string
 	sinks []ResultSink
 
 	decoded   atomic.Uint64
@@ -44,7 +45,22 @@ func NewResultFan(b bus.Bus, log *slog.Logger, sinks ...ResultSink) *ResultFan {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &ResultFan{bus: b, log: log, sinks: sinks}
+	return &ResultFan{bus: b, log: log, group: "result-fan", sinks: sinks}
+}
+
+// WithGroup overrides the consumer group. Shared side-effect fans keep the
+// default "result-fan"; pure read-model fans can use a per-replica view group.
+func (f *ResultFan) WithGroup(group string) *ResultFan {
+	if group != "" {
+		f.group = group
+	}
+	return f
+}
+
+// WithViewGroup makes this fan a pure read-model consumer: every control-plane
+// replica gets its own group and therefore fans in the complete result stream.
+func (f *ResultFan) WithViewGroup(base string) *ResultFan {
+	return f.WithGroup(viewGroup(base))
 }
 
 // Run subscribes (one group, one decode) until ctx is canceled.
@@ -53,8 +69,8 @@ func (f *ResultFan) Run(ctx context.Context) error {
 	for i, s := range f.sinks {
 		names[i] = s.Name
 	}
-	f.log.Info("result fan starting (decode once, fan out)", "sinks", names)
-	return f.bus.Subscribe(ctx, bus.NetworkResultsTopic, "result-fan",
+	f.log.Info("result fan starting (decode once, fan out)", "group", f.group, "sinks", names)
+	return f.bus.Subscribe(ctx, bus.NetworkResultsTopic, f.group,
 		func(ctx context.Context, msg bus.Message) error {
 			var r resultv1.Result
 			if err := proto.Unmarshal(msg.Value, &r); err != nil {

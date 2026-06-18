@@ -137,7 +137,7 @@ func NewResultViewConsumer(b bus.Bus, store *LatestResults, log *slog.Logger) *R
 // (Standalone mode — production wires SinkResult through the decode-once
 // ResultFan, SCALE-013.)
 func (cs *ResultViewConsumer) Run(ctx context.Context) error {
-	return runResultSink(ctx, cs.bus, "result-view", cs.log, cs.SinkResult)
+	return runResultSink(ctx, cs.bus, viewGroup("result-view"), cs.log, cs.SinkResult)
 }
 
 // SinkResult records one DECODED result (shared immutable — never mutated).

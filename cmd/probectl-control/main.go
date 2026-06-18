@@ -324,6 +324,7 @@ func run(cmd string) error {
 	// register typed sinks on ONE subscription instead of each re-decoding the
 	// results topic under its own group.
 	var resultSinks []control.ResultSink
+	var resultViewSinks []control.ResultSink
 	if outageOn {
 		oc := control.NewOutageConsumer(resultBus, outageEngine, correlator, log)
 		resultSinks = append(resultSinks, control.ResultSink{Name: "outage-vantage", Fn: oc.SinkResult})
@@ -360,9 +361,6 @@ func run(cmd string) error {
 	// (tenant, target), bounded per tenant; written by the S27 consumer below
 	// and served at /v1/tls/posture.
 	tlsPostures := threat.NewPostureStore(0)
-	// Threat detections (S-FE3): IOC/NDR matches recorded by the threat
-	// consumers below; served at /v1/threat/detections.
-	detections := threat.NewDetectionStore(0)
 	// Endpoint DEM views (S-FE4): latest WiFi/gateway/last-mile/attribution per
 	// endpoint, fed by the endpoint-view consumer; served at /v1/endpoints.
 	endpointViews := endpoint.NewSnapshotStore(0)
@@ -390,7 +388,6 @@ func run(cmd string) error {
 		WithTSDB(tsdbWriter). // Grafana datasource + federation + remote-write (S40)
 		WithCMDB(cmdbResolver).
 		WithTLSPosture(tlsPostures).
-		WithDetections(detections).
 		WithEndpointViews(endpointViews).
 		WithLatestResults(latestResults).
 		WithSecrets(secretsResolver). // backend health at /v1/secrets/health (S41)
@@ -580,7 +577,7 @@ func run(cmd string) error {
 		})
 	})
 	// Latest-result view (S-FE5): probectl.network.results -> latest-result store.
-	resultSinks = append(resultSinks, control.ResultSink{
+	resultViewSinks = append(resultViewSinks, control.ResultSink{
 		Name: "result-view", Fn: control.NewResultViewConsumer(resultBus, latestResults, log).SinkResult})
 
 	// SIEM export (S32): forward the audit stream + threat-plane signals to the
@@ -605,8 +602,7 @@ func run(cmd string) error {
 	if intelOn {
 		g.Go(func() error { return iocRefresher.Run(gctx) })
 		ioc := control.NewIOCConsumer(resultBus, correlator, iocStore, log).
-			WithSIEM(siemFwd).
-			WithDetections(detections) // triage feed (S-FE3)
+			WithSIEM(siemFwd)
 		resultSinks = append(resultSinks, control.ResultSink{Name: "threat-intel-ip", Fn: ioc.SinkResult})
 		log.Info("threat-intel enrichment enabled", "refresh", cfg.ThreatIntelRefresh)
 	}
@@ -646,8 +642,7 @@ func run(cmd string) error {
 		ndrc := control.NewNDRConsumer(resultBus, ndrEngine, correlator, log).
 			WithTenantBinding(tenantBinding). // ARCH-012: verify flow/eBPF tenants before raising detections
 			WithFairness(fairGate).           // SCALE-005: bound this 2nd flow/eBPF consumer group per tenant
-			WithSIEM(siemFwd).
-			WithDetections(detections)
+			WithSIEM(siemFwd)
 		resultSinks = append(resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})
 		g.Go(func() error { return ndrc.RunFlowLanes(gctx) })
 	}
@@ -661,18 +656,30 @@ func run(cmd string) error {
 		tlsAnalyzer.WithIntel(iocStore)
 	}
 	tlsc := control.NewTLSPostureConsumer(resultBus, correlator, tlsAnalyzer, log).
-		WithSIEM(siemFwd).
-		WithPostureStore(tlsPostures). // certificate inventory (S-FE2)
-		WithDetections(detections)     // triage feed (S-FE3)
+		WithSIEM(siemFwd)
 	resultSinks = append(resultSinks, control.ResultSink{Name: "tls-posture", Fn: tlsc.SinkResult})
-	// ONE subscription, ONE decode, every sink (SCALE-013).
+	tlsView := control.NewTLSPostureConsumer(resultBus, nil, tlsAnalyzer, log).
+		WithPostureStore(tlsPostures) // certificate inventory (S-FE2)
+	resultViewSinks = append(resultViewSinks, control.ResultSink{Name: "tls-posture-view", Fn: tlsView.SinkPosture})
+	// ONE subscription, ONE decode, every side-effecting sink (SCALE-013).
 	resultFan := control.NewResultFan(resultBus, log, resultSinks...)
 	// ARCH-002: the result-fan carries every result-derived sink (latest-result
-	// view, threat-intel, TLS posture, NDR, …) on ONE subscription — supervise it
-	// so a subscribe-path fault restarts the fan, not the whole process.
+	// side effects, threat-intel, TLS signals, NDR, …) on ONE subscription —
+	// supervise it so a subscribe-path fault restarts the fan, not the whole
+	// process.
 	g.Go(func() error {
 		return superviseRestart(gctx, "result-fan", log, func(ctx context.Context) error {
 			return resultFan.Run(ctx)
+		})
+	})
+	// RESIL-004: pure API read models fan in per replica, so any control-plane
+	// pod can serve the same latest-result/TLS posture answers. Threat
+	// detections read the durable incident_signals table instead of RAM.
+	resultViewFan := control.NewResultFan(resultBus, log, resultViewSinks...).
+		WithViewGroup("result-read-views")
+	g.Go(func() error {
+		return superviseRestart(gctx, "result-read-views", log, func(ctx context.Context) error {
+			return resultViewFan.Run(ctx)
 		})
 	})
 

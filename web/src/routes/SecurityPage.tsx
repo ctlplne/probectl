@@ -315,8 +315,8 @@ function DetectionsCard() {
           <>
             {detections.data && !detections.data.detections_running ? (
               <p role="status" className={styles.notice}>
-                <Badge tone="warning">detections off</Badge> The threat consumers are not wired —
-                enable threat-intel feeds (S28) to populate triage.
+                <Badge tone="warning">detections off</Badge> The threat detection reader is not wired —
+                enable the incident store plus IOC/NDR/TLS consumers to populate triage.
               </p>
             ) : null}
             <Table

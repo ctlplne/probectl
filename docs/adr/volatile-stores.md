@@ -40,7 +40,7 @@ from — these are never that):
 | Store | What it holds | Durable source it re-derives from | Restart behavior |
 |---|---|---|---|
 | `internal/topology` (`MemoryStore` / `IndexedStore`) | the tenant-scoped temporal graph | the bus stream (`probectl.ebpf.flows` and friends) plus the path/flow stores it observes; the topology consumer re-subscribes at boot | **rebuilds** as new observations arrive; a cold start is an empty graph that refills within the stream/retention window |
-| `internal/threat` (`DetectionStore`) | recent NDR/posture detections per tenant, bounded | the detection stream; the **durable trail is the incident record + SIEM export**, which is already persisted | **rebuilds** from the stream; the forensic copy already left via incidents/SIEM, so nothing forensic is lost |
+| `internal/threat` (`DetectionStore`) | DB-less/lightweight fallback for recent detections | production reads attributed threat signals from the tenant-scoped `incident_signals` table; the in-memory fallback re-derives from the stream | production survives replica churn through the shared store; fallback **rebuilds** from the stream |
 | `internal/alert` (`Engine` firing state) | per-series firing/pending state | re-derived on the **next evaluation** against the metric source | firing state **re-derives** automatically (see the exception below) |
 
 ## Why rebuild rather than persist

@@ -9,16 +9,10 @@ import (
 	"testing"
 )
 
-// OPS-010 / ARCH-003: the default HA reference (values-medium.yaml) must NOT
-// ship a topology that is known to be read-incoherent. A few read views
-// (/v1/results/latest, threat detections, TLS posture) are still served from
-// per-replica process memory, so multiple control-plane replicas can return
-// different answers for the same query. Until those views adopt per-replica
-// fan-in (or a shared store), the reference must default to replicaCount: 1
-// (coherent) — anything higher would ship the known-incoherent topology.
-//
-// This gate is self-updating: once the doc no longer declares any in-RAM view
-// as needing replicaCount 1, a higher default is allowed.
+// RESIL-004: the medium production reference may run multiple control-plane
+// replicas only while the HA contract says every served read view is coherent.
+// Pure RAM views use per-replica fan-in; threat detections read the durable
+// tenant-scoped incident_signals store.
 func TestMediumReferenceShipsCoherentTopology(t *testing.T) {
 	values := readArtifact(t, "deploy/helm/probectl/values-medium.yaml")
 	ha := readArtifact(t, "docs/ha.md")
@@ -31,12 +25,21 @@ func TestMediumReferenceShipsCoherentTopology(t *testing.T) {
 	stillIncoherent := strings.Contains(ha, "Consistent latest-result / threat / TLS views | **1**") ||
 		regexp.MustCompile(`want\s+`+"`replicaCount: 1`").MatchString(ha)
 
-	if stillIncoherent && replicas != 1 {
-		t.Errorf("values-medium.yaml defaults replicaCount=%d while docs/ha.md still documents in-RAM views that require replicaCount 1 — the reference ships a known-incoherent topology (OPS-010). Default to 1 or land the view coherence first.", replicas)
+	if stillIncoherent {
+		t.Fatalf("docs/ha.md still documents views that require replicaCount 1; do not ship the medium HA reference until read-view coherence is restored")
 	}
 
-	if replicas < 1 {
-		t.Errorf("values-medium.yaml replicaCount must be >= 1, got %d", replicas)
+	if replicas < 2 {
+		t.Errorf("values-medium.yaml replicaCount must be >= 2 after RESIL-004, got %d", replicas)
+	}
+	for _, phrase := range []string{
+		"per-replica fan-in",
+		"incident_signals",
+		"replicaCount: 3",
+	} {
+		if !strings.Contains(ha, phrase) {
+			t.Errorf("docs/ha.md must describe %q for the HA read-view contract", phrase)
+		}
 	}
 
 	// A PodDisruptionBudget minAvailable must not exceed the replica count

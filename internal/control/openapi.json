@@ -3484,7 +3484,7 @@
         "tags": [
           "threat"
         ],
-        "description": "The caller's tenant's recent threat detections (newest first): the flagged entity, the matched indicator, the attributing feed/detector with confidence and license, and the correlated incident id (the triage pivot). Detections are confidence-scored SIGNALS \u2014 probectl never blocks \u2014 and feeds can list benign infrastructure, so provenance ships verbatim. detections_running=false distinguishes unwired consumers from a quiet tenant.",
+        "description": "The caller's tenant's recent threat detections (newest first), projected from the durable incident signal timeline in HA deployments: the flagged entity, the matched indicator, the attributing feed/detector with confidence and license, and the correlated incident id (the triage pivot). Detections are confidence-scored SIGNALS \u2014 probectl never blocks \u2014 and feeds can list benign infrastructure, so provenance ships verbatim. detections_running=false distinguishes unwired DB-less consumers from a quiet tenant.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"

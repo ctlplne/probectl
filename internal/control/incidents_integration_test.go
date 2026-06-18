@@ -10,12 +10,14 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/threat"
 )
 
 func quietLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -118,5 +120,64 @@ func TestIncidentsAPITenantIsolation(t *testing.T) {
 	// Tenant B can.
 	if rec := apiReq(t, h, http.MethodGet, "/v1/incidents/"+inc.ID, tn.ID, nil); rec.Code != http.StatusOK {
 		t.Errorf("tenant B get = %d, want 200", rec.Code)
+	}
+}
+
+func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	tn, err := store.NewTenants(db.Pool()).Create(ctx,
+		fmt.Sprintf("detiso-%d", time.Now().UnixNano()), "Detection Isolation")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+
+	inc, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenancy.DefaultTenantID.String(),
+		Plane:    "threat", Kind: "ioc.botnet_c2", Severity: incident.SeverityCritical,
+		Title: "203.0.113.66 matches threat-intel indicator", Target: "203.0.113.66",
+		OccurredAt: now,
+		Attributes: map[string]string{
+			"intel.source": "feodo", "intel.confidence": "90",
+			"intel.category": "botnet", "intel.indicator": "203.0.113.66",
+			"intel.license": "CC0",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tn.ID,
+		Plane:    "threat", Kind: "ioc.botnet_c2", Severity: incident.SeverityCritical,
+		Title: "secret.other matches threat-intel indicator", Target: "secret.other",
+		OccurredAt: now,
+		Attributes: map[string]string{
+			"intel.source": "feodo", "intel.confidence": "90", "intel.indicator": "secret.other",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := apiReq(t, h, http.MethodGet, "/v1/threat/detections", "", nil)
+	var resp struct {
+		DetectionsRunning bool               `json:"detections_running"`
+		Items             []threat.Detection `json:"items"`
+	}
+	mustJSON(t, rec, &resp)
+	if !resp.DetectionsRunning || len(resp.Items) != 1 {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if got := resp.Items[0]; got.IncidentID != inc.ID || got.Source != "feodo" || got.Indicator != "203.0.113.66" {
+		t.Fatalf("detection = %+v, want incident %s / default tenant IOC", got, inc.ID)
+	}
+	if strings.Contains(rec.Body.String(), "secret.other") {
+		t.Fatalf("CROSS-TENANT LEAK: %s", rec.Body.String())
+	}
+
+	rec = apiReq(t, h, http.MethodGet, "/v1/threat/detections", tn.ID, nil)
+	if !strings.Contains(rec.Body.String(), "secret.other") || strings.Contains(rec.Body.String(), "203.0.113.66") {
+		t.Fatalf("tenant B detection view wrong: %s", rec.Body.String())
 	}
 }

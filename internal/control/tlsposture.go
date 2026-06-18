@@ -3,8 +3,11 @@
 package control
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/threat"
 )
 
@@ -44,8 +47,10 @@ func (s *Server) handleTLSPosture(w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
-// WithDetections attaches the detection store backing GET /v1/threat/detections
-// (S-FE3). nil is a no-op. Returns the server for chaining.
+// WithDetections attaches the in-memory fallback backing GET
+// /v1/threat/detections (S-FE3) when no Postgres pool is available. Production
+// HA deployments prefer the durable incident_signals reader so every replica
+// answers from the same tenant-scoped store.
 func (s *Server) WithDetections(ds *threat.DetectionStore) *Server {
 	if ds != nil {
 		s.detections = ds
@@ -63,6 +68,17 @@ func (s *Server) handleThreatDetections(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
+	if s.pool != nil {
+		items, err := s.listDurableThreatDetections(r.Context(), tid)
+		if err != nil {
+			return err
+		}
+		if items == nil {
+			items = []threat.Detection{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "detections_running": true})
+		return nil
+	}
 	if s.detections == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []threat.Detection{}, "detections_running": false})
 		return nil
@@ -73,4 +89,15 @@ func (s *Server) handleThreatDetections(w http.ResponseWriter, r *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "detections_running": true})
 	return nil
+}
+
+func (s *Server) listDurableThreatDetections(ctx context.Context, tenant string) ([]threat.Detection, error) {
+	var items []threat.Detection
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool,
+		func(ctx context.Context, sc tenancy.Scope) error {
+			var err error
+			items, err = store.Incidents{}.ThreatDetections(ctx, sc, threat.DefaultMaxDetectionsPerTenant)
+			return err
+		})
+	return items, err
 }

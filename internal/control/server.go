@@ -122,8 +122,9 @@ type Server struct {
 	// Set via WithTLSPosture; nil reports collector_running=false.
 	tlsPostures *threat.PostureStore
 
-	// Threat detections (S-FE3): IOC/NDR matches recorded by the threat
-	// consumers. Set via WithDetections; nil reports detections_running=false.
+	// Threat detections (S-FE3): HA deployments serve attributed detections from
+	// the durable incident_signals table via pool/RLS. WithDetections remains as
+	// the lightweight in-memory fallback for tests and DB-less profiles.
 	detections *threat.DetectionStore
 
 	// Endpoint DEM views (S-FE4): the snapshot store the endpoint-view consumer

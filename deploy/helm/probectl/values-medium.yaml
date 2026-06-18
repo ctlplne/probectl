@@ -7,26 +7,15 @@
 # ingress restricted to the ingress-controller namespace; set egressTo for your
 # datastore/bus/IdP/feed allow-list.
 #
-# READ COHERENCE (ARCH-003 / OPS-010): this reference defaults to a SINGLE
-# control-plane replica so it never ships a known-incoherent topology. A few
-# read views are still served from per-replica process memory — /v1/results/latest,
-# threat detections, and TLS posture — and those are NOT yet coherent across
-# replicas (the same query could return different answers depending on which
-# replica served it).
-#
-# What IS already coherent at ANY replica count: every ingest pipeline, every
-# TSDB/ClickHouse-backed query, AND the topology graph + endpoint view (they
-# adopted per-replica fan-in). The throughput lives in the data tier (Kafka,
-# ClickHouse, the TSDB), which you scale INDEPENDENTLY of the control-plane
-# replica count — so a single stateless control-plane replica is not the
-# bottleneck. It still survives node drains/upgrades via a fast reschedule.
-#
-# SCALING PATH (docs/ha.md): if your workload does not touch the
-# latest-result/threat/TLS views, raise replicaCount now and bump the PDB.
-# Otherwise wait for those views to adopt per-replica fan-in (tracked under
-# ARCH-003), after which this reference will raise its default.
+# READ COHERENCE (RESIL-004): the medium reference now runs multiple
+# control-plane replicas. Pure in-RAM read models (/v1/results/latest,
+# /v1/tls/posture, topology, endpoint) use per-replica bus fan-in, so every pod
+# receives the full stream and answers the same query. Threat detections are
+# served from the tenant-scoped durable incident_signals table instead of
+# per-replica RAM. Data-tier throughput still scales independently in Kafka,
+# ClickHouse, and the TSDB.
 
-replicaCount: 1
+replicaCount: 3
 
 resources:
   requests:
@@ -37,11 +26,11 @@ resources:
     memory: 1Gi
 
 # Keep the control plane available during voluntary disruptions (zero-downtime
-# upgrades, S34). At replicaCount 1 this still ensures the new pod is Ready
-# before the old one is evicted on a rolling upgrade.
+# upgrades, S34). With three replicas, two pods remain available during
+# voluntary disruption.
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1
+  minAvailable: 2
 
 # Spread replicas across nodes for availability (applies once you scale up).
 topologySpreadConstraints:
