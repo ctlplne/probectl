@@ -49,7 +49,13 @@ store (see "Deliberate bounds" below).
 - **Deliberate bounds.** probectl ingests traces + logs for **correlation** —
   bounded attributes, capped bodies, retention-limited. It keeps the receipts,
   not the warehouse: enough of each span and log line to join evidence across
-  planes, never the full archive. It is **not** an APM /
+  planes, never the full archive. Metric TSDB conversion supports OTLP gauge,
+  sum, and explicit-bucket histogram points. OTLP summary and exponential
+  histogram points are accepted at the receiver but are not converted into
+  queryable TSDB series; probectl counts them at `/metrics` as
+  `probectl_otlp_metrics_summary_skipped_total` and
+  `probectl_otlp_metrics_exponential_histogram_skipped_total` so an operator can
+  see the bound instead of losing it silently. It is **not** an APM /
   distributed-tracing replacement and **not** a log-analytics store. probectl
   claims three-signal OTLP ingest/export with exactly those bounds — and no
   more.

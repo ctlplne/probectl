@@ -27,23 +27,29 @@ import (
 // push and stamped the tenant (token → tenant, Sprint 6 coverage); messages
 // arrive tenant-keyed with a marshaled ExportMetricsServiceRequest payload.
 //
-// Conversion scope (deliberate, documented): GAUGE and SUM number data points
-// become series (the metric shapes OTel-instrumented infra overwhelmingly
-// exports); histogram/summary points are counted and skipped until the
-// Sprint 22 traces/logs/histogram plane lands. Labels are bounded (the
-// busiest attributes win deterministically) and every series carries
-// tenant_id — the same label contract as every other plane, so RBAC'd PromQL
-// and Grafana federation see OTLP metrics exactly like native ones.
+// Conversion scope (deliberate, documented): GAUGE, SUM, and explicit-bucket
+// HISTOGRAM points become TSDB series. SUMMARY and EXPONENTIAL_HISTOGRAM points
+// are accepted at the OTLP boundary but visibly counted as unsupported for TSDB
+// conversion. Labels are bounded (the busiest attributes win deterministically)
+// and every emitted series carries tenant_id — the same label contract as every
+// other plane, so RBAC'd PromQL and Grafana federation see OTLP metrics exactly
+// like native ones.
 type OTLPConsumer struct {
 	bus  bus.Bus
 	tsdb tsdb.Writer
 	log  *slog.Logger
 
-	consumed atomic.Uint64
-	skipped  atomic.Uint64 // unsupported point kinds (histogram/summary/exp-histogram)
-	shed     atomic.Uint64 // series shed by the per-tenant fairness gate (SCALE-003)
-	rejected atomic.Uint64 // resource tenant mismatches dropped fail-closed (TENANT-001)
-	dlq      *otlpDLQ      // retry + dead-letter on store-write failure (SCALE-003)
+	consumed                    atomic.Uint64
+	skipped                     atomic.Uint64 // unsupported metric points total
+	skippedSummary              atomic.Uint64
+	skippedExponentialHistogram atomic.Uint64
+	skippedUnknown              atomic.Uint64
+	shed                        atomic.Uint64 // series shed by the per-tenant fairness gate (SCALE-003)
+	rejected                    atomic.Uint64 // resource tenant mismatches dropped fail-closed (TENANT-001)
+	dlq                         *otlpDLQ      // retry + dead-letter on store-write failure (SCALE-003)
+	summarySkippedMetric        *metrics.Counter
+	expHistogramSkippedMetric   *metrics.Counter
+	unknownSkippedMetric        *metrics.Counter
 
 	// SCALE-003: the OTLP plane gets the same per-tenant bounds as the native
 	// planes. gate sheds an over-rate tenant's series (fairness); card caps a
@@ -69,6 +75,12 @@ func NewOTLPConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *OTLPConsumer {
 // (OPS-005). Returns the consumer for chaining.
 func (c *OTLPConsumer) WithMetrics(reg *metrics.Registry) *OTLPConsumer {
 	c.dlq.withMetrics(reg)
+	c.summarySkippedMetric = reg.Counter("probectl_otlp_metrics_summary_skipped_total",
+		"OTLP summary points accepted but not converted to TSDB series.")
+	c.expHistogramSkippedMetric = reg.Counter("probectl_otlp_metrics_exponential_histogram_skipped_total",
+		"OTLP exponential histogram points accepted but not converted to TSDB series.")
+	c.unknownSkippedMetric = reg.Counter("probectl_otlp_metrics_unknown_skipped_total",
+		"OTLP metric points with unknown data kind accepted but not converted to TSDB series.")
 	return c
 }
 
@@ -209,8 +221,14 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 					histDelta := d.Histogram.GetAggregationTemporality() == metricspb.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA
 					out = append(out, c.histogramSeries(m.GetName(), d.Histogram.GetDataPoints(), tenant, resAttrs, histDelta)...)
 					continue
+				case *metricspb.Metric_Summary:
+					c.skipUnsupportedMetric(tenant, m.GetName(), "summary", len(d.Summary.GetDataPoints()))
+					continue
+				case *metricspb.Metric_ExponentialHistogram:
+					c.skipUnsupportedMetric(tenant, m.GetName(), "exponential_histogram", len(d.ExponentialHistogram.GetDataPoints()))
+					continue
 				default:
-					c.skipped.Add(1) // summary / exponential histogram: not yet converted
+					c.skipUnsupportedMetric(tenant, m.GetName(), "unknown", 1)
 					continue
 				}
 				name := "probectl_otlp_" + sanitize(m.GetName())
@@ -247,6 +265,33 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 		}
 	}
 	return out
+}
+
+func (c *OTLPConsumer) skipUnsupportedMetric(tenant, metricName, kind string, points int) {
+	if points <= 0 {
+		return
+	}
+	n := uint64(points)
+	c.skipped.Add(n)
+	switch kind {
+	case "summary":
+		c.skippedSummary.Add(n)
+		if c.summarySkippedMetric != nil {
+			c.summarySkippedMetric.Add(n)
+		}
+	case "exponential_histogram":
+		c.skippedExponentialHistogram.Add(n)
+		if c.expHistogramSkippedMetric != nil {
+			c.expHistogramSkippedMetric.Add(n)
+		}
+	default:
+		c.skippedUnknown.Add(n)
+		if c.unknownSkippedMetric != nil {
+			c.unknownSkippedMetric.Add(n)
+		}
+	}
+	c.log.Warn("skipping unsupported OTLP metric points",
+		"tenant_id", tenant, "metric", metricName, "kind", kind, "points", points)
 }
 
 // histogramSeries converts OTLP explicit-bucket histogram points into the
