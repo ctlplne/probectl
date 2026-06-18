@@ -14,10 +14,13 @@ import (
 	"net/netip"
 	"sync/atomic"
 
+	cebpf "github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/ringbuf"
 	"github.com/cilium/ebpf/rlimit"
 )
+
+const l4DropRingBufferFull = uint32(0)
 
 // liveSource is the CO-RE eBPF flow source: it loads bpf/l4flow.bpf.c, attaches
 // it to the inet_sock_set_state tracepoint (observe-only), and decodes
@@ -166,8 +169,17 @@ func explainBPFLoadError(err error) error {
 	return err
 }
 
-// Drops returns cumulative dropped records (decode failures + ring-buffer-full).
-func (s *liveSource) Drops() uint64 { return s.drops.Load() }
+// DropStats returns cumulative L4 source loss, including kernel-side ring-buffer
+// reserve failures that userspace cannot infer from the reader.
+func (s *liveSource) DropStats() DropStats {
+	return DropStats{
+		DecodeFailures:   s.drops.Load(),
+		L4RingBufferFull: percpuCounter(s.objs.DropCounters, l4DropRingBufferFull),
+	}
+}
+
+// Drops returns cumulative dropped records.
+func (s *liveSource) Drops() uint64 { return s.DropStats().Total() }
 
 // FilteredNonIPv4 returns the cumulative count of flows dropped in-kernel for
 // being non-IPv4 (U-073) — summed across CPUs from the percpu `filtered` map.
@@ -179,6 +191,21 @@ func (s *liveSource) FilteredNonIPv4() uint64 {
 	}
 	var perCPU []uint64
 	if err := s.objs.Filtered.Lookup(uint32(0), &perCPU); err != nil {
+		return 0
+	}
+	var sum uint64
+	for _, v := range perCPU {
+		sum += v
+	}
+	return sum
+}
+
+func percpuCounter(m *cebpf.Map, key uint32) uint64 {
+	if m == nil {
+		return 0
+	}
+	var perCPU []uint64
+	if err := m.Lookup(key, &perCPU); err != nil {
 		return 0
 	}
 	var sum uint64

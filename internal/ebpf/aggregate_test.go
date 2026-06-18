@@ -10,6 +10,7 @@ func TestAggregatorDrainAndDrops(t *testing.T) {
 	a.Observe(flow)
 	a.Observe(flow)
 	a.RecordDrops(3)
+	a.RecordDropStats(DropStats{L4RingBufferFull: 2, L7ActiveReadFailures: 1})
 
 	flows, edges := a.Drain()
 	if len(flows) != 2 {
@@ -28,7 +29,7 @@ func TestAggregatorDrainAndDrops(t *testing.T) {
 		t.Errorf("service map should persist across drains, got %d edges", len(edges2))
 	}
 
-	if st := a.Stats(); st.Observed != 2 || st.Dropped != 3 || st.Edges != 1 {
-		t.Errorf("stats = %+v, want observed=2 dropped=3 edges=1", st)
+	if st := a.Stats(); st.Observed != 2 || st.Dropped != 6 || st.Edges != 1 || st.Other != 3 || st.L4RingBufferFull != 2 || st.L7ActiveReadFailures != 1 {
+		t.Errorf("stats = %+v, want observed=2 dropped=6 edges=1 other=3 l4_ring=2 active_reads=1", st)
 	}
 }

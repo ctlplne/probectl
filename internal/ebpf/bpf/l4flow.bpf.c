@@ -24,6 +24,8 @@
 #define BPF_TCP_ESTABLISHED 1
 #endif
 
+#define DROP_RINGBUF_FULL 0
+
 // Mirrors l4eventC in source_live_linux.go — keep field order/sizes in sync.
 struct l4_event {
 	__u32 pid;
@@ -52,6 +54,23 @@ struct {
 	__type(value, __u64);
 } filtered SEC(".maps");
 
+// drop_counters makes kernel-side loss measurable. Userspace cannot observe a
+// failed ringbuf reserve: no record exists to read. So the kernel increments a
+// per-CPU counter at the failure point and the agent sums it on flush.
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} drop_counters SEC(".maps");
+
+static __always_inline void count_drop(__u32 reason)
+{
+	__u64 *cnt = bpf_map_lookup_elem(&drop_counters, &reason);
+	if (cnt)
+		__sync_fetch_and_add(cnt, 1);
+}
+
 SEC("tracepoint/sock/inet_sock_set_state")
 int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 {
@@ -68,8 +87,10 @@ int handle_set_state(struct trace_event_raw_inet_sock_set_state *ctx)
 		return 0;
 
 	struct l4_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
-	if (!e)
-		return 0; // ring buffer full — userspace counts this as a drop
+	if (!e) {
+		count_drop(DROP_RINGBUF_FULL);
+		return 0;
+	}
 
 	__u64 id = bpf_get_current_pid_tgid();
 	e->pid = id >> 32;

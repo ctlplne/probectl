@@ -14,8 +14,9 @@ import (
 
 // sliceSource is an in-memory Source over a fixed slice of flows.
 type sliceSource struct {
-	flows []Flow
-	drops uint64
+	flows     []Flow
+	drops     uint64
+	dropStats DropStats
 }
 
 func (s *sliceSource) Flows(ctx context.Context) (<-chan Flow, error) {
@@ -32,8 +33,19 @@ func (s *sliceSource) Flows(ctx context.Context) (<-chan Flow, error) {
 	}()
 	return ch, nil
 }
-func (s *sliceSource) Drops() uint64 { return s.drops }
-func (s *sliceSource) Close() error  { return nil }
+func (s *sliceSource) Drops() uint64 {
+	if s.dropStats.Total() > 0 {
+		return s.dropStats.Total()
+	}
+	return s.drops
+}
+func (s *sliceSource) DropStats() DropStats {
+	if s.dropStats.Total() > 0 {
+		return s.dropStats
+	}
+	return DropStats{Other: s.drops}
+}
+func (s *sliceSource) Close() error { return nil }
 
 type captureEmitter struct {
 	flows []Flow
@@ -50,7 +62,10 @@ func (c *captureEmitter) Emit(_ context.Context, f []Flow, e []ServiceEdge, l7ca
 	return nil
 }
 
-type sliceL7Source struct{ events []L7Event }
+type sliceL7Source struct {
+	events    []L7Event
+	dropStats DropStats
+}
 
 func (s *sliceL7Source) L7Events(ctx context.Context) (<-chan L7Event, error) {
 	ch := make(chan L7Event)
@@ -66,8 +81,9 @@ func (s *sliceL7Source) L7Events(ctx context.Context) (<-chan L7Event, error) {
 	}()
 	return ch, nil
 }
-func (s *sliceL7Source) Drops() uint64 { return 0 }
-func (s *sliceL7Source) Close() error  { return nil }
+func (s *sliceL7Source) Drops() uint64        { return s.dropStats.Total() }
+func (s *sliceL7Source) DropStats() DropStats { return s.dropStats }
+func (s *sliceL7Source) Close() error         { return nil }
 
 func TestAgentRunEmitsFlowsAndEdges(t *testing.T) {
 	src := &sliceSource{flows: []Flow{
@@ -117,6 +133,57 @@ func TestAgentRunReportsDrops(t *testing.T) {
 	}
 	if got := a.agg.Stats().Dropped; got != 5 {
 		t.Errorf("dropped_total = %d, want 5 (ring-buffer drops surfaced)", got)
+	}
+}
+
+func TestAgentRunReportsDetailedKernelDrops(t *testing.T) {
+	src := &sliceSource{dropStats: DropStats{
+		DecodeFailures:   1,
+		L4RingBufferFull: 3,
+	}}
+	l7src := &sliceL7Source{dropStats: DropStats{
+		L7RingBufferFull:     2,
+		L7ActiveReadFailures: 4,
+	}}
+	em := &captureEmitter{}
+	cfg := &Config{TenantID: "t1", Host: "h", FlushInterval: time.Hour}
+	a := newAgentWith(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), src, NopEnricher{}, em)
+	a.l7source = l7src
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := a.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	st := a.agg.Stats()
+	if st.Dropped != 10 {
+		t.Fatalf("dropped_total = %d, want 10", st.Dropped)
+	}
+	if st.DecodeFailures != 1 || st.L4RingBufferFull != 3 || st.L7RingBufferFull != 2 || st.L7ActiveReadFailures != 4 {
+		t.Fatalf("drop stats = %+v, want decode=1 l4_ring=3 l7_ring=2 active_reads=4", st.DropStats)
+	}
+}
+
+func TestAgentSyncsDropStatsAsDeltas(t *testing.T) {
+	src := &sliceSource{}
+	cfg := &Config{TenantID: "t1", Host: "h", FlushInterval: time.Hour}
+	a := newAgentWith(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)), src, NopEnricher{}, &captureEmitter{})
+
+	src.dropStats = DropStats{L4RingBufferFull: 2}
+	if !a.syncDrops() {
+		t.Fatal("first sync should report changed counters")
+	}
+	src.dropStats = DropStats{L4RingBufferFull: 5, L7ActiveReadFailures: 1}
+	if !a.syncDrops() {
+		t.Fatal("second sync should report changed counters")
+	}
+	if a.syncDrops() {
+		t.Fatal("unchanged counters should not report a change")
+	}
+
+	st := a.agg.Stats()
+	if st.Dropped != 6 || st.L4RingBufferFull != 5 || st.L7ActiveReadFailures != 1 {
+		t.Fatalf("stats after deltas = %+v, want dropped=6 l4_ring=5 active_reads=1", st)
 	}
 }
 

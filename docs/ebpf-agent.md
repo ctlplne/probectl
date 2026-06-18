@@ -253,10 +253,20 @@ results.
 ### Self-observation (drops are never silent)
 
 A dropped flow is a correctness gap in an observability tool, so it is never
-hidden. Ring-buffer backpressure is counted and surfaced as `dropped_total` on
-every flush (folded from the source's drop counter in `runtime.go`). The flush log
-also carries `observed_total`, `l7_total`, `l7_attach_failures`, and
-`filtered_non_ipv4_total` — probectl observes probectl.
+hidden. Ring-buffer backpressure is counted at the kernel branch that loses the
+record: the L4 and TLS programs increment per-CPU `drop_counters` when
+`bpf_ringbuf_reserve` fails, and TLS capture also counts `active_reads` stash
+failures that would lose `SSL_read` correlation before userspace can see a
+chunk. The live sources sum those counters on flush and fold them into
+`dropped_total`.
+
+The flush log carries both the roll-up and the reason labels:
+`drop_decode_failures_total`, `drop_l4_ring_buffer_full_total`,
+`drop_l7_ring_buffer_full_total`, `drop_l7_active_read_failures_total`, and
+`drop_other_total`, plus `observed_total`, `l7_total`, `l7_attach_failures`, and
+`filtered_non_ipv4_total`. If only counters changed and there is no flow batch to
+emit, the agent still logs `ebpf counters updated` so an all-dropped window is
+visible — probectl observes probectl.
 
 ## Tuning and kernel lockdown
 

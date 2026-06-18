@@ -39,6 +39,9 @@
 #include <bpf/bpf_tracing.h>
 
 #define MAX_DATA 4096
+#define DROP_RINGBUF_FULL 0
+#define DROP_ACTIVE_READS_UPDATE 1
+#define DROP_COUNTERS_MAX 2
 
 // Mirrors sslChunk in l7chunk.go — keep field order/sizes in sync.
 struct tls_chunk {
@@ -109,6 +112,23 @@ struct {
 	__type(value, struct read_args);
 } active_reads SEC(".maps");
 
+// drop_counters accounts for kernel-side loss that userspace cannot infer:
+// a failed ringbuf reserve creates no readable record, and a failed active_reads
+// stash loses SSL_read correlation before the return probe can emit a chunk.
+struct {
+	__uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+	__uint(max_entries, DROP_COUNTERS_MAX);
+	__type(key, __u32);
+	__type(value, __u64);
+} drop_counters SEC(".maps");
+
+static __always_inline void count_drop(__u32 reason)
+{
+	__u64 *cnt = bpf_map_lookup_elem(&drop_counters, &reason);
+	if (cnt)
+		__sync_fetch_and_add(cnt, 1);
+}
+
 static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, int num)
 {
 	if (num <= 0)
@@ -121,8 +141,10 @@ static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, int 
 		window = MAX_DATA - 1;
 
 	struct tls_chunk *e = bpf_ringbuf_reserve(&tls_chunks, sizeof(*e), 0);
-	if (!e)
-		return; // ring buffer full — userspace counts the drop
+	if (!e) {
+		count_drop(DROP_RINGBUF_FULL);
+		return;
+	}
 
 	__u64 id = bpf_get_current_pid_tgid();
 	e->pid = id >> 32;
@@ -161,7 +183,8 @@ int BPF_UPROBE(probe_ssl_read_enter, void *ssl, void *buf, int num)
 		return 0; // not in scope: no stash, so the exit probe no-ops too
 	__u64 tid = bpf_get_current_pid_tgid();
 	struct read_args a = {.conn = (__u64)ssl, .buf = (__u64)buf};
-	bpf_map_update_elem(&active_reads, &tid, &a, BPF_ANY);
+	if (bpf_map_update_elem(&active_reads, &tid, &a, BPF_ANY))
+		count_drop(DROP_ACTIVE_READS_UPDATE);
 	return 0;
 }
 

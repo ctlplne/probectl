@@ -29,7 +29,8 @@ type L7Event struct {
 
 // L7Source is a stream of L7Events. The live source is TLS-uprobe / socket
 // capture (built only under -tags ebpf); the FixtureL7Source replays recorded
-// events for CI and demos (the no-kernel path).
+// events for CI and demos (the no-kernel path). Live sources may expose typed
+// DropStats with kernel-side TLS ring/stash loss reasons.
 type L7Source interface {
 	L7Events(ctx context.Context) (<-chan L7Event, error)
 	Drops() uint64

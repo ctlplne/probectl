@@ -35,7 +35,7 @@ type Agent struct {
 	l7connsTTL time.Duration
 	l7Evicted  atomic.Uint64
 
-	lastDrops      uint64
+	lastDropStats  DropStats
 	lastFilteredV6 uint64
 
 	// ready flips true once the flow source is streaming — the readiness
@@ -316,45 +316,65 @@ func (a *Agent) pruneL7(now time.Time) {
 
 func (a *Agent) flush(ctx context.Context) {
 	a.pruneL7(time.Now())
-	a.syncDrops()
-	a.syncFilteredNonIPv4()
+	countersChanged := a.syncDrops()
+	countersChanged = a.syncFilteredNonIPv4() || countersChanged
 	flows, edges := a.agg.Drain()
 	l7calls := a.agg.DrainL7()
 	if len(flows) == 0 && len(edges) == 0 && len(l7calls) == 0 {
+		if countersChanged {
+			a.logFlushStats("ebpf counters updated", 0, 0, 0)
+		}
 		return
 	}
 	if err := a.emitter.Emit(ctx, flows, edges, l7calls); err != nil {
 		a.log.Error("ebpf emit failed", "error", err, "flows", len(flows), "edges", len(edges), "l7_calls", len(l7calls))
 		return
 	}
+	a.logFlushStats("ebpf flows emitted", len(flows), len(edges), len(l7calls))
+}
+
+func (a *Agent) logFlushStats(msg string, flows, edges, l7calls int) {
 	st := a.agg.Stats()
-	a.log.Info("ebpf flows emitted",
-		"tenant_id", a.cfg.TenantID, "flows", len(flows), "edges", len(edges), "l7_calls", len(l7calls),
+	a.log.Info(msg,
+		"tenant_id", a.cfg.TenantID, "flows", flows, "edges", edges, "l7_calls", l7calls,
 		"observed_total", st.Observed, "l7_total", st.L7Observed, "dropped_total", st.Dropped,
+		"drop_decode_failures_total", st.DecodeFailures,
+		"drop_l4_ring_buffer_full_total", st.L4RingBufferFull,
+		"drop_l7_ring_buffer_full_total", st.L7RingBufferFull,
+		"drop_l7_active_read_failures_total", st.L7ActiveReadFailures,
+		"drop_other_total", st.Other,
 		"l7_attach_failures", st.L7AttachFailures, "filtered_non_ipv4_total", st.FilteredNonIPv4)
 }
 
-// syncDrops folds the source's cumulative drop count into the aggregator so the
-// dropped_total metric reflects ring-buffer backpressure.
-func (a *Agent) syncDrops() {
-	cur := a.source.Drops()
-	if cur > a.lastDrops {
-		a.agg.RecordDrops(cur - a.lastDrops)
-		a.lastDrops = cur
+// syncDrops folds cumulative L4 + L7 source drop stats into the aggregator so
+// dropped_total reflects kernel backpressure and map-stash loss, not just
+// userspace decode failures.
+func (a *Agent) syncDrops() bool {
+	cur := dropStatsFrom(a.source)
+	if a.l7source != nil {
+		cur = cur.Add(dropStatsFrom(a.l7source))
 	}
+	delta := cur.Delta(a.lastDropStats)
+	if delta.Total() > 0 {
+		a.agg.RecordDropStats(delta)
+	}
+	a.lastDropStats = cur
+	return delta.Total() > 0
 }
 
 // syncFilteredNonIPv4 folds the live source's in-kernel non-IPv4 filter count
 // into the aggregator (U-073) — measurable, not silent. Sources that don't
 // expose it (the fixture) are skipped.
-func (a *Agent) syncFilteredNonIPv4() {
+func (a *Agent) syncFilteredNonIPv4() bool {
 	fs, ok := a.source.(interface{ FilteredNonIPv4() uint64 })
 	if !ok {
-		return
+		return false
 	}
 	cur := fs.FilteredNonIPv4()
 	if cur > a.lastFilteredV6 {
 		a.agg.RecordFilteredNonIPv4(cur - a.lastFilteredV6)
 		a.lastFilteredV6 = cur
+		return true
 	}
+	return false
 }

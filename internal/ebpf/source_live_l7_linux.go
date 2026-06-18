@@ -33,6 +33,11 @@ import (
 	"github.com/cilium/ebpf/rlimit"
 )
 
+const (
+	l7DropRingBufferFull     = uint32(0)
+	l7DropActiveReadFailures = uint32(1)
+)
+
 // liveL7Source captures TLS plaintext via uprobes on the SSL library's read/
 // write functions. OpenSSL and BoringSSL share the SSL_* API; GnuTLS uses
 // gnutls_record_send/recv (attach the same way). SSL_read is captured at the
@@ -275,7 +280,15 @@ func (s *liveL7Source) decodeChunkSafely(sample []byte) (ev L7Event, ok bool) {
 	return e, true
 }
 
-func (s *liveL7Source) Drops() uint64 { return s.drops.Load() }
+func (s *liveL7Source) DropStats() DropStats {
+	return DropStats{
+		DecodeFailures:       s.drops.Load(),
+		L7RingBufferFull:     percpuCounter(s.objs.DropCounters, l7DropRingBufferFull),
+		L7ActiveReadFailures: percpuCounter(s.objs.DropCounters, l7DropActiveReadFailures),
+	}
+}
+
+func (s *liveL7Source) Drops() uint64 { return s.DropStats().Total() }
 
 func (s *liveL7Source) Close() error {
 	if s.rd != nil {

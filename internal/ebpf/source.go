@@ -11,8 +11,8 @@ import (
 
 // Source is a stream of observed flows. The live source is a CO-RE eBPF program
 // (built only under -tags ebpf); the FixtureSource replays recorded flows for
-// CI / macOS / unprivileged hosts. Drops reports cumulative source-side drops
-// (ring-buffer backpressure for the live source; always 0 for fixtures).
+// CI / macOS / unprivileged hosts. Drops reports cumulative source-side drops;
+// live sources may also expose typed DropStats with kernel-side loss reasons.
 type Source interface {
 	// Flows returns a channel of observed flows, closed when ctx is canceled or
 	// the source is exhausted.

@@ -8,13 +8,15 @@ import (
 )
 
 // Stats are the cumulative counters the agent exposes so probectl observes probectl:
-// Dropped (ring-buffer backpressure) is surfaced, never silent — a dropped flow
-// is a correctness gap in an observability tool (CLAUDE.md / S20 watch-out).
+// Dropped is the all-up lost-observation count, and the Drop* fields explain
+// which bucket overflowed. Loss is surfaced, never silent — a dropped flow is a
+// correctness gap in an observability tool (CLAUDE.md / S20 watch-out).
 type Stats struct {
 	Observed   uint64
 	L7Observed uint64
 	Dropped    uint64
-	Edges      uint64
+	DropStats
+	Edges uint64
 	// L7AttachFailures counts TLS-uprobe attach failures (U-015): an
 	// encrypted-traffic visibility gap is surfaced, never silent.
 	L7AttachFailures uint64
@@ -35,6 +37,11 @@ type Aggregator struct {
 	observed        atomic.Uint64
 	l7observed      atomic.Uint64
 	dropped         atomic.Uint64
+	dropDecode      atomic.Uint64
+	dropL4RingFull  atomic.Uint64
+	dropL7RingFull  atomic.Uint64
+	dropActiveReads atomic.Uint64
+	dropOther       atomic.Uint64
 	l7attachFailed  atomic.Uint64
 	filteredNonIPv4 atomic.Uint64
 }
@@ -54,8 +61,19 @@ func (a *Aggregator) Observe(f Flow) {
 	a.observed.Add(1)
 }
 
-// RecordDrops adds n to the dropped counter (ring-buffer backpressure).
-func (a *Aggregator) RecordDrops(n uint64) { a.dropped.Add(n) }
+// RecordDrops adds n to the dropped counter when only a legacy/fixture total is
+// available.
+func (a *Aggregator) RecordDrops(n uint64) { a.RecordDropStats(DropStats{Other: n}) }
+
+// RecordDropStats folds typed source loss into the cumulative drop counters.
+func (a *Aggregator) RecordDropStats(s DropStats) {
+	a.dropped.Add(s.Total())
+	a.dropDecode.Add(s.DecodeFailures)
+	a.dropL4RingFull.Add(s.L4RingBufferFull)
+	a.dropL7RingFull.Add(s.L7RingBufferFull)
+	a.dropActiveReads.Add(s.L7ActiveReadFailures)
+	a.dropOther.Add(s.Other)
+}
 
 // RecordFilteredNonIPv4 adds n to the in-kernel non-IPv4 filter counter
 // (U-073) so the IPv4-only capture limitation is measurable.
@@ -100,9 +118,16 @@ func (a *Aggregator) ServiceMap() *ServiceMap { return a.smap }
 // Stats reports the cumulative counters.
 func (a *Aggregator) Stats() Stats {
 	return Stats{
-		Observed:         a.observed.Load(),
-		L7Observed:       a.l7observed.Load(),
-		Dropped:          a.dropped.Load(),
+		Observed:   a.observed.Load(),
+		L7Observed: a.l7observed.Load(),
+		Dropped:    a.dropped.Load(),
+		DropStats: DropStats{
+			DecodeFailures:       a.dropDecode.Load(),
+			L4RingBufferFull:     a.dropL4RingFull.Load(),
+			L7RingBufferFull:     a.dropL7RingFull.Load(),
+			L7ActiveReadFailures: a.dropActiveReads.Load(),
+			Other:                a.dropOther.Load(),
+		},
 		Edges:            uint64(a.smap.Len()),
 		L7AttachFailures: a.l7attachFailed.Load(),
 		FilteredNonIPv4:  a.filteredNonIPv4.Load(),
