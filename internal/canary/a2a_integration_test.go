@@ -18,7 +18,8 @@ import (
 func TestA2ALoopback(t *testing.T) {
 	for _, mode := range []string{"udp", "tcp"} {
 		t.Run(mode, func(t *testing.T) {
-			resp, err := canary.StartA2AResponder(mode, "127.0.0.1")
+			sessionID := "loopback-" + mode
+			resp, err := canary.StartA2AResponder(mode, "127.0.0.1", sessionID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -26,7 +27,7 @@ func TestA2ALoopback(t *testing.T) {
 			done := make(chan canary.Result, 1)
 			go func() { done <- resp.Serve(ctx, 4, "agent-B") }()
 
-			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 4, 2*time.Second, "agent-B")
+			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 4, 2*time.Second, "agent-B", sessionID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -43,6 +44,34 @@ func TestA2ALoopback(t *testing.T) {
 			rr := <-done
 			if rr.Metrics["packets.received"] != 4 || rr.Metrics["loss.ratio"] != 0 {
 				t.Errorf("responder: %v", rr.Metrics)
+			}
+		})
+	}
+}
+
+func TestA2ALoopbackRejectsWrongSessionKey(t *testing.T) {
+	for _, mode := range []string{"udp", "tcp"} {
+		t.Run(mode, func(t *testing.T) {
+			resp, err := canary.StartA2AResponder(mode, "127.0.0.1", "good-session-"+mode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan canary.Result, 1)
+			go func() { done <- resp.Serve(ctx, 1, "agent-B") }()
+
+			res, err := canary.RunA2AInitiator(context.Background(), mode, resp.Addr(), 1, 150*time.Millisecond, "agent-B", "wrong-session-"+mode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Success || res.Metrics["packets.received"] != 0 {
+				t.Fatalf("wrong-session initiator got an authenticated echo: success=%v metrics=%v", res.Success, res.Metrics)
+			}
+
+			cancel()
+			rr := <-done
+			if rr.Metrics["packets.received"] != 0 {
+				t.Fatalf("responder counted an unauthenticated probe: %v", rr.Metrics)
 			}
 		})
 	}

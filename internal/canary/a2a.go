@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Agent-to-agent (A2A) two-way measurement, TWAMP-lite style. The initiator
@@ -20,26 +23,59 @@ import (
 // reverse one-way = T4-T3. One-way delays assume the two agents' clocks are
 // synchronized (true within a host; use NTP across hosts — see docs).
 const (
-	a2aType     = "a2a"
-	a2aReqLen   = 20 // token(8) + seq(4) + T1(8)
-	a2aReplyLen = 36 // token(8) + seq(4) + T1(8) + T2(8) + T3(8)
+	a2aType         = "a2a"
+	a2aReqBodyLen   = 20 // token(8) + seq(4) + T1(8)
+	a2aReplyBodyLen = 36 // token(8) + seq(4) + T1(8) + T2(8) + T3(8)
+	a2aMACLen       = 32 // HMAC-SHA256 via internal/crypto
+	a2aReqLen       = a2aReqBodyLen + a2aMACLen
+	a2aReplyLen     = a2aReplyBodyLen + a2aMACLen
+	a2aReqMACDomain = "probectl-a2a-request-v1"
+	a2aRepMACDomain = "probectl-a2a-reply-v1"
 )
 
-func encodeA2AReq(token []byte, seq uint32, t1 int64) []byte {
+func a2aSessionKey(sessionID string) ([]byte, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, fmt.Errorf("a2a: session id is required for authenticated frames")
+	}
+	return []byte(sessionID), nil
+}
+
+func a2aMACInput(domain string, body []byte) []byte {
+	out := make([]byte, 0, len(domain)+1+len(body))
+	out = append(out, domain...)
+	out = append(out, 0)
+	out = append(out, body...)
+	return out
+}
+
+func appendA2AMAC(key []byte, domain string, frame []byte, bodyLen int) {
+	copy(frame[bodyLen:], crypto.Sign(key, a2aMACInput(domain, frame[:bodyLen])))
+}
+
+func verifyA2AMAC(key []byte, domain string, frame []byte, bodyLen int) bool {
+	if len(frame) != bodyLen+a2aMACLen {
+		return false
+	}
+	return crypto.Verify(key, a2aMACInput(domain, frame[:bodyLen]), frame[bodyLen:])
+}
+
+func encodeA2AReq(key, token []byte, seq uint32, t1 int64) []byte {
 	b := make([]byte, a2aReqLen)
 	copy(b[0:8], token)
 	binary.BigEndian.PutUint32(b[8:12], seq)
 	binary.BigEndian.PutUint64(b[12:20], uint64(t1))
+	appendA2AMAC(key, a2aReqMACDomain, b, a2aReqBodyLen)
 	return b
 }
 
-// makeA2AReply echoes a request (>= a2aReqLen) and appends the responder's recv
-// (t2) and send (t3) timestamps.
-func makeA2AReply(req []byte, t2, t3 int64) []byte {
+// makeA2AReply echoes an authenticated request body and appends the responder's
+// recv (t2) and send (t3) timestamps plus a reply MAC.
+func makeA2AReply(key, reqBody []byte, t2, t3 int64) []byte {
 	b := make([]byte, a2aReplyLen)
-	copy(b[0:20], req[:20])
+	copy(b[0:a2aReqBodyLen], reqBody[:a2aReqBodyLen])
 	binary.BigEndian.PutUint64(b[20:28], uint64(t2))
 	binary.BigEndian.PutUint64(b[28:36], uint64(t3))
+	appendA2AMAC(key, a2aRepMACDomain, b, a2aReplyBodyLen)
 	return b
 }
 
@@ -50,7 +86,14 @@ type a2aReply struct {
 }
 
 func parseA2AReply(b []byte) (a2aReply, bool) {
-	if len(b) < a2aReplyLen {
+	return parseA2AReplyAuthenticated(nil, b)
+}
+
+func parseA2AReplyAuthenticated(key, b []byte) (a2aReply, bool) {
+	if len(key) > 0 && !verifyA2AMAC(key, a2aRepMACDomain, b, a2aReplyBodyLen) {
+		return a2aReply{}, false
+	}
+	if len(key) == 0 && len(b) != a2aReplyLen {
 		return a2aReply{}, false
 	}
 	return a2aReply{
@@ -62,17 +105,23 @@ func parseA2AReply(b []byte) (a2aReply, bool) {
 	}, true
 }
 
-// A2AResponder is an open responder listener for one session.
+// A2AResponder is an authenticated responder listener for one brokered session.
 type A2AResponder struct {
 	mode string
+	key  []byte
 	udp  *net.UDPConn
 	tcp  *net.TCPListener
 	addr string
 }
 
 // StartA2AResponder opens a responder listener for mode ("udp"|"tcp") bound to
-// host (port 0 → kernel-assigned). Call Addr to learn the bound address.
-func StartA2AResponder(mode, host string) (*A2AResponder, error) {
+// host (port 0 → kernel-assigned). sessionID is the per-session MAC key handed
+// to both agents over mTLS coordination. Call Addr to learn the bound address.
+func StartA2AResponder(mode, host, sessionID string) (*A2AResponder, error) {
+	key, err := a2aSessionKey(sessionID)
+	if err != nil {
+		return nil, err
+	}
 	switch mode {
 	case "udp":
 		ua, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, "0"))
@@ -83,7 +132,7 @@ func StartA2AResponder(mode, host string) (*A2AResponder, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &A2AResponder{mode: "udp", udp: conn, addr: conn.LocalAddr().String()}, nil
+		return &A2AResponder{mode: "udp", key: key, udp: conn, addr: conn.LocalAddr().String()}, nil
 	case "tcp":
 		ta, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(host, "0"))
 		if err != nil {
@@ -93,7 +142,7 @@ func StartA2AResponder(mode, host string) (*A2AResponder, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &A2AResponder{mode: "tcp", tcp: ln, addr: ln.Addr().String()}, nil
+		return &A2AResponder{mode: "tcp", key: key, tcp: ln, addr: ln.Addr().String()}, nil
 	default:
 		return nil, fmt.Errorf("a2a: unknown mode %q (want udp|tcp)", mode)
 	}
@@ -144,10 +193,10 @@ func (r *A2AResponder) serveUDP(ctx context.Context, count int) int {
 			return received
 		}
 		t2 := time.Now().UnixNano()
-		if n < a2aReqLen {
+		if !verifyA2AMAC(r.key, a2aReqMACDomain, buf[:n], a2aReqBodyLen) {
 			continue
 		}
-		_, _ = r.udp.WriteTo(makeA2AReply(buf[:n], t2, time.Now().UnixNano()), addr)
+		_, _ = r.udp.WriteTo(makeA2AReply(r.key, buf[:a2aReqBodyLen], t2, time.Now().UnixNano()), addr)
 		received++
 		if count > 0 && received >= count {
 			return received
@@ -178,7 +227,10 @@ func (r *A2AResponder) serveTCP(ctx context.Context, count int) int {
 					return
 				}
 				t2 := time.Now().UnixNano()
-				if _, err := c.Write(makeA2AReply(req, t2, time.Now().UnixNano())); err != nil {
+				if !verifyA2AMAC(r.key, a2aReqMACDomain, req, a2aReqBodyLen) {
+					continue
+				}
+				if _, err := c.Write(makeA2AReply(r.key, req[:a2aReqBodyLen], t2, time.Now().UnixNano())); err != nil {
 					return
 				}
 				mu.Lock()
@@ -198,11 +250,11 @@ func (r *A2AResponder) serveTCP(ctx context.Context, count int) int {
 	return received
 }
 
-// RunA2AInitiator connects to a responder at addr and runs a two-way measurement,
-// returning an initiator-side Result with round-trip plus forward/reverse one-way
-// metrics. A dial/socket failure is an internal error; lost probes are reported
-// as loss, not an error.
-func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout time.Duration, peerAgentID string) (Result, error) {
+// RunA2AInitiator connects to a responder at addr and runs a two-way
+// authenticated measurement, returning an initiator-side Result with round-trip
+// plus forward/reverse one-way metrics. A dial/socket failure is an internal
+// error; lost probes are reported as loss, not an error.
+func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout time.Duration, peerAgentID, sessionID string) (Result, error) {
 	if count <= 0 {
 		count = 5
 	}
@@ -215,16 +267,21 @@ func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout 
 		"network.transport": mode, "a2a.peer_agent_id": peerAgentID,
 	}}
 
-	token := make([]byte, 8)
-	binary.BigEndian.PutUint64(token, uint64(start.UnixNano()))
+	key, err := a2aSessionKey(sessionID)
+	if err != nil {
+		return Result{}, err
+	}
+	token, err := crypto.Random(8)
+	if err != nil {
+		return Result{}, err
+	}
 
 	var rtt, fwd, rev []time.Duration
-	var err error
 	switch mode {
 	case "udp":
-		rtt, fwd, rev, err = a2aInitiate(ctx, "udp", addr, count, timeout, token, false)
+		rtt, fwd, rev, err = a2aInitiate(ctx, "udp", addr, count, timeout, key, token, false)
 	case "tcp":
-		rtt, fwd, rev, err = a2aInitiate(ctx, "tcp", addr, count, timeout, token, true)
+		rtt, fwd, rev, err = a2aInitiate(ctx, "tcp", addr, count, timeout, key, token, true)
 	default:
 		return Result{}, fmt.Errorf("a2a: unknown mode %q (want udp|tcp)", mode)
 	}
@@ -255,7 +312,7 @@ func RunA2AInitiator(ctx context.Context, mode, addr string, count int, timeout 
 // a2aInitiate sends count probes and collects replies, returning per-sequence
 // round-trip, forward, and reverse samples (negative = no reply). stream=true
 // frames replies over a TCP stream; otherwise each reply is one datagram.
-func a2aInitiate(ctx context.Context, network, addr string, count int, timeout time.Duration, token []byte, stream bool) (rtt, fwd, rev []time.Duration, err error) {
+func a2aInitiate(ctx context.Context, network, addr string, count int, timeout time.Duration, key, token []byte, stream bool) (rtt, fwd, rev []time.Duration, err error) {
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
@@ -294,7 +351,7 @@ func a2aInitiate(ctx context.Context, network, addr string, count int, timeout t
 					return
 				}
 				t4 := time.Now().UnixNano()
-				if rep, ok := parseA2AReply(rb); ok {
+				if rep, ok := parseA2AReplyAuthenticated(key, rb); ok {
 					record(rep, t4)
 				}
 			}
@@ -306,7 +363,7 @@ func a2aInitiate(ctx context.Context, network, addr string, count int, timeout t
 				return
 			}
 			t4 := time.Now().UnixNano()
-			if rep, ok := parseA2AReply(buf[:n]); ok {
+			if rep, ok := parseA2AReplyAuthenticated(key, buf[:n]); ok {
 				record(rep, t4)
 			}
 		}
@@ -320,7 +377,7 @@ func a2aInitiate(ctx context.Context, network, addr string, count int, timeout t
 		mu.Lock()
 		sendT1[seq] = t1
 		mu.Unlock()
-		if _, e := conn.Write(encodeA2AReq(token, uint32(seq), t1)); e != nil {
+		if _, e := conn.Write(encodeA2AReq(key, token, uint32(seq), t1)); e != nil {
 			break
 		}
 	}

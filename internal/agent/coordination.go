@@ -93,7 +93,7 @@ func (co *Coordinator) handle(ctx context.Context, client *Client, task *agentv1
 }
 
 func (co *Coordinator) runResponder(ctx context.Context, client *Client, task *agentv1.A2ATask) {
-	resp, err := canary.StartA2AResponder(task.GetMode(), co.advertise)
+	resp, err := canary.StartA2AResponder(task.GetMode(), co.advertise, task.GetSessionId())
 	if err != nil {
 		co.log.Error("a2a responder listen failed", "session", task.GetSessionId(), "error", err.Error())
 		return
@@ -118,7 +118,7 @@ func (co *Coordinator) runInitiator(ctx context.Context, task *agentv1.A2ATask) 
 	addr := net.JoinHostPort(task.GetResponderHost(), strconv.Itoa(int(task.GetResponderPort())))
 	ictx, cancel := context.WithTimeout(ctx, co.cfg.A2A.ResponderTTL.Std())
 	defer cancel()
-	res, err := canary.RunA2AInitiator(ictx, task.GetMode(), addr, int(task.GetCount()), 3*time.Second, task.GetPeerAgentId())
+	res, err := canary.RunA2AInitiator(ictx, task.GetMode(), addr, int(task.GetCount()), 3*time.Second, task.GetPeerAgentId(), task.GetSessionId())
 	if err != nil {
 		co.log.Error("a2a initiator failed", "session", task.GetSessionId(), "error", err.Error())
 		return

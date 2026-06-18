@@ -500,6 +500,12 @@ reports forward-direction delivery (`probectl_probe_packets_received`,
 Enable participation in the agent's `a2a` block: `enabled: true`,
 `advertise_host` (the address peers use to reach this agent's responder),
 `poll_interval` (default `2s`), and `responder_ttl` (default `15s`).
+The default is `enabled: false`: an agent opens no A2A UDP/TCP listener unless
+the operator explicitly opts it into this deployment policy. For each brokered
+session, the control plane gives both agents a random session id over the
+existing agent mTLS channel; A2A probe and reply frames are HMAC-SHA256 signed
+through `internal/crypto` with that per-session key. A responder ignores short,
+unsigned, tampered, or wrong-session frames and only counts authenticated probes.
 **Caveats (document for production):**
 
 - **NAT/firewall.** The responder advertises `advertise_host`; behind NAT this
@@ -510,8 +516,8 @@ Enable participation in the agent's `a2a` block: `enabled: true`,
   synchronized (exact within one host; use **NTP** across hosts). Round-trip is
   clock-independent.
 
-Sessions are brokered in-memory; triggering them from the test API is a later
-addition.
+Sessions are brokered in-memory and started through the tenant/RBAC-scoped A2A
+session API.
 
 ### Path discovery
 

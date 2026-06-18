@@ -64,6 +64,24 @@ enroll:
 	}
 }
 
+func TestConfigA2ADefaultsToDisabled(t *testing.T) {
+	path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.A2A.Enabled {
+		t.Fatal("a2a.enabled must default false so raw responder listeners require explicit operator opt-in")
+	}
+}
+
 func writeAgentConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "agent.yml")

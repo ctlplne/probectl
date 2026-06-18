@@ -143,7 +143,9 @@ media probes scored as MOS — the 1–5 mean-opinion-score call-quality scale �
 plus jitter / loss) — plus a `noop` heartbeat. It can also do **agent-to-agent
 (`a2a`)** two-way measurement (TWAMP-lite style: both ends timestamp, so each
 direction's latency is measured separately) when you enable the `a2a:` block,
-turning a pair of agents into a synthetic mesh.
+turning a pair of agents into a synthetic mesh. A2A is opt-in (`enabled: false`
+by default), and every brokered probe/reply frame is authenticated with a
+per-session HMAC key delivered over the existing agent mTLS channel.
 
 **Where it runs.** Any OS, **unprivileged** by default — ICMP uses unprivileged
 datagram sockets, so no `CAP_NET_RAW` and no root for the common case.
