@@ -46,6 +46,7 @@ type OTLPTraceConsumer struct {
 	rejected atomic.Uint64  // resource tenant mismatches dropped fail-closed (TENANT-001)
 	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
 	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
+	ledger   *integrityLedger
 }
 
 // NewOTLPTraceConsumer builds the consumer.
@@ -53,12 +54,15 @@ func NewOTLPTraceConsumer(b bus.Bus, st otelstore.Store, log *slog.Logger) *OTLP
 	if log == nil {
 		log = slog.Default()
 	}
+	ledger := newIntegrityLedger("otlp_traces")
 	return &OTLPTraceConsumer{bus: b, store: st, log: log,
-		dlq: newOTLPDLQ(b, bus.DeadLetterOTLPTracesTopic, "traces", log)}
+		dlq:    newOTLPDLQ(b, bus.DeadLetterOTLPTracesTopic, "traces", log, ledger),
+		ledger: ledger}
 }
 
 // WithMetrics surfaces this consumer's dead-letter/drop counters at /metrics.
 func (c *OTLPTraceConsumer) WithMetrics(reg *metrics.Registry) *OTLPTraceConsumer {
+	c.ledger.withMetrics(reg)
 	c.dlq.withMetrics(reg)
 	return c
 }
@@ -85,15 +89,21 @@ func (c *OTLPTraceConsumer) Shed() uint64 { return c.shed.Load() }
 // verification (TENANT-001 / RED-001).
 func (c *OTLPTraceConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
 
+// IntegrityStats returns the aggregate receipt ledger for this consumer.
+func (c *OTLPTraceConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+
 func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
+	c.ledger.addReceived(1)
 	var req coltracepb.ExportTraceServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
+		c.ledger.addMalformed(1)
 		c.log.Warn("dropping malformed OTLP traces payload", "error", err.Error())
 		return nil
 	}
 	tenant := string(tenantFromKey(msg.Key))
 	if err := scopeOTLPTracesToBusTenant(&req, tenant); err != nil {
 		c.rejected.Add(1)
+		c.ledger.addTenantRejected(1)
 		noteTenantRejection()
 		c.log.Warn("dropping OTLP traces with mismatched resource tenant",
 			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
@@ -106,6 +116,7 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	// SCALE-003: per-tenant fairness shed before the store write.
 	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterOTLPSeries, int64(len(spans))) {
 		c.shed.Add(uint64(len(spans)))
+		c.ledger.addFairnessShed(1)
 		c.log.Debug("otlp spans shed by fairness bounds", "tenant_id", tenant, "spans", len(spans))
 		return nil
 	}
@@ -119,6 +130,7 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	}
 	if stored {
 		c.consumed.Add(uint64(len(spans)))
+		c.ledger.addStored(1)
 	}
 	return nil
 }
@@ -171,6 +183,7 @@ type OTLPLogConsumer struct {
 	rejected atomic.Uint64  // resource tenant mismatches dropped fail-closed (TENANT-001)
 	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
 	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
+	ledger   *integrityLedger
 }
 
 // NewOTLPLogConsumer builds the consumer.
@@ -178,12 +191,15 @@ func NewOTLPLogConsumer(b bus.Bus, st otelstore.Store, log *slog.Logger) *OTLPLo
 	if log == nil {
 		log = slog.Default()
 	}
+	ledger := newIntegrityLedger("otlp_logs")
 	return &OTLPLogConsumer{bus: b, store: st, log: log,
-		dlq: newOTLPDLQ(b, bus.DeadLetterOTLPLogsTopic, "logs", log)}
+		dlq:    newOTLPDLQ(b, bus.DeadLetterOTLPLogsTopic, "logs", log, ledger),
+		ledger: ledger}
 }
 
 // WithMetrics surfaces this consumer's dead-letter/drop counters at /metrics.
 func (c *OTLPLogConsumer) WithMetrics(reg *metrics.Registry) *OTLPLogConsumer {
+	c.ledger.withMetrics(reg)
 	c.dlq.withMetrics(reg)
 	return c
 }
@@ -210,15 +226,21 @@ func (c *OTLPLogConsumer) Shed() uint64 { return c.shed.Load() }
 // verification (TENANT-001 / RED-001).
 func (c *OTLPLogConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
 
+// IntegrityStats returns the aggregate receipt ledger for this consumer.
+func (c *OTLPLogConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+
 func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
+	c.ledger.addReceived(1)
 	var req collogspb.ExportLogsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
+		c.ledger.addMalformed(1)
 		c.log.Warn("dropping malformed OTLP logs payload", "error", err.Error())
 		return nil
 	}
 	tenant := string(tenantFromKey(msg.Key))
 	if err := scopeOTLPLogsToBusTenant(&req, tenant); err != nil {
 		c.rejected.Add(1)
+		c.ledger.addTenantRejected(1)
 		noteTenantRejection()
 		c.log.Warn("dropping OTLP logs with mismatched resource tenant",
 			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
@@ -231,6 +253,7 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 	// SCALE-003: per-tenant fairness shed before the store write.
 	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterOTLPSeries, int64(len(recs))) {
 		c.shed.Add(uint64(len(recs)))
+		c.ledger.addFairnessShed(1)
 		c.log.Debug("otlp logs shed by fairness bounds", "tenant_id", tenant, "records", len(recs))
 		return nil
 	}
@@ -244,6 +267,7 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 	}
 	if stored {
 		c.consumed.Add(uint64(len(recs)))
+		c.ledger.addStored(1)
 	}
 	return nil
 }

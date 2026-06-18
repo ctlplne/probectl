@@ -50,6 +50,7 @@ type OTLPConsumer struct {
 	summarySkippedMetric        *metrics.Counter
 	expHistogramSkippedMetric   *metrics.Counter
 	unknownSkippedMetric        *metrics.Counter
+	ledger                      *integrityLedger
 
 	// SCALE-003: the OTLP plane gets the same per-tenant bounds as the native
 	// planes. gate sheds an over-rate tenant's series (fairness); card caps a
@@ -67,13 +68,16 @@ func NewOTLPConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *OTLPConsumer {
 	if log == nil {
 		log = slog.Default()
 	}
+	ledger := newIntegrityLedger("otlp_metrics")
 	return &OTLPConsumer{bus: b, tsdb: w, log: log,
-		dlq: newOTLPDLQ(b, bus.DeadLetterOTLPMetricsTopic, "metrics", log)}
+		dlq:    newOTLPDLQ(b, bus.DeadLetterOTLPMetricsTopic, "metrics", log, ledger),
+		ledger: ledger}
 }
 
 // WithMetrics surfaces this consumer's dead-letter/drop counters at /metrics
 // (OPS-005). Returns the consumer for chaining.
 func (c *OTLPConsumer) WithMetrics(reg *metrics.Registry) *OTLPConsumer {
+	c.ledger.withMetrics(reg)
 	c.dlq.withMetrics(reg)
 	c.summarySkippedMetric = reg.Counter("probectl_otlp_metrics_summary_skipped_total",
 		"OTLP summary points accepted but not converted to TSDB series.")
@@ -107,8 +111,10 @@ func (c *OTLPConsumer) Run(ctx context.Context) error {
 }
 
 func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
+	c.ledger.addReceived(1)
 	var req colmetricspb.ExportMetricsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
+		c.ledger.addMalformed(1)
 		c.log.Warn("dropping malformed OTLP payload", "error", err.Error())
 		return nil
 	}
@@ -119,6 +125,7 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	tenant := string(tenantFromKey(msg.Key))
 	if err := scopeOTLPMetricsToBusTenant(&req, tenant); err != nil {
 		c.rejected.Add(1)
+		c.ledger.addTenantRejected(1)
 		noteTenantRejection()
 		c.log.Warn("dropping OTLP metrics with mismatched resource tenant",
 			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
@@ -132,6 +139,7 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	// OTLP-flooding tenant cannot starve others (identical to the native planes).
 	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterOTLPSeries, int64(len(series))) {
 		c.shed.Add(uint64(len(series)))
+		c.ledger.addFairnessShed(1)
 		c.log.Debug("otlp metrics shed by fairness bounds", "tenant_id", tenant, "series", len(series))
 		return nil
 	}
@@ -141,6 +149,7 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 		var dropped int
 		series, dropped = c.card.Filter(tenant, "", series)
 		if dropped > 0 {
+			c.ledger.addCardinalityDropped(uint64(dropped))
 			c.log.Warn("otlp series rejected by cardinality cap", "tenant_id", tenant, "rejected", dropped)
 		}
 		if len(series) == 0 {
@@ -157,6 +166,7 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	}
 	if stored {
 		c.consumed.Add(uint64(len(series)))
+		c.ledger.addStored(1)
 	}
 	return nil
 }
@@ -170,6 +180,9 @@ func (c *OTLPConsumer) Shed() uint64 { return c.shed.Load() }
 // RejectedTenant reports OTLP metrics batches dropped by second-hop tenant
 // verification (TENANT-001 / RED-001).
 func (c *OTLPConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+
+// IntegrityStats returns the aggregate receipt ledger for this consumer.
+func (c *OTLPConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 
 // tenantFromKey strips the Sprint 15 |bucket suffix if present.
 func tenantFromKey(key []byte) []byte {
@@ -277,6 +290,7 @@ func (c *OTLPConsumer) skipUnsupportedMetric(tenant, metricName, kind string, po
 	}
 	n := uint64(points)
 	c.skipped.Add(n)
+	c.ledger.addUnsupported(n)
 	switch kind {
 	case "summary":
 		c.skippedSummary.Add(n)

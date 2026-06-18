@@ -15,6 +15,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/usage"
@@ -64,6 +65,7 @@ type FlowConsumer struct {
 	retried      atomic.Uint64
 	deadLettered atomic.Uint64
 	dropped      atomic.Uint64
+	ledger       *integrityLedger
 }
 
 // DeadLettered reports flow batches routed to the DLQ after store exhaustion.
@@ -71,6 +73,15 @@ func (c *FlowConsumer) DeadLettered() uint64 { return c.deadLettered.Load() }
 
 // Dropped reports flow batches lost entirely (the DLQ publish ALSO failed).
 func (c *FlowConsumer) Dropped() uint64 { return c.dropped.Load() }
+
+// IntegrityStats returns the aggregate receipt ledger for this consumer.
+func (c *FlowConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+
+// WithMetrics exports the aggregate receipt ledger at /metrics.
+func (c *FlowConsumer) WithMetrics(reg *metrics.Registry) *FlowConsumer {
+	c.ledger.withMetrics(reg)
+	return c
+}
 
 // NewFlowConsumer builds the consumer; enrich may be nil.
 func NewFlowConsumer(b bus.Bus, st flowstore.Store, enrich FlowEnricher, log *slog.Logger) *FlowConsumer {
@@ -80,6 +91,7 @@ func NewFlowConsumer(b bus.Bus, st flowstore.Store, enrich FlowEnricher, log *sl
 	return &FlowConsumer{
 		bus: b, store: st, enrich: enrich, group: FlowGroup, log: log,
 		maxRetries: 3, retryBase: 50 * time.Millisecond, sleep: sleepCtx,
+		ledger: newIntegrityLedger("flow"),
 	}
 }
 
@@ -182,8 +194,10 @@ func (c *FlowConsumer) handle(ctx context.Context, msg bus.Message) error {
 // jittered backoff and, on exhaustion, dead-letter the ORIGINAL bytes — real
 // parity with the result + device pipelines (CORRECT-010).
 func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+	c.ledger.addReceived(1)
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+		c.ledger.addMalformed(1)
 		c.log.Error("dropping malformed flow batch", "error", err.Error())
 		return nil
 	}
@@ -197,6 +211,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, c.binding, laneTenant, c.strictLane, ids)
 	if verr != nil {
 		c.rejected.Add(1)
+		c.ledger.addTenantRejected(1)
 		noteTenantRejection()
 		c.log.Error("REJECTED flow batch: tenant verification failed (TENANT-101, fail closed)",
 			"claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent,
@@ -215,6 +230,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	// Fairness (S-T7): batch-level admission by the VERIFIED tenant —
 	// shedding happens BEFORE enrichment + insert (the expensive section).
 	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterFlowEvents, int64(len(batch.Flows))) {
+		c.ledger.addFairnessShed(1)
 		c.log.Debug("flow batch shed by fairness bounds", "tenant_id", tenant, "rows", len(batch.Flows))
 		return nil
 	}
@@ -233,6 +249,7 @@ func (c *FlowConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 		c.deadLetter(ctx, msg, tenant, err)
 		return nil
 	}
+	c.ledger.addStored(1)
 	// Metering (S-T3): stored flow events, tagged by the VERIFIED tenant.
 	usage.Record(tenant, usage.MeterFlowEvents, int64(len(rows)))
 	return nil
@@ -259,18 +276,21 @@ func (c *FlowConsumer) insertWithRetry(ctx context.Context, rows []flowstore.Row
 func (c *FlowConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant string, insertErr error) {
 	if c.bus == nil {
 		c.dropped.Add(1)
+		c.ledger.addDropped(1)
 		c.log.Error("FLOW BATCH LOST: insert exhausted retries and no bus for the DLQ",
 			"tenant_id", tenant, "insert_error", insertErr.Error(), "dropped_total", c.dropped.Load())
 		return
 	}
 	if err := c.bus.Publish(ctx, bus.DeadLetterFlowTopic, msg.Key, msg.Value); err != nil {
 		c.dropped.Add(1)
+		c.ledger.addDropped(1)
 		c.log.Error("FLOW BATCH LOST: insert exhausted retries and dead-letter publish failed",
 			"tenant_id", tenant, "insert_error", insertErr.Error(), "dlq_error", err.Error(),
 			"dropped_total", c.dropped.Load())
 		return
 	}
 	c.deadLettered.Add(1)
+	c.ledger.addDeadLettered(1)
 	c.log.Warn("flow batch dead-lettered after insert retries",
 		"tenant_id", tenant, "topic", bus.DeadLetterFlowTopic, "insert_error", insertErr.Error())
 }

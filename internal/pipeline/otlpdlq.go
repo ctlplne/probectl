@@ -35,13 +35,14 @@ type otlpDLQ struct {
 	dropped      atomic.Uint64
 	dlMetric     *metrics.Counter // optional /metrics surface
 	dropMetric   *metrics.Counter
+	ledger       *integrityLedger
 }
 
-func newOTLPDLQ(b bus.Bus, dlqTopic, signal string, log *slog.Logger) *otlpDLQ {
+func newOTLPDLQ(b bus.Bus, dlqTopic, signal string, log *slog.Logger, ledger *integrityLedger) *otlpDLQ {
 	if log == nil {
 		log = slog.Default()
 	}
-	d := &otlpDLQ{bus: b, dlqTopic: dlqTopic, signal: signal, maxRetries: 3, retryBase: 50 * time.Millisecond, log: log}
+	d := &otlpDLQ{bus: b, dlqTopic: dlqTopic, signal: signal, maxRetries: 3, retryBase: 50 * time.Millisecond, log: log, ledger: ledger}
 	d.sleep = d.defaultSleep
 	return d
 }
@@ -99,6 +100,7 @@ func (d *otlpDLQ) deadLetter(ctx context.Context, msg bus.Message, writeErr erro
 	tenant := string(tenantFromKey(msg.Key))
 	if perr := d.bus.Publish(ctx, d.dlqTopic, msg.Key, msg.Value); perr != nil {
 		d.dropped.Add(1)
+		d.ledger.addDropped(1)
 		if d.dropMetric != nil {
 			d.dropMetric.Inc()
 		}
@@ -108,6 +110,7 @@ func (d *otlpDLQ) deadLetter(ctx context.Context, msg bus.Message, writeErr erro
 		return
 	}
 	d.deadLettered.Add(1)
+	d.ledger.addDeadLettered(1)
 	if d.dlMetric != nil {
 		d.dlMetric.Inc()
 	}

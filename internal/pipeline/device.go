@@ -15,6 +15,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/otel"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
@@ -71,6 +72,7 @@ type DeviceConsumer struct {
 	retried      atomic.Uint64
 	deadLettered atomic.Uint64
 	dropped      atomic.Uint64
+	ledger       *integrityLedger
 }
 
 // Dropped reports device batches lost entirely (DLQ publish ALSO failed).
@@ -78,6 +80,15 @@ func (c *DeviceConsumer) Dropped() uint64 { return c.dropped.Load() }
 
 // DeadLettered reports device batches routed to the DLQ after exhaustion.
 func (c *DeviceConsumer) DeadLettered() uint64 { return c.deadLettered.Load() }
+
+// IntegrityStats returns the aggregate receipt ledger for this consumer.
+func (c *DeviceConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+
+// WithMetrics exports the aggregate receipt ledger at /metrics.
+func (c *DeviceConsumer) WithMetrics(reg *metrics.Registry) *DeviceConsumer {
+	c.ledger.withMetrics(reg)
+	return c
+}
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101).
 func (c *DeviceConsumer) WithTenantBinding(b TenantBinding) *DeviceConsumer {
@@ -111,7 +122,8 @@ func NewDeviceConsumer(b bus.Bus, w tsdb.Writer, log *slog.Logger) *DeviceConsum
 	return &DeviceConsumer{
 		bus: b, tsdb: w, group: DeviceGroup, log: log,
 		maxRetries: 3, retryBase: 50 * time.Millisecond, sleep: sleepCtx,
-		card: NewCardinalityLimiter(0, 0),
+		card:   NewCardinalityLimiter(0, 0),
+		ledger: newIntegrityLedger("device"),
 	}
 }
 
@@ -164,8 +176,10 @@ func (c *DeviceConsumer) Run(ctx context.Context) error {
 // Unverifiable batches are dropped fail-closed and counted; transient write
 // failures are logged and dropped (best-effort, matching the result pipeline).
 func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+	c.ledger.addReceived(1)
 	var batch devicev1.DeviceMetricBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+		c.ledger.addMalformed(1)
 		c.log.Error("dropping malformed device batch", "error", err.Error())
 		return nil
 	}
@@ -179,6 +193,7 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	tenant, overwritten, verr := VerifyBatchTenantStrict(ctx, c.binding, laneTenant, c.strictLane, ids)
 	if verr != nil {
 		c.rejected.Add(1)
+		c.ledger.addTenantRejected(1)
 		noteTenantRejection()
 		c.log.Error("REJECTED device batch: tenant verification failed (TENANT-101, fail closed)",
 			"claimed_tenant", ids[0].Tenant, "agent_id", ids[0].Agent, "lane_tenant", laneTenant,
@@ -196,6 +211,7 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	// the expensive section — identical contract to the result pipeline.
 	if c.gate != nil && !c.gate.AdmitN(ctx, tenant, fairness.MeterDeviceMetrics, int64(len(batch.Metrics))) {
 		c.shed.Add(1)
+		c.ledger.addFairnessShed(1)
 		c.log.Debug("device batch shed by fairness bounds", "tenant_id", tenant, "metrics", len(batch.Metrics))
 		return nil
 	}
@@ -208,6 +224,7 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	agentID := batch.Metrics[0].GetAgentId()
 	series, droppedSeries := c.card.Filter(tenant, agentID, series)
 	if droppedSeries > 0 {
+		c.ledger.addCardinalityDropped(uint64(droppedSeries))
 		c.log.Warn("device series rejected by cardinality cap",
 			"tenant_id", tenant, "agent_id", agentID, "rejected", droppedSeries)
 	}
@@ -221,7 +238,9 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 			return err
 		}
 		c.deadLetter(ctx, msg, tenant, err)
+		return nil
 	}
+	c.ledger.addStored(1)
 	return nil
 }
 
@@ -246,18 +265,21 @@ func (c *DeviceConsumer) writeWithRetry(ctx context.Context, series []tsdb.Serie
 func (c *DeviceConsumer) deadLetter(ctx context.Context, msg bus.Message, tenant string, writeErr error) {
 	if c.bus == nil {
 		c.dropped.Add(1)
+		c.ledger.addDropped(1)
 		c.log.Error("DEVICE BATCH LOST: write exhausted retries and no bus for the DLQ",
 			"tenant_id", tenant, "write_error", writeErr.Error(), "dropped_total", c.dropped.Load())
 		return
 	}
 	if err := c.bus.Publish(ctx, bus.DeadLetterDeviceTopic, msg.Key, msg.Value); err != nil {
 		c.dropped.Add(1)
+		c.ledger.addDropped(1)
 		c.log.Error("DEVICE BATCH LOST: write exhausted retries and dead-letter publish failed",
 			"tenant_id", tenant, "write_error", writeErr.Error(), "dlq_error", err.Error(),
 			"dropped_total", c.dropped.Load())
 		return
 	}
 	c.deadLettered.Add(1)
+	c.ledger.addDeadLettered(1)
 	c.log.Warn("device batch dead-lettered after write retries",
 		"tenant_id", tenant, "topic", bus.DeadLetterDeviceTopic, "write_error", writeErr.Error())
 }

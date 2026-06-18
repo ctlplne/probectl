@@ -16,6 +16,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
@@ -53,6 +54,7 @@ type Consumer struct {
 	retried      atomic.Uint64 // write attempts beyond the first
 	deadLettered atomic.Uint64 // records routed to the DLQ after exhaustion
 	dropped      atomic.Uint64 // records lost entirely (DLQ publish ALSO failed)
+	ledger       *integrityLedger
 
 	// Write-stage decoupling (SCALE-001): decode/verify enqueue onto a
 	// BOUNDED channel drained by writeWorkers goroutines doing the remote
@@ -99,6 +101,7 @@ func NewConsumer(b bus.Bus, w tsdb.Writer, group string, log *slog.Logger) *Cons
 		retryBase:  50 * time.Millisecond,
 		sleep:      sleepCtx,
 		card:       NewCardinalityLimiter(0, 0),
+		ledger:     newIntegrityLedger("results"),
 	}
 }
 
@@ -158,6 +161,15 @@ func (c *Consumer) WithStrictTenantLanes(strict bool) *Consumer {
 
 // RejectedTenant reports results dropped fail-closed by tenant verification.
 func (c *Consumer) RejectedTenant() uint64 { return c.rejectedTenant.Load() }
+
+// IntegrityStats returns the aggregate receipt ledger for this consumer.
+func (c *Consumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
+
+// WithMetrics exports the aggregate receipt ledger at /metrics.
+func (c *Consumer) WithMetrics(reg *metrics.Registry) *Consumer {
+	c.ledger.withMetrics(reg)
+	return c
+}
 
 // resultTopics are the bus topics carrying resultv1.Result that the pipeline
 // drains into the TSDB. Network-plane probe results (S6), endpoint/DEM results
@@ -316,6 +328,7 @@ func (c *Consumer) writeOne(ctx context.Context, it writeItem) error {
 		return nil // dead-lettered: replayable, safe to commit
 	}
 	c.meterStored(it.r, it.bytes) // CORRECT-005: meter stored-only
+	c.ledger.addStored(1)
 	return nil
 }
 
@@ -339,8 +352,10 @@ func (c *Consumer) handle(ctx context.Context, msg bus.Message) error {
 // agent-published lanes (endpoint) verify the payload (tenant, agent) against
 // the registry; namespaced lanes overwrite the tenant with the lane's.
 func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGroup) error {
+	c.ledger.addReceived(1)
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
+		c.ledger.addMalformed(1)
 		c.log.Error("dropping malformed result", "error", err.Error())
 		return nil
 	}
@@ -353,6 +368,7 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 			[]Identity{{Tenant: r.GetTenantId(), Agent: r.GetAgentId()}})
 		if verr != nil {
 			c.rejectedTenant.Add(1)
+			c.ledger.addTenantRejected(1)
 			noteTenantRejection()
 			c.log.Error("REJECTED result: tenant verification failed (TENANT-101, fail closed)",
 				"claimed_tenant", r.GetTenantId(), "agent_id", r.GetAgentId(),
@@ -374,6 +390,7 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 		okResults := c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterResults, 1)
 		okBytes := c.gate.AdmitN(ctx, r.GetTenantId(), fairness.MeterBytes, int64(len(msg.Value)))
 		if !okResults || !okBytes {
+			c.ledger.addFairnessShed(1)
 			c.log.Debug("result shed by fairness bounds", "tenant_id", r.GetTenantId())
 			return nil
 		}
@@ -383,6 +400,7 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 	// keep flowing, other tenants are untouched.
 	series, droppedSeries := c.card.Filter(r.GetTenantId(), r.GetAgentId(), ResultToSeries(&r))
 	if droppedSeries > 0 {
+		c.ledger.addCardinalityDropped(uint64(droppedSeries))
 		c.log.Warn("series rejected by cardinality cap",
 			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
 			"rejected", droppedSeries, "rejected_total", c.card.Stats().Dropped)
@@ -453,6 +471,7 @@ func (c *Consumer) writeWithRetry(ctx context.Context, series []tsdb.Series) err
 func (c *Consumer) deadLetter(ctx context.Context, msg bus.Message, r *resultv1.Result, writeErr error) {
 	if err := c.bus.Publish(ctx, bus.DeadLetterResultsTopic, msg.Key, msg.Value); err != nil {
 		c.dropped.Add(1)
+		c.ledger.addDropped(1)
 		c.log.Error("RESULT LOST: store write exhausted retries and dead-letter publish failed",
 			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
 			"write_error", writeErr.Error(), "dlq_error", err.Error(),
@@ -460,6 +479,7 @@ func (c *Consumer) deadLetter(ctx context.Context, msg bus.Message, r *resultv1.
 		return
 	}
 	c.deadLettered.Add(1)
+	c.ledger.addDeadLettered(1)
 	c.log.Error("store write exhausted retries — result dead-lettered (replayable)",
 		"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
 		"topic", bus.DeadLetterResultsTopic, "error", writeErr.Error(),

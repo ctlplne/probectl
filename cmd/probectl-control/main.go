@@ -544,6 +544,7 @@ func run(cmd string) error {
 				WithTenantBinding(tenantBinding).                   // TENANT-101: endpoint lane verified
 				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
 				WithFairness(fairGate).
+				WithMetrics(srv.Metrics()).
 				WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
 				Run(ctx)
 		})
@@ -555,7 +556,9 @@ func run(cmd string) error {
 				WithTenantBinding(tenantBinding).
 				WithNamespaceTenants(nsTenants).
 				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
-				WithFairness(fairGate).Run(ctx)
+				WithFairness(fairGate).
+				WithMetrics(srv.Metrics()).
+				Run(ctx)
 		})
 	})
 	// Device pipeline (S39): probectl.device.metrics -> verify tenant -> TSDB.
@@ -563,6 +566,7 @@ func run(cmd string) error {
 		return superviseRestart(gctx, "device-pipeline", log, func(ctx context.Context) error {
 			return pipeline.NewDeviceConsumer(resultBus, ingestWriter, log).
 				WithFairness(fairGate). // SCALE-005: device plane bounded like every plane
+				WithMetrics(srv.Metrics()).
 				WithTenantBinding(tenantBinding).
 				WithNamespaceTenants(nsTenants).
 				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
