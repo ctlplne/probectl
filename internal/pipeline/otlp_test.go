@@ -88,3 +88,109 @@ func TestOTLPPushIsConsumedAndQueryable(t *testing.T) {
 		t.Fatalf("malformed payload must not error the stream: %v", err)
 	}
 }
+
+func TestOTLPMetricBusTenantIsAuthoritative(t *testing.T) {
+	mem := tsdb.NewMemory()
+	c := NewOTLPConsumer(nil, mem, testLogger())
+
+	payload, err := proto.Marshal(&colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+				kv("probectl.tenant.id", "tenant-b"),
+				kv("service.name", "billing"),
+			}},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricspb.Metric{{
+				Name: "forged.value",
+				Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{
+					TimeUnixNano: uint64(time.Now().UnixNano()),
+					Value:        &metricspb.NumberDataPoint_AsDouble{AsDouble: 9},
+				}}}},
+			}}}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.handle(context.Background(), bus.Message{Key: bus.TenantKey("tenant-a", "replay"), Value: payload}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if c.RejectedTenant() != 1 {
+		t.Fatalf("rejected tenant count = %d, want 1", c.RejectedTenant())
+	}
+	if got := mem.Query("probectl_otlp_forged_value", map[string]string{"tenant_id": "tenant-b"}); len(got) != 0 {
+		t.Fatalf("forged metric landed in victim tenant: %+v", got)
+	}
+	if got := mem.Query("probectl_otlp_forged_value", map[string]string{"tenant_id": "tenant-a"}); len(got) != 0 {
+		t.Fatalf("mismatched metric should be dropped, not restamped: %+v", got)
+	}
+}
+
+func TestOTLPMetricDLQReplayKeepsBusTenantAuthoritative(t *testing.T) {
+	b := bus.NewMemory()
+	defer b.Close()
+	mem := tsdb.NewMemory()
+	c := NewOTLPConsumer(b, mem, testLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = c.Run(ctx) }()
+	if !b.WaitForSubscribers(ctx, bus.OTLPMetricsTopic, 1) {
+		t.Fatal("otlp metrics consumer did not subscribe")
+	}
+
+	payload, err := proto.Marshal(&colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+				kv("probectl.tenant.id", "tenant-b"),
+			}},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{Metrics: []*metricspb.Metric{{
+				Name: "replayed.forgery",
+				Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{DataPoints: []*metricspb.NumberDataPoint{{
+					TimeUnixNano: uint64(time.Now().UnixNano()),
+					Value:        &metricspb.NumberDataPoint_AsDouble{AsDouble: 7},
+				}}}},
+			}}}},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	replayDone := make(chan ReplayResult, 1)
+	go func() {
+		res, err := NewDeadLetterReplayer(b, testLogger()).Replay(ctx, ReplayConfig{
+			DLQTopic:    bus.DeadLetterOTLPMetricsTopic,
+			IdleTimeout: 100 * time.Millisecond,
+		})
+		if err != nil {
+			t.Errorf("replay: %v", err)
+		}
+		replayDone <- res
+	}()
+	if !b.WaitForSubscribers(ctx, bus.DeadLetterOTLPMetricsTopic, 1) {
+		t.Fatal("otlp metrics DLQ replayer did not subscribe")
+	}
+	if err := b.Publish(ctx, bus.DeadLetterOTLPMetricsTopic, bus.TenantKey("tenant-a", "dlq"), payload); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && c.RejectedTenant() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if c.RejectedTenant() != 1 {
+		t.Fatalf("rejected tenant count after DLQ replay = %d, want 1", c.RejectedTenant())
+	}
+	if got := mem.Query("probectl_otlp_replayed_forgery", map[string]string{"tenant_id": "tenant-b"}); len(got) != 0 {
+		t.Fatalf("replayed forgery landed in victim tenant: %+v", got)
+	}
+
+	select {
+	case res := <-replayDone:
+		if res.Replayed != 1 || res.SourceTopic != bus.OTLPMetricsTopic {
+			t.Fatalf("replay result = %+v, want one replay to %s", res, bus.OTLPMetricsTopic)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("replay did not terminate on idle")
+	}
+}

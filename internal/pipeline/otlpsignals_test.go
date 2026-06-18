@@ -191,6 +191,71 @@ func TestOTLPTraceLogTenantMismatchRejected(t *testing.T) {
 	}
 }
 
+func TestOTLPTraceLogBusTenantIsAuthoritative(t *testing.T) {
+	signals := otelstore.NewMemory()
+	tc := NewOTLPTraceConsumer(nil, signals, testLogger())
+	lc := NewOTLPLogConsumer(nil, signals, testLogger())
+	now := time.Now().UTC()
+
+	traceID := bytes.Repeat([]byte{0xAA}, 16)
+	spanID := bytes.Repeat([]byte{0xBB}, 8)
+	treq := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+		Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+			kv("probectl.tenant.id", "tenant-b"),
+			kv("service.name", "checkout"),
+		}},
+		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+			TraceId: traceID, SpanId: spanID, Name: "GET /forged",
+			StartTimeUnixNano: uint64(now.UnixNano()),
+			EndTimeUnixNano:   uint64(now.Add(time.Millisecond).UnixNano()),
+		}}}},
+	}}}
+	tpayload, err := proto.Marshal(treq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tc.handle(context.Background(), bus.Message{Key: bus.TenantKey("tenant-a", "replay"), Value: tpayload}); err != nil {
+		t.Fatalf("trace handle: %v", err)
+	}
+	if tc.RejectedTenant() != 1 {
+		t.Fatalf("trace rejected tenant count = %d, want 1", tc.RejectedTenant())
+	}
+
+	lreq := &collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
+		Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+			kv("probectl.tenant.id", "tenant-b"),
+			kv("service.name", "checkout"),
+		}},
+		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{
+			TimeUnixNano: uint64(now.UnixNano()),
+			Body:         &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "forged log"}},
+		}}}},
+	}}}
+	lpayload, err := proto.Marshal(lreq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := lc.handle(context.Background(), bus.Message{Key: bus.TenantKey("tenant-a", "replay"), Value: lpayload}); err != nil {
+		t.Fatalf("log handle: %v", err)
+	}
+	if lc.RejectedTenant() != 1 {
+		t.Fatalf("log rejected tenant count = %d, want 1", lc.RejectedTenant())
+	}
+
+	if got, _ := signals.QuerySpans(context.Background(), "tenant-b", otelstore.SpanQuery{}); len(got) != 0 {
+		t.Fatalf("forged span landed in victim tenant: %+v", got)
+	}
+	if got, _ := signals.QueryLogs(context.Background(), "tenant-b", otelstore.LogQuery{}); len(got) != 0 {
+		t.Fatalf("forged log landed in victim tenant: %+v", got)
+	}
+	if got, _ := signals.QuerySpans(context.Background(), "tenant-a", otelstore.SpanQuery{}); len(got) != 0 {
+		t.Fatalf("mismatched span should be dropped, not restamped: %+v", got)
+	}
+	if got, _ := signals.QueryLogs(context.Background(), "tenant-a", otelstore.LogQuery{}); len(got) != 0 {
+		t.Fatalf("mismatched log should be dropped, not restamped: %+v", got)
+	}
+}
+
 // postSignal POSTs a protobuf export request through the real HTTP handler
 // (bearer-authenticated) and asserts 200.
 func postSignal(t *testing.T, h http.Handler, req proto.Message) {

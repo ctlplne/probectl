@@ -17,6 +17,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
+	"github.com/imfeelingtheagi/probectl/internal/otel"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
@@ -41,6 +42,7 @@ type OTLPConsumer struct {
 	consumed atomic.Uint64
 	skipped  atomic.Uint64 // unsupported point kinds (histogram/summary/exp-histogram)
 	shed     atomic.Uint64 // series shed by the per-tenant fairness gate (SCALE-003)
+	rejected atomic.Uint64 // resource tenant mismatches dropped fail-closed (TENANT-001)
 	dlq      *otlpDLQ      // retry + dead-letter on store-write failure (SCALE-003)
 
 	// SCALE-003: the OTLP plane gets the same per-tenant bounds as the native
@@ -98,9 +100,18 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 		c.log.Warn("dropping malformed OTLP payload", "error", err.Error())
 		return nil
 	}
-	// The RECEIVER stamped/verified the tenant resource attribute (Sprint 6
-	// covered the injection cases); the bus key carries the same tenant.
+	// The RECEIVER stamped/verified the tenant resource attribute at the edge.
+	// After ingress, the bus key is authoritative: a compromised internal
+	// producer or DLQ replay cannot move telemetry into another tenant by
+	// editing probectl.tenant.id inside the protobuf.
 	tenant := string(tenantFromKey(msg.Key))
+	if err := scopeOTLPMetricsToBusTenant(&req, tenant); err != nil {
+		c.rejected.Add(1)
+		noteTenantRejection()
+		c.log.Warn("dropping OTLP metrics with mismatched resource tenant",
+			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
+		return nil
+	}
 	series := c.convert(&req, tenant)
 	if len(series) == 0 {
 		return nil
@@ -140,6 +151,10 @@ func (c *OTLPConsumer) Consumed() uint64 { return c.consumed.Load() }
 // Shed reports series shed by the per-tenant fairness gate (SCALE-003).
 func (c *OTLPConsumer) Shed() uint64 { return c.shed.Load() }
 
+// RejectedTenant reports OTLP metrics batches dropped by second-hop tenant
+// verification (TENANT-001 / RED-001).
+func (c *OTLPConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+
 // tenantFromKey strips the Sprint 15 |bucket suffix if present.
 func tenantFromKey(key []byte) []byte {
 	for i, b := range key {
@@ -161,9 +176,7 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 				resAttrs[kv.GetKey()] = v
 			}
 		}
-		if t := resAttrs["probectl.tenant.id"]; t != "" {
-			tenant = t // the receiver-stamped truth wins over the bus key
-		}
+		delete(resAttrs, otel.AttrTenantID)
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
 				var points []*metricspb.NumberDataPoint

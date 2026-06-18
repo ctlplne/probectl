@@ -43,6 +43,7 @@ type OTLPTraceConsumer struct {
 	log      *slog.Logger
 	consumed atomic.Uint64
 	shed     atomic.Uint64  // spans shed by the per-tenant fairness gate (SCALE-003)
+	rejected atomic.Uint64  // resource tenant mismatches dropped fail-closed (TENANT-001)
 	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
 	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
 }
@@ -80,6 +81,10 @@ func (c *OTLPTraceConsumer) Consumed() uint64 { return c.consumed.Load() }
 // Shed reports spans shed by the per-tenant fairness gate (SCALE-003).
 func (c *OTLPTraceConsumer) Shed() uint64 { return c.shed.Load() }
 
+// RejectedTenant reports OTLP trace batches dropped by second-hop tenant
+// verification (TENANT-001 / RED-001).
+func (c *OTLPTraceConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+
 func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 	var req coltracepb.ExportTraceServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
@@ -87,6 +92,13 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 		return nil
 	}
 	tenant := string(tenantFromKey(msg.Key))
+	if err := scopeOTLPTracesToBusTenant(&req, tenant); err != nil {
+		c.rejected.Add(1)
+		noteTenantRejection()
+		c.log.Warn("dropping OTLP traces with mismatched resource tenant",
+			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
+		return nil
+	}
 	spans := convertSpans(&req, tenant)
 	if len(spans) == 0 {
 		return nil
@@ -113,10 +125,7 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 func convertSpans(req *coltracepb.ExportTraceServiceRequest, tenant string) []otelstore.Span {
 	var out []otelstore.Span
 	for _, rs := range req.GetResourceSpans() {
-		resAttrs, service, resTenant := resourceInfo(rs.GetResource().GetAttributes())
-		if resTenant != "" {
-			tenant = resTenant // the receiver-stamped truth wins over the bus key
-		}
+		resAttrs, service, _ := resourceInfo(rs.GetResource().GetAttributes())
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
 				start := time.Unix(0, int64(sp.GetStartTimeUnixNano())).UTC()
@@ -155,6 +164,7 @@ type OTLPLogConsumer struct {
 	log      *slog.Logger
 	consumed atomic.Uint64
 	shed     atomic.Uint64  // records shed by the per-tenant fairness gate (SCALE-003)
+	rejected atomic.Uint64  // resource tenant mismatches dropped fail-closed (TENANT-001)
 	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
 	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
 }
@@ -192,6 +202,10 @@ func (c *OTLPLogConsumer) Consumed() uint64 { return c.consumed.Load() }
 // Shed reports records shed by the per-tenant fairness gate (SCALE-003).
 func (c *OTLPLogConsumer) Shed() uint64 { return c.shed.Load() }
 
+// RejectedTenant reports OTLP log batches dropped by second-hop tenant
+// verification (TENANT-001 / RED-001).
+func (c *OTLPLogConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
+
 func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 	var req collogspb.ExportLogsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
@@ -199,6 +213,13 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 		return nil
 	}
 	tenant := string(tenantFromKey(msg.Key))
+	if err := scopeOTLPLogsToBusTenant(&req, tenant); err != nil {
+		c.rejected.Add(1)
+		noteTenantRejection()
+		c.log.Warn("dropping OTLP logs with mismatched resource tenant",
+			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
+		return nil
+	}
 	recs := convertLogs(&req, tenant)
 	if len(recs) == 0 {
 		return nil
@@ -223,10 +244,7 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 func convertLogs(req *collogspb.ExportLogsServiceRequest, tenant string) []otelstore.LogRecord {
 	var out []otelstore.LogRecord
 	for _, rl := range req.GetResourceLogs() {
-		resAttrs, service, resTenant := resourceInfo(rl.GetResource().GetAttributes())
-		if resTenant != "" {
-			tenant = resTenant
-		}
+		resAttrs, service, _ := resourceInfo(rl.GetResource().GetAttributes())
 		for _, sl := range rl.GetScopeLogs() {
 			for _, lr := range sl.GetLogRecords() {
 				ts := lr.GetTimeUnixNano()
