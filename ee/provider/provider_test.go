@@ -150,7 +150,7 @@ func newFixture(t *testing.T, lic *license.Manager) *fixture {
 			"uA2": {"directory.read"},
 		},
 	}
-	f.h = NewHandler(svc, NewSessions(), ta, slog.New(slog.NewTextHandler(io.Discard, nil)), bootToken, false)
+	f.h = NewHandler(svc, NewSessions(nil), ta, slog.New(slog.NewTextHandler(io.Discard, nil)), bootToken, false)
 	return f
 }
 

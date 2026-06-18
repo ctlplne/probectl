@@ -8,6 +8,8 @@ set -euo pipefail
 CHART="${CHART:-deploy/helm/probectl}"
 # A throwaway base64 32-byte key just to let rendering proceed.
 KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+# A throwaway hex 32-byte key for keyed session-token hashing.
+SESSION_KEY="000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
 fail() {
   echo "helm hardening gate: FAIL — $*" >&2
@@ -19,6 +21,7 @@ render() {
     --set ingress.host=h.example.com \
     --set ingress.tlsSecretName=probectl-tls \
     --set secrets.envelopeKey="$KEY" \
+    --set secrets.sessionHMACKey="$SESSION_KEY" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require"
 }
 
@@ -26,7 +29,7 @@ need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
 
 bash scripts/check_clickhouse_restore_contract.sh
 
-# 1. No default credentials: rendering without an envelope key (and no
+# 1. No default credentials: rendering without required secret material (and no
 #    existingSecret) must FAIL closed.
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls >/dev/null 2>&1; then
@@ -45,6 +48,20 @@ fi
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set secrets.envelopeKey="$KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered with no secrets.sessionHMACKey — production sessions would lose keyed hashing (KEYS-002/OPS-006)"
+fi
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="not-a-32-byte-hex-key" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
+  fail "chart rendered an invalid secrets.sessionHMACKey (KEYS-002/OPS-006)"
+fi
+if helm template probectl "$CHART" \
+  --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
   --set database.url="postgres://probectl:probectl@db:5432/probectl?sslmode=require" >/dev/null 2>&1; then
   fail "chart rendered with the dev credential probectl:probectl (OPS-001)"
 fi
@@ -85,6 +102,7 @@ grep -q "ALL" <<<"$base" || fail "capabilities drop ALL not present"
 if helm template probectl "$CHART" \
   --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
   --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
   --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
   --set-json 'networkPolicy.ingressFrom=[]' >/dev/null 2>&1; then
   fail "chart rendered with NetworkPolicy enabled and empty ingressFrom (WIRE-002)"
@@ -129,6 +147,7 @@ for f in values.yaml $(cd "$CHART" && ls values-*.yaml); do
   helm lint "$CHART" -f "$CHART/$f" \
     --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
     --set secrets.envelopeKey="$KEY" \
+    --set secrets.sessionHMACKey="$SESSION_KEY" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
     >/dev/null || fail "$f failed helm lint"
 done

@@ -1,6 +1,7 @@
 # Inputs for the probectl module. Sensitive values (database_url, envelope_key,
-# oidc_client_secret) are written to a Kubernetes Secret the chart references via
-# secrets.existingSecret — they never land in the rendered ConfigMap.
+# session_hmac_key, oidc_client_secret) are written to a Kubernetes Secret the
+# chart references via secrets.existingSecret — they never land in the rendered
+# ConfigMap.
 
 variable "release_name" {
   description = "Helm release name."
@@ -88,6 +89,17 @@ variable "envelope_key" {
   description = "Base64-encoded 32-byte envelope KEK (openssl rand -base64 32)."
   type        = string
   sensitive   = true
+}
+
+variable "session_hmac_key" {
+  description = "Hex-encoded 32-byte session HMAC key (openssl rand -hex 32)."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[0-9A-Fa-f]{64}$", var.session_hmac_key))
+    error_message = "session_hmac_key must be exactly 64 hex characters (openssl rand -hex 32)."
+  }
 }
 
 variable "oidc_issuer" {

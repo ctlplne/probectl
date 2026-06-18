@@ -7,7 +7,11 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
+
+const testSessionHMACKeyHex = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
 
 func envFunc(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
@@ -62,7 +66,10 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 	})
 	for _, profile := range []string{"multi-tenant", "regulated"} {
 		t.Run(profile+" enables DB-layer isolation on every plane", func(t *testing.T) {
-			cfg, err := Load(envFunc(map[string]string{"PROBECTL_DEPLOYMENT_PROFILE": profile}))
+			cfg, err := Load(envFunc(map[string]string{
+				"PROBECTL_DEPLOYMENT_PROFILE": profile,
+				"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
+			}))
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
@@ -79,6 +86,7 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 	t.Run("explicit env overrides the profile default", func(t *testing.T) {
 		cfg, err := Load(envFunc(map[string]string{
 			"PROBECTL_DEPLOYMENT_PROFILE":       "regulated",
+			"PROBECTL_SESSION_HMAC_KEY":         testSessionHMACKeyHex,
 			"PROBECTL_OTELSTORE_TENANT_SCOPING": "false",
 		}))
 		if err != nil {
@@ -91,6 +99,48 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 			t.Error("flow scoping should still be ON from the regulated profile")
 		}
 	})
+}
+
+func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile+" requires session hmac key", func(t *testing.T) {
+			_, err := Load(envFunc(map[string]string{
+				"PROBECTL_DEPLOYMENT_PROFILE": profile,
+				"PROBECTL_AUTH_MODE":          "session",
+			}))
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_SESSION_HMAC_KEY is required") {
+				t.Fatalf("missing session HMAC key should fail closed; got %v", err)
+			}
+		})
+
+		t.Run(profile+" accepts valid session hmac key", func(t *testing.T) {
+			cfg, err := Load(envFunc(map[string]string{
+				"PROBECTL_DEPLOYMENT_PROFILE": profile,
+				"PROBECTL_AUTH_MODE":          "session",
+				"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
+			}))
+			if err != nil {
+				t.Fatalf("load with session HMAC key: %v", err)
+			}
+			if len(cfg.SessionHMACKey) != crypto.KeySize {
+				t.Fatalf("SessionHMACKey length = %d, want %d", len(cfg.SessionHMACKey), crypto.KeySize)
+			}
+		})
+	}
+}
+
+func TestSessionHMACKeyHexValidation(t *testing.T) {
+	for name, value := range map[string]string{
+		"bad hex":   "not-hex",
+		"too short": "000102",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(envFunc(map[string]string{"PROBECTL_SESSION_HMAC_KEY": value}))
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_SESSION_HMAC_KEY") {
+				t.Fatalf("invalid session HMAC key should be rejected, got %v", err)
+			}
+		})
+	}
 }
 
 func TestResultPipelineConfig(t *testing.T) {
@@ -296,7 +346,10 @@ func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
 		t.Error("single profile: strict tenant lanes should default OFF")
 	}
 	for _, p := range []string{"multi-tenant", "regulated"} {
-		cfg, err := Load(envFunc(map[string]string{"PROBECTL_DEPLOYMENT_PROFILE": p}))
+		cfg, err := Load(envFunc(map[string]string{
+			"PROBECTL_DEPLOYMENT_PROFILE": p,
+			"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
+		}))
 		if err != nil {
 			t.Fatalf("load %s: %v", p, err)
 		}
@@ -307,6 +360,7 @@ func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
 	// Explicit override wins.
 	cfg, err = Load(envFunc(map[string]string{
 		"PROBECTL_DEPLOYMENT_PROFILE":         "regulated",
+		"PROBECTL_SESSION_HMAC_KEY":           testSessionHMACKeyHex,
 		"PROBECTL_INGEST_STRICT_TENANT_LANES": "false",
 	}))
 	if err != nil {

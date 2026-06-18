@@ -52,6 +52,7 @@ catalogs which agent produces which data plane.
 | `ingress_host` | string | — (required) | External hostname for the HTTPS ingress |
 | `database_url` | string (sensitive) | — (required) | Postgres DSN (`sslmode=require`) |
 | `envelope_key` | string (sensitive) | — (required) | base64 32-byte KEK (`openssl rand -base64 32`) |
+| `session_hmac_key` | string (sensitive) | — (required) | hex 32-byte session HMAC key (`openssl rand -hex 32`) |
 | `size` | string | `medium` | `small`/`medium`/`large` reference profile (or `""` for chart defaults) |
 | `chart` | string | `../../helm/probectl` | chart path (local) or repo/OCI ref |
 | `chart_version` | string | `""` | pin a chart version (repo/OCI charts) |
@@ -71,11 +72,11 @@ catalogs which agent produces which data plane.
 
 ### How secrets are handled
 
-The module writes `PROBECTL_ENVELOPE_KEY` / `PROBECTL_DATABASE_URL` (and the OIDC
-client secret) into a Kubernetes `Secret` and sets the chart's
+The module writes `PROBECTL_ENVELOPE_KEY` / `PROBECTL_SESSION_HMAC_KEY` /
+`PROBECTL_DATABASE_URL` (and the OIDC client secret) into a Kubernetes `Secret` and sets the chart's
 `secrets.existingSecret` to it — so no credential is ever rendered into the
 ConfigMap or the Helm release values. Mark `database_url` / `envelope_key` /
-`oidc_client_secret` sensitive (they are) and source them from your secret
+`session_hmac_key` / `oidc_client_secret` sensitive (they are) and source them from your secret
 manager or CI variables; never commit `terraform.tfvars` (the file `apply`
 reads variable values from).
 

@@ -40,14 +40,17 @@ oidc:
 
 # Secret material. Prefer existingSecret in production (managed externally).
 secrets:
-  # Name of a pre-created Secret holding PROBECTL_ENVELOPE_KEY / PROBECTL_DATABASE_URL
-  # / PROBECTL_OIDC_CLIENT_SECRET. When set, the chart does NOT create its own.
+  # Name of a pre-created Secret holding PROBECTL_ENVELOPE_KEY,
+  # PROBECTL_SESSION_HMAC_KEY, PROBECTL_DATABASE_URL, and optionally
+  # PROBECTL_OIDC_CLIENT_SECRET. When set, the chart does NOT create its own.
   existingSecret: ""
   # base64-encoded 32-byte envelope KEK (openssl rand -base64 32). Required.
   envelopeKey: ""
+  # hex-encoded 32-byte session-token HMAC key (openssl rand -hex 32). Required.
+  sessionHMACKey: ""
 
 # At-rest encryption is REQUIRED by default (SEC-002): the chart refuses to
-# template without an envelope key, and the control plane refuses to start
+# template without the required keys, and the control plane refuses to start
 # keyless (TENANT-106 fail-closed). Bulk telemetry volumes (Postgres,
 # ClickHouse, object store) are encrypted by the OPERATOR's storage layer —
 # see docs/hardening.md and `probectl-control preflight --strict`.

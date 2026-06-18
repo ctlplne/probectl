@@ -45,14 +45,14 @@ flowchart LR
 
 GitOps has one sharp edge: if Git describes everything, the naive version puts
 credentials in Git too. These manifests don't — they reference
-`secrets.existingSecret` rather than inlining the envelope
-key / DB DSN / OIDC secret. Manage that Secret with **Sealed Secrets** (the
+`secrets.existingSecret` rather than inlining the envelope key /
+session-HMAC key / DB DSN / OIDC secret. Manage that Secret with **Sealed Secrets** (the
 secret is encrypted to a key only the in-cluster controller holds, so the
 *ciphertext* may safely live in Git) or the
 **External Secrets Operator** (which syncs secrets out of Vault / a cloud KMS
 into cluster Secrets at runtime), so no plaintext
-credential is ever committed. The chart refuses to render without an envelope key
-(no default credentials), and is HTTPS-by-default.
+credential is ever committed. The chart refuses to render without an envelope
+key and a session-HMAC key (no default credentials), and is HTTPS-by-default.
 
 ## ArgoCD
 

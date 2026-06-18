@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/url"
@@ -146,6 +147,9 @@ func (s *Server) knownSecrets() []string {
 	cand := []string{
 		c.EnvelopeKey, c.EnvelopeOpenerKeys, c.OIDCClientSecret, c.CMDBSecret, c.AIModelToken,
 		c.OutageRadarToken, c.ProviderBootstrapToken, c.SIEMToken,
+	}
+	if len(c.SessionHMACKey) > 0 {
+		cand = append(cand, hex.EncodeToString(c.SessionHMACKey))
 	}
 	for _, item := range strings.Split(c.EnvelopeOpenerKeys, ",") {
 		_, keyB64, ok := strings.Cut(item, "=")

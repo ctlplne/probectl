@@ -58,6 +58,7 @@ cp deploy/compose/.env.example deploy/compose/.env
 # Edit deploy/compose/.env:
 #   - POSTGRES_PASSWORD      (required; the stack refuses to start empty)
 #   - PROBECTL_ENVELOPE_KEY  (openssl rand -base64 32 — the at-rest encryption key)
+#   - PROBECTL_SESSION_HMAC_KEY (openssl rand -hex 32 — the session-token pepper)
 #   - PROBECTL_TLS_HOSTS     (the hostname(s)/IP(s) the self-signed cert is valid for)
 # Auth defaults to "session" (real OIDC SSO, fail-closed) — set the PROBECTL_OIDC_*
 # values. PROBECTL_AUTH_MODE=dev (no-auth, all-access) is NOT a runtime toggle on
@@ -178,10 +179,14 @@ Don't follow a one-off recipe here — the canonical journey is already written:
    the values *it* manages — encrypting the bulk telemetry volumes (Postgres,
    ClickHouse, object store) at rest is the operator's job (dm-crypt/LUKS, ZFS, or
    encrypted cloud volumes).
-3. **Disclosure contact.** Set `PROBECTL_SECURITY_CONTACT` so
+3. **Session HMAC key.** Set `PROBECTL_SESSION_HMAC_KEY` to a real 32-byte hex
+   key (`openssl rand -hex 32`) and keep it safe. probectl stores only HMACed
+   session-token digests, so a database snapshot cannot verify token guesses
+   without this app secret.
+4. **Disclosure contact.** Set `PROBECTL_SECURITY_CONTACT` so
    `/.well-known/security.txt` advertises your security mailbox (RFC 9116).
-4. **Database TLS.** Point `PROBECTL_DATABASE_URL` at a Postgres reachable over
+5. **Database TLS.** Point `PROBECTL_DATABASE_URL` at a Postgres reachable over
    TLS (`sslmode=require` or stricter) in production.
-5. **Audit.** Confirm the audit trail is recording and intact:
+6. **Audit.** Confirm the audit trail is recording and intact:
    `GET /v1/audit` and `GET /v1/audit/verify` (admin / `audit.read`). The audit
    log is tamper-evident, so `verify` proves the chain hasn't been altered.

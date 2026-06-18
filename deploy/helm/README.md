@@ -117,7 +117,7 @@ Pick a sizing profile and layer your overrides on top:
 `values.schema.json` types every key (Helm validates it). The security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
 `/readyz` drain probe, HSTS, no default credentials — the chart refuses to
-render without an envelope key) are enforced by `make helm-gate`, which runs
+render without envelope and session-HMAC keys) are enforced by `make helm-gate`, which runs
 [`scripts/check_helm_hardening.sh`](../../scripts/check_helm_hardening.sh):
 hardening assertions against the rendered default / medium / large /
 multitenant / strict profiles, `helm lint` across the default and

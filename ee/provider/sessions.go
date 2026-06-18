@@ -34,14 +34,18 @@ type opSession struct {
 
 // Sessions is the in-memory operator-session store.
 type Sessions struct {
-	mu  sync.Mutex
-	byH map[string]opSession
-	now func() time.Time
+	mu      sync.Mutex
+	byH     map[string]opSession
+	now     func() time.Time
+	hmacKey []byte // PROBECTL_SESSION_HMAC_KEY (KEYS-002); must be 32 bytes
 }
 
-// NewSessions returns an empty operator-session store.
-func NewSessions() *Sessions {
-	return &Sessions{byH: map[string]opSession{}, now: time.Now}
+// NewSessions returns an empty operator-session store. hmacKey should be the
+// same 32-byte key used by the tenant session manager (PROBECTL_SESSION_HMAC_KEY)
+// so both session domains benefit from keyed hashing (KEYS-002). Pass nil only
+// in tests; production always supplies a key.
+func NewSessions(hmacKey []byte) *Sessions {
+	return &Sessions{byH: map[string]opSession{}, now: time.Now, hmacKey: hmacKey}
 }
 
 // Issue mints an opaque session token for an authenticated operator.
@@ -53,7 +57,7 @@ func (s *Sessions) Issue(op Operator) (string, error) {
 	token := hex.EncodeToString(raw)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.byH[hashKey(token)] = opSession{op: op, expires: s.now().Add(sessionTTL)}
+	s.byH[s.hashKey(token)] = opSession{op: op, expires: s.now().Add(sessionTTL)}
 	return token, nil
 }
 
@@ -64,9 +68,10 @@ func (s *Sessions) Resolve(token string) *Operator {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.byH[hashKey(token)]
+	h := s.hashKey(token)
+	sess, ok := s.byH[h]
 	if !ok || s.now().After(sess.expires) {
-		delete(s.byH, hashKey(token))
+		delete(s.byH, h)
 		return nil
 	}
 	op := sess.op
@@ -80,7 +85,7 @@ func (s *Sessions) Revoke(token string) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.byH, hashKey(token))
+	delete(s.byH, s.hashKey(token))
 }
 
 // RevokeOperator deletes every session belonging to an operator (used when an
@@ -95,7 +100,13 @@ func (s *Sessions) RevokeOperator(operatorID string) {
 	}
 }
 
-func hashKey(token string) string {
+// hashKey returns the keyed-HMAC (or unkeyed-SHA256 fallback) of token as a
+// hex string for use as the map key. Production always has hmacKey set
+// (PROBECTL_SESSION_HMAC_KEY; KEYS-002); the fallback exists for tests only.
+func (s *Sessions) hashKey(token string) string {
+	if len(s.hmacKey) == crypto.KeySize {
+		return hex.EncodeToString(crypto.Sign(s.hmacKey, []byte(token)))
+	}
 	return hex.EncodeToString(crypto.Hash([]byte(token)))
 }
 

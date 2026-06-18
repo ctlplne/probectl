@@ -1,6 +1,8 @@
 # Flux HelmRelease for probectl (S35). Reconciles the chart from the GitRepository.
 # Secrets are referenced via secrets.existingSecret (manage the Secret with Sealed
 # Secrets / External Secrets Operator), never inlined here.
+# Required keys: PROBECTL_ENVELOPE_KEY, PROBECTL_SESSION_HMAC_KEY,
+# PROBECTL_DATABASE_URL, and optionally PROBECTL_OIDC_CLIENT_SECRET.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:

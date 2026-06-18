@@ -11,3 +11,6 @@ database_url = "postgres://probectl:CHANGEME@db.internal:5432/probectl?sslmode=r
 
 # openssl rand -base64 32
 envelope_key = "REPLACE_WITH_BASE64_32_BYTE_KEK"
+
+# openssl rand -hex 32
+session_hmac_key = "REPLACE_WITH_HEX_32_BYTE_SESSION_HMAC_KEY"

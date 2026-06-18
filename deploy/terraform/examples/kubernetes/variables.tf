@@ -32,3 +32,9 @@ variable "envelope_key" {
   type        = string
   sensitive   = true
 }
+
+variable "session_hmac_key" {
+  description = "Hex 32-byte session HMAC key: openssl rand -hex 32"
+  type        = string
+  sensitive   = true
+}

@@ -53,7 +53,7 @@ regression here fails the build:
 | Container | `readOnlyRootFilesystem`, `allowPrivilegeEscalation: false`, capabilities **drop ALL**, seccomp `RuntimeDefault` |
 | Service account | token automount **off** (`automountServiceAccountToken: false`) — no Kubernetes API access |
 | Ingress | HTTPS-only, **HSTS**, HTTP→HTTPS redirect, ClusterIP service (no plaintext API) |
-| Credentials | render **fails** without an envelope key (no default creds); secrets supplied via `existingSecret` |
+| Credentials | render **fails** without an envelope key or session-HMAC key (no default creds); secrets supplied via `existingSecret` |
 | Probes | readiness `/readyz` (flips to 503 while draining, for zero-downtime rollouts), liveness `/healthz` |
 | Network | `NetworkPolicy` is **on by default** in every profile; API ingress is restricted to the ingress-controller namespace by default (see the note below) |
 | Disruption | `PodDisruptionBudget` (medium / large / multitenant) for zero-downtime upgrades |

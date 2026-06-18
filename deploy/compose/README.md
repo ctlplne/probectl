@@ -17,7 +17,7 @@ stack bundles a producer; for the others, attach one next
 | File | Purpose |
 | ---- | ------- |
 | `probectl.yml` | **Shipped all-in-one deploy** — control plane (HTTPS-only) + Postgres, with a one-shot self-signed-cert generator |
-| `.env.example` | template for the `.env` `probectl.yml` reads (Postgres password, envelope key, TLS hosts, OIDC) |
+| `.env.example` | template for the `.env` `probectl.yml` reads (Postgres password, envelope key, session-HMAC key, TLS hosts, OIDC) |
 | `eval.yml` | **Evaluation stack (local only, never production)** — control plane + Postgres + Kafka + an eBPF agent replaying SAMPLE flows, so one command shows real data end-to-end |
 | `eval-synthetic.yml` | overlay on `eval.yml` that adds the agent CA + gRPC listener + a self-enrolling canary (synthetic probes) |
 | `eval-agent.yml` | the canary config the `eval-synthetic.yml` overlay mounts (one inline HTTP probe) |
@@ -37,7 +37,7 @@ ca.crt` does below) is generated on first boot (`probectl-control gen-cert`)
 for an immediate quickstart — production replaces it with a CA-issued cert.
 
 ```sh
-cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD (required) + envelope key
+cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD + envelope/session-HMAC keys
 # If GHCR returns 401 for the pinned release image, run `docker login ghcr.io`
 # with a token that has read:packages, or set PROBECTL_IMAGE in .env to a
 # locally built / mirrored image.

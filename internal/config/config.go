@@ -7,6 +7,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Config is the fully resolved, validated control-plane configuration.
@@ -213,6 +215,12 @@ type Config struct {
 	// PROBECTL_DEV_AUTH_ACK=i-understand plus a loopback-only bind).
 	AuthMode   string
 	SessionTTL time.Duration
+	// SessionHMACKey is the 32-byte key used to HMAC session tokens before
+	// storing their digest in the DB (PROBECTL_SESSION_HMAC_KEY, hex-encoded
+	// 64-char string). Session auth in multi-tenant/regulated profiles refuses
+	// to start without it; single-profile dev/test may omit it only when the
+	// served path is not production session auth (KEYS-002/OPS-006/SEC-003).
+	SessionHMACKey []byte
 	// Auth brute-force guard (U-024): failures per window before a lockout,
 	// the window, and the base lockout (doubles per consecutive lockout,
 	// capped at 1h). Zero values use the limiter's safe defaults (5 / 1m / 1m).
@@ -710,6 +718,7 @@ func Load(getenv func(string) string) (*Config, error) {
 		IncidentWindow:          l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute),
 		AuthMode:                l.enum("PROBECTL_AUTH_MODE", "session", "dev", "session"),
 		SessionTTL:              l.dur("PROBECTL_SESSION_TTL", 12*time.Hour),
+		SessionHMACKey:          l.hexBytes("PROBECTL_SESSION_HMAC_KEY", 32),
 		AuthRateMaxFailures:     l.intRange("PROBECTL_AUTH_RATE_MAX_FAILURES", 5, 1, 1000),
 		AuthRateWindow:          l.dur("PROBECTL_AUTH_RATE_WINDOW", time.Minute),
 		AuthRateLockout:         l.dur("PROBECTL_AUTH_RATE_LOCKOUT", time.Minute),
@@ -840,6 +849,9 @@ func Load(getenv func(string) string) (*Config, error) {
 
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
+	}
+	if cfg.AuthMode == "session" && cfg.DeploymentProfile != "single" && len(cfg.SessionHMACKey) != crypto.KeySize {
+		l.errf("PROBECTL_SESSION_HMAC_KEY is required and must be exactly %d bytes (%d hex chars) when PROBECTL_AUTH_MODE=session under the %s deployment profile", crypto.KeySize, crypto.KeySize*2, cfg.DeploymentProfile)
 	}
 	// AIRCA-002: a bad custom redaction pattern refuses START — never
 	// silently redact less than the operator asked for.
@@ -1039,32 +1051,33 @@ func (c *Config) LogValue() slog.Value {
 // cannot leak because it is simply not on the list.
 func (c *Config) Redacted() map[string]any {
 	return map[string]any{
-		"http_addr":               c.HTTPAddr,
-		"database_url":            redactURL(c.DatabaseURL),
-		"database_read_url":       redactURL(c.DatabaseReadURL),
-		"database_max_conns":      c.DatabaseMaxConns,
-		"database_min_conns":      c.DatabaseMinConns,
-		"migrate_on_boot":         c.MigrateOnBoot,
-		"log_level":               c.LogLevel,
-		"log_format":              c.LogFormat,
-		"auth_mode":               c.AuthMode,
-		"hsts_enabled":            c.HSTSEnabled,
-		"tls_enabled":             c.TLSEnabled(),
-		"agent_transport":         c.AgentTransportEnabled(),
-		"bus_mode":                c.BusMode,
-		"tsdb_mode":               c.TSDBMode,
-		"otlp_enabled":            c.OTLPEnabled(),
-		"ai_model_enabled":        c.AIModelEnabled(),
-		"mcp_enabled":             c.MCPEnabled(),
-		"oidc_issuer":             c.OIDCIssuer, // an issuer URL is not a secret
-		"region":                  c.Region,
-		"regions":                 c.Regions,
-		"residency":               c.Residency,
-		"replication_mode":        c.ReplicationMode,
-		"flow_retention_days":     c.FlowRetentionDays,
-		"backup_retention_note":   c.BackupRetentionNote,
-		"data_planes_configured":  c.DataPlanes != "",
-		"envelope_key_configured": c.EnvelopeKey != "", // a boolean, never the key
+		"http_addr":                   c.HTTPAddr,
+		"database_url":                redactURL(c.DatabaseURL),
+		"database_read_url":           redactURL(c.DatabaseReadURL),
+		"database_max_conns":          c.DatabaseMaxConns,
+		"database_min_conns":          c.DatabaseMinConns,
+		"migrate_on_boot":             c.MigrateOnBoot,
+		"log_level":                   c.LogLevel,
+		"log_format":                  c.LogFormat,
+		"auth_mode":                   c.AuthMode,
+		"hsts_enabled":                c.HSTSEnabled,
+		"tls_enabled":                 c.TLSEnabled(),
+		"agent_transport":             c.AgentTransportEnabled(),
+		"bus_mode":                    c.BusMode,
+		"tsdb_mode":                   c.TSDBMode,
+		"otlp_enabled":                c.OTLPEnabled(),
+		"ai_model_enabled":            c.AIModelEnabled(),
+		"mcp_enabled":                 c.MCPEnabled(),
+		"oidc_issuer":                 c.OIDCIssuer, // an issuer URL is not a secret
+		"region":                      c.Region,
+		"regions":                     c.Regions,
+		"residency":                   c.Residency,
+		"replication_mode":            c.ReplicationMode,
+		"flow_retention_days":         c.FlowRetentionDays,
+		"backup_retention_note":       c.BackupRetentionNote,
+		"data_planes_configured":      c.DataPlanes != "",
+		"envelope_key_configured":     c.EnvelopeKey != "", // a boolean, never the key
+		"session_hmac_key_configured": len(c.SessionHMACKey) == crypto.KeySize,
 	}
 }
 
@@ -1374,3 +1387,23 @@ func (l *loader) errf(format string, args ...any) {
 }
 
 func (l *loader) err() error { return errors.Join(l.errs...) }
+
+// hexBytes decodes a hex-encoded byte slice from an env var. Returns nil when
+// the env var is unset; records a validation error when set but not valid hex or
+// not exactly wantLen bytes long.
+func (l *loader) hexBytes(key string, wantLen int) []byte {
+	v := l.getenv(key)
+	if v == "" {
+		return nil
+	}
+	b, err := hex.DecodeString(v)
+	if err != nil {
+		l.errf("%s: invalid hex encoding: %v", key, err)
+		return nil
+	}
+	if wantLen > 0 && len(b) != wantLen {
+		l.errf("%s: key must be exactly %d bytes (%d hex chars), got %d bytes", key, wantLen, wantLen*2, len(b))
+		return nil
+	}
+	return b
+}

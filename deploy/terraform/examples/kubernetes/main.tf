@@ -38,8 +38,9 @@ module "probectl" {
   ingress_host       = var.ingress_host
   ingress_tls_secret = var.ingress_tls_secret
 
-  database_url = var.database_url
-  envelope_key = var.envelope_key
+  database_url     = var.database_url
+  envelope_key     = var.envelope_key
+  session_hmac_key = var.session_hmac_key
 }
 
 output "namespace" {

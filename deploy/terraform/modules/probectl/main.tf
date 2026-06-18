@@ -12,8 +12,9 @@ locals {
   # secrets.existingSecret keys mirror the chart's Secret template.
   secret_data = merge(
     {
-      PROBECTL_ENVELOPE_KEY = var.envelope_key
-      PROBECTL_DATABASE_URL = var.database_url
+      PROBECTL_ENVELOPE_KEY     = var.envelope_key
+      PROBECTL_SESSION_HMAC_KEY = var.session_hmac_key
+      PROBECTL_DATABASE_URL     = var.database_url
     },
     var.oidc_client_secret == "" ? {} : { PROBECTL_OIDC_CLIENT_SECRET = var.oidc_client_secret },
   )

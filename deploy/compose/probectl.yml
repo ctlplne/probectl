@@ -98,6 +98,9 @@ services:
       # requests are refused. "dev" (all-access, NO auth) is an explicit opt-in
       # for local evaluation only and logs a loud startup warning.
       PROBECTL_AUTH_MODE: ${PROBECTL_AUTH_MODE:-session}
+      # Session-token hashes are keyed server-side. This pepper is required in
+      # the production-shaped compose stack; generate with: openssl rand -hex 32.
+      PROBECTL_SESSION_HMAC_KEY: ${PROBECTL_SESSION_HMAC_KEY:?PROBECTL_SESSION_HMAC_KEY must be set in .env (openssl rand -hex 32)}
       PROBECTL_OIDC_ISSUER: ${PROBECTL_OIDC_ISSUER:-}
       PROBECTL_OIDC_CLIENT_ID: ${PROBECTL_OIDC_CLIENT_ID:-}
       PROBECTL_OIDC_CLIENT_SECRET: ${PROBECTL_OIDC_CLIENT_SECRET:-}

@@ -86,7 +86,8 @@ room, never the building. The shipped recipes turn this on:
   `controldata` volume — on first boot the control plane **generates** a master
   key there (`0600`) and logs it loudly. **Back that volume up like key
   material**: lose the key and sealed values become unreadable.
-- Helm refuses to template without `secrets.envelopeKey` / `existingSecret`.
+- Helm refuses to template without `secrets.envelopeKey`,
+  `secrets.sessionHMACKey`, or `existingSecret`.
 - Both set `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, so a keyless
   misconfiguration is a **fatal startup error** — never silent plaintext.
 - Production should supply its own key: `PROBECTL_ENVELOPE_KEY` (which always
@@ -352,6 +353,7 @@ posture. A green default means no action needed.
 | Password KDF | PBKDF2-HMAC-SHA-256 ×600k | Same | default ✓ |
 | MFA | TOTP available | required for admin + all operators | operator |
 | Envelope key | generated-or-required, fail-closed (§0c) | `PROBECTL_ENVELOPE_KEY` from a KMS/secret manager | default ✓ |
+| Session-token HMAC key | required in shipped deploys | `PROBECTL_SESSION_HMAC_KEY` from a secret manager | default ✓ |
 | Bulk telemetry volumes | operator's storage layer (§0c duty) | LUKS/ZFS/cloud-volume encryption + `preflight --strict` | operator |
 | Per-tenant keys | deployment envelope | BYOK ([byok.md](byok.md)) for regulated tenants | operator |
 | Secrets | env / references | Vault / CyberArk / cloud KMS references only | operator |

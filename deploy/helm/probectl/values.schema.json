@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "probectl Helm values",
-  "description": "Schema for the probectl control-plane chart. Validated by Helm on install/upgrade/template. Security-relevant blocks are typed; the chart stays HTTPS-by-default and refuses to render without an envelope key (no default credentials).",
+  "description": "Schema for the probectl control-plane chart. Validated by Helm on install/upgrade/template. Security-relevant blocks are typed; the chart stays HTTPS-by-default and refuses to render without envelope and session-HMAC keys (no default credentials).",
   "type": "object",
   "additionalProperties": true,
   "properties": {
@@ -137,7 +137,8 @@
       "additionalProperties": false,
       "properties": {
         "existingSecret": { "type": "string" },
-        "envelopeKey": { "type": "string" }
+        "envelopeKey": { "type": "string" },
+        "sessionHMACKey": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
       }
     },
     "database": {

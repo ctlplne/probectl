@@ -341,7 +341,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	s.providers = newOIDCFactory(cfg)
 	s.authLimiter = s.newAuthLimiter(cfg)
 	if pool != nil {
-		s.sessions = auth.NewManager(store.NewSessions(pool), cfg.SessionTTL, cfg.CookieSecure())
+		s.sessions = auth.NewManager(store.NewSessions(pool), cfg.SessionTTL, cfg.CookieSecure(), cfg.SessionHMACKey)
 		s.authn = auth.NewAuthenticator(s.sessions, permLoader{pool: pool})
 		// ABAC policy cache (S31): the per-request deny-override check reads from here.
 		s.abac = newABACCache(pool)

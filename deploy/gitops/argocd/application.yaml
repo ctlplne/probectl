@@ -24,7 +24,7 @@ spec:
           value: probectl.example.com
         - name: ingress.tlsSecretName
           value: probectl-tls
-        # A Secret you manage out-of-band (envelope key, DB DSN, OIDC secret).
+        # A Secret you manage out-of-band (envelope key, session HMAC key, DB DSN, OIDC secret).
         - name: secrets.existingSecret
           value: probectl-secrets
   destination:
