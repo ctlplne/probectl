@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -131,19 +132,26 @@ func (p tenantRuleProvider) Rules(ctx context.Context) ([]alert.Rule, error) {
 	return rules, err
 }
 
+func alertWriterQueryable(writer any) bool {
+	switch writer.(type) {
+	case tsdbQuerier, promInstantQuerier:
+		return true
+	default:
+		return false
+	}
+}
+
 // BuildAlertEvaluator wires the alerting evaluator over the shared TSDB and the
 // rule store for one tenant. It returns (nil, false) when the TSDB cannot be
-// queried in-process (e.g. Prometheus remote-write mode) — alerting then needs a
-// query backend (a follow-up), and the caller skips the loop rather than failing.
+// queried in-process or through an instant-query upstream; the caller skips the
+// loop rather than accepting inert alert rules.
 //
-// Single-tenant wiring: a multi-tenant deployment runs one evaluator per tenant
-// (a fan-out refinement); here the default tenant is evaluated.
 // A non-nil sink forwards every fired/resolved alert (e.g. into the incident
 // correlator, S17).
 func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	interval time.Duration, tenant tenancy.ID, sink func(context.Context, alert.Alert),
 	log *slog.Logger) (*alert.Evaluator, bool) {
-	if pool == nil {
+	if pool == nil || !alertWriterQueryable(writer) {
 		return nil, false
 	}
 	// ARCH-002/CORRECT-006: pick a metric source for the deployment profile.
@@ -213,4 +221,151 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 	})
 	provider := tenantRuleProvider{pool: pool, tenant: tenant}
 	return alert.NewEvaluator(engine, provider, interval, log), true
+}
+
+// AlertEvaluatorSupervisor fans alert evaluation out across ACTIVE tenants. It
+// keeps one engine per tenant (so active-alert/silence/ack state stays tenant-
+// local), but each tick is evaluated through a bounded worker pool rather than
+// one permanent goroutine per tenant.
+type AlertEvaluatorSupervisor struct {
+	pool     *pgxpool.Pool
+	writer   any
+	deps     alert.ChannelDeps
+	interval time.Duration
+	sink     func(context.Context, alert.Alert)
+	log      *slog.Logger
+
+	listTenants func(context.Context) ([]store.Tenant, error)
+	register    func(string, AlertStateSource)
+	unregister  func(string)
+
+	maxConcurrent int
+	mu            sync.Mutex
+	evaluators    map[string]*alert.Evaluator
+}
+
+// BuildAlertEvaluatorSupervisor builds the multi-tenant alert fan-out. It
+// returns false when alerting cannot run in this deployment profile.
+func BuildAlertEvaluatorSupervisor(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
+	interval time.Duration, sink func(context.Context, alert.Alert), log *slog.Logger,
+	register func(string, AlertStateSource), unregister func(string)) (*AlertEvaluatorSupervisor, bool) {
+	if pool == nil || !alertWriterQueryable(writer) {
+		return nil, false
+	}
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	s := &AlertEvaluatorSupervisor{
+		pool:          pool,
+		writer:        writer,
+		deps:          deps,
+		interval:      interval,
+		sink:          sink,
+		log:           log,
+		register:      register,
+		unregister:    unregister,
+		maxConcurrent: 8,
+		evaluators:    map[string]*alert.Evaluator{},
+	}
+	s.listTenants = func(ctx context.Context) ([]store.Tenant, error) {
+		return store.NewTenants(pool).List(ctx)
+	}
+	return s, true
+}
+
+// Sync refreshes the active-tenant set and starts/stops per-tenant engines.
+func (s *AlertEvaluatorSupervisor) Sync(ctx context.Context) error {
+	tenants, err := s.listTenants(ctx)
+	if err != nil {
+		return err
+	}
+	active := make(map[string]tenancy.ID, len(tenants))
+	for _, t := range tenants {
+		if t.Status == "active" {
+			active[t.ID] = tenancy.ID(t.ID)
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, tid := range active {
+		if _, ok := s.evaluators[id]; ok {
+			continue
+		}
+		ev, ok := BuildAlertEvaluator(s.pool, s.writer, s.deps, s.interval, tid, s.sink, s.log)
+		if !ok {
+			continue
+		}
+		s.evaluators[id] = ev
+		if s.register != nil {
+			s.register(id, ev.Engine())
+		}
+		s.log.Info("alert evaluator started", "tenant", id)
+	}
+	for id := range s.evaluators {
+		if _, ok := active[id]; ok {
+			continue
+		}
+		delete(s.evaluators, id)
+		if s.unregister != nil {
+			s.unregister(id)
+		}
+		s.log.Info("alert evaluator stopped", "tenant", id)
+	}
+	return nil
+}
+
+// Tick evaluates every active tenant, bounded by maxConcurrent workers.
+func (s *AlertEvaluatorSupervisor) Tick(ctx context.Context) {
+	s.mu.Lock()
+	evals := make([]*alert.Evaluator, 0, len(s.evaluators))
+	for _, ev := range s.evaluators {
+		evals = append(evals, ev)
+	}
+	limit := s.maxConcurrent
+	s.mu.Unlock()
+	if limit <= 0 {
+		limit = 1
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	for _, ev := range evals {
+		if ctx.Err() != nil {
+			break
+		}
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(ev *alert.Evaluator) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := ev.Tick(ctx); err != nil {
+				s.log.Warn("alert evaluation tick failed", "error", err)
+			}
+		}(ev)
+	}
+	wg.Wait()
+}
+
+// Run periodically syncs tenants and evaluates all active tenant engines.
+func (s *AlertEvaluatorSupervisor) Run(ctx context.Context) {
+	if err := s.Sync(ctx); err != nil {
+		s.log.Warn("alert tenant sync failed", "error", err)
+	}
+	ticker := time.NewTicker(s.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := s.Sync(ctx); err != nil {
+				s.log.Warn("alert tenant sync failed", "error", err)
+				continue
+			}
+			s.Tick(ctx)
+		}
+	}
 }

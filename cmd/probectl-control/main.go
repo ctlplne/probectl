@@ -397,18 +397,7 @@ func run(cmd string) error {
 	// correlate fired alerts into incidents. Disabled gracefully when the TSDB has
 	// no in-process query backend. Built before the API server so the active-alert
 	// surface (S-FE1) can read the evaluator engine's state.
-	var alertEngine *alert.Engine
 	alertingActive := false
-	if ev, ok := control.BuildAlertEvaluator(db.Pool(), tsdbWriter, alert.ChannelDeps{},
-		cfg.AlertEvalInterval, tenancy.DefaultTenantID, control.AlertSink(correlator, log), log); ok {
-		alertEngine = ev.Engine()
-		alertingActive = true
-		g.Go(func() error { ev.Run(gctx); return nil })
-	} else {
-		// ARCH-002/CORRECT-006: the rules API now surfaces this loudly so the
-		// operator isn't lulled into thinking stored rules fire.
-		log.Warn("ALERTING INACTIVE: no query backend wired in this profile — stored rules will NOT evaluate")
-	}
 
 	// TLS/cert posture inventory (S-FE2): the latest analyzed posture per
 	// (tenant, target), bounded per tenant; written by the S27 consumer below
@@ -629,9 +618,19 @@ func run(cmd string) error {
 	if err := attachEE(gctx, srv, cfg, log, lic, db.Pool(), latestResults, flowStore, pathCH, ebpfStore, otelStore, lifeEngine, secretsResolver.Resolve, fairGate, topoStore); err != nil {
 		return err
 	}
-	if alertEngine != nil {
-		// Active alerts + silence/ack (S-FE1) read engine truth, tenant-keyed.
-		srv.WithAlertState(tenancy.DefaultTenantID.String(), alertEngine)
+	if sup, ok := control.BuildAlertEvaluatorSupervisor(db.Pool(), tsdbWriter, alert.ChannelDeps{},
+		cfg.AlertEvalInterval, control.AlertSink(correlator, log), log,
+		func(tenant string, src control.AlertStateSource) { srv.WithAlertState(tenant, src) },
+		func(tenant string) { srv.WithoutAlertState(tenant) }); ok {
+		alertingActive = true
+		if err := sup.Sync(gctx); err != nil {
+			log.Warn("alert tenant sync failed", "error", err.Error())
+		}
+		g.Go(func() error { sup.Run(gctx); return nil })
+	} else {
+		// ARCH-002/CORRECT-006: the rules API now surfaces this loudly so the
+		// operator isn't lulled into thinking stored rules fire.
+		log.Warn("ALERTING INACTIVE: no query backend wired in this profile — stored rules will NOT evaluate")
 	}
 	// ARCH-002: tell the rules API whether evaluation is actually live so it can
 	// warn instead of silently accepting dead rules.

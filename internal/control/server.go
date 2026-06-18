@@ -115,7 +115,8 @@ type Server struct {
 	// Active-alert state sources (S-FE1), keyed by tenant ID — each tenant's
 	// evaluator engine. Set via WithAlertState; a missing tenant fails closed
 	// (empty list / 503 on actions).
-	alertState map[string]AlertStateSource
+	alertStateMu sync.RWMutex
+	alertState   map[string]AlertStateSource
 
 	// TLS/cert posture inventory (S-FE2): the store the TLS consumer maintains.
 	// Set via WithTLSPosture; nil reports collector_running=false.

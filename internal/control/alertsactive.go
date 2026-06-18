@@ -32,6 +32,8 @@ type AlertStateSource interface {
 // WithAlertState attaches a tenant's alert-state source (its evaluator engine).
 // Returns the server for chaining.
 func (s *Server) WithAlertState(tenant string, src AlertStateSource) *Server {
+	s.alertStateMu.Lock()
+	defer s.alertStateMu.Unlock()
 	if src != nil {
 		if s.alertState == nil {
 			s.alertState = map[string]AlertStateSource{}
@@ -41,12 +43,23 @@ func (s *Server) WithAlertState(tenant string, src AlertStateSource) *Server {
 	return s
 }
 
+// WithoutAlertState detaches a tenant's evaluator engine when lifecycle fan-out
+// observes that the tenant is no longer active.
+func (s *Server) WithoutAlertState(tenant string) *Server {
+	s.alertStateMu.Lock()
+	defer s.alertStateMu.Unlock()
+	delete(s.alertState, tenant)
+	return s
+}
+
 // alertStateFor resolves the CALLER's engine (tenant boundary first).
 func (s *Server) alertStateFor(r *http.Request) (AlertStateSource, string, error) {
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return nil, "", err
 	}
+	s.alertStateMu.RLock()
+	defer s.alertStateMu.RUnlock()
 	return s.alertState[tid], tid, nil
 }
 
