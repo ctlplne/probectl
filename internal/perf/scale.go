@@ -242,20 +242,20 @@ func RunScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, e
 		// blind below the materiality floor). The quiet tenant's rate is
 		// generous; the noisy tenant's flood far exceeds its bound, so it is shed.
 		quietN := clampInt(profile.Ingest.TotalResults()/profile.Ingest.Tenants, 200, 5000)
-		// Size the per-tenant bound so the quiet workload fits comfortably across
-		// BOTH phases of a pair (each pair runs solo then noisy on the SAME gate,
-		// so the quiet bucket must hold ~2x its per-phase load with headroom)
-		// while the 10x flood blows through it — the gate must shed the flood
-		// (the timing-independent isolation signal). Capacity = rate ×
-		// BurstSeconds = quietN × 5: quiet (2 phases × 1x) admits fully, the
-		// noisy 10x flood sheds.
-		rate := float64(quietN) * 5
+		repeats := 3
+		// Size the per-tenant bound so the quiet workload fits across every
+		// phase the stateful gate sees: each pair runs solo then noisy, and the
+		// same gate is reused across all median-deflake repeats. The quiet tenant
+		// gets all 2*repeats phases plus one phase of headroom, while the 10x
+		// noisy flood still blows through the bucket and must be shed.
+		rate := float64(quietN * (2*repeats + 1))
 		gate := fairness.NewGate(fairness.Policy{ResultsPerSec: rate, BurstSeconds: 1}, nil)
 		rep.Noisy, err = DriveNoisyNeighbor(ctx, NoisyConfig{
 			QuietResults:  quietN,
 			NoisyFactor:   10,
 			Producers:     profile.Ingest.Producers,
 			SettleTimeout: 15 * time.Second, // bounded drain (shed flood drains fast)
+			Repeats:       repeats,
 			Fairness:      gate,
 		})
 		if err != nil {

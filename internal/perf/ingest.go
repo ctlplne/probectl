@@ -66,9 +66,10 @@ func (r IngestReport) String() string {
 
 // identity names the source of one synthetic result.
 type identity struct {
-	tenant string
-	agent  string
-	server string
+	tenant        string
+	agent         string
+	server        string
+	eventUnixNano int64
 }
 
 // DriveIngest runs the lightweight ingest path under load: it publishes
@@ -203,6 +204,8 @@ func buildIdentities(c IngestConfig) []identity {
 	if c.Namespace != "" {
 		prefix = c.Namespace + "-"
 	}
+	baseUnixNano := time.Now().Add(-time.Duration(c.TotalResults()+1) * time.Millisecond).UnixNano()
+	var seq int64
 	for t := 0; t < c.Tenants; t++ {
 		tenant := fmt.Sprintf("%stenant-%04d", prefix, t)
 		for a := 0; a < c.AgentsPerTenant; a++ {
@@ -210,7 +213,13 @@ func buildIdentities(c IngestConfig) []identity {
 			for m := 0; m < c.TestsPerAgent; m++ {
 				server := fmt.Sprintf("host-%04d-%04d-%04d.example", t, a, m)
 				for r := 0; r < c.ResultsPerTest; r++ {
-					ids = append(ids, identity{tenant: tenant, agent: agent, server: server})
+					ids = append(ids, identity{
+						tenant:        tenant,
+						agent:         agent,
+						server:        server,
+						eventUnixNano: baseUnixNano + seq*int64(time.Millisecond),
+					})
+					seq++
 				}
 			}
 		}
@@ -226,7 +235,7 @@ func buildResult(id identity) *resultv1.Result {
 		CanaryType:        "icmp",
 		ServerAddress:     id.server,
 		Success:           true,
-		StartTimeUnixNano: time.Now().UnixNano(),
+		StartTimeUnixNano: id.eventUnixNano,
 		DurationNano:      5_000_000,
 		Metrics:           map[string]float64{"rtt.avg.ms": 12.5},
 	}

@@ -191,7 +191,12 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 	defer cancel()
 	done := make(chan struct{})
 	go func() { _ = consumer.Run(cctx); close(done) }()
-	time.Sleep(150 * time.Millisecond)
+	wctx, wcancel := context.WithTimeout(cctx, 5*time.Second)
+	if !b.WaitForSubscribers(wctx, bus.NetworkResultsTopic, 1) {
+		wcancel()
+		return 0, phaseCounts{}, 0, false, fmt.Errorf("perf: consumer did not subscribe to %s within 5s", bus.NetworkResultsTopic)
+	}
+	wcancel()
 
 	const quietTenant, noisyTenant = "quiet-tenant", "noisy-tenant"
 	var quietLat Latencies
@@ -199,6 +204,8 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 
 	publish := func(tenant string, n int, lat *Latencies, producers int) *sync.WaitGroup {
 		var wg sync.WaitGroup
+		var seq atomic.Int64
+		baseUnixNano := time.Now().Add(-time.Duration(n+1) * time.Millisecond).UnixNano()
 		per := n / producers
 		if per < 1 {
 			per = 1
@@ -210,9 +217,10 @@ func runPhase(ctx context.Context, cfg NoisyConfig, withNoise bool) (quietP95 ti
 				defer wg.Done()
 				for i := 0; i < per; i++ {
 					id := identity{
-						tenant: tenant,
-						agent:  fmt.Sprintf("%s-agent-%d", tenant, worker),
-						server: fmt.Sprintf("svc-%d.example:443", i%50),
+						tenant:        tenant,
+						agent:         fmt.Sprintf("%s-agent-%d", tenant, worker),
+						server:        fmt.Sprintf("svc-%d.example:443", i%50),
+						eventUnixNano: baseUnixNano + seq.Add(1)*int64(time.Millisecond),
 					}
 					payload, e := proto.Marshal(buildResult(id))
 					if e != nil {

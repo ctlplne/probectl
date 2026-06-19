@@ -71,3 +71,24 @@ func TestIngestEmptyScenario(t *testing.T) {
 		t.Fatal("empty scenario should error")
 	}
 }
+
+func TestBuildIdentitiesUsesDistinctSampleMillis(t *testing.T) {
+	ids := buildIdentities(IngestConfig{
+		Tenants: 1, AgentsPerTenant: 1, TestsPerAgent: 1, ResultsPerTest: 8,
+	})
+	if len(ids) != 8 {
+		t.Fatalf("identities = %d, want 8", len(ids))
+	}
+	seen := map[int64]struct{}{}
+	now := time.Now().UnixMilli()
+	for _, id := range ids {
+		ms := id.eventUnixNano / int64(time.Millisecond)
+		if ms > now {
+			t.Fatalf("synthetic event time is future-dated: %d > %d", ms, now)
+		}
+		if _, ok := seen[ms]; ok {
+			t.Fatalf("duplicate synthetic sample millisecond %d", ms)
+		}
+		seen[ms] = struct{}{}
+	}
+}
