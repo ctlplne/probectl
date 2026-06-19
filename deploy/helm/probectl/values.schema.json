@@ -54,6 +54,7 @@
           "properties": {
             "enabled": { "type": "boolean" },
             "backupFile": { "type": "string" },
+            "serverBackupPath": { "type": "string", "minLength": 1 },
             "host": { "type": "string" },
             "database": { "type": "string" },
             "image": { "type": "string" }
@@ -106,6 +107,7 @@
             "schedule": { "type": "string" },
             "host": { "type": "string" },
             "database": { "type": "string" },
+            "serverBackupPath": { "type": "string", "minLength": 1 },
             "image": { "type": "string" }
           }
         }
