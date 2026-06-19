@@ -39,7 +39,7 @@ func TestProviderErase(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
 	life := &fakeLifecycle{}
 	f.h.WithLifecycle(life)
-	admin := f.bootstrapAndLogin(t)
+	admin := f.bootstrapAndLoginFast(t)
 
 	// Provision a tenant to erase.
 	rec := f.doAuthed(t, admin, http.MethodPost, "/provider/v1/tenants",
@@ -81,10 +81,11 @@ func TestProviderErase(t *testing.T) {
 	rec2 := f.doAuthed(t, admin, http.MethodPost, "/provider/v1/operators",
 		map[string]string{"email": "op@msp.example", "name": "Op", "role": "operator"})
 	var created struct {
-		EnrollToken string `json:"enroll_token"`
+		Operator    Operator `json:"operator"`
+		EnrollToken string   `json:"enroll_token"`
 	}
 	mustDecode(t, rec2, &created)
-	op := f.enrollAndLogin(t, created.EnrollToken, "op@msp.example", "operator-pw-123456")
+	op := f.activateAndIssue(t, created.Operator)
 	if rec = f.doAuthed(t, op, http.MethodPost, "/provider/v1/tenants/"+tn.ID+"/erase",
 		map[string]string{"confirm": "doomed-co"}); rec.Code != http.StatusForbidden {
 		t.Fatalf("SoD: operator erased a tenant: %d", rec.Code)
@@ -92,7 +93,7 @@ func TestProviderErase(t *testing.T) {
 
 	// Without the engine attached (pool-less test server) the route is 503.
 	bare := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	tok := bare.bootstrapAndLogin(t)
+	tok := bare.bootstrapAndLoginFast(t)
 	if rec = bare.doAuthed(t, tok, http.MethodPost, "/provider/v1/tenants/x/erase",
 		map[string]string{"confirm": "x"}); rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("engine-less erase: %d", rec.Code)

@@ -65,7 +65,7 @@ func TestSiloedProvisioningLifecycle(t *testing.T) {
 	silo := &fakeSilo{planes: []string{"eu"}}
 	invalidated := 0
 	f.svc.WithSilo(silo, func() { invalidated++ })
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 
 	// Pooled: provisions with no silo call, default model recorded.
 	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants",
@@ -148,7 +148,7 @@ func TestSiloedProvisioningLifecycle(t *testing.T) {
 // provisioning is refused and pooled still works.
 func TestSiloRequiresLicenseCapability(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	token := f.bootstrapAndLogin(t) // NO WithSilo
+	token := f.bootstrapAndLoginFast(t) // NO WithSilo
 
 	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants",
 		map[string]string{"slug": "silo-co", "name": "x", "isolation_model": "siloed"})
@@ -169,7 +169,7 @@ func TestSiloRequiresLicenseCapability(t *testing.T) {
 func TestPooledSiloedHandlerParity(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
 	f.svc.WithSilo(&fakeSilo{}, nil)
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 
 	ids := map[string]string{}
 	for slug, model := range map[string]string{"pool-co": "pooled", "silo-co": "siloed"} {

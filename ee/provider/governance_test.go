@@ -37,7 +37,7 @@ func governedFixture(t *testing.T) (*fixture, *memGovStore, string) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
 	store := newMemGov()
 	f.h.WithGovernance(&Governance{Store: store}) // Pool nil → composed PG reads skipped
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 	return f, store, token
 }
 

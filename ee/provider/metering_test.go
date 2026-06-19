@@ -46,7 +46,7 @@ func meteredFixture(t *testing.T) (*fixture, *billing.MemStore, string) {
 	*f.now = time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	store := billing.NewMemStore()
 	f.h.WithMetering(&Metering{Store: store})
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 	seedUsage(t, store, *f.now)
 	return f, store, token
 }
@@ -160,10 +160,11 @@ func TestQuotaManagement(t *testing.T) {
 	rec2 := f.doAuthed(t, admin, http.MethodPost, "/provider/v1/operators",
 		map[string]string{"email": "op@msp.example", "name": "Op", "role": "operator"})
 	var created struct {
-		EnrollToken string `json:"enroll_token"`
+		Operator    Operator `json:"operator"`
+		EnrollToken string   `json:"enroll_token"`
 	}
 	mustDecode(t, rec2, &created)
-	op := f.enrollAndLogin(t, created.EnrollToken, "op@msp.example", "operator-pw-123456")
+	op := f.activateAndIssue(t, created.Operator)
 	if rec = f.doAuthed(t, op, http.MethodPut, "/provider/v1/tenants/tnA/quotas",
 		map[string]any{"max_tests": 1}); rec.Code != http.StatusForbidden {
 		t.Fatalf("SoD: operator set a quota: %d", rec.Code)
@@ -178,7 +179,7 @@ func TestQuotaManagement(t *testing.T) {
 // routes answer not_found — indistinguishable from unknown paths.
 func TestMeteringHiddenWhenUnattached(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	token := f.bootstrapAndLogin(t) // no WithMetering
+	token := f.bootstrapAndLoginFast(t) // no WithMetering
 	for _, probe := range []struct{ method, path string }{
 		{http.MethodGet, "/provider/v1/usage"},
 		{http.MethodGet, "/provider/v1/usage/export"},

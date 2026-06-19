@@ -25,7 +25,7 @@ func brandedFixture(t *testing.T) (*fixture, *whitelabel.MemStore, *whitelabel.R
 	store := whitelabel.NewMemStore()
 	resolver := whitelabel.NewResolver(store, time.Minute)
 	f.h.WithWhiteLabel(&WhiteLabel{Store: store, Invalidate: resolver.Invalidate})
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 	return f, store, resolver, token
 }
 
@@ -89,10 +89,11 @@ func TestBrandingSoDAndHidden(t *testing.T) {
 	rec2 := f.doAuthed(t, admin, http.MethodPost, "/provider/v1/operators",
 		map[string]string{"email": "op@msp.example", "name": "Op", "role": "operator"})
 	var created struct {
-		EnrollToken string `json:"enroll_token"`
+		Operator    Operator `json:"operator"`
+		EnrollToken string   `json:"enroll_token"`
 	}
 	mustDecode(t, rec2, &created)
-	op := f.enrollAndLogin(t, created.EnrollToken, "op@msp.example", "operator-pw-123456")
+	op := f.activateAndIssue(t, created.Operator)
 	if rec := f.doAuthed(t, op, http.MethodGet, "/provider/v1/branding", nil); rec.Code != http.StatusOK {
 		t.Fatalf("operator brand read: %d", rec.Code)
 	}
@@ -103,7 +104,7 @@ func TestBrandingSoDAndHidden(t *testing.T) {
 
 	// Unattached = hidden.
 	bare := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	tok := bare.bootstrapAndLogin(t)
+	tok := bare.bootstrapAndLoginFast(t)
 	for _, probe := range []struct{ method, path string }{
 		{http.MethodGet, "/provider/v1/branding"},
 		{http.MethodPut, "/provider/v1/branding"},

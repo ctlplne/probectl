@@ -231,6 +231,31 @@ func (f *fixture) enrollAndLogin(t *testing.T, enrollToken, email, password stri
 	return login.Token
 }
 
+func (f *fixture) bootstrapAndLoginFast(t *testing.T) string {
+	t.Helper()
+	op, err := f.store.CreateOperator(context.Background(),
+		Operator{Email: "root@msp.example", Name: "Root", Role: RoleAdmin, Status: "disabled"},
+		nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f.activateAndIssue(t, op)
+}
+
+func (f *fixture) activateAndIssue(t *testing.T, op Operator) string {
+	t.Helper()
+	if err := f.store.ActivateOperator(context.Background(), op.ID, "test-session-only"); err != nil {
+		t.Fatal(err)
+	}
+	op.Enrolled = true
+	op.Status = "active"
+	token, err := f.h.sessions.Issue(op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
 func mustDecode(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 	t.Helper()
 	if err := json.Unmarshal(rec.Body.Bytes(), v); err != nil {
@@ -313,7 +338,7 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 		"tnA": {"result-A1", "result-A2"},
 		"tnB": {"result-B1"},
 	}}
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 
 	// Request break-glass into tenant A.
 	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass",
@@ -371,10 +396,11 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 	rec2 := f.doAuthed(t, token, http.MethodPost, "/provider/v1/operators",
 		map[string]string{"email": "op2@msp.example", "name": "Op Two", "role": "operator"})
 	var created struct {
-		EnrollToken string `json:"enroll_token"`
+		Operator    Operator `json:"operator"`
+		EnrollToken string   `json:"enroll_token"`
 	}
 	mustDecode(t, rec2, &created)
-	op2 := f.enrollAndLogin(t, created.EnrollToken, "op2@msp.example", "another-long-pw-12")
+	op2 := f.activateAndIssue(t, created.Operator)
 	if rec = f.doAuthed(t, op2, http.MethodGet, "/provider/v1/breakglass/"+g.ID+"/results", nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("foreign operator on a grant: %d", rec.Code)
 	}
@@ -413,7 +439,7 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 // never bleeds one tenant's rows into another.
 func TestFleetAggregation(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 
 	var ids []string
 	for _, slug := range []string{"acme", "globex"} {
@@ -458,7 +484,7 @@ func TestFleetAggregation(t *testing.T) {
 // TestSeparationOfDuties: operator-role accounts cannot manage operators.
 func TestSeparationOfDuties(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	admin := f.bootstrapAndLogin(t)
+	admin := f.bootstrapAndLoginFast(t)
 
 	rec := f.doAuthed(t, admin, http.MethodPost, "/provider/v1/operators",
 		map[string]string{"email": "op@msp.example", "name": "Op", "role": "operator"})
@@ -466,10 +492,11 @@ func TestSeparationOfDuties(t *testing.T) {
 		t.Fatalf("create operator: %d %s", rec.Code, rec.Body.String())
 	}
 	var created struct {
-		EnrollToken string `json:"enroll_token"`
+		Operator    Operator `json:"operator"`
+		EnrollToken string   `json:"enroll_token"`
 	}
 	mustDecode(t, rec, &created)
-	op := f.enrollAndLogin(t, created.EnrollToken, "op@msp.example", "operator-pw-123456")
+	op := f.activateAndIssue(t, created.Operator)
 
 	// The operator can run lifecycle…
 	if rec = f.doAuthed(t, op, http.MethodPost, "/provider/v1/tenants", map[string]string{"slug": "acme", "name": "Acme"}); rec.Code != http.StatusCreated {
@@ -512,16 +539,17 @@ func TestReadOnlyDegrade(t *testing.T) {
 
 // bootstrapAndLoginReadOnly seeds an operator directly in the store (the
 // read-only ladder blocks CreateOperator — which is itself part of the
-// contract), then logs in normally: authentication still works read-only.
+// contract), then issues a live session so read-only route behavior is tested
+// without spending the race-test budget on PBKDF2.
 func (f *fixture) bootstrapAndLoginReadOnly(t *testing.T) string {
 	t.Helper()
-	enroll := "seed-enroll-token"
-	if _, err := f.store.CreateOperator(context.Background(),
+	op, err := f.store.CreateOperator(context.Background(),
 		Operator{Email: "root@msp.example", Name: "Root", Role: RoleAdmin, Status: "disabled"},
-		crypto.Hash([]byte(enroll))); err != nil {
+		nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return f.enrollAndLogin(t, enroll, "root@msp.example", "a-long-operator-pw")
+	return f.activateAndIssue(t, op)
 }
 
 // TestAuthHardening: bad bootstrap tokens, uniform login failures, dead
@@ -567,7 +595,7 @@ func TestAuthHardening(t *testing.T) {
 		EnrollToken string   `json:"enroll_token"`
 	}
 	mustDecode(t, rec, &created)
-	op := f.enrollAndLogin(t, created.EnrollToken, "op@msp.example", "operator-pw-123456")
+	op := f.activateAndIssue(t, created.Operator)
 	if rec = f.doAuthed(t, op, http.MethodGet, "/provider/v1/me", nil); rec.Code != http.StatusOK {
 		t.Fatalf("live session: %d", rec.Code)
 	}
@@ -610,7 +638,7 @@ func TestGrantStateDerivation(t *testing.T) {
 // TestConsentListIsTenantScoped: each tenant sees only its own pending grants.
 func TestConsentListIsTenantScoped(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 	for _, tn := range []string{"tnA", "tnB"} {
 		rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass",
 			map[string]any{"tenant_id": tn, "reason": "audit " + tn, "ttl_minutes": 30})
@@ -632,7 +660,7 @@ func TestConsentListIsTenantScoped(t *testing.T) {
 // TestBreakGlassTTLCap: TTLs beyond the configured cap are refused.
 func TestBreakGlassTTLCap(t *testing.T) {
 	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
-	token := f.bootstrapAndLogin(t)
+	token := f.bootstrapAndLoginFast(t)
 	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass",
 		map[string]any{"tenant_id": "tnA", "reason": "way too long", "ttl_minutes": 60 * 24 * 7})
 	if rec.Code != http.StatusBadRequest {
