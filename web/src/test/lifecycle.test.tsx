@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { jsonResponse, defaultFetch } from './fetchStub'
@@ -63,5 +63,42 @@ describe('tenant data lifecycle (S-T5)', () => {
         (c[1] as RequestInit | undefined)?.method === 'PUT',
     )
     expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({ flow_retention_days: 14 })
+  })
+
+  test('saving retention surfaces structured API errors', async () => {
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/v1/lifecycle/retention') && init?.method === 'PUT')
+          return jsonResponse(
+            { error: { message: 'flow_retention_days must be >= 1' } },
+            400,
+          )
+        return base(input, init)
+      }),
+    )
+    renderApp('/admin')
+    await userEvent.type(await screen.findByLabelText(/flow retention days/i), '0')
+    await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(/flow_retention_days must be >= 1/)
+  })
+
+  test('saving retention uses the shared 401 reauth path', async () => {
+    const assign = vi.fn()
+    vi.stubGlobal('location', { assign, href: '', pathname: '/' })
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/v1/lifecycle/retention') && init?.method === 'PUT')
+          return jsonResponse({ error: { message: 'authentication required' } }, 401)
+        return base(input, init)
+      }),
+    )
+    renderApp('/admin')
+    await userEvent.type(await screen.findByLabelText(/flow retention days/i), '14')
+    await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/login'))
   })
 })

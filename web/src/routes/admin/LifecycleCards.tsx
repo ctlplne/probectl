@@ -15,7 +15,7 @@ import {
   Table,
 } from '../../components'
 import { useEditions, type FeatureInfo } from '../../api/editions'
-import { useLifecycle } from '../../api/lifecycle'
+import { useLifecycle, useSaveLifecycleRetention } from '../../api/lifecycle'
 import { useDiagnostics, type HealthStatus } from '../../api/diagnostics'
 
 /** LifecycleCard (S-T5, core): self-service data export, the retention
@@ -23,6 +23,7 @@ import { useDiagnostics, type HealthStatus } from '../../api/diagnostics'
  *  deletion are a compliance right, present in every edition. */
 export function LifecycleCard() {
   const { data, isPending, isError } = useLifecycle()
+  const saveRetention = useSaveLifecycleRetention()
   const [days, setDays] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -32,13 +33,9 @@ export function LifecycleCard() {
     setError('')
     setSaved(false)
     try {
-      const res = await fetch('/v1/lifecycle/retention', {
-        method: 'PUT',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ flow_retention_days: days === '' ? null : Number(days) }),
+      await saveRetention.mutateAsync({
+        flow_retention_days: days === '' ? null : Number(days),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setSaved(true)
     } catch (err) {
       setError((err as Error).message)
@@ -87,8 +84,8 @@ export function LifecycleCard() {
                   data?.flow_retention_days != null ? String(data.flow_retention_days) : 'default'
                 }
               />
-              <Button type="submit" variant="primary">
-                Save retention
+              <Button type="submit" variant="primary" disabled={saveRetention.isPending}>
+                {saveRetention.isPending ? 'Saving retention' : 'Save retention'}
               </Button>
             </form>
             {saved ? <p className={styles.editionsLede}>Retention saved.</p> : null}
