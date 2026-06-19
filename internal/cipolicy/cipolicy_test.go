@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -180,6 +181,109 @@ func TestVerifyAllIsTheUmbrella(t *testing.T) {
 	if !strings.Contains(ci, "verify-all is RED") {
 		t.Error("verify-all is missing its fail-closed assertion (the 'verify-all is RED' guard)")
 	}
+}
+
+// TestPRImageMatrixMatchesMakefileBinaries closes TEST-004: every binary the
+// Makefile says we ship must be built by the PR image matrix. Release already
+// has a shell parity gate; this gives pull requests the same early feedback.
+func TestPRImageMatrixMatchesMakefileBinaries(t *testing.T) {
+	want := makefileBinaries(t)
+	have := ciBuildImageComponents(t, readWorkflow(t, "ci.yml"))
+	if diff := stringSetDiff(want, have); diff != "" {
+		t.Fatalf("ci.yml build-images matrix drifted from Makefile BINARIES (TEST-004):\n%s", diff)
+	}
+}
+
+func makefileBinaries(t *testing.T) []string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))
+	if err != nil {
+		t.Fatalf("read Makefile: %v", err)
+	}
+	re := regexp.MustCompile(`(?m)^BINARIES[[:space:]]*:=[[:space:]]*(.+)$`)
+	m := re.FindStringSubmatch(string(b))
+	if m == nil {
+		t.Fatal("Makefile is missing BINARIES :=")
+	}
+	out := strings.Fields(m[1])
+	sort.Strings(out)
+	return out
+}
+
+func ciBuildImageComponents(t *testing.T, ci string) []string {
+	t.Helper()
+	lines := strings.Split(ci, "\n")
+	jobRe := regexp.MustCompile(`^  ([a-zA-Z0-9_-]+):\s*$`)
+	inJob := false
+	inComponent := false
+	var out []string
+	for _, ln := range lines {
+		if m := jobRe.FindStringSubmatch(ln); m != nil {
+			if inJob && m[1] != "build-images" {
+				break
+			}
+			inJob = m[1] == "build-images"
+			inComponent = false
+			continue
+		}
+		if !inJob {
+			continue
+		}
+		trimmed := strings.TrimSpace(ln)
+		if trimmed == "component:" {
+			inComponent = true
+			continue
+		}
+		if !inComponent {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "- ") {
+			out = append(out, strings.TrimSpace(strings.TrimPrefix(trimmed, "- ")))
+			continue
+		}
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			inComponent = false
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func stringSetDiff(want, have []string) string {
+	wantSet := map[string]bool{}
+	haveSet := map[string]bool{}
+	for _, v := range want {
+		wantSet[v] = true
+	}
+	for _, v := range have {
+		haveSet[v] = true
+	}
+	var missing, extra []string
+	for _, v := range want {
+		if !haveSet[v] {
+			missing = append(missing, v)
+		}
+	}
+	for _, v := range have {
+		if !wantSet[v] {
+			extra = append(extra, v)
+		}
+	}
+	if len(missing) == 0 && len(extra) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if len(missing) > 0 {
+		b.WriteString("missing from ci.yml build-images: ")
+		b.WriteString(strings.Join(missing, ", "))
+		b.WriteByte('\n')
+	}
+	if len(extra) > 0 {
+		b.WriteString("extra in ci.yml build-images: ")
+		b.WriteString(strings.Join(extra, ", "))
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // TestEBPFLiveLoadFatalsNotSkips is the EXC-GATE-02 guard: the live eBPF
