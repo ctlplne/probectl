@@ -481,7 +481,11 @@ func (s *Server) routes() http.Handler {
 	// tenant boundary is checked first (the principal carries one tenant), then
 	// the route's required permission.
 	for _, rt := range s.apiRoutes() {
-		mux.Handle(rt.Method+" "+rt.Pattern, s.requirePermission(rt.Permission, rt.Handler))
+		h := s.requirePermission(rt.Permission, rt.Handler)
+		if lifecycle, ok := apiLifecycleFor(rt.Method, rt.Pattern); ok {
+			h = lifecycle.wrap(h)
+		}
+		mux.Handle(rt.Method+" "+rt.Pattern, h)
 	}
 
 	// Provider/management plane (S-T1) — dispatched per-request so the ee/

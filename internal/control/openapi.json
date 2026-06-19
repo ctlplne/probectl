@@ -451,13 +451,56 @@
       },
       "delete": {
         "operationId": "deleteAgent",
-        "summary": "Deregister an agent",
+        "summary": "Deregister an agent (deprecated legacy metadata delete)",
+        "description": "Deprecated legacy deregistration surface. Use POST /v1/agents/{id}/revoke for security offboarding because it persists identity revocation and feeds the live mTLS deny-list. This DELETE route remains available through the documented Sunset window for clients that only remove registry metadata.",
+        "deprecated": true,
+        "x-probectl-lifecycle": {
+          "stage": "deprecated",
+          "deprecated_at": "2026-06-19",
+          "sunset": "2027-06-19",
+          "lts_until": "2027-06-19",
+          "replacement": "POST /v1/agents/{id}/revoke",
+          "policy": "Deprecated /v1 operations stay available for at least 12 months, carry Deprecation/Sunset headers at runtime, and remain documented in OpenAPI until removal."
+        },
         "tags": [
           "agents"
         ],
         "responses": {
           "204": {
-            "description": "Deleted."
+            "description": "Deleted.",
+            "headers": {
+              "Deprecation": {
+                "description": "Structured-field date when this operation entered deprecation, formatted as @unix_timestamp.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Sunset": {
+                "description": "HTTP date after which this deprecated operation may be removed.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Link": {
+                "description": "Links to the successor operation and the OpenAPI lifecycle policy.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Probectl-API-Replacement": {
+                "description": "Preferred replacement operation.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Probectl-API-LTS-Until": {
+                "description": "Date through which the deprecated operation remains in the LTS compatibility window.",
+                "schema": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
           },
           "404": {
             "$ref": "#/components/responses/ErrorResponse"

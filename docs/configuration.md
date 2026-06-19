@@ -782,6 +782,25 @@ The versioned resource API lives under **`/v1`** (full schema at `/openapi.json`
 - `GET/POST /v1/tests/{id}/path` — the latest discovered network path for a test,
   and a trigger to discover it now. The Path & Topology UI consumes this.
 
+### API lifecycle
+
+`/v1` is the LTS compatibility line. A compatible field or route can be added at
+any time, but a removal or incompatible semantic change must first be marked in
+OpenAPI with `deprecated: true` and `x-probectl-lifecycle` metadata:
+`deprecated_at`, `sunset`, `lts_until`, `replacement`, and `policy`. Deprecated
+operations stay served for at least **12 months** after `deprecated_at`.
+
+Every deprecated operation also emits machine-readable response headers on live
+requests: `Deprecation` (structured-field date), `Sunset` (HTTP date),
+`X-Probectl-API-Replacement`, `X-Probectl-API-LTS-Until`, and `Link` entries for
+the successor operation plus `/openapi.json`. This lets clients discover both the
+retirement date and the replacement path without scraping release notes.
+
+Current deprecated operation: `DELETE /v1/agents/{id}` is retained for metadata
+deregistration compatibility through `2027-06-19`; prefer `POST
+/v1/agents/{id}/revoke` for security offboarding because it persists identity
+revocation and feeds the live mTLS deny-list.
+
 Every `/v1` route is **tenant-scoped** through `internal/tenancy` + Postgres RLS,
 so a request can never read or write across tenants. **Authentication and RBAC are
 real** (see *SSO & RBAC* below): the caller's tenant and effective permissions come

@@ -4,10 +4,53 @@ package control
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
 )
+
+var openAPIVerbs = map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true}
+
+type openAPIDoc struct {
+	Paths map[string]map[string]json.RawMessage `json:"paths"`
+}
+
+func parseOpenAPIDoc(t *testing.T) openAPIDoc {
+	t.Helper()
+	var doc openAPIDoc
+	if err := json.Unmarshal(openapiJSON, &doc); err != nil {
+		t.Fatalf("parse openapi.json: %v", err)
+	}
+	return doc
+}
+
+type lifecycleExtension struct {
+	Stage        string `json:"stage"`
+	DeprecatedAt string `json:"deprecated_at"`
+	Sunset       string `json:"sunset"`
+	LTSUntil     string `json:"lts_until"`
+	Replacement  string `json:"replacement"`
+	Policy       string `json:"policy"`
+}
+
+type openAPIOperation struct {
+	Deprecated bool                `json:"deprecated"`
+	Lifecycle  *lifecycleExtension `json:"x-probectl-lifecycle"`
+}
+
+func parseOperation(t *testing.T, raw json.RawMessage) openAPIOperation {
+	t.Helper()
+	var op openAPIOperation
+	if err := json.Unmarshal(raw, &op); err != nil {
+		t.Fatalf("parse openapi operation: %v", err)
+	}
+	return op
+}
 
 // TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CLAUDE.md §6, §8):
 // the registered /v1 routes must exactly equal the /v1 operations documented in
@@ -19,20 +62,14 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 		registered[rt.Method+" "+rt.Pattern] = true
 	}
 
-	var doc struct {
-		Paths map[string]map[string]json.RawMessage `json:"paths"`
-	}
-	if err := json.Unmarshal(openapiJSON, &doc); err != nil {
-		t.Fatalf("parse openapi.json: %v", err)
-	}
-	verbs := map[string]bool{"get": true, "post": true, "put": true, "patch": true, "delete": true}
+	doc := parseOpenAPIDoc(t)
 	documented := map[string]bool{}
 	for path, ops := range doc.Paths {
 		if !strings.HasPrefix(path, "/v1/") {
 			continue
 		}
 		for verb := range ops {
-			if verbs[verb] {
+			if openAPIVerbs[verb] {
 				documented[strings.ToUpper(verb)+" "+path] = true
 			}
 		}
@@ -54,12 +91,7 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 // GET operation's 200 application/json response (SCHEMA-005).
 func docResponseProps(t *testing.T, path string) map[string]string {
 	t.Helper()
-	var doc struct {
-		Paths map[string]map[string]json.RawMessage `json:"paths"`
-	}
-	if err := json.Unmarshal(openapiJSON, &doc); err != nil {
-		t.Fatalf("parse openapi.json: %v", err)
-	}
+	doc := parseOpenAPIDoc(t)
 	raw, ok := doc.Paths[path]["get"]
 	if !ok {
 		t.Fatalf("no GET %s in openapi.json", path)
@@ -87,6 +119,85 @@ func docResponseProps(t *testing.T, path string) map[string]string {
 		t.Fatalf("GET %s documents no response properties", path)
 	}
 	return out
+}
+
+// TestDeprecatedOperationsDeclareLifecycle: SCHEMA-005. Any deprecated OpenAPI
+// operation must carry the probectl lifecycle extension with concrete dates and
+// a replacement. This turns "we have /v1" into a machine-readable retirement
+// contract rather than a prose-only promise.
+func TestDeprecatedOperationsDeclareLifecycle(t *testing.T) {
+	doc := parseOpenAPIDoc(t)
+	deprecated := 0
+	for path, ops := range doc.Paths {
+		for verb, raw := range ops {
+			if !openAPIVerbs[verb] {
+				continue
+			}
+			op := parseOperation(t, raw)
+			if !op.Deprecated {
+				continue
+			}
+			deprecated++
+			if op.Lifecycle == nil {
+				t.Fatalf("%s %s is deprecated but has no x-probectl-lifecycle", strings.ToUpper(verb), path)
+			}
+			lc := *op.Lifecycle
+			if lc.Stage != "deprecated" || lc.Replacement == "" || lc.Policy == "" {
+				t.Fatalf("%s %s lifecycle is incomplete: %+v", strings.ToUpper(verb), path, lc)
+			}
+			runtime, ok := apiLifecycleFor(strings.ToUpper(verb), path)
+			if !ok {
+				t.Fatalf("%s %s is deprecated in OpenAPI but has no runtime lifecycle headers", strings.ToUpper(verb), path)
+			}
+			if lc.DeprecatedAt != runtime.DeprecatedAt || lc.Sunset != runtime.Sunset || lc.LTSUntil != runtime.LTSUntil ||
+				lc.Replacement != runtime.ReplacementMethod+" "+runtime.ReplacementPath {
+				t.Fatalf("%s %s OpenAPI lifecycle does not match runtime lifecycle: openapi=%+v runtime=%+v", strings.ToUpper(verb), path, lc, runtime)
+			}
+			deprecatedAt := parseLifecycleDate(t, lc.DeprecatedAt, "deprecated_at")
+			sunset := parseLifecycleDate(t, lc.Sunset, "sunset")
+			ltsUntil := parseLifecycleDate(t, lc.LTSUntil, "lts_until")
+			if sunset.Before(deprecatedAt) || ltsUntil.Before(sunset) {
+				t.Fatalf("%s %s lifecycle dates out of order: %+v", strings.ToUpper(verb), path, lc)
+			}
+		}
+	}
+	if deprecated == 0 {
+		t.Fatal("no deprecated OpenAPI operations carry lifecycle metadata")
+	}
+}
+
+func parseLifecycleDate(t *testing.T, value, field string) time.Time {
+	t.Helper()
+	out, err := time.Parse(apiLifecycleDateLayout, value)
+	if err != nil {
+		t.Fatalf("%s is not YYYY-MM-DD: %q", field, value)
+	}
+	return out
+}
+
+func TestDeprecatedRouteLifecycleHeaders(t *testing.T) {
+	cfg := &config.Config{HTTPAddr: ":0", AuthMode: "oidc"}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), fakePinger{}, nil, nil, nil)
+	rec := do(srv, http.MethodDelete, "/v1/agents/agent-1")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("deprecated unauthenticated route = %d, want 401", rec.Code)
+	}
+	if got, want := rec.Header().Get("Deprecation"), structuredDate(deleteAgentLifecycle.DeprecatedAt); got != want {
+		t.Fatalf("Deprecation = %q, want %q", got, want)
+	}
+	if got, want := rec.Header().Get("Sunset"), httpDate(deleteAgentLifecycle.Sunset); got != want {
+		t.Fatalf("Sunset = %q, want %q", got, want)
+	}
+	if got, want := rec.Header().Get("X-Probectl-API-Replacement"), deleteAgentLifecycle.ReplacementMethod+" "+deleteAgentLifecycle.ReplacementPath; got != want {
+		t.Fatalf("replacement header = %q, want %q", got, want)
+	}
+	if got := rec.Header().Get("X-Probectl-API-LTS-Until"); got != deleteAgentLifecycle.LTSUntil {
+		t.Fatalf("lts header = %q, want %q", got, deleteAgentLifecycle.LTSUntil)
+	}
+	link := strings.Join(rec.Header().Values("Link"), ",")
+	if !strings.Contains(link, `rel="successor-version"`) || !strings.Contains(link, "/openapi.json") {
+		t.Fatalf("Link headers missing successor/openapi lifecycle entries: %q", link)
+	}
 }
 
 // jsonType maps a decoded JSON value to its OpenAPI type name.
