@@ -236,8 +236,10 @@ security/threat, topology, cost/SLO, and single-tenant self-hosting — is
 runtime by an **offline-verifiable, signed license** that never phones home.
 **Enterprise** adds the validated-module (FIPS) build, BYOK/governance,
 multi-region HA, and guarded remediation; **Provider/MSP** adds the management
-plane, hard tenant isolation, metering/billing, and white-label. Unlicensed
-commercial features are simply hidden (no lockware). See
+plane, siloed/hybrid physical isolation and residency controls,
+metering/billing, and white-label. Hard tenant isolation is a core-platform
+property; Provider/MSP adds stronger placement and operations controls on top.
+Unlicensed commercial features are simply hidden (no lockware). See
 **[`docs/editions.md`](docs/editions.md)**.
 
 ## Quickstart (run it)
