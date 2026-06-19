@@ -934,6 +934,14 @@ func Load(getenv func(string) string) (*Config, error) {
 	if cfg.AIModelEnabled() && cfg.AIModelEndpoint == "" {
 		l.errf("PROBECTL_AI_MODEL_PROVIDER=%s requires PROBECTL_AI_MODEL_ENDPOINT (a remote endpoint must be https; loopback may be http for a local model)", cfg.AIModelProvider)
 	}
+	if cfg.AIModelEnabled() && cfg.AIModelEndpoint != "" {
+		u, err := url.Parse(strings.TrimSpace(cfg.AIModelEndpoint))
+		if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			l.errf("PROBECTL_AI_MODEL_ENDPOINT must be an http(s) URL with a host (remote endpoints must be https; loopback may be http for a local model)")
+		} else if u.Scheme != "https" && !isLoopbackHostname(u.Hostname()) {
+			l.errf("PROBECTL_AI_MODEL_ENDPOINT must be https:// for a remote AI model endpoint; plaintext http:// is allowed only for loopback local models")
+		}
+	}
 	if remoteAIEndpoint(cfg) && cfg.AIEgressAck != AIEgressAckPhrase {
 		l.errf("PROBECTL_AI_MODEL_ENDPOINT is a REMOTE endpoint: tenant telemetry would leave the network (U-013). "+
 			"Acknowledge explicitly with PROBECTL_AI_EGRESS_ACK=%q (see docs/ai-egress.md), or use a loopback local model / the builtin", AIEgressAckPhrase)
@@ -986,14 +994,17 @@ func remoteAIEndpoint(c *Config) bool {
 	if err != nil || u.Hostname() == "" {
 		return false // unparseable endpoints fail other validations
 	}
-	host := u.Hostname()
+	return !isLoopbackHostname(u.Hostname())
+}
+
+func isLoopbackHostname(host string) bool {
 	if host == "localhost" {
-		return false
+		return true
 	}
 	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 // LoadFromEnv resolves configuration from the process environment.

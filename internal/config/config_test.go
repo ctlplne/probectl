@@ -507,6 +507,33 @@ func TestAIConfig(t *testing.T) {
 	if !cfg.AIModelEnabled() {
 		t.Error("ollama provider should enable an external model")
 	}
+	if cfg.AIEgressAck != "" {
+		t.Errorf("local loopback model should not need egress ack, got %q", cfg.AIEgressAck)
+	}
+
+	// A remote HTTPS endpoint is allowed only after the explicit data-egress ack.
+	cfg, err = Load(envFunc(map[string]string{
+		"PROBECTL_AI_MODEL_PROVIDER": "openai",
+		"PROBECTL_AI_MODEL_ENDPOINT": "https://model.example.com",
+		"PROBECTL_AI_MODEL_NAME":     "gpt-test",
+		"PROBECTL_AI_EGRESS_ACK":     AIEgressAckPhrase,
+	}))
+	if err != nil {
+		t.Fatalf("remote https ai config with egress ack rejected: %v", err)
+	}
+	if !cfg.AIModelEnabled() {
+		t.Error("remote https provider should enable an external model")
+	}
+
+	// The egress ack is not a plaintext exemption: remote endpoints must be HTTPS.
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_AI_MODEL_PROVIDER": "openai",
+		"PROBECTL_AI_MODEL_ENDPOINT": "http://model.example.com",
+		"PROBECTL_AI_MODEL_NAME":     "gpt-test",
+		"PROBECTL_AI_EGRESS_ACK":     AIEgressAckPhrase,
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_AI_MODEL_ENDPOINT must be https://") {
+		t.Errorf("remote plaintext ai endpoint should fail closed, got %v", err)
+	}
 
 	// A non-builtin provider without an endpoint fails closed.
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_AI_MODEL_PROVIDER": "openai"})); err == nil || !strings.Contains(err.Error(), "PROBECTL_AI_MODEL_ENDPOINT") {
