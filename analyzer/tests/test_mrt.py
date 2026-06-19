@@ -6,7 +6,6 @@ import io
 import struct
 
 import pytest
-
 from mrt_fixtures import bgp4mp_update_as4, peer_index_table, rib_ipv4
 
 from probectl_analyzer.mrt import MAX_MRT_RECORD_LENGTH, MRTError, stream_mrt

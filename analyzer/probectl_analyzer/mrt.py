@@ -10,8 +10,8 @@ aborting the whole stream.
 
 from __future__ import annotations
 
-import ipaddress
 import io
+import ipaddress
 import struct
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -137,9 +137,7 @@ class MRTReader:
             if length > self._max_record_length:
                 if self._skip_oversized(fp, length, mtype, subtype):
                     continue
-                raise MRTError(
-                    f"MRT record length {length} exceeds max {self._max_record_length}"
-                )
+                raise MRTError(f"MRT record length {length} exceeds max {self._max_record_length}")
             body = fp.read(length)
             if len(body) < length:
                 raise MRTError("truncated MRT record body")
