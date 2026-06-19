@@ -15,14 +15,21 @@ const memoryMaxPerTenant = 50_000
 
 // Memory is the in-process Store: per-tenant bounded rings, newest kept.
 type Memory struct {
-	mu    sync.RWMutex
-	spans map[string][]Span
-	logs  map[string][]LogRecord
+	mu        sync.RWMutex
+	spans     map[string][]Span
+	logs      map[string][]LogRecord
+	spanIndex map[string]map[string]int
+	logIndex  map[string]map[string]int
 }
 
 // NewMemory returns an empty in-memory store.
 func NewMemory() *Memory {
-	return &Memory{spans: map[string][]Span{}, logs: map[string][]LogRecord{}}
+	return &Memory{
+		spans:     map[string][]Span{},
+		logs:      map[string][]LogRecord{},
+		spanIndex: map[string]map[string]int{},
+		logIndex:  map[string]map[string]int{},
+	}
 }
 
 // WriteSpans appends spans under their OWN tenant ids (the consumer already
@@ -30,17 +37,22 @@ func NewMemory() *Memory {
 func (m *Memory) WriteSpans(_ context.Context, spans []Span) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.initLocked()
 	for _, s := range spans {
 		if s.TenantID == "" {
 			continue // never store an unowned row (fail closed)
 		}
-		if i := findSpan(m.spans[s.TenantID], s); i >= 0 {
+		key := spanDedupKey(s)
+		idx := m.spanIndexFor(s.TenantID)
+		if i, ok := idx[key]; ok {
 			m.spans[s.TenantID][i] = s
 			continue
 		}
+		idx[key] = len(m.spans[s.TenantID])
 		m.spans[s.TenantID] = append(m.spans[s.TenantID], s)
 		if over := len(m.spans[s.TenantID]) - memoryMaxPerTenant; over > 0 {
 			m.spans[s.TenantID] = m.spans[s.TenantID][over:]
+			m.rebuildSpanIndex(s.TenantID)
 		}
 	}
 	return nil
@@ -50,17 +62,22 @@ func (m *Memory) WriteSpans(_ context.Context, spans []Span) error {
 func (m *Memory) WriteLogs(_ context.Context, recs []LogRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.initLocked()
 	for _, r := range recs {
 		if r.TenantID == "" {
 			continue
 		}
-		if i := findLog(m.logs[r.TenantID], r); i >= 0 {
+		key := logDedupID(r)
+		idx := m.logIndexFor(r.TenantID)
+		if i, ok := idx[key]; ok {
 			m.logs[r.TenantID][i] = r
 			continue
 		}
+		idx[key] = len(m.logs[r.TenantID])
 		m.logs[r.TenantID] = append(m.logs[r.TenantID], r)
 		if over := len(m.logs[r.TenantID]) - memoryMaxPerTenant; over > 0 {
 			m.logs[r.TenantID] = m.logs[r.TenantID][over:]
+			m.rebuildLogIndex(r.TenantID)
 		}
 	}
 	return nil
@@ -138,32 +155,12 @@ func (m *Memory) Len(tenant string) (spans, logs int) {
 	return len(m.spans[tenant]), len(m.logs[tenant])
 }
 
-func findSpan(spans []Span, needle Span) int {
-	key := spanDedupKey(needle)
-	for i := range spans {
-		if spanDedupKey(spans[i]) == key {
-			return i
-		}
-	}
-	return -1
-}
-
 func spanDedupKey(s Span) string {
 	if s.TraceID != "" && s.SpanID != "" {
 		return s.TenantID + "|" + s.TraceID + "|" + s.SpanID
 	}
 	return s.TenantID + "|" + timeOrNow(s.Start).UTC().Format(time.RFC3339Nano) + "|" +
 		s.Service + "|" + s.Name + "|" + s.Kind + "|" + s.StatusCode
-}
-
-func findLog(logs []LogRecord, needle LogRecord) int {
-	key := logDedupID(needle)
-	for i := range logs {
-		if logDedupID(logs[i]) == key {
-			return i
-		}
-	}
-	return -1
 }
 
 // Close is a no-op for the memory store.
@@ -179,6 +176,8 @@ func (m *Memory) EraseTenant(_ context.Context, tenant string) (deleted, remaini
 	deleted = len(m.spans[tenant]) + len(m.logs[tenant])
 	delete(m.spans, tenant)
 	delete(m.logs, tenant)
+	delete(m.spanIndex, tenant)
+	delete(m.logIndex, tenant)
 	return deleted, 0, nil
 }
 
@@ -191,4 +190,53 @@ func timeOrNow(t time.Time) time.Time {
 		return time.Now()
 	}
 	return t
+}
+
+func (m *Memory) initLocked() {
+	if m.spans == nil {
+		m.spans = map[string][]Span{}
+	}
+	if m.logs == nil {
+		m.logs = map[string][]LogRecord{}
+	}
+	if m.spanIndex == nil {
+		m.spanIndex = map[string]map[string]int{}
+	}
+	if m.logIndex == nil {
+		m.logIndex = map[string]map[string]int{}
+	}
+}
+
+func (m *Memory) spanIndexFor(tenant string) map[string]int {
+	idx := m.spanIndex[tenant]
+	if idx == nil {
+		m.rebuildSpanIndex(tenant)
+		idx = m.spanIndex[tenant]
+	}
+	return idx
+}
+
+func (m *Memory) logIndexFor(tenant string) map[string]int {
+	idx := m.logIndex[tenant]
+	if idx == nil {
+		m.rebuildLogIndex(tenant)
+		idx = m.logIndex[tenant]
+	}
+	return idx
+}
+
+func (m *Memory) rebuildSpanIndex(tenant string) {
+	idx := make(map[string]int, len(m.spans[tenant]))
+	for i, s := range m.spans[tenant] {
+		idx[spanDedupKey(s)] = i
+	}
+	m.spanIndex[tenant] = idx
+}
+
+func (m *Memory) rebuildLogIndex(tenant string) {
+	idx := make(map[string]int, len(m.logs[tenant]))
+	for i, r := range m.logs[tenant] {
+		idx[logDedupID(r)] = i
+	}
+	m.logIndex[tenant] = idx
 }
