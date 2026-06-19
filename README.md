@@ -158,8 +158,9 @@ Intelligence, security, and platform layers built across the planes:
 
 ## How it works
 
-Lightweight **agents** — a single Go binary, each bound to one tenant — run the
-probes and watch the wire, then push results onto a **bus**. The stateless
+Lightweight **producers** — a small family of single static Go binaries, each
+bound to one tenant — run probes, collect flows/device/endpoint signals, and
+watch the wire, then push results onto a **bus**. The stateless
 **control plane** consumes that stream, persists each signal to the store that
 fits it (Postgres for state, ClickHouse for high-cardinality events,
 Prometheus/VictoriaMetrics for metrics), and continuously builds incidents and a
@@ -184,7 +185,7 @@ flowchart TB
         Subsys["subsystems: tenancy · path · bgp · opendata · threat · change ·<br/>topology · cost · slo · compliance · ai · remediation · …"]
     end
 
-    Agents["Agents — Go, single binary, tenant-bound<br/>canary plugins · path engine · eBPF host/L7"]
+    Agents["Producer binaries — Go, static, tenant-bound<br/>canary/path · eBPF host/L7 · flow · device · endpoint"]
     Analyzer["BGP analyzer (Python)<br/>RouteViews/RIS MRT + RIS Live"]
     Bus["Bus — Kafka / in-process<br/>(tenant-tagged)"]
     Stores["Postgres · ClickHouse · Prometheus/VM<br/>topology graph · object store"]
