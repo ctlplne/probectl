@@ -284,7 +284,11 @@ function TopologySidePanel({
         <CardHeader title="Inspector" />
         <CardBody>
           {!selected ? (
-            <EmptyState icon="path" title="No node selected" description="Click a node in the graph." />
+            <EmptyState
+              icon="path"
+              title="No node selected"
+              description="Click a node in the graph."
+            />
           ) : (
             <>
               <dl className={styles.detailList}>

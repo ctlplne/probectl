@@ -2,7 +2,7 @@ import { describe, expect, test, vi, beforeEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { assertNoDoublePrefix, jsonResponse, pathOf } from './fetchStub'
 import type { Detection } from '../api/threat'
 
 /** The sprint's named fixture: a flow/connection to a known-bad IP with full
@@ -47,10 +47,11 @@ function threatBackend(items: Detection[]) {
   const state = { requests: [] as string[] }
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    assertNoDoublePrefix(input)
+    const path = pathOf(input)
     state.requests.push(`${init?.method ?? 'GET'} ${url}`)
-    if (url.endsWith('/v1/threat/detections'))
-      return jsonResponse({ items, detections_running: true })
-    if (url.endsWith('/v1/tls/posture')) return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/threat/detections') return jsonResponse({ items, detections_running: true })
+    if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     const inc42 = {
       id: 'inc-42',
       tenant_id: 't',
@@ -175,15 +176,15 @@ describe('threat/IOC triage surface (S-FE3)', () => {
 
   test('detections-off is stated, not guessed', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.endsWith('/v1/threat/detections'))
+      assertNoDoublePrefix(input)
+      const path = pathOf(input)
+      if (path === '/v1/threat/detections')
         return jsonResponse({ items: [], detections_running: false })
-      if (url.endsWith('/v1/tls/posture'))
-        return jsonResponse({ items: [], collector_running: true })
+      if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
       return jsonResponse({ items: [] })
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', fetcher)
     renderApp('/security')
-    expect(await screen.findByText(/threat consumers are not wired/)).toBeDefined()
+    expect(await screen.findByText(/threat detection reader is not wired/)).toBeDefined()
   })
 })

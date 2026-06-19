@@ -91,8 +91,7 @@ export function stubPathFetch(path: Path | null = samplePath) {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const pathName = pathOf(input)
       const method = init?.method ?? 'GET'
-      if (pathName === '/v1/tests' && method === 'GET')
-        return jsonResponse({ items: [sampleTest] })
+      if (pathName === '/v1/tests' && method === 'GET') return jsonResponse({ items: [sampleTest] })
       if (pathName === '/v1/tests/t1/path') {
         return path
           ? jsonResponse(path)

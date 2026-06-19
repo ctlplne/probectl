@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { assertNoDoublePrefix, jsonResponse, pathOf } from './fetchStub'
 import type { LatestResult } from '../api/results'
 
 /** Per-type fixtures (the sprint contract: every shipped type renders its
@@ -196,11 +196,13 @@ function resultsBackend(items: LatestResult[]) {
   const state = { requests: [] as string[] }
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
+    assertNoDoublePrefix(input)
+    const path = pathOf(input)
     state.requests.push(`${init?.method ?? 'GET'} ${url}`)
-    if (url.endsWith('/v1/results/latest')) return jsonResponse({ items, collector_running: true })
-    if (url.endsWith('/v1/tests')) return jsonResponse({ items: testsList })
-    if (url.endsWith('/v1/agents')) return jsonResponse({ items: [] })
-    if (url.endsWith('/v1/ai/discover')) return jsonResponse({ proposals: [] })
+    if (path === '/v1/results/latest') return jsonResponse({ items, collector_running: true })
+    if (path === '/v1/tests') return jsonResponse({ items: testsList })
+    if (path === '/v1/agents') return jsonResponse({ items: [] })
+    if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
     return jsonResponse({ items: [] })
   }) as unknown as typeof fetch
   return { state, fetcher }
@@ -311,11 +313,12 @@ describe('synthetic result views (S-FE5)', () => {
 
   test('no results yet / collector-off are stated, not guessed', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input)
-      if (url.endsWith('/v1/results/latest'))
+      assertNoDoublePrefix(input)
+      const path = pathOf(input)
+      if (path === '/v1/results/latest')
         return jsonResponse({ items: [], collector_running: false })
-      if (url.endsWith('/v1/tests')) return jsonResponse({ items: testsList })
-      if (url.endsWith('/v1/ai/discover')) return jsonResponse({ proposals: [] })
+      if (path === '/v1/tests') return jsonResponse({ items: testsList })
+      if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
       return jsonResponse({ items: [] })
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', fetcher)

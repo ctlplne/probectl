@@ -71,10 +71,7 @@ describe('tenant data lifecycle (S-T5)', () => {
       'fetch',
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (String(input).endsWith('/v1/lifecycle/retention') && init?.method === 'PUT')
-          return jsonResponse(
-            { error: { message: 'flow_retention_days must be >= 1' } },
-            400,
-          )
+          return jsonResponse({ error: { message: 'flow_retention_days must be >= 1' } }, 400)
         return base(input, init)
       }),
     )
