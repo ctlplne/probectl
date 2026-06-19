@@ -200,6 +200,86 @@ func TestDeprecatedRouteLifecycleHeaders(t *testing.T) {
 	}
 }
 
+func TestOpenAPIAgentPaginationContract(t *testing.T) {
+	var spec struct {
+		Paths      map[string]map[string]json.RawMessage `json:"paths"`
+		Components struct {
+			Schemas map[string]struct {
+				Properties map[string]struct {
+					Type        string `json:"type"`
+					Description string `json:"description"`
+				} `json:"properties"`
+			} `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(openapiJSON, &spec); err != nil {
+		t.Fatalf("parse openapi.json: %v", err)
+	}
+
+	var op struct {
+		Parameters []struct {
+			Ref         string `json:"$ref"`
+			Name        string `json:"name"`
+			In          string `json:"in"`
+			Description string `json:"description"`
+			Schema      struct {
+				Type    string  `json:"type"`
+				Minimum float64 `json:"minimum"`
+				Maximum float64 `json:"maximum"`
+				Default float64 `json:"default"`
+			} `json:"schema"`
+		} `json:"parameters"`
+	}
+	if err := json.Unmarshal(spec.Paths["/v1/agents"]["get"], &op); err != nil {
+		t.Fatalf("parse GET /v1/agents operation: %v", err)
+	}
+
+	params := map[string]struct {
+		In          string
+		Type        string
+		Description string
+		Minimum     float64
+		Maximum     float64
+		Default     float64
+	}{}
+	for _, p := range op.Parameters {
+		if p.Name == "" {
+			continue // TenantHeader is a shared $ref.
+		}
+		params[p.Name] = struct {
+			In          string
+			Type        string
+			Description string
+			Minimum     float64
+			Maximum     float64
+			Default     float64
+		}{In: p.In, Type: p.Schema.Type, Description: p.Description, Minimum: p.Schema.Minimum, Maximum: p.Schema.Maximum, Default: p.Schema.Default}
+	}
+
+	after, ok := params["after"]
+	if !ok {
+		t.Fatal("GET /v1/agents is missing after query parameter (UX-003)")
+	}
+	if after.In != "query" || after.Type != "string" || !strings.Contains(after.Description, "next_cursor") {
+		t.Fatalf("GET /v1/agents after parameter drifted: %+v", after)
+	}
+	limit, ok := params["limit"]
+	if !ok {
+		t.Fatal("GET /v1/agents is missing limit query parameter (UX-003)")
+	}
+	if limit.In != "query" || limit.Type != "integer" || limit.Minimum != 1 || limit.Maximum != 1000 || limit.Default != 200 {
+		t.Fatalf("GET /v1/agents limit parameter drifted: %+v", limit)
+	}
+
+	next, ok := spec.Components.Schemas["AgentList"].Properties["next_cursor"]
+	if !ok {
+		t.Fatal("AgentList is missing next_cursor (UX-003)")
+	}
+	if next.Type != "string" || !strings.Contains(next.Description, "SCALE-010") {
+		t.Fatalf("AgentList.next_cursor drifted: %+v", next)
+	}
+}
+
 // jsonType maps a decoded JSON value to its OpenAPI type name.
 func jsonType(v any) string {
 	switch v.(type) {
