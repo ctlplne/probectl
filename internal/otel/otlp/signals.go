@@ -196,6 +196,7 @@ func (s *logsService) Export(ctx context.Context, req *collogspb.ExportLogsServi
 // authenticate, bound the body, unmarshal, tenant-scope, consume.
 func signalHTTPHandler[Req proto.Message, Resp proto.Message](
 	auth Authenticator, maxBytes int64,
+	freshness *FreshnessVerifier,
 	newReq func() Req, newResp func() Resp,
 	scope func(Req, string) error,
 	consume func(context.Context, string, Req) error,
@@ -218,6 +219,12 @@ func signalHTTPHandler[Req proto.Message, Resp proto.Message](
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
+		if freshness.Enabled() {
+			if err := freshness.VerifyHTTP(r, tenant, body); err != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		req := newReq()
 		if err := proto.Unmarshal(body, req); err != nil {
 			http.Error(w, "invalid OTLP payload", http.StatusBadRequest)
@@ -239,7 +246,13 @@ func signalHTTPHandler[Req proto.Message, Resp proto.Message](
 
 // TracesHTTPHandler is the OTLP/HTTP traces receiver (POST /v1/traces).
 func TracesHTTPHandler(auth Authenticator, sink TraceSink, maxBytes int64) http.Handler {
-	return signalHTTPHandler(auth, maxBytes,
+	return TracesHTTPHandlerWithFreshness(auth, sink, maxBytes, nil)
+}
+
+// TracesHTTPHandlerWithFreshness builds the OTLP/HTTP traces receiver with
+// optional application-level replay protection.
+func TracesHTTPHandlerWithFreshness(auth Authenticator, sink TraceSink, maxBytes int64, freshness *FreshnessVerifier) http.Handler {
+	return signalHTTPHandler(auth, maxBytes, freshness,
 		func() *coltracepb.ExportTraceServiceRequest { return &coltracepb.ExportTraceServiceRequest{} },
 		func() *coltracepb.ExportTraceServiceResponse { return &coltracepb.ExportTraceServiceResponse{} },
 		scopeTracesToTenant, sink.ConsumeTraces)
@@ -247,7 +260,13 @@ func TracesHTTPHandler(auth Authenticator, sink TraceSink, maxBytes int64) http.
 
 // LogsHTTPHandler is the OTLP/HTTP logs receiver (POST /v1/logs).
 func LogsHTTPHandler(auth Authenticator, sink LogSink, maxBytes int64) http.Handler {
-	return signalHTTPHandler(auth, maxBytes,
+	return LogsHTTPHandlerWithFreshness(auth, sink, maxBytes, nil)
+}
+
+// LogsHTTPHandlerWithFreshness builds the OTLP/HTTP logs receiver with optional
+// application-level replay protection.
+func LogsHTTPHandlerWithFreshness(auth Authenticator, sink LogSink, maxBytes int64, freshness *FreshnessVerifier) http.Handler {
+	return signalHTTPHandler(auth, maxBytes, freshness,
 		func() *collogspb.ExportLogsServiceRequest { return &collogspb.ExportLogsServiceRequest{} },
 		func() *collogspb.ExportLogsServiceResponse { return &collogspb.ExportLogsServiceResponse{} },
 		scopeLogsToTenant, sink.ConsumeLogs)

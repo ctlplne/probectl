@@ -566,7 +566,11 @@ func startOTLPSubsystems(
 		}),
 	}
 	otlpSrv, err := otlp.NewServer(
-		otlp.ServerConfig{GRPCAddr: cfg.OTLPGRPCAddr, HTTPAddr: cfg.OTLPHTTPAddr},
+		otlp.ServerConfig{
+			GRPCAddr:  cfg.OTLPGRPCAddr,
+			HTTPAddr:  cfg.OTLPHTTPAddr,
+			Freshness: otlp.NewFreshnessVerifier(cfg.OTLPFreshnessHMACKey, cfg.OTLPFreshnessWindow),
+		},
 		tlsCfg, otlpAuth, sinks, log)
 	if err != nil {
 		return fmt.Errorf("otlp receiver: %w", err)

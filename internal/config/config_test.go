@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
@@ -402,7 +403,8 @@ func TestOTLPConfig(t *testing.T) {
 		t.Error("OTLP should be disabled by default")
 	}
 
-	// Fully configured: enabled, tokens parsed (whitespace trimmed).
+	// Fully configured with legacy/bootstrap static tokens: enabled, tokens
+	// parsed (whitespace trimmed).
 	cfg, err = Load(envFunc(map[string]string{
 		"PROBECTL_OTLP_GRPC_ADDR":     ":4317",
 		"PROBECTL_OTLP_HTTP_ADDR":     ":4318",
@@ -414,15 +416,33 @@ func TestOTLPConfig(t *testing.T) {
 		t.Fatalf("valid OTLP config rejected: %v", err)
 	}
 	if !cfg.OTLPEnabled() {
-		t.Error("OTLP should be enabled when address + TLS + tokens are all set")
+		t.Error("OTLP should be enabled when address + TLS are set")
 	}
 	if len(cfg.OTLPTokens) != 2 || cfg.OTLPTokens["tok1"] != "tenant-a" || cfg.OTLPTokens["tok2"] != "tenant-b" {
 		t.Errorf("OTLPTokens = %v, want 2 trimmed entries", cfg.OTLPTokens)
 	}
 
-	// An address without TLS + tokens fails closed.
+	// WIRE-003: DB-backed tokens can be the only token source. The receiver
+	// starts with address+TLS and no static PROBECTL_OTLP_TOKENS; auth still
+	// fails closed per request until the admin API creates DB tokens.
+	cfg, err = Load(envFunc(map[string]string{
+		"PROBECTL_OTLP_GRPC_ADDR":     ":4317",
+		"PROBECTL_OTLP_TLS_CERT_FILE": "/c.pem",
+		"PROBECTL_OTLP_TLS_KEY_FILE":  "/k.pem",
+	}))
+	if err != nil {
+		t.Fatalf("DB-only OTLP config rejected: %v", err)
+	}
+	if !cfg.OTLPEnabled() {
+		t.Error("OTLP should be enabled with address + TLS even when static tokens are absent")
+	}
+	if len(cfg.OTLPTokens) != 0 {
+		t.Errorf("OTLPTokens = %v, want no static tokens", cfg.OTLPTokens)
+	}
+
+	// An address without TLS fails closed.
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_OTLP_GRPC_ADDR": ":4317"})); err == nil || !strings.Contains(err.Error(), "OTLP") {
-		t.Errorf("OTLP address without TLS/tokens should fail, got %v", err)
+		t.Errorf("OTLP address without TLS should fail, got %v", err)
 	}
 
 	// A malformed token entry is reported.
@@ -433,6 +453,32 @@ func TestOTLPConfig(t *testing.T) {
 		"PROBECTL_OTLP_TOKENS":        "missing-equals",
 	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_OTLP_TOKENS") {
 		t.Errorf("a malformed OTLP token should fail with a tokens error, got %v", err)
+	}
+
+	// WIRE-004: first-party OTLP freshness is opt-in and requires a real key.
+	cfg, err = Load(envFunc(map[string]string{
+		"PROBECTL_OTLP_GRPC_ADDR":          ":4317",
+		"PROBECTL_OTLP_TLS_CERT_FILE":      "/c.pem",
+		"PROBECTL_OTLP_TLS_KEY_FILE":       "/k.pem",
+		"PROBECTL_OTLP_FRESHNESS_HMAC_KEY": testSessionHMACKeyHex,
+		"PROBECTL_OTLP_FRESHNESS_WINDOW":   "2m",
+	}))
+	if err != nil {
+		t.Fatalf("OTLP freshness config rejected: %v", err)
+	}
+	if got := len(cfg.OTLPFreshnessHMACKey); got != crypto.KeySize {
+		t.Fatalf("OTLPFreshnessHMACKey length = %d, want %d", got, crypto.KeySize)
+	}
+	if cfg.OTLPFreshnessWindow != 2*time.Minute {
+		t.Fatalf("OTLPFreshnessWindow = %s, want 2m", cfg.OTLPFreshnessWindow)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_OTLP_GRPC_ADDR":          ":4317",
+		"PROBECTL_OTLP_TLS_CERT_FILE":      "/c.pem",
+		"PROBECTL_OTLP_TLS_KEY_FILE":       "/k.pem",
+		"PROBECTL_OTLP_FRESHNESS_HMAC_KEY": "abcd",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_OTLP_FRESHNESS_HMAC_KEY") {
+		t.Errorf("short OTLP freshness key should fail, got %v", err)
 	}
 }
 

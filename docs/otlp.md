@@ -77,12 +77,23 @@ missing makes it **fail closed**.
   handlers are served over an HTTPS listener. No plaintext OTLP, ever.
 - **Auth.** A **bearer token** — a secret string that grants access to whoever
   carries it, hence the name — sent as `Authorization: Bearer <token>` maps
-  to a tenant via
-  `PROBECTL_OTLP_TOKENS`. Missing/invalid → gRPC `Unauthenticated` / HTTP `401`.
+  to a tenant. The preferred path is DB-backed tokens minted at
+  `/v1/otlp-tokens`: only the hash is stored, and `DELETE /v1/otlp-tokens/{id}`
+  revokes the token for the very next request. `PROBECTL_OTLP_TOKENS` still
+  exists as an optional legacy/bootstrap map, but it is not required to start
+  the receiver. Missing/invalid/revoked → gRPC `Unauthenticated` / HTTP `401`.
   mTLS / SPIFFE (mutual TLS, where the client presents a certificate too;
   SPIFFE is the workload-identity standard for those certs) is the stronger
-  option; the transport already requires TLS
-  regardless.
+  channel identity option; the transport already requires TLS regardless.
+- **Freshness / replay protection.** For generic OTel collectors, TLS + bearer
+  auth + downstream idempotency remain compatible defaults. First-party
+  collectors can additionally enable `PROBECTL_OTLP_FRESHNESS_HMAC_KEY`, a
+  hex-encoded 32-byte HMAC key. When set, every OTLP/gRPC and OTLP/HTTP push
+  must include `X-Probectl-OTLP-Sent-At`, `X-Probectl-OTLP-Nonce`, and
+  `X-Probectl-OTLP-Signature: sha256=<hex>` (gRPC uses the same lowercase
+  metadata keys). The signature covers protocol, method/path, timestamp, nonce,
+  and payload hash. Stale timestamps, repeated nonces, missing headers, or bad
+  signatures fail closed.
 - **Tenant scoping.** The authenticated tenant *is* the scope — the token works
   like a hotel keycard: whatever floor a guest claims, the card only ever opens
   their own. A resource that
@@ -100,30 +111,29 @@ missing makes it **fail closed**.
 
 Enable it on the control plane with `PROBECTL_OTLP_GRPC_ADDR` /
 `PROBECTL_OTLP_HTTP_ADDR`, plus `PROBECTL_OTLP_TLS_CERT_FILE` /
-`PROBECTL_OTLP_TLS_KEY_FILE` and `PROBECTL_OTLP_TOKENS` (see
-[`configuration.md`](configuration.md)). It is off by default and **fails config
-validation** if an address is set without TLS + tokens.
+`PROBECTL_OTLP_TLS_KEY_FILE` (see [`configuration.md`](configuration.md)). It is
+off by default and **fails config validation** if an address is set without TLS.
+Create DB-backed tokens through the API, or use `PROBECTL_OTLP_TOKENS` only as
+an explicit bootstrap/legacy source.
 
 ## Token rotation & revocation
 
-Bearer tokens map to tenants (`PROBECTL_OTLP_TOKENS=token=tenant,...`). The
-comparison is **constant-time over a SHA-256 of the token**: the authenticator
-keeps only the hash (never the plaintext after construction) and checks *every*
-configured token without an early exit — it tries every key on the ring even
-after one fits — so neither a near-miss nor the matching
-token's position can leak through timing (`internal/otel/otlp/auth.go`).
+Bearer tokens map to tenants. DB-backed OTLP tokens are the normal operational
+path: an authenticated operator creates one with `POST /v1/otlp-tokens`, gets
+the plaintext once, and future authentication checks the stored hash through the
+database. The receiver can start in DB-only mode with **zero** static
+`PROBECTL_OTLP_TOKENS`.
 
-**Rotate** without downtime by running two tokens during the migration: add the
-new token to `PROBECTL_OTLP_TOKENS` (both valid now), repoint each OTLP sender at
-the new token, then drop the old token and restart the receiver. Multiple
-concurrently-valid tokens and optional per-token expiry are first-class in the
-authenticator (`Add`).
+**Rotate** without downtime by creating a new DB token, repointing each OTLP
+sender, then revoking the old token. The authenticator checks DB-issued tokens
+against the DB on every request, even after the in-process cache knows them, so
+revocation is hot: no config change and no restart.
 
-**Revoke** a leaked token immediately by dropping it from `PROBECTL_OTLP_TOKENS`
-and restarting (the env-config path); the authenticator's in-process `Revoke`
-gives the same effect for an admin-driven path. A revoked or expired token fails
-closed (`Unauthenticated` / `401`). The count of currently-valid tokens is
-exposed for rotation visibility.
+`PROBECTL_OTLP_TOKENS=token=tenant,...` remains available for legacy/bootstrap
+deployments. Those static tokens are checked in constant time over a SHA-256
+hash and can overlap during rotation, but because they live in process config
+they are revoked by removing the entry and restarting. Prefer DB-backed tokens
+for production operations.
 
 ## Exporter — outbound
 
@@ -169,8 +179,10 @@ probectl's receiver speaks the standard OTLP wire protocol on the standard
 paths, so a stock **opentelemetry-collector** exports to it with the ordinary
 `otlphttp` exporter — no probectl-specific Collector component:
 
-1. Mint a tenant token (`PROBECTL_OTLP_TOKENS=tok=tenant-id`) and enable the
-   receiver (`PROBECTL_OTLP_HTTP_ADDR=:4318` + the TLS pair).
+1. Enable the receiver (`PROBECTL_OTLP_HTTP_ADDR=:4318` + the TLS pair), then
+   mint a tenant token with `POST /v1/otlp-tokens`. Use
+   `PROBECTL_OTLP_TOKENS=tok=tenant-id` only for explicit bootstrap/legacy
+   deployments.
 2. Run the Collector with the reference config
    [`deploy/otel-collector/config.yaml`](../deploy/otel-collector/config.yaml):
    apps export to the Collector as usual; it batches and forwards

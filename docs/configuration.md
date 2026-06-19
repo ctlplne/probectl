@@ -1045,11 +1045,12 @@ OTLP is the OpenTelemetry protocol — the vendor-neutral standard wire format f
 metrics, traces, and logs. This receiver lets *other* systems push their OTLP
 data into probectl: anything that already speaks OpenTelemetry can send here
 without changing its exporter. It
-is **off by default** and, when on, is locked to the same posture
-as everything else: **TLS-only, token-authenticated, tenant-scoped**, on its own
-listeners separate from the `/v1` REST API. There is no anonymous-plaintext mode —
-setting a listen address without both a TLS cert/key pair and at least one bearer
-token fails config validation. See [`otlp.md`](otlp.md).
+is **off by default** and, when on, is locked to the same posture as everything
+else: **TLS-only, token-authenticated, tenant-scoped**, on its own listeners
+separate from the `/v1` REST API. There is no anonymous-plaintext mode: setting
+a listen address without a TLS cert/key pair fails config validation. Bearer
+tokens can be DB-backed and hot-revoked through `/v1/otlp-tokens`; static
+`PROBECTL_OTLP_TOKENS` entries are legacy/bootstrap only. See [`otlp.md`](otlp.md).
 
 | Variable                    | Default | Description                                                  |
 | --------------------------- | ------- | ------------------------------------------------------------ |
@@ -1060,11 +1061,14 @@ token fails config validation. See [`otlp.md`](otlp.md).
 | `PROBECTL_OTEL_RETENTION_DAYS` | `30`   | delete-TTL for stored OTLP traces+logs (0 disables) |
 | `PROBECTL_OTLP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable)                  |
 | `PROBECTL_OTLP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable)                  |
-| `PROBECTL_OTLP_TOKENS`        | (none)  | bearer-token→tenant map: `token1=tenant1,token2=tenant2`     |
+| `PROBECTL_OTLP_TOKENS`        | (none)  | optional legacy/bootstrap bearer-token→tenant map: `token1=tenant1,token2=tenant2`; DB tokens from `/v1/otlp-tokens` can be the only token source |
+| `PROBECTL_OTLP_FRESHNESS_HMAC_KEY` | (none) | optional hex-encoded 32-byte HMAC key for first-party OTLP replay protection. When set, every OTLP/gRPC and OTLP/HTTP request must include a signed timestamp+nonce envelope |
+| `PROBECTL_OTLP_FRESHNESS_WINDOW` | `5m` | accepted clock-skew/replay window for the OTLP freshness envelope |
 
-Setting an address without the TLS files **and** at least one token fails config
-validation — the receiver is never anonymous plaintext. Ingested metrics are
-tenant-tagged and published to the `probectl.otlp.metrics` bus topic.
+Setting an address without the TLS files fails config validation — the receiver
+is never anonymous plaintext. Missing, unknown, revoked, or freshness-invalid
+credentials fail per request. Ingested metrics are tenant-tagged and published
+to the `probectl.otlp.metrics` bus topic.
 
 ### OTLP export
 

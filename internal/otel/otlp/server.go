@@ -20,6 +20,7 @@ type ServerConfig struct {
 	GRPCAddr     string // e.g. ":4317" (empty disables the gRPC receiver)
 	HTTPAddr     string // e.g. ":4318" (empty disables the HTTP receiver)
 	MaxRecvBytes int    // 0 => default (4 MiB)
+	Freshness    *FreshnessVerifier
 }
 
 // Server runs the OTLP/gRPC and OTLP/HTTP receivers on TLS listeners. It is the
@@ -60,7 +61,7 @@ func (s *Server) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 
 	if s.cfg.GRPCAddr != "" {
-		grpcSrv, err := NewGRPCServer(s.tls, s.auth, s.sinks, s.cfg.MaxRecvBytes)
+		grpcSrv, err := NewGRPCServerWithFreshness(s.tls, s.auth, s.sinks, s.cfg.MaxRecvBytes, s.cfg.Freshness)
 		if err != nil {
 			return err
 		}
@@ -81,9 +82,9 @@ func (s *Server) Run(ctx context.Context) error {
 		mux := http.NewServeMux()
 		// The standard OTLP/HTTP paths — exactly what an OTel Collector's
 		// otlphttp exporter posts to (ARCH-006).
-		mux.Handle("/v1/metrics", MetricsHTTPHandler(s.auth, s.sinks.Metrics, int64(s.cfg.MaxRecvBytes)))
-		mux.Handle("/v1/traces", TracesHTTPHandler(s.auth, s.sinks.Traces, int64(s.cfg.MaxRecvBytes)))
-		mux.Handle("/v1/logs", LogsHTTPHandler(s.auth, s.sinks.Logs, int64(s.cfg.MaxRecvBytes)))
+		mux.Handle("/v1/metrics", MetricsHTTPHandlerWithFreshness(s.auth, s.sinks.Metrics, int64(s.cfg.MaxRecvBytes), s.cfg.Freshness))
+		mux.Handle("/v1/traces", TracesHTTPHandlerWithFreshness(s.auth, s.sinks.Traces, int64(s.cfg.MaxRecvBytes), s.cfg.Freshness))
+		mux.Handle("/v1/logs", LogsHTTPHandlerWithFreshness(s.auth, s.sinks.Logs, int64(s.cfg.MaxRecvBytes), s.cfg.Freshness))
 		httpSrv := &http.Server{
 			Addr:              s.cfg.HTTPAddr,
 			Handler:           mux,

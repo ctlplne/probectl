@@ -319,12 +319,15 @@ type Config struct {
 	CMDBCacheTTL time.Duration
 
 	// OTLP receiver (S22): TLS-only, authenticated, tenant-scoped ingest of
-	// external OTLP. Enabled when an address + TLS cert/key + tokens are all set.
-	OTLPGRPCAddr    string
-	OTLPHTTPAddr    string
-	OTLPTLSCertFile string
-	OTLPTLSKeyFile  string
-	OTLPTokens      map[string]string // bearer token -> tenant id
+	// external OTLP. Enabled when an address + TLS cert/key are set. Static
+	// tokens are legacy/bootstrap; DB-issued tokens can be the only auth source.
+	OTLPGRPCAddr         string
+	OTLPHTTPAddr         string
+	OTLPTLSCertFile      string
+	OTLPTLSKeyFile       string
+	OTLPTokens           map[string]string // bearer token -> tenant id
+	OTLPFreshnessHMACKey []byte
+	OTLPFreshnessWindow  time.Duration
 
 	// OTLP EXPORT (ARCH-007): forward ingested OTLP metrics on to an external
 	// collector/backend. Dormant until an endpoint is set. Protocol grpc|http;
@@ -744,6 +747,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		OTLPTLSCertFile:         l.str("PROBECTL_OTLP_TLS_CERT_FILE", ""),
 		OTLPTLSKeyFile:          l.str("PROBECTL_OTLP_TLS_KEY_FILE", ""),
 		OTLPTokens:              l.tokenMap("PROBECTL_OTLP_TOKENS"),
+		OTLPFreshnessHMACKey:    l.hexBytes("PROBECTL_OTLP_FRESHNESS_HMAC_KEY", 32),
+		OTLPFreshnessWindow:     l.dur("PROBECTL_OTLP_FRESHNESS_WINDOW", 5*time.Minute),
 		AIModelProvider:         l.enum("PROBECTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic"),
 		AIModelEndpoint:         l.str("PROBECTL_AI_MODEL_ENDPOINT", ""),
 		AIModelName:             l.str("PROBECTL_AI_MODEL_NAME", ""),
@@ -903,7 +908,10 @@ func Load(getenv func(string) string) (*Config, error) {
 		}
 	}
 	if (cfg.OTLPGRPCAddr != "" || cfg.OTLPHTTPAddr != "") && !cfg.OTLPEnabled() {
-		l.errf("the OTLP receiver is TLS-only and authenticated: set PROBECTL_OTLP_TLS_CERT_FILE, PROBECTL_OTLP_TLS_KEY_FILE, and PROBECTL_OTLP_TOKENS (token=tenant,...) alongside an address")
+		l.errf("the OTLP receiver is TLS-only and authenticated: set PROBECTL_OTLP_TLS_CERT_FILE and PROBECTL_OTLP_TLS_KEY_FILE alongside an address; PROBECTL_OTLP_TOKENS is optional legacy/bootstrap because DB-backed /v1/otlp-tokens can be the only token source")
+	}
+	if len(cfg.OTLPFreshnessHMACKey) > 0 && cfg.OTLPFreshnessWindow <= 0 {
+		l.errf("PROBECTL_OTLP_FRESHNESS_WINDOW must be positive when PROBECTL_OTLP_FRESHNESS_HMAC_KEY is set")
 	}
 	// WIRE-002: the OTLP export path egresses confidential customer telemetry
 	// (and a bearer token). It MUST be encrypted to a non-loopback collector
@@ -1007,12 +1015,13 @@ func (c *Config) AgentTransportEnabled() bool {
 	return c.AgentGRPCAddr != "" && c.AgentTLSCertFile != "" && c.AgentTLSKeyFile != "" && c.AgentTLSCAFile != ""
 }
 
-// OTLPEnabled reports whether the OTLP receiver should run — an address, TLS
-// cert+key, and at least one bearer token are configured. The receiver is
-// TLS-only and authenticated (CLAUDE.md §7 guardrail 12).
+// OTLPEnabled reports whether the OTLP receiver should run — an address and
+// TLS cert+key are configured. Authentication is still mandatory at request
+// time: tokens may come from the DB-backed /v1/otlp-tokens store only, without
+// any static PROBECTL_OTLP_TOKENS bootstrap secret (WIRE-003).
 func (c *Config) OTLPEnabled() bool {
 	return (c.OTLPGRPCAddr != "" || c.OTLPHTTPAddr != "") &&
-		c.OTLPTLSCertFile != "" && c.OTLPTLSKeyFile != "" && len(c.OTLPTokens) > 0
+		c.OTLPTLSCertFile != "" && c.OTLPTLSKeyFile != ""
 }
 
 // OTLPExportEnabled reports whether the config-driven OTLP export pipeline
@@ -1046,6 +1055,7 @@ func (c *Config) LogValue() slog.Value {
 		slog.Bool("hsts_enabled", c.HSTSEnabled),
 		slog.Bool("tls", c.TLSEnabled()),
 		slog.Bool("agent_transport", c.AgentTransportEnabled()),
+		slog.Bool("otlp_freshness", len(c.OTLPFreshnessHMACKey) == crypto.KeySize),
 		slog.String("bus_mode", c.BusMode),
 		slog.String("tsdb_mode", c.TSDBMode),
 	)
@@ -1074,6 +1084,7 @@ func (c *Config) Redacted() map[string]any {
 		"bus_mode":                    c.BusMode,
 		"tsdb_mode":                   c.TSDBMode,
 		"otlp_enabled":                c.OTLPEnabled(),
+		"otlp_freshness_enabled":      len(c.OTLPFreshnessHMACKey) == crypto.KeySize,
 		"ai_model_enabled":            c.AIModelEnabled(),
 		"mcp_enabled":                 c.MCPEnabled(),
 		"oidc_issuer":                 c.OIDCIssuer, // an issuer URL is not a secret

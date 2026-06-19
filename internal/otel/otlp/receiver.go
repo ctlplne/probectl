@@ -65,6 +65,12 @@ func NewBusSink(publish func(ctx context.Context, tenant string, payload []byte)
 // fails closed if no TLS config is supplied — the receiver is never plaintext
 // (CLAUDE.md §7 guardrail 12).
 func NewGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int) (*grpc.Server, error) {
+	return NewGRPCServerWithFreshness(tlsCfg, auth, sinks, maxRecvBytes, nil)
+}
+
+// NewGRPCServerWithFreshness builds an OTLP/gRPC receiver that also enforces
+// the optional signed timestamp+nonce envelope when freshness is enabled.
+func NewGRPCServerWithFreshness(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvBytes int, freshness *FreshnessVerifier) (*grpc.Server, error) {
 	if tlsCfg == nil {
 		return nil, errors.New("otlp: TLS config required (the OTLP receiver is TLS-only)")
 	}
@@ -79,7 +85,7 @@ func NewGRPCServer(tlsCfg *tls.Config, auth Authenticator, sinks Sinks, maxRecvB
 	}
 	srv := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsCfg)),
-		grpc.UnaryInterceptor(authUnaryInterceptor(auth)),
+		grpc.UnaryInterceptor(authUnaryInterceptorWithFreshness(auth, freshness)),
 		grpc.MaxRecvMsgSize(maxRecvBytes),
 	)
 	// ARCH-001: all three OTLP signals, one contract.
@@ -115,6 +121,12 @@ func (s *metricsService) Export(ctx context.Context, req *colmetricspb.ExportMet
 // ExportMetricsServiceRequest (protobuf), authenticated + tenant-scoped, with a
 // bounded body (untrusted input). The caller must serve it over TLS.
 func MetricsHTTPHandler(auth Authenticator, sink Sink, maxBytes int64) http.Handler {
+	return MetricsHTTPHandlerWithFreshness(auth, sink, maxBytes, nil)
+}
+
+// MetricsHTTPHandlerWithFreshness builds the OTLP/HTTP metrics receiver with
+// optional application-level replay protection.
+func MetricsHTTPHandlerWithFreshness(auth Authenticator, sink Sink, maxBytes int64, freshness *FreshnessVerifier) http.Handler {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxRecvBytes
 	}
@@ -132,6 +144,12 @@ func MetricsHTTPHandler(auth Authenticator, sink Sink, maxBytes int64) http.Hand
 		if err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+		if freshness.Enabled() {
+			if err := freshness.VerifyHTTP(r, tenant, body); err != nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 		var req colmetricspb.ExportMetricsServiceRequest
 		if err := proto.Unmarshal(body, &req); err != nil {

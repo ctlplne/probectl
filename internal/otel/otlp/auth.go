@@ -168,10 +168,19 @@ func tenantFromContext(ctx context.Context) (string, bool) {
 // authUnaryInterceptor authenticates each RPC's bearer token and puts the
 // resolved tenant on the context; it fails closed with Unauthenticated.
 func authUnaryInterceptor(auth Authenticator) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	return authUnaryInterceptorWithFreshness(auth, nil)
+}
+
+func authUnaryInterceptorWithFreshness(auth Authenticator, freshness *FreshnessVerifier) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		tenant, err := auth.Authenticate(ctx, bearerFromMetadata(ctx))
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "otlp: invalid or missing bearer token")
+		}
+		if freshness.Enabled() {
+			if err := freshness.VerifyGRPC(ctx, info.FullMethod, tenant, req); err != nil {
+				return nil, status.Error(codes.Unauthenticated, "otlp: freshness envelope rejected")
+			}
 		}
 		return handler(withTenant(ctx, tenant), req)
 	}
