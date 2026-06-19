@@ -58,17 +58,25 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
-      - name: Audit web (fail on critical)
+      - name: Audit web (high advisories require active policy exception)
         working-directory: web
         run: |
           npm audit --json > ../npm-audit-web.json || true
-          npm audit --audit-level=critical
-      - name: Audit browser-worker (fail on critical)
+          node ../scripts/check_npm_audit_policy.mjs \
+            --workspace web \
+            --audit ../npm-audit-web.json \
+            --lock package-lock.json \
+            --policy ../docs/security/npm-audit-policy.json
+      - name: Audit browser-worker (no high/critical advisories)
         if: always()
         working-directory: browser-worker
         run: |
           npm audit --json > ../npm-audit-browser-worker.json || true
-          npm audit --audit-level=critical
+          node ../scripts/check_npm_audit_policy.mjs \
+            --workspace browser-worker \
+            --audit ../npm-audit-browser-worker.json \
+            --lock package-lock.json \
+            --policy ../docs/security/npm-audit-policy.json
       - name: Evidence artifacts
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

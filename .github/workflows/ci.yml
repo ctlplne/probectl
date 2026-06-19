@@ -788,8 +788,14 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install
         run: npm ci
-      - name: Audit gate (U-028 — no critical advisories)
-        run: npm audit --audit-level=critical
+      - name: Audit gate (SEC-004 — high advisories require active policy exception)
+        run: |
+          npm audit --json > ../npm-audit-web.json || true
+          node ../scripts/check_npm_audit_policy.mjs \
+            --workspace web \
+            --audit ../npm-audit-web.json \
+            --lock package-lock.json \
+            --policy ../docs/security/npm-audit-policy.json
       - name: Prod-dependency audit gate (SUPPLY-008 — no high in shipped deps)
         # The shipped bundle contains only runtime deps; build-time tooling
         # (esbuild/vite) carries HIGH advisories that don't reach the artifact

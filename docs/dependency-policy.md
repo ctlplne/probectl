@@ -61,6 +61,13 @@ bytes but the manifest still states upgrade intent.
   ([`.github/workflows/security-scan.yml`](../.github/workflows/security-scan.yml))
   **and** on every PR, so a newly-disclosed vulnerability in an *unchanged* pin
   goes red on its own — you don't have to be mid-upgrade to find out.
+- **npm audit policy is explicit and expiring.** Critical npm advisories always
+  fail. High advisories fail unless they are dev-only, listed in
+  [`docs/security/npm-audit-policy.json`](security/npm-audit-policy.json), and
+  still before their `expires_at` date. The current `web` exception is limited to
+  the Vite/esbuild build-tool path and expires on `2026-09-30`; production
+  dependencies are separately gated with `npm audit --omit=dev
+  --audit-level=high`, so a high in shipped code blocks the build.
 - **Tool pins** (the `Makefile` block) are bumped deliberately and committed
   *together with their effects* — e.g. a protobuf-plugin bump ships with the
   regenerated `internal/gen` tree in the same commit, because the `proto` job

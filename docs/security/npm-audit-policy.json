@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "exceptions": [
+    {
+      "id": "SEC-004-vite-esbuild-dev-only",
+      "workspace": "web",
+      "packages": [
+        "vite",
+        "esbuild"
+      ],
+      "max_severity": "high",
+      "dev_only": true,
+      "expires_at": "2026-09-30",
+      "reason": "Vite/esbuild are build-time and dev-server tooling only; CI separately gates shipped production dependencies with npm audit --omit=dev --audit-level=high. This exception must be removed or renewed by upgrading the Vite/esbuild path before the expiry date."
+    }
+  ]
+}
