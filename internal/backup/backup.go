@@ -67,6 +67,7 @@ func Seal(ctx context.Context, dst io.Writer, src io.Reader, keys KeyProvider) e
 	if err != nil {
 		return err
 	}
+	defer crypto.Zeroize(dek)
 	if _, err := dst.Write(hdr); err != nil {
 		return fmt.Errorf("backup: write header: %w", err)
 	}
@@ -109,6 +110,7 @@ func Open(ctx context.Context, dst io.Writer, src io.Reader, keys KeyProvider) e
 	if err != nil {
 		return err
 	}
+	defer crypto.Zeroize(dek)
 	var index uint64
 	for {
 		if err := ctx.Err(); err != nil {
@@ -154,6 +156,11 @@ func sealHeader(ctx context.Context, keys KeyProvider) (hdr, dek []byte, err err
 	if err != nil {
 		return nil, nil, err
 	}
+	defer func() {
+		if err != nil {
+			crypto.Zeroize(dek)
+		}
+	}()
 	wrapped, err := keys.WrapKey(ctx, dek)
 	if err != nil {
 		return nil, nil, fmt.Errorf("backup: wrap dek: %w", err)

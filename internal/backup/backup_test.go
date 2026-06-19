@@ -5,6 +5,9 @@ package backup
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -148,6 +151,28 @@ func TestOpenUsesHeaderKeyIDForRotationKeyring(t *testing.T) {
 	}
 }
 
+func TestStreamingBackupDEKsAreZeroized(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve backup test source path")
+	}
+	srcBytes, err := os.ReadFile(filepath.Join(filepath.Dir(file), "backup.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(srcBytes)
+
+	for _, fn := range []string{"Seal", "Open"} {
+		block, ok := functionSource(src, fn)
+		if !ok {
+			t.Fatalf("backup.%s source block not found", fn)
+		}
+		if !strings.Contains(block, "defer crypto.Zeroize(dek)") {
+			t.Fatalf("backup.%s must zeroize the streaming backup DEK on every return path", fn)
+		}
+	}
+}
+
 // Tamper + truncation are detected — backups are verified, not trusted.
 func TestTamperAndTruncationDetected(t *testing.T) {
 	keys := testKeys(t)
@@ -254,4 +279,29 @@ func FuzzBackupOpen(f *testing.F) {
 		// error return is the expected outcome for hostile input.
 		_ = Open(ctx, &bytes.Buffer{}, bytes.NewReader(data), keys)
 	})
+}
+
+func functionSource(src, name string) (string, bool) {
+	start := strings.Index(src, "func "+name+"(")
+	if start < 0 {
+		return "", false
+	}
+	depth := 0
+	seenBody := false
+	for i := start; i < len(src); i++ {
+		switch src[i] {
+		case '{':
+			depth++
+			seenBody = true
+		case '}':
+			if !seenBody {
+				continue
+			}
+			depth--
+			if depth == 0 {
+				return src[start : i+1], true
+			}
+		}
+	}
+	return "", false
 }
