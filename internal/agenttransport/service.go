@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -29,7 +30,36 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
-const heartbeatIntervalSeconds = 30
+const (
+	heartbeatIntervalSeconds = 30
+	agentProtocolVersion     = "probectl.agent.v1"
+)
+
+var serverCapabilities = []string{
+	"agent.register",
+	"agent.attest",
+	"agent.heartbeat",
+	"agent.stream_results",
+	"agent.poll_coordination",
+	"agent.report_endpoint",
+	"result.schema.v1",
+	"tenant.identity.mtls.v1",
+	"stream_results.freshness.v1",
+}
+
+var supportedAgentCapabilities = map[string]struct{}{
+	"a2a":      {},
+	"dns":      {},
+	"ebpf":     {},
+	"endpoint": {},
+	"flow":     {},
+	"http":     {},
+	"icmp":     {},
+	"noop":     {},
+	"tcp":      {},
+	"udp":      {},
+	"voice":    {},
+}
 
 // service implements agentv1.AgentServiceServer.
 type service struct {
@@ -106,7 +136,40 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 		TenantId:                 agent.TenantID,
 		ConfigEpoch:              0,
 		HeartbeatIntervalSeconds: heartbeatIntervalSeconds,
+		ControlVersion:           svc.controlVersion,
+		ProtocolVersion:          agentProtocolVersion,
+		AcceptedCapabilities:     acceptedCapabilities(req.GetCapabilities()),
+		ServerCapabilities:       copyServerCapabilities(),
 	}, nil
+}
+
+func acceptedCapabilities(requested []string) []string {
+	if len(requested) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(requested))
+	for _, cap := range requested {
+		if cap == "" {
+			continue
+		}
+		if _, ok := supportedAgentCapabilities[cap]; !ok {
+			continue
+		}
+		if _, dup := seen[cap]; dup {
+			continue
+		}
+		seen[cap] = struct{}{}
+		out = append(out, cap)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func copyServerCapabilities() []string {
+	out := append([]string(nil), serverCapabilities...)
+	sort.Strings(out)
+	return out
 }
 
 // Attest acknowledges the agent's identity. The mTLS handshake already proved it;

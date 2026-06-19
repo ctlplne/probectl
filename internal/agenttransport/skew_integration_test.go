@@ -7,6 +7,7 @@ package agenttransport_test
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -71,8 +72,35 @@ func TestRegisterEnforcesVersionSkew(t *testing.T) {
 		client, agentID := agentClient(ctx, t, ts, tn.ID)
 		rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		// Unique hostname per agent (the registry has a UNIQUE (tenant, name)).
-		if _, err := client.Register(rpcCtx, &agentv1.RegisterRequest{Hostname: agentID, AgentVersion: v}); err != nil {
+		resp, err := client.Register(rpcCtx, &agentv1.RegisterRequest{
+			Hostname:     agentID,
+			AgentVersion: v,
+			Capabilities: []string{"icmp", "future-probe-v2", "icmp"},
+		})
+		if err != nil {
 			t.Fatalf("control 1.4.0 should accept agent %s, got: %v", v, err)
+		}
+		if resp.GetControlVersion() != "1.4.0" || resp.GetProtocolVersion() != "probectl.agent.v1" {
+			t.Fatalf("agent %s negotiation = control %q protocol %q", v, resp.GetControlVersion(), resp.GetProtocolVersion())
+		}
+		if !slices.Equal(resp.GetAcceptedCapabilities(), []string{"icmp"}) {
+			t.Fatalf("agent %s accepted capabilities = %v, want only the known requested capability", v, resp.GetAcceptedCapabilities())
+		}
+		if !slices.Contains(resp.GetServerCapabilities(), "agent.stream_results") ||
+			!slices.Contains(resp.GetServerCapabilities(), "tenant.identity.mtls.v1") {
+			t.Fatalf("agent %s server capabilities missing core behavior: %v", v, resp.GetServerCapabilities())
+		}
+		if slices.Contains(resp.GetServerCapabilities(), "agent.stream_config") {
+			t.Fatalf("config push must not be advertised as supported: %v", resp.GetServerCapabilities())
+		}
+		if v == "1.5.9" {
+			stream, err := client.StreamConfig(rpcCtx, &agentv1.StreamConfigRequest{})
+			if err == nil {
+				_, err = stream.Recv()
+			}
+			if status.Code(err) != codes.Unimplemented {
+				t.Fatalf("admitted N+1 agent must still see unsupported behavior as Unimplemented, got %v", status.Code(err))
+			}
 		}
 		cancel()
 	}

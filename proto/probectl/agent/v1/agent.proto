@@ -51,6 +51,10 @@ message RegisterResponse {
   string tenant_id = 2; // authoritative, from the verified certificate
   uint64 config_epoch = 3;
   uint32 heartbeat_interval_seconds = 4;
+  string control_version = 5; // control-plane version used for the skew check
+  string protocol_version = 6; // agent wire protocol revision, e.g. "probectl.agent.v1"
+  repeated string accepted_capabilities = 7; // requested agent capabilities this server supports
+  repeated string server_capabilities = 8; // behavior-level RPC/schema capabilities supported by this server
 }
 
 message AttestRequest {

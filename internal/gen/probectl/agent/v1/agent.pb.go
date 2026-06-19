@@ -154,6 +154,10 @@ type RegisterResponse struct {
 	TenantId                 string                 `protobuf:"bytes,2,opt,name=tenant_id,json=tenantId,proto3" json:"tenant_id,omitempty"` // authoritative, from the verified certificate
 	ConfigEpoch              uint64                 `protobuf:"varint,3,opt,name=config_epoch,json=configEpoch,proto3" json:"config_epoch,omitempty"`
 	HeartbeatIntervalSeconds uint32                 `protobuf:"varint,4,opt,name=heartbeat_interval_seconds,json=heartbeatIntervalSeconds,proto3" json:"heartbeat_interval_seconds,omitempty"`
+	ControlVersion           string                 `protobuf:"bytes,5,opt,name=control_version,json=controlVersion,proto3" json:"control_version,omitempty"`                   // control-plane version used for the skew check
+	ProtocolVersion          string                 `protobuf:"bytes,6,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`                // agent wire protocol revision, e.g. "probectl.agent.v1"
+	AcceptedCapabilities     []string               `protobuf:"bytes,7,rep,name=accepted_capabilities,json=acceptedCapabilities,proto3" json:"accepted_capabilities,omitempty"` // requested agent capabilities this server supports
+	ServerCapabilities       []string               `protobuf:"bytes,8,rep,name=server_capabilities,json=serverCapabilities,proto3" json:"server_capabilities,omitempty"`       // behavior-level RPC/schema capabilities supported by this server
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -214,6 +218,34 @@ func (x *RegisterResponse) GetHeartbeatIntervalSeconds() uint32 {
 		return x.HeartbeatIntervalSeconds
 	}
 	return 0
+}
+
+func (x *RegisterResponse) GetControlVersion() string {
+	if x != nil {
+		return x.ControlVersion
+	}
+	return ""
+}
+
+func (x *RegisterResponse) GetProtocolVersion() string {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return ""
+}
+
+func (x *RegisterResponse) GetAcceptedCapabilities() []string {
+	if x != nil {
+		return x.AcceptedCapabilities
+	}
+	return nil
+}
+
+func (x *RegisterResponse) GetServerCapabilities() []string {
+	if x != nil {
+		return x.ServerCapabilities
+	}
+	return nil
 }
 
 type AttestRequest struct {
@@ -928,12 +960,16 @@ const file_probectl_agent_v1_agent_proto_rawDesc = "" +
 	"\x06labels\x18\x04 \x03(\v2..probectl.agent.v1.RegisterRequest.LabelsEntryR\x06labels\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xab\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xe5\x02\n" +
 	"\x10RegisterResponse\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12!\n" +
 	"\fconfig_epoch\x18\x03 \x01(\x04R\vconfigEpoch\x12<\n" +
-	"\x1aheartbeat_interval_seconds\x18\x04 \x01(\rR\x18heartbeatIntervalSeconds\"\xae\x01\n" +
+	"\x1aheartbeat_interval_seconds\x18\x04 \x01(\rR\x18heartbeatIntervalSeconds\x12'\n" +
+	"\x0fcontrol_version\x18\x05 \x01(\tR\x0econtrolVersion\x12)\n" +
+	"\x10protocol_version\x18\x06 \x01(\tR\x0fprotocolVersion\x123\n" +
+	"\x15accepted_capabilities\x18\a \x03(\tR\x14acceptedCapabilities\x12/\n" +
+	"\x13server_capabilities\x18\b \x03(\tR\x12serverCapabilities\"\xae\x01\n" +
 	"\rAttestRequest\x12\x14\n" +
 	"\x05nonce\x18\x01 \x01(\fR\x05nonce\x12J\n" +
 	"\bplatform\x18\x02 \x03(\v2..probectl.agent.v1.AttestRequest.PlatformEntryR\bplatform\x1a;\n" +
