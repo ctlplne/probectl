@@ -127,7 +127,9 @@ Verification you ran, not verification you described.
   load+attach still works on a hardened kernel. amd64 runs under KVM
   (hardware-accelerated virtualization); the arm64 runner has no `/dev/kvm`,
   so it compiles + digest-verifies the arm64 objects but skips the (too-slow
-  emulated) boot.
+  emulated) boot. **TEST-005 residual risk:** until probectl has a
+  KVM-capable/native arm64 live-kernel runner, arm64 eBPF verifier/attach
+  behavior is compile/digest-tested, not CI live-load proven.
 - **ebpf-image-live** — the shipped `probectl-ebpf-agent` image must carry the
   *live* CO-RE loader (CO-RE = Compile Once – Run Everywhere: the BPF object is
   relocated at load time to fit the running kernel's struct layouts), built

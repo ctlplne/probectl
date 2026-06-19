@@ -194,6 +194,40 @@ func TestPRImageMatrixMatchesMakefileBinaries(t *testing.T) {
 	}
 }
 
+// TestArm64EBPFResidualRiskIsExplicit closes the local half of TEST-005. CI
+// still cannot prove live arm64 attach without a KVM-capable/native arm64
+// runner, so the workflow skip and release-risk wording must stay explicit.
+func TestArm64EBPFResidualRiskIsExplicit(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	for _, want := range []string{
+		`kernel: "6.6-arm64"`,
+		"runner: ubuntu-24.04-arm",
+		"no /dev/kvm",
+		"skipping the live kernel boot",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml no longer exposes arm64 eBPF live-load residual-risk marker %q (TEST-005)", want)
+		}
+	}
+
+	for _, path := range []string{
+		"docs/ci-pipeline.md",
+		"docs/ebpf-agent.md",
+		"docs/security/agent-whitepaper.md",
+	} {
+		b, err := os.ReadFile(filepath.Join(repoRoot(t), filepath.FromSlash(path)))
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		doc := string(b)
+		for _, want := range []string{"TEST-005 residual risk", "arm64", "live"} {
+			if !strings.Contains(doc, want) {
+				t.Errorf("%s does not document %q for the arm64 eBPF residual risk", path, want)
+			}
+		}
+	}
+}
+
 func makefileBinaries(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))

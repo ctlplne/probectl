@@ -335,7 +335,13 @@ runners have `/dev/kvm` and run the **full live load+attach**; the arm64 runner
 arm64 the job **compiles and digest-verifies the BPF objects but skips the live
 boot**. That's still meaningful cross-arch coverage — it proves the arm64 objects
 build through the exact path operators use (`make ebpf-agent`) — but the live
-attach itself is exercised on x86_64. Bump the matrix when adopting a new LTS.
+attach itself is exercised on x86_64.
+
+**TEST-005 residual risk:** arm64 eBPF is not CI live-load proven until a
+KVM-capable/native arm64 runner can execute `TestLiveLoadAttachL4Flow` without
+taking the `/dev/kvm` skip. Treat arm64 eBPF releases as compile/digest-verified
+and x86_64 live-load-proven; do not describe them as arm64 live-attach-proven
+until that runner is in place. Bump the matrix when adopting a new LTS.
 
 ## Building
 
