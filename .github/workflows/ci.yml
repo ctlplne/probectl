@@ -108,6 +108,8 @@ jobs:
         run: ./scripts/check-test-clocks.sh
       - name: Docs/claims drift gate (DOCS-S01..S14, SEC-004)
         run: ./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
+      - name: PROTECT strength-controls gate
+        run: make strength-gate
 
   lint-python:
     name: lint-python
