@@ -54,11 +54,12 @@ jobs:
 
   no-devauth-in-release:
     # Sprint 3 (RED-001/SEC-001): the dev-auth bypass must be PHYSICALLY
-    # absent from release binaries. Three checks: symbol absence, the
-    # synthesized dev-principal literal absence, and the authoritative
-    # behavioral one — a release binary refuses PROBECTL_AUTH_MODE=dev at
-    # boot. A tagged build is also compiled to prove the gate DETECTS the
-    # symbols when they exist (no vacuous pass).
+    # absent from release binaries. Three checks: the tagged-only
+    # implementation symbol is absent, the synthesized dev-principal literal
+    # is absent, and the authoritative behavioral one — a release binary
+    # refuses PROBECTL_AUTH_MODE=dev at boot. A tagged build is also compiled
+    # to prove the gate DETECTS the implementation when it exists (no vacuous
+    # pass). Release builds intentionally retain main's refusal-gate symbols.
     name: no-devauth-in-release
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -73,13 +74,17 @@ jobs:
           go build -tags devauth -o /tmp/pcdev ./cmd/probectl-control
       - name: Release binary has NO dev-auth symbols or literals
         run: |
-          if go tool nm /tmp/pc | grep -qiE "devauth|devprincipal"; then
-            echo "::error::release binary contains dev-auth symbols"; exit 1; fi
+          go tool nm /tmp/pc > /tmp/pc.nm
+          if grep -Fq "github.com/imfeelingtheagi/probectl/internal/control.devAuthPrincipal" /tmp/pc.nm; then
+            echo "::error::release binary contains dev-auth principal implementation"; exit 1; fi
           if strings /tmp/pc | grep -q "dev@probectl.local"; then
             echo "::error::release binary contains the dev principal literal"; exit 1; fi
           echo "release binary clean"
       - name: Gate self-test (tagged build MUST trip the same greps)
-        run: go tool nm /tmp/pcdev | grep -qiE "devauth" && echo "gate detects tagged builds"
+        run: |
+          go tool nm /tmp/pcdev > /tmp/pcdev.nm
+          grep -Fq "github.com/imfeelingtheagi/probectl/internal/control.devAuthPrincipal" /tmp/pcdev.nm
+          echo "gate detects tagged builds"
       - name: Behavioral — release binary refuses dev mode at boot
         run: |
           set +e
