@@ -24,6 +24,11 @@ import (
 // DefaultGroup is the consumer-group name for the control-plane result pipeline.
 const DefaultGroup = "probectl-control"
 
+const (
+	defaultWriteWorkers        = 4
+	defaultWriteQueuePerWorker = 16
+)
+
 // permanentWrite reports whether a store-write error is one the upstream will
 // never accept on retry (a 4xx remote-write reject — out-of-order/too-old
 // sample). The result, device, and flow retry loops all short-circuit on it
@@ -61,8 +66,11 @@ type Consumer struct {
 	// write (+ retry/DLQ). Enqueue blocks when full — backpressure reaches
 	// the bus consumer instead of an unbounded buffer. nil = synchronous
 	// (unit tests calling handleLane directly keep the old behavior).
-	writeCh      chan writeItem
-	writeWorkers int
+	writeCh                    chan writeItem
+	writeWorkers               int
+	writeQueueDepth            int
+	writeQueueSaturated        atomic.Uint64
+	writeQueueSaturationMetric *metrics.Counter
 
 	// card caps per-agent/per-tenant series identities (U-017); always set.
 	card *CardinalityLimiter
@@ -70,14 +78,44 @@ type Consumer struct {
 
 // ConsumerStats are the consumer's loss-accounting counters (U-019).
 type ConsumerStats struct {
-	Retried      uint64
-	DeadLettered uint64
-	Dropped      uint64
+	Retried             uint64
+	DeadLettered        uint64
+	Dropped             uint64
+	WriteQueueSaturated uint64
 }
 
 // Stats reports the cumulative retry/DLQ counters.
 func (c *Consumer) Stats() ConsumerStats {
-	return ConsumerStats{Retried: c.retried.Load(), DeadLettered: c.deadLettered.Load(), Dropped: c.dropped.Load()}
+	return ConsumerStats{
+		Retried:             c.retried.Load(),
+		DeadLettered:        c.deadLettered.Load(),
+		Dropped:             c.dropped.Load(),
+		WriteQueueSaturated: c.writeQueueSaturated.Load(),
+	}
+}
+
+// WriteStageConfig is the resolved worker/queue shape for the result write
+// stage. QueueDepth is the bounded channel capacity; when unset it preserves
+// the legacy workers*16 default.
+type WriteStageConfig struct {
+	Workers    int
+	QueueDepth int
+}
+
+// WriteStageConfig returns the resolved write-stage worker and queue settings.
+func (c *Consumer) WriteStageConfig() WriteStageConfig {
+	workers := c.writeWorkers
+	if workers <= 0 {
+		workers = defaultWriteWorkers
+	}
+	queueDepth := c.writeQueueDepth
+	if queueDepth <= 0 {
+		queueDepth = workers * defaultWriteQueuePerWorker
+	}
+	if queueDepth < 1 {
+		queueDepth = defaultWriteQueuePerWorker
+	}
+	return WriteStageConfig{Workers: workers, QueueDepth: queueDepth}
 }
 
 // WriteChDepth reports the current depth of the bounded write-stage queue
@@ -88,6 +126,15 @@ func (c *Consumer) WriteChDepth() int {
 		return len(ch)
 	}
 	return 0
+}
+
+// WriteChCapacity reports the currently running queue capacity, or the
+// configured capacity when the consumer is not running yet.
+func (c *Consumer) WriteChCapacity() int {
+	if ch := c.writeCh; ch != nil {
+		return cap(ch)
+	}
+	return c.WriteStageConfig().QueueDepth
 }
 
 // NewConsumer builds the result-pipeline consumer.
@@ -165,9 +212,21 @@ func (c *Consumer) RejectedTenant() uint64 { return c.rejectedTenant.Load() }
 // IntegrityStats returns the aggregate receipt ledger for this consumer.
 func (c *Consumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 
-// WithMetrics exports the aggregate receipt ledger at /metrics.
+// WithMetrics exports the aggregate receipt ledger and write-stage queue
+// pressure at /metrics. Metrics are process-level only; no tenant labels appear
+// here, preserving the tenant boundary on the self-observability surface.
 func (c *Consumer) WithMetrics(reg *metrics.Registry) *Consumer {
 	c.ledger.withMetrics(reg)
+	c.writeQueueSaturationMetric = reg.Counter("probectl_pipeline_results_write_queue_saturated_total",
+		"Times the result write-stage queue was observed full before enqueue; backpressure was applied to the bus consumer.")
+	reg.Gauge("probectl_pipeline_results_write_queue_depth",
+		"Current result write-stage queued records waiting for TSDB writes.", func() float64 {
+			return float64(c.WriteChDepth())
+		})
+	reg.Gauge("probectl_pipeline_results_write_queue_capacity",
+		"Configured result write-stage queue capacity.", func() float64 {
+			return float64(c.WriteChCapacity())
+		})
 	return c
 }
 
@@ -236,11 +295,9 @@ func (c *Consumer) Run(ctx context.Context) error {
 
 	// SCALE-001: the write stage. Decode/verify (the subscription handlers)
 	// and the remote write run in separate stages joined by a bounded queue.
-	workers := c.writeWorkers
-	if workers <= 0 {
-		workers = 4
-	}
-	c.writeCh = make(chan writeItem, workers*16)
+	writeCfg := c.WriteStageConfig()
+	workers := writeCfg.Workers
+	c.writeCh = make(chan writeItem, writeCfg.QueueDepth)
 	var writeWG sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		writeWG.Add(1)
@@ -340,6 +397,15 @@ func (c *Consumer) WithWriteWorkers(n int) *Consumer {
 	return c
 }
 
+// WithWriteQueueDepth sets the bounded write-stage queue depth. Non-positive
+// values keep the default workers*16 capacity.
+func (c *Consumer) WithWriteQueueDepth(n int) *Consumer {
+	if n > 0 {
+		c.writeQueueDepth = n
+	}
+	return c
+}
+
 // handle decodes one result and writes its series. Malformed messages are
 // dropped (they can never succeed); transient store-write failures are
 // retried with jittered backoff and, after exhaustion, dead-lettered with
@@ -422,6 +488,9 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 		// keys still process concurrently across the worker pool — the decode
 		// stage of OTHER records keeps running while this one awaits its write.
 		done := make(chan error, 1)
+		if len(ch) >= cap(ch) {
+			c.recordWriteQueueSaturation()
+		}
 		select {
 		case ch <- writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value), done: done}:
 		case <-ctx.Done():
@@ -436,6 +505,13 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 	}
 	// Synchronous path (unit tests, lightweight mode): same durability contract.
 	return c.writeOne(ctx, writeItem{series: series, msg: msg, r: &r, bytes: len(msg.Value)})
+}
+
+func (c *Consumer) recordWriteQueueSaturation() {
+	c.writeQueueSaturated.Add(1)
+	if c.writeQueueSaturationMetric != nil {
+		c.writeQueueSaturationMetric.Inc()
+	}
 }
 
 // meterStored records ingest usage for a result whose series actually landed in

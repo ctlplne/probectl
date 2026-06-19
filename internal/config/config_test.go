@@ -152,21 +152,29 @@ func TestResultPipelineConfig(t *testing.T) {
 	if cfg.BusMode != "memory" || cfg.TSDBMode != "memory" {
 		t.Errorf("pipeline defaults = %q/%q, want memory/memory", cfg.BusMode, cfg.TSDBMode)
 	}
+	if cfg.IngestWriteWorkers != 4 || cfg.IngestWriteQueue != 0 {
+		t.Errorf("ingest write defaults = workers %d queue %d, want workers 4 queue 0", cfg.IngestWriteWorkers, cfg.IngestWriteQueue)
+	}
 
 	// Kafka + Prometheus with their required settings (brokers are trimmed).
 	// Kafka requires TLS (U-010) — the happy path enables it.
 	cfg, err = Load(envFunc(map[string]string{
-		"PROBECTL_BUS_MODE":        "kafka",
-		"PROBECTL_BUS_BROKERS":     "b1:9092, b2:9092",
-		"PROBECTL_BUS_TLS_ENABLED": "true",
-		"PROBECTL_TSDB_MODE":       "prometheus",
-		"PROBECTL_TSDB_URL":        "http://prom:9090",
+		"PROBECTL_BUS_MODE":             "kafka",
+		"PROBECTL_BUS_BROKERS":          "b1:9092, b2:9092",
+		"PROBECTL_BUS_TLS_ENABLED":      "true",
+		"PROBECTL_TSDB_MODE":            "prometheus",
+		"PROBECTL_TSDB_URL":             "http://prom:9090",
+		"PROBECTL_INGEST_WRITE_WORKERS": "12",
+		"PROBECTL_INGEST_WRITE_QUEUE":   "2048",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(cfg.BusBrokers) != 2 || cfg.BusBrokers[0] != "b1:9092" || cfg.BusBrokers[1] != "b2:9092" {
 		t.Errorf("BusBrokers = %v, want [b1:9092 b2:9092]", cfg.BusBrokers)
+	}
+	if cfg.IngestWriteWorkers != 12 || cfg.IngestWriteQueue != 2048 {
+		t.Errorf("ingest write config = workers %d queue %d, want workers 12 queue 2048", cfg.IngestWriteWorkers, cfg.IngestWriteQueue)
 	}
 
 	// kafka without brokers and prometheus without a URL must both fail.

@@ -63,6 +63,29 @@ type serveStores struct {
 
 var devAuthAvailable = control.DevModeAvailable
 
+func buildResultPipelineConsumer(
+	cfg *config.Config,
+	resultBus bus.Bus,
+	ingestWriter tsdb.Writer,
+	log *slog.Logger,
+	busNamespaces []string,
+	nsTenants map[string]string,
+	tenantBinding pipeline.TenantBinding,
+	fairGate *fairness.Gate,
+	reg *metrics.Registry,
+) *pipeline.Consumer {
+	return pipeline.NewConsumer(resultBus, ingestWriter, pipeline.DefaultGroup, log).
+		WithNamespaces(busNamespaces).
+		WithNamespaceTenants(nsTenants).
+		WithTenantBinding(tenantBinding).                   // TENANT-101: endpoint lane verified
+		WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
+		WithFairness(fairGate).
+		WithMetrics(reg).
+		WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
+		WithWriteWorkers(cfg.IngestWriteWorkers).                                       // SCALE-005
+		WithWriteQueueDepth(cfg.IngestWriteQueue)                                       // SCALE-005
+}
+
 // validateDevAuthMode is the RED-001/SEC-001 startup gate for the explicit
 // local-evaluation auth mode. In ELI5 terms: if the operator asks for the
 // "pretend every request is admin" mode, three locks must all be open:

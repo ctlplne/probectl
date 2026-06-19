@@ -153,6 +153,12 @@ type Config struct {
 	// 0 = defaults (1000 / 50000).
 	IngestMaxSeriesPerAgent  int
 	IngestMaxSeriesPerTenant int
+	// Result write-stage tuning (SCALE-005): decoded results enqueue onto a
+	// bounded TSDB-write queue drained by this worker count. Queue 0 preserves
+	// the legacy workers*16 depth; the queue stays bounded and applies
+	// backpressure to the bus consumer when full.
+	IngestWriteWorkers int
+	IngestWriteQueue   int
 	// In-memory TSDB bounds (U-018): retention window + byte wall for the
 	// lightweight mode (0 = defaults 1h / 256MiB). Oldest-first eviction.
 	TSDBMemoryRetention time.Duration
@@ -660,6 +666,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		BusMaxBuffered:           l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000),
 		IngestMaxSeriesPerAgent:  l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_AGENT", 0, 0, 10_000_000),
 		IngestMaxSeriesPerTenant: l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_TENANT", 0, 0, 100_000_000),
+		IngestWriteWorkers:       l.intRange("PROBECTL_INGEST_WRITE_WORKERS", 4, 0, 4096),
+		IngestWriteQueue:         l.intRange("PROBECTL_INGEST_WRITE_QUEUE", 0, 0, 10_000_000),
 		TSDBMemoryRetention:      l.dur("PROBECTL_TSDB_MEMORY_RETENTION", 0),
 		TSDBMemoryMaxBytes:       l.intRange("PROBECTL_TSDB_MEMORY_MAX_BYTES", 0, 0, 1<<31-1),
 		AuditWORMDir:             l.str("PROBECTL_AUDIT_WORM_DIR", ""),

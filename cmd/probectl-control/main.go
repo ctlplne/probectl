@@ -535,15 +535,7 @@ func run(cmd string) error {
 	// per-consumer retry/DLQ, so the supervised trigger is the subscribe path.
 	g.Go(func() error {
 		return superviseRestart(gctx, "result-pipeline", log, func(ctx context.Context) error {
-			return pipeline.NewConsumer(resultBus, ingestWriter, pipeline.DefaultGroup, log).
-				WithNamespaces(busNamespaces).
-				WithNamespaceTenants(nsTenants).
-				WithTenantBinding(tenantBinding).                   // TENANT-101: endpoint lane verified
-				WithStrictTenantLanes(cfg.IngestStrictTenantLanes). // WIRE-001
-				WithFairness(fairGate).
-				WithMetrics(srv.Metrics()).
-				WithCardinalityCaps(cfg.IngestMaxSeriesPerAgent, cfg.IngestMaxSeriesPerTenant). // U-017
-				Run(ctx)
+			return buildResultPipelineConsumer(cfg, resultBus, ingestWriter, log, busNamespaces, nsTenants, tenantBinding, fairGate, srv.Metrics()).Run(ctx)
 		})
 	})
 	// Flow pipeline (S38): probectl.flow.events -> verify tenant -> enrich -> flow store.
