@@ -492,7 +492,7 @@ func statusFromActive(active bool) string {
 }
 
 func decodeSCIM(w http.ResponseWriter, r *http.Request, dst any) bool {
-	if err := httpbody.DecodeJSON(r.Body, scimMaxBody, dst); err != nil {
+	if err := httpbody.DecodeHTTPJSON(w, r, scimMaxBody, dst); err != nil {
 		if errors.Is(err, httpbody.ErrTooLarge) {
 			writeSCIMError(w, http.StatusRequestEntityTooLarge, "tooLarge", "SCIM body exceeds size cap")
 			return false

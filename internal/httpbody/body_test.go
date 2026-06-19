@@ -4,6 +4,8 @@ package httpbody
 
 import (
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -43,5 +45,25 @@ func TestDecodeJSONRejectsOversize(t *testing.T) {
 	var dst map[string]string
 	if err := DecodeJSON(strings.NewReader(`{"x":"`+strings.Repeat("a", 32)+`"}`), 16, &dst); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("oversized JSON must return ErrTooLarge, got %v", err)
+	}
+}
+
+func TestDecodeJSONStrictRejectsUnknownFields(t *testing.T) {
+	var dst struct {
+		Name string `json:"name"`
+	}
+	if err := DecodeJSONStrict(strings.NewReader(`{"name":"ok","extra":true}`), 64, &dst); err == nil {
+		t.Fatal("strict JSON must reject unknown fields")
+	}
+	if err := DecodeJSON(strings.NewReader(`{"name":"ok","extra":true}`), 64, &dst); err != nil {
+		t.Fatalf("compat JSON should allow unknown fields: %v", err)
+	}
+}
+
+func TestDecodeHTTPJSONStrictUsesMaxBytesReader(t *testing.T) {
+	var dst map[string]string
+	req := httptest.NewRequest(http.MethodPost, "/v1/test", strings.NewReader(`{"x":"`+strings.Repeat("a", 32)+`"}`))
+	if err := DecodeHTTPJSONStrict(httptest.NewRecorder(), req, 16, &dst); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversized HTTP JSON must return ErrTooLarge, got %v", err)
 	}
 }

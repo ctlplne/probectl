@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 )
 
 var (
@@ -43,13 +44,63 @@ func DecodeJSON(r io.Reader, max int64, dst any) error {
 	if err != nil {
 		return err
 	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	if err := dec.Decode(dst); err != nil {
+	return decodeOneJSON(bytes.NewReader(body), dst, false)
+}
+
+// DecodeJSONStrict is DecodeJSON plus unknown-field rejection for
+// probectl-owned REST schemas. Use DecodeJSON for third-party/extensible
+// schemas such as SCIM and vendor webhooks.
+func DecodeJSONStrict(r io.Reader, max int64, dst any) error {
+	body, err := ReadLimited(r, max)
+	if err != nil {
 		return err
 	}
+	return decodeOneJSON(bytes.NewReader(body), dst, true)
+}
+
+// DecodeHTTPJSON decodes one HTTP JSON body with http.MaxBytesReader. It keeps
+// unknown fields for compatibility with extensible third-party schemas.
+func DecodeHTTPJSON(w http.ResponseWriter, r *http.Request, max int64, dst any) error {
+	if max < 0 {
+		return fmt.Errorf("httpbody: negative limit %d", max)
+	}
+	return decodeOneJSON(http.MaxBytesReader(w, r.Body, max), dst, false)
+}
+
+// DecodeHTTPJSONStrict is DecodeHTTPJSON plus unknown-field rejection for
+// probectl-owned REST request schemas.
+func DecodeHTTPJSONStrict(w http.ResponseWriter, r *http.Request, max int64, dst any) error {
+	if max < 0 {
+		return fmt.Errorf("httpbody: negative limit %d", max)
+	}
+	return decodeOneJSON(http.MaxBytesReader(w, r.Body, max), dst, true)
+}
+
+func decodeOneJSON(r io.Reader, dst any, strict bool) error {
+	dec := json.NewDecoder(r)
+	if strict {
+		dec.DisallowUnknownFields()
+	}
+	if err := dec.Decode(dst); err != nil {
+		return normalizeDecodeError(err)
+	}
 	var trailing any
-	if err := dec.Decode(&trailing); err == io.EOF {
-		return nil
+	if err := dec.Decode(&trailing); err != nil {
+		if err == io.EOF {
+			return nil
+		}
+		if errors.Is(normalizeDecodeError(err), ErrTooLarge) {
+			return ErrTooLarge
+		}
+		return ErrTrailingJSON
 	}
 	return ErrTrailingJSON
+}
+
+func normalizeDecodeError(err error) error {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return ErrTooLarge
+	}
+	return err
 }

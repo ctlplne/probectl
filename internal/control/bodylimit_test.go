@@ -29,6 +29,12 @@ func TestDecodeJSONRejectsOversizeAndTrailingValues(t *testing.T) {
 	if !errors.As(err, &ae) || ae.Kind != apierror.KindBadRequest {
 		t.Fatalf("trailing JSON must return KindBadRequest, got %v", err)
 	}
+
+	unknown := httptest.NewRequest(http.MethodPost, "/v1/test", strings.NewReader(`{"name":"ok","surprise":true}`))
+	err = decodeJSON(unknown, &dst)
+	if !errors.As(err, &ae) || ae.Kind != apierror.KindBadRequest {
+		t.Fatalf("unknown fields must return KindBadRequest, got %v", err)
+	}
 }
 
 func TestChangeWebhookOversizeReturns413BeforeSignature(t *testing.T) {
@@ -77,5 +83,14 @@ func TestDecodeSCIMRejectsOversizeAndTrailingValues(t *testing.T) {
 	}
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("trailing status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	var compat struct {
+		UserName string `json:"userName"`
+	}
+	req = httptest.NewRequest(http.MethodPost, "/scim/v2/Users", strings.NewReader(`{"userName":"a","urn:ietf:params:scim:schemas:extension:enterprise:2.0:User":{"department":"NetOps"}}`))
+	if !decodeSCIM(rec, req, &compat) {
+		t.Fatalf("SCIM extension fields should remain compatible: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }

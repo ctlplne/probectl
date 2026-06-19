@@ -4,7 +4,6 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -72,8 +71,8 @@ func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) error
 		return apierror.Unavailable("agent enrollment is not configured (run: probectl-control agent-ca init)")
 	}
 	var req enroll.Request
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
-		return apierror.BadRequest("malformed enrollment request")
+	if err := decodeJSONLimit(r, 64<<10, &req); err != nil {
+		return err
 	}
 	id, err := s.enrollSvc.Enroll(r.Context(), req)
 	if err != nil {
@@ -142,8 +141,8 @@ func (s *Server) handleAgentRotate(w http.ResponseWriter, r *http.Request) error
 		return apierror.Unavailable("agent enrollment is not configured (run: probectl-control agent-ca init)")
 	}
 	var req enroll.RotateRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&req); err != nil {
-		return apierror.BadRequest("malformed rotation request")
+	if err := decodeJSONLimit(r, 64<<10, &req); err != nil {
+		return err
 	}
 	id, err := s.enrollSvc.Rotate(r.Context(), req)
 	if err != nil {

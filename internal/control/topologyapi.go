@@ -13,7 +13,6 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -94,8 +93,8 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) error {
 		return apierror.Unavailable("topology is not wired on this deployment")
 	}
 	var req whatIfRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
-		return apierror.BadRequest("invalid what-if request body").Wrap(err)
+	if err := decodeJSONLimit(r, 1<<16, &req); err != nil {
+		return err
 	}
 	if req.Target == "" {
 		return apierror.BadRequest("target (node or edge id) is required")

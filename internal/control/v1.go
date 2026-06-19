@@ -425,9 +425,13 @@ func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) error
 const maxJSONBody = 1 << 20
 
 // decodeJSON decodes one size-limited JSON request body. Oversized bodies map
-// to 413; malformed or trailing JSON maps to 400.
+// to 413; malformed, unknown-field, or trailing JSON maps to 400.
 func decodeJSON(r *http.Request, dst any) error {
-	if err := httpbody.DecodeJSON(r.Body, maxJSONBody, dst); err != nil {
+	return decodeJSONLimit(r, maxJSONBody, dst)
+}
+
+func decodeJSONLimit(r *http.Request, max int64, dst any) error {
+	if err := httpbody.DecodeHTTPJSONStrict(nil, r, max, dst); err != nil {
 		if errors.Is(err, httpbody.ErrTooLarge) {
 			return apierror.TooLarge("request body exceeds size cap")
 		}
