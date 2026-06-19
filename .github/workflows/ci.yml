@@ -192,6 +192,8 @@ jobs:
           retention-days: 90
       - name: Backup-encryption + erasure-covers-backups gate (OPS-002, COMPLY-002)
         run: go test -count=1 -v -run "Backup|Restore|Erasure|Retention|Coverage|SealOpen|Tamper" ./internal/backup/ ./internal/tenantlife/
+      - name: Fuzz coverage policy (TEST-003)
+        run: make fuzz-policy
       - name: Fuzz smoke (untrusted-input parsers must not crash)
         # TEST-007: NO retry. The authoritative signal is corpus persistence —
         # a reproducible crasher persists a failing input under testdata/fuzz/

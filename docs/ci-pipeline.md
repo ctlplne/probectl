@@ -96,9 +96,13 @@ Verification you ran, not verification you described.
   memory unsynchronized — the class of bug that stays invisible until
   production load), plus a fuzz smoke over the untrusted-input parsers
   (fuzzing = feeding a parser machine-mutated random inputs to find the
-  crashes no human would think to type), the backup-encryption/erasure gate,
-  an agent-overhead bench smoke, and cross-compile checks (linux amd64+arm64;
-  the endpoint agent additionally builds for macOS and Windows).
+  crashes no human would think to type). The fuzz smoke discovers every Go
+  `Fuzz*` target under `internal/`, and `make fuzz-policy` proves the scheduled
+  nightly job is matrix-sharded so each target gets its own long budget instead
+  of all targets sharing one timeout. This job also runs the
+  backup-encryption/erasure gate, an agent-overhead bench smoke, and
+  cross-compile checks (linux amd64+arm64; the endpoint agent additionally
+  builds for macOS and Windows).
 - **test-python** — the BGP analyzer's tests, installed from a hash-locked
   requirements file (which is itself checked against `pyproject.toml` for
   drift), with an 85% coverage floor.

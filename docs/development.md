@@ -188,13 +188,14 @@ deploy recipes are `sslmode=require` or stricter.
   behaviour (success / 5xx / slow / expired-cert / DNSSEC-bogus) lives here.
 - **Fuzz** (`make fuzz-smoke`) — **fuzzing** feeds a parser thousands of
   mutated, adversarial inputs hunting for the one that crashes it. The Go fuzz
-  targets cover the untrusted-input parsers
-  (ICMP / Time-Exceeded / MPLS in `internal/path`, the BGP-event ingest in
-  `internal/bgp`). The invariant is "never panic", and the bridge must
-  additionally never publish a tenant-less event under fuzzing — the fail-closed
-  tenancy rule (see the
+  targets cover the untrusted-input parsers and tenant-bound ingest invariants.
+  `scripts/list_fuzz_targets.sh` discovers every `Fuzz*` target under
+  `internal/`, so adding a fuzz function automatically puts it in PR smoke and
+  the nightly matrix. The invariant is "never panic", and tenant-sensitive
+  paths must additionally never publish a tenant-less event under fuzzing — the
+  fail-closed tenancy rule (see the
   [non-negotiables](../CONTRIBUTING.md#non-negotiables)). CI runs a short smoke;
-  run longer locally with `-fuzztime`.
+  nightly runs each target in its own long-budget shard.
 - **Property** (Hypothesis, in the analyzer suite) — where fuzzing asks "does it
   crash?", a **property test** asserts a stated invariant holds for every
   generated input: the MRT parser and RPKI
