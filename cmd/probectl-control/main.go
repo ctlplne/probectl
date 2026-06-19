@@ -690,7 +690,7 @@ func run(cmd string) error {
 		if err != nil {
 			return fmt.Errorf("mcp tls: %w", err)
 		}
-		mcpSrv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, fairGate, srv.RemediationService())
+		mcpSrv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, srv.AIEgressGate(), fairGate, srv.RemediationService())
 		handler := mcpSrv.HTTPHandler(control.NewMCPAuthenticator(db.Pool()))
 		g.Go(func() error { return serveMCPHTTP(gctx, cfg.MCPHTTPAddr, tlsCfg, handler, log) })
 	}

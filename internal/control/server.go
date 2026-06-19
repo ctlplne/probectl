@@ -82,7 +82,8 @@ type Server struct {
 
 	// AI assistant (S24). The RCA analyzer over the S23 query engine; always set
 	// (built-in air-gapped model + incidents evidence when a pool is present).
-	analyzer *ai.Analyzer
+	analyzer   *ai.Analyzer
+	egressGate *ai.EgressGate
 
 	// AI test authoring + auto-discovery (S26). Always set (heuristic by default,
 	// model-backed when configured).
@@ -374,16 +375,16 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 
 	// THE external-AI egress gate (AIRCA-001/005): one instance — consent,
 	// redaction, audit — shared by RCA, test authoring, and (via
-	// NewMCPServer) the MCP surface. No second construction site.
-	egressGate := buildEgressGate(cfg, log, pool)
+	// NewMCPServer) the MCP surface in the HTTP control-plane process.
+	s.egressGate = NewAIEgressGate(cfg, log, pool)
 
 	// AI assistant (S24): RCA analyzer over the S23 query engine, grounded in the
 	// tenant-scoped incident store and synthesized by the configured model.
-	s.analyzer = buildAnalyzerWithGate(cfg, log, pool, egressGate)
+	s.analyzer = buildAnalyzerWithGate(cfg, log, pool, s.egressGate)
 
 	// AI test authoring (S26): heuristic by default, model-backed when configured —
 	// the model path rides the egress gate (AIRCA-005).
-	s.authorEngine = buildAuthor(cfg, log, egressGate)
+	s.authorEngine = buildAuthor(cfg, log, s.egressGate)
 
 	s.http = &http.Server{
 		Addr:         cfg.HTTPAddr,

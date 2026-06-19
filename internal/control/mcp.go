@@ -23,23 +23,26 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
-// NewMCPServer builds probectl's MCP server (S25) over the tenant-scoped stores, the
-// S23 query engine, and the S24 RCA analyzer. The tools are read-only; the tenant
-// boundary then RBAC are enforced at the MCP layer AND again at the engine/stores
-// (defense in depth).
-func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, gate *fairness.Gate, remed remediation.Service) *mcp.Server {
-	egress := buildEgressGate(cfg, log, pool)
+// NewMCPServer builds probectl's MCP server (S25) over the tenant-scoped stores,
+// the S23 query engine, and the S24 RCA analyzer. The tools are read-only; the
+// tenant boundary then RBAC are enforced at the MCP layer AND again at the
+// engine/stores (defense in depth).
+func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, aiGate *ai.EgressGate, gate *fairness.Gate, remed remediation.Service) *mcp.Server {
+	if aiGate == nil {
+		panic("control.NewMCPServer requires the shared AI egress gate")
+	}
 	backend := mcpBackend{
 		pool:        pool,
 		engine:      buildEngine(cfg, pool),
-		analyzer:    buildAnalyzerWithGate(cfg, log, pool, egress),
+		analyzer:    buildAnalyzerWithGate(cfg, log, pool, aiGate),
 		pathStore:   pathStore,
 		gate:        gate,
 		remediation: remed,
 	}
-	// AIRCA-001/003: every tool call is consent-gated + redacted by the ONE
-	// egress gate and audited to the tenant stream — including denials.
-	return mcp.New(backend, egress,
+	// AIRCA-001/003: every tool call is consent-gated + redacted by the
+	// caller-provided egress gate and audited to the tenant stream — including
+	// denials. In the HTTP server this is the same pointer RCA and authoring use.
+	return mcp.New(backend, aiGate,
 		mcp.WithRateLimit(ratePerMin), mcp.WithLogger(log),
 		mcp.WithCallAudit(mcpCallAuditor(pool, log)))
 }

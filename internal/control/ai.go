@@ -44,13 +44,19 @@ func buildEngine(cfg *config.Config, pool *pgxpool.Pool) *ai.Engine {
 	return ai.NewEngine(opts...)
 }
 
-// buildEgressGate constructs THE external-AI egress gate (AIRCA-001/005):
+// NewAIEgressGate constructs THE external-AI egress gate (AIRCA-001/005):
 // one instance per server, one consent source, one redaction policy, one
 // audit sink — the RCA analyzer, the MCP server, and the test-authoring
-// model all draw from it. No second construction site exists.
-func buildEgressGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool) *ai.EgressGate {
+// model all draw from it. Standalone MCP uses the same factory because it runs
+// without the API server instance.
+func NewAIEgressGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool) *ai.EgressGate {
 	return ai.NewEgressGate(tenantEgressPolicy(pool), egressAuditor(pool, log), redactionPolicy(cfg))
 }
+
+// AIEgressGate exposes the already-built server gate for companion surfaces
+// started by main, such as MCP/HTTP. The pointer identity matters: consent,
+// redaction, and audit should not drift by surface.
+func (s *Server) AIEgressGate() *ai.EgressGate { return s.egressGate }
 
 // redactionPolicy maps the config knobs onto the C8 redaction policy
 // (custom patterns were compile-checked at config load — fail closed there).

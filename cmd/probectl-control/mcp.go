@@ -45,7 +45,7 @@ func runMCPStdio(cfg *config.Config, log *slog.Logger, db *store.DB) error {
 	// remediation is nil on the lightweight stdio transport: the propose tool
 	// is inert here (the full proposal workflow rides the HTTP transport wired
 	// through attachEE). A core file can never import ee/.
-	srv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, nil, nil)
+	srv := control.NewMCPServer(cfg, log, db.Pool(), pathStore, cfg.MCPRatePerMin, control.NewAIEgressGate(cfg, log, db.Pool()), nil, nil)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Info("mcp stdio session", "tenant", p.TenantID, "user", p.UserID)

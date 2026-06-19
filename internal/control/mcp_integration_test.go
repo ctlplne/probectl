@@ -90,7 +90,8 @@ func TestMCPServerToolsTenantScopedAndTokenAuth(t *testing.T) {
 	}
 
 	cfg := &config.Config{AIMaxEvidence: 50}
-	srv := NewMCPServer(cfg, quietLog(), db.Pool(), pathstore.NewMemory(), 120, nil, nil)
+	log := quietLog()
+	srv := NewMCPServer(cfg, log, db.Pool(), pathstore.NewMemory(), 120, NewAIEgressGate(cfg, log, db.Pool()), nil, nil)
 	// A fully-capable analyst: the direct-read perms (test/incident/events) PLUS the
 	// unified-query perms the AI engine enforces (entities/metrics/topology + ai.query),
 	// matching the grant set seeded for AI-capable roles in migration 0015. Without
