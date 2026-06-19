@@ -900,6 +900,12 @@ func Load(getenv func(string) string) (*Config, error) {
 	if cfg.OTelStoreMode == "clickhouse" && cfg.OTelStoreURL == "" {
 		l.errf("PROBECTL_OTELSTORE_MODE=clickhouse requires PROBECTL_OTELSTORE_URL")
 	}
+	if cfg.EBPFStoreMode == "clickhouse" && cfg.EBPFStoreURL == "" {
+		l.errf("PROBECTL_EBPFSTORE_MODE=clickhouse requires PROBECTL_EBPFSTORE_URL")
+	}
+	if volatile := volatileProductionModes(cfg); len(volatile) > 0 {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires durable bus/store modes; volatile lightweight modes are not allowed: %s", cfg.DeploymentProfile, strings.Join(volatile, ", "))
+	}
 	if cfg.CMDBProvider != "" {
 		if cfg.CMDBURL == "" || cfg.CMDBSecret == "" {
 			l.errf("PROBECTL_CMDB_PROVIDER=%s requires PROBECTL_CMDB_URL and PROBECTL_CMDB_SECRET", cfg.CMDBProvider)
@@ -1005,6 +1011,32 @@ func isLoopbackHostname(host string) bool {
 		return true
 	}
 	return false
+}
+
+func volatileProductionModes(c *Config) []string {
+	if c.DeploymentProfile == "single" {
+		return nil
+	}
+	var volatile []string
+	if c.BusMode == "memory" {
+		volatile = append(volatile, "PROBECTL_BUS_MODE=memory")
+	}
+	if c.TSDBMode == "memory" {
+		volatile = append(volatile, "PROBECTL_TSDB_MODE=memory")
+	}
+	if c.PathStoreMode == "memory" {
+		volatile = append(volatile, "PROBECTL_PATHSTORE_MODE=memory")
+	}
+	if c.FlowStoreMode == "memory" {
+		volatile = append(volatile, "PROBECTL_FLOWSTORE_MODE=memory")
+	}
+	if c.OTelStoreMode == "memory" {
+		volatile = append(volatile, "PROBECTL_OTELSTORE_MODE=memory")
+	}
+	if c.EBPFStoreMode == "memory" {
+		volatile = append(volatile, "PROBECTL_EBPFSTORE_MODE=memory")
+	}
+	return volatile
 }
 
 // LoadFromEnv resolves configuration from the process environment.

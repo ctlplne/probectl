@@ -988,6 +988,14 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `0` (keep) | when `> 0`, applies a delete-after-N-days TTL to the `probectl_flows` ClickHouse table; `0` keeps flows indefinitely |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
 
+`PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` and `regulated` are production-like
+profiles, so startup refuses volatile raw-ingest/serving defaults. Set
+`PROBECTL_BUS_MODE=kafka`, `PROBECTL_TSDB_MODE=prometheus`, and
+`PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`, `PROBECTL_OTELSTORE_MODE`,
+and `PROBECTL_EBPFSTORE_MODE` to `clickhouse` with their required URLs before
+using those profiles. The default `single` profile may still use memory modes
+for a lightweight sovereign/lab install.
+
 ### Device telemetry agent (`probectl-device-agent`)
 
 This agent reads metrics straight off network gear (routers, switches). It polls

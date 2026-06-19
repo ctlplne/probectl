@@ -18,6 +18,26 @@ func envFunc(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }
 
+func durableTenantProfileEnv(profile string) map[string]string {
+	return map[string]string{
+		"PROBECTL_DEPLOYMENT_PROFILE": profile,
+		"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
+		"PROBECTL_BUS_MODE":           "kafka",
+		"PROBECTL_BUS_BROKERS":        "kafka.example:9093",
+		"PROBECTL_BUS_TLS_ENABLED":    "true",
+		"PROBECTL_TSDB_MODE":          "prometheus",
+		"PROBECTL_TSDB_URL":           "https://prometheus.example",
+		"PROBECTL_PATHSTORE_MODE":     "clickhouse",
+		"PROBECTL_PATHSTORE_URL":      "https://clickhouse.example:8443",
+		"PROBECTL_FLOWSTORE_MODE":     "clickhouse",
+		"PROBECTL_FLOWSTORE_URL":      "https://clickhouse.example:8443",
+		"PROBECTL_OTELSTORE_MODE":     "clickhouse",
+		"PROBECTL_OTELSTORE_URL":      "https://clickhouse.example:8443",
+		"PROBECTL_EBPFSTORE_MODE":     "clickhouse",
+		"PROBECTL_EBPFSTORE_URL":      "https://clickhouse.example:8443",
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	cfg, err := Load(envFunc(nil))
 	if err != nil {
@@ -67,10 +87,7 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 	})
 	for _, profile := range []string{"multi-tenant", "regulated"} {
 		t.Run(profile+" enables DB-layer isolation on every plane", func(t *testing.T) {
-			cfg, err := Load(envFunc(map[string]string{
-				"PROBECTL_DEPLOYMENT_PROFILE": profile,
-				"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
-			}))
+			cfg, err := Load(envFunc(durableTenantProfileEnv(profile)))
 			if err != nil {
 				t.Fatalf("load: %v", err)
 			}
@@ -85,11 +102,9 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 		})
 	}
 	t.Run("explicit env overrides the profile default", func(t *testing.T) {
-		cfg, err := Load(envFunc(map[string]string{
-			"PROBECTL_DEPLOYMENT_PROFILE":       "regulated",
-			"PROBECTL_SESSION_HMAC_KEY":         testSessionHMACKeyHex,
-			"PROBECTL_OTELSTORE_TENANT_SCOPING": "false",
-		}))
+		env := durableTenantProfileEnv("regulated")
+		env["PROBECTL_OTELSTORE_TENANT_SCOPING"] = "false"
+		cfg, err := Load(envFunc(env))
 		if err != nil {
 			t.Fatalf("load: %v", err)
 		}
@@ -100,6 +115,33 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 			t.Error("flow scoping should still be ON from the regulated profile")
 		}
 	})
+}
+
+func TestTenantProfilesRejectVolatileStores(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile, func(t *testing.T) {
+			_, err := Load(envFunc(map[string]string{
+				"PROBECTL_DEPLOYMENT_PROFILE": profile,
+				"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
+			}))
+			if err == nil {
+				t.Fatal("tenant profile with default memory modes should fail closed")
+			}
+			msg := err.Error()
+			for _, want := range []string{
+				"PROBECTL_BUS_MODE=memory",
+				"PROBECTL_TSDB_MODE=memory",
+				"PROBECTL_PATHSTORE_MODE=memory",
+				"PROBECTL_FLOWSTORE_MODE=memory",
+				"PROBECTL_OTELSTORE_MODE=memory",
+				"PROBECTL_EBPFSTORE_MODE=memory",
+			} {
+				if !strings.Contains(msg, want) {
+					t.Fatalf("error %q missing volatile mode %s", msg, want)
+				}
+			}
+		})
+	}
 }
 
 func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
@@ -115,11 +157,9 @@ func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
 		})
 
 		t.Run(profile+" accepts valid session hmac key", func(t *testing.T) {
-			cfg, err := Load(envFunc(map[string]string{
-				"PROBECTL_DEPLOYMENT_PROFILE": profile,
-				"PROBECTL_AUTH_MODE":          "session",
-				"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
-			}))
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_AUTH_MODE"] = "session"
+			cfg, err := Load(envFunc(env))
 			if err != nil {
 				t.Fatalf("load with session HMAC key: %v", err)
 			}
@@ -355,10 +395,7 @@ func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
 		t.Error("single profile: strict tenant lanes should default OFF")
 	}
 	for _, p := range []string{"multi-tenant", "regulated"} {
-		cfg, err := Load(envFunc(map[string]string{
-			"PROBECTL_DEPLOYMENT_PROFILE": p,
-			"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
-		}))
+		cfg, err := Load(envFunc(durableTenantProfileEnv(p)))
 		if err != nil {
 			t.Fatalf("load %s: %v", p, err)
 		}
@@ -367,11 +404,9 @@ func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
 		}
 	}
 	// Explicit override wins.
-	cfg, err = Load(envFunc(map[string]string{
-		"PROBECTL_DEPLOYMENT_PROFILE":         "regulated",
-		"PROBECTL_SESSION_HMAC_KEY":           testSessionHMACKeyHex,
-		"PROBECTL_INGEST_STRICT_TENANT_LANES": "false",
-	}))
+	env := durableTenantProfileEnv("regulated")
+	env["PROBECTL_INGEST_STRICT_TENANT_LANES"] = "false"
+	cfg, err = Load(envFunc(env))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
