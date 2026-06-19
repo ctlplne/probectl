@@ -5,6 +5,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -26,6 +27,8 @@ const (
 	maxBackoff      = 30 * time.Second
 	registerTimeout = 10 * time.Second
 )
+
+var errUnsupportedResultEnvelopeVersion = errors.New("agent: unsupported result envelope schema version")
 
 // Agent is the probectl agent runtime: a plugin host that always probes into a
 // store-and-forward buffer, plus a forwarder that registers, heartbeats, and
@@ -182,16 +185,21 @@ func (a *Agent) drainOnce(ctx context.Context, client *Client) error {
 	if len(frames) == 0 {
 		return nil
 	}
+	requests, firstBadIndex, firstBadErr := frameRequestsPrefix(frames)
+	if firstBadErr != nil {
+		a.log.Error("retaining malformed buffered result",
+			"frame_index", firstBadIndex,
+			"converted_prefix", len(requests),
+			"error", firstBadErr.Error())
+	}
+	if len(requests) == 0 {
+		return nil
+	}
 	stream, err := client.StreamResults(ctx)
 	if err != nil {
 		return err
 	}
-	for _, fr := range frames {
-		req, err := frameToRequest(fr)
-		if err != nil {
-			a.log.Error("discarding malformed buffered result", "error", err.Error())
-			continue
-		}
+	for _, req := range requests {
 		if err := stream.Send(req); err != nil {
 			_, _ = stream.CloseAndRecv()
 			return err
@@ -201,11 +209,27 @@ func (a *Agent) drainOnce(ctx context.Context, client *Client) error {
 	if err != nil {
 		return err
 	}
-	if err := a.buffer.Remove(len(frames)); err != nil {
+	if err := a.buffer.Remove(len(requests)); err != nil {
 		return err
 	}
-	a.log.Debug("drained results", "count", len(frames), "accepted", ack.GetAccepted())
+	a.log.Debug("drained results", "count", len(requests), "accepted", ack.GetAccepted(), "retained", len(frames)-len(requests))
 	return nil
+}
+
+// frameRequestsPrefix converts the contiguous FIFO prefix of decodable frames.
+// The first malformed or future-version frame stops the prefix: later frames are
+// retained behind it so an ACK can never delete data the agent did not convert
+// and send.
+func frameRequestsPrefix(frames [][]byte) ([]*agentv1.StreamResultsRequest, int, error) {
+	requests := make([]*agentv1.StreamResultsRequest, 0, len(frames))
+	for i, fr := range frames {
+		req, err := frameToRequest(fr)
+		if err != nil {
+			return requests, i, err
+		}
+		requests = append(requests, req)
+	}
+	return requests, -1, nil
 }
 
 // frameToRequest converts a buffered JSON result envelope into a StreamResults
@@ -214,6 +238,9 @@ func (a *Agent) drainOnce(ctx context.Context, client *Client) error {
 func frameToRequest(frame []byte) (*agentv1.StreamResultsRequest, error) {
 	var env resultEnvelope
 	if err := json.Unmarshal(frame, &env); err != nil {
+		return nil, err
+	}
+	if err := validateResultEnvelopeVersion(env.SchemaVersion); err != nil {
 		return nil, err
 	}
 	payload, err := proto.Marshal(envToResult(&env))
@@ -225,6 +252,15 @@ func frameToRequest(frame []byte) (*agentv1.StreamResultsRequest, error) {
 		Payload:           payload,
 		ObservedUnixNanos: unixNano(env.Result.StartedAt),
 	}, nil
+}
+
+func validateResultEnvelopeVersion(version uint32) error {
+	switch version {
+	case 0, resultEnvelopeSchemaVersion:
+		return nil
+	default:
+		return fmt.Errorf("%w: %d", errUnsupportedResultEnvelopeVersion, version)
+	}
 }
 
 // envToResult maps the agent's result envelope onto the canonical result schema.

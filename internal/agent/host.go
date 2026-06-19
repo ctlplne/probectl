@@ -18,11 +18,15 @@ type scheduled struct {
 	interval time.Duration
 }
 
+const resultEnvelopeSchemaVersion uint32 = 1
+
 // resultEnvelope stamps tenant + agent identity onto a canary result so it is
 // tenant-attributable end to end (F50). It is the buffered and streamed payload.
+// SchemaVersion 0 is the legacy pre-version frame and remains decodable.
 type resultEnvelope struct {
-	TenantID string `json:"tenant_id"`
-	AgentID  string `json:"agent_id"`
+	SchemaVersion uint32 `json:"schema_version,omitempty"`
+	TenantID      string `json:"tenant_id"`
+	AgentID       string `json:"agent_id"`
 	// ResultID is a per-result UUID minted ONCE at probe time and persisted in
 	// the buffer (CORRECT-002). Because it is stamped before the result is
 	// buffered, a retried/redelivered frame carries the SAME id — the dedup key
@@ -84,7 +88,13 @@ func (h *Host) probe(ctx context.Context, c canary.Canary) {
 		h.log.Error("canary fault", "type", c.Describe().Type, "error", err.Error())
 		return
 	}
-	payload, err := json.Marshal(resultEnvelope{TenantID: h.tenantID, AgentID: h.agentID, ResultID: newResultID(), Result: res})
+	payload, err := json.Marshal(resultEnvelope{
+		SchemaVersion: resultEnvelopeSchemaVersion,
+		TenantID:      h.tenantID,
+		AgentID:       h.agentID,
+		ResultID:      newResultID(),
+		Result:        res,
+	})
 	if err != nil {
 		h.log.Error("marshal result", "error", err.Error())
 		return
