@@ -1134,16 +1134,19 @@ model if you want nicer prose, and doing so is treated as data egress: a remote
 endpoint must be `https`, and you have to explicitly acknowledge that tenant data
 will leave (`PROBECTL_AI_EGRESS_ACK`). A loopback endpoint may be `http` (for a
 local model on the same box). The redaction keys below mask sensitive values
-*before* anything reaches an external model. See [`ai-rca.md`](ai-rca.md).
+*before* anything reaches an external model. Redaction tokens are tenant-scoped
+keyed-HMAC labels; `PROBECTL_SESSION_HMAC_KEY` makes those labels stable across
+restarts, while an unset key falls back to process-local random labels that
+rotate on restart. See [`ai-rca.md`](ai-rca.md).
 
 | Variable                   | Default   | Description                                                         |
 | -------------------------- | --------- | ------------------------------------------------------------------ |
 | `PROBECTL_AI_MODEL_PROVIDER` | `builtin` | `builtin` (air-gapped, the default) \| `ollama` \| `openai` \| `anthropic` |
 | `PROBECTL_AI_EGRESS_ACK` | (none) | **required to use a REMOTE model**: must equal `yes-send-tenant-data-to-the-remote-model`, or the server refuses to start. This is a deliberate "yes, I know data leaves" gate, on top of per-tenant consent + audit — see [`docs/ai-egress.md`](ai-egress.md) |
-| `PROBECTL_AI_REDACT_IPS` | `true` | mask IP addresses in anything sent to an external model (stable per-value tokens, so correlation survives; local file paths are never redacted) |
+| `PROBECTL_AI_REDACT_IPS` | `true` | mask IP addresses in anything sent to an external model (stable per-tenant tokens, so correlation survives without public hash dictionaries; local file paths are never redacted) |
 | `PROBECTL_AI_REDACT_HOSTNAMES` | `false` | also mask hostnames (secrets are masked unconditionally regardless of this) |
 | `PROBECTL_AI_REDACT_PII` | `true` | mask free-text PII — emails, phone numbers, MAC addresses — in anything sent to an external model (RCA prompts, MCP tool results, authoring prompts) |
-| `PROBECTL_AI_REDACT_PATTERNS` | (none) | your own regexes (`;;`-separated), masked as `[custom:xxxx]` — for org-specific identifiers (employee IDs, ticket refs). A bad pattern refuses start (fail closed) |
+| `PROBECTL_AI_REDACT_PATTERNS` | (none) | your own regexes (`;;`-separated), masked as `[custom:<token>]` — for org-specific identifiers (employee IDs, ticket refs). A bad pattern refuses start (fail closed) |
 | `PROBECTL_AI_MODEL_ENDPOINT` | (none)    | base URL of the model (required for a non-`builtin` provider)      |
 | `PROBECTL_AI_MODEL_NAME`     | (none)    | model name (e.g. `llama3.1`, `gpt-4o-mini`)                        |
 | `PROBECTL_AI_MODEL_TOKEN`    | (none)    | API key / bearer token (optional for a local Ollama)              |

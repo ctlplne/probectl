@@ -58,11 +58,16 @@ hostname is usually the very thing you're asking about) and any
 operator-supplied custom patterns (`PROBECTL_AI_REDACT_PATTERNS`,
 `;;`-separated regexes — `;;` because regexes routinely contain commas; one
 bad pattern refuses the whole config, fail closed) are masked **per policy** —
-all before anything leaves. Masking is *deterministic per value*: the same IP
-becomes the same token every time, the way a court transcript names every
-appearance of the same person "Witness A" — the story stays followable, the
-identity never appears. The model can still correlate ("this address appears
-in both signals") without ever seeing the real value.
+all before anything leaves. Masking is *deterministic per tenant + value*: the
+same IP becomes the same token every time inside that tenant, the way a court
+transcript names every appearance of the same person "Witness A" — the story
+stays followable, the identity never appears. Tokens are keyed HMAC labels
+through `internal/crypto`, scoped by tenant, so a remote model cannot dictionary
+match low-entropy values such as private IPs without the deployment secret. When
+`PROBECTL_SESSION_HMAC_KEY` is configured, labels are stable across restarts;
+otherwise probectl uses a process-local random key, so labels remain protected
+but rotate when the process restarts. The model can still correlate ("this
+address appears in both signals") without ever seeing the real value.
 
 ## One gate, three doors
 

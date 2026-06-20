@@ -3,19 +3,24 @@
 package ai
 
 import (
+	"context"
+	"encoding/hex"
 	"fmt"
-	"hash/fnv"
 	"net/netip"
 	"regexp"
 	"strings"
+
+	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // Pre-egress redaction (U-013, C8): before a prompt leaves the network to a
 // REMOTE model, IPs (configurable), hostnames (per policy) and obvious
-// secrets/tokens (always) are masked. Masking is deterministic per value —
-// the same IP becomes the same token within and across calls — so the model
-// can still correlate evidence without ever seeing the value. The local
-// paths (builtin model, loopback Ollama/vLLM) are never redacted.
+// secrets/tokens (always) are masked. Masking is deterministic for the same
+// tenant + secret + value, so the model can still correlate evidence without
+// ever seeing the value. The local paths (builtin model, loopback Ollama/vLLM)
+// are never redacted.
 
 // RedactionPolicy selects what is masked before remote egress. Secrets are
 // ALWAYS masked for a remote model regardless of policy.
@@ -28,10 +33,15 @@ type RedactionPolicy struct {
 	// without the value ever leaving.
 	MaskPII bool
 	// CustomPatterns are operator-supplied regexes (compiled at config
-	// load, fail-closed on a bad pattern) masked as [custom:xxxx] — for
+	// load, fail-closed on a bad pattern) masked as [custom:<token>] — for
 	// org-specific identifiers (employee IDs, ticket numbers, internal
 	// naming) no generic pattern can know.
 	CustomPatterns []*regexp.Regexp
+	// TokenKey is a 32-byte deployment secret used to derive tenant-scoped
+	// redaction HMAC keys. If absent, probectl falls back to a process-local
+	// random key: still not dictionary-reversible by a remote model, but tokens
+	// rotate on restart.
+	TokenKey []byte
 }
 
 // DefaultRedaction is the remote-model default: IPs + free-text PII masked,
@@ -68,16 +78,33 @@ var (
 	reMAC   = regexp.MustCompile(`\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b`)
 )
 
+var processRedactionKey = mustProcessRedactionKey()
+
+func mustProcessRedactionKey() []byte {
+	key, err := crypto.Random(crypto.KeySize)
+	if err != nil {
+		panic(fmt.Sprintf("ai: redaction token key: %v", err))
+	}
+	return key
+}
+
 // redactText applies the policy to one string.
 func redactText(s string, pol RedactionPolicy) string {
+	return redactTextForTenant(s, pol, "")
+}
+
+// redactTextForTenant applies the policy to one string using tenant-scoped,
+// keyed tokens. Tenant scope prevents one tenant's low-entropy token dictionary
+// from matching another tenant's values.
+func redactTextForTenant(s string, pol RedactionPolicy, tenantID string) string {
 	// Secrets first (always), so an IP inside a token is gone either way.
 	s = rePEM.ReplaceAllString(s, "[pem:redacted]")
-	s = reBearer.ReplaceAllStringFunc(s, func(m string) string { return mask("secret", m) })
+	s = reBearer.ReplaceAllStringFunc(s, func(m string) string { return mask("secret", m, pol, tenantID) })
 	s = reKV.ReplaceAllStringFunc(s, func(m string) string {
 		kv := reKV.FindStringSubmatch(m)
-		return kv[1] + mask("secret", m)
+		return kv[1] + mask("secret", m, pol, tenantID)
 	})
-	s = reAKIA.ReplaceAllStringFunc(s, func(m string) string { return mask("secret", m) })
+	s = reAKIA.ReplaceAllStringFunc(s, func(m string) string { return mask("secret", m, pol, tenantID) })
 
 	if pol.MaskIPs {
 		s = reIPv6Candidate.ReplaceAllStringFunc(s, func(m string) string {
@@ -85,26 +112,26 @@ func redactText(s string, pol RedactionPolicy) string {
 			if _, err := netip.ParseAddr(strings.TrimSpace(bare)); err != nil {
 				return m // not a real v6 address (e.g. a time, "::" prose)
 			}
-			return mask("ip", m)
+			return mask("ip", m, pol, tenantID)
 		})
-		s = reIPv4.ReplaceAllStringFunc(s, func(m string) string { return mask("ip", m) })
+		s = reIPv4.ReplaceAllStringFunc(s, func(m string) string { return mask("ip", m, pol, tenantID) })
 	}
 	if pol.MaskPII {
 		// Email first (its domain must not survive into the hostname pass);
 		// MAC before phone (a '-'-separated MAC must not half-match a
 		// separator-structured phone shape).
-		s = reEmail.ReplaceAllStringFunc(s, func(m string) string { return mask("email", m) })
-		s = reMAC.ReplaceAllStringFunc(s, func(m string) string { return mask("mac", m) })
-		s = rePhone.ReplaceAllStringFunc(s, func(m string) string { return mask("phone", m) })
+		s = reEmail.ReplaceAllStringFunc(s, func(m string) string { return mask("email", m, pol, tenantID) })
+		s = reMAC.ReplaceAllStringFunc(s, func(m string) string { return mask("mac", m, pol, tenantID) })
+		s = rePhone.ReplaceAllStringFunc(s, func(m string) string { return mask("phone", m, pol, tenantID) })
 	}
 	if pol.MaskHostnames {
-		s = reHostname.ReplaceAllStringFunc(s, func(m string) string { return mask("host", m) })
+		s = reHostname.ReplaceAllStringFunc(s, func(m string) string { return mask("host", m, pol, tenantID) })
 	}
 	for _, re := range pol.CustomPatterns {
 		if re == nil {
 			continue
 		}
-		s = re.ReplaceAllStringFunc(s, func(m string) string { return mask("custom", m) })
+		s = re.ReplaceAllStringFunc(s, func(m string) string { return mask("custom", m, pol, tenantID) })
 	}
 	return s
 }
@@ -138,23 +165,46 @@ func lastSlashPart(s string) string {
 	return ""
 }
 
-// mask renders a stable token for value: same value, same token — correlation
-// survives, the value does not.
-func mask(class, value string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(value))
-	return fmt.Sprintf("[%s:%08x]", class, h.Sum32())
+// mask renders a stable, non-reversible token for value. It deliberately uses
+// internal/crypto instead of importing crypto primitives here: redaction is a
+// security boundary, and probectl's crypto boundary stays FIPS-swappable.
+func mask(class, value string, pol RedactionPolicy, tenantID string) string {
+	key := pol.TokenKey
+	if len(key) != crypto.KeySize {
+		key = processRedactionKey
+	}
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID == "" {
+		tenantID = "unknown"
+	}
+	tenantKey := crypto.Sign(key, []byte("probectl.ai.redaction.tenant.v1\x00"+tenantID))
+	mac := crypto.Sign(tenantKey, []byte(class+"\x00"+value))
+	return fmt.Sprintf("[%s:%s]", class, hex.EncodeToString(mac[:16]))
+}
+
+func redactionTenantFromContext(ctx context.Context) string {
+	if p := auth.PrincipalFrom(ctx); p != nil && p.TenantID != "" {
+		return p.TenantID
+	}
+	if tid, ok := tenancy.FromContext(ctx); ok {
+		return tid.String()
+	}
+	return ""
 }
 
 // redactSynthesisInput deep-copies the input with the policy applied to the
 // question and every evidence title/summary. The caller's evidence is never
 // mutated (the local pipeline keeps the raw values for citation display).
 func redactSynthesisInput(in SynthesisInput, pol RedactionPolicy) SynthesisInput {
-	out := SynthesisInput{Question: redactText(in.Question, pol)}
+	return redactSynthesisInputForTenant(in, pol, "")
+}
+
+func redactSynthesisInputForTenant(in SynthesisInput, pol RedactionPolicy, tenantID string) SynthesisInput {
+	out := SynthesisInput{Question: redactTextForTenant(in.Question, pol, tenantID)}
 	out.Evidence = make([]Evidence, len(in.Evidence))
 	for i, e := range in.Evidence {
-		e.Title = redactText(e.Title, pol)
-		e.Summary = redactText(e.Summary, pol)
+		e.Title = redactTextForTenant(e.Title, pol, tenantID)
+		e.Summary = redactTextForTenant(e.Summary, pol, tenantID)
 		out.Evidence[i] = e
 	}
 	return out

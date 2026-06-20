@@ -111,7 +111,7 @@ func (m *HTTPModel) Name() string {
 // the RCA-specific Synthesize prompt/parsing.
 func (m *HTTPModel) Complete(ctx context.Context, system, user string) (string, error) {
 	if m.remote {
-		user = redactText(user, m.redact) // C8: nothing un-redacted leaves
+		user = redactTextForTenant(user, m.redact, redactionTenantFromContext(ctx)) // C8: nothing un-redacted leaves
 	}
 	return m.chat(ctx, system, user)
 }
@@ -136,7 +136,7 @@ func (m *HTTPModel) Synthesize(ctx context.Context, in SynthesisInput) (Synthesi
 		// C8 (U-013): mask IPs (configurable), hostnames (per policy) and
 		// secrets (always) BEFORE the prompt leaves the network. The local
 		// loopback path skips this entirely — sovereignty unchanged.
-		in = redactSynthesisInput(in, m.redact)
+		in = redactSynthesisInputForTenant(in, m.redact, redactionTenantFromContext(ctx))
 	}
 	content, err := m.chat(ctx, systemPrompt, userPrompt(in))
 	if err != nil {

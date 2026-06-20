@@ -67,6 +67,7 @@ func redactionPolicy(cfg *config.Config) ai.RedactionPolicy {
 		MaskHostnames:  cfg.AIRedactHostnames,
 		MaskPII:        cfg.AIRedactPII,
 		CustomPatterns: custom,
+		TokenKey:       append([]byte(nil), cfg.SessionHMACKey...),
 	}
 }
 

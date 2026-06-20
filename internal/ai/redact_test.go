@@ -3,13 +3,17 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // C8 (U-013) table-driven redaction: IPs, v6, secrets, hostnames-per-policy.
@@ -61,12 +65,46 @@ func TestRedactText(t *testing.T) {
 	}
 }
 
-// Stable masking: the same value yields the same token (correlation survives).
+// Stable masking: the same value yields the same token within a tenant
+// (correlation survives).
 func TestRedactionTokensAreStable(t *testing.T) {
 	a := redactText("from 10.0.0.1 to 10.0.0.2 and back to 10.0.0.1", DefaultRedaction)
 	first := redactText("10.0.0.1", DefaultRedaction)
 	if strings.Count(a, first) != 2 {
 		t.Fatalf("same IP should map to the same token twice: %q (token %q)", a, first)
+	}
+}
+
+// AIRCA-001/RED-004: labels must not be public hashes of low-entropy values.
+// An external model that sees [ip:<token>] should not be able to hash a small
+// candidate list (for example RFC1918 addresses) and discover the original IP
+// unless it also has the deployment's tenant-scoped redaction key.
+func TestRedactionTokenDictionaryAttackRequiresTenantKey(t *testing.T) {
+	keyA := bytes.Repeat([]byte{0x11}, crypto.KeySize)
+	keyB := bytes.Repeat([]byte{0x22}, crypto.KeySize)
+	polA := DefaultRedaction
+	polA.TokenKey = keyA
+	polB := DefaultRedaction
+	polB.TokenKey = keyB
+
+	token := redactTextForTenant("10.1.2.3", polA, "tenant-a")
+	if !regexp.MustCompile(`^\[ip:[0-9a-f]{32}\]$`).MatchString(token) {
+		t.Fatalf("unexpected token shape: %q", token)
+	}
+	if strings.Contains(token, "10.1.2.3") {
+		t.Fatalf("token leaked the raw IP: %q", token)
+	}
+	if again := redactTextForTenant("10.1.2.3", polA, "tenant-a"); again != token {
+		t.Fatalf("same tenant + key + value must be stable: %q != %q", again, token)
+	}
+	if otherTenant := redactTextForTenant("10.1.2.3", polA, "tenant-b"); otherTenant == token {
+		t.Fatalf("same value under another tenant must not match: %q", otherTenant)
+	}
+
+	for _, candidate := range []string{"10.1.2.1", "10.1.2.2", "10.1.2.3", "10.1.2.4"} {
+		if got := redactTextForTenant(candidate, polB, "tenant-a"); got == token {
+			t.Fatalf("wrong key dictionary candidate %q matched token %q", candidate, token)
+		}
 	}
 }
 

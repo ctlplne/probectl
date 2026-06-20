@@ -263,10 +263,11 @@ three checks, every time:
 - **Redaction.** A result is rendered to JSON once, masked by the redaction policy
   (secrets always; IPs/PII by default; hostnames + custom patterns per config), and
   the **redacted** form is what reaches the client — both the text and the
-  `structuredContent`. Masking runs on the JSON encoding with deterministic tokens
-  — the same value always gets the same mask — so the document stays valid and the
-  model can still tell "this address here is that address there" without ever
-  seeing it.
+  `structuredContent`. Masking runs on the JSON encoding with tenant-scoped,
+  keyed-HMAC tokens — the same tenant + value gets the same mask — so the document
+  stays valid and the model can still tell "this address here is that address
+  there" without ever seeing it. A token from one tenant does not build a useful
+  dictionary for another tenant.
 - **Audit.** Every call — allowed or denied, and *why* — lands in the tenant's
   tamper-evident audit stream as `mcp.tool_call` (actor, tool, outcome), plus an
   `ai.remote_egress` event (`surface = mcp`) on each allowed call that returns

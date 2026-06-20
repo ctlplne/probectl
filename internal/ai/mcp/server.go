@@ -208,11 +208,11 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 		emit(true, "")
 		// A tool error is returned as an isError tool result (MCP idiom) so the
 		// model can read the message, not as a transport error.
-		return resultResponse(req.ID, toolResult(s.gate.Redact(err.Error()), nil, true))
+		return resultResponse(req.ID, toolResult(s.gate.RedactForTenant(err.Error(), p.TenantID), nil, true))
 	}
 	emit(true, "")
 	s.gate.Emit(ctx, ai.EgressEvent{TenantID: p.TenantID, Endpoint: "mcp-client", Model: "mcp", Surface: "mcp"})
-	res, rerr := s.redactedResult(out)
+	res, rerr := s.redactedResult(p.TenantID, out)
 	if rerr != nil {
 		return errorResponse(req.ID, codeInternal, "tool result encoding failed")
 	}
@@ -222,14 +222,14 @@ func (s *Server) callTool(ctx context.Context, p *auth.Principal, req rpcRequest
 // redactedResult renders a tool's output ONCE through the gate's redaction
 // (C8/AIRCA-002) and returns the MCP result carrying the redacted text and
 // the redacted structured content — the un-redacted object never reaches
-// the wire. Masking happens on the JSON encoding; deterministic tokens keep
-// the JSON valid and the values correlatable.
-func (s *Server) redactedResult(out any) (map[string]any, error) {
+// the wire. Masking happens on the JSON encoding; tenant-scoped deterministic
+// tokens keep the JSON valid and values correlatable only inside the tenant.
+func (s *Server) redactedResult(tenantID string, out any) (map[string]any, error) {
 	b, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	red := s.gate.Redact(string(b))
+	red := s.gate.RedactForTenant(string(b), tenantID)
 	return map[string]any{
 		"content":           []map[string]any{{"type": "text", "text": red}},
 		"structuredContent": json.RawMessage(red),

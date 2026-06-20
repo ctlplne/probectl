@@ -167,7 +167,7 @@ escalation contact ravi@example.net; same AP MAC 00:1A:2B:3C:4D:5E re-flapped.`
 		}
 	}
 	// Determinism: the repeated MAC masks to the SAME token (correlation survives).
-	tok := regexp.MustCompile(`\[mac:[0-9a-f]{8}\]`).FindAllString(out, -1)
+	tok := regexp.MustCompile(`\[mac:[0-9a-f]{32}\]`).FindAllString(out, -1)
 	if len(tok) != 2 || tok[0] != tok[1] {
 		t.Fatalf("repeated MAC must mask deterministically: %v", tok)
 	}

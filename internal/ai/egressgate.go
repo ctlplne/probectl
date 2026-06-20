@@ -55,10 +55,17 @@ func (g *EgressGate) Authorize(ctx context.Context, tenantID string) error {
 // Redact applies the gate's redaction policy to one string (secrets always;
 // IPs/hostnames/PII/custom per policy).
 func (g *EgressGate) Redact(s string) string {
+	return g.RedactForTenant(s, "")
+}
+
+// RedactForTenant applies the gate's redaction policy with tenant-scoped
+// keyed tokens. Use this for every real egress surface; Redact remains only
+// as the tenantless test/helper wrapper.
+func (g *EgressGate) RedactForTenant(s, tenantID string) string {
 	if g == nil {
-		return redactText(s, DefaultRedaction)
+		return redactTextForTenant(s, DefaultRedaction, tenantID)
 	}
-	return redactText(s, g.redact)
+	return redactTextForTenant(s, g.redact, tenantID)
 }
 
 // Redaction exposes the gate's policy for adapters that redact structured
@@ -153,7 +160,7 @@ func (c *GatedCompleter) Complete(ctx context.Context, system, user string) (str
 	})
 	// The adapter redacts again on its own remote path (defense in depth);
 	// masking is stable so double application cannot leak or churn tokens.
-	out, err := c.inner.Complete(ctx, system, c.gate.Redact(user))
+	out, err := c.inner.Complete(ctx, system, c.gate.RedactForTenant(user, p.TenantID))
 	if err != nil {
 		return "", err
 	}
