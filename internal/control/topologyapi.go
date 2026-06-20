@@ -143,6 +143,7 @@ type TopologyConsumer struct {
 	bus     bus.Bus
 	log     *slog.Logger
 	binding pipeline.TenantBinding // TENANT-101; nil = unit tests
+	clock   func() time.Time
 	// ebpf is the durable eBPF aggregate store (ARCH-008). When set, every
 	// verified service edge is also persisted, so the differentiator plane has
 	// history and survives a restart instead of living only in the RAM graph.
@@ -162,7 +163,7 @@ func NewTopologyConsumer(b bus.Bus, st topology.Store, log *slog.Logger) *Topolo
 	if log == nil {
 		log = slog.Default()
 	}
-	return &TopologyConsumer{store: st, bus: b, log: log}
+	return &TopologyConsumer{store: st, bus: b, log: log, clock: time.Now}
 }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101)
@@ -170,6 +171,13 @@ func NewTopologyConsumer(b bus.Bus, st topology.Store, log *slog.Logger) *Topolo
 func (tc *TopologyConsumer) WithTenantBinding(b pipeline.TenantBinding) *TopologyConsumer {
 	tc.binding = b
 	return tc
+}
+
+func (tc *TopologyConsumer) receivedAt() time.Time {
+	if tc != nil && tc.clock != nil {
+		return tc.clock()
+	}
+	return time.Now()
 }
 
 // rejectBatch verifies a batch's claimed identities and reports whether the
@@ -240,17 +248,21 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 			}
 		}
 	}
-	now := time.Now()
+	receivedAt := tc.receivedAt()
 	var durable []ebpfstore.Edge
 	for _, e := range batch.GetEdges() {
 		if e.GetTenantId() == "" {
 			continue
 		}
-		tc.store.ObserveServiceEdge(e.GetTenantId(), topology.FromServiceEdge(e), now)
+		firstSeen, lastSeen := serviceEdgeTimes(e, receivedAt)
+		tc.store.ObserveServiceEdge(e.GetTenantId(), topology.FromServiceEdge(e), firstSeen)
+		if !lastSeen.Equal(firstSeen) {
+			tc.store.ObserveServiceEdge(e.GetTenantId(), topology.FromServiceEdge(e), lastSeen)
+		}
 		if tc.ebpf != nil {
 			durable = append(durable, ebpfstore.Edge{
 				TenantID: e.GetTenantId(), AgentID: e.GetSource(),
-				WindowStart: now.Truncate(time.Minute),
+				WindowStart: firstSeen.Truncate(time.Minute),
 				SrcWorkload: e.GetSource(), DstWorkload: e.GetDestination(),
 				DstPort: uint16(e.GetDestinationPort()), L7Protocol: e.GetL7Protocol(),
 				Bytes: e.GetBytes(), Packets: e.GetPackets(), Connections: e.GetConnections(),
@@ -276,7 +288,8 @@ func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error 
 	if ev.GetTenantId() == "" {
 		return nil
 	}
-	tc.store.ObserveRouting(ev.GetTenantId(), topology.FromBGPEvent(&ev), time.Now())
+	at := pipeline.NormalizeEventTimeUnixNano(ev.GetDetectedAtUnixNano(), tc.receivedAt())
+	tc.store.ObserveRouting(ev.GetTenantId(), topology.FromBGPEvent(&ev), at)
 	return nil
 }
 
@@ -293,7 +306,7 @@ func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) e
 	if tc.rejectBatch(ctx, "device", ids) {
 		return nil
 	}
-	now := time.Now()
+	receivedAt := tc.receivedAt()
 	for _, m := range batch.GetMetrics() {
 		if m.GetTenantId() == "" || m.GetDeviceAddress() == "" {
 			continue
@@ -304,7 +317,24 @@ func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) e
 		tc.store.ObserveDevice(m.GetTenantId(), topology.DeviceInput{
 			Address: m.GetDeviceAddress(),
 			Name:    m.GetDeviceName(),
-		}, now)
+		}, pipeline.NormalizeEventTimeUnixNano(m.GetTimeUnixNano(), receivedAt))
 	}
 	return nil
+}
+
+func serviceEdgeTimes(e *ebpfv1.ServiceEdge, receivedAt time.Time) (time.Time, time.Time) {
+	firstUnixNano := e.GetFirstSeenUnixNano()
+	lastUnixNano := e.GetLastSeenUnixNano()
+	switch {
+	case firstUnixNano == 0 && lastUnixNano != 0:
+		firstUnixNano = lastUnixNano
+	case lastUnixNano == 0 && firstUnixNano != 0:
+		lastUnixNano = firstUnixNano
+	}
+	firstSeen := pipeline.NormalizeEventTimeUnixNano(firstUnixNano, receivedAt)
+	lastSeen := pipeline.NormalizeEventTimeUnixNano(lastUnixNano, receivedAt)
+	if lastSeen.Before(firstSeen) {
+		firstSeen, lastSeen = lastSeen, firstSeen
+	}
+	return firstSeen, lastSeen
 }

@@ -5,6 +5,8 @@ package pipeline
 import (
 	"sync/atomic"
 	"time"
+
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // CORRECT-012: agents stamp samples with their OWN clock. A misconfigured or
@@ -60,6 +62,35 @@ func clampFutureTime(t, now time.Time) time.Time {
 		return now
 	}
 	return t
+}
+
+// NormalizeEventTimeUnixNano applies the shared ingest-time policy for
+// protobuf event timestamps: zero means "no event time" and falls back to the
+// receive/ingest time; far-future values are clamped to receive time and counted
+// on the same skew metrics as the TSDB converters.
+func NormalizeEventTimeUnixNano(eventUnixNano int64, receivedAt time.Time) time.Time {
+	receivedAt = normalizeReceiveTime(receivedAt)
+	if eventUnixNano == 0 {
+		return receivedAt
+	}
+	return clampFutureTime(time.Unix(0, eventUnixNano).UTC(), receivedAt)
+}
+
+// ResultEventTime returns the canonical event time for synthetic result
+// consumers. Keeping this in pipeline means the TSDB converter and SLO consumer
+// share the same zero/future-skew behavior.
+func ResultEventTime(r *resultv1.Result, receivedAt time.Time) time.Time {
+	if r == nil {
+		return normalizeReceiveTime(receivedAt)
+	}
+	return NormalizeEventTimeUnixNano(r.GetStartTimeUnixNano(), receivedAt)
+}
+
+func normalizeReceiveTime(receivedAt time.Time) time.Time {
+	if receivedAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return receivedAt.UTC()
 }
 
 // FutureClamped reports how many samples have been clamped for being stamped

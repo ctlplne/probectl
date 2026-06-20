@@ -115,6 +115,7 @@ type SLOConsumer struct {
 	correlator *incident.Correlator
 	log        *slog.Logger
 	nsTenants  map[string]string // CORRECT-005: namespace -> tenant for siloed lanes
+	clock      func() time.Time
 }
 
 // NewSLOConsumer builds the consumer over a non-nil engine.
@@ -122,7 +123,7 @@ func NewSLOConsumer(b bus.Bus, e *slo.Engine, c *incident.Correlator, log *slog.
 	if log == nil {
 		log = slog.Default()
 	}
-	return &SLOConsumer{engine: e, bus: b, correlator: c, log: log}
+	return &SLOConsumer{engine: e, bus: b, correlator: c, log: log, clock: time.Now}
 }
 
 // WithNamespaceTenants subscribes the consumer to each siloed tenant's
@@ -135,6 +136,13 @@ func (sc *SLOConsumer) WithNamespaceTenants(ns map[string]string) *SLOConsumer {
 
 // LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
 func (sc *SLOConsumer) LaneFanoutEnabled() bool { return true }
+
+func (sc *SLOConsumer) receivedAt() time.Time {
+	if sc != nil && sc.clock != nil {
+		return sc.clock()
+	}
+	return time.Now()
+}
 
 // Run subscribes to the shared results topic plus every siloed-tenant lane
 // until ctx ends (CORRECT-005).
@@ -155,8 +163,8 @@ func (sc *SLOConsumer) handleLane(ctx context.Context, msg bus.Message, laneTena
 	if tenant == "" {
 		return nil // unscoped records are dropped (guardrail 1)
 	}
-	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), r.GetServerAddress(),
-		r.GetSuccess(), time.Unix(0, r.GetStartTimeUnixNano()))
+	at := pipeline.ResultEventTime(&r, sc.receivedAt())
+	sigs := sc.engine.ObserveResult(tenant, r.GetCanaryType(), r.GetServerAddress(), r.GetSuccess(), at)
 	for _, sig := range sigs {
 		if sc.correlator != nil {
 			if _, err := sc.correlator.Ingest(ctx, sig); err != nil {

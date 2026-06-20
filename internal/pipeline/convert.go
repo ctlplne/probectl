@@ -35,20 +35,7 @@ func ResultToSeries(r *resultv1.Result) []tsdb.Series {
 		}
 	}
 
-	now := time.Now().UnixMilli()
-	tms := r.GetStartTimeUnixNano() / int64(time.Millisecond)
-	if tms == 0 {
-		// CORRECT-002 tms==0 policy: with no agent event time we stamp INGEST time.
-		// Idempotency for results comes from the TSDB on (series, event-timestamp),
-		// NOT from result_id (results are TSDB series, not ReplacingMergeTree rows
-		// — the proto field doc spells this out). A result WITHOUT an event time is
-		// therefore NOT idempotent across redelivery; agents set
-		// start_time_unix_nano to get exactly-once-effective samples. Counted as a
-		// future-clamp no-op (the timestamp is now, never future).
-		tms = now
-	} else {
-		tms = clampFutureSample(tms, now) // CORRECT-012: clamp far-future agent clocks
-	}
+	tms := ResultEventTime(r, time.Now()).UnixMilli()
 
 	out := []tsdb.Series{
 		{Metric: metricPrefix + "success", Labels: labels, Value: boolFloat(r.GetSuccess()), TimeMillis: tms},

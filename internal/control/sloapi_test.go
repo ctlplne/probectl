@@ -18,6 +18,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -126,6 +127,56 @@ func TestSLOConsumerTracksAndAlerts(t *testing.T) {
 	}
 	if eng.Statuses("t1")[0].TotalEvents != 130 {
 		t.Fatal("unscoped record counted")
+	}
+}
+
+func TestSLOConsumerZeroEventTimeFallsBackToReceiveTime(t *testing.T) {
+	eng := sloTestEngine(t)
+	receivedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.WithClock(func() time.Time { return receivedAt })
+	sc := NewSLOConsumer(nil, eng, nil, intelTestLog())
+	sc.clock = func() time.Time { return receivedAt }
+
+	raw, err := proto.Marshal(&resultv1.Result{
+		TenantId: "t1", CanaryType: "http", ServerAddress: "web.acme.example",
+		Success: true, StartTimeUnixNano: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sts := eng.Statuses("t1")
+	if len(sts) != 1 || sts[0].TotalEvents != 1 {
+		t.Fatalf("zero event time was not bucketed at receive time: %+v", sts)
+	}
+}
+
+func TestSLOConsumerFutureEventTimeClampsToReceiveTime(t *testing.T) {
+	eng := sloTestEngine(t)
+	receivedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	eng.WithClock(func() time.Time { return receivedAt })
+	sc := NewSLOConsumer(nil, eng, nil, intelTestLog())
+	sc.clock = func() time.Time { return receivedAt }
+
+	before := pipeline.FutureClamped()
+	raw, err := proto.Marshal(&resultv1.Result{
+		TenantId: "t1", CanaryType: "http", ServerAddress: "web.acme.example",
+		Success: true, StartTimeUnixNano: receivedAt.Add(time.Hour).UnixNano(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sc.handleLane(context.Background(), bus.Message{Value: raw}, ""); err != nil {
+		t.Fatal(err)
+	}
+	sts := eng.Statuses("t1")
+	if len(sts) != 1 || sts[0].TotalEvents != 1 {
+		t.Fatalf("future event time was not clamped into the receive-time window: %+v", sts)
+	}
+	if pipeline.FutureClamped() <= before {
+		t.Fatal("future SLO result did not increment the shared skew counter")
 	}
 }
 

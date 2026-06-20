@@ -34,3 +34,24 @@ func TestClampFutureSample(t *testing.T) {
 		t.Fatalf("past sample was altered: got %d, want %d", got, past)
 	}
 }
+
+func TestNormalizeEventTimeUnixNano(t *testing.T) {
+	receivedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	if got := NormalizeEventTimeUnixNano(0, receivedAt); !got.Equal(receivedAt) {
+		t.Fatalf("zero event time = %s, want receive time %s", got, receivedAt)
+	}
+
+	past := receivedAt.Add(-time.Hour)
+	if got := NormalizeEventTimeUnixNano(past.UnixNano(), receivedAt); !got.Equal(past) {
+		t.Fatalf("past event time was altered: got %s, want %s", got, past)
+	}
+
+	before := FutureClamped()
+	if got := NormalizeEventTimeUnixNano(receivedAt.Add(time.Hour).UnixNano(), receivedAt); !got.Equal(receivedAt) {
+		t.Fatalf("future event time = %s, want clamp to %s", got, receivedAt)
+	}
+	if FutureClamped() <= before {
+		t.Fatal("future event-time clamp was not counted")
+	}
+}
