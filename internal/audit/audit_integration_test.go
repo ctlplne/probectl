@@ -222,7 +222,7 @@ func TestTenantSubjectErasureProjectsAuditList(t *testing.T) {
 		}); err != nil {
 			return err
 		}
-		if _, err := RecordSubjectErasure(ctx, s, "privacy-admin", subject, "data subject request"); err != nil {
+		if _, err := RecordSubjectErasure(ctx, s, "privacy-admin", subject, "delete "+subject); err != nil {
 			return err
 		}
 		if err := TenantVerify(ctx, s); err != nil {

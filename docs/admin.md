@@ -95,6 +95,9 @@ subject. Normal audit reads and exports then project matching structured
 `actor`, `target`, and `data` values as `[erased-subject]` while preserving the
 original `seq`, `prev_hash`, and `hash` fields. ELI5: the sealed evidence bag
 stays sealed, but the viewing window puts privacy tape over the person's name.
+The lifecycle API writes that marker as part of `POST
+/v1/lifecycle/subjects/erase`; use `POST /v1/lifecycle/subjects/export` first
+when the request is for a subject portability bundle instead of deletion.
 
 ### Exporting to a SIEM
 

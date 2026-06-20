@@ -650,6 +650,87 @@ func (c *ClickHouse) EraseTenant(ctx context.Context, tenant string) (deleted, r
 	return deleted, remaining, nil
 }
 
+// EraseSubject deletes one tenant's OTLP spans/logs that mention subject in
+// query-visible fields, then verifies the same tenant+subject predicate reads
+// zero. Unlike tenant erasure, a siloed tenant keeps its database; only matching
+// subject rows are removed.
+func (c *ClickHouse) EraseSubject(ctx context.Context, tenant, subject string) (deleted, remaining int, err error) {
+	if tenant == "" {
+		return 0, -1, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, -1, nil
+	}
+	t, err := c.route(tenant)
+	if err != nil {
+		return 0, -1, err
+	}
+	p := chParams{"tenant": tenant, "subject": subject}
+	for _, spec := range []struct {
+		table     string
+		predicate string
+	}{
+		{spansTable, otelSpanSubjectPredicate()},
+		{logsTable, otelLogSubjectPredicate()},
+	} {
+		before, err := c.countSubject(ctx, t, spec.table, tenant, spec.predicate, p)
+		if err != nil {
+			return deleted, -1, err
+		}
+		qt, err := qualify(t, spec.table)
+		if err != nil {
+			return deleted, -1, err
+		}
+		if err := c.execAt(ctx, t.BaseURL, "ALTER TABLE "+qt+" DELETE WHERE "+spec.predicate+" SETTINGS mutations_sync = 2", p, nil); err != nil {
+			return deleted, -1, err
+		}
+		after, err := c.countSubject(ctx, t, spec.table, tenant, spec.predicate, p)
+		if err != nil {
+			return deleted, -1, err
+		}
+		deleted += before - after
+		remaining += after
+	}
+	return deleted, remaining, nil
+}
+
+// ExportSubject streams matching spans and logs for one tenant as JSON Lines.
+func (c *ClickHouse) ExportSubject(ctx context.Context, tenant, subject string, spansW, logsW io.Writer) (spans, logs int64, err error) {
+	if tenant == "" {
+		return 0, 0, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, 0, nil
+	}
+	t, err := c.route(tenant)
+	if err != nil {
+		return 0, 0, err
+	}
+	p := chParams{"tenant": tenant, "subject": subject}
+	for _, spec := range []struct {
+		table     string
+		predicate string
+		w         io.Writer
+		into      *int64
+	}{
+		{spansTable, otelSpanSubjectPredicate(), spansW, &spans},
+		{logsTable, otelLogSubjectPredicate(), logsW, &logs},
+	} {
+		qt, err := qualify(t, spec.table)
+		if err != nil {
+			return spans, logs, err
+		}
+		n, err := c.exportSubjectTable(ctx, t.BaseURL, tenant, qt, spec.predicate, p, spec.w)
+		if err != nil {
+			return spans, logs, err
+		}
+		*spec.into = n
+	}
+	return spans, logs, nil
+}
+
 // countTenant counts one tenant's rows in a routed table (erase verification),
 // tenant-scoped like every other read.
 func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant string) (int, error) {
@@ -669,6 +750,91 @@ func (c *ClickHouse) countTenant(ctx context.Context, t Target, table, tenant st
 		return 0, nil
 	}
 	return int(i64(rows[0]["n"])), nil
+}
+
+func (c *ClickHouse) countSubject(ctx context.Context, t Target, table, tenant, predicate string, p chParams) (int, error) {
+	qt, err := qualify(t, table)
+	if err != nil {
+		return 0, err
+	}
+	rows, err := c.queryScoped(ctx, t.BaseURL, tenant,
+		"SELECT count() AS n FROM "+qt+" WHERE "+predicate, p)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return int(i64(rows[0]["n"])), nil
+}
+
+func otelSpanSubjectPredicate() string {
+	return `tenant_id = {tenant:String} AND (
+positionCaseInsensitive(trace_id, {subject:String}) > 0 OR
+positionCaseInsensitive(span_id, {subject:String}) > 0 OR
+positionCaseInsensitive(parent_span_id, {subject:String}) > 0 OR
+positionCaseInsensitive(name, {subject:String}) > 0 OR
+positionCaseInsensitive(kind, {subject:String}) > 0 OR
+positionCaseInsensitive(service, {subject:String}) > 0 OR
+positionCaseInsensitive(status_code, {subject:String}) > 0 OR
+positionCaseInsensitive(attrs, {subject:String}) > 0)`
+}
+
+func otelLogSubjectPredicate() string {
+	return `tenant_id = {tenant:String} AND (
+positionCaseInsensitive(service, {subject:String}) > 0 OR
+positionCaseInsensitive(body, {subject:String}) > 0 OR
+positionCaseInsensitive(trace_id, {subject:String}) > 0 OR
+positionCaseInsensitive(span_id, {subject:String}) > 0 OR
+positionCaseInsensitive(severity_text, {subject:String}) > 0 OR
+positionCaseInsensitive(attrs, {subject:String}) > 0)`
+}
+
+func (c *ClickHouse) exportSubjectTable(ctx context.Context, base, tenant, table, predicate string, p chParams, w io.Writer) (int64, error) {
+	sql := "SELECT * FROM " + table + " WHERE " + predicate + " FORMAT JSONEachRow"
+	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql) + p.qs()
+	if c.tenantScoping {
+		u += "&" + url.QueryEscape(tenantSettingName) + "=" + url.QueryEscape(tenant)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return 0, err
+	}
+	resp, err := c.do(base, req)
+	if err != nil {
+		return 0, fmt.Errorf("otelstore: export subject: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return 0, fmt.Errorf("otelstore: export subject status %d: %s", resp.StatusCode, b)
+	}
+	return countLinesCopy(w, resp.Body)
+}
+
+func countLinesCopy(w io.Writer, r io.Reader) (int64, error) {
+	var lines int64
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			chunk := buf[:n]
+			for _, b := range chunk {
+				if b == '\n' {
+					lines++
+				}
+			}
+			if _, werr := w.Write(chunk); werr != nil {
+				return lines, werr
+			}
+		}
+		if err == io.EOF {
+			return lines, nil
+		}
+		if err != nil {
+			return lines, err
+		}
+	}
 }
 
 // Close is a no-op (stateless HTTP client).

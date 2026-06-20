@@ -1592,6 +1592,19 @@ provider console adds the operator-side erase trigger. See
 `docs/runbooks/tenant-offboarding.md` for the full procedure and the
 per-store verification table.
 
+Subject lifecycle uses the same tenant-first boundary for a narrower privacy
+request: a data subject is a person or identifier named by the tenant admin,
+for example an email address, user name, host-owned endpoint IP, or trace/log
+attribute. Use `POST /v1/lifecycle/subjects/export` with
+`{"subject":"alice@example.com","redact":true}` for a subject portability
+bundle, and `POST /v1/lifecycle/subjects/erase` with
+`{"subject":"alice@example.com","confirm":"alice@example.com","reason":"dsar"}`
+to erase that subject. Both routes require the lifecycle permissions
+(`lifecycle.export` and `lifecycle.erase`) and intentionally use POST bodies so
+the subject never appears in URLs, proxy logs, or browser history. The receipt
+stores only a tenant-scoped subject hash, deleted/remaining counts per plane,
+and the report hash.
+
 Audit subject erasure is layered on the append-only audit chain. A
 `privacy.subject_erase` marker stores only a tenant-scoped subject hash; later
 audit reads/exports replace matching structured actor/target/data values with an

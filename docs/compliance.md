@@ -202,6 +202,10 @@ features that live elsewhere, not in this validator:
 - **Per-tenant data export** — `GET /v1/lifecycle/export` (permission
   `lifecycle.export`; add `?redact=true` for a PII-masked bundle, see
   [`governance.md`](governance.md)).
+- **Data-subject export and erasure** — `POST
+  /v1/lifecycle/subjects/export` and `POST /v1/lifecycle/subjects/erase`
+  handle one person or identifier inside the caller's tenant. The receipt stores
+  a tenant-scoped subject hash, never a global subject index.
 - **Verifiable deletion / offboarding** — cross-store erasure with a
   recomputable attestation.
 

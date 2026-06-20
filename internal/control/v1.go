@@ -100,6 +100,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/carbon", s.handleCarbon, ai.PermMetricsRead},
 		{http.MethodGet, "/v1/editions", s.handleEditions, permDirectoryRead},
 		{http.MethodGet, "/v1/lifecycle/export", s.handleLifecycleExport, permLifecycleExp},
+		{http.MethodPost, "/v1/lifecycle/subjects/export", s.handleLifecycleSubjectExport, permLifecycleExp},
+		{http.MethodPost, "/v1/lifecycle/subjects/erase", s.handleLifecycleSubjectErase, permLifecycleErase},
 		{http.MethodGet, "/v1/lifecycle/retention", s.handleLifecycleRetentionGet, permLifecycleErase},
 		{http.MethodPut, "/v1/lifecycle/retention", s.handleLifecycleRetentionPut, permLifecycleErase},
 		{http.MethodPost, "/v1/lifecycle/erase", s.handleLifecycleErase, permLifecycleErase},

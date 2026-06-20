@@ -3874,6 +3874,73 @@
         }
       }
     },
+    "/v1/lifecycle/subjects/export": {
+      "post": {
+        "summary": "Download a subject-scoped portability bundle across identity, telemetry, AI, and audit evidence; subject travels in the JSON body, never the URL",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["subject"],
+                "properties": {
+                  "subject": {
+                    "type": "string",
+                    "description": "Email, user id, IP address, host, prefix, or other data-subject identifier scoped to the caller's tenant."
+                  },
+                  "redact": {
+                    "type": "boolean",
+                    "description": "Apply tenant governance redaction before streaming the bundle."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "gzip tar subject portability bundle"
+          }
+        }
+      }
+    },
+    "/v1/lifecycle/subjects/erase": {
+      "post": {
+        "summary": "Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, and append an audit projection marker; requires confirm equal to subject",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["subject", "confirm"],
+                "properties": {
+                  "subject": {
+                    "type": "string",
+                    "description": "Tenant-scoped subject identifier to erase."
+                  },
+                  "confirm": {
+                    "type": "string",
+                    "description": "Must exactly equal subject."
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Subject erasure report"
+          }
+        }
+      }
+    },
     "/v1/lifecycle/retention": {
       "get": {
         "summary": "The tenant's retention policy + residency/isolation visibility",

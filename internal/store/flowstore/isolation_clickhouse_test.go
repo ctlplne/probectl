@@ -79,6 +79,49 @@ func TestClickHouseCrossTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestClickHouseSubjectEraseIsTenantScoped(t *testing.T) {
+	c := chFlow(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+	subject := fmt.Sprintf("alice-%d@example.com", now.UnixNano())
+	ta := fmt.Sprintf("iso-subj-a-%d", now.UnixNano())
+	tb := fmt.Sprintf("iso-subj-b-%d", now.UnixNano())
+	defer func() {
+		_, _ = c.DeleteTenant(ctx, ta)
+		_, _ = c.DeleteTenant(ctx, tb)
+	}()
+
+	if err := c.Insert(ctx, []Row{
+		{TenantID: ta, AgentID: subject, Exporter: "edge-a", Protocol: "netflow", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "198.51.100.10", DstAddr: "203.0.113.10", Bytes: 100, Packets: 1},
+		{TenantID: ta, AgentID: "bob@example.com", Exporter: "edge-a", Protocol: "netflow", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "198.51.100.11", DstAddr: "203.0.113.11", Bytes: 200, Packets: 2},
+		{TenantID: tb, AgentID: subject, Exporter: "edge-b", Protocol: "netflow", TS: now, StartTS: now.Add(-time.Second), SrcAddr: "198.51.100.12", DstAddr: "203.0.113.12", Bytes: 300, Packets: 3},
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	deleted, remaining, err := c.DeleteSubject(ctx, ta, subject)
+	if err != nil {
+		t.Fatalf("delete subject: %v", err)
+	}
+	if deleted != 1 || remaining != 0 {
+		t.Fatalf("subject delete counts = deleted %d remaining %d, want 1/0", deleted, remaining)
+	}
+
+	rows, err := c.TopTalkers(ctx, TopQuery{TenantID: ta, By: BySrc, Window: time.Hour, Now: now.Add(time.Minute), Limit: 10})
+	if err != nil {
+		t.Fatalf("tenant A top talkers: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != "198.51.100.11" {
+		t.Fatalf("tenant A should retain only non-subject row: %+v", rows)
+	}
+	rows, err = c.TopTalkers(ctx, TopQuery{TenantID: tb, By: BySrc, Window: time.Hour, Now: now.Add(time.Minute), Limit: 10})
+	if err != nil {
+		t.Fatalf("tenant B top talkers: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Key != "198.51.100.12" {
+		t.Fatalf("tenant B matching subject must be untouched: %+v", rows)
+	}
+}
+
 // The DB-level row policies apply cleanly on a real server and register in
 // system.row_policies (per-tenant CH users are then row-filtered to
 // tenant_id = currentUser(); the service account keeps full access).

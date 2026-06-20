@@ -192,6 +192,76 @@ func TestCLICollectorRegister(t *testing.T) {
 	}
 }
 
+func TestCLILifecycleSubjectExportStreamsBundle(t *testing.T) {
+	var seen map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/lifecycle/subjects/export", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.RawQuery, "alice") {
+			t.Fatalf("subject must not travel in URL: %s", r.URL.String())
+		}
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write([]byte("bundle-bytes"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "lifecycle", "subject-export", "--subject", "alice@example.com", "--redact")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if out != "bundle-bytes" {
+		t.Fatalf("bundle stream not copied to stdout: %q", out)
+	}
+	if seen["subject"] != "alice@example.com" || seen["redact"] != true {
+		t.Fatalf("request body = %#v", seen)
+	}
+}
+
+func TestCLILifecycleSubjectEraseRequiresExactConfirm(t *testing.T) {
+	srv := fakeAPI(t)
+	_, errs, code := run(t, srv, "lifecycle", "subject-erase", "--subject", "alice@example.com", "--confirm", "alice")
+	if code != 2 || !strings.Contains(errs, "--confirm") {
+		t.Fatalf("bad confirmation should fail locally: code=%d stderr=%s", code, errs)
+	}
+}
+
+func TestCLILifecycleSubjectErasePostsBody(t *testing.T) {
+	var seen map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/lifecycle/subjects/erase", func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.RawQuery, "alice") {
+			t.Fatalf("subject must not travel in URL: %s", r.URL.String())
+		}
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"complete":      true,
+			"subject_hash":  "hash",
+			"report_sha256": "sha",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "--json", "lifecycle", "subject-erase",
+		"--subject", "alice@example.com",
+		"--confirm", "alice@example.com",
+		"--reason", "dsar")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if seen["subject"] != "alice@example.com" || seen["confirm"] != "alice@example.com" || seen["reason"] != "dsar" {
+		t.Fatalf("request body = %#v", seen)
+	}
+	if !strings.Contains(out, `"complete": true`) || !strings.Contains(out, `"report_sha256": "sha"`) {
+		t.Fatalf("subject erasure report not printed: %s", out)
+	}
+}
+
 func TestCLIErrorStatusExitsNonZero(t *testing.T) {
 	srv := fakeAPI(t)
 	_, errs, code := run(t, srv, "test", "get", "44444444-4444-4444-4444-444444444444")

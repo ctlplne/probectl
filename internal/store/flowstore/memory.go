@@ -8,6 +8,7 @@ import (
 	"io"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -212,6 +213,37 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int64, error)
 	return remaining, nil
 }
 
+// DeleteSubject removes flows for one tenant that mention subject in the
+// identity-like fields a data subject can reasonably name: endpoint IPs,
+// exporter, next-hop, country/ASN labels, and agent id. The tenant filter is
+// applied before the subject predicate.
+func (m *Memory) DeleteSubject(_ context.Context, tenantID, subject string) (deleted, remaining int64, err error) {
+	if tenantID == "" {
+		return 0, -1, ErrNoTenant
+	}
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	if subject == "" {
+		return 0, -1, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.rows[:0]
+	for _, r := range m.rows {
+		if r.TenantID == tenantID && flowRowMatchesSubject(r, subject) {
+			deleted++
+			continue
+		}
+		kept = append(kept, r)
+	}
+	m.rows = kept
+	for _, r := range m.rows {
+		if r.TenantID == tenantID && flowRowMatchesSubject(r, subject) {
+			remaining++
+		}
+	}
+	return deleted, remaining, nil
+}
+
 // DeleteTenantBefore removes one tenant's flows older than cutoff (S-T5).
 func (m *Memory) DeleteTenantBefore(_ context.Context, tenantID string, cutoff time.Time) error {
 	m.mu.Lock()
@@ -247,6 +279,20 @@ func (m *Memory) ExportTenant(_ context.Context, tenantID string, w io.Writer) (
 }
 
 func (m *Memory) Close() error { return nil }
+
+func flowRowMatchesSubject(r Row, subject string) bool {
+	for _, v := range []string{
+		r.AgentID, r.Exporter, r.SrcAddr, r.DstAddr, r.NextHop,
+		r.SrcASName, r.DstASName, r.SrcCountry, r.DstCountry,
+		strconv.FormatUint(uint64(r.SrcASN), 10),
+		strconv.FormatUint(uint64(r.DstASN), 10),
+	} {
+		if strings.Contains(strings.ToLower(v), subject) {
+			return true
+		}
+	}
+	return false
+}
 
 func indexByte(s string, b byte) int {
 	for i := 0; i < len(s); i++ {

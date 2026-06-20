@@ -98,10 +98,12 @@ var surfaceCommands = map[string]surfaceCommand{
 		"cis":     {Method: http.MethodGet, Path: "/v1/incidents/{id}/cis", ArgName: "id"},
 	}},
 	"lifecycle": {Name: "lifecycle", Summary: "tenant data lifecycle", Ops: map[string]apiOp{
-		"erase":         {Method: http.MethodPost, Path: "/v1/lifecycle/erase"},
-		"export":        {Method: http.MethodGet, Path: "/v1/lifecycle/export"},
-		"retention":     {Method: http.MethodGet, Path: "/v1/lifecycle/retention"},
-		"set-retention": {Method: http.MethodPut, Path: "/v1/lifecycle/retention"},
+		"erase":          {Method: http.MethodPost, Path: "/v1/lifecycle/erase"},
+		"export":         {Method: http.MethodGet, Path: "/v1/lifecycle/export"},
+		"retention":      {Method: http.MethodGet, Path: "/v1/lifecycle/retention"},
+		"set-retention":  {Method: http.MethodPut, Path: "/v1/lifecycle/retention"},
+		"subject-erase":  {Method: http.MethodPost, Path: "/v1/lifecycle/subjects/erase"},
+		"subject-export": {Method: http.MethodPost, Path: "/v1/lifecycle/subjects/export"},
 	}},
 	"me": {Name: "me", Summary: "current principal", Ops: map[string]apiOp{
 		"show": {Method: http.MethodGet, Path: "/v1/me"},

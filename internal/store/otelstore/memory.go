@@ -4,7 +4,10 @@ package otelstore
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -155,6 +158,43 @@ func (m *Memory) Len(tenant string) (spans, logs int) {
 	return len(m.spans[tenant]), len(m.logs[tenant])
 }
 
+// ExportSubject writes matching spans and logs for one tenant as JSON Lines.
+func (m *Memory) ExportSubject(_ context.Context, tenant, subject string, spansW, logsW io.Writer) (spans, logs int64, err error) {
+	if tenant == "" {
+		return 0, 0, ErrNoTenant
+	}
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	if subject == "" {
+		return 0, 0, nil
+	}
+	m.mu.RLock()
+	spanRows := append([]Span(nil), m.spans[tenant]...)
+	logRows := append([]LogRecord(nil), m.logs[tenant]...)
+	m.mu.RUnlock()
+
+	spanEnc := json.NewEncoder(spansW)
+	for _, s := range spanRows {
+		if !spanMatchesSubject(s, subject) {
+			continue
+		}
+		if err := spanEnc.Encode(s); err != nil {
+			return spans, logs, err
+		}
+		spans++
+	}
+	logEnc := json.NewEncoder(logsW)
+	for _, r := range logRows {
+		if !logMatchesSubject(r, subject) {
+			continue
+		}
+		if err := logEnc.Encode(r); err != nil {
+			return spans, logs, err
+		}
+		logs++
+	}
+	return spans, logs, nil
+}
+
 func spanDedupKey(s Span) string {
 	if s.TraceID != "" && s.SpanID != "" {
 		return s.TenantID + "|" + s.TraceID + "|" + s.SpanID
@@ -181,7 +221,80 @@ func (m *Memory) EraseTenant(_ context.Context, tenant string) (deleted, remaini
 	return deleted, 0, nil
 }
 
+// EraseSubject removes one tenant's spans/logs that mention subject in the
+// fields exposed by the OTLP query surfaces. Tenant is checked first; an empty
+// tenant fails closed.
+func (m *Memory) EraseSubject(_ context.Context, tenant, subject string) (deleted, remaining int, err error) {
+	if tenant == "" {
+		return 0, -1, ErrNoTenant
+	}
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	if subject == "" {
+		return 0, -1, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	spans := m.spans[tenant][:0]
+	for _, s := range m.spans[tenant] {
+		if spanMatchesSubject(s, subject) {
+			deleted++
+			continue
+		}
+		spans = append(spans, s)
+	}
+	m.spans[tenant] = spans
+	logs := m.logs[tenant][:0]
+	for _, r := range m.logs[tenant] {
+		if logMatchesSubject(r, subject) {
+			deleted++
+			continue
+		}
+		logs = append(logs, r)
+	}
+	m.logs[tenant] = logs
+	m.rebuildSpanIndex(tenant)
+	m.rebuildLogIndex(tenant)
+	for _, s := range m.spans[tenant] {
+		if spanMatchesSubject(s, subject) {
+			remaining++
+		}
+	}
+	for _, r := range m.logs[tenant] {
+		if logMatchesSubject(r, subject) {
+			remaining++
+		}
+	}
+	return deleted, remaining, nil
+}
+
 var _ Store = (*Memory)(nil)
+
+func spanMatchesSubject(s Span, subject string) bool {
+	for _, v := range []string{s.TraceID, s.SpanID, s.ParentSpanID, s.Name, s.Kind, s.Service, s.StatusCode} {
+		if strings.Contains(strings.ToLower(v), subject) {
+			return true
+		}
+	}
+	return attrsMatchSubject(s.Attrs, subject)
+}
+
+func logMatchesSubject(r LogRecord, subject string) bool {
+	for _, v := range []string{r.Service, r.Body, r.TraceID, r.SpanID, r.SeverityText} {
+		if strings.Contains(strings.ToLower(v), subject) {
+			return true
+		}
+	}
+	return attrsMatchSubject(r.Attrs, subject)
+}
+
+func attrsMatchSubject(attrs map[string]string, subject string) bool {
+	for k, v := range attrs {
+		if strings.Contains(strings.ToLower(k), subject) || strings.Contains(strings.ToLower(v), subject) {
+			return true
+		}
+	}
+	return false
+}
 
 // timeOrNow guards zero timestamps at ingest (a record with no time is
 // stamped with arrival time rather than 1970).

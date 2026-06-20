@@ -561,6 +561,42 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 	return remaining, nil
 }
 
+// DeleteSubject removes one tenant's flow rows that mention subject in
+// identity-like flow fields, then verifies the same tenant+subject predicate
+// reads zero. Siloed tenants use their routed per-tenant table; pooled tenants
+// keep tenant_id as the outermost predicate.
+func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string) (deleted, remaining int64, err error) {
+	if tenantID == "" {
+		return 0, -1, ErrNoTenant
+	}
+	subject = strings.TrimSpace(subject)
+	if subject == "" {
+		return 0, -1, nil
+	}
+	t, err := c.route(tenantID)
+	if err != nil {
+		return 0, -1, err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return 0, -1, err
+	}
+	p := chParams{"tenant": tenantID, "subject": subject}
+	before, err := c.countSubject(ctx, t.BaseURL, tenantID, table, p)
+	if err != nil {
+		return 0, -1, err
+	}
+	if err := c.exec(ctx, t.BaseURL,
+		"DELETE FROM "+table+" WHERE "+flowSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
+		return 0, -1, fmt.Errorf("flowstore: delete subject: %w", err)
+	}
+	remaining, err = c.countSubject(ctx, t.BaseURL, tenantID, table, p)
+	if err != nil {
+		return 0, -1, err
+	}
+	return before - remaining, remaining, nil
+}
+
 // DeleteTenantBefore removes one tenant's flows older than cutoff (S-T5
 // per-tenant retention), on the tenant's routed store.
 func (c *ClickHouse) DeleteTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) error {
@@ -624,6 +660,33 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 		return -1, nil // streamed fine; count unavailable
 	}
 	return int64(chToFloat(rows[0]["n"])), nil
+}
+
+func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table string, p chParams) (int64, error) {
+	rows, err := c.queryScoped(ctx, baseURL, tenantID,
+		"SELECT count() AS n FROM "+table+" WHERE "+flowSubjectPredicate(), p)
+	if err != nil {
+		return -1, err
+	}
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	return int64(chToFloat(rows[0]["n"])), nil
+}
+
+func flowSubjectPredicate() string {
+	return `tenant_id={tenant:String} AND (
+positionCaseInsensitive(agent_id, {subject:String}) > 0 OR
+positionCaseInsensitive(exporter, {subject:String}) > 0 OR
+positionCaseInsensitive(src_addr, {subject:String}) > 0 OR
+positionCaseInsensitive(dst_addr, {subject:String}) > 0 OR
+positionCaseInsensitive(next_hop, {subject:String}) > 0 OR
+positionCaseInsensitive(src_as_name, {subject:String}) > 0 OR
+positionCaseInsensitive(dst_as_name, {subject:String}) > 0 OR
+positionCaseInsensitive(src_country, {subject:String}) > 0 OR
+positionCaseInsensitive(dst_country, {subject:String}) > 0 OR
+positionCaseInsensitive(toString(src_asn), {subject:String}) > 0 OR
+positionCaseInsensitive(toString(dst_asn), {subject:String}) > 0)`
 }
 
 // lineCounter passes bytes through (kept simple; counting via the follow-up

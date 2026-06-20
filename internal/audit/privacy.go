@@ -34,15 +34,12 @@ func SubjectErasureHash(tenantID, subject string) string {
 // RecordSubjectErasure appends an erasure marker to the tenant audit chain. It
 // preserves the hash chain (no old rows are edited) while making future List
 // calls project exact structured matches as erased.
-func RecordSubjectErasure(ctx context.Context, s tenancy.Scope, actor, subject, reason string) (Event, error) {
+func RecordSubjectErasure(ctx context.Context, s tenancy.Scope, actor, subject, _ string) (Event, error) {
 	hash := SubjectErasureHash(s.Tenant.String(), subject)
 	if hash == "" {
 		return Event{}, fmt.Errorf("audit: subject erasure requires a non-empty subject")
 	}
 	data := map[string]any{"subject_hash": hash}
-	if strings.TrimSpace(reason) != "" {
-		data["reason"] = strings.TrimSpace(reason)
-	}
 	return TenantAppend(ctx, s, actor, SubjectErasureAction, "subject:"+hash[:12], data)
 }
 

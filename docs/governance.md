@@ -85,14 +85,15 @@ The tenant-portability export gains a **redacted mode**:
 
 ```text
 GET /v1/lifecycle/export?redact=true     # mask PII per the tenant's policy
+POST /v1/lifecycle/subjects/export       # body: {"subject":"alice@example.com","redact":true}
 ```
 
 and a tenant whose governance policy sets `redact_export: true` always gets a
-redacted export, even without the query parameter — the strict tenant's floor
-holds even when a requester forgets to ask. The manifest carries
-`"redacted": true`. Postgres rows and flow records are masked column-by-category
-(IPs, emails, geo, MACs, …) while non-sensitive fields (counts, protocol, names)
-survive. Malformed lines pass through untouched, so the bundle stays well-formed.
+redacted tenant or subject export, even when a requester forgets to ask. The
+manifest carries `"redacted": true`. Postgres rows, flow records, and OTLP
+subject rows are masked column-by-category (IPs, emails, geo, MACs, …) while
+non-sensitive fields (counts, protocol, names) survive. Malformed lines pass
+through untouched, so the bundle stays well-formed.
 
 The redaction *mechanism* is **core** (the `?redact=true` toggle works on any
 deployment with the PII-floor default). The `governance` feature adds **per-tenant
@@ -143,6 +144,13 @@ owned by its own subsystem — governance is the dashboard, not a second engine:
   stores**; backups are the operator's documented backup-TTL
   (`PROBECTL_BACKUP_RETENTION_NOTE`) — a governed deletion is not a backup purge.
   See [`runbooks/tenant-offboarding.md`](runbooks/tenant-offboarding.md).
+- **Subject lifecycle** is also core (`internal/tenantlife`): `POST
+  /v1/lifecycle/subjects/export` and `POST /v1/lifecycle/subjects/erase`
+  handle a person or identifier inside the caller's tenant. Identity rows,
+  persisted AI answers, flow rows, and OTLP spans/logs are filtered by subject
+  after tenant scoping. Audit uses an append-only `privacy.subject_erase` marker
+  and projects future reads, so the evidence chain stays sealed while the
+  person's visible fields are taped over.
 - **Residency** is siloed stores pinned to a region, plus the region topology.
   Strict tenants run **siloed** (their own schemas/databases rather than shared
   ones) so their stores stay in the permitted region rather

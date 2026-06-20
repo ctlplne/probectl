@@ -74,6 +74,38 @@ func (s *Server) handleLifecycleExport(w http.ResponseWriter, r *http.Request) e
 	return nil
 }
 
+type lifecycleSubjectExportRequest struct {
+	Subject string `json:"subject"`
+	Redact  bool   `json:"redact"`
+}
+
+// handleLifecycleSubjectExport streams a subject-scoped portability bundle. It
+// is POST, not GET, so the subject identifier does not land in URLs.
+func (s *Server) handleLifecycleSubjectExport(w http.ResponseWriter, r *http.Request) error {
+	e, err := s.lifecycleEngine()
+	if err != nil {
+		return err
+	}
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var in lifecycleSubjectExportRequest
+	if err := decodeJSON(r, &in); err != nil {
+		return err
+	}
+	if strings.TrimSpace(in.Subject) == "" {
+		return apierror.Validation("subject is required")
+	}
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", `attachment; filename="probectl-subject-export.tar.gz"`)
+	if _, err := e.ExportSubject(r.Context(), tid, in.Subject, w, in.Redact); err != nil {
+		s.log.Error("subject export failed", "tenant_id", tid, "error", err.Error())
+		return nil
+	}
+	return nil
+}
+
 // lifecycleStatus is the retention + residency view (the tenant-settings
 // card): what the tenant controls (retention) and what it can SEE about
 // where its data lives (isolation model, residency — provider-set).
@@ -167,5 +199,39 @@ func (s *Server) handleLifecycleErase(w http.ResponseWriter, r *http.Request) er
 		return apierror.Internal("erasure failed").Wrap(err)
 	}
 	writeJSON(w, http.StatusOK, att)
+	return nil
+}
+
+type lifecycleSubjectEraseRequest struct {
+	Subject string `json:"subject"`
+	Confirm string `json:"confirm"`
+	Reason  string `json:"reason"`
+}
+
+func (s *Server) handleLifecycleSubjectErase(w http.ResponseWriter, r *http.Request) error {
+	e, err := s.lifecycleEngine()
+	if err != nil {
+		return err
+	}
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var in lifecycleSubjectEraseRequest
+	if err := decodeJSON(r, &in); err != nil {
+		return err
+	}
+	subject := strings.TrimSpace(in.Subject)
+	if subject == "" {
+		return apierror.Validation("subject is required")
+	}
+	if strings.TrimSpace(in.Confirm) != subject {
+		return apierror.Validation("confirm must equal subject exactly — subject erasure is irreversible")
+	}
+	report, err := e.EraseSubject(r.Context(), tid, subject, auditActor(r), in.Reason)
+	if err != nil {
+		return apierror.Internal("subject erasure failed").Wrap(err)
+	}
+	writeJSON(w, http.StatusOK, report)
 	return nil
 }

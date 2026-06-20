@@ -38,6 +38,55 @@ Time-series metrics are **not** in the bundle: export them via the
 Prometheus-compatible API (federation / PromQL) — the manifest says so. Hand the
 bundle to the customer **before** you erase anything.
 
+## 1a. Subject export / erasure (data-subject request)
+
+A subject request is the smaller privacy workflow: remove or return the rows
+that mention one person or identifier **inside one tenant**, without deleting
+the whole tenant. Think "empty Alice's folder in tenant A," not "search every
+tenant for Alice." The tenant id is still the outer wall: probectl chooses the
+caller's tenant first, then applies the subject filter inside that tenant.
+
+Export uses `POST /v1/lifecycle/subjects/export` (permission
+`lifecycle.export`):
+
+```json
+{"subject":"alice@example.com","redact":true}
+```
+
+The response is `probectl-subject-export.tar.gz`. It contains `manifest.json`
+with only a tenant-scoped subject hash, plus matching JSONL files such as
+`postgres/users.jsonl`, `flows.jsonl`, `otel_spans.jsonl`, and
+`otel_logs.jsonl` when those planes contain matching rows. The raw subject is
+in the exported data because this is the tenant's portability bundle; it is not
+stored in the manifest or provider audit receipt.
+
+CLI equivalent:
+
+```bash
+probectl lifecycle subject-export --subject alice@example.com --redact > subject-export.tar.gz
+```
+
+Erasure uses `POST /v1/lifecycle/subjects/erase` (permission
+`lifecycle.erase`):
+
+```json
+{"subject":"alice@example.com","confirm":"alice@example.com","reason":"dsar"}
+```
+
+The exact confirmation is deliberate friction for an irreversible action. The
+engine removes matching identity rows, persisted AI answers, flow rows, and OTLP
+trace/log rows for the caller's tenant only. Audit rows are append-only, so the
+engine records a `privacy.subject_erase` marker instead of rewriting history;
+future audit reads/exports project matching structured actor/target/data values
+as `[erased-subject]` while the hash chain stays verifiable. The returned report
+lists each plane's deleted and remaining counts and includes `report_sha256`.
+
+CLI equivalent:
+
+```bash
+probectl lifecycle subject-erase --subject alice@example.com --confirm alice@example.com --reason dsar
+```
+
 ## 2. Suspend, then offboard (provider console)
 
 Suspend stops the tenant's users from logging in. Offboard frees the licensed

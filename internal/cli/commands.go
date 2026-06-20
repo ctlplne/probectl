@@ -181,6 +181,76 @@ func cmdAgent(cfg Config, args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+func cmdLifecycle(cfg Config, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "lifecycle: expected a subcommand")
+		return 2
+	}
+	c := newClient(cfg)
+	switch args[0] {
+	case "subject-export":
+		return lifecycleSubjectExport(c, args[1:], stdout, stderr)
+	case "subject-erase":
+		return lifecycleSubjectErase(cfg, c, args[1:], stdout, stderr)
+	default:
+		spec := surfaceCommands["lifecycle"]
+		return cmdSurface(cfg, spec, args, stdout, stderr)
+	}
+}
+
+func lifecycleSubjectExport(c *client, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("lifecycle subject-export", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	subject := fs.String("subject", "", "subject identifier (required)")
+	redact := fs.Bool("redact", false, "redact PII in the bundle")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) > 0 {
+		fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
+		return 2
+	}
+	if strings.TrimSpace(*subject) == "" {
+		fmt.Fprintln(stderr, "lifecycle subject-export: --subject is required")
+		return 2
+	}
+	body := map[string]any{"subject": strings.TrimSpace(*subject), "redact": *redact}
+	if err := c.stream(http.MethodPost, "/v1/lifecycle/subjects/export", body, stdout); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
+}
+
+func lifecycleSubjectErase(cfg Config, c *client, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("lifecycle subject-erase", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	subject := fs.String("subject", "", "subject identifier (required)")
+	confirm := fs.String("confirm", "", "must exactly match --subject")
+	reason := fs.String("reason", "", "operator reason")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) > 0 {
+		fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
+		return 2
+	}
+	subj := strings.TrimSpace(*subject)
+	if subj == "" {
+		fmt.Fprintln(stderr, "lifecycle subject-erase: --subject is required")
+		return 2
+	}
+	if strings.TrimSpace(*confirm) != subj {
+		fmt.Fprintln(stderr, "lifecycle subject-erase: --confirm must equal --subject exactly")
+		return 2
+	}
+	body := map[string]any{"subject": subj, "confirm": *confirm, "reason": strings.TrimSpace(*reason)}
+	var report any
+	if err := c.do(http.MethodPost, "/v1/lifecycle/subjects/erase", body, &report); err != nil {
+		return fail(stderr, err)
+	}
+	return printGeneric(stdout, report, cfg.JSON, http.MethodPost)
+}
+
 // kvFlag collects repeated --param k=v flags into a map.
 type kvFlag map[string]string
 

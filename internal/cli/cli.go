@@ -62,6 +62,8 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return cmdTest(cfg, rest[1:], stdout, stderr)
 	case "agent":
 		return cmdAgent(cfg, rest[1:], stdout, stderr)
+	case "lifecycle":
+		return cmdLifecycle(cfg, rest[1:], stdout, stderr)
 	case "api":
 		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:
@@ -96,6 +98,10 @@ Commands:
   agent ci <id>                  show CMDB CIs for an agent
   agent revoke <id>              revoke an agent
   agent delete <id>              deregister an agent
+  lifecycle subject-export --subject ID [--redact]
+                                stream a tenant-scoped subject export tar.gz
+  lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]
+                                erase a subject inside the current tenant
   collector register --body JSON register a bus collector identity
   incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
                                 resource groups for served product surfaces
@@ -179,6 +185,50 @@ func (c *client) do(method, path string, body any, out any) error {
 		return json.Unmarshal(data, out)
 	}
 	return nil
+}
+
+func (c *client) stream(method, path string, body any, w io.Writer) error {
+	var r io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		r = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, c.cfg.BaseURL+path, r)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/gzip")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.cfg.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
+	}
+	if c.cfg.Tenant != "" {
+		req.Header.Set("X-Probectl-Tenant", c.cfg.Tenant)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		data, _ := io.ReadAll(resp.Body)
+		var env struct {
+			Error struct {
+				Code, Message string
+			} `json:"error"`
+		}
+		if json.Unmarshal(data, &env) == nil && env.Error.Message != "" {
+			return fmt.Errorf("%s (%s)", env.Error.Message, env.Error.Code)
+		}
+		return fmt.Errorf("unexpected status %d", resp.StatusCode)
+	}
+	_, err = io.Copy(w, resp.Body)
+	return err
 }
 
 func envOr(getenv func(string) string, key, def string) string {
