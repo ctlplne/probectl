@@ -447,7 +447,7 @@ breakdown** and captures **TLS handshake details** for the TLS-posture plane (se
 | `ca_file` | path to a PEM bundle | — | extra trust anchor (private/internal CA); must live under `PROBECTL_AGENT_CANARY_CA_DIR` |
 | `body` | string | — | request body (e.g. for `POST`) |
 | `max_body_bytes` | integer | `10485760` | cap bytes read per probe (10 MiB) |
-| `allow_private_targets` | `true` \| `false` | `false` | **SSRF-guard override.** Every canary (http/tcp/udp/icmp/dns/voice) denies loopback, RFC1918/ULA, link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast and numeric-encoding bypasses by default, enforcing the check on the **resolved** address at dial time (rebind-proof). Setting `true` lifts the guard for that one test — requires the admin-only `test.allow_private` permission and is written to the tenant audit trail |
+| `allow_private_targets` | `true` \| `false` | `false` | **SSRF-guard override.** Every canary (http/tcp/udp/icmp/dns/voice/browser) denies loopback, RFC1918/ULA, link-local (incl. `169.254.169.254` cloud metadata), CGNAT, multicast and numeric-encoding bypasses by default, enforcing the check on the **resolved** address at dial time (rebind-proof). Setting `true` lifts the guard for that one test — requires the admin-only `test.allow_private` permission and is written to the tenant audit trail |
 
 A word on the last row: **SSRF** (server-side request forgery) is the attack
 where someone defines a "test" that makes *your* agent fetch an internal-only
@@ -484,6 +484,39 @@ the probe runs but its result carries `tls.verification_disabled="true"` so ever
 verification-disabled probe is auditable. probectl performs no TLS *posture
 analysis* here (issuer trust, weak-cipher/expiry policy, CT) — that is the *TLS /
 certificate observability* feature below, which consumes these captured fields.
+
+### Browser / transaction tests
+
+The `browser` canary runs a scripted multi-step transaction. In shipped agents it
+uses the Go-native HTTP transaction driver, which means no Chromium process is
+needed: the script is executed as real HTTP requests with a cookie jar, response
+status checks, text assertions, per-step timings, and a request waterfall. The
+`target` is the default `start_url`. Parameters:
+
+| Param | Values | Default | Meaning |
+| ----- | ------ | ------- | ------- |
+| `script` | JSON `browser.Script` | generated | transaction script. If omitted, the agent runs `goto target` then `assert_status 200` |
+| `allow_private_targets` | `true` \| `false` | `false` | the same audited SSRF-guard override as HTTP. It covers `start_url`, every step `url`, and every resolved dial address |
+
+Example CLI creation:
+
+```sh
+probectl test create \
+  --name login-browser \
+  --type browser \
+  --target https://app.example/login \
+  --interval 60 \
+  --param 'script={"name":"login","start_url":"https://app.example/login","steps":[{"action":"goto"},{"action":"assert_status","status":200}]}'
+```
+
+Browser results emit `probectl_probe_transaction_total_ms`,
+`probectl_probe_transaction_steps`, `probectl_probe_transaction_resources`,
+`probectl_probe_transaction_failed_steps`, and one
+`probectl_probe_transaction_step_<n>_duration_ms` metric per step. Step names,
+actions, success flags, and failure details ride as attributes
+(`browser.step.<n>.*`) so they are visible in `/v1/results/latest` and the web
+result modal without becoming high-cardinality TSDB labels. See
+[`browser-synthetic.md`](browser-synthetic.md).
 
 ### Agent-to-agent tests
 

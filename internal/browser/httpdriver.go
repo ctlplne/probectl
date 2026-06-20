@@ -6,11 +6,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptrace"
 	"net/url"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -27,12 +29,54 @@ const maxArtifact = 1 << 20
 // the everywhere-testable one.
 type HTTPDriver struct {
 	transport http.RoundTripper
+	guard     TargetGuard
 }
 
-// NewHTTPDriver builds the HTTP transaction driver over the hardened (cert-
-// validating) transport.
-func NewHTTPDriver() *HTTPDriver {
-	return &HTTPDriver{transport: crypto.HardenedHTTPClient(0).Transport}
+// TargetGuard is the subset of canary.TargetGuard the browser driver needs.
+// It is an interface to keep internal/browser independent from internal/canary.
+type TargetGuard interface {
+	CheckHost(host string) error
+	DialControl(func(network, address string, c syscall.RawConn) error) func(network, address string, c syscall.RawConn) error
+}
+
+// HTTPDriverOption customizes the HTTP transaction driver.
+type HTTPDriverOption func(*HTTPDriver)
+
+// WithTargetGuard attaches the same SSRF guard used by network canaries. It is
+// enforced before each request and at dial time against resolved addresses, so
+// redirects and DNS rebinding cannot bypass it.
+func WithTargetGuard(g TargetGuard) HTTPDriverOption {
+	return func(d *HTTPDriver) {
+		if g == nil {
+			return
+		}
+		d.guard = g
+		d.transport = guardedTransport(g)
+	}
+}
+
+// NewHTTPDriver builds the HTTP transaction driver over a hardened (cert-
+// validating) transport. The schedulable browser canary passes WithTargetGuard;
+// direct package tests may use the unguarded driver against local httptest apps.
+func NewHTTPDriver(opts ...HTTPDriverOption) *HTTPDriver {
+	d := &HTTPDriver{transport: crypto.HardenedHTTPClient(0).Transport}
+	for _, opt := range opts {
+		opt(d)
+	}
+	return d
+}
+
+func guardedTransport(g TargetGuard) *http.Transport {
+	return &http.Transport{
+		TLSClientConfig:     crypto.HardenedClientTLSConfig(),
+		ForceAttemptHTTP2:   true,
+		MaxIdleConns:        10,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DialContext: (&net.Dialer{
+			Control: g.DialControl(nil),
+		}).DialContext,
+	}
 }
 
 func (*HTTPDriver) Name() string { return "http" }
@@ -165,6 +209,11 @@ func (d *HTTPDriver) do(ctx context.Context, client *http.Client, method, rawURL
 		return rt, httpResp{}, err
 	}
 	rt.URL = req.URL.String()
+	if d.guard != nil {
+		if err := d.guard.CheckHost(req.URL.Hostname()); err != nil {
+			return rt, httpResp{}, err
+		}
+	}
 	if ct != "" {
 		req.Header.Set("Content-Type", ct)
 	}

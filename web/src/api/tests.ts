@@ -20,6 +20,7 @@ export interface TestInput {
   target: string
   interval_seconds: number
   timeout_seconds: number
+  params?: Record<string, string>
   enabled: boolean
 }
 

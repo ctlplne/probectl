@@ -31,6 +31,35 @@ function resultFixtures(): LatestResult[] {
     },
     {
       agent_id: 'a1',
+      type: 'browser',
+      target: 'https://shop.acme.example/login',
+      success: true,
+      observed_at: at,
+      metrics: {
+        'transaction.total_ms': 735,
+        'transaction.steps': 3,
+        'transaction.resources': 4,
+        'transaction.failed_steps': 0,
+        'transaction.step.0.duration_ms': 120,
+        'transaction.step.1.duration_ms': 42,
+        'transaction.step.2.duration_ms': 5,
+      },
+      attributes: {
+        'browser.script': 'checkout',
+        'browser.step_count': '3',
+        'browser.step.0.name': 'open login',
+        'browser.step.0.action': 'goto',
+        'browser.step.0.success': 'true',
+        'browser.step.1.name': 'welcome',
+        'browser.step.1.action': 'assert_text',
+        'browser.step.1.success': 'true',
+        'browser.step.2.name': 'status',
+        'browser.step.2.action': 'assert_status',
+        'browser.step.2.success': 'true',
+      },
+    },
+    {
+      agent_id: 'a1',
       type: 'dns',
       target: 'acme.example',
       success: true,
@@ -132,6 +161,18 @@ const testsList = [
   },
   {
     id: 't2',
+    name: 'checkout browser',
+    type: 'browser',
+    target: 'https://shop.acme.example/login',
+    interval_seconds: 30,
+    timeout_seconds: 5,
+    params: {},
+    enabled: true,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 't3',
     name: 'apex dns',
     type: 'dns',
     target: 'acme.example',
@@ -143,7 +184,7 @@ const testsList = [
     updated_at: '2026-01-01T00:00:00Z',
   },
   {
-    id: 't3',
+    id: 't4',
     name: 'core ping',
     type: 'icmp',
     target: '10.0.0.7',
@@ -155,7 +196,7 @@ const testsList = [
     updated_at: '2026-01-01T00:00:00Z',
   },
   {
-    id: 't4',
+    id: 't5',
     name: 'db tcp',
     type: 'tcp',
     target: 'db.acme.example:5432',
@@ -167,7 +208,7 @@ const testsList = [
     updated_at: '2026-01-01T00:00:00Z',
   },
   {
-    id: 't5',
+    id: 't6',
     name: 'udp echo',
     type: 'udp',
     target: 'echo.acme.example:9999',
@@ -179,7 +220,7 @@ const testsList = [
     updated_at: '2026-01-01T00:00:00Z',
   },
   {
-    id: 't6',
+    id: 't7',
     name: 'voip probe',
     type: 'voice',
     target: 'pbx.acme.example:5004',
@@ -249,6 +290,22 @@ describe('synthetic result views (S-FE5)', () => {
     expect(within(dialog).getByText('validated')).toBeDefined()
   })
 
+  test('browser renders transaction steps with timings (F15)', async () => {
+    const { fetcher } = resultsBackend(resultFixtures())
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets')
+    const dialog = await openResults('checkout browser')
+
+    expect(within(dialog).getByText(/checkout · 735 ms/)).toBeDefined()
+    expect(within(dialog).getByText(/4 resource\(s\) · 0 failed step\(s\)/)).toBeDefined()
+    const table = within(dialog).getByRole('table', { name: /browser transaction steps/i })
+    expect(within(table).getByText('open login')).toBeDefined()
+    expect(within(table).getByText('welcome')).toBeDefined()
+    expect(within(table).getByText('assert_text')).toBeDefined()
+    expect(within(table).getByText('42 ms')).toBeDefined()
+    expect(await axe(dialog)).toHaveNoViolations()
+  })
+
   test('ICMP/TCP/UDP render latency families + loss consistently', async () => {
     const { fetcher } = resultsBackend(resultFixtures())
     vi.stubGlobal('fetch', fetcher)
@@ -295,7 +352,7 @@ describe('synthetic result views (S-FE5)', () => {
     const { fetcher } = resultsBackend(resultFixtures())
     vi.stubGlobal('fetch', fetcher)
     renderApp('/targets')
-    for (const name of ['app http', 'apex dns', 'core ping', 'voip probe']) {
+    for (const name of ['app http', 'checkout browser', 'apex dns', 'core ping', 'voip probe']) {
       const dialog = await openResults(name)
       expect(dialog.textContent).not.toMatch(/[{}"]/) // no JSON braces/quotes leak
       await userEvent.click(within(dialog).getByRole('button', { name: /close/i }))

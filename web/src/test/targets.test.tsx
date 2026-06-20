@@ -27,7 +27,7 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
       if (path === '/v1/tests' && method === 'GET') return jsonResponse({ items: tests })
       if (path === '/v1/tests' && method === 'POST') {
         const body = JSON.parse(String(init?.body))
-        const created = { ...body, id: 'new', params: {}, created_at: '', updated_at: '' }
+        const created = { ...body, id: 'new', params: body.params ?? {}, created_at: '', updated_at: '' }
         tests = [created, ...tests]
         return jsonResponse(created, 201)
       }
@@ -46,7 +46,8 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     await user.click(screen.getByRole('button', { name: /new test/i }))
     const dialog = await screen.findByRole('dialog', { name: /create test/i })
     await user.type(within(dialog).getByLabelText('Name'), 'my-test')
-    await user.type(within(dialog).getByLabelText('Target'), '8.8.8.8')
+    await user.selectOptions(within(dialog).getByLabelText('Type'), 'browser')
+    await user.type(within(dialog).getByLabelText('Target'), 'https://shop.example/login')
     await user.click(within(dialog).getByRole('button', { name: /^create$/i }))
 
     // The new row appears (list invalidated + refetched). Assert via its delete
@@ -57,7 +58,16 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
       ([url, init]) => pathOf(url) === '/v1/tests' && init?.method === 'POST',
     )
     expect(postCall).toBeTruthy()
-    expect(String((postCall![1] as RequestInit).body)).toContain('"name":"my-test"')
+    const posted = JSON.parse(String((postCall![1] as RequestInit).body))
+    expect(posted.name).toBe('my-test')
+    expect(posted.type).toBe('browser')
+    expect(posted.target).toBe('https://shop.example/login')
+    const script = JSON.parse(posted.params.script)
+    expect(script.start_url).toBe('https://shop.example/login')
+    expect(script.steps.map((step: { action: string }) => step.action)).toEqual([
+      'goto',
+      'assert_status',
+    ])
 
     await user.click(screen.getByRole('button', { name: /delete my-test/i }))
     await waitFor(() =>

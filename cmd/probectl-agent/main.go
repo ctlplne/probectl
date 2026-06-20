@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/imfeelingtheagi/probectl/internal/agent"
+	"github.com/imfeelingtheagi/probectl/internal/browsercanary"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
@@ -117,6 +118,7 @@ func run() error {
 	reg.Register("dns", canary.NewDNS)
 	reg.Register("http", canary.NewHTTP)
 	reg.Register("voice", canary.NewVoice) // RTP MOS/jitter/loss (S47c)
+	reg.Register(browsercanary.Type, browsercanary.New)
 
 	a, err := agent.New(cfg, reg, log)
 	if err != nil {

@@ -8,8 +8,8 @@ import (
 )
 
 func TestAcceptedCapabilitiesIntersectsRequestedAndKnown(t *testing.T) {
-	got := acceptedCapabilities([]string{"future-probe-v2", "icmp", "dns", "icmp", ""})
-	want := []string{"dns", "icmp"}
+	got := acceptedCapabilities([]string{"future-probe-v2", "icmp", "dns", "browser", "icmp", ""})
+	want := []string{"browser", "dns", "icmp"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("acceptedCapabilities = %v, want %v", got, want)
 	}

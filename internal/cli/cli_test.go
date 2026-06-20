@@ -94,6 +94,53 @@ func TestCLITestCreate(t *testing.T) {
 	}
 }
 
+func TestCLITestCreateBrowserScriptParam(t *testing.T) {
+	const script = `{"name":"login","start_url":"https://app.example/login","steps":[{"action":"goto"},{"action":"assert_status","status":200}]}`
+	var seen testRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/tests", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		out := Test{
+			ID:              "22222222-2222-2222-2222-222222222222",
+			Name:            seen.Name,
+			Type:            seen.Type,
+			Target:          seen.Target,
+			IntervalSeconds: seen.IntervalSeconds,
+			TimeoutSeconds:  seen.TimeoutSeconds,
+			Params:          seen.Params,
+			Enabled:         seen.Enabled,
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(out)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "--json", "test", "create",
+		"--name", "login-browser",
+		"--type", "browser",
+		"--target", "https://app.example/login",
+		"--param", "script="+script)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if seen.Type != "browser" || seen.Target != "https://app.example/login" {
+		t.Fatalf("request = %+v", seen)
+	}
+	if seen.Params["script"] != script {
+		t.Fatalf("script param was not preserved: %q", seen.Params["script"])
+	}
+	var created Test
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatalf("json output: %v\n%s", err, out)
+	}
+	if created.Params["script"] != script {
+		t.Fatalf("json output lost script param: %+v", created)
+	}
+}
+
 func TestCLITestCreateRequiresFlags(t *testing.T) {
 	srv := fakeAPI(t)
 	_, errs, code := run(t, srv, "test", "create", "--name", "x")

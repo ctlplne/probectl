@@ -83,7 +83,18 @@ export function NotFoundPage() {
 
 // --- Targets & Tests (live /v1/tests CRUD) ---
 
-const TEST_TYPES = ['icmp', 'tcp', 'udp', 'dns', 'http', 'voice', 'a2a', 'noop']
+const TEST_TYPES = ['icmp', 'tcp', 'udp', 'dns', 'http', 'browser', 'voice', 'a2a', 'noop']
+
+function defaultBrowserScript(name: string, target: string): string {
+  return JSON.stringify({
+    name: name || 'browser',
+    start_url: target,
+    steps: [
+      { name: 'open', action: 'goto' },
+      { name: 'status', action: 'assert_status', status: 200 },
+    ],
+  })
+}
 
 function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { push } = useToast()
@@ -101,8 +112,9 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
   }
 
   function submit() {
+    const params = type === 'browser' ? { script: defaultBrowserScript(name, target) } : undefined
     create.mutate(
-      { name, type, target, interval_seconds: interval, timeout_seconds: 3, enabled: true },
+      { name, type, target, interval_seconds: interval, timeout_seconds: 3, params, enabled: true },
       {
         onSuccess: () => {
           push({ tone: 'success', title: 'Test created', message: name })
@@ -148,9 +160,19 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           placeholder={
-            type === 'tcp' || type === 'udp' || type === 'voice' ? 'host:port' : '1.1.1.1'
+            type === 'browser'
+              ? 'https://app.example/login'
+              : type === 'tcp' || type === 'udp' || type === 'voice'
+                ? 'host:port'
+                : '1.1.1.1'
           }
-          hint={type === 'noop' ? 'Not required for noop.' : undefined}
+          hint={
+            type === 'noop'
+              ? 'Not required for noop.'
+              : type === 'browser'
+                ? 'Creates a browser transaction: open the URL and expect HTTP 200.'
+                : undefined
+          }
         />
         <Field
           label="Interval (seconds)"

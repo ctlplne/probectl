@@ -53,8 +53,8 @@ func TestToCanaryResult(t *testing.T) {
 		Script: "login", Target: "http://app.test/login", Success: false,
 		Error: "step 5 failed", StartedAt: time.Now(), TotalMs: 1234,
 		Steps: []StepResult{
-			{Action: Goto, Success: true},
-			{Action: AssertText, Success: false, Detail: "text not found"},
+			{Action: Goto, Success: true, DurationMs: 41},
+			{Action: AssertText, Success: false, Detail: "text not found", DurationMs: 42},
 		},
 		Waterfall: []ResourceTiming{{URL: "http://app.test/login", TotalMs: 40}},
 		DOM:       DOMTimings{DOMContentLoadedMs: 120, LoadMs: 300, FirstContentfulPaintMs: 150},
@@ -69,10 +69,15 @@ func TestToCanaryResult(t *testing.T) {
 	if cr.Metrics["transaction.total_ms"] != 1234 || cr.Metrics["transaction.failed_steps"] != 1 {
 		t.Fatalf("metrics: %v", cr.Metrics)
 	}
+	if cr.Metrics["transaction.step.1.duration_ms"] != 42 {
+		t.Fatalf("step metrics: %v", cr.Metrics)
+	}
 	if cr.Metrics["dom.content_loaded_ms"] != 120 || cr.Metrics["paint.first_contentful_ms"] != 150 {
 		t.Fatalf("dom metrics: %v", cr.Metrics)
 	}
 	if cr.Attributes["browser.script"] != "login" ||
+		cr.Attributes["browser.step.1.action"] != "assert_text" ||
+		cr.Attributes["browser.step.1.success"] != "false" ||
 		cr.Attributes["browser.screenshot.key"] != "tenant/t1/browser/login-1.png" ||
 		cr.Attributes["browser.error"] != "step 5 failed" {
 		t.Fatalf("attrs: %v", cr.Attributes)

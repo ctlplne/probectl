@@ -16,8 +16,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/browser"
+	"github.com/imfeelingtheagi/probectl/internal/browsercanary"
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
@@ -26,6 +30,10 @@ import (
 )
 
 func setupAPI(t *testing.T) (http.Handler, *store.DB) {
+	return setupAPIWithLatest(t, nil)
+}
+
+func setupAPIWithLatest(t *testing.T, latest *LatestResults) (http.Handler, *store.DB) {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.Open(ctx, integrationDSN(), 5, 0, 5*time.Second)
@@ -42,7 +50,11 @@ func setupAPI(t *testing.T) (http.Handler, *store.DB) {
 	}
 	t.Cleanup(db.Close)
 	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev"}
-	return New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).Handler(), db
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil)
+	if latest != nil {
+		srv.WithLatestResults(latest)
+	}
+	return srv.Handler(), db
 }
 
 func apiReq(t *testing.T, h http.Handler, method, path, tenant string, body any) *httptest.ResponseRecorder {
@@ -161,6 +173,108 @@ func TestTestsCRUDAPI(t *testing.T) {
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID, "", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("get after delete = %d, want 404", rec.Code)
 	}
+}
+
+func TestBrowserSyntheticCreateRunAndLatestResult(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			_, _ = w.Write([]byte("Welcome"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer app.Close()
+
+	script, err := browsercanary.MarshalScript(browser.Script{
+		Name:     "login",
+		StartURL: app.URL + "/login",
+		Steps: []browser.Step{
+			{Name: "open", Action: browser.Goto},
+			{Name: "welcome", Action: browser.AssertText, Value: "Welcome"},
+			{Name: "status", Action: browser.AssertStatus, Status: 200},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	latest := NewLatestResults(0)
+	h, _ := setupAPIWithLatest(t, latest)
+	name := fmt.Sprintf("browser-%d", time.Now().UnixNano())
+
+	rec := apiReq(t, h, http.MethodPost, "/v1/tests", "", map[string]any{
+		"name":             name,
+		"type":             browsercanary.Type,
+		"target":           app.URL + "/login",
+		"interval_seconds": 30,
+		"timeout_seconds":  2,
+		"params": map[string]string{
+			canary.AllowPrivateParam:  "true",
+			browsercanary.ScriptParam: script,
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create browser test = %d: %s", rec.Code, rec.Body)
+	}
+	var created store.Test
+	mustJSON(t, rec, &created)
+	if created.Type != browsercanary.Type || created.Params[browsercanary.ScriptParam] == "" {
+		t.Fatalf("created test lost browser script: %+v", created)
+	}
+
+	c, err := browsercanary.New(canary.Config{
+		Type:    created.Type,
+		Target:  created.Target,
+		Timeout: time.Duration(created.TimeoutSeconds) * time.Second,
+		Params:  created.Params,
+	})
+	if err != nil {
+		t.Fatalf("build canary from created API test: %v", err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run browser canary: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("browser canary result failed: %+v", res)
+	}
+
+	err = NewResultViewConsumer(nil, latest, nil).SinkResult(context.Background(), &resultv1.Result{
+		TenantId:          tenancy.DefaultTenantID.String(),
+		AgentId:           "agent-browser",
+		CanaryType:        res.Type,
+		ServerAddress:     res.Target,
+		Success:           res.Success,
+		ErrorMessage:      res.Error,
+		StartTimeUnixNano: res.StartedAt.UnixNano(),
+		DurationNano:      int64(res.Duration),
+		Metrics:           res.Metrics,
+		Attributes:        res.Attributes,
+	})
+	if err != nil {
+		t.Fatalf("sink latest result: %v", err)
+	}
+
+	rec = apiReq(t, h, http.MethodGet, "/v1/results/latest", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("latest results = %d: %s", rec.Code, rec.Body)
+	}
+	var listed struct {
+		Items []ResultView `json:"items"`
+	}
+	mustJSON(t, rec, &listed)
+	for _, item := range listed.Items {
+		if item.Type != browsercanary.Type || item.Target != created.Target {
+			continue
+		}
+		if _, ok := item.Metrics["transaction.step.0.duration_ms"]; !ok ||
+			item.Attributes["browser.step.1.action"] != string(browser.AssertText) ||
+			item.Attributes["browser.step.1.success"] != "true" {
+			t.Fatalf("latest browser result missing step details: %+v", item)
+		}
+		return
+	}
+	t.Fatalf("latest browser result not found: %+v", listed.Items)
 }
 
 // TestTestsAPITenantIsolation proves the /v1 API never crosses tenants: a test

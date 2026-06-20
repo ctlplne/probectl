@@ -4,8 +4,9 @@ import { apiFetch } from './client'
 /**
  * The latest-synthetic-result API (surface: S-FE5). One entry per (type,
  * target, agent) carrying the FULL per-type detail — DNS rcode/answers/DNSSEC,
- * the HTTP dns/connect/tls/ttfb waterfall, ICMP/TCP/UDP latency families +
- * loss — so every test type renders first-class, never as raw JSON.
+ * the HTTP dns/connect/tls/ttfb waterfall, browser transaction step timings,
+ * and ICMP/TCP/UDP latency families + loss — so every test type renders
+ * first-class, never as raw JSON.
  */
 
 export interface LatestResult {

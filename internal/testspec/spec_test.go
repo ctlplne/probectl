@@ -41,6 +41,16 @@ func TestNoopNeedsNoTarget(t *testing.T) {
 	}
 }
 
+func TestBrowserIsSchedulableType(t *testing.T) {
+	s, err := Clean(Spec{Name: "login", Type: "BROWSER", Target: "https://app.example/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Type != "browser" {
+		t.Fatalf("type = %q, want browser", s.Type)
+	}
+}
+
 func TestTypesSorted(t *testing.T) {
 	got := Types()
 	if len(got) != len(ValidTypes) {

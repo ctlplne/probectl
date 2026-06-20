@@ -28,7 +28,7 @@ type Spec struct {
 // ValidTypes is the set of canary types (mirrors the agent's plugin registry).
 var ValidTypes = map[string]bool{
 	"icmp": true, "tcp": true, "udp": true, "noop": true,
-	"dns": true, "http": true, "a2a": true, "voice": true,
+	"dns": true, "http": true, "a2a": true, "voice": true, "browser": true,
 }
 
 // Defaults applied by Normalize.
@@ -75,7 +75,7 @@ func Validate(s Spec) error {
 		return fmt.Errorf("name is required (1–%d characters)", maxNameLen)
 	}
 	if !ValidTypes[s.Type] {
-		return fmt.Errorf("type must be one of icmp, tcp, udp, dns, http, a2a, noop")
+		return fmt.Errorf("type must be one of %s", strings.Join(Types(), ", "))
 	}
 	if s.Type != "noop" && s.Target == "" {
 		return fmt.Errorf("target is required")

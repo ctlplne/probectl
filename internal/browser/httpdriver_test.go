@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
@@ -126,5 +127,22 @@ func TestHTTPDriverScriptedLoginFailureCaptured(t *testing.T) {
 	}
 	if !strings.Contains(string(obj.Data), "Invalid credentials") {
 		t.Fatalf("artifact should capture the failed page, got %q", obj.Data)
+	}
+}
+
+func TestHTTPDriverTargetGuardRejectsPrivateRequest(t *testing.T) {
+	guard := canary.NewTargetGuard(false)
+	s := Script{
+		Name:     "guarded",
+		StartURL: "http://127.0.0.1:8080/login",
+		Steps:    []Step{{Name: "open", Action: Goto}},
+	}
+
+	_, err := NewHTTPDriver(WithTargetGuard(guard)).Run(context.Background(), s)
+	if err == nil {
+		t.Fatal("private browser target should be rejected by the shared canary guard")
+	}
+	if !strings.Contains(err.Error(), canary.AllowPrivateParam) {
+		t.Fatalf("error should explain the audited override, got %v", err)
 	}
 }

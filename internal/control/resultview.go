@@ -16,10 +16,11 @@ import (
 
 // Synthetic latest-result read model (S-FE5 surface for S7/S8/S12/S13). The
 // canary pipeline flattens results into TSDB series; the per-type result
-// DETAIL (DNS rcode/answers, the HTTP waterfall phases, latency families)
-// lives in each result's metrics+attributes and was rendered nowhere. This
-// store retains the LATEST full result per (tenant, type, target, agent) so
-// the test screens can show every type's result shape first-class.
+// DETAIL (DNS rcode/answers, the HTTP waterfall phases, browser transaction
+// steps, latency families) lives in each result's metrics+attributes and was
+// rendered nowhere. This store retains the LATEST full result per (tenant,
+// type, target, agent) so the test screens can show every type's result shape
+// first-class.
 // Tenant-partitioned (cross-tenant impossible by construction, guardrail 1),
 // bounded per tenant (evict-stalest), newest-wins.
 

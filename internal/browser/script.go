@@ -48,6 +48,8 @@ var validActions = map[Action]bool{
 	WaitText: true, AssertText: true, AssertStatus: true, Screenshot: true,
 }
 
+const maxSteps = 100
+
 // Step is one action in a transaction.
 type Step struct {
 	Name     string `json:"name,omitempty"`
@@ -89,6 +91,9 @@ func (s Script) Validate() error {
 	}
 	if len(s.Steps) == 0 {
 		return fmt.Errorf("browser: script %q has no steps", s.Name)
+	}
+	if len(s.Steps) > maxSteps {
+		return fmt.Errorf("browser: script %q has too many steps (max %d)", s.Name, maxSteps)
 	}
 	for i, st := range s.Steps {
 		if !validActions[st.Action] {

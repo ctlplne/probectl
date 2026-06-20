@@ -34,6 +34,18 @@ func (r Result) ToCanaryResult() canary.Result {
 		"browser.script":     r.Script,
 		"browser.step_count": strconv.Itoa(len(r.Steps)),
 	}
+	for i, step := range r.Steps {
+		prefix := "browser.step." + strconv.Itoa(i)
+		metrics["transaction.step."+strconv.Itoa(i)+".duration_ms"] = float64(step.DurationMs)
+		if step.Name != "" {
+			attrs[prefix+".name"] = step.Name
+		}
+		attrs[prefix+".action"] = string(step.Action)
+		attrs[prefix+".success"] = strconv.FormatBool(step.Success)
+		if step.Detail != "" {
+			attrs[prefix+".detail"] = step.Detail
+		}
+	}
 	if r.Screenshot != nil {
 		attrs["browser.screenshot.key"] = r.Screenshot.Key
 		attrs["browser.screenshot.content_type"] = r.Screenshot.ContentType

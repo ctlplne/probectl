@@ -49,6 +49,7 @@ var serverCapabilities = []string{
 
 var supportedAgentCapabilities = map[string]struct{}{
 	"a2a":      {},
+	"browser":  {},
 	"dns":      {},
 	"ebpf":     {},
 	"endpoint": {},

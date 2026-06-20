@@ -19,7 +19,7 @@ tls:
 
 agent:
   # hostname defaults to the OS hostname.
-  capabilities: ["noop", "icmp", "tcp", "udp", "dns", "http", "a2a"]
+  capabilities: ["noop", "icmp", "tcp", "udp", "dns", "http", "browser", "a2a"]
   heartbeat_interval: 30s
 
 buffer:
@@ -95,6 +95,15 @@ canaries:
       # insecure_skip_verify: "false"  # capture TLS even if invalid, don't fail on it
       # ca_file: /etc/probectl/private-ca.pem  # extra trust anchor for internal CAs
       # max_body_bytes: "10485760"     # cap bytes read per probe (default 10 MiB)
+
+  # Browser/transaction synthetic. If params.script is omitted, the agent opens
+  # target and expects HTTP 200. Provide script JSON for multi-step flows.
+  - type: browser
+    target: "https://example.com/login"
+    interval: 60s
+    timeout: 10s
+    params:
+      script: '{"name":"login","start_url":"https://example.com/login","steps":[{"action":"goto"},{"action":"assert_status","status":200}]}'
 
 # Agent-to-agent participation. When enabled the agent polls the control plane
 # for brokered responder/initiator tasks (see docs/configuration.md).

@@ -305,8 +305,10 @@ scoping reads to a `tenant_id` label at query time.
 Probes are compiled-in `Canary` plugins (`internal/canary`): `icmp`
 (loss/latency/jitter), `tcp` (connect latency) and `udp` (echo round-trip)
 agent-to-server tests, `dns` (resolver/trace + DNSSEC), and `http` (availability +
-timing breakdown + TLS capture). They all share one latency-statistics core and
-emit through the result pipeline above.
+timing breakdown + TLS capture), plus `browser` transaction tests that run a
+scripted HTTP flow and emit per-step timings through the same result envelope.
+They all share the result pipeline above; network probes also share one
+latency-statistics core.
 
 **Agent-to-agent** measurement runs between two registered agents but is
 **brokered by the control plane** (`internal/a2a`) — the agents never need to
@@ -374,6 +376,24 @@ in `crypto/tls` + `crypto/x509` (FIPS-swappable). Integration tests stand up a
 local HTTPS server and walk the required cases — success, 5xx, slow/timeout, and
 expired-cert (asserting the cert is captured despite the failure) — minting the
 test CA and expired leaf with `internal/crypto`.
+
+## Browser transaction tests
+
+The `browser` canary (`internal/browsercanary`) adapts the transaction engine
+(`internal/browser`) into the normal agent plugin interface. A test's `target`
+becomes the default start URL; `params.script` can carry the full JSON script
+when the operator wants multiple steps. The shipped agent path uses the
+Go-native HTTPDriver, so a browser test is schedulable without spawning
+Chromium: it follows the transaction with a cookie jar, records request
+waterfall timings, emits `transaction.step.<n>.duration_ms`, and stores step
+metadata as attributes. The same private-target guard used by HTTP/TCP/UDP/DNS
+checks the script's URLs at construction time and the resolved dial address at
+run time.
+
+The rendering-capable Playwright worker lives behind the same `Driver`
+contract, but it is not the default scheduled path. That split keeps the agent
+small while leaving a clean seam for deployments that need DOM/paint timings and
+visual screenshots.
 
 ## Path discovery
 

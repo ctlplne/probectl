@@ -138,9 +138,11 @@ delegation traces — walking root → TLD → authority itself instead of trust
 resolver's cache),
 **`http`** (availability + DNS/connect/TLS/TTFB/total breakdown — TTFB is
 time-to-first-byte — and on HTTPS the
-TLS handshake details that feed the TLS-posture view), and **`voice`** (RTP
-media probes scored as MOS — the 1–5 mean-opinion-score call-quality scale —
-plus jitter / loss) — plus a `noop` heartbeat. It can also do **agent-to-agent
+TLS handshake details that feed the TLS-posture view), **`browser`** (scripted
+transaction checks with per-step timings, using the Go-native HTTP transaction
+driver by default), and **`voice`** (RTP media probes scored as MOS — the 1–5
+mean-opinion-score call-quality scale — plus jitter / loss) — plus a `noop`
+heartbeat. It can also do **agent-to-agent
 (`a2a`)** two-way measurement (TWAMP-lite style: both ends timestamp, so each
 direction's latency is measured separately) when you enable the `a2a:` block,
 turning a pair of agents into a synthetic mesh. A2A is opt-in (`enabled: false`

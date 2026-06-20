@@ -3709,7 +3709,7 @@
         "tags": [
           "tests"
         ],
-        "description": "The caller's tenant's newest result per synthetic series, carrying the full per-type detail (DNS rcode/answers/DNSSEC, HTTP dns/connect/tls/ttfb waterfall phases, ICMP/TCP/UDP latency families + loss) \u2014 the read model behind the test-result views (S-FE5). collector_running=false distinguishes an unwired consumer from no results yet.",
+        "description": "The caller's tenant's newest result per synthetic series, carrying the full per-type detail (DNS rcode/answers/DNSSEC, HTTP dns/connect/tls/ttfb waterfall phases, browser transaction step timings, ICMP/TCP/UDP latency families + loss) \u2014 the read model behind the test-result views (S-FE5). collector_running=false distinguishes an unwired consumer from no results yet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -4852,6 +4852,7 @@
               "udp",
               "dns",
               "http",
+              "browser",
               "a2a",
               "noop",
               "voice"
@@ -4859,7 +4860,7 @@
           },
           "target": {
             "type": "string",
-            "description": "Required for all types except noop."
+            "description": "Required for all types except noop. For browser tests this is the start URL unless params.script supplies start_url."
           },
           "interval_seconds": {
             "type": "integer",
@@ -4875,6 +4876,7 @@
           },
           "params": {
             "type": "object",
+            "description": "Per-type string parameters. For browser tests, params.script may carry browser.Script JSON; when omitted, the agent runs a default transaction that opens target and expects HTTP 200.",
             "additionalProperties": {
               "type": "string"
             }
@@ -5746,6 +5748,7 @@
               "udp",
               "dns",
               "http",
+              "browser",
               "a2a",
               "noop",
               "voice"
@@ -5762,6 +5765,7 @@
           },
           "params": {
             "type": "object",
+            "description": "Per-type string parameters. For browser tests, params.script may carry browser.Script JSON.",
             "additionalProperties": {
               "type": "string"
             }

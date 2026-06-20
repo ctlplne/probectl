@@ -187,6 +187,75 @@ function VoiceBreakdown({ r }: { r: LatestResult }) {
   )
 }
 
+interface BrowserStepRow {
+  index: number
+  name: string
+  action: string
+  duration?: number
+  success?: string
+  detail?: string
+}
+
+/** BrowserBreakdown renders transaction-level totals plus per-step timings. */
+function BrowserBreakdown({ r }: { r: LatestResult }) {
+  const declared = Number(a(r, 'browser.step_count') ?? m(r, 'transaction.steps') ?? 0)
+  const metricStepCount =
+    Math.max(
+      -1,
+      ...Object.keys(r.metrics ?? {})
+        .map((key) => /^transaction\.step\.(\d+)\.duration_ms$/.exec(key)?.[1])
+        .filter((v): v is string => Boolean(v))
+        .map((v) => Number(v)),
+    ) + 1
+  const count = Math.max(Number.isFinite(declared) ? declared : 0, metricStepCount)
+  const rows: BrowserStepRow[] = Array.from({ length: count }, (_, index) => ({
+    index,
+    name: a(r, `browser.step.${index}.name`) ?? `step ${index + 1}`,
+    action: a(r, `browser.step.${index}.action`) ?? '—',
+    duration: m(r, `transaction.step.${index}.duration_ms`),
+    success: a(r, `browser.step.${index}.success`),
+    detail: a(r, `browser.step.${index}.detail`),
+  }))
+  const columns: Column<BrowserStepRow>[] = [
+    { key: 'step', header: 'Step', render: (row) => row.name },
+    { key: 'action', header: 'Action', render: (row) => row.action },
+    { key: 'duration', header: 'Duration', numeric: true, render: (row) => num(row.duration, ' ms') },
+    {
+      key: 'result',
+      header: 'Result',
+      render: (row) =>
+        row.success ? (
+          <Badge tone={row.success === 'true' ? 'success' : 'danger'}>
+            {row.success === 'true' ? 'ok' : row.detail || 'failed'}
+          </Badge>
+        ) : (
+          row.detail ?? '—'
+        ),
+    },
+  ]
+  return (
+    <>
+      <dl className={styles.kv}>
+        <dt>Transaction</dt>
+        <dd>
+          {a(r, 'browser.script') ?? 'browser'} · {num(m(r, 'transaction.total_ms'), ' ms')}
+        </dd>
+        <dt>Resources</dt>
+        <dd>
+          {num(m(r, 'transaction.resources'), '', 0)} resource(s) ·{' '}
+          {num(m(r, 'transaction.failed_steps'), '', 0)} failed step(s)
+        </dd>
+      </dl>
+      <Table
+        caption="Browser transaction steps"
+        columns={columns}
+        rows={rows}
+        rowKey={(row) => String(row.index)}
+      />
+    </>
+  )
+}
+
 /** GenericMetrics is the named-field fallback for types without a dedicated
  *  view — still a labeled table, never raw JSON. */
 function GenericMetrics({ r }: { r: LatestResult }) {
@@ -213,6 +282,8 @@ function TypedBreakdown({ r }: { r: LatestResult }) {
       return <LatencyLoss r={r} />
     case 'voice':
       return <VoiceBreakdown r={r} />
+    case 'browser':
+      return <BrowserBreakdown r={r} />
     default:
       return <GenericMetrics r={r} />
   }
