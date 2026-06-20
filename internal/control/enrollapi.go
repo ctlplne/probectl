@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -109,10 +110,11 @@ func (s *Server) handleMintEnrollToken(w http.ResponseWriter, r *http.Request) e
 	}
 	ttl := time.Duration(req.TTLSeconds) * time.Second
 	var out struct {
-		Token     string    `json:"token"` // shown once, never stored
-		ID        string    `json:"id"`
-		TenantID  string    `json:"tenant_id"`
-		ExpiresAt time.Time `json:"expires_at"`
+		Token         string    `json:"token"` // shown once, never stored
+		ID            string    `json:"id"`
+		TenantID      string    `json:"tenant_id"`
+		ExpiresAt     time.Time `json:"expires_at"`
+		ServerCertPin string    `json:"server_cert_pin,omitempty"`
 	}
 	err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		tenantID := sc.Tenant.String()
@@ -125,6 +127,12 @@ func (s *Server) handleMintEnrollToken(w http.ResponseWriter, r *http.Request) e
 			effTTL = enroll.DefaultTokenTTL
 		}
 		out.Token, out.ID, out.TenantID, out.ExpiresAt = display, id, tenantID, time.Now().Add(effTTL).UTC()
+		if s.cfg != nil && s.cfg.TLSCertFile != "" {
+			pin, perr := crypto.CertificatePinFile(s.cfg.TLSCertFile)
+			if perr == nil {
+				out.ServerCertPin = pin
+			}
+		}
 		return s.recordAudit(ctx, sc, r, "agent.enroll_token_minted", id, map[string]any{
 			"agent_pin": req.AgentID, "name": req.Name, "ttl": effTTL.String(),
 		})

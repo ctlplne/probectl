@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
 export interface Agent {
@@ -14,6 +14,20 @@ export interface Agent {
 interface AgentsPage {
   items: Agent[]
   next_cursor?: string
+}
+
+export interface MintAgentEnrollTokenInput {
+  agent_id?: string
+  name?: string
+  ttl_seconds?: number
+}
+
+export interface AgentEnrollToken {
+  token: string
+  id: string
+  tenant_id: string
+  expires_at: string
+  server_cert_pin?: string
 }
 
 // UX-004: the agent fleet can be large, so the list MUST ride the backend's
@@ -35,6 +49,17 @@ export function useAgents() {
     },
     // next_cursor is present only when the page was full; absent = end of set.
     getNextPageParam: (last) => last.next_cursor ?? undefined,
+  })
+}
+
+export function useMintAgentEnrollToken() {
+  return useMutation({
+    mutationFn: (input: MintAgentEnrollTokenInput) =>
+      apiFetch<AgentEnrollToken>('/agents/enroll-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
   })
 }
 

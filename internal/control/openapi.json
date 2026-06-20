@@ -4050,6 +4050,10 @@
                     "expires_at": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "server_cert_pin": {
+                      "type": "string",
+                      "description": "hex SHA-256 pin of the control-plane serving certificate, when PROBECTL_TLS_CERT_FILE is configured; pass to probectl-agent enroll --ca-pin for first-contact trust"
                     }
                   }
                 }

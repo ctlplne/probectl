@@ -4,9 +4,6 @@ package main
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/hex"
-	"encoding/pem"
 	"flag"
 	"fmt"
 	"os"
@@ -138,19 +135,11 @@ func serverCertPin(certFile string) string {
 	if certFile == "" {
 		return ""
 	}
-	b, err := os.ReadFile(certFile)
+	pin, err := crypto.CertificatePinFile(certFile)
 	if err != nil {
 		return ""
 	}
-	block, _ := pem.Decode(b)
-	if block == nil {
-		return ""
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
-	if err != nil {
-		return ""
-	}
-	return hex.EncodeToString(crypto.Hash(cert.Raw))
+	return pin
 }
 
 // runRevokeAgent persists an agent revocation from the CLI (Sprint 12,

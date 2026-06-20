@@ -80,13 +80,19 @@ agents.
 
 **2. Mint a join token (one per agent; the *token* names the tenant):**
 
+From the web UI, go to **Admin & Settings → Agents → Enroll agent**. The modal
+mints the tenant-scoped token, shows it once, and prints the
+`probectl-agent enroll` command with either the current server certificate pin
+or the `--ca-file` trust path.
+
 ```sh
 probectl-control enroll-token -tenant <tenant-uuid> [-agent <id>] [-name "edge-probe-1"] [-ttl 1h]
 ```
 
-The token (`pjt_…`) is shown **once**, is **single-use**, expires (default 1h),
-and is tenant-scoped. The command also prints the control plane's certificate
-**pin** for first contact.
+The CLI path prints the same token (`pjt_…`) **once**; it is **single-use**,
+expires (default 1h), and is tenant-scoped. The command also prints the control
+plane's certificate **pin** for first contact when `PROBECTL_TLS_CERT_FILE` is
+configured.
 
 **3. Redeem it on the agent host:**
 
