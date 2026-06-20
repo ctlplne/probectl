@@ -30,9 +30,9 @@ OUT_DIR="${1:?usage: backup_postgres.sh <output-dir>}"
 mkdir -p "${OUT_DIR}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 
-key_args=()
+seal_cmd=("${PCTL_BIN}" backup-seal)
 if [ -n "${KEY_FILE}" ]; then
-  key_args=(--key-file "${KEY_FILE}")
+  seal_cmd+=(--key-file "${KEY_FILE}")
 fi
 
 if [ "${PLAINTEXT_ACK}" = "allow-plaintext-tenant-backup" ]; then
@@ -57,7 +57,7 @@ else
   fi
   docker compose -f "${COMPOSE_FILE}" exec -T "${PG_SERVICE}" \
     pg_dump -U "${PGUSER}" -d "${PGDATABASE}" --format=custom --no-owner \
-    | "${PCTL_BIN}" backup-seal "${key_args[@]}" > "${TMP}"
+    | "${seal_cmd[@]}" > "${TMP}"
 fi
 
 test -s "${TMP}" || { echo "backup_postgres: empty backup ${OUT}" >&2; exit 1; }
