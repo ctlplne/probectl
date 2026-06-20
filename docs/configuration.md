@@ -1364,7 +1364,7 @@ inbound webhook contract.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `PROBECTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`. `secret` is the provider credential (PagerDuty routing key, Opsgenie API key, ServiceNow `user:password`, Jira `email:token`; unused for chat). |
+| `PROBECTL_NOTIFY_CONNECTORS` | (none) | outbound connectors, comma-separated, each `tenant\|provider\|endpoint\|secret` (pipe-delimited because the endpoint is a URL). `provider` ∈ `pagerduty`/`opsgenie`/`slack`/`teams`/`servicenow`/`jira`. `endpoint` must be `https://` for remote provider URLs; plain `http://` is accepted only for loopback local dev/test doubles. `secret` is the provider credential (PagerDuty routing key, Opsgenie API key, ServiceNow `user:password`, Jira `email:token`; unused for chat). |
 | `PROBECTL_NOTIFY_INBOUND` | (none) | inbound status-sync credentials, comma-separated, each `id:tenant:provider:secret` (the `id` is the URL selector for `POST /ingest/itsm/{provider}/{id}`; `secret` verifies the delivery). |
 
 **Off by default** (each connector is an outbound connection to the operator's

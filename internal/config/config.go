@@ -1381,9 +1381,24 @@ func (l *loader) notifyConnectors(key string) []NotifyConnector {
 			l.errf("%s: unknown provider %q", key, provider)
 			continue
 		}
+		if err := validateNotifyEndpoint(endpoint); err != nil {
+			l.errf("%s: %v", key, err)
+			continue
+		}
 		out = append(out, NotifyConnector{TenantID: tenant, Provider: provider, Endpoint: endpoint, Secret: secret})
 	}
 	return out
+}
+
+func validateNotifyEndpoint(endpoint string) error {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("notify connector endpoint %q must be an http(s) URL with a host", endpoint)
+	}
+	if u.Scheme != "https" && !isLoopbackHostname(u.Hostname()) {
+		return fmt.Errorf("notify connector endpoint must be https:// for remote provider URLs; plaintext http:// is allowed only for loopback dev endpoints (got %q)", endpoint)
+	}
+	return nil
 }
 
 // notifyInbound parses "id:tenant:provider:secret,..." into inbound status-sync

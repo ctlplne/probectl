@@ -2,7 +2,10 @@
 
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNotifyConnectorsConfig(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
@@ -41,6 +44,30 @@ func TestNotifyConnectorsConfig(t *testing.T) {
 	}
 	if _, err := Load(envFunc(map[string]string{"PROBECTL_NOTIFY_CONNECTORS": "t|pagerduty||sec"})); err == nil {
 		t.Error("an empty endpoint should be a load error")
+	}
+}
+
+func TestNotifyConnectorsRejectPlaintextRemoteEndpoints(t *testing.T) {
+	const key = "PROBECTL_NOTIFY_CONNECTORS"
+
+	remotePlaintext := "11111111-1111-1111-1111-111111111111|servicenow|http://snow.example/api/now/table/incident|user:token"
+	if _, err := Load(envFunc(map[string]string{key: remotePlaintext})); err == nil ||
+		!strings.Contains(err.Error(), "notify connector endpoint must be https://") {
+		t.Fatalf("remote plaintext connector should fail closed, got %v", err)
+	}
+
+	loopbackPlaintext := "11111111-1111-1111-1111-111111111111|jira|http://127.0.0.1:8080/rest/api/2/issue?project=OPS|email:token," +
+		"11111111-1111-1111-1111-111111111111|slack|http://localhost:9000/hook|"
+	if cfg, err := Load(envFunc(map[string]string{key: loopbackPlaintext})); err != nil {
+		t.Fatalf("loopback plaintext connector should remain available for dev/test: %v", err)
+	} else if len(cfg.NotifyConnectors) != 2 {
+		t.Fatalf("loopback connectors = %+v, want 2", cfg.NotifyConnectors)
+	}
+
+	badScheme := "11111111-1111-1111-1111-111111111111|pagerduty|ftp://events.example/enqueue|rk"
+	if _, err := Load(envFunc(map[string]string{key: badScheme})); err == nil ||
+		!strings.Contains(err.Error(), "must be an http(s) URL with a host") {
+		t.Fatalf("unsupported connector scheme should fail closed, got %v", err)
 	}
 }
 

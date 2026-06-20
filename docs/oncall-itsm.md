@@ -119,8 +119,9 @@ and Jira (`statusCategory.key == "done"`) shapes natively; **every** provider
 ```
 
 Outbound delivery uses the hardened, certificate-validating HTTP client (TLS is
-never disabled); the provider credential is sent only as an auth header and is
-never logged.
+never disabled). Remote provider endpoints must be `https://`; plain `http://`
+is accepted only for loopback local dev/test doubles. The provider credential is
+sent only as an auth header and is never logged.
 
 ## Configuration
 
