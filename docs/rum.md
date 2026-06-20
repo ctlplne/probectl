@@ -16,14 +16,16 @@ testimony lines up. That ruling is the *convergence verdict*, computed per
 | `healthy` | neither plane is degraded |
 | `user_impact_confirmed` | synthetics **and** real users are degraded — the page-worthy case |
 | `synthetic_only_no_user_impact` | synthetics red, users fine — a canary, not a crisis (the wording is deliberate: *no user impact **observed***) |
-| `user_only_synthetic_blind` | users degraded, synthetics green — your synthetic coverage has a blind spot |
+| `user_only_synthetic_blind` | users degraded, synthetics green or absent — visible in the RUM view as a low-trust blind spot, but not paging-grade without another proof source |
 
-When the verdict *transitions* into a noteworthy state, the engine raises a
+When the verdict *transitions* into `user_impact_confirmed`, the engine raises a
 warning signal that flows into the incident pipeline (plane `rum`):
-`rum.user_impact_correlated` and `rum.user_impact_unseen_by_synthetics`. These
-are **latched** per episode (you get one signal, not a storm) and re-arm on
-recovery. The `healthy` and `synthetic_only` states never page from the RUM
-plane — alerting and SLOs own those stories. The logic lives in
+`rum.user_impact_correlated`. These signals are **latched** per episode (you get
+one signal, not a storm) and re-arm on recovery. The `healthy`, `synthetic_only`,
+and RUM-only `user_only_synthetic_blind` states never page from the RUM plane:
+alerting/SLOs own synthetic-only stories, and public RUM keys are replayable, so
+RUM-only degradation is treated as an uncorroborated blind-spot indicator until
+the synthetic plane provides independent proof. The logic lives in
 `internal/rum/engine.go`.
 
 ## The beacon contract (schema v1)

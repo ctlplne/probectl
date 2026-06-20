@@ -109,7 +109,7 @@ func TestSyntheticOnlyIsHonestlyAnnotatedNotPaged(t *testing.T) {
 	}
 }
 
-func TestUserOnlyBlindSpotSignals(t *testing.T) {
+func TestUserOnlyBlindSpotIsVisibleButNotPaged(t *testing.T) {
 	e := NewEngine()
 	e.clock = func() time.Time { return at(10) }
 	// Synthetics green for the host.
@@ -118,14 +118,8 @@ func TestUserOnlyBlindSpotSignals(t *testing.T) {
 	}
 	// Users degraded by poor LCP (no errors at all).
 	kinds := pump(e, "t1", "shop", "web.acme.example", 40, 0, 5200, at(5))
-	blind := 0
-	for _, k := range kinds {
-		if k == "rum.user_impact_unseen_by_synthetics" {
-			blind++
-		}
-	}
-	if blind != 1 {
-		t.Fatalf("want exactly one blind-spot signal, got %d (%v)", blind, kinds)
+	if len(kinds) != 0 {
+		t.Fatalf("RUM-only blind spots are visible but not incident signals, got %v", kinds)
 	}
 	if snap := e.Snapshot("t1"); snap.Apps[0].Verdict != VerdictUserOnly {
 		t.Fatalf("verdict = %s want %s", snap.Apps[0].Verdict, VerdictUserOnly)
@@ -134,14 +128,21 @@ func TestUserOnlyBlindSpotSignals(t *testing.T) {
 
 func TestRecoveryReArms(t *testing.T) {
 	e := NewEngine()
-	// Degrade (blind-spot path) …
-	kinds := pump(e, "t1", "shop", "web.acme.example", 30, 2, 1500, at(0))
+	// Degrade with independent synthetic corroboration …
+	for i := 0; i < 4; i++ {
+		e.ObserveSynthetic("t1", "web.acme.example", false, at(i))
+	}
+	kinds := pump(e, "t1", "shop", "web.acme.example", 30, 2, 1500, at(5))
 	if len(kinds) != 1 {
 		t.Fatalf("want one signal, got %v", kinds)
 	}
 	// … recover (a healthy window evaluates after the bad one ages out) …
 	pump(e, "t1", "shop", "web.acme.example", 30, 0, 1000, at(20))
-	// … degrade again: the latch must have re-armed.
+	// … degrade again with fresh synthetic corroboration: the latch must have
+	// re-armed.
+	for i := 0; i < 4; i++ {
+		e.ObserveSynthetic("t1", "web.acme.example", false, at(35+i))
+	}
 	kinds = pump(e, "t1", "shop", "web.acme.example", 30, 2, 1500, at(40))
 	if len(kinds) != 1 {
 		t.Fatalf("re-armed episode must signal once more, got %v", kinds)

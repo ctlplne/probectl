@@ -346,7 +346,7 @@ func verdict(rumDegraded, synObserved, synDegraded bool) Verdict {
 }
 
 // evaluateLocked re-scores one app and raises a signal on a transition INTO
-// a noteworthy verdict (latched per verdict; healthy re-arms).
+// a corroborated noteworthy verdict (latched per verdict; healthy re-arms).
 func (e *Engine) evaluateLocked(tenant string, ts *tenantState, agg *appAgg, now time.Time) []incident.Signal {
 	views, errRate, _, _, rumDeg := agg.rumState(now)
 	synObs, synDeg := ts.syntheticState(agg.host, now)
@@ -361,6 +361,13 @@ func (e *Engine) evaluateLocked(tenant string, ts *tenantState, agg *appAgg, now
 		}
 		return nil
 	}
+	if v == VerdictUserOnly {
+		// RUM app keys are public page identifiers, so RUM-only degradation is
+		// useful evidence in the RUM view but not enough proof to open a paging
+		// incident. Keep the blind-spot verdict visible in Snapshot; require the
+		// independent synthetic plane before emitting a correlator signal.
+		return nil
+	}
 	if ts.alerted[key] == v {
 		return nil // latched
 	}
@@ -368,10 +375,6 @@ func (e *Engine) evaluateLocked(tenant string, ts *tenantState, agg *appAgg, now
 
 	kind, title := "rum.user_impact_correlated",
 		fmt.Sprintf("Real-user impact confirmed: %s (%s)", agg.app, agg.host)
-	if v == VerdictUserOnly {
-		kind = "rum.user_impact_unseen_by_synthetics"
-		title = fmt.Sprintf("Real-user impact with NO synthetic coverage signal: %s (%s)", agg.app, agg.host)
-	}
 	return []incident.Signal{{
 		TenantID: tenant,
 		Plane:    "rum",
@@ -388,6 +391,7 @@ func (e *Engine) evaluateLocked(tenant string, ts *tenantState, agg *appAgg, now
 			"rum.window_views":   fmt.Sprintf("%d", views),
 			"rum.error_rate":     fmt.Sprintf("%.3f", errRate),
 			"rum.synthetic_seen": fmt.Sprintf("%t", synObs),
+			"rum.signal_trust":   "synthetic_corroborated",
 		},
 		OccurredAt: now,
 	}}

@@ -321,6 +321,46 @@ func TestRUMEndToEndConvergenceAndIsolation(t *testing.T) {
 	}
 }
 
+func TestRUMPublicKeyReplayDoesNotOpenIncidentWithoutSyntheticCorroboration(t *testing.T) {
+	fb := &fakeRUMBus{}
+	srv, eng := rumTestServer(t, fb)
+	incStore := incident.NewMemoryStore()
+	correlator := incident.NewCorrelator(incStore, time.Hour, intelTestLog())
+	rc := NewRUMConsumer(nil, eng, correlator, intelTestLog())
+	tid := tenancy.DefaultTenantID.String()
+
+	// A public RUM key can be replayed by an attacker. Even enough forged views
+	// to make the RUM-only verdict degraded must not create a paging-grade
+	// incident without independent synthetic-plane corroboration.
+	for i := 0; i < 20; i++ {
+		body := fmt.Sprintf(`{"v":1,"key":"pk_abc","consent":true,"host":"web.acme.example",
+			"page":"/checkout/%d","vitals":{"lcp_ms":4500},"errors":1,"failed_requests":1}`, 2000+i)
+		if rec := postBeacon(srv, body); rec.Code != http.StatusAccepted {
+			t.Fatalf("replayed beacon %d: %d", i, rec.Code)
+		}
+	}
+	for _, payload := range fb.payloads {
+		if err := rc.handleRUMEvent(context.Background(), bus.Message{Value: payload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	snap := eng.Snapshot(tid)
+	if len(snap.Apps) != 1 {
+		t.Fatalf("expected RUM-only evidence to remain visible, got %+v", snap.Apps)
+	}
+	if snap.Apps[0].Verdict != rum.VerdictUserOnly || !snap.Apps[0].RUMDegraded {
+		t.Fatalf("RUM-only verdict = %+v, want degraded blind spot", snap.Apps[0])
+	}
+	incs, err := incStore.OpenIncidents(context.Background(), tid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(incs) != 0 {
+		t.Fatalf("public-key RUM replay must not open incidents without corroboration: %+v", incs)
+	}
+}
+
 func TestRUMConsumerDropsGarbageAndUnscoped(t *testing.T) {
 	eng := rum.NewEngine()
 	rc := NewRUMConsumer(nil, eng, nil, intelTestLog())
