@@ -8,13 +8,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // ScimTokens persists SCIM bearer tokens (S31, F25). The IdP presents one to
 // /scim/v2; like sessions, the auth lookup is PRE-TENANT — the token selects its
 // own tenant — and only the hash is stored, so a database read cannot mint a
 // token. A SCIM token authenticates the directory service to a TENANT (not a
-// user): SCIM acts as the provisioning system, not a person.
+// user): SCIM acts as the provisioning system, not a person. Normal admin
+// reads/writes run inside tenant-scoped RLS transactions; the pre-tenant
+// Authenticate path is the only narrow table lookup before the tenant is known.
 type ScimTokens struct{ pool *pgxpool.Pool }
 
 // NewScimTokens binds the repository to the pool (the pre-tenant auth path).
@@ -26,9 +30,24 @@ var ErrInvalidScimToken = errors.New("store: invalid or revoked scim token")
 // Create stores a new SCIM token (by hash) for a tenant and returns its id.
 func (s ScimTokens) Create(ctx context.Context, tenantID, name string, tokenHash []byte) (string, error) {
 	var id string
-	if err := s.pool.QueryRow(ctx,
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var createErr error
+		id, createErr = s.CreateScoped(ctx, sc, name, tokenHash)
+		return createErr
+	})
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// CreateScoped stores a token inside the caller's tenant transaction. Use this
+// from mutation handlers that must commit the token row and audit row together.
+func (s ScimTokens) CreateScoped(ctx context.Context, sc tenancy.Scope, name string, tokenHash []byte) (string, error) {
+	var id string
+	if err := sc.Q.QueryRow(ctx,
 		`INSERT INTO scim_tokens (tenant_id, name, token_hash) VALUES ($1, $2, $3) RETURNING id::text`,
-		tenantID, name, tokenHash).Scan(&id); err != nil {
+		sc.Tenant.String(), name, tokenHash).Scan(&id); err != nil {
 		return "", mapWriteErr("scim_token", err)
 	}
 	return id, nil
@@ -47,12 +66,24 @@ func (s ScimTokens) Authenticate(ctx context.Context, tokenHash []byte) (tenantI
 	return tenantID, err
 }
 
-// List returns a tenant's SCIM tokens (metadata only — never the hash). The
-// table has no RLS (pre-tenant auth), so the tenant filter is explicit.
+// List returns a tenant's SCIM tokens (metadata only — never the hash).
 func (s ScimTokens) List(ctx context.Context, tenantID string) ([]ScimToken, error) {
-	rows, err := s.pool.Query(ctx,
+	var out []ScimToken
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var listErr error
+		out, listErr = s.ListScoped(ctx, sc)
+		return listErr
+	})
+	return out, err
+}
+
+// ListScoped returns token metadata through the caller's tenant-scoped RLS
+// transaction. The query intentionally has no tenant predicate: storage-layer
+// isolation, not handler filtering, is the outer boundary.
+func (s ScimTokens) ListScoped(ctx context.Context, sc tenancy.Scope) ([]ScimToken, error) {
+	rows, err := sc.Q.Query(ctx,
 		`SELECT id::text, tenant_id::text, name, created_at, last_used_at, revoked_at
-		 FROM scim_tokens WHERE tenant_id = $1 ORDER BY created_at DESC`, tenantID)
+		 FROM scim_tokens ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -68,10 +99,25 @@ func (s ScimTokens) List(ctx context.Context, tenantID string) ([]ScimToken, err
 	return out, rows.Err()
 }
 
-// Revoke marks a tenant's SCIM token revoked (explicit tenant filter — no RLS).
+// Revoke marks a tenant's SCIM token revoked.
 func (s ScimTokens) Revoke(ctx context.Context, tenantID, id string) error {
-	_, err := s.pool.Exec(ctx,
-		`UPDATE scim_tokens SET revoked_at = now() WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`,
-		tenantID, id)
-	return err
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return s.RevokeScoped(ctx, sc, id)
+	})
+}
+
+// RevokeScoped marks a tenant's SCIM token revoked inside the caller's tenant
+// transaction. Use this when the revocation and audit row must be atomic.
+func (s ScimTokens) RevokeScoped(ctx context.Context, sc tenancy.Scope, id string) error {
+	tag, err := sc.Q.Exec(ctx,
+		`UPDATE scim_tokens SET revoked_at = now()
+		 WHERE tenant_id = $1 AND id = $2 AND revoked_at IS NULL`,
+		sc.Tenant.String(), id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrInvalidScimToken
+	}
+	return nil
 }

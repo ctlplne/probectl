@@ -97,9 +97,17 @@ exactly the access an offboarding process exists to kill.
 
 ### Minting a SCIM token
 
-An operator mints the per-tenant bearer token with the control-plane CLI (the
-IdP then pastes it into its provisioning config). The token is shown once —
-only its hash is stored, so this is the single chance to copy it:
+An operator mints the per-tenant bearer token from **Admin & Settings →
+Identity administration** or from the session-authenticated API:
+
+- `GET /v1/directory/scim-tokens` lists token metadata only;
+- `POST /v1/directory/scim-tokens` creates a token and returns the plaintext
+  bearer value once;
+- `DELETE /v1/directory/scim-tokens/{id}` revokes it.
+
+The IdP then pastes the token into its provisioning config. The token is shown
+once — only its hash is stored, so this is the single chance to copy it. The
+bootstrap CLI still exists for first-boot/operator workflows:
 
 ```sh
 probectl-control scim-token --tenant <tenant-uuid> --name okta
@@ -151,9 +159,10 @@ the principal at request time (`loadSubjectAttributes` in
   bindings already carry an `org`/`team`/`project` scope; see the `scope_type`
   column in migration `0003_rbac.sql`).
 
-Policies are managed at `/v1/abac/policies` (`GET` gated by `directory.read`;
-`POST` and `DELETE` by `directory.write`) and cached per tenant for a short TTL
-(30 seconds), with policy CRUD invalidating that tenant's cache
+Policies are managed at **Admin & Settings → Identity administration** and at
+`/v1/abac/policies` (`GET` gated by `directory.read`; `POST` and `DELETE` by
+`directory.write`) and cached per tenant for a short TTL (30 seconds), with
+policy CRUD invalidating that tenant's cache
 (`internal/control/abac.go`). The cache is a performance shortcut only —
 because deprovision deletes sessions directly, a deprovisioned user is locked
 out at once regardless of any cached policy. The worst a stale cache can do is

@@ -49,6 +49,11 @@ endpoints, authenticated by a per-tenant SCIM bearer token — a secret string
 presented in the `Authorization` header; whoever holds it bears the access);
 deprovisioning a user revokes their access.
 
+Tenant admins manage that identity wiring in **Admin & Settings → Identity
+administration**. The page shows the SSO/SCIM endpoints, mints/revokes
+per-tenant SCIM bearer tokens (plaintext shown once; only the hash is stored),
+and manages ABAC policies through `/v1/abac/policies`.
+
 ## The audit trail
 
 Every configuration change (creating, updating, or deleting a test, agent,

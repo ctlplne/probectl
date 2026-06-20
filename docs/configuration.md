@@ -1268,8 +1268,9 @@ applications — a joiner appears, a leaver is deactivated, without anyone touch
 probectl. ABAC (attribute-based access control) layers policy *conditions* on
 top of RBAC roles — "editors may write tests only in project X". Both have
 **no environment keys** — the SCIM bearer token
-an IdP presents is minted with the control-plane CLI, and ABAC policies are managed
-over the API. See [`scim-abac.md`](scim-abac.md).
+an IdP presents is minted in **Admin & Settings → Identity administration** or
+with the control-plane CLI, and ABAC policies are managed from the same Admin
+surface or over the API. See [`scim-abac.md`](scim-abac.md).
 
 ```sh
 # mint a per-tenant SCIM token for an IdP (shown once)
@@ -1277,7 +1278,8 @@ probectl-control scim-token --tenant <tenant-uuid> --name okta
 ```
 
 The `/scim/v2/*` surface is gated by a valid SCIM token (no token ⇒ `401`), and the
-directory-admin API (`/v1/abac/policies`) requires `directory.read`/`directory.write`.
+directory-admin APIs (`/v1/directory/scim-tokens`, `/v1/abac/policies`) require
+`directory.read`/`directory.write`.
 
 ### Change intelligence
 

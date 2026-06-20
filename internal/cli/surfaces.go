@@ -152,6 +152,11 @@ var surfaceCommands = map[string]surfaceCommand{
 	"secret": {Name: "secret", Summary: "secret backend health", Ops: map[string]apiOp{
 		"health": {Method: http.MethodGet, Path: "/v1/secrets/health"},
 	}},
+	"scim": {Name: "scim", Summary: "SCIM identity-provider tokens", Ops: map[string]apiOp{
+		"tokens":       {Method: http.MethodGet, Path: "/v1/directory/scim-tokens"},
+		"create-token": {Method: http.MethodPost, Path: "/v1/directory/scim-tokens"},
+		"revoke-token": {Method: http.MethodDelete, Path: "/v1/directory/scim-tokens/{id}", ArgName: "id"},
+	}},
 	"key": {Name: "key", Summary: "security key posture", Ops: map[string]apiOp{
 		"list":   {Method: http.MethodGet, Path: "/v1/security/keys"},
 		"rotate": {Method: http.MethodPost, Path: "/v1/security/keys/rotate"},

@@ -15,6 +15,7 @@ import { useAgents, flattenAgents, type Agent } from '../../api/agents'
 import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
+import { IdentityCard } from './IdentityCard'
 
 // --- Admin & Settings: the agent fleet (live /v1/agents) + secret-backend
 // health (S41, live /v1/secrets/health) ---
@@ -156,6 +157,7 @@ export function AdminPage() {
         </CardBody>
       </Card>
       <SecretBackendsCard />
+      <IdentityCard />
       <KeysCard />
       <LifecycleCard />
       <RemediationCard />

@@ -169,6 +169,65 @@ func TestSCIMAuthAndTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestSCIMTokenAdminLifecycleAndTenantIsolation(t *testing.T) {
+	h, db := setupAPI(t)
+	tA := freshTenant(t, db, "scimtokA")
+	tB := freshTenant(t, db, "scimtokB")
+
+	create := apiReq(t, h, http.MethodPost, "/v1/directory/scim-tokens", tA, map[string]any{"name": "okta"})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create token: %d %s", create.Code, create.Body)
+	}
+	var created struct {
+		ID    string `json:"id"`
+		Name  string `json:"name"`
+		Token string `json:"token"`
+	}
+	mustJSON(t, create, &created)
+	if created.ID == "" || created.Name != "okta" || len(created.Token) != 64 {
+		t.Fatalf("created token response = %+v, want id/name/one-time 32-byte hex token", created)
+	}
+	if tenant, err := store.NewScimTokens(db.Pool()).Authenticate(context.Background(), crypto.Hash([]byte(created.Token))); err != nil || tenant != tA {
+		t.Fatalf("created token should authenticate to tenant A: tenant=%q err=%v", tenant, err)
+	}
+
+	listA := apiReq(t, h, http.MethodGet, "/v1/directory/scim-tokens", tA, nil)
+	if listA.Code != http.StatusOK {
+		t.Fatalf("list A: %d %s", listA.Code, listA.Body)
+	}
+	if !strings.Contains(listA.Body.String(), `"name":"okta"`) {
+		t.Fatalf("tenant A list missing token metadata: %s", listA.Body)
+	}
+	if strings.Contains(listA.Body.String(), created.Token) {
+		t.Fatalf("metadata list leaked the plaintext SCIM token: %s", listA.Body)
+	}
+
+	listB := apiReq(t, h, http.MethodGet, "/v1/directory/scim-tokens", tB, nil)
+	if listB.Code != http.StatusOK {
+		t.Fatalf("list B: %d %s", listB.Code, listB.Body)
+	}
+	if strings.Contains(listB.Body.String(), created.ID) || strings.Contains(listB.Body.String(), "okta") {
+		t.Fatalf("tenant B saw tenant A's SCIM token metadata: %s", listB.Body)
+	}
+
+	crossDelete := apiReq(t, h, http.MethodDelete, "/v1/directory/scim-tokens/"+created.ID, tB, nil)
+	if crossDelete.Code != http.StatusNotFound {
+		t.Fatalf("tenant B delete of tenant A token: %d %s, want 404", crossDelete.Code, crossDelete.Body)
+	}
+
+	del := apiReq(t, h, http.MethodDelete, "/v1/directory/scim-tokens/"+created.ID, tA, nil)
+	if del.Code != http.StatusNoContent {
+		t.Fatalf("delete token: %d %s", del.Code, del.Body)
+	}
+	if _, err := store.NewScimTokens(db.Pool()).Authenticate(context.Background(), crypto.Hash([]byte(created.Token))); err != store.ErrInvalidScimToken {
+		t.Fatalf("revoked token should no longer authenticate, err=%v", err)
+	}
+	after := apiReq(t, h, http.MethodGet, "/v1/directory/scim-tokens", tA, nil)
+	if !strings.Contains(after.Body.String(), `"revoked_at"`) {
+		t.Fatalf("revoked token should remain visible as metadata with revoked_at: %s", after.Body)
+	}
+}
+
 // --- deprovision → IMMEDIATE session revocation (the S31 Done-when) ---
 
 func TestSCIMDeprovisionRevokesSession(t *testing.T) {

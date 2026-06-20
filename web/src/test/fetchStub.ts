@@ -156,6 +156,8 @@ export function defaultFetch(): typeof fetch {
         resolver_running: true,
         backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
       })
+    if (path === '/v1/directory/scim-tokens') return jsonResponse({ items: [] })
+    if (path === '/v1/abac/policies') return jsonResponse({ items: [] })
     if (path === '/v1/diagnostics')
       return jsonResponse({
         status: 'degraded',

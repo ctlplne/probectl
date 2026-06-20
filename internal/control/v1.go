@@ -124,6 +124,9 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/abac/policies", s.handleListPolicies, permDirectoryRead},
 		{http.MethodPost, "/v1/abac/policies", s.handleCreatePolicy, permDirectoryWrite},
 		{http.MethodDelete, "/v1/abac/policies/{id}", s.handleDeletePolicy, permDirectoryWrite},
+		{http.MethodGet, "/v1/directory/scim-tokens", s.handleSCIMTokenList, permDirectoryRead},
+		{http.MethodPost, "/v1/directory/scim-tokens", s.handleSCIMTokenCreate, permDirectoryWrite},
+		{http.MethodDelete, "/v1/directory/scim-tokens/{id}", s.handleSCIMTokenRevoke, permDirectoryWrite},
 		{http.MethodPost, "/v1/a2a/sessions", s.handleStartA2ASession, permAgentWrite},
 		// OPS-002: staged rollout operator surface over the rollout engine.
 		{http.MethodGet, "/v1/rollouts", s.handleListRollouts, permAgentRead},

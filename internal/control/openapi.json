@@ -1292,6 +1292,94 @@
         }
       }
     },
+    "/v1/directory/scim-tokens": {
+      "get": {
+        "operationId": "listSCIMTokens",
+        "summary": "List SCIM bearer-token metadata",
+        "tags": [
+          "directory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's SCIM bearer-token metadata. Plaintext tokens and hashes are never returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMTokenList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createSCIMToken",
+        "summary": "Create a SCIM bearer token",
+        "tags": [
+          "directory"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SCIMTokenCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The created token. The plaintext bearer token is returned exactly once.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SCIMTokenCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/directory/scim-tokens/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        }
+      ],
+      "delete": {
+        "operationId": "revokeSCIMToken",
+        "summary": "Revoke a SCIM bearer token",
+        "tags": [
+          "directory"
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked."
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/flows/top": {
       "get": {
         "operationId": "flowTopTalkers",
@@ -5949,6 +6037,78 @@
             }
           }
         }
+      },
+      "SCIMToken": {
+        "type": "object",
+        "description": "A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_used_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revoked_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "name",
+          "created_at"
+        ]
+      },
+      "SCIMTokenList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SCIMToken"
+            }
+          }
+        }
+      },
+      "SCIMTokenCreate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SCIMTokenCreated": {
+        "type": "object",
+        "description": "The one-time SCIM bearer token response. The token value is never retrievable again.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "token"
+        ]
       },
       "FlowTopRow": {
         "type": "object",

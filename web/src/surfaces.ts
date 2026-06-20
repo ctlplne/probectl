@@ -305,11 +305,13 @@ export const SURFACES: SurfaceDecl[] = [
     capability: 'Identity, SCIM, ABAC, and delegated administration',
     featureIds: ['F22', 'F25'],
     sprint: 'S-T2',
-    kind: 'federated',
+    kind: 'native',
+    route: '/admin',
     evidence: [
       'file:docs/auth/self-hosted-idp.md',
       'file:docs/scim-abac.md',
       'openapi:/v1/abac/policies',
+      'openapi:/v1/directory/scim-tokens',
     ],
   },
   {
