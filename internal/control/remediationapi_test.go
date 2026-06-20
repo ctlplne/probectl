@@ -25,10 +25,12 @@ type fakeRemed struct {
 	getOut     remediation.Proposal
 	getErr     error
 	lastBy     string // records the proposer/approver the handler passed
+	lastInput  remediation.ProposeInput
 }
 
 func (f *fakeRemed) Propose(_ context.Context, tenantID, by string, in remediation.ProposeInput) (remediation.Proposal, error) {
 	f.lastBy = by
+	f.lastInput = in
 	if f.proposeErr != nil {
 		return remediation.Proposal{}, f.proposeErr
 	}
@@ -87,7 +89,7 @@ func TestRemediationProposeAlwaysProposed(t *testing.T) {
 	srv := testServer(nil)
 	srv.WithRemediation(f)
 
-	body := `{"kind":"reroute_suggestion","title":"reroute around hop","target":"hop:10.0.0.1"}`
+	body := `{"kind":"open_ticket","title":"investigate detection","target":"203.0.113.66","incident_id":"inc-42","rationale":"Detection det-2 ioc.botnet confidence 90 from feodo"}`
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals", strings.NewReader(body)))
 	if rr.Code != http.StatusCreated {
@@ -103,6 +105,11 @@ func TestRemediationProposeAlwaysProposed(t *testing.T) {
 	// The proposer is the authenticated human (dev principal), never client input.
 	if !strings.HasPrefix(f.lastBy, "user:") {
 		t.Fatalf("proposer=%q, want a user: prefix from the authenticated principal", f.lastBy)
+	}
+	if f.lastInput.IncidentID != "inc-42" ||
+		!strings.Contains(f.lastInput.Rationale, "det-2") ||
+		f.lastInput.Target != "203.0.113.66" {
+		t.Fatalf("proposal input lost detection evidence: %+v", f.lastInput)
 	}
 }
 

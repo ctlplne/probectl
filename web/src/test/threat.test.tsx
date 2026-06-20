@@ -44,14 +44,39 @@ function detectionFixtures(): Detection[] {
 }
 
 function threatBackend(items: Detection[]) {
-  const state = { requests: [] as string[] }
+  const state = {
+    requests: [] as string[],
+    proposalBody: undefined as Record<string, unknown> | undefined,
+  }
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     assertNoDoublePrefix(input)
     const path = pathOf(input)
-    state.requests.push(`${init?.method ?? 'GET'} ${url}`)
+    const method = init?.method ?? 'GET'
+    state.requests.push(`${method} ${url}`)
     if (path === '/v1/threat/detections') return jsonResponse({ items, detections_running: true })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/remediation/proposals' && method === 'GET')
+      return jsonResponse({ items: [], approvals_enabled: false })
+    if (path === '/v1/remediation/proposals' && method === 'POST') {
+      state.proposalBody = JSON.parse(String(init!.body)) as Record<string, unknown>
+      return jsonResponse(
+        {
+          id: 'rem-42',
+          tenant_id: 't',
+          kind: state.proposalBody.kind,
+          title: state.proposalBody.title,
+          rationale: state.proposalBody.rationale,
+          target: state.proposalBody.target,
+          incident_id: state.proposalBody.incident_id,
+          dry_run: { blast_radius: 0, note: 'no target to simulate' },
+          state: 'proposed',
+          proposed_by: 'user:operator@probectl.test',
+          created_at: '2026-06-04T12:06:00Z',
+        },
+        201,
+      )
+    }
     const inc42 = {
       id: 'inc-42',
       tenant_id: 't',
@@ -129,6 +154,49 @@ describe('threat/IOC triage surface (S-FE3)', () => {
     expect(
       (await screen.findAllByText('Threat-intel match on 203.0.113.66')).length,
     ).toBeGreaterThan(0)
+  })
+
+  test('proposes a human-gated remediation from detection evidence', async () => {
+    const { state, fetcher } = threatBackend(detectionFixtures())
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/security')
+
+    const buttons = await screen.findAllByRole('button', { name: /propose response/i })
+    await userEvent.click(buttons[0])
+
+    expect(await screen.findByText('Proposal created')).toBeInTheDocument()
+    expect(state.proposalBody).toMatchObject({
+      kind: 'open_ticket',
+      title: 'Investigate 203.0.113.66 ioc.botnet detection',
+      target: '203.0.113.66',
+      incident_id: 'inc-42',
+    })
+    expect(String(state.proposalBody?.rationale)).toContain('Detection det-2')
+    expect(String(state.proposalBody?.rationale)).toContain('confidence 90')
+    expect(String(state.proposalBody?.rationale)).toContain('Source feodo / botnet')
+    expect(String(state.proposalBody?.rationale)).toContain('human review only')
+    expect(String(state.proposalBody?.rationale)).toContain('must not block traffic or execute')
+    expect(state.requests.some((r) => /approve|reject/.test(r))).toBe(false)
+  })
+
+  test('hides proposal action when guarded remediation is unlicensed', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      assertNoDoublePrefix(input)
+      const path = pathOf(input)
+      if (path === '/v1/threat/detections')
+        return jsonResponse({ items: detectionFixtures(), detections_running: true })
+      if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
+      if (path === '/v1/remediation/proposals')
+        return jsonResponse({ error: { message: 'not found' } }, 404)
+      return jsonResponse({ items: [] })
+    }) as unknown as typeof fetch
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/security')
+
+    await screen.findByRole('table', { name: 'Threat detections' })
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /propose response/i })).toBeNull(),
+    )
   })
 
   test('filters by severity and source', async () => {

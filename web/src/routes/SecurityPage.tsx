@@ -21,6 +21,11 @@ import {
 import { severityTone } from '../api/incidents'
 import { daysUntil, findingLabel, useTLSPosture, type TLSPosture } from '../api/tls'
 import { useDetections, type Detection } from '../api/threat'
+import {
+  useCreateRemediationProposal,
+  useRemediations,
+  type CreateProposalInput,
+} from '../api/remediation'
 
 function when(iso?: string): string {
   if (!iso) return '—'
@@ -153,7 +158,41 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
 /** DetectionDetail shows one detection's full provenance — honestly: a
  *  confidence-scored signal with the attributing feed, never a block, and
  *  feeds can list benign infrastructure (the 'watch out for'). */
-function DetectionDetail({ detection, onClose }: { detection: Detection; onClose: () => void }) {
+function proposalFromDetection(d: Detection): CreateProposalInput {
+  const confidence =
+    typeof d.confidence === 'number' && d.confidence > 0 ? ` confidence ${d.confidence}` : ''
+  const indicator = d.indicator ? ` indicator ${d.indicator}` : ' no matched indicator recorded'
+  const incident = d.incident_id ? ` Correlated incident ${d.incident_id}.` : ''
+  return {
+    kind: 'open_ticket',
+    title: `Investigate ${d.entity} ${d.kind} detection`,
+    target: d.entity,
+    ...(d.incident_id ? { incident_id: d.incident_id } : {}),
+    rationale: [
+      `Detection ${d.id} (${d.kind}, ${d.severity}${confidence}) observed entity ${d.entity};${indicator}.`,
+      `Source ${d.source ?? 'unknown'}${d.category ? ` / ${d.category}` : ''}${d.license ? ` / license ${d.license}` : ''}.`,
+      d.summary ?? d.title,
+      incident,
+      'This is a confidence-scored signal; file an advisory proposal for human review only. probectl must not block traffic or execute a change.',
+    ]
+      .filter(Boolean)
+      .join(' '),
+  }
+}
+
+function DetectionDetail({
+  detection,
+  canPropose,
+  proposing,
+  onPropose,
+  onClose,
+}: {
+  detection: Detection
+  canPropose: boolean
+  proposing: boolean
+  onPropose: (detection: Detection) => void
+  onClose: () => void
+}) {
   return (
     <Modal open onClose={onClose} title={detection.entity}>
       <dl className={styles.kv}>
@@ -192,6 +231,11 @@ function DetectionDetail({ detection, onClose }: { detection: Detection; onClose
         benign infrastructure, and probectl never blocks traffic. Verify before acting.
       </p>
       <div className={styles.actionsRow}>
+        {canPropose ? (
+          <Button variant="secondary" disabled={proposing} onClick={() => onPropose(detection)}>
+            {proposing ? 'Proposing...' : 'Propose response'}
+          </Button>
+        ) : null}
         {detection.incident_id ? (
           <Link to={`/incidents?incident=${encodeURIComponent(detection.incident_id)}`}>
             Open incident timeline
@@ -209,6 +253,9 @@ type DetSeverityFilter = 'all' | 'info' | 'warning' | 'critical'
 /** DetectionsCard is the IOC/NDR triage list (S-FE3; S42 detections land here). */
 function DetectionsCard() {
   const detections = useDetections()
+  const remediations = useRemediations()
+  const createProposal = useCreateRemediationProposal()
+  const { push } = useToast()
   const [sevFilter, setSevFilter] = useState<DetSeverityFilter>('all')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [needle, setNeedle] = useState('')
@@ -231,6 +278,20 @@ function DetectionsCard() {
   }, [items, sevFilter, sourceFilter, needle])
 
   const detail = items.find((d) => d.id === detailID) ?? null
+  const canPropose = Boolean(remediations.data)
+
+  const proposeResponse = (d: Detection) => {
+    createProposal.mutate(proposalFromDetection(d), {
+      onSuccess: (p) =>
+        push({ tone: 'success', title: 'Proposal created', message: `${p.id} is proposed` }),
+      onError: (err) =>
+        push({
+          tone: 'danger',
+          title: 'Proposal failed',
+          message: err instanceof Error ? err.message : 'Could not create proposal',
+        }),
+    })
+  }
 
   const columns: Column<Detection>[] = [
     {
@@ -264,9 +325,21 @@ function DetectionsCard() {
       header: <span className="sr-only">Actions</span>,
       align: 'end',
       render: (d) => (
-        <Button size="sm" variant="ghost" onClick={() => setDetailID(d.id)}>
-          Details
-        </Button>
+        <span className={styles.actionsRow}>
+          {canPropose ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={createProposal.isPending}
+              onClick={() => proposeResponse(d)}
+            >
+              Propose response
+            </Button>
+          ) : null}
+          <Button size="sm" variant="ghost" onClick={() => setDetailID(d.id)}>
+            Details
+          </Button>
+        </span>
       ),
     },
   ]
@@ -334,7 +407,15 @@ function DetectionsCard() {
           </>
         )}
       </CardBody>
-      {detail ? <DetectionDetail detection={detail} onClose={() => setDetailID(null)} /> : null}
+      {detail ? (
+        <DetectionDetail
+          detection={detail}
+          canPropose={canPropose}
+          proposing={createProposal.isPending}
+          onPropose={proposeResponse}
+          onClose={() => setDetailID(null)}
+        />
+      ) : null}
     </Card>
   )
 }

@@ -36,11 +36,32 @@ export interface RemediationList {
   approvals_enabled: boolean
 }
 
+export interface CreateProposalInput {
+  kind: 'reroute_suggestion' | 'traffic_shift_suggestion' | 'open_ticket' | 'trustctl_renewal'
+  title: string
+  rationale?: string
+  target?: string
+  incident_id?: string
+}
+
 export function useRemediations() {
   return useQuery({
     queryKey: ['remediation-proposals'],
     queryFn: () => apiFetch<RemediationList>('/remediation/proposals'),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
+  })
+}
+
+export function useCreateRemediationProposal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: CreateProposalInput) =>
+      apiFetch<Proposal>('/remediation/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['remediation-proposals'] }),
   })
 }
 
