@@ -47,12 +47,18 @@ store (see "Deliberate bounds" below).
   Because this is tenant telemetry leaving probectl, remote export is encrypted
   by default and fails closed if a remote collector is configured without TLS.
 - **Deliberate bounds.** probectl ingests traces + logs for **correlation** —
-  bounded attributes, capped bodies, retention-limited. It keeps the receipts,
-  not the warehouse: enough of each span and log line to join evidence across
-  planes, never the full archive. Metric TSDB conversion supports OTLP gauge,
-  sum, and explicit-bucket histogram points. OTLP summary and exponential
-  histogram points are accepted at the receiver but are not converted into
-  queryable TSDB series; probectl counts them at `/metrics` as
+  bounded attributes, capped bodies, retention-limited, and redacted before
+  persistence. Span names, service/resource attributes, span/log attributes,
+  and log bodies pass through the governance redactor at ingest so common PII
+  and secrets (emails, user/account/session identifiers, IP addresses,
+  bearer/API/password/token values, and URL query/fragment data) do not land raw
+  in the memory or ClickHouse otelstore. Trace IDs and span IDs are retained as
+  correlation keys. It keeps the receipts, not the warehouse: enough of each
+  span and log line to join evidence across planes, never the full archive.
+  Metric TSDB conversion supports OTLP gauge, sum, and explicit-bucket
+  histogram points. OTLP summary and exponential histogram points are accepted
+  at the receiver but are not converted into queryable TSDB series; probectl
+  counts them at `/metrics` as
   `probectl_otlp_metrics_summary_skipped_total` and
   `probectl_otlp_metrics_exponential_histogram_skipped_total` so an operator can
   see the bound instead of losing it silently. It is **not** an APM /

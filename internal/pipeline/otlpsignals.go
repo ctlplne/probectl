@@ -18,6 +18,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 )
@@ -109,7 +110,7 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
 		return nil
 	}
-	spans := convertSpans(&req, tenant)
+	spans := convertSpansWithContext(ctx, &req, tenant)
 	if len(spans) == 0 {
 		return nil
 	}
@@ -139,9 +140,14 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 // stamped/verified the tenant resource attribute; the bus key carries the
 // same tenant.
 func convertSpans(req *coltracepb.ExportTraceServiceRequest, tenant string) []otelstore.Span {
+	return convertSpansWithContext(context.Background(), req, tenant)
+}
+
+func convertSpansWithContext(ctx context.Context, req *coltracepb.ExportTraceServiceRequest, tenant string) []otelstore.Span {
 	var out []otelstore.Span
+	pol := govern.TelemetryPIIPolicy(ctx, tenant)
 	for _, rs := range req.GetResourceSpans() {
-		resAttrs, service, _ := resourceInfo(rs.GetResource().GetAttributes())
+		resAttrs, service, _ := resourceInfo(rs.GetResource().GetAttributes(), pol)
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
 				start := time.Unix(0, int64(sp.GetStartTimeUnixNano())).UTC()
@@ -153,13 +159,13 @@ func convertSpans(req *coltracepb.ExportTraceServiceRequest, tenant string) []ot
 				// time-window queries / "latest" trace views; duration is preserved
 				// (computed from the raw end-start above).
 				start = clampFutureTime(start, time.Now())
-				attrs := boundedAttrs(resAttrs, sp.GetAttributes())
+				attrs := boundedAttrs(resAttrs, sp.GetAttributes(), pol)
 				out = append(out, otelstore.Span{
 					TenantID:     tenant,
 					TraceID:      hex.EncodeToString(sp.GetTraceId()),
 					SpanID:       hex.EncodeToString(sp.GetSpanId()),
 					ParentSpanID: hex.EncodeToString(sp.GetParentSpanId()),
-					Name:         sp.GetName(),
+					Name:         govern.RedactTelemetryText(pol, sp.GetName()),
 					Kind:         spanKind(sp.GetKind()),
 					Service:      service,
 					Start:        start,
@@ -246,7 +252,7 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 			"tenant_id", tenant, "error", err.Error(), "rejected_total", c.rejected.Load())
 		return nil
 	}
-	recs := convertLogs(&req, tenant)
+	recs := convertLogsWithContext(ctx, &req, tenant)
 	if len(recs) == 0 {
 		return nil
 	}
@@ -274,9 +280,14 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 
 // convertLogs flattens ResourceLogs into store rows.
 func convertLogs(req *collogspb.ExportLogsServiceRequest, tenant string) []otelstore.LogRecord {
+	return convertLogsWithContext(context.Background(), req, tenant)
+}
+
+func convertLogsWithContext(ctx context.Context, req *collogspb.ExportLogsServiceRequest, tenant string) []otelstore.LogRecord {
 	var out []otelstore.LogRecord
+	pol := govern.TelemetryPIIPolicy(ctx, tenant)
 	for _, rl := range req.GetResourceLogs() {
-		resAttrs, service, _ := resourceInfo(rl.GetResource().GetAttributes())
+		resAttrs, service, _ := resourceInfo(rl.GetResource().GetAttributes(), pol)
 		for _, sl := range rl.GetScopeLogs() {
 			for _, lr := range sl.GetLogRecords() {
 				ts := lr.GetTimeUnixNano()
@@ -286,7 +297,7 @@ func convertLogs(req *collogspb.ExportLogsServiceRequest, tenant string) []otels
 				// CORRECT-006: clamp a far-future log timestamp so it cannot poison
 				// time-window queries / newest-first ordering.
 				logTS := clampFutureTime(time.Unix(0, int64(ts)).UTC(), time.Now())
-				body := anyValueString(lr.GetBody())
+				body := govern.RedactTelemetryText(pol, anyValueString(lr.GetBody()))
 				if len(body) > otlpMaxBody {
 					body = body[:otlpMaxBody]
 				}
@@ -299,7 +310,7 @@ func convertLogs(req *collogspb.ExportLogsServiceRequest, tenant string) []otels
 					Body:         body,
 					TraceID:      hex.EncodeToString(lr.GetTraceId()),
 					SpanID:       hex.EncodeToString(lr.GetSpanId()),
-					Attrs:        boundedAttrs(resAttrs, lr.GetAttributes()),
+					Attrs:        boundedAttrs(resAttrs, lr.GetAttributes(), pol),
 				})
 			}
 		}
@@ -311,7 +322,7 @@ func convertLogs(req *collogspb.ExportLogsServiceRequest, tenant string) []otels
 
 // resourceInfo extracts string resource attributes, the service name, and
 // the receiver-stamped tenant.
-func resourceInfo(kvs []*commonpb.KeyValue) (attrs map[string]string, service, tenant string) {
+func resourceInfo(kvs []*commonpb.KeyValue, pol govern.Policy) (attrs map[string]string, service, tenant string) {
 	attrs = map[string]string{}
 	for _, kv := range kvs {
 		v := anyValueString(kv.GetValue())
@@ -320,19 +331,19 @@ func resourceInfo(kvs []*commonpb.KeyValue) (attrs map[string]string, service, t
 		}
 		switch kv.GetKey() {
 		case "service.name":
-			service = v
+			service = govern.RedactTelemetryText(pol, v)
 		case "probectl.tenant.id":
 			tenant = v
 			continue // the tenant column carries it; never an attribute
 		}
-		attrs[kv.GetKey()] = v
+		attrs[kv.GetKey()] = govern.RedactTelemetryAttribute(pol, kv.GetKey(), v)
 	}
 	return attrs, service, tenant
 }
 
 // boundedAttrs merges resource + record attributes up to otlpMaxAttrs,
 // deterministically (sorted), mirroring the metrics plane's label bound.
-func boundedAttrs(res map[string]string, kvs []*commonpb.KeyValue) map[string]string {
+func boundedAttrs(res map[string]string, kvs []*commonpb.KeyValue, pol govern.Policy) map[string]string {
 	merged := map[string]string{}
 	addSorted := func(m map[string]string) {
 		keys := make([]string, 0, len(m))
@@ -353,7 +364,7 @@ func boundedAttrs(res map[string]string, kvs []*commonpb.KeyValue) map[string]st
 	rec := map[string]string{}
 	for _, kv := range kvs {
 		if v := anyValueString(kv.GetValue()); v != "" {
-			rec[kv.GetKey()] = v
+			rec[kv.GetKey()] = govern.RedactTelemetryAttribute(pol, kv.GetKey(), v)
 		}
 	}
 	addSorted(rec)

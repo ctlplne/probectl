@@ -127,6 +127,27 @@ func TestRedactRowAndJSONL(t *testing.T) {
 	}
 }
 
+func TestRedactTelemetryTextAndAttribute(t *testing.T) {
+	pol := TelemetryPIIPolicy(context.Background(), "tnA")
+	body := RedactTelemetryText(pol, "login jane@example.com from 198.51.100.7 token=supersecret url=https://api.example.test/u/jane@example.com?token=urlsecret")
+	for _, leak := range []string{"jane@example.com", "198.51.100.7", "supersecret", "urlsecret"} {
+		if strings.Contains(body, leak) {
+			t.Fatalf("telemetry body leaked %q: %q", leak, body)
+		}
+	}
+	for _, want := range []string{"j***@example.com", "198.51.100.0/24", "token=[redacted]"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("telemetry body missing %q: %q", want, body)
+		}
+	}
+	if got := RedactTelemetryAttribute(pol, "enduser.id", "jane-user-42"); got == "jane-user-42" || got == "" {
+		t.Fatalf("subject attr not redacted usefully: %q", got)
+	}
+	if got := RedactTelemetryAttribute(pol, "authorization", "Bearer rawbearertoken123"); got != "[redacted]" {
+		t.Fatalf("credential attr = %q, want marker", got)
+	}
+}
+
 // fakeSource is a test PolicySource.
 type fakeSource struct {
 	pol   Policy
@@ -196,6 +217,10 @@ func TestColumnCategory(t *testing.T) {
 		{"wrapped_kek", CatCredential, true},
 		{"private_key", CatCredential, true},
 		{"user_email", CatEmail, true},
+		{"enduser.id", CatSubjectID, true},
+		{"user.id", CatSubjectID, true},
+		{"session_id", CatSubjectID, true},
+		{"authorization", CatCredential, true},
 		// IP columns must STAY IP — the MAC broadening must not steal the _addr net:
 		{"src_addr", CatIPAddress, true},
 		{"dst_addr", CatIPAddress, true},

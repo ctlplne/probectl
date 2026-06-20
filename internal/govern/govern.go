@@ -84,6 +84,7 @@ type Category string
 const (
 	CatIPAddress  Category = "ip_address"  // IPv4/IPv6 — PII by default (the headline)
 	CatEmail      Category = "email"       // PII
+	CatSubjectID  Category = "subject_id"  // user/account/session identifiers — PII
 	CatGeo        Category = "geo"         // city/region/coords — PII
 	CatMAC        Category = "mac_address" // Confidential
 	CatHostname   Category = "hostname"    // Internal
@@ -96,6 +97,7 @@ const (
 var defaultClass = map[Category]Class{
 	CatIPAddress:  ClassPII,
 	CatEmail:      ClassPII,
+	CatSubjectID:  ClassPII,
 	CatGeo:        ClassPII,
 	CatMAC:        ClassConfidential,
 	CatHostname:   ClassInternal,

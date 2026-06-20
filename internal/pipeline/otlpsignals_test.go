@@ -5,10 +5,12 @@ package pipeline
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -159,6 +161,91 @@ func TestOTLPThreeSignalRoundTrip(t *testing.T) {
 	}
 	if got, _ := signals.QueryLogs(context.Background(), "t-other", otelstore.LogQuery{}); len(got) != 0 {
 		t.Fatalf("cross-tenant log leak: %+v", got)
+	}
+}
+
+// PRIVACY-003: traces/logs are stored as bounded correlation receipts, not raw
+// APM/log warehouse rows. The conversion layer must redact PII and secrets
+// before memory/ClickHouse stores ever see the row.
+func TestOTLPTraceLogPIIRedactedBeforeStoreRows(t *testing.T) {
+	const tenant = "t-redact"
+	now := time.Now().UTC()
+	traceID := bytes.Repeat([]byte{0x11}, 16)
+	spanID := bytes.Repeat([]byte{0x22}, 8)
+	res := &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+		kv("service.name", "checkout-jane@example.com"),
+		kv("host.ip", "10.1.2.3"),
+		kv("deployment.token", "deploy-token-raw"),
+	}}
+
+	treq := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+		Resource: res,
+		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+			TraceId:           traceID,
+			SpanId:            spanID,
+			Name:              "GET /customers/jane@example.com from 203.0.113.42 token=raw-span-token",
+			StartTimeUnixNano: uint64(now.UnixNano()),
+			EndTimeUnixNano:   uint64(now.Add(time.Millisecond).UnixNano()),
+			Attributes: []*commonpb.KeyValue{
+				kv("enduser.id", "jane-user-42"),
+				kv("authorization", "Bearer rawbearertoken123"),
+				kv("http.url", "https://api.example.test/users/jane@example.com?token=raw-url-token"),
+				kv("client.address", "198.51.100.9"),
+			},
+		}}}},
+	}}}
+	spans := convertSpans(treq, tenant)
+	if len(spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(spans))
+	}
+
+	lreq := &collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
+		Resource: res,
+		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{
+			TimeUnixNano: uint64(now.UnixNano()),
+			Body:         &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "login failed for jane@example.com from 198.51.100.9 api_key=raw-api-secret"}},
+			TraceId:      traceID,
+			SpanId:       spanID,
+			Attributes: []*commonpb.KeyValue{
+				kv("user.email", "jane@example.com"),
+				kv("api.key", "raw-log-key"),
+				kv("server.address", "203.0.113.42"),
+			},
+		}}}},
+	}}}
+	logs := convertLogs(lreq, tenant)
+	if len(logs) != 1 {
+		t.Fatalf("logs = %d, want 1", len(logs))
+	}
+
+	joined := fmt.Sprintf("%+v %+v", spans, logs)
+	for _, leak := range []string{
+		"jane@example.com",
+		"jane-user-42",
+		"10.1.2.3",
+		"198.51.100.9",
+		"203.0.113.42",
+		"deploy-token-raw",
+		"raw-span-token",
+		"rawbearertoken123",
+		"raw-url-token",
+		"raw-api-secret",
+		"raw-log-key",
+	} {
+		if strings.Contains(joined, leak) {
+			t.Fatalf("stored OTLP rows leaked raw %q:\n%s", leak, joined)
+		}
+	}
+	for _, want := range []string{"j***@example.com", "10.1.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "[redacted]"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("stored OTLP rows missing redacted marker %q:\n%s", want, joined)
+		}
+	}
+	if spans[0].TraceID != "11111111111111111111111111111111" || logs[0].TraceID != spans[0].TraceID {
+		t.Fatalf("correlation IDs must remain usable: span=%+v log=%+v", spans[0], logs[0])
+	}
+	if spans[0].Attrs["authorization"] != "[redacted]" || logs[0].Attrs["api.key"] != "[redacted]" {
+		t.Fatalf("credential attributes must be marker-redacted: span=%+v log=%+v", spans[0].Attrs, logs[0].Attrs)
 	}
 }
 
