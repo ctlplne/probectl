@@ -852,12 +852,22 @@ language tags such as `es`/`es-MX` for CLI help and API error messages). API
 error `code` values stay stable and machine-readable; only the human message is
 localized.
 
+The terminal-native product surface is the CLI. There is no separate committed
+TUI mode today; if one is added later it must be declared in the surface catalog
+and backed by its own parity tests. For automation, use `--json`; for newly added
+tenant `/v1` JSON APIs, the CLI parity test requires either a resource command
+or a documented none-by-design exception.
+
 ```bash
 probectl test list
 probectl test create --name edge-dns --type icmp --target 1.1.1.1 --interval 30
 probectl test delete <id>
 probectl agent list
-probectl --json test list      # machine-readable output
+probectl incident list --query status=open
+probectl topology show
+probectl alert active
+probectl --json cost summary      # machine-readable output
+probectl api GET /v1/fairness     # raw escape hatch for JSON APIs
 ```
 
 ### eBPF host agent
