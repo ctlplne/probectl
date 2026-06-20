@@ -148,22 +148,32 @@ The analyzer never reads a datastore directly. It gathers evidence through the
 query engine's pluggable **sources** — small per-plane adapters the control plane
 plugs into the engine at startup — so the pipeline stays identical no matter
 where the data physically lives. In the shipped control plane (`buildEngine` in
-`internal/control/ai.go`), two are wired:
+`internal/control/ai.go`), the production engine wires the direct sources that
+are attached to that deployment:
 
 - **Incidents** (the `entities` domain) — an incident is probectl's correlated
   record of one problem, already stitched together from signals across planes.
   Each correlated incident contributes itself *plus* its cross-plane signals,
   individually citable. Incidents are the richest RCA evidence because they're
   already correlated across planes, so the planner always includes them.
-- **Change events** (the `events` domain) — the "what changed?" evidence that lets
-  RCA cite a likely deploy/config/routing change (see `docs/change-intel.md`).
+- **Change / routing events** (the `events` domain) — the "what changed?"
+  evidence that lets RCA cite a likely deploy/config/routing change (see
+  `docs/change-intel.md`). BGP-style routing rows remain event-plane evidence
+  and are labeled as the `bgp` plane when their source/kind says so.
+- **Flow summaries** (also the `events` domain) — direct top-talker evidence from
+  the attached flow store, scoped by tenant before aggregation. This gives RCA a
+  packet/byte-level symptom even when no incident has already folded the flow in.
+- **Metrics** (the `metrics` domain) — anchored reads from the attached TSDB
+  writer, either the in-memory lightweight store or a Prometheus/VictoriaMetrics
+  upstream. Unanchored metric questions return no metric rows instead of scanning
+  a tenant's whole TSDB.
+- **Topology** (the `topology` domain) — direct neighbor/path evidence from the
+  topology graph, including prefix-anchored routing topology
+  (`prefix:<cidr>`).
 
-The **metrics** and **topology** sources are real interfaces with no production
-adapter wired yet; they plug into the same seams as their query adapters land. So
-today's answers are grounded primarily in incidents and changes — the
-architecture is ready for the rest without touching the pipeline or the security
-model: a new source only widens what answers can cite, never how citations are
-checked.
+Small deployments still degrade honestly: if one of those stores is not attached,
+that plane simply contributes no evidence. The analyzer still cites only evidence
+that passed the tenant/RBAC query layer and citation-integrity check.
 
 ## Model adapters
 

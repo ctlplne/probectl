@@ -27,14 +27,15 @@ import (
 // the S23 query engine, and the S24 RCA analyzer. The tools are read-only; the
 // tenant boundary then RBAC are enforced at the MCP layer AND again at the
 // engine/stores (defense in depth).
-func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, aiGate *ai.EgressGate, gate *fairness.Gate, remed remediation.Service) *mcp.Server {
+func NewMCPServer(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, pathStore pathstore.Store, ratePerMin int, aiGate *ai.EgressGate, gate *fairness.Gate, remed remediation.Service, sources ...AISources) *mcp.Server {
 	if aiGate == nil {
 		panic("control.NewMCPServer requires the shared AI egress gate")
 	}
+	src := firstAISources(sources)
 	backend := mcpBackend{
 		pool:        pool,
-		engine:      buildEngine(cfg, pool),
-		analyzer:    buildAnalyzerWithGate(cfg, log, pool, aiGate),
+		engine:      buildEngine(cfg, pool, src),
+		analyzer:    buildAnalyzerWithGate(cfg, log, pool, aiGate, src),
 		pathStore:   pathStore,
 		gate:        gate,
 		remediation: remed,

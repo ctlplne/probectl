@@ -57,6 +57,9 @@ func (HeuristicPlanner) Plan(q Question) []Query {
 			if query.NodeID == "" && subject["target"] != "" {
 				query.NodeID = "service:" + subject["target"]
 			}
+			if query.NodeID == "" && subject["prefix"] != "" {
+				query.NodeID = "prefix:" + subject["prefix"]
+			}
 			if query.NodeID == "" {
 				continue // no anchor — skip rather than dump every node
 			}

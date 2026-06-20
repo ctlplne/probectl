@@ -7,13 +7,20 @@ package control
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/change"
+	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
 // aiAnswer mirrors the /v1/ai/ask response for assertions.
@@ -22,13 +29,109 @@ type aiAnswer struct {
 	RootCause            string `json:"root_cause"`
 	InsufficientEvidence bool   `json:"insufficient_evidence"`
 	Evidence             []struct {
-		ID string `json:"id"`
+		ID     string `json:"id"`
+		Domain string `json:"domain"`
+		Plane  string `json:"plane"`
+		Title  string `json:"title"`
 	} `json:"evidence"`
 	Findings []struct {
 		Citations []struct {
 			EvidenceID string `json:"evidence_id"`
 		} `json:"citations"`
 	} `json:"findings"`
+}
+
+// AIRCA-002: production RCA must gather direct evidence from the promised
+// cross-plane source set, not only from incidents and change rows. This seeds
+// metrics, flow summaries, BGP-style events, and topology outside any incident,
+// then proves /v1/ai/ask cites all four for the asking tenant and none for a
+// different tenant.
+func TestAIAskUsesDirectCrossPlaneEvidenceSources(t *testing.T) {
+	db := changeDB(t)
+	tenant := freshTenant(t, db, "airca")
+	other := freshTenant(t, db, "airca-other")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	metrics := tsdb.NewMemory()
+	if err := metrics.Write(context.Background(), []tsdb.Series{
+		{Metric: "probectl_probe_loss_ratio", Labels: map[string]string{
+			"tenant_id": tenant, "prefix": "192.0.2.0/24", "target": "edge.example.com", "unit": "ratio",
+		}, Value: 0.42, TimeMillis: now.Add(-2 * time.Minute).UnixMilli()},
+		{Metric: "probectl_probe_loss_ratio", Labels: map[string]string{
+			"tenant_id": other, "prefix": "192.0.2.0/24", "target": "should-not-leak.example.com",
+		}, Value: 0.99, TimeMillis: now.Add(-2 * time.Minute).UnixMilli()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	flows := flowstore.NewMemory()
+	if err := flows.Insert(context.Background(), []flowstore.Row{
+		{TenantID: tenant, Exporter: "rr-edge", TS: now.Add(-90 * time.Second),
+			SrcAddr: "198.51.100.10", DstAddr: "192.0.2.44", BytesScaled: 90000, PacketsScaled: 900},
+		{TenantID: other, Exporter: "rr-other", TS: now.Add(-90 * time.Second),
+			SrcAddr: "203.0.113.200", DstAddr: "192.0.2.99", BytesScaled: 1 << 30, PacketsScaled: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	topo := topology.NewIndexedStore()
+	topo.ObserveRouting(tenant, topology.RoutingInput{
+		Prefix: "192.0.2.0/24", OriginASN: 64500, PeerASN: 64496, EventType: "possible_hijack",
+	}, now.Add(-3*time.Minute))
+	topo.ObserveRouting(other, topology.RoutingInput{
+		Prefix: "192.0.2.0/24", OriginASN: 65000, PeerASN: 65001, EventType: "other-tenant",
+	}, now.Add(-3*time.Minute))
+
+	seedChange(t, db, tenant, change.Event{
+		Source: "bgp", Kind: change.Kind("routing"), Title: "BGP origin changed for 192.0.2.0/24",
+		Summary: "unexpected origin AS64500", Prefix: "192.0.2.0/24", OccurredAt: now.Add(-4 * time.Minute),
+	})
+
+	cfg := &config.Config{HSTSEnabled: true, HSTSMaxAge: time.Hour, AuthMode: "dev", AIMaxEvidence: 50}
+	srv := New(cfg, logging.New(io.Discard, "error", "json"), db, db.Pool(), nil, nil).
+		WithTSDB(metrics).
+		WithFlowStore(flows).
+		WithTopology(topo)
+
+	rec := apiReq(t, srv.Handler(), http.MethodPost, "/v1/ai/ask", tenant, map[string]any{
+		"question": "why is 192.0.2.0/24 slow and unreachable? check bgp route, flow, topology, and metrics",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ask: status %d body %s", rec.Code, rec.Body)
+	}
+	var ans aiAnswer
+	mustJSON(t, rec, &ans)
+	if ans.InsufficientEvidence {
+		t.Fatalf("expected direct evidence, got insufficient: %+v", ans)
+	}
+	planes := map[string]bool{}
+	titles := []string{}
+	for _, e := range ans.Evidence {
+		planes[e.Plane] = true
+		titles = append(titles, e.Title)
+	}
+	for _, want := range []string{"metrics", "bgp", "flow", "topology"} {
+		if !planes[want] {
+			t.Fatalf("missing %s evidence; planes=%v titles=%v body=%s", want, planes, titles, rec.Body.String())
+		}
+	}
+	if strings.Contains(rec.Body.String(), "should-not-leak") || strings.Contains(rec.Body.String(), "203.0.113.200") {
+		t.Fatalf("cross-tenant evidence leaked: %s", rec.Body.String())
+	}
+
+	rec = apiReq(t, srv.Handler(), http.MethodPost, "/v1/ai/ask", other, map[string]any{
+		"question": "why is 198.51.100.0/24 slow and unreachable? check bgp route, flow, topology, and metrics",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("other ask: status %d body %s", rec.Code, rec.Body)
+	}
+	var otherAns aiAnswer
+	mustJSON(t, rec, &otherAns)
+	for _, e := range otherAns.Evidence {
+		if strings.Contains(e.Title, "192.0.2.0/24") {
+			t.Fatalf("other tenant saw tenant evidence: %+v", otherAns)
+		}
+	}
 }
 
 // End-to-end RCA against Postgres (S24 Done-when): a critical BGP incident for

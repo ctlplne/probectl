@@ -43,6 +43,7 @@ func (s *Server) WithTSDB(w tsdb.Writer) *Server {
 		if s.cfg.TSDBMode == "prometheus" && s.cfg.TSDBURL != "" {
 			s.promUpstream = promapi.NewUpstream(s.cfg.TSDBURL)
 		}
+		s.rebuildAnalyzer()
 	}
 	return s
 }

@@ -217,13 +217,17 @@ and return rows. Each archive has its own door; the desk just needs every door
 to accept the same stamped slip — this tenant, these filters, this window.
 
 Concretely: `NewTopologySource` adapts the topology graph store; the control
-plane backs the entities source with the incident store and the events source
-with change events. If a deployment hasn't wired a given store, that domain
-simply isn't registered, and a query for it returns `ErrNoSource` — which
-`Correlate` treats as "skip this plane," so a small deployment degrades
-gracefully instead of erroring. The seam buys two things: testability (the
-cross-tenant isolation test runs against an in-memory store, no databases
-needed) and sizing freedom (missing stores degrade; they don't break).
+plane backs the entities source with the incident store, the metrics source with
+the attached TSDB writer, and the events source with the change timeline plus
+flow-store summaries. BGP-style routing evidence stays in the event/topology
+planes: event rows whose source/kind identifies BGP are labeled `bgp`, and
+prefix questions anchor topology reads at `prefix:<cidr>`. If a deployment
+hasn't wired a given store, that domain simply isn't registered, and a query for
+it returns `ErrNoSource` — which `Correlate` treats as "skip this plane," so a
+small deployment degrades gracefully instead of erroring. The seam buys two
+things: testability (the cross-tenant isolation test runs against an in-memory
+store, no databases needed) and sizing freedom (missing stores degrade; they
+don't break).
 
 ## Why it's built this way (and what it deliberately isn't)
 

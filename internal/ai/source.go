@@ -55,7 +55,7 @@ func (a *topologyAdapter) QueryTopology(_ context.Context, tenant string, q Quer
 		}
 		var rows []Row
 		for _, id := range a.store.Neighbors(tenant, q.NodeID, at) {
-			rows = append(rows, Row{"neighbor": id})
+			rows = append(rows, Row{"node": q.NodeID, "neighbor": id, "title": "topology neighbor " + id})
 		}
 		return rows, nil
 	default:

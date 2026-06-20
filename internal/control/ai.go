@@ -23,25 +23,63 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
+// AISources are the production telemetry stores that can contribute direct RCA
+// evidence. They are optional because small deployments may run without a TSDB,
+// flow store, or topology engine; missing sources degrade to "no evidence from
+// that plane" rather than widening or failing the query.
+type AISources struct {
+	Metrics  tsdb.Writer
+	Flow     flowstore.Store
+	Topology topology.Store
+}
+
+func firstAISources(sources []AISources) AISources {
+	if len(sources) == 0 {
+		return AISources{}
+	}
+	return sources[0]
+}
+
 // buildEngine wires the S23 query engine: the cost guard plus the tenant-scoped
-// incident store as the entities source (the cross-plane correlation home, S17).
-// Shared by the RCA analyzer (S24) and the MCP backend (S25).
-func buildEngine(cfg *config.Config, pool *pgxpool.Pool) *ai.Engine {
+// direct sources used by the RCA analyzer (S24) and MCP backend (S25).
+func buildEngine(cfg *config.Config, pool *pgxpool.Pool, sources ...AISources) *ai.Engine {
+	src := firstAISources(sources)
 	opts := []ai.Option{ai.WithMaxRows(cfg.AIMaxEvidence)}
+	if src.Metrics != nil {
+		opts = append(opts, ai.WithMetrics(metricsEvidenceSource{writer: src.Metrics}))
+	}
+	if src.Topology != nil {
+		opts = append(opts, ai.WithTopology(ai.NewTopologySource(src.Topology)))
+	}
 	if pool != nil {
 		opts = append(opts,
 			ai.WithEntities(incidentEntitiesSource{pool: pool}),
-			// Change events are the "what changed?" evidence the planner routes
-			// deploy/config/routing questions to (DomainEvents), so RCA can cite the
-			// likely change (S29).
-			ai.WithEvents(changeEventsSource{pool: pool}),
 		)
 	}
+	if pool != nil || src.Flow != nil {
+		// The events domain is the high-cardinality event drawer: change
+		// timeline rows plus flow summaries when a flow store is attached.
+		opts = append(opts, ai.WithEvents(changeEventsSource{pool: pool, flow: src.Flow}))
+	}
 	return ai.NewEngine(opts...)
+}
+
+func (s *Server) aiSources() AISources {
+	return AISources{Metrics: s.tsdbWriter, Flow: s.flowStore, Topology: s.topo}
+}
+
+func (s *Server) rebuildAnalyzer() {
+	if s.egressGate == nil {
+		return
+	}
+	s.analyzer = buildAnalyzerWithGate(s.cfg, s.log, s.pool, s.egressGate, s.aiSources())
 }
 
 // NewAIEgressGate constructs THE external-AI egress gate (AIRCA-001/005):
@@ -74,8 +112,8 @@ func redactionPolicy(cfg *config.Config) ai.RedactionPolicy {
 // buildAnalyzerWithGate wires the RCA Analyzer (S24) over the S23 query engine,
 // so RCA is grounded in real, RLS-scoped signals; the server composes ONE
 // gate and shares it across the analyzer, MCP, and authoring surfaces.
-func buildAnalyzerWithGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, gate *ai.EgressGate) *ai.Analyzer {
-	return ai.NewAnalyzer(buildEngine(cfg, pool),
+func buildAnalyzerWithGate(cfg *config.Config, log *slog.Logger, pool *pgxpool.Pool, gate *ai.EgressGate, sources ...AISources) *ai.Analyzer {
+	return ai.NewAnalyzer(buildEngine(cfg, pool, sources...),
 		ai.WithModel(buildModel(cfg, log)),
 		ai.WithMaxEvidence(cfg.AIMaxEvidence),
 		// U-048: process-wide concurrency backstop (fail-fast 429), effective

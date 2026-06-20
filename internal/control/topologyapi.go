@@ -34,6 +34,7 @@ import (
 func (s *Server) WithTopology(st topology.Store) *Server {
 	if st != nil {
 		s.topo = st
+		s.rebuildAnalyzer()
 	}
 	return s
 }

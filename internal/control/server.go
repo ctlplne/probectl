@@ -317,6 +317,7 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 func (s *Server) WithFlowStore(fs flowstore.Store) *Server {
 	if fs != nil {
 		s.flowStore = fs
+		s.rebuildAnalyzer()
 	}
 	return s
 }
@@ -380,7 +381,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 
 	// AI assistant (S24): RCA analyzer over the S23 query engine, grounded in the
 	// tenant-scoped incident store and synthesized by the configured model.
-	s.analyzer = buildAnalyzerWithGate(cfg, log, pool, s.egressGate)
+	s.analyzer = buildAnalyzerWithGate(cfg, log, pool, s.egressGate, s.aiSources())
 
 	// AI test authoring (S26): heuristic by default, model-backed when configured —
 	// the model path rides the egress gate (AIRCA-005).

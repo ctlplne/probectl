@@ -5,6 +5,7 @@ package control
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/change"
 	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -131,42 +133,134 @@ func (s *Server) handleIncidentChanges(w http.ResponseWriter, r *http.Request) e
 	return nil
 }
 
-// changeEventsSource is the ai.EventsSource backed by the change timeline (S29):
-// the RCA's "what changed?" evidence. It opens a tenant-scoped (RLS) transaction
-// for the principal's tenant — passed by the engine, never taken from the query —
-// so it can never return another tenant's changes.
-type changeEventsSource struct{ pool *pgxpool.Pool }
+// changeEventsSource is the ai.EventsSource backed by production event stores:
+// the Postgres change timeline plus direct flow summaries when the flow store is
+// attached. It opens tenant-scoped (RLS) Postgres reads and passes the engine's
+// tenant into the flow store; callers never provide tenant scope.
+type changeEventsSource struct {
+	pool *pgxpool.Pool
+	flow flowstore.Store
+}
 
 func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel map[string]string, r ai.TimeRange, limit int) ([]ai.Row, error) {
 	var rows []ai.Row
-	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		since := r.Start
-		if since.IsZero() {
-			since = time.Now().Add(-24 * time.Hour)
+	typ := strings.ToLower(sel["type"])
+	if typ == "" || typ == "change" || typ == "bgp" || typ == "routing" {
+		if s.pool != nil {
+			if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+				since := r.Start
+				if since.IsZero() {
+					since = time.Now().Add(-24 * time.Hour)
+				}
+				evs, err := (store.ChangeEvents{}).Since(ctx, sc, since, limit)
+				if err != nil {
+					return err
+				}
+				target, prefix := sel["target"], sel["prefix"]
+				for i := range evs {
+					ev := evs[i]
+					if !changeMatches(ev, target, prefix) || !eventTypeMatches(ev, typ) {
+						continue
+					}
+					plane := eventPlane(ev)
+					rows = append(rows, ai.Row{
+						"id": ev.ID, "kind": eventKind(ev, plane), "plane": plane, "source": ev.Source,
+						"change_kind": string(ev.Kind), "title": ev.Title, "summary": ev.Summary,
+						"target": ev.Target, "prefix": ev.Prefix, "actor": ev.Actor, "ref": ev.Ref,
+						"occurred_at": ev.OccurredAt,
+					})
+					if len(rows) >= limit {
+						break
+					}
+				}
+				return nil
+			}); err != nil {
+				return nil, err
+			}
 		}
-		evs, err := (store.ChangeEvents{}).Since(ctx, sc, since, limit)
+	}
+	if len(rows) < limit && (typ == "" || typ == "flow") && s.flow != nil {
+		flowRows, err := s.queryFlowEvents(ctx, tenant, sel, r, limit-len(rows))
 		if err != nil {
-			return err
+			return nil, err
 		}
-		target, prefix := sel["target"], sel["prefix"]
-		for i := range evs {
-			ev := evs[i]
-			if !changeMatches(ev, target, prefix) {
-				continue
-			}
-			rows = append(rows, ai.Row{
-				"id": ev.ID, "kind": "change", "plane": "change", "source": ev.Source,
-				"change_kind": string(ev.Kind), "title": ev.Title, "summary": ev.Summary,
-				"target": ev.Target, "prefix": ev.Prefix, "actor": ev.Actor, "ref": ev.Ref,
-				"occurred_at": ev.OccurredAt,
-			})
-			if len(rows) >= limit {
-				break
-			}
+		rows = append(rows, flowRows...)
+	}
+	return rows, nil
+}
+
+func (s changeEventsSource) queryFlowEvents(ctx context.Context, tenant string, sel map[string]string, r ai.TimeRange, limit int) ([]ai.Row, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	window := r.End.Sub(r.Start)
+	if r.Start.IsZero() || r.End.IsZero() || window <= 0 {
+		window = time.Hour
+	}
+	now := r.End
+	if now.IsZero() {
+		now = time.Now()
+	}
+	by := flowstore.BySrc
+	switch {
+	case sel["dst"] != "" || sel["target"] != "":
+		by = flowstore.ByDst
+	case sel["asn"] != "":
+		by = flowstore.BySrcASN
+	}
+	tops, err := s.flow.TopTalkers(ctx, flowstore.TopQuery{TenantID: tenant, By: by, Window: window, Limit: limit, Now: now})
+	if err != nil {
+		return nil, err
+	}
+	target := sel["target"]
+	out := make([]ai.Row, 0, len(tops))
+	for i, row := range tops {
+		if target != "" && row.Key != target && row.Detail != target {
+			continue
 		}
-		return nil
-	})
-	return rows, err
+		out = append(out, ai.Row{
+			"id":      fmt.Sprintf("flow:%s:%d", by, i+1),
+			"kind":    "flow.top_talker",
+			"plane":   "flow",
+			"source":  "flowstore",
+			"title":   fmt.Sprintf("flow top talker %s", row.Key),
+			"summary": fmt.Sprintf("%d bytes across %d flows", row.Bytes, row.Flows),
+			"target":  row.Key,
+			"ref":     "flow:" + by + ":" + row.Key,
+			"bytes":   row.Bytes,
+			"packets": row.Packets,
+			"flows":   row.Flows,
+			"detail":  row.Detail,
+		})
+	}
+	return out, nil
+}
+
+func eventTypeMatches(ev change.Event, typ string) bool {
+	switch typ {
+	case "", "change":
+		return true
+	case "bgp", "routing":
+		return eventPlane(ev) == "bgp"
+	default:
+		return false
+	}
+}
+
+func eventPlane(ev change.Event) string {
+	source := strings.ToLower(ev.Source)
+	kind := strings.ToLower(string(ev.Kind))
+	if source == "bgp" || strings.Contains(kind, "bgp") || strings.Contains(kind, "route") || strings.Contains(kind, "routing") {
+		return "bgp"
+	}
+	return "change"
+}
+
+func eventKind(ev change.Event, plane string) string {
+	if plane == "bgp" {
+		return "bgp." + strings.TrimPrefix(strings.ToLower(string(ev.Kind)), "bgp.")
+	}
+	return "change"
 }
 
 // changeMatches keeps a change as evidence when it concerns the question's subject

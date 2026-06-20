@@ -33,8 +33,8 @@ type Evidence struct {
 // raw row data to API clients. Keys are the union of what today's sources emit
 // on purpose; extend the list deliberately when a source adds a field.
 var evidenceFieldAllowList = map[Domain]map[string]bool{
-	DomainMetrics:  setOf("metric", "value", "unit", "target", "plane", "severity", "title", "summary", "occurred_at", "timestamp", "at", "time"),
-	DomainEvents:   setOf("id", "kind", "plane", "source", "change_kind", "title", "summary", "target", "prefix", "actor", "ref", "occurred_at"),
+	DomainMetrics:  setOf("metric", "value", "unit", "target", "prefix", "node", "service", "agent_id", "instance", "job", "plane", "severity", "title", "summary", "occurred_at", "timestamp", "at", "time"),
+	DomainEvents:   setOf("id", "kind", "plane", "source", "change_kind", "title", "summary", "target", "prefix", "actor", "ref", "occurred_at", "bytes", "packets", "flows", "detail"),
 	DomainEntities: setOf("id", "kind", "plane", "severity", "title", "summary", "target", "prefix", "occurred_at"),
 	DomainTopology: setOf("hop", "node", "neighbor", "kind", "label", "plane", "title"),
 }
