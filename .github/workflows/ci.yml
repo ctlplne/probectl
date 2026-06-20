@@ -125,7 +125,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - run: pip install ruff==0.15.16 black==26.5.1 # SUPPLY-002: exact pins (versions tracked in analyzer/requirements-dev.lock)
+      - run: pip install ruff==0.15.16 black==25.11.0 # SUPPLY-002: exact pins (versions tracked in analyzer/requirements-dev.lock)
       - name: ruff + black --check
         run: make lint-python
 
@@ -306,6 +306,8 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       # SUPPLY-003: hash-locked install — the lock IS the dependency set;
       # the analyzer itself installs --no-deps so nothing floats.
+      - name: Analyzer lock resolves
+        run: python -m pip download --require-hashes -r analyzer/requirements-dev.lock --dest /tmp/probectl-analyzer-lock-download
       - run: pip install --require-hashes -r analyzer/requirements-dev.lock
       - run: pip install --no-deps -e ./analyzer
       - name: Lock matches pyproject (refuse drift)

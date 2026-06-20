@@ -8,22 +8,22 @@ version = "0.0.0.dev0"
 description = "probectl BGP analyzer — ingests public BGP collector data and emits probectl.bgp.events."
 requires-python = ">=3.11"
 dependencies = [
-  "structlog==26.1.0",
+  "structlog==25.5.0",
 ]
 
 [project.optional-dependencies]
 # Exact pins (SUPPLY-002): the lock gate recompiles this with uv, so a `>=`
 # range floats to the latest upstream release and makes requirements-dev.lock
 # "stale" the moment pytest/ruff/etc. publish a new version — a recurring,
-# time-bomb CI red unrelated to any code change. Pin to the vetted versions the
-# lock already carries (and that ci.yml's lint-python installs) so resolution is
-# deterministic; bump intentionally + regenerate the lock when upgrading.
+# time-bomb CI red unrelated to any code change. Pin to vetted published
+# versions so resolution is deterministic; bump intentionally + regenerate the
+# lock when upgrading.
 dev = [
-  "pytest==9.0.3",
+  "pytest==8.4.2",
   "pytest-cov==7.1.0",
   "ruff==0.15.16",
-  "black==26.5.1",
-  "hypothesis==6.155.2",
+  "black==25.11.0",
+  "hypothesis==6.141.1",
 ]
 
 [tool.hatch.build.targets.wheel]
