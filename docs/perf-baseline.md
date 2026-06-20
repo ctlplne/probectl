@@ -48,6 +48,11 @@ intentionally small (sub-second to a few seconds) so the job stays a CI smoke.
 The full L/XL multi-region sizes and the formal noisy-neighbor gate live in the
 full-stack load gate — see [`scale-gate.md`](scale-gate.md).
 
+User-visible hot paths such as RCA, MCP JSON-RPC, topology, what-if, OTLP ingest,
+incident correlation, and Prometheus-compatible reads have their own target
+catalog in [`perf-hotpaths.md`](perf-hotpaths.md). That catalog is the p50/p95/p99
+and throughput denominator; this page is the cheap smoke baseline underneath it.
+
 ## Regression-guard thresholds
 
 The guard is `perf.M6Baseline()` in code, asserted by the smoke tests. Update
