@@ -94,11 +94,13 @@ type Config struct {
 	// (SCALE-001): poll batches dispatch across this many key-sharded
 	// workers (per-key order preserved). 0/1 = serial.
 	BusWorkers int
-	// RequireAtRestEncryption (TENANT-106) makes keyless passthrough a FATAL
-	// startup error instead of a silent plaintext degrade: when true, the
-	// control plane refuses to run without a resolvable envelope key (or the
-	// licensed per-tenant keyring). Off by default (keyless dev); set in the
-	// hardened/regulated profiles.
+	// AllowKeylessDev is the explicit, loud escape hatch for local-only runs
+	// with no envelope key. Without it, serve refuses to boot keyless by
+	// default so tenant secrets cannot silently land in plaintext.
+	AllowKeylessDev bool
+	// RequireAtRestEncryption (TENANT-106) records the deployment's desired
+	// at-rest posture. It defaults on for serve paths: keyless plaintext is
+	// only allowed when AllowKeylessDev is also true.
 	RequireAtRestEncryption bool
 
 	// RequireMFA (SEC-005): when true, every authenticated /v1 request must
@@ -647,7 +649,8 @@ func Load(getenv func(string) string) (*Config, error) {
 		PublicTLS:                l.boolean("PROBECTL_PUBLIC_TLS", false),
 		AllowPlaintextHTTP:       l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false),
 		BusWorkers:               l.intRange("PROBECTL_BUS_WORKERS", 4, 0, 256),
-		RequireAtRestEncryption:  l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", false),
+		AllowKeylessDev:          l.boolean("PROBECTL_ALLOW_KEYLESS_DEV", false),
+		RequireAtRestEncryption:  l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", true),
 		AgentGRPCAddr:            l.str("PROBECTL_AGENT_GRPC_ADDR", ""),
 		AgentSkewWindow:          l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100),
 		AgentMinVersion:          l.str("PROBECTL_AGENT_MIN_VERSION", ""),

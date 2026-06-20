@@ -209,6 +209,7 @@ PROBECTL_TLS_CERT_FILE=./certs/tls.crt \
 PROBECTL_TLS_KEY_FILE=./certs/tls.key \
 PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable' \
 PROBECTL_REQUIRE_AT_REST_ENCRYPTION=false \
+PROBECTL_ALLOW_KEYLESS_DEV=true \
 PROBECTL_BUS_MODE=kafka \
 PROBECTL_BUS_BROKERS=localhost:9092 \
 PROBECTL_BUS_ALLOW_PLAINTEXT=true \

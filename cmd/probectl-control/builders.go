@@ -460,11 +460,13 @@ func setupSecretsAndEnvelope(cfg *config.Config) (*secrets.Resolver, bool, error
 			return nil, false, fmt.Errorf("envelope sealer: %w", serr)
 		}
 		tenantcrypto.SetPrimary(sealer)
-	} else if cfg.RequireAtRestEncryption {
-		// TENANT-106: fail closed — refuse to start rather than silently write
-		// tenant secrets in plaintext when encryption is required.
-		return nil, false, fmt.Errorf("PROBECTL_REQUIRE_AT_REST_ENCRYPTION is set but no envelope key is resolvable " +
-			"(set PROBECTL_ENVELOPE_KEY, or the licensed per-tenant keyring) — refusing to start with plaintext at-rest storage")
+	} else if !cfg.AllowKeylessDev {
+		// KEYS-001/TENANT-106: fail closed — refuse to start rather than
+		// silently write tenant secrets in plaintext. Local keyless runs must
+		// opt into the red-tagged dev mode by name.
+		return nil, false, fmt.Errorf("no envelope key is resolvable (set PROBECTL_ENVELOPE_KEY, " +
+			"PROBECTL_ENVELOPE_KEY_FILE, or the licensed per-tenant keyring; for throwaway local dev only set " +
+			"PROBECTL_ALLOW_KEYLESS_DEV=true) — refusing to start with plaintext at-rest storage")
 	}
 	return resolver, envelopeGenerated, nil
 }

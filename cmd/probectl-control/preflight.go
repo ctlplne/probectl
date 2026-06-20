@@ -35,7 +35,7 @@ func runPreflight(args []string) error {
 
 	var findings []preflight.Finding
 	keyConfigured := cfg.EnvelopeKey != "" || cfg.EnvelopeKeyFile != ""
-	findings = append(findings, preflight.CheckEnvelopeKey(keyConfigured, cfg.RequireAtRestEncryption))
+	findings = append(findings, preflight.CheckEnvelopeKey(keyConfigured, cfg.RequireAtRestEncryption, cfg.AllowKeylessDev))
 
 	attested := strings.EqualFold(os.Getenv("PROBECTL_STORAGE_ENCRYPTION_ATTESTED"), "true")
 	mounts, merr := preflight.ReadSelfMounts()

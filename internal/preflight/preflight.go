@@ -110,14 +110,16 @@ func CheckStorageEncryption(mountsContent string, paths []string, attested bool)
 }
 
 // CheckEnvelopeKey reports whether probectl's OWN at-rest sealing has a key.
-func CheckEnvelopeKey(keyConfigured bool, required bool) Finding {
+func CheckEnvelopeKey(keyConfigured bool, required bool, allowKeylessDev bool) Finding {
 	switch {
 	case keyConfigured:
 		return Finding{Check: "envelope-key", Severity: OK, Detail: "at-rest envelope key configured (sealed tenant values encrypt)"}
+	case allowKeylessDev:
+		return Finding{Check: "envelope-key", Severity: Warn, Detail: "PROBECTL_ALLOW_KEYLESS_DEV=true and no envelope key resolves — keyless plaintext passthrough is enabled for local dev only"}
 	case required:
-		return Finding{Check: "envelope-key", Severity: Warn, Detail: "PROBECTL_REQUIRE_AT_REST_ENCRYPTION is set but no key resolves — the control plane will REFUSE to start (TENANT-106 fail-closed)"}
+		return Finding{Check: "envelope-key", Severity: Warn, Detail: "PROBECTL_REQUIRE_AT_REST_ENCRYPTION is set and no key resolves — the control plane will REFUSE to start (TENANT-106 fail-closed)"}
 	default:
-		return Finding{Check: "envelope-key", Severity: Warn, Detail: "no envelope key — sealed values fall back to keyless passthrough (dev only; set PROBECTL_ENVELOPE_KEY[_FILE], see docs/hardening.md)"}
+		return Finding{Check: "envelope-key", Severity: Warn, Detail: "no envelope key and PROBECTL_ALLOW_KEYLESS_DEV is not set — the control plane will REFUSE to start rather than store tenant secrets in plaintext"}
 	}
 }
 

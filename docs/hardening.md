@@ -96,11 +96,15 @@ room, never the building. The shipped recipes turn this on:
   material**: lose the key and sealed values become unreadable.
 - Helm refuses to template without `secrets.envelopeKey`,
   `secrets.sessionHMACKey`, or `existingSecret`.
-- Both set `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, so a keyless
-  misconfiguration is a **fatal startup error** — never silent plaintext.
+- Both set `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`, and the direct serve
+  path also refuses keyless startup by default, so a keyless misconfiguration is
+  a **fatal startup error** — never silent plaintext.
 - Production should supply its own key: `PROBECTL_ENVELOPE_KEY` (which always
   wins over the file), injected from a KMS / secret manager; or per-tenant BYOK
   on the licensed tier ([byok.md](byok.md)).
+- Throwaway local-only runs may set `PROBECTL_ALLOW_KEYLESS_DEV=true`; that is
+  the only supported plaintext passthrough mode and must not be used for
+  production, provider, or regulated profiles.
 
 **What the operator encrypts (a documented duty, not an assumption).**
 probectl does not re-encrypt the bulk telemetry stores' data files — at that

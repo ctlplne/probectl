@@ -119,6 +119,7 @@ services:
       PROBECTL_DATABASE_URL: postgres://probectl:probectl@postgres:5432/probectl?sslmode=disable
       PROBECTL_MIGRATE_ON_BOOT: "true"        # creates schema + the probectl_app role (0007)
       PROBECTL_REQUIRE_AT_REST_ENCRYPTION: "false"  # eval-only: skip envelope-key setup
+      PROBECTL_ALLOW_KEYLESS_DEV: "true"       # eval-only: explicit plaintext secret-at-rest escape hatch
       # Dev auth: all three are mandatory or the control plane refuses to start.
       PROBECTL_AUTH_MODE: "dev"
       PROBECTL_DEV_AUTH_ACK: "i-understand"

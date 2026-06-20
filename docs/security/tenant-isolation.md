@@ -154,11 +154,12 @@ see [../byok.md](../byok.md)). Keyless development runs pass the value through
 in the clear, but the stored format is self-describing, so a sealed value can
 never be silently misread as plaintext.
 
-**Fail closed in production.** Setting `PROBECTL_REQUIRE_AT_REST_ENCRYPTION=true`
-makes keyless passthrough a **fatal startup error**: the control plane refuses to
-run without a resolvable key rather than silently writing plaintext. The shipped
-hardened/regulated recipes set it. It is off by default only so keyless local dev
-still boots. (See [../hardening.md](../hardening.md) §0c.)
+**Fail closed by default.** The serve path refuses keyless passthrough unless an
+operator explicitly sets `PROBECTL_ALLOW_KEYLESS_DEV=true`. In other words:
+without `PROBECTL_ENVELOPE_KEY`, `PROBECTL_ENVELOPE_KEY_FILE`, or the licensed
+per-tenant keyring, the control plane fails closed rather than silently writing
+tenant secrets in plaintext. The dev escape hatch is for throwaway local runs
+only. (See [../hardening.md](../hardening.md) §0c.)
 
 ## How this is verified
 

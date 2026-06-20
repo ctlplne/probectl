@@ -54,13 +54,16 @@ func TestCheckStorageEncryptionUnknownPath(t *testing.T) {
 }
 
 func TestCheckEnvelopeKeyAtRest(t *testing.T) {
-	if f := CheckEnvelopeKey(true, true); f.Severity != OK {
+	if f := CheckEnvelopeKey(true, true, false); f.Severity != OK {
 		t.Fatalf("configured key must be OK: %+v", f)
 	}
-	if f := CheckEnvelopeKey(false, false); f.Severity != Warn || !strings.Contains(f.Detail, "passthrough") {
-		t.Fatalf("keyless must warn about passthrough: %+v", f)
+	if f := CheckEnvelopeKey(false, false, true); f.Severity != Warn || !strings.Contains(f.Detail, "ALLOW_KEYLESS_DEV") || !strings.Contains(f.Detail, "passthrough") {
+		t.Fatalf("explicit keyless dev must warn about passthrough: %+v", f)
 	}
-	if f := CheckEnvelopeKey(false, true); f.Severity != Warn || !strings.Contains(f.Detail, "REFUSE") {
+	if f := CheckEnvelopeKey(false, true, false); f.Severity != Warn || !strings.Contains(f.Detail, "REFUSE") {
 		t.Fatalf("required-but-keyless must state the fail-closed refusal: %+v", f)
+	}
+	if f := CheckEnvelopeKey(false, false, false); f.Severity != Warn || !strings.Contains(f.Detail, "ALLOW_KEYLESS_DEV") || !strings.Contains(f.Detail, "REFUSE") {
+		t.Fatalf("implicit keyless must state the dev escape hatch and refusal: %+v", f)
 	}
 }
