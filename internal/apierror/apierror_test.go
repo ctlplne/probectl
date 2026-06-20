@@ -22,6 +22,8 @@ func TestConstructorsSetKindAndCode(t *testing.T) {
 		{NotFound("x"), KindNotFound, "not_found"},
 		{Conflict("x"), KindConflict, "conflict"},
 		{Unavailable("x"), KindUnavailable, "unavailable"},
+		{RateLimited("x"), KindRateLimited, "rate_limited"},
+		{TooLarge("x"), KindTooLarge, "too_large"},
 	}
 	for _, c := range cases {
 		if c.e.Kind != c.kind {

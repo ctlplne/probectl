@@ -53,8 +53,13 @@ func TestPolicyStorePG(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
 	ctx := context.Background()
-	tnA := itTenant(t, pool, "it-fair-a")
-	tnB := itTenant(t, pool, "it-fair-b")
+	stamp := time.Now().UTC().Format("20060102150405.000000000")
+	tnA := itTenant(t, pool, "it-fair-a-"+stamp)
+	tnB := itTenant(t, pool, "it-fair-b-"+stamp)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM tenant_fairness WHERE tenant_id IN ($1, $2)`, tnA, tnB)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM tenants WHERE id::text IN ($1, $2)`, tnA, tnB)
+	})
 	store := NewPGStore(pool)
 
 	// No row yet: ok=false.

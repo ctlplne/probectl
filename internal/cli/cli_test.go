@@ -11,6 +11,10 @@ import (
 	"testing"
 )
 
+type cliString string
+
+func (s cliString) String() string { return string(s) }
+
 // fakeAPI is a minimal stand-in for the control-plane /v1 API.
 func fakeAPI(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -329,5 +333,86 @@ func TestCLIVersionHelpAndUnknown(t *testing.T) {
 	}
 	if _, _, code := run(t, srv); code != 2 {
 		t.Errorf("no args should exit 2, got %d", code)
+	}
+}
+
+func TestCLIGenericOutputHelpers(t *testing.T) {
+	var out bytes.Buffer
+	if code := printGeneric(&out, nil, false, http.MethodDelete); code != 0 || strings.TrimSpace(out.String()) != "ok" {
+		t.Fatalf("delete nil output: code=%d out=%q", code, out.String())
+	}
+
+	out.Reset()
+	if code := printGeneric(&out, map[string]any{"items": []any{}}, false, http.MethodGet); code != 0 || !strings.Contains(out.String(), "No items.") {
+		t.Fatalf("empty items output: code=%d out=%q", code, out.String())
+	}
+
+	out.Reset()
+	items := []any{
+		map[string]any{
+			"id":          "123456789abcdef",
+			"title":       "edge incident",
+			"severity":    "critical",
+			"description": cliString("wan loss"),
+		},
+	}
+	if code := printGeneric(&out, map[string]any{"items": items}, false, http.MethodGet); code != 0 {
+		t.Fatalf("items output code = %d", code)
+	}
+	got := out.String()
+	for _, want := range []string{"ID", "12345678", "edge incident", "critical", "wan loss"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("generic table missing %q:\n%s", want, got)
+		}
+	}
+
+	if first := firstString(map[string]any{"n": 12}, "n"); first != "" {
+		t.Fatalf("non-string firstString = %q, want empty", first)
+	}
+}
+
+func TestCLISurfaceUsageAndDetailPrinters(t *testing.T) {
+	var out bytes.Buffer
+	printSurfaceUsage(&out, surfaceCommand{
+		Name:    "incidents",
+		Summary: "incident operations",
+		Ops: map[string]apiOp{
+			"show": {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
+			"list": {Method: http.MethodGet, Path: "/v1/incidents"},
+		},
+	})
+	usage := out.String()
+	for _, want := range []string{"incidents", "incident operations", "list", "show <id>", "--query k=v"} {
+		if !strings.Contains(usage, want) {
+			t.Fatalf("surface usage missing %q:\n%s", want, usage)
+		}
+	}
+
+	out.Reset()
+	printTest(&out, Test{
+		ID:              "test-1",
+		Name:            "dns",
+		Type:            "dns",
+		Target:          "one.one.one.one",
+		IntervalSeconds: 30,
+		TimeoutSeconds:  5,
+		Enabled:         true,
+		Params:          map[string]string{"resolver": "1.1.1.1"},
+	})
+	if got := out.String(); !strings.Contains(got, "params:") || !strings.Contains(got, "resolver=1.1.1.1") {
+		t.Fatalf("test detail missing params:\n%s", got)
+	}
+
+	out.Reset()
+	printAgent(&out, Agent{
+		ID:           "agent-1",
+		Name:         "edge",
+		Hostname:     "edge-01",
+		AgentVersion: "0.4.0",
+		Status:       "online",
+		Capabilities: []string{"icmp", "dns"},
+	})
+	if got := out.String(); !strings.Contains(got, "agent_version: 0.4.0") || !strings.Contains(got, "icmp, dns") {
+		t.Fatalf("agent detail output wrong:\n%s", got)
 	}
 }

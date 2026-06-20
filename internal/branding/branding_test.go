@@ -4,6 +4,7 @@ package branding
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 )
@@ -124,5 +125,57 @@ func TestSeamDefaultAndInstall(t *testing.T) {
 	// Another tenant on another host stays default — no bleed at the seam.
 	if b := Resolve(context.Background(), "other.example", "tnB"); b.ProductName != "probectl" {
 		t.Fatalf("bleed at the seam: %+v", b)
+	}
+}
+
+func TestParseContrastColorVariants(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want contrastColor
+	}{
+		{"short hex", "#abc", contrastColor{r: 0xaa / 255.0, g: 0xbb / 255.0, b: 0xcc / 255.0, a: 1}},
+		{"short hex alpha", "#abcd", contrastColor{r: 0xaa / 255.0, g: 0xbb / 255.0, b: 0xcc / 255.0, a: 0xdd / 255.0}},
+		{"long hex alpha", "#11223344", contrastColor{r: 0x11 / 255.0, g: 0x22 / 255.0, b: 0x33 / 255.0, a: 0x44 / 255.0}},
+		{"rgb percentages", "rgb(100% 50% 0%)", contrastColor{r: 1, g: 0.5, b: 0, a: 1}},
+		{"rgba slash alpha", "rgba(255 0 128 / 25%)", contrastColor{r: 1, g: 0, b: 128 / 255.0, a: 0.25}},
+		{"negative hue wraps", "hsl(-120deg 100% 50% / 75%)", contrastColor{r: 0, g: 0, b: 1, a: 0.75}},
+		{"comma hsla", "hsla(240, 100%, 50%, 0.5)", contrastColor{r: 0, g: 0, b: 1, a: 0.5}},
+	}
+	for _, c := range cases {
+		got, err := parseContrastColor(c.in)
+		if err != nil {
+			t.Fatalf("%s: parse failed: %v", c.name, err)
+		}
+		assertContrastColor(t, c.name, got, c.want)
+	}
+}
+
+func TestParseContrastColorRejectsInvalidInput(t *testing.T) {
+	for _, in := range []string{
+		"#12",
+		"#zzzzzz",
+		"rgb(1 2)",
+		"rgb(300 0 0)",
+		"rgba(0 0 0 2)",
+		"hsl(0 101% 50%)",
+		"hsl(nope 50% 50%)",
+		"rgb(",
+		"var(--color-text)",
+	} {
+		if _, err := parseContrastColor(in); err == nil {
+			t.Fatalf("parseContrastColor(%q) succeeded, want error", in)
+		}
+	}
+}
+
+func assertContrastColor(t *testing.T, name string, got, want contrastColor) {
+	t.Helper()
+	const epsilon = 1e-9
+	if math.Abs(got.r-want.r) > epsilon ||
+		math.Abs(got.g-want.g) > epsilon ||
+		math.Abs(got.b-want.b) > epsilon ||
+		math.Abs(got.a-want.a) > epsilon {
+		t.Fatalf("%s = %+v, want %+v", name, got, want)
 	}
 }

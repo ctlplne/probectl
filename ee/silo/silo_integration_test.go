@@ -75,7 +75,7 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	stamp := time.Now().UTC().Format("150405")
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	siloedID := mkTenant(t, pool, "it-silo-"+stamp, "siloed", "")
 	pooledID := mkTenant(t, pool, "it-pool-"+stamp, "pooled", "")
 	schema := SchemaName(siloedID)
@@ -185,15 +185,17 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 
 	// CATCH-UP: simulate a later migration adding a tenant-owned table +
 	// a column, then prove catch-up propagates both into the silo.
-	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS it_newplane (
-		id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`); err != nil {
+	newPlane := "it_newplane_" + stamp
+	extraColumn := "it_extra_" + stamp
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`, newPlane)); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS it_newplane`) })
-	if _, err := pool.Exec(ctx, `ALTER TABLE tests ADD COLUMN IF NOT EXISTS it_extra text NOT NULL DEFAULT ''`); err != nil {
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, newPlane)) })
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE tests ADD COLUMN IF NOT EXISTS %s text NOT NULL DEFAULT ''`, extraColumn)); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, `ALTER TABLE tests DROP COLUMN IF EXISTS it_extra`) })
+	t.Cleanup(func() { _, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE tests DROP COLUMN IF EXISTS %s`, extraColumn)) })
 
 	drift, err := prov.DriftFor(ctx, siloedID)
 	if err != nil || drift.Empty() {
