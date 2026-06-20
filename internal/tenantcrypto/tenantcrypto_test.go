@@ -151,6 +151,42 @@ func TestDV1KeyringOpensOldAndNewAfterRotation(t *testing.T) {
 	}
 }
 
+func TestDeploymentEnvelopeRewrapMovesOldKeyIDToActive(t *testing.T) {
+	defer Reset()
+	Reset()
+	ctx := context.Background()
+	aad := []byte("alert-channel-secret")
+
+	SetPrimary(testKeyringSealer(t, "old", 1, nil))
+	oldStored, err := Seal(ctx, "tnA", []byte("old secret"), aad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyID, ok := DeploymentEnvelopeKeyID(oldStored); !ok || keyID != "old" {
+		t.Fatalf("old key id = %q/%v, want old/true", keyID, ok)
+	}
+
+	oldB64 := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	SetPrimary(testKeyringSealer(t, "new", 2, map[string]string{"old": oldB64}))
+	rewrapped, err := RewrapDeploymentEnvelope(ctx, "tnA", oldStored, aad)
+	if err != nil {
+		t.Fatalf("rewrap: %v", err)
+	}
+	if keyID, ok := DeploymentEnvelopeKeyID(rewrapped); !ok || keyID != "new" {
+		t.Fatalf("rewrapped key id = %q/%v, want new/true", keyID, ok)
+	}
+
+	Reset()
+	SetPrimary(testKeyringSealer(t, "new", 2, nil))
+	got, err := Open(ctx, "tnA", rewrapped, aad)
+	if err != nil || string(got) != "old secret" {
+		t.Fatalf("rewrapped value must open after old opener removal: %q %v", got, err)
+	}
+	if _, err := Open(ctx, "tnA", oldStored, aad); err == nil {
+		t.Fatal("old ciphertext must not open after old opener removal")
+	}
+}
+
 func TestDestroyKeysWithoutDestroyer(t *testing.T) {
 	defer Reset()
 	Reset()

@@ -141,6 +141,41 @@ func HasScheme(stored string) bool {
 	return ok && schemeRegistered(scheme)
 }
 
+// DeploymentEnvelopeKeyID returns the key id stamped into a deployment-envelope
+// value ("dv1:<key-id>:..."). It is intentionally format-level inspection: it
+// does not decrypt or require the old key to still be configured, so rotation
+// verification can prove retired-key ciphertext is gone after an opener is
+// removed.
+func DeploymentEnvelopeKeyID(stored string) (string, bool) {
+	parts := strings.SplitN(stored, ":", 4)
+	if len(parts) != 4 || parts[0] != "dv1" || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
+}
+
+// RewrapDeploymentEnvelope opens a dv1 value with the registered opener ring
+// and seals it again with the current primary deployment envelope. It refuses
+// to silently produce plaintext or a non-dv1 value because deployment-envelope
+// rotation is a proof workflow: after rewrap, old-key dv1 rows must disappear.
+func RewrapDeploymentEnvelope(ctx context.Context, tenantID, stored string, aad []byte) (string, error) {
+	if _, ok := DeploymentEnvelopeKeyID(stored); !ok {
+		return "", fmt.Errorf("tenantcrypto: value is not a dv1 deployment-envelope value")
+	}
+	plain, err := Open(ctx, tenantID, stored, aad)
+	if err != nil {
+		return "", err
+	}
+	out, err := Seal(ctx, tenantID, plain, aad)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := DeploymentEnvelopeKeyID(out); !ok {
+		return "", fmt.Errorf("tenantcrypto: rewrap did not produce a dv1 deployment-envelope value")
+	}
+	return out, nil
+}
+
 func schemeRegistered(scheme string) bool {
 	mu.RLock()
 	defer mu.RUnlock()

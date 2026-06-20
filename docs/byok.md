@@ -145,6 +145,12 @@ cannot silently get a fresh v1 by writing new data.
 
 ## Operational notes
 
+- **Deployment-envelope rotation:** `PROBECTL_ENVELOPE_OPENER_KEYS` is only the
+  overlap phase. Complete rotation with `probectl-control envelope-rewrap`, then
+  remove the retired opener and run
+  `probectl-control envelope-rewrap --verify-retired-key-id=<old-id>`. Rewrap or
+  expire old `.pbk` backups with `probectl-control backup-rewrap` before
+  destroying the old deployment KEK.
 - **Key cache:** unwrapped or resolved keys are cached in memory for 30 seconds
   (rotation and destroy purge the tenant's cache immediately). A BYOK revocation
   therefore takes effect within seconds, not at the next session.

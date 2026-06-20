@@ -334,8 +334,8 @@ func installCHReaderPolicy(
 }
 
 // dispatchEarlyCommand handles the subcommands that need NO database or config
-// (version/gen-cert/support-bundle/preflight/backup-seal/backup-open) plus the
-// unknown-command error. It returns handled=false for `serve` and the
+// (version/gen-cert/support-bundle/preflight/backup-*) plus the unknown-command
+// error. It returns handled=false for `serve` and the
 // DB-backed subcommands so run() falls through to the configured path.
 // Extracted verbatim from run()'s leading switch (CODE-001) — behavior is
 // identical, including the exact usage string.
@@ -360,11 +360,15 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 	case "backup-open":
 		// OPS-002: decrypt an encrypted backup container for restore.
 		return true, backupOpen(os.Args[2:])
-	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter":
+	case "backup-rewrap":
+		// KEYS-002: stream an old backup through open+seal so its header
+		// carries the active deployment KEK id and no plaintext lands on disk.
+		return true, backupRewrap(os.Args[2:])
+	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap":
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | gen-cert | support-bundle | preflight | backup-seal | backup-open | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | gen-cert | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
 	}
 }
 
@@ -418,6 +422,9 @@ func dispatchDBCommand(cmd string, cfg *config.Config, db *store.DB, log *slog.L
 		// record onto its source topic (operator-driven recovery after a store
 		// outage outlived the retry budget).
 		return true, runReplayDeadLetter(cfg, log, os.Args[2:])
+	case "envelope-rewrap":
+		// KEYS-002: deployment envelope KEK rotation completion workflow.
+		return true, runEnvelopeRewrap(context.Background(), cfg, db, log, os.Args[2:])
 	}
 	return false, nil
 }

@@ -59,7 +59,9 @@ enrollment — [`agent/enrollment.md`](agent/enrollment.md)), `scim-token`
 (SCIM, below), `mcp-stdio` and `mcp-token` (MCP server, below), `preflight`
 (the storage-encryption preflight — [`hardening.md`](hardening.md)),
 `support-bundle` (supportability, below), `backup-seal` / `backup-open`
-(sealed backups — *Tenant lifecycle*, below), and `replay-deadletter`
+(sealed backups — *Tenant lifecycle*, below), `backup-rewrap` and
+`envelope-rewrap` (deployment-envelope key rotation — [hardening.md](hardening.md)),
+and `replay-deadletter`
 (re-ingest dead-lettered records — [`ops/dead-letter-replay.md`](ops/dead-letter-replay.md)).
 
 A note on the defaults: the listen address is `:8080`, the database DSN — the
@@ -95,7 +97,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_ENVELOPE_KEY`             | (none)                                                            | base64-encoded 32-byte key-encryption key (KEK) for at-rest envelope encryption. The single root secret behind sealed credentials and backups — **back it up** |
 | `PROBECTL_ENVELOPE_KEY_FILE`        | (none)                                                            | path to the KEK file — loaded, or GENERATED+persisted (0600) on first boot if absent; an explicit `PROBECTL_ENVELOPE_KEY` wins over it. Shipped compose mounts it on the `controldata` volume |
 | `PROBECTL_ENVELOPE_KEY_ID`          | `dev`                                                             | identifier recorded alongside each sealed value and backup container header |
-| `PROBECTL_ENVELOPE_OPENER_KEYS`     | (none)                                                            | comma-separated `oldKeyID=base64KEK` opener keyring for envelope-key rotation overlap. New values use only `PROBECTL_ENVELOPE_KEY`; old `dv1` values and `.pbk` backups can still open by their stored key ID. Treat this like key material and remove retired entries after rewrap/backup expiry |
+| `PROBECTL_ENVELOPE_OPENER_KEYS`     | (none)                                                            | comma-separated `oldKeyID=base64KEK` opener keyring for envelope-key rotation overlap. New values use only `PROBECTL_ENVELOPE_KEY`; old `dv1` values and `.pbk` backups can still open by their stored key ID. Treat this like key material; remove a retired entry only after `probectl-control envelope-rewrap --verify-retired-key-id=<oldKeyID>` and backup rewrap/expiry prove it is no longer needed |
 | `PROBECTL_SESSION_HMAC_KEY`         | (none)                                                            | hex-encoded 32-byte session-token HMAC key (`openssl rand -hex 32`). Browser/operator session tokens are random, but this server-side pepper means a DB snapshot cannot verify guesses without the app secret. Required by shipped Helm/Compose production paths and by `session` auth under `multi-tenant` / `regulated` profiles |
 | `PROBECTL_REQUIRE_AT_REST_ENCRYPTION` | `true`                                                         | records the desired at-rest posture. The serve path refuses to start without an envelope key by default; setting this `false` alone does **not** allow plaintext |
 | `PROBECTL_ALLOW_KEYLESS_DEV`        | `false`                                                           | explicit local-dev-only escape hatch for no envelope key. When `true`, sensitive-value sealing falls back to plaintext passthrough; never set it in production/provider profiles |

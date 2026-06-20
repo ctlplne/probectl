@@ -18,6 +18,8 @@
 //	probectl-control support-bundle       write a redacted diagnostics bundle
 //	probectl-control backup-seal          encrypt a backup container
 //	probectl-control backup-open          decrypt a backup container for restore
+//	probectl-control backup-rewrap        re-encrypt a backup container under the active KEK
+//	probectl-control envelope-rewrap      rewrap live deployment-envelope secrets
 //	probectl-control preflight            validate config/connectivity and exit
 //	probectl-control version              print build metadata and exit
 //

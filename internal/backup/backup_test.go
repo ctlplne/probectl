@@ -151,6 +151,48 @@ func TestOpenUsesHeaderKeyIDForRotationKeyring(t *testing.T) {
 	}
 }
 
+func TestRewrapMovesBackupToActiveKey(t *testing.T) {
+	ctx := context.Background()
+	oldKEK, err := crypto.Random(crypto.KeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newKEK, err := crypto.Random(crypto.KeySize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldKeys, err := crypto.NewStaticKeyProvider("old", oldKEK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var oldContainer bytes.Buffer
+	if err := Seal(ctx, &oldContainer, strings.NewReader("historic backup"), oldKeys); err != nil {
+		t.Fatal(err)
+	}
+	keyring, err := crypto.NewStaticKeyringProvider("new", newKEK, map[string][]byte{"old": oldKEK})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rewrapped bytes.Buffer
+	if err := Rewrap(ctx, &rewrapped, bytes.NewReader(oldContainer.Bytes()), keyring, keyring); err != nil {
+		t.Fatalf("rewrap: %v", err)
+	}
+	currentOnly, err := crypto.NewStaticKeyProvider("new", newKEK)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored bytes.Buffer
+	if err := Open(ctx, &restored, bytes.NewReader(rewrapped.Bytes()), currentOnly); err != nil {
+		t.Fatalf("current-only open after rewrap: %v", err)
+	}
+	if restored.String() != "historic backup" {
+		t.Fatalf("restored = %q", restored.String())
+	}
+	if err := Open(ctx, &bytes.Buffer{}, bytes.NewReader(oldContainer.Bytes()), currentOnly); err == nil {
+		t.Fatal("pre-rewrap old backup must not open after old opener removal")
+	}
+}
+
 func TestStreamingBackupDEKsAreZeroized(t *testing.T) {
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {

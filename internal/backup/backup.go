@@ -147,6 +147,29 @@ func Open(ctx context.Context, dst io.Writer, src io.Reader, keys KeyProvider) e
 	}
 }
 
+// Rewrap streams an existing encrypted backup through Open and Seal so the
+// output container is wrapped by the current active KEK. Plaintext exists only
+// in memory between the two pipes and is never written as an intermediate file.
+func Rewrap(ctx context.Context, dst io.Writer, src io.Reader, openKeys, sealKeys KeyProvider) error {
+	pr, pw := io.Pipe()
+	errc := make(chan error, 1)
+	go func() {
+		err := Open(ctx, pw, src, openKeys)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+		} else {
+			_ = pw.Close()
+		}
+		errc <- err
+	}()
+	sealErr := Seal(ctx, dst, pr, sealKeys)
+	openErr := <-errc
+	if sealErr != nil {
+		return sealErr
+	}
+	return openErr
+}
+
 // --- header (carries the wrapped DEK) ---
 
 // sealHeader mints a DEK, wraps it under the KEK, and renders the container

@@ -106,6 +106,40 @@ room, never the building. The shipped recipes turn this on:
   the only supported plaintext passthrough mode and must not be used for
   production, provider, or regulated profiles.
 
+**Rotating the deployment envelope key.** Rotation has two phases: overlap,
+then proof of retirement. Bring up the control plane with the new
+`PROBECTL_ENVELOPE_KEY` / `PROBECTL_ENVELOPE_KEY_ID` and put the old key in
+`PROBECTL_ENVELOPE_OPENER_KEYS=old-id=<old base64 KEK>`. New writes now use the
+new key while old rows still open. Then run:
+
+```sh
+probectl-control envelope-rewrap --dry-run --from-key-id=old-id
+probectl-control envelope-rewrap --from-key-id=old-id
+```
+
+The execute step walks the registered deployment-envelope stores in
+tenant-scoped batches (`alert_rules.channels` plus the deployment-global
+`agent_ca.key_sealed`), re-seals old `dv1:old-id:` values under the active key,
+and appends a no-secret provider-audit receipt (`envelope.rewrap`). After
+removing `old-id` from `PROBECTL_ENVELOPE_OPENER_KEYS` and restarting, prove the
+old key is retired:
+
+```sh
+probectl-control envelope-rewrap --verify-retired-key-id=old-id
+```
+
+For encrypted Postgres backup containers (`.pbk`) that must outlive the old key,
+stream them through the same rotation before removing/destroying the old KEK:
+
+```sh
+probectl-control backup-rewrap < old.dump.pbk > new.dump.pbk
+```
+
+`backup-rewrap` opens the old container through the configured opener ring and
+seals the output under the active key; plaintext exists only in the process
+pipe, never as an intermediate file. Backups that are past retention may expire
+instead of being rewrapped.
+
 **What the operator encrypts (a documented duty, not an assumption).**
 probectl does not re-encrypt the bulk telemetry stores' data files — at that
 scale it is the storage layer's job. **You MUST provide at-rest encryption for

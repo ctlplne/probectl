@@ -37,6 +37,20 @@ and that data key is itself wrapped by the deployment's master key (the KEK,
 key-encryption key) — so an attacker holding the artifact but not the KEK
 holds nothing readable, and a restore on a fresh machine needs exactly one
 secret.
+
+When rotating the deployment envelope key, long-lived `.pbk` files must either
+expire under retention or be rewrapped before the old opener key is removed:
+
+```sh
+PROBECTL_ENVELOPE_KEY=<new base64 KEK> \
+PROBECTL_ENVELOPE_KEY_ID=new-id \
+PROBECTL_ENVELOPE_OPENER_KEYS=old-id=<old base64 KEK> \
+  probectl-control backup-rewrap < old.dump.pbk > new.dump.pbk
+```
+
+The old container is opened through the opener ring and the new container is
+sealed under the active key; no plaintext dump is written between those steps.
+
 ClickHouse's `BACKUP TO File` runs *inside* the ClickHouse server, so it can't
 be piped through that filter; it is encrypted by the **backups volume** instead
 (the encrypted-volume operator duty in [hardening.md](../hardening.md) §0c, which

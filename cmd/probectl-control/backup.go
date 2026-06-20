@@ -27,6 +27,26 @@ import (
 
 func backupSeal(args []string) error { return runBackup(args, true) }
 func backupOpen(args []string) error { return runBackup(args, false) }
+func backupRewrap(args []string) error {
+	fs := flag.NewFlagSet("backup-rewrap", flag.ContinueOnError)
+	keyFile := fs.String("key-file", os.Getenv("PROBECTL_ENVELOPE_KEY_FILE"), "path to the base64 KEK file (or set PROBECTL_ENVELOPE_KEY)")
+	defKeyID := os.Getenv("PROBECTL_ENVELOPE_KEY_ID")
+	if defKeyID == "" {
+		defKeyID = "file"
+	}
+	keyID := fs.String("key-id", defKeyID, "active KEK id stamped into the rewrapped container header")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	keys, err := backupKeyProvider(*keyFile, *keyID)
+	if err != nil {
+		return err
+	}
+	if err := backup.Rewrap(context.Background(), os.Stdout, os.Stdin, keys, keys); err != nil {
+		return fmt.Errorf("backup-rewrap: %w", err)
+	}
+	return nil
+}
 
 func runBackup(args []string, seal bool) error {
 	name := "backup-open"
