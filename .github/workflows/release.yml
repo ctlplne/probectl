@@ -175,31 +175,24 @@ jobs:
     name: binaries + checksums + release
     needs: require-green-ci
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
+      - name: eBPF release toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang-14 llvm-14 linux-tools-common linux-tools-generic
       - name: Cross-compile release binaries
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME}"
-          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          mkdir -p dist
-          for arch in amd64 arm64; do
-            for b in probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl; do
-              out="dist/${b}_${VERSION}_linux_${arch}"
-              GOOS=linux GOARCH="${arch}" CGO_ENABLED=0 go build -trimpath \
-                -ldflags "-s -w \
-                  -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} \
-                  -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${GITHUB_SHA} \
-                  -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}" \
-                -o "${out}" "./cmd/${b}"
-            done
-          done
-          (cd dist && sha256sum * > checksums.txt)
-          ls -la dist
+          VERSION="${GITHUB_REF_NAME}" \
+            COMMIT="${GITHUB_SHA}" \
+            DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            bash scripts/build-release-binaries.sh
       # U-068: publish the SBOM as a real release artifact (SPDX JSON via
       # syft over the source tree + go.mod/lockfiles). It is written into
       # dist/ BEFORE the signing loop below, so it ships signed and
@@ -290,6 +283,9 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
       - name: Install nfpm
         run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.41.0
       - name: Fetch release binaries
@@ -300,6 +296,14 @@ jobs:
             --pattern "probectl-${{ matrix.agent }}_${GITHUB_REF_NAME}_linux_${{ matrix.arch }}" --dir dist
         env:
           GH_TOKEN: ${{ github.token }}
+      - name: Assert packaged eBPF binary is live
+        if: matrix.agent == 'ebpf-agent'
+        run: |
+          set -euo pipefail
+          bin="dist/probectl-ebpf-agent_${GITHUB_REF_NAME}_linux_${{ matrix.arch }}"
+          go version -m "$bin" | tee buildinfo.txt
+          grep -E '\bbuild\s+-tags=.*\bebpf\b' buildinfo.txt \
+            || { echo "::error::downloadable probectl-ebpf-agent package input is NOT the -tags ebpf live build (TEST-002)"; exit 1; }
       - name: Build deb + rpm
         env:
           AGENT: ${{ matrix.agent }}

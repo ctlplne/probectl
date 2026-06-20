@@ -350,13 +350,16 @@ until that runner is in place. Bump the matrix when adopting a new LTS.
 | Default (any OS) | `make build` | FixtureSource / stub | nothing extra |
 | Live eBPF (Linux) | `make ebpf-agent` | CO-RE loader | clang + bpftool + a BTF kernel (libbpf BPF headers are vendored in-repo under `internal/ebpf/bpf/headers/` — no `libbpf-dev` needed) |
 
-**The shipped image is the live build.** Fixture mode is dev/test-only. The
+**The shipped artifacts are live builds.** Fixture mode is dev/test-only. The
 shipped agent image is the live `-tags ebpf` build: `deploy/docker/Dockerfile.ebpf`
 runs the same `bpf2go` + digest-generation path (`bpf2go` is the `cilium/ebpf`
 generator that compiles the C with `clang` and embeds the resulting BPF object
-into Go source), and the release publishes `probectl-ebpf-agent` from it. The `ebpf-image-live` CI job extracts the binary
-from the built image and **fails unless its Go build metadata records
-`-tags=ebpf`** — so a fixture-only image cannot ship unnoticed.
+into Go source). The downloadable `probectl-ebpf-agent_linux_{amd64,arm64}`
+binaries use the same generator path through `scripts/build-release-binaries.sh`
+instead of the plain cross-compile loop, and the deb/rpm package job checks that
+same binary before wrapping it. The CI/release gates **fail unless Go build
+metadata records `-tags=ebpf`** — so a fixture-only image, binary, or package
+cannot ship unnoticed.
 
 **Trust boundary (decided):** operator-supplied BPF objects are deliberately **not
 supported**. The chain is: source → `bpf2go` (pinned `clang`) → objects **embedded
@@ -382,8 +385,15 @@ make ebpf-agent                    # bpftool + bpf2go + go build -tags ebpf
 A single wrapper, `internal/ebpf/gen_bpf.sh`, is the one place the `bpf2go` flags
 and the arch-compat shim live — `make ebpf-agent`, the Dockerfile, the CI jobs, and
 `go generate` all route through it, so a build change touches one file instead of
-drifting across many. The generated bindings (`l4flow_bpfel.go`, `bpf/vmlinux.h`)
-carry `//go:build ebpf`, are git-ignored, and are regenerated per build.
+drifting across many. Release downloads add one more wrapper around the same path:
+
+```sh
+VERSION=v0.1.0 COMMIT="$(git rev-parse HEAD)" bash scripts/build-release-binaries.sh
+go version -m dist/probectl-ebpf-agent_v0.1.0_linux_amd64 | grep -E 'build[[:space:]]+-tags=.*ebpf'
+```
+
+The generated bindings (`l4flow_bpfel.go`, `bpf/vmlinux.h`) carry
+`//go:build ebpf`, are git-ignored, and are regenerated per build.
 
 ## Installing
 

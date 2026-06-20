@@ -62,6 +62,17 @@ sha256sum --ignore-missing -c checksums.txt
 Both `cosign verify-blob` calls print `Verified OK`, and `sha256sum -c` prints
 `<artifact>: OK`. **Anything else: do not run the binary.**
 
+For `probectl-ebpf-agent`, also inspect the Go build metadata after signature and
+checksum verification:
+
+```sh
+go version -m ${BIN} | grep -E 'build[[:space:]]+-tags=.*ebpf'
+```
+
+The release workflow performs the same check before signing the download and
+before wrapping it into deb/rpm packages; no match means the binary is the
+fixture-only build and must not be installed as the live host agent.
+
 ### What the identity pin actually proves
 
 The `--certificate-identity-regexp` says: Fulcio bound this signing certificate

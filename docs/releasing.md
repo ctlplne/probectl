@@ -50,7 +50,10 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
   `deploy/docker/Dockerfile.ebpf` so it ships the *live* eBPF loader, not the
   fixture replayer.
 - **Cross-compiled binaries** for `linux/{amd64,arm64}` plus a `checksums.txt`
-  (SHA-256), attached to the GitHub Release.
+  (SHA-256), attached to the GitHub Release. `probectl-ebpf-agent` is not built
+  by the plain cross-compile loop: the release builder regenerates `vmlinux.h`,
+  runs `internal/ebpf/gen_bpf.sh` + `gendigests`, builds with `-tags ebpf`, and
+  fails before signing unless `go version -m` records the `ebpf` build tag.
 - A **source SBOM** in SPDX JSON (`probectl_<tag>_sbom.spdx.json`), generated over
   the source tree and lockfiles and shipped as a signed release asset.
 - **Keyless cosign signatures** (`.sig` + `.pem`) over every binary, the checksum
@@ -115,7 +118,9 @@ Practically, that means: get the commit green on `main` first, *then* tag it.
 Every released artifact is **verifiable end to end**: images are cosign-signed
 by digest and ship build provenance plus an SBOM attestation; binaries,
 checksums, and the source SBOM are cosign-signed (keyless / OIDC) and
-self-verified inside the release job.
+self-verified inside the release job. The deb/rpm package job repeats the
+`go version -m` check for `probectl-ebpf-agent` before wrapping the binary, so a
+package cannot accidentally ship the fixture-only loader.
 Dependency and image vulnerability scanning run in CI on every PR
 (`dependency-scan`, `image-scan`) and weekly on a schedule
 ([`.github/workflows/security-scan.yml`](../.github/workflows/security-scan.yml)),

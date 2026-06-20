@@ -228,6 +228,49 @@ func TestArm64EBPFResidualRiskIsExplicit(t *testing.T) {
 	}
 }
 
+// TestReleaseEBPFDownloadablesAreLiveBuilds closes TEST-002: the downloadable
+// eBPF agent binaries and deb/rpm package inputs must be the same live
+// `-tags ebpf` build as the shipped image. A plain cross-compile links the
+// fixture source, so the release workflow must use the BPF generator path and
+// assert `go version -m` before signing or packaging.
+func TestReleaseEBPFDownloadablesAreLiveBuilds(t *testing.T) {
+	rel := readWorkflow(t, "release.yml")
+	for _, want := range []string{
+		"bash scripts/build-release-binaries.sh",
+		"eBPF release toolchain",
+		"clang-14",
+		"linux-tools-generic",
+		"Assert packaged eBPF binary is live",
+		"matrix.agent == 'ebpf-agent'",
+		"go version -m \"$bin\"",
+		"TEST-002",
+	} {
+		if !strings.Contains(rel, want) {
+			t.Errorf("release.yml is missing %q from the live eBPF downloadable/package gate (TEST-002)", want)
+		}
+	}
+
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "build-release-binaries.sh"))
+	if err != nil {
+		t.Fatalf("read release binary builder: %v", err)
+	}
+	script := string(b)
+	for _, want := range []string{
+		"gen_bpf.sh all \"$arch\"",
+		"\"$GO\" run ./gendigests .",
+		"-tags ebpf",
+		"\"$GO\" version -m \"$bin\"",
+		"fixture-only eBPF agent",
+		"probectl-ebpf-agent",
+		`if [ "$component" = "probectl-ebpf-agent" ]; then`,
+		`build_ebpf_binary "$arch" "$out"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("scripts/build-release-binaries.sh is missing %q from the live eBPF build/assertion path (TEST-002)", want)
+		}
+	}
+}
+
 func makefileBinaries(t *testing.T) []string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), "Makefile"))
