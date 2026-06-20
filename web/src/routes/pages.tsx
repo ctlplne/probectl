@@ -318,7 +318,9 @@ export function TargetsPage() {
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => fetchNextPage()}
+                    onClick={() => {
+                      void fetchNextPage()
+                    }}
                     disabled={isFetchingNextPage}
                   >
                     {isFetchingNextPage ? 'Loading…' : 'Load more tests'}

@@ -228,7 +228,12 @@ export function IdentityCard() {
           rowKey={(s) => s.endpoint}
         />
 
-        <form className={styles.actions} onSubmit={submitToken}>
+        <form
+          className={styles.actions}
+          onSubmit={(e) => {
+            void submitToken(e)
+          }}
+        >
           <Field
             label="SCIM token name"
             value={tokenName}
@@ -270,7 +275,12 @@ export function IdentityCard() {
           />
         )}
 
-        <form className={styles.actions} onSubmit={submitPolicy}>
+        <form
+          className={styles.actions}
+          onSubmit={(e) => {
+            void submitPolicy(e)
+          }}
+        >
           <Field
             label="Policy name"
             value={policyName}

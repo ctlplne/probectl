@@ -76,7 +76,9 @@ export function PathPage() {
             {tests.hasNextPage ? (
               <Button
                 variant="secondary"
-                onClick={() => tests.fetchNextPage()}
+                onClick={() => {
+                  void tests.fetchNextPage()
+                }}
                 disabled={tests.isFetchingNextPage}
               >
                 {tests.isFetchingNextPage ? 'Loading…' : 'Load more tests'}

@@ -47,7 +47,7 @@ describe('Admin agent enrollment journey (JOURNEY-002)', () => {
     await userEvent.click(screen.getByRole('button', { name: /mint token/i }))
 
     expect(await screen.findByDisplayValue('pjt_testtoken')).toBeInTheDocument()
-    const command = (await screen.findByLabelText(/enrollment command/i)) as HTMLInputElement
+    const command = await screen.findByLabelText<HTMLInputElement>(/enrollment command/i)
     expect(command.value).toBe(
       'probectl-agent enroll --server https://control.example:8443 --token pjt_testtoken --dir /var/lib/probectl-agent/identity --ca-pin 012345abcdef',
     )

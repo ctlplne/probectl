@@ -28,10 +28,8 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
-      // CODE-009: type-checked rules are ENABLED (they run + surface issues) but
-      // the high-noise ones start at "warn" so the gate goes green on adoption
-      // and is ratcheted to "error" as the existing findings are burned down —
-      // the standard gradual-adoption path, not a silent disable.
+      // CODE-009/CODE-011: type-checked rules are enabled and the lint script
+      // runs with --max-warnings=0, so any production warning is a red gate.
       '@typescript-eslint/no-base-to-string': 'warn',
       '@typescript-eslint/require-await': 'warn',
       '@typescript-eslint/no-unsafe-assignment': 'warn',
@@ -40,8 +38,8 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-argument': 'warn',
       '@typescript-eslint/no-unsafe-return': 'warn',
       '@typescript-eslint/no-redundant-type-constituents': 'warn',
-      '@typescript-eslint/no-misused-promises': 'warn',
-      '@typescript-eslint/no-floating-promises': 'warn',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
       // UX-006: apiFetch already prepends the /v1 API base, so a literal
       // apiFetch('/v1/...') produces a /v1/v1/... double-prefix (UX-001). Ban
       // the literal at lint time; off-/v1 surfaces use publicFetch instead.
@@ -69,6 +67,10 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-unsafe-assignment': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-base-to-string': 'off',
+      '@typescript-eslint/require-await': 'off',
     },
   },
 )

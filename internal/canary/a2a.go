@@ -85,10 +85,6 @@ type a2aReply struct {
 	t1, t2, t3 int64
 }
 
-func parseA2AReply(b []byte) (a2aReply, bool) {
-	return parseA2AReplyAuthenticated(nil, b)
-}
-
 func parseA2AReplyAuthenticated(key, b []byte) (a2aReply, bool) {
 	if len(key) > 0 && !verifyA2AMAC(key, a2aRepMACDomain, b, a2aReplyBodyLen) {
 		return a2aReply{}, false

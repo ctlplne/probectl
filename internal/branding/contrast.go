@@ -284,11 +284,11 @@ func parseHSLColor(value string) (contrastColor, error) {
 
 func colorFunctionArgs(value string) ([]string, error) {
 	open := strings.IndexByte(value, '(')
-	close := strings.LastIndexByte(value, ')')
-	if open < 0 || close <= open {
+	closeIdx := strings.LastIndexByte(value, ')')
+	if open < 0 || closeIdx <= open {
 		return nil, fmt.Errorf("invalid color function")
 	}
-	body := strings.NewReplacer(",", " ", "/", " ").Replace(value[open+1 : close])
+	body := strings.NewReplacer(",", " ", "/", " ").Replace(value[open+1 : closeIdx])
 	return strings.Fields(body), nil
 }
 

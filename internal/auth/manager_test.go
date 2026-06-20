@@ -279,7 +279,7 @@ func TestManagerKeyedHMACEndToEnd(t *testing.T) {
 
 	// The stored key must be the HMAC of the token, not the token itself.
 	hmacOfToken := crypto.Sign(key, []byte(token))
-	if _, ok := st.byHash[string(token)]; ok {
+	if _, ok := st.byHash[token]; ok {
 		t.Fatal("token stored in the clear (must store only the keyed hash)")
 	}
 	if _, ok := st.byHash[string(hmacOfToken)]; !ok {

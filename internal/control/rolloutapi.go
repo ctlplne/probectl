@@ -302,12 +302,9 @@ func (s *Server) rolloutAction(w http.ResponseWriter, r *http.Request, action st
 		if err != nil {
 			return err
 		}
-		meta, serr := step(r.Context(), tenancy.Scope{}, p)
+		_, serr := step(r.Context(), tenancy.Scope{}, p)
 		if serr != nil {
 			return rolloutStepErr(serr)
-		}
-		if meta == nil {
-			meta = map[string]any{}
 		}
 		writeJSON(w, http.StatusOK, rolloutView(id, p))
 		return nil

@@ -40,7 +40,7 @@ var catalog = map[string]map[string]string{
 		"api.error.unavailable":  "Servicio no disponible",
 		"api.error.rate_limited": "Limite de tasa excedido",
 		"api.error.too_large":    "Carga demasiado grande",
-		"cli.error.unknown":      "comando desconocido {command}",
+		"cli.error.unknown":      "comando desconocido {command}", //nolint:misspell // Spanish locale copy.
 		"cli.usage":              spanishUsage,
 	},
 }
@@ -159,6 +159,7 @@ Raw resource flags:
   --body JSON       JSON request body for create/update/action commands
 `
 
+//nolint:misspell // Spanish locale copy intentionally uses Spanish words.
 const spanishUsage = `probectl - CLI del plano de control
 
 Uso:

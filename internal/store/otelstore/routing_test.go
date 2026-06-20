@@ -165,7 +165,7 @@ func TestOtelWritesChunkLargeBatchesAndUseAsyncInsert(t *testing.T) {
 }
 
 func TestOtelWriteMetricsExposeChunksBacklogAndLatency(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	defer srv.Close()

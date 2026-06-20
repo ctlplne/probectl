@@ -21,7 +21,7 @@ func TestResolveFallsBackAndNormalizes(t *testing.T) {
 
 func TestTLocalizesAndInterpolates(t *testing.T) {
 	got := T("es-MX", "cli.error.unknown", map[string]string{"command": `"wat"`})
-	if want := `comando desconocido "wat"`; got != want {
+	if want := `comando desconocido "wat"`; got != want { //nolint:misspell // Spanish locale copy.
 		t.Fatalf("T = %q, want %q", got, want)
 	}
 	if got := T("zz", "cli.error.unknown", map[string]string{"command": `"wat"`}); got != `unknown command "wat"` {

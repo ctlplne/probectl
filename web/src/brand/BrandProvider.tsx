@@ -21,11 +21,18 @@ export function BrandProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false
-    fetchBrand().then((b) => {
-      if (cancelled) return
-      applyBrand(b)
-      setBrand(b)
-    })
+    void fetchBrand().then(
+      (b) => {
+        if (cancelled) return
+        applyBrand(b)
+        setBrand(b)
+      },
+      () => {
+        if (cancelled) return
+        applyBrand(DEFAULT_BRAND)
+        setBrand(DEFAULT_BRAND)
+      },
+    )
     return () => {
       cancelled = true
     }

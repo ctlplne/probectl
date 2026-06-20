@@ -119,7 +119,12 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
           </p>
         </div>
       ) : (
-        <form className={styles.form} onSubmit={submit}>
+        <form
+          className={styles.form}
+          onSubmit={(e) => {
+            void submit(e)
+          }}
+        >
           <Field
             label="Agent label"
             value={name}
@@ -256,7 +261,12 @@ function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: ()
           ))}
         </div>
       ) : (
-        <form className={styles.form} onSubmit={submit}>
+        <form
+          className={styles.form}
+          onSubmit={(e) => {
+            void submit(e)
+          }}
+        >
           <Select
             label="Collector plane"
             options={collectorPlanes}
@@ -437,7 +447,13 @@ export function AdminPage() {
                 }
               />
               {hasNextPage && (
-                <button type="button" onClick={() => fetchNextPage()} disabled={isFetchingNextPage}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void fetchNextPage()
+                  }}
+                  disabled={isFetchingNextPage}
+                >
                   {isFetchingNextPage ? 'Loading…' : 'Load more agents'}
                 </button>
               )}

@@ -32,9 +32,7 @@ describe('API path conventions', () => {
 
   test('apiURL builds download paths without a double version prefix', () => {
     expect(apiURL('/compliance/evidence')).toBe('/v1/compliance/evidence')
-    /* eslint-disable no-restricted-syntax */
     expect(() => apiURL('/v1/compliance/evidence')).toThrow(/drop the \/v1 prefix/)
-    /* eslint-enable no-restricted-syntax */
   })
 
   test('pathOf strips query + origin to a bare pathname', () => {

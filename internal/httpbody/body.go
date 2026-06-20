@@ -19,18 +19,18 @@ var (
 	ErrTrailingJSON = errors.New("httpbody: trailing JSON value")
 )
 
-// ReadLimited reads at most max bytes from r. It reads max+1 bytes internally
+// ReadLimited reads at most maxBytes bytes from r. It reads maxBytes+1 bytes internally
 // so an oversized body is rejected with ErrTooLarge rather than silently
 // truncated to a prefix.
-func ReadLimited(r io.Reader, max int64) ([]byte, error) {
-	if max < 0 {
-		return nil, fmt.Errorf("httpbody: negative limit %d", max)
+func ReadLimited(r io.Reader, maxBytes int64) ([]byte, error) {
+	if maxBytes < 0 {
+		return nil, fmt.Errorf("httpbody: negative limit %d", maxBytes)
 	}
-	b, err := io.ReadAll(io.LimitReader(r, max+1))
+	b, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(b)) > max {
+	if int64(len(b)) > maxBytes {
 		return nil, ErrTooLarge
 	}
 	return b, nil
@@ -39,8 +39,8 @@ func ReadLimited(r io.Reader, max int64) ([]byte, error) {
 // DecodeJSON reads a bounded JSON body and decodes exactly one top-level value.
 // Trailing whitespace is allowed; trailing garbage or a second JSON value is
 // rejected.
-func DecodeJSON(r io.Reader, max int64, dst any) error {
-	body, err := ReadLimited(r, max)
+func DecodeJSON(r io.Reader, maxBytes int64, dst any) error {
+	body, err := ReadLimited(r, maxBytes)
 	if err != nil {
 		return err
 	}
@@ -50,8 +50,8 @@ func DecodeJSON(r io.Reader, max int64, dst any) error {
 // DecodeJSONStrict is DecodeJSON plus unknown-field rejection for
 // probectl-owned REST schemas. Use DecodeJSON for third-party/extensible
 // schemas such as SCIM and vendor webhooks.
-func DecodeJSONStrict(r io.Reader, max int64, dst any) error {
-	body, err := ReadLimited(r, max)
+func DecodeJSONStrict(r io.Reader, maxBytes int64, dst any) error {
+	body, err := ReadLimited(r, maxBytes)
 	if err != nil {
 		return err
 	}
@@ -60,20 +60,20 @@ func DecodeJSONStrict(r io.Reader, max int64, dst any) error {
 
 // DecodeHTTPJSON decodes one HTTP JSON body with http.MaxBytesReader. It keeps
 // unknown fields for compatibility with extensible third-party schemas.
-func DecodeHTTPJSON(w http.ResponseWriter, r *http.Request, max int64, dst any) error {
-	if max < 0 {
-		return fmt.Errorf("httpbody: negative limit %d", max)
+func DecodeHTTPJSON(w http.ResponseWriter, r *http.Request, maxBytes int64, dst any) error {
+	if maxBytes < 0 {
+		return fmt.Errorf("httpbody: negative limit %d", maxBytes)
 	}
-	return decodeOneJSON(http.MaxBytesReader(w, r.Body, max), dst, false)
+	return decodeOneJSON(http.MaxBytesReader(w, r.Body, maxBytes), dst, false)
 }
 
 // DecodeHTTPJSONStrict is DecodeHTTPJSON plus unknown-field rejection for
 // probectl-owned REST request schemas.
-func DecodeHTTPJSONStrict(w http.ResponseWriter, r *http.Request, max int64, dst any) error {
-	if max < 0 {
-		return fmt.Errorf("httpbody: negative limit %d", max)
+func DecodeHTTPJSONStrict(w http.ResponseWriter, r *http.Request, maxBytes int64, dst any) error {
+	if maxBytes < 0 {
+		return fmt.Errorf("httpbody: negative limit %d", maxBytes)
 	}
-	return decodeOneJSON(http.MaxBytesReader(w, r.Body, max), dst, true)
+	return decodeOneJSON(http.MaxBytesReader(w, r.Body, maxBytes), dst, true)
 }
 
 func decodeOneJSON(r io.Reader, dst any, strict bool) error {

@@ -33,23 +33,9 @@ const (
 	linksTable = "probectl_path_links2"
 )
 
-const createHops = `CREATE TABLE IF NOT EXISTS ` + hopsTable + ` (
-  tenant_id String, path_id String, target String, target_ip String, mode String,
-  ts DateTime64(3), ttl UInt8, responder String,
-  sent UInt32, received UInt32, loss_ratio Float64,
-  rtt_min_ms Float64, rtt_avg_ms Float64, rtt_max_ms Float64,
-  mpls_labels Array(UInt32)
-) ENGINE = MergeTree PARTITION BY (tenant_id, toYYYYMMDD(ts)) ORDER BY (tenant_id, target, ts, ttl, responder)`
-
-const createLinks = `CREATE TABLE IF NOT EXISTS ` + linksTable + ` (
-  tenant_id String, path_id String, target String, ts DateTime64(3),
-  ttl UInt8, from_ip String, to_ip String
-) ENGINE = MergeTree PARTITION BY (tenant_id, toYYYYMMDD(ts)) ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
-
 // createHopsFor / createLinksFor render the v2 (day-partitioned) shape for an
-// arbitrary (possibly database-qualified) table name — used to provision a
-// siloed tenant's per-tenant database tables (TENANT-001). They mirror the
-// createHops/createLinks consts verbatim except for the table name.
+// arbitrary (possibly database-qualified) table name, including siloed
+// tenants' per-tenant database tables (TENANT-001).
 func createHopsFor(table string) string {
 	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
   tenant_id String, path_id String, target String, target_ip String, mode String,
@@ -227,19 +213,6 @@ func CHMigrations() []chmigrate.Migration { return chMigrations() }
 
 // v1 DDL stays VERBATIM (shipped versions are immutable — the ledger checksum
 // refuses drift); v2 supersedes it.
-const createHopsV1 = `CREATE TABLE IF NOT EXISTS probectl_path_hops (
-  tenant_id String, path_id String, target String, target_ip String, mode String,
-  ts DateTime64(3), ttl UInt8, responder String,
-  sent UInt32, received UInt32, loss_ratio Float64,
-  rtt_min_ms Float64, rtt_avg_ms Float64, rtt_max_ms Float64,
-  mpls_labels Array(UInt32)
-) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, responder)`
-
-const createLinksV1 = `CREATE TABLE IF NOT EXISTS probectl_path_links (
-  tenant_id String, path_id String, target String, ts DateTime64(3),
-  ttl UInt8, from_ip String, to_ip String
-) ENGINE = MergeTree PARTITION BY tenant_id ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
-
 func createHopsV1For(table string) string {
 	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
   tenant_id String, path_id String, target String, target_ip String, mode String,
@@ -607,11 +580,6 @@ func (c *ClickHouse) queryScoped(ctx context.Context, base, tenant, sql string, 
 		u += "&" + tenantSettingName + "=" + url.QueryEscape(tenant)
 	}
 	return c.doQuery(ctx, base, u)
-}
-
-// query runs a SELECT against the deployment-default endpoint (migrations).
-func (c *ClickHouse) query(ctx context.Context, sql string, p chParams) ([]map[string]any, error) {
-	return c.doQuery(ctx, "", c.base+"/?query="+url.QueryEscape(sql+" FORMAT JSONEachRow")+p.qs())
 }
 
 func (c *ClickHouse) doQuery(ctx context.Context, base, u string) ([]map[string]any, error) {

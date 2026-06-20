@@ -43,6 +43,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/internal/version"
+
 	"golang.org/x/sync/errgroup"
 )
 

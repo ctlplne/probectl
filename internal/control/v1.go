@@ -436,8 +436,8 @@ func decodeJSON(r *http.Request, dst any) error {
 	return decodeJSONLimit(r, maxJSONBody, dst)
 }
 
-func decodeJSONLimit(r *http.Request, max int64, dst any) error {
-	if err := httpbody.DecodeHTTPJSONStrict(nil, r, max, dst); err != nil {
+func decodeJSONLimit(r *http.Request, maxBytes int64, dst any) error {
+	if err := httpbody.DecodeHTTPJSONStrict(nil, r, maxBytes, dst); err != nil {
 		if errors.Is(err, httpbody.ErrTooLarge) {
 			return apierror.TooLarge("request body exceeds size cap")
 		}

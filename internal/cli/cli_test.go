@@ -68,13 +68,13 @@ func runWithEnv(t *testing.T, srv *httptest.Server, extra map[string]string, arg
 	return out.String(), errb.String(), code
 }
 
-func TestCLIHelpLocalizes(t *testing.T) {
+func TestCLIHelpLocalizes(t *testing.T) { //nolint:misspell // Spanish locale copy.
 	srv := fakeAPI(t)
 	out, _, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es-MX"}, "help")
 	if code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if !strings.Contains(out, "Uso:") || !strings.Contains(out, "Comandos:") {
+	if !strings.Contains(out, "Uso:") || !strings.Contains(out, "Comandos:") { //nolint:misspell // Spanish locale copy.
 		t.Fatalf("Spanish help missing localized headings:\n%s", out)
 	}
 	if strings.Contains(out, "Usage:") {
@@ -82,13 +82,13 @@ func TestCLIHelpLocalizes(t *testing.T) {
 	}
 }
 
-func TestCLIUnknownCommandLocalizes(t *testing.T) {
+func TestCLIUnknownCommandLocalizes(t *testing.T) { //nolint:misspell // Spanish locale copy.
 	srv := fakeAPI(t)
 	_, errs, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es"}, "wat")
 	if code != 2 {
 		t.Fatalf("exit = %d, stderr=%s", code, errs)
 	}
-	if !strings.Contains(errs, `comando desconocido "wat"`) {
+	if !strings.Contains(errs, `comando desconocido "wat"`) { //nolint:misspell // Spanish locale copy.
 		t.Fatalf("stderr missing localized unknown command:\n%s", errs)
 	}
 }

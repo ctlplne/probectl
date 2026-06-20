@@ -75,7 +75,12 @@ export function LifecycleCard() {
                 Redacted export
               </a>
             </p>
-            <form className={styles.actions} onSubmit={save}>
+            <form
+              className={styles.actions}
+              onSubmit={(e) => {
+                void save(e)
+              }}
+            >
               <Field
                 label="Flow retention days (blank = deployment default)"
                 inputMode="numeric"

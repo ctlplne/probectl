@@ -16,8 +16,14 @@ import { DateTime } from '../time/DateTime'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
-  if (typeof v === 'object') return JSON.stringify(v)
-  return String(v)
+  if (typeof v === 'object') return JSON.stringify(v) ?? ''
+  if (typeof v === 'function') return '[function]'
+  if (typeof v === 'string') return v
+  if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') {
+    return String(v)
+  }
+  if (typeof v === 'symbol') return v.description ?? ''
+  return ''
 }
 
 const EXAMPLES = [

@@ -10,10 +10,10 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
-// OTLPTokenStore is the persistence interface for DB-backed OTLP tokens
+// TokenStore is the persistence interface for DB-backed OTLP tokens
 // (WIRE-008). Implemented by store.OTLPTokens; the interface lets the DB layer
 // be tested independently from the in-process cache.
-type OTLPTokenStore interface {
+type TokenStore interface {
 	// Authenticate resolves a token hash to its tenant, stamping last_used_at.
 	// Returns ("", ErrInvalidOTLPToken) for an unknown or revoked token.
 	Authenticate(ctx context.Context, tokenHash []byte) (tenantID string, err error)
@@ -29,7 +29,7 @@ type OTLPTokenStore interface {
 // immediately (no restart required). The in-process cache is ALSO updated so
 // the next request does not make a spurious DB round-trip.
 type DBTokenAuthenticator struct {
-	db  OTLPTokenStore // DB-backed source of truth
+	db  TokenStore // DB-backed source of truth
 	mem *TokenAuthenticator
 	log *slog.Logger
 }
@@ -39,7 +39,7 @@ type DBTokenAuthenticator struct {
 // hot-revocable; config-seeded tokens remain controlled by config+restart. The
 // first successful DB-issued token lookup seeds the in-memory layer, but each
 // later hit re-checks the DB so revocation takes effect without restart.
-func NewDBTokenAuthenticator(db OTLPTokenStore, configTokens map[string]string, log *slog.Logger) *DBTokenAuthenticator {
+func NewDBTokenAuthenticator(db TokenStore, configTokens map[string]string, log *slog.Logger) *DBTokenAuthenticator {
 	if log == nil {
 		log = slog.Default()
 	}

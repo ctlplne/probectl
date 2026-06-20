@@ -406,10 +406,6 @@ func (c *ClickHouse) execAt(ctx context.Context, base, query string, params url.
 	return nil
 }
 
-func (c *ClickHouse) query(ctx context.Context, sql string) ([]map[string]any, error) {
-	return c.queryAt(ctx, "", sql+" FORMAT JSONEachRow", nil)
-}
-
 func (c *ClickHouse) queryAt(ctx context.Context, base, sql string, params url.Values) ([]map[string]any, error) {
 	u := c.baseFor(base) + "/?query=" + url.QueryEscape(sql)
 	if len(params) > 0 {

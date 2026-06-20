@@ -188,9 +188,7 @@ var cliCoverageExceptions = []cliCoverage{
 
 func cliImplementedCoverage() []cliCoverage {
 	var out []cliCoverage
-	for _, cov := range specialCLICoverage() {
-		out = append(out, cov)
-	}
+	out = append(out, specialCLICoverage()...)
 	for _, spec := range surfaceCommands {
 		for name, op := range spec.Ops {
 			out = append(out, cliCoverage{

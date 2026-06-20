@@ -24,7 +24,7 @@ export type AttributionCause = 'none' | 'wifi' | 'local' | 'isp' | 'network' | '
 export interface EndpointView {
   agent_id: string
   last_seen_at: string
-  cause?: AttributionCause | string
+  cause?: string
   summary?: string
   confidence?: number
   slow: boolean
