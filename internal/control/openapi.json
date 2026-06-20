@@ -781,6 +781,7 @@
       "get": {
         "operationId": "listAudit",
         "summary": "Read a page of the tenant's tamper-evident audit trail",
+        "description": "Returns the tenant audit projection. Append-only privacy.subject_erase markers are applied at read/export time: matching structured actor, target, and data values are replaced with an erased token while seq, prev_hash, and hash remain the raw-chain integrity proof.",
         "tags": [
           "audit"
         ],
@@ -5501,7 +5502,7 @@
       },
       "AuditEvent": {
         "type": "object",
-        "description": "One record in the tenant's hash-chained, tamper-evident audit log.",
+        "description": "One record in the tenant's hash-chained, tamper-evident audit log. Privacy erasure is a projection: actor/target/data can be returned as erased tokens, while prev_hash/hash remain the raw-chain proof.",
         "required": [
           "seq",
           "actor",
@@ -5515,7 +5516,7 @@
           },
           "actor": {
             "type": "string",
-            "description": "Who performed the action (email or user id)."
+            "description": "Who performed the action (email, user id, or an erased-subject projection token)."
           },
           "action": {
             "type": "string",
@@ -5527,7 +5528,8 @@
           },
           "data": {
             "type": "object",
-            "additionalProperties": true
+            "additionalProperties": true,
+            "description": "Structured event data after audit privacy projection. If subject erasure applied, matching values are replaced with an erased token and _probectl_privacy describes the projection."
           },
           "prev_hash": {
             "type": "string"

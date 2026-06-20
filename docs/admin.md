@@ -83,6 +83,14 @@ object, and the `prev_hash` / `hash` chain links. Re-computing the chain detects
 any insertion, deletion, reordering, or tampering — that's what `/v1/audit/verify`
 does.
 
+Subject erasure does **not** rewrite old audit rows, because rewriting them
+would break the evidence chain. Instead, probectl appends a
+`privacy.subject_erase` marker that stores only a tenant-scoped hash of the
+subject. Normal audit reads and exports then project matching structured
+`actor`, `target`, and `data` values as `[erased-subject]` while preserving the
+original `seq`, `prev_hash`, and `hash` fields. ELI5: the sealed evidence bag
+stays sealed, but the viewing window puts privacy tape over the person's name.
+
 ### Exporting to a SIEM
 
 The audit log is built for export. `GET /v1/audit?after=<cursor>` is a pull
@@ -95,7 +103,9 @@ connectors for **syslog, CEF, ECS, and OTLP** — respectively the classic Unix
 log-line format, ArcSight's Common Event Format, the Elastic Common Schema, and
 the OpenTelemetry protocol
 (select the wire format with `PROBECTL_SIEM_FORMAT`). The `audit.export`
-permission gates streaming export.
+permission gates streaming export. Export uses the same subject-erasure
+projection as the API reader, so a post-erasure cursor replay does not re-expose
+the erased subject.
 
 ## SSO (OIDC)
 

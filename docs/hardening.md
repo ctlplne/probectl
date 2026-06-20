@@ -57,6 +57,14 @@ A purge or gap logs an unmissable error. Because the public key is published nex
 to the segments, any third party can verify the export with nothing but that
 key — no access to probectl required.
 
+The segment is a **privacy projection**, not a raw table dump. It preserves
+`seq`, `action`, `prev_hash`, and `hash` so sequence and chain continuity still
+verify, but minimizes raw `actor`, `target`, and `data` before the object is
+signed. ELI5: WORM keeps the numbered, signed receipt that proves a log entry
+existed, while leaving the person's name out of the write-once copy. Raw-row
+recomputation remains an in-database/legal-hold operation; object-locked exports
+are safe to retain for the long evidence window.
+
 The signing key is **persisted, not ephemeral**: set
 `PROBECTL_WORM_SIGNING_KEY_FILE` to a PEM path (generated and persisted `0600` on
 first boot, reused thereafter) or inject `PROBECTL_WORM_SIGNING_KEY` (base64 PEM)

@@ -11,5 +11,8 @@
 // Each record's hash chains over the previous record's hash (via internal/crypto),
 // so altering, reordering, or deleting any record breaks verification. The tenant
 // audit table is append-only for the application role (S2 migration: SELECT/INSERT
-// policies, no UPDATE/DELETE). Export hooks for a SIEM land in S19.
+// policies, no UPDATE/DELETE). Subject erasure is handled as an append-only
+// projection marker: old rows remain verifiable, while normal reads/export replace
+// exact structured subject matches with an erased token. WORM provider exports are
+// minimized by default so object-locked copies do not carry raw actor/data values.
 package audit

@@ -6,8 +6,10 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -198,5 +200,51 @@ func TestProviderAuditTamperDetection(t *testing.T) {
 	}
 	if err := ProviderVerifyFrom(ctx, pool, head); err != nil {
 		t.Fatalf("verify (restored): %v", err)
+	}
+}
+
+func TestTenantSubjectErasureProjectsAuditList(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	tn, err := store.NewTenants(pool).Create(ctx, fmt.Sprintf("audit-privacy-%d", time.Now().UnixNano()), "AuditPrivacy")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	tid := tenancy.ID(tn.ID)
+	subject := "alice@example.com"
+
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tid), pool, func(ctx context.Context, s tenancy.Scope) error {
+		if _, err := TenantAppend(ctx, s, subject, "directory.provision", subject, map[string]any{
+			"user_name": subject,
+			"group":     "admins",
+		}); err != nil {
+			return err
+		}
+		if _, err := RecordSubjectErasure(ctx, s, "privacy-admin", subject, "data subject request"); err != nil {
+			return err
+		}
+		if err := TenantVerify(ctx, s); err != nil {
+			return err
+		}
+		events, err := List(ctx, s, 0, 10)
+		if err != nil {
+			return err
+		}
+		raw, err := json.Marshal(events)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(strings.ToLower(string(raw)), subject) {
+			return fmt.Errorf("projected audit list leaked erased subject: %s", raw)
+		}
+		if events[0].Hash == "" || events[0].PrevHash != genesis {
+			return fmt.Errorf("chain fields were not preserved in projection: %#v", events[0])
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("subject erasure projection: %v", err)
 	}
 }

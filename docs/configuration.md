@@ -1551,6 +1551,13 @@ provider console adds the operator-side erase trigger. See
 `docs/runbooks/tenant-offboarding.md` for the full procedure and the
 per-store verification table.
 
+Audit subject erasure is layered on the append-only audit chain. A
+`privacy.subject_erase` marker stores only a tenant-scoped subject hash; later
+audit reads/exports replace matching structured actor/target/data values with an
+erased token while preserving the raw chain links. WORM provider exports are
+minimized before signing, so write-once audit evidence does not become a second
+forever-copy of personal actor/data values.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_BACKUP_RETENTION_NOTE` | (empty → a generic fallback statement) | your backup-TTL statement, included VERBATIM in every deletion attestation — be explicit about when snapshots expire. When unset, a generic placeholder sentence is recorded instead |

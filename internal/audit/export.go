@@ -42,6 +42,10 @@ func List(ctx context.Context, s tenancy.Scope, afterSeq int64, limit int) ([]Ev
 	if limit > MaxExportPageSize {
 		limit = MaxExportPageSize
 	}
+	erased, err := subjectErasureHashes(ctx, s)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.Q.Query(ctx,
 		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM audit_events
@@ -65,7 +69,7 @@ func List(ctx context.Context, s tenancy.Scope, afterSeq int64, limit int) ([]Ev
 		if err := json.Unmarshal(dataBytes, &ev.Data); err != nil {
 			return nil, fmt.Errorf("seq %d: decode data: %w", ev.Seq, err)
 		}
-		out = append(out, ev)
+		out = append(out, projectErasedSubjects(ev, s.Tenant.String(), erased))
 	}
 	return out, rows.Err()
 }

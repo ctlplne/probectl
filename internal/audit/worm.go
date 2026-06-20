@@ -174,7 +174,7 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	seg := WormSegment{
 		FormatVersion: 1, Stream: "provider",
 		FromSeq: events[0].Seq, ToSeq: events[len(events)-1].Seq,
-		ExportedAt: time.Now().UTC(), Events: events,
+		ExportedAt: time.Now().UTC(), Events: minimizeEventsForWORM(events),
 	}
 	raw, err := json.Marshal(seg)
 	if err != nil {

@@ -120,12 +120,47 @@ func TestWormTamperedSegmentFailsVerification(t *testing.T) {
 		}
 	}
 	obj, _ := store.Get(ctx, segKey)
-	tampered := []byte(strings.Replace(string(obj.Data), `"actor":"op"`, `"actor":"evil"`, 1))
+	tampered := []byte(strings.Replace(string(obj.Data), `"action":"a"`, `"action":"evil"`, 1))
 	_ = store.Put(ctx, segKey, "application/json", tampered)
 
 	err := w.VerifyWORMChain(ctx)
 	if err == nil || !strings.Contains(err.Error(), "signature INVALID") {
 		t.Fatalf("tampered segment passed: %v", err)
+	}
+}
+
+func TestWormExportMinimizesRawPersonalFields(t *testing.T) {
+	store := objectstore.NewMemory()
+	ctx := context.Background()
+	events := []Event{{
+		Seq:      1,
+		Actor:    "operator@example.com",
+		Action:   "breakglass.grant",
+		Target:   "tenant:alice@example.com",
+		Data:     map[string]any{"email": "alice@example.com", "reason": "support"},
+		PrevHash: genesis,
+		Hash:     "h1",
+	}}
+	w, _ := NewWormExporterEphemeralForTest(sourceOf(events), store, testLog())
+	if _, err := w.ExportOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	keys, _ := store.List(ctx, "worm/audit/provider/segment-")
+	var segKey string
+	for _, k := range keys {
+		if !strings.HasSuffix(k, ".sig") {
+			segKey = k
+		}
+	}
+	obj, _ := store.Get(ctx, segKey)
+	lower := strings.ToLower(string(obj.Data))
+	for _, leaked := range []string{"operator@example.com", "alice@example.com", "support"} {
+		if strings.Contains(lower, leaked) {
+			t.Fatalf("WORM segment leaked %q: %s", leaked, obj.Data)
+		}
+	}
+	if err := w.VerifyWORMChain(ctx); err != nil {
+		t.Fatalf("minimized WORM segment must still verify: %v", err)
 	}
 }
 
