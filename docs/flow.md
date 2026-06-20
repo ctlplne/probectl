@@ -154,9 +154,10 @@ the flow store (`internal/store/flowstore/clickhouse.go`):
   that tenant's drawers and never scans another tenant's data (the tenancy
   guardrail enforced *below* the
   query) — and a single day's parts stay bounded even at NetFlow volumes;
-- `PROBECTL_FLOW_RETENTION_DAYS=N` (when > 0) applies a ClickHouse delete-TTL
+- `PROBECTL_FLOW_RETENTION_DAYS=N` applies a ClickHouse delete-TTL
   (`toDateTime(ts) + INTERVAL N DAY DELETE` — a time-to-live: ClickHouse
-  deletes expired rows itself);
+  deletes expired rows itself). The default is `90`; `0` disables the TTL and
+  keeps flows indefinitely, which the control plane warns about at boot;
 - a `memory` store (the default) implements the same `Store` contract for the
   lightweight / single-node deploy, and is the reference implementation the
   ClickHouse SQL must agree with (the two share one anomaly detector, so both
