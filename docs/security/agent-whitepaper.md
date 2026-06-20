@@ -214,7 +214,10 @@ not cut from a red CI run.
   runs exactly one agent pod per node). The full privilege contract is declared
   in the artifact itself and CI-gated (lint + hardening assertions +
   kubeconform), with fail-closed rendering — no tenant configured → refuse;
-  plaintext bus without the explicit dev flag → refuse.
+  plaintext bus without the explicit dev flag → refuse. The chart also renders
+  the Kyverno image-integrity policy by default, so the privileged pod is admitted
+  only when its digest is present and its keyless cosign signature comes from the
+  tagged `release.yml` workflow.
 - **VM / bare metal:** `deploy/agent/install.sh` — installs the local binary, a
   dedicated non-root system user, the hardened systemd unit, and a fail-closed
   sample config.

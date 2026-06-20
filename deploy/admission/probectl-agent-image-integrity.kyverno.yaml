@@ -6,7 +6,7 @@ metadata:
     policies.kyverno.io/title: Verify probectl eBPF agent image signatures
     policies.kyverno.io/category: Supply Chain Security
     policies.kyverno.io/severity: high
-    probectl.dev/finding: SUPPLY-002
+    probectl.dev/finding: SUPPLY-001
 spec:
   validationFailureAction: Enforce
   background: false

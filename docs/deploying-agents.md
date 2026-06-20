@@ -390,7 +390,11 @@ with your tooling.
   privilege contract in the manifest (drop **all** capabilities, add back only
   `CAP_BPF`/`CAP_PERFMON`, a seccomp profile, read-only root, the BTF host mount,
   resource limits) and **renders fail-closed** — no `tenantID`, or plaintext
-  Kafka without an explicit opt-in, refuses to template.
+  Kafka without an explicit opt-in, refuses to template. It also renders the
+  Kyverno image-integrity policy by default so admission requires the digest and
+  the keyless cosign signature from the tagged `release.yml` workflow before the
+  privileged pod can start. Disabling that policy requires an explicit
+  `admission.imageIntegrity.acceptedRisk` note.
 
   ```sh
   helm install probectl-agent deploy/helm/probectl-agent \

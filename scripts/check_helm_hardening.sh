@@ -28,6 +28,7 @@ render() {
 }
 
 need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
+need_fixed() { grep -Fq -- "$1" <<<"$2" || fail "$3"; }
 need_file() { grep -q -- "$1" "$2" || fail "$3"; }
 
 # OPS-005: the Ansible role's final health proof must not regress to local
@@ -189,6 +190,17 @@ arender() { helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers=
 agent="$(arender)"
 need "kind: DaemonSet"                  "$agent" "agent: not a DaemonSet"
 need "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$agent" "agent: digest-pinned image did not render"
+# SUPPLY-001: this privileged chart must render the deployment-time signature
+# verifier by default. Digest pinning alone is not provenance; the Kyverno
+# ClusterPolicy requires the image digest and the keyless release-workflow
+# signature before a Pod is admitted.
+need "kind: ClusterPolicy"              "$agent" "agent: image-integrity ClusterPolicy missing (SUPPLY-001)"
+need "probectl-agent-image-integrity"   "$agent" "agent: image-integrity policy name missing (SUPPLY-001)"
+need "verifyImages:"                    "$agent" "agent: Kyverno verifyImages rule missing (SUPPLY-001)"
+need "required: true"                   "$agent" "agent: image signature verification is not required (SUPPLY-001)"
+need "verifyDigest: true"              "$agent" "agent: image digest verification is not enforced (SUPPLY-001)"
+need "validationFailureAction: Enforce" "$agent" "agent: image-integrity policy is not enforcing (SUPPLY-001)"
+need_fixed 'release\\.yml@refs/tags'  "$agent" "agent: release workflow OIDC subject is not pinned (SUPPLY-001)"
 need 'drop: \["ALL"\]'                  "$agent" "agent: capabilities not dropped to ALL"
 need '"BPF", "PERFMON"'                 "$agent" "agent: minimal capability pair not declared"
 need "seccompProfile"                   "$agent" "agent: no seccomp profile"
@@ -244,7 +256,21 @@ fi
 if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' --set-string image.tag="0.4.0" >/dev/null 2>&1; then
   fail "agent chart rendered a privileged tag-only image without image.allowTagOnly=true (RED-003)"
 fi
-need "probectl-ebpf-agent:0.4.0" "$(arender --set image.allowTagOnly=true --set-string image.tag=0.4.0)" "agent: tag-only break-glass render failed"
+if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
+     --set image.allowTagOnly=true --set-string image.tag=0.4.0 >/dev/null 2>&1; then
+  fail "agent chart rendered tag-only break-glass while image-integrity admission stayed enabled (SUPPLY-001)"
+fi
+if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
+     --set admission.imageIntegrity.enabled=false --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
+  fail "agent chart disabled image-integrity admission without admission.imageIntegrity.acceptedRisk (SUPPLY-001)"
+fi
+tag_break_glass="$(arender \
+  --set image.allowTagOnly=true \
+  --set-string image.tag=0.4.0 \
+  --set admission.imageIntegrity.enabled=false \
+  --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
+need "probectl-ebpf-agent:0.4.0" "$tag_break_glass" "agent: tag-only break-glass render failed"
+grep -q "kind: ClusterPolicy" <<<"$tag_break_glass" && fail "agent: accepted tag-only break-glass still rendered Kyverno verifier"
 if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9092}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.enabled=false >/dev/null 2>&1; then
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"

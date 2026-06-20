@@ -1,0 +1,44 @@
+{{- $policy := .Values.admission.imageIntegrity -}}
+{{- if and .Values.image.allowTagOnly $policy.enabled -}}
+{{- fail "image.allowTagOnly=true is a tag-only break-glass and conflicts with admission.imageIntegrity.enabled=true (verifyDigest would reject the pod); set admission.imageIntegrity.enabled=false with admission.imageIntegrity.acceptedRisk to acknowledge the replacement control" -}}
+{{- end -}}
+{{- if and (not $policy.enabled) (not $policy.acceptedRisk) -}}
+{{- fail "admission.imageIntegrity.enabled=false requires admission.imageIntegrity.acceptedRisk describing the replacement image-signature control or approved dev exception" -}}
+{{- end -}}
+{{- if $policy.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ $policy.policyName | quote }}
+  labels:
+    {{- include "probectl-agent.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: Verify probectl eBPF agent image signatures
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+    probectl.dev/finding: SUPPLY-001
+spec:
+  validationFailureAction: {{ $policy.validationFailureAction }}
+  background: {{ $policy.background }}
+  rules:
+    - name: verify-probectl-ebpf-agent-signature-and-digest
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      verifyImages:
+        - imageReferences:
+            {{- range $policy.imageReferences }}
+            - {{ . | quote }}
+            {{- end }}
+          required: true
+          mutateDigest: false
+          verifyDigest: true
+          attestors:
+            - count: 1
+              entries:
+                - keyless:
+                    issuer: {{ $policy.issuer | quote }}
+                    subjectRegExp: {{ $policy.subjectRegExp | quote }}
+{{- end }}

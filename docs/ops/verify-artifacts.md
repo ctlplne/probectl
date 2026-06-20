@@ -136,7 +136,9 @@ fail-closed, before anything lands on the host:
 `apt`/`yum` repo installs rely instead on the repository's own signed-metadata
 trust (the `signed-by=` keyring), which apt/dnf enforce on every fetch.
 
-For Kubernetes, apply
-`deploy/admission/probectl-agent-image-integrity.kyverno.yaml` in clusters that
-run Kyverno. It enforces digest references plus the same keyless release
-workflow identity for the privileged eBPF-agent image at admission time.
+For Kubernetes, the privileged eBPF-agent Helm chart renders the Kyverno
+image-integrity policy by default. In clusters that manage admission separately,
+apply the standalone GitOps form at
+`deploy/admission/probectl-agent-image-integrity.kyverno.yaml`. Either path
+enforces digest references plus the same keyless release workflow identity for
+the privileged eBPF-agent image at admission time.

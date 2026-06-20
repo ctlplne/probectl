@@ -39,6 +39,49 @@
         }
       ]
     },
+    "admission": {
+      "type": "object",
+      "properties": {
+        "imageIntegrity": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "acceptedRisk": {
+              "type": "string"
+            },
+            "policyName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "validationFailureAction": {
+              "type": "string",
+              "enum": ["Enforce", "Audit"]
+            },
+            "background": {
+              "type": "boolean"
+            },
+            "imageReferences": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "issuer": {
+              "type": "string",
+              "format": "uri"
+            },
+            "subjectRegExp": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
     "l7Capture": {
       "type": "object",
       "properties": {

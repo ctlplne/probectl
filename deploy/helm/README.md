@@ -97,6 +97,14 @@ helm install probectl-agent deploy/helm/probectl-agent \
   --set-string image.tag='0.4.0@sha256:<digest>'
 ```
 
+Because this is a privileged node agent, the chart also renders the Kyverno
+`ClusterPolicy` that verifies the eBPF-agent image digest and keyless cosign
+signature from the `release.yml` tag workflow before Kubernetes admits a pod.
+Kyverno must already be installed in the cluster. Disabling the verifier requires
+both `admission.imageIntegrity.enabled=false` and a non-empty
+`admission.imageIntegrity.acceptedRisk` note so a tag-only/dev path leaves an
+audit-visible footprint in values.
+
 Details: [`docs/ebpf-agent.md`](../../docs/ebpf-agent.md) and the privilege
 contract in [`deploy/agent/README.md`](../agent/README.md).
 
@@ -122,9 +130,10 @@ render without envelope and session-HMAC keys) are enforced by `make helm-gate`,
 hardening assertions against the rendered default / medium / large /
 multitenant / strict profiles, `helm lint` across the default and
 small/medium/large/multitenant profiles, **and** the agent chart's privilege
-contract + lint. (The strict profile is render-asserted — closed holes,
-ServiceMonitor, backup CronJobs — rather than linted; the multiregion profile
-reuses the same templates but is not separately exercised by the gate.) CI's
+contract + image-integrity admission policy + lint. (The strict profile is
+render-asserted — closed holes, ServiceMonitor, backup CronJobs — rather than
+linted; the multiregion profile reuses the same templates but is not separately
+exercised by the gate.) CI's
 `helm-gate` job runs the same gate plus kubeconform (a schema validator
 proving the rendered YAML is well-formed Kubernetes) on the rendered
 charts, so a hardening regression fails the build, not a customer install.

@@ -411,6 +411,14 @@ and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture witho
 refuses to template. CI helm-lints, hardening-asserts, and kubeconform-validates
 the chart on every run.
 
+The chart also renders the cluster-side Kyverno image-integrity policy by
+default. Think of it as the second lock on this privileged pod: Helm requires a
+digest-pinned image reference, and admission then requires that digest plus the
+keyless cosign signature from the `release.yml` tag workflow. Kyverno must
+already be installed. If a dev cluster uses a replacement admission controller,
+set `admission.imageIntegrity.enabled=false` only with a non-empty
+`admission.imageIntegrity.acceptedRisk` note.
+
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=acme \

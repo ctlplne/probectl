@@ -11,6 +11,23 @@ image:
   allowTagOnly: false
   pullPolicy: IfNotPresent
 
+# SUPPLY-001: privileged eBPF-agent installs render the cluster-side verifier by
+# default, not as a separate optional manifest the operator may forget. Kyverno
+# must already be installed in the cluster; disabling this policy requires an
+# explicit accepted-risk note and is intended only for dev or a replacement
+# admission controller with equivalent keyless cosign checks.
+admission:
+  imageIntegrity:
+    enabled: true
+    acceptedRisk: ""
+    policyName: probectl-agent-image-integrity
+    validationFailureAction: Enforce
+    background: false
+    imageReferences:
+      - ghcr.io/imfeelingtheagi/probectl-ebpf-agent*
+    issuer: https://token.actions.githubusercontent.com
+    subjectRegExp: ^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/.*
+
 # REQUIRED: the tenant every flow from these nodes belongs to (guardrail 1).
 tenantID: ""
 

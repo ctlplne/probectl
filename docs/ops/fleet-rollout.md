@@ -126,9 +126,11 @@ curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/advance" \
 - **Kubernetes** (the agent chart): `helm upgrade probectl-agent
   deploy/helm/probectl-agent --reuse-values --set
   image.tag="<version>@sha256:<digest>"`. Scope a wave to a set of nodes with
-  `nodeSelector` or a separate release per ring. In clusters with Kyverno,
-  apply `deploy/admission/probectl-agent-image-integrity.kyverno.yaml` so
-  admission also enforces the release-workflow cosign signature on that digest.
+  `nodeSelector` or a separate release per ring. The chart renders the Kyverno
+  image-integrity policy by default, so admission also enforces the
+  release-workflow cosign signature on that digest. Use
+  `deploy/admission/probectl-agent-image-integrity.kyverno.yaml` only when your
+  GitOps flow manages admission policy separately from the workload chart.
 - **VMs**: `sudo deploy/agent/install.sh ./probectl-ebpf-agent-<version>` on the
   wave's hosts (after `cosign verify-blob`).
 
