@@ -14,12 +14,12 @@ not write to it, so CI can never push to `main`.
 
 The repo's other three workflows do **not** run on a normal push:
 
-| Workflow | Trigger | Purpose |
-|---|---|---|
-| `ci.yml` | push to `main` + every PR | the gate described here |
-| `release.yml` | push of a `v*` tag | build/sign/publish a release — its `require-green-ci` job refuses any tag whose commit doesn't have a green `ci` run |
-| `nightly.yml` | daily 03:17 UTC (+ manual) | the slow stuff: `e2e` (black-box full stack against the real compose dependencies), `ingest-bench` (consumer hot-path benchmarks), and `scale-gate-m` (the M-profile SLO regression guard, `make scale-gate-m`, plus an M-tier full-stack run against real Kafka + Prometheus) |
-| `security-scan.yml` | weekly, Mondays 05:17 UTC (+ manual) | scheduled dependency-CVE scans that upload evidence artifacts and gate — `govulncheck` fails on any *reachable* Go vulnerability, `npm-audit` and `trivy-fs` on Critical findings — so a new CVE in an *unchanged* repo still goes red |
+| Workflow            | Trigger                              | Purpose                                                                                                                                                                                                                                                                        |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ci.yml`            | push to `main` + every PR            | the gate described here                                                                                                                                                                                                                                                        |
+| `release.yml`       | push of a `v*` tag                   | build/sign/publish a release — its `require-green-ci` job refuses any tag whose commit doesn't have a green `ci` run                                                                                                                                                           |
+| `nightly.yml`       | daily 03:17 UTC (+ manual)           | the slow stuff: `e2e` (black-box full stack against the real compose dependencies), `ingest-bench` (consumer hot-path benchmarks), and `scale-gate-m` (the M-profile SLO regression guard, `make scale-gate-m`, plus an M-tier full-stack run against real Kafka + Prometheus) |
+| `security-scan.yml` | weekly, Mondays 05:17 UTC (+ manual) | scheduled dependency-CVE scans that upload evidence artifacts and gate — `govulncheck` fails on any _reachable_ Go vulnerability, `npm-audit` and `trivy-fs` on Critical findings — so a new CVE in an _unchanged_ repo still goes red                                         |
 
 ## The shape: fan-out, then one umbrella
 
@@ -52,14 +52,14 @@ Verification you ran, not verification you described.
   (`scripts/check_supply_pins.sh`) rejects `:latest` image tags and unpinned
   tool installs anywhere in the workflows (supply-chain).
 - **secret-scan** — gitleaks, a scanner that pattern-matches the tree for
-  anything *shaped* like a credential (tokens, private keys, `key=value`
+  anything _shaped_ like a credential (tokens, private keys, `key=value`
   passwords): nothing secret-shaped gets committed. The deliberately fake
   secrets inside redaction tests are allowlisted in `.gitleaks.toml`.
 - **commitlint** — commit messages follow Conventional Commits (`feat(...)`,
   `fix(ci): ...`).
 - **dco** — every commit carries a `Signed-off-by` (the Developer Certificate of
   Origin; what `git commit -s` adds).
-- **no-devauth-in-release** — proves the dev-auth bypass is *physically absent*
+- **no-devauth-in-release** — proves the dev-auth bypass is _physically absent_
   from a release binary (symbol + literal absence + a boot-time refusal of
   `PROBECTL_AUTH_MODE=dev`), and compiles a tagged build to confirm the check
   isn't vacuous.
@@ -111,8 +111,12 @@ Verification you ran, not verification you described.
   `coverage.out` + a summary (the per-function tail of `go tool cover -func`)
   as a downloadable receipt artifact
   (see [`docs/quality/coverage.md`](quality/coverage.md)).
-- **web** — the frontend: typecheck, lint, production build; the test step *is*
-  the WCAG 2.2 AA accessibility + theme-token gate.
+- **web** — the frontend: typecheck, lint, production build, surface coverage,
+  jsdom axe, theme-token, and no-hardcoded-token gates.
+- **web-rendered-a11y** — a real Chromium accessibility gate in the pinned
+  Playwright container; it renders every native route under dark and aurora and
+  checks browser-computed contrast, keyboard focus, focus-obscured, and target
+  size.
 - **browser-worker** — the Playwright browser-synthetic worker, run inside the
   official Playwright image (a real scripted login, timings + failure screenshot).
 
@@ -131,7 +135,7 @@ Verification you ran, not verification you described.
   KVM-capable/native arm64 live-kernel runner, arm64 eBPF verifier/attach
   behavior is compile/digest-tested, not CI live-load proven.
 - **ebpf-image-live** — the shipped `probectl-ebpf-agent` image must carry the
-  *live* CO-RE loader (CO-RE = Compile Once – Run Everywhere: the BPF object is
+  _live_ CO-RE loader (CO-RE = Compile Once – Run Everywhere: the BPF object is
   relocated at load time to fit the running kernel's struct layouts), built
   from `Dockerfile.ebpf` and asserting `-tags=ebpf` — not the fixture replayer.
 
@@ -140,11 +144,11 @@ Verification you ran, not verification you described.
 - **cross-tenant-isolation** — the
   [tenant-isolation non-negotiable](../CONTRIBUTING.md#non-negotiables),
   executed (`make test-isolation`): row-level-security posture (RLS is the
-  Postgres feature where the *database itself* filters every query by tenant,
+  Postgres feature where the _database itself_ filters every query by tenant,
   so even buggy handler code cannot return another tenant's rows) +
   cross-tenant injection against a real Postgres (over TLS,
-  `sslmode=verify-full` — the client checks the server's certificate *and*
-  hostname, like production) *and* a real ClickHouse (including its row-policy
+  `sslmode=verify-full` — the client checks the server's certificate _and_
+  hostname, like production) _and_ a real ClickHouse (including its row-policy
   DDL).
 - **integration** — boots the control plane against real Postgres (TLS,
   `verify-full`) plus a remote-write Prometheus; migrations are idempotent,
@@ -177,7 +181,7 @@ Verification you ran, not verification you described.
   schema-validated with `kubeconform`, the GitOps (ArgoCD/Flux) manifests are
   checked, and the shipped compose file must pass `docker compose config`.
 - **terraform-gate** — the Terraform module is `fmt`-clean and `terraform
-  validate`s via an example root that consumes it.
+validate`s via an example root that consumes it.
 
 ### 8. Supply chain & artifacts
 
@@ -194,8 +198,8 @@ Verification you ran, not verification you described.
 
 ## What a green pipeline proves
 
-When `verify-all` is green for a commit, you've demonstrated — *on that exact
-commit* — that the code:
+When `verify-all` is green for a commit, you've demonstrated — _on that exact
+commit_ — that the code:
 
 - compiles and passes lint in every mode (normal, FIPS, eBPF);
 - passes unit, real-Postgres, real-ClickHouse, and real-Kafka tests;
@@ -212,7 +216,7 @@ multi-tenant, source-available).
 
 ## What the pipeline cannot self-apply
 
-Branch-protection *enforcement* (making GitHub refuse to merge a red PR) is a
+Branch-protection _enforcement_ (making GitHub refuse to merge a red PR) is a
 server-side repository setting, not something a workflow in the tree can turn
 on. Until an admin configures it, every check above is advisory at the merge
 button — the recommended ruleset (require `verify-all`, plus the four jobs

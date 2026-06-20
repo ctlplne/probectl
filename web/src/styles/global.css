@@ -19,6 +19,20 @@ body {
   outline: none;
 }
 
+input[type='checkbox'] {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  accent-color: var(--color-accent);
+}
+
+main a[href] {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  text-underline-offset: 0.16em;
+}
+
 ::selection {
   background: var(--color-accent-soft);
 }

@@ -19,6 +19,11 @@
   border-color: var(--color-accent);
 }
 
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .dot {
   width: 8px;
   height: 8px;
@@ -37,7 +42,7 @@
   font-size: 0.625rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-text-subtle);
+  color: var(--color-text-muted);
 }
 
 .name {

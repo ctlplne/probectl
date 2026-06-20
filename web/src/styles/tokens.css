@@ -64,7 +64,7 @@
 
   --color-text: #1b1d2a; /* ~14.6:1 on --color-bg */
   --color-text-muted: #50566b; /* ~7.2:1 */
-  --color-text-subtle: #6b7186; /* ~4.6:1 */
+  --color-text-subtle: #676d80; /* >4.5:1 on --color-bg and --color-surface */
   --color-text-inverse: #ffffff;
 
   --color-border: #e3e5ee;

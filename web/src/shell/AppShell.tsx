@@ -27,7 +27,7 @@ export function AppShell() {
       <SkipLink />
       <Sidebar />
       <TopBar onOpenPalette={openPalette} />
-      <main id="main-content" className={styles.main} tabIndex={-1}>
+      <main id="main-content" className={styles.main} tabIndex={0}>
         <div className={styles.content}>
           <Outlet />
         </div>

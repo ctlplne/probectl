@@ -783,8 +783,9 @@ jobs:
 
   web:
     name: web
-    # Frontend foundation (S8a): typecheck, lint, the a11y + theme-swap + token
-    # guards, and a production build. The test step IS the CI a11y gate.
+    # Frontend foundation (S8a): typecheck, lint, jsdom axe, theme-swap + token
+    # guards, and a production build. Rendered browser a11y runs in the
+    # web-rendered-a11y job below so color/focus/target checks use Chromium.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -826,6 +827,31 @@ jobs:
         run: npm run coverage
       - name: Build
         run: npm run build
+
+  web-rendered-a11y:
+    name: web-rendered-a11y
+    # PRODUCT-001: real-browser WCAG gate. Runs in the same digest-pinned
+    # Playwright image used by the browser worker so Chromium + OS deps are
+    # controlled, not whatever happens to be on the hosted runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            browser-worker/package-lock.json
+      - name: Install web deps
+        run: npm ci
+      - name: Rendered browser a11y gate
+        run: npm run a11y:browser
 
   dependency-scan:
     name: dependency-scan

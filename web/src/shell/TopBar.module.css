@@ -34,6 +34,11 @@
   border-color: var(--color-accent);
 }
 
+.command:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .commandLabel {
   flex: 1;
   text-align: start;
@@ -60,8 +65,8 @@
   width: 32px;
   height: 32px;
   border-radius: var(--radius-pill);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
 }
