@@ -26,12 +26,7 @@ import {
   type EndpointView,
 } from '../api/endpoints'
 import { useRUM, type RUMAppStatus, type RUMVerdict } from '../api/rum'
-
-function when(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
+import { DateTime } from '../time/DateTime'
 
 /** withheld renders a privacy-minimized identifier honestly: the agent chose
  *  not to collect it, so the UI says so — it never invents a value. */
@@ -107,7 +102,9 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
           </>
         ) : null}
         <dt>Last seen</dt>
-        <dd>{when(view.last_seen_at)}</dd>
+        <dd>
+          <DateTime value={view.last_seen_at} />
+        </dd>
 
         {view.wifi ? (
           <>
@@ -246,7 +243,7 @@ export function EndpointsPage() {
       numeric: true,
       render: (v) => num(metric(v.last_mile, 'isp_rtt_ms'), ' ms'),
     },
-    { key: 'seen', header: 'Last seen', render: (v) => when(v.last_seen_at) },
+    { key: 'seen', header: 'Last seen', render: (v) => <DateTime value={v.last_seen_at} /> },
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,

@@ -2,17 +2,12 @@ import styles from './results.module.css'
 import { Badge, EmptyState, Modal, Table, type Column } from '../components'
 import { a, latencyFamily, m, useLatestResults, type LatestResult } from '../api/results'
 import type { Test } from '../api/tests'
+import { DateTime } from '../time/DateTime'
 
 /** Per-type synthetic result views (S-FE5). One consistent pattern across
  *  types — header kv + a type-specific breakdown — extending the S9 screens
  *  with S8a components only. Every shipped type renders named fields; unknown
  *  types fall back to a named metrics table, never raw JSON. */
-
-function when(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
 
 function num(v: number | undefined, unit = '', digits = 1): string {
   if (v === undefined) return '—'
@@ -219,7 +214,12 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
   const columns: Column<BrowserStepRow>[] = [
     { key: 'step', header: 'Step', render: (row) => row.name },
     { key: 'action', header: 'Action', render: (row) => row.action },
-    { key: 'duration', header: 'Duration', numeric: true, render: (row) => num(row.duration, ' ms') },
+    {
+      key: 'duration',
+      header: 'Duration',
+      numeric: true,
+      render: (row) => num(row.duration, ' ms'),
+    },
     {
       key: 'result',
       header: 'Result',
@@ -229,7 +229,7 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
             {row.success === 'true' ? 'ok' : row.detail || 'failed'}
           </Badge>
         ) : (
-          row.detail ?? '—'
+          (row.detail ?? '—')
         ),
     },
   ]
@@ -315,7 +315,7 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
               <dd>
                 {r.agent_id || '—'} ·{' '}
                 <Badge tone={r.success ? 'success' : 'danger'}>{r.success ? 'ok' : 'failed'}</Badge>{' '}
-                · {when(r.observed_at)}
+                · <DateTime value={r.observed_at} />
               </dd>
               {r.error ? (
                 <>

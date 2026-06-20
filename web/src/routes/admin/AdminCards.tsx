@@ -16,6 +16,7 @@ import {
 import { ApiError } from '../../api/client'
 import { useKeys, useRotateKey, type KeyInfo } from '../../api/keys'
 import { useRemediations, useDecideRemediation, type Proposal } from '../../api/remediation'
+import { DateTime } from '../../time/DateTime'
 
 /** RemediationCard (S-EE5, ee): AI-proposed remediations awaiting a human
  *  decision. probectl NEVER executes — Approve is a recorded, audited sign-off
@@ -163,7 +164,7 @@ export function KeysCard() {
           <StatusDot tone="danger" label="Destroyed" />
         ),
     },
-    { key: 'created', header: 'Created', render: (k) => k.created_at || '—' },
+    { key: 'created', header: 'Created', render: (k) => <DateTime value={k.created_at} /> },
   ]
 
   return (

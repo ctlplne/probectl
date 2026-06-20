@@ -4,6 +4,7 @@ import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../auth/useAuth'
 import { Button } from '../components/Button'
 import { Icon } from '../components/Icon'
+import { TimeZoneToggle } from '../time/TimeZoneToggle'
 
 function initials(name: string) {
   return name
@@ -36,6 +37,7 @@ export function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
       </button>
 
       <div className={styles.right}>
+        <TimeZoneToggle />
         <Button
           variant="ghost"
           size="sm"

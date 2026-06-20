@@ -14,7 +14,8 @@ import {
 } from '../components'
 import { useOutages, type FeedHealth, type OutageEvent } from '../api/outages'
 import { useI18n } from '../i18n/useI18n'
-import type { Locale, MessageKey } from '../i18n/messages'
+import type { MessageKey } from '../i18n/messages'
+import { DateTime } from '../time/DateTime'
 
 type T = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -23,9 +24,9 @@ type T = (key: MessageKey, vars?: Record<string, string | number>) => string
  * The coverage notes keep the view honest: this is NOT a global probe fleet. */
 export function OutagesPage() {
   const { data, isPending, isError } = useOutages()
-  const { locale, t } = useI18n()
-  const eventColumns = useMemo(() => makeEventColumns(t, locale), [locale, t])
-  const feedColumns = useMemo(() => makeFeedColumns(t, locale), [locale, t])
+  const { t } = useI18n()
+  const eventColumns = useMemo(() => makeEventColumns(t), [t])
+  const feedColumns = useMemo(() => makeFeedColumns(t), [t])
 
   return (
     <Page title={t('outages.page.title')} subtitle={t('outages.page.subtitle')}>
@@ -113,7 +114,7 @@ export function OutagesPage() {
   )
 }
 
-function makeEventColumns(t: T, locale: Locale): Column<OutageEvent>[] {
+function makeEventColumns(t: T): Column<OutageEvent>[] {
   return [
     {
       key: 'what',
@@ -168,7 +169,7 @@ function makeEventColumns(t: T, locale: Locale): Column<OutageEvent>[] {
     {
       key: 'start',
       header: t('outages.column.started'),
-      render: (e) => new Date(e.start).toLocaleString(locale),
+      render: (e) => <DateTime value={e.start} />,
     },
     {
       key: 'impact',
@@ -190,7 +191,7 @@ function makeEventColumns(t: T, locale: Locale): Column<OutageEvent>[] {
   ]
 }
 
-function makeFeedColumns(t: T, locale: Locale): Column<FeedHealth>[] {
+function makeFeedColumns(t: T): Column<FeedHealth>[] {
   return [
     { key: 'name', header: t('outages.column.feed'), render: (f) => <strong>{f.name}</strong> },
     {
@@ -202,7 +203,7 @@ function makeFeedColumns(t: T, locale: Locale): Column<FeedHealth>[] {
     {
       key: 'refreshed',
       header: t('outages.column.refreshed'),
-      render: (f) => (f.last_success ? new Date(f.last_success).toLocaleString(locale) : ''),
+      render: (f) => <DateTime value={f.last_success} empty="" />,
     },
     {
       key: 'aup',

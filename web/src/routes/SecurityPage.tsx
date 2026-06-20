@@ -26,12 +26,7 @@ import {
   useRemediations,
   type CreateProposalInput,
 } from '../api/remediation'
-
-function when(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
+import { DateTime } from '../time/DateTime'
 
 /** expiryBadge renders days-to-expiry with a tone that matches urgency. */
 function expiryBadge(p: TLSPosture) {
@@ -99,7 +94,8 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
             ) : null}
             <dt>Validity</dt>
             <dd>
-              {when(leaf.not_before)} → {when(leaf.not_after)} ({expiryBadge(posture)})
+              <DateTime value={leaf.not_before} /> → <DateTime value={leaf.not_after} /> (
+              {expiryBadge(posture)})
             </dd>
             <dt>Key</dt>
             <dd>
@@ -112,7 +108,7 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
         ) : null}
         <dt>Observed</dt>
         <dd>
-          {when(posture.observed_at)} via {posture.source}
+          <DateTime value={posture.observed_at} /> via {posture.source}
         </dd>
       </dl>
 
@@ -224,7 +220,9 @@ function DetectionDetail({
           </>
         ) : null}
         <dt>Observed</dt>
-        <dd>{when(detection.observed_at)}</dd>
+        <dd>
+          <DateTime value={detection.observed_at} />
+        </dd>
       </dl>
       <p className={styles.notice}>
         A confidence-scored signal from {detection.source ?? 'a threat feed'} — feeds can list
@@ -309,7 +307,7 @@ function DetectionsCard() {
     { key: 'entity', header: 'Entity', render: (d) => d.entity },
     { key: 'indicator', header: 'Indicator', render: (d) => d.indicator ?? '—' },
     { key: 'source', header: 'Source', render: (d) => d.source ?? 'unknown' },
-    { key: 'when', header: 'Observed', render: (d) => when(d.observed_at) },
+    { key: 'when', header: 'Observed', render: (d) => <DateTime value={d.observed_at} /> },
     {
       key: 'incident',
       header: 'Incident',

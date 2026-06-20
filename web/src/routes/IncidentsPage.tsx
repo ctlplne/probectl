@@ -23,11 +23,7 @@ import {
   useIncidents,
   useResolveIncident,
 } from '../api/incidents'
-
-function when(iso: string): string {
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
+import { DateTime } from '../time/DateTime'
 
 /** Timeline overlays every plane's signals for one incident in time order. The
  *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
@@ -79,14 +75,16 @@ function Timeline({ incidentId }: { incidentId: string }) {
           </div>
           <div>
             <dt>Started</dt>
-            <dd>{when(inc.started_at)}</dd>
+            <dd>
+              <DateTime value={inc.started_at} />
+            </dd>
           </div>
         </dl>
 
         <ol className={styles.timeline} aria-label="Incident timeline">
           {signals.map((s: Signal, i) => (
             <li key={`${s.plane}-${i}`} className={styles.event}>
-              <span className={styles.time}>{when(s.occurred_at)}</span>
+              <DateTime value={s.occurred_at} className={styles.time} />
               <span className={styles.dot}>
                 <StatusDot tone={severityTone(s.severity)} label={s.severity} />
               </span>
@@ -144,7 +142,11 @@ export function IncidentsPage() {
       ),
     },
     { key: 'signals', header: 'Signals', numeric: true, render: (r) => r.signal_count },
-    { key: 'last_seen', header: 'Last activity', render: (r) => when(r.last_seen_at) },
+    {
+      key: 'last_seen',
+      header: 'Last activity',
+      render: (r) => <DateTime value={r.last_seen_at} />,
+    },
   ]
 
   return (

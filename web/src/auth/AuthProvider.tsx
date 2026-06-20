@@ -13,12 +13,14 @@ export interface Tenant {
   id: string
   name: string
   slug: string
+  time_zone?: string | null
 }
 
 export interface User {
   id: string
   name: string
   email: string
+  time_zone?: string | null
 }
 
 export interface AuthContextValue {
@@ -38,6 +40,8 @@ interface Me {
   user_id: string
   email: string
   display_name: string
+  tenant_time_zone?: string | null
+  time_zone?: string | null
 }
 
 const LOGOUT_PATH = '/auth/logout'
@@ -80,8 +84,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // the session. Cross-tenant switching is a provider-plane operator feature,
     // not exposed in the tenant UI — so the list holds the single tenant and
     // switchTenant is a no-op (the always-visible indicator stays correct).
-    const tenant: Tenant = { id: me.tenant_id, name: me.tenant_id, slug: me.tenant_id }
-    const user: User = { id: me.user_id, name: me.display_name || me.email, email: me.email }
+    const tenant: Tenant = {
+      id: me.tenant_id,
+      name: me.tenant_id,
+      slug: me.tenant_id,
+      time_zone: me.tenant_time_zone,
+    }
+    const user: User = {
+      id: me.user_id,
+      name: me.display_name || me.email,
+      email: me.email,
+      time_zone: me.time_zone,
+    }
     return { user, tenant, tenants: [tenant], switchTenant: () => {}, signOut }
   }, [me, signOut])
 

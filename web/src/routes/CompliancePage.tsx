@@ -14,6 +14,7 @@ import {
 } from '../components'
 import { useCompliance, type RuleResult, type Verdict } from '../api/compliance'
 import { apiURL } from '../api/client'
+import { DateTime } from '../time/DateTime'
 
 /** CompliancePage (S46): segmentation validation against OBSERVED traffic —
  * pass/fail per declared boundary, with the never-overclaim coverage block
@@ -55,7 +56,7 @@ export function CompliancePage() {
     {
       key: 'last',
       header: 'Last violated',
-      render: (r) => (r.last_violated ? new Date(r.last_violated).toLocaleString() : '—'),
+      render: (r) => <DateTime value={r.last_violated} />,
     },
   ]
 

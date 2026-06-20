@@ -30,12 +30,7 @@ import {
   type AlertRule,
   type AlertRuleInput,
 } from '../api/alerts'
-
-function when(iso?: string): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
+import { DateTime } from '../time/DateTime'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -85,18 +80,22 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
         <dt>Value</dt>
         <dd>{alert.value}</dd>
         <dt>Firing since</dt>
-        <dd>{when(alert.since)}</dd>
+        <dd>
+          <DateTime value={alert.since} />
+        </dd>
         {alert.silenced_until ? (
           <>
             <dt>Silenced until</dt>
-            <dd>{when(alert.silenced_until)}</dd>
+            <dd>
+              <DateTime value={alert.silenced_until} />
+            </dd>
           </>
         ) : null}
         {alert.acked_by ? (
           <>
             <dt>Acknowledged</dt>
             <dd>
-              {alert.acked_by} at {when(alert.acked_at)}
+              {alert.acked_by} at <DateTime value={alert.acked_at} />
             </dd>
           </>
         ) : null}
@@ -338,7 +337,7 @@ export function AlertsPage() {
       render: (a) => `${a.metric}${labelText(a.labels) ? ` {${labelText(a.labels)}}` : ''}`,
     },
     { key: 'value', header: 'Value', numeric: true, render: (a) => String(a.value) },
-    { key: 'since', header: 'Since', render: (a) => when(a.since) },
+    { key: 'since', header: 'Since', render: (a) => <DateTime value={a.since} /> },
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,

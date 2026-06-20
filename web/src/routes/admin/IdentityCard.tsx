@@ -25,6 +25,7 @@ import {
   type ABACPolicy,
   type ScimToken,
 } from '../../api/identity'
+import { DateTime } from '../../time/DateTime'
 
 type DirectorySurface = {
   name: string
@@ -75,11 +76,6 @@ function formatAttrs(attrs?: Record<string, string>) {
     .join(', ')
 }
 
-function formatTime(ts?: string) {
-  if (!ts) return '—'
-  return new Date(ts).toLocaleString()
-}
-
 export function IdentityCard() {
   const scimTokens = useScimTokens()
   const createToken = useCreateScimToken()
@@ -112,8 +108,8 @@ export function IdentityCard() {
           <StatusDot tone="success" label="Live" />
         ),
     },
-    { key: 'created', header: 'Created', render: (t) => formatTime(t.created_at) },
-    { key: 'last', header: 'Last used', render: (t) => formatTime(t.last_used_at) },
+    { key: 'created', header: 'Created', render: (t) => <DateTime value={t.created_at} /> },
+    { key: 'last', header: 'Last used', render: (t) => <DateTime value={t.last_used_at} /> },
     {
       key: 'action',
       header: 'Action',
@@ -314,7 +310,11 @@ export function IdentityCard() {
             onChange={(e) => setPriority(e.target.value)}
           />
           <label>
-            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />{' '}
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />{' '}
             Enabled
           </label>
           <Button type="submit" variant="primary" disabled={createPolicy.isPending}>

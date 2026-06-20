@@ -17,6 +17,7 @@ import {
 import { useEditions, type FeatureInfo } from '../../api/editions'
 import { useLifecycle, useSaveLifecycleRetention } from '../../api/lifecycle'
 import { useDiagnostics, type HealthStatus } from '../../api/diagnostics'
+import { DateTime } from '../../time/DateTime'
 
 /** LifecycleCard (S-T5, core): self-service data export, the retention
  *  control, and residency/isolation visibility — export + verifiable
@@ -225,10 +226,16 @@ export function EditionsCard() {
                 <> — the full core, free forever</>
               )}
               {data?.expires_at ? (
-                <> · expires {new Date(data.expires_at).toLocaleDateString()}</>
+                <>
+                  {' '}
+                  · expires <DateTime value={data.expires_at} />
+                </>
               ) : null}
               {data?.state === 'grace' && data.read_only_at ? (
-                <> · read-only from {new Date(data.read_only_at).toLocaleDateString()}</>
+                <>
+                  {' '}
+                  · read-only from <DateTime value={data.read_only_at} />
+                </>
               ) : null}
               {data?.tenant_band ? <> · tenant band {data.tenant_band}</> : null}
             </p>

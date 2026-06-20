@@ -12,12 +12,7 @@ import {
   LoadingState,
 } from '../components'
 import { confidenceTone, useAsk, useSubmitFeedback, type Answer, type Evidence } from '../api/ai'
-
-function when(iso?: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
-}
+import { DateTime } from '../time/DateTime'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -232,7 +227,7 @@ function AnswerView({ answer }: { answer: Answer }) {
                           <div className={styles.evRow}>
                             {e.severity ? <Badge tone="neutral">{e.severity}</Badge> : null}
                             {e.occurred_at ? (
-                              <span className={styles.evTime}>{when(e.occurred_at)}</span>
+                              <DateTime value={e.occurred_at} className={styles.evTime} />
                             ) : null}
                             {cites ? (
                               <span

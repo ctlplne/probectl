@@ -8,6 +8,7 @@ import { ToastProvider } from './components'
 import { makeQueryClient } from './api/queryClient'
 import { AppRoutes } from './routes/AppRoutes'
 import { I18nProvider } from './i18n/I18nProvider'
+import { TimeProvider } from './time/TimeProvider'
 
 /** Providers wraps the app in theme, server-state, auth, and toast context. It is
  *  router-agnostic so tests can supply a MemoryRouter. */
@@ -25,7 +26,9 @@ export function Providers({
         <BrandProvider>
           <QueryClientProvider client={client}>
             <AuthProvider>
-              <ToastProvider>{children}</ToastProvider>
+              <TimeProvider>
+                <ToastProvider>{children}</ToastProvider>
+              </TimeProvider>
             </AuthProvider>
           </QueryClientProvider>
         </BrandProvider>
