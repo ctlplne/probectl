@@ -40,10 +40,15 @@ func TestBrandingCRUDAndAudit(t *testing.T) {
 
 	// PUT a tenant brand; audited; resolvable through the CORE seam.
 	body := map[string]any{
-		"product_name":    "AcmeWatch",
-		"login_message":   "Welcome",
-		"custom_domain":   "status.acme.example",
-		"token_overrides": map[string]string{"--color-accent": "#ff3300"},
+		"product_name":  "AcmeWatch",
+		"login_message": "Welcome",
+		"custom_domain": "status.acme.example",
+		"token_overrides": map[string]string{
+			"--color-accent":          "#6a4cf0",
+			"--color-accent-hover":    "#7054f6",
+			"--color-accent-strong":   "#684af0",
+			"--color-accent-contrast": "#ffffff",
+		},
 	}
 	rec = f.doAuthed(t, admin, http.MethodPut, "/provider/v1/tenants/tnA/branding", body)
 	if rec.Code != http.StatusOK {
@@ -53,7 +58,7 @@ func TestBrandingCRUDAndAudit(t *testing.T) {
 		t.Fatal("branding changes must be audited")
 	}
 	b := resolver.For(t.Context(), "", "tnA")
-	if b.ProductName != "AcmeWatch" || b.TokenOverrides["--color-accent"] != "#ff3300" {
+	if b.ProductName != "AcmeWatch" || b.TokenOverrides["--color-accent"] != "#6a4cf0" {
 		t.Fatalf("resolution after PUT: %+v", b)
 	}
 	if got := resolver.TenantForHost(t.Context(), "status.acme.example"); got != "tnA" {
@@ -145,7 +150,12 @@ func TestCoreBrandingEndToEnd(t *testing.T) {
 	store := whitelabel.NewMemStore()
 	_ = store.SetTenantBrand(t.Context(), whitelabel.Record{
 		TenantID: "tnA", ProductName: "AcmeWatch", CustomDomain: "status.acme.example",
-		TokenOverrides: map[string]string{"--color-accent": "#ff3300"},
+		TokenOverrides: map[string]string{
+			"--color-accent":          "#6a4cf0",
+			"--color-accent-hover":    "#7054f6",
+			"--color-accent-strong":   "#684af0",
+			"--color-accent-contrast": "#ffffff",
+		},
 	})
 	resolver := whitelabel.NewResolver(store, time.Minute)
 	branding.SetSource(resolver)

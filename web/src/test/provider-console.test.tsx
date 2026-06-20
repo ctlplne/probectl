@@ -467,7 +467,12 @@ describe('provider console (S-T1)', () => {
     const body = JSON.parse(String((put![1] as RequestInit).body))
     expect(body.product_name).toBe('AcmeWatch')
     expect(body.custom_domain).toBe('status.acme.example')
-    expect(body.token_overrides).toEqual({ '--color-accent': '#ff3300' })
+    expect(body.token_overrides).toEqual({
+      '--color-accent': '#ff3300',
+      '--color-accent-hover': '#ff3300',
+      '--color-accent-strong': '#ff3300',
+      '--color-accent-contrast': '#04130f',
+    })
   })
 
   test('a11y: the provider console passes the axe bar (logged-in dashboard)', async () => {

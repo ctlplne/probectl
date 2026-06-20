@@ -785,7 +785,7 @@ function BrandingCard({ readOnly }: { readOnly: boolean }) {
       product_name: productName,
       login_message: loginMessage,
       email_from_name: emailFrom,
-      token_overrides: accent ? { '--color-accent': accent } : {},
+      token_overrides: accentOverrides(accent),
     }
     try {
       if (scope === 'tenant') {
@@ -855,6 +855,48 @@ function BrandingCard({ readOnly }: { readOnly: boolean }) {
       </CardBody>
     </Card>
   )
+}
+
+function accentOverrides(accent: string): Record<string, string> {
+  const value = accent.trim()
+  if (!value) return {}
+  const contrast = contrastRatio(value, '#ffffff') >= 4.5 ? '#ffffff' : '#04130f'
+  return {
+    '--color-accent': value,
+    '--color-accent-hover': value,
+    '--color-accent-strong': value,
+    '--color-accent-contrast': contrast,
+  }
+}
+
+function contrastRatio(a: string, b: string) {
+  const ca = hexColor(a)
+  const cb = hexColor(b)
+  if (!ca || !cb) return 0
+  const la = luminance(ca)
+  const lb = luminance(cb)
+  const high = Math.max(la, lb)
+  const low = Math.min(la, lb)
+  return (high + 0.05) / (low + 0.05)
+}
+
+function hexColor(value: string) {
+  let hex = value.trim().toLowerCase()
+  if (!hex.startsWith('#')) return undefined
+  hex = hex.slice(1)
+  if (hex.length === 3) hex = [...hex].map((ch) => ch + ch).join('')
+  if (hex.length !== 6) return undefined
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  if (![r, g, b].every(Number.isFinite)) return undefined
+  return { r: r / 255, g: g / 255, b: b / 255 }
+}
+
+function luminance(color: { r: number; g: number; b: number }) {
+  const linear = (value: number) =>
+    value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4)
+  return 0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b)
 }
 
 function OperatorsCard({ readOnly }: { readOnly: boolean }) {

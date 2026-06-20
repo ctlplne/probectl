@@ -111,7 +111,8 @@ var (
 // MaxOverrides bounds an override set (defense against config-blob abuse).
 const MaxOverrides = 64
 
-// ValidateOverrides rejects unknown token names and unsafe values.
+// ValidateOverrides rejects unknown token names, unsafe values, and override
+// sets that would make required text or UI indicator pairs unreadable.
 func ValidateOverrides(overrides map[string]string) error {
 	if len(overrides) > MaxOverrides {
 		return fmt.Errorf("branding: too many token overrides (%d > %d)", len(overrides), MaxOverrides)
@@ -134,7 +135,7 @@ func ValidateOverrides(overrides map[string]string) error {
 			return fmt.Errorf("branding: unsafe or malformed value for %s", name)
 		}
 	}
-	return nil
+	return validateOverrideContrast(overrides)
 }
 
 // logoRe constrains logos to small inline data URIs of safe image types.

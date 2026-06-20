@@ -19,14 +19,25 @@ func seeded(t *testing.T) (*MemStore, *Resolver) {
 	ctx := context.Background()
 	if err := store.SetProviderBrand(ctx, Record{
 		ProductName: "MSP NetWatch", EmailFooter: "© MSP GmbH",
-		TokenOverrides: map[string]string{"--color-accent": "#0055aa", "--color-bg": "#101418"},
+		TokenOverrides: map[string]string{
+			"--color-accent":          "#684af0",
+			"--color-accent-hover":    "#7054f6",
+			"--color-accent-strong":   "#684af0",
+			"--color-accent-contrast": "#ffffff",
+			"--color-focus":           "#684af0",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetTenantBrand(ctx, Record{
 		TenantID: "tnA", ProductName: "AcmeWatch", CustomDomain: "status.acme.example",
-		LoginMessage:   "Welcome to AcmeWatch",
-		TokenOverrides: map[string]string{"--color-accent": "#ff3300"},
+		LoginMessage: "Welcome to AcmeWatch",
+		TokenOverrides: map[string]string{
+			"--color-accent":          "#6a4cf0",
+			"--color-accent-hover":    "#7054f6",
+			"--color-accent-strong":   "#684af0",
+			"--color-accent-contrast": "#ffffff",
+		},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -44,8 +55,8 @@ func TestBrandingApplication(t *testing.T) {
 	if a.ProductName != "AcmeWatch" || a.LoginMessage != "Welcome to AcmeWatch" {
 		t.Fatalf("tenant A brand: %+v", a)
 	}
-	// Tenant override wins for accent; master fills the bg it didn't set.
-	if a.TokenOverrides["--color-accent"] != "#ff3300" || a.TokenOverrides["--color-bg"] != "#101418" {
+	// Tenant override wins for accent; master fills the focus color it didn't set.
+	if a.TokenOverrides["--color-accent"] != "#6a4cf0" || a.TokenOverrides["--color-focus"] != "#684af0" {
 		t.Fatalf("token precedence: %+v", a.TokenOverrides)
 	}
 	if a.EmailFooter != "© MSP GmbH" { // master fills unset fields
@@ -53,7 +64,7 @@ func TestBrandingApplication(t *testing.T) {
 	}
 
 	b := r.For(ctx, "", "tnB")
-	if b.ProductName != "MSP NetWatch" || b.TokenOverrides["--color-accent"] != "#0055aa" {
+	if b.ProductName != "MSP NetWatch" || b.TokenOverrides["--color-accent"] != "#684af0" {
 		t.Fatalf("tenant B must get the provider master: %+v", b)
 	}
 }
@@ -70,7 +81,7 @@ func TestNoBleedRegression(t *testing.T) {
 		if a.ProductName == b.ProductName {
 			t.Fatalf("bleed: A=%q B=%q", a.ProductName, b.ProductName)
 		}
-		if b.TokenOverrides["--color-accent"] == "#ff3300" {
+		if b.TokenOverrides["--color-accent"] == "#6a4cf0" {
 			t.Fatalf("tenant A's token bled into B: %+v", b.TokenOverrides)
 		}
 		if b.LoginMessage != "" {
@@ -174,7 +185,12 @@ func TestEmailTemplateBranding(t *testing.T) {
 }
 
 func TestRecordValidate(t *testing.T) {
-	good := Record{TenantID: "tnA", TokenOverrides: map[string]string{"--color-accent": "#fff"},
+	good := Record{TenantID: "tnA", TokenOverrides: map[string]string{
+		"--color-accent":          "#6a4cf0",
+		"--color-accent-hover":    "#7054f6",
+		"--color-accent-strong":   "#684af0",
+		"--color-accent-contrast": "#ffffff",
+	},
 		LogoDataURI: "data:image/png;base64,AAAA", CustomDomain: "x.example"}
 	if err := good.Validate(); err != nil {
 		t.Fatalf("good record rejected: %v", err)

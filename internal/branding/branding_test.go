@@ -10,11 +10,13 @@ import (
 
 func TestValidateOverrides(t *testing.T) {
 	ok := map[string]string{
-		"--color-accent":  "#7c5cff",
-		"--color-bg":      "rgba(10, 12, 20, 0.9)",
-		"--color-warning": "hsl(40deg 80% 60%)",
-		"--radius-md":     "10px",
-		"--font-sans":     "Inter, 'Helvetica Neue', sans-serif",
+		"--color-accent":          "#6a4cf0",
+		"--color-accent-hover":    "#7054f6",
+		"--color-accent-strong":   "#684af0",
+		"--color-accent-contrast": "#ffffff",
+		"--color-warning":         "hsl(35deg 71% 42%)",
+		"--radius-md":             "10px",
+		"--font-sans":             "Inter, 'Helvetica Neue', sans-serif",
 	}
 	if err := ValidateOverrides(ok); err != nil {
 		t.Fatalf("valid overrides rejected: %v", err)
@@ -28,6 +30,9 @@ func TestValidateOverrides(t *testing.T) {
 		{"--radius-md": "calc(1px + 1px)"},                    // no expressions
 		{"--font-sans": "Inter; }"},                           // no structure chars
 		{"--color-bg": "expression(alert(1))"},                // no expressions
+		{"--color-text": "#ffffff"},                           // unreadable on light theme
+		{"--color-accent": "#ff3300"},                         // inherited accent text fails contrast
+		{"--color-chart-1": "#ffffff"},                        // chart/non-text indicator vanishes
 	}
 	for i, m := range bad {
 		if err := ValidateOverrides(m); err == nil {

@@ -49,7 +49,12 @@ func TestBrandingEndpoint(t *testing.T) {
 
 	// Installed source: the brand follows the serving HOST (pre-auth).
 	branding.SetSource(hostBrandSource{byHost: map[string]branding.Branding{
-		"status.acme.example": {ProductName: "AcmeWatch", TokenOverrides: map[string]string{"--color-accent": "#ff3300"}},
+		"status.acme.example": {ProductName: "AcmeWatch", TokenOverrides: map[string]string{
+			"--color-accent":          "#6a4cf0",
+			"--color-accent-hover":    "#7054f6",
+			"--color-accent-strong":   "#684af0",
+			"--color-accent-contrast": "#ffffff",
+		}},
 	}})
 	defer branding.SetSource(nil)
 
@@ -60,7 +65,7 @@ func TestBrandingEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &b); err != nil {
 		t.Fatal(err)
 	}
-	if b.ProductName != "AcmeWatch" || b.TokenOverrides["--color-accent"] != "#ff3300" {
+	if b.ProductName != "AcmeWatch" || b.TokenOverrides["--color-accent"] != "#6a4cf0" {
 		t.Fatalf("host brand: %+v", b)
 	}
 	if vary := rr.Header().Get("Vary"); vary != "Host" {

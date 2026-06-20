@@ -4,8 +4,8 @@
 
 **White-labeling** is shipping a product under the buyer's brand, with the
 maker's name nowhere in sight. An MSP reselling probectl wants its customers to
-see *its* brand, not probectl's
-— and if it serves many customers, each of those may want *their own* brand
+see _its_ brand, not probectl's
+— and if it serves many customers, each of those may want _their own_ brand
 too. White-labeling makes that possible: per-tenant (and provider-master)
 overrides of the design tokens, logo, product name, branded login page,
 custom-domain mapping, and branded email templates.
@@ -23,7 +23,7 @@ Every screen in the UI styles itself from **design tokens** — named design
 values delivered as CSS custom
 properties like `--color-primary`, never hardcoded colors (a CI gate enforces
 "no hardcoded colors," including the commercial `ee/web` screens). Because
-*everything* reads from tokens, branding is just a matter of **overriding those
+_everything_ reads from tokens, branding is just a matter of **overriding those
 token values at runtime** — zero per-screen work. The tokens are a theater's
 lighting board: every scene is lit from the same named channels, so re-lighting
 the whole show is sliding a few faders once — nobody repaints the sets. If some
@@ -41,14 +41,14 @@ on: a **data URI** is an image embedded directly in the page as text
 an **allowlist** names the only things permitted and refuses everything else by
 default. The fields:
 
-| Field | Notes |
-|---|---|
-| `product_name` | replaces the probectl wordmark + document title + email header |
-| `logo_data_uri` | inline `data:image/(png\|jpeg\|svg+xml);base64`, ≤128KB — **no external fetches** (sovereignty; also keeps mail clients from phoning home) |
-| `login_message` | copy shown on the branded login surface |
-| `token_overrides` | design-token → value. **Allowlist**: `--color-*`, `--radius-sm/md/lg`, `--font-sans`, `--font-mono`. **Values are injection-safe by construction**: hex / `rgb()` / `hsl()` colors, simple lengths, font lists — no `url()`, no `var()`, no expressions. Validated in core (`internal/branding`, `ValidateOverrides`) **and** re-checked client-side |
-| `email_from_name`, `email_footer` | email branding |
-| `custom_domain` | one tenant per hostname (unique index), lowercase, no scheme/port |
+| Field                             | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `product_name`                    | replaces the probectl wordmark + document title + email header                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `logo_data_uri`                   | inline `data:image/(png\|jpeg\|svg+xml);base64`, ≤128KB — **no external fetches** (sovereignty; also keeps mail clients from phoning home)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `login_message`                   | copy shown on the branded login surface                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `token_overrides`                 | design-token → value. **Allowlist**: `--color-*`, `--radius-sm/md/lg`, `--font-sans`, `--font-mono`. **Values are injection-safe by construction**: hex / `rgb()` / `hsl()` colors, simple lengths, font lists — no `url()`, no `var()`, no expressions. Color overrides are also checked as a set against the shipped dark and aurora contrast matrix: text pairs must stay at least **4.5:1**, and non-text indicators such as focus/status/chart colors must stay at least **3:1**. Validated in core (`internal/branding`, `ValidateOverrides`) **and** re-checked client-side |
+| `email_from_name`, `email_footer` | email branding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `custom_domain`                   | one tenant per hostname (unique index), lowercase, no scheme/port                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 **Resolution precedence: tenant row → provider master → probectl default**,
 applied field by field (`merge` in `ee/whitelabel/whitelabel.go` folds master in
@@ -68,6 +68,15 @@ shapes — a hex/`rgb()`/`hsl()` color for `--color-*`, a simple length for
 logo is constrained the same way: only a small inline `data:` image URI of a
 safe type, never a fetchable URL.
 
+Color syntax alone is not enough. A tenant can choose a perfectly valid color
+that makes the UI unreadable, like white body text on the aurora theme's white
+surface or a chart series that disappears into the page background. Core
+therefore applies the candidate color set onto every shipped theme before it is
+stored: required text pairs must meet WCAG AA's 4.5:1 contrast bar, and
+non-text status/focus/chart indicators must meet the 3:1 UI-component bar. The
+SPA repeats the same check before applying fetched branding, so stale or
+hand-edited data fails closed on the client too.
+
 ## The no-bleed rule
 
 The cardinal regression to prevent: **one tenant's brand must never bleed into
@@ -81,7 +90,7 @@ guarantee it:
   residue from the previous brand.
 - **An authenticated tenant resolves by TENANT only.** A signed-in tenant-B
   user who happens to load tenant A's domain gets **B's** resolution, not A's
-  brand. Host-to-tenant mapping is strictly the *pre-auth* path (`For` checks
+  brand. Host-to-tenant mapping is strictly the _pre-auth_ path (`For` checks
   `tenantID` before it ever looks at `host`).
 - **HTTP caching can't leak it either.** `/branding` responses set `Vary: Host`
   and `Cache-Control: private, max-age=60`, so a shared cache can never serve

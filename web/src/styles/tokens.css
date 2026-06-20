@@ -23,7 +23,7 @@
   /* Text. */
   --color-text: #e7eaf2; /* ~13.9:1 on --color-bg */
   --color-text-muted: #a6adbd; /* ~7.3:1 on --color-bg */
-  --color-text-subtle: #767e90; /* ~4.5:1 on --color-bg */
+  --color-text-subtle: #808a9b; /* >=4.5:1 on bg/surface/raised */
   --color-text-inverse: #0b0e14;
 
   /* Lines. */
@@ -33,6 +33,7 @@
   /* Brand / accent — the primary white-label hook. */
   --color-accent: #2fb6a8;
   --color-accent-hover: #3ccabb;
+  --color-accent-strong: #23a394;
   --color-accent-soft: rgba(47, 182, 168, 0.14);
   --color-accent-contrast: #04130f; /* text on an accent fill */
 
@@ -47,6 +48,12 @@
   --color-info-soft: rgba(90, 169, 230, 0.14);
 
   --color-focus: #6fd2c6;
+
+  --color-chart-1: #2fb6a8;
+  --color-chart-2: #5aa9e6;
+  --color-chart-3: #a78bff;
+  --color-chart-4: #e0b25a;
+  --color-chart-5: #e8736b;
 }
 
 /*
@@ -72,6 +79,7 @@
 
   --color-accent: #6a4cf0;
   --color-accent-hover: #5a3ce0;
+  --color-accent-strong: #4f33d6;
   --color-accent-soft: rgba(106, 76, 240, 0.12);
   --color-accent-contrast: #ffffff;
 
@@ -85,6 +93,12 @@
   --color-info-soft: rgba(47, 115, 199, 0.12);
 
   --color-focus: #6a4cf0;
+
+  --color-chart-1: #0e9e92;
+  --color-chart-2: #2f73c7;
+  --color-chart-3: #6a4cf0;
+  --color-chart-4: #b9821f;
+  --color-chart-5: #d2463c;
 }
 
 /* Non-color tokens are theme-independent by default. */
