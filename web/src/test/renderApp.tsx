@@ -24,10 +24,10 @@ const DEFAULT_ME = {
  *  the test already stubbed — existing per-test backends are unchanged, and a
  *  test that wants to exercise the real auth path can render <AuthProvider>
  *  directly with its own /v1/me stub (see auth.test.tsx). */
-export function renderApp(path = '/targets') {
+export function renderApp(path = '/targets', options: { locale?: string } = {}) {
   const inner = globalThis.fetch
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
-    const u = String(input)
+    const u = requestURL(input)
     // Serve the TENANT identity (/v1/me) only — NOT the provider console's
     // /provider/v1/me, which the test's own stub answers with an operator shape.
     if (u.endsWith('/v1/me') && !u.includes('/provider/'))
@@ -35,10 +35,16 @@ export function renderApp(path = '/targets') {
     return inner(input, init)
   })
   return render(
-    <Providers>
+    <Providers initialLocale={options.locale}>
       <MemoryRouter initialEntries={[path]}>
         <AppRoutes />
       </MemoryRouter>
     </Providers>,
   )
+}
+
+function requestURL(input: RequestInfo | URL) {
+  if (typeof input === 'string') return input
+  if (input instanceof URL) return input.href
+  return input.url
 }

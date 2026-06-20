@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
+    "i18n:check": "vitest run src/test/i18n.test.tsx",
     "prea11y:browser": "npm --prefix ../browser-worker ci --no-audit --no-fund",
     "a11y:browser": "node ../scripts/web_rendered_a11y.mjs",
     "coverage": "vitest run --coverage",

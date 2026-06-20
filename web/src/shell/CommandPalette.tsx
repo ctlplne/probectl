@@ -6,6 +6,7 @@ import { NAV } from '../nav/ia'
 import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../auth/useAuth'
 import { Icon, type IconName } from '../components/Icon'
+import { useI18n } from '../i18n/useI18n'
 
 interface Command {
   id: string
@@ -24,6 +25,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const navigate = useNavigate()
   const { setTheme, themes } = useTheme()
   const { tenants, switchTenant } = useAuth()
+  const { t } = useI18n()
   const inputRef = useRef<HTMLInputElement>(null)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -32,27 +34,27 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const commands = useMemo<Command[]>(() => {
     const go = NAV.map<Command>((n) => ({
       id: `go:${n.to}`,
-      label: `Go to ${n.label}`,
-      hint: 'Navigate',
+      label: t('command.goTo', { label: t(n.labelKey) }),
+      hint: t('command.navigate'),
       icon: n.icon,
       run: () => navigate(n.to),
     }))
-    const theme = themes.map<Command>((t) => ({
-      id: `theme:${t}`,
-      label: `Theme: ${t}`,
-      hint: 'Appearance',
-      icon: t === 'aurora' ? 'sun' : 'moon',
-      run: () => setTheme(t),
+    const theme = themes.map<Command>((themeName) => ({
+      id: `theme:${themeName}`,
+      label: t('command.theme', { theme: themeName }),
+      hint: t('command.appearance'),
+      icon: themeName === 'aurora' ? 'sun' : 'moon',
+      run: () => setTheme(themeName),
     }))
-    const tenant = tenants.map<Command>((t) => ({
-      id: `tenant:${t.id}`,
-      label: `Switch tenant: ${t.name}`,
-      hint: 'Tenant',
+    const tenant = tenants.map<Command>((tenant) => ({
+      id: `tenant:${tenant.id}`,
+      label: t('command.switchTenant', { tenant: tenant.name }),
+      hint: t('command.tenant'),
       icon: 'targets',
-      run: () => switchTenant(t.id),
+      run: () => switchTenant(tenant.id),
     }))
     return [...go, ...theme, ...tenant]
-  }, [navigate, setTheme, themes, tenants, switchTenant])
+  }, [navigate, setTheme, t, themes, tenants, switchTenant])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -103,7 +105,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         className={styles.palette}
         role="dialog"
         aria-modal="true"
-        aria-label="Command palette"
+        aria-label={t('command.palette')}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className={styles.search}>
@@ -112,8 +114,8 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             ref={inputRef}
             className={styles.input}
             type="text"
-            placeholder="Search commands…"
-            aria-label="Search commands"
+            placeholder={t('command.searchPlaceholder')}
+            aria-label={t('command.search')}
             role="combobox"
             aria-expanded={true}
             aria-controls={listId}
@@ -124,9 +126,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           />
           <kbd className={styles.kbd}>Esc</kbd>
         </div>
-        <ul className={styles.list} role="listbox" id={listId} aria-label="Commands">
+        <ul className={styles.list} role="listbox" id={listId} aria-label={t('command.commands')}>
           {filtered.length === 0 ? (
-            <li className={styles.none}>No matching commands</li>
+            <li className={styles.none}>{t('command.empty')}</li>
           ) : (
             filtered.map((c, i) => (
               <li

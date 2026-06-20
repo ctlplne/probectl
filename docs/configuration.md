@@ -846,7 +846,11 @@ against `openapi.json`.
 
 The **`probectl` CLI** is the web-parity client. Configure it with flags or
 environment: `PROBECTL_API_URL` (default `http://localhost:8080`),
-`PROBECTL_API_TOKEN` (sent as Bearer), `PROBECTL_TENANT` (sent as `X-Probectl-Tenant`).
+`PROBECTL_API_TOKEN` (sent as Bearer), `PROBECTL_TENANT` (sent as
+`X-Probectl-Tenant`), and `PROBECTL_LOCALE` (default `en`; accepts shipped
+language tags such as `es`/`es-MX` for CLI help and API error messages). API
+error `code` values stay stable and machine-readable; only the human message is
+localized.
 
 ```bash
 probectl test list

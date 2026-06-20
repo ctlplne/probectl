@@ -10,6 +10,8 @@ package apierror
 import (
 	"errors"
 	"fmt"
+
+	"github.com/imfeelingtheagi/probectl/internal/i18n"
 )
 
 // Kind is a coarse, transport-agnostic error category.
@@ -47,6 +49,13 @@ func (e *Error) Error() string {
 // Unwrap exposes the wrapped cause for errors.Is / errors.As.
 func (e *Error) Unwrap() error { return e.err }
 
+// LocalizedMessage returns the human-facing message for e.Code in locale. The
+// stable Code remains the machine contract; Message is the fallback for custom
+// codes.
+func (e *Error) LocalizedMessage(locale string) string {
+	return i18n.ErrorMessage(locale, e.Code, e.Message)
+}
+
 // Wrap attaches a cause and returns the same *Error for chaining.
 func (e *Error) Wrap(cause error) *Error {
 	e.err = cause
@@ -74,6 +83,11 @@ func Conflict(message string) *Error     { return newError(KindConflict, "confli
 func Unavailable(message string) *Error  { return newError(KindUnavailable, "unavailable", message) }
 func RateLimited(message string) *Error  { return newError(KindRateLimited, "rate_limited", message) }
 func TooLarge(message string) *Error     { return newError(KindTooLarge, "too_large", message) }
+
+// LocalizedMessage returns a localized label for a stable API error code.
+func LocalizedMessage(locale, code, fallback string) string {
+	return i18n.ErrorMessage(locale, code, fallback)
+}
 
 // As returns the *Error in err's chain, or (nil, false) if there is none. The
 // transport layer treats a plain (non-domain) error as KindInternal.

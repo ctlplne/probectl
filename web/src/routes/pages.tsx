@@ -24,6 +24,7 @@ import {
 import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
 import { ResultDetail } from './ResultDetail'
+import { useI18n } from '../i18n/useI18n'
 
 export function Page({
   title,
@@ -52,16 +53,17 @@ export function Page({
 
 /** PlaceholderPage stands in for an IA section until its sprint lands. */
 export function PlaceholderPage({ to }: { to: string }) {
+  const { t } = useI18n()
   const item = NAV.find((n) => n.to === to)
-  const label = item?.label ?? 'Page'
+  const label = item ? t(item.labelKey) : t('page.generic')
   return (
-    <Page title={label} subtitle="This surface is part of the probectl information architecture.">
+    <Page title={label} subtitle={t('page.placeholder.subtitle')}>
       <Card>
         <CardBody>
           <EmptyState
             icon={item?.icon}
-            title={`${label} lands in a later sprint`}
-            description="The app shell, navigation, and design system are ready — feature screens build on this foundation."
+            title={t('page.placeholder.title', { label })}
+            description={t('page.placeholder.description')}
           />
         </CardBody>
       </Card>
@@ -70,11 +72,15 @@ export function PlaceholderPage({ to }: { to: string }) {
 }
 
 export function NotFoundPage() {
+  const { t } = useI18n()
   return (
-    <Page title="Not found">
+    <Page title={t('page.notFound.title')}>
       <Card>
         <CardBody>
-          <ErrorState title="404 — page not found" description="That route does not exist." />
+          <ErrorState
+            title={t('page.notFound.errorTitle')}
+            description={t('page.notFound.description')}
+          />
         </CardBody>
       </Card>
     </Page>

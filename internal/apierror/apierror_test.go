@@ -58,3 +58,13 @@ func TestWithCode(t *testing.T) {
 		t.Errorf("Code = %q, want field_required", e.Code)
 	}
 }
+
+func TestLocalizedMessageUsesStableCode(t *testing.T) {
+	e := NotFound("test not found")
+	if got := e.LocalizedMessage("es-MX"); got != "No encontrado" {
+		t.Fatalf("LocalizedMessage = %q, want No encontrado", got)
+	}
+	if got := LocalizedMessage("es", "custom_code", "custom detail"); got != "custom detail" {
+		t.Fatalf("custom fallback = %q", got)
+	}
+}

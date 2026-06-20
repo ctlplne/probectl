@@ -45,16 +45,62 @@ func fakeAPI(t *testing.T) *httptest.Server {
 }
 
 func run(t *testing.T, srv *httptest.Server, args ...string) (stdout, stderr string, code int) {
+	return runWithEnv(t, srv, nil, args...)
+}
+
+func runWithEnv(t *testing.T, srv *httptest.Server, extra map[string]string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	var out, errb bytes.Buffer
 	env := func(k string) string {
 		if k == "PROBECTL_API_URL" {
 			return srv.URL
 		}
+		if extra != nil {
+			return extra[k]
+		}
 		return ""
 	}
 	code = Run(args, env, &out, &errb)
 	return out.String(), errb.String(), code
+}
+
+func TestCLIHelpLocalizes(t *testing.T) {
+	srv := fakeAPI(t)
+	out, _, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es-MX"}, "help")
+	if code != 0 {
+		t.Fatalf("exit = %d", code)
+	}
+	if !strings.Contains(out, "Uso:") || !strings.Contains(out, "Comandos:") {
+		t.Fatalf("Spanish help missing localized headings:\n%s", out)
+	}
+	if strings.Contains(out, "Usage:") {
+		t.Fatalf("Spanish help leaked English heading:\n%s", out)
+	}
+}
+
+func TestCLIUnknownCommandLocalizes(t *testing.T) {
+	srv := fakeAPI(t)
+	_, errs, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es"}, "wat")
+	if code != 2 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(errs, `comando desconocido "wat"`) {
+		t.Fatalf("stderr missing localized unknown command:\n%s", errs)
+	}
+}
+
+func TestCLIAPIErrorLocalizesByStableCode(t *testing.T) {
+	srv := fakeAPI(t)
+	_, errs, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es"}, "test", "get", "missing")
+	if code != 1 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(errs, "No encontrado (not_found)") {
+		t.Fatalf("stderr missing localized API error:\n%s", errs)
+	}
+	if strings.Contains(errs, "test not found") {
+		t.Fatalf("stderr leaked server English fallback:\n%s", errs)
+	}
 }
 
 func TestCLITestList(t *testing.T) {
@@ -265,8 +311,8 @@ func TestCLILifecycleSubjectErasePostsBody(t *testing.T) {
 func TestCLIErrorStatusExitsNonZero(t *testing.T) {
 	srv := fakeAPI(t)
 	_, errs, code := run(t, srv, "test", "get", "44444444-4444-4444-4444-444444444444")
-	if code != 1 || !strings.Contains(errs, "not found") {
-		t.Errorf("a 404 should exit 1 with the server message; code=%d stderr=%s", code, errs)
+	if code != 1 || !strings.Contains(errs, "Not found (not_found)") {
+		t.Errorf("a 404 should exit 1 with the localized API code; code=%d stderr=%s", code, errs)
 	}
 }
 
