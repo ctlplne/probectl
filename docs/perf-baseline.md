@@ -123,9 +123,10 @@ filled from estimates, so the tables stay marked _pending_ until a real run
 produces them. The harness to produce each is committed so the runs are
 reproducible:
 
-- **Scale gate (SCALE-002):** `make scale-gate TIER=L` and `make load-test TIER=L`
-  (then `TIER=XL`) on reference hardware; commit the emitted result row here and
-  in `docs/scale-gate.md`.
+- **Scale gate (SCALE-002 / SCALE-001):** `make scale-gate TIER=L` and
+  `make load-test TIER=L` (then `TIER=XL`) on reference hardware; commit the
+  emitted result-plane and flow-plane result rows here and in
+  `docs/scale-gate.md`.
 - **24h soak (SCALE-020):** `DURATION=24h ./scripts/soak.sh` against a brought-up
   stack with the control plane running. It samples RSS, bus buffer/shed/handler-
   error, remote-write rejects, and lag (the CORRECT-009 gauges) on an interval

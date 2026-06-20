@@ -462,6 +462,38 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 	return out, nil
 }
 
+// PartPressure summarizes active MergeTree pressure for the shared flow table.
+// The scale gate reads this before/after a run so a write path that creates an
+// unbounded part storm fails visibly instead of hiding behind row completeness.
+type PartPressure struct {
+	ActiveParts int
+	Rows        uint64
+	BytesOnDisk uint64
+	MaxLevel    uint64
+}
+
+// PartPressure returns active-part and merge-level pressure for the pooled
+// flow table. It is intentionally table-scoped, not tenant-scoped: ClickHouse
+// tracks parts per table/partition, and the gate compares before/after deltas
+// for the run's unique tenant namespace.
+func (c *ClickHouse) PartPressure(ctx context.Context) (PartPressure, error) {
+	rows, err := c.query(ctx, "", `SELECT count() AS active_parts, ifNull(sum(rows), 0) AS total_rows, ifNull(sum(bytes_on_disk), 0) AS bytes_on_disk, ifNull(max(level), 0) AS max_level FROM system.parts WHERE active AND database=currentDatabase() AND table={table:String}`,
+		chParams{"table": sharedFlowsTable})
+	if err != nil {
+		return PartPressure{}, err
+	}
+	if len(rows) == 0 {
+		return PartPressure{}, nil
+	}
+	r := rows[0]
+	return PartPressure{
+		ActiveParts: int(chToFloat(r["active_parts"])),
+		Rows:        uint64(chToFloat(r["total_rows"])),
+		BytesOnDisk: uint64(chToFloat(r["bytes_on_disk"])),
+		MaxLevel:    uint64(chToFloat(r["max_level"])),
+	}, nil
+}
+
 // capacitySQL buckets throughput per exporter/interface in ClickHouse. All
 // values are bound parameters; iface/secs/table are validated structure.
 func capacitySQL(q CapacityQuery, table string) (string, chParams) {

@@ -39,6 +39,7 @@ type FlowConsumer struct {
 	bus    bus.Bus
 	store  flowstore.Store
 	enrich FlowEnricher
+	topic  string
 	group  string
 	log    *slog.Logger
 	gate   *fairness.Gate // per-tenant ingest bounds (S-T7); nil = unbounded
@@ -74,6 +75,9 @@ func (c *FlowConsumer) DeadLettered() uint64 { return c.deadLettered.Load() }
 // Dropped reports flow batches lost entirely (the DLQ publish ALSO failed).
 func (c *FlowConsumer) Dropped() uint64 { return c.dropped.Load() }
 
+// Retried reports flow-store write retry attempts.
+func (c *FlowConsumer) Retried() uint64 { return c.retried.Load() }
+
 // IntegrityStats returns the aggregate receipt ledger for this consumer.
 func (c *FlowConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 
@@ -89,18 +93,37 @@ func NewFlowConsumer(b bus.Bus, st flowstore.Store, enrich FlowEnricher, log *sl
 		log = slog.Default()
 	}
 	return &FlowConsumer{
-		bus: b, store: st, enrich: enrich, group: FlowGroup, log: log,
+		bus: b, store: st, enrich: enrich, topic: bus.FlowEventsTopic, group: FlowGroup, log: log,
 		maxRetries: 3, retryBase: 50 * time.Millisecond, sleep: sleepCtx,
 		ledger: newIntegrityLedger("flow"),
 	}
 }
 
+// WithTopic overrides the Kafka topic. Production uses bus.FlowEventsTopic;
+// load gates use a per-run topic so persistent local brokers cannot replay old
+// flow-gate traffic into the current run's pressure counters.
+func (c *FlowConsumer) WithTopic(topic string) *FlowConsumer {
+	if topic != "" {
+		c.topic = topic
+	}
+	return c
+}
+
+// WithGroup overrides the consumer group. Production uses FlowGroup; load gates
+// use a per-run group so their Kafka offsets are isolated and repeatable.
+func (c *FlowConsumer) WithGroup(group string) *FlowConsumer {
+	if group != "" {
+		c.group = group
+	}
+	return c
+}
+
 // lanes returns every subscription: the shared topic plus one namespaced
 // lane per siloed tenant (TENANT-107).
 func (c *FlowConsumer) lanes() ([]laneSub, error) {
-	subs := []laneSub{{topic: bus.FlowEventsTopic, group: c.group}}
+	subs := []laneSub{{topic: c.topic, group: c.group}}
 	for ns, tid := range c.nsTenants {
-		t, err := bus.TopicFor(ns, bus.FlowEventsTopic)
+		t, err := bus.TopicFor(ns, c.topic)
 		if err != nil {
 			return nil, err // RED-006: a malformed namespace is fatal, never shared-lane
 		}
@@ -140,9 +163,9 @@ func (c *FlowConsumer) Run(ctx context.Context) error {
 		}
 		return nil
 	}
-	c.log.Info("flow pipeline consumer starting", "topic", bus.FlowEventsTopic, "group", c.group,
+	c.log.Info("flow pipeline consumer starting", "topic", c.topic, "group", c.group,
 		"enrichment", c.enrich != nil)
-	if err := c.bus.Subscribe(ctx, bus.FlowEventsTopic, c.group, c.handle); err != nil && ctx.Err() == nil {
+	if err := c.bus.Subscribe(ctx, c.topic, c.group, c.handle); err != nil && ctx.Err() == nil {
 		c.log.Error("flow subscription failed", "error", err.Error())
 		return err
 	}

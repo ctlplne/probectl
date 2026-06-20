@@ -107,10 +107,10 @@ in-process gate; the next is the full-stack one.
   same `^TestScaleGate` run, so every invocation below exercises them together.
 - **Nightly regression guard:** the `scale-gate-m` job in `nightly.yml` runs
   `make scale-gate-m` — the M tier, both planes, at CI scale — and then the
-  M-tier full-stack gate against real Kafka + Prometheus as a second step. A
-  regression that breaks an SLO, drops a record, or leaks a tenant fails the
-  night's build. It's the standing guard until the full L/XL reference run is
-  recorded.
+  M-tier full-stack gates against real Kafka + Prometheus + ClickHouse as a
+  second step. A regression that breaks an SLO, drops a record, or leaks a
+  tenant fails the night's build. It's the standing guard until the full L/XL
+  reference run is recorded.
 - **Full scale (reference hardware):** `make scale-gate TIER=L` (or `XL`) sets
   `PROBECTL_SCALE=1` and runs the real shape with the absolute SLOs armed. Record
   the numbers here when run:
@@ -132,23 +132,35 @@ dropped — plus cardinality caps) remote-writes into a **real
 Prometheus**, and the run is then confirmed back *out* of the store with
 tenant-scoped PromQL (Prometheus's query language) — checking completeness,
 per-tenant scoping, and query
-latency. Each run namespaces its own tenants, and the gate fails on any SLO
-violation, incomplete ingest, or scoping error.
+latency. The flow-plane sibling gate publishes `probectl.flow.events` through
+the same Kafka stack, drains them with the production `FlowConsumer`, writes
+to ClickHouse via `PROBECTL_FLOWSTORE_URL`, then confirms every tenant through
+`TopTalkers`. That second gate also asserts ClickHouse insert p95, query p95,
+and active-part growth so MergeTree compaction pressure is visible. Each run
+namespaces its own tenants, and the gates fail on any SLO violation,
+incomplete ingest, scoping error, or unbounded ClickHouse part growth.
 
 - **CI (every pass):** the `load-smoke` job — S tier at 5% scale against the dev
-  compose stack (`make load-test-smoke`). Proves the harness, not the platform.
+  compose stack (`make load-test-smoke`, real Kafka + Prometheus + ClickHouse).
+  Proves the harness, not the platform.
 - **Reference hardware (operator-scheduled):** `make compose-up && make load-test
-  TIER=L` (then `XL`). The test logs a `RESULT ROW` line — commit it below; once
-  both tiers pass, the SLOs above stop being provisional.
+  TIER=L` (then `XL`). The tests log `RESULT ROW` lines for the result plane and
+  the flow plane — commit them below; once both tiers pass, the SLOs above stop
+  being provisional.
 
 | Date | Tier | Hardware | Throughput (results/s) | Publish p95 | Query p95 | Series confirmed | Verdict |
 |---|---|---|---|---|---|---|---|
 | _pending_ | L | _to be recorded_ | — | — | — | — | — |
 | _pending_ | XL | _to be recorded_ | — | — | — | — | — |
 
+| Date | Tier | Hardware | Throughput (flows/s) | Insert p95 | Query p95 | Rows confirmed | Active parts | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| _pending_ | L | _to be recorded_ | — | — | — | — | — | — |
+| _pending_ | XL | _to be recorded_ | — | — | — | — | — | — |
+
 Run against a fresh stack (`make compose-down && make compose-up`): the consumer
-reads its topic from the start, and a persistent Prometheus keeps prior runs'
-series (the per-run namespace isolates correctness, not disk).
+reads its topics from the start, and persistent stores keep prior runs' data
+(the per-run namespace isolates correctness, not disk).
 
 The pooled-Postgres side of multi-tenant isolation under load (RLS cost,
 per-tenant query p95) stays covered by the `perf-smoke` integration job
@@ -156,9 +168,10 @@ per-tenant query p95) stays covered by the `perf-smoke` integration job
 work extends it.
 
 **Honesty notes.** The in-process harness measures only the bus → pipeline → store
-path — it excludes network hops, real ClickHouse, and the gRPC agent transport,
-which the full-stack `test/` soak covers separately. And CI-scale numbers prove
-the gate's *mechanics* only: never quote them as platform capability.
+path — it excludes network hops and the gRPC agent transport. Real Kafka,
+Prometheus, and ClickHouse are covered by the full-stack gates above, while the
+long-running `test/` soak covers endurance. CI-scale numbers prove the gate's
+*mechanics* only: never quote them as platform capability.
 
 ## Reference-hardware full run + 72h soak (the EXC-GATE-01 runbook)
 
@@ -167,10 +180,11 @@ PROVISIONAL SLOs to committed numbers — `make scale-fullstack`. It runs **both
 harnesses above at full scale, back to back, with the absolute SLOs armed
 (`PROBECTL_SCALE=1`): first the in-process scale gate (both result + flow planes,
 the noisy-neighbor fairness assertion at the material 5 ms floor), then the
-full-stack load gate end to end through real Kafka + Prometheus. It is **not run
-in CI** and is **not runnable on a laptop** — it needs reference hardware (below)
-because the absolute throughput/latency SLOs only mean anything on the sizing a
-real deployment uses.
+full-stack result load gate end to end through real Kafka + Prometheus, then the
+full-stack flow load gate end to end through real Kafka + ClickHouse. It is **not
+run in CI** and is **not runnable on a laptop** — it needs reference hardware
+(below) because the absolute throughput/latency SLOs only mean anything on the
+sizing a real deployment uses.
 
 > **Until a row is recorded in both tables above, the SLOs remain UNVERIFIED /
 > PROVISIONAL** (see the status note near the top). `make scale-fullstack`
@@ -209,6 +223,7 @@ compose defaults:
 ```sh
 PROBECTL_TEST_KAFKA=broker1:9093,broker2:9093,broker3:9093 \
 PROBECTL_PROM_URL=https://prom.internal:9090 \
+PROBECTL_FLOWSTORE_URL=https://clickhouse.internal:8123 \
   make scale-fullstack TIER=XL
 ```
 

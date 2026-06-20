@@ -107,8 +107,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
       - name: M-profile scale gate (results + flow planes; SLO violations fail)
         run: make scale-gate-m
-      - name: M-tier FULL-STACK regression (real Kafka + Prometheus)
+      - name: M-tier FULL-STACK regression (real Kafka + Prometheus + ClickHouse)
         run: |
-          docker compose -f deploy/compose/dev.yml up -d --wait kafka prometheus
-          PROBECTL_SCALE_TIER=M go test -tags=integration -count=1 -v -timeout 20m \
-            -run '^TestFullStackLoadGate$' ./internal/perf/
+          docker compose -f deploy/compose/dev.yml up -d --wait kafka prometheus clickhouse
+          PROBECTL_SCALE_TIER=M \
+          PROBECTL_FLOWSTORE_URL=http://probectl:probectl@localhost:8123 \
+            go test -tags=integration -count=1 -v -timeout 20m \
+            -run '^TestFullStack(Load|Flow)Gate$' ./internal/perf/
