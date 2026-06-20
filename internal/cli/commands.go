@@ -53,6 +53,27 @@ func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stdout, "deleted test "+args[1])
 		return 0
+	case "update":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "test update: missing <id>")
+			return 2
+		}
+		return runRawOperation(cfg, apiOp{Method: http.MethodPut, Path: "/v1/tests/{id}", ArgName: "id"}, args[1:], stdout, stderr)
+	case "bundle":
+		return runRawOperation(cfg, apiOp{Method: http.MethodGet, Path: "/v1/tests/bundle"}, args[1:], stdout, stderr)
+	case "path":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "test path: missing <id>")
+			return 2
+		}
+		method := http.MethodGet
+		for i, a := range args[2:] {
+			if a == "--body" && i+3 <= len(args) {
+				method = http.MethodPost
+				break
+			}
+		}
+		return runRawOperation(cfg, apiOp{Method: method, Path: "/v1/tests/{id}/path", ArgName: "id"}, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "test: unknown subcommand %q\n", args[0])
 		return 2
@@ -134,6 +155,26 @@ func cmdAgent(cfg Config, args []string, stdout, stderr io.Writer) int {
 		}
 		fmt.Fprintln(stdout, "deregistered agent "+args[1])
 		return 0
+	case "patch":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "agent patch: missing <id>")
+			return 2
+		}
+		return runRawOperation(cfg, apiOp{Method: http.MethodPatch, Path: "/v1/agents/{id}", ArgName: "id"}, args[1:], stdout, stderr)
+	case "enroll-token":
+		return runRawOperation(cfg, apiOp{Method: http.MethodPost, Path: "/v1/agents/enroll-tokens"}, args[1:], stdout, stderr)
+	case "ci":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "agent ci: missing <id>")
+			return 2
+		}
+		return runRawOperation(cfg, apiOp{Method: http.MethodGet, Path: "/v1/agents/{id}/ci", ArgName: "id"}, args[1:], stdout, stderr)
+	case "revoke":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "agent revoke: missing <id>")
+			return 2
+		}
+		return runRawOperation(cfg, apiOp{Method: http.MethodPost, Path: "/v1/agents/{id}/revoke", ArgName: "id"}, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "agent: unknown subcommand %q\n", args[0])
 		return 2

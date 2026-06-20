@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-probectl-TBD
 
-// Package cli implements the probectl command-line interface for test and agent
-// management against the control-plane /v1 API (not yet full web parity). Run is
-// the testable entry point; cmd/probectl is a thin wrapper around it.
+// Package cli implements the probectl command-line interface for the
+// control-plane /v1 API. Run is the testable entry point; cmd/probectl is a thin
+// wrapper around it.
 package cli
 
 import (
@@ -62,7 +62,12 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return cmdTest(cfg, rest[1:], stdout, stderr)
 	case "agent":
 		return cmdAgent(cfg, rest[1:], stdout, stderr)
+	case "api":
+		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:
+		if spec, ok := surfaceCommands[rest[0]]; ok {
+			return cmdSurface(cfg, spec, rest[1:], stdout, stderr)
+		}
 		fmt.Fprintf(stderr, "unknown command %q\n", rest[0])
 		usage(stderr)
 		return 2
@@ -76,13 +81,23 @@ Usage:
   probectl [global flags] <command> [args]
 
 Commands:
+  api <method> <path>            call any JSON /v1 API path directly
   test list                      list synthetic tests
   test get <id>                  show one test
   test create --name --type ...  create a test
+  test update <id> --body JSON   update a test
   test delete <id>               delete a test
+  test bundle                    download test bundle metadata
+  test path <id> [--body JSON]   get or recompute a test path
   agent list                     list agents
   agent get <id>                 show one agent
+  agent patch <id> --body JSON   patch an agent
+  agent enroll-token --body JSON create an enrollment token
+  agent ci <id>                  show CMDB CIs for an agent
+  agent revoke <id>              revoke an agent
   agent delete <id>              deregister an agent
+  incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
+                                resource groups for served product surfaces
   version                        print the CLI version
 
 Global flags:
@@ -99,6 +114,10 @@ Global flags:
   --timeout <sec>   default 3
   --param k=v       repeatable
   --disabled        create the test disabled
+
+Raw resource flags:
+  --query k=v       repeatable query parameter for resource/api commands
+  --body JSON       JSON request body for create/update/action commands
 `)
 }
 
