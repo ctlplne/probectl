@@ -15,6 +15,9 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose/dev.yml}"
 export COMPOSE_FILE
 PG_ROWS=137
 CH_ROWS=251
+CH_OTHER_ROWS=17
+CH_TENANT="11111111-1111-1111-1111-111111111111"
+CH_OTHER_TENANT="22222222-2222-2222-2222-222222222222"
 NONCE="drill-$(date -u +%s)-$$"
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/probectl-drill.XXXXXX")"
 trap 'rm -rf "${OUT}"' EXIT
@@ -47,11 +50,13 @@ step "seed marker data (nonce ${NONCE})"
 psql_db "CREATE TABLE IF NOT EXISTS probectl_drill_marker (id int PRIMARY KEY, nonce text NOT NULL)"
 psql_db "TRUNCATE probectl_drill_marker"
 psql_db "INSERT INTO probectl_drill_marker SELECT g, '${NONCE}' FROM generate_series(1, ${PG_ROWS}) g"
-ch "CREATE TABLE IF NOT EXISTS probectl.probectl_drill_marker (id UInt32, nonce String) ENGINE = MergeTree ORDER BY id"
+ch "CREATE TABLE IF NOT EXISTS probectl.probectl_drill_marker (tenant_id String, id UInt32, nonce String) ENGINE = MergeTree ORDER BY (tenant_id, id)"
 ch "TRUNCATE TABLE probectl.probectl_drill_marker"
-ch "INSERT INTO probectl.probectl_drill_marker SELECT number, '${NONCE}' FROM numbers(${CH_ROWS})"
+ch "INSERT INTO probectl.probectl_drill_marker SELECT '${CH_TENANT}', number, '${NONCE}' FROM numbers(${CH_ROWS})"
+ch "INSERT INTO probectl.probectl_drill_marker SELECT '${CH_OTHER_TENANT}', number, '${NONCE}' FROM numbers(${CH_OTHER_ROWS})"
 test "$(psql_db 'SELECT count(*) FROM probectl_drill_marker')" = "${PG_ROWS}"
-test "$(ch 'SELECT count() FROM probectl.probectl_drill_marker')" = "${CH_ROWS}"
+test "$(ch "SELECT count() FROM probectl.probectl_drill_marker WHERE tenant_id = '${CH_TENANT}'")" = "${CH_ROWS}"
+test "$(ch "SELECT count() FROM probectl.probectl_drill_marker WHERE tenant_id = '${CH_OTHER_TENANT}'")" = "${CH_OTHER_ROWS}"
 
 step "backup both stores"
 t0=$(date +%s)
@@ -66,7 +71,7 @@ if find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump' -print -quit | gre
   exit 1
 fi
 
-step "WIPE both stores"
+step "WIPE both stores (simulated regional loss; restore only from off-box artifacts)"
 docker compose -f "${COMPOSE_FILE}" exec -T postgres \
   psql -U probectl -d postgres -v ON_ERROR_STOP=1 -qAt \
   -c "DROP DATABASE IF EXISTS probectl WITH (FORCE)"
@@ -93,12 +98,15 @@ restore_secs=$(( $(date +%s) - t1 ))
 step "verify marker survival"
 pg_count="$(psql_db 'SELECT count(*) FROM probectl_drill_marker')"
 pg_nonce="$(psql_db 'SELECT DISTINCT nonce FROM probectl_drill_marker')"
-ch_count="$(ch 'SELECT count() FROM probectl.probectl_drill_marker')"
-ch_nonce="$(ch 'SELECT DISTINCT nonce FROM probectl.probectl_drill_marker')"
+ch_count="$(ch "SELECT count() FROM probectl.probectl_drill_marker WHERE tenant_id = '${CH_TENANT}'")"
+ch_other_count="$(ch "SELECT count() FROM probectl.probectl_drill_marker WHERE tenant_id = '${CH_OTHER_TENANT}'")"
+ch_nonce="$(ch "SELECT DISTINCT nonce FROM probectl.probectl_drill_marker WHERE tenant_id = '${CH_TENANT}'")"
 test "${pg_count}" = "${PG_ROWS}" || { echo "drill: postgres rows ${pg_count} != ${PG_ROWS}" >&2; exit 1; }
 test "${pg_nonce}" = "${NONCE}" || { echo "drill: postgres nonce mismatch (${pg_nonce})" >&2; exit 1; }
 test "${ch_count}" = "${CH_ROWS}" || { echo "drill: clickhouse rows ${ch_count} != ${CH_ROWS}" >&2; exit 1; }
+test "${ch_other_count}" = "${CH_OTHER_ROWS}" || { echo "drill: clickhouse other-tenant rows ${ch_other_count} != ${CH_OTHER_ROWS}" >&2; exit 1; }
 test "${ch_nonce}" = "${NONCE}" || { echo "drill: clickhouse nonce mismatch (${ch_nonce})" >&2; exit 1; }
 
 echo
+echo "clickhouse regional-loss drill: PASS (tenant ${CH_TENANT} rows ${ch_count}/${CH_ROWS}; default shipped telemetry RPO <= 24h with nightly off-region backups)"
 echo "backup-restore drill: PASS (backup ${backup_secs}s, restore ${restore_secs}s — record in docs/ops/backup-restore.md)"

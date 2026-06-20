@@ -168,7 +168,7 @@ honesty about the gap matters more than a tidy claim:
 | Store | What it holds | Cross-region default | Regional RPO (default) | How to tighten |
 |---|---|---|---|---|
 | **Postgres (metadata)** | tenants, tests, RBAC, audit, SLOs, incidents, cluster state | **streaming replication** (this doc) | `0` with `sync`, else ≈ replica lag (target ≤ 5 s) | run `sync` with a synchronous standby |
-| **ClickHouse (telemetry)** | flow, eBPF, OTLP, threat, change, cost rows | **NONE — single-node `MergeTree`** (`values.yaml`) | **≈ backup cadence** (e.g. last snapshot) | enable ClickHouse replication *or* tighten off-region incrementals |
+| **ClickHouse (telemetry)** | flow, eBPF, OTLP, threat, change, cost rows | **NONE — single-node `MergeTree`** (`values.yaml`) | **≤ 24 h** with the shipped nightly off-region backup profile, plus copy lag | tighten the CronJob schedule, use ClickHouse incrementals, or run ClickHouse replication |
 | **Object store** | support bundles, exports, large artifacts | per the operator's bucket replication | bucket-dependent | enable cross-region bucket replication |
 
 So a region loss recovers the *control plane and its state* in seconds, but the
@@ -181,12 +181,17 @@ be papered over: the metadata seconds-RPO does **not** extend to telemetry.
 
 Two supported paths, in increasing cost/RPO-tightness order:
 
-1. **Backup-only (default).** The shipped topology is a single-node
-   `MergeTree` plus the encrypted ClickHouse backups in
-   [`backup-restore.md`](ops/backup-restore.md). Regional RPO = backup cadence;
-   shorten it with more frequent off-region incrementals. The recovery path on a
-   region loss is: stand up ClickHouse in the surviving region, restore the most
-   recent off-region backup, and re-point the control plane's ClickHouse host.
+1. **Off-region backup (default).** The shipped topology is a single-node
+   `MergeTree` plus the ClickHouse regional DR profile in
+   [`backup-restore.md`](ops/backup-restore.md#telemetry-regional-dr-profile-off-region-clickhouse-backups).
+   Regional telemetry RPO is **≤ 24 h** with the shipped nightly
+   `backup.clickhouse.schedule: "30 2 * * *"` plus off-region copy lag; shorten
+   it by running the CronJob more often or by using ClickHouse incremental
+   backups (`BACKUP ... SETTINGS base_backup = ...`) into the same off-region
+   vault. The recovery path on a region loss is: stand up ClickHouse in the
+   surviving region, restore the most recent off-region backup, and re-point the
+   control plane's ClickHouse host. The `backup-drill` CI job proves this path
+   with tenant-scoped ClickHouse marker rows restored from the off-box artifact.
 2. **Operator-run ClickHouse replication (config-gated, opt-in).** Convert the
    telemetry tables to `ReplicatedMergeTree` backed by a ClickHouse Keeper /
    ZooKeeper quorum spanning regions, so committed rows replicate with a
@@ -229,7 +234,8 @@ hosted SaaS; FedRAMP authorization. The control plane is region-agnostic and
 stateless — scaling out a region is adding replicas.
 
 **Cross-region telemetry replication is not shipped.** The default ClickHouse
-topology is single-node `MergeTree`; its regional RPO is the backup cadence, not
-the metadata's seconds-scale RPO (see
+topology is single-node `MergeTree`; its regional RPO is the off-region backup
+cadence (≤ 24 h with the shipped nightly profile), not the metadata's
+seconds-scale RPO (see
 [the asymmetry section](#metadata-vs-telemetry-the-rpo-asymmetry)). Running
 `ReplicatedMergeTree` across regions is an operator decision, not a built-in.

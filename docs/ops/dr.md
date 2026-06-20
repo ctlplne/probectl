@@ -76,12 +76,14 @@ re-pointing and the control-plane fence release (which widen RTO — see
 [region-failover.md](../runbooks/region-failover.md)); agent geo-DNS shedding;
 and the ClickHouse / object-store regional strategies. **Be explicit about the
 telemetry store:** ClickHouse ships as a single-node `MergeTree` and does **not**
-replicate cross-region by default, so its regional RPO is the **backup cadence**
-(not the metadata DB's seconds-scale RPO) unless the operator runs ClickHouse
-replication — see [multi-region.md → the RPO asymmetry](../multi-region.md#metadata-vs-telemetry-the-rpo-asymmetry)
-and the backup recovery path in [backup-restore.md](backup-restore.md) (restore
-RTO is measured by *its* own drill). The representative run measures the full
-metadata-tier sequence end to end.
+replicate cross-region by default, so its regional RPO is the off-region
+ClickHouse backup cadence — **≤ 24 h** with the shipped nightly backup profile,
+plus copy lag — not the metadata DB's seconds-scale RPO unless the operator runs
+ClickHouse replication. See [multi-region.md → the RPO asymmetry](../multi-region.md#metadata-vs-telemetry-the-rpo-asymmetry)
+and the tested off-region backup recovery path in
+[backup-restore.md](backup-restore.md#telemetry-regional-dr-profile-off-region-clickhouse-backups)
+(restore RTO is measured by *its* own drill). The representative run measures the
+full metadata-tier sequence end to end.
 
 ## Measured results
 

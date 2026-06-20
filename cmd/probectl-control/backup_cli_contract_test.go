@@ -116,6 +116,9 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 		{".pbk", "the drill must produce/round-trip a .pbk artifact, not just a plaintext .dump"},
 		{"left a plaintext .dump", "the drill must fail if backup_postgres.sh writes the raw tenant dump"},
 		{"backup-open", "the drill must restore by DECRYPTING the .pbk via backup-open"},
+		{"tenant_id", "the ClickHouse regional-loss proof must query restored telemetry by tenant"},
+		{"clickhouse regional-loss drill: PASS", "the drill must print an explicit telemetry DR receipt"},
+		{"default shipped telemetry RPO <= 24h", "the drill receipt must name the numeric shipped telemetry RPO"},
 	} {
 		if !strings.Contains(stripped, want.substr) {
 			t.Errorf("backup_restore_drill.sh: missing %q — %s (OPS-005)", want.substr, want.why)

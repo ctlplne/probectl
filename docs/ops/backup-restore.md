@@ -100,6 +100,28 @@ A reasonable cadence: nightly, retain 7 daily + 4 weekly, and stagger Postgres
 and ClickHouse so they don't contend (the shipped chart schedules them at 02:00
 and 02:30).
 
+## Telemetry regional DR profile: off-region ClickHouse backups
+
+The shipped, default telemetry DR profile is **off-region ClickHouse backups**,
+not cross-region ClickHouse replication. The baseline profile is deliberately
+plain:
+
+| Property | Baseline value |
+|---|---|
+| Scope | ClickHouse telemetry database (`flow`, `path`, `eBPF`, `OTLP`, `threat`, `change`, `cost`, and the migration ledger) |
+| Backup mechanism | `BACKUP DATABASE ... TO File()` via `scripts/backup_clickhouse.sh` / the Helm `backup.clickhouse` CronJob |
+| Off-region copy | Required: copy the `.zip` plus `.sha256` out of the failed region to encrypted object storage or an equivalent operator-controlled backup vault |
+| Default RPO | **≤ 24 h** with the shipped nightly `backup.clickhouse.schedule: "30 2 * * *"` plus your off-region copy lag |
+| How to tighten RPO | Run the CronJob more often, or move to ClickHouse incremental `BACKUP ... SETTINGS base_backup = ...` in the same off-region vault |
+| Restore proof | `make backup-restore-drill` writes tenant-scoped telemetry markers, destroys the local database, restores from the off-box artifact, and verifies `tenant_id`-scoped rows return with the same nonce |
+
+Treat the ClickHouse server's `/backups` path as a staging area, not the DR
+destination. A backup that remains only on the primary-region ClickHouse disk
+has the same regional fate as the database it protects. For a tighter RPO than
+24 h, set `backup.clickhouse.schedule` to the required interval and record that
+numeric telemetry RPO separately from the Postgres metadata RPO in
+[`multi-region.md`](../multi-region.md).
+
 **ClickHouse prerequisites.** The server must (1) allow writing backups to its
 `/backups` path — `deploy/compose/clickhouse-backups.xml` (mounted by the dev
 stack) is the `<backups><allowed_path>` drop-in; mount the equivalent plus a
@@ -187,11 +209,13 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 
 ## RPO / RTO expectations
 
-- **RPO** (recovery point objective — how much data you can lose) = the backup
-  cadence — 24 h with the example nightly cron: a failure just before tonight's
-  backup loses everything since last night's. Tighten the schedule (or add WAL
-  archiving) for less. The WORM audit exports run on their own interval, so
-  they are not lost with the DB.
+- **RPO** (recovery point objective — how much data you can lose): Postgres
+  dump RPO follows the Postgres backup cadence unless you enable WAL archiving;
+  ClickHouse telemetry RPO follows the off-region ClickHouse backup cadence.
+  With the shipped nightly chart schedules that is **≤ 24 h** plus off-region
+  copy lag. Tighten the schedules, add WAL archiving for Postgres, and use
+  ClickHouse incrementals for less. The WORM audit exports run on their own
+  interval, so they are not lost with the DB.
 - **RTO** (recovery time objective — how long a restore takes):
   - *Small / dev-sized:* minutes — usually single-digit seconds at drill size.
     The CI drill measures the real number on every run and prints
@@ -211,13 +235,17 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 make backup-restore-drill
 ```
 
-This seeds nonce-marked rows in **both** stores (137 rows in Postgres, 251 in
-ClickHouse), backs them up, **drops both databases**, restores from the off-box
-artifacts, then asserts every marker row survived — both the count *and* the
-nonce — and prints the measured backup/restore times. The **nonce** (a one-time
-random marker) is what makes the check honest: a row count alone could pass on
-leftovers from an earlier run, but only *this* run's rows carry this run's
-nonce, so a pass proves the restore really round-tripped today's data. It runs
+This seeds nonce-marked rows in **both** stores (137 rows in Postgres, 251
+tenant-scoped rows in ClickHouse plus a second-tenant control), backs them up,
+**drops both databases**, restores from the off-box artifacts, then asserts
+every marker row survived — both the count *and* the nonce — and prints the
+measured backup/restore times. The **nonce** (a one-time random marker) is what
+makes the check honest: a row count alone could pass on leftovers from an
+earlier run, but only *this* run's rows carry this run's nonce, so a pass proves
+the restore really round-tripped today's data. The ClickHouse leg is also a
+regional-loss proof for the default telemetry profile: after restore, it queries
+the marker table by `tenant_id`, so the drill proves tenant-scoped telemetry
+comes back from the off-box artifact within the documented RPO window. It runs
 against the dev compose stack, exits non-zero on any divergence, and runs in CI
 on every run (the `backup-drill` job), so the restore path cannot silently rot.
 Run it against staging after any storage-layer change.

@@ -127,13 +127,51 @@ func TestMultiRegion_NoTelemetryReplicationOverclaim(t *testing.T) {
 // explicitly rather than vaguely deferring to "replication and backups".
 func TestDR_TelemetryRPOIsExplicit(t *testing.T) {
 	doc := readDoc(t, "ops/dr.md")
-	if !strings.Contains(doc, "backup cadence") {
-		t.Errorf("dr.md must state the telemetry-store regional RPO explicitly (backup cadence)")
+	if !strings.Contains(doc, "≤ 24 h") {
+		t.Errorf("dr.md must state the telemetry-store regional RPO explicitly (≤ 24 h with the shipped profile)")
 	}
 	if !strings.Contains(doc, "does **not**\nreplicate") && !strings.Contains(doc, "does **not** replicate") {
 		// allow either wrapped form
 		if !strings.Contains(strings.ReplaceAll(doc, "\n", " "), "does **not** replicate") {
 			t.Errorf("dr.md must state ClickHouse does not replicate cross-region by default")
+		}
+	}
+}
+
+func TestTelemetryDRProfileIsDocumentedAndDrilled(t *testing.T) {
+	backupDoc := readDoc(t, "ops/backup-restore.md")
+	multiRegionDoc := readDoc(t, "multi-region.md")
+	values := readRepoFile(t, "deploy/helm/probectl/values.yaml")
+	drill := readRepoFile(t, "scripts/backup_restore_drill.sh")
+
+	for _, want := range []string{
+		"Telemetry regional DR profile: off-region ClickHouse backups",
+		"Default RPO",
+		"≤ 24 h",
+		"tenant_id",
+		"off-box artifact",
+	} {
+		if !strings.Contains(backupDoc, want) {
+			t.Errorf("backup-restore.md must document the default telemetry DR profile detail %q", want)
+		}
+	}
+	for _, want := range []string{
+		"≤ 24 h",
+		"backup.clickhouse.schedule",
+		"backup-drill",
+	} {
+		if !strings.Contains(multiRegionDoc, want) {
+			t.Errorf("multi-region.md must surface the shipped telemetry RPO/profile detail %q", want)
+		}
+	}
+	for _, want := range []string{"Telemetry regional DR profile", "ClickHouse telemetry RPO is <=24h", "off-region storage"} {
+		if !strings.Contains(values, want) {
+			t.Errorf("Helm values must describe the shipped ClickHouse telemetry DR profile detail %q", want)
+		}
+	}
+	for _, want := range []string{"tenant_id", "CH_OTHER_TENANT", "clickhouse regional-loss drill: PASS"} {
+		if !strings.Contains(drill, want) {
+			t.Errorf("backup_restore_drill.sh must prove tenant-scoped ClickHouse regional recovery detail %q", want)
 		}
 	}
 }
