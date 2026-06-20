@@ -77,6 +77,33 @@ func (e EnrollTokens) Consume(ctx context.Context, tokenHash []byte, usedByAgent
 	return tenantID, pinnedAgentID, nil
 }
 
+// ConsumeForTenant atomically burns a token that MUST belong to tenantID. This
+// is the tenant-admin API path: unlike the pre-identity /enroll bootstrap, the
+// caller already has an authenticated tenant, so RLS must be part of the token
+// consume boundary. A foreign-tenant token returns the same uninformative
+// ErrEnrollTokenInvalid and is not consumed.
+func (e EnrollTokens) ConsumeForTenant(ctx context.Context, tenantID string, tokenHash []byte, usedByAgent string) (pinnedAgentID string, err error) {
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx,
+			`UPDATE agent_enroll_tokens
+			    SET used_at = now(), used_by_agent = $3
+			  WHERE token_hash = $1
+			    AND tenant_id = $2
+			    AND used_at IS NULL
+			    AND revoked_at IS NULL
+			    AND expires_at > now()
+			 RETURNING COALESCE(agent_id, '')`,
+			tokenHash, tenantID, usedByAgent).Scan(&pinnedAgentID)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrEnrollTokenInvalid
+	}
+	if err != nil {
+		return "", err
+	}
+	return pinnedAgentID, nil
+}
+
 // Revoke voids an UNUSED token (operator path; a used token is already inert).
 // It reports whether a row changed: false means no unredeemed token had that
 // id — already redeemed, already revoked, or never existed — so the CLI can

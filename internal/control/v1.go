@@ -44,6 +44,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/tests/{id}/path", s.handleDiscoverPath, permTestWrite},
 		{http.MethodGet, "/v1/agents", s.handleListAgents, permAgentRead},
 		{http.MethodPost, "/v1/agents/enroll-tokens", s.handleMintEnrollToken, permAgentWrite},
+		{http.MethodPost, "/v1/collectors/register", s.handleRegisterCollector, permAgentWrite},
 		{http.MethodPost, "/v1/agents/{id}/revoke", s.handleRevokeAgent, permAgentWrite},
 		{http.MethodGet, "/v1/agents/{id}", s.handleGetAgent, permAgentRead},
 		{http.MethodPatch, "/v1/agents/{id}", s.handlePatchAgent, permAgentWrite},

@@ -57,6 +57,8 @@ var (
 	ErrBadCSR        = errors.New("enroll: invalid CSR")
 	ErrNotOurs       = errors.New("enroll: certificate was not issued by this deployment (fail closed)")
 	ErrIdentityFixed = errors.New("enroll: rotation cannot change identity")
+	// ErrInvalidCollectorPlane refuses ambiguous bus-collector registrations.
+	ErrInvalidCollectorPlane = errors.New("enroll: invalid collector plane")
 	// ErrRevoked refuses any issuance for an operator-revoked agent identity
 	// (Sprint 12, WIRE-003): no resurrection by re-enrollment or rotation.
 	ErrRevoked = errors.New("enroll: agent identity is revoked")
@@ -275,22 +277,27 @@ func (s *Service) Enroll(ctx context.Context, req Request) (*Identity, error) {
 type CollectorIdentity struct {
 	TenantID string `json:"tenant_id"`
 	AgentID  string `json:"agent_id"`
+	Plane    string `json:"plane"`
 }
 
 // RegisterCollector is the sanctioned registration path for bus-publishing
-// collectors — the eBPF, flow, and device planes (ARCH-011). They publish
-// straight to the bus rather than streaming over the agent gRPC, so they never
-// went through Enroll and had NO registry row; the tenant-binding then rejected
-// their batches fail-closed (the three planes were effectively un-ingestable
-// without this). RegisterCollector consumes a one-time enroll token, mints a
-// UUID identity, and writes the agents-registry row, returning the UUID for the
-// collector to stamp on its records. It issues no certificate (bus auth is
-// separate) — that is the only difference from Enroll.
+// collectors: the eBPF, flow, device, and endpoint planes (ARCH-011). They
+// publish straight to the bus rather than streaming over the agent gRPC, so
+// they never went through Enroll and had NO registry row; the tenant-binding
+// then rejected their batches fail-closed. RegisterCollector consumes a
+// one-time enroll token, mints a UUID identity, and writes the agents-registry
+// row, returning the UUID for the collector to stamp on its records. It issues
+// no certificate (bus auth is separate); that is the only difference from
+// Enroll.
 func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane string) (*CollectorIdentity, error) {
 	if !strings.HasPrefix(token, "pjt_") {
 		return nil, ErrInvalidToken
 	}
 	hostname = strings.TrimSpace(hostname)
+	plane, err := NormalizeCollectorPlane(plane)
+	if err != nil {
+		return nil, err
+	}
 	tenantID, pinned, err := store.NewEnrollTokens(s.pool).Consume(ctx, crypto.Hash([]byte(token)), hostname)
 	if err != nil {
 		if errors.Is(err, store.ErrEnrollTokenInvalid) {
@@ -298,22 +305,66 @@ func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane 
 		}
 		return nil, err
 	}
+	return s.registerCollector(ctx, tenantID, pinned, hostname, plane)
+}
+
+// RegisterCollectorForTenant is the authenticated tenant-admin path. The
+// expectedTenantID comes from the caller's principal, not from the token. Token
+// consumption runs through ConsumeForTenant so a stolen token from another
+// tenant cannot be burned or used to create a foreign registry row.
+func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenantID, token, hostname, plane string) (*CollectorIdentity, error) {
+	if !strings.HasPrefix(token, "pjt_") {
+		return nil, ErrInvalidToken
+	}
+	expectedTenantID = strings.TrimSpace(expectedTenantID)
+	if expectedTenantID == "" {
+		return nil, tenancy.ErrNoTenant
+	}
+	hostname = strings.TrimSpace(hostname)
+	plane, err := NormalizeCollectorPlane(plane)
+	if err != nil {
+		return nil, err
+	}
+	pinned, err := store.NewEnrollTokens(s.pool).ConsumeForTenant(ctx, expectedTenantID, crypto.Hash([]byte(token)), hostname)
+	if err != nil {
+		if errors.Is(err, store.ErrEnrollTokenInvalid) {
+			return nil, ErrInvalidToken
+		}
+		return nil, err
+	}
+	return s.registerCollector(ctx, expectedTenantID, pinned, hostname, plane)
+}
+
+// NormalizeCollectorPlane returns the canonical bus-collector plane name.
+func NormalizeCollectorPlane(plane string) (string, error) {
+	plane = strings.ToLower(strings.TrimSpace(plane))
+	switch plane {
+	case "flow", "device", "ebpf", "endpoint":
+		return plane, nil
+	default:
+		return "", ErrInvalidCollectorPlane
+	}
+}
+
+func (s *Service) registerCollector(ctx context.Context, tenantID, pinned, hostname, plane string) (*CollectorIdentity, error) {
 	agentID := pinned
 	if agentID == "" {
+		var err error
 		if agentID, err = newAgentID(); err != nil {
 			return nil, err
 		}
+	} else if revoked, rerr := store.NewAgentIdentities(s.pool).IsAgentRevoked(ctx, tenantID, agentID); rerr != nil {
+		return nil, rerr
+	} else if revoked {
+		return nil, ErrRevoked
 	}
 	spiffe := crypto.AgentSPIFFEID(tenantID, agentID)
 	name := hostname
 	if name == "" {
 		name = agentID
 	}
-	caps := []string{"collector"}
-	if plane != "" {
-		caps = append(caps, plane)
-	}
-	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool,
+	caps := []string{"collector", plane}
+	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool,
 		func(ctx context.Context, sc tenancy.Scope) error {
 			_, e := (store.Agents{}).Register(ctx, sc, agentID, name, hostname, "", spiffe, caps)
 			return e
@@ -323,7 +374,7 @@ func (s *Service) RegisterCollector(ctx context.Context, token, hostname, plane 
 	}
 	s.log.Info("bus collector registered",
 		"tenant_id", tenantID, "agent_id", agentID, "plane", plane, "hostname", hostname)
-	return &CollectorIdentity{TenantID: tenantID, AgentID: agentID}, nil
+	return &CollectorIdentity{TenantID: tenantID, AgentID: agentID, Plane: plane}, nil
 }
 
 // newAgentID mints a random v4 UUID for an agent. The agents registry keys on

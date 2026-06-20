@@ -12,6 +12,7 @@ import {
   Icon,
   LoadingState,
   Modal,
+  Select,
   StatusDot,
   Table,
 } from '../../components'
@@ -19,9 +20,12 @@ import { Page } from '../pages'
 import {
   useAgents,
   useMintAgentEnrollToken,
+  useRegisterCollector,
   flattenAgents,
   type Agent,
   type AgentEnrollToken,
+  type CollectorPlane,
+  type CollectorRegistration,
 } from '../../api/agents'
 import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
@@ -163,6 +167,136 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
   )
 }
 
+const collectorPlanes: { value: CollectorPlane; label: string }[] = [
+  { value: 'flow', label: 'Flow' },
+  { value: 'device', label: 'Device' },
+  { value: 'ebpf', label: 'eBPF' },
+  { value: 'endpoint', label: 'Endpoint' },
+]
+
+function formatKeyValues(values: Record<string, string>): string {
+  return Object.entries(values)
+    .map(([key, value]) => `${key}=${value}`)
+    .join('\n')
+}
+
+function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const mint = useMintAgentEnrollToken()
+  const register = useRegisterCollector()
+  const [plane, setPlane] = useState<CollectorPlane>('flow')
+  const [hostname, setHostname] = useState('')
+  const [agentID, setAgentID] = useState('')
+  const [registered, setRegistered] = useState<CollectorRegistration | null>(null)
+  const [error, setError] = useState('')
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setError('')
+    setRegistered(null)
+    try {
+      const token = await mint.mutateAsync({
+        ...(agentID.trim() ? { agent_id: agentID.trim() } : {}),
+        ...(hostname.trim() ? { name: hostname.trim() } : {}),
+        ttl_seconds: 300,
+      })
+      const out = await register.mutateAsync({
+        token: token.token,
+        plane,
+        ...(hostname.trim() ? { hostname: hostname.trim() } : {}),
+      })
+      setRegistered(out)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Collector registration failed')
+    }
+  }
+
+  const envText = registered ? formatKeyValues(registered.config.env) : ''
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={registered ? 'Collector registered' : 'Register collector'}
+      footer={
+        registered ? (
+          <span className={styles.actions}>
+            <Button
+              variant="secondary"
+              onClick={() => void navigator.clipboard?.writeText(envText)}
+            >
+              <Icon name="check" /> Copy env
+            </Button>
+            <Button variant="primary" onClick={onClose}>
+              Done
+            </Button>
+          </span>
+        ) : null
+      }
+    >
+      {registered ? (
+        <div className={styles.form}>
+          <Field label="Collector id" value={registered.agent_id} readOnly />
+          <Field label="Tenant id" value={registered.tenant_id} readOnly />
+          <Field label="Plane" value={registered.plane} readOnly />
+          <p className={styles.editionsLede}>
+            Capabilities: <code>{registered.capabilities.join(', ')}</code>
+          </p>
+          <p className={styles.editionsLede}>Environment</p>
+          {Object.entries(registered.config.env).map(([key, value]) => (
+            <Field key={key} label={key} value={`${key}=${value}`} readOnly />
+          ))}
+          <p className={styles.editionsLede}>YAML</p>
+          {Object.entries(registered.config.yaml).map(([key, value]) => (
+            <Field
+              key={key}
+              label={`YAML ${key}`}
+              value={`${key}: ${JSON.stringify(value)}`}
+              readOnly
+            />
+          ))}
+        </div>
+      ) : (
+        <form className={styles.form} onSubmit={submit}>
+          <Select
+            label="Collector plane"
+            options={collectorPlanes}
+            value={plane}
+            onChange={(e) => setPlane(e.target.value as CollectorPlane)}
+          />
+          <Field
+            label="Collector label"
+            value={hostname}
+            onChange={(e) => setHostname(e.target.value)}
+            placeholder="edge-flow-1"
+            hint="Optional host or source label recorded in the registry."
+          />
+          <Field
+            label="Pinned collector id"
+            value={agentID}
+            onChange={(e) => setAgentID(e.target.value)}
+            placeholder="blank = assign on register"
+            hint="Optional UUID when the collector config already has a stable id."
+          />
+          {error ? (
+            <p role="alert" className={styles.editionsLede}>
+              {error}
+            </p>
+          ) : null}
+          <span className={styles.actions}>
+            <Button type="submit" variant="primary" disabled={mint.isPending || register.isPending}>
+              <Icon name="admin" />{' '}
+              {mint.isPending || register.isPending ? 'Registering...' : 'Register collector'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          </span>
+        </form>
+      )}
+    </Modal>
+  )
+}
+
 /** SecretBackendsCard is the S41 surface: per-backend credential-resolution
  * health. No secret material ever reaches this card — the API serves counters
  * and redacted errors only. resolver_running=false renders as the honest
@@ -238,6 +372,7 @@ function SecretBackendsCard() {
 export function AdminPage() {
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useAgents()
   const [enrollOpen, setEnrollOpen] = useState(false)
+  const [collectorOpen, setCollectorOpen] = useState(false)
   // UX-004: flatten the cursor-paged result into the rows fetched so far.
   const agents = flattenAgents(data?.pages)
 
@@ -271,9 +406,14 @@ export function AdminPage() {
           title="Agents"
           description="Agents register over mTLS; identity is certificate-derived."
           actions={
-            <Button variant="primary" onClick={() => setEnrollOpen(true)}>
-              <Icon name="admin" /> Enroll agent
-            </Button>
+            <span className={styles.actions}>
+              <Button variant="secondary" onClick={() => setCollectorOpen(true)}>
+                <Icon name="admin" /> Register collector
+              </Button>
+              <Button variant="primary" onClick={() => setEnrollOpen(true)}>
+                <Icon name="admin" /> Enroll agent
+              </Button>
+            </span>
           }
         />
         <CardBody>
@@ -306,6 +446,7 @@ export function AdminPage() {
         </CardBody>
       </Card>
       <AgentEnrollDialog open={enrollOpen} onClose={() => setEnrollOpen(false)} />
+      <CollectorRegisterDialog open={collectorOpen} onClose={() => setCollectorOpen(false)} />
       <SecretBackendsCard />
       <IdentityCard />
       <KeysCard />

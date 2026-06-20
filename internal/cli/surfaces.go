@@ -66,6 +66,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"summary":  {Method: http.MethodGet, Path: "/v1/compliance"},
 		"evidence": {Method: http.MethodGet, Path: "/v1/compliance/evidence"},
 	}},
+	"collector": {Name: "collector", Summary: "collector registration", Ops: map[string]apiOp{
+		"register": {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a bus collector from a one-time token"},
+	}},
 	"cost": {Name: "cost", Summary: "network cost summary", Ops: map[string]apiOp{
 		"summary": {Method: http.MethodGet, Path: "/v1/cost/summary"},
 	}},

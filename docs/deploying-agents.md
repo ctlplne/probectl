@@ -125,11 +125,36 @@ unauthenticated.
 For SVID rotation (every ~24h, automatic), revocation, and the full bootstrap
 threat model, see **[agent enrollment & rotation](agent/enrollment.md)**.
 
-> The flow, device, and eBPF collectors in their *lightweight / single-tenant*
-> form take an explicit `tenant_id` in config instead of deriving it from an SVID
-> — convenient for a single-node deploy. In a multi-tenant or regulated
-> deployment, bind them to a SPIFFE identity the same way (the enrollment flow
-> above), so the tenant comes from the certificate, not a config field.
+## Register bus collectors
+
+Flow, device, eBPF, and endpoint collectors publish to the bus instead of
+streaming over the mTLS agent channel, so they do not redeem an SVID. They still
+need a tenant-bound registry identity: every published record carries
+`tenant_id` and `agent_id`, and the control plane checks that pair against the
+tenant's registry before accepting the batch.
+
+From the web UI, go to **Admin & Settings > Agents > Register collector**. Pick
+the plane, enter an optional source label, and optionally pin a collector UUID.
+The UI mints a short-lived one-time token for the current tenant, immediately
+consumes it through `/v1/collectors/register`, and shows the env/YAML keys to
+put in the collector config. The browser never sends `tenant_id`; the server
+derives it from the authenticated tenant before consuming the token.
+
+CLI/API equivalent:
+
+```sh
+# 1. Mint a tenant-scoped one-time token.
+probectl agent enroll-token --body '{"name":"edge-flow-1","ttl_seconds":300}'
+
+# 2. Register the collector with that token.
+probectl collector register --body '{"token":"pjt_...","plane":"flow","hostname":"edge-flow-1"}'
+```
+
+The response includes `tenant_id`, `agent_id`, `capabilities`, and concrete
+config hints. Flow, device, and endpoint use `agent_id` in YAML/env. eBPF's
+current runtime uses `host` as its bus `agent_id`, so the eBPF hint returns
+`host: <collector-id>` and `PROBECTL_EBPF_HOST=<collector-id>` instead of
+inventing a second unsupported key.
 
 ## The producers
 

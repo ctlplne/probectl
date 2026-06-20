@@ -157,6 +157,41 @@ func TestCLIAgentList(t *testing.T) {
 	}
 }
 
+func TestCLICollectorRegister(t *testing.T) {
+	var seen map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/collectors/register", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tenant_id":    "00000000-0000-0000-0000-000000000001",
+			"agent_id":     "11111111-1111-4111-8111-111111111111",
+			"plane":        "flow",
+			"capabilities": []string{"collector", "flow"},
+			"config": map[string]any{
+				"env":  map[string]string{"PROBECTL_FLOW_TENANT": "00000000-0000-0000-0000-000000000001", "PROBECTL_FLOW_AGENT_ID": "11111111-1111-4111-8111-111111111111"},
+				"yaml": map[string]string{"tenant_id": "00000000-0000-0000-0000-000000000001", "agent_id": "11111111-1111-4111-8111-111111111111"},
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	body := `{"token":"pjt_token","plane":"flow","hostname":"edge-flow"}`
+	out, errs, code := run(t, srv, "--json", "collector", "register", "--body", body)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if seen["token"] != "pjt_token" || seen["plane"] != "flow" || seen["hostname"] != "edge-flow" {
+		t.Fatalf("request body = %#v", seen)
+	}
+	if !strings.Contains(out, `"plane": "flow"`) || !strings.Contains(out, "PROBECTL_FLOW_AGENT_ID") {
+		t.Fatalf("collector registration output missing identity/config: %s", out)
+	}
+}
+
 func TestCLIErrorStatusExitsNonZero(t *testing.T) {
 	srv := fakeAPI(t)
 	_, errs, code := run(t, srv, "test", "get", "44444444-4444-4444-4444-444444444444")

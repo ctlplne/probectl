@@ -30,6 +30,26 @@ export interface AgentEnrollToken {
   server_cert_pin?: string
 }
 
+export type CollectorPlane = 'flow' | 'device' | 'ebpf' | 'endpoint'
+
+export interface RegisterCollectorInput {
+  token: string
+  plane: CollectorPlane
+  hostname?: string
+}
+
+export interface CollectorRegistration {
+  tenant_id: string
+  agent_id: string
+  plane: CollectorPlane
+  hostname?: string
+  capabilities: string[]
+  config: {
+    env: Record<string, string>
+    yaml: Record<string, string>
+  }
+}
+
 // UX-004: the agent fleet can be large, so the list MUST ride the backend's
 // cursor pagination (handleListAgents: ?after=<id>&limit=<n>, next_cursor when a
 // full page is returned). Previously useAgents() fetched bare `/agents` and
@@ -56,6 +76,17 @@ export function useMintAgentEnrollToken() {
   return useMutation({
     mutationFn: (input: MintAgentEnrollTokenInput) =>
       apiFetch<AgentEnrollToken>('/agents/enroll-tokens', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+  })
+}
+
+export function useRegisterCollector() {
+  return useMutation({
+    mutationFn: (input: RegisterCollectorInput) =>
+      apiFetch<CollectorRegistration>('/collectors/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),

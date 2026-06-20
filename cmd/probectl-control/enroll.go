@@ -96,7 +96,7 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 	return nil
 }
 
-// runRegisterCollector registers a bus-publishing collector (eBPF/flow/device)
+// runRegisterCollector registers a bus-publishing collector (eBPF/flow/device/endpoint)
 // from a one-time enroll token and prints the minted UUID identity for it to
 // stamp on its records (ARCH-011). No certificate is issued — bus collectors
 // authenticate to the broker separately; the registry row is what the
@@ -104,13 +104,13 @@ func runEnrollToken(ctx context.Context, cfg *config.Config, db *store.DB, args 
 func runRegisterCollector(ctx context.Context, db *store.DB, args []string) error {
 	fs := flag.NewFlagSet("register-collector", flag.ContinueOnError)
 	token := fs.String("token", "", "one-time enroll token (pjt_...; REQUIRED)")
-	plane := fs.String("plane", "", "collector plane: ebpf | flow | device")
+	plane := fs.String("plane", "", "collector plane: ebpf | flow | device | endpoint (REQUIRED)")
 	hostname := fs.String("hostname", "", "operator label / source host")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *token == "" {
-		return fmt.Errorf("-token is required (mint one with enroll-token)")
+	if *token == "" || *plane == "" {
+		return fmt.Errorf("-token and -plane are required (mint a token with enroll-token; plane is ebpf|flow|device|endpoint)")
 	}
 	svc, err := enroll.Load(ctx, db.Pool(), nil)
 	if err != nil {
@@ -123,6 +123,7 @@ func runRegisterCollector(ctx context.Context, db *store.DB, args []string) erro
 	fmt.Println("collector registered. Configure the collector with:")
 	fmt.Println("  tenant_id:", id.TenantID)
 	fmt.Println("  agent_id: ", id.AgentID)
+	fmt.Println("  plane:    ", id.Plane)
 	fmt.Println()
 	fmt.Println("stamp agent_id on every record the collector publishes to the bus;")
 	fmt.Println("the control plane verifies it against this registry row (TENANT-101).")

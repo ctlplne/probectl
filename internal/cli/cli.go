@@ -96,6 +96,7 @@ Commands:
   agent ci <id>                  show CMDB CIs for an agent
   agent revoke <id>              revoke an agent
   agent delete <id>              deregister an agent
+  collector register --body JSON register a bus collector identity
   incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
                                 resource groups for served product surfaces
   version                        print the CLI version

@@ -4817,6 +4817,52 @@
           }
         }
       }
+    },
+    "/v1/collectors/register": {
+      "post": {
+        "operationId": "registerCollector",
+        "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
+        "description": "Consumes a tenant-scoped one-time token inside the caller tenant and returns the collector identity to stamp on flow, device, eBPF, or endpoint records.",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectorRegisterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Collector registered and bound to the caller tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectorRegistration"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "description": "Enrollment not configured (run: probectl-control agent-ca init)"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6215,6 +6261,92 @@
             }
           }
         }
+      },
+      "CollectorRegisterRequest": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "One-time pjt_ enrollment token minted for the caller tenant."
+          },
+          "plane": {
+            "type": "string",
+            "enum": [
+              "flow",
+              "device",
+              "ebpf",
+              "endpoint"
+            ]
+          },
+          "hostname": {
+            "type": "string",
+            "description": "Optional operator label or collector host/source name."
+          }
+        },
+        "required": [
+          "token",
+          "plane"
+        ]
+      },
+      "CollectorConfigHint": {
+        "type": "object",
+        "properties": {
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "yaml": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "env",
+          "yaml"
+        ]
+      },
+      "CollectorRegistration": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "plane": {
+            "type": "string",
+            "enum": [
+              "flow",
+              "device",
+              "ebpf",
+              "endpoint"
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "config": {
+            "$ref": "#/components/schemas/CollectorConfigHint"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "agent_id",
+          "plane",
+          "capabilities",
+          "config"
+        ]
       }
     }
   }
