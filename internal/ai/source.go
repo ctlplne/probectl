@@ -30,7 +30,8 @@ type TopologySource interface {
 }
 
 // NewTopologySource adapts the S30 topology.Store to a TopologySource. The store
-// is tenant-keyed, so the adapter can never return another tenant's graph.
+// yields a tenant-bound graph handle, so the adapter can never return another
+// tenant's graph after the engine has supplied the principal tenant.
 func NewTopologySource(store topology.Store) TopologySource {
 	return &topologyAdapter{store: store}
 }
@@ -38,6 +39,10 @@ func NewTopologySource(store topology.Store) TopologySource {
 type topologyAdapter struct{ store topology.Store }
 
 func (a *topologyAdapter) QueryTopology(_ context.Context, tenant string, q Query) ([]Row, error) {
+	graph, err := a.store.ForTenant(tenant)
+	if err != nil {
+		return nil, err
+	}
 	at := q.Range.At
 	switch {
 	case q.From != "" && q.To != "":
@@ -45,7 +50,7 @@ func (a *topologyAdapter) QueryTopology(_ context.Context, tenant string, q Quer
 			at = time.Now()
 		}
 		var rows []Row
-		for i, id := range a.store.Traverse(tenant, q.From, q.To, at) {
+		for i, id := range graph.Traverse(q.From, q.To, at) {
 			rows = append(rows, Row{"hop": i, "node": id})
 		}
 		return rows, nil
@@ -54,14 +59,14 @@ func (a *topologyAdapter) QueryTopology(_ context.Context, tenant string, q Quer
 			at = time.Now()
 		}
 		var rows []Row
-		for _, id := range a.store.Neighbors(tenant, q.NodeID, at) {
+		for _, id := range graph.Neighbors(q.NodeID, at) {
 			rows = append(rows, Row{"node": q.NodeID, "neighbor": id, "title": "topology neighbor " + id})
 		}
 		return rows, nil
 	default:
-		snap := a.store.Latest(tenant)
+		snap := graph.Latest()
 		if !at.IsZero() {
-			snap = a.store.SnapshotAt(tenant, at)
+			snap = graph.SnapshotAt(at)
 		}
 		var rows []Row
 		for _, n := range snap.Nodes {

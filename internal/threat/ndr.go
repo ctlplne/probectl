@@ -33,6 +33,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
 // IntelSource scores an IP against threat intel (satisfied by
@@ -41,12 +42,12 @@ type IntelSource interface {
 	ScoreIP(ip string) []opendata.IOCMatch
 }
 
-// NeighborSource exposes the topology service map (S30): known service
-// relationships of a node (satisfied by *topology.MemoryStore). The lateral
-// detector treats known neighbors as EXPECTED traffic — they never count
-// toward fan-out (false-positive control). nil means no exclusions.
+// NeighborSource exposes the tenant-bound topology service map (S30): known
+// service relationships of a node. The lateral detector treats known neighbors
+// as EXPECTED traffic — they never count toward fan-out (false-positive
+// control). nil means no exclusions.
 type NeighborSource interface {
-	Neighbors(tenant, nodeID string, at time.Time) []string
+	ForTenant(tenant string) (topology.TenantStore, error)
 }
 
 // DNSObservation is one resolved name: from a DNS canary result (S12) or an
@@ -572,8 +573,10 @@ func (e *Engine) observeLateral(tenant string, ts *tenantState, obs FlowObservat
 		// Known service relationships (S30 topology) are EXPECTED — exclude them.
 		known := map[string]bool{}
 		if e.topo != nil {
-			for _, n := range e.topo.Neighbors(tenant, obs.Src, obs.At) {
-				known[n] = true
+			if graph, err := e.topo.ForTenant(tenant); err == nil {
+				for _, n := range graph.Neighbors(obs.Src, obs.At) {
+					known[n] = true
+				}
 			}
 		}
 		fanout := 0

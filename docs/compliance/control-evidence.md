@@ -34,7 +34,7 @@ supports the tenant-facing attestation.*
 
 | Control | What probectl does | Code | Test / gate |
 |---|---|---|---|
-| SOC 2 **CC6.1 / CC6.7**, ISO **A.8.3** (data segregation) | Every data path scoped by `tenant_id` at the storage/query layer (Postgres RLS FORCE; ClickHouse partition key; tenant-bound object-store handles) — defense-in-depth above RBAC | `internal/tenancy/`, `internal/store/`, `internal/objectstore/`, migrations | `internal/tenancy/isolation_gate_test.go`, `internal/objectstore/objectstore_test.go`, `internal/pipeline/isolation_ingest_test.go` — the **cross-tenant-isolation** CI job (fail-not-skip under `PROBECTL_TEST_REQUIRE_SERVICES=1`) |
+| SOC 2 **CC6.1 / CC6.7**, ISO **A.8.3** (data segregation) | Every data path scoped by `tenant_id` at the storage/query layer (Postgres RLS FORCE; ClickHouse partition key; tenant-bound object-store handles; tenant-bound topology graph handles) — defense-in-depth above RBAC | `internal/tenancy/`, `internal/store/`, `internal/objectstore/`, `internal/topology/`, migrations | `internal/tenancy/isolation_gate_test.go`, `internal/objectstore/objectstore_test.go`, `internal/topology/store_test.go`, `internal/pipeline/isolation_ingest_test.go` — the **cross-tenant-isolation** CI job (fail-not-skip under `PROBECTL_TEST_REQUIRE_SERVICES=1`) |
 | SOC 2 **CC6.7** (data in transit) | Datastore + bus connections support TLS in transit (default-on in mt/regulated) | `internal/store/`, `internal/bus/security.go` | `internal/bus/*_test.go`, integration TLS Postgres (`scripts/ci_pg_tls.sh`) |
 
 ## Cryptography & key management

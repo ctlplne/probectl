@@ -61,7 +61,11 @@ func (s *Server) handleDiscoverPath(w http.ResponseWriter, r *http.Request) erro
 	// Fold the discovery into the dependency graph (S43): the path plane
 	// feeds topology at save time — no second discovery pass.
 	if s.topo != nil {
-		s.topo.ObservePath(tid, topology.FromPath(*p, "control"), time.Now())
+		graph, err := s.topo.ForTenant(tid)
+		if err != nil {
+			return apierror.Forbidden("tenant topology scope is invalid").Wrap(err)
+		}
+		graph.ObservePath(topology.FromPath(*p, "control"), time.Now())
 	}
 	writeJSON(w, http.StatusOK, p)
 	return nil

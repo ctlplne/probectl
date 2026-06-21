@@ -59,11 +59,15 @@ func (s *Server) handleTopology(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	graph, err := s.topo.ForTenant(tid)
+	if err != nil {
+		return apierror.Forbidden("tenant topology scope is invalid").Wrap(err)
+	}
 	var snap topology.Snapshot
 	if at.IsZero() {
-		snap = s.topo.Latest(tid)
+		snap = graph.Latest()
 	} else {
-		snap = s.topo.SnapshotAt(tid, at)
+		snap = graph.SnapshotAt(at)
 	}
 	viz := topology.ToViz(snap)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -263,9 +267,15 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 			continue
 		}
 		firstSeen, lastSeen := serviceEdgeTimes(e, receivedAt)
-		tc.store.ObserveServiceEdge(e.GetTenantId(), topology.FromServiceEdge(e), firstSeen)
+		graph, err := tc.store.ForTenant(e.GetTenantId())
+		if err != nil {
+			tc.ledger.addUnscoped("ebpf", 1)
+			tc.log.Error("topology: rejecting ebpf edge with invalid tenant scope", "tenant_id", e.GetTenantId(), "error", err.Error())
+			continue
+		}
+		graph.ObserveServiceEdge(topology.FromServiceEdge(e), firstSeen)
 		if !lastSeen.Equal(firstSeen) {
-			tc.store.ObserveServiceEdge(e.GetTenantId(), topology.FromServiceEdge(e), lastSeen)
+			graph.ObserveServiceEdge(topology.FromServiceEdge(e), lastSeen)
 		}
 		if tc.ebpf != nil {
 			durable = append(durable, ebpfstore.Edge{
@@ -301,8 +311,14 @@ func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error 
 		tc.ledger.addUnscoped("bgp", 1)
 		return nil
 	}
+	graph, err := tc.store.ForTenant(ev.GetTenantId())
+	if err != nil {
+		tc.ledger.addUnscoped("bgp", 1)
+		tc.log.Error("topology: rejecting bgp event with invalid tenant scope", "tenant_id", ev.GetTenantId(), "error", err.Error())
+		return nil
+	}
 	at := pipeline.NormalizeEventTimeUnixNano(ev.GetDetectedAtUnixNano(), tc.receivedAt())
-	tc.store.ObserveRouting(ev.GetTenantId(), topology.FromBGPEvent(&ev), at)
+	graph.ObserveRouting(topology.FromBGPEvent(&ev), at)
 	tc.ledger.addStored("bgp", 1)
 	return nil
 }
@@ -332,10 +348,16 @@ func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) e
 			tc.ledger.addMalformed("device", 1)
 			continue
 		}
+		graph, err := tc.store.ForTenant(m.GetTenantId())
+		if err != nil {
+			tc.ledger.addUnscoped("device", 1)
+			tc.log.Error("topology: rejecting device metric with invalid tenant scope", "tenant_id", m.GetTenantId(), "error", err.Error())
+			continue
+		}
 		// S39 telemetry exposes no interface IPs yet, so this yields device
 		// nodes without device→hop links — surfaced as a coverage note by the
 		// what-if API, never silently complete.
-		tc.store.ObserveDevice(m.GetTenantId(), topology.DeviceInput{
+		graph.ObserveDevice(topology.DeviceInput{
 			Address: m.GetDeviceAddress(),
 			Name:    m.GetDeviceName(),
 		}, pipeline.NormalizeEventTimeUnixNano(m.GetTimeUnixNano(), receivedAt))

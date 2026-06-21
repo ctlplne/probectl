@@ -11,18 +11,23 @@ import (
 // Equivalence: the indexed engine answers every query identically to the
 // reference MemoryStore — the migration is transparent (the S43 contract).
 func TestIndexedStoreEquivalence(t *testing.T) {
-	seed := func(s Store) {
-		s.ObservePath("t1", PathInput{AgentID: "a", Target: "web", TargetIP: "203.0.113.10",
+	seed := func(t *testing.T, s Store) {
+		t.Helper()
+		g, err := s.ForTenant("t1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		g.ObservePath(PathInput{AgentID: "a", Target: "web", TargetIP: "203.0.113.10",
 			Hops: []string{"10.0.0.1", "10.0.0.2", "10.0.0.4"},
 			Links: []Link{{From: "10.0.0.1", To: "10.0.0.2"}, {From: "10.0.0.2", To: "10.0.0.4"},
 				{From: "10.0.0.1", To: "10.0.0.3"}, {From: "10.0.0.3", To: "10.0.0.4"}}}, watT)
-		s.ObserveServiceEdge("t1", ServiceEdgeInput{Source: "api", Destination: "db"}, watT)
-		s.ObserveRouting("t1", RoutingInput{Prefix: "198.51.100.0/24", OriginASN: 64500}, watT)
-		s.ObserveDevice("t1", DeviceInput{Address: "192.0.2.250", InterfaceIPs: []string{"10.0.0.1"}}, watT)
+		g.ObserveServiceEdge(ServiceEdgeInput{Source: "api", Destination: "db"}, watT)
+		g.ObserveRouting(RoutingInput{Prefix: "198.51.100.0/24", OriginASN: 64500}, watT)
+		g.ObserveDevice(DeviceInput{Address: "192.0.2.250", InterfaceIPs: []string{"10.0.0.1"}}, watT)
 	}
 	mem, idx := NewMemoryStore(), NewIndexedStore()
-	seed(mem)
-	seed(idx)
+	seed(t, mem)
+	seed(t, idx)
 
 	for _, node := range []string{"agent:a", "hop:10.0.0.1", "hop:10.0.0.4", "service:api", "device:192.0.2.250"} {
 		m := mem.Neighbors("t1", node, watT)

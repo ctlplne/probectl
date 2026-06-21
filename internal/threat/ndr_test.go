@@ -11,6 +11,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
 func mustRules(t *testing.T) []DetectionRule {
@@ -295,7 +296,20 @@ func TestBadASNEgressViaRuleOverride(t *testing.T) {
 
 type fakeTopo struct{ known []string }
 
-func (f fakeTopo) Neighbors(string, string, time.Time) []string { return f.known }
+func (f fakeTopo) ForTenant(string) (topology.TenantStore, error) {
+	return fakeTenantTopo(f), nil
+}
+
+type fakeTenantTopo struct{ known []string }
+
+func (f fakeTenantTopo) ObservePath(topology.PathInput, time.Time)               {}
+func (f fakeTenantTopo) ObserveServiceEdge(topology.ServiceEdgeInput, time.Time) {}
+func (f fakeTenantTopo) ObserveRouting(topology.RoutingInput, time.Time)         {}
+func (f fakeTenantTopo) ObserveDevice(topology.DeviceInput, time.Time)           {}
+func (f fakeTenantTopo) SnapshotAt(at time.Time) topology.Snapshot               { return topology.Snapshot{At: at} }
+func (f fakeTenantTopo) Latest() topology.Snapshot                               { return topology.Snapshot{} }
+func (f fakeTenantTopo) Neighbors(string, time.Time) []string                    { return f.known }
+func (f fakeTenantTopo) Traverse(string, string, time.Time) []string             { return nil }
 
 func TestLateralFanoutWithTopologyExclusion(t *testing.T) {
 	// 11 distinct internal SMB destinations; 2 are KNOWN service neighbors

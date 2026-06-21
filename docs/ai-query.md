@@ -97,12 +97,13 @@ if p == nil || p.TenantID == "" {
 
 A caller with no tenant is rejected outright (`ErrNoTenant`). The tenant that
 *does* get used is `p.TenantID` from the principal, which the engine passes down
-to the store. And the stores are themselves tenant-scoped: the topology store is
-keyed by tenant, and the Postgres-backed sources open a **row-level-security**
-transaction — **RLS** is a Postgres feature where the *database itself* filters
-every row by tenant inside the transaction, so even a buggy SQL statement cannot
-see foreign rows. That is **defense in depth**: two independent fences enforcing
-the same rule, so a bug in the query layer still doesn't become a leak.
+to the store. And the stores are themselves tenant-scoped: the topology adapter
+first binds a `TenantStore` with `ForTenant(p.TenantID)`, and the Postgres-backed
+sources open a **row-level-security** transaction — **RLS** is a Postgres feature
+where the *database itself* filters every row by tenant inside the transaction,
+so even a buggy SQL statement cannot see foreign rows. That is **defense in
+depth**: two independent fences enforcing the same rule, so a bug in the query
+layer still doesn't become a leak.
 
 **Gate 2 — RBAC (per domain).** Each domain needs a read permission, mapped one to
 one in `internal/ai/permissions.go`:

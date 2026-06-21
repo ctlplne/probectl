@@ -10,6 +10,8 @@
 //
 // The Store interface is the query API the AI semantic-query layer (S23) wraps
 // with tenant-then-RBAC scoping, and the adjacency model the dedicated-engine
-// migration (S43) later replaces. Every graph is tenant-scoped — this foundation
-// never returns another tenant's nodes or edges (CLAUDE.md §7 guardrail 1).
+// migration (S43) later replaces. Callers bind a tenant once with ForTenant and
+// then operate through a TenantStore that has no tenant-string arguments. Every
+// graph is tenant-scoped — this foundation never returns another tenant's nodes
+// or edges (CLAUDE.md §7 guardrail 1).
 package topology

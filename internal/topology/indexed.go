@@ -27,9 +27,17 @@ func NewIndexedStore() *IndexedStore {
 	return &IndexedStore{graphs: map[string]*indexedGraph{}}
 }
 
+// ForTenant returns an indexed graph handle bound to one tenant.
+func (s *IndexedStore) ForTenant(tenant string) (TenantStore, error) {
+	return bindTenant(s, tenant)
+}
+
 // DeleteTenant drops the tenant's entire indexed graph (every snapshot/
 // version — S-T5 verifiable erasure, U-027) and reports whether one existed.
 func (s *IndexedStore) DeleteTenant(tenant string) int {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return 0
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.graphs[tenant]; !ok {
@@ -50,42 +58,133 @@ func (s *IndexedStore) graph(tenant string) *indexedGraph {
 	return g
 }
 
-// ObservePath implements Store.
+func (s *IndexedStore) graphIfExists(tenant string) (*indexedGraph, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, ok := s.graphs[tenant]
+	return g, ok
+}
+
+// ObservePath is a concrete compatibility helper. Tenant-owned production
+// callers should bind ForTenant and call TenantStore.ObservePath instead.
 func (s *IndexedStore) ObservePath(tenant string, in PathInput, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.observePathTenant(tenant, in, at)
+}
+
+// ObserveServiceEdge is a concrete compatibility helper. Tenant-owned
+// production callers should bind ForTenant first.
+func (s *IndexedStore) ObserveServiceEdge(tenant string, in ServiceEdgeInput, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.observeServiceEdgeTenant(tenant, in, at)
+}
+
+// ObserveRouting is a concrete compatibility helper. Tenant-owned production
+// callers should bind ForTenant first.
+func (s *IndexedStore) ObserveRouting(tenant string, in RoutingInput, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.observeRoutingTenant(tenant, in, at)
+}
+
+// ObserveDevice is a concrete compatibility helper. Tenant-owned production
+// callers should bind ForTenant first.
+func (s *IndexedStore) ObserveDevice(tenant string, in DeviceInput, at time.Time) {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return
+	}
+	s.observeDeviceTenant(tenant, in, at)
+}
+
+// SnapshotAt is a concrete compatibility helper. Tenant-owned production
+// callers should bind ForTenant first.
+func (s *IndexedStore) SnapshotAt(tenant string, at time.Time) Snapshot {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return Snapshot{At: at}
+	}
+	return s.snapshotAtTenant(tenant, at)
+}
+
+// Latest is a concrete compatibility helper. Tenant-owned production callers
+// should bind ForTenant first.
+func (s *IndexedStore) Latest(tenant string) Snapshot {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return Snapshot{}
+	}
+	return s.latestTenant(tenant)
+}
+
+// Neighbors is a concrete compatibility helper via the adjacency indexes
+// (degree-proportional). Tenant-owned production callers should bind ForTenant
+// first.
+func (s *IndexedStore) Neighbors(tenant, nodeID string, at time.Time) []string {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return nil
+	}
+	return s.neighborsTenant(tenant, nodeID, at)
+}
+
+// Traverse is a concrete compatibility helper for the shortest directed route
+// via the forward index. Tenant-owned production callers should bind ForTenant
+// first.
+func (s *IndexedStore) Traverse(tenant, from, to string, at time.Time) []string {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return nil
+	}
+	return s.traverseTenant(tenant, from, to, at)
+}
+
+func (s *IndexedStore) observePathTenant(tenant string, in PathInput, at time.Time) {
 	s.graph(tenant).observe(func(g *Graph) { g.ObservePath(in, at) })
 }
 
-// ObserveServiceEdge implements Store.
-func (s *IndexedStore) ObserveServiceEdge(tenant string, in ServiceEdgeInput, at time.Time) {
+func (s *IndexedStore) observeServiceEdgeTenant(tenant string, in ServiceEdgeInput, at time.Time) {
 	s.graph(tenant).observe(func(g *Graph) { g.ObserveServiceEdge(in, at) })
 }
 
-// ObserveRouting implements Store.
-func (s *IndexedStore) ObserveRouting(tenant string, in RoutingInput, at time.Time) {
+func (s *IndexedStore) observeRoutingTenant(tenant string, in RoutingInput, at time.Time) {
 	s.graph(tenant).observe(func(g *Graph) { g.ObserveRouting(in, at) })
 }
 
-// ObserveDevice implements Store.
-func (s *IndexedStore) ObserveDevice(tenant string, in DeviceInput, at time.Time) {
+func (s *IndexedStore) observeDeviceTenant(tenant string, in DeviceInput, at time.Time) {
 	s.graph(tenant).observe(func(g *Graph) { g.ObserveDevice(in, at) })
 }
 
-// SnapshotAt implements Store.
-func (s *IndexedStore) SnapshotAt(tenant string, at time.Time) Snapshot {
-	return s.graph(tenant).inner.SnapshotAt(at)
+func (s *IndexedStore) snapshotAtTenant(tenant string, at time.Time) Snapshot {
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return emptySnapshot(tenant, at)
+	}
+	return g.inner.SnapshotAt(at)
 }
 
-// Latest implements Store.
-func (s *IndexedStore) Latest(tenant string) Snapshot { return s.graph(tenant).inner.Latest() }
-
-// Neighbors implements Store via the adjacency indexes (degree-proportional).
-func (s *IndexedStore) Neighbors(tenant, nodeID string, at time.Time) []string {
-	return s.graph(tenant).neighbors(nodeID, at)
+func (s *IndexedStore) latestTenant(tenant string) Snapshot {
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return emptySnapshot(tenant, time.Time{})
+	}
+	return g.inner.Latest()
 }
 
-// Traverse implements Store: shortest directed route via the forward index.
-func (s *IndexedStore) Traverse(tenant, from, to string, at time.Time) []string {
-	return s.graph(tenant).traverse(from, to, at)
+func (s *IndexedStore) neighborsTenant(tenant, nodeID string, at time.Time) []string {
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return nil
+	}
+	return g.neighbors(nodeID, at)
+}
+
+func (s *IndexedStore) traverseTenant(tenant, from, to string, at time.Time) []string {
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return nil
+	}
+	return g.traverse(from, to, at)
 }
 
 var _ Store = (*IndexedStore)(nil)

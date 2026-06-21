@@ -72,12 +72,16 @@ type Impact struct {
 // returns the predicted impact. Unknown targets are an error (fail closed —
 // a typo'd simulation must not return an empty "no impact").
 func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impact, error) {
+	graph, err := s.ForTenant(tenant)
+	if err != nil {
+		return Impact{}, err
+	}
 	var snap Snapshot
 	if at.IsZero() {
-		snap = s.Latest(tenant)
+		snap = graph.Latest()
 		at = snap.At
 	} else {
-		snap = s.SnapshotAt(tenant, at)
+		snap = graph.SnapshotAt(at)
 	}
 	sim := newSimGraph(snap)
 

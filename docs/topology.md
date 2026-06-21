@@ -52,8 +52,8 @@ photo that gets repainted — and replaying the ledger to any moment is exactly
 what root-cause
 analysis needs (the graph as it was at the incident moment, not as it is now).
 
-- `SnapshotAt(tenant, t)` returns the graph **as it was at time `t`**.
-- `Latest(tenant)` returns the full current graph.
+- `ForTenant(tenant).SnapshotAt(t)` returns the graph **as it was at time `t`**.
+- `ForTenant(tenant).Latest()` returns the full current graph.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -70,24 +70,29 @@ flowchart LR
 
 ## Query API (the contract everything else consumes)
 
-The `Store` interface (`internal/topology/store.go`) is tenant-scoped: every
-method takes a tenant and **never returns another tenant's graph** — tenant
-isolation is probectl's outermost boundary (see
-[`security/tenant-isolation.md`](security/tenant-isolation.md)).
+The `Store` interface (`internal/topology/store.go`) is tenant-bound: callers
+first ask for `ForTenant(tenant)` and receive a `TenantStore`. That handle has
+no tenant-string arguments, so a later read/write cannot accidentally swap in a
+different tenant. Tenant isolation is probectl's outermost boundary (see
+[`security/tenant-isolation.md`](security/tenant-isolation.md)); the topology
+store enforces it below the API/AI/RBAC layer.
 
-- `SnapshotAt(tenant, t)` / `Latest(tenant)` — the graph, or its state at `t`.
-- `Neighbors(tenant, nodeID, t)` — a node's adjacency (the nodes touching it)
-  at `t`.
-- `Traverse(tenant, from, to, t)` — the shortest directed path between two nodes
-  (the traversal RCA — root-cause analysis — walks).
-- `Observe{Path,ServiceEdge,Routing,Device}(tenant, …, at)` — fold one plane's
-  telemetry into the graph.
+- `SnapshotAt(t)` / `Latest()` — the bound tenant's graph, or its state at `t`.
+- `Neighbors(nodeID, t)` — a node's adjacency (the nodes touching it) at `t`.
+- `Traverse(from, to, t)` — the shortest directed path between two nodes (the
+  traversal RCA — root-cause analysis — walks).
+- `Observe{Path,ServiceEdge,Routing,Device}(…, at)` — fold one plane's telemetry
+  into the bound tenant's graph.
+
+Invalid or empty tenant scopes fail closed. Reading a never-seen tenant returns
+an empty snapshot without creating a graph.
 
 `MemoryStore` is the simple in-memory implementation. The `From{Path,
 ServiceEdge,BGPEvent}` adapters (`internal/topology/adapters.go`) map the real
 signal types into the builder inputs, so a bus consumer can feed the graph
 straight from live telemetry. The indexed engine below and any external
-graph-database adapter implement this *same* interface — callers never change.
+graph-database adapter implement this *same* tenant-bound interface — callers
+never change.
 
 ## All planes feed the live graph
 

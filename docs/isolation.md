@@ -100,6 +100,12 @@ a transient routing blip delays the data instead of mis-routing it.
   list/delete operations stay inside that bound root. Note the honesty caveat
   below: in this release that is a key *namespace* on the same backend, not a
   separate storage system.
+- **Topology graph:** API, AI, NDR, what-if, and topology consumers bind the
+  store with `ForTenant(tenant_id)` before reading or writing graph data. The
+  resulting tenant handle has no tenant argument on `Latest`, `SnapshotAt`,
+  `Neighbors`, `Traverse`, or `Observe*`, so a caller cannot accidentally swap
+  tenant strings mid-operation. Empty/invalid tenants fail closed, and reads of
+  never-seen tenants return empty snapshots without creating a graph.
 
 ## Residency: exactly what is and is not pinned
 
