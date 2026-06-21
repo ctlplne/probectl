@@ -16,7 +16,7 @@ ids=(
   COVER-008 COVER-009
   DOCS-004 DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-004 EBPF-005 EBPF-006 EBPF-007 FUZZ-005 FUZZ-007 FUZZ-008
-  KEYS-005 KEYS-006 KEYS-007
+  KEYS-004 KEYS-005 KEYS-006 KEYS-007
   OPS-007 OPS-008 OPS-009 OPS-010
   RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 71 ]; then
-  err "internal guard bug: expected 71 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 72 ]; then
+  err "internal guard bug: expected 72 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -225,9 +225,27 @@ need_pattern FUZZ-008 internal/httpbody/body.go 'ReadLimited|LimitReader\(r, max
 need_pattern FUZZ-008 internal/httpbody/body_test.go 'TestReadLimitedRejectsOversizeWithoutTruncation|TestDecodeHTTPJSONStrictUsesMaxBytesReader|ErrTooLarge'
 need_pattern FUZZ-008 internal/ebpf/source_live_linux.go 'defer func\(\)|recover\(\)|DecodeFailures|DropStats'
 need_pattern FUZZ-008 internal/ebpf/runtime_test.go 'TestAgentRunReportsDetailedKernelDrops|DecodeFailures|L4RingBufferFull'
-need_pattern KEYS-005 scripts/check_crypto_imports.sh 'internal/crypto'
-need_pattern KEYS-005 internal/crypto/crypto.go 'Provider|Zeroize|Encrypt|Decrypt'
-need_pattern KEYS-006 .github/workflows/release.yml 'cosign|verify-blob|id-token'
+need_pattern KEYS-004 scripts/check_crypto_imports.sh 'crypto-import guard|internal/crypto'
+need_pattern KEYS-004 internal/crypto/crypto.go 'Provider|Random|Encrypt|Decrypt|ConstantTimeEqual|Zeroize'
+need_pattern KEYS-004 internal/crypto/crypto.go 'rand.Reader|aes.NewCipher|cipher.NewGCM|hmac.Equal'
+need_pattern KEYS-004 internal/crypto/password.go 'PBKDF2-HMAC-SHA256|pbkdf2Key|ConstantTimeEqual'
+need_pattern KEYS-004 internal/crypto/selftest.go 'PowerOnSelfTest|SHA-256 KAT|HMAC-SHA-256 KAT|PBKDF2-SHA-256 KAT|AES-GCM'
+need_pattern KEYS-005 internal/enroll/enroll.go 'DefaultLeafTTL|DefaultTokenTTL|sealCAKey|tenantcrypto.Seal|tenantcrypto.HasScheme|ErrRevoked'
+need_pattern KEYS-005 internal/enroll/enroll.go 'MintToken'
+need_pattern KEYS-005 internal/enroll/enroll.go 'Consume\(ctx, crypto.Hash'
+need_pattern KEYS-005 internal/enroll/enroll.go 'Rotate verifies the current identity|KnownSerial'
+need_pattern KEYS-005 internal/enroll/enroll.go 'ListRevoked'
+need_pattern KEYS-005 internal/store/enrollment.go 'token_hash|used_at IS NULL|expires_at > now'
+need_pattern KEYS-005 internal/store/enrollment.go 'ConsumeForTenant|RevokeAgent|ListRevoked'
+need_pattern KEYS-005 internal/control/enrollapi.go 'SetAgentRevocationPush|handleRevokeAgent|revokePush|agent.enroll_token_minted|RegisterCollectorForTenant'
+need_pattern KEYS-005 internal/enroll/seal_test.go 'refuse to persist a plaintext CA key|sealed CA key must not be the plaintext'
+need_pattern KEYS-005 internal/enroll/enroll_integration_test.go 'TestEnrollTokenReplayRejected|TestEnrollTokenRevokeBlocksRedeem|TestRevokeAgentPersistsAndBlocksReissuance'
+need_pattern KEYS-006 .github/workflows/release.yml 'id-token: write|cosign sign --yes|cosign verify|release\.yml@refs/tags'
+need_pattern KEYS-006 scripts/check_cosign_wiring.sh 'cosign-wiring gate|cosign verify-blob|release workflow tag identity pin'
+need_pattern KEYS-006 internal/audit/worm.go 'requires a persisted Ed25519 signing key|NewWormExporterEphemeralForTest|ResolveWormSigningKey|refusing to mint an ephemeral'
+need_pattern KEYS-006 internal/audit/worm_test.go 'TestWormExporterRefusesEmptyKey|TestResolveWormSigningKeyStableAndFailClosed|ephemeral key must NOT verify'
+need_pattern KEYS-006 internal/license/license.go 'VerifyEd25519|trustedPubPEMs|signature verification failed'
+need_pattern KEYS-006 cmd/probectl-license/main.go 'KEEP OFFLINE|GenerateEd25519KeyPEM|SignEd25519|Verify'
 need_absent KEYS-006 cmd 'self.?update.*(download|install|apply|exec|binary|package)|auto.?update.*(download|install|apply|exec|binary|package)'
 need_absent KEYS-006 internal 'self.?update.*(download|install|apply|exec|binary|package)|auto.?update.*(download|install|apply|exec|binary|package)'
 need_absent KEYS-006 ee 'self.?update.*(download|install|apply|exec|binary|package)|auto.?update.*(download|install|apply|exec|binary|package)'
