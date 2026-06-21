@@ -3,6 +3,7 @@
 package flowstore
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"strings"
@@ -117,6 +118,101 @@ func TestMemoryCapacity(t *testing.T) {
 		TenantID: "t-a", Direction: "out", Window: time.Hour, Bucket: time.Minute, Now: now})
 	if pts[0].Iface != 2 {
 		t.Fatalf("out iface = %+v", pts[0])
+	}
+}
+
+func TestMemoryFlowDedupRedelivery(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	base := Row{
+		TenantID: "t-a", AgentID: "agent-1", Exporter: "r1", ObsDomain: 10,
+		Protocol: "netflow5", TS: now.Add(-time.Minute),
+		SrcAddr: "10.0.0.1", DstAddr: "10.0.0.9", SrcPort: 12345, DstPort: 443,
+		Transport: "tcp", InIf: 1, OutIf: 2,
+		Bytes: 1_000, Packets: 10, BytesScaled: 1_000, PacketsScaled: 10,
+	}
+	distinct := base
+	distinct.TS = base.TS.Add(30 * time.Second)
+	distinct.DstPort = 8443
+	distinct.Bytes = 2_000
+	distinct.Packets = 20
+	distinct.BytesScaled = 2_000
+	distinct.PacketsScaled = 20
+
+	if err := m.Insert(ctx, []Row{base, base, distinct}); err != nil {
+		t.Fatalf("insert redelivery: %v", err)
+	}
+	if got := m.Len(); got != 2 {
+		t.Fatalf("memory store retained %d rows, want two unique rows", got)
+	}
+
+	top, err := m.TopTalkers(ctx, TopQuery{TenantID: "t-a", By: BySrc, Window: time.Hour, Now: now})
+	if err != nil {
+		t.Fatalf("top talkers: %v", err)
+	}
+	if len(top) != 1 || top[0].Key != "10.0.0.1" || top[0].Bytes != 3_000 || top[0].Packets != 30 || top[0].Flows != 2 {
+		t.Fatalf("redelivered row was aggregated instead of deduped: %+v", top)
+	}
+
+	pts, err := m.Capacity(ctx, CapacityQuery{
+		TenantID: "t-a", Window: time.Hour, Bucket: time.Minute, Now: now,
+	})
+	if err != nil {
+		t.Fatalf("capacity: %v", err)
+	}
+	if len(pts) != 1 {
+		t.Fatalf("capacity points = %+v, want one bucket", pts)
+	}
+	if want := float64(3_000) * 8 / 60; pts[0].Bps != want {
+		t.Fatalf("capacity bps = %v, want %v", pts[0].Bps, want)
+	}
+
+	var buf bytes.Buffer
+	exported, err := m.ExportTenant(ctx, "t-a", &buf)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if exported != 2 || strings.Count(buf.String(), "\n") != 2 {
+		t.Fatalf("exported %d rows (%q), want two unique rows", exported, buf.String())
+	}
+}
+
+func TestMemoryFlowDedupEvictionAllowsReinsert(t *testing.T) {
+	m := NewMemory()
+	m.max = 1
+	ctx := context.Background()
+	a := Row{
+		TenantID: "t-a", AgentID: "agent-1", Exporter: "r1", ObsDomain: 10,
+		Protocol: "netflow5", TS: now.Add(-time.Minute),
+		SrcAddr: "10.0.0.1", DstAddr: "10.0.0.9", SrcPort: 12345, DstPort: 443,
+		InIf: 1, OutIf: 2, Bytes: 1_000, Packets: 10, BytesScaled: 1_000, PacketsScaled: 10,
+	}
+	b := a
+	b.SrcAddr = "10.0.0.2"
+	b.Bytes = 2_000
+	b.Packets = 20
+	b.BytesScaled = 2_000
+	b.PacketsScaled = 20
+
+	if err := m.Insert(ctx, []Row{a}); err != nil {
+		t.Fatalf("insert a: %v", err)
+	}
+	if err := m.Insert(ctx, []Row{b}); err != nil {
+		t.Fatalf("insert b: %v", err)
+	}
+	if err := m.Insert(ctx, []Row{a}); err != nil {
+		t.Fatalf("reinsert evicted a: %v", err)
+	}
+	if got := m.Len(); got != 1 {
+		t.Fatalf("memory store retained %d rows, want FIFO bound of one", got)
+	}
+
+	top, err := m.TopTalkers(ctx, TopQuery{TenantID: "t-a", By: BySrc, Window: time.Hour, Now: now})
+	if err != nil {
+		t.Fatalf("top talkers: %v", err)
+	}
+	if len(top) != 1 || top[0].Key != "10.0.0.1" || top[0].Bytes != 1_000 || top[0].Flows != 1 {
+		t.Fatalf("evicted row key stayed stuck in seen map: %+v", top)
 	}
 }
 

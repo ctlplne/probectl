@@ -19,23 +19,36 @@ import (
 // without limit.
 type Memory struct {
 	mu   sync.Mutex
-	rows []Row
+	rows []memoryRow
+	seen map[string]int
 	max  int
+}
+
+type memoryRow struct {
+	row Row
+	key string
 }
 
 // NewMemory builds a Memory store bounded to ~1M rows.
 func NewMemory() *Memory {
-	return &Memory{max: 1 << 20}
+	return &Memory{max: 1 << 20, seen: make(map[string]int)}
 }
 
-// Insert appends rows, evicting oldest beyond the bound.
+// Insert stores new rows, deduplicating at-least-once redeliveries by the same
+// deterministic identity ClickHouse writes into row_id.
 func (m *Memory) Insert(_ context.Context, rows []Row) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.rows = append(m.rows, rows...)
-	if over := len(m.rows) - m.max; over > 0 {
-		m.rows = append([]Row(nil), m.rows[over:]...)
+	m.ensureSeenLocked()
+	for _, row := range rows {
+		key := flowRowID(row)
+		if m.seen[key] > 0 {
+			continue
+		}
+		m.rows = append(m.rows, memoryRow{row: row, key: key})
+		m.seen[key]++
 	}
+	m.evictLocked()
 	return nil
 }
 
@@ -52,7 +65,8 @@ func (m *Memory) inWindow(tenant string, from, to time.Time) []Row {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]Row, 0, 256)
-	for _, r := range m.rows {
+	for _, entry := range m.rows {
+		r := entry.row
 		if r.TenantID != tenant {
 			continue
 		}
@@ -198,14 +212,16 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int64, error)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	kept := m.rows[:0]
-	for _, r := range m.rows {
-		if r.TenantID != tenantID {
-			kept = append(kept, r)
+	for _, entry := range m.rows {
+		if entry.row.TenantID != tenantID {
+			kept = append(kept, entry)
 		}
 	}
 	m.rows = kept
+	m.rebuildSeenLocked()
 	var remaining int64
-	for _, r := range m.rows {
+	for _, entry := range m.rows {
+		r := entry.row
 		if r.TenantID == tenantID {
 			remaining++
 		}
@@ -228,15 +244,18 @@ func (m *Memory) DeleteSubject(_ context.Context, tenantID, subject string) (del
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	kept := m.rows[:0]
-	for _, r := range m.rows {
+	for _, entry := range m.rows {
+		r := entry.row
 		if r.TenantID == tenantID && flowRowMatchesSubject(r, subject) {
 			deleted++
 			continue
 		}
-		kept = append(kept, r)
+		kept = append(kept, entry)
 	}
 	m.rows = kept
-	for _, r := range m.rows {
+	m.rebuildSeenLocked()
+	for _, entry := range m.rows {
+		r := entry.row
 		if r.TenantID == tenantID && flowRowMatchesSubject(r, subject) {
 			remaining++
 		}
@@ -249,13 +268,15 @@ func (m *Memory) DeleteTenantBefore(_ context.Context, tenantID string, cutoff t
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	kept := m.rows[:0]
-	for _, r := range m.rows {
+	for _, entry := range m.rows {
+		r := entry.row
 		if r.TenantID == tenantID && r.TS.Before(cutoff) {
 			continue
 		}
-		kept = append(kept, r)
+		kept = append(kept, entry)
 	}
 	m.rows = kept
+	m.rebuildSeenLocked()
 	return nil
 }
 
@@ -263,7 +284,8 @@ func (m *Memory) DeleteTenantBefore(_ context.Context, tenantID string, cutoff t
 func (m *Memory) ExportTenant(_ context.Context, tenantID string, w io.Writer) (int64, error) {
 	m.mu.Lock()
 	rows := make([]Row, 0)
-	for _, r := range m.rows {
+	for _, entry := range m.rows {
+		r := entry.row
 		if r.TenantID == tenantID {
 			rows = append(rows, r)
 		}
@@ -279,6 +301,40 @@ func (m *Memory) ExportTenant(_ context.Context, tenantID string, w io.Writer) (
 }
 
 func (m *Memory) Close() error { return nil }
+
+func (m *Memory) ensureSeenLocked() {
+	if m.seen != nil {
+		return
+	}
+	m.rebuildSeenLocked()
+}
+
+func (m *Memory) evictLocked() {
+	if over := len(m.rows) - m.max; over > 0 {
+		for _, entry := range m.rows[:over] {
+			m.forgetLocked(entry.key)
+		}
+		m.rows = append([]memoryRow(nil), m.rows[over:]...)
+	}
+}
+
+func (m *Memory) forgetLocked(key string) {
+	if m.seen[key] <= 1 {
+		delete(m.seen, key)
+		return
+	}
+	m.seen[key]--
+}
+
+func (m *Memory) rebuildSeenLocked() {
+	m.seen = make(map[string]int, len(m.rows))
+	for i := range m.rows {
+		if m.rows[i].key == "" {
+			m.rows[i].key = flowRowID(m.rows[i].row)
+		}
+		m.seen[m.rows[i].key]++
+	}
+}
 
 func flowRowMatchesSubject(r Row, subject string) bool {
 	for _, v := range []string{
