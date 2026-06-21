@@ -129,7 +129,7 @@ static __always_inline void count_drop(__u32 reason)
 		__sync_fetch_and_add(cnt, 1);
 }
 
-static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, int num)
+static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, long num)
 {
 	if (num <= 0)
 		return;
@@ -165,9 +165,11 @@ static __always_inline void emit(__u64 conn, __u8 is_read, const void *buf, int 
 	bpf_ringbuf_submit(e, 0);
 }
 
-// int SSL_write(SSL *ssl, const void *buf, int num);
+// OpenSSL/BoringSSL: int SSL_write(SSL *ssl, const void *buf, int num);
+// GnuTLS: ssize_t gnutls_record_send(gnutls_session_t s, const void *data, size_t len);
+// Userspace attaches this same program to the write symbol for each library.
 SEC("uprobe/SSL_write")
-int BPF_UPROBE(probe_ssl_write, void *ssl, const void *buf, int num)
+int BPF_UPROBE(probe_ssl_write, void *ssl, const void *buf, long num)
 {
 	if (!scoped())
 		return 0; // EBPF-001: non-allowlisted plaintext never leaves the process
@@ -175,9 +177,11 @@ int BPF_UPROBE(probe_ssl_write, void *ssl, const void *buf, int num)
 	return 0;
 }
 
-// int SSL_read(SSL *ssl, void *buf, int num); — capture the buffer at return.
+// OpenSSL/BoringSSL: int SSL_read(SSL *ssl, void *buf, int num);
+// GnuTLS: ssize_t gnutls_record_recv(gnutls_session_t s, void *data, size_t len);
+// Capture the buffer at return, when the TLS library has filled it.
 SEC("uprobe/SSL_read")
-int BPF_UPROBE(probe_ssl_read_enter, void *ssl, void *buf, int num)
+int BPF_UPROBE(probe_ssl_read_enter, void *ssl, void *buf, long num)
 {
 	if (!scoped())
 		return 0; // not in scope: no stash, so the exit probe no-ops too
@@ -189,7 +193,7 @@ int BPF_UPROBE(probe_ssl_read_enter, void *ssl, void *buf, int num)
 }
 
 SEC("uretprobe/SSL_read")
-int BPF_URETPROBE(probe_ssl_read_exit, int ret)
+int BPF_URETPROBE(probe_ssl_read_exit, long ret)
 {
 	__u64 tid = bpf_get_current_pid_tgid();
 	struct read_args *a = bpf_map_lookup_elem(&active_reads, &tid);

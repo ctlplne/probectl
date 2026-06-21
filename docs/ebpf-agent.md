@@ -116,13 +116,15 @@ probectl gets the plaintext two ways:
 - **TLS traffic:** the **TLS plaintext** — the readable bytes that exist inside
   the application just before encryption and just after decryption — is captured
   via **uprobes** (user-space probes: breakpoint-like hooks placed on a named
-  function in an ordinary program or library) on the TLS library's `SSL_write` /
-  `SSL_read`. This reads the letter over the writer's shoulder before it's
-  sealed, and over the reader's after it's opened — it never steams open the
-  envelope in transit, so there is **no CA** (no certificate authority to forge
-  the server's identity with) and **no man-in-the-middle** (no interception
-  point inserted into the network path). (`SSL_read` is read at the *return*
-  uprobe, because the destination buffer is only filled when the call returns.)
+  function in an ordinary program or library) on supported TLS library read/write
+  functions (`SSL_write` / `SSL_read` for OpenSSL-compatible stacks and
+  `gnutls_record_send` / `gnutls_record_recv` for GnuTLS). This reads the letter
+  over the writer's shoulder before it's sealed, and over the reader's after it's
+  opened — it never steams open the envelope in transit, so there is **no CA** (no
+  certificate authority to forge the server's identity with) and **no
+  man-in-the-middle** (no interception point inserted into the network path). Read
+  calls are captured at the *return* uprobe, because the destination buffer is
+  only filled when the call returns.
 
 The OTel mapping (`internal/otel.L7CallAttributes`) emits `http.*` / `rpc.*` /
 `dns.*` / `messaging.*` attributes per protocol. Calls are attributed to the
@@ -145,8 +147,8 @@ TLS-plaintext capture (the "sslsniff" path) is **off by default** and requires
    scoping is the `cgroup:` form (a container *is* a cgroup). An empty scope means
    capture refuses to start — **host-wide capture is not expressible.**
 
-The allowlist is enforced **in the kernel**. Uprobes on a shared `libssl` fire for
-*every* process that maps it, so the BPF program checks the in-kernel
+The allowlist is enforced **in the kernel**. Uprobes on shared TLS libraries fire
+for *every* process that maps them, so the BPF program checks the in-kernel
 `scope_tgids` / `scope_cgroups` maps and **drops a non-allowlisted process before
 copying a byte** — that process's plaintext never enters the ring buffer at all.
 `exe:` entries are re-resolved against `/proc` every 10 seconds, so restarts and

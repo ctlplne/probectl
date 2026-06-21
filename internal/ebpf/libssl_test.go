@@ -80,6 +80,94 @@ func TestDiscoverLibsslViaLdconfig(t *testing.T) {
 	}
 }
 
+func TestDiscoverLibgnutlsViaLdconfig(t *testing.T) {
+	out := []byte(`	libstdc++.so.6 (libc6,AArch64) => /usr/lib/aarch64-linux-gnu/libstdc++.so.6
+	libgnutls.so.30 (libc6,AArch64) => /opt/custom/lib/libgnutls.so.30
+	libgnutls.so.28 (libc6,AArch64) => /usr/lib/aarch64-linux-gnu/libgnutls.so.28`)
+	ld := func() ([]byte, error) { return out, nil }
+	got, err := discoverLibgnutls("arm64", ld, existsSet("/opt/custom/lib/libgnutls.so.30"))
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if got != "/opt/custom/lib/libgnutls.so.30" {
+		t.Fatalf("got %q, want the ldconfig-cache path", got)
+	}
+}
+
+func TestDiscoverTLSProbeLibrariesFindsOpenSSLAndGnuTLS(t *testing.T) {
+	libssl := "/usr/lib/x86_64-linux-gnu/libssl.so.3"
+	libgnutls := "/usr/lib/x86_64-linux-gnu/libgnutls.so.30"
+	got, err := discoverTLSProbeLibraries("amd64", "", nil, existsSet(libssl, libgnutls))
+	if err != nil {
+		t.Fatalf("discover TLS probe libraries: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d libraries, want 2: %#v", len(got), got)
+	}
+	openssl, ok := probeLibraryByName(got, "openssl")
+	if !ok {
+		t.Fatalf("OpenSSL-compatible descriptor missing: %#v", got)
+	}
+	if openssl.path != libssl || openssl.writeSymbol != "SSL_write" || openssl.readSymbol != "SSL_read" {
+		t.Fatalf("bad OpenSSL-compatible descriptor: %#v", openssl)
+	}
+	gnutls, ok := probeLibraryByName(got, "gnutls")
+	if !ok {
+		t.Fatalf("GnuTLS descriptor missing: %#v", got)
+	}
+	if gnutls.path != libgnutls || gnutls.writeSymbol != "gnutls_record_send" || gnutls.readSymbol != "gnutls_record_recv" {
+		t.Fatalf("bad GnuTLS descriptor: %#v", gnutls)
+	}
+}
+
+func TestDiscoverTLSProbeLibrariesUsesLibsslOverrideAndGnuTLS(t *testing.T) {
+	override := "/opt/boringssl/lib/libssl.so"
+	libgnutls := "/usr/lib/aarch64-linux-gnu/libgnutls.so.30"
+	got, err := discoverTLSProbeLibraries("arm64", override, nil, existsSet(libgnutls))
+	if err != nil {
+		t.Fatalf("discover TLS probe libraries: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d libraries, want 2: %#v", len(got), got)
+	}
+	openssl, ok := probeLibraryByName(got, "openssl")
+	if !ok {
+		t.Fatalf("OpenSSL-compatible descriptor missing: %#v", got)
+	}
+	if openssl.path != override {
+		t.Fatalf("OpenSSL-compatible override path = %q, want %q", openssl.path, override)
+	}
+	gnutls, ok := probeLibraryByName(got, "gnutls")
+	if !ok {
+		t.Fatalf("GnuTLS descriptor missing: %#v", got)
+	}
+	if gnutls.path != libgnutls {
+		t.Fatalf("GnuTLS path = %q, want %q", gnutls.path, libgnutls)
+	}
+}
+
+func TestDiscoverTLSProbeLibrariesFailureMentionsBothStacks(t *testing.T) {
+	ld := func() ([]byte, error) { return nil, errors.New("no ldconfig") }
+	_, err := discoverTLSProbeLibraries("arm64", "", ld, existsSet())
+	if err == nil {
+		t.Fatal("want an error when no supported TLS library is found")
+	}
+	for _, frag := range []string{"libssl", "libgnutls", "PROBECTL_EBPF_LIBSSL", "arm64"} {
+		if !strings.Contains(err.Error(), frag) {
+			t.Errorf("error should mention %q: %v", frag, err)
+		}
+	}
+}
+
+func probeLibraryByName(libs []tlsProbeLibrary, name string) (tlsProbeLibrary, bool) {
+	for _, lib := range libs {
+		if lib.name == name {
+			return lib, true
+		}
+	}
+	return tlsProbeLibrary{}, false
+}
+
 // A failing/absent ldconfig degrades to the candidate list; nothing found is a
 // loud error that names what was tried and the override knob.
 func TestDiscoverLibsslFailureIsLoud(t *testing.T) {

@@ -63,7 +63,42 @@ func TestLiveLoadAttachSslsniff(t *testing.T) {
 	cfg.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
 	src, err := newLiveL7Source(cfg)
 	if err != nil {
-		t.Skipf("sslsniff attach unavailable (no libssl on this rootfs?): %v", err)
+		t.Skipf("sslsniff attach unavailable (no supported TLS library on this rootfs?): %v", err)
+	}
+	defer src.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if _, err := src.L7Events(ctx); err != nil {
+		t.Fatalf("l7 events stream: %v", err)
+	}
+	<-ctx.Done()
+}
+
+func TestLiveGnuTLSAttach(t *testing.T) {
+	libs, err := discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"))
+	if err != nil {
+		t.Skipf("no supported TLS libraries on this rootfs: %v", err)
+	}
+	gnutls := false
+	for _, lib := range libs {
+		if lib.name == "gnutls" {
+			gnutls = true
+			break
+		}
+	}
+	if !gnutls {
+		t.Skip("libgnutls not on this rootfs — GnuTLS attach smoke needs it")
+	}
+
+	cfg := Default()
+	cfg.TenantID = "kernel-matrix"
+	cfg.L7CaptureEnabled = true
+	cfg.L7CaptureConsentTenant = "kernel-matrix"
+	cfg.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
+	src, err := newLiveL7Source(cfg)
+	if err != nil {
+		t.Fatalf("GnuTLS-capable sslsniff attach failed: %v", err)
 	}
 	defer src.Close()
 
@@ -76,8 +111,8 @@ func TestLiveLoadAttachSslsniff(t *testing.T) {
 }
 
 // Sprint 18 (EBPF-001/RED-003) kernel gate: the in-kernel allowlist. An
-// openssl client doing real TLS through libssl produces ZERO ring events
-// while it is not in scope, and produces events once its binary is
+// openssl client doing real TLS through an OpenSSL-compatible library produces
+// ZERO ring events while it is not in scope, and produces events once its binary is
 // allowlisted (exe: entry picked up by the refresher). This is the
 // "non-allowlisted process produces no events" acceptance run on the
 // kernel matrix.
@@ -151,7 +186,7 @@ func TestLiveScopeAllowlistAttach(t *testing.T) {
 	cfg.L7CaptureScope = []string{"pid:1"}
 	src, err := newLiveL7Source(cfg)
 	if err != nil {
-		t.Skipf("sslsniff attach unavailable (no libssl on this rootfs?): %v", err)
+		t.Skipf("sslsniff attach unavailable (no supported TLS library on this rootfs?): %v", err)
 	}
 	ctx1, cancel1 := context.WithTimeout(context.Background(), 10*time.Second)
 	events, err := src.L7Events(ctx1)
@@ -263,8 +298,8 @@ func TestLiveHardenedLockdownIntegrity(t *testing.T) {
 		t.Fatalf("flows stream under lockdown: %v", err)
 	}
 
-	// ...and the uprobe plane (skip only for missing libssl, same as the
-	// regular smoke).
+	// ...and the uprobe plane (skip only for missing supported TLS libraries,
+	// same as the regular smoke).
 	cfg2 := Default()
 	cfg2.TenantID = "hardened"
 	cfg2.L7CaptureEnabled = true
@@ -272,7 +307,7 @@ func TestLiveHardenedLockdownIntegrity(t *testing.T) {
 	cfg2.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
 	l7src, err := newLiveL7Source(cfg2)
 	if err != nil {
-		t.Logf("sslsniff under lockdown skipped (no libssl on this rootfs?): %v", err)
+		t.Logf("sslsniff under lockdown skipped (no supported TLS library on this rootfs?): %v", err)
 		return
 	}
 	defer l7src.Close()

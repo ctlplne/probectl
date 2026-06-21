@@ -38,10 +38,10 @@ const (
 	l7DropActiveReadFailures = uint32(1)
 )
 
-// liveL7Source captures TLS plaintext via uprobes on the SSL library's read/
-// write functions. OpenSSL and BoringSSL share the SSL_* API; GnuTLS uses
-// gnutls_record_send/recv (attach the same way). SSL_read is captured at the
-// uretprobe because the buffer is filled on return. Built only under -tags ebpf.
+// liveL7Source captures TLS plaintext via uprobes on supported TLS library
+// read/write functions. OpenSSL and BoringSSL share the SSL_* API; GnuTLS uses
+// gnutls_record_send/recv. Read functions are captured at the uretprobe because
+// the buffer is filled on return. Built only under -tags ebpf.
 //
 // A captured chunk is keyed to a connection by the SSL* pointer. Resolving the
 // full 5-tuple (and thus the precise service edge) requires correlating the
@@ -106,15 +106,31 @@ func newLiveL7Source(cfg *Config) (L7Source, error) {
 		return nil, err
 	}
 
-	libssl, err := opensslPath()
+	libs, err := tlsProbeLibraries()
 	if err != nil {
 		_ = s.objs.Close()
 		return nil, fmt.Errorf("ebpf: %w", err)
 	}
-	ex, err := link.OpenExecutable(libssl)
+	for _, lib := range libs {
+		if err := s.attachTLSLibrary(lib); err != nil {
+			_ = s.Close()
+			return nil, fmt.Errorf("ebpf: %w", err)
+		}
+	}
+
+	rd, err := ringbuf.NewReader(s.objs.TlsChunks)
 	if err != nil {
-		_ = s.objs.Close()
-		return nil, fmt.Errorf("ebpf: open libssl %q: %w", libssl, err)
+		_ = s.Close()
+		return nil, fmt.Errorf("ebpf: open ring buffer: %w", err)
+	}
+	s.rd = rd
+	return s, nil
+}
+
+func (s *liveL7Source) attachTLSLibrary(lib tlsProbeLibrary) error {
+	ex, err := link.OpenExecutable(lib.path)
+	if err != nil {
+		return fmt.Errorf("open %s TLS library %q: %w", lib.name, lib.path, err)
 	}
 	attach := func(sym string, prog *cebpf.Program, ret bool) error {
 		var (
@@ -127,31 +143,21 @@ func newLiveL7Source(cfg *Config) (L7Source, error) {
 			l, err = ex.Uprobe(sym, prog, nil)
 		}
 		if err != nil {
-			return fmt.Errorf("attach %s: %w", sym, err)
+			return fmt.Errorf("attach %s %s in %q: %w", lib.name, sym, lib.path, err)
 		}
 		s.links = append(s.links, l)
 		return nil
 	}
-	if err := attach("SSL_write", s.objs.ProbeSslWrite, false); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("ebpf: %w", err)
+	if err := attach(lib.writeSymbol, s.objs.ProbeSslWrite, false); err != nil {
+		return err
 	}
-	if err := attach("SSL_read", s.objs.ProbeSslReadEnter, false); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("ebpf: %w", err)
+	if err := attach(lib.readSymbol, s.objs.ProbeSslReadEnter, false); err != nil {
+		return err
 	}
-	if err := attach("SSL_read", s.objs.ProbeSslReadExit, true); err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("ebpf: %w", err)
+	if err := attach(lib.readSymbol, s.objs.ProbeSslReadExit, true); err != nil {
+		return err
 	}
-
-	rd, err := ringbuf.NewReader(s.objs.TlsChunks)
-	if err != nil {
-		_ = s.Close()
-		return nil, fmt.Errorf("ebpf: open ring buffer: %w", err)
-	}
-	s.rd = rd
-	return s, nil
+	return nil
 }
 
 // syncScope materializes the allowlist into the kernel maps. pid: and
@@ -300,12 +306,10 @@ func (s *liveL7Source) Close() error {
 	return s.objs.Close()
 }
 
-// opensslPath is the libssl to attach to: the PROBECTL_EBPF_LIBSSL override,
-// else multi-arch discovery (ldconfig cache + per-arch candidates — U-015; see
-// libssl.go). Extend to discover BoringSSL / GnuTLS / per-process paths.
-func opensslPath() (string, error) {
-	if p := os.Getenv("PROBECTL_EBPF_LIBSSL"); p != "" {
-		return p, nil
-	}
-	return discoverLibsslDefault()
+// tlsProbeLibraries are the shared TLS objects to attach to: the
+// PROBECTL_EBPF_LIBSSL override for OpenSSL-compatible stacks, then multi-arch
+// discovery (ldconfig cache + per-arch candidates — U-015/EBPF-001; see
+// libssl.go) for OpenSSL-compatible libssl and GnuTLS.
+func tlsProbeLibraries() ([]tlsProbeLibrary, error) {
+	return discoverTLSProbeLibrariesDefault(os.Getenv("PROBECTL_EBPF_LIBSSL"))
 }

@@ -31,8 +31,9 @@ flush_interval: 10s # how often flows + the service map are emitted
 ring_buffer_bytes: 16777216 # 16 MiB kernel ring buffer (live source only)
 
 # --- TLS-plaintext (L7) capture: OFF by default, TRIPLE-gated (U-003 + EBPF-001).
-# Capture reads application plaintext on this host via libssl uprobes, so it
-# requires ALL THREE explicit statements; host-wide capture is not expressible.
+# Capture reads application plaintext on this host via OpenSSL-compatible and
+# GnuTLS library uprobes, so it requires ALL THREE explicit statements;
+# host-wide capture is not expressible.
 # l7_capture_enabled: true
 # l7_capture_consent_tenant: "00000000-0000-0000-0000-000000000001" # must equal tenant_id exactly
 # l7_capture_scope:               # the opted-in workloads — enforced IN the kernel:

@@ -14,8 +14,8 @@
 // uses the FixtureSource, which is also the no-kernel CI path.
 //
 // eBPF here is observe-only: the agent loads only observation programs
-// (tracepoints/kprobes, plus libssl uprobes/uretprobes on the consent-gated L7
-// source — see source_live_l7_linux.go and the observeonly_test.go allow-list)
+// (tracepoints/kprobes, plus TLS-library uprobes/uretprobes on the consent-gated
+// L7 source — see source_live_l7_linux.go and the observeonly_test.go allow-list)
 // and never enforcement (CLAUDE.md §7 guardrail 8). Every flow is stamped with
 // the agent's bound tenant (F50), and ring-buffer drops are counted and exposed,
 // never silent.

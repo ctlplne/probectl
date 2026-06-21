@@ -13,9 +13,9 @@ import (
 
 // Process-scope allowlist for TLS-plaintext capture (EBPF-001 / RED-003).
 //
-// Uprobes on a shared libssl fire for EVERY process that maps it, so capture
-// must be scoped to explicitly opted-in workloads. l7_capture_scope is that
-// opt-in: a list of entries, each one of
+// Uprobes on shared TLS libraries fire for EVERY process that maps them, so
+// capture must be scoped to explicitly opted-in workloads. l7_capture_scope is
+// that opt-in: a list of entries, each one of
 //
 //	pid:<n>          one process (exact tgid)
 //	exe:/abs/path    every process whose /proc/<pid>/exe resolves to the path

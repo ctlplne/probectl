@@ -55,7 +55,7 @@ B7 build/release↔deployments · B8 agent↔monitored host.
    credentials, hostile intent, aims at B1.
 3. **On-path network attacker** — can intercept/inject between components.
 4. **Compromised monitored host** — controls traffic the agent observes and
-   the local libssl the L7 probe attaches to.
+   the local TLS libraries the L7 probe attaches to.
 5. **Compromised agent node** — has the agent's identity and CAP_BPF.
 6. **Malicious/compelled provider operator** — legitimate provider-plane
    access, wants silent tenant-data reach (B5).

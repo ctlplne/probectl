@@ -92,11 +92,12 @@ bytes against that manifest and refuses on any mismatch or missing entry
 | HTTP bodies under L7 capture | **No by default** | the redaction boundary zeroes bodies in place; headers and protocol metadata survive; non-HTTP traffic keeps only a 128-byte detection window (`internal/ebpf/l7policy.go`, CI-tested); a `full` mode exists for consented debugging only |
 | Host files, env, user data | **No** | no collection paths exist |
 
-The L7 probe works by attaching to libssl — the C TLS library — at the exact
-boundary where the *process itself* holds plaintext, which is why no key
-extraction or traffic decryption is involved. The Go-TLS limitation is
-disclosed, not hidden: `crypto/tls` does not use libssl, so Go processes are
-outside L7 capture today (`docs/ebpf-feasibility.md` §7).
+The L7 probe works by attaching to supported system TLS libraries
+(OpenSSL-compatible `libssl` and GnuTLS) at the exact boundary where the
+*process itself* holds plaintext, which is why no key extraction or traffic
+decryption is involved. The Go-TLS limitation is disclosed, not hidden:
+`crypto/tls` does not use these C TLS libraries, so Go processes are outside L7
+capture today (`docs/ebpf-feasibility.md` §7).
 
 ## 5. Kernel compatibility
 
