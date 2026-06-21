@@ -46,27 +46,52 @@ func NewBatchingWriter(w Writer, maxSeries int, maxWait time.Duration) *Batching
 	return &BatchingWriter{w: w, maxSeries: maxSeries, maxWait: maxWait}
 }
 
-// Write adds series to the open batch and blocks until that batch is flushed,
-// returning the batch's error (shared by every caller in the batch). An empty
-// write is a no-op.
+// Write adds series to bounded batches and blocks until every chunk containing
+// this caller's series is flushed. A single large caller slice is split before
+// it can overfill the open batch, so maxSeries is a hard underlying write cap,
+// not just a flush trigger. An empty write is a no-op.
 func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 	if len(series) == 0 {
 		return nil
 	}
-	b.mu.Lock()
-	if b.batch == nil {
-		b.batch = &flushResult{done: make(chan struct{})}
-		b.timer = time.AfterFunc(b.maxWait, b.flush)
-	}
-	batch := b.batch
-	b.pending = append(b.pending, series...)
-	full := len(b.pending) >= b.maxSeries
-	b.mu.Unlock()
+	for len(series) > 0 {
+		b.mu.Lock()
+		if b.batch == nil {
+			b.batch = &flushResult{done: make(chan struct{})}
+			b.timer = time.AfterFunc(b.maxWait, b.flush)
+		}
+		room := b.maxSeries - len(b.pending)
+		if room <= 0 {
+			// Another caller filled the batch between its unlock and flush().
+			// This caller has not joined it, so flush and retry against the new
+			// batch instead of overfilling the old one.
+			b.mu.Unlock()
+			b.flush()
+			continue
+		}
+		n := min(len(series), room)
+		batch := b.batch
+		b.pending = append(b.pending, series[:n]...)
+		series = series[n:]
+		full := len(b.pending) >= b.maxSeries
+		b.mu.Unlock()
 
-	if full {
-		b.flush() // size trigger: flush now rather than wait for the timer
+		if full {
+			b.flush() // size trigger: flush now rather than wait for the timer
+		}
+		if err := waitFlush(ctx, batch); err != nil {
+			return err
+		}
 	}
+	return nil
+}
 
+// batchCancelGrace is how long Write waits for an in-flight shared batch to
+// report its real result after the caller's context is canceled, before
+// surfacing the cancellation (CORRECT-011). Small: the flush is already running.
+const batchCancelGrace = 250 * time.Millisecond
+
+func waitFlush(ctx context.Context, batch *flushResult) error {
 	select {
 	case <-batch.done:
 		return batch.err
@@ -88,11 +113,6 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 		}
 	}
 }
-
-// batchCancelGrace is how long Write waits for an in-flight shared batch to
-// report its real result after the caller's context is canceled, before
-// surfacing the cancellation (CORRECT-011). Small: the flush is already running.
-const batchCancelGrace = 250 * time.Millisecond
 
 // flush writes the current pending batch and releases everyone waiting on it.
 // Safe to call from the timer and from a size-triggered Write; it swaps the

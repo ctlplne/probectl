@@ -15,6 +15,7 @@ type countingWriter struct {
 	mu       sync.Mutex
 	calls    int
 	series   int
+	sizes    []int
 	failNext bool
 }
 
@@ -23,6 +24,7 @@ func (c *countingWriter) Write(_ context.Context, s []Series) error {
 	defer c.mu.Unlock()
 	c.calls++
 	c.series += len(s)
+	c.sizes = append(c.sizes, len(s))
 	if c.failNext {
 		return errors.New("remote-write down")
 	}
@@ -138,6 +140,32 @@ func TestBatchingWriterSizeTrigger(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("size-cap did not trigger a flush (still waiting on the timer)")
+	}
+}
+
+func TestBatchingWriterSplitsSingleLargeWrite(t *testing.T) {
+	under := &countingWriter{}
+	bw := NewBatchingWriter(under, 3, time.Hour)
+	series := make([]Series, 9)
+	for i := range series {
+		series[i] = Series{Metric: "m", Value: float64(i)}
+	}
+	if err := bw.Write(context.Background(), series); err != nil {
+		t.Fatal(err)
+	}
+
+	under.mu.Lock()
+	defer under.mu.Unlock()
+	if under.calls != 3 {
+		t.Fatalf("underlying calls = %d, want 3", under.calls)
+	}
+	for i, got := range under.sizes {
+		if got != 3 {
+			t.Fatalf("call %d wrote %d series, want hard cap 3; all sizes=%v", i, got, under.sizes)
+		}
+	}
+	if under.series != len(series) {
+		t.Fatalf("series written = %d, want %d", under.series, len(series))
 	}
 }
 
