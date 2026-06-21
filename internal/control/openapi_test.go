@@ -4,8 +4,10 @@ package control
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -155,11 +157,21 @@ func sameStrings(a, b []string) bool {
 // openapi.json — neither an undocumented handler nor a documented-but-missing
 // route may exist. The route table (apiRoutes) is the single source of truth.
 func TestOpenAPIMatchesRoutes(t *testing.T) {
+	for _, mismatch := range routeSpecMismatches(registeredRouteOps(testServer(nil).apiRoutes()), documentedV1Ops(t)) {
+		t.Error(mismatch)
+	}
+}
+
+func registeredRouteOps(routes []apiRoute) map[string]bool {
 	registered := map[string]bool{}
-	for _, rt := range testServer(nil).apiRoutes() {
+	for _, rt := range routes {
 		registered[rt.Method+" "+rt.Pattern] = true
 	}
+	return registered
+}
 
+func documentedV1Ops(t *testing.T) map[string]bool {
+	t.Helper()
 	doc := parseOpenAPIDoc(t)
 	documented := map[string]bool{}
 	for path, ops := range doc.Paths {
@@ -172,16 +184,37 @@ func TestOpenAPIMatchesRoutes(t *testing.T) {
 			}
 		}
 	}
+	return documented
+}
 
+func routeSpecMismatches(registered, documented map[string]bool) []string {
+	var mismatches []string
 	for r := range registered {
 		if !documented[r] {
-			t.Errorf("route %q is registered but not documented in openapi.json", r)
+			mismatches = append(mismatches, fmt.Sprintf("route %q is registered but not documented in openapi.json", r))
 		}
 	}
 	for d := range documented {
 		if !registered[d] {
-			t.Errorf("operation %q is documented but has no registered route", d)
+			mismatches = append(mismatches, fmt.Sprintf("operation %q is documented but has no registered route", d))
 		}
+	}
+	sort.Strings(mismatches)
+	return mismatches
+}
+
+func TestOpenAPIGateCatchesPlantedRouteAndSpecDrift(t *testing.T) {
+	registered := registeredRouteOps(testServer(nil).apiRoutes())
+	documented := documentedV1Ops(t)
+	registered["GET /v1/__planted_route_drift"] = true
+	documented["POST /v1/__planted_spec_drift"] = true
+
+	joined := strings.Join(routeSpecMismatches(registered, documented), "\n")
+	if !strings.Contains(joined, `route "GET /v1/__planted_route_drift" is registered but not documented`) {
+		t.Fatalf("planted undocumented route drift was not detected:\n%s", joined)
+	}
+	if !strings.Contains(joined, `operation "POST /v1/__planted_spec_drift" is documented but has no registered route`) {
+		t.Fatalf("planted documented phantom drift was not detected:\n%s", joined)
 	}
 }
 

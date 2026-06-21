@@ -7,6 +7,7 @@ package provider
 import (
 	_ "embed"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -18,6 +19,13 @@ var providerSpec []byte
 // provider surface: the route table and the spec must match EXACTLY — no
 // undocumented provider routes, no documented phantoms (CLAUDE.md §6).
 func TestProviderOpenAPIMatchesRoutes(t *testing.T) {
+	for _, mismatch := range providerRouteSpecMismatches(providerRouteOps(Routes()), providerSpecOps(t)) {
+		t.Error(mismatch)
+	}
+}
+
+func providerSpecOps(t *testing.T) map[string]bool {
+	t.Helper()
 	var doc struct {
 		Paths map[string]map[string]any `json:"paths"`
 	}
@@ -30,19 +38,45 @@ func TestProviderOpenAPIMatchesRoutes(t *testing.T) {
 			specOps[strings.ToUpper(m)+" "+p] = true
 		}
 	}
+	return specOps
+}
+
+func providerRouteOps(routes []RouteDecl) map[string]bool {
 	routeOps := map[string]bool{}
-	for _, rt := range Routes() {
+	for _, rt := range routes {
 		routeOps[rt.Method+" "+rt.Pattern] = true
 	}
+	return routeOps
+}
+
+func providerRouteSpecMismatches(routeOps, specOps map[string]bool) []string {
+	var mismatches []string
 	for op := range routeOps {
 		if !specOps[op] {
-			t.Errorf("undocumented provider route: %s", op)
+			mismatches = append(mismatches, "undocumented provider route: "+op)
 		}
 	}
 	for op := range specOps {
 		if !routeOps[op] {
-			t.Errorf("documented phantom route: %s", op)
+			mismatches = append(mismatches, "documented phantom route: "+op)
 		}
+	}
+	sort.Strings(mismatches)
+	return mismatches
+}
+
+func TestProviderOpenAPIGateCatchesPlantedDrift(t *testing.T) {
+	routeOps := providerRouteOps(Routes())
+	specOps := providerSpecOps(t)
+	routeOps["GET /provider/v1/__planted_route_drift"] = true
+	specOps["POST /provider/v1/__planted_spec_drift"] = true
+
+	joined := strings.Join(providerRouteSpecMismatches(routeOps, specOps), "\n")
+	if !strings.Contains(joined, "undocumented provider route: GET /provider/v1/__planted_route_drift") {
+		t.Fatalf("planted undocumented provider route drift was not detected:\n%s", joined)
+	}
+	if !strings.Contains(joined, "documented phantom route: POST /provider/v1/__planted_spec_drift") {
+		t.Fatalf("planted provider spec phantom drift was not detected:\n%s", joined)
 	}
 }
 

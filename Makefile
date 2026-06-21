@@ -159,7 +159,7 @@ cover-gate: ## Coverage profile (integration tag, service-free) + per-package fl
 	bash scripts/check_coverage.sh coverage.out
 
 .PHONY: openapi-gate
-openapi-gate: ## OpenAPI completeness gate (S19): valid 3.1 spec + no undocumented routes.
+openapi-gate: ## OpenAPI completeness gate (S19): valid 3.1 specs + no undocumented core/provider routes.
 	GO=$(GO) bash scripts/check_openapi.sh
 
 .PHONY: migration-gate

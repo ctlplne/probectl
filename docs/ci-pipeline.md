@@ -84,8 +84,8 @@ Verification you ran, not verification you described.
   see [CONTRIBUTING.md](../CONTRIBUTING.md#proto-schemas-are-append-only)), then
   regenerates and asserts the committed `*.pb.go` match the `.proto` files (no
   drift, no codegen poisoning).
-- **openapi-gate** — every registered `/v1` route exactly matches the OpenAPI 3.1
-  spec; no undocumented routes ship.
+- **openapi-gate** — every registered core `/v1` and provider `/provider/v1`
+  route exactly matches its OpenAPI 3.1 spec; no undocumented routes ship.
 - **migration-gate** — DB migrations are additive / expand-only: it rejects
   destructive or blocking changes (drop column, column-type change, rename,
   adding `NOT NULL`) so release N's schema still works with N-1's code during a

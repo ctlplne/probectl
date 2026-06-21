@@ -6,9 +6,9 @@
 #   2. checks it is an OpenAPI 3.1 document with a non-empty paths object,
 #   3. rejects stale sprint-era auth prose in generated API specs,
 #   4. runs Go checks that deprecated operations carry lifecycle metadata and
-#      that the registered /v1 route table EXACTLY matches the
-#      documented /v1 operations (neither undocumented handlers nor documented
-#      phantom routes).
+#      that the registered core /v1 and provider /provider/v1 route tables
+#      EXACTLY match their documented operations (neither undocumented handlers
+#      nor documented phantom routes).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -51,6 +51,9 @@ print("   generated OpenAPI auth wording is current")
 PY
 
 echo ">> openapi: lifecycle + routes <-> spec completeness"
-${GO:-go} test -count=1 -run '^(TestDeprecatedOperationsDeclareLifecycle|TestOpenAPIMatchesRoutes)$' ./internal/control/
+${GO:-go} test -count=1 -run '^(TestDeprecatedOperationsDeclareLifecycle|TestOpenAPIMatchesRoutes|TestOpenAPIGateCatchesPlantedRouteAndSpecDrift)$' ./internal/control/
 
-echo "openapi gate: OK (lifecycle metadata + no undocumented routes)"
+echo ">> openapi: provider routes <-> spec completeness"
+${GO:-go} test -count=1 -run '^(TestProviderOpenAPIMatchesRoutes|TestProviderOpenAPIGateCatchesPlantedDrift)$' ./ee/provider/
+
+echo "openapi gate: OK (lifecycle metadata + core/provider no undocumented routes)"

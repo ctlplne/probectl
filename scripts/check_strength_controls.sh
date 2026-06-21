@@ -13,6 +13,7 @@ ids=(
   AIRCA-004 AIRCA-005 AIRCA-006 AIRCA-007
   ARCH-005 ARCH-006 ARCH-007 CODE-007 CODE-008 CODE-014
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008 CORRECT-009
+  COVER-008
   DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-005 EBPF-006 FUZZ-005
   KEYS-005 KEYS-006 KEYS-007
@@ -54,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 64 ]; then
-  err "internal guard bug: expected 64 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 65 ]; then
+  err "internal guard bug: expected 65 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -96,6 +97,10 @@ need_pattern CODE-014 Makefile 'check_swallowed_errors\.sh'
 need_pattern CODE-014 Makefile 'check_repo_hygiene\.sh SELFTEST'
 need_pattern CODE-014 scripts/check_swallowed_errors.sh 'fmt\.Errorf|errors\.New'
 need_pattern CODE-014 scripts/check_repo_hygiene.sh 'SELFTEST'
+need_pattern COVER-008 scripts/check_openapi.sh 'TestOpenAPIGateCatchesPlantedRouteAndSpecDrift|TestProviderOpenAPIMatchesRoutes'
+need_pattern COVER-008 internal/control/openapi_test.go 'TestOpenAPIMatchesRoutes|TestOpenAPIGateCatchesPlantedRouteAndSpecDrift|documented but has no registered route'
+need_pattern COVER-008 ee/provider/openapi_test.go 'TestProviderOpenAPIMatchesRoutes|TestProviderOpenAPIGateCatchesPlantedDrift|documented phantom route'
+need_pattern COVER-008 docs/development.md 'provider .*/provider/v1'
 need_pattern DOCS-005 scripts/check_docs_claims.sh 'SELFTEST'
 need_pattern DOCS-006 docs/otlp.md 'metrics|traces|logs'
 need_pattern DOCS-006 internal/otel/otlp/signals.go 'Metrics|TraceSink|LogSink'
