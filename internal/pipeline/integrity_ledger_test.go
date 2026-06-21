@@ -20,6 +20,54 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
+func TestIntegrityLedgerExposesEveryLossCounter(t *testing.T) {
+	reg := selfmetrics.New("test", "abc")
+	ledger := newIntegrityLedger("fixture")
+	ledger.withMetrics(reg)
+
+	ledger.addReceived(1)
+	ledger.addStored(2)
+	ledger.addMalformed(3)
+	ledger.addTenantRejected(4)
+	ledger.addFairnessShed(5)
+	ledger.addCardinalityDropped(6)
+	ledger.addUnsupported(7)
+	ledger.addDeadLettered(8)
+	ledger.addDropped(9)
+
+	wantStats := IntegrityStats{
+		Received:           1,
+		Stored:             2,
+		Malformed:          3,
+		TenantRejected:     4,
+		FairnessShed:       5,
+		CardinalityDropped: 6,
+		Unsupported:        7,
+		DeadLettered:       8,
+		Dropped:            9,
+	}
+	if got := ledger.stats(); got != wantStats {
+		t.Fatalf("ledger stats = %+v, want %+v", got, wantStats)
+	}
+
+	wantMetrics := map[string]uint64{
+		"probectl_pipeline_fixture_received_total":            1,
+		"probectl_pipeline_fixture_stored_total":              2,
+		"probectl_pipeline_fixture_malformed_total":           3,
+		"probectl_pipeline_fixture_tenant_rejected_total":     4,
+		"probectl_pipeline_fixture_fairness_shed_total":       5,
+		"probectl_pipeline_fixture_cardinality_dropped_total": 6,
+		"probectl_pipeline_fixture_unsupported_total":         7,
+		"probectl_pipeline_fixture_dead_lettered_total":       8,
+		"probectl_pipeline_fixture_dropped_total":             9,
+	}
+	for name, want := range wantMetrics {
+		if got := reg.Counter(name, "").Value(); got != want {
+			t.Fatalf("%s = %d, want %d", name, got, want)
+		}
+	}
+}
+
 func TestPipelineIntegrityLedgerCountsMalformedPayloads(t *testing.T) {
 	ctx := context.Background()
 	garbage := bus.Message{Key: bus.TenantKey("t-ledger", "a"), Value: []byte("garbage")}
