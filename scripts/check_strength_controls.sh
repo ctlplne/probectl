@@ -25,6 +25,7 @@ ids=(
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   RESIL-S01 RESIL-S02 RESIL-S03
   SCALE-006 SCALE-007 SCALE-008 SCALE-009
+  SCHEMA-002 SCHEMA-003 SCHEMA-004
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
@@ -59,8 +60,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 90 ]; then
-  err "internal guard bug: expected 90 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 93 ]; then
+  err "internal guard bug: expected 93 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -135,6 +136,23 @@ need_pattern DOCS-007 docs/agent-overhead.md 'illustrative|reference hardware|sm
 need_pattern DOCS-007 docs/scale-gate.md 'UNVERIFIED|reference hardware|72'
 need_pattern DOCS-008 web/src/surfaces.ts 'native|federated|placeholder'
 need_pattern DOCS-008 web/src/test/surface-coverage.test.tsx 'axe|placeholder|federated'
+need_pattern SCHEMA-002 proto/probectl/agent/v1/agent.proto 'protocol_version|accepted_capabilities|server_capabilities|additive-only'
+need_pattern SCHEMA-002 internal/agenttransport/service.go 'agentProtocolVersion|serverCapabilities|AcceptedCapabilities|ServerCapabilities'
+need_pattern SCHEMA-002 internal/agenttransport/negotiation_test.go 'TestAcceptedCapabilitiesIntersectsRequestedAndKnown|TestServerCapabilitiesReturnsCopy|TestServerCapabilitiesAdvertiseVersionedBehaviors'
+need_pattern SCHEMA-002 internal/agenttransport/skew_integration_test.go 'TestRegisterEnforcesVersionSkew|TestRegisterEnforcesMinVersionFloor'
+need_pattern SCHEMA-003 Makefile 'migration-gate'
+need_pattern SCHEMA-003 internal/store/migrate/compat.go 'drop table|drop column|Locking-DDL|lock-ok'
+need_pattern SCHEMA-003 internal/store/migrate/compat_test.go 'TestCheckSQLRejectsDestructive|TestCheckSQLRejectsLockingDDL|TestCheckSQLRequiresNoTxForConcurrentIndex|TestCheckSQLLockOKAnnotation|TestMigrationsExpandContractCompat'
+need_pattern SCHEMA-003 internal/store/chmigrate/gate.go 'DROP TABLE|RENAME TABLE|Destructive|Justification'
+need_pattern SCHEMA-003 internal/store/chmigrate/gate_test.go 'TestCheckMigrationsFlagsDestructive|TestCheckMigrationsAllowsAnnotated|TestCheckMigrationsAllowsAdditive'
+need_pattern SCHEMA-003 internal/store/chgate_test.go 'TestClickHouseMigrationGate|TestClickHouseMigrationGateCatchesInjectedDestructive'
+need_pattern SCHEMA-003 migrations/README.md 'CREATE INDEX CONCURRENTLY|lock-ok|Destructive: true|Justification'
+need_pattern SCHEMA-004 scripts/check_openapi.sh 'OpenAPI 3\.1|TestOpenAPIMatchesRoutes|TestProviderOpenAPIMatchesRoutes|TestDeprecatedOperationsDeclareLifecycle'
+need_pattern SCHEMA-004 internal/control/apilifecycle.go 'Deprecation|Sunset|X-Probectl-API-Replacement|LTS|openapi.json'
+need_pattern SCHEMA-004 internal/control/openapi_test.go 'TestOpenAPIMatchesRoutes|TestOpenAPIGateCatchesPlantedRouteAndSpecDrift|TestDeprecatedOperationsDeclareLifecycle'
+need_pattern SCHEMA-004 internal/otel/conventions.go 'SemConvVersion|SchemaURL|ScopeVersion|KnownAttributes'
+need_pattern SCHEMA-004 internal/otel/otlp/convert.go 'SchemaUrl: schemaURL|Version: scopeVersion'
+need_pattern SCHEMA-004 internal/otel/otlp/schemaurl_test.go 'TestExportedOTLPCarriesSchemaURL|TestSchemaURLPinnedToSemConvVersion'
 need_pattern SCHEMA-I01 Makefile 'proto'
 need_pattern SCHEMA-I02 internal/otel/conventions.go 'semconv|SchemaURL|OTel'
 need_pattern SCHEMA-I03 scripts/check_openapi.sh 'OpenAPI completeness gate'

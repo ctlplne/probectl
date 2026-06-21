@@ -25,3 +25,25 @@ func TestServerCapabilitiesReturnsCopy(t *testing.T) {
 		t.Fatal("server capability slice was not copied")
 	}
 }
+
+func TestServerCapabilitiesAdvertiseVersionedBehaviors(t *testing.T) {
+	got := copyServerCapabilities()
+	if !slices.IsSorted(got) {
+		t.Fatalf("server capabilities must be stable/sorted, got %v", got)
+	}
+	for _, want := range []string{
+		"agent.register",
+		"agent.attest",
+		"agent.heartbeat",
+		"agent.stream_results",
+		"agent.poll_coordination",
+		"agent.report_endpoint",
+		"result.schema.v1",
+		"tenant.identity.mtls.v1",
+		"stream_results.freshness.v1",
+	} {
+		if !slices.Contains(got, want) {
+			t.Fatalf("server capability %q not advertised in %v", want, got)
+		}
+	}
+}
