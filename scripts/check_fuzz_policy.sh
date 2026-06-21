@@ -42,6 +42,11 @@ for target in FuzzOTLPTracePayload FuzzOTLPLogPayload; do
   fi
 done
 
+if ! "$LIST" | grep -q $'./internal/promapi\tFuzzDecodeRemoteWrite'; then
+  echo "fuzz-policy: FuzzDecodeRemoteWrite is not discovered" >&2
+  exit 1
+fi
+
 if ! grep -q 'list_fuzz_targets.sh' "$SMOKE"; then
   echo "fuzz-policy: fuzz_smoke.sh must consume scripts/list_fuzz_targets.sh" >&2
   exit 1
