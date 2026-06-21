@@ -36,7 +36,7 @@ different thing for each:
 | ------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `native`      | A first-class screen in the app.                                                         | The route renders a _real_ screen (not the "coming soon" placeholder), has a `<main>` landmark (the HTML element assistive technology uses to jump straight to the page's content) and an `<h1>`, passes the jsdom `axe` screen test, and passes the rendered Chromium gate for browser-computed contrast, keyboard focus visibility/order safety, focus-obscured, and minimum interactive target size. |
 | `federated`   | Surfaced through an external tool by design — Grafana, Prometheus, OTLP, or the raw API. | The declared evidence actually exists: a `file:<repo path>` is present on disk, and/or an `openapi:<path>` is a real route in the control plane's OpenAPI spec (`internal/control/openapi.json`). Federated surfaces **count** — the gate cares that a capability is reachable, not that it lives inside the app.                                                                                       |
-| `placeholder` | The feature itself isn't built yet; the screen is a stub.                                | The route still renders the placeholder. When the real screen ships, the entry **must** be flipped to `native` — which keeps the registry honest in both directions.                                                                                                                                                                                                                                    |
+| `none-by-design` | Deliberately no current surface.                                                     | The entry must carry a rationale and must not declare a route or federated evidence. Future or out-of-GA capabilities stay visible in the denominator without pretending a user-facing screen exists.                                                                                                                                                                                                     |
 
 The gate fails on drift either way:
 
@@ -45,15 +45,18 @@ The gate fails on drift either way:
   marked `offNav` — the provider/operator console is deliberately hidden from
   the tenant app);
 - a `native` claim whose route renders the placeholder;
-- a shipped screen still declared `placeholder`;
+- a `none-by-design` claim with no rationale, or one that incorrectly declares
+  a route or federated evidence;
 - `federated` evidence that has disappeared;
 - and, as a consistency check, any orphaned `routes/*.module.css` stylesheet
   that no route file imports.
 
 ## Working with it
 
-Shipping a new surface means: add the screen **and** its registry entry (or flip
-the existing `placeholder` entry to `native`) in the **same** pull request.
+Shipping a new surface means: add the screen **and** its registry entry in the
+**same** pull request. Moving a capability from `none-by-design` to a real
+surface means replacing the rationale with a `native` route or `federated`
+evidence in that same change.
 That's the whole discipline — the registry is the one place a declaration
 becomes executable, so a forgotten screen turns into a red build instead of a
 silent gap.

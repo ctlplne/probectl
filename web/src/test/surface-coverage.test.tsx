@@ -11,8 +11,8 @@ import { SURFACES, checkRegistryShape, type SurfaceDecl } from '../surfaces'
  * The frontend-coverage gate (S-FE6). Backend↔frontend coverage is a verified,
  * standing property: every user-facing capability must have its DECLARED
  * surface — native (a real screen, not the placeholder, passing the WCAG 2.2
- * AA bar), federated (evidence exists), or an explicitly registered
- * placeholder. Plus the consistency pass: no orphaned route styles, no nav
+ * AA bar), federated (evidence exists), or none-by-design (with a rationale).
+ * Plus the consistency pass: no orphaned route styles, no nav
  * drift. Coverage + consistency — not polish.
  */
 
@@ -24,7 +24,6 @@ const openapiPaths = Object.keys((JSON.parse(openapi) as { paths: Record<string,
 const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>([
   'native',
   'federated',
-  'placeholder',
   'none-by-design',
 ])
 const requiredFeatureIds = new Set(REQUIRED_FEATURES.map((f) => f.id))
@@ -87,7 +86,7 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(violations).toEqual([])
   })
 
-  test('every PRD F-number and telemetry plane declares native, federated, placeholder, or none-by-design status', () => {
+  test('every PRD F-number and telemetry plane declares native, federated, or none-by-design status', () => {
     expect(REQUIRED_FEATURES).toHaveLength(62)
     expect(REQUIRED_FEATURES[0].id).toBe('PLANE_ACTIVE_SYNTHETIC')
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F1')).toBe(true)
@@ -121,6 +120,12 @@ describe('frontend-coverage gate (S-FE6)', () => {
       { capability: 'x', featureIds: ['F1'], sprint: 'Sx', kind: 'federated' },
     ]
     expect(checkRegistryShape([], bad)[0].problem).toMatch(/no evidence/)
+    // A deliberate no-surface declaration must say why; otherwise "no UI"
+    // can hide an accidental omission.
+    const noReason: SurfaceDecl[] = [
+      { capability: 'future x', featureIds: ['F49'], sprint: 'Sy', kind: 'none-by-design' },
+    ]
+    expect(checkRegistryShape([], noReason)[0].problem).toMatch(/no reason/)
     // A routed declaration outside the nav → violation.
     const offNav: SurfaceDecl[] = [
       { capability: 'y', featureIds: ['F1'], sprint: 'Sy', kind: 'native', route: '/nowhere' },
@@ -160,6 +165,18 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(featureCoverageViolations(missingKind)).toContain(
       'broken feature status: feature F1 lacks a declared surface kind',
     )
+
+    const legacyPlaceholder = [
+      {
+        capability: 'legacy placeholder taxonomy',
+        featureIds: ['F1'],
+        sprint: 'test',
+        kind: 'placeholder',
+      } as unknown as SurfaceDecl,
+    ]
+    expect(featureCoverageViolations(legacyPlaceholder)).toContain(
+      'legacy placeholder taxonomy: feature F1 lacks a declared surface kind',
+    )
   })
 
   test('every native surface renders a real screen — never the placeholder', async () => {
@@ -174,18 +191,6 @@ describe('frontend-coverage gate (S-FE6)', () => {
         `${route} is declared native but renders the placeholder`,
       ).not.toMatch(PLACEHOLDER_MARKER)
       expect(container.querySelector('h1'), `${route}: no h1`).toBeTruthy()
-      unmount()
-    }
-  })
-
-  test('every declared placeholder is STILL a placeholder (re-declare native when it ships)', async () => {
-    for (const route of uniqueRoutes('placeholder')) {
-      const { container, unmount } = renderApp(route)
-      await new Promise((r) => setTimeout(r, 30))
-      expect(
-        container.textContent ?? '',
-        `${route} no longer renders the placeholder — re-declare it native in surfaces.ts`,
-      ).toMatch(PLACEHOLDER_MARKER)
       unmount()
     }
   })

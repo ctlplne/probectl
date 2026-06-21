@@ -10,10 +10,6 @@
  *                   Prometheus / OTLP / API). The gate verifies the declared
  *                   EVIDENCE exists ("file:<repo-relative path>" or
  *                   "openapi:<path>" in the control plane's OpenAPI spec).
- *  - "placeholder": the engine itself is not built yet; the surface is due
- *                   with the named sprint. The gate asserts the placeholder
- *                   is STILL a placeholder — when the screen ships, the entry
- *                   must be re-declared native (keeps this registry truthful).
  *  - "none-by-design": deliberately no current surface. The gate requires a
  *                   reason, and the feature denominator test still counts it.
  *
@@ -23,7 +19,7 @@
  * consistency, not polish (the S-FE6 'watch out for').
  */
 
-export type SurfaceKind = 'native' | 'federated' | 'placeholder' | 'none-by-design'
+export type SurfaceKind = 'native' | 'federated' | 'none-by-design'
 
 export interface SurfaceDecl {
   /** The user-facing capability, in product language. */
@@ -33,7 +29,7 @@ export interface SurfaceDecl {
   /** The sprint that owns (or will own) the surface. */
   sprint: string
   kind: SurfaceKind
-  /** The app route (native + placeholder kinds). */
+  /** The app route (native kind only). */
   route?: string
   /** Federated proof: "file:<repo-relative>" | "openapi:<api path>". */
   evidence?: string[]
@@ -499,7 +495,7 @@ export function checkRegistryShape(
     if (!routed.has(nav)) {
       violations.push({
         capability: `nav:${nav}`,
-        problem: 'nav destination has no registered surface (register it native or placeholder)',
+        problem: 'nav destination has no registered surface (register it native)',
       })
     }
   }
