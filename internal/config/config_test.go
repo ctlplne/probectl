@@ -546,6 +546,15 @@ func TestAIConfig(t *testing.T) {
 		t.Errorf("local loopback model should not need egress ack, got %q", cfg.AIEgressAck)
 	}
 
+	// A remote HTTPS endpoint still needs the explicit data-egress ack.
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_AI_MODEL_PROVIDER": "openai",
+		"PROBECTL_AI_MODEL_ENDPOINT": "https://model.example.com",
+		"PROBECTL_AI_MODEL_NAME":     "gpt-test",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_AI_EGRESS_ACK") {
+		t.Errorf("remote https ai endpoint without egress ack should fail closed, got %v", err)
+	}
+
 	// A remote HTTPS endpoint is allowed only after the explicit data-egress ack.
 	cfg, err = Load(envFunc(map[string]string{
 		"PROBECTL_AI_MODEL_PROVIDER": "openai",
