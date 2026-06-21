@@ -55,3 +55,33 @@ func TestPRDOTLPContractMatchesAllSignalImplementation(t *testing.T) {
 		}
 	}
 }
+
+// TestPRDAlertOpsContractMatchesPersistenceImplementation keeps the GA steering
+// list from asking for alert silence/ack persistence after the tenant-RLS table,
+// store, handler writes, and boot restore path have shipped.
+func TestPRDAlertOpsContractMatchesPersistenceImplementation(t *testing.T) {
+	prd := readPRDv1(t)
+
+	for _, stale := range []string{
+		"currently die with the process",
+		"persist them like alert rules",
+		"Alert silences/acks persistence",
+	} {
+		if strings.Contains(prd, stale) {
+			t.Fatalf("probectl-PRD-v1.0.md still contains stale alert-ops contract wording %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"Alert operation UX/evidence polish",
+		"silences/acks persistence is delivered",
+		"migrations/0043_alert_ops.sql",
+		"internal/store/alertops.go",
+		"internal/control/alertsactive.go",
+		"internal/control/alerteval.go",
+		"not the persistence mechanism itself",
+	} {
+		if !strings.Contains(prd, want) {
+			t.Fatalf("probectl-PRD-v1.0.md missing alert-ops contract wording %q", want)
+		}
+	}
+}
