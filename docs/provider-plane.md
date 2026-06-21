@@ -139,6 +139,44 @@ fairness, and governance cards (each documented on its own page —
 card ([`white-label.md`](white-label.md)) and operator management with one-time
 enrollment tokens.
 
+## Engineering eval smoke
+
+The provider journey has one deliberate precondition: a deployment must attach
+the provider plane through the edition seam. A community or otherwise
+unlicensed build must keep returning a plain 404 for `/provider/*`. Think of
+that as the door not existing in that build, not as a locked door with a sales
+message behind it.
+
+For an engineering evaluation, use a disposable local stack and a provider-tier
+eval license issued for that evaluation. Do not weaken `internal/license`, do
+not make core import `ee/`, and do not use `PROBECTL_ALLOW_KEYLESS_DEV` for a
+provider-plane smoke. The minimum runtime preconditions are:
+
+- `PROBECTL_LICENSE_FILE` points at an offline-signed license whose feature set
+  includes `provider_plane`.
+- `PROBECTL_ENVELOPE_KEY` is set, because provider TOTP secrets are sealed at
+  rest.
+- `PROBECTL_PROVIDER_BOOTSTRAP_TOKEN` is set for the first operator bootstrap.
+- The database migrations have run, including the provider tables and
+  `probectl_provider` role grants.
+
+The quick smoke has two halves:
+
+```sh
+GOCACHE=/private/tmp/probectl-gocache go test ./internal/control -run TestProviderPlaneMountSeam -count=1
+GOCACHE=/private/tmp/probectl-gocache go test ./ee/provider -run 'TestProviderLifecycle|TestProviderOpenAPIMatchesRoutes' -count=1
+cd web && npm test -- src/test/provider-console.test.tsx
+```
+
+The first command proves the hidden-unlicensed contract from core: without an
+attached provider handler, `/provider/*` is indistinguishable from any unknown
+route; with an attached handler, core dispatches without knowing any `ee/`
+types. The second command proves the provider-enabled onboarding path:
+bootstrap, MFA enrollment/login, tenant lifecycle, license-band enforcement,
+audit records, and provider OpenAPI parity. The web command proves the console
+renders both states: "Provider plane not enabled" when the API is hidden, and
+the operator onboarding/lifecycle surfaces when the provider API is available.
+
 ## API
 
 The provider API is `/provider/v1/*`, documented in `ee/provider/openapi.json`,

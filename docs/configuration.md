@@ -1582,7 +1582,10 @@ TOTP secrets are envelope-sealed at rest) and a database. Operator MFA is
 mandatory; operators are a privilege domain distinct from tenant users with
 **no implicit access to tenant telemetry** — see `docs/provider-plane.md` for
 the model, the break-glass consent flow, and the storage-layer confinement
-(`probectl_provider` role). Suspending a tenant rejects its users at the API
+(`probectl_provider` role). That page also records the engineering eval smoke:
+community builds must keep `/provider/*` as a plain 404, while provider evals
+must attach the licensed `ee/` plane with an envelope key and bootstrap token.
+Suspending a tenant rejects its users at the API
 (`tenant_suspended`) without touching data or ingestion.
 
 ### Siloed / hybrid isolation (ee/)
