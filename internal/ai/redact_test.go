@@ -125,6 +125,52 @@ func TestRedactSynthesisInputDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestRedactAnswerForPersistenceMasksDurableArtifact(t *testing.T) {
+	ans := Answer{
+		ID:         "ans-1",
+		Tenant:     "tenant-a",
+		Question:   "why is alice@example.com seeing loss from 10.0.0.1 with token=rawsecret123?",
+		RootCause:  "alice@example.com saw 10.0.0.1 fail after password=hunter22 changed",
+		Confidence: ConfidenceHigh,
+		Findings: []Finding{{
+			Statement: "ticket CASE-1234 exposed 10.0.0.1 for alice@example.com",
+			Citations: []Citation{{EvidenceID: "E1"}},
+		}},
+		Evidence: []Evidence{{
+			ID:      "E1",
+			Title:   "loss at 10.0.0.1 for alice@example.com",
+			Summary: "Authorization: Bearer sk-live-abcdef123456789",
+			Ref:     "incident://10.0.0.1/alice@example.com",
+			Fields: Row{
+				"target": "10.0.0.1",
+				"owner":  "alice@example.com",
+				"nested": map[string]any{"secret": "api_key=rawsecret123"},
+			},
+		}},
+		Model: "builtin",
+	}
+	pol := DefaultRedaction
+	pol.CustomPatterns = []*regexp.Regexp{regexp.MustCompile(`CASE-\d+`)}
+
+	got := RedactAnswerForPersistence(ans, pol, "tenant-a")
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(b)
+	for _, leaked := range []string{"alice@example.com", "10.0.0.1", "rawsecret123", "hunter22", "sk-live-abcdef123456789", "CASE-1234"} {
+		if strings.Contains(raw, leaked) {
+			t.Fatalf("persisted answer leaked %q: %s", leaked, raw)
+		}
+	}
+	if got.Evidence[0].ID != "E1" || got.Findings[0].Citations[0].EvidenceID != "E1" {
+		t.Fatalf("redaction must preserve evidence IDs/citations: %+v", got)
+	}
+	if !strings.Contains(ans.Question, "alice@example.com") || !strings.Contains(ans.Evidence[0].Title, "10.0.0.1") {
+		t.Fatal("redaction mutated the live answer")
+	}
+}
+
 // capturePrompt runs an httptest OpenAI-shaped server and returns whatever
 // user-message content the model receives.
 func capturePrompt(t *testing.T, m *HTTPModel) string {

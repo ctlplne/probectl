@@ -317,7 +317,7 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 	// that never blocks the answer.
 	if s.pool != nil {
 		if auditErr := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-			return s.recordAudit(ctx, sc, r, "ai.ask", ans.ID, map[string]any{"question": q})
+			return s.recordAudit(ctx, sc, r, "ai.ask", ans.ID, s.aiAskAuditData(q, p))
 		}); auditErr != nil {
 			s.log.Warn("audit ai.ask failed", "error", auditErr)
 		}
@@ -334,15 +334,16 @@ func (s *Server) persistAnswer(r *http.Request, ans ai.Answer) {
 	if !s.cfg.AIPersistAnswers || s.pool == nil {
 		return
 	}
-	payload, err := json.Marshal(ans)
+	persisted := s.aiAnswerForPersistence(r, ans)
+	payload, err := json.Marshal(persisted)
 	if err != nil {
 		s.log.Warn("ai answer marshal failed", "error", err)
 		return
 	}
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		if err := (store.AIAnswers{}).Save(ctx, sc, store.AIAnswerInput{
-			AnswerID: ans.ID, Question: ans.Question, RootCause: ans.RootCause,
-			Confidence: string(ans.Confidence), Model: ans.Model,
+			AnswerID: ans.ID, Question: persisted.Question, RootCause: persisted.RootCause,
+			Confidence: string(persisted.Confidence), Model: persisted.Model,
 			ConfigHash: aiConfigHash(s.cfg), Payload: payload,
 		}); err != nil {
 			return err
@@ -352,6 +353,27 @@ func (s *Server) persistAnswer(r *http.Request, ans ai.Answer) {
 	}); err != nil {
 		s.log.Warn("ai answer persistence failed", "error", err)
 	}
+}
+
+func (s *Server) aiAskAuditData(question string, p *auth.Principal) map[string]any {
+	tenantID := ""
+	if p != nil {
+		tenantID = p.TenantID
+	}
+	return map[string]any{
+		"question":          ai.RedactTextForTenant(question, redactionPolicy(s.cfg), tenantID),
+		"question_redacted": true,
+	}
+}
+
+func (s *Server) aiAnswerForPersistence(r *http.Request, ans ai.Answer) ai.Answer {
+	tenantID := ans.Tenant
+	if tenantID == "" {
+		if p := auth.PrincipalFrom(r.Context()); p != nil {
+			tenantID = p.TenantID
+		}
+	}
+	return ai.RedactAnswerForPersistence(ans, redactionPolicy(s.cfg), tenantID)
 }
 
 // aiConfigHash fingerprints the AI configuration that produced an answer

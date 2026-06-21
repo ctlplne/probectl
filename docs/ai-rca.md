@@ -308,10 +308,13 @@ control plane) and the per-tenant fairness budget wraps the whole analysis
 (`docs/fairness.md`).
 
 For reproducibility (or a dispute about "what did the AI tell us that day?"),
-`PROBECTL_AI_PERSIST_ANSWERS` (default `false`) stores each full cited answer
-tenant-scoped, together with the model name and a hash of the AI configuration
-that produced it, pruned past `PROBECTL_AI_ANSWER_RETENTION` (default 90 days).
-Persistence is best-effort and never blocks or alters the answer.
+`PROBECTL_AI_PERSIST_ANSWERS` (default `false`) stores a privacy-minimized cited
+answer tenant-scoped, together with the model name and a hash of the AI
+configuration that produced it, pruned past `PROBECTL_AI_ANSWER_RETENTION`
+(default 90 days). The live response is unchanged, but the durable copy and the
+`ai.ask` audit row tokenize raw prompts, IPs, emails, secrets, and configured
+custom patterns before they enter Postgres. Persistence is best-effort and never
+blocks or alters the answer.
 
 ## What it deliberately does not do
 

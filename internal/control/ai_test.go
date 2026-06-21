@@ -7,7 +7,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 )
 
 func aiTestReq(method, path string, body any) *http.Request {
@@ -65,5 +69,52 @@ func TestHandleAIFeedbackValidationAndPersistenceGuard(t *testing.T) {
 	h.ServeHTTP(rec, aiTestReq(http.MethodPost, "/v1/ai/feedback", map[string]any{"answer_id": "ans_1", "rating": "up"}))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("feedback without persistence: status = %d, want 503", rec.Code)
+	}
+}
+
+func TestAIAuditAndPersistenceMinimizeSensitiveText(t *testing.T) {
+	srv := testServer(nil)
+	srv.cfg.AIRedactIPs = true
+	srv.cfg.AIRedactPII = true
+
+	question := "why is alice@example.com losing traffic from 10.0.0.1 with password=hunter22?"
+	data := srv.aiAskAuditData(question, &auth.Principal{TenantID: "tenant-a"})
+	if got := data["question"].(string); strings.Contains(got, "alice@example.com") ||
+		strings.Contains(got, "10.0.0.1") || strings.Contains(got, "hunter22") {
+		t.Fatalf("audit question was not minimized: %q", got)
+	}
+	if data["question_redacted"] != true {
+		t.Fatalf("audit data must mark question as redacted: %#v", data)
+	}
+
+	req := aiTestReq(http.MethodPost, "/v1/ai/ask", nil)
+	req = req.WithContext(auth.WithPrincipal(req.Context(), &auth.Principal{TenantID: "tenant-a"}))
+	persisted := srv.aiAnswerForPersistence(req, ai.Answer{
+		ID:         "ans-1",
+		Tenant:     "tenant-a",
+		Question:   question,
+		RootCause:  "alice@example.com hit 10.0.0.1 after token=rawsecret123 changed",
+		Confidence: ai.ConfidenceHigh,
+		Findings: []ai.Finding{{
+			Statement: "10.0.0.1 is the failing target for alice@example.com",
+			Citations: []ai.Citation{{EvidenceID: "E1"}},
+		}},
+		Evidence: []ai.Evidence{{
+			ID:      "E1",
+			Title:   "flow from 10.0.0.1",
+			Summary: "api_key=rawsecret123",
+			Fields:  ai.Row{"target": "10.0.0.1", "owner": "alice@example.com"},
+		}},
+		Model: "builtin",
+	})
+	b, err := json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := string(b)
+	for _, leaked := range []string{"alice@example.com", "10.0.0.1", "hunter22", "rawsecret123"} {
+		if strings.Contains(raw, leaked) {
+			t.Fatalf("persisted AI answer leaked %q: %s", leaked, raw)
+		}
 	}
 }

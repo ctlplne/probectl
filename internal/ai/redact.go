@@ -136,6 +136,12 @@ func redactTextForTenant(s string, pol RedactionPolicy, tenantID string) string 
 	return s
 }
 
+// RedactTextForTenant masks one operator-supplied string for durable storage or
+// remote egress using the same tenant-scoped tokenization as the AI egress path.
+func RedactTextForTenant(s string, pol RedactionPolicy, tenantID string) string {
+	return redactTextForTenant(s, pol, tenantID)
+}
+
 // CompileCustomPatterns parses the operator's custom redaction patterns
 // (";;"-separated regexes — regexes routinely contain commas). It fails
 // closed: one bad pattern refuses the whole config rather than silently
@@ -208,4 +214,72 @@ func redactSynthesisInputForTenant(in SynthesisInput, pol RedactionPolicy, tenan
 		out.Evidence[i] = e
 	}
 	return out
+}
+
+// RedactAnswerForPersistence deep-copies an RCA answer before it is written to
+// durable storage. The live HTTP response remains full fidelity; only the
+// at-rest artifact is minimized so optional answer persistence does not become a
+// searchable archive of raw prompts, IPs, users, tickets, or credentials.
+func RedactAnswerForPersistence(ans Answer, pol RedactionPolicy, tenantID string) Answer {
+	out := ans
+	out.Question = redactTextForTenant(out.Question, pol, tenantID)
+	out.RootCause = redactTextForTenant(out.RootCause, pol, tenantID)
+
+	if len(ans.RootCauseCitations) > 0 {
+		out.RootCauseCitations = append([]Citation(nil), ans.RootCauseCitations...)
+	}
+	if len(ans.Findings) > 0 {
+		out.Findings = make([]Finding, len(ans.Findings))
+		for i, f := range ans.Findings {
+			f.Statement = redactTextForTenant(f.Statement, pol, tenantID)
+			if len(f.Citations) > 0 {
+				f.Citations = append([]Citation(nil), f.Citations...)
+			}
+			out.Findings[i] = f
+		}
+	}
+	if len(ans.Evidence) > 0 {
+		out.Evidence = make([]Evidence, len(ans.Evidence))
+		for i, e := range ans.Evidence {
+			e.Title = redactTextForTenant(e.Title, pol, tenantID)
+			e.Summary = redactTextForTenant(e.Summary, pol, tenantID)
+			e.Ref = redactTextForTenant(e.Ref, pol, tenantID)
+			e.Fields = redactValueForTenant(e.Fields, pol, tenantID).(Row)
+			out.Evidence[i] = e
+		}
+	}
+	return out
+}
+
+func redactValueForTenant(v any, pol RedactionPolicy, tenantID string) any {
+	switch x := v.(type) {
+	case string:
+		return redactTextForTenant(x, pol, tenantID)
+	case []string:
+		out := make([]string, len(x))
+		for i, s := range x {
+			out[i] = redactTextForTenant(s, pol, tenantID)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, v := range x {
+			out[i] = redactValueForTenant(v, pol, tenantID)
+		}
+		return out
+	case Row:
+		out := make(Row, len(x))
+		for k, v := range x {
+			out[k] = redactValueForTenant(v, pol, tenantID)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, v := range x {
+			out[k] = redactValueForTenant(v, pol, tenantID)
+		}
+		return out
+	default:
+		return v
+	}
 }

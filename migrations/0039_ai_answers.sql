@@ -1,9 +1,9 @@
 -- 0039_ai_answers.sql
 -- U-093: optional persisted RCA artifacts. When PROBECTL_AI_PERSIST_ANSWERS is
--- on, every answer is stored verbatim (the full cited answer JSON) together
--- with the model name and a hash of the AI configuration that produced it —
--- so a disputed answer can be reproduced/inspected later instead of relying on
--- the audit log alone. Retention is enforced opportunistically on write
+-- on, every answer is privacy-minimized before storage (tenant-scoped tokens
+-- replace raw prompts, IPs, emails, secrets, and configured custom patterns)
+-- and stored with the model name and a hash of the AI configuration that
+-- produced it. Retention is enforced opportunistically on write
 -- (PROBECTL_AI_ANSWER_RETENTION). Tenant-owned: tenant_id + RLS from the first
 -- migration (CLAUDE.md §6). Idempotent + backward-compatible.
 
