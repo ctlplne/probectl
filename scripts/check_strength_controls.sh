@@ -30,7 +30,7 @@ ids=(
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-003 SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-003 TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
-  TEST-003 TEST-004 TEST-006 TEST-007 TEST-008 UX-006 VERIFY-005 VERIFY-006
+  TEST-003 TEST-004 TEST-006 TEST-007 TEST-008 UX-004 UX-005 UX-006 VERIFY-005 VERIFY-006
   WIRE-005 WIRE-006 WIRE-007
 )
 
@@ -61,8 +61,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 99 ]; then
-  err "internal guard bug: expected 99 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 101 ]; then
+  err "internal guard bug: expected 101 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -186,6 +186,17 @@ need_pattern TEST-006 scripts/verify_all.sh 'ALL GREEN|run_step'
 need_pattern TEST-007 Makefile 'test-isolation'
 need_pattern TEST-007 .github/workflows/ci.yml 'cross-plane|correlated incident|test-isolation'
 need_pattern TEST-008 internal/ai/eval/eval_test.go 'RCAEval|citation_precision'
+need_pattern UX-004 scripts/check_openapi.sh 'registered core /v1 and provider /provider/v1 route tables|TestOpenAPIMatchesRoutes|TestProviderOpenAPIMatchesRoutes'
+need_pattern UX-004 internal/control/v1.go 'type apiRoute|Permission string|apiRoutes'
+need_pattern UX-004 internal/control/openapi_test.go 'TestOpenAPIMatchesRoutes|TestOpenAPIGateCatchesPlantedRouteAndSpecDrift|undocumented route|documented phantom'
+need_pattern UX-004 ee/provider/handler.go 'func Routes|/provider/v1'
+need_pattern UX-004 ee/provider/openapi_test.go 'TestProviderOpenAPIMatchesRoutes|TestProviderOpenAPIGateCatchesPlantedDrift|documented phantom route'
+need_pattern UX-005 web/package.json 'coverage-gate'
+need_pattern UX-005 web/src/surfaces.ts 'SurfaceKind|native|federated|none-by-design|SURFACES'
+need_pattern UX-005 web/src/test/surface-coverage.test.tsx 'every native surface renders a real screen|PLACEHOLDER_MARKER|toHaveNoViolations'
+need_pattern UX-005 web/src/test/no-hardcoded-colors.test.ts 'no \.module\.css uses a hardcoded color literal|tokens\.css'
+need_pattern UX-005 docs/frontend-coverage.md 'native|federated|none-by-design|web-rendered-a11y'
+need_pattern UX-005 .github/workflows/ci.yml 'Frontend-coverage gate|web-rendered-a11y|token'
 need_pattern UX-006 web/src/api/client.ts 'apiURL|drop the /v1 prefix'
 need_pattern UX-006 web/src/test/surface-coverage.test.tsx 'axe'
 
