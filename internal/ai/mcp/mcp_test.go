@@ -190,7 +190,7 @@ func TestToolsCallRequiresTenantBeforeRBAC(t *testing.T) {
 	for name, p := range map[string]*auth.Principal{
 		"nil principal":  nil,
 		"empty tenant":   principal("", permTestRead),
-		"tenant missing": &auth.Principal{Permissions: map[string]bool{permTestRead: true}},
+		"tenant missing": {Permissions: map[string]bool{permTestRead: true}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			fb := &fakeBackend{}

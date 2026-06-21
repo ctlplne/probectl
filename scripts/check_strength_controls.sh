@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 
 ids=(
   AIRCA-004 AIRCA-005 AIRCA-006 AIRCA-007
-  ARCH-005 ARCH-006 ARCH-007 CODE-007 CODE-008
+  ARCH-005 ARCH-006 ARCH-007 CODE-007 CODE-008 CODE-014
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007
   DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-005 EBPF-006 FUZZ-005
@@ -54,8 +54,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 61 ]; then
-  err "internal guard bug: expected 61 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 62 ]; then
+  err "internal guard bug: expected 62 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -88,6 +88,14 @@ need_pattern CODE-007 .github/workflows/ci.yml 'verify-all'
 need_pattern CODE-008 scripts/check_repo_hygiene.sh 'SELFTEST'
 need_pattern CODE-008 scripts/check_swallowed_errors.sh 'constructed-then-discarded'
 need_pattern CODE-008 scripts/check_stringbuilt_sql.sh 'no-stringbuilt-sql'
+need_pattern CODE-014 Makefile 'lint-go:'
+need_pattern CODE-014 Makefile 'gofmt -l'
+need_pattern CODE-014 Makefile 'vet ./\.\.\.'
+need_pattern CODE-014 Makefile 'golangci-lint run'
+need_pattern CODE-014 Makefile 'check_swallowed_errors\.sh'
+need_pattern CODE-014 Makefile 'check_repo_hygiene\.sh SELFTEST'
+need_pattern CODE-014 scripts/check_swallowed_errors.sh 'fmt\.Errorf|errors\.New'
+need_pattern CODE-014 scripts/check_repo_hygiene.sh 'SELFTEST'
 need_pattern DOCS-005 scripts/check_docs_claims.sh 'SELFTEST'
 need_pattern DOCS-006 docs/otlp.md 'metrics|traces|logs'
 need_pattern DOCS-006 internal/otel/otlp/signals.go 'Metrics|TraceSink|LogSink'
@@ -153,7 +161,7 @@ need_pattern OPS-008 internal/agent/rollout.go 'wave|rollback|budget|pause'
 need_pattern OPS-008 scripts/check_version_consistency.sh 'compose|Helm|VERSION'
 need_pattern OPS-009 Makefile 'backup-restore-drill|migration-gate|helm-gate'
 need_pattern OPS-010 internal/control/handlers.go 'ready|live|drain|shutdown'
-need_pattern OPS-010 cmd/probectl-control/main.go 'Shutdown|signal|Readiness|readiness'
+need_pattern OPS-010 internal/control/server.go 'Shutdown|draining|ShutdownTimeout'
 need_pattern RED-006 internal/ai/injection_test.go 'prompt|injection|uncited'
 need_pattern RED-007 internal/otel/otlp/receiver_test.go 'out-of-tenant|tenant.*mismatch|spoof'
 need_pattern RED-008 scripts/check_cosign_wiring.sh 'cosign|verify'
