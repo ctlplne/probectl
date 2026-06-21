@@ -87,7 +87,7 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
   background: var(--color-surface-raised);
-  border-left: 3px solid var(--color-warning);
+  border-inline-start: 3px solid var(--color-warning);
   border-radius: var(--radius-sm);
 }
 
@@ -99,7 +99,7 @@
 
 .findings {
   margin: 0;
-  padding-left: var(--space-5);
+  padding-inline-start: var(--space-5);
   display: grid;
   gap: var(--space-3);
 }

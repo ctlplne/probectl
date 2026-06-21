@@ -1,7 +1,7 @@
 .viewport {
   position: fixed;
   bottom: var(--space-5);
-  right: var(--space-5);
+  inset-inline-end: var(--space-5);
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
@@ -15,7 +15,7 @@
   padding: var(--space-3) var(--space-4);
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-strong);
-  border-left-width: 3px;
+  border-inline-start-width: 3px;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   animation: slide var(--motion-normal) var(--easing-standard);
@@ -33,19 +33,19 @@
 }
 
 .info {
-  border-left-color: var(--color-info);
+  border-inline-start-color: var(--color-info);
   color: var(--color-info);
 }
 .success {
-  border-left-color: var(--color-success);
+  border-inline-start-color: var(--color-success);
   color: var(--color-success);
 }
 .warning {
-  border-left-color: var(--color-warning);
+  border-inline-start-color: var(--color-warning);
   color: var(--color-warning);
 }
 .danger {
-  border-left-color: var(--color-danger);
+  border-inline-start-color: var(--color-danger);
   color: var(--color-danger);
 }
 

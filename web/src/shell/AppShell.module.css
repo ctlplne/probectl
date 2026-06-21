@@ -8,6 +8,12 @@
   height: 100vh;
 }
 
+:global(html[dir='rtl']) .shell {
+  grid-template-areas:
+    'topbar sidebar'
+    'main sidebar';
+}
+
 .main {
   grid-area: main;
   overflow-y: auto;
