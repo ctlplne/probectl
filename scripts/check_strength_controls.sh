@@ -30,7 +30,7 @@ ids=(
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-003 SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-003 TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
-  TEST-003 TEST-004 TEST-006 TEST-007 TEST-008 UX-004 UX-005 UX-006 VERIFY-005 VERIFY-006
+  TEST-003 TEST-004 TEST-006 TEST-007 TEST-008 UX-004 UX-005 UX-006 VERIFY-004 VERIFY-005 VERIFY-006
   WIRE-005 WIRE-006 WIRE-007
 )
 
@@ -61,8 +61,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 101 ]; then
-  err "internal guard bug: expected 101 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 102 ]; then
+  err "internal guard bug: expected 102 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -465,10 +465,11 @@ need_pattern TENANT-006 internal/control/mcp_integration_test.go 'another tenant
 need_pattern TENANT-007 internal/otel/otlp/receiver.go 'resourceTenant|authenticated|tenant'
 need_pattern TENANT-008 internal/ai/engine_test.go 'denied query must not reach the source'
 
-# Verification meta-controls are backed by the remediation harness artifacts,
-# but the product must keep the export hook that turns gate results into review
-# receipts.
-need_pattern VERIFY-005 scripts/export-receipts.sh 'verify-all-summary'
+# Verification meta-controls are backed by the audit artifacts, but the product
+# keeps a dependency-light checker future audit waves can execute.
+need_pattern VERIFY-004 Makefile 'audit-verify-gate'
+need_pattern VERIFY-004 scripts/check_audit_verify_outputs.mjs 'DEFAULT_EXPECTED_REPORTS = 25|coverage_overall_pct === 100|coverage_by_area|inspected_files union'
+need_pattern VERIFY-005 scripts/check_audit_verify_outputs.mjs 'fabricated.*0|fabrication_rate.*0|critical_high_file_only|VERIFIED_FILE_ONLY'
 need_pattern VERIFY-006 scripts/export-receipts.sh 'coverage|verify-all'
 
 if [ "$fail" -ne 0 ]; then

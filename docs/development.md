@@ -70,6 +70,7 @@ reach for most:
 | `make test-integration`            | Integration tests (`-tags=integration`; needs a DB / dev stack)                   |
 | `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                       |
 | `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`) |
+| `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics |
 | `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                 |
 | `make lint`                        | `lint-go` + `lint-python`                                                         |
 | `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                 |

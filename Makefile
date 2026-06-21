@@ -196,6 +196,10 @@ third-party-gate: third-party ## SUPPLY-009 gate: regenerate the inventory and f
 strength-gate: ## PROTECT strength-controls regression guard.
 	bash scripts/check_strength_controls.sh
 
+.PHONY: audit-verify-gate
+audit-verify-gate: ## Validate repaired probectl-audit VERIFY appendices and citation summary. Set PROBECTL_AUDIT_OUTPUTS to override the sibling audit output directory.
+	node scripts/check_audit_verify_outputs.mjs --repo . --outputs "$${PROBECTL_AUDIT_OUTPUTS:-../probectl-audit/outputs}"
+
 editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test) + the core-only build/test (-tags probectl_core links ZERO ee/ code via the attach-seam twin).
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	$(GO) build -tags probectl_core $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
