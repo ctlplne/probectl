@@ -9,9 +9,6 @@ export interface FlowTopRow {
   bytes: number
   packets: number
   flows: number
-  bytes_str?: string
-  packets_str?: string
-  flows_str?: string
 }
 
 export interface FlowTopResponse {

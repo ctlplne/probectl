@@ -1,19 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
+
+export type { LifecycleRetentionInput, LifecycleStatus } from './sdk.gen'
 
 /** The tenant lifecycle view (S-T5, core): retention control + residency/
  *  isolation visibility. Export streams from /v1/lifecycle/export. */
-
-export interface LifecycleStatus {
-  tenant_id?: string
-  flow_retention_days: number | null
-  isolation_model: string
-  residency?: string
-}
-
-export interface LifecycleRetentionInput {
-  flow_retention_days: number | null
-}
 
 export interface LifecycleStoreResult {
   store: string

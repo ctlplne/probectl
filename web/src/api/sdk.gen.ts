@@ -250,7 +250,9 @@ export interface FlowCapacityPoint {
 }
 
 export interface FlowTopList {
+  effective_limit?: number
   items?: FlowTopRow[]
+  window?: string
 }
 
 export interface FlowTopRow {

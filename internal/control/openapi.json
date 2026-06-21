@@ -6430,6 +6430,12 @@
             "items": {
               "$ref": "#/components/schemas/FlowTopRow"
             }
+          },
+          "effective_limit": {
+            "type": "integer"
+          },
+          "window": {
+            "type": "string"
           }
         }
       },

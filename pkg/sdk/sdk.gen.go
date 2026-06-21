@@ -321,7 +321,9 @@ type FlowCapacityPoint struct {
 }
 
 type FlowTopList struct {
-	Items []FlowTopRow `json:"items,omitempty"`
+	EffectiveLimit int          `json:"effective_limit,omitempty"`
+	Items          []FlowTopRow `json:"items,omitempty"`
+	Window         string       `json:"window,omitempty"`
 }
 
 // One top-talkers row. key is the address/ASN per the grouping; detail carries the pair destination or AS organization name.
