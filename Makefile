@@ -378,6 +378,15 @@ e2e: ## U-054 black-box full-stack e2e (test/e2e): compose deps + real binaries 
 backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).
 	./scripts/backup_restore_drill.sh
 
+.PHONY: backup-drill
+backup-drill: backup-restore-drill ## Alias for the CI backup-drill job.
+
+.PHONY: backup-restore-drill-large
+backup-restore-drill-large: ## Production-shaped restore drill: require min artifact bytes + RTO budget envs, then run the same restore proof.
+	@test -n "$$PROBECTL_DRILL_MIN_ARTIFACT_BYTES" || { echo "set PROBECTL_DRILL_MIN_ARTIFACT_BYTES to the minimum representative backup artifact bytes"; exit 1; }
+	@test -n "$$PROBECTL_DRILL_RTO_BUDGET_SECONDS" || { echo "set PROBECTL_DRILL_RTO_BUDGET_SECONDS to the documented restore budget"; exit 1; }
+	PROBECTL_DRILL_PROFILE="$${PROBECTL_DRILL_PROFILE:-production-shaped}" ./scripts/backup_restore_drill.sh
+
 .PHONY: failover-drill
 failover-drill: ## U-053 timed failover drill: kill the primary, promote the streaming replica, measure RTO/RPO (DESTRUCTIVE to the dev stack; runs in CI).
 	./scripts/failover_drill.sh

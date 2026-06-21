@@ -143,6 +143,7 @@ func TestTelemetryDRProfileIsDocumentedAndDrilled(t *testing.T) {
 	multiRegionDoc := readDoc(t, "multi-region.md")
 	values := readRepoFile(t, "deploy/helm/probectl/values.yaml")
 	drill := readRepoFile(t, "scripts/backup_restore_drill.sh")
+	makefile := readRepoFile(t, "Makefile")
 
 	for _, want := range []string{
 		"Telemetry regional DR profile: off-region ClickHouse backups",
@@ -150,6 +151,10 @@ func TestTelemetryDRProfileIsDocumentedAndDrilled(t *testing.T) {
 		"≤ 24 h",
 		"tenant_id",
 		"off-box artifact",
+		"backup-restore-drill-large",
+		"PROBECTL_DRILL_MIN_ARTIFACT_BYTES",
+		"PROBECTL_DRILL_RTO_BUDGET_SECONDS",
+		"BACKUP_RESTORE_RESULT",
 	} {
 		if !strings.Contains(backupDoc, want) {
 			t.Errorf("backup-restore.md must document the default telemetry DR profile detail %q", want)
@@ -169,9 +174,14 @@ func TestTelemetryDRProfileIsDocumentedAndDrilled(t *testing.T) {
 			t.Errorf("Helm values must describe the shipped ClickHouse telemetry DR profile detail %q", want)
 		}
 	}
-	for _, want := range []string{"tenant_id", "CH_OTHER_TENANT", "clickhouse regional-loss drill: PASS"} {
+	for _, want := range []string{"tenant_id", "CH_OTHER_TENANT", "clickhouse regional-loss drill: PASS", "PROBECTL_DRILL_MIN_ARTIFACT_BYTES", "PROBECTL_DRILL_RTO_BUDGET_SECONDS", "BACKUP_RESTORE_RESULT"} {
 		if !strings.Contains(drill, want) {
 			t.Errorf("backup_restore_drill.sh must prove tenant-scoped ClickHouse regional recovery detail %q", want)
+		}
+	}
+	for _, want := range []string{"backup-restore-drill-large", "PROBECTL_DRILL_MIN_ARTIFACT_BYTES", "PROBECTL_DRILL_RTO_BUDGET_SECONDS"} {
+		if !strings.Contains(makefile, want) {
+			t.Errorf("Makefile must wire the production-shaped backup restore drill detail %q", want)
 		}
 	}
 }

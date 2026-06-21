@@ -227,7 +227,7 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 | Date | Environment | Data size | Backup time | Restore time | Notes |
 |---|---|---|---|---|---|
 | _continuous_ | CI drill (dev compose, marker-sized) | KBs | see job log | see job log | `backup-drill` job, every CI run |
-| _pending_ | reference hardware (M/L-shaped) | — | — | — | run `make backup-restore-drill` against the loaded stack |
+| _pending_ | reference hardware (M/L-shaped) | — | — | — | run `PROBECTL_DRILL_MIN_ARTIFACT_BYTES=<bytes> PROBECTL_DRILL_RTO_BUDGET_SECONDS=<seconds> make backup-restore-drill-large` against the loaded stack and paste the emitted `BACKUP_RESTORE_RESULT` row here |
 
 ## The drill (executed, not aspirational)
 
@@ -249,6 +249,26 @@ comes back from the off-box artifact within the documented RPO window. It runs
 against the dev compose stack, exits non-zero on any divergence, and runs in CI
 on every run (the `backup-drill` job), so the restore path cannot silently rot.
 Run it against staging after any storage-layer change.
+
+### Production-shaped restore drill
+
+The CI drill proves the restore mechanism, but it is intentionally tiny. The
+M/L evidence row above must come from a loaded stack whose backup artifacts are
+large enough to represent the environment under review. Use the large target:
+
+```sh
+PROBECTL_DRILL_MIN_ARTIFACT_BYTES=<minimum bytes for the loaded dataset> \
+PROBECTL_DRILL_RTO_BUDGET_SECONDS=<restore budget seconds> \
+PROBECTL_DRILL_RESULT_FILE=backup-restore-results.csv \
+  make backup-restore-drill-large
+```
+
+`backup-restore-drill-large` runs the same destructive backup → wipe → restore
+→ verify loop, but refuses to pass when the summed Postgres + ClickHouse backup
+artifacts are below `PROBECTL_DRILL_MIN_ARTIFACT_BYTES` or when restore time
+exceeds `PROBECTL_DRILL_RTO_BUDGET_SECONDS`. That keeps the production-shaped
+row honest: a marker-sized dev database cannot accidentally satisfy the
+reference-hardware acceptance line.
 
 ## Point-in-time recovery (PITR) — WAL archiving (OPS-008)
 
