@@ -132,6 +132,7 @@ func (ri *RotatingIdentity) GetCertificate(*tls.ClientHelloInfo) (*tls.Certifica
 
 // ClientMTLSConfigRotating is ClientMTLSConfig with a trustctl-rotating
 // identity: renewals written in place are presented on the next handshake.
+// This is a probectl-owned mTLS channel, so it uses the internal TLS 1.3 floor.
 func ClientMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*tls.Config, *RotatingIdentity, error) {
 	ri, err := NewRotatingIdentity(certFile, keyFile, spiffePrefix)
 	if err != nil {
@@ -141,7 +142,7 @@ func ClientMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg := hardenedTLS()
+	cfg := hardenedServerTLS()
 	cfg.GetClientCertificate = ri.GetClientCertificate
 	cfg.RootCAs = pool
 	return cfg, ri, nil
@@ -149,7 +150,8 @@ func ClientMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*
 
 // ServerMTLSConfigRotating is ServerMTLSConfig with a rotating server
 // identity (the control plane's agent-transport cert can be trustctl-managed
-// too).
+// too). This is a probectl-owned listener, so it uses the internal TLS 1.3
+// floor.
 func ServerMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*tls.Config, *RotatingIdentity, error) {
 	ri, err := NewRotatingIdentity(certFile, keyFile, spiffePrefix)
 	if err != nil {
@@ -159,7 +161,7 @@ func ServerMTLSConfigRotating(certFile, keyFile, caFile, spiffePrefix string) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg := hardenedTLS()
+	cfg := hardenedServerTLS()
 	cfg.GetCertificate = ri.GetCertificate
 	cfg.ClientCAs = pool
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert

@@ -51,6 +51,53 @@ func presentedSerial(t *testing.T, serverCfg *tls.Config, clientCfg *tls.Config)
 	return <-result
 }
 
+func TestRotatingMTLSConfigsUseInternalTLS13Floor(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name string, data []byte) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	ca, err := GenerateCA("trustctl-test-ca", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spiffe := AgentSPIFFEID("tenant-123", "agent-abc")
+	certPEM, keyPEM, err := ca.IssueClientCert("agent-abc", spiffe, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caFile := write("ca.crt", ca.CertPEM())
+	certFile := write("identity.crt", certPEM)
+	keyFile := write("identity.key", keyPEM)
+
+	clientCfg, _, err := ClientMTLSConfigRotating(certFile, keyFile, caFile, "spiffe://probectl/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if clientCfg.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("rotating client MinVersion = %#x, want TLS 1.3 (%#x)", clientCfg.MinVersion, tls.VersionTLS13)
+	}
+	if clientCfg.GetClientCertificate == nil || clientCfg.RootCAs == nil {
+		t.Fatal("rotating client config must still present a hot-reloaded identity and verify the server CA")
+	}
+
+	serverCfg, _, err := ServerMTLSConfigRotating(certFile, keyFile, caFile, "spiffe://probectl/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serverCfg.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("rotating server MinVersion = %#x, want TLS 1.3 (%#x)", serverCfg.MinVersion, tls.VersionTLS13)
+	}
+	if serverCfg.GetCertificate == nil || serverCfg.ClientAuth != tls.RequireAndVerifyClientCert ||
+		serverCfg.ClientCAs == nil || serverCfg.VerifyPeerCertificate == nil {
+		t.Fatal("rotating server config must still hot-reload identity, require client certs, verify client CA, and pin trust domain")
+	}
+}
+
 // TestRotatingIdentityPicksUpRenewalWithoutRestart is the S41
 // trustctl-identity mTLS test: a trustctl-style renewal overwrites the
 // cert/key files in place, and the NEXT handshake presents the renewed
