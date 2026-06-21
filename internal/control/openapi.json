@@ -4909,6 +4909,15 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Rollout id returned by POST /v1/rollouts.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4941,6 +4950,15 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Rollout id returned by POST /v1/rollouts.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4973,6 +4991,15 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Rollout id returned by POST /v1/rollouts.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5005,8 +5032,33 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Rollout id returned by POST /v1/rollouts.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Operator halt reason written to the audit trail."
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "rollout state",
@@ -5037,8 +5089,33 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Rollout id returned by POST /v1/rollouts.",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "Operator remediation note required when an explicit resume body is provided."
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "rollout state",

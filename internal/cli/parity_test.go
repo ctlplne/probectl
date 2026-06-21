@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"sort"
@@ -57,13 +58,14 @@ func TestCLIOpenAPIParity(t *testing.T) {
 }
 
 func TestCLIHelpListsExpandedSurfaceGroups(t *testing.T) {
-	out, _, code := run(t, fakeAPI(t), "help")
+	var out, errs bytes.Buffer
+	code := Run([]string{"help"}, func(string) string { return "" }, &out, &errs)
 	if code != 0 {
-		t.Fatalf("help exit = %d", code)
+		t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
 	}
-	for _, want := range []string{"incident|alert|flow", "topology", "slo", "compliance", "api <method> <path>"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("help missing %q:\n%s", want, out)
+	for _, want := range []string{"incident|alert|flow", "topology", "slo", "compliance", "rollout create", "api <method> <path>"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("help missing %q:\n%s", want, out.String())
 		}
 	}
 }

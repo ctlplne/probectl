@@ -130,6 +130,9 @@ Commands:
   agent ci <id>                  show CMDB CIs for an agent
   agent revoke <id>              revoke an agent
   agent delete <id>              deregister an agent
+  rollout create --body JSON     plan a signed staged fleet rollout
+  rollout advance|verify <id>    step or verify one rollout wave
+  rollout halt|resume <id>       stop or resume a rollout with an operator note
   lifecycle subject-export --subject ID [--redact]
                                 stream a tenant-scoped subject export tar.gz
   lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]
@@ -181,6 +184,9 @@ Comandos:
   agent ci <id>                  muestra CIs de CMDB para un agente
   agent revoke <id>              revoca un agente
   agent delete <id>              desregistra un agente
+  rollout create --body JSON     planea un rollout escalonado firmado
+  rollout advance|verify <id>    avanza o verifica una ola del rollout
+  rollout halt|resume <id>       detiene o reanuda con una nota de operador
   lifecycle subject-export --subject ID [--redact]
                                 transmite un export tenant-scoped en tar.gz
   lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]

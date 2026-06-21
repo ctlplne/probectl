@@ -115,3 +115,32 @@ func TestPRDEBPFContractMatchesIPv6Implementation(t *testing.T) {
 		}
 	}
 }
+
+// TestPRDFleetRolloutContractMatchesCLISurface keeps F28 from drifting back to
+// "operator surface pending" now that the probectl rollout CLI group and
+// /v1/rollouts API make the rollout engine operator-usable.
+func TestPRDFleetRolloutContractMatchesCLISurface(t *testing.T) {
+	prd := readPRDv1(t)
+
+	for _, stale := range []string{
+		"operator console wiring ⏳",
+		"wire the delivered rollout engine",
+	} {
+		if strings.Contains(prd, stale) {
+			t.Fatalf("probectl-PRD-v1.0.md still contains stale fleet-rollout wording %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"operator CLI/API surface ✅",
+		"`probectl rollout`",
+		"`/v1/rollouts`",
+		"`docs/ops/fleet-rollout.md`",
+		"Fleet rollout polish",
+		"Remaining GA work is UX/evidence polish around scripted fleet workflows",
+		"not the missing operator surface itself",
+	} {
+		if !strings.Contains(prd, want) {
+			t.Fatalf("probectl-PRD-v1.0.md missing fleet-rollout contract wording %q", want)
+		}
+	}
+}

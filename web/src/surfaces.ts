@@ -259,12 +259,13 @@ export const SURFACES: SurfaceDecl[] = [
     evidence: ['openapi:/v1/cmdb/lookup', 'openapi:/v1/incidents/{id}/cis'],
   },
   {
-    capability: 'Staged fleet rollout controls (API + operator runbook)',
+    capability: 'Staged fleet rollout controls (CLI + API + operator runbook)',
     featureIds: ['F28'],
     sprint: 'S49',
     kind: 'federated',
     evidence: [
       'file:docs/ops/fleet-rollout.md',
+      'file:internal/cli/surfaces.go',
       'openapi:/v1/rollouts',
       'openapi:/v1/rollouts/{id}/verify',
     ],

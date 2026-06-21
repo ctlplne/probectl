@@ -93,23 +93,24 @@ verified** it — an unattested artifact refuses to plan.
 Snapshot the fleet from the registry (`GET /v1/agents`) and plan. Waves render
 like `canary[3]=pending early[11]=pending main[46]=pending`. The wave
 membership — the exact agent ids in each wave — is the orchestrator's worklist.
-The operator surface is deliberately **API + runbook only** (`web/src/surfaces.ts`
+The operator surface is deliberately **CLI + API + runbook** (`web/src/surfaces.ts`
 declares it as federated): ordinary tenant navigation should not hide the fact
 that this is a fleet-change workflow driven by external orchestration, not a
 point-and-click agent self-update channel.
 
 ```sh
-curl -X POST "$PROBECTL_URL/v1/rollouts" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
+probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
+  rollout create --body '{
     "version": "v0.2.1",
     "digest": "sha256:<exact artifact digest>",
     "verify_method": "cosign verify-blob ...",
     "canary_percent": 5,
     "early_percent": 20
-  }'
+}'
 ```
+
+The command calls `POST /v1/rollouts`; use `--json` when a script needs the
+returned rollout id exactly.
 
 ### 2. Advance one wave
 
@@ -119,8 +120,8 @@ confirming its arrival starts. Apply that wave with your orchestrator,
 **by digest**:
 
 ```sh
-curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/advance" \
-  -H "Authorization: Bearer $TOKEN"
+probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
+  rollout advance "$ROLLOUT_ID"
 ```
 
 - **Kubernetes** (the agent chart): `helm upgrade probectl-agent
@@ -153,8 +154,8 @@ the start of the role run. Provide `probectl_control_api_url`,
 Missing API credentials or a stale registry row fail the play closed.
 
 ```sh
-curl -X POST "$PROBECTL_URL/v1/rollouts/$ROLLOUT_ID/verify" \
-  -H "Authorization: Bearer $TOKEN"
+probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
+  rollout verify "$ROLLOUT_ID"
 ```
 
 ### 4. Halt-on-error
@@ -165,12 +166,22 @@ dark") — **halts the whole rollout** and names the offending agents. A halted
 rollout exposes no current wave, refuses both Advance and Verify, and never
 resumes on its own.
 
+```sh
+probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
+  rollout halt "$ROLLOUT_ID" --body '{"reason":"canary error budget burned"}'
+```
+
 ### 5. Resume is explicit
 
 After you remediate (roll the node back, replace it, or fix the artifact),
 `Resume` takes a **written remediation note** and returns the failed wave to the
 applying state with a fresh window. That note is the audit trail of what went
 wrong mid-rollout.
+
+```sh
+probectl --url "$PROBECTL_URL" --token "$TOKEN" --tenant "$TENANT_ID" \
+  rollout resume "$ROLLOUT_ID" --body '{"reason":"node replaced and heartbeat healthy"}'
+```
 
 ## Properties worth relying on
 

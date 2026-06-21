@@ -50,10 +50,11 @@ type paginationExtension struct {
 }
 
 type openAPIParameter struct {
-	Ref    string `json:"$ref"`
-	Name   string `json:"name"`
-	In     string `json:"in"`
-	Schema struct {
+	Ref      string `json:"$ref"`
+	Name     string `json:"name"`
+	In       string `json:"in"`
+	Required bool   `json:"required"`
+	Schema   struct {
 		Type    string  `json:"type"`
 		Minimum float64 `json:"minimum"`
 		Maximum float64 `json:"maximum"`
@@ -374,6 +375,34 @@ func TestOpenAPIAgentPaginationContract(t *testing.T) {
 	}
 	if next.Type != "string" || !strings.Contains(next.Description, "SCALE-010") {
 		t.Fatalf("AgentList.next_cursor drifted: %+v", next)
+	}
+}
+
+func TestOpenAPIRolloutPathParameters(t *testing.T) {
+	doc := parseOpenAPIDoc(t)
+	cases := map[string]string{
+		"/v1/rollouts/{id}":         "get",
+		"/v1/rollouts/{id}/advance": "post",
+		"/v1/rollouts/{id}/verify":  "post",
+		"/v1/rollouts/{id}/halt":    "post",
+		"/v1/rollouts/{id}/resume":  "post",
+	}
+	for path, method := range cases {
+		raw := doc.Paths[path][method]
+		op := parseOperation(t, raw)
+		var found bool
+		for _, p := range op.Parameters {
+			if p.Name != "id" {
+				continue
+			}
+			found = true
+			if p.In != "path" || !p.Required || p.Schema.Type != "string" {
+				t.Fatalf("%s %s id parameter = %+v, want required string path parameter", strings.ToUpper(method), path, p)
+			}
+		}
+		if !found {
+			t.Fatalf("%s %s is missing the rollout id path parameter", strings.ToUpper(method), path)
+		}
 	}
 }
 

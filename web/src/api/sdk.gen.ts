@@ -979,26 +979,33 @@ export interface CreateRolloutRequest {
 export type CreateRolloutResponse = JsonObject
 
 export interface GetRolloutRequest {
+  id: string
 }
 
 export type GetRolloutResponse = JsonObject
 
 export interface AdvanceRolloutRequest {
+  id: string
 }
 
 export type AdvanceRolloutResponse = JsonObject
 
 export interface HaltRolloutRequest {
+  id: string
+  body?: JsonObject
 }
 
 export type HaltRolloutResponse = JsonObject
 
 export interface ResumeRolloutRequest {
+  id: string
+  body?: JsonObject
 }
 
 export type ResumeRolloutResponse = JsonObject
 
 export interface VerifyRolloutRequest {
+  id: string
 }
 
 export type VerifyRolloutResponse = JsonObject
@@ -1720,32 +1727,37 @@ export class ProbectlSDKClient {
     return this.requestJSON<CreateRolloutResponse>("POST", path, query, request.body)
   }
 
-  async getRollout(): Promise<GetRolloutResponse> {
+  async getRollout(request: GetRolloutRequest): Promise<GetRolloutResponse> {
     let path = "/v1/rollouts/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<GetRolloutResponse>("GET", path, query, undefined)
   }
 
-  async advanceRollout(): Promise<AdvanceRolloutResponse> {
+  async advanceRollout(request: AdvanceRolloutRequest): Promise<AdvanceRolloutResponse> {
     let path = "/v1/rollouts/{id}/advance"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<AdvanceRolloutResponse>("POST", path, query, undefined)
   }
 
-  async haltRollout(): Promise<HaltRolloutResponse> {
+  async haltRollout(request: HaltRolloutRequest): Promise<HaltRolloutResponse> {
     let path = "/v1/rollouts/{id}/halt"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<HaltRolloutResponse>("POST", path, query, undefined)
+    return this.requestJSON<HaltRolloutResponse>("POST", path, query, request.body)
   }
 
-  async resumeRollout(): Promise<ResumeRolloutResponse> {
+  async resumeRollout(request: ResumeRolloutRequest): Promise<ResumeRolloutResponse> {
     let path = "/v1/rollouts/{id}/resume"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<ResumeRolloutResponse>("POST", path, query, undefined)
+    return this.requestJSON<ResumeRolloutResponse>("POST", path, query, request.body)
   }
 
-  async verifyRollout(): Promise<VerifyRolloutResponse> {
+  async verifyRollout(request: VerifyRolloutRequest): Promise<VerifyRolloutResponse> {
     let path = "/v1/rollouts/{id}/verify"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<VerifyRolloutResponse>("POST", path, query, undefined)
   }

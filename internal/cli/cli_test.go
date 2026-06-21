@@ -217,6 +217,52 @@ func TestCLIAgentList(t *testing.T) {
 	}
 }
 
+func TestCLIRolloutSurfaceHelp(t *testing.T) {
+	var out, errs bytes.Buffer
+	code := Run([]string{"rollout", "help"}, func(string) string { return "" }, &out, &errs)
+	if code != 2 {
+		t.Fatalf("rollout help exit = %d, want usage exit 2", code)
+	}
+	usage := errs.String()
+	for _, want := range []string{
+		"rollout",
+		"fleet rollouts",
+		"create",
+		"advance <id>",
+		"verify <id>",
+		"halt <id>",
+		"resume <id>",
+		"Flags: --query k=v (repeatable), --body JSON, global --json",
+	} {
+		if !strings.Contains(usage, want) {
+			t.Fatalf("rollout help missing %q:\n%s", want, usage)
+		}
+	}
+}
+
+func TestCLIRolloutSurfaceMapsHumanGatedOps(t *testing.T) {
+	spec, ok := surfaceCommands["rollout"]
+	if !ok {
+		t.Fatal("rollout CLI surface is not registered")
+	}
+	cases := map[string]apiOp{
+		"create":  {Method: http.MethodPost, Path: "/v1/rollouts"},
+		"advance": {Method: http.MethodPost, Path: "/v1/rollouts/{id}/advance", ArgName: "id"},
+		"verify":  {Method: http.MethodPost, Path: "/v1/rollouts/{id}/verify", ArgName: "id"},
+		"halt":    {Method: http.MethodPost, Path: "/v1/rollouts/{id}/halt", ArgName: "id"},
+		"resume":  {Method: http.MethodPost, Path: "/v1/rollouts/{id}/resume", ArgName: "id"},
+	}
+	for name, want := range cases {
+		got, ok := spec.Ops[name]
+		if !ok {
+			t.Fatalf("rollout CLI missing %q", name)
+		}
+		if got.Method != want.Method || got.Path != want.Path || got.ArgName != want.ArgName {
+			t.Fatalf("rollout %s = %+v, want %+v", name, got, want)
+		}
+	}
+}
+
 func TestCLICollectorRegister(t *testing.T) {
 	var seen map[string]any
 	mux := http.NewServeMux()

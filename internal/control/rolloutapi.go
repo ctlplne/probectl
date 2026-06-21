@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,12 +21,12 @@ import (
 )
 
 // OPS-002: an operator surface over the staged-rollout engine (internal/agent
-// RolloutPlan), which previously had NO API or CLI — the engine existed but
-// nothing drove it. /v1/rollouts plans a wave-staged rollout across the live
-// fleet and advance/halt/resume/verify step the wave state machine. Every
-// mutation is RBAC'd (agent:write) and audited. The plan is observe-only /
-// human-gated by construction (guardrail §7.8): the engine never deploys —
-// it computes waves and gates advancement; the operator's orchestrator acts.
+// RolloutPlan). /v1/rollouts plans a wave-staged rollout across the live fleet;
+// the probectl rollout CLI group and API advance/halt/resume/verify the wave
+// state machine. Every mutation is RBAC'd (agent:write) and audited. The plan
+// is observe-only / human-gated by construction (guardrail §7.8): the engine
+// never deploys — it computes waves and gates advancement; the operator's
+// orchestrator acts.
 //
 // State is persisted in tenant-scoped Postgres rows and mirrored in this
 // process as a hot cache. The database row is the truth: after a restart,
@@ -97,6 +98,10 @@ type rolloutCreateRequest struct {
 	VerifyMethod  string `json:"verify_method"`
 	CanaryPercent int    `json:"canary_percent,omitempty"`
 	EarlyPercent  int    `json:"early_percent,omitempty"`
+}
+
+type rolloutReasonRequest struct {
+	Reason string `json:"reason"`
 }
 
 func (s *Server) rolloutMgr() *rolloutManager {
@@ -277,17 +282,40 @@ func (s *Server) handleVerifyRollout(w http.ResponseWriter, r *http.Request) err
 }
 
 func (s *Server) handleHaltRollout(w http.ResponseWriter, r *http.Request) error {
+	reason, err := rolloutReason(r, "halted by operator via API")
+	if err != nil {
+		return err
+	}
 	return s.rolloutAction(w, r, "rollout.halt", func(_ context.Context, _ tenancy.Scope, p *agent.RolloutPlan) (map[string]any, error) {
-		p.Halt("halted by operator via API")
+		p.Halt(reason)
 		return map[string]any{"progress": p.Progress()}, nil
 	})
 }
 
 func (s *Server) handleResumeRollout(w http.ResponseWriter, r *http.Request) error {
+	reason, err := rolloutReason(r, "resumed by operator via API")
+	if err != nil {
+		return err
+	}
 	return s.rolloutAction(w, r, "rollout.resume", func(_ context.Context, _ tenancy.Scope, p *agent.RolloutPlan) (map[string]any, error) {
-		err := p.Resume("resumed by operator via API", time.Now())
+		err := p.Resume(reason, time.Now())
 		return map[string]any{"progress": p.Progress()}, err
 	})
+}
+
+func rolloutReason(r *http.Request, fallback string) (string, error) {
+	if r.Body == nil || r.ContentLength == 0 {
+		return fallback, nil
+	}
+	var req rolloutReasonRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return "", err
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		return "", apierror.BadRequest("reason is required when a rollout action body is provided")
+	}
+	return reason, nil
 }
 
 // rolloutAction runs a state-machine step on a looked-up rollout and audits it.

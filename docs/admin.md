@@ -253,8 +253,8 @@ Crucially, there is **no agent self-update**: agents never fetch or run new code
 on their own (that would be a fleet-wide remote-code-execution primitive); the
 control plane only *plans* and *verifies* waves while your orchestrator (Helm /
 `install.sh` / config management) does the actual pushing. The full operator
-runbook — plan, advance one wave, verify from the registry, halt-on-error, and
-the explicit resume-with-a-note step — is in
+runbook — `probectl rollout create`, advance one wave, verify from the registry,
+halt-on-error, and the explicit resume-with-a-note step — is in
 [ops/fleet-rollout.md](ops/fleet-rollout.md).
 
 ## Transport posture

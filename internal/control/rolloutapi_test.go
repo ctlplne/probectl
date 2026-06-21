@@ -3,6 +3,9 @@
 package control
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,5 +51,30 @@ func TestRolloutManagerLifecycle(t *testing.T) {
 	}
 	if plan.Halted {
 		t.Fatal("Resume did not clear the halt")
+	}
+}
+
+func TestRolloutReasonRequest(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/v1/rollouts/r1/halt", http.NoBody)
+	got, err := rolloutReason(r, "fallback reason")
+	if err != nil {
+		t.Fatalf("empty body should use fallback: %v", err)
+	}
+	if got != "fallback reason" {
+		t.Fatalf("empty body reason = %q, want fallback", got)
+	}
+
+	r = httptest.NewRequest(http.MethodPost, "/v1/rollouts/r1/resume", strings.NewReader(`{"reason":" node replaced "}`))
+	got, err = rolloutReason(r, "fallback reason")
+	if err != nil {
+		t.Fatalf("explicit reason: %v", err)
+	}
+	if got != "node replaced" {
+		t.Fatalf("explicit reason = %q, want trimmed operator note", got)
+	}
+
+	r = httptest.NewRequest(http.MethodPost, "/v1/rollouts/r1/resume", strings.NewReader(`{"reason":" "}`))
+	if _, err := rolloutReason(r, "fallback reason"); err == nil {
+		t.Fatal("blank explicit reason must fail closed")
 	}
 }

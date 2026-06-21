@@ -1935,10 +1935,15 @@ func (c *Client) CreateRollout(ctx context.Context, req CreateRolloutRequest) (m
 
 // Get a rollout's wave state + progress
 type GetRolloutRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) GetRollout(ctx context.Context, req GetRolloutRequest) (map[string]any, error) {
 	path := "/v1/rollouts/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -1949,10 +1954,15 @@ func (c *Client) GetRollout(ctx context.Context, req GetRolloutRequest) (map[str
 
 // Advance a rollout
 type AdvanceRolloutRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) AdvanceRollout(ctx context.Context, req AdvanceRolloutRequest) (map[string]any, error) {
 	path := "/v1/rollouts/{id}/advance"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
@@ -1963,13 +1973,19 @@ func (c *Client) AdvanceRollout(ctx context.Context, req AdvanceRolloutRequest) 
 
 // Halt a rollout
 type HaltRolloutRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
 }
 
 func (c *Client) HaltRollout(ctx context.Context, req HaltRolloutRequest) (map[string]any, error) {
 	path := "/v1/rollouts/{id}/halt"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out map[string]any
-	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1977,13 +1993,19 @@ func (c *Client) HaltRollout(ctx context.Context, req HaltRolloutRequest) (map[s
 
 // Resume a rollout
 type ResumeRolloutRequest struct {
+	Id   string          `json:"-"`
+	Body *map[string]any `json:"-"`
 }
 
 func (c *Client) ResumeRollout(ctx context.Context, req ResumeRolloutRequest) (map[string]any, error) {
 	path := "/v1/rollouts/{id}/resume"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out map[string]any
-	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -1991,10 +2013,15 @@ func (c *Client) ResumeRollout(ctx context.Context, req ResumeRolloutRequest) (m
 
 // Verify the applying rollout wave from the live agent registry
 type VerifyRolloutRequest struct {
+	Id string `json:"-"`
 }
 
 func (c *Client) VerifyRollout(ctx context.Context, req VerifyRolloutRequest) (map[string]any, error) {
 	path := "/v1/rollouts/{id}/verify"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
 	query := url.Values{}
 	var out map[string]any
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
