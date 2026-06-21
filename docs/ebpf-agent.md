@@ -330,19 +330,12 @@ distro-kernel image is the remaining infrastructure gap).
 
 One arch nuance worth knowing: the live QEMU boot needs KVM (the kernel's
 hardware-assisted virtualization, which lets the VM run at near-native speed
-instead of instruction-by-instruction emulation) for usable speed. The x86_64
-runners have `/dev/kvm` and run the **full live load+attach**; the arm64 runner
-(`ubuntu-24.04-arm`) has **no** KVM, and software emulation is too slow, so on
-arm64 the job **compiles and digest-verifies the BPF objects but skips the live
-boot**. That's still meaningful cross-arch coverage — it proves the arm64 objects
-build through the exact path operators use (`make ebpf-agent`) — but the live
-attach itself is exercised on x86_64.
-
-**TEST-005 residual risk:** arm64 eBPF is not CI live-load proven until a
-KVM-capable/native arm64 runner can execute `TestLiveLoadAttachL4Flow` without
-taking the `/dev/kvm` skip. Treat arm64 eBPF releases as compile/digest-verified
-and x86_64 live-load-proven; do not describe them as arm64 live-attach-proven
-until that runner is in place. Bump the matrix when adopting a new LTS.
+instead of instruction-by-instruction emulation) for usable speed. Both x86_64 and
+arm64 now run the **full live load+attach** path under KVM. The arm64 row targets a
+self-hosted Linux/ARM64 runner with the custom `kvm` label; if `/dev/kvm` is
+missing, the job fails instead of falling back to compile-only coverage. Treat
+arm64 eBPF releases as live-load-proven only when that matrix row is green. Bump
+the matrix when adopting a new LTS.
 
 ## Building
 

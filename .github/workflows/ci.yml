@@ -439,23 +439,23 @@ jobs:
     # not just statically checked. vimto boots each kernel under QEMU with the
     # runner rootfs, and `go test -exec` runs the live smoke (load, attach
     # tracepoint + uprobes, one agent flush cycle; the U-014 digest verification
-    # runs inherently). KVM accelerates the boot on the amd64 runners; the arm64
-    # runner (ubuntu-24.04-arm) has no /dev/kvm and TCG software emulation is too
-    # slow, so the boot step is SKIPPED there — arm64 still compiles + digest-
-    # verifies the BPF objects (the cross-arch coverage), and amd64 runs the full
-    # live load+attach. Kernel images are digest-pinned; the runner-side build is
-    # the same bpf2go path operators use (make ebpf-agent). The observe-only
-    # static gate runs in test-go.
+    # runs inherently). KVM is required for every matrix row, including arm64:
+    # arm64 runs on a self-hosted Linux/ARM64 runner with the custom `kvm` label.
+    # A missing /dev/kvm is a hard error, never a green skip, so release branches
+    # cannot claim arm64 eBPF support without a live verifier/attach run. Kernel
+    # images are digest-pinned; the runner-side build is the same bpf2go path
+    # operators use (make ebpf-agent). The observe-only static gate runs in
+    # test-go.
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        # EBPF-008: x86_64 LTS pair + arm64 (native runner — vimto does not
-        # emulate cross-arch) + a hardened entry that raises kernel lockdown
-        # to INTEGRITY inside the ephemeral VM (one-way sysfs write) and
-        # proves load+attach still works there. ci-kernels images are
-        # multi-arch indexes — the same digest serves both runners.
+        # EBPF-008/EBPF-003: x86_64 LTS pair + arm64 (native KVM runner —
+        # vimto does not emulate cross-arch) + a hardened entry that raises
+        # kernel lockdown to INTEGRITY inside the ephemeral VM (one-way sysfs
+        # write) and proves load+attach still works there. ci-kernels images
+        # are multi-arch indexes — the same digest serves both runners.
         include:
           - kernel: "5.15"
             runner: ubuntu-latest
@@ -466,7 +466,7 @@ jobs:
             run: "TestLive"
             image: ghcr.io/cilium/ci-kernels:6.6@sha256:0b7036c12c2a357672a81e7ff7bf02cc67fe06acb2c4b0206e2a15949d2193bd
           - kernel: "6.6-arm64"
-            runner: ubuntu-24.04-arm
+            runner: [self-hosted, Linux, ARM64, kvm]
             run: "TestLive"
             image: ghcr.io/cilium/ci-kernels:6.6@sha256:0b7036c12c2a357672a81e7ff7bf02cc67fe06acb2c4b0206e2a15949d2193bd
           - kernel: "6.6-lockdown"
@@ -508,16 +508,12 @@ jobs:
         run: |
           set -euo pipefail
           CGO_ENABLED=0 go install lmb.io/vimto@v0.4.0   # vimto re-execs itself as the VM init — must be static
-          # The live boot needs KVM (/dev/kvm) for usable speed. The amd64 runners
-          # expose it; the arm64 runner (ubuntu-24.04-arm) does NOT, and QEMU
-          # software emulation (TCG) is far too slow there — the emulated arm64
-          # boot stalled past the test timeout (run #209). So when /dev/kvm is
-          # absent, SKIP the live boot: the arm64 BPF objects were already
-          # compiled + digest-verified in the step above, and the amd64 entries
-          # run the full live load+attach test under KVM.
+          # The live boot needs KVM (/dev/kvm) for usable speed and for honest
+          # arm64 coverage. Missing KVM is a release-blocking infrastructure
+          # failure, not a successful compile-only substitute.
           if [ ! -e /dev/kvm ]; then
-            echo "::notice::no /dev/kvm on $(uname -m) runner — skipping the live kernel boot (arm64 BPF objects compiled+verified above; amd64 runs the full live test under KVM)"
-            exit 0
+            echo "::error::no /dev/kvm on $(uname -m) runner — ebpf-kernel-matrix must live-load/attach on every architecture, including arm64"
+            exit 1
           fi
           sudo chmod 0666 /dev/kvm || true
           env ${{ matrix.env_extra }} CGO_ENABLED=0 go test -tags ebpf -exec "$(go env GOPATH)/bin/vimto -kernel ${{ matrix.image }} -sudo exec --" -run '${{ matrix.run }}' -count=1 -v ./internal/ebpf/

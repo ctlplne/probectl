@@ -128,12 +128,11 @@ Verification you ran, not verification you described.
   the BPF programs (tracepoint + uprobes, one flush cycle). Static analysis
   cannot prove a BPF program loads; only a kernel's verifier can. One matrix
   entry raises kernel lockdown to INTEGRITY inside the VM and proves
-  load+attach still works on a hardened kernel. amd64 runs under KVM
-  (hardware-accelerated virtualization); the arm64 runner has no `/dev/kvm`,
-  so it compiles + digest-verifies the arm64 objects but skips the (too-slow
-  emulated) boot. **TEST-005 residual risk:** until probectl has a
-  KVM-capable/native arm64 live-kernel runner, arm64 eBPF verifier/attach
-  behavior is compile/digest-tested, not CI live-load proven.
+  load+attach still works on a hardened kernel. Every architecture runs under KVM
+  (hardware-accelerated virtualization): amd64 uses the hosted Linux runners, and
+  arm64 uses a self-hosted Linux/ARM64 runner carrying the custom `kvm` label.
+  Missing `/dev/kvm` is a hard CI error, not a green skip, so arm64 eBPF
+  verifier/attach behavior must be live-load proven before release.
 - **ebpf-image-live** — the shipped `probectl-ebpf-agent` image must carry the
   _live_ CO-RE loader (CO-RE = Compile Once – Run Everywhere: the BPF object is
   relocated at load time to fit the running kernel's struct layouts), built

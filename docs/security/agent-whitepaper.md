@@ -65,12 +65,11 @@ that up:
   type — only observation types may exist in the tree. An enforcement program
   cannot be merged.
 - **Load-and-attach on real kernels.** The `ebpf-kernel-matrix` CI job loads and
-  attaches **every** program on real amd64 LTS kernels (5.15 and 6.6) under QEMU
+  attaches **every** program on real amd64 and arm64 LTS kernels under QEMU/KVM
   on every pass — so the shipped bytecode is exactly what was reviewed, proven
-  loadable on those kernels, and proven incapable of enforcement.
-  **TEST-005 residual risk:** the arm64 matrix entry currently compiles and digest-verifies
-  the arm64 BPF objects, but it does not live-load/attach them until a
-  KVM-capable/native arm64 runner is available.
+  loadable on those kernels, and proven incapable of enforcement. The arm64 row
+  runs on a self-hosted Linux/ARM64 runner with the custom `kvm` label, and a
+  missing `/dev/kvm` is a hard CI failure rather than a compile-only substitute.
 
 This is a hard product guardrail: detection is a signal, never an inline IPS,
 and nothing probectl ships takes autonomous action on a network.

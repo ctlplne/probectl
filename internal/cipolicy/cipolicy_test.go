@@ -194,19 +194,32 @@ func TestPRImageMatrixMatchesMakefileBinaries(t *testing.T) {
 	}
 }
 
-// TestArm64EBPFResidualRiskIsExplicit closes the local half of TEST-005. CI
-// still cannot prove live arm64 attach without a KVM-capable/native arm64
-// runner, so the workflow skip and release-risk wording must stay explicit.
-func TestArm64EBPFResidualRiskIsExplicit(t *testing.T) {
+// TestArm64EBPFKernelMatrixRequiresLiveKVM closes EBPF-003/TEST-005: arm64 is
+// no longer accepted as compile-only eBPF coverage. The arm64 row must run on a
+// KVM-capable/native arm64 runner, execute the same live vimto test path as
+// amd64, and fail closed when /dev/kvm is missing.
+func TestArm64EBPFKernelMatrixRequiresLiveKVM(t *testing.T) {
 	ci := readWorkflow(t, "ci.yml")
 	for _, want := range []string{
 		`kernel: "6.6-arm64"`,
-		"runner: ubuntu-24.04-arm",
+		"runner: [self-hosted, Linux, ARM64, kvm]",
 		"no /dev/kvm",
-		"skipping the live kernel boot",
+		"exit 1",
+		"go test -tags ebpf -exec",
+		"ebpf-kernel-matrix must live-load/attach on every architecture, including arm64",
 	} {
 		if !strings.Contains(ci, want) {
-			t.Errorf("ci.yml no longer exposes arm64 eBPF live-load residual-risk marker %q (TEST-005)", want)
+			t.Errorf("ci.yml no longer enforces arm64 eBPF live-load/KVM requirement %q (EBPF-003/TEST-005)", want)
+		}
+	}
+	for _, banned := range []string{
+		"runner: ubuntu-24.04-arm",
+		"skipping the live kernel boot",
+		"SKIP the live boot",
+		"arm64 BPF objects compiled+verified above",
+	} {
+		if strings.Contains(ci, banned) {
+			t.Errorf("ci.yml still contains old arm64 compile-only skip marker %q (EBPF-003/TEST-005)", banned)
 		}
 	}
 
@@ -220,9 +233,19 @@ func TestArm64EBPFResidualRiskIsExplicit(t *testing.T) {
 			t.Fatalf("read %s: %v", path, err)
 		}
 		doc := string(b)
-		for _, want := range []string{"TEST-005 residual risk", "arm64", "live"} {
+		for _, want := range []string{"arm64", "live", "KVM"} {
 			if !strings.Contains(doc, want) {
-				t.Errorf("%s does not document %q for the arm64 eBPF residual risk", path, want)
+				t.Errorf("%s does not document %q for the arm64 eBPF live-load requirement", path, want)
+			}
+		}
+		for _, banned := range []string{
+			"TEST-005 residual risk",
+			"compiles and digest-verifies",
+			"compile/digest-tested, not CI live-load proven",
+			"skips the live boot",
+		} {
+			if strings.Contains(doc, banned) {
+				t.Errorf("%s still documents old arm64 compile-only residual risk %q", path, banned)
 			}
 		}
 	}
