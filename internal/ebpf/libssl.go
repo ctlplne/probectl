@@ -4,9 +4,6 @@ package ebpf
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
 	"strings"
 )
 
@@ -74,16 +71,12 @@ func libgnutlsCandidates(goarch string) []string {
 	return sharedLibraryCandidates(goarch, libgnutlsNames)
 }
 
-// parseLdconfig extracts libssl paths from `ldconfig -p` output, whose lines
-// look like:
+// parseLdconfigForNames extracts shared-library paths from `ldconfig -p`
+// output, whose lines look like:
 //
 //	libssl.so.3 (libc6,AArch64) => /usr/lib/aarch64-linux-gnu/libssl.so.3
 //
-// Paths are returned in libsslNames preference order (so.3 before so.1.1).
-func parseLdconfig(out []byte) []string {
-	return parseLdconfigForNames(out, libsslNames)
-}
-
+// Paths are returned in the caller's names preference order.
 func parseLdconfigForNames(out []byte, names []string) []string {
 	byName := map[string][]string{}
 	for _, line := range strings.Split(string(out), "\n") {
@@ -149,24 +142,6 @@ func discoverLibgnutls(goarch string, ldconfig func() ([]byte, error), exists fu
 	return discoverSharedLibrary(goarch, libgnutlsNames, libgnutlsCandidates(goarch), "libgnutls", "", ldconfig, exists)
 }
 
-// discoverLibsslDefault is the production discovery: the host's ldconfig
-// cache first, then the per-arch candidates for the running GOARCH.
-func discoverLibsslDefault() (string, error) {
-	return discoverLibssl(runtime.GOARCH,
-		func() ([]byte, error) { return exec.Command("ldconfig", "-p").Output() },
-		func(p string) bool { st, err := os.Stat(p); return err == nil && !st.IsDir() },
-	)
-}
-
-// discoverLibgnutlsDefault is the production GnuTLS discovery: the host's
-// ldconfig cache first, then the per-arch candidates for the running GOARCH.
-func discoverLibgnutlsDefault() (string, error) {
-	return discoverLibgnutls(runtime.GOARCH,
-		func() ([]byte, error) { return exec.Command("ldconfig", "-p").Output() },
-		func(p string) bool { st, err := os.Stat(p); return err == nil && !st.IsDir() },
-	)
-}
-
 func discoverTLSProbeLibraries(goarch string, libsslOverride string, ldconfig func() ([]byte, error), exists func(string) bool) ([]tlsProbeLibrary, error) {
 	var libs []tlsProbeLibrary
 	var failures []error
@@ -208,11 +183,4 @@ func discoverTLSProbeLibraries(goarch string, libsslOverride string, ldconfig fu
 		parts = append(parts, err.Error())
 	}
 	return nil, fmt.Errorf("no supported TLS uprobe libraries found for %s (%s)", goarch, strings.Join(parts, "; "))
-}
-
-func discoverTLSProbeLibrariesDefault(libsslOverride string) ([]tlsProbeLibrary, error) {
-	return discoverTLSProbeLibraries(runtime.GOARCH, libsslOverride,
-		func() ([]byte, error) { return exec.Command("ldconfig", "-p").Output() },
-		func(p string) bool { st, err := os.Stat(p); return err == nil && !st.IsDir() },
-	)
 }

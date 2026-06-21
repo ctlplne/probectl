@@ -13,7 +13,7 @@ func FuzzApplyUserPatch(f *testing.F) {
 		f.Add(seed)
 	}
 
-	f.Fuzz(func(t *testing.T, body []byte) {
+	f.Fuzz(func(_ *testing.T, body []byte) {
 		var ops []PatchOperation
 		if err := json.Unmarshal(body, &ops); err != nil {
 			return

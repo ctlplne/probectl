@@ -261,6 +261,10 @@ fuzz-smoke: ## Run each fuzz target briefly to catch crashers (CI smoke; crasher
 fuzz-policy: ## Verify fuzz target discovery, PR smoke coverage, and nightly budget math.
 	bash scripts/check_fuzz_policy.sh
 
+.PHONY: secret-scan
+secret-scan: ## Run gitleaks across the full git history, including deleted files.
+	bash scripts/check_secret_scan_history.sh
+
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
 lint: lint-go lint-python ## Run all linters (Go + Python).

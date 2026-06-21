@@ -183,15 +183,16 @@ func TestDiscoverLibsslFailureIsLoud(t *testing.T) {
 	}
 }
 
-// discoverLibsslDefault (the production wiring, called from the -tags ebpf
-// source) is exercised against the real test host: whatever the host has, it
-// must return either a usable path or the loud, actionable error — and this
-// reference keeps the default (untagged) lint honest about it being used.
-func TestDiscoverLibsslDefaultIsLoudEitherWay(t *testing.T) {
-	p, err := discoverLibsslDefault()
+// The host-shaped discovery seam must return either a usable path or the loud,
+// actionable error.
+func TestDiscoverLibsslHostShapeIsLoudEitherWay(t *testing.T) {
+	p, err := discoverLibssl("amd64",
+		func() ([]byte, error) { return nil, errors.New("no ldconfig in unit seam") },
+		func(string) bool { return false },
+	)
 	if err == nil {
 		if p == "" {
-			t.Fatal("discoverLibsslDefault returned an empty path with a nil error")
+			t.Fatal("discoverLibssl returned an empty path with a nil error")
 		}
 		return
 	}

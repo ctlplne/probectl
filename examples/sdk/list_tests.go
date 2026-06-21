@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	client := sdk.NewClient(
 		envOr("PROBECTL_API_URL", "https://probectl.example"),
@@ -22,8 +20,10 @@ func main() {
 		sdk.WithTenant(os.Getenv("PROBECTL_TENANT")),
 	)
 	tests, err := client.ListTests(ctx, sdk.ListTestsRequest{Limit: sdk.Int(50)})
+	cancel()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "list tests: %v\n", err)
+		os.Exit(1)
 	}
 	for _, test := range tests.Items {
 		fmt.Printf("%s\t%s\t%s\n", test.Id, test.Name, test.Type)

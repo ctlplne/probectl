@@ -1,8 +1,9 @@
 # gitleaks config for the secret-scan CI gate (Sprint 1 / CODE-006).
 #
-# The scan runs with --no-git (working tree at HEAD): history is immutable and
-# the one key that ever lived there (the OIDC test fixture, removed in Sprint 1)
-# was a documented throwaway, never a live credential.
+# The scan runs against the full git graph (`gitleaks git --log-opts=--all`),
+# not just the working tree at HEAD. A deleted secret is still in the repository
+# history until history is rewritten, so the gate treats historical findings as
+# blocking unless this file names a tightly-scoped false positive.
 #
 # Allowlist policy: ONLY deliberate fake secrets inside redaction/no-secrets
 # TESTS (the tests exist to prove these strings get masked) and named
@@ -28,9 +29,40 @@ paths = [
   # sealCAKey REFUSES a plaintext CA key (the bytes inside the block are
   # literally "fake"). The string is the test's INPUT, not a credential.
   '''internal/enroll/seal_test\.go''',
+  # KEYS-001: this integration test plants a fake webhook secret, then asserts
+  # the stored alert channel is envelope-sealed and never contains the raw
+  # value. The string is the test's INPUT, not a credential.
+  '''internal/control/alerts_integration_test\.go''',
 ]
 regexes = [
   # gosnmp protocol constants (e.g. AuthenticationProtocol = gosnmp.SHA512)
   # trip the generic-api-key rule; they are enum identifiers, not secrets.
   '''gosnmp\.(SHA|MD5|AES|DES|NoAuth|NoPriv)[0-9A-Za-z]*''',
 ]
+
+[[rules]]
+id = "private-key"
+
+[[rules.allowlists]]
+description = "Historical throwaway OIDC test fixture removed by 425143b; commit+path must both match."
+condition = "AND"
+commits = ['''95d313bd9d706c69b513fba2e36b071b4ac3d380''']
+paths = ['''internal/auth/testdata/oidc_test_key\.pem''']
+
+[[rules]]
+id = "stripe-access-token"
+
+[[rules.allowlists]]
+description = "Historical changelog mention of the dummy Stripe-style AI redaction fixture; commit+path must both match."
+condition = "AND"
+commits = [
+  '''a78802d3ea4dcce2362eb132749b086ffea7045b''',
+  '''4fa7ffba4a2e9773085d03a4bfff33a9504dbda6''',
+]
+paths = ['''CHANGELOG\.md''']
+
+[[rules.allowlists]]
+description = "Historical known-risks mention of the dummy Stripe-style AI redaction fixture; commit+path must both match."
+condition = "AND"
+commits = ['''4fa7ffba4a2e9773085d03a4bfff33a9504dbda6''']
+paths = ['''docs/diligence/known-risks\.md''']

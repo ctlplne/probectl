@@ -229,10 +229,7 @@ func (b *Buffer) PeekBatch(maxRecords int, maxBytes int64) ([][]byte, error) {
 	defer f.Close()
 	var frames [][]byte
 	var total int64
-	for {
-		if maxRecords > 0 && len(frames) >= maxRecords {
-			break
-		}
+	for maxRecords <= 0 || len(frames) < maxRecords {
 		fr, err := readFrame(f)
 		if err != nil {
 			break // io.EOF or a torn tail

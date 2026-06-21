@@ -183,6 +183,67 @@ func TestVerifyAllIsTheUmbrella(t *testing.T) {
 	}
 }
 
+func TestSecretScanCoversGitHistory(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	gitleaksConfig, err := os.ReadFile(filepath.Join(repoRoot(t), ".gitleaks.toml"))
+	if err != nil {
+		t.Fatalf("read .gitleaks.toml: %v", err)
+	}
+	script, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "check_secret_scan_history.sh"))
+	if err != nil {
+		t.Fatalf("read secret-scan wrapper: %v", err)
+	}
+
+	for _, want := range []string{
+		"secret-scan:",
+		"fetch-depth: 0",
+		"gitleaks/v8@v8.21.2",
+		"PROBECTL_SECRET_SCAN_SELFTEST=planted",
+		"./scripts/check_secret_scan_history.sh",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml secret-scan gate is missing %q", want)
+		}
+	}
+	for _, banned := range []string{
+		"gitleaks detect --no-git",
+		"gitleaks/v8@v8.18.4",
+	} {
+		if strings.Contains(ci, banned) {
+			t.Errorf("ci.yml still contains HEAD-only/old secret-scan wiring %q", banned)
+		}
+	}
+
+	for _, want := range []string{
+		"\"$GITLEAKS\" git",
+		"--log-opts \"$LOG_OPTS\"",
+		"LOG_OPTS=\"${PROBECTL_GITLEAKS_LOG_OPTS:---all}\"",
+		"planted/history_secret.pem",
+	} {
+		if !strings.Contains(string(script), want) {
+			t.Errorf("secret-scan wrapper does not prove full-history scanning: missing %q", want)
+		}
+	}
+
+	config := string(gitleaksConfig)
+	for _, want := range []string{
+		`id = "private-key"`,
+		`id = "stripe-access-token"`,
+		`condition = "AND"`,
+		`95d313bd9d706c69b513fba2e36b071b4ac3d380`,
+		`internal/auth/testdata/oidc_test_key\.pem`,
+		`internal/control/alerts_integration_test\.go`,
+		`a78802d3ea4dcce2362eb132749b086ffea7045b`,
+		`4fa7ffba4a2e9773085d03a4bfff33a9504dbda6`,
+		`CHANGELOG\.md`,
+		`docs/diligence/known-risks\.md`,
+	} {
+		if !strings.Contains(config, want) {
+			t.Errorf(".gitleaks.toml is missing the exact historical OIDC fixture allowlist piece %q", want)
+		}
+	}
+}
+
 // TestPRImageMatrixMatchesMakefileBinaries closes TEST-004: every binary the
 // Makefile says we ship must be built by the PR image matrix. Release already
 // has a shell parity gate; this gives pull requests the same early feedback.

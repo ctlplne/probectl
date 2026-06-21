@@ -33,13 +33,18 @@ repo or its history.
 How it's enforced: the `secret-scan` CI job
 ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)) runs
 [gitleaks](https://github.com/gitleaks/gitleaks) — a scanner that
-pattern-matches text for anything *shaped* like a credential — over the
-working tree (the files as they exist at that commit) on every push to `main`
-and every pull request. The only strings it tolerates are the *deliberately
-fake* secrets inside redaction tests — allow-listed in
-[`.gitleaks.toml`](../../.gitleaks.toml) by the test files' paths, plus one
-named false-positive regex (SNMP protocol constants that trip the generic
-API-key rule). Nothing real, and never a real credential path.
+pattern-matches text for anything *shaped* like a credential — over every
+reachable commit on every push to `main` and every pull request. The checkout is
+full-depth, and `scripts/check_secret_scan_history.sh` runs `gitleaks git
+--log-opts=--all`, so a key that was committed and then deleted still fails the
+gate.
+
+The only strings it tolerates are the *deliberately fake* secrets inside
+redaction/encryption tests — allow-listed in
+[`.gitleaks.toml`](../../.gitleaks.toml) by the test files' paths — plus named
+false positives and exact historical documentation/test-fixture entries that
+were already removed or redacted. Nothing real, and never a real credential
+path.
 
 There is no real key material anywhere in the tree, including in tests. For
 example, the mock OIDC identity provider used in tests **generates its signing

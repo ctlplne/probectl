@@ -51,10 +51,12 @@ Verification you ran, not verification you described.
   tag, so a hijacked upstream action can't slip in; a second pass
   (`scripts/check_supply_pins.sh`) rejects `:latest` image tags and unpinned
   tool installs anywhere in the workflows (supply-chain).
-- **secret-scan** — gitleaks, a scanner that pattern-matches the tree for
-  anything _shaped_ like a credential (tokens, private keys, `key=value`
-  passwords): nothing secret-shaped gets committed. The deliberately fake
-  secrets inside redaction tests are allowlisted in `.gitleaks.toml`.
+- **secret-scan** — gitleaks, a scanner that pattern-matches every reachable
+  git commit for anything _shaped_ like a credential (tokens, private keys,
+  `key=value` passwords): nothing secret-shaped can be committed and then
+  hidden by deleting it later. The deliberately fake secrets inside redaction
+  tests and the exact historical OIDC fixture are allowlisted in
+  `.gitleaks.toml`.
 - **commitlint** — commit messages follow Conventional Commits (`feat(...)`,
   `fix(ci): ...`).
 - **dco** — every commit carries a `Signed-off-by` (the Developer Certificate of

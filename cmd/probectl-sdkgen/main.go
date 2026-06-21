@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LicenseRef-probectl-TBD
 
-// probectl-sdkgen emits dependency-free REST SDKs from the committed OpenAPI
-// contract. It intentionally covers the subset probectl's spec uses today, so
-// the generator stays small, reviewed, and reproducible in CI.
+// probectl-sdkgen emits REST SDKs from the committed OpenAPI contract. It
+// intentionally covers the subset probectl's spec uses today, so the generator
+// stays small, reviewed, and reproducible in CI.
 package main
 
 import (
@@ -433,6 +433,7 @@ func (g generator) goSDK(ops []operation) ([]byte, error) {
 	b.WriteString("package sdk\n\n")
 	b.WriteString("import (\n")
 	b.WriteString("\t\"bytes\"\n\t\"context\"\n\t\"encoding/json\"\n\t\"fmt\"\n\t\"io\"\n\t\"net/http\"\n\t\"net/url\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n")
+	b.WriteString("\n\t\"github.com/imfeelingtheagi/probectl/internal/crypto\"\n")
 	b.WriteString(")\n\n")
 	b.WriteString("type SDKError struct {\n\tStatusCode int\n\tCode string\n\tMessage string\n\tBody []byte\n}\n\n")
 	b.WriteString("func (e *SDKError) Error() string {\n\tif e.Message != \"\" {\n\t\tif e.Code != \"\" { return fmt.Sprintf(\"%s (%s)\", e.Message, e.Code) }\n\t\treturn e.Message\n\t}\n\treturn fmt.Sprintf(\"probectl API status %d\", e.StatusCode)\n}\n\n")
@@ -442,7 +443,7 @@ func (g generator) goSDK(ops []operation) ([]byte, error) {
 	b.WriteString("func WithTenant(tenant string) Option { return func(c *Client) { c.Tenant = tenant } }\n")
 	b.WriteString("func WithHTTPClient(hc *http.Client) Option { return func(c *Client) { if hc != nil { c.HTTPClient = hc } } }\n")
 	b.WriteString("func WithUserAgent(userAgent string) Option { return func(c *Client) { c.UserAgent = userAgent } }\n\n")
-	b.WriteString("func NewClient(baseURL string, opts ...Option) *Client {\n\tif strings.TrimSpace(baseURL) == \"\" { baseURL = \"http://localhost:8080\" }\n\tc := &Client{BaseURL: strings.TrimRight(baseURL, \"/\"), HTTPClient: &http.Client{Timeout: 15 * time.Second}, UserAgent: \"probectl-go-sdk\"}\n\tfor _, opt := range opts { opt(c) }\n\treturn c\n}\n\n")
+	b.WriteString("func NewClient(baseURL string, opts ...Option) *Client {\n\tif strings.TrimSpace(baseURL) == \"\" { baseURL = \"http://localhost:8080\" }\n\tc := &Client{BaseURL: strings.TrimRight(baseURL, \"/\"), HTTPClient: crypto.HardenedHTTPClient(15 * time.Second), UserAgent: \"probectl-go-sdk\"}\n\tfor _, opt := range opts { opt(c) }\n\treturn c\n}\n\n")
 	b.WriteString("func String(v string) *string { return &v }\nfunc Int(v int) *int { return &v }\nfunc Bool(v bool) *bool { return &v }\nfunc Float64(v float64) *float64 { return &v }\n\n")
 
 	g.writeGoModels(&b)
@@ -515,8 +516,7 @@ func (g generator) goType(s *schema) string {
 }
 
 func additionalSchema(s *schema) *schema {
-	switch v := s.AdditionalProperties.(type) {
-	case map[string]any:
+	if v, ok := s.AdditionalProperties.(map[string]any); ok {
 		raw, _ := json.Marshal(v)
 		var out schema
 		if json.Unmarshal(raw, &out) == nil {

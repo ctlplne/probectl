@@ -35,22 +35,25 @@ jobs:
         run: ./scripts/check_cosign_wiring.sh
 
   secret-scan:
-    # Sprint 1 (CODE-006): no committed secrets, ever. gitleaks scans the
-    # working tree at HEAD (--no-git: history is immutable; the one historical
-    # test-key was a documented throwaway, removed in Sprint 1). Allowlist
-    # policy lives in .gitleaks.toml (deliberate redaction-test fixtures only).
+    # No committed secrets, ever. gitleaks scans every reachable commit, not
+    # only HEAD, because a deleted key is still recoverable from git history.
+    # Allowlist policy lives in .gitleaks.toml and must be tightly scoped.
     name: secret-scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
-      - name: Install gitleaks (pinned, sumdb-verified)
-        run: go install github.com/zricethezav/gitleaks/v8@v8.18.4
-      - name: Scan the tree for secrets
-        run: gitleaks detect --no-git --no-banner --source . --config .gitleaks.toml
+      - name: Install gitleaks git scanner (pinned, sumdb-verified)
+        run: go install github.com/zricethezav/gitleaks/v8@v8.21.2
+      - name: Self-test full-history gate with a planted deleted secret
+        run: PROBECTL_SECRET_SCAN_SELFTEST=planted ./scripts/check_secret_scan_history.sh
+      - name: Scan full git history for secrets
+        run: ./scripts/check_secret_scan_history.sh
 
   no-devauth-in-release:
     # Sprint 3 (RED-001/SEC-001): the dev-auth bypass must be PHYSICALLY

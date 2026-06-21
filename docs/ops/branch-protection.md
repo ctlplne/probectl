@@ -90,7 +90,7 @@ approach unless you have a reason not to.
 | Required check           | Gate it enforces                                                                                                                                   |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `action-pins`            | every workflow action is pinned to a commit SHA                                                                                                    |
-| `secret-scan`            | no committed secrets (gitleaks)                                                                                                                    |
+| `secret-scan`            | no committed secrets across current files or git history (gitleaks)                                                                                 |
 | `no-devauth-in-release`  | the eval-only `dev` auth mode cannot ship in a release build                                                                                       |
 | `lint-go`                | gofmt + go vet + golangci-lint                                                                                                                     |
 | `lint-python`            | ruff + black (the BGP analyzer)                                                                                                                    |
