@@ -82,28 +82,42 @@ func ParseClass(s string) Class {
 type Category string
 
 const (
-	CatIPAddress  Category = "ip_address"  // IPv4/IPv6 — PII by default (the headline)
-	CatEmail      Category = "email"       // PII
-	CatSubjectID  Category = "subject_id"  // user/account/session identifiers — PII
-	CatGeo        Category = "geo"         // city/region/coords — PII
-	CatMAC        Category = "mac_address" // Confidential
-	CatHostname   Category = "hostname"    // Internal
-	CatUserAgent  Category = "user_agent"  // Internal
-	CatASN        Category = "asn"         // Public
-	CatCredential Category = "credential"  // Restricted (secrets/tokens)
+	CatIPAddress    Category = "ip_address"    // IPv4/IPv6 — PII by default (the headline)
+	CatEmail        Category = "email"         // PII
+	CatSubjectID    Category = "subject_id"    // user/account/session identifiers — PII
+	CatFreeText     Category = "free_text"     // log bodies, AI questions/answers, JSON payload text — PII-scanned
+	CatAttributeMap Category = "attribute_map" // OTLP attrs/resource maps — recursively classified
+	CatDNSName      Category = "dns_name"      // qname/resource names may contain user/host identity — PII
+	CatURLPath      Category = "url_path"      // path segments often carry subject IDs — PII
+	CatObjectKey    Category = "object_key"    // object/export/support-bundle keys — PII
+	CatGeo          Category = "geo"           // city/region/coords — PII
+	CatMAC          Category = "mac_address"   // Confidential
+	CatWorkload     Category = "workload_name" // service/workload labels — Confidential
+	CatOrgUnit      Category = "org_unit"      // department/team/org attributes — Confidential
+	CatHostname     Category = "hostname"      // Internal
+	CatUserAgent    Category = "user_agent"    // Internal
+	CatASN          Category = "asn"           // Public
+	CatCredential   Category = "credential"    // Restricted (secrets/tokens)
 )
 
 // defaultClass is the built-in classification: IPs-as-PII is the headline.
 var defaultClass = map[Category]Class{
-	CatIPAddress:  ClassPII,
-	CatEmail:      ClassPII,
-	CatSubjectID:  ClassPII,
-	CatGeo:        ClassPII,
-	CatMAC:        ClassConfidential,
-	CatHostname:   ClassInternal,
-	CatUserAgent:  ClassInternal,
-	CatASN:        ClassPublic,
-	CatCredential: ClassRestricted,
+	CatIPAddress:    ClassPII,
+	CatEmail:        ClassPII,
+	CatSubjectID:    ClassPII,
+	CatFreeText:     ClassPII,
+	CatAttributeMap: ClassPII,
+	CatDNSName:      ClassPII,
+	CatURLPath:      ClassPII,
+	CatObjectKey:    ClassPII,
+	CatGeo:          ClassPII,
+	CatMAC:          ClassConfidential,
+	CatWorkload:     ClassConfidential,
+	CatOrgUnit:      ClassConfidential,
+	CatHostname:     ClassInternal,
+	CatUserAgent:    ClassInternal,
+	CatASN:          ClassPublic,
+	CatCredential:   ClassRestricted,
 }
 
 // Policy is a tenant's governance policy for classification + redaction. The

@@ -40,8 +40,16 @@ a human.)
 |---|---|---|
 | `ip_address` | **pii** (the headline) | source / dest / exporter / next-hop IPs, probe targets |
 | `email` | pii | operator / contact emails |
+| `subject_id` | pii | user IDs, user names, display names, account IDs, session IDs, external IDs |
+| `free_text` | pii | log bodies, AI questions/answers, JSON payload text, alert/change summaries |
+| `attribute_map` | pii | OTLP resource/span/log attrs, nested JSON maps |
+| `dns_name` | pii | DNS qname/resource values that may embed host/user identity |
+| `url_path` | pii | HTTP paths and route/target values with subject IDs or credentials |
+| `object_key` | pii | support/export/browser artifact keys and object-store paths |
 | `geo` | pii | city / region / coordinates |
 | `mac_address` | confidential | device MACs |
+| `workload_name` | confidential | source/destination workload and service names |
+| `org_unit` | confidential | department, team, organization-unit attributes |
 | `hostname` | internal | device / exporter hostnames |
 | `user_agent` | internal | RUM user agents |
 | `asn` | public | autonomous-system numbers |

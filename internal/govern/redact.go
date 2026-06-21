@@ -69,6 +69,10 @@ func Redact(cat Category, value string, strategy Strategy) string {
 		return redactEmail(value)
 	case CatMAC:
 		return redactMAC(value)
+	case CatFreeText, CatAttributeMap:
+		return RedactTelemetryText(DefaultPIIPolicy(), value)
+	case CatURLPath, CatObjectKey:
+		return redactPathLike(DefaultPIIPolicy(), value)
 	default:
 		return redactGeneric(value)
 	}
@@ -268,6 +272,32 @@ func redactTelemetryURL(pol Policy, raw string) string {
 	return u.String()
 }
 
+func redactPathLike(pol Policy, value string) string {
+	if value == "" {
+		return value
+	}
+	parts := strings.Split(value, "/")
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		switch {
+		case telemetryPathIDRE.MatchString(part):
+			parts[i] = telemetryRedacted
+		case telemetryEmailRE.MatchString(part):
+			parts[i] = telemetryEmailRE.ReplaceAllStringFunc(part, func(match string) string {
+				return redactTelemetryInline(pol, CatEmail, match)
+			})
+		case net.ParseIP(part) != nil || telemetryMACRE.MatchString(part):
+			parts[i] = telemetryRedacted
+		default:
+			parts[i] = telemetryCredentialKVRE.ReplaceAllString(part, "${1}"+telemetryRedacted)
+			parts[i] = RedactTelemetryText(pol, parts[i])
+		}
+	}
+	return strings.Join(parts, "/")
+}
+
 // columnCategory maps a Postgres column name to a category, so the redacted
 // export knows which values are sensitive. The mapping is heuristic by design
 // (substring match on well-known network field names) and documented as such;
@@ -276,6 +306,9 @@ func redactTelemetryURL(pol Policy, raw string) string {
 func columnCategory(column string) (Category, bool) {
 	c := telemetryKeyNormalizer.Replace(strings.ToLower(column))
 	switch {
+	case c == "object_key" || c == "object_path" || c == "object_name" ||
+		strings.Contains(c, "object_key") || strings.HasSuffix(c, "_object_path"):
+		return CatObjectKey, true
 	case c == "secret" || c == "wrapped_kek" || c == "byok_ref" ||
 		strings.Contains(c, "password") || strings.Contains(c, "token") ||
 		strings.HasSuffix(c, "_secret") || strings.Contains(c, "private_key") ||
@@ -290,9 +323,31 @@ func columnCategory(column string) (Category, bool) {
 		return CatEmail, true
 	case c == "user_id" || c == "enduser_id" || c == "username" ||
 		c == "user_name" || c == "account_id" || c == "session_id" ||
-		c == "sid" || strings.HasSuffix(c, "_user_id") ||
+		c == "sid" || c == "display_name" || c == "external_id" ||
+		strings.HasSuffix(c, "_user_name") || strings.HasSuffix(c, "_display_name") ||
+		strings.HasSuffix(c, "_external_id") || strings.HasSuffix(c, "_user_id") ||
 		strings.HasSuffix(c, "_account_id") || strings.HasSuffix(c, "_session_id"):
 		return CatSubjectID, true
+	case c == "department" || c == "team" || c == "org_unit" || c == "organization" ||
+		strings.HasSuffix(c, "_department") || strings.HasSuffix(c, "_team"):
+		return CatOrgUnit, true
+	case c == "body" || c == "message" || c == "question" || c == "answer" ||
+		c == "root_cause" || c == "payload" || strings.HasSuffix(c, "_body") ||
+		strings.HasSuffix(c, "_message") || strings.HasSuffix(c, "_payload"):
+		return CatFreeText, true
+	case c == "attrs" || c == "attributes" || c == "resource_attributes" ||
+		c == "span_attributes" || c == "log_attributes" || strings.HasSuffix(c, "_attrs") ||
+		strings.HasSuffix(c, "_attributes"):
+		return CatAttributeMap, true
+	case c == "qname" || c == "dns_name" || c == "dns_question_name" || c == "resource" ||
+		strings.HasSuffix(c, "_qname") || strings.HasSuffix(c, "_dns_name"):
+		return CatDNSName, true
+	case c == "url_path" || c == "url_pathname" || c == "http_target" ||
+		c == "http_route" || c == "path" || strings.HasSuffix(c, "_url_path"):
+		return CatURLPath, true
+	case c == "src_workload" || c == "dst_workload" || c == "workload" ||
+		c == "workload_name" || c == "service_name" || strings.HasSuffix(c, "_workload"):
+		return CatWorkload, true
 	// GOVERN-001: MAC columns (mac_addr, mac_address, *_mac) must be caught here,
 	// BEFORE the IP "_addr" net below — otherwise "mac_addr" ends with "_addr"
 	// and is misclassified as an IP (wrong category + wrong redaction strategy).
@@ -322,25 +377,88 @@ func columnCategory(column string) (Category, bool) {
 // a column classified below the policy's RedactFrom is left untouched.
 func RedactRow(pol Policy, row map[string]any) {
 	for col, v := range row {
-		cat, ok := columnCategory(col)
-		if !ok {
-			continue
-		}
+		row[col] = redactExportValue(pol, col, v)
+	}
+}
+
+func redactExportValue(pol Policy, key string, v any) any {
+	if cat, ok := columnCategory(key); ok {
 		strategy := pol.StrategyFor(cat)
 		if strategy == StrategyNone {
-			continue
+			return v
 		}
-		s, ok := v.(string)
-		if !ok {
-			// Non-string sensitive value (e.g. a numeric ASN): drop/keep per
-			// strategy without category-specific masking.
-			if strategy == StrategyDrop {
-				row[col] = nil
-			}
-			continue
-		}
-		row[col] = Redact(cat, s, strategy)
+		return redactCategoryValue(pol, cat, strategy, v)
 	}
+	return redactUnclassifiedValue(pol, v)
+}
+
+func redactCategoryValue(pol Policy, cat Category, strategy Strategy, v any) any {
+	if strategy == StrategyDrop {
+		if _, ok := v.(string); ok {
+			return ""
+		}
+		return nil
+	}
+	switch x := v.(type) {
+	case string:
+		switch cat {
+		case CatFreeText, CatAttributeMap:
+			return redactStructuredText(pol, x)
+		case CatURLPath, CatObjectKey:
+			return redactPathLike(pol, x)
+		default:
+			return Redact(cat, x, strategy)
+		}
+	case map[string]any:
+		return redactMapCopy(pol, x)
+	case []any:
+		out := make([]any, len(x))
+		for i, v := range x {
+			out[i] = redactCategoryValue(pol, cat, strategy, v)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func redactUnclassifiedValue(pol Policy, v any) any {
+	switch x := v.(type) {
+	case string:
+		return RedactTelemetryText(pol, x)
+	case map[string]any:
+		return redactMapCopy(pol, x)
+	case []any:
+		out := make([]any, len(x))
+		for i, v := range x {
+			out[i] = redactUnclassifiedValue(pol, v)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func redactStructuredText(pol Policy, value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		var decoded any
+		if err := json.Unmarshal([]byte(value), &decoded); err == nil {
+			redacted := redactUnclassifiedValue(pol, decoded)
+			if out, err := json.Marshal(redacted); err == nil {
+				return string(out)
+			}
+		}
+	}
+	return RedactTelemetryText(pol, value)
+}
+
+func redactMapCopy(pol Policy, in map[string]any) map[string]any {
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = redactExportValue(pol, k, v)
+	}
+	return out
 }
 
 // RedactJSONL redacts a buffer of newline-delimited JSON objects (one row per

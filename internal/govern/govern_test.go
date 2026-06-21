@@ -127,6 +127,51 @@ func TestRedactRowAndJSONL(t *testing.T) {
 	}
 }
 
+func TestRedactRowScansPlanePayloadsAndNestedAttrs(t *testing.T) {
+	pol := DefaultPIIPolicy()
+	row := map[string]any{
+		"body":         "login jane@example.com from 198.51.100.7 token=supersecret",
+		"question":     "why is alice@example.com seeing loss from 10.0.0.1?",
+		"qname":        "alice.private.example.com",
+		"url.path":     "/users/jane@example.com/sessions/123456789",
+		"object_key":   "exports/jane@example.com/198.51.100.7/report.json",
+		"src_workload": "checkout-api",
+		"attrs": map[string]any{
+			"enduser.id": "jane-user-42",
+			"http.url":   "https://api.example.test/u/jane@example.com?token=urlsecret",
+			"nested": map[string]any{
+				"display_name": "Jane Example",
+				"payload":      `{"external_id":"cust-123456","body":"alice@example.com 10.0.0.1 api_key=rawsecret"}`,
+			},
+		},
+	}
+	RedactRow(pol, row)
+	raw, err := json.Marshal(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, leak := range []string{
+		"jane@example.com", "alice@example.com", "198.51.100.7", "10.0.0.1",
+		"supersecret", "urlsecret", "rawsecret", "cust-123456", "123456789",
+		"alice.private.example.com",
+	} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("redacted row leaked %q: %s", leak, got)
+		}
+	}
+	if row["src_workload"] != "checkout-api" {
+		t.Fatalf("workload is confidential, so PII-floor redaction must keep it: %+v", row)
+	}
+
+	conf := Policy{RedactFrom: ClassConfidential}
+	row = map[string]any{"src_workload": "checkout-api", "department": "payments-platform"}
+	RedactRow(conf, row)
+	if row["src_workload"] == "checkout-api" || row["department"] == "payments-platform" {
+		t.Fatalf("confidential-floor redaction missed workload/org unit: %+v", row)
+	}
+}
+
 func TestRedactTelemetryTextAndAttribute(t *testing.T) {
 	pol := TelemetryPIIPolicy(context.Background(), "tnA")
 	body := RedactTelemetryText(pol, "login jane@example.com from 198.51.100.7 token=supersecret url=https://api.example.test/u/jane@example.com?token=urlsecret")
@@ -220,6 +265,19 @@ func TestColumnCategory(t *testing.T) {
 		{"enduser.id", CatSubjectID, true},
 		{"user.id", CatSubjectID, true},
 		{"session_id", CatSubjectID, true},
+		{"display_name", CatSubjectID, true},
+		{"external_id", CatSubjectID, true},
+		{"department", CatOrgUnit, true},
+		{"body", CatFreeText, true},
+		{"attrs", CatAttributeMap, true},
+		{"question", CatFreeText, true},
+		{"payload", CatFreeText, true},
+		{"qname", CatDNSName, true},
+		{"resource", CatDNSName, true},
+		{"src_workload", CatWorkload, true},
+		{"dst_workload", CatWorkload, true},
+		{"url.path", CatURLPath, true},
+		{"object_key", CatObjectKey, true},
 		{"authorization", CatCredential, true},
 		// IP columns must STAY IP — the MAC broadening must not steal the _addr net:
 		{"src_addr", CatIPAddress, true},
