@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
@@ -66,6 +67,28 @@ func sourceOf(events []Event) WormSource {
 }
 
 func testLog() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
+
+type providerEventRow struct {
+	data []byte
+}
+
+func (r providerEventRow) Scan(dest ...any) error {
+	*dest[0].(*int64) = 1
+	*dest[1].(*string) = "operator"
+	*dest[2].(*string) = "provider.test"
+	*dest[3].(*string) = "target"
+	*dest[4].(*[]byte) = r.data
+	*dest[5].(*string) = genesis
+	*dest[6].(*string) = "hash"
+	*dest[7].(*time.Time) = time.Unix(1700000000, 0).UTC()
+	return nil
+}
+
+func TestScanProviderEventRejectsCorruptDataJSON(t *testing.T) {
+	if _, err := scanProviderEvent(providerEventRow{data: []byte(`{"actor":`)}); err == nil {
+		t.Fatal("corrupt provider audit event data must return an error, not an empty event data map")
+	}
+}
 
 // U-041: export → verify round-trips; incremental exports build separate
 // signed segments and the cross-segment chain verifies end to end.

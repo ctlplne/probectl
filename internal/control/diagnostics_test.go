@@ -6,14 +6,19 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/support"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // okPinger / downPinger drive the deep-health database check.
@@ -111,5 +116,43 @@ func TestSupportBundleEndpointNoSecrets(t *testing.T) {
 	}
 	if cfgMap["envelope_key_configured"] != true {
 		t.Fatalf("envelope key must surface as a boolean: %v", cfgMap["envelope_key_configured"])
+	}
+}
+
+type errTopologyRow struct{ err error }
+
+func (r errTopologyRow) Scan(...any) error { return r.err }
+
+type errTopologyQuerier struct{ err error }
+
+func (q errTopologyQuerier) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, q.err
+}
+
+func (q errTopologyQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, q.err
+}
+
+func (q errTopologyQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
+	return errTopologyRow(q)
+}
+
+func TestTopologySummaryReportsPartialProviderErrors(t *testing.T) {
+	sum := support.TopologySummary{Region: "us-east", IsolationModels: map[string]int{}}
+	sum = topologySummaryFromProvider(context.Background(), sum, func(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
+		return fn(ctx, errTopologyQuerier{err: errors.New("metadata store unavailable")})
+	})
+	if !sum.Partial || len(sum.Errors) < 3 {
+		t.Fatalf("provider query failures must be explicit partial errors: %+v", sum)
+	}
+	if sum.Region != "us-east" {
+		t.Fatalf("region should remain available in partial summary: %+v", sum)
+	}
+
+	sum = topologySummaryFromProvider(context.Background(), support.TopologySummary{IsolationModels: map[string]int{}}, func(context.Context, func(context.Context, tenancy.Querier) error) error {
+		return errors.New("provider role unavailable")
+	})
+	if !sum.Partial || len(sum.Errors) != 1 {
+		t.Fatalf("provider-scope failure must be explicit partial metadata: %+v", sum)
 	}
 }

@@ -27,6 +27,8 @@ type TopologySummary struct {
 	Agents          int            `json:"agents"`
 	Region          string         `json:"region,omitempty"`
 	IsolationModels map[string]int `json:"isolation_models,omitempty"`
+	Partial         bool           `json:"partial,omitempty"`
+	Errors          []string       `json:"errors,omitempty"`
 }
 
 // Runtime is the process's runtime snapshot.

@@ -138,7 +138,11 @@ func (s *Server) decideRemediation(w http.ResponseWriter, r *http.Request, appro
 	var in struct {
 		Note string `json:"note"`
 	}
-	_ = decodeJSON(r, &in) // note is optional
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := decodeJSON(r, &in); err != nil {
+			return err
+		}
+	}
 	id := r.PathValue("id")
 	var out remediation.Proposal
 	if approve {

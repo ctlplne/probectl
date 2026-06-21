@@ -119,22 +119,45 @@ func (s *Server) topologySummary(ctx context.Context) support.TopologySummary {
 	if s.pool == nil {
 		return sum
 	}
-	_ = tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
-		_ = q.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&sum.Tenants)
-		_ = q.QueryRow(ctx, `SELECT count(*) FROM agents`).Scan(&sum.Agents)
+	return topologySummaryFromProvider(ctx, sum, func(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
+		return tenancy.InProvider(ctx, s.pool, fn)
+	})
+}
+
+func topologySummaryFromProvider(ctx context.Context, sum support.TopologySummary, run func(context.Context, func(context.Context, tenancy.Querier) error) error) support.TopologySummary {
+	markPartial := func(label string, err error) {
+		sum.Partial = true
+		sum.Errors = append(sum.Errors, label+": "+err.Error())
+	}
+	if err := run(ctx, func(ctx context.Context, q tenancy.Querier) error {
+		if err := q.QueryRow(ctx, `SELECT count(*) FROM tenants`).Scan(&sum.Tenants); err != nil {
+			markPartial("tenants_count", err)
+		}
+		if err := q.QueryRow(ctx, `SELECT count(*) FROM agents`).Scan(&sum.Agents); err != nil {
+			markPartial("agents_count", err)
+		}
 		rows, err := q.Query(ctx, `SELECT coalesce(isolation_model,'pooled'), count(*) FROM tenants GROUP BY 1`)
-		if err == nil {
+		if err != nil {
+			markPartial("isolation_models", err)
+		} else {
 			defer rows.Close()
 			for rows.Next() {
 				var model string
 				var n int
-				if rows.Scan(&model, &n) == nil {
+				if err := rows.Scan(&model, &n); err == nil {
 					sum.IsolationModels[model] = n
+				} else {
+					markPartial("isolation_models_scan", err)
 				}
+			}
+			if err := rows.Err(); err != nil {
+				markPartial("isolation_models_rows", err)
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		markPartial("provider_scope", err)
+	}
 	return sum
 }
 

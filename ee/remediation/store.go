@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
@@ -47,15 +48,20 @@ func scanProposal(row pgx.Row) (rem.Proposal, error) {
 		return rem.Proposal{}, err
 	}
 	if len(dryRaw) > 0 {
-		_ = json.Unmarshal(dryRaw, &p.DryRun)
+		if err := json.Unmarshal(dryRaw, &p.DryRun); err != nil {
+			return rem.Proposal{}, fmt.Errorf("remediation proposal %s dry_run is corrupt: %w", p.ID, err)
+		}
 	}
 	return p, nil
 }
 
 func (s *PGStore) Insert(ctx context.Context, tenantID string, p rem.Proposal) (rem.Proposal, error) {
-	dry, _ := json.Marshal(p.DryRun)
+	dry, err := json.Marshal(p.DryRun)
+	if err != nil {
+		return rem.Proposal{}, fmt.Errorf("marshal remediation dry_run: %w", err)
+	}
 	var out rem.Proposal
-	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		var e error
 		out, e = scanProposal(sc.Q.QueryRow(ctx, `
 			INSERT INTO remediation_proposals

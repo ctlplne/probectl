@@ -159,6 +159,21 @@ func TestRemediationApproveBlastRadius(t *testing.T) {
 	}
 }
 
+func TestRemediationDecisionRejectsMalformedOptionalBody(t *testing.T) {
+	f := &fakeRemed{approvals: true}
+	srv := testServer(nil)
+	srv.WithRemediation(f)
+
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals/abc/approve", strings.NewReader(`{"note":`)))
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("malformed optional note body returned %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+	if f.lastBy != "" {
+		t.Fatalf("malformed decision body still reached service as %q", f.lastBy)
+	}
+}
+
 // TestRemediationListExposesApprovalsFlag: the list response carries the
 // advisory-only master switch so the UI can disable/relabel Approve.
 func TestRemediationListExposesApprovalsFlag(t *testing.T) {

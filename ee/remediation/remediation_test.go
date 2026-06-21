@@ -17,6 +17,38 @@ import (
 
 const testTenant = "00000000-0000-0000-0000-000000000001"
 
+type proposalRow struct {
+	dryRun []byte
+}
+
+func (r proposalRow) Scan(dest ...any) error {
+	if len(dest) != 14 {
+		return errors.New("unexpected remediation row shape")
+	}
+	created := time.Unix(1700000000, 0).UTC()
+	*dest[0].(*string) = "rem-1"
+	*dest[1].(*string) = testTenant
+	*dest[2].(*rem.Kind) = rem.KindOpenTicket
+	*dest[3].(*string) = "open ticket"
+	*dest[4].(*string) = "investigate"
+	*dest[5].(*string) = "node:1"
+	*dest[6].(*string) = "inc-1"
+	*dest[7].(*[]byte) = r.dryRun
+	*dest[8].(*rem.State) = rem.StateProposed
+	*dest[9].(*string) = "ai:propose_remediation"
+	*dest[10].(*string) = ""
+	*dest[11].(*string) = ""
+	*dest[12].(*time.Time) = created
+	*dest[13].(**time.Time) = nil
+	return nil
+}
+
+func TestScanProposalRejectsCorruptDryRunJSON(t *testing.T) {
+	if _, err := scanProposal(proposalRow{dryRun: []byte(`{"blast_radius":`)}); err == nil {
+		t.Fatal("corrupt persisted dry_run JSON must return an error, not a zero-value dry-run")
+	}
+}
+
 // recAudit records every audit call so tests can assert the decision trail.
 type recAudit struct {
 	mu    sync.Mutex

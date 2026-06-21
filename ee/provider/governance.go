@@ -6,6 +6,8 @@ package provider
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -31,8 +33,9 @@ type GovernanceStore interface {
 
 // Governance bundles the ee/ governance capability for the handler.
 type Governance struct {
-	Store GovernanceStore // classification + redaction policy
-	Pool  *pgxpool.Pool   // for the composed retention/residency/BYOK reads (nil in unit tests)
+	Store         GovernanceStore // classification + redaction policy
+	Pool          *pgxpool.Pool   // for the composed retention/residency/BYOK reads (nil in unit tests)
+	providerQuery func(context.Context, func(context.Context, tenancy.Querier) error) error
 }
 
 // composed is the unified governance view for a tenant.
@@ -71,22 +74,34 @@ func (h *Handler) handleGovernanceView(w http.ResponseWriter, r *http.Request, _
 		view.Classifications[string(cat)] = pol.ClassOf(cat).String()
 	}
 	// Compose residency/isolation/retention/BYOK from their owners (read-only).
-	if h.governance.Pool != nil {
-		_ = tenancy.InProvider(r.Context(), h.governance.Pool, func(ctx context.Context, q tenancy.Querier) error {
-			_ = q.QueryRow(ctx, `SELECT coalesce(residency,''), coalesce(isolation_model,'pooled') FROM tenants WHERE id = $1`, tenantID).
-				Scan(&view.Residency, &view.IsolationModel)
+	if h.governance.Pool != nil || h.governance.providerQuery != nil {
+		run := h.governance.providerQuery
+		if run == nil {
+			run = func(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
+				return tenancy.InProvider(ctx, h.governance.Pool, fn)
+			}
+		}
+		if err := run(r.Context(), func(ctx context.Context, q tenancy.Querier) error {
+			if err := q.QueryRow(ctx, `SELECT coalesce(residency,''), coalesce(isolation_model,'pooled') FROM tenants WHERE id = $1`, tenantID).
+				Scan(&view.Residency, &view.IsolationModel); err != nil {
+				return fmt.Errorf("governance tenant metadata: %w", err)
+			}
 			var days *int
 			if err := q.QueryRow(ctx, `SELECT flow_retention_days FROM tenant_retention WHERE tenant_id = $1`, tenantID).Scan(&days); err == nil {
 				view.RetentionDays = days
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("governance retention: %w", err)
 			}
 			var mode string
 			if err := q.QueryRow(ctx, `SELECT mode FROM tenant_keys WHERE tenant_id = $1 AND state = 'active'`, tenantID).Scan(&mode); err == nil && mode != "" {
 				view.BYOK = mode
-			} else if err != nil && err != pgx.ErrNoRows {
-				return nil // BYOK feature not licensed / no keyring — leave "none"
+			} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("governance byok: %w", err)
 			}
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	return h.writeJSON(w, http.StatusOK, view)
 }

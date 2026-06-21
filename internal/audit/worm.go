@@ -289,17 +289,27 @@ func ListProvider(ctx context.Context, pool *pgxpool.Pool, afterSeq int64, limit
 	defer rows.Close()
 	out := []Event{}
 	for rows.Next() {
-		var (
-			ev        Event
-			dataBytes []byte
-		)
-		if err := rows.Scan(&ev.Seq, &ev.Actor, &ev.Action, &ev.Target, &dataBytes, &ev.PrevHash, &ev.Hash, &ev.CreatedAt); err != nil {
+		ev, err := scanProviderEvent(rows)
+		if err != nil {
 			return nil, err
-		}
-		if len(dataBytes) > 0 {
-			_ = json.Unmarshal(dataBytes, &ev.Data)
 		}
 		out = append(out, ev)
 	}
 	return out, rows.Err()
+}
+
+func scanProviderEvent(row interface{ Scan(...any) error }) (Event, error) {
+	var (
+		ev        Event
+		dataBytes []byte
+	)
+	if err := row.Scan(&ev.Seq, &ev.Actor, &ev.Action, &ev.Target, &dataBytes, &ev.PrevHash, &ev.Hash, &ev.CreatedAt); err != nil {
+		return Event{}, err
+	}
+	if len(dataBytes) > 0 {
+		if err := json.Unmarshal(dataBytes, &ev.Data); err != nil {
+			return Event{}, fmt.Errorf("decode provider audit event %d data: %w", ev.Seq, err)
+		}
+	}
+	return ev, nil
 }

@@ -6,13 +6,18 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/license"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // memGovStore is an in-memory GovernanceStore for the handler tests (the PG
@@ -72,6 +77,55 @@ func TestGovernanceView(t *testing.T) {
 	}
 	if out.BYOK != "none" { // no pool / no keyring in this unit fixture
 		t.Fatalf("byok default: %q", out.BYOK)
+	}
+}
+
+type errGovRow struct{ err error }
+
+func (r errGovRow) Scan(...any) error { return r.err }
+
+type errGovQuerier struct{ err error }
+
+func (q errGovQuerier) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.CommandTag{}, q.err
+}
+
+func (q errGovQuerier) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, q.err
+}
+
+func (q errGovQuerier) QueryRow(context.Context, string, ...any) pgx.Row {
+	return errGovRow(q)
+}
+
+func TestGovernanceViewFailsClosedOnCompositionErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		run  func(context.Context, func(context.Context, tenancy.Querier) error) error
+	}{
+		{
+			name: "provider scope",
+			run: func(context.Context, func(context.Context, tenancy.Querier) error) error {
+				return errors.New("provider role unavailable")
+			},
+		},
+		{
+			name: "tenant metadata",
+			run: func(ctx context.Context, fn func(context.Context, tenancy.Querier) error) error {
+				return fn(ctx, errGovQuerier{err: errors.New("tenant metadata unavailable")})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, store, token := governedFixture(t)
+			store.pols["tn_1"] = govern.Policy{}
+			f.h.WithGovernance(&Governance{Store: store, providerQuery: tc.run})
+
+			rec := f.doAuthed(t, token, http.MethodGet, "/provider/v1/tenants/tn_1/governance", nil)
+			if rec.Code == http.StatusOK {
+				t.Fatalf("composition error returned a plausible 200 response: %s", rec.Body.String())
+			}
+		})
 	}
 }
 
