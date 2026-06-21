@@ -14,6 +14,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/siem"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -80,9 +81,10 @@ func redactionSet(extra []string) map[string]struct{} {
 // tenant comes from the audit stream key (the drained scope's tenant), never the
 // event body.
 func auditToSIEM(tenantID string, ev audit.Event, redact map[string]struct{}) siem.Event {
+	pol := govern.DefaultPIIPolicy()
 	attrs := map[string]string{
-		"audit.seq":  strconv.FormatInt(ev.Seq, 10),
-		"audit.hash": ev.Hash,
+		"audit.seq":  redactSIEMAttribute(pol, "audit.seq", strconv.FormatInt(ev.Seq, 10)),
+		"audit.hash": redactSIEMAttribute(pol, "audit.hash", ev.Hash),
 	}
 	var outcome string
 	for k, v := range ev.Data {
@@ -94,19 +96,27 @@ func auditToSIEM(tenantID string, ev audit.Event, redact map[string]struct{}) si
 		if strings.ToLower(k) == "outcome" {
 			outcome = sv
 		}
-		attrs[k] = sv
+		attrs[k] = redactSIEMAttribute(pol, k, sv)
 	}
 	return siem.Event{
 		Time:       ev.CreatedAt,
 		TenantID:   tenantID,
 		Category:   siem.CategoryAudit,
-		Action:     ev.Action,
+		Action:     redactSIEMText(pol, ev.Action),
 		Severity:   auditSeverity(outcome),
-		Actor:      ev.Actor,
-		Target:     ev.Target,
-		Outcome:    outcome,
+		Actor:      redactSIEMText(pol, ev.Actor),
+		Target:     redactSIEMText(pol, ev.Target),
+		Outcome:    redactSIEMText(pol, outcome),
 		Attributes: attrs,
 	}
+}
+
+func redactSIEMAttribute(pol govern.Policy, key, value string) string {
+	return govern.RedactTelemetryAttribute(pol, key, value)
+}
+
+func redactSIEMText(pol govern.Policy, value string) string {
+	return govern.RedactTelemetryText(pol, value)
 }
 
 // auditSeverity bumps a failed/denied action to warning; audit is otherwise info.

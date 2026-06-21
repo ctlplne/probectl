@@ -107,7 +107,7 @@ func TestAuditToSIEMRedactsAndMaps(t *testing.T) {
 	if got.TenantID != "tenant-A" || got.Category != siem.CategoryAudit {
 		t.Fatalf("tenant/category: %+v", got)
 	}
-	if got.Actor != "alice@example.com" || got.Action != "alert.create" || got.Target != "rule-1" {
+	if got.Actor != "a***@example.com" || got.Action != "alert.create" || got.Target != "rule-1" {
 		t.Fatalf("core fields: %+v", got)
 	}
 	if got.Outcome != "success" || got.Severity != siem.SeverityInfo {
@@ -122,6 +122,82 @@ func TestAuditToSIEMRedactsAndMaps(t *testing.T) {
 	if got.Attributes["audit.seq"] != "7" || got.Attributes["audit.hash"] != "deadbeef" {
 		t.Fatalf("traceability attrs: %v", got.Attributes)
 	}
+}
+
+func TestAuditToSIEMRedactsPIIPatternsBeforeFormatting(t *testing.T) {
+	ev := audit.Event{
+		Seq:       8,
+		Actor:     "jane.admin@example.com",
+		Action:    "directory.review",
+		Target:    "https://users.example.test/u/alice@example.com/sessions/123456789?token=urlsecret#frag",
+		Hash:      "cafebabe",
+		CreatedAt: time.Now(),
+		Data: map[string]any{
+			"outcome":    "success",
+			"message":    "reset for alice@example.com from 198.51.100.7 token=supersecret bearer supersecrettoken",
+			"session_id": "sess-001",
+			"url":        "https://api.example.test/users/bob@example.com?api_key=urlsecret",
+			"note":       "Authorization: Bearer abcdefghijklmnop",
+		},
+	}
+	got := auditToSIEM("tenant-A", ev, redactionSet(nil))
+
+	if got.Actor != "j***@example.com" {
+		t.Fatalf("actor not redacted: %q", got.Actor)
+	}
+	for _, leak := range []string{
+		"jane.admin@example.com",
+		"alice@example.com",
+		"bob@example.com",
+		"198.51.100.7",
+		"supersecret",
+		"supersecrettoken",
+		"urlsecret",
+		"abcdefghijklmnop",
+		"123456789",
+	} {
+		if eventContains(got, leak) {
+			t.Fatalf("canonical SIEM event leaked %q: %+v attrs=%v", leak, got, got.Attributes)
+		}
+	}
+	for _, name := range []string{"syslog", "cef", "ecs", "otlp"} {
+		fmtr, ok := siem.NewFormatter(name)
+		if !ok {
+			t.Fatalf("formatter %s missing", name)
+		}
+		out := string(fmtr.Format(got))
+		for _, leak := range []string{
+			"jane.admin@example.com",
+			"alice@example.com",
+			"bob@example.com",
+			"198.51.100.7",
+			"supersecret",
+			"supersecrettoken",
+			"urlsecret",
+			"abcdefghijklmnop",
+			"123456789",
+		} {
+			if strings.Contains(out, leak) {
+				t.Fatalf("%s formatter leaked %q: %s", name, leak, out)
+			}
+		}
+	}
+}
+
+func eventContains(e siem.Event, needle string) bool {
+	if strings.Contains(e.Action, needle) ||
+		strings.Contains(e.Actor, needle) ||
+		strings.Contains(e.Target, needle) ||
+		strings.Contains(e.Outcome, needle) ||
+		strings.Contains(e.Message, needle) {
+		return true
+	}
+	for k, v := range e.Attributes {
+		if strings.Contains(k, needle) || strings.Contains(v, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAuditSeverityFailureWarns(t *testing.T) {

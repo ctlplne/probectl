@@ -1381,7 +1381,9 @@ forwarding resumes from a **durable per-tenant cursor** — a saved bookmark in 
 audit stream, so a restart or SIEM outage picks up exactly where delivery
 stopped — and delivery **retries
 without dropping** under a SIEM outage. Exported audit events are **PII/secret
-redacted** (built-in denylist + `PROBECTL_SIEM_REDACT_KEYS`).
+redacted** (built-in denylist + `PROBECTL_SIEM_REDACT_KEYS`, followed by the
+core governance PII scanner over actor/action/target/outcome and
+non-denylisted values).
 
 ### On-call + ITSM integration
 

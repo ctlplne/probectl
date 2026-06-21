@@ -107,6 +107,11 @@ A built-in case-insensitive denylist (`password`, `passwd`, `secret`, `token`,
 `ssn`) plus any keys in `PROBECTL_SIEM_REDACT_KEYS` are matched on the audit
 record's `data` keys. A redacted value becomes `[redacted]` — the key is kept, so
 the SIEM still sees the *shape* of the event without the sensitive value.
+After key redaction, the audit-to-SIEM mapper also runs the core governance
+PII scanner over actor, action, target, outcome, and every remaining data value
+before any syslog/CEF/ECS/OTLP formatter sees the event. That scanner masks
+emails and IPs, strips URL query strings/fragments and path IDs, and blanks
+embedded bearer tokens or `token=...` / `password=...`-style secrets.
 
 ## Security
 
