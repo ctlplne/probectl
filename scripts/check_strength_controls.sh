@@ -23,6 +23,7 @@ ids=(
   PRODUCT-011 PRODUCT-012 PRODUCT-013 PRODUCT-014
   RED-005 RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
+  RESIL-S01 RESIL-S02 RESIL-S03
   SCALE-007 SCALE-008 SCALE-009
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
@@ -58,8 +59,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 86 ]; then
-  err "internal guard bug: expected 86 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 89 ]; then
+  err "internal guard bug: expected 89 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -176,6 +177,30 @@ need_pattern RESIL-011 internal/breaker/breaker_test.go 'opens|half'
 need_pattern RESIL-012 scripts/backup_restore_drill.sh 'restore|verify'
 need_pattern RESIL-012 .github/workflows/ci.yml 'backup|restore|failover'
 need_pattern RESIL-013 internal/opendata 'stale|degrad|cache|fallback'
+need_pattern RESIL-S01 scripts/backup_postgres.sh 'refusing to write plaintext tenant backup|allow-plaintext-tenant-backup|backup-seal'
+need_pattern RESIL-S01 scripts/backup_restore_drill.sh 'sealed \.dump\.pbk|left a plaintext \.dump|backup-open|verify marker survival|BACKUP_RESTORE_RESULT'
+need_pattern RESIL-S01 deploy/helm/probectl/templates/restore-job.yaml 'backoffLimit: 0|backup-open|pg_restore|restore\.clickhouse\.serverBackupPath|RESTORE DATABASE'
+need_pattern RESIL-S01 .github/workflows/ci.yml 'backup-restore-drill'
+need_pattern RESIL-S01 cmd/probectl-control/backup_cli_contract_test.go 'TestBackupDrillExercisesSealedPBKPath|TestStandalonePostgresBackupsAreSealedOrBreakGlass|TestRestoreJobInvokesBackupOpenAsRealCLI'
+need_pattern RESIL-S01 cmd/probectl-control/clickhouse_restore_job_test.go 'ClickHouse restore Job|restore\.clickhouse\.enabled'
+need_pattern RESIL-S02 internal/agenttransport/service.go 'Flush|durability barrier|SendAndClose|publish not durable'
+need_pattern RESIL-S02 internal/agenttransport/streamresults_resilience_test.go 'TestStreamResultsRefusesAckWhenFlushFails|ack sent before the bus durability barrier'
+need_pattern RESIL-S02 internal/pipeline/consumer.go 'durably stored OR dead-lettered|offset UNCOMMITTED|DeadLettered|Dropped'
+need_pattern RESIL-S02 internal/pipeline/durability_barrier_test.go 'TestDecoupledHandlerWaitsForDurableWrite|TestDecoupledTrueLossDoesNotCommit'
+need_pattern RESIL-S02 internal/pipeline/retry_dlq_test.go 'TestStoreWriteRetriesTransientFailure|TestStoreWriteExhaustionDeadLetters|TestDLQPublishFailureIsCountedLoss'
+need_pattern RESIL-S02 internal/pipeline/replay_test.go 'TestDeadLetterReplayReingests'
+need_pattern RESIL-S02 internal/agent/buffer.go 'bounded, FIFO store-and-forward queue|maxRecords|maxBytes|ErrBufferFull'
+need_pattern RESIL-S02 internal/agent/buffer_test.go 'TestBufferDrainAfterDisconnect|TestBufferPartialDrainKeepsRemainder|TestBufferByteBoundRejectsAndCounts'
+need_pattern RESIL-S02 internal/bus/memory_overflow_test.go 'TestMemoryFlushWaitsForHandlers|TestMemoryDropPolicyReportsLossToPublisher'
+need_pattern RESIL-S03 internal/chaos/selftest_integration_test.go 'TestChaosRunDetectedBySLO|TestChaosLatencyVisibleInProbeMetrics'
+need_pattern RESIL-S03 internal/chaos/dependency_matrix.go 'DependencyChaosMatrix|Retry-After|medium replicaCount and PDB|TestDependencyDrillPrintsCounters'
+need_pattern RESIL-S03 internal/chaos/dependency_matrix_test.go 'TestDependencyChaosMatrixCoversRequiredFaults|TestDependencyChaosMatrixHasRunnableEvidence'
+need_pattern RESIL-S03 internal/chaos/dependency_drill_test.go 'TestDependencyDrillPrintsCounters|CHAOS_DEPENDENCY_RESULT'
+need_pattern RESIL-S03 docs/chaos.md 'TestChaosRunDetectedBySLO|TestChaosLatencyVisibleInProbeMetrics|make chaos-dependency-drill'
+need_pattern RESIL-S03 deploy/helm/probectl/values-multitenant.yaml 'replicaCount: 3|minAvailable: 2'
+need_pattern RESIL-S03 internal/control/clusterapi.go 'Retry-After|writer_unavailable'
+need_pattern RESIL-S03 internal/control/cluster_test.go 'TestWriteFenceDuringFailover|Retry-After|writer_unavailable'
+need_pattern RESIL-S03 cmd/probectl-control/ha_reference_coherence_test.go 'TestMediumReferenceShipsCoherentTopology|replicaCount: 3|PodDisruptionBudget'
 need_pattern SCALE-007 internal/pipeline/cardinality_test.go 'tenant.*unaffected|TenantDropped'
 need_pattern SCALE-007 internal/fairness 'tenant|quota|limit'
 need_pattern SCALE-008 internal/bus/kafka.go 'Commit|Batch|TenantKey|key'
