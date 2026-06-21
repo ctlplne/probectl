@@ -89,9 +89,27 @@ func TestHistogramConversionDeltaTemporality(t *testing.T) {
 	if len(series) == 0 {
 		t.Fatal("delta histogram produced no series")
 	}
+	byKey := map[string]float64{}
 	for _, s := range series {
+		k := s.Metric
+		if le, ok := s.Labels["le"]; ok {
+			k += "{le=" + le + "}"
+		}
+		byKey[k] = s.Value
 		if s.Labels["otel_temporality"] != "delta" {
 			t.Errorf("delta histogram series %s not tagged otel_temporality=delta (labels=%v)", s.Metric, s.Labels)
+		}
+	}
+	want := map[string]float64{
+		"probectl_otlp_request_latency_bucket{le=1}":    2,
+		"probectl_otlp_request_latency_bucket{le=5}":    5,
+		"probectl_otlp_request_latency_bucket{le=+Inf}": 6,
+		"probectl_otlp_request_latency_count":           6,
+		"probectl_otlp_request_latency_sum":             13.5,
+	}
+	for k, v := range want {
+		if byKey[k] != v {
+			t.Errorf("%s = %v, want %v", k, byKey[k], v)
 		}
 	}
 }

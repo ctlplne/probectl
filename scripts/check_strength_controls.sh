@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 ids=(
   AIRCA-004 AIRCA-005 AIRCA-006 AIRCA-007
   ARCH-005 ARCH-006 ARCH-007 CODE-007 CODE-008 CODE-014
-  CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007
+  CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008
   DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-005 EBPF-006 FUZZ-005
   KEYS-005 KEYS-006 KEYS-007
@@ -54,8 +54,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 62 ]; then
-  err "internal guard bug: expected 62 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 63 ]; then
+  err "internal guard bug: expected 63 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -128,6 +128,9 @@ need_pattern CORRECT-007 internal/store/flowstore/clickhouse.go 'ReplacingMergeT
 need_pattern CORRECT-007 internal/store/flowstore/final_dedup_test.go 'AggregationsReadFinal|FlowDedupDDLUsesReplacingMergeTreeRowID|FINAL'
 need_pattern CORRECT-007 internal/store/flowstore/final_dedup_integration_test.go 'FlowFinalDedupRealRoundTrip|redelivered|double-counted'
 need_pattern CORRECT-007 internal/store/flowstore/rowid_test.go 'FlowRowIDDedupKey|identical rows'
+need_pattern CORRECT-008 internal/pipeline/otlp.go 'histogramSeries|_bucket|_count|_sum|otel_temporality'
+need_pattern CORRECT-008 internal/pipeline/otlp_histogram_test.go 'TestHistogramConversionDeltaTemporality'
+need_pattern CORRECT-008 internal/pipeline/otlp_histogram_test.go 'probectl_otlp_request_latency_bucket'
 need_pattern RESIL-008 internal/backup/backup_test.go 'Tamper|Truncation|NoPlaintext'
 need_pattern RESIL-009 internal/agent/buffer.go 'disk|frame|ack|replay'
 need_pattern RESIL-009 internal/agent/coordination.go 'jitter|backoff|retry'
