@@ -26,6 +26,7 @@ ids=(
   RESIL-S01 RESIL-S02 RESIL-S03
   SCALE-006 SCALE-007 SCALE-008 SCALE-009
   SCHEMA-002 SCHEMA-003 SCHEMA-004
+  SEC-003 SEC-004
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
@@ -60,8 +61,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 93 ]; then
-  err "internal guard bug: expected 93 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 95 ]; then
+  err "internal guard bug: expected 95 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -153,6 +154,20 @@ need_pattern SCHEMA-004 internal/control/openapi_test.go 'TestOpenAPIMatchesRout
 need_pattern SCHEMA-004 internal/otel/conventions.go 'SemConvVersion|SchemaURL|ScopeVersion|KnownAttributes'
 need_pattern SCHEMA-004 internal/otel/otlp/convert.go 'SchemaUrl: schemaURL|Version: scopeVersion'
 need_pattern SCHEMA-004 internal/otel/otlp/schemaurl_test.go 'TestExportedOTLPCarriesSchemaURL|TestSchemaURLPinnedToSemConvVersion'
+need_pattern SEC-003 internal/control/v1.go 'type apiRoute|Permission string|tenant boundary'
+need_pattern SEC-003 internal/control/server.go 'apiRoutes|requirePermission|apiLifecycleFor'
+need_pattern SEC-003 internal/control/auth.go 'requirePermission|Tenant lifecycle|ABAC over RBAC|principal.*tenant'
+need_pattern SEC-003 internal/control/auth_test.go 'TestRequirePermission|missing principal|missing permission|authn-only'
+need_pattern SEC-003 internal/control/route_coverage_test.go 'TestEveryV1RouteIsDocumented|TestAPIRouteTableEntriesAreUniqueAndPermissioned|/v1/me|TestNonV1SurfacesDocumentedOrExcluded'
+need_pattern SEC-004 internal/control/middleware.go 'contentSecurityPolicy|frame-ancestors|object-src|securityHeaders|Strict-Transport-Security|Permissions-Policy'
+need_pattern SEC-004 internal/control/middleware_test.go 'TestSecurityHeadersCSPAndFraming|unsafe-inline|X-Frame-Options|Permissions-Policy'
+need_pattern SEC-004 internal/control/server.go '/ingest/changes|handleChangeWebhook|/ingest/itsm|handleITSMWebhook|/ingest/rum|/scim/v2'
+need_pattern SEC-004 internal/control/change_integration_test.go 'TestChangeWebhookRejectsUnsignedAndForged|TestChangeWebhookTenantIsolation'
+need_pattern SEC-004 internal/control/notify_integration_test.go 'forged inbound should be 401|X-Probectl-Signature'
+need_pattern SEC-004 internal/control/rumapi_test.go 'TestBuildRUMGatingAndFailClosed|TestRUMBeaconIngestPublishesUnderVerifiedTenant|TestRUMEndpointNotWiredAndUnavailableIngest'
+need_pattern SEC-004 internal/control/scim_integration_test.go 'TestSCIMAuthAndTenantIsolation|invalid bearer'
+need_pattern SEC-004 ee/provider/handler.go 'auth/login|asOperator|asTenantAdmin|auth.NewLimiter|provider auth lockout'
+need_pattern SEC-004 ee/provider/openapi_test.go 'TestProviderOpenAPIMatchesRoutes|TestProviderOpenAPIGateCatchesPlantedDrift'
 need_pattern SCHEMA-I01 Makefile 'proto'
 need_pattern SCHEMA-I02 internal/otel/conventions.go 'semconv|SchemaURL|OTel'
 need_pattern SCHEMA-I03 scripts/check_openapi.sh 'OpenAPI completeness gate'
