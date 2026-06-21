@@ -4,8 +4,8 @@ name: security-scan
 # found the CVE posture unverifiable because no scheduled scan left
 # artifacts. This workflow runs weekly (and on demand), uploads every
 # scanner's raw output as a build artifact (the evidence trail), and FAILS
-# on Critical findings — the same failure a PR would hit in ci.yml's
-# dependency-scan, so a new Critical in an unchanged repo still goes red.
+# on High/Critical findings — the same failure a PR would hit in ci.yml's
+# dependency-scan, so a new serious CVE in an unchanged repo still goes red.
 
 on:
   schedule:
@@ -105,11 +105,12 @@ jobs:
         with:
           name: trivy-fs-${{ github.run_id }}
           path: trivy-fs.json
-      - name: Gate on Critical
+      - name: Gate on High and Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
           scanners: vuln # secrets are the gitleaks secret-scan job's responsibility (it owns the allowlist)
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
           exit-code: "1"

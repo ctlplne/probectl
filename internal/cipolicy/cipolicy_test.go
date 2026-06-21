@@ -244,6 +244,33 @@ func TestSecretScanCoversGitHistory(t *testing.T) {
 	}
 }
 
+func TestScheduledTrivyFilesystemScanFailsOnHighs(t *testing.T) {
+	ci := readWorkflow(t, "ci.yml")
+	securityScan := readWorkflow(t, "security-scan.yml")
+
+	if !strings.Contains(ci, "Trivy filesystem scan (vuln)") {
+		t.Error("ci.yml PR Trivy filesystem gate was renamed or removed")
+	}
+	if !strings.Contains(securityScan, "Gate on High and Critical") {
+		t.Error("security-scan.yml scheduled Trivy filesystem gate does not advertise High/Critical blocking")
+	}
+	for _, want := range []string{
+		"severity: CRITICAL,HIGH",
+		"ignore-unfixed: true",
+		`exit-code: "1"`,
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml PR Trivy filesystem gate is missing %q", want)
+		}
+		if !strings.Contains(securityScan, want) {
+			t.Errorf("security-scan.yml scheduled Trivy filesystem gate is missing %q", want)
+		}
+	}
+	if strings.Contains(securityScan, "Gate on Critical\n") || strings.Contains(securityScan, "severity: CRITICAL\n") {
+		t.Error("security-scan.yml still appears to gate only on Critical vulnerabilities")
+	}
+}
+
 // TestPRImageMatrixMatchesMakefileBinaries closes TEST-004: every binary the
 // Makefile says we ship must be built by the PR image matrix. Release already
 // has a shell parity gate; this gives pull requests the same early feedback.

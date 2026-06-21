@@ -149,8 +149,8 @@ Two more workflows run outside the pull-request loop: **`nightly.yml`** (the
 black-box full-stack e2e via `make e2e`, ingest benchmarks, and the M-profile
 scale-gate regression guard — too slow to run per-PR) and
 **`security-scan.yml`** (weekly `govulncheck` / `npm audit` / Trivy with
-retained evidence artifacts, so a newly-disclosed CVE in an _unchanged_ pin
-still goes red on its own).
+retained evidence artifacts; Trivy fails on High/Critical findings, so a
+newly-disclosed serious CVE in an _unchanged_ pin still goes red on its own).
 
 CI itself cannot make merges blocking — that is **branch protection**, a GitHub
 repository setting documented in
