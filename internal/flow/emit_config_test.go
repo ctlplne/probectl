@@ -4,6 +4,9 @@ package flow
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,4 +109,56 @@ func TestConfigEnvOverrides(t *testing.T) {
 	if err := bad.Validate(); err == nil {
 		t.Error("missing tenant must fail validation")
 	}
+}
+
+func TestConfigLoadRequiresVersionAndRejectsUnknownKeys(t *testing.T) {
+	missingVersion := writeFlowConfig(t, "tenant_id: t\nbus:\n  mode: memory\n")
+	_, err := Load(missingVersion)
+	if err == nil || !strings.Contains(err.Error(), "apiVersion is required") {
+		t.Fatalf("missing apiVersion should fail, got %v", err)
+	}
+
+	unknown := writeFlowConfig(t, "apiVersion: "+ConfigAPIVersion+"\ntenant_id: t\nold_removed_key: true\nbus:\n  mode: memory\n")
+	_, err = Load(unknown)
+	if err == nil || !strings.Contains(err.Error(), "field old_removed_key not found") {
+		t.Fatalf("unknown key should fail strict YAML decode, got %v", err)
+	}
+}
+
+func TestConfigLoadAcceptsSchemaVersionAlias(t *testing.T) {
+	path := writeFlowConfig(t, "schema_version: 1\ntenant_id: t\nbus:\n  mode: memory\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("schema_version alias should load: %v", err)
+	}
+	if cfg.APIVersion != ConfigAPIVersion {
+		t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
+	}
+}
+
+func TestShippedFlowConfigsLoadStrictly(t *testing.T) {
+	t.Setenv("PROBECTL_FLOW_TENANT", "t-packaged")
+	for _, path := range []string{
+		filepath.Join("..", "..", "deploy", "agent", "probectl-flow-agent.example.yml"),
+		filepath.Join("..", "..", "deploy", "packaging", "config", "flow-agent.yaml"),
+	} {
+		t.Run(path, func(t *testing.T) {
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("load shipped config: %v", err)
+			}
+			if cfg.APIVersion != ConfigAPIVersion {
+				t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
+			}
+		})
+	}
+}
+
+func writeFlowConfig(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "flow.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

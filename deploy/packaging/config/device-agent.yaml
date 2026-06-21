@@ -4,6 +4,7 @@
 # bus. Full key reference: docs/configuration.md. Device credentials are NAMED
 # here and resolved from the credential source (Vault/env) — never the secret
 # itself (guardrail 6). Bus credentials come from PROBECTL_DEVICE_BUS_*.
+apiVersion: probectl.io/device-agent/v1
 tenant_id: ""                 # REQUIRED: binds every metric to one tenant (F50)
 agent_id: ""                  # defaults to the OS hostname
 bus:

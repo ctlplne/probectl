@@ -11,6 +11,7 @@
 # Tenant the agent's flows belong to (F50). In production, derive this from the
 # agent's SPIFFE client-cert identity (like probectl-agent); the explicit field is
 # for the lightweight / single-tenant deploy.
+apiVersion: probectl.io/ebpf-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001"
 # host: defaults to the OS hostname.
 

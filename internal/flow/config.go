@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
+
+const ConfigAPIVersion = "probectl.io/flow-agent/v1"
 
 // ListenerConfig is one protocol listener.
 type ListenerConfig struct {
@@ -32,6 +34,9 @@ type BusConfig struct {
 // Config is the flow-collector configuration: a YAML file with PROBECTL_FLOW_*
 // environment overrides. Every key is documented in docs/configuration.md.
 type Config struct {
+	APIVersion    string `yaml:"apiVersion"`
+	SchemaVersion int    `yaml:"schema_version,omitempty"`
+
 	// TenantID binds every emitted record to one tenant (F50) — required. In
 	// production the agent derives identity from its SPIFFE client cert (like
 	// the canary agent); the explicit field supports the lightweight deploy.
@@ -90,7 +95,7 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("flow: read config: %w", err)
 		}
-		if err := yaml.Unmarshal(raw, cfg); err != nil {
+		if err := decodeConfigYAML(raw, cfg); err != nil {
 			return nil, fmt.Errorf("flow: parse config: %w", err)
 		}
 	}
@@ -99,6 +104,18 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func decodeConfigYAML(raw []byte, cfg *Config) error {
+	if err := configschema.DecodeStrictYAML(raw, cfg); err != nil {
+		return err
+	}
+	apiVersion, err := configschema.ResolveAPIVersion("flow", cfg.APIVersion, cfg.SchemaVersion, ConfigAPIVersion)
+	if err != nil {
+		return err
+	}
+	cfg.APIVersion = apiVersion
+	return nil
 }
 
 // applyEnv layers PROBECTL_FLOW_* overrides (exported for table-driven tests

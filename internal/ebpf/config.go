@@ -9,12 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
+
+const ConfigAPIVersion = "probectl.io/ebpf-agent/v1"
 
 // Config is the eBPF agent configuration: a YAML file with PROBECTL_EBPF_*
 // environment overrides. Every key is documented in docs/configuration.md.
 type Config struct {
+	APIVersion    string `yaml:"apiVersion"`
+	SchemaVersion int    `yaml:"schema_version,omitempty"`
+
 	// TenantID binds every emitted flow to one tenant (F50). In production the
 	// agent derives this from its SPIFFE client-cert identity (like the canary
 	// agent); the explicit field supports the lightweight / single-tenant deploy.
@@ -119,7 +124,7 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read ebpf config: %w", err)
 		}
-		if err := yaml.Unmarshal(data, cfg); err != nil {
+		if err := decodeConfigYAML(data, cfg); err != nil {
 			return nil, fmt.Errorf("parse ebpf config: %w", err)
 		}
 	}
@@ -128,6 +133,18 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func decodeConfigYAML(raw []byte, cfg *Config) error {
+	if err := configschema.DecodeStrictYAML(raw, cfg); err != nil {
+		return err
+	}
+	apiVersion, err := configschema.ResolveAPIVersion("ebpf", cfg.APIVersion, cfg.SchemaVersion, ConfigAPIVersion)
+	if err != nil {
+		return err
+	}
+	cfg.APIVersion = apiVersion
+	return nil
 }
 
 func (c *Config) applyEnv(getenv func(string) string) {

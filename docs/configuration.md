@@ -31,6 +31,12 @@ How to read this page:
 - **Agents:** a YAML config file is the source of truth; the matching `PROBECTL_*`
   env vars override individual fields (handy for containers). Each agent's keys
   are in its own section below.
+- **Agent YAML schema:** every agent config file starts with a top-level
+  `apiVersion` (`probectl.io/agent/v1`, `probectl.io/ebpf-agent/v1`,
+  `probectl.io/flow-agent/v1`, `probectl.io/device-agent/v1`, or
+  `probectl.io/endpoint/v1`). `schema_version: 1` is accepted as a compatibility
+  alias. Unknown YAML keys fail startup, so a misspelled or retired safety knob is
+  loud instead of silently ignored.
 - **Secrets** are never hardcoded, logged, or placed in URLs/query strings.
   Sensitive values at rest are sealed with **envelope encryption** — each value is
   encrypted with its own data key, and all those data keys are encrypted by one

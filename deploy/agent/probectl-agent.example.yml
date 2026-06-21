@@ -6,6 +6,8 @@
 # identity (spiffe://probectl/tenant/<t>/agent/<a>) — they are NOT configured here.
 # PROBECTL_AGENT_* env vars override grpc_addr, the TLS files, and buffer.dir.
 
+apiVersion: probectl.io/agent/v1
+
 control_plane:
   grpc_addr: "control.probectl.local:9443"
 

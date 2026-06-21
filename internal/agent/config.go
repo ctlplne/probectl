@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
 
 const (
@@ -16,6 +18,7 @@ const (
 	defaultDrainMaxRecords        = 500
 	defaultDrainMaxBytes    int64 = 8 << 20 // 8 MiB per StreamResults call
 	defaultDrainPace              = 150 * time.Millisecond
+	ConfigAPIVersion              = "probectl.io/agent/v1"
 )
 
 // Duration is a time.Duration that unmarshals from a YAML string like "30s".
@@ -41,15 +44,17 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 // Config is the probectl-agent configuration (a YAML file plus PROBECTL_AGENT_* env
 // overrides). It is the agent config-file schema contract.
 type Config struct {
-	ControlPlane ControlPlaneConfig `yaml:"control_plane"`
-	TLS          TLSConfig          `yaml:"tls"`
-	Identity     IdentityConfig     `yaml:"identity"`
-	Enroll       EnrollConfig       `yaml:"enroll"`
-	Agent        Meta               `yaml:"agent"`
-	Buffer       BufferConfig       `yaml:"buffer"`
-	Canaries     []CanaryConfig     `yaml:"canaries"`
-	A2A          A2AConfig          `yaml:"a2a"`
-	Security     SecurityConfig     `yaml:"security"`
+	APIVersion    string             `yaml:"apiVersion"`
+	SchemaVersion int                `yaml:"schema_version,omitempty"`
+	ControlPlane  ControlPlaneConfig `yaml:"control_plane"`
+	TLS           TLSConfig          `yaml:"tls"`
+	Identity      IdentityConfig     `yaml:"identity"`
+	Enroll        EnrollConfig       `yaml:"enroll"`
+	Agent         Meta               `yaml:"agent"`
+	Buffer        BufferConfig       `yaml:"buffer"`
+	Canaries      []CanaryConfig     `yaml:"canaries"`
+	A2A           A2AConfig          `yaml:"a2a"`
+	Security      SecurityConfig     `yaml:"security"`
 }
 
 // SecurityConfig holds agent-level safety toggles. They default to the secure
@@ -160,7 +165,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	var cfg Config
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	if err := decodeConfigYAML(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.applyEnv()
@@ -169,6 +174,18 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func decodeConfigYAML(raw []byte, cfg *Config) error {
+	if err := configschema.DecodeStrictYAML(raw, cfg); err != nil {
+		return err
+	}
+	apiVersion, err := configschema.ResolveAPIVersion("agent", cfg.APIVersion, cfg.SchemaVersion, ConfigAPIVersion)
+	if err != nil {
+		return err
+	}
+	cfg.APIVersion = apiVersion
+	return nil
 }
 
 // JoinToken returns the one-time enrollment token for optional first-boot

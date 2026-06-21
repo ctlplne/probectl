@@ -2,6 +2,7 @@
 # operator edits survive upgrades). Fill in the control-plane address and point
 # tls.* / enrollment at the material the registration step provisioned.
 # Full key reference: docs/configuration.md.
+apiVersion: probectl.io/agent/v1
 control_plane:
   grpc_addr: "https://CONTROL-HOST:8443"   # mTLS agent transport (never plaintext)
 tls:

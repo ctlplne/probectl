@@ -3,6 +3,7 @@
 # path traces and session-timing probes and publishes DEM results to the bus.
 # Full key reference: docs/configuration.md. Bus credentials come from the
 # environment (PROBECTL_ENDPOINT_BUS_*), never this file.
+apiVersion: probectl.io/endpoint/v1
 tenant_id: ""                 # REQUIRED: binds every result to one tenant (F50)
 agent_id: ""                  # defaults to the OS hostname
 bus:

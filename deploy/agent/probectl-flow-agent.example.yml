@@ -4,6 +4,7 @@
 # plaintext UDP by design, so the datagrams should never cross untrusted
 # segments (docs/flow.md, "Security posture").
 
+apiVersion: probectl.io/flow-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every record is tenant-bound (F50)
 agent_id: "" # default: OS hostname
 

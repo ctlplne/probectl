@@ -4,6 +4,7 @@ package ebpf
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ import (
 func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "ebpf.yaml")
-	writeFile(t, path, "tenant_id: t-yaml\nflush_interval: 5s\nbus:\n  mode: memory\n")
+	writeFile(t, path, "apiVersion: "+ConfigAPIVersion+"\ntenant_id: t-yaml\nflush_interval: 5s\nbus:\n  mode: memory\n")
 
 	t.Setenv("PROBECTL_EBPF_TENANT_ID", "t-env")
 	t.Setenv("PROBECTL_EBPF_FLUSH_INTERVAL", "2s")
@@ -25,6 +26,44 @@ func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 	}
 	if cfg.FlushInterval != 2*time.Second {
 		t.Errorf("flush = %v, want 2s", cfg.FlushInterval)
+	}
+}
+
+func TestConfigRequiresVersionAndRejectsUnknownKeys(t *testing.T) {
+	missingVersion := filepath.Join(t.TempDir(), "ebpf.yaml")
+	writeFile(t, missingVersion, "tenant_id: t\nbus:\n  mode: memory\n")
+	_, err := Load(missingVersion)
+	if err == nil || !strings.Contains(err.Error(), "apiVersion is required") {
+		t.Fatalf("missing apiVersion should fail, got %v", err)
+	}
+
+	unknown := filepath.Join(t.TempDir(), "ebpf.yaml")
+	writeFile(t, unknown, "apiVersion: "+ConfigAPIVersion+"\ntenant_id: t\nold_removed_key: true\nbus:\n  mode: memory\n")
+	_, err = Load(unknown)
+	if err == nil || !strings.Contains(err.Error(), "field old_removed_key not found") {
+		t.Fatalf("unknown key should fail strict YAML decode, got %v", err)
+	}
+}
+
+func TestConfigAcceptsSchemaVersionAlias(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ebpf.yaml")
+	writeFile(t, path, "schema_version: 1\ntenant_id: t\nbus:\n  mode: memory\n")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("schema_version alias should load: %v", err)
+	}
+	if cfg.APIVersion != ConfigAPIVersion {
+		t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
+	}
+}
+
+func TestShippedEBPFConfigExampleLoadsStrictly(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "deploy", "agent", "probectl-ebpf-agent.example.yml"))
+	if err != nil {
+		t.Fatalf("load shipped config: %v", err)
+	}
+	if cfg.APIVersion != ConfigAPIVersion {
+		t.Fatalf("apiVersion = %q, want %q", cfg.APIVersion, ConfigAPIVersion)
 	}
 }
 

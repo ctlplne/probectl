@@ -3,6 +3,7 @@
 # exports and publishes normalized flow records to the bus. Full key reference:
 # docs/configuration.md. Bus credentials are NOT stored here — provide them via
 # the environment (PROBECTL_FLOW_BUS_*), so no secret lands in the journal.
+apiVersion: probectl.io/flow-agent/v1
 tenant_id: ""                 # REQUIRED: binds every flow record to one tenant (F50)
 agent_id: ""                  # defaults to the OS hostname
 bus:

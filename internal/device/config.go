@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
+
+const ConfigAPIVersion = "probectl.io/device-agent/v1"
 
 // Device transports.
 const (
@@ -62,6 +64,9 @@ type BusConfig struct {
 // PROBECTL_DEVICE_* environment overrides. Every key is documented in
 // docs/configuration.md.
 type Config struct {
+	APIVersion    string `yaml:"apiVersion"`
+	SchemaVersion int    `yaml:"schema_version,omitempty"`
+
 	// TenantID binds every emitted metric to one tenant (F50) — required.
 	TenantID string `yaml:"tenant_id"`
 	AgentID  string `yaml:"agent_id"`
@@ -88,7 +93,7 @@ func Load(path string) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("device: read config: %w", err)
 		}
-		if err := yaml.Unmarshal(raw, cfg); err != nil {
+		if err := decodeConfigYAML(raw, cfg); err != nil {
 			return nil, fmt.Errorf("device: parse config: %w", err)
 		}
 	}
@@ -97,6 +102,18 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func decodeConfigYAML(raw []byte, cfg *Config) error {
+	if err := configschema.DecodeStrictYAML(raw, cfg); err != nil {
+		return err
+	}
+	apiVersion, err := configschema.ResolveAPIVersion("device", cfg.APIVersion, cfg.SchemaVersion, ConfigAPIVersion)
+	if err != nil {
+		return err
+	}
+	cfg.APIVersion = apiVersion
+	return nil
 }
 
 // applyEnv layers PROBECTL_DEVICE_* overrides (getenv seam for tests).

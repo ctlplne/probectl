@@ -5,6 +5,7 @@
 # credential seam (env provider today; Vault/CyberArk via S41). NEVER put a
 # community string, passphrase, or password in this file.
 
+apiVersion: probectl.io/device-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every metric is tenant-bound (F50)
 agent_id: "" # default: OS hostname
 
