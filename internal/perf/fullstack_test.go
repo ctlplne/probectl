@@ -145,6 +145,51 @@ func TestDriveFullStackQueryLegCatchesScopingErrors(t *testing.T) {
 	}
 }
 
+// SCALE-002: L/XL profiles have more than eight tenants. The full-stack gate
+// must check every tenant, because a missing tenant past the old sample window
+// can still satisfy the namespace total count.
+func TestDriveFullStackQueryLegChecksEveryTenant(t *testing.T) {
+	profile, err := ProfileFor(TierL, 0.01)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.Ingest.Tenants <= 8 {
+		t.Fatalf("test needs a many-tenant profile, got %d tenants", profile.Ingest.Tenants)
+	}
+	profile.Ingest.SettleTimeout = 300 * time.Millisecond
+
+	b := bus.NewMemory()
+	defer b.Close()
+	w := tsdb.NewMemory()
+	const ns = "lsalltenants"
+	good := memCounter(w, withNS(profile.Ingest, ns))
+	missingTenant := profile.Ingest.Tenants - 1
+	missingNeedle := fmt.Sprintf(`tenant_id="%s-tenant-%04d"`, ns, missingTenant)
+	missing := func(ctx context.Context, promql string) (float64, error) {
+		v, err := good(ctx, promql)
+		if strings.Contains(promql, missingNeedle) {
+			return 0, err
+		}
+		return v, err
+	}
+
+	rep, err := DriveFullStack(context.Background(), b, w, missing, profile, true, ns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.TenantsQueried != profile.Ingest.Tenants {
+		t.Fatalf("queried %d tenants, want every tenant (%d)", rep.TenantsQueried, profile.Ingest.Tenants)
+	}
+	want := fmt.Sprintf("tenant %04d sees 0 success series", missingTenant)
+	var found bool
+	for _, v := range rep.Scale.Violations {
+		found = found || strings.Contains(v, want)
+	}
+	if !found {
+		t.Fatalf("missing violation for non-sampled tenant %04d: %v", missingTenant, rep.Scale.Violations)
+	}
+}
+
 // The namespace isolates runs: identities carry the prefix, and an empty
 // namespace keeps the historical shape (the in-process gate's contract).
 func TestIngestNamespacePrefix(t *testing.T) {

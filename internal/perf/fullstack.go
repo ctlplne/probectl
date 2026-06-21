@@ -186,14 +186,12 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 
 	// Query leg: tenant-scoped reads over the populated store — correctness
 	// (each tenant sees exactly its own agents×tests success series) and
-	// latency.
+	// latency. Enumerate every tenant: total namespace counts can hide a broken
+	// tenant-specific query path, and sampling only the first few tenants misses
+	// exactly the L/XL many-tenant skew this gate is supposed to catch.
 	perTenant := cfg.AgentsPerTenant * cfg.TestsPerAgent
-	sample := cfg.Tenants
-	if sample > 8 {
-		sample = 8
-	}
 	var qLat Latencies
-	for t := 0; t < sample; t++ {
+	for t := 0; t < cfg.Tenants; t++ {
 		expr := fmt.Sprintf(`count(%s{tenant_id="%s-tenant-%04d"})`, successMetric, ns, t)
 		t0 := time.Now()
 		v, err := count(ctx, expr)
@@ -209,7 +207,7 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 				profile.Tier, t, int(v), perTenant))
 		}
 	}
-	rep.TenantsQueried = sample
+	rep.TenantsQueried = cfg.Tenants
 	rep.QueryP95 = qLat.Summary().P95
 	return rep, nil
 }
