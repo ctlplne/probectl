@@ -9,11 +9,7 @@ import (
 )
 
 func TestOTLPSubsystemsWireAllThreeSignals(t *testing.T) {
-	srcBytes, err := os.ReadFile("builders.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	src := string(srcBytes)
+	src := buildersSource(t)
 	for name, needle := range map[string]string{
 		"metrics bus topic":          "bus.OTLPMetricsTopic",
 		"traces bus topic":           "bus.OTLPTracesTopic",
@@ -34,4 +30,30 @@ func TestOTLPSubsystemsWireAllThreeSignals(t *testing.T) {
 			t.Fatalf("startOTLPSubsystems is missing %s marker %q", name, needle)
 		}
 	}
+}
+
+func TestOTLPSubsystemsSuperviseHotIngestionPaths(t *testing.T) {
+	src := buildersSource(t)
+	for name, needle := range map[string]string{
+		"receiver":                `superviseRestart(ctx, "otlp-receiver"`,
+		"metrics ingest consumer": `superviseRestart(ctx, "otlp-metrics-consumer"`,
+		"traces ingest consumer":  `superviseRestart(ctx, "otlp-traces-consumer"`,
+		"logs ingest consumer":    `superviseRestart(ctx, "otlp-logs-consumer"`,
+		"metrics export consumer": `superviseRestart(ctx, "otlp-export"`,
+		"traces export consumer":  `superviseRestart(ctx, "otlp-trace-export"`,
+		"logs export consumer":    `superviseRestart(ctx, "otlp-log-export"`,
+	} {
+		if !strings.Contains(src, needle) {
+			t.Fatalf("startOTLPSubsystems must supervise %s with marker %q", name, needle)
+		}
+	}
+}
+
+func buildersSource(t *testing.T) string {
+	t.Helper()
+	srcBytes, err := os.ReadFile("builders.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(srcBytes)
 }

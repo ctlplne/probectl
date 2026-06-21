@@ -126,3 +126,92 @@ func TestOTLPMetricsContextCancelUnknownOutcomeDoesNotDLQ(t *testing.T) {
 		t.Fatalf("unknown outcome must not DLQ/drop: stats=%+v published=%d", st, len(dlqBus.published))
 	}
 }
+
+func TestOTLPDLQAccountsEverySignal(t *testing.T) {
+	for _, tc := range []struct {
+		signal       string
+		dlqTopic     string
+		ledgerSignal string
+	}{
+		{signal: "metrics", dlqTopic: bus.DeadLetterOTLPMetricsTopic, ledgerSignal: "otlp_metrics"},
+		{signal: "traces", dlqTopic: bus.DeadLetterOTLPTracesTopic, ledgerSignal: "otlp_traces"},
+		{signal: "logs", dlqTopic: bus.DeadLetterOTLPLogsTopic, ledgerSignal: "otlp_logs"},
+	} {
+		t.Run(tc.signal, func(t *testing.T) {
+			reg := metrics.New("test", "abc")
+			ledger := newIntegrityLedger(tc.ledgerSignal)
+			ledger.withMetrics(reg)
+			dlqBus := &otlpDLQBus{}
+			dlq := newOTLPDLQ(dlqBus, tc.dlqTopic, tc.signal, testLogger(), ledger)
+			dlq.withMetrics(reg)
+			dlq.maxRetries = 1
+			dlq.sleep = func(context.Context, time.Duration) {}
+
+			msg := bus.Message{Key: bus.TenantKey("tenant-"+tc.signal, "agent-a"), Value: []byte("original-" + tc.signal)}
+			attempts := 0
+			stored, err := dlq.process(context.Background(), msg, func(context.Context) error {
+				attempts++
+				return errors.New("store down")
+			})
+			if err != nil {
+				t.Fatalf("dead-lettered store failure must be handled: %v", err)
+			}
+			if stored {
+				t.Fatal("stored = true after permanent store failure")
+			}
+			if attempts != 2 {
+				t.Fatalf("write attempts = %d, want 2 (initial + one bounded retry)", attempts)
+			}
+			if st := dlq.stats(); st.Retried != 1 || st.DeadLettered != 1 || st.Dropped != 0 {
+				t.Fatalf("dlq stats = %+v, want retried=1 dead-lettered=1 dropped=0", st)
+			}
+			if st := ledger.stats(); st.DeadLettered != 1 || st.Dropped != 0 {
+				t.Fatalf("ledger stats = %+v, want dead-lettered=1 dropped=0", st)
+			}
+			if got := reg.Counter("probectl_otlp_"+tc.signal+"_dead_lettered_total", "").Value(); got != 1 {
+				t.Fatalf("dead-letter counter = %d, want 1", got)
+			}
+			if got := reg.Counter("probectl_pipeline_"+tc.ledgerSignal+"_dead_lettered_total", "").Value(); got != 1 {
+				t.Fatalf("pipeline dead-letter counter = %d, want 1", got)
+			}
+			if len(dlqBus.published) != 1 {
+				t.Fatalf("published DLQ messages = %d, want 1", len(dlqBus.published))
+			}
+			got := dlqBus.published[0]
+			if got.Topic != tc.dlqTopic || string(got.Key) != string(msg.Key) || string(got.Value) != string(msg.Value) {
+				t.Fatalf("dead-letter must preserve topic/key/original bytes: got %+v want topic=%s key=%q value=%q",
+					got, tc.dlqTopic, string(msg.Key), string(msg.Value))
+			}
+
+			dropReg := metrics.New("test", "abc")
+			dropLedger := newIntegrityLedger(tc.ledgerSignal)
+			dropLedger.withMetrics(dropReg)
+			dropDLQ := newOTLPDLQ(&otlpDLQBus{failPub: true}, tc.dlqTopic, tc.signal, testLogger(), dropLedger)
+			dropDLQ.withMetrics(dropReg)
+			dropDLQ.maxRetries = 0
+			dropDLQ.sleep = func(context.Context, time.Duration) {}
+
+			stored, err = dropDLQ.process(context.Background(), msg, func(context.Context) error {
+				return errors.New("store down")
+			})
+			if err != nil {
+				t.Fatalf("counted drop must be handled: %v", err)
+			}
+			if stored {
+				t.Fatal("stored = true after store+DLQ failure")
+			}
+			if st := dropDLQ.stats(); st.DeadLettered != 0 || st.Dropped != 1 {
+				t.Fatalf("drop dlq stats = %+v, want dead-lettered=0 dropped=1", st)
+			}
+			if st := dropLedger.stats(); st.DeadLettered != 0 || st.Dropped != 1 {
+				t.Fatalf("drop ledger stats = %+v, want dead-lettered=0 dropped=1", st)
+			}
+			if got := dropReg.Counter("probectl_otlp_"+tc.signal+"_dropped_total", "").Value(); got != 1 {
+				t.Fatalf("drop counter = %d, want 1", got)
+			}
+			if got := dropReg.Counter("probectl_pipeline_"+tc.ledgerSignal+"_dropped_total", "").Value(); got != 1 {
+				t.Fatalf("pipeline drop counter = %d, want 1", got)
+			}
+		})
+	}
+}
