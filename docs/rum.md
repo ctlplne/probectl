@@ -33,11 +33,12 @@ the synthetic plane provides independent proof. The logic lives in
 A **beacon** is one tiny, fire-and-forget HTTP POST a page sends as the user
 leaves it — named like the lighthouse flash: a single small signal, no session,
 no reply expected. `POST /ingest/rum` is mounted **outside** the
-session-authenticated API — same model as the change webhook. Each beacon
-authenticates *itself* with its **app key** and is bound to the key's configured
-tenant, never to whatever the payload claims. The key is an *identifier, not a secret*: it ships in page source like
-every RUM product's site key. It scopes and rate-limits the beacon; it grants no
-read access to anything.
+session-authenticated API. Each beacon carries an **app key**, but that key is a
+public routing key, not authentication: it ships in page source like every RUM
+product's site key. The server uses the key to choose the configured tenant/app
+binding, rate-limit the stream, and apply any origin allow-list; it never trusts
+the payload to name its own tenant, and the key grants no read access to
+anything.
 
 ```json
 {"v": 1, "key": "pk_storefront", "consent": true,
@@ -109,18 +110,27 @@ is being torn down — no performance tax), and transmits the page **path only**
 The ingest endpoint treats every beacon as untrusted input
 (`internal/control/rumapi.go`):
 
-- **App-key auth.** An unknown key gets a `401`, and its rejection is still
-  attributed to the right tenant (the key is parsed leniently first, precisely
-  for this).
+- **Public app-key routing.** An unknown key gets a `401`. Known keys bind the
+  beacon to the server-configured tenant/app and rate-limit bucket, but the key
+  is not a secret and does not prove the browser's identity.
+- **Origin allow-list.** Add `;origins=https://app.example|https://www.app.example`
+  to a RUM app binding to accept beacons only from those browser Origins. For
+  local development, `http://localhost` and loopback HTTP origins are allowed;
+  production origins must be HTTPS and must not include paths, queries, or
+  fragments. The `multi-tenant` and `regulated` deployment profiles require
+  origins at startup; `single` profile keeps wildcard compatibility when no list
+  is set. Off-list or missing Origins fail with `403`, and no beacon is
+  published.
 - **Size cap.** 16 KiB max; over that is a `413`.
 - **Rate limit.** A per-key **token bucket** — the classic rate limiter: each
   key holds a bucket of tokens refilled at the configured per-minute rate, each
   beacon spends one, and an empty bucket means wait; over the limit is a `429`
   with `Retry-After`. (Set the limit to `0` to disable it.)
 - **CORS.** Cross-origin resource sharing — the browser's rules for which
-  sites' pages may call which endpoints. This endpoint is write-only and
-  credential-less, so a wildcard origin is safe and required — browsers post
-  cross-origin from the customer's own site. The SDK uses a `text/plain`
+  sites' pages may call which endpoints. With no allow-list, this write-only,
+  credential-less endpoint reflects wildcard CORS for compatibility. With an
+  allow-list, only the matching Origin is echoed and accepted. The SDK uses a
+  `text/plain`
   `sendBeacon` to dodge the CORS **preflight** entirely (the preflight is the
   `OPTIONS` permission request browsers send ahead of cross-origin calls that
   need it; `text/plain` is one of the content types exempt from it); an
@@ -154,7 +164,7 @@ flowchart LR
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_RUM_ENABLED` | `false` | turns on the beacon ingest + convergence engine (it's an inbound surface, so it's opt-in) |
-| `PROBECTL_RUM_APPS` | (none) | the app-key registry: `pk_key1=tenant/app,pk_key2=tenant2/app2` (enabled but empty is a startup error — a mis-bound key could file beacons under the wrong tenant) |
+| `PROBECTL_RUM_APPS` | (none) | the public app-key registry: `pk_key1=tenant/app;origins=https://shop.example\|https://www.shop.example,pk_key2=tenant2/app2` (origins are required under `multi-tenant`/`regulated`, optional in `single`; enabled but empty is a startup error — a mis-bound key could file beacons under the wrong tenant) |
 | `PROBECTL_RUM_RATE_PER_MIN` | `300` | per-key beacon rate limit (`0` = unlimited) |
 
 Deliberately out of scope: full APM — no traces, no session replay, no

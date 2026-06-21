@@ -87,6 +87,43 @@ func TestBuildRUMGatingAndFailClosed(t *testing.T) {
 	}, intelTestLog()); err == nil {
 		t.Fatal("binding without a tenant must fail startup")
 	}
+	_, apps, _, err := BuildRUM(&config.Config{
+		RUMEnabled: true,
+		RUMApps: map[string]string{
+			"pk": "tenant/shop;origins=HTTPS://Shop.Example:443|https://www.shop.example:8443|http://localhost:3000",
+		},
+	}, intelTestLog())
+	if err != nil {
+		t.Fatalf("origin allow-list binding should parse: %v", err)
+	}
+	wantOrigins := []string{"https://shop.example", "https://www.shop.example:8443", "http://localhost:3000"}
+	if got := apps["pk"].AllowedOrigins; strings.Join(got, ",") != strings.Join(wantOrigins, ",") {
+		t.Fatalf("origins = %v want %v", got, wantOrigins)
+	}
+	for _, spec := range []string{
+		"tenant/shop;origins=",
+		"tenant/shop;origins=http://shop.example",
+		"tenant/shop;origins=https://shop.example/path",
+		"tenant/shop;origins=https://shop.example?x=1",
+		"tenant/shop;proof=todo",
+		"tenant/shop;origins",
+	} {
+		if _, _, _, err := BuildRUM(&config.Config{
+			RUMEnabled: true, RUMApps: map[string]string{"pk": spec},
+		}, intelTestLog()); err == nil {
+			t.Fatalf("malformed RUM app spec %q must fail startup", spec)
+		}
+	}
+	if _, _, _, err := BuildRUM(&config.Config{
+		RUMEnabled: true, DeploymentProfile: "multi-tenant", RUMApps: map[string]string{"pk": "tenant/shop"},
+	}, intelTestLog()); err == nil {
+		t.Fatal("multi-tenant RUM app without origins must fail startup")
+	}
+	if _, _, _, err := BuildRUM(&config.Config{
+		RUMEnabled: true, DeploymentProfile: "regulated", RUMApps: map[string]string{"pk": "tenant/shop;origins=https://shop.example"},
+	}, intelTestLog()); err != nil {
+		t.Fatalf("regulated RUM app with origins should start: %v", err)
+	}
 }
 
 func TestRUMBeaconIngestPublishesUnderVerifiedTenant(t *testing.T) {
@@ -181,22 +218,18 @@ func TestRUMBeaconRateLimitAndPreflight(t *testing.T) {
 	}
 }
 
-// SEC-005: when an app key has an operator-configured allowed-origins list, the
-// beacon reflects the request Origin only if it is on the list; an off-list
-// Origin is NOT reflected (no Access-Control-Allow-Origin), so the browser
-// blocks the cross-origin response. No allow-list ⇒ wildcard as before.
+// SEC-005/WIRE-002: when an app key has an operator-configured allowed-origins
+// list, the beacon reflects and accepts only an on-list Origin. Off-list or
+// missing origins fail closed instead of relying on the public app key as
+// authentication. No allow-list => wildcard as before.
 func TestRUMBeaconCORSAllowList(t *testing.T) {
 	fb := &fakeRUMBus{}
 	eng, apps, _, err := BuildRUM(&config.Config{
-		RUMEnabled: true, RUMApps: map[string]string{"pk_abc": "t1/shop"}, RUMRatePerMin: 100,
+		RUMEnabled: true, RUMApps: map[string]string{"pk_abc": "t1/shop;origins=https://shop.example"}, RUMRatePerMin: 100,
 	}, intelTestLog())
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Attach an operator allow-list to the app key.
-	app := apps["pk_abc"]
-	app.AllowedOrigins = []string{"https://shop.example"}
-	apps["pk_abc"] = app
 	srv := testServer(fakePinger{}).WithRUM(eng, apps, fb.publish, 100)
 
 	post := func(origin string) *httptest.ResponseRecorder {
@@ -211,13 +244,26 @@ func TestRUMBeaconCORSAllowList(t *testing.T) {
 
 	// On-list Origin is echoed exactly (not "*").
 	on := post("https://shop.example")
+	if on.Code != http.StatusAccepted {
+		t.Fatalf("on-list origin should be accepted, got %d body=%s", on.Code, on.Body.String())
+	}
 	if got := on.Header().Get("Access-Control-Allow-Origin"); got != "https://shop.example" {
 		t.Errorf("on-list Allow-Origin = %q, want the exact origin", got)
 	}
-	// Off-list Origin is NOT reflected.
+	// Off-list Origin is NOT reflected and the beacon is rejected server-side.
 	off := post("https://evil.example")
+	if off.Code != http.StatusForbidden {
+		t.Fatalf("off-list origin should be forbidden, got %d body=%s", off.Code, off.Body.String())
+	}
 	if got := off.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("off-list Allow-Origin = %q, want empty (not reflected)", got)
+	}
+	missing := post("")
+	if missing.Code != http.StatusForbidden {
+		t.Fatalf("missing origin should be forbidden for an allow-listed app, got %d", missing.Code)
+	}
+	if len(fb.payloads) != 1 {
+		t.Fatalf("only the on-list beacon may publish, got %d", len(fb.payloads))
 	}
 	// Credentials are never allowed on either path.
 	if on.Header().Get("Access-Control-Allow-Credentials") != "" {

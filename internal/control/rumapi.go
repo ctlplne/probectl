@@ -3,11 +3,11 @@
 package control
 
 // RUM convergence wiring (S47b, F20): the beacon ingest (mounted OUTSIDE the
-// session-authenticated /v1 surface, like the change webhook — it
-// authenticates each delivery itself via the app key and binds the beacon to
-// the KEY's tenant, never the payload's), the consumer joining real-user
-// views with synthetic outcomes, and the tenant-scoped convergence view at
-// GET /v1/rum. The privacy contract (consent, redaction, no-IP) is enforced
+// session-authenticated /v1 surface) treats the app key as a public routing key:
+// it binds the beacon to the KEY's tenant, never the payload's, and may be
+// paired with an origin allow-list. The consumer joins real-user views with
+// synthetic outcomes, and GET /v1/rum serves the tenant-scoped convergence
+// view. The privacy contract (consent, redaction, no-IP) is enforced
 // server-side in internal/rum before anything is published or stored.
 
 import (
@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -34,11 +36,10 @@ import (
 type RUMApp struct {
 	Tenant string
 	App    string
-	// AllowedOrigins, when non-empty, restricts the beacon CORS surface for this
-	// app key (SEC-005): only a request whose Origin is on the list gets it
-	// echoed back; an off-list Origin is NOT reflected (the browser blocks the
-	// cross-origin response). Empty ⇒ the default wildcard ("*"). Still no
-	// credentials on either path.
+	// AllowedOrigins, when non-empty, fail-closes beacon POSTs for this public
+	// app key unless the request carries an allowed Origin. The same list scopes
+	// CORS reflection. Empty => default wildcard ("*"). Still no credentials on
+	// either path, and the app key is never treated as a secret.
 	AllowedOrigins []string
 }
 
@@ -54,16 +55,123 @@ func BuildRUM(cfg *config.Config, log *slog.Logger) (*rum.Engine, map[string]RUM
 	}
 	apps := make(map[string]RUMApp, len(cfg.RUMApps))
 	for key, val := range cfg.RUMApps {
-		tenant, app, _ := strings.Cut(val, "/")
-		if key == "" || tenant == "" {
+		key = strings.TrimSpace(key)
+		if key == "" {
 			return nil, nil, false, fmt.Errorf("rum: app entry %q must be key=tenant/app", val)
 		}
-		apps[key] = RUMApp{Tenant: tenant, App: app}
+		parsed, err := parseRUMAppConfig(val)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if rumOriginsRequired(cfg.DeploymentProfile) && len(parsed.AllowedOrigins) == 0 {
+			return nil, nil, false, fmt.Errorf("rum: app entry %q must set ;origins= under PROBECTL_DEPLOYMENT_PROFILE=%s", val, cfg.DeploymentProfile)
+		}
+		apps[key] = parsed
 	}
 	if log != nil {
 		log.Info("rum ingest enabled", "apps", len(apps), "rate_per_min", cfg.RUMRatePerMin)
 	}
 	return rum.NewEngine(), apps, true, nil
+}
+
+func rumOriginsRequired(profile string) bool {
+	return profile == "multi-tenant" || profile == "regulated"
+}
+
+func parseRUMAppConfig(raw string) (RUMApp, error) {
+	binding, optsRaw, _ := strings.Cut(strings.TrimSpace(raw), ";")
+	tenant, app, _ := strings.Cut(strings.TrimSpace(binding), "/")
+	if tenant == "" {
+		return RUMApp{}, fmt.Errorf("rum: app entry %q must be key=tenant/app", raw)
+	}
+	out := RUMApp{Tenant: tenant, App: strings.TrimSpace(app)}
+	for optsRaw != "" {
+		opt := optsRaw
+		if next, rest, ok := strings.Cut(optsRaw, ";"); ok {
+			opt, optsRaw = next, rest
+		} else {
+			optsRaw = ""
+		}
+		opt = strings.TrimSpace(opt)
+		if opt == "" {
+			continue
+		}
+		name, val, ok := strings.Cut(opt, "=")
+		if !ok {
+			return RUMApp{}, fmt.Errorf("rum: app entry %q option %q must be name=value", raw, opt)
+		}
+		switch strings.TrimSpace(name) {
+		case "origins":
+			origins, err := parseRUMAllowedOrigins(val)
+			if err != nil {
+				return RUMApp{}, fmt.Errorf("rum: app entry %q has invalid origins: %w", raw, err)
+			}
+			out.AllowedOrigins = origins
+		default:
+			return RUMApp{}, fmt.Errorf("rum: app entry %q has unknown option %q", raw, name)
+		}
+	}
+	return out, nil
+}
+
+func parseRUMAllowedOrigins(raw string) ([]string, error) {
+	parts := strings.Split(raw, "|")
+	origins := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		norm, ok := normalizeRUMOrigin(strings.TrimSpace(part))
+		if !ok {
+			return nil, fmt.Errorf("origin %q must be an https origin with no path/query/fragment; http is only allowed for loopback dev origins", part)
+		}
+		if !seen[norm] {
+			origins = append(origins, norm)
+			seen[norm] = true
+		}
+	}
+	if len(origins) == 0 {
+		return nil, fmt.Errorf("at least one origin is required")
+	}
+	return origins, nil
+}
+
+func normalizeRUMOrigin(raw string) (string, bool) {
+	if raw == "" {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.User != nil || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return "", false
+	}
+	if scheme != "https" {
+		if scheme != "http" || !rumLoopbackOrigin(host) {
+			return "", false
+		}
+	}
+	port := u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	hostport := host
+	if strings.Contains(host, ":") {
+		hostport = "[" + host + "]"
+	}
+	if port != "" {
+		hostport += ":" + port
+	}
+	return scheme + "://" + hostport, true
+}
+
+func rumLoopbackOrigin(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // RUMPublisher publishes one validated, redacted beacon (as a canonical
@@ -92,19 +200,28 @@ func (s *Server) WithRUM(e *rum.Engine, apps map[string]RUMApp, publish RUMPubli
 func rumCORS(w http.ResponseWriter, reqOrigin string, allowed []string) {
 	if len(allowed) == 0 {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-	} else {
-		for _, o := range allowed {
-			if o == reqOrigin && reqOrigin != "" {
-				w.Header().Set("Access-Control-Allow-Origin", reqOrigin)
-				w.Header().Add("Vary", "Origin")
-				break
-			}
-		}
-		// Off-list (or no Origin): no Allow-Origin header → the browser blocks it.
+	} else if rumOriginAllowed(reqOrigin, allowed) {
+		w.Header().Set("Access-Control-Allow-Origin", reqOrigin)
+		w.Header().Add("Vary", "Origin")
 	}
+	// Off-list (or no Origin) with an allow-list: no Allow-Origin header, and
+	// handleRUMBeacon rejects the POST before publish.
 	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.Header().Set("Access-Control-Max-Age", "86400")
+}
+
+func rumOriginAllowed(reqOrigin string, allowed []string) bool {
+	norm, ok := normalizeRUMOrigin(reqOrigin)
+	if !ok {
+		return false
+	}
+	for _, origin := range allowed {
+		if norm == origin {
+			return true
+		}
+	}
+	return false
 }
 
 // rumAllowedOriginsFor returns the allow-list for the app key carried in the
@@ -126,10 +243,11 @@ func (s *Server) handleRUMPreflight(w http.ResponseWriter, _ *http.Request) erro
 	return nil
 }
 
-// handleRUMBeacon ingests one beacon: app-key auth (tenant bound from the
-// VERIFIED key), per-key rate limit, size cap, strict privacy-gated parse,
-// then publish to the bus. Rejections are counted per tenant and served at
-// /v1/rum (privacy honesty), and the response never echoes payload content.
+// handleRUMBeacon ingests one beacon: public app-key routing (tenant bound from
+// the server registry), optional origin allow-list, per-key rate limit, size
+// cap, strict privacy-gated parse, then publish to the bus. Rejections are
+// counted per tenant and served at /v1/rum (privacy honesty), and the response
+// never echoes payload content.
 func (s *Server) handleRUMBeacon(w http.ResponseWriter, r *http.Request) error {
 	if s.rumEngine == nil || s.rumPublish == nil {
 		rumCORS(w, r.Header.Get("Origin"), nil)
@@ -150,10 +268,15 @@ func (s *Server) handleRUMBeacon(w http.ResponseWriter, r *http.Request) error {
 	// strict parse attributes its rejection to the right tenant). SEC-005: the
 	// CORS reflection is now scoped to this app key's allow-list (if any).
 	key := rum.PeekKey(body)
-	rumCORS(w, r.Header.Get("Origin"), s.rumAllowedOriginsFor(key))
+	reqOrigin := r.Header.Get("Origin")
+	rumCORS(w, reqOrigin, s.rumAllowedOriginsFor(key))
 	app, ok := s.rumApps[key]
 	if !ok {
 		return apierror.Unauthorized("unknown app key")
+	}
+	if len(app.AllowedOrigins) > 0 && !rumOriginAllowed(reqOrigin, app.AllowedOrigins) {
+		s.rumEngine.RecordReject(app.Tenant, rum.RejectBadField)
+		return apierror.Forbidden("rum origin not allowed")
 	}
 	if !s.rumLimiter.allow(key) {
 		w.Header().Set("Retry-After", "60")

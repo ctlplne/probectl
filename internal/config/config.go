@@ -463,12 +463,13 @@ type Config struct {
 	OutageRadarToken   string
 
 	// RUM convergence (S47b, F20). OFF by default: enabling opens the beacon
-	// ingest (an unauthenticated-session inbound surface — each beacon
-	// authenticates via its app key). RUMApps maps app keys to
-	// "tenant/app" bindings (the key in a page is an identifier, not a
-	// secret); RUMRatePerMin bounds each key's beacon rate. Privacy
-	// (consent, URL redaction, no IP storage) is enforced server-side in
-	// internal/rum regardless of configuration.
+	// ingest (an unauthenticated-session inbound surface). RUMApps maps public
+	// app keys to "tenant/app" routing bindings, with optional
+	// ";origins=https://site.example|https://www.site.example" allow-lists.
+	// Origins are required under multi-tenant/regulated deployment profiles.
+	// The key in a page is an identifier, not a secret; RUMRatePerMin bounds
+	// each key's beacon rate. Privacy (consent, URL redaction, no IP storage)
+	// is enforced server-side in internal/rum regardless of configuration.
 	RUMEnabled    bool
 	RUMApps       map[string]string
 	RUMRatePerMin int

@@ -452,11 +452,11 @@ func (s *Server) routes() http.Handler {
 	// tenant, and resolves the linked incident (then loop-protected cross-sync).
 	mux.Handle("POST /ingest/itsm/{provider}/{id}", apiHandler(s.handleITSMWebhook))
 
-	// RUM beacon ingest (S47b) — same model again: each beacon authenticates
-	// itself via its app key (in the body — sendBeacon cannot set headers) and
-	// is bound to the KEY's tenant, never the payload's. Consent + redaction
-	// are enforced before anything is published. OPTIONS serves the CORS
-	// preflight (browsers post cross-origin; write-only, credential-less).
+	// RUM beacon ingest (S47b) — mounted off /v1, but the app key is a public
+	// routing key, not authentication. The server binds to the KEY's tenant
+	// (never the payload's), enforces optional origin allow-lists, and applies
+	// consent + redaction before anything is published. OPTIONS serves CORS
+	// preflight for browser beacons (write-only, credential-less).
 	mux.Handle("POST /ingest/rum", apiHandler(s.handleRUMBeacon))
 	mux.Handle("OPTIONS /ingest/rum", apiHandler(s.handleRUMPreflight))
 

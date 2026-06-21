@@ -1517,11 +1517,12 @@ each other for the same service.
 | Variable | Default | Purpose |
 |---|---|---|
 | `PROBECTL_RUM_ENABLED`      | `false` | the browser-beacon ingest + synthetic↔RUM convergence engine (an inbound surface — opt-in) |
-| `PROBECTL_RUM_APPS`         | (none)  | app-key registry `pk_key=tenant/app,...` — each beacon binds to its KEY's tenant; enabled-but-empty fails startup |
+| `PROBECTL_RUM_APPS`         | (none)  | public app-key registry `pk_key=tenant/app;origins=https://shop.example\|https://www.shop.example,...` — origins are required under `multi-tenant`/`regulated`, optional in `single`; each beacon binds to its KEY's tenant; enabled-but-empty fails startup |
 | `PROBECTL_RUM_RATE_PER_MIN` | `300`   | per-key beacon rate limit (429 + Retry-After above it; 0 = unlimited) |
 
-Beacons ingest at `POST /ingest/rum` (app-key authenticated, consent-gated,
-URL-redacted, no IP stored — privacy is enforced server-side, fail closed);
+Beacons ingest at `POST /ingest/rum` (public-key routed, optional origin
+allow-listed, consent-gated, URL-redacted, no IP stored — privacy is enforced
+server-side, fail closed);
 the convergence view serves at `GET /v1/rum` and folds into the Endpoints
 surface; `rum.*` vitals flow to the TSDB for dashboards. The SDK is
 `web/public/probectl-rum.js`. See `docs/rum.md`.

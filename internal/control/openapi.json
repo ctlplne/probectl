@@ -3212,11 +3212,11 @@
     "/ingest/rum": {
       "post": {
         "operationId": "ingestRUMBeacon",
-        "summary": "RUM beacon ingest (S47b) \u2014 app-key authenticated",
+        "summary": "RUM beacon ingest (S47b) \u2014 public-key routed",
         "tags": [
           "rum"
         ],
-        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon authenticates itself via its app key (in the body \u2014 sendBeacon cannot set headers) and is bound to the KEY's configured tenant, never the payload's. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After) and a 16KiB size cap (413) bound the surface. CORS: wildcard origin, write-only, credential-less; OPTIONS serves the preflight.",
+        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon carries a public app key in the body (sendBeacon cannot set headers); the key routes to the configured tenant/app and rate-limit bucket, but it is not authentication and never grants read access. The server binds to the KEY's configured tenant, never the payload's. Multi-tenant and regulated deployments require configured origins, and any configured origin allow-list rejects off-list or missing Origins before publish. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After) and a 16KiB size cap (413) bound the surface. CORS: wildcard only when no origin allow-list is configured; allow-listed apps echo only matching Origins; write-only, credential-less; OPTIONS serves the preflight.",
         "requestBody": {
           "required": true,
           "content": {
