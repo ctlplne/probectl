@@ -73,6 +73,8 @@ reach for most:
 | `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                 |
 | `make lint`                        | `lint-go` + `lint-python`                                                         |
 | `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                 |
+| `make sdk`                         | Generate Go + TypeScript REST SDKs from `internal/control/openapi.json`           |
+| `make sdk-gate`                    | Regenerate REST SDKs, fail on drift, and compile the generated Go SDK sample      |
 | `make proto`                       | `buf lint` + generate Go (+ gRPC) from `proto/`                                   |
 | `make proto-tools`                 | Install protobuf codegen tools (buf + Go plugins, pinned)                         |
 | `make migrate`                     | Apply DB migrations via `probectl-control migrate`                                |
@@ -86,7 +88,7 @@ reach for most:
 > suite — the integration, isolation-against-real-DBs, eBPF-kernel-matrix,
 > coverage, and supply-chain gates run in GitHub Actions (next section). Most
 > per-surface gates have an identically-named `make` target you can run
-> yourself: `editions-gate`, `fips-gate`, `openapi-gate`, `migration-gate`,
+> yourself: `editions-gate`, `fips-gate`, `openapi-gate`, `sdk-gate`, `migration-gate`,
 > `helm-gate`, `gitops-gate`, `terraform-gate`, `cover-gate`, `perf-smoke`,
 > `e2e`.
 
@@ -113,6 +115,7 @@ This is the full list; `ci.yml` is the source of truth.
 | `test-python`            | analyzer `pytest` (incl. Hypothesis property tests) + hash-lock drift refusal                                                                                                                                                                            |
 | `browser-worker`         | the Playwright synthetic worker: real-browser scripted-login smoke inside the official Playwright image                                                                                                                                                  |
 | `openapi-gate`           | spec is valid OpenAPI 3.1 and the registered `/v1` routes exactly match it (no undocumented routes)                                                                                                                                                      |
+| `sdk-gate`               | REST SDKs regenerate from `internal/control/openapi.json` without drift, and the generated Go SDK sample compiles against `ListTests`                                                                                                                     |
 | `migration-gate`         | expand/contract migrations only — rejects destructive/blocking schema changes                                                                                                                                                                            |
 | `helm-gate`              | chart hardening for every profile + the agent chart (`make helm-gate`), kubeconform on the rendered charts, GitOps manifest validation (`make gitops-gate`), compose config validation                                                                   |
 | `compose-image-gate`     | shipped Compose image, install docs, GHCR auth/mirror instructions, and optional anonymous-pull smoke stay in lockstep                                                                                                                                   |

@@ -1,36 +1,12 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import type { Test, TestList, TestRequest } from './sdk.gen'
 
-export interface Test {
-  id: string
-  name: string
-  type: string
-  target: string
-  interval_seconds: number
-  timeout_seconds: number
-  params: Record<string, string>
-  enabled: boolean
-  created_at: string
-  updated_at: string
-}
-
-export interface TestInput {
-  name: string
-  type: string
-  target: string
-  interval_seconds: number
-  timeout_seconds: number
-  params?: Record<string, string>
-  enabled: boolean
-}
+export type { Test } from './sdk.gen'
+export type TestInput = Omit<TestRequest, 'type'> & { type: string }
 
 const key = ['tests'] as const
 const pageSize = 50
-
-interface TestList {
-  items: Test[]
-  next_cursor?: string
-}
 
 export function useTests() {
   const query = useInfiniteQuery({

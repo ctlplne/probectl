@@ -304,6 +304,19 @@ tidy: ## Tidy go.mod across modules.
 	@for d in $(GO_MODULE_DIRS); do ( cd $$d && $(GO) mod tidy ); done
 
 # ---- codegen -------------------------------------------------------------
+.PHONY: sdk
+sdk: ## Generate Go + TypeScript REST SDKs from the committed OpenAPI spec.
+	$(GO) run ./cmd/probectl-sdkgen \
+		-spec internal/control/openapi.json \
+		-go-out pkg/sdk/sdk.gen.go \
+		-ts-out web/src/api/sdk.gen.ts
+
+.PHONY: sdk-gate
+sdk-gate: sdk ## Regenerate REST SDKs, fail on drift, and compile the Go sample.
+	git diff --exit-code -- pkg/sdk/sdk.gen.go web/src/api/sdk.gen.ts \
+		|| { echo "REST SDKs are stale — run 'make sdk' and commit generated clients"; exit 1; }
+	$(GO) test -count=1 ./cmd/probectl-sdkgen ./pkg/sdk ./examples/sdk
+
 .PHONY: proto
 proto: ## Lint and generate Go (+ gRPC) from protobuf via buf.
 	@command -v buf >/dev/null 2>&1 || { echo "buf not installed — run 'make proto-tools'"; exit 1; }
