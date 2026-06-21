@@ -415,6 +415,13 @@ and resource limits. Rendering **fails closed**: no `tenantID`, L7 capture witho
 refuses to template. CI helm-lints, hardening-asserts, and kubeconform-validates
 the chart on every run.
 
+Health probes are listenerless by default. The agent writes `live.json` and
+`ready.json` under `health.stateDir`, and the DaemonSet uses exec probes that run
+`/usr/local/bin/app healthcheck --live|--ready` inside the container. The
+compatibility HTTP mode (`/healthz` and `/readyz` on `health.port`) is fenced
+behind `health.mode=http` plus `health.allowPlaintextHTTP=true`; the default chart
+does not open port 9090.
+
 The chart also renders the cluster-side Kyverno image-integrity policy by
 default. Think of it as the second lock on this privileged pod: Helm requires a
 digest-pinned image reference, and admission then requires that digest plus the

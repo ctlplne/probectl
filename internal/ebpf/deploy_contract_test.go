@@ -206,6 +206,72 @@ func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestAgentHelmHealthDefaultsUseExecProbes(t *testing.T) {
+	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
+	configmap := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/configmap.yaml")
+	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")
+	schema := readDeployContractFile(t, "deploy/helm/probectl-agent/values.schema.json")
+	hardening := readDeployContractFile(t, "scripts/check_helm_hardening.sh")
+
+	for _, want := range []string{
+		"mode: exec",
+		"stateDir: /var/run/probectl-ebpf-agent",
+		"allowPlaintextHTTP: false",
+		"explicit plaintext acknowledgement",
+	} {
+		if !strings.Contains(values, want) {
+			t.Errorf("agent values.yaml missing exec health default %q (WIRE-004)", want)
+		}
+	}
+	for _, want := range []string{
+		"health_state_dir:",
+		"WIRE-004: exec probes; no plaintext listener",
+		"health_addr:",
+		"compatibility-only HTTP probes",
+	} {
+		if !strings.Contains(configmap, want) {
+			t.Errorf("agent ConfigMap missing health-mode rendering %q (WIRE-004)", want)
+		}
+	}
+	for _, want := range []string{
+		"health.mode must be exec or http",
+		"health.mode=http opens a plaintext pod listener",
+		"health.allowPlaintextHTTP=true",
+		"/usr/local/bin/app",
+		"healthcheck",
+		"--live",
+		"--ready",
+		"health-state",
+		"emptyDir: {}",
+	} {
+		if !strings.Contains(daemonset, want) {
+			t.Errorf("agent DaemonSet missing exec health contract %q (WIRE-004)", want)
+		}
+	}
+	for _, want := range []string{
+		"\"health\"",
+		"\"mode\"",
+		"\"exec\"",
+		"\"http\"",
+		"\"stateDir\"",
+		"\"allowPlaintextHTTP\"",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("agent values.schema.json missing health schema term %q (WIRE-004)", want)
+		}
+	}
+	for _, want := range []string{
+		"default health probe is not exec-based",
+		"default chart renders plaintext httpGet health probes",
+		"default chart opens plaintext health port 9090",
+		"HTTP health mode without health.allowPlaintextHTTP=true",
+	} {
+		if !strings.Contains(hardening, want) {
+			t.Errorf("helm hardening gate missing WIRE-004 assertion %q", want)
+		}
+	}
+}
+
 func TestAgentDocsMentionNonStandardSecretHeaderRedaction(t *testing.T) {
 	doc := readDeployContractFile(t, "docs/ebpf-agent.md")
 	for _, want := range []string{

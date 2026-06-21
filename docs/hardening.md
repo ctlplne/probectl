@@ -444,10 +444,13 @@ CronJobs.
 
 Other day-2 surfaces, all chart-managed:
 
-- **Probes:** the control Deployment and the agent DaemonSet both ship liveness
-  (`/healthz`) and readiness (`/readyz`) probes. Agent readiness reflects
-  flow-source attachment, so a stuck `bpf()` call or a kernel lockdown surfaces
-  as *not ready* rather than a silently dead pod.
+- **Probes:** the control Deployment keeps `/healthz` and `/readyz` process
+  probes under the chart's ingress and NetworkPolicy posture. The eBPF agent
+  DaemonSet uses exec probes by default: the agent writes health state files and
+  `probectl-ebpf-agent healthcheck` verifies freshness, so no plaintext pod
+  listener is opened. Agent readiness reflects flow-source attachment, so a
+  stuck `bpf()` call or a kernel lockdown surfaces as *not ready* rather than a
+  silently dead pod.
 - **/metrics:** the control plane serves Prometheus self-metrics (process and
   aggregate only — no tenant data) at `/metrics`, scraped by the ServiceMonitor
   (`metrics.serviceMonitor.enabled`).

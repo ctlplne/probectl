@@ -53,9 +53,14 @@ type Config struct {
 	MaxL7Conns      int           `yaml:"max_l7_conns"`
 	L7ConnIdleTTL   time.Duration `yaml:"l7_conn_idle_ttl"`
 
-	// HealthAddr binds the liveness/readiness probe server (OPS-001), e.g.
-	// ":9090". Empty disables it (the no-k8s/dev default).
+	// HealthAddr binds the compatibility liveness/readiness HTTP probe server
+	// (OPS-001), e.g. ":9090". Empty disables it. Kubernetes uses
+	// HealthStateDir by default so no plaintext listener is opened.
 	HealthAddr string `yaml:"health_addr"`
+
+	// HealthStateDir writes exec-probe health state files, avoiding any
+	// plaintext listener in Kubernetes. Empty disables file health.
+	HealthStateDir string `yaml:"health_state_dir"`
 
 	// RingBufferBytes sizes the kernel ring buffer (live source only); it is
 	// rounded to a valid power-of-two page multiple at load (U-050) and must
@@ -199,6 +204,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	if v := getenv("PROBECTL_EBPF_HEALTH_ADDR"); v != "" {
 		c.HealthAddr = v
+	}
+	if v := getenv("PROBECTL_EBPF_HEALTH_STATE_DIR"); v != "" {
+		c.HealthStateDir = v
 	}
 	if v := getenv("PROBECTL_EBPF_L7_CAPTURE"); v != "" {
 		c.L7CaptureEnabled = v == "true"

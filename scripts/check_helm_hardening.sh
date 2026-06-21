@@ -233,11 +233,28 @@ need "allowPrivilegeEscalation: false"  "$agent" "agent: privilege escalation no
 need "automountServiceAccountToken: false" "$agent" "agent: SA token automounted"
 need "/sys/kernel/btf/vmlinux"          "$agent" "agent: BTF host mount missing"
 need "limits:"                          "$agent" "agent: no resource limits"
-# OPS-001: the DaemonSet ships real liveness + readiness probes.
+# OPS-001/WIRE-004: the DaemonSet ships real liveness + readiness probes
+# without opening a plaintext health listener by default.
 need "livenessProbe:"                   "$agent" "agent: no liveness probe (OPS-001)"
 need "readinessProbe:"                  "$agent" "agent: no readiness probe (OPS-001)"
-need "path: /healthz"                   "$agent" "agent: liveness probe not wired to /healthz"
-need "path: /readyz"                    "$agent" "agent: readiness probe not wired to /readyz"
+need "exec:"                            "$agent" "agent: default health probe is not exec-based (WIRE-004)"
+need "healthcheck"                      "$agent" "agent: exec healthcheck command missing (WIRE-004)"
+need "--live"                           "$agent" "agent: liveness exec probe missing --live (WIRE-004)"
+need "--ready"                          "$agent" "agent: readiness exec probe missing --ready (WIRE-004)"
+need "health_state_dir:"                "$agent" "agent: health state directory not rendered (WIRE-004)"
+if grep -q "httpGet:" <<<"$agent"; then
+  fail "agent: default chart renders plaintext httpGet health probes (WIRE-004)"
+fi
+if grep -q "containerPort: 9090" <<<"$agent"; then
+  fail "agent: default chart opens plaintext health port 9090 (WIRE-004)"
+fi
+if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set health.mode=http >/dev/null 2>&1; then
+  fail "agent chart rendered HTTP health mode without health.allowPlaintextHTTP=true (WIRE-004)"
+fi
+http_agent="$(arender --set health.mode=http --set health.allowPlaintextHTTP=true)"
+need "path: /healthz"                   "$http_agent" "agent: acknowledged HTTP health mode missing /healthz"
+need "path: /readyz"                    "$http_agent" "agent: acknowledged HTTP health mode missing /readyz"
 grep -q "SYS_ADMIN" <<<"$agent" && fail "agent: SYS_ADMIN in the DEFAULT profile (legacy mode only)"
 # EBPF-002: L7 capture must render the full runtime contract, and enabled
 # capture without scope must fail at template time.

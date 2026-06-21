@@ -953,7 +953,8 @@ fail-closed posture for the most sensitive thing this agent can do.
 | `PROBECTL_EBPF_MAX_SERVICE_EDGES` | `50000`  | cap on live service-map edges (EBPF-001/SCALE-003); least-recently-seen evicted past the cap. `0` = unbounded (lightweight/test only) |
 | `PROBECTL_EBPF_MAX_L7_CONNS`   | `8192`      | cap on live L7 per-connection trackers (FUZZ-001); oldest-seen connection evicted past the cap. `0` = unbounded |
 | `PROBECTL_EBPF_L7_CONN_IDLE_TTL` | `5m`      | a connection/edge idle longer than this is abandoned on the flush ticker (FUZZ-001) — connIDs have no socket-close signal yet, so this sweep bounds the maps |
-| `PROBECTL_EBPF_HEALTH_ADDR`    | (none)      | bind a liveness/readiness probe server (e.g. `:9090`; `/healthz` = process up, `/readyz` = flow source attached). Empty disables it. The Helm DaemonSet sets it from `health.port` |
+| `PROBECTL_EBPF_HEALTH_STATE_DIR` | (none)    | write `live.json` and `ready.json` health state files for exec probes. The Helm DaemonSet sets this from `health.stateDir` by default so probes work without opening a plaintext listener |
+| `PROBECTL_EBPF_HEALTH_ADDR`    | (none)      | compatibility-only liveness/readiness HTTP probe server (e.g. `:9090`; `/healthz` = process up, `/readyz` = flow source attached). Empty disables it. The Helm chart renders this only with `health.mode=http` and `health.allowPlaintextHTTP=true` |
 | `PROBECTL_EBPF_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                         |
 | `PROBECTL_EBPF_LOG_FORMAT`     | `json`      | `json` \| `text`                                               |
 

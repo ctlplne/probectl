@@ -116,9 +116,13 @@ updateStrategy:
   rollingUpdate:
     maxUnavailable: 10%
 
-# OPS-001: liveness/readiness probe server. The DaemonSet wires httpGet
-# probes to /healthz (process up) and /readyz (flow source attached +
-# streaming) on this port. Disable only for a no-orchestrator run.
+# OPS-001/WIRE-004: liveness/readiness probes. The secure default is exec mode:
+# the agent writes state files and Kubernetes probes them with the binary, so no
+# plaintext listener is opened. HTTP mode is compatibility-only and requires the
+# explicit plaintext acknowledgement below.
 health:
   enabled: true
+  mode: exec # exec | http
+  stateDir: /var/run/probectl-ebpf-agent
   port: 9090
+  allowPlaintextHTTP: false

@@ -33,6 +33,12 @@ func main() {
 		case "version", "-version", "--version":
 			fmt.Println("probectl-ebpf-agent", version.Get())
 			return
+		case "healthcheck":
+			if err := runHealthcheck(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "probectl-ebpf-agent healthcheck:", err)
+				os.Exit(1)
+			}
+			return
 		}
 	}
 	if err := run(); err != nil {
@@ -81,7 +87,29 @@ func run() error {
 			}
 		}()
 	}
+	if err := ebpf.StartHealthFileWriter(ctx, cfg.HealthStateDir, agent); err != nil {
+		return err
+	}
 	return agent.Run(ctx)
+}
+
+func runHealthcheck(args []string) error {
+	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	stateDir := fs.String("state-dir", ebpf.DefaultHealthStateDir, "directory containing eBPF agent health state files")
+	live := fs.Bool("live", false, "check liveness")
+	ready := fs.Bool("ready", false, "check readiness")
+	maxAge := fs.Duration("max-age", ebpf.DefaultHealthStateMaxAge, "maximum accepted state file age")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *live == *ready {
+		return fmt.Errorf("set exactly one of --live or --ready")
+	}
+	name := "live"
+	if *ready {
+		name = "ready"
+	}
+	return ebpf.CheckHealthState(*stateDir, name, *maxAge)
 }
 
 func envOr(key, def string) string {

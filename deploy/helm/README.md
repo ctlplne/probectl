@@ -88,7 +88,12 @@ lets one compiled BPF object adapt to any kernel). It **fails closed**: the
 chart refuses to
 render without a `tenantID` (every captured flow must belong to a tenant), and
 refuses plaintext Kafka unless you set the explicit dev-only
-`bus.allowPlaintext=true`.
+`bus.allowPlaintext=true`. Liveness/readiness use exec probes by default: the
+agent writes small state files in `health.stateDir`, and Kubernetes runs
+`probectl-ebpf-agent healthcheck` inside the container. That keeps the default
+DaemonSet from opening a plaintext health port. The old HTTP probe listener is
+compatibility-only and renders only with both `health.mode=http` and
+`health.allowPlaintextHTTP=true`.
 
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \

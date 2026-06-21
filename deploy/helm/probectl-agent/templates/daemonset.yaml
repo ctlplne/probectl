@@ -9,6 +9,12 @@
 {{- if and (not .Values.image.allowTagOnly) (not (regexMatch "@sha256:[a-fA-F0-9]{64}$" $imageTag)) -}}
 {{- fail "privileged eBPF agent image must be digest-pinned: set image.tag='<version>@sha256:<digest>' or explicitly break glass with image.allowTagOnly=true" -}}
 {{- end -}}
+{{- if and .Values.health.enabled (not (or (eq .Values.health.mode "exec") (eq .Values.health.mode "http"))) -}}
+{{- fail "health.mode must be exec or http" -}}
+{{- end -}}
+{{- if and .Values.health.enabled (eq .Values.health.mode "http") (not .Values.health.allowPlaintextHTTP) -}}
+{{- fail "health.mode=http opens a plaintext pod listener; keep health.mode=exec or set health.allowPlaintextHTTP=true as an explicit compatibility acknowledgement" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -83,13 +89,13 @@ spec:
           image: "{{ .Values.image.repository }}:{{ $imageTag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--config", "/etc/probectl/ebpf-agent.yaml"]
-          {{- if .Values.health.enabled }}
+          {{- if and .Values.health.enabled (eq .Values.health.mode "http") }}
           ports:
             - name: health
               containerPort: {{ .Values.health.port }}
-          # OPS-001: liveness restarts a dead agent; readiness depools a
+          # OPS-001 compatibility mode: liveness restarts a dead agent; readiness depools a
           # not-yet-attached one (stuck CAP_PERFMON / kernel lockdown shows
-          # up instead of a silently-dead pod).
+          # up instead of a silently-dead pod). WIRE-004 keeps this off by default.
           livenessProbe:
             httpGet:
               path: /healthz
@@ -100,6 +106,30 @@ spec:
             httpGet:
               path: /readyz
               port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- else if and .Values.health.enabled (eq .Values.health.mode "exec") }}
+          # OPS-001/WIRE-004: liveness/readiness without opening a plaintext
+          # listener. The agent writes state files in health.stateDir; the same
+          # binary checks freshness and status.
+          livenessProbe:
+            exec:
+              command:
+                - /usr/local/bin/app
+                - healthcheck
+                - --state-dir
+                - {{ required "health.stateDir is required when health.mode=exec" .Values.health.stateDir | quote }}
+                - --live
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/app
+                - healthcheck
+                - --state-dir
+                - {{ required "health.stateDir is required when health.mode=exec" .Values.health.stateDir | quote }}
+                - --ready
             initialDelaySeconds: 5
             periodSeconds: 10
           {{- end }}
@@ -153,6 +183,10 @@ spec:
               mountPath: /etc/probectl/bus-tls
               readOnly: true
             {{- end }}
+            {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
+            - name: health-state
+              mountPath: {{ required "health.stateDir is required when health.mode=exec" .Values.health.stateDir | quote }}
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -173,6 +207,12 @@ spec:
           hostPath:
             path: /sys/kernel/btf/vmlinux
             type: File
+        {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
+        # WIRE-004: writable state for exec health probes; avoids a plaintext
+        # pod listener while the root filesystem stays read-only.
+        - name: health-state
+          emptyDir: {}
+        {{- end }}
         {{- if and .Values.bus.tls.enabled .Values.bus.tls.existingSecret }}
         - name: bus-tls
           secret:

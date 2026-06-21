@@ -5,7 +5,11 @@ package ebpf
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 type fakeHealth struct{ live, ready bool }
@@ -46,5 +50,40 @@ func TestNilHealthServerRunNoop(t *testing.T) {
 	var h *HealthServer
 	if err := h.Run(nil); err != nil { //nolint:staticcheck // nil ctx is fine for the nil-receiver no-op
 		t.Fatalf("nil health server must be a no-op: %v", err)
+	}
+}
+
+func TestHealthStateFilesDriveExecProbe(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := writeHealthFiles(dir, fakeHealth{live: true, ready: false}); err != nil {
+		t.Fatalf("write initial health files: %v", err)
+	}
+	if err := CheckHealthState(dir, "live", time.Minute); err != nil {
+		t.Fatalf("live state should pass: %v", err)
+	}
+	if err := CheckHealthState(dir, "ready", time.Minute); err == nil {
+		t.Fatal("ready=false must fail readiness")
+	}
+
+	if err := writeHealthFiles(dir, fakeHealth{live: true, ready: true}); err != nil {
+		t.Fatalf("write ready health files: %v", err)
+	}
+	if err := CheckHealthState(dir, "ready", time.Minute); err != nil {
+		t.Fatalf("ready state should pass: %v", err)
+	}
+}
+
+func TestHealthStateFailsClosedOnStaleOrInvalidFiles(t *testing.T) {
+	dir := t.TempDir()
+	stale := `{"status":true,"updated_at":"` + time.Now().Add(-time.Hour).UTC().Format(time.RFC3339Nano) + `"}`
+	if err := os.WriteFile(filepath.Join(dir, "live.json"), []byte(stale), 0o600); err != nil {
+		t.Fatalf("write stale health file: %v", err)
+	}
+	if err := CheckHealthState(dir, "live", time.Second); err == nil || !strings.Contains(err.Error(), "stale") {
+		t.Fatalf("stale health file should fail closed, got %v", err)
+	}
+	if err := CheckHealthState(dir, "bogus", time.Second); err == nil || !strings.Contains(err.Error(), "invalid probe") {
+		t.Fatalf("invalid probe should fail closed, got %v", err)
 	}
 }
