@@ -4,6 +4,7 @@ package control
 
 import (
 	"encoding/json"
+	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -41,6 +42,49 @@ func TestEveryV1RouteIsDocumented(t *testing.T) {
 		}
 		if !documented[r.Pattern] {
 			t.Errorf("route %s %s is not in openapi.json (undocumented surface)", r.Method, r.Pattern)
+		}
+	}
+}
+
+// ARCH-004: apiRoutes is the single route ledger, so each ledger row must be a
+// unique, versioned, permission-bearing operation with a real handler. This
+// complements OpenAPI parity: parity catches doc drift, while this catches
+// duplicate entries and accidental permissionless routes before they collapse
+// into the parity test's map key.
+func TestAPIRouteTableEntriesAreUniqueAndPermissioned(t *testing.T) {
+	validMethods := map[string]bool{
+		http.MethodDelete: true,
+		http.MethodGet:    true,
+		http.MethodPatch:  true,
+		http.MethodPost:   true,
+		http.MethodPut:    true,
+	}
+	permissionOptional := map[string]bool{
+		"GET /v1/me": true,
+	}
+	seen := map[string]bool{}
+	for _, r := range (&Server{}).apiRoutes() {
+		key := r.Method + " " + r.Pattern
+		if seen[key] {
+			t.Errorf("duplicate apiRoute entry %q", key)
+		}
+		seen[key] = true
+		if !validMethods[r.Method] {
+			t.Errorf("route %q uses unsupported HTTP method %q", key, r.Method)
+		}
+		if !strings.HasPrefix(r.Pattern, "/v1/") {
+			t.Errorf("route %q is not versioned under /v1/", key)
+		}
+		if r.Handler == nil {
+			t.Errorf("route %q has nil handler", key)
+		}
+		if r.Permission == "" && !permissionOptional[key] {
+			t.Errorf("route %q has no permission; only /v1/me is intentionally authenticated-without-specific-permission", key)
+		}
+	}
+	for key := range permissionOptional {
+		if !seen[key] {
+			t.Errorf("permission-optional allowlist entry %q is stale", key)
 		}
 	}
 }
