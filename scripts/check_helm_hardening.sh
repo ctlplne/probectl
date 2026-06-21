@@ -216,6 +216,12 @@ need "required: true"                   "$agent" "agent: image signature verific
 need "verifyDigest: true"              "$agent" "agent: image digest verification is not enforced (SUPPLY-001)"
 need "validationFailureAction: Enforce" "$agent" "agent: image-integrity policy is not enforcing (SUPPLY-001)"
 need_fixed 'release\\.yml@refs/tags'  "$agent" "agent: release workflow OIDC subject is not pinned (SUPPLY-001)"
+need "probectl-agent-capability-posture" "$agent" "agent: capability posture ClusterPolicy missing (EBPF-007)"
+need "probectl.dev/finding: EBPF-007"    "$agent" "agent: capability posture policy is not tied to EBPF-007"
+need "validationFailureAction: Audit"    "$agent" "agent: capability posture policy must report, not hide, legacy/extra capabilities (EBPF-007)"
+need "background: true"                  "$agent" "agent: capability posture policy must scan existing pods (EBPF-007)"
+need "AnyNotIn"                          "$agent" "agent: capability posture policy does not check added/dropped capabilities (EBPF-007)"
+need "SYS_ADMIN is legacy break-glass"   "$agent" "agent: capability posture policy does not report legacy SYS_ADMIN (EBPF-007)"
 need 'drop: \["ALL"\]'                  "$agent" "agent: capabilities not dropped to ALL"
 need '"BPF", "PERFMON"'                 "$agent" "agent: minimal capability pair not declared"
 need "seccompProfile"                   "$agent" "agent: no seccomp profile"
@@ -279,6 +285,8 @@ if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:90
 fi
 legacy="$(arender --set capabilityMode=legacy --set legacyKernelRingBufferAck=i-confirm-runtime-ring-buffer-support)"
 need "SYS_ADMIN" "$legacy" "agent: acknowledged legacy mode missing SYS_ADMIN"
+need "probectl-agent-capability-posture" "$legacy" "agent: acknowledged legacy mode lost capability posture audit policy (EBPF-007)"
+need "validationFailureAction: Audit" "$legacy" "agent: acknowledged legacy mode must still report capability posture (EBPF-007)"
 
 # fail-closed rendering: no tenant, or plaintext kafka without the explicit
 # dev override, must refuse (guardrail 1 / U-010).

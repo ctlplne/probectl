@@ -30,6 +30,15 @@ admission:
       - ghcr.io/imfeelingtheagi/probectl-ebpf-agent*
     issuer: https://token.actions.githubusercontent.com
     subjectRegExp: ^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/.*
+  # EBPF-007: background/admission audit for the agent's capability posture.
+  # This does not block the explicit legacy SYS_ADMIN break-glass by default;
+  # it creates Kyverno policy reports when a pod runs legacy or gains any
+  # capability outside the modern BPF+PERFMON pair.
+  capabilityPosture:
+    enabled: true
+    policyName: probectl-agent-capability-posture
+    validationFailureAction: Audit
+    background: true
 
 # REQUIRED: the tenant every flow from these nodes belongs to (guardrail 1).
 tenantID: ""

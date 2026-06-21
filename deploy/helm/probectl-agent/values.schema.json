@@ -79,6 +79,25 @@
               "minLength": 1
             }
           }
+        },
+        "capabilityPosture": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "policyName": {
+              "type": "string",
+              "minLength": 1
+            },
+            "validationFailureAction": {
+              "type": "string",
+              "enum": ["Enforce", "Audit"]
+            },
+            "background": {
+              "type": "boolean"
+            }
+          }
         }
       }
     },

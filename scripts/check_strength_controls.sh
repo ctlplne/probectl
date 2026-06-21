@@ -15,7 +15,7 @@ ids=(
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008 CORRECT-009
   COVER-008 COVER-009
   DOCS-004 DOCS-005 DOCS-006 DOCS-007 DOCS-008
-  EBPF-004 EBPF-005 EBPF-006 FUZZ-005
+  EBPF-004 EBPF-005 EBPF-006 EBPF-007 FUZZ-005
   KEYS-005 KEYS-006 KEYS-007
   OPS-007 OPS-008 OPS-009 OPS-010
   RED-006 RED-007 RED-008
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 68 ]; then
-  err "internal guard bug: expected 68 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 69 ]; then
+  err "internal guard bug: expected 69 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -203,6 +203,12 @@ need_pattern EBPF-006 internal/ebpf/l7bounds_test.go 'MaxL7Conns|MaxServiceEdges
 need_pattern EBPF-006 internal/ebpf/runtime_test.go 'TestAgentRunReportsDrops|TestAgentRunReportsDetailedKernelDrops|syncDrops'
 need_pattern EBPF-006 internal/ebpf/l7/manager_bounds_test.go 'Evicted|SetBounds|N>>cap'
 need_pattern EBPF-006 internal/ebpf/bench_test.go 'TestAgentOverheadReport'
+need_pattern EBPF-007 deploy/helm/probectl-agent/values.yaml 'capabilityPosture:|probectl-agent-capability-posture|validationFailureAction: Audit|background: true'
+need_pattern EBPF-007 deploy/helm/probectl-agent/templates/capability-posture-policy.yaml 'probectl.dev/finding: EBPF-007|AnyNotIn|SYS_ADMIN is legacy break-glass|BPF|PERFMON'
+need_pattern EBPF-007 scripts/check_helm_hardening.sh 'capability posture ClusterPolicy missing|acknowledged legacy mode lost capability posture audit policy|SYS_ADMIN is legacy break-glass'
+need_pattern EBPF-007 internal/ebpf/deploy_contract_test.go 'TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps|policy reports|probectl-agent-capability-posture'
+need_pattern EBPF-007 docs/ebpf-agent.md 'probectl-agent-capability-posture|policy reports|EBPF-007'
+need_pattern EBPF-007 deploy/helm/README.md 'probectl-agent-capability-posture|policy reports|EBPF-007'
 need_pattern FUZZ-005 scripts/fuzz_smoke.sh 'go test.*-fuzz|fuzz-smoke'
 need_pattern FUZZ-005 scripts/list_fuzz_targets.sh 'Fuzz'
 need_pattern KEYS-005 scripts/check_crypto_imports.sh 'internal/crypto'

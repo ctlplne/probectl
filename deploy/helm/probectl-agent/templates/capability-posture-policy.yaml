@@ -1,0 +1,52 @@
+{{- $policy := .Values.admission.capabilityPosture -}}
+{{- $agentAdds := "{{ request.object.spec.containers[?name=='agent'].securityContext.capabilities.add[] || `[]` }}" -}}
+{{- $agentDrops := "{{ request.object.spec.containers[?name=='agent'].securityContext.capabilities.drop[] || `[]` }}" -}}
+{{- if $policy.enabled }}
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: {{ $policy.policyName | quote }}
+  labels:
+    {{- include "probectl-agent.labels" . | nindent 4 }}
+  annotations:
+    policies.kyverno.io/title: Audit probectl eBPF agent capability posture
+    policies.kyverno.io/category: Pod Security
+    policies.kyverno.io/severity: medium
+    probectl.dev/finding: EBPF-007
+spec:
+  validationFailureAction: {{ $policy.validationFailureAction }}
+  background: {{ $policy.background }}
+  rules:
+    - name: report-legacy-or-extra-ebpf-capabilities
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: {{ include "probectl-agent.name" . | quote }}
+                  app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      validate:
+        message: >-
+          probectl eBPF agent pods must drop ALL and add only BPF+PERFMON.
+          SYS_ADMIN is legacy break-glass, and any extra capability must surface
+          as an EBPF-007 capability-posture policy report.
+        deny:
+          conditions:
+            any:
+              - key:
+                  - ALL
+                operator: AnyNotIn
+                value: {{ $agentDrops | quote }}
+              - key:
+                  - BPF
+                  - PERFMON
+                operator: AnyNotIn
+                value: {{ $agentAdds | quote }}
+              - key: {{ $agentAdds | quote }}
+                operator: AnyNotIn
+                value:
+                  - BPF
+                  - PERFMON
+{{- end }}

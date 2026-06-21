@@ -79,8 +79,9 @@ replicas.
 with its privilege contract declared **in the artifact**, not implied:
 capabilities (the kernel's itemized slices of root privilege) drop ALL and add
 back exactly `CAP_BPF` + `CAP_PERFMON`
-(`capabilityMode: legacy` swaps in `CAP_SYS_ADMIN` for pre-5.8 kernels, which
-predate the two finer-grained capabilities), a
+(`capabilityMode: legacy` swaps in `CAP_SYS_ADMIN` only after the explicit
+`legacyKernelRingBufferAck` confirms the runtime probe saw BTF + BPF
+ring-buffer support, not as a generic old-kernel escape hatch), a
 seccomp profile (a kernel-enforced syscall filter on the process), a read-only
 root filesystem, and the
 `/sys/kernel/btf/vmlinux` host mount (the running kernel's type catalog, which
@@ -94,6 +95,13 @@ agent writes small state files in `health.stateDir`, and Kubernetes runs
 DaemonSet from opening a plaintext health port. The old HTTP probe listener is
 compatibility-only and renders only with both `health.mode=http` and
 `health.allowPlaintextHTTP=true`.
+
+The chart renders two Kyverno ClusterPolicies by default. The image-integrity
+policy enforces digest + keyless signature admission, and
+`probectl-agent-capability-posture` (EBPF-007) runs in background Audit mode so
+legacy `SYS_ADMIN` or any extra capability creates policy reports. In other
+words, the documented break-glass path stays available, but it cannot be
+invisible.
 
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \

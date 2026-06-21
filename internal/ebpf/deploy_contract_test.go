@@ -131,6 +131,81 @@ func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 	}
 }
 
+func TestAgentCapabilityPostureAdmissionAuditsLegacyAndExtraCaps(t *testing.T) {
+	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
+	schema := readDeployContractFile(t, "deploy/helm/probectl-agent/values.schema.json")
+	policy := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/capability-posture-policy.yaml")
+	hardening := readDeployContractFile(t, "scripts/check_helm_hardening.sh")
+	agentDoc := readDeployContractFile(t, "docs/ebpf-agent.md")
+	helmDoc := readDeployContractFile(t, "deploy/helm/README.md")
+
+	for _, want := range []string{
+		"capabilityPosture:",
+		"enabled: true",
+		"policyName: probectl-agent-capability-posture",
+		"validationFailureAction: Audit",
+		"background: true",
+	} {
+		if !strings.Contains(values, want) {
+			t.Errorf("agent values.yaml missing capability posture default %q (EBPF-007)", want)
+		}
+	}
+	for _, want := range []string{
+		"\"capabilityPosture\"",
+		"\"validationFailureAction\"",
+		"\"Enforce\"",
+		"\"Audit\"",
+		"\"background\"",
+	} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("agent values.schema.json missing capability posture schema term %q (EBPF-007)", want)
+		}
+	}
+	for _, want := range []string{
+		"kind: ClusterPolicy",
+		"probectl.dev/finding: EBPF-007",
+		"report-legacy-or-extra-ebpf-capabilities",
+		"validationFailureAction:",
+		"background:",
+		"SYS_ADMIN is legacy break-glass",
+		"AnyNotIn",
+		"ALL",
+		"BPF",
+		"PERFMON",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("agent capability posture policy missing %q (EBPF-007)", want)
+		}
+	}
+	for _, want := range []string{
+		"capability posture ClusterPolicy missing",
+		"capability posture policy must scan existing pods",
+		"acknowledged legacy mode lost capability posture audit policy",
+		"SYS_ADMIN is legacy break-glass",
+	} {
+		if !strings.Contains(hardening, want) {
+			t.Errorf("helm hardening gate missing capability posture assertion %q (EBPF-007)", want)
+		}
+	}
+	for _, doc := range []struct {
+		path string
+		body string
+	}{
+		{path: "docs/ebpf-agent.md", body: agentDoc},
+		{path: "deploy/helm/README.md", body: helmDoc},
+	} {
+		for _, want := range []string{
+			"probectl-agent-capability-posture",
+			"EBPF-007",
+			"policy reports",
+		} {
+			if !strings.Contains(doc.body, want) {
+				t.Errorf("%s missing capability posture documentation %q (EBPF-007)", doc.path, want)
+			}
+		}
+	}
+}
+
 func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
 	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
 	policy := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/image-integrity-policy.yaml")

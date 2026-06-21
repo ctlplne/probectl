@@ -430,6 +430,15 @@ already be installed. If a dev cluster uses a replacement admission controller,
 set `admission.imageIntegrity.enabled=false` only with a non-empty
 `admission.imageIntegrity.acceptedRisk` note.
 
+The chart also renders `probectl-agent-capability-posture` (EBPF-007), a
+Kyverno background/audit policy for capability drift. In ELI5 terms: the
+DaemonSet is allowed to carry the modern `BPF` + `PERFMON` keys, and the policy
+reports when a pod drops the `ALL` baseline, runs the explicit legacy
+`SYS_ADMIN` break-glass path, or gains any extra key such as `NET_ADMIN`. Those
+policy reports are the operational alert surface for capability posture; the
+default is Audit so the documented legacy exception remains human-gated instead
+of silently blocked.
+
 ```sh
 helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=acme \
