@@ -613,265 +613,255 @@ func Load(getenv func(string) string) (*Config, error) {
 	// per-plane scoping flags so they can default off it.
 	deploymentProfile := l.enum("PROBECTL_DEPLOYMENT_PROFILE", "single", "single", "multi-tenant", "regulated")
 	chScopeDefault := deploymentProfile == "multi-tenant" || deploymentProfile == "regulated"
-	cfg := &Config{
-		HTTPAddr:        l.str("PROBECTL_HTTP_ADDR", ":8080"),
-		ReadTimeout:     l.dur("PROBECTL_HTTP_READ_TIMEOUT", 15*time.Second),
-		WriteTimeout:    l.dur("PROBECTL_HTTP_WRITE_TIMEOUT", 15*time.Second),
-		IdleTimeout:     l.dur("PROBECTL_HTTP_IDLE_TIMEOUT", 60*time.Second),
-		ShutdownTimeout: l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second),
-		DatabaseURL:     l.str("PROBECTL_DATABASE_URL", "postgres://probectl:probectl@localhost:5432/probectl?sslmode=require"),
-		DatabaseReadURL: l.str("PROBECTL_DATABASE_READ_URL", ""),
-		// SCALE-009: a higher default pool ceiling and a warm floor. The old
-		// MaxConns=10 / MinConns=0 was tight for high fan-in (API + every
-		// consumer share the pool) and made the first request after idle pay a
-		// connect+TLS+SET-ROLE cold-start. 25/2 is a saner single-node default;
-		// docs/configuration.md gives per-tier sizing.
-		DatabaseMaxConns:         int32(l.intRange("PROBECTL_DATABASE_MAX_CONNS", 25, 1, 1000)),
-		DatabaseMinConns:         int32(l.intRange("PROBECTL_DATABASE_MIN_CONNS", 2, 0, 1000)),
-		Region:                   l.str("PROBECTL_REGION", ""),
-		Regions:                  l.list("PROBECTL_REGIONS"),
-		Residency:                l.str("PROBECTL_RESIDENCY", ""),
-		ReplicationMode:          l.enum("PROBECTL_REPLICATION_MODE", "async", "async", "sync"),
-		RPOSeconds:               l.float("PROBECTL_RPO_SECONDS", 0),
-		RTOSeconds:               l.float("PROBECTL_RTO_SECONDS", 60),
-		DatabaseConnTimeout:      l.dur("PROBECTL_DATABASE_CONNECT_TIMEOUT", 5*time.Second),
-		MigrateOnBoot:            l.boolean("PROBECTL_MIGRATE_ON_BOOT", false),
-		LogLevel:                 l.enum("PROBECTL_LOG_LEVEL", "info", "debug", "info", "warn", "error"),
-		LogFormat:                l.enum("PROBECTL_LOG_FORMAT", "json", "json", "text"),
-		RequireMFA:               l.boolean("PROBECTL_REQUIRE_MFA", false),
-		HSTSEnabled:              l.boolean("PROBECTL_HSTS_ENABLED", true),
-		HSTSMaxAge:               l.dur("PROBECTL_HSTS_MAX_AGE", 365*24*time.Hour),
-		TLSCertFile:              l.str("PROBECTL_TLS_CERT_FILE", ""),
-		TLSKeyFile:               l.str("PROBECTL_TLS_KEY_FILE", ""),
-		EnvelopeKey:              l.str("PROBECTL_ENVELOPE_KEY", ""),
-		EnvelopeKeyID:            l.str("PROBECTL_ENVELOPE_KEY_ID", "dev"),
-		EnvelopeOpenerKeys:       l.str("PROBECTL_ENVELOPE_OPENER_KEYS", ""),
-		EnvelopeKeyFile:          l.str("PROBECTL_ENVELOPE_KEY_FILE", ""),
-		PublicTLS:                l.boolean("PROBECTL_PUBLIC_TLS", false),
-		AllowPlaintextHTTP:       l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false),
-		BusWorkers:               l.intRange("PROBECTL_BUS_WORKERS", 4, 0, 256),
-		AllowKeylessDev:          l.boolean("PROBECTL_ALLOW_KEYLESS_DEV", false),
-		RequireAtRestEncryption:  l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", true),
-		AgentGRPCAddr:            l.str("PROBECTL_AGENT_GRPC_ADDR", ""),
-		AgentSkewWindow:          l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100),
-		AgentMinVersion:          l.str("PROBECTL_AGENT_MIN_VERSION", ""),
-		AgentTLSCertFile:         l.str("PROBECTL_AGENT_TLS_CERT_FILE", ""),
-		AgentTLSKeyFile:          l.str("PROBECTL_AGENT_TLS_KEY_FILE", ""),
-		AgentTLSCAFile:           l.str("PROBECTL_AGENT_TLS_CA_FILE", ""),
-		BusMode:                  l.enum("PROBECTL_BUS_MODE", "memory", "memory", "kafka"),
-		BusBrokers:               l.list("PROBECTL_BUS_BROKERS"),
-		BusMemoryBuffer:          l.intRange("PROBECTL_BUS_MEMORY_BUFFER", 1024, 1, 1<<20),
-		BusMemoryOverflow:        l.enum("PROBECTL_BUS_MEMORY_OVERFLOW", "block", "block", "drop"),
-		BusTLSEnabled:            l.boolean("PROBECTL_BUS_TLS_ENABLED", false),
-		BusTLSCAFile:             l.str("PROBECTL_BUS_TLS_CA_FILE", ""),
-		BusTLSCertFile:           l.str("PROBECTL_BUS_TLS_CERT_FILE", ""),
-		BusTLSKeyFile:            l.str("PROBECTL_BUS_TLS_KEY_FILE", ""),
-		BusSASLMechanism:         l.str("PROBECTL_BUS_SASL_MECHANISM", ""),
-		BusSASLUser:              l.str("PROBECTL_BUS_SASL_USER", ""),
-		BusSASLPassword:          l.str("PROBECTL_BUS_SASL_PASSWORD", ""),
-		BusAllowPlaintext:        l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false),
-		BusMaxBuffered:           l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000),
-		IngestMaxSeriesPerAgent:  l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_AGENT", 0, 0, 10_000_000),
-		IngestMaxSeriesPerTenant: l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_TENANT", 0, 0, 100_000_000),
-		IngestWriteWorkers:       l.intRange("PROBECTL_INGEST_WRITE_WORKERS", 4, 0, 4096),
-		IngestWriteQueue:         l.intRange("PROBECTL_INGEST_WRITE_QUEUE", 0, 0, 10_000_000),
-		TSDBMemoryRetention:      l.dur("PROBECTL_TSDB_MEMORY_RETENTION", 0),
-		TSDBMemoryMaxBytes:       l.intRange("PROBECTL_TSDB_MEMORY_MAX_BYTES", 0, 0, 1<<31-1),
-		AuditWORMDir:             l.str("PROBECTL_AUDIT_WORM_DIR", ""),
-		AuditWORMInterval:        l.dur("PROBECTL_AUDIT_WORM_INTERVAL", time.Hour),
-		AuditRetention:           l.dur("PROBECTL_AUDIT_RETENTION", 0),
-		WormSigningKey:           l.str("PROBECTL_WORM_SIGNING_KEY", ""),
-		WormSigningKeyFile:       l.str("PROBECTL_WORM_SIGNING_KEY_FILE", ""),
-		TestSyncSigningKeyFile:   l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", ""),
-		TSDBMode:                 l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus"),
-		TSDBURL:                  l.str("PROBECTL_TSDB_URL", ""),
-		// SCALE-001: batching defaults ON for prometheus remote-write so the
-		// default production ingest path coalesces results instead of doing one
-		// HTTP POST per probe result. The default is resolved below (it depends
-		// on TSDBMode, set on the line above); an explicit env still wins.
-		RemoteWriteBatchEnabled: l.boolean("PROBECTL_REMOTE_WRITE_BATCH_ENABLED", false),
-		RemoteWriteBatchSeries:  l.intRange("PROBECTL_REMOTE_WRITE_BATCH_SERIES", 500, 1, 100000),
-		RemoteWriteBatchWait:    l.dur("PROBECTL_REMOTE_WRITE_BATCH_WAIT", 50*time.Millisecond),
-		PathStoreMode:           l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse"),
-		PathStoreURL:            l.str("PROBECTL_PATHSTORE_URL", ""),
-		FlowStoreMode:           l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse"),
-		FlowStoreURL:            l.str("PROBECTL_FLOWSTORE_URL", ""),
-		OTelStoreMode:           l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse"),
-		OTelStoreURL:            l.str("PROBECTL_OTELSTORE_URL", ""),
-		OTelRetentionDays:       l.intRange("PROBECTL_OTEL_RETENTION_DAYS", 30, 0, 3650),
-		EBPFStoreMode:           l.enum("PROBECTL_EBPFSTORE_MODE", "memory", "memory", "clickhouse"),
-		EBPFStoreURL:            l.str("PROBECTL_EBPFSTORE_URL", ""),
-		EBPFRetentionDays:       l.intRange("PROBECTL_EBPF_RETENTION_DAYS", 30, 0, 3650),
-		// SCALE-016: default to a FINITE 90-day flow retention rather than the
-		// old keep-forever (0) default, which silently let the highest-volume
-		// table on the platform grow without bound. 0 still means keep-forever,
-		// but it is now an EXPLICIT opt-out the operator chooses (and main.go
-		// logs loudly when set), not the silent default.
-		FlowRetentionDays: l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650),
-		PathRetentionDays: l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650),
-		FlowEnrichASN:     l.boolean("PROBECTL_FLOW_ENRICH_ASN", false),
-		// TENANT-004: profile-defaulted (multi-tenant/regulated => ON) so the
-		// DB-level row policy is the boundary by default, not just app WHERE.
-		DeploymentProfile:   deploymentProfile,
-		FlowCHTenantScoping: l.boolean("PROBECTL_FLOWSTORE_TENANT_SCOPING", chScopeDefault),
-		FlowCHReaderUser:    l.str("PROBECTL_FLOWSTORE_READER_USER", ""),
-		OTelCHTenantScoping: l.boolean("PROBECTL_OTELSTORE_TENANT_SCOPING", chScopeDefault),
-		OTelCHReaderUser:    l.str("PROBECTL_OTELSTORE_READER_USER", ""),
-		EBPFCHTenantScoping: l.boolean("PROBECTL_EBPFSTORE_TENANT_SCOPING", chScopeDefault),
-		EBPFCHReaderUser:    l.str("PROBECTL_EBPFSTORE_READER_USER", ""),
-		PathCHTenantScoping: l.boolean("PROBECTL_PATHSTORE_TENANT_SCOPING", chScopeDefault),
-		PathCHReaderUser:    l.str("PROBECTL_PATHSTORE_READER_USER", ""),
-		// WIRE-001: profile-defaulted (multi-tenant/regulated => ON) so the
-		// shared pooled lane cannot be used to forge another tenant's telemetry.
-		IngestStrictTenantLanes: l.boolean("PROBECTL_INGEST_STRICT_TENANT_LANES", chScopeDefault),
-		CMDBProvider:            l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow"),
-		CMDBURL:                 l.str("PROBECTL_CMDB_URL", ""),
-		CMDBSecret:              l.str("PROBECTL_CMDB_SECRET", ""),
-		CMDBTable:               l.str("PROBECTL_CMDB_TABLE", "cmdb_ci"),
-		CMDBCacheTTL:            l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute),
-		AlertEvalInterval:       l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second),
-		IncidentWindow:          l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute),
-		AuthMode:                l.enum("PROBECTL_AUTH_MODE", "session", "dev", "session"),
-		SessionTTL:              l.dur("PROBECTL_SESSION_TTL", 12*time.Hour),
-		SessionHMACKey:          l.hexBytes("PROBECTL_SESSION_HMAC_KEY", 32),
-		AuthRateMaxFailures:     l.intRange("PROBECTL_AUTH_RATE_MAX_FAILURES", 5, 1, 1000),
-		AuthRateWindow:          l.dur("PROBECTL_AUTH_RATE_WINDOW", time.Minute),
-		AuthRateLockout:         l.dur("PROBECTL_AUTH_RATE_LOCKOUT", time.Minute),
-		OIDCIssuer:              l.str("PROBECTL_OIDC_ISSUER", ""),
-		OIDCClientID:            l.str("PROBECTL_OIDC_CLIENT_ID", ""),
-		OIDCClientSecret:        l.str("PROBECTL_OIDC_CLIENT_SECRET", ""),
-		OIDCRedirectURL:         l.str("PROBECTL_OIDC_REDIRECT_URL", ""),
-		SecurityContact:         l.str("PROBECTL_SECURITY_CONTACT", ""),
-		OTLPExportEndpoint:      l.str("PROBECTL_OTLP_EXPORT_ENDPOINT", ""),
-		OTLPExportToken:         l.str("PROBECTL_OTLP_EXPORT_TOKEN", ""),
-		OTLPExportProtocol:      l.enum("PROBECTL_OTLP_EXPORT_PROTOCOL", "grpc", "grpc", "http"),
-		OTLPExportInsecure:      l.boolean("PROBECTL_OTLP_EXPORT_INSECURE", false),
-		OTLPGRPCAddr:            l.str("PROBECTL_OTLP_GRPC_ADDR", ""),
-		OTLPHTTPAddr:            l.str("PROBECTL_OTLP_HTTP_ADDR", ""),
-		OTLPTLSCertFile:         l.str("PROBECTL_OTLP_TLS_CERT_FILE", ""),
-		OTLPTLSKeyFile:          l.str("PROBECTL_OTLP_TLS_KEY_FILE", ""),
-		OTLPTokens:              l.tokenMap("PROBECTL_OTLP_TOKENS"),
-		OTLPFreshnessHMACKey:    l.hexBytes("PROBECTL_OTLP_FRESHNESS_HMAC_KEY", 32),
-		OTLPFreshnessWindow:     l.dur("PROBECTL_OTLP_FRESHNESS_WINDOW", 5*time.Minute),
-		AIModelProvider:         l.enum("PROBECTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic"),
-		AIModelEndpoint:         l.str("PROBECTL_AI_MODEL_ENDPOINT", ""),
-		AIModelName:             l.str("PROBECTL_AI_MODEL_NAME", ""),
-		AIModelToken:            l.str("PROBECTL_AI_MODEL_TOKEN", ""),
-		AIModelTimeout:          l.dur("PROBECTL_AI_MODEL_TIMEOUT", 60*time.Second),
-		AIMaxEvidence:           l.intRange("PROBECTL_AI_MAX_EVIDENCE", 50, 1, 1000),
-		AIMaxConcurrent:         l.intRange("PROBECTL_AI_MAX_CONCURRENT", 8, 1, 1024),
-		AIPersistAnswers:        l.boolean("PROBECTL_AI_PERSIST_ANSWERS", false),
-		AIAnswerRetention:       l.dur("PROBECTL_AI_ANSWER_RETENTION", 90*24*time.Hour),
-		AIEgressAck:             l.str("PROBECTL_AI_EGRESS_ACK", ""),
-		AIRedactIPs:             l.boolean("PROBECTL_AI_REDACT_IPS", true),
-		AIRedactHostnames:       l.boolean("PROBECTL_AI_REDACT_HOSTNAMES", false),
-		AIRedactPII:             l.boolean("PROBECTL_AI_REDACT_PII", true),
-		AIRedactCustom:          l.str("PROBECTL_AI_REDACT_PATTERNS", ""),
-		MCPHTTPAddr:             l.str("PROBECTL_MCP_HTTP_ADDR", ""),
-		MCPTLSCertFile:          l.str("PROBECTL_MCP_TLS_CERT_FILE", ""),
-		MCPTLSKeyFile:           l.str("PROBECTL_MCP_TLS_KEY_FILE", ""),
-		MCPRatePerMin:           l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000),
-		TrustctlURL:             l.str("PROBECTL_TRUSTCTL_URL", ""),
-		TLSExpiryWarning:        l.dur("PROBECTL_TLS_EXPIRY_WARNING", 21*24*time.Hour),
-		CTEnabled:               l.boolean("PROBECTL_CT_ENABLED", false),
-		CTEndpoint:              l.str("PROBECTL_CT_ENDPOINT", "https://crt.sh"),
-		ThreatIntelEnabled:      l.boolean("PROBECTL_THREATINTEL_ENABLED", false),
-		ThreatIntelRefresh:      l.dur("PROBECTL_THREATINTEL_REFRESH", 6*time.Hour),
-		ThreatIntelFeeds:        l.list("PROBECTL_THREATINTEL_FEEDS"),
-		NDREnabled:              l.boolean("PROBECTL_NDR_ENABLED", true),
-		NDRRulesDir:             l.str("PROBECTL_NDR_RULES_DIR", ""),
-		TopologyEngine:          l.str("PROBECTL_TOPOLOGY_ENGINE", "indexed"),
-		CostEnabled:             l.boolean("PROBECTL_COST_ENABLED", true),
-		CostZones:               l.str("PROBECTL_COST_ZONES", ""),
-		CostServices:            l.str("PROBECTL_COST_SERVICES", ""),
-		CostBudgets:             l.str("PROBECTL_COST_BUDGETS", ""),
-		CostPricesFile:          l.str("PROBECTL_COST_PRICES_FILE", ""),
-		CostPriced:              l.boolean("PROBECTL_COST_PRICED", true),
-		SLOEnabled:              l.boolean("PROBECTL_SLO_ENABLED", true),
-		SLODir:                  l.str("PROBECTL_SLO_DIR", ""),
-		ComplianceEnabled:       l.boolean("PROBECTL_COMPLIANCE_ENABLED", true),
-		CompliancePolicyDir:     l.str("PROBECTL_COMPLIANCE_POLICY_DIR", ""),
+	cfg := defaultConfig(l, deploymentProfile, chScopeDefault)
+	applyDerivedConfigDefaults(l, cfg)
+	validateConfig(l, cfg)
 
-		OutageEnabled:      l.boolean("PROBECTL_OUTAGE_ENABLED", true),
-		OutageFeedsEnabled: l.boolean("PROBECTL_OUTAGE_FEEDS_ENABLED", false),
-		OutageFeeds:        l.list("PROBECTL_OUTAGE_FEEDS"),
-		OutageRefresh:      l.dur("PROBECTL_OUTAGE_REFRESH", 10*time.Minute),
-		OutageRetention:    l.dur("PROBECTL_OUTAGE_RETENTION", 48*time.Hour),
-		OutageRadarToken:   l.str("PROBECTL_OUTAGE_RADAR_TOKEN", ""),
-
-		RUMEnabled:    l.boolean("PROBECTL_RUM_ENABLED", false),
-		RUMApps:       l.tokenMap("PROBECTL_RUM_APPS"),
-		RUMRatePerMin: l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000),
-
-		CarbonEnabled:   l.boolean("PROBECTL_CARBON_ENABLED", true),
-		CarbonGridGCO2E: l.intRange("PROBECTL_CARBON_GRID_GCO2E", 436, 1, 5000),
-
-		LicenseFile: l.str("PROBECTL_LICENSE_FILE", ""),
-
-		ProviderBootstrapToken:          l.str("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", ""),
-		ProviderBreakGlassMaxTTLMinutes: l.intRange("PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES", 240, 5, 1440),
-		DataPlanes:                      l.str("PROBECTL_DATAPLANES", ""),
-		BackupRetentionNote:             l.str("PROBECTL_BACKUP_RETENTION_NOTE", ""),
-		BackupRetentionDays:             l.intRange("PROBECTL_BACKUP_RETENTION_DAYS", 0, 0, 3650),
-
-		RemediationApprovalsEnabled: l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false),
-		RemediationMaxBlastRadius:   l.intRange("PROBECTL_REMEDIATION_MAX_BLAST_RADIUS", 50, 1, 100000),
-		// SCALE-004: bounded by DEFAULT; these env values must be >= 0 —
-		// l.float REJECTS negatives at boot (fail closed). Unlimited is not
-		// an env option: it exists only as an explicit per-tenant override
-		// at the fairness engine (rate<=0 in take()). Defaults mirror
-		// fairness.DefaultPolicy.
-		FairnessResultsPerSec:       l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 1000),
-		FairnessFlowEventsPerSec:    l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 10000),
-		FairnessIngestBytesPerSec:   l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 2<<20),
-		FairnessDeviceMetricsPerSec: l.float("PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC", 2000),
-		FairnessOTLPSeriesPerSec:    l.float("PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC", 5000),
-		FairnessBurstSeconds:        l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10),
-		// SCALE-011: bound query load by DEFAULT (was 0/0 = unbounded, so one
-		// tenant could monopolize the query path). 4 concurrent queries and 120
-		// queries/min per tenant are generous for interactive + dashboard use
-		// while capping a runaway client; 0 still means unbounded for operators
-		// who deliberately opt out.
-		FairnessQueryConcurrency: l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 4, 0, 100000),
-		FairnessQueriesPerMin:    l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 120),
-		// SCALE-002: evict per-tenant fairness state idle past this window so the
-		// gate's map stays bounded under tenant churn. 24h default; 0 falls back
-		// to the engine default (also 24h).
-		FairnessTenantIdleTTL: l.dur("PROBECTL_FAIRNESS_TENANT_IDLE_TTL", 24*time.Hour),
-
-		SIEMEnabled:      l.boolean("PROBECTL_SIEM_ENABLED", false),
-		SIEMPreset:       l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle"),
-		SIEMFormat:       l.enum("PROBECTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp"),
-		SIEMEndpoint:     l.str("PROBECTL_SIEM_ENDPOINT", ""),
-		SIEMToken:        l.str("PROBECTL_SIEM_TOKEN", ""),
-		SIEMPollInterval: l.dur("PROBECTL_SIEM_POLL_INTERVAL", 30*time.Second),
-		SIEMBufferSize:   l.intRange("PROBECTL_SIEM_BUFFER", 1024, 1, 1_000_000),
-		SIEMRedactKeys:   l.list("PROBECTL_SIEM_REDACT_KEYS"),
-
-		ChangeWebhooks:          l.changeWebhooks("PROBECTL_CHANGE_WEBHOOKS"),
-		ChangeCorrelationWindow: l.dur("PROBECTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour),
-
-		NotifyConnectors: l.notifyConnectors("PROBECTL_NOTIFY_CONNECTORS"),
-		NotifyInbound:    l.notifyInbound("PROBECTL_NOTIFY_INBOUND"),
+	if err := l.err(); err != nil {
+		return nil, err
 	}
+	return cfg, nil
+}
 
-	// SCALE-001: when running the production prometheus ingest path, default
-	// remote-write batching ON (coalesce results into one POST instead of one
-	// POST per result). The boolean default above is false; flip it to true for
-	// prometheus mode unless the operator set the env explicitly (explicit
-	// always wins). Batching preserves per-message DLQ attribution.
+func defaultConfig(l *loader, deploymentProfile string, chScopeDefault bool) *Config {
+	cfg := &Config{DeploymentProfile: deploymentProfile}
+	loadCoreRuntimeConfig(l, cfg)
+	loadTelemetryStoreConfig(l, cfg, chScopeDefault)
+	loadAuthIngressConfig(l, cfg)
+	loadFeaturePlaneConfig(l, cfg)
+	loadOpsEditionConfig(l, cfg)
+	return cfg
+}
+
+func loadCoreRuntimeConfig(l *loader, cfg *Config) {
+	cfg.HTTPAddr = l.str("PROBECTL_HTTP_ADDR", ":8080")
+	cfg.ReadTimeout = l.dur("PROBECTL_HTTP_READ_TIMEOUT", 15*time.Second)
+	cfg.WriteTimeout = l.dur("PROBECTL_HTTP_WRITE_TIMEOUT", 15*time.Second)
+	cfg.IdleTimeout = l.dur("PROBECTL_HTTP_IDLE_TIMEOUT", 60*time.Second)
+	cfg.ShutdownTimeout = l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second)
+	cfg.DatabaseURL = l.str("PROBECTL_DATABASE_URL", "postgres://probectl:probectl@localhost:5432/probectl?sslmode=require")
+	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
+	// SCALE-009: warmer pool defaults for high fan-in API + consumers.
+	cfg.DatabaseMaxConns = int32(l.intRange("PROBECTL_DATABASE_MAX_CONNS", 25, 1, 1000))
+	cfg.DatabaseMinConns = int32(l.intRange("PROBECTL_DATABASE_MIN_CONNS", 2, 0, 1000))
+	cfg.Region = l.str("PROBECTL_REGION", "")
+	cfg.Regions = l.list("PROBECTL_REGIONS")
+	cfg.Residency = l.str("PROBECTL_RESIDENCY", "")
+	cfg.ReplicationMode = l.enum("PROBECTL_REPLICATION_MODE", "async", "async", "sync")
+	cfg.RPOSeconds = l.float("PROBECTL_RPO_SECONDS", 0)
+	cfg.RTOSeconds = l.float("PROBECTL_RTO_SECONDS", 60)
+	cfg.DatabaseConnTimeout = l.dur("PROBECTL_DATABASE_CONNECT_TIMEOUT", 5*time.Second)
+	cfg.MigrateOnBoot = l.boolean("PROBECTL_MIGRATE_ON_BOOT", false)
+	cfg.LogLevel = l.enum("PROBECTL_LOG_LEVEL", "info", "debug", "info", "warn", "error")
+	cfg.LogFormat = l.enum("PROBECTL_LOG_FORMAT", "json", "json", "text")
+	cfg.RequireMFA = l.boolean("PROBECTL_REQUIRE_MFA", false)
+	cfg.HSTSEnabled = l.boolean("PROBECTL_HSTS_ENABLED", true)
+	cfg.HSTSMaxAge = l.dur("PROBECTL_HSTS_MAX_AGE", 365*24*time.Hour)
+	cfg.TLSCertFile = l.str("PROBECTL_TLS_CERT_FILE", "")
+	cfg.TLSKeyFile = l.str("PROBECTL_TLS_KEY_FILE", "")
+	cfg.EnvelopeKey = l.str("PROBECTL_ENVELOPE_KEY", "")
+	cfg.EnvelopeKeyID = l.str("PROBECTL_ENVELOPE_KEY_ID", "dev")
+	cfg.EnvelopeOpenerKeys = l.str("PROBECTL_ENVELOPE_OPENER_KEYS", "")
+	cfg.EnvelopeKeyFile = l.str("PROBECTL_ENVELOPE_KEY_FILE", "")
+	cfg.PublicTLS = l.boolean("PROBECTL_PUBLIC_TLS", false)
+	cfg.AllowPlaintextHTTP = l.boolean("PROBECTL_ALLOW_PLAINTEXT_HTTP", false)
+	cfg.BusWorkers = l.intRange("PROBECTL_BUS_WORKERS", 4, 0, 256)
+	cfg.AllowKeylessDev = l.boolean("PROBECTL_ALLOW_KEYLESS_DEV", false)
+	cfg.RequireAtRestEncryption = l.boolean("PROBECTL_REQUIRE_AT_REST_ENCRYPTION", true)
+	cfg.AgentGRPCAddr = l.str("PROBECTL_AGENT_GRPC_ADDR", "")
+	cfg.AgentSkewWindow = l.intRange("PROBECTL_AGENT_SKEW_WINDOW", 1, 0, 100)
+	cfg.AgentMinVersion = l.str("PROBECTL_AGENT_MIN_VERSION", "")
+	cfg.AgentTLSCertFile = l.str("PROBECTL_AGENT_TLS_CERT_FILE", "")
+	cfg.AgentTLSKeyFile = l.str("PROBECTL_AGENT_TLS_KEY_FILE", "")
+	cfg.AgentTLSCAFile = l.str("PROBECTL_AGENT_TLS_CA_FILE", "")
+	cfg.BusMode = l.enum("PROBECTL_BUS_MODE", "memory", "memory", "kafka")
+	cfg.BusBrokers = l.list("PROBECTL_BUS_BROKERS")
+	cfg.BusMemoryBuffer = l.intRange("PROBECTL_BUS_MEMORY_BUFFER", 1024, 1, 1<<20)
+	cfg.BusMemoryOverflow = l.enum("PROBECTL_BUS_MEMORY_OVERFLOW", "block", "block", "drop")
+	cfg.BusTLSEnabled = l.boolean("PROBECTL_BUS_TLS_ENABLED", false)
+	cfg.BusTLSCAFile = l.str("PROBECTL_BUS_TLS_CA_FILE", "")
+	cfg.BusTLSCertFile = l.str("PROBECTL_BUS_TLS_CERT_FILE", "")
+	cfg.BusTLSKeyFile = l.str("PROBECTL_BUS_TLS_KEY_FILE", "")
+	cfg.BusSASLMechanism = l.str("PROBECTL_BUS_SASL_MECHANISM", "")
+	cfg.BusSASLUser = l.str("PROBECTL_BUS_SASL_USER", "")
+	cfg.BusSASLPassword = l.str("PROBECTL_BUS_SASL_PASSWORD", "")
+	cfg.BusAllowPlaintext = l.boolean("PROBECTL_BUS_ALLOW_PLAINTEXT", false)
+	cfg.BusMaxBuffered = l.intRange("PROBECTL_BUS_MAX_BUFFERED", 0, 0, 10_000_000)
+	cfg.IngestMaxSeriesPerAgent = l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_AGENT", 0, 0, 10_000_000)
+	cfg.IngestMaxSeriesPerTenant = l.intRange("PROBECTL_INGEST_MAX_SERIES_PER_TENANT", 0, 0, 100_000_000)
+	cfg.IngestWriteWorkers = l.intRange("PROBECTL_INGEST_WRITE_WORKERS", 4, 0, 4096)
+	cfg.IngestWriteQueue = l.intRange("PROBECTL_INGEST_WRITE_QUEUE", 0, 0, 10_000_000)
+	cfg.TSDBMemoryRetention = l.dur("PROBECTL_TSDB_MEMORY_RETENTION", 0)
+	cfg.TSDBMemoryMaxBytes = l.intRange("PROBECTL_TSDB_MEMORY_MAX_BYTES", 0, 0, 1<<31-1)
+	cfg.AuditWORMDir = l.str("PROBECTL_AUDIT_WORM_DIR", "")
+	cfg.AuditWORMInterval = l.dur("PROBECTL_AUDIT_WORM_INTERVAL", time.Hour)
+	cfg.AuditRetention = l.dur("PROBECTL_AUDIT_RETENTION", 0)
+	cfg.WormSigningKey = l.str("PROBECTL_WORM_SIGNING_KEY", "")
+	cfg.WormSigningKeyFile = l.str("PROBECTL_WORM_SIGNING_KEY_FILE", "")
+	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
+	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")
+	cfg.TSDBURL = l.str("PROBECTL_TSDB_URL", "")
+	cfg.RemoteWriteBatchEnabled = l.boolean("PROBECTL_REMOTE_WRITE_BATCH_ENABLED", false)
+	cfg.RemoteWriteBatchSeries = l.intRange("PROBECTL_REMOTE_WRITE_BATCH_SERIES", 500, 1, 100000)
+	cfg.RemoteWriteBatchWait = l.dur("PROBECTL_REMOTE_WRITE_BATCH_WAIT", 50*time.Millisecond)
+}
+
+func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
+	cfg.PathStoreMode = l.enum("PROBECTL_PATHSTORE_MODE", "memory", "memory", "clickhouse")
+	cfg.PathStoreURL = l.str("PROBECTL_PATHSTORE_URL", "")
+	cfg.FlowStoreMode = l.enum("PROBECTL_FLOWSTORE_MODE", "memory", "memory", "clickhouse")
+	cfg.FlowStoreURL = l.str("PROBECTL_FLOWSTORE_URL", "")
+	cfg.OTelStoreMode = l.enum("PROBECTL_OTELSTORE_MODE", "memory", "memory", "clickhouse")
+	cfg.OTelStoreURL = l.str("PROBECTL_OTELSTORE_URL", "")
+	cfg.OTelRetentionDays = l.intRange("PROBECTL_OTEL_RETENTION_DAYS", 30, 0, 3650)
+	cfg.EBPFStoreMode = l.enum("PROBECTL_EBPFSTORE_MODE", "memory", "memory", "clickhouse")
+	cfg.EBPFStoreURL = l.str("PROBECTL_EBPFSTORE_URL", "")
+	cfg.EBPFRetentionDays = l.intRange("PROBECTL_EBPF_RETENTION_DAYS", 30, 0, 3650)
+	// SCALE-016: finite flow retention by default; 0 remains explicit keep-forever.
+	cfg.FlowRetentionDays = l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650)
+	cfg.PathRetentionDays = l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650)
+	cfg.FlowEnrichASN = l.boolean("PROBECTL_FLOW_ENRICH_ASN", false)
+	// TENANT-004: profile-defaulted DB-level ClickHouse scoping.
+	cfg.FlowCHTenantScoping = l.boolean("PROBECTL_FLOWSTORE_TENANT_SCOPING", chScopeDefault)
+	cfg.FlowCHReaderUser = l.str("PROBECTL_FLOWSTORE_READER_USER", "")
+	cfg.OTelCHTenantScoping = l.boolean("PROBECTL_OTELSTORE_TENANT_SCOPING", chScopeDefault)
+	cfg.OTelCHReaderUser = l.str("PROBECTL_OTELSTORE_READER_USER", "")
+	cfg.EBPFCHTenantScoping = l.boolean("PROBECTL_EBPFSTORE_TENANT_SCOPING", chScopeDefault)
+	cfg.EBPFCHReaderUser = l.str("PROBECTL_EBPFSTORE_READER_USER", "")
+	cfg.PathCHTenantScoping = l.boolean("PROBECTL_PATHSTORE_TENANT_SCOPING", chScopeDefault)
+	cfg.PathCHReaderUser = l.str("PROBECTL_PATHSTORE_READER_USER", "")
+	cfg.IngestStrictTenantLanes = l.boolean("PROBECTL_INGEST_STRICT_TENANT_LANES", chScopeDefault)
+	cfg.CMDBProvider = l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow")
+	cfg.CMDBURL = l.str("PROBECTL_CMDB_URL", "")
+	cfg.CMDBSecret = l.str("PROBECTL_CMDB_SECRET", "")
+	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
+	cfg.CMDBCacheTTL = l.dur("PROBECTL_CMDB_CACHE_TTL", 10*time.Minute)
+	cfg.AlertEvalInterval = l.dur("PROBECTL_ALERT_EVAL_INTERVAL", 30*time.Second)
+	cfg.IncidentWindow = l.dur("PROBECTL_INCIDENT_WINDOW", 10*time.Minute)
+}
+
+func loadAuthIngressConfig(l *loader, cfg *Config) {
+	cfg.AuthMode = l.enum("PROBECTL_AUTH_MODE", "session", "dev", "session")
+	cfg.SessionTTL = l.dur("PROBECTL_SESSION_TTL", 12*time.Hour)
+	cfg.SessionHMACKey = l.hexBytes("PROBECTL_SESSION_HMAC_KEY", 32)
+	cfg.AuthRateMaxFailures = l.intRange("PROBECTL_AUTH_RATE_MAX_FAILURES", 5, 1, 1000)
+	cfg.AuthRateWindow = l.dur("PROBECTL_AUTH_RATE_WINDOW", time.Minute)
+	cfg.AuthRateLockout = l.dur("PROBECTL_AUTH_RATE_LOCKOUT", time.Minute)
+	cfg.OIDCIssuer = l.str("PROBECTL_OIDC_ISSUER", "")
+	cfg.OIDCClientID = l.str("PROBECTL_OIDC_CLIENT_ID", "")
+	cfg.OIDCClientSecret = l.str("PROBECTL_OIDC_CLIENT_SECRET", "")
+	cfg.OIDCRedirectURL = l.str("PROBECTL_OIDC_REDIRECT_URL", "")
+	cfg.SecurityContact = l.str("PROBECTL_SECURITY_CONTACT", "")
+	cfg.OTLPExportEndpoint = l.str("PROBECTL_OTLP_EXPORT_ENDPOINT", "")
+	cfg.OTLPExportToken = l.str("PROBECTL_OTLP_EXPORT_TOKEN", "")
+	cfg.OTLPExportProtocol = l.enum("PROBECTL_OTLP_EXPORT_PROTOCOL", "grpc", "grpc", "http")
+	cfg.OTLPExportInsecure = l.boolean("PROBECTL_OTLP_EXPORT_INSECURE", false)
+	cfg.OTLPGRPCAddr = l.str("PROBECTL_OTLP_GRPC_ADDR", "")
+	cfg.OTLPHTTPAddr = l.str("PROBECTL_OTLP_HTTP_ADDR", "")
+	cfg.OTLPTLSCertFile = l.str("PROBECTL_OTLP_TLS_CERT_FILE", "")
+	cfg.OTLPTLSKeyFile = l.str("PROBECTL_OTLP_TLS_KEY_FILE", "")
+	cfg.OTLPTokens = l.tokenMap("PROBECTL_OTLP_TOKENS")
+	cfg.OTLPFreshnessHMACKey = l.hexBytes("PROBECTL_OTLP_FRESHNESS_HMAC_KEY", 32)
+	cfg.OTLPFreshnessWindow = l.dur("PROBECTL_OTLP_FRESHNESS_WINDOW", 5*time.Minute)
+	cfg.AIModelProvider = l.enum("PROBECTL_AI_MODEL_PROVIDER", "builtin", "builtin", "ollama", "openai", "anthropic")
+	cfg.AIModelEndpoint = l.str("PROBECTL_AI_MODEL_ENDPOINT", "")
+	cfg.AIModelName = l.str("PROBECTL_AI_MODEL_NAME", "")
+	cfg.AIModelToken = l.str("PROBECTL_AI_MODEL_TOKEN", "")
+	cfg.AIModelTimeout = l.dur("PROBECTL_AI_MODEL_TIMEOUT", 60*time.Second)
+	cfg.AIMaxEvidence = l.intRange("PROBECTL_AI_MAX_EVIDENCE", 50, 1, 1000)
+	cfg.AIMaxConcurrent = l.intRange("PROBECTL_AI_MAX_CONCURRENT", 8, 1, 1024)
+	cfg.AIPersistAnswers = l.boolean("PROBECTL_AI_PERSIST_ANSWERS", false)
+	cfg.AIAnswerRetention = l.dur("PROBECTL_AI_ANSWER_RETENTION", 90*24*time.Hour)
+	cfg.AIEgressAck = l.str("PROBECTL_AI_EGRESS_ACK", "")
+	cfg.AIRedactIPs = l.boolean("PROBECTL_AI_REDACT_IPS", true)
+	cfg.AIRedactHostnames = l.boolean("PROBECTL_AI_REDACT_HOSTNAMES", false)
+	cfg.AIRedactPII = l.boolean("PROBECTL_AI_REDACT_PII", true)
+	cfg.AIRedactCustom = l.str("PROBECTL_AI_REDACT_PATTERNS", "")
+	cfg.MCPHTTPAddr = l.str("PROBECTL_MCP_HTTP_ADDR", "")
+	cfg.MCPTLSCertFile = l.str("PROBECTL_MCP_TLS_CERT_FILE", "")
+	cfg.MCPTLSKeyFile = l.str("PROBECTL_MCP_TLS_KEY_FILE", "")
+	cfg.MCPRatePerMin = l.intRange("PROBECTL_MCP_RATE_PER_MIN", 120, 0, 100000)
+}
+
+func loadFeaturePlaneConfig(l *loader, cfg *Config) {
+	cfg.TrustctlURL = l.str("PROBECTL_TRUSTCTL_URL", "")
+	cfg.TLSExpiryWarning = l.dur("PROBECTL_TLS_EXPIRY_WARNING", 21*24*time.Hour)
+	cfg.CTEnabled = l.boolean("PROBECTL_CT_ENABLED", false)
+	cfg.CTEndpoint = l.str("PROBECTL_CT_ENDPOINT", "https://crt.sh")
+	cfg.ThreatIntelEnabled = l.boolean("PROBECTL_THREATINTEL_ENABLED", false)
+	cfg.ThreatIntelRefresh = l.dur("PROBECTL_THREATINTEL_REFRESH", 6*time.Hour)
+	cfg.ThreatIntelFeeds = l.list("PROBECTL_THREATINTEL_FEEDS")
+	cfg.NDREnabled = l.boolean("PROBECTL_NDR_ENABLED", true)
+	cfg.NDRRulesDir = l.str("PROBECTL_NDR_RULES_DIR", "")
+	cfg.TopologyEngine = l.str("PROBECTL_TOPOLOGY_ENGINE", "indexed")
+	cfg.CostEnabled = l.boolean("PROBECTL_COST_ENABLED", true)
+	cfg.CostZones = l.str("PROBECTL_COST_ZONES", "")
+	cfg.CostServices = l.str("PROBECTL_COST_SERVICES", "")
+	cfg.CostBudgets = l.str("PROBECTL_COST_BUDGETS", "")
+	cfg.CostPricesFile = l.str("PROBECTL_COST_PRICES_FILE", "")
+	cfg.CostPriced = l.boolean("PROBECTL_COST_PRICED", true)
+	cfg.SLOEnabled = l.boolean("PROBECTL_SLO_ENABLED", true)
+	cfg.SLODir = l.str("PROBECTL_SLO_DIR", "")
+	cfg.ComplianceEnabled = l.boolean("PROBECTL_COMPLIANCE_ENABLED", true)
+	cfg.CompliancePolicyDir = l.str("PROBECTL_COMPLIANCE_POLICY_DIR", "")
+	cfg.OutageEnabled = l.boolean("PROBECTL_OUTAGE_ENABLED", true)
+	cfg.OutageFeedsEnabled = l.boolean("PROBECTL_OUTAGE_FEEDS_ENABLED", false)
+	cfg.OutageFeeds = l.list("PROBECTL_OUTAGE_FEEDS")
+	cfg.OutageRefresh = l.dur("PROBECTL_OUTAGE_REFRESH", 10*time.Minute)
+	cfg.OutageRetention = l.dur("PROBECTL_OUTAGE_RETENTION", 48*time.Hour)
+	cfg.OutageRadarToken = l.str("PROBECTL_OUTAGE_RADAR_TOKEN", "")
+	cfg.RUMEnabled = l.boolean("PROBECTL_RUM_ENABLED", false)
+	cfg.RUMApps = l.tokenMap("PROBECTL_RUM_APPS")
+	cfg.RUMRatePerMin = l.intRange("PROBECTL_RUM_RATE_PER_MIN", 300, 0, 1_000_000)
+	cfg.CarbonEnabled = l.boolean("PROBECTL_CARBON_ENABLED", true)
+	cfg.CarbonGridGCO2E = l.intRange("PROBECTL_CARBON_GRID_GCO2E", 436, 1, 5000)
+}
+
+func loadOpsEditionConfig(l *loader, cfg *Config) {
+	cfg.LicenseFile = l.str("PROBECTL_LICENSE_FILE", "")
+	cfg.ProviderBootstrapToken = l.str("PROBECTL_PROVIDER_BOOTSTRAP_TOKEN", "")
+	cfg.ProviderBreakGlassMaxTTLMinutes = l.intRange("PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES", 240, 5, 1440)
+	cfg.DataPlanes = l.str("PROBECTL_DATAPLANES", "")
+	cfg.BackupRetentionNote = l.str("PROBECTL_BACKUP_RETENTION_NOTE", "")
+	cfg.BackupRetentionDays = l.intRange("PROBECTL_BACKUP_RETENTION_DAYS", 0, 0, 3650)
+	cfg.RemediationApprovalsEnabled = l.boolean("PROBECTL_REMEDIATION_APPROVALS_ENABLED", false)
+	cfg.RemediationMaxBlastRadius = l.intRange("PROBECTL_REMEDIATION_MAX_BLAST_RADIUS", 50, 1, 100000)
+	cfg.FairnessResultsPerSec = l.float("PROBECTL_FAIRNESS_RESULTS_PER_SEC", 1000)
+	cfg.FairnessFlowEventsPerSec = l.float("PROBECTL_FAIRNESS_FLOW_EVENTS_PER_SEC", 10000)
+	cfg.FairnessIngestBytesPerSec = l.float("PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC", 2<<20)
+	cfg.FairnessDeviceMetricsPerSec = l.float("PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC", 2000)
+	cfg.FairnessOTLPSeriesPerSec = l.float("PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC", 5000)
+	cfg.FairnessBurstSeconds = l.float("PROBECTL_FAIRNESS_BURST_SECONDS", 10)
+	cfg.FairnessQueryConcurrency = l.intRange("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", 4, 0, 100000)
+	cfg.FairnessQueriesPerMin = l.float("PROBECTL_FAIRNESS_QUERIES_PER_MIN", 120)
+	cfg.FairnessTenantIdleTTL = l.dur("PROBECTL_FAIRNESS_TENANT_IDLE_TTL", 24*time.Hour)
+	cfg.SIEMEnabled = l.boolean("PROBECTL_SIEM_ENABLED", false)
+	cfg.SIEMPreset = l.enum("PROBECTL_SIEM_PRESET", "generic", "generic", "splunk", "sentinel", "elastic", "chronicle")
+	cfg.SIEMFormat = l.enum("PROBECTL_SIEM_FORMAT", "", "", "syslog", "cef", "ecs", "otlp")
+	cfg.SIEMEndpoint = l.str("PROBECTL_SIEM_ENDPOINT", "")
+	cfg.SIEMToken = l.str("PROBECTL_SIEM_TOKEN", "")
+	cfg.SIEMPollInterval = l.dur("PROBECTL_SIEM_POLL_INTERVAL", 30*time.Second)
+	cfg.SIEMBufferSize = l.intRange("PROBECTL_SIEM_BUFFER", 1024, 1, 1_000_000)
+	cfg.SIEMRedactKeys = l.list("PROBECTL_SIEM_REDACT_KEYS")
+	cfg.ChangeWebhooks = l.changeWebhooks("PROBECTL_CHANGE_WEBHOOKS")
+	cfg.ChangeCorrelationWindow = l.dur("PROBECTL_CHANGE_CORRELATION_WINDOW", 24*time.Hour)
+	cfg.NotifyConnectors = l.notifyConnectors("PROBECTL_NOTIFY_CONNECTORS")
+	cfg.NotifyInbound = l.notifyInbound("PROBECTL_NOTIFY_INBOUND")
+}
+
+func applyDerivedConfigDefaults(l *loader, cfg *Config) {
 	if cfg.TSDBMode == "prometheus" && l.getenv("PROBECTL_REMOTE_WRITE_BATCH_ENABLED") == "" {
 		cfg.RemoteWriteBatchEnabled = true
 	}
+}
 
+func validateConfig(l *loader, cfg *Config) {
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
 	}
 	if cfg.AuthMode == "session" && cfg.DeploymentProfile != "single" && len(cfg.SessionHMACKey) != crypto.KeySize {
 		l.errf("PROBECTL_SESSION_HMAC_KEY is required and must be exactly %d bytes (%d hex chars) when PROBECTL_AUTH_MODE=session under the %s deployment profile", crypto.KeySize, crypto.KeySize*2, cfg.DeploymentProfile)
 	}
-	// AIRCA-002: a bad custom redaction pattern refuses START — never
-	// silently redact less than the operator asked for.
 	for _, part := range strings.Split(cfg.AIRedactCustom, ";;") {
 		if part = strings.TrimSpace(part); part == "" {
 			continue
@@ -887,7 +877,6 @@ func Load(getenv func(string) string) (*Config, error) {
 		l.errf("PROBECTL_BUS_MODE=kafka requires PROBECTL_BUS_BROKERS (a comma-separated host:port list)")
 	}
 	if cfg.BusMode == "kafka" {
-		// U-010 fail-closed: kafka without TLS needs the explicit dev flag.
 		if err := cfg.BusSecurity().Validate(); err != nil {
 			l.errf("%s", err.Error())
 		}
@@ -910,6 +899,17 @@ func Load(getenv func(string) string) (*Config, error) {
 	if volatile := volatileProductionModes(cfg); len(volatile) > 0 {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires durable bus/store modes; volatile lightweight modes are not allowed: %s", cfg.DeploymentProfile, strings.Join(volatile, ", "))
 	}
+	validateExternalEndpoints(l, cfg)
+	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
+		l.errf("PROBECTL_DATABASE_MIN_CONNS (%d) must be <= PROBECTL_DATABASE_MAX_CONNS (%d)",
+			cfg.DatabaseMinConns, cfg.DatabaseMaxConns)
+	}
+	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
+		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
+	}
+}
+
+func validateExternalEndpoints(l *loader, cfg *Config) {
 	if cfg.CMDBProvider != "" {
 		if cfg.CMDBURL == "" || cfg.CMDBSecret == "" {
 			l.errf("PROBECTL_CMDB_PROVIDER=%s requires PROBECTL_CMDB_URL and PROBECTL_CMDB_SECRET", cfg.CMDBProvider)
@@ -923,19 +923,13 @@ func Load(getenv func(string) string) (*Config, error) {
 	if len(cfg.OTLPFreshnessHMACKey) > 0 && cfg.OTLPFreshnessWindow <= 0 {
 		l.errf("PROBECTL_OTLP_FRESHNESS_WINDOW must be positive when PROBECTL_OTLP_FRESHNESS_HMAC_KEY is set")
 	}
-	// WIRE-002: the OTLP export path egresses confidential customer telemetry
-	// (and a bearer token). It MUST be encrypted to a non-loopback collector
-	// (guardrail 12). For protocol=http an http:// endpoint is cleartext POST;
-	// for protocol=grpc the Insecure flag disables TLS. Fail closed unless the
-	// operator has explicitly opted into insecure transport AND the target is
-	// loopback (a co-located dev collector). Mirrors the CMDB https check.
 	if cfg.OTLPExportEnabled() && !isLoopbackOTLPEndpoint(cfg.OTLPExportEndpoint) {
 		switch cfg.OTLPExportProtocol {
 		case "http":
 			if !strings.HasPrefix(cfg.OTLPExportEndpoint, "https://") {
 				l.errf("PROBECTL_OTLP_EXPORT_ENDPOINT must be https:// for a remote OTLP/HTTP collector — plaintext http:// would egress tenant telemetry + the bearer token in the clear (guardrail 12). Plain http is allowed only for a loopback endpoint.")
 			}
-		default: // grpc
+		default:
 			if cfg.OTLPExportInsecure {
 				l.errf("PROBECTL_OTLP_EXPORT_INSECURE is only allowed for a loopback OTLP/gRPC collector, not %q (guardrail 12)", cfg.OTLPExportEndpoint)
 			}
@@ -959,19 +953,6 @@ func Load(getenv func(string) string) (*Config, error) {
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {
 		l.errf("the MCP HTTP transport is TLS-only and authenticated: set PROBECTL_MCP_TLS_CERT_FILE and PROBECTL_MCP_TLS_KEY_FILE alongside PROBECTL_MCP_HTTP_ADDR")
 	}
-
-	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
-		l.errf("PROBECTL_DATABASE_MIN_CONNS (%d) must be <= PROBECTL_DATABASE_MAX_CONNS (%d)",
-			cfg.DatabaseMinConns, cfg.DatabaseMaxConns)
-	}
-	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
-		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
-	}
-
-	if err := l.err(); err != nil {
-		return nil, err
-	}
-	return cfg, nil
 }
 
 // BusSecurity renders the Kafka transport policy (U-010) for bus.New.
