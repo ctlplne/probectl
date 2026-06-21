@@ -15,6 +15,32 @@ export interface LifecycleRetentionInput {
   flow_retention_days: number | null
 }
 
+export interface LifecycleStoreResult {
+  store: string
+  deleted: number
+  verified_zero: boolean
+  notes?: string
+}
+
+export interface LifecycleEraseAttestation {
+  format_version: number
+  tenant_id: string
+  tenant_slug?: string
+  actor: string
+  started_at: string
+  finished_at: string
+  stores: LifecycleStoreResult[]
+  backup_policy: string
+  backup_retention_days?: number
+  backup_erasure_deadline?: string
+  complete: boolean
+  report_sha256: string
+}
+
+export interface LifecycleEraseInput {
+  confirm: string
+}
+
 export function useLifecycle() {
   return useQuery({
     queryKey: ['lifecycle'],
@@ -28,6 +54,19 @@ export function useSaveLifecycleRetention() {
     mutationFn: (input: LifecycleRetentionInput) =>
       apiFetch<LifecycleStatus>('/lifecycle/retention', {
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['lifecycle'] }),
+  })
+}
+
+export function useEraseTenantLifecycle() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: LifecycleEraseInput) =>
+      apiFetch<LifecycleEraseAttestation>('/lifecycle/erase', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       }),

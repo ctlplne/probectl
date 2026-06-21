@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import styles from '../pages.module.css'
 import {
   Badge,
@@ -11,11 +11,18 @@ import {
   ErrorState,
   Field,
   LoadingState,
+  Modal,
   StatusDot,
   Table,
 } from '../../components'
 import { useEditions, type FeatureInfo } from '../../api/editions'
-import { useLifecycle, useSaveLifecycleRetention } from '../../api/lifecycle'
+import {
+  useEraseTenantLifecycle,
+  useLifecycle,
+  useSaveLifecycleRetention,
+  type LifecycleEraseAttestation,
+  type LifecycleStoreResult,
+} from '../../api/lifecycle'
 import { useDiagnostics, type HealthStatus } from '../../api/diagnostics'
 import { DateTime } from '../../time/DateTime'
 
@@ -25,9 +32,15 @@ import { DateTime } from '../../time/DateTime'
 export function LifecycleCard() {
   const { data, isPending, isError } = useLifecycle()
   const saveRetention = useSaveLifecycleRetention()
+  const eraseTenant = useEraseTenantLifecycle()
   const [days, setDays] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [eraseOpen, setEraseOpen] = useState(false)
+  const [eraseConfirm, setEraseConfirm] = useState('')
+  const [eraseError, setEraseError] = useState('')
+  const [attestation, setAttestation] = useState<LifecycleEraseAttestation | null>(null)
+  const closeEraseDialog = useCallback(() => setEraseOpen(false), [])
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -43,11 +56,31 @@ export function LifecycleCard() {
     }
   }
 
+  function openEraseDialog() {
+    setEraseConfirm('')
+    setEraseError('')
+    setAttestation(null)
+    eraseTenant.reset()
+    setEraseOpen(true)
+  }
+
+  async function erase(e: React.FormEvent) {
+    e.preventDefault()
+    setEraseError('')
+    setAttestation(null)
+    try {
+      const out = await eraseTenant.mutateAsync({ confirm: eraseConfirm.trim() })
+      setAttestation(out)
+    } catch (err) {
+      setEraseError(err instanceof Error ? err.message : 'Tenant erasure failed')
+    }
+  }
+
   return (
     <Card>
       <CardHeader
         title="Data lifecycle"
-        description="Export your tenant's data (portability bundle), tighten flow retention, and see where your data lives. Verifiable erasure is available via the API/runbook — it is irreversible and slug-confirmed."
+        description="Export your tenant's data (portability bundle), tighten flow retention, see where your data lives, and run slug-confirmed verifiable erasure."
       />
       <CardBody>
         {isPending ? (
@@ -100,10 +133,141 @@ export function LifecycleCard() {
                 {error}
               </p>
             ) : null}
+            <div className={styles.actions}>
+              <Button variant="danger" onClick={openEraseDialog}>
+                Erase tenant data
+              </Button>
+            </div>
+            <EraseTenantDialog
+              open={eraseOpen}
+              onClose={closeEraseDialog}
+              confirm={eraseConfirm}
+              onConfirmChange={setEraseConfirm}
+              onSubmit={(e) => {
+                void erase(e)
+              }}
+              pending={eraseTenant.isPending}
+              error={eraseError}
+              attestation={attestation}
+            />
           </>
         )}
       </CardBody>
     </Card>
+  )
+}
+
+function EraseTenantDialog({
+  open,
+  onClose,
+  confirm,
+  onConfirmChange,
+  onSubmit,
+  pending,
+  error,
+  attestation,
+}: {
+  open: boolean
+  onClose: () => void
+  confirm: string
+  onConfirmChange: (value: string) => void
+  onSubmit: (e: React.FormEvent) => void
+  pending: boolean
+  error: string
+  attestation: LifecycleEraseAttestation | null
+}) {
+  const columns: Column<LifecycleStoreResult>[] = [
+    { key: 'store', header: 'Store', render: (r) => <code>{r.store}</code> },
+    {
+      key: 'deleted',
+      header: 'Deleted',
+      numeric: true,
+      render: (r) => (r.deleted < 0 ? 'unknown' : r.deleted),
+    },
+    {
+      key: 'verified',
+      header: 'Verified',
+      render: (r) =>
+        r.verified_zero ? (
+          <StatusDot tone="success" label="zero" />
+        ) : (
+          <StatusDot tone="danger" label="not zero" />
+        ),
+    },
+    { key: 'notes', header: 'Notes', render: (r) => r.notes || '—' },
+  ]
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={attestation ? 'Erasure receipt' : 'Erase tenant data'}
+      footer={
+        attestation ? (
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        ) : null
+      }
+    >
+      {attestation ? (
+        <div className={styles.form}>
+          <p className={styles.editionsLede}>
+            <Badge tone={attestation.complete ? 'success' : 'warning'}>
+              {attestation.complete ? 'complete' : 'manual follow-up'}
+            </Badge>{' '}
+            Finished <DateTime value={attestation.finished_at} />. Report SHA-256:{' '}
+            <code>{attestation.report_sha256}</code>
+            {attestation.backup_erasure_deadline ? (
+              <>
+                {' '}
+                · backups covered by <DateTime value={attestation.backup_erasure_deadline} />
+              </>
+            ) : null}
+          </p>
+          <Table
+            caption="Erasure attestation stores"
+            columns={columns}
+            rows={attestation.stores}
+            rowKey={(r) => r.store}
+          />
+        </div>
+      ) : (
+        <form
+          className={styles.form}
+          onSubmit={(e) => {
+            void onSubmit(e)
+          }}
+        >
+          <p className={styles.editionsLede}>
+            This deletes tenant-owned data across wired stores and returns an attestation receipt.
+            Type the tenant slug exactly; the control plane validates it against the tenant
+            registry and records the audit event.
+          </p>
+          <Field
+            label="Tenant slug confirmation"
+            value={confirm}
+            onChange={(e) => onConfirmChange(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            hint="The browser sends only this confirmation string; tenant scope comes from your signed-in session."
+          />
+          {error ? (
+            <p role="alert" className={styles.editionsLede}>
+              {error}
+            </p>
+          ) : null}
+          <span className={styles.actions}>
+            <Button type="submit" variant="danger" disabled={pending || confirm.trim() === ''}>
+              {pending ? 'Erasing...' : 'Erase tenant data'}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+          </span>
+        </form>
+      )}
+    </Modal>
   )
 }
 
