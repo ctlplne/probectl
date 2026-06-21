@@ -12,11 +12,14 @@ import {
   type Column,
 } from '../components'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
+import { useI18n } from '../i18n/useI18n'
+import { formatInteger, formatMultiplier } from '../i18n/number'
 
 /** SLOsPage (S45): the exec-grade reliability view — attainment vs objective,
  * error budgets, and multi-window burn rates per service/team. Definitions
  * are OpenSLO YAML (import/export via the API). */
 export function SLOsPage() {
+  const { locale } = useI18n()
   const { data, isPending, isError } = useSLOs()
 
   const columns: Column<SLOStatus>[] = [
@@ -33,11 +36,12 @@ export function SLOsPage() {
         </div>
       ),
     },
-    { key: 'objective', header: 'Objective', render: (s) => pct(s.objective) },
+    { key: 'objective', header: 'Objective', render: (s) => pct(s.objective, locale) },
     {
       key: 'attainment',
       header: 'Attainment',
-      render: (s) => (s.cold_start ? <Badge tone="neutral">cold start</Badge> : pct(s.attainment)),
+      render: (s) =>
+        s.cold_start ? <Badge tone="neutral">cold start</Badge> : pct(s.attainment, locale),
     },
     {
       key: 'budget',
@@ -48,11 +52,11 @@ export function SLOsPage() {
         const cls = remaining <= 0 ? styles.budgetGone : remaining < 0.25 ? styles.budgetLow : ''
         return (
           <div className={`${styles.budgetCell} ${cls}`}>
-            {pct(remaining)} left
+            {pct(remaining, locale)} left
             <div
               className={styles.budgetBar}
               role="img"
-              aria-label={`${pct(remaining)} of the error budget remains`}
+              aria-label={`${pct(remaining, locale)} of the error budget remains`}
             >
               <div className={styles.budgetFill} style={{ width: `${remaining * 100}%` }} />
             </div>
@@ -67,13 +71,13 @@ export function SLOsPage() {
         <div className={styles.burns}>
           {s.burn_rates.map((b) => (
             <Badge key={b.window} tone={b.firing ? 'danger' : 'neutral'}>
-              {b.window} {b.burn.toFixed(1)}x
+              {b.window} {formatMultiplier(b.burn, locale)}
             </Badge>
           ))}
         </div>
       ),
     },
-    { key: 'events', header: 'Events', render: (s) => s.total_events },
+    { key: 'events', header: 'Events', render: (s) => formatInteger(s.total_events, locale) },
   ]
 
   return (

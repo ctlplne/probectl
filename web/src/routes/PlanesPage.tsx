@@ -18,6 +18,13 @@ import { useEndpoints, type EndpointView } from '../api/endpoints'
 import { useFlowAnomalies, useFlowCapacity, useFlowTop, type FlowGroupBy } from '../api/planes'
 import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
 import { DateTime } from '../time/DateTime'
+import { useI18n } from '../i18n/useI18n'
+import {
+  formatDecimal,
+  formatInteger,
+  formatScaledBitRate,
+  formatScaledBytes,
+} from '../i18n/number'
 
 type PlaneID = 'bgp' | 'flow' | 'device' | 'ebpf'
 
@@ -37,34 +44,16 @@ const PLANES: Plane[] = [
 const EMPTY_TOPO_NODES: TopoNode[] = []
 const EMPTY_TOPO_EDGES: TopoEdge[] = []
 
-const numberFormat = new Intl.NumberFormat('en-US')
-
-function compact(n: number): string {
-  return numberFormat.format(n)
+function compact(n: number, locale: string): string {
+  return formatInteger(n, locale)
 }
 
-function bytes(n: number | undefined): string {
-  if (!n) return '0 B'
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
-  let value = n
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
+function bytes(n: number | undefined, locale: string): string {
+  return formatScaledBytes(n, locale)
 }
 
-function rate(n: number | undefined): string {
-  if (!n) return '0 bps'
-  const units = ['bps', 'Kbps', 'Mbps', 'Gbps']
-  let value = n
-  let unit = 0
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000
-    unit += 1
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
+function rate(n: number | undefined, locale: string): string {
+  return formatScaledBitRate(n, locale)
 }
 
 function labelFor(nodes: TopoNode[], id: string): string {
@@ -84,6 +73,7 @@ function toneForCount(n: number) {
 }
 
 export function PlanesPage() {
+  const { locale } = useI18n()
   const [active, setActive] = useState<PlaneID>('bgp')
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
   const topology = useTopology()
@@ -118,30 +108,37 @@ export function PlanesPage() {
         <PlaneStat
           title="BGP routing"
           value={routingEdges.length}
-          detail={`${prefixNodes.length} prefixes, ${asNodes.length} AS nodes`}
+          detail={`${compact(prefixNodes.length, locale)} prefixes, ${compact(
+            asNodes.length,
+            locale,
+          )} AS nodes`}
           tone={toneForCount(routingEdges.length)}
           onOpen={() => setActive('bgp')}
+          locale={locale}
         />
         <PlaneStat
           title="Flow analytics"
           value={topTalkers.data?.items.length ?? 0}
-          detail={`${bytes(flowBytes)} in top talkers`}
+          detail={`${bytes(flowBytes, locale)} in top talkers`}
           tone={toneForCount(topTalkers.data?.items.length ?? 0)}
           onOpen={() => setActive('flow')}
+          locale={locale}
         />
         <PlaneStat
           title="Device telemetry"
           value={deviceNodes.length + endpointItems.length}
-          detail={`${impairedEndpoints} endpoint impairments`}
+          detail={`${compact(impairedEndpoints, locale)} endpoint impairments`}
           tone={toneForCount(deviceNodes.length + endpointItems.length)}
           onOpen={() => setActive('device')}
+          locale={locale}
         />
         <PlaneStat
           title="eBPF host/L7"
           value={flowEdges.length}
-          detail={`${serviceNodes.length} services in topology`}
+          detail={`${compact(serviceNodes.length, locale)} services in topology`}
           tone={toneForCount(flowEdges.length)}
           onOpen={() => setActive('ebpf')}
+          locale={locale}
         />
       </div>
 
@@ -212,12 +209,14 @@ function PlaneStat({
   detail,
   tone,
   onOpen,
+  locale,
 }: {
   title: string
   value: number
   detail: string
   tone: 'success' | 'warning'
   onOpen: () => void
+  locale: string
 }) {
   return (
     <Card>
@@ -230,7 +229,7 @@ function PlaneStat({
         }
       />
       <CardBody className={styles.statBody}>
-        <span className={styles.statValue}>{compact(value)}</span>
+        <span className={styles.statValue}>{compact(value, locale)}</span>
         <span className={styles.muted}>{detail}</span>
         <Badge tone={tone}>{value > 0 ? 'observed' : 'waiting for telemetry'}</Badge>
       </CardBody>
@@ -251,6 +250,7 @@ function BGPPanel({
   routingEdges: TopoEdge[]
   coverage: number
 }) {
+  const { locale } = useI18n()
   const rows = routingEdges.map((edge, index) => ({
     ...edge,
     id: `${edge.from}-${edge.to}-${index}`,
@@ -291,9 +291,9 @@ function BGPPanel({
       <PlaneSummary
         title="Routing coverage"
         items={[
-          ['Routing edges', compact(coverage)],
-          ['Prefixes', compact(nodesOf(nodes, 'prefix').length)],
-          ['Autonomous systems', compact(nodesOf(nodes, 'as').length)],
+          ['Routing edges', compact(coverage, locale)],
+          ['Prefixes', compact(nodesOf(nodes, 'prefix').length, locale)],
+          ['Autonomous systems', compact(nodesOf(nodes, 'as').length, locale)],
         ]}
       />
     </section>
@@ -313,6 +313,7 @@ function FlowPanel({
   anomalies: ReturnType<typeof useFlowAnomalies>
   latestCapacity?: { bps: number; pps: number; exporter: string; iface: number; ts: string }
 }) {
+  const { locale } = useI18n()
   const topColumns: Column<NonNullable<typeof topTalkers.data>['items'][number]>[] = [
     {
       key: 'key',
@@ -324,16 +325,26 @@ function FlowPanel({
         </div>
       ),
     },
-    { key: 'bytes', header: 'Bytes', numeric: true, render: (r) => bytes(r.bytes) },
-    { key: 'packets', header: 'Packets', numeric: true, render: (r) => compact(r.packets) },
-    { key: 'flows', header: 'Flows', numeric: true, render: (r) => compact(r.flows) },
+    { key: 'bytes', header: 'Bytes', numeric: true, render: (r) => bytes(r.bytes, locale) },
+    { key: 'packets', header: 'Packets', numeric: true, render: (r) => compact(r.packets, locale) },
+    { key: 'flows', header: 'Flows', numeric: true, render: (r) => compact(r.flows, locale) },
   ]
   const anomalyColumns: Column<NonNullable<typeof anomalies.data>['items'][number]>[] = [
     { key: 'exporter', header: 'Exporter', render: (a) => a.exporter || 'any' },
     { key: 'iface', header: 'Iface', numeric: true, render: (a) => a.iface },
-    { key: 'current', header: 'Current', numeric: true, render: (a) => rate(a.current_bps) },
-    { key: 'baseline', header: 'Baseline', numeric: true, render: (a) => rate(a.baseline_bps) },
-    { key: 'sigma', header: 'Sigma', numeric: true, render: (a) => a.sigma.toFixed(1) },
+    { key: 'current', header: 'Current', numeric: true, render: (a) => rate(a.current_bps, locale) },
+    {
+      key: 'baseline',
+      header: 'Baseline',
+      numeric: true,
+      render: (a) => rate(a.baseline_bps, locale),
+    },
+    {
+      key: 'sigma',
+      header: 'Sigma',
+      numeric: true,
+      render: (a) => formatDecimal(a.sigma, locale, { maximumFractionDigits: 1 }),
+    },
   ]
   return (
     <section id="plane-panel-flow" role="tabpanel" className={styles.panelGrid}>
@@ -405,8 +416,13 @@ function FlowPanel({
       <PlaneSummary
         title="Capacity"
         items={[
-          ['Latest throughput', rate(latestCapacity?.bps)],
-          ['Latest packets/s', latestCapacity ? latestCapacity.pps.toFixed(1) : '0'],
+          ['Latest throughput', rate(latestCapacity?.bps, locale)],
+          [
+            'Latest packets/s',
+            latestCapacity
+              ? formatDecimal(latestCapacity.pps, locale, { maximumFractionDigits: 1 })
+              : formatInteger(0, locale),
+          ],
           ['Exporter', latestCapacity?.exporter || 'none'],
           ['Interface', latestCapacity ? String(latestCapacity.iface) : 'none'],
         ]}
@@ -433,6 +449,7 @@ function DevicePanel({
   endpoints: EndpointView[]
   collectorRunning?: boolean
 }) {
+  const { locale } = useI18n()
   const deviceColumns: Column<TopoNode>[] = [
     { key: 'device', header: 'Device', render: (n) => <strong>{n.label}</strong> },
     { key: 'id', header: 'Graph ID', render: (n) => <code>{n.id}</code> },
@@ -499,9 +516,9 @@ function DevicePanel({
       <PlaneSummary
         title="Device coverage"
         items={[
-          ['Device nodes', compact(deviceNodes.length)],
-          ['Device links', compact(deviceEdges.length)],
-          ['Endpoint agents', compact(endpoints.length)],
+          ['Device nodes', compact(deviceNodes.length, locale)],
+          ['Device links', compact(deviceEdges.length, locale)],
+          ['Endpoint agents', compact(endpoints.length, locale)],
           ['Collector', collectorRunning === false ? 'off' : 'on'],
         ]}
         footer={
@@ -525,6 +542,7 @@ function EBPFPanel({
   flowEdges: TopoEdge[]
   serviceNodes: TopoNode[]
 }) {
+  const { locale } = useI18n()
   const rows = flowEdges.map((edge, index) => ({ ...edge, id: `${edge.from}-${edge.to}-${index}` }))
   const columns: Column<(typeof rows)[number]>[] = [
     { key: 'src', header: 'Source workload', render: (e) => labelFor(nodes, e.from) },
@@ -563,9 +581,9 @@ function EBPFPanel({
       <PlaneSummary
         title="Host/L7 coverage"
         items={[
-          ['Service nodes', compact(serviceNodes.length)],
-          ['Service edges', compact(flowEdges.length)],
-          ['Protocols', compact(protocols.size)],
+          ['Service nodes', compact(serviceNodes.length, locale)],
+          ['Service edges', compact(flowEdges.length, locale)],
+          ['Protocols', compact(protocols.size, locale)],
         ]}
       />
     </section>

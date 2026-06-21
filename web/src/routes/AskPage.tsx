@@ -17,6 +17,8 @@ import { confidenceTone, useAsk, useSubmitFeedback, type Answer, type Evidence }
 import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
 import { proposalFromAnswer, type ProposalContext } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
+import { useI18n } from '../i18n/useI18n'
+import { formatCount } from '../i18n/number'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -129,6 +131,7 @@ interface PlaneGroup {
 }
 
 function AnswerView({ answer, context }: { answer: Answer; context?: ProposalContext }) {
+  const { locale } = useI18n()
   const feedback = useSubmitFeedback()
   const remediations = useRemediations()
   const createProposal = useCreateRemediationProposal()
@@ -221,7 +224,12 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
             </p>
           ) : null}
           <p className={styles.provenance}>
-            {`Synthesized by ${answer.model} · grounded in ${answer.evidence.length} signal(s) across ${planes.length} plane(s)${
+            {`Synthesized by ${answer.model} · grounded in ${formatCount(
+              answer.evidence.length,
+              'signal',
+              'signals',
+              locale,
+            )} across ${formatCount(planes.length, 'plane', 'planes', locale)}${
               planes.length ? ': ' + planes.join(', ') : ''
             }.`}
           </p>

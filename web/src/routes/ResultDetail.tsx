@@ -3,19 +3,26 @@ import { Badge, EmptyState, Modal, Table, type Column } from '../components'
 import { a, latencyFamily, m, useLatestResults, type LatestResult } from '../api/results'
 import type { Test } from '../api/tests'
 import { DateTime } from '../time/DateTime'
+import { useI18n } from '../i18n/useI18n'
+import { formatCount, formatDecimal, formatPercentValue, formatUnit } from '../i18n/number'
 
 /** Per-type synthetic result views (S-FE5). One consistent pattern across
  *  types — header kv + a type-specific breakdown — extending the S9 screens
  *  with S8a components only. Every shipped type renders named fields; unknown
  *  types fall back to a named metrics table, never raw JSON. */
 
-function num(v: number | undefined, unit = '', digits = 1): string {
+function num(v: number | undefined, unit = '', digits = 1, locale = 'en'): string {
   if (v === undefined) return '—'
-  return `${Number(v.toFixed(digits))}${unit}`
+  const suffix = unit.trim()
+  if (suffix === '%') return formatPercentValue(v, locale, { maximumFractionDigits: digits })
+  if (suffix) return formatUnit(v, suffix, locale, { maximumFractionDigits: digits })
+  return formatDecimal(v, locale, { maximumFractionDigits: digits })
 }
 
 /** HTTPWaterfall renders the dns→connect→tls→ttfb phase breakdown (S13). */
 function HTTPWaterfall({ r }: { r: LatestResult }) {
+  const { locale } = useI18n()
+  const fmt = (v: number | undefined, unit = '', digits = 1) => num(v, unit, digits, locale)
   const phases: Array<[string, number | undefined]> = [
     ['DNS', m(r, 'http.dns.ms')],
     ['Connect', m(r, 'http.connect.ms')],
@@ -42,7 +49,7 @@ function HTTPWaterfall({ r }: { r: LatestResult }) {
                   />
                 ) : null}
               </span>
-              <span className={styles.value}>{num(v, ' ms')}</span>
+              <span className={styles.value}>{fmt(v, 'ms')}</span>
             </li>
           )
         })}
@@ -50,22 +57,24 @@ function HTTPWaterfall({ r }: { r: LatestResult }) {
       <dl className={styles.kv}>
         <dt>Total</dt>
         <dd>
-          {num(total, ' ms')}
-          {m(r, 'http.status') !== undefined ? ` · HTTP ${num(m(r, 'http.status'), '', 0)}` : ''}
+          {fmt(total, 'ms')}
+          {m(r, 'http.status') !== undefined ? ` · HTTP ${fmt(m(r, 'http.status'), '', 0)}` : ''}
         </dd>
         {m(r, 'http.throughput.kbps') !== undefined ? (
           <>
             <dt>Throughput</dt>
             <dd>
-              {num(m(r, 'http.throughput.kbps'), ' kbps', 0)} ·{' '}
-              {num(m(r, 'http.content.bytes'), ' bytes', 0)}
+              {fmt(m(r, 'http.throughput.kbps'), 'kbps', 0)} ·{' '}
+              {fmt(m(r, 'http.content.bytes'), 'bytes', 0)}
             </dd>
           </>
         ) : null}
         {m(r, 'http.tls.cert_expiry_days') !== undefined ? (
           <>
             <dt>Cert expiry</dt>
-            <dd>{num(m(r, 'http.tls.cert_expiry_days'), ' days', 0)}</dd>
+            <dd>
+              {formatCount(m(r, 'http.tls.cert_expiry_days') ?? 0, 'day', 'days', locale)}
+            </dd>
           </>
         ) : null}
       </dl>
@@ -75,12 +84,15 @@ function HTTPWaterfall({ r }: { r: LatestResult }) {
 
 /** DNSBreakdown renders the resolution detail (S12). */
 function DNSBreakdown({ r }: { r: LatestResult }) {
+  const { locale } = useI18n()
   const secure = m(r, 'dns.dnssec.secure')
+  const answerCount = m(r, 'dns.answers')
   return (
     <dl className={styles.kv}>
       <dt>Query</dt>
       <dd>
-        {num(m(r, 'dns.query.ms'), ' ms')} · {num(m(r, 'dns.answers'), '', 0)} answer(s) ·{' '}
+        {num(m(r, 'dns.query.ms'), 'ms', 1, locale)} ·{' '}
+        {answerCount === undefined ? '—' : formatCount(answerCount, 'answer', 'answers', locale)} ·{' '}
         {a(r, 'dns.rcode') ?? '—'}
       </dd>
       {a(r, 'dns.answer') ? (
@@ -111,6 +123,8 @@ function DNSBreakdown({ r }: { r: LatestResult }) {
 
 /** LatencyLoss renders the shared latency family + loss (S7/S8: icmp/tcp/udp). */
 function LatencyLoss({ r }: { r: LatestResult }) {
+  const { locale } = useI18n()
+  const fmt = (v: number | undefined, unit = '', digits = 1) => num(v, unit, digits, locale)
   const fam = latencyFamily(r.type) ?? 'rtt'
   const loss = m(r, 'loss.ratio')
   return (
@@ -119,20 +133,20 @@ function LatencyLoss({ r }: { r: LatestResult }) {
       <dd>
         {loss !== undefined ? (
           <Badge tone={loss === 0 ? 'success' : loss < 0.05 ? 'warning' : 'danger'}>
-            {num(loss * 100, '%', 1)}
+            {fmt(loss * 100, '%', 1)}
           </Badge>
         ) : (
           '—'
         )}{' '}
-        {num(m(r, 'packets.received'), '', 0)}/{num(m(r, 'packets.sent'), '', 0)} received
+        {fmt(m(r, 'packets.received'), '', 0)}/{fmt(m(r, 'packets.sent'), '', 0)} received
       </dd>
       <dt>{fam === 'rtt' ? 'RTT' : 'Connect'}</dt>
       <dd>
-        min {num(m(r, `${fam}.min.ms`), ' ms')} · avg {num(m(r, `${fam}.avg.ms`), ' ms')} · max{' '}
-        {num(m(r, `${fam}.max.ms`), ' ms')} · σ {num(m(r, `${fam}.stddev.ms`), ' ms')}
+        min {fmt(m(r, `${fam}.min.ms`), 'ms')} · avg {fmt(m(r, `${fam}.avg.ms`), 'ms')} ·
+        max {fmt(m(r, `${fam}.max.ms`), 'ms')} · σ {fmt(m(r, `${fam}.stddev.ms`), 'ms')}
       </dd>
       <dt>Jitter</dt>
-      <dd>{num(m(r, 'jitter.ms'), ' ms')}</dd>
+      <dd>{fmt(m(r, 'jitter.ms'), 'ms')}</dd>
     </dl>
   )
 }
@@ -148,6 +162,8 @@ function mosTone(mos: number): 'success' | 'warning' | 'danger' {
  *  then R-factor / jitter / loss / delay — with the model named so a computed
  *  MOS is never mistaken for a measured listening score. */
 function VoiceBreakdown({ r }: { r: LatestResult }) {
+  const { locale } = useI18n()
+  const fmt = (v: number | undefined, unit = '', digits = 1) => num(v, unit, digits, locale)
   const mos = m(r, 'voice.mos')
   return (
     <dl className={styles.kv}>
@@ -155,8 +171,8 @@ function VoiceBreakdown({ r }: { r: LatestResult }) {
       <dd>
         {mos !== undefined ? (
           <>
-            <Badge tone={mosTone(mos)}>{num(mos, '', 2)}</Badge> · R-factor{' '}
-            {num(m(r, 'voice.r_factor'), '', 1)}
+            <Badge tone={mosTone(mos)}>{fmt(mos, '', 2)}</Badge> · R-factor{' '}
+            {fmt(m(r, 'voice.r_factor'), '', 1)}
           </>
         ) : (
           '— (no echoes — voice path unmeasurable)'
@@ -164,14 +180,14 @@ function VoiceBreakdown({ r }: { r: LatestResult }) {
       </dd>
       <dt>Jitter / loss</dt>
       <dd>
-        {num(m(r, 'voice.jitter.ms'), ' ms')} (RFC 3550) · loss{' '}
-        {num(m(r, 'voice.loss.pct'), '%', 1)} · {num(m(r, 'packets.received'), '', 0)}/
-        {num(m(r, 'packets.sent'), '', 0)} packets
+        {fmt(m(r, 'voice.jitter.ms'), 'ms')} (RFC 3550) · loss{' '}
+        {fmt(m(r, 'voice.loss.pct'), '%', 1)} · {fmt(m(r, 'packets.received'), '', 0)}/
+        {fmt(m(r, 'packets.sent'), '', 0)} packets
       </dd>
       <dt>Delay</dt>
       <dd>
-        one-way est. {num(m(r, 'voice.one_way.ms'), ' ms')} · RTT avg{' '}
-        {num(m(r, 'rtt.avg.ms'), ' ms')}
+        one-way est. {fmt(m(r, 'voice.one_way.ms'), 'ms')} · RTT avg{' '}
+        {fmt(m(r, 'rtt.avg.ms'), 'ms')}
       </dd>
       <dt>Model</dt>
       <dd>
@@ -193,6 +209,8 @@ interface BrowserStepRow {
 
 /** BrowserBreakdown renders transaction-level totals plus per-step timings. */
 function BrowserBreakdown({ r }: { r: LatestResult }) {
+  const { locale } = useI18n()
+  const fmt = (v: number | undefined, unit = '', digits = 1) => num(v, unit, digits, locale)
   const declared = Number(a(r, 'browser.step_count') ?? m(r, 'transaction.steps') ?? 0)
   const metricStepCount =
     Math.max(
@@ -218,7 +236,7 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
       key: 'duration',
       header: 'Duration',
       numeric: true,
-      render: (row) => num(row.duration, ' ms'),
+      render: (row) => fmt(row.duration, 'ms'),
     },
     {
       key: 'result',
@@ -238,12 +256,12 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
       <dl className={styles.kv}>
         <dt>Transaction</dt>
         <dd>
-          {a(r, 'browser.script') ?? 'browser'} · {num(m(r, 'transaction.total_ms'), ' ms')}
+          {a(r, 'browser.script') ?? 'browser'} · {fmt(m(r, 'transaction.total_ms'), 'ms')}
         </dd>
         <dt>Resources</dt>
         <dd>
-          {num(m(r, 'transaction.resources'), '', 0)} resource(s) ·{' '}
-          {num(m(r, 'transaction.failed_steps'), '', 0)} failed step(s)
+          {formatCount(m(r, 'transaction.resources') ?? 0, 'resource', 'resources', locale)} ·{' '}
+          {formatCount(m(r, 'transaction.failed_steps') ?? 0, 'failed step', 'failed steps', locale)}
         </dd>
       </dl>
       <Table
@@ -259,10 +277,16 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
 /** GenericMetrics is the named-field fallback for types without a dedicated
  *  view — still a labeled table, never raw JSON. */
 function GenericMetrics({ r }: { r: LatestResult }) {
+  const { locale } = useI18n()
   const rows = Object.entries(r.metrics ?? {}).sort(([x], [y]) => x.localeCompare(y))
   const columns: Column<[string, number]>[] = [
     { key: 'metric', header: 'Metric', render: ([k]) => k },
-    { key: 'value', header: 'Value', numeric: true, render: ([, v]) => String(v) },
+    {
+      key: 'value',
+      header: 'Value',
+      numeric: true,
+      render: ([, v]) => formatDecimal(v, locale, { maximumFractionDigits: 3 }),
+    },
   ]
   if (rows.length === 0) return <p>No metrics reported.</p>
   return (

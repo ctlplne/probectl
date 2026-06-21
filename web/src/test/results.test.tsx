@@ -272,7 +272,7 @@ describe('synthetic result views (S-FE5)', () => {
     expect(within(wf).getByText('20 ms')).toBeDefined()
     expect(within(wf).getByText('200 ms')).toBeDefined()
     expect(within(dialog).getByText(/450 ms · HTTP 200/)).toBeDefined()
-    expect(within(dialog).getByText(/1800 kbps/)).toBeDefined()
+    expect(within(dialog).getByText(/1,800 kbps/)).toBeDefined()
     expect(within(dialog).getByText(/42 days/)).toBeDefined()
     // a11y: the open result dialog passes axe.
     expect(await axe(dialog)).toHaveNoViolations()
@@ -284,7 +284,7 @@ describe('synthetic result views (S-FE5)', () => {
     renderApp('/targets')
     const dialog = await openResults('apex dns')
 
-    expect(within(dialog).getByText(/12\.5 ms · 2 answer\(s\) · NOERROR/)).toBeDefined()
+    expect(within(dialog).getByText(/12\.5 ms · 2 answers · NOERROR/)).toBeDefined()
     expect(within(dialog).getByText('203.0.113.10, 203.0.113.11')).toBeDefined()
     expect(within(dialog).getByText(/192\.0\.2\.53:53 via udp · A/)).toBeDefined()
     expect(within(dialog).getByText('validated')).toBeDefined()
@@ -297,7 +297,7 @@ describe('synthetic result views (S-FE5)', () => {
     const dialog = await openResults('checkout browser')
 
     expect(within(dialog).getByText(/checkout · 735 ms/)).toBeDefined()
-    expect(within(dialog).getByText(/4 resource\(s\) · 0 failed step\(s\)/)).toBeDefined()
+    expect(within(dialog).getByText(/4 resources · 0 failed steps/)).toBeDefined()
     const table = within(dialog).getByRole('table', { name: /browser transaction steps/i })
     expect(within(table).getByText('open login')).toBeDefined()
     expect(within(table).getByText('welcome')).toBeDefined()

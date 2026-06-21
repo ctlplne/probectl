@@ -115,6 +115,14 @@ describe('cost / FinOps summary (S44)', () => {
     expect(within(budgets).getByText('within')).toBeInTheDocument()
   })
 
+  test('Spanish locale uses locale-aware currency and decimal formatting', async () => {
+    vi.stubGlobal('fetch', stubWith(summaryFixture()))
+    renderApp('/cost', { locale: 'es' })
+
+    expect((await screen.findAllByText(/0,38/)).length).toBeGreaterThan(0)
+    expect(screen.getByText('17,0 GiB')).toBeInTheDocument()
+  })
+
   test('degradation honesty: volume-only mode never invents dollars', async () => {
     const resp = summaryFixture()
     resp.summary = {

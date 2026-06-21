@@ -81,9 +81,7 @@ describe('AI assistant surface', () => {
     )
     expect(screen.getByText(/high confidence/i)).toBeTruthy()
     // Trust summary spells out the grounding breadth.
-    expect(
-      screen.getByText(/grounded in 2 signal\(s\) across 2 plane\(s\): bgp, metrics/i),
-    ).toBeTruthy()
+    expect(screen.getByText(/grounded in 2 signals across 2 planes: bgp, metrics/i)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /yes, helpful/i }))
     await screen.findByText(/thanks/i)

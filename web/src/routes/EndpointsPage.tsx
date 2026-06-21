@@ -27,6 +27,14 @@ import {
 } from '../api/endpoints'
 import { useRUM, type RUMAppStatus, type RUMVerdict } from '../api/rum'
 import { DateTime } from '../time/DateTime'
+import { useI18n } from '../i18n/useI18n'
+import {
+  formatCount,
+  formatDecimal,
+  formatInteger,
+  formatPercentValue,
+  formatUnit,
+} from '../i18n/number'
 
 /** withheld renders a privacy-minimized identifier honestly: the agent chose
  *  not to collect it, so the UI says so — it never invents a value. */
@@ -37,9 +45,12 @@ function idOrWithheld(value?: string): string {
 }
 
 /** num renders an optional metric ("—" when the OS did not report it). */
-function num(v: number | undefined, unit = '', digits = 1): string {
+function num(v: number | undefined, unit = '', digits = 1, locale = 'en'): string {
   if (v === undefined) return '—'
-  return `${Number(v.toFixed(digits))}${unit}`
+  const suffix = unit.trim()
+  if (suffix === '%') return formatPercentValue(v, locale, { maximumFractionDigits: digits })
+  if (suffix) return formatUnit(v, suffix, locale, { maximumFractionDigits: digits })
+  return formatDecimal(v, locale, { maximumFractionDigits: digits })
 }
 
 function verdictBadge(v: EndpointView) {
@@ -50,17 +61,18 @@ function verdictBadge(v: EndpointView) {
   )
 }
 
-function wifiSummary(v: EndpointView): string {
+function wifiSummary(v: EndpointView, locale: string): string {
   const rssi = metric(v.wifi, 'rssi_dbm')
   const signal = metric(v.wifi, 'signal_pct')
   const band = attr(v.wifi, 'wifi.band')
   if (rssi === undefined && signal === undefined) return v.wifi ? '—' : 'no WiFi'
-  const strength = rssi !== undefined ? `${num(rssi, ' dBm', 0)}` : `${num(signal, '%', 0)}`
+  const strength =
+    rssi !== undefined ? `${num(rssi, 'dBm', 0, locale)}` : `${num(signal, '%', 0, locale)}`
   return band ? `${strength} · ${band}` : strength
 }
 
 /** LayerScores renders the attribution engine's per-layer assessment. */
-function LayerScores({ a }: { a: DEMResult }) {
+function LayerScores({ a, locale }: { a: DEMResult; locale: string }) {
   const layers: Array<[string, string]> = [
     ['WiFi', 'wifi_score'],
     ['Local', 'local_score'],
@@ -75,7 +87,7 @@ function LayerScores({ a }: { a: DEMResult }) {
         return (
           <li key={key}>
             <Badge tone={score > 0 ? 'warning' : 'success'}>{label}</Badge>
-            <span>severity {num(score, '', 2)}</span>
+            <span>severity {num(score, '', 2, locale)}</span>
           </li>
         )
       })}
@@ -86,6 +98,9 @@ function LayerScores({ a }: { a: DEMResult }) {
 /** EndpointDetail is the per-endpoint view: WiFi, gateway/local network,
  *  ISP/last-mile segments, sessions, and the attribution verdict. */
 function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => void }) {
+  const { locale } = useI18n()
+  const fmt = (v: number | undefined, unit = '', digits = 1) => num(v, unit, digits, locale)
+  const hops = metric(view.last_mile, 'hops')
   const sessions = view.sessions ?? []
   return (
     <Modal open onClose={onClose} title={view.agent_id}>
@@ -93,7 +108,7 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
         <dt>Verdict</dt>
         <dd>
           {verdictBadge(view)}
-          {view.confidence ? <> confidence {num(view.confidence, '', 2)}</> : null}
+          {view.confidence ? <> confidence {fmt(view.confidence, '', 2)}</> : null}
         </dd>
         {view.summary ? (
           <>
@@ -113,13 +128,13 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
               SSID {idOrWithheld(attr(view.wifi, 'wifi.ssid'))}
               {attr(view.wifi, 'wifi.band') ? ` · ${attr(view.wifi, 'wifi.band')}` : ''}
               {metric(view.wifi, 'channel') !== undefined
-                ? ` · ch ${num(metric(view.wifi, 'channel'), '', 0)}`
+                ? ` · ch ${fmt(metric(view.wifi, 'channel'), '', 0)}`
                 : ''}
               <br />
-              RSSI {num(metric(view.wifi, 'rssi_dbm'), ' dBm', 0)} · signal{' '}
-              {num(metric(view.wifi, 'signal_pct'), '%', 0)} · link{' '}
-              {num(metric(view.wifi, 'link_rate_mbps'), ' Mbps', 0)} · noise{' '}
-              {num(metric(view.wifi, 'noise_dbm'), ' dBm', 0)}
+              RSSI {fmt(metric(view.wifi, 'rssi_dbm'), 'dBm', 0)} · signal{' '}
+              {fmt(metric(view.wifi, 'signal_pct'), '%', 0)} · link{' '}
+              {fmt(metric(view.wifi, 'link_rate_mbps'), 'Mbps', 0)} · noise{' '}
+              {fmt(metric(view.wifi, 'noise_dbm'), 'dBm', 0)}
             </dd>
           </>
         ) : null}
@@ -130,8 +145,8 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
             <dd>
               {idOrWithheld(attr(view.gateway, 'gateway.ip'))} ·{' '}
               {metric(view.gateway, 'reachable') === 1 ? 'reachable' : 'unreachable'} · RTT{' '}
-              {num(metric(view.gateway, 'rtt_ms'), ' ms')} · loss{' '}
-              {num(metric(view.gateway, 'loss_pct'), '%', 0)}
+              {fmt(metric(view.gateway, 'rtt_ms'), 'ms')} · loss{' '}
+              {fmt(metric(view.gateway, 'loss_pct'), '%', 0)}
             </dd>
           </>
         ) : null}
@@ -140,11 +155,11 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
           <>
             <dt>ISP / last mile</dt>
             <dd>
-              local {num(metric(view.last_mile, 'local_rtt_ms'), ' ms')} → ISP edge{' '}
-              {num(metric(view.last_mile, 'isp_rtt_ms'), ' ms')} (loss{' '}
-              {num(metric(view.last_mile, 'isp_loss_pct'), '%', 0)}) → beyond{' '}
-              {num(metric(view.last_mile, 'beyond_rtt_ms'), ' ms')} ·{' '}
-              {num(metric(view.last_mile, 'hops'), ' hops', 0)}
+              local {fmt(metric(view.last_mile, 'local_rtt_ms'), 'ms')} → ISP edge{' '}
+              {fmt(metric(view.last_mile, 'isp_rtt_ms'), 'ms')} (loss{' '}
+              {fmt(metric(view.last_mile, 'isp_loss_pct'), '%', 0)}) → beyond{' '}
+              {fmt(metric(view.last_mile, 'beyond_rtt_ms'), 'ms')} ·{' '}
+              {hops === undefined ? '—' : formatCount(hops, 'hop', 'hops', locale)}
             </dd>
           </>
         ) : null}
@@ -153,7 +168,7 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
       {view.attribution ? (
         <>
           <h3>Layer assessment</h3>
-          <LayerScores a={view.attribution} />
+          <LayerScores a={view.attribution} locale={locale} />
         </>
       ) : null}
 
@@ -173,25 +188,25 @@ function EndpointDetail({ view, onClose }: { view: EndpointView; onClose: () => 
                 key: 'dns',
                 header: 'DNS',
                 numeric: true,
-                render: (s: DEMResult) => num(metric(s, 'dns_ms'), ' ms'),
+                render: (s: DEMResult) => fmt(metric(s, 'dns_ms'), 'ms'),
               },
               {
                 key: 'tls',
                 header: 'TLS',
                 numeric: true,
-                render: (s: DEMResult) => num(metric(s, 'tls_ms'), ' ms'),
+                render: (s: DEMResult) => fmt(metric(s, 'tls_ms'), 'ms'),
               },
               {
                 key: 'ttfb',
                 header: 'TTFB',
                 numeric: true,
-                render: (s: DEMResult) => num(metric(s, 'ttfb_ms'), ' ms'),
+                render: (s: DEMResult) => fmt(metric(s, 'ttfb_ms'), 'ms'),
               },
               {
                 key: 'total',
                 header: 'Total',
                 numeric: true,
-                render: (s: DEMResult) => num(metric(s, 'total_ms'), ' ms'),
+                render: (s: DEMResult) => fmt(metric(s, 'total_ms'), 'ms'),
               },
             ]}
             rows={sessions}
@@ -209,6 +224,7 @@ type CauseFilter = 'all' | 'impaired' | 'wifi' | 'local' | 'isp' | 'network' | '
  *  fleet list + per-endpoint detail with slowdown attribution — the
  *  "it's your WiFi, not us" story, privacy-respecting. */
 export function EndpointsPage() {
+  const { locale } = useI18n()
   const endpoints = useEndpoints()
   const [cause, setCause] = useState<CauseFilter>('all')
   const [needle, setNeedle] = useState('')
@@ -230,18 +246,18 @@ export function EndpointsPage() {
   const columns: Column<EndpointView>[] = [
     { key: 'verdict', header: 'Verdict', render: (v) => verdictBadge(v) },
     { key: 'agent', header: 'Endpoint', render: (v) => v.agent_id },
-    { key: 'wifi', header: 'WiFi', render: (v) => wifiSummary(v) },
+    { key: 'wifi', header: 'WiFi', render: (v) => wifiSummary(v, locale) },
     {
       key: 'gateway',
       header: 'Gateway RTT',
       numeric: true,
-      render: (v) => num(metric(v.gateway, 'rtt_ms'), ' ms'),
+      render: (v) => num(metric(v.gateway, 'rtt_ms'), 'ms', 1, locale),
     },
     {
       key: 'isp',
       header: 'ISP edge RTT',
       numeric: true,
-      render: (v) => num(metric(v.last_mile, 'isp_rtt_ms'), ' ms'),
+      render: (v) => num(metric(v.last_mile, 'isp_rtt_ms'), 'ms', 1, locale),
     },
     { key: 'seen', header: 'Last seen', render: (v) => <DateTime value={v.last_seen_at} /> },
     {
@@ -263,7 +279,7 @@ export function EndpointsPage() {
     >
       <Card>
         <CardHeader
-          title={`Fleet (${items.length})`}
+          title={`Fleet (${formatInteger(items.length, locale)})`}
           actions={
             <div className={styles.filters}>
               <Field
@@ -344,6 +360,7 @@ function rumVerdictBadge(v: RUMVerdict) {
 /** RUMCard folds real-user monitoring into the DEM surface (S47b): the
  *  synthetic↔RUM convergence per app, plus the enforced privacy posture. */
 function RUMCard() {
+  const { locale } = useI18n()
   const rum = useRUM()
 
   const columns: Column<RUMAppStatus>[] = [
@@ -358,18 +375,24 @@ function RUMCard() {
       ),
     },
     { key: 'verdict', header: 'Convergence', render: (a) => rumVerdictBadge(a.verdict) },
-    { key: 'views', header: 'Views (15m)', numeric: true, render: (a) => a.window_views },
+    {
+      key: 'views',
+      header: 'Views (15m)',
+      numeric: true,
+      render: (a) => formatInteger(a.window_views, locale),
+    },
     {
       key: 'errors',
       header: 'Error rate',
       numeric: true,
-      render: (a) => `${(a.error_rate * 100).toFixed(1)}%`,
+      render: (a) => formatPercentValue(a.error_rate * 100, locale, { maximumFractionDigits: 1 }),
     },
     {
       key: 'lcp',
       header: 'p75 LCP',
       numeric: true,
-      render: (a) => (a.p75_lcp_ms ? `${Math.round(a.p75_lcp_ms)} ms` : '—'),
+      render: (a) =>
+        a.p75_lcp_ms ? formatUnit(a.p75_lcp_ms, 'ms', locale, { maximumFractionDigits: 0 }) : '—',
     },
     {
       key: 'synth',

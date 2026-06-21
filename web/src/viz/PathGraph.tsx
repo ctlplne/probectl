@@ -2,12 +2,16 @@ import { useMemo, useState, type KeyboardEvent } from 'react'
 import styles from './PathGraph.module.css'
 import { layoutPath, lossTone, NODE_H, NODE_W, type VizNode } from './layout'
 import type { Path } from '../api/paths'
+import { useI18n } from '../i18n/useI18n'
+import { formatPercentValue, formatUnit } from '../i18n/number'
 
-function fmtMs(ms: number) {
-  return ms >= 0 ? `${ms.toFixed(ms < 10 ? 1 : 0)} ms` : '—'
+function fmtMs(ms: number, locale: string) {
+  return ms >= 0
+    ? formatUnit(ms, 'ms', locale, { maximumFractionDigits: ms < 10 ? 1 : 0 })
+    : '—'
 }
-function fmtLoss(loss: number) {
-  return `${Math.round(loss * 100)}%`
+function fmtLoss(loss: number, locale: string) {
+  return formatPercentValue(loss * 100, locale, { maximumFractionDigits: 0 })
 }
 
 /**
@@ -25,6 +29,7 @@ export function PathGraph({
   selectedId?: string
   onSelect: (node: VizNode) => void
 }) {
+  const { locale } = useI18n()
   const { nodes, edges, width, height } = useMemo(() => layoutPath(path), [path])
   const [activeId, setActiveId] = useState<string | null>(null)
   const active = nodes.find((n) => n.id === activeId)
@@ -76,7 +81,8 @@ export function PathGraph({
               ? 'Source'
               : `Hop ${n.ttl}, ${n.ip}${n.isDestination ? ' (destination)' : ''}, ${fmtLoss(
                   n.lossRatio,
-                )} loss, ${fmtMs(n.node?.rtt_avg_ms ?? -1)}`
+                  locale,
+                )} loss, ${fmtMs(n.node?.rtt_avg_ms ?? -1, locale)}`
             return (
               <g
                 key={n.id}
@@ -98,8 +104,8 @@ export function PathGraph({
                 </text>
                 {!n.isSource ? (
                   <text className={styles.meta} x={12} y={36}>
-                    {fmtMs(n.node?.rtt_avg_ms ?? -1)}
-                    {n.lossRatio > 0 ? ` · ${fmtLoss(n.lossRatio)} loss` : ''}
+                    {fmtMs(n.node?.rtt_avg_ms ?? -1, locale)}
+                    {n.lossRatio > 0 ? ` · ${fmtLoss(n.lossRatio, locale)} loss` : ''}
                   </text>
                 ) : null}
                 {n.node?.mpls && n.node.mpls.length > 0 ? (
@@ -123,13 +129,14 @@ export function PathGraph({
               <div>
                 <dt>RTT</dt>
                 <dd>
-                  {fmtMs(active.node?.rtt_min_ms ?? -1)} / {fmtMs(active.node?.rtt_avg_ms ?? -1)} /{' '}
-                  {fmtMs(active.node?.rtt_max_ms ?? -1)}
+                  {fmtMs(active.node?.rtt_min_ms ?? -1, locale)} /{' '}
+                  {fmtMs(active.node?.rtt_avg_ms ?? -1, locale)} /{' '}
+                  {fmtMs(active.node?.rtt_max_ms ?? -1, locale)}
                 </dd>
               </div>
               <div>
                 <dt>Loss</dt>
-                <dd>{fmtLoss(active.lossRatio)}</dd>
+                <dd>{fmtLoss(active.lossRatio, locale)}</dd>
               </div>
               {active.node?.mpls && active.node.mpls.length > 0 ? (
                 <div>
@@ -162,8 +169,8 @@ export function PathGraph({
                   {node.ip}
                   {node.ip === path.target_ip ? ' (destination)' : ''}
                 </td>
-                <td>{fmtLoss(node.loss_ratio)}</td>
-                <td>{fmtMs(node.rtt_avg_ms)}</td>
+                <td>{fmtLoss(node.loss_ratio, locale)}</td>
+                <td>{fmtMs(node.rtt_avg_ms, locale)}</td>
               </tr>
             )),
           )}

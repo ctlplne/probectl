@@ -1,13 +1,18 @@
 import styles from './NodeDetailModal.module.css'
 import { Badge, Modal } from '../components'
 import type { VizNode } from './layout'
+import { useI18n } from '../i18n/useI18n'
+import { formatInteger, formatPercentValue, formatUnit } from '../i18n/number'
 
-function ms(v: number | undefined) {
-  return v === undefined || v < 0 ? '—' : `${v.toFixed(v < 10 ? 2 : 1)} ms`
+function ms(v: number | undefined, locale: string) {
+  return v === undefined || v < 0
+    ? '—'
+    : formatUnit(v, 'ms', locale, { maximumFractionDigits: v < 10 ? 2 : 1 })
 }
 
 /** NodeDetailModal is the per-hop drill-down on the S8a Modal. */
 export function NodeDetailModal({ node, onClose }: { node: VizNode | null; onClose: () => void }) {
+  const { locale } = useI18n()
   const n = node?.node
   return (
     <Modal
@@ -27,7 +32,8 @@ export function NodeDetailModal({ node, onClose }: { node: VizNode | null; onClo
           <div>
             <dt>RTT (min / avg / max)</dt>
             <dd>
-              {ms(n.rtt_min_ms)} / {ms(n.rtt_avg_ms)} / {ms(n.rtt_max_ms)}
+              {ms(n.rtt_min_ms, locale)} / {ms(n.rtt_avg_ms, locale)} /{' '}
+              {ms(n.rtt_max_ms, locale)}
             </dd>
           </div>
           <div>
@@ -36,7 +42,8 @@ export function NodeDetailModal({ node, onClose }: { node: VizNode | null; onClo
               <Badge
                 tone={n.loss_ratio === 0 ? 'success' : n.loss_ratio < 0.3 ? 'warning' : 'danger'}
               >
-                {Math.round(n.loss_ratio * 100)}% ({n.received}/{n.sent})
+                {formatPercentValue(n.loss_ratio * 100, locale, { maximumFractionDigits: 0 })} (
+                {formatInteger(n.received, locale)}/{formatInteger(n.sent, locale)})
               </Badge>
             </dd>
           </div>

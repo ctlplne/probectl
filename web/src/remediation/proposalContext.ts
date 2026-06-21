@@ -31,12 +31,16 @@ function signalSummary(s: Signal): string {
   return `${s.plane}/${s.kind} ${s.severity}: ${s.title}${target}${summary}`
 }
 
+function signalCountLabel(count: number): string {
+  return `${count} ${count === 1 ? 'correlated signal' : 'correlated signals'}`
+}
+
 export function proposalFromIncident(incident: Incident): CreateProposalInput {
   const target = incidentTarget(incident)
   const signals =
     incident.signals && incident.signals.length > 0
       ? incident.signals.slice(0, 5).map(signalSummary).join(' | ')
-      : `${incident.signal_count} correlated signal(s) recorded.`
+      : `${signalCountLabel(incident.signal_count)} recorded.`
 
   return {
     kind: 'open_ticket',

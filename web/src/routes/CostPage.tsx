@@ -13,6 +13,8 @@ import {
 } from '../components'
 import { gib, usd, useCostSummary, type BudgetStatus, type ChattyPair } from '../api/cost'
 import { useCarbon, type CarbonAgg } from '../api/carbon'
+import { useI18n } from '../i18n/useI18n'
+import { formatDecimal, formatUnit } from '../i18n/number'
 
 /** CostPage (S44): the light native FinOps summary — spend by team/service
  * (showback), chatty cross-AZ conversations, budget status. Deep dashboarding
@@ -20,8 +22,11 @@ import { useCarbon, type CarbonAgg } from '../api/carbon'
  * S48 folds the carbon/ESG estimate in below — same traffic, same owners,
  * grams instead of dollars. */
 export function CostPage() {
+  const { locale } = useI18n()
   const { data, isPending, isError } = useCostSummary()
   const s = data?.summary
+  const fmtGiB = (bytes: number) => gib(bytes, locale)
+  const fmtUSD = (value: number) => usd(value, locale)
 
   const owners: Array<{ name: string; agg: { bytes: number; usd: number } }> = Object.entries(
     s?.by_team ?? {},
@@ -31,11 +36,11 @@ export function CostPage() {
 
   const teamColumns: Column<(typeof owners)[number]>[] = [
     { key: 'team', header: 'Team', render: (r) => <strong>{r.name}</strong> },
-    { key: 'gib', header: 'Egress (GiB)', render: (r) => gib(r.agg.bytes) },
+    { key: 'gib', header: 'Egress (GiB)', render: (r) => fmtGiB(r.agg.bytes) },
     {
       key: 'usd',
       header: 'Cost',
-      render: (r) => (s?.priced ? usd(r.agg.usd) : '—'),
+      render: (r) => (s?.priced ? fmtUSD(r.agg.usd) : '—'),
     },
   ]
 
@@ -51,8 +56,8 @@ export function CostPage() {
       ),
     },
     { key: 'class', header: 'Class', render: (p) => p.class },
-    { key: 'gib', header: 'GiB', render: (p) => gib(p.bytes) },
-    { key: 'usd', header: 'Cost', render: (p) => (s?.priced ? usd(p.usd) : '—') },
+    { key: 'gib', header: 'GiB', render: (p) => fmtGiB(p.bytes) },
+    { key: 'usd', header: 'Cost', render: (p) => (s?.priced ? fmtUSD(p.usd) : '—') },
     {
       key: 'chatty',
       header: 'Chatty',
@@ -71,8 +76,8 @@ export function CostPage() {
         </span>
       ),
     },
-    { key: 'cap', header: 'Monthly', render: (b) => usd(b.monthly_usd) },
-    { key: 'spent', header: 'Spent', render: (b) => usd(b.spent_usd) },
+    { key: 'cap', header: 'Monthly', render: (b) => fmtUSD(b.monthly_usd) },
+    { key: 'spent', header: 'Spent', render: (b) => fmtUSD(b.spent_usd) },
     {
       key: 'state',
       header: 'Status',
@@ -119,11 +124,11 @@ export function CostPage() {
               <dl className={styles.totals}>
                 <div>
                   <dt>Total egress</dt>
-                  <dd>{gib(s.total_bytes)} GiB</dd>
+                  <dd>{fmtGiB(s.total_bytes)} GiB</dd>
                 </div>
                 <div>
                   <dt>Total cost</dt>
-                  <dd>{s.priced ? usd(s.total_usd) : 'volume-only'}</dd>
+                  <dd>{s.priced ? fmtUSD(s.total_usd) : 'volume-only'}</dd>
                 </div>
                 <div>
                   <dt>Pricing</dt>
@@ -213,8 +218,10 @@ export function CostPage() {
 /** CarbonCard (S48): the ESG estimate folded into the FinOps page — same
  *  attribution as the dollars above, with the methodology stated plainly. */
 function CarbonCard() {
+  const { locale } = useI18n()
   const carbon = useCarbon()
   const s = carbon.data?.summary
+  const fmtGiB = (bytes: number) => gib(bytes, locale)
 
   const rows: Array<{ name: string; agg: CarbonAgg }> = Object.entries(s?.by_team ?? {})
     .map(([name, agg]) => ({ name, agg }))
@@ -222,18 +229,26 @@ function CarbonCard() {
 
   const columns: Column<{ name: string; agg: CarbonAgg }>[] = [
     { key: 'team', header: 'Team', render: (r) => r.name },
-    { key: 'gb', header: 'Volume (GiB)', numeric: true, render: (r) => gib(r.agg.bytes) },
+    { key: 'gb', header: 'Volume (GiB)', numeric: true, render: (r) => fmtGiB(r.agg.bytes) },
     {
       key: 'kwh',
       header: 'Energy (kWh, est.)',
       numeric: true,
-      render: (r) => r.agg.kwh.toFixed(3),
+      render: (r) =>
+        formatDecimal(r.agg.kwh, locale, {
+          minimumFractionDigits: 3,
+          maximumFractionDigits: 3,
+        }),
     },
     {
       key: 'g',
       header: 'Carbon (gCO2e, est.)',
       numeric: true,
-      render: (r) => r.agg.gco2e.toFixed(1),
+      render: (r) =>
+        formatDecimal(r.agg.gco2e, locale, {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        }),
     },
   ]
 
@@ -257,10 +272,23 @@ function CarbonCard() {
         ) : (
           <>
             <p role="note" aria-label="carbon methodology" className={styles.notice}>
-              <Badge tone="info">estimate</Badge> {s?.total_gco2e.toFixed(1)} gCO2e ·{' '}
-              {s?.total_kwh.toFixed(3)} kWh over {gib(s?.total_bytes ?? 0)} GiB — coefficient-based
-              estimate, not measured power · grid {s?.methodology.grid_gco2e_per_kwh} gCO2e/kWh ·{' '}
-              {s?.methodology.source}
+              <Badge tone="info">estimate</Badge>{' '}
+              {formatUnit(s?.total_gco2e ?? 0, 'gCO2e', locale, {
+                minimumFractionDigits: 1,
+                maximumFractionDigits: 1,
+              })}{' '}
+              ·{' '}
+              {formatUnit(s?.total_kwh ?? 0, 'kWh', locale, {
+                minimumFractionDigits: 3,
+                maximumFractionDigits: 3,
+              })}{' '}
+              over{' '}
+              {fmtGiB(s?.total_bytes ?? 0)} GiB — coefficient-based estimate, not measured power ·
+              grid{' '}
+              {formatUnit(s?.methodology.grid_gco2e_per_kwh ?? 0, 'gCO2e/kWh', locale, {
+                maximumFractionDigits: 1,
+              })}{' '}
+              · {s?.methodology.source}
             </p>
             <Table
               caption="Carbon by team"

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import { formatRatioPercent } from '../i18n/number'
 
 /**
  * The SLO API (surface: S45). OpenSLO-defined SLIs tracked per tenant:
@@ -44,6 +45,10 @@ export function useSLOs() {
 }
 
 /** pct renders a ratio as a percentage with SLO-grade precision. */
-export function pct(v: number): string {
-  return `${(v * 100).toFixed(v >= 0.999 ? 3 : 2)}%`
+export function pct(v: number, locale?: string): string {
+  const digits = v >= 0.999 ? 3 : 2
+  return formatRatioPercent(v, locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
 }

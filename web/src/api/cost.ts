@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
+import { formatCurrencyUSD, formatGibibytes } from '../i18n/number'
 
 /**
  * The FinOps cost API (surface: S44). Egress volume × public pricing,
@@ -67,12 +68,11 @@ export function useCostSummary() {
 }
 
 /** gib renders bytes as GiB with sensible precision. */
-export function gib(bytes: number): string {
-  const v = bytes / 2 ** 30
-  return v >= 100 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2)
+export function gib(bytes: number, locale?: string): string {
+  return formatGibibytes(bytes, locale)
 }
 
 /** usd renders dollars. */
-export function usd(v: number): string {
-  return `$${v.toFixed(2)}`
+export function usd(v: number, locale?: string): string {
+  return formatCurrencyUSD(v, locale)
 }

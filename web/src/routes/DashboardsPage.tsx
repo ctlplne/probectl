@@ -22,15 +22,15 @@ import { useLatestResults } from '../api/results'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
 import { useTopology } from '../api/topology'
 import { DateTime } from '../time/DateTime'
+import { useI18n } from '../i18n/useI18n'
+import { formatInteger, formatMultiplier, formatRatioPercent } from '../i18n/number'
 
-const numberFormat = new Intl.NumberFormat('en-US')
-
-function compact(n: number): string {
-  return numberFormat.format(n)
+function compact(n: number, locale: string): string {
+  return formatInteger(n, locale)
 }
 
-function flowBytes(n: number): string {
-  return `${gib(n)} GiB`
+function flowBytes(n: number, locale: string): string {
+  return `${gib(n, locale)} GiB`
 }
 
 function metricTone(value: number, healthyWhenZero = true): 'success' | 'warning' | 'danger' {
@@ -39,6 +39,7 @@ function metricTone(value: number, healthyWhenZero = true): 'success' | 'warning
 }
 
 export function DashboardsPage() {
+  const { locale } = useI18n()
   const incidents = useIncidents()
   const alerts = useActiveAlerts()
   const results = useLatestResults()
@@ -99,40 +100,52 @@ export function DashboardsPage() {
             <DashboardMetric
               label="Open incidents"
               value={openIncidents.length}
-              detail={`${incidentItems.length} total incidents`}
+              detail={`${formatInteger(incidentItems.length, locale)} total incidents`}
               tone={metricTone(openIncidents.length)}
+              locale={locale}
             />
             <DashboardMetric
               label="Active alerts"
               value={activeAlerts.length}
-              detail={`${activeAlerts.filter((a) => a.severity === 'critical').length} critical`}
+              detail={`${formatInteger(
+                activeAlerts.filter((a) => a.severity === 'critical').length,
+                locale,
+              )} critical`}
               tone={metricTone(activeAlerts.length)}
+              locale={locale}
             />
             <DashboardMetric
               label="Synthetic success"
-              value={`${(successRate * 100).toFixed(1)}%`}
-              detail={`${successfulResults}/${latestResults.length} latest results`}
+              value={formatRatioPercent(successRate, locale, { maximumFractionDigits: 1 })}
+              detail={`${formatInteger(successfulResults, locale)}/${formatInteger(
+                latestResults.length,
+                locale,
+              )} latest results`}
               tone={
                 latestResults.length === 0 ? 'warning' : successRate >= 0.99 ? 'success' : 'warning'
               }
+              locale={locale}
             />
             <DashboardMetric
               label="Top flow volume"
-              value={flowBytes(flowTotal)}
-              detail={`${topFlows.length} ranked contributors`}
+              value={flowBytes(flowTotal, locale)}
+              detail={`${formatInteger(topFlows.length, locale)} ranked contributors`}
               tone={metricTone(topFlows.length, false)}
+              locale={locale}
             />
             <DashboardMetric
               label="SLO burn watch"
               value={burningSLOs.length}
-              detail={`${sloItems.length} SLO definitions`}
+              detail={`${formatInteger(sloItems.length, locale)} SLO definitions`}
               tone={metricTone(burningSLOs.length)}
+              locale={locale}
             />
             <DashboardMetric
               label="Segmentation violations"
               value={violations.length}
-              detail={`${complianceItems.length} policy checks`}
+              detail={`${formatInteger(complianceItems.length, locale)} policy checks`}
               tone={metricTone(violations.length)}
+              locale={locale}
             />
           </div>
 
@@ -140,14 +153,17 @@ export function DashboardsPage() {
             <Card>
               <CardHeader
                 title="Traffic and spend"
-                description={`${serviceNodes} services visible in topology`}
+                description={`${formatInteger(serviceNodes, locale)} services visible in topology`}
               />
               <CardBody className={styles.chartStack}>
                 <ChartShell
                   title="Network cost"
                   legend={
                     costSummary
-                      ? `${flowBytes(costSummary.total_bytes)} total egress, ${usd(costSummary.total_usd)}`
+                      ? `${flowBytes(costSummary.total_bytes, locale)} total egress, ${usd(
+                          costSummary.total_usd,
+                          locale,
+                        )}`
                       : 'No cost summary'
                   }
                 >
@@ -168,21 +184,21 @@ export function DashboardsPage() {
             <Card>
               <CardHeader title="Incident watch" />
               <CardBody>
-                <IncidentTable incidents={openIncidents.slice(0, 5)} />
+                <IncidentTable incidents={openIncidents.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
             <Card>
               <CardHeader title="Flow contributors" />
               <CardBody>
-                <FlowTable rows={topFlows.slice(0, 5)} />
+                <FlowTable rows={topFlows.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
             <Card>
               <CardHeader title="SLO burn" />
               <CardBody>
-                <SLOTable rows={burningSLOs.slice(0, 5)} />
+                <SLOTable rows={burningSLOs.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
@@ -211,18 +227,20 @@ function DashboardMetric({
   value,
   detail,
   tone,
+  locale,
 }: {
   label: string
   value: number | string
   detail: string
   tone: 'success' | 'warning' | 'danger'
+  locale: string
 }) {
   return (
     <Card>
       <CardBody className={styles.metric}>
         <span className={styles.metricLabel}>{label}</span>
         <span className={styles.metricValue}>
-          {typeof value === 'number' ? compact(value) : value}
+          {typeof value === 'number' ? compact(value, locale) : value}
         </span>
         <span className={styles.metricDetail}>{detail}</span>
         <Badge tone={tone}>{tone === 'success' ? 'steady' : 'watch'}</Badge>
@@ -231,7 +249,7 @@ function DashboardMetric({
   )
 }
 
-function IncidentTable({ incidents }: { incidents: Incident[] }) {
+function IncidentTable({ incidents, locale }: { incidents: Incident[]; locale: string }) {
   const columns: Column<Incident>[] = [
     {
       key: 'severity',
@@ -243,7 +261,12 @@ function IncidentTable({ incidents }: { incidents: Incident[] }) {
       header: 'Incident',
       render: (i) => <strong>{i.title || i.target || i.id}</strong>,
     },
-    { key: 'signals', header: 'Signals', numeric: true, render: (i) => i.signal_count },
+    {
+      key: 'signals',
+      header: 'Signals',
+      numeric: true,
+      render: (i) => formatInteger(i.signal_count, locale),
+    },
     { key: 'seen', header: 'Last seen', render: (i) => <DateTime value={i.last_seen_at} /> },
   ]
   return (
@@ -257,7 +280,7 @@ function IncidentTable({ incidents }: { incidents: Incident[] }) {
   )
 }
 
-function FlowTable({ rows }: { rows: FlowTopRow[] }) {
+function FlowTable({ rows, locale }: { rows: FlowTopRow[]; locale: string }) {
   const columns: Column<FlowTopRow>[] = [
     {
       key: 'key',
@@ -269,8 +292,8 @@ function FlowTable({ rows }: { rows: FlowTopRow[] }) {
         </span>
       ),
     },
-    { key: 'bytes', header: 'Bytes', numeric: true, render: (r) => flowBytes(r.bytes) },
-    { key: 'flows', header: 'Flows', numeric: true, render: (r) => compact(r.flows) },
+    { key: 'bytes', header: 'Bytes', numeric: true, render: (r) => flowBytes(r.bytes, locale) },
+    { key: 'flows', header: 'Flows', numeric: true, render: (r) => compact(r.flows, locale) },
   ]
   return (
     <Table
@@ -283,17 +306,21 @@ function FlowTable({ rows }: { rows: FlowTopRow[] }) {
   )
 }
 
-function SLOTable({ rows }: { rows: SLOStatus[] }) {
+function SLOTable({ rows, locale }: { rows: SLOStatus[]; locale: string }) {
   const columns: Column<SLOStatus>[] = [
     { key: 'name', header: 'SLO', render: (s) => <strong>{s.display_name || s.name}</strong> },
-    { key: 'budget', header: 'Budget', render: (s) => `${pct(s.error_budget_remaining)} left` },
+    {
+      key: 'budget',
+      header: 'Budget',
+      render: (s) => `${pct(s.error_budget_remaining, locale)} left`,
+    },
     {
       key: 'burn',
       header: 'Burn',
       render: (s) => {
         const firing = s.burn_rates.find((b) => b.firing || b.burn > b.limit)
         return firing ? (
-          <Badge tone="danger">{`${firing.window} ${firing.burn.toFixed(1)}x`}</Badge>
+          <Badge tone="danger">{`${firing.window} ${formatMultiplier(firing.burn, locale)}`}</Badge>
         ) : (
           'steady'
         )
