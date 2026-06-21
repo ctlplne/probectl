@@ -85,6 +85,24 @@ then points at the concrete test patterns that prove that row:
 | Memory pressure | cardinality flood, oversized labels, oversized ClickHouse response | noisy identities are dropped at the owning limiter while quiet tenants and known identities keep flowing |
 | Control-plane replica | one replica restarts during result-derived view updates | shared side effects remain single-consumer; replica-local read views rebuild from their own group |
 
+## Executable dependency drill
+
+`make chaos-dependency-drill` is the local, non-production fault harness for
+the matrix rows that need an actual injection, not only a unit proof. It prints
+one stable evidence row:
+
+```text
+CHAOS_DEPENDENCY_RESULT disk_full_enqueued=2 disk_full_rejected=1 disk_full_dropped=1 disk_full_bytes=208 disk_full_recovery_drained=2 memory_pressure_admitted=2 memory_pressure_dropped=3 memory_pressure_quiet_admitted=1 pod_kill_killed=1 pod_kill_restarts=1 pod_kill_requeued=1 pod_kill_recovered_acks=2 dependency_healthy=1 dependency_outage_failed=1 dependency_recovered=1 recovery_assertions=4
+```
+
+The "disk full" leg fills the real agent store-and-forward byte cap, so the
+agent sheds new records before it can exhaust the host disk. The memory leg
+forces the cardinality limiter to drop a noisy tenant while admitting a quiet
+tenant. The pod-kill leg kills a disposable worker process with one message in
+flight, restarts it, and proves the message is requeued. The dependency-outage
+leg drops and restarts a loopback TCP dependency, then proves recovery. This is
+deliberately not wired to any API and does not mutate a live cluster.
+
 ## Using it against your own stack
 
 Point any echo-path test at a proxy you start in your own harness:

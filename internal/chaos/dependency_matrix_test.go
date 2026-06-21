@@ -58,6 +58,7 @@ func TestDependencyChaosMatrixHasRunnableEvidence(t *testing.T) {
 		"./cmd/probectl-control":     true,
 		"./internal/agent":           true,
 		"./internal/bus":             true,
+		"./internal/chaos":           true,
 		"./internal/control":         true,
 		"./internal/pipeline":        true,
 		"./internal/store/chclient":  true,

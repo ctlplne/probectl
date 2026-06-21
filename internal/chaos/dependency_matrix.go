@@ -173,6 +173,7 @@ var dependencyChaosMatrix = []DependencyScenario{
 		RetryDLQBehavior:  "The agent keeps undrained records on send failure and drains them FIFO after reconnect; over-cap frames are counted and rejected instead of corrupting the queue.",
 		RecoveryAssertion: "Buffered records persist across disconnect/reopen and drain in order after the control plane recovers.",
 		Evidence: []ScenarioEvidence{
+			{Package: "./internal/chaos", TestPattern: "TestDependencyDrillPrintsCounters"},
 			{Package: "./internal/agent", TestPattern: "TestBufferDrainAfterDisconnect"},
 			{Package: "./internal/agent", TestPattern: "TestBufferPartialDrainKeepsRemainder"},
 			{Package: "./internal/agent", TestPattern: "TestBufferByteBoundRejectsAndCounts"},
@@ -193,6 +194,7 @@ var dependencyChaosMatrix = []DependencyScenario{
 		RetryDLQBehavior:  "Accepted known series keep flowing; rejected new identities and oversized responses are counted and fail closed rather than retried indefinitely.",
 		RecoveryAssertion: "Quiet tenants and known identities continue after the flood; small ClickHouse responses still decode normally.",
 		Evidence: []ScenarioEvidence{
+			{Package: "./internal/chaos", TestPattern: "TestDependencyDrillPrintsCounters"},
 			{Package: "./internal/pipeline", TestPattern: "TestCardinalityLabelCaps"},
 			{Package: "./internal/pipeline", TestPattern: "TestCardinalityCapFloodIsolatesTenants"},
 			{Package: "./internal/store/chclient", TestPattern: "TestReadResponseBodyBounded"},
@@ -211,6 +213,7 @@ var dependencyChaosMatrix = []DependencyScenario{
 		RetryDLQBehavior:  "Kafka redelivers uncommitted work to the surviving group member; pure read-model consumers can rebuild without taking ownership of side effects.",
 		RecoveryAssertion: "The medium reference topology ships at least three replicas with a PDB and uses separate groups for shared effects versus replica-local read views.",
 		Evidence: []ScenarioEvidence{
+			{Package: "./internal/chaos", TestPattern: "TestDependencyDrillPrintsCounters"},
 			{Package: "./internal/control", TestPattern: "TestResultFanUsesPerReplicaViewGroup"},
 			{Package: "./internal/control", TestPattern: "TestResultFanDefaultGroupStaysShared"},
 			{Package: "./cmd/probectl-control", TestPattern: "TestMediumReferenceShipsCoherentTopology"},

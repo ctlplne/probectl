@@ -391,6 +391,10 @@ backup-restore-drill-large: ## Production-shaped restore drill: require min arti
 failover-drill: ## U-053 timed failover drill: kill the primary, promote the streaming replica, measure RTO/RPO (DESTRUCTIVE to the dev stack; runs in CI).
 	./scripts/failover_drill.sh
 
+.PHONY: chaos-dependency-drill
+chaos-dependency-drill: ## Dependency chaos: disk-full buffer, pod-kill, dependency outage, and recovery counters.
+	$(GO) run ./cmd/probectl-chaos-dependency-drill
+
 .PHONY: compose-up
 compose-up: ## Start the local dev stack (Postgres/Kafka/ClickHouse/Prometheus).
 	docker compose -f $(COMPOSE_DEV) up -d --wait
