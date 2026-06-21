@@ -292,6 +292,14 @@ payload, so the footprint of a full record-capped buffer is roughly
 result, counted as `dropped`) when **either** the record or byte cap would be
 exceeded, and the agent logs a WARN when the buffer crosses 90% of either bound.
 
+Reconnect drains are also chunked (`buffer.drain_max_records`, default `500`;
+`buffer.drain_max_bytes`, default `8388608`; `buffer.drain_pace`, default
+`150ms`). In plain English: after an outage, the agent does not pick up a full
+10,000-record / 256 MiB queue and shove it through one long stream. It lifts a
+bounded FIFO prefix, streams that prefix, removes only the accepted prefix, logs
+backlog records/bytes plus oldest result age, then jitters the next catch-up
+chunk so a fleet does not stampede the control plane in lockstep.
+
 ### Result pipeline
 
 This is the path every measurement takes from an agent to a queryable metric, and

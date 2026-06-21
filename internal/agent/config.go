@@ -11,6 +11,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	defaultBufferMaxRecords       = 10000
+	defaultDrainMaxRecords        = 500
+	defaultDrainMaxBytes    int64 = 8 << 20 // 8 MiB per StreamResults call
+	defaultDrainPace              = 150 * time.Millisecond
+)
+
 // Duration is a time.Duration that unmarshals from a YAML string like "30s".
 type Duration time.Duration
 
@@ -131,7 +138,10 @@ type BufferConfig struct {
 	MaxRecords int    `yaml:"max_records"`
 	// MaxBytes bounds the on-disk footprint (RESIL-009). 0 ⇒ the package
 	// default (256 MiB); negative ⇒ unbounded by bytes (records-only).
-	MaxBytes int64 `yaml:"max_bytes"`
+	MaxBytes        int64    `yaml:"max_bytes"`
+	DrainMaxRecords int      `yaml:"drain_max_records"`
+	DrainMaxBytes   int64    `yaml:"drain_max_bytes"`
+	DrainPace       Duration `yaml:"drain_pace"`
 }
 
 // CanaryConfig configures one scheduled canary.
@@ -210,7 +220,16 @@ func (c *Config) applyDefaults() {
 		c.Buffer.Dir = "/var/lib/probectl/agent/buffer"
 	}
 	if c.Buffer.MaxRecords == 0 {
-		c.Buffer.MaxRecords = 10000
+		c.Buffer.MaxRecords = defaultBufferMaxRecords
+	}
+	if c.Buffer.DrainMaxRecords == 0 {
+		c.Buffer.DrainMaxRecords = defaultDrainMaxRecords
+	}
+	if c.Buffer.DrainMaxBytes == 0 {
+		c.Buffer.DrainMaxBytes = defaultDrainMaxBytes
+	}
+	if c.Buffer.DrainPace == 0 {
+		c.Buffer.DrainPace = Duration(defaultDrainPace)
 	}
 	for i := range c.Canaries {
 		if c.Canaries[i].Interval == 0 {
@@ -231,6 +250,15 @@ func (c *Config) validate() error {
 	}
 	if c.TLS.CertFile == "" || c.TLS.KeyFile == "" || c.TLS.CAFile == "" {
 		return fmt.Errorf("config: tls.cert_file, tls.key_file, and tls.ca_file are required (mTLS)")
+	}
+	if c.Buffer.DrainMaxRecords < 0 {
+		return fmt.Errorf("config: buffer.drain_max_records must be >= 0")
+	}
+	if c.Buffer.DrainMaxBytes < 0 {
+		return fmt.Errorf("config: buffer.drain_max_bytes must be >= 0")
+	}
+	if c.Buffer.DrainPace < 0 {
+		return fmt.Errorf("config: buffer.drain_pace must be >= 0")
 	}
 	if c.Identity.Server != "" {
 		if _, err := enrollmentEndpoint(c.Identity.Server, "/enroll/agent/rotate", false); err != nil {

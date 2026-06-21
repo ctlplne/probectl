@@ -177,6 +177,34 @@ func TestBufferNegativeBytesIsUnbounded(t *testing.T) {
 	}
 }
 
+func TestBufferPeekBatchHonorsRecordAndByteCaps(t *testing.T) {
+	b, err := OpenBufferWithBytes(t.TempDir(), 1000, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.fsync = false
+	payload := make([]byte, 100)
+	for i := 0; i < 10; i++ {
+		if err := b.Enqueue(payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	byRecords, err := b.PeekBatch(3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byRecords) != 3 {
+		t.Fatalf("record-bounded batch = %d, want 3", len(byRecords))
+	}
+	byBytes, err := b.PeekBatch(100, 250)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byBytes) != 2 { // each frame is 4-byte header + 100-byte payload
+		t.Fatalf("byte-bounded batch = %d, want 2", len(byBytes))
+	}
+}
+
 func TestBufferPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	b, err := OpenBuffer(dir, 100)

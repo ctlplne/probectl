@@ -50,10 +50,19 @@ func (c *Client) Heartbeat(ctx context.Context, req *agentv1.HeartbeatRequest) e
 	return err
 }
 
+type resultStream interface {
+	Send(*agentv1.StreamResultsRequest) error
+	CloseAndRecv() (*agentv1.StreamResultsResponse, error)
+}
+
+type resultStreamer interface {
+	StreamResults(context.Context) (resultStream, error)
+}
+
 // StreamResults opens a client stream for forwarding buffered results. The
 // stream envelope carries a fresh timestamp + nonce inside the mTLS channel
 // (Sprint 12, WIRE-006) — the server refuses stale/replayed envelopes.
-func (c *Client) StreamResults(ctx context.Context) (grpc.ClientStreamingClient[agentv1.StreamResultsRequest, agentv1.StreamResultsResponse], error) {
+func (c *Client) StreamResults(ctx context.Context) (resultStream, error) {
 	ctx, err := agenttransport.FreshnessMetadata(ctx)
 	if err != nil {
 		return nil, err

@@ -116,7 +116,7 @@ func testResultEnvelope(tenantID, agentID, resultID string) resultEnvelope {
 	}
 }
 
-func mustMarshalResultEnvelope(t *testing.T, env resultEnvelope) []byte {
+func mustMarshalResultEnvelope(t testing.TB, env resultEnvelope) []byte {
 	t.Helper()
 	frame, err := json.Marshal(env)
 	if err != nil {

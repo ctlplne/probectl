@@ -27,6 +27,11 @@ buffer:
   # plane is unreachable and drain on reconnect.
   dir: /var/lib/probectl/agent/buffer
   max_records: 10000
+  # Reconnect catch-up streams are chunked so a full offline buffer does not
+  # become one huge memory allocation or one huge gRPC stream.
+  drain_max_records: 500
+  drain_max_bytes: 8388608
+  drain_pace: 150ms
 
 canaries:
   - type: noop

@@ -167,18 +167,21 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 	}
 }
 
-// drainOnce forwards the buffered results in one client stream. At-least-once:
-// records are removed only after the control plane acks the batch (and that ack
-// now follows broker durability — CORRECT-004), so a failure mid-batch retains
-// everything to retry. Retries CAN therefore redeliver a result. For the
-// TSDB-backed results plane this is harmless: Prometheus remote-write is
-// idempotent on (series, timestamp, value), so a redelivered identical sample
-// is a no-op, not a double-count. (The earlier "S6 handles dedup" claim was
-// false — there is no dedup layer; the idempotent TSDB write is what makes
-// redelivery safe here. Per-record-ID dedup for the append-only row stores is
-// tracked in CORRECT-002.)
-func (a *Agent) drainOnce(ctx context.Context, client *Client) error {
-	frames, err := a.buffer.PeekAll()
+// drainOnce forwards one bounded FIFO chunk of buffered results in one client
+// stream. At-least-once: records are removed only after the control plane acks
+// the chunk (and that ack now follows broker durability — CORRECT-004), so a
+// failure mid-chunk retains everything to retry. Retries CAN therefore
+// redeliver a result. For the TSDB-backed results plane this is harmless:
+// Prometheus remote-write is idempotent on (series, timestamp, value), so a
+// redelivered identical sample is a no-op, not a double-count. (The earlier "S6
+// handles dedup" claim was false — there is no dedup layer; the idempotent TSDB
+// write is what makes redelivery safe here. Per-record-ID dedup for the
+// append-only row stores is tracked in CORRECT-002.)
+func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) error {
+	maxRecords, maxBytes, pace := a.drainSettings()
+	backlogRecords := a.buffer.Len()
+	backlogBytes := a.buffer.Bytes()
+	frames, err := a.buffer.PeekBatch(maxRecords, maxBytes)
 	if err != nil {
 		return err
 	}
@@ -209,11 +212,67 @@ func (a *Agent) drainOnce(ctx context.Context, client *Client) error {
 	if err != nil {
 		return err
 	}
-	if err := a.buffer.Remove(len(requests)); err != nil {
+	acked := int(ack.GetAccepted())
+	if acked > len(requests) {
+		acked = len(requests)
+	}
+	if err := a.buffer.Remove(acked); err != nil {
 		return err
 	}
-	a.log.Debug("drained results", "count", len(requests), "accepted", ack.GetAccepted(), "retained", len(frames)-len(requests))
+	remainingRecords := a.buffer.Len()
+	remainingBytes := a.buffer.Bytes()
+	a.log.Debug("drained results",
+		"count", len(requests),
+		"accepted", ack.GetAccepted(),
+		"removed", acked,
+		"chunk_max_records", maxRecords,
+		"chunk_max_bytes", maxBytes,
+		"backlog_records", backlogRecords,
+		"backlog_bytes", backlogBytes,
+		"oldest_age", oldestRequestAge(requests, time.Now()),
+		"remaining_records", remainingRecords,
+		"remaining_bytes", remainingBytes,
+		"retained_malformed_or_unsent", len(frames)-len(requests))
+	if remainingRecords > 0 && pace > 0 {
+		sleep(ctx, jittered(pace))
+	}
 	return nil
+}
+
+func (a *Agent) drainSettings() (int, int64, time.Duration) {
+	if a == nil || a.cfg == nil {
+		return defaultDrainMaxRecords, defaultDrainMaxBytes, defaultDrainPace
+	}
+	maxRecords := a.cfg.Buffer.DrainMaxRecords
+	if maxRecords <= 0 {
+		maxRecords = defaultDrainMaxRecords
+	}
+	maxBytes := a.cfg.Buffer.DrainMaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultDrainMaxBytes
+	}
+	pace := a.cfg.Buffer.DrainPace.Std()
+	if pace <= 0 {
+		pace = defaultDrainPace
+	}
+	return maxRecords, maxBytes, pace
+}
+
+func oldestRequestAge(requests []*agentv1.StreamResultsRequest, now time.Time) time.Duration {
+	var oldest time.Time
+	for _, req := range requests {
+		if req.GetObservedUnixNanos() <= 0 {
+			continue
+		}
+		t := time.Unix(0, req.GetObservedUnixNanos())
+		if oldest.IsZero() || t.Before(oldest) {
+			oldest = t
+		}
+	}
+	if oldest.IsZero() || oldest.After(now) {
+		return 0
+	}
+	return now.Sub(oldest)
 }
 
 // frameRequestsPrefix converts the contiguous FIFO prefix of decodable frames.

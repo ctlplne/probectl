@@ -208,6 +208,45 @@ func (b *Buffer) PeekAll() ([][]byte, error) {
 	return b.readAll()
 }
 
+// PeekBatch returns the FIFO prefix bounded by record count and encoded bytes.
+// It is the reconnect-storm drain path: an agent with a full disk buffer should
+// never read/convert/stream the whole file in one allocation. If the first frame
+// itself exceeds maxBytes it is still returned so a valid large frame cannot
+// wedge the queue forever.
+func (b *Buffer) PeekBatch(maxRecords int, maxBytes int64) ([][]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if maxRecords <= 0 && maxBytes <= 0 {
+		return b.readAll()
+	}
+	f, err := os.Open(b.path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("agent: buffer read: %w", err)
+	}
+	defer f.Close()
+	var frames [][]byte
+	var total int64
+	for {
+		if maxRecords > 0 && len(frames) >= maxRecords {
+			break
+		}
+		fr, err := readFrame(f)
+		if err != nil {
+			break // io.EOF or a torn tail
+		}
+		frameSize := int64(frameOverhead + len(fr))
+		if maxBytes > 0 && len(frames) > 0 && total+frameSize > maxBytes {
+			break
+		}
+		frames = append(frames, fr)
+		total += frameSize
+	}
+	return frames, nil
+}
+
 // Remove drops the first n records (FIFO), keeping any appended since the Peek.
 func (b *Buffer) Remove(n int) error {
 	b.mu.Lock()

@@ -80,6 +80,18 @@ tls:
 	if cfg.A2A.Enabled {
 		t.Fatal("a2a.enabled must default false so raw responder listeners require explicit operator opt-in")
 	}
+	if cfg.Buffer.MaxRecords != defaultBufferMaxRecords {
+		t.Fatalf("buffer max_records = %d, want %d", cfg.Buffer.MaxRecords, defaultBufferMaxRecords)
+	}
+	if cfg.Buffer.DrainMaxRecords != defaultDrainMaxRecords {
+		t.Fatalf("buffer drain_max_records = %d, want %d", cfg.Buffer.DrainMaxRecords, defaultDrainMaxRecords)
+	}
+	if cfg.Buffer.DrainMaxBytes != defaultDrainMaxBytes {
+		t.Fatalf("buffer drain_max_bytes = %d, want %d", cfg.Buffer.DrainMaxBytes, defaultDrainMaxBytes)
+	}
+	if cfg.Buffer.DrainPace.Std() != defaultDrainPace {
+		t.Fatalf("buffer drain_pace = %s, want %s", cfg.Buffer.DrainPace.Std(), defaultDrainPace)
+	}
 }
 
 func writeAgentConfig(t *testing.T, body string) string {
