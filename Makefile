@@ -321,8 +321,17 @@ proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bi
 airgap-bundle: ## OPS-003: build the offline install bundle (images+chart+binaries+docs): make airgap-bundle VERSION=0.2.0
 	VERSION=$(VERSION) ./scripts/airgap-bundle.sh
 
+.PHONY: compose-prod-preflight
+compose-prod-preflight: ## OPS-001: fail fast with login/mirror/local-build guidance before production compose pulls.
+	bash scripts/compose_image_preflight.sh
+
+.PHONY: compose-prod-up
+compose-prod-up: compose-prod-preflight ## OPS-001: start the shipped all-in-one compose stack after image preflight.
+	docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml up -d
+
 .PHONY: compose-image-gate
-compose-image-gate: ## OPS-002: shipped compose image, GHCR auth docs, and optional anonymous-pull smoke stay in lockstep.
+compose-image-gate: ## OPS-001: shipped compose image, preflight, GHCR auth docs, and optional anonymous-pull smoke stay in lockstep.
+	bash scripts/compose_image_preflight.sh SELFTEST
 	bash scripts/check_compose_image_contract.sh SELFTEST
 	bash scripts/check_compose_image_contract.sh
 

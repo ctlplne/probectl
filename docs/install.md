@@ -27,12 +27,17 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
   `control`. If that GHCR package is public in your environment, Docker pulls it
   anonymously. If GHCR returns `401 Unauthorized`, log in first with a token that
   has `read:packages`, or set `PROBECTL_IMAGE` in `deploy/compose/.env` to a
-  locally built / mirrored / digest-pinned image:
+  locally built / mirrored / digest-pinned image. The compose preflight below
+  checks this before the stack starts, so a private registry fails with exact
+  repair commands instead of halfway through first boot:
 
   ```sh
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
   # or:
   PROBECTL_IMAGE=registry.internal/probectl-control:v0.4.0
+  # or build from this checkout:
+  docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:local .
+  PROBECTL_IMAGE=probectl-control:local
   ```
 - **Compose path:** Docker with Compose v2.
 - **Helm path:** a Kubernetes cluster with an ingress controller (the cluster's
@@ -67,8 +72,14 @@ cp deploy/compose/.env.example deploy/compose/.env
 # with a clear error (not a warning). For a no-IdP local evaluation, use the eval
 # stack (deploy/compose/eval.yml) — see docs/getting-started.md — not this stack.
 
-# 2. Start.
-docker compose -f deploy/compose/probectl.yml up -d
+# 2. Preflight the image, then start.
+#    This fails before Compose starts if the pinned image is private/unreachable,
+#    and prints the exact docker login, mirror override, or local-build command.
+bash scripts/compose_image_preflight.sh
+make compose-prod-up
+
+# Equivalent after the preflight passes:
+# docker compose --env-file deploy/compose/.env -f deploy/compose/probectl.yml up -d
 
 # 3. Grab the generated CA so your client can trust the self-signed cert.
 #    (The certs live in a named Docker volume, so copy ca.crt out of the container.)

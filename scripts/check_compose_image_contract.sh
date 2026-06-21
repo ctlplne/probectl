@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# check_compose_image_contract.sh — OPS-002 guard for the shipped Compose image.
+# check_compose_image_contract.sh — OPS-001 guard for the shipped Compose image.
 #
 # The shipped all-in-one compose file points certgen + control at one exact
 # release image. This gate keeps three things true:
 #   1. both services use the same pinned image,
-#   2. install docs explain GHCR auth / PROBECTL_IMAGE override when anonymous
+#   2. install docs wire the hard preflight before compose up,
+#   3. install docs explain GHCR auth / PROBECTL_IMAGE override when anonymous
 #      pull is unavailable,
-#   3. an optional anonymous-pull smoke uses the exact compose image and a clean
+#   4. an optional anonymous-pull smoke uses the exact compose image and a clean
 #      Docker credential directory.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -72,10 +73,18 @@ run_checks() {
     || err "docs/install.md must mention the GHCR read:packages scope for private packages"
   grep -Fq 'PROBECTL_IMAGE' "$root/docs/install.md" \
     || err "docs/install.md must document the PROBECTL_IMAGE mirror/local override"
+  grep -Fq 'compose_image_preflight.sh' "$root/docs/install.md" \
+    || err "docs/install.md must document the hard compose image preflight"
   grep -Fq 'docker login ghcr.io' "$root/deploy/compose/README.md" \
     || err "deploy/compose/README.md must document GHCR registry authentication"
+  grep -Fq 'compose_image_preflight.sh' "$root/deploy/compose/README.md" \
+    || err "deploy/compose/README.md must document the hard compose image preflight"
   grep -Fq 'PROBECTL_IMAGE' "$root/deploy/compose/.env.example" \
     || err "deploy/compose/.env.example must document the image override"
+  grep -Fq 'compose-prod-up: compose-prod-preflight' "$root/Makefile" \
+    || err "Makefile compose-prod-up must depend on compose-prod-preflight"
+  [ -f "$root/scripts/compose_image_preflight.sh" ] \
+    || err "scripts/compose_image_preflight.sh must exist"
 
   if [ "${PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL:-0}" = "1" ]; then
     if [ -z "$image" ]; then
@@ -102,8 +111,10 @@ run_checks() {
 if [ "${1:-}" = "SELFTEST" ]; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  mkdir -p "$tmp/deploy/compose" "$tmp/docs"
+  mkdir -p "$tmp/deploy/compose" "$tmp/docs" "$tmp/scripts"
   echo '0.4.0' > "$tmp/VERSION"
+  echo '# no compose preflight' > "$tmp/Makefile"
+  echo '# preflight placeholder' > "$tmp/scripts/compose_image_preflight.sh"
   cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
 services:
   certgen:
@@ -124,13 +135,18 @@ YAML
 Use `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0`.
 If GHCR returns 401, run `docker login ghcr.io` with read:packages.
 Set `PROBECTL_IMAGE` to use a mirror.
+Run `bash scripts/compose_image_preflight.sh` before compose up.
 MD
   cat > "$tmp/deploy/compose/README.md" <<'MD'
 Use `docker login ghcr.io` if the release package is not anonymous.
+Run `bash scripts/compose_image_preflight.sh` before compose up.
 MD
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
 # PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0
 ENV
+  cat > "$tmp/Makefile" <<'MAKE'
+compose-prod-up: compose-prod-preflight
+MAKE
   run_checks "$tmp"
   if [ "$fail" -ne 0 ]; then
     echo "SELFTEST FAILED: good fixture failed" >&2

@@ -8,7 +8,7 @@
 # mounting their own /certs and pointing PROBECTL_TLS_HOSTS at real hostnames.
 #
 #   cp deploy/compose/.env.example deploy/compose/.env   # then edit
-#   docker compose -f deploy/compose/probectl.yml up -d
+#   make compose-prod-up   # runs the image preflight before docker compose up
 #   curl --cacert ./certs/ca.crt https://localhost:8443/readyz   # see docs/install.md
 #
 # This is the production-shaped stack. The local *dependency* stack for developing

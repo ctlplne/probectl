@@ -40,8 +40,10 @@ for an immediate quickstart — production replaces it with a CA-issued cert.
 cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD + envelope/session-HMAC keys
 # If GHCR returns 401 for the pinned release image, run `docker login ghcr.io`
 # with a token that has read:packages, or set PROBECTL_IMAGE in .env to a
-# locally built / mirrored image.
-docker compose -f deploy/compose/probectl.yml up -d
+# locally built / mirrored image. The preflight fails before Compose starts and
+# prints exact login, mirror, or local-build commands.
+bash scripts/compose_image_preflight.sh
+make compose-prod-up
 docker compose -f deploy/compose/probectl.yml cp control:/certs/ca.crt ./ca.crt
 curl --cacert ./ca.crt https://localhost:8443/readyz
 ```
