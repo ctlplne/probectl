@@ -4,9 +4,9 @@
 // artifacts — starting with S36 browser-synthetic screenshots/waterfalls. It is a
 // small Put/Get/Stat interface with a filesystem implementation (the default) and
 // an in-memory one (tests); an S3/MinIO implementation slots in behind the same
-// interface (PRD §5: object store pluggable). Keys are caller-namespaced by
-// tenant (e.g. "tenant/<id>/browser/<run>.png"), so artifacts are tenant-isolated
-// at the storage layer (F50).
+// interface (PRD §5: object store pluggable). Tenant-owned callers should use a
+// TenantStore from ForTenant/ForTenantPrefix, so tenant namespaces are prepended
+// by the storage adapter rather than remembered by every handler.
 package objectstore
 
 import (
@@ -39,6 +39,137 @@ type Store interface {
 	// DeletePrefix removes every object under a prefix and returns the count
 	// (S-T5 verifiable deletion). Deleting an empty prefix is a no-op.
 	DeletePrefix(ctx context.Context, prefix string) (int, error)
+}
+
+// TenantStore is a tenant-bound view of Store. Callers pass relative artifact
+// paths such as "browser/run.png"; the adapter prepends the tenant namespace.
+type TenantStore interface {
+	Put(ctx context.Context, path, contentType string, data []byte) error
+	Get(ctx context.Context, path string) (Object, error)
+	Stat(ctx context.Context, path string) (size int64, exists bool, err error)
+	List(ctx context.Context, prefix string) ([]string, error)
+	DeletePrefix(ctx context.Context, prefix string) (int, error)
+	Key(path string) string
+}
+
+type tenantStore struct {
+	store Store
+	root  string
+}
+
+// ForTenant binds store to the standard pooled tenant namespace:
+// "tenant/<tenantID>/".
+func ForTenant(store Store, tenantID string) (TenantStore, error) {
+	return ForTenantPrefix(store, "", tenantID)
+}
+
+// ForTenantPrefix binds store to an isolation-routed object namespace. Empty
+// prefix falls back to the pooled "tenant/<tenantID>/" root. Non-empty prefixes
+// are resolved by the deployment router (for example "silo/<tenantID>").
+func ForTenantPrefix(store Store, prefix, tenantID string) (TenantStore, error) {
+	if store == nil {
+		return nil, errors.New("objectstore: nil store")
+	}
+	if err := validTenantID(tenantID); err != nil {
+		return nil, err
+	}
+	root := strings.Trim(prefix, "/")
+	if root == "" {
+		root = TenantKey(tenantID)
+	}
+	if err := validKey(root); err != nil {
+		return nil, err
+	}
+	return tenantStore{store: store, root: root}, nil
+}
+
+func validTenantID(tenantID string) error {
+	if tenantID == "" {
+		return errors.New("objectstore: empty tenant id")
+	}
+	if strings.ContainsAny(tenantID, "/\\\x00") || tenantID == "." || tenantID == ".." {
+		return errors.New("objectstore: invalid tenant id")
+	}
+	return nil
+}
+
+func validRelative(path string, allowEmpty bool) error {
+	if path == "" {
+		if allowEmpty {
+			return nil
+		}
+		return errors.New("objectstore: empty relative path")
+	}
+	return validKey(path)
+}
+
+func (t tenantStore) fullKey(path string, allowEmpty bool) (string, error) {
+	if err := validRelative(path, allowEmpty); err != nil {
+		return "", err
+	}
+	if path == "" {
+		return t.root + "/", nil
+	}
+	return t.root + "/" + strings.TrimPrefix(path, "/"), nil
+}
+
+func (t tenantStore) Put(ctx context.Context, path, contentType string, data []byte) error {
+	key, err := t.fullKey(path, false)
+	if err != nil {
+		return err
+	}
+	return t.store.Put(ctx, key, contentType, data)
+}
+
+func (t tenantStore) Get(ctx context.Context, path string) (Object, error) {
+	key, err := t.fullKey(path, false)
+	if err != nil {
+		return Object{}, err
+	}
+	return t.store.Get(ctx, key)
+}
+
+func (t tenantStore) Stat(ctx context.Context, path string) (int64, bool, error) {
+	key, err := t.fullKey(path, false)
+	if err != nil {
+		return 0, false, err
+	}
+	return t.store.Stat(ctx, key)
+}
+
+func (t tenantStore) List(ctx context.Context, prefix string) ([]string, error) {
+	keyPrefix, err := t.fullKey(prefix, true)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := t.store.List(ctx, keyPrefix)
+	if err != nil {
+		return nil, err
+	}
+	rootPrefix := t.root + "/"
+	rel := keys[:0]
+	for _, key := range keys {
+		if strings.HasPrefix(key, rootPrefix) {
+			rel = append(rel, strings.TrimPrefix(key, rootPrefix))
+		}
+	}
+	return rel, nil
+}
+
+func (t tenantStore) DeletePrefix(ctx context.Context, prefix string) (int, error) {
+	keyPrefix, err := t.fullKey(prefix, true)
+	if err != nil {
+		return 0, err
+	}
+	return t.store.DeletePrefix(ctx, keyPrefix)
+}
+
+func (t tenantStore) Key(path string) string {
+	key, err := t.fullKey(path, false)
+	if err != nil {
+		return ""
+	}
+	return key
 }
 
 // validKey rejects empty keys, absolute paths, and any traversal so a tenant

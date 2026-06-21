@@ -6,12 +6,14 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
@@ -168,6 +170,40 @@ func TestFleetStoresFailureArtifact(t *testing.T) {
 	obj, err := store.Get(context.Background(), res.Screenshot.Key)
 	if err != nil || string(obj.Data) != "PNGBYTES" {
 		t.Fatalf("stored artifact: %q err=%v", obj.Data, err)
+	}
+}
+
+type objectPrefixRouter struct{ prefix string }
+
+func (r objectPrefixRouter) TargetsFor(context.Context, string) (tenancy.Targets, error) {
+	return tenancy.Targets{Model: tenancy.IsolationHybrid, ObjectPrefix: r.prefix}, nil
+}
+
+func (objectPrefixRouter) BusNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+func (objectPrefixRouter) BusNamespaceTenants(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func TestFleetStoresFailureArtifactInRoutedNamespace(t *testing.T) {
+	tenancy.SetRouter(objectPrefixRouter{prefix: "silo/t9"})
+	t.Cleanup(func() { tenancy.SetRouter(nil) })
+
+	store := objectstore.NewMemory()
+	factory := func() Driver { return &lifecycleDriver{screenshot: []byte("PNGBYTES"), fail: true} }
+	fleet := NewFleet(Config{MaxConcurrency: 1}, factory, store, quiet())
+	defer fleet.Close()
+
+	res, _ := fleet.Run(context.Background(), "t9", trivialScript())
+	if res.Screenshot == nil || !strings.HasPrefix(res.Screenshot.Key, "silo/t9/browser/") {
+		t.Fatalf("routed screenshot ref: %+v", res.Screenshot)
+	}
+	obj, err := store.Get(context.Background(), res.Screenshot.Key)
+	if err != nil || string(obj.Data) != "PNGBYTES" {
+		t.Fatalf("stored routed artifact: %q err=%v", obj.Data, err)
+	}
+	if keys, _ := store.List(context.Background(), "tenant/t9/"); len(keys) != 0 {
+		t.Fatalf("routed tenant artifact must not fall back to pooled prefix: %v", keys)
 	}
 }
 

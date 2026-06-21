@@ -144,13 +144,17 @@ func (f *Fleet) storeArtifact(ctx context.Context, tenant string, s Script, res 
 		f.log.Warn("browser: artifact not stored (isolation routing failed)", "tenant", tenant, "error", err)
 		return
 	}
-	key := objectstore.PrefixedKey(targets.ObjectPrefix, tenant, "browser",
-		fmt.Sprintf("%s-%d%s", safeName(s.Name), res.StartedAt.UnixNano(), ext(out.ScreenshotType)))
-	if err := f.store.Put(ctx, key, out.ScreenshotType, out.Screenshot); err != nil {
+	tenantObjects, err := objectstore.ForTenantPrefix(f.store, targets.ObjectPrefix, tenant)
+	if err != nil {
+		f.log.Warn("browser: artifact not stored (object namespace invalid)", "tenant", tenant, "error", err)
+		return
+	}
+	rel := "browser/" + fmt.Sprintf("%s-%d%s", safeName(s.Name), res.StartedAt.UnixNano(), ext(out.ScreenshotType))
+	if err := tenantObjects.Put(ctx, rel, out.ScreenshotType, out.Screenshot); err != nil {
 		f.log.Warn("browser: store artifact failed", "tenant", tenant, "script", s.Name, "error", err)
 		return
 	}
-	res.Screenshot = &ScreenshotRef{Key: key, ContentType: out.ScreenshotType, SizeBytes: int64(len(out.Screenshot))}
+	res.Screenshot = &ScreenshotRef{Key: tenantObjects.Key(rel), ContentType: out.ScreenshotType, SizeBytes: int64(len(out.Screenshot))}
 }
 
 func (f *Fleet) closeDriver(d Driver) {

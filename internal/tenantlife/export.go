@@ -146,14 +146,18 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 
 	// 3) Object inventory (both key namespaces).
 	if e.objects != nil {
-		for _, prefix := range []string{"tenant/" + tenantID + "/", "silo/" + tenantID + "/"} {
-			keys, err := e.objects.List(ctx, prefix)
+		tenantObjects, err := tenantObjectStores(e.objects, tenantID)
+		if err != nil {
+			return man, fmt.Errorf("tenantlife: bind object namespace: %w", err)
+		}
+		for _, objects := range tenantObjects {
+			keys, err := objects.List(ctx, "")
 			if err != nil {
 				return man, fmt.Errorf("tenantlife: list objects: %w", err)
 			}
 			for _, k := range keys {
-				size, _, _ := e.objects.Stat(ctx, k)
-				man.Objects = append(man.Objects, ObjectRef{Key: k, Size: size})
+				size, _, _ := objects.Stat(ctx, k)
+				man.Objects = append(man.Objects, ObjectRef{Key: objects.Key(k), Size: size})
 			}
 		}
 	}

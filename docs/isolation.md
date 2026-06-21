@@ -93,9 +93,13 @@ a transient routing blip delays the data instead of mis-routing it.
   at startup. (A tenant siloed *after* boot is picked up from its lane after the
   next restart; the shared lanes stay subscribed throughout, so nothing is
   dropped.)
-- **Object store:** keys move under `silo/<tenant-id>/…` (the pooled layout is
-  `tenant/<id>/…`). Note the honesty caveat below: in this release that is a key
-  *namespace* on the same backend, not a separate storage system.
+- **Object store:** tenant-owned artifact callers use a bound object-store
+  handle, so they pass relative paths like `browser/shot.png` and the storage
+  adapter prepends the namespace. Siloed/hybrid keys move under
+  `silo/<tenant-id>/…` (the pooled layout is `tenant/<id>/…`), and
+  list/delete operations stay inside that bound root. Note the honesty caveat
+  below: in this release that is a key *namespace* on the same backend, not a
+  separate storage system.
 
 ## Residency: exactly what is and is not pinned
 

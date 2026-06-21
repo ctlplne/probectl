@@ -113,11 +113,13 @@ Because browser workers are CPU- and memory-heavy, the `Fleet`
 ## Screenshots → object store
 
 A failure artifact is uploaded to the pluggable **object store** — a key → blob
-store: `Put` bytes under a string key, `Get` them back (`internal/objectstore`)
-— under a **tenant-prefixed key**
-(`tenant/<id>/browser/<script>-<ts>.png`), so one tenant's artifacts are
-isolated from another's at the storage layer (siloed tenants get their own
-prefix via isolation routing; a routing failure stores nothing — fail closed).
+store: `Put` bytes under a string key, `Get` them back (`internal/objectstore`).
+The fleet writes through a **tenant-bound object handle**: it passes only the
+relative artifact path (`browser/<script>-<ts>.png`), and the store adapter
+prepends the tenant namespace (`tenant/<id>/...` or a routed `silo/<id>/...`).
+That keeps one tenant's artifacts isolated from another's at the storage layer
+(siloed tenants get their own prefix via isolation routing; a routing failure
+stores nothing — fail closed).
 Two implementations ship today: **filesystem** (the default) and **in-memory**
 (tests). The store is a deliberately small `Store` interface
 (`Put`/`Get`/`Stat`/`List`/`DeletePrefix`), so an S3 / MinIO backend can slot

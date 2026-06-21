@@ -136,6 +136,18 @@ func newEngine(pool *pgxpool.Pool, flows flowstore.Store, objects objectstore.St
 		log: log, now: time.Now}
 }
 
+func tenantObjectStores(objects objectstore.Store, tenantID string) ([]objectstore.TenantStore, error) {
+	pooled, err := objectstore.ForTenant(objects, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	silo, err := objectstore.ForTenantPrefix(objects, "silo/"+tenantID, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	return []objectstore.TenantStore{pooled, silo}, nil
+}
+
 // WithPaths attaches the path store for erasure coverage (U-027).
 func (e *Engine) WithPaths(p PathDeleter) *Engine { e.paths = p; return e }
 
@@ -249,19 +261,27 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 	if e.objects != nil {
 		total := 0
 		ok := true
-		for _, prefix := range []string{"tenant/" + tenantID + "/", "silo/" + tenantID + "/"} {
-			n, err := e.objects.DeletePrefix(ctx, prefix)
+		tenantObjects, err := tenantObjectStores(e.objects, tenantID)
+		if err != nil {
+			fail("objects", "bind tenant namespace failed: "+err.Error())
+			ok = false
+		}
+		for _, objects := range tenantObjects {
+			n, err := objects.DeletePrefix(ctx, "")
 			if err != nil {
-				fail("objects", "delete "+prefix+" failed: "+err.Error())
+				fail("objects", "delete tenant namespace failed: "+err.Error())
 				ok = false
 				break
 			}
 			total += n
 		}
 		if ok {
-			left, _ := e.objects.List(ctx, "tenant/"+tenantID+"/")
-			left2, _ := e.objects.List(ctx, "silo/"+tenantID+"/")
-			verified := len(left)+len(left2) == 0
+			remaining := 0
+			for _, objects := range tenantObjects {
+				left, _ := objects.List(ctx, "")
+				remaining += len(left)
+			}
+			verified := remaining == 0
 			att.Stores = append(att.Stores, StoreResult{Store: "objects", Deleted: int64(total), VerifiedZero: verified})
 			if !verified {
 				att.Complete = false

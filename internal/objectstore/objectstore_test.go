@@ -94,3 +94,107 @@ func TestFSStorePersistsAcrossInstances(t *testing.T) {
 		t.Fatalf("persisted get: %+v err=%v", o, err)
 	}
 }
+
+func runTenantStoreSuite(t *testing.T, s Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	ta, err := ForTenant(s, "tnA")
+	if err != nil {
+		t.Fatalf("tenant A handle: %v", err)
+	}
+	tb, err := ForTenant(s, "tnB")
+	if err != nil {
+		t.Fatalf("tenant B handle: %v", err)
+	}
+	if err := ta.Put(ctx, "browser/a.png", "image/png", []byte("a")); err != nil {
+		t.Fatalf("put tenant A: %v", err)
+	}
+	if err := tb.Put(ctx, "browser/b.png", "image/png", []byte("b")); err != nil {
+		t.Fatalf("put tenant B: %v", err)
+	}
+
+	got, err := ta.Get(ctx, "browser/a.png")
+	if err != nil || string(got.Data) != "a" {
+		t.Fatalf("tenant A get own object: %q err=%v", got.Data, err)
+	}
+	if _, err := ta.Get(ctx, "browser/b.png"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("tenant A must not read tenant B relative path: %v", err)
+	}
+	if _, err := ta.Get(ctx, "tenant/tnB/browser/b.png"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("tenant A must not escape through B-shaped key text: %v", err)
+	}
+	if _, err := ta.Get(ctx, "../tnB/browser/b.png"); err == nil {
+		t.Fatal("tenant-bound paths must reject traversal")
+	}
+
+	keys, err := ta.List(ctx, "")
+	if err != nil {
+		t.Fatalf("tenant A list: %v", err)
+	}
+	if len(keys) != 1 || keys[0] != "browser/a.png" {
+		t.Fatalf("tenant A list must return only relative tenant A keys: %v", keys)
+	}
+	if ta.Key("browser/a.png") != "tenant/tnA/browser/a.png" {
+		t.Fatalf("tenant A full key: %q", ta.Key("browser/a.png"))
+	}
+
+	n, err := ta.DeletePrefix(ctx, "")
+	if err != nil || n != 1 {
+		t.Fatalf("tenant A delete root: n=%d err=%v", n, err)
+	}
+	if keys, _ := ta.List(ctx, ""); len(keys) != 0 {
+		t.Fatalf("tenant A should be empty after delete: %v", keys)
+	}
+	if keys, _ := tb.List(ctx, ""); len(keys) != 1 || keys[0] != "browser/b.png" {
+		t.Fatalf("tenant B must survive tenant A delete: %v", keys)
+	}
+
+	siloA, err := ForTenantPrefix(s, "silo/tnA", "tnA")
+	if err != nil {
+		t.Fatalf("silo tenant A handle: %v", err)
+	}
+	siloB, err := ForTenantPrefix(s, "silo/tnB", "tnB")
+	if err != nil {
+		t.Fatalf("silo tenant B handle: %v", err)
+	}
+	_ = siloA.Put(ctx, "browser/a.png", "image/png", []byte("sa"))
+	_ = siloB.Put(ctx, "browser/b.png", "image/png", []byte("sb"))
+	if _, err := siloA.Get(ctx, "browser/b.png"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("silo tenant A must not read silo tenant B: %v", err)
+	}
+	if siloA.Key("browser/a.png") != "silo/tnA/browser/a.png" {
+		t.Fatalf("silo tenant A full key: %q", siloA.Key("browser/a.png"))
+	}
+	if n, err := siloA.DeletePrefix(ctx, ""); err != nil || n != 1 {
+		t.Fatalf("silo tenant A delete root: n=%d err=%v", n, err)
+	}
+	if keys, _ := siloB.List(ctx, ""); len(keys) != 1 {
+		t.Fatalf("silo tenant B must survive tenant A delete: %v", keys)
+	}
+}
+
+func TestMemTenantStoreIsolation(t *testing.T) { runTenantStoreSuite(t, NewMemory()) }
+
+func TestFSTenantStoreIsolation(t *testing.T) {
+	s, err := NewFS(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runTenantStoreSuite(t, s)
+}
+
+func TestTenantStoreRejectsInvalidScope(t *testing.T) {
+	s := NewMemory()
+	for _, tenantID := range []string{"", "a/b", "a\\b", "..", "a\x00b"} {
+		if _, err := ForTenant(s, tenantID); err == nil {
+			t.Fatalf("ForTenant(%q) should reject invalid tenant id", tenantID)
+		}
+	}
+	if _, err := ForTenantPrefix(s, "../escape", "tnA"); err == nil {
+		t.Fatal("ForTenantPrefix should reject traversal prefixes")
+	}
+	if _, err := ForTenant(nil, "tnA"); err == nil {
+		t.Fatal("ForTenant should reject nil stores")
+	}
+}
