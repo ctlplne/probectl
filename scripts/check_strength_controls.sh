@@ -15,7 +15,7 @@ ids=(
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008 CORRECT-009
   COVER-008 COVER-009
   DOCS-004 DOCS-005 DOCS-006 DOCS-007 DOCS-008
-  EBPF-005 EBPF-006 FUZZ-005
+  EBPF-004 EBPF-005 EBPF-006 FUZZ-005
   KEYS-005 KEYS-006 KEYS-007
   OPS-007 OPS-008 OPS-009 OPS-010
   RED-006 RED-007 RED-008
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 67 ]; then
-  err "internal guard bug: expected 67 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 68 ]; then
+  err "internal guard bug: expected 68 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -180,6 +180,13 @@ need_pattern SCALE-009 internal/store/flowstore/clickhouse.go 'PARTITION BY \(te
 need_pattern SCALE-009 internal/store/otelstore/clickhouse.go 'PARTITION BY \(tenant_id|TTL|retention'
 
 # eBPF, fuzzing, keys, supply chain, and ops controls.
+need_pattern EBPF-004 internal/ebpf/observeonly_test.go 'TestBPFProgramsAreObserveOnly'
+need_pattern EBPF-004 internal/ebpf/observeonly_test.go 'tracepoint/|kprobe/|uprobe/|raw_tracepoint/|fentry/|fexit/'
+need_pattern EBPF-004 internal/ebpf/observeonly_test.go 'bpf_redirect|bpf_override_return|bpf_probe_write_user|bpf_setsockopt|bpf_skb_store_bytes|bpf_xdp_adjust_head'
+need_pattern EBPF-004 Makefile 'test:.*Run unit tests across all workspace modules'
+need_pattern EBPF-004 .github/workflows/ci.yml 'make test'
+need_pattern EBPF-004 .github/workflows/ci.yml 'observe-only static gate runs in'
+need_pattern EBPF-004 .github/workflows/ci.yml 'test-go'
 need_pattern EBPF-005 internal/ebpf/observeonly_test.go 'observe|block|drop|iptables'
 need_pattern EBPF-006 internal/ebpf/integrity.go 'SHA|digest|Verify'
 need_pattern EBPF-006 internal/ebpf/trustboundary_test.go 'digest|tamper'
