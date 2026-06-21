@@ -30,7 +30,7 @@ ids=(
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-003 SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-003 TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
-  TEST-006 TEST-007 TEST-008 UX-006 VERIFY-005 VERIFY-006
+  TEST-003 TEST-004 TEST-006 TEST-007 TEST-008 UX-006 VERIFY-005 VERIFY-006
   WIRE-005 WIRE-006 WIRE-007
 )
 
@@ -61,8 +61,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 97 ]; then
-  err "internal guard bug: expected 97 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 99 ]; then
+  err "internal guard bug: expected 99 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -172,6 +172,16 @@ need_pattern SCHEMA-I01 Makefile 'proto'
 need_pattern SCHEMA-I02 internal/otel/conventions.go 'semconv|SchemaURL|OTel'
 need_pattern SCHEMA-I03 scripts/check_openapi.sh 'OpenAPI completeness gate'
 need_pattern SCHEMA-I04 Makefile 'migration-gate'
+need_pattern TEST-003 .github/workflows/ci.yml 'verify-all:|if: always\(\)|needs:|verify-all is RED'
+need_pattern TEST-003 .github/workflows/ci.yml 'lint-go|test-go|coverage|cross-tenant-isolation|integration|ebpf-kernel-matrix'
+need_pattern TEST-003 internal/cipolicy/cipolicy_test.go 'TestVerifyAllIsTheUmbrella|advisory|verify-all is RED'
+need_pattern TEST-003 docs/ops/branch-protection.md 'verify-all|umbrella|required'
+need_pattern TEST-004 Makefile 'go test -race|test-isolation|cover-gate|openapi-gate|fuzz-smoke'
+need_pattern TEST-004 .github/workflows/ci.yml 'PROBECTL_TEST_REQUIRE_SERVICES|fail \(not skip\)|answer_accuracy >= 0\.85|citation_precision >= 0\.85'
+need_pattern TEST-004 .github/workflows/ci.yml 'rca-eval|coverage|cross-tenant-isolation|integration|openapi-gate|dependency-scan|web'
+need_pattern TEST-004 docs/development.md 'test-go|rca-eval|coverage|openapi-gate|cross-tenant-isolation|verify-all'
+need_pattern TEST-004 scripts/check_fuzz_policy.sh 'discover targets dynamically|FuzzMCPHandle'
+need_pattern TEST-004 web/package.json 'coverage-gate'
 need_pattern TEST-006 scripts/verify_all.sh 'ALL GREEN|run_step'
 need_pattern TEST-007 Makefile 'test-isolation'
 need_pattern TEST-007 .github/workflows/ci.yml 'cross-plane|correlated incident|test-isolation'
