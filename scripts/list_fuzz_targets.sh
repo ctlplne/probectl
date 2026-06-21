@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: LicenseRef-probectl-TBD
 #
-# Discover Go fuzz targets under internal/. This is intentionally dependency-free
-# so CI can use it before any project tooling is installed.
+# Discover Go fuzz targets under core and commercial packages. This is
+# intentionally dependency-free so CI can use it before any project tooling is
+# installed.
 set -euo pipefail
 
 mode="${1:-table}"
 
 discover() {
-  find internal -name '*_test.go' -print | sort | while IFS= read -r file; do
+  local roots=(internal)
+  if [ -d ee ]; then
+    roots+=(ee)
+  fi
+  find "${roots[@]}" -name '*_test.go' -print | sort | while IFS= read -r file; do
     pkg="./$(dirname "$file")"
     sed -nE 's/^[[:space:]]*func (Fuzz[A-Za-z0-9_]+)[[:space:]]*\(.*/\1/p' "$file" | while IFS= read -r name; do
       [ -n "$name" ] || continue

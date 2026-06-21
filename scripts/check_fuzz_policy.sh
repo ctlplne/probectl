@@ -73,6 +73,11 @@ if ! "$LIST" | grep -q $'./internal/ai/mcp\tFuzzMCPHandle'; then
   exit 1
 fi
 
+if ! "$LIST" | grep -q $'./ee/provider\tFuzzProviderDecode'; then
+  echo "fuzz-policy: FuzzProviderDecode is not discovered" >&2
+  exit 1
+fi
+
 if ! grep -q 'list_fuzz_targets.sh' "$SMOKE"; then
   echo "fuzz-policy: fuzz_smoke.sh must consume scripts/list_fuzz_targets.sh" >&2
   exit 1
