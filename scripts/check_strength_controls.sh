@@ -20,6 +20,7 @@ ids=(
   OPS-005 OPS-006 OPS-007 OPS-008 OPS-009 OPS-010
   PERF-008 PERF-009 PERF-010
   PRIVACY-008 PRIVACY-009 PRIVACY-010 PRIVACY-011
+  PRODUCT-011 PRODUCT-012 PRODUCT-013 PRODUCT-014
   RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   SCALE-007 SCALE-008 SCALE-009
@@ -57,8 +58,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 81 ]; then
-  err "internal guard bug: expected 81 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 85 ]; then
+  err "internal guard bug: expected 85 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -205,6 +206,31 @@ need_pattern PRIVACY-010 internal/ai/redact_test.go 'TestRedactionTokenDictionar
 need_pattern PRIVACY-011 internal/tenantlife/tenantlife.go 'flows|objects|tsdb|paths|topology|otel|ebpf|tenant_keys|ReportSHA256|lifecycle.erase'
 need_pattern PRIVACY-011 internal/tenantlife/tenantlife_test.go 'TestEraseGoneFromEveryStore|VerifiedZero|provider audit stream|report hash'
 need_pattern PRIVACY-011 internal/tenantlife/offboard_test.go 'unwired plane|Erase|attestation|Complete'
+need_pattern PRODUCT-011 web/src/test/surface-coverage.test.tsx 'uniqueRoutes|every native surface passes the WCAG 2\.2 AA bar|axe|toHaveNoViolations'
+need_pattern PRODUCT-011 web/src/test/surface-coverage.test.tsx 'provider console|offNav|every native surface renders a real screen'
+need_pattern PRODUCT-011 web/src/surfaces.ts 'provider|offNav|native'
+need_pattern PRODUCT-012 web/src/test/a11y-primitives.test.tsx 'SkipLink|Field|StatusDot|modal focus trap wraps|restores focus'
+need_pattern PRODUCT-012 web/src/shell/AppShell.tsx 'SkipLink|main-content|CommandPalette'
+need_pattern PRODUCT-012 web/src/shell/CommandPalette.tsx 'role="combobox"|aria-activedescendant|aria-selected|Escape'
+need_pattern PRODUCT-012 web/src/components/Modal.tsx 'focus trap|Escape|aria-modal|aria-labelledby|previouslyFocused'
+need_pattern PRODUCT-012 web/src/components/Input.tsx 'htmlFor|aria-invalid|aria-describedby'
+need_pattern PRODUCT-012 web/src/components/Badge.tsx 'StatusDot|aria-hidden'
+need_pattern PRODUCT-012 web/src/styles/tokens.css 'prefers-reduced-motion'
+need_pattern PRODUCT-012 web/src/components/States.module.css 'prefers-reduced-motion'
+need_pattern PRODUCT-012 web/src/viz/PathGraph.module.css 'prefers-reduced-motion'
+need_pattern PRODUCT-013 internal/control/errors.go 'errorBody|errorDetail|writeError|RequestIDFromContext'
+need_pattern PRODUCT-013 internal/control/errors_test.go 'TestAPIHandlerMapsErrors|plain error leaked detail'
+need_pattern PRODUCT-013 internal/control/health_test.go 'error envelope should include request_id'
+need_pattern PRODUCT-013 internal/control/openapi.json 'ErrorResponse|ErrorCode|request_id joins client output to server logs'
+need_pattern PRODUCT-013 internal/apierror/apierror_test.go 'TestWithCodeStringLiteralsAreRegistered|public registry'
+need_pattern PRODUCT-013 internal/cli/cli.go 'request_id=%s'
+need_pattern PRODUCT-013 internal/cli/cli_test.go 'TestCLIAPIErrorIncludesRequestID|formatted error missing code/request_id'
+need_pattern PRODUCT-014 docs/getting-started.md 'The fastest way to first data: the evaluation stack|deploy/compose/eval\.yml'
+need_pattern PRODUCT-014 docs/getting-started.md 'See first data|--profile tools run --rm viewer|/v1/topology'
+need_pattern PRODUCT-014 docs/getting-started.md 'Add synthetic probes|PROBECTL_JOIN_TOKEN|/v1/results/latest'
+need_pattern PRODUCT-014 docs/getting-started.md 'HTTPS on loopback|gRPC/mTLS listener|PROBECTL_AUTH_MODE=dev'
+need_pattern PRODUCT-014 docs/getting-started.md 'curl --cacert ./certs/ca\.crt https://127\.0\.0\.1:8443/v1/(results/latest|topology)'
+need_pattern PRODUCT-014 docs/getting-started.md 'evaluation-only|bind loopback only|never published to your network'
 
 # eBPF, fuzzing, keys, supply chain, and ops controls.
 need_pattern EBPF-004 internal/ebpf/observeonly_test.go 'TestBPFProgramsAreObserveOnly'
