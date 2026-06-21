@@ -144,3 +144,37 @@ func TestPRDFleetRolloutContractMatchesCLISurface(t *testing.T) {
 		}
 	}
 }
+
+// TestPRDFIPSContractMatchesEvidence keeps F32 from drifting back into a vague
+// future-certification bucket now that the validated module evidence and exact
+// product-claim boundary are documented.
+func TestPRDFIPSContractMatchesEvidence(t *testing.T) {
+	prd := readPRDv1(t)
+
+	for _, stale := range []string{
+		"validated-module certification = EE/acquirer item",
+		"FIPS 140-3 validated module certification",
+		"the build path and seam are done — F32 🔶",
+		"F32 | FIPS-mode crypto | 🔶",
+	} {
+		if strings.Contains(prd, stale) {
+			t.Fatalf("probectl-PRD-v1.0.md still contains stale FIPS contract wording %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"F32 | FIPS-mode crypto | ✅",
+		"`docs/compliance/fips-evidence.md`",
+		"Go Cryptographic Module v1.0.0",
+		"CMVP #5247",
+		"CAVP A6650",
+		"probectl itself has no separate CMVP certificate",
+		"STIG/CIS and certification-grade customer package",
+		"FIPS module certificate evidence and the validated-module build path are in repo",
+		"not claiming a probectl-owned CMVP certificate",
+		"Score: 55 ✅ · 1 🔶 (F33) · 1 ⛔ (F49)",
+	} {
+		if !strings.Contains(prd, want) {
+			t.Fatalf("probectl-PRD-v1.0.md missing FIPS evidence contract wording %q", want)
+		}
+	}
+}

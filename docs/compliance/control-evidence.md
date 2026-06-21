@@ -41,7 +41,7 @@ supports the tenant-facing attestation.*
 
 | Control | What probectl does | Code | Test / gate |
 |---|---|---|---|
-| SOC 2 **CC6.1**, ISO **A.8.24** (cryptographic controls) | All crypto through one FIPS-swappable abstraction; a FIPS 140-3 validated module compiles in | `internal/crypto/` | `internal/crypto/*_test.go`; **fips-gate** (`make build-fips fips-gate` — validated module active, KATs pass) |
+| SOC 2 **CC6.1**, ISO **A.8.24** (cryptographic controls) | All crypto through one FIPS-swappable abstraction; a FIPS 140-3 validated module compiles in; dated evidence is in `docs/compliance/fips-evidence.md` | `internal/crypto/`, `docs/compliance/fips-evidence.md` | `internal/crypto/*_test.go`; **fips-gate** (`make build-fips fips-gate` — validated module active, KATs pass) |
 | ISO **A.8.24** (key lifecycle / BYOK) | Per-tenant keys + BYOK with no-downtime rotation, bounded revocation, and cryptographic destruction (KEK zeroization) | `ee/tenantkeys/`, `internal/tenantcrypto/`, `internal/crypto/revocation.go` | `ee/tenantkeys/lifecycle_e2e_test.go` (rotate→revoke→zeroize e2e), `ee/tenantkeys/tenantkeys_test.go` |
 | SOC 2 **CC6.1**, ISO **A.8.24** (secrets at rest) | Sensitive config/credentials envelope-encrypted at rest; no plaintext private keys for managed-host flows; no secrets in logs/URLs/git | `internal/crypto/envelope.go`, `internal/secrets/` | `internal/secrets/*_test.go`; the **secret-scan** (gitleaks) CI job |
 

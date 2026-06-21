@@ -188,7 +188,8 @@ The FIPS artifact embeds **the Go Cryptographic Module v1.0.0** — validated un
 FIPS 140-3 as **CMVP certificate #5247** (CAVP algorithm certificate A6650 —
 CAVP is CMVP's sibling program that validates the individual algorithms;
 included in Go 1.24+) — selected at build time with `GOFIPS140` and marked with
-the `probectl_fips` build tag.
+the `probectl_fips` build tag. The dated evidence snapshot for that claim lives
+in [compliance/fips-evidence.md](compliance/fips-evidence.md).
 
 **Exactly what is and is not certified — read this before quoting FIPS to an
 auditor.** The *module* holds the CMVP certificate; **probectl as a product holds
@@ -461,6 +462,7 @@ Other day-2 surfaces, all chart-managed:
 ## 4. References
 
 - FIPS module behavior: <https://go.dev/doc/security/fips140>
+- FIPS module evidence snapshot: [compliance/fips-evidence.md](compliance/fips-evidence.md)
 - Editions / licensing: [editions.md](editions.md)
 - Per-tenant keys / BYOK: [byok.md](byok.md)
 - Tenant isolation models: [isolation.md](isolation.md)
