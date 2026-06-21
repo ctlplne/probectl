@@ -59,6 +59,13 @@ export const SURFACES: SurfaceDecl[] = [
     route: '/targets',
   },
   {
+    capability: 'First-run tenant onboarding: enroll agent, create test, invite teammates',
+    featureIds: ['F1', 'F2', 'F25'],
+    sprint: 'JOURNEY-001',
+    kind: 'native',
+    route: '/onboarding',
+  },
+  {
     capability: 'AI test authoring + auto-discovery',
     featureIds: ['F45'],
     sprint: 'S26',

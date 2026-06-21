@@ -31,31 +31,18 @@ import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
+import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 
 // --- Admin & Settings: the agent fleet (live /v1/agents) + secret-backend
 // health (S41, live /v1/secrets/health) ---
-
-function initialControlPlaneURL(): string {
-  if (typeof window === 'undefined' || window.location.protocol !== 'https:') {
-    return 'https://<control-host>:8443'
-  }
-  return window.location.origin
-}
-
-function enrollCommand(token: AgentEnrollToken, server: string): string {
-  const trust = token.server_cert_pin
-    ? ` --ca-pin ${token.server_cert_pin}`
-    : ' --ca-file /etc/probectl/control-plane-ca.crt'
-  return `probectl-agent enroll --server ${server} --token ${token.token} --dir /var/lib/probectl-agent/identity${trust}`
-}
 
 function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const mint = useMintAgentEnrollToken()
   const [name, setName] = useState('')
   const [agentID, setAgentID] = useState('')
   const [ttlMinutes, setTTLMinutes] = useState('60')
-  const [server, setServer] = useState(initialControlPlaneURL)
+  const [server, setServer] = useState(defaultControlPlaneURL)
   const [created, setCreated] = useState<AgentEnrollToken | null>(null)
 
   function submit(e: FormEvent) {
@@ -69,7 +56,9 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
     mint.mutate(input, { onSuccess: setCreated })
   }
 
-  const command = created ? enrollCommand(created, server.trim() || initialControlPlaneURL()) : ''
+  const command = created
+    ? agentEnrollCommand(created, server.trim() || defaultControlPlaneURL())
+    : ''
   const expires = created ? new Date(created.expires_at).toISOString() : ''
 
   return (

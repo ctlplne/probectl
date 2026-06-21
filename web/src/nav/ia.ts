@@ -38,6 +38,7 @@ export interface NavItem {
  * Later sprints fill each route; the shell + nav are stable from here.
  */
 export const NAV: NavItem[] = [
+  { to: '/onboarding', labelKey: 'nav.onboarding', icon: 'check', group: 'operate' },
   { to: '/targets', labelKey: 'nav.targets', icon: 'targets', group: 'monitor' },
   { to: '/path', labelKey: 'nav.path', icon: 'path', group: 'monitor' },
   { to: '/planes', labelKey: 'nav.planes', icon: 'path', group: 'monitor' },

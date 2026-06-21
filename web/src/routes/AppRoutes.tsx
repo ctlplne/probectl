@@ -16,6 +16,7 @@ import { SecurityPage } from './SecurityPage'
 import { EndpointsPage } from './EndpointsPage'
 import { AskPage } from './AskPage'
 import { DashboardsPage } from './DashboardsPage'
+import { OnboardingPage } from './OnboardingPage'
 import { Gallery } from './Gallery'
 
 /** The route tree (kept separate from the router so tests can supply their own). */
@@ -28,7 +29,8 @@ export function AppRoutes() {
           (404) unless the deployment holds a provider license. */}
       <Route path="/provider/*" element={<ProviderConsole />} />
       <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/targets" replace />} />
+        <Route index element={<Navigate to="/onboarding" replace />} />
+        <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/targets" element={<TargetsPage />} />
         <Route path="/path" element={<PathPage />} />
         <Route path="/planes" element={<PlanesPage />} />
@@ -48,6 +50,7 @@ export function AppRoutes() {
           (n) =>
             ![
               '/targets',
+              '/onboarding',
               '/path',
               '/planes',
               '/incidents',
