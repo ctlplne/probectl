@@ -35,6 +35,13 @@ if ! "$LIST" | grep -q $'./internal/pipeline\tFuzzVerifyBatchTenant'; then
   exit 1
 fi
 
+for target in FuzzOTLPTracePayload FuzzOTLPLogPayload; do
+  if ! "$LIST" | grep -q $'./internal/otel/otlp\t'"$target"; then
+    echo "fuzz-policy: ${target} is not discovered" >&2
+    exit 1
+  fi
+done
+
 if ! grep -q 'list_fuzz_targets.sh' "$SMOKE"; then
   echo "fuzz-policy: fuzz_smoke.sh must consume scripts/list_fuzz_targets.sh" >&2
   exit 1

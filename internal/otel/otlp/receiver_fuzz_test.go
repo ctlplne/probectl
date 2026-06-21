@@ -9,10 +9,14 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/otel"
 
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
 // FuzzOTLPPayload (U-082): the OTLP ingest body is authenticated but
@@ -60,4 +64,123 @@ func FuzzOTLPPayload(f *testing.F) {
 			}
 		}
 	})
+}
+
+func FuzzOTLPTracePayload(f *testing.F) {
+	for _, seed := range tracePayloadSeeds() {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, body []byte) {
+		var req coltracepb.ExportTraceServiceRequest
+		if err := proto.Unmarshal(body, &req); err != nil {
+			return
+		}
+		err := scopeTracesToTenant(&req, "tenant-a")
+		if err != nil {
+			return
+		}
+		for _, rs := range req.GetResourceSpans() {
+			if rs == nil {
+				continue
+			}
+			if got := resourceTenantOf(rs.GetResource()); got != "tenant-a" {
+				t.Fatalf("scoped trace resource reads tenant %q, want tenant-a", got)
+			}
+		}
+	})
+}
+
+func FuzzOTLPLogPayload(f *testing.F) {
+	for _, seed := range logPayloadSeeds() {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, body []byte) {
+		var req collogspb.ExportLogsServiceRequest
+		if err := proto.Unmarshal(body, &req); err != nil {
+			return
+		}
+		err := scopeLogsToTenant(&req, "tenant-a")
+		if err != nil {
+			return
+		}
+		for _, rl := range req.GetResourceLogs() {
+			if rl == nil {
+				continue
+			}
+			if got := resourceTenantOf(rl.GetResource()); got != "tenant-a" {
+				t.Fatalf("scoped log resource reads tenant %q, want tenant-a", got)
+			}
+		}
+	})
+}
+
+func tracePayloadSeeds() [][]byte {
+	return [][]byte{
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{}),
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
+			ResourceSpans: []*tracepb.ResourceSpans{{}},
+		}),
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
+			ResourceSpans: []*tracepb.ResourceSpans{{Resource: fuzzTenantResource("tenant-a")}},
+		}),
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
+			ResourceSpans: []*tracepb.ResourceSpans{{Resource: fuzzTenantResource("tenant-evil")}},
+		}),
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
+			ResourceSpans: []*tracepb.ResourceSpans{{Resource: fuzzTenantResource("")}},
+		}),
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
+			ResourceSpans: []*tracepb.ResourceSpans{{Resource: fuzzNilTenantValueResource()}},
+		}),
+		{},
+		{0xff, 0xff, 0xff},
+		{0x82, 0x06, 0x00}, // unknown field 100, length-delimited, empty
+	}
+}
+
+func logPayloadSeeds() [][]byte {
+	return [][]byte{
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{}),
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
+			ResourceLogs: []*logspb.ResourceLogs{{}},
+		}),
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
+			ResourceLogs: []*logspb.ResourceLogs{{Resource: fuzzTenantResource("tenant-a")}},
+		}),
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
+			ResourceLogs: []*logspb.ResourceLogs{{Resource: fuzzTenantResource("tenant-evil")}},
+		}),
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
+			ResourceLogs: []*logspb.ResourceLogs{{Resource: fuzzTenantResource("")}},
+		}),
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
+			ResourceLogs: []*logspb.ResourceLogs{{Resource: fuzzNilTenantValueResource()}},
+		}),
+		{},
+		{0xff, 0xff, 0xff},
+		{0x82, 0x06, 0x00}, // unknown field 100, length-delimited, empty
+	}
+}
+
+func fuzzTenantResource(tenant string) *resourcepb.Resource {
+	return &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{
+		Key:   otel.AttrTenantID,
+		Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: tenant}},
+	}}}
+}
+
+func fuzzNilTenantValueResource() *resourcepb.Resource {
+	return &resourcepb.Resource{Attributes: []*commonpb.KeyValue{{
+		Key: otel.AttrTenantID,
+	}}}
+}
+
+func mustFuzzMarshal(m proto.Message) []byte {
+	b, err := proto.Marshal(m)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
