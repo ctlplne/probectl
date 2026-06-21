@@ -92,7 +92,7 @@ func (e *GRPCExporter) ExportLogs(ctx context.Context, req *collogspb.ExportLogs
 // Close releases the connection.
 func (e *GRPCExporter) Close() error { return e.conn.Close() }
 
-// HTTPExporter exports OTLP metrics over OTLP/HTTP (protobuf).
+// HTTPExporter exports OTLP metrics, traces, and logs over OTLP/HTTP (protobuf).
 type HTTPExporter struct {
 	url    string
 	token  string

@@ -12,7 +12,9 @@ import (
 	"sync"
 	"testing"
 
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -139,10 +141,50 @@ func TestNewGRPCServerHappyPath(t *testing.T) {
 	srv.Stop()
 }
 
+func TestGRPCServerRegistersAllThreeSignals(t *testing.T) {
+	srv, err := NewGRPCServer(
+		&tls.Config{MinVersion: tls.VersionTLS12},
+		NewTokenAuthenticator(map[string]string{"t": "x"}),
+		testSinks(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil })),
+		1<<20,
+	)
+	if err != nil {
+		t.Fatalf("NewGRPCServer: %v", err)
+	}
+	defer srv.Stop()
+
+	services := srv.GetServiceInfo()
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{name: "metrics", want: colmetricspb.MetricsService_ServiceDesc.ServiceName},
+		{name: "traces", want: coltracepb.TraceService_ServiceDesc.ServiceName},
+		{name: "logs", want: collogspb.LogsService_ServiceDesc.ServiceName},
+	} {
+		info, ok := services[tc.want]
+		if !ok {
+			t.Fatalf("%s OTLP service %q was not registered; registered=%v", tc.name, tc.want, services)
+		}
+		if !hasGRPCMethod(info, "Export") {
+			t.Fatalf("%s OTLP service %q has no Export method: %+v", tc.name, tc.want, info.Methods)
+		}
+	}
+}
+
 func TestExportMissingTenantContextRejected(t *testing.T) {
 	svc := newMetricsService(SinkFunc(func(context.Context, string, *colmetricspb.ExportMetricsServiceRequest) error { return nil }))
 	// Calling Export without the interceptor (no tenant on ctx) must fail closed.
 	if _, err := svc.Export(context.Background(), MetricsRequest()); status.Code(err) != codes.Unauthenticated {
 		t.Errorf("missing tenant: code = %v, want Unauthenticated", status.Code(err))
 	}
+}
+
+func hasGRPCMethod(info grpc.ServiceInfo, method string) bool {
+	for _, m := range info.Methods {
+		if m.Name == method {
+			return true
+		}
+	}
+	return false
 }
