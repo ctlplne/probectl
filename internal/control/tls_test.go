@@ -33,10 +33,10 @@ func TestTLSPostureConsumerSignals(t *testing.T) {
 		ServerAddress:     "old.example",
 		StartTimeUnixNano: time.Now().UnixNano(),
 		Attributes: map[string]string{
-			"tls.protocol.version": "1.3",
-			"tls.cipher":           "TLS_AES_128_GCM_SHA256",
-			"tls.server.verified":  "true",
-			"tls.server.cert":      base64.StdEncoding.EncodeToString(der),
+			"tls.protocol.version":         "1.3",
+			"tls.cipher.suite":             "TLS_AES_128_GCM_SHA256", // ARCH-001: OTel standard name
+			"probectl.tls.server.verified": "true",
+			"probectl.tls.server.cert":     base64.StdEncoding.EncodeToString(der),
 		},
 	}
 	sigs := cs.analyzeAndRecord(context.Background(), r)
