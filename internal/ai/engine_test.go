@@ -89,13 +89,17 @@ func TestQueryRBACDeniesFailClosed(t *testing.T) {
 }
 
 func TestQueryNoTenantFailsClosed(t *testing.T) {
-	e := NewEngine(WithMetrics(newRecordingSource(nil)))
+	src := newRecordingSource(map[string][]Row{"tenant-a": {{"k": "v"}}})
+	e := NewEngine(WithMetrics(src))
 	if _, err := e.Query(context.Background(), nil, Query{Domain: DomainMetrics}); !errors.Is(err, ErrNoTenant) {
 		t.Errorf("nil principal: err = %v, want ErrNoTenant", err)
 	}
 	noTenant := &auth.Principal{Permissions: map[string]bool{PermMetricsRead: true}}
 	if _, err := e.Query(context.Background(), noTenant, Query{Domain: DomainMetrics}); !errors.Is(err, ErrNoTenant) {
 		t.Errorf("empty tenant: err = %v, want ErrNoTenant", err)
+	}
+	if len(src.seen()) != 0 {
+		t.Errorf("tenantless query must fail before source dispatch, got tenants %v", src.seen())
 	}
 }
 

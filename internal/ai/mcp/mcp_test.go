@@ -186,6 +186,26 @@ func TestToolsCallTenantScopedAndForbidden(t *testing.T) {
 	}
 }
 
+func TestToolsCallRequiresTenantBeforeRBAC(t *testing.T) {
+	for name, p := range map[string]*auth.Principal{
+		"nil principal":  nil,
+		"empty tenant":   principal("", permTestRead),
+		"tenant missing": &auth.Principal{Permissions: map[string]bool{permTestRead: true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fb := &fakeBackend{}
+			s := New(fb, testGate())
+			resp := handle(t, s, p, 6, "tools/call", map[string]any{"name": "list_tests"})
+			if code, _ := errCode(resp); code != codeUnauthorized {
+				t.Fatalf("tenantless caller: code = %d, want %d", code, codeUnauthorized)
+			}
+			if len(fb.seen()) != 0 {
+				t.Fatalf("tenantless caller must fail before RBAC/backend dispatch, got %v", fb.seen())
+			}
+		})
+	}
+}
+
 func TestAllToolsReachBackend(t *testing.T) {
 	fb := &fakeBackend{}
 	s := New(fb, testGate())
