@@ -6,6 +6,7 @@
 set -euo pipefail
 
 CHART="${CHART:-deploy/helm/probectl}"
+CI_WORKFLOW=".github/workflows/ci.yml"
 ANSIBLE_AGENT_TASKS="deploy/ansible/roles/probectl_agents/tasks/main.yml"
 ANSIBLE_AGENT_DEFAULTS="deploy/ansible/roles/probectl_agents/defaults/main.yml"
 # A throwaway base64 32-byte key just to let rendering proceed.
@@ -52,6 +53,15 @@ registry_line="$(grep -n 'Read the tenant-scoped agent registry heartbeat' "$ANS
 if [[ -z "$local_line" || -z "$registry_line" || "$registry_line" -le "$local_line" ]]; then
   fail "Ansible registry heartbeat proof must run after the local liveness precheck (OPS-005)"
 fi
+
+# OPS-003: kubeconform must render the same fail-closed chart shape the hardening
+# gate renders. The chart requires envelope, session-HMAC, and database DSN
+# values; CI cannot omit two of them and still claim Kubernetes manifest proof.
+need_file "PROBECTL_HELM_TEST_ENVELOPE_KEY" "$CI_WORKFLOW" "CI kubeconform render must set the dummy envelope key (OPS-003)"
+need_file "PROBECTL_HELM_TEST_SESSION_HMAC_KEY" "$CI_WORKFLOW" "CI kubeconform render must set the dummy session-HMAC key (OPS-003)"
+need_file "PROBECTL_HELM_TEST_DATABASE_URL" "$CI_WORKFLOW" "CI kubeconform render must set the dummy database URL (OPS-003)"
+need_file "secrets.sessionHMACKey" "$CI_WORKFLOW" "CI kubeconform render must pass secrets.sessionHMACKey to helm template (OPS-003)"
+need_file "database.url" "$CI_WORKFLOW" "CI kubeconform render must pass database.url to helm template (OPS-003)"
 
 bash scripts/check_clickhouse_restore_contract.sh
 
