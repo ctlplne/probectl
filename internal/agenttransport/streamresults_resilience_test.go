@@ -55,6 +55,59 @@ func TestStreamResultsRefusesAckWhenMemoryPublishDropped(t *testing.T) {
 	}
 }
 
+func TestStreamResultsRestampsPayloadIdentityFromMTLS(t *testing.T) {
+	ctx := contextWithAgentIdentity(t, "tenant-a", "agent-a")
+	payload, err := proto.Marshal(&resultv1.Result{
+		TenantId:          "tenant-b",
+		AgentId:           "evil-agent",
+		CanaryType:        "icmp",
+		ServerAddress:     "192.0.2.20",
+		StartTimeUnixNano: 1,
+		DurationNano:      int64(time.Millisecond),
+		Success:           true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	capture := &captureFlushBus{}
+	stream := &streamResultsTestStream{
+		ctx:  ctx,
+		reqs: []*agentv1.StreamResultsRequest{{Payload: payload}},
+	}
+	svc := &service{
+		bus: capture,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	if err := svc.StreamResults(stream); err != nil {
+		t.Fatalf("StreamResults: %v", err)
+	}
+	if stream.ack == nil || stream.ack.GetAccepted() != 1 {
+		t.Fatalf("StreamResults ack = %+v, want accepted=1", stream.ack)
+	}
+	if !capture.flushed {
+		t.Fatal("StreamResults acked before exercising the bus durability barrier")
+	}
+	if capture.topic != bus.NetworkResultsTopic {
+		t.Fatalf("topic = %q, want %q", capture.topic, bus.NetworkResultsTopic)
+	}
+	if got, want := string(capture.key), string(bus.TenantKey("tenant-a", "agent-a")); got != want {
+		t.Fatalf("bus key = %q, want authoritative tenant/agent key %q", got, want)
+	}
+
+	var published resultv1.Result
+	if err := proto.Unmarshal(capture.value, &published); err != nil {
+		t.Fatal(err)
+	}
+	if published.GetTenantId() != "tenant-a" || published.GetAgentId() != "agent-a" {
+		t.Fatalf("published identity = %s/%s, want tenant-a/agent-a", published.GetTenantId(), published.GetAgentId())
+	}
+	if published.GetResultId() == "" {
+		t.Fatal("published result_id is empty; older-agent payloads must be deterministically stamped after identity rewrite")
+	}
+}
+
 type dropPublishBus struct{}
 
 func (dropPublishBus) Publish(context.Context, string, []byte, []byte) error {
@@ -62,6 +115,27 @@ func (dropPublishBus) Publish(context.Context, string, []byte, []byte) error {
 }
 func (dropPublishBus) Subscribe(context.Context, string, string, bus.Handler) error { return nil }
 func (dropPublishBus) Close() error                                                 { return nil }
+
+type captureFlushBus struct {
+	topic   string
+	key     []byte
+	value   []byte
+	flushed bool
+}
+
+func (b *captureFlushBus) Publish(_ context.Context, topic string, key, value []byte) error {
+	b.topic = topic
+	b.key = append([]byte(nil), key...)
+	b.value = append([]byte(nil), value...)
+	return nil
+}
+
+func (b *captureFlushBus) Subscribe(context.Context, string, string, bus.Handler) error { return nil }
+func (b *captureFlushBus) Close() error                                                 { return nil }
+func (b *captureFlushBus) Flush(context.Context) error {
+	b.flushed = true
+	return nil
+}
 
 type streamResultsTestStream struct {
 	grpc.ServerStream
