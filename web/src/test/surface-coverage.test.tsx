@@ -98,6 +98,9 @@ describe('frontend-coverage gate (S-FE6)', () => {
     const futureFeatures = REQUIRED_FEATURES.filter((f) => f.status === 'future')
     expect(futureFeatures.map((f) => f.id)).toEqual(['F49'])
     expect(futureFeatureViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
+    expect(
+      SURFACES.find((s) => s.featureIds?.includes('F49'))?.noneReason,
+    ).toContain('outside the GA completeness denominator')
 
     const bad: SurfaceDecl[] = SURFACES.map(
       (s): SurfaceDecl =>

@@ -171,10 +171,42 @@ func TestPRDFIPSContractMatchesEvidence(t *testing.T) {
 		"STIG/CIS and certification-grade customer package",
 		"FIPS module certificate evidence and the validated-module build path are in repo",
 		"not claiming a probectl-owned CMVP certificate",
-		"Score: 55 ✅ · 1 🔶 (F33) · 1 ⛔ (F49)",
+		"Score: 55 ✅ · 1 🔶 (F33) · 1 ⛔ future/out-of-GA (F49)",
 	} {
 		if !strings.Contains(prd, want) {
 			t.Fatalf("probectl-PRD-v1.0.md missing FIPS evidence contract wording %q", want)
+		}
+	}
+}
+
+// TestPRDMarketplaceContractStaysOutOfGA keeps F49 visible in traceability
+// while preventing it from being counted as a hidden GA implementation gap.
+func TestPRDMarketplaceContractStaysOutOfGA(t *testing.T) {
+	prd := readPRDv1(t)
+
+	for _, stale := range []string{
+		"Plugin/detection marketplace | ⛔ | deliberate Phase-4 future bet (§6)",
+		"Score: 55 ✅ · 1 🔶 (F33) · 1 ⛔ (F49)",
+		"Epics A–U: all delivered except the F49 slice of the flywheel epic",
+	} {
+		if strings.Contains(prd, stale) {
+			t.Fatalf("probectl-PRD-v1.0.md still contains stale marketplace GA wording %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"F49 | Plugin/detection marketplace | ⛔ | explicitly excluded from GA completeness",
+		"`none-by-design` surface declaration",
+		"`web/src/surfaces.ts`",
+		"Score: 55 ✅ · 1 🔶 (F33) · 1 ⛔ future/out-of-GA (F49)",
+		"GA completeness excludes F49 by design",
+		"the row stays in the forward traceability denominator",
+		"F49 marketplace / detection-as-code flywheel",
+		"explicitly outside GA completeness; no current GA surface is promised",
+		"community plugins, dashboards, Sigma-style rules, and signed/verified publishing",
+		"The detection-as-code substrate already exists",
+	} {
+		if !strings.Contains(prd, want) {
+			t.Fatalf("probectl-PRD-v1.0.md missing marketplace out-of-GA wording %q", want)
 		}
 	}
 }

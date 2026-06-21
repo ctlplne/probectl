@@ -429,7 +429,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'Phase 4 future bet',
     kind: 'none-by-design',
     noneReason:
-      'PRD v1.0 marks F49 as a deliberate Phase-4 future bet; the detection-as-code substrate exists, but no current GA surface is promised.',
+      'PRD v1.0 marks F49 as outside the GA completeness denominator and a deliberate Phase-4 future bet; the detection-as-code substrate exists, but no current GA surface is promised.',
   },
 ]
 
