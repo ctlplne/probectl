@@ -4063,15 +4063,39 @@
         "summary": "The tenant's retention policy + residency/isolation visibility",
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleStatus"
+                }
+              }
+            }
           }
         }
       },
       "put": {
         "summary": "Set the tenant's flow-retention days (null = deployment default; audited)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRetentionInput"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleStatus"
+                }
+              }
+            }
           }
         }
       }
@@ -6478,6 +6502,51 @@
             }
           }
         }
+      },
+      "LifecycleRetentionInput": {
+        "type": "object",
+        "properties": {
+          "flow_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "Per-tenant flow retention in days; null uses the deployment default."
+          }
+        },
+        "required": [
+          "flow_retention_days"
+        ],
+        "additionalProperties": false
+      },
+      "LifecycleStatus": {
+        "type": "object",
+        "properties": {
+          "tenant_id": {
+            "type": "string"
+          },
+          "flow_retention_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "updated_by": {
+            "type": "string"
+          },
+          "isolation_model": {
+            "type": "string"
+          },
+          "residency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow_retention_days",
+          "isolation_model"
+        ]
       },
       "CollectorRegisterRequest": {
         "type": "object",

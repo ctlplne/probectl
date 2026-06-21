@@ -377,6 +377,18 @@ type IncidentPatch struct {
 	Status string `json:"status"`
 }
 
+type LifecycleRetentionInput struct {
+	FlowRetentionDays *int `json:"flow_retention_days"`
+}
+
+type LifecycleStatus struct {
+	FlowRetentionDays *int   `json:"flow_retention_days"`
+	IsolationModel    string `json:"isolation_model"`
+	Residency         string `json:"residency,omitempty"`
+	TenantId          string `json:"tenant_id,omitempty"`
+	UpdatedBy         string `json:"updated_by,omitempty"`
+}
+
 type Link struct {
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
@@ -1602,20 +1614,29 @@ func (c *Client) GetV1LifecycleExport(ctx context.Context, req GetV1LifecycleExp
 type GetV1LifecycleRetentionRequest struct {
 }
 
-func (c *Client) GetV1LifecycleRetention(ctx context.Context, req GetV1LifecycleRetentionRequest) error {
+func (c *Client) GetV1LifecycleRetention(ctx context.Context, req GetV1LifecycleRetentionRequest) (*LifecycleStatus, error) {
 	path := "/v1/lifecycle/retention"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
+	var out LifecycleStatus
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Set the tenant's flow-retention days (null = deployment default; audited)
 type PutV1LifecycleRetentionRequest struct {
+	Body *LifecycleRetentionInput `json:"-"`
 }
 
-func (c *Client) PutV1LifecycleRetention(ctx context.Context, req PutV1LifecycleRetentionRequest) error {
+func (c *Client) PutV1LifecycleRetention(ctx context.Context, req PutV1LifecycleRetentionRequest) (*LifecycleStatus, error) {
 	path := "/v1/lifecycle/retention"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodPut, path, query, nil, nil)
+	var out LifecycleStatus
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, and append an audit projection marker; requires confirm equal to subject

@@ -304,6 +304,18 @@ export interface IncidentPatch {
   status: "resolved"
 }
 
+export interface LifecycleRetentionInput {
+  flow_retention_days: number | null
+}
+
+export interface LifecycleStatus {
+  flow_retention_days: number | null
+  isolation_model: string
+  residency?: string
+  tenant_id?: string
+  updated_by?: string
+}
+
 export interface Link {
   from?: string
   to?: string
@@ -836,12 +848,13 @@ export type GetV1LifecycleExportResponse = void
 export interface GetV1LifecycleRetentionRequest {
 }
 
-export type GetV1LifecycleRetentionResponse = void
+export type GetV1LifecycleRetentionResponse = LifecycleStatus
 
 export interface PutV1LifecycleRetentionRequest {
+  body: LifecycleRetentionInput
 }
 
-export type PutV1LifecycleRetentionResponse = void
+export type PutV1LifecycleRetentionResponse = LifecycleStatus
 
 export interface PostV1LifecycleSubjectsEraseRequest {
   body: JsonObject
@@ -1561,13 +1574,13 @@ export class ProbectlSDKClient {
   async getV1LifecycleRetention(): Promise<GetV1LifecycleRetentionResponse> {
     let path = "/v1/lifecycle/retention"
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    return this.requestJSON<GetV1LifecycleRetentionResponse>("GET", path, query, undefined)
   }
 
-  async putV1LifecycleRetention(): Promise<PutV1LifecycleRetentionResponse> {
+  async putV1LifecycleRetention(request: PutV1LifecycleRetentionRequest): Promise<PutV1LifecycleRetentionResponse> {
     let path = "/v1/lifecycle/retention"
     const query = new URLSearchParams()
-    await this.request("PUT", path, query, undefined)
+    return this.requestJSON<PutV1LifecycleRetentionResponse>("PUT", path, query, request.body)
   }
 
   async postV1LifecycleSubjectsErase(request: PostV1LifecycleSubjectsEraseRequest): Promise<PostV1LifecycleSubjectsEraseResponse> {

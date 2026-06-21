@@ -339,6 +339,22 @@ func schemaType(s *schema) string {
 	return ""
 }
 
+func schemaNullable(s *schema) bool {
+	if s == nil {
+		return false
+	}
+	items, ok := s.Type.([]any)
+	if !ok {
+		return false
+	}
+	for _, item := range items {
+		if str, ok := item.(string); ok && str == "null" {
+			return true
+		}
+	}
+	return false
+}
+
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -486,33 +502,42 @@ func (g generator) goType(s *schema) string {
 		return "any"
 	}
 	if name := typeName(s); name != "" {
-		return name
+		return nullableGoType(name, s)
 	}
 	if len(s.AllOf) > 0 {
-		return "map[string]any"
+		return nullableGoType("map[string]any", s)
 	}
+	base := "any"
 	switch schemaType(s) {
 	case "string":
-		return "string"
+		base = "string"
 	case "integer":
-		return "int"
+		base = "int"
 	case "number":
-		return "float64"
+		base = "float64"
 	case "boolean":
-		return "bool"
+		base = "bool"
 	case "array":
-		return "[]" + g.goType(s.Items)
+		base = "[]" + g.goType(s.Items)
 	case "object":
 		if len(s.Properties) > 0 {
-			return "map[string]any"
+			base = "map[string]any"
+			break
 		}
 		if ap := additionalSchema(s); ap != nil {
-			return "map[string]" + g.goType(ap)
+			base = "map[string]" + g.goType(ap)
+			break
 		}
-		return "map[string]any"
-	default:
-		return "any"
+		base = "map[string]any"
 	}
+	return nullableGoType(base, s)
+}
+
+func nullableGoType(base string, s *schema) string {
+	if !schemaNullable(s) || base == "any" || strings.HasPrefix(base, "*") {
+		return base
+	}
+	return "*" + base
 }
 
 func additionalSchema(s *schema) *schema {
@@ -688,15 +713,16 @@ func (g generator) tsType(s *schema) string {
 		return "JsonValue"
 	}
 	if name := typeName(s); name != "" {
-		return name
+		return nullableTSType(name, s)
 	}
 	if len(s.AllOf) > 0 {
 		parts := make([]string, 0, len(s.AllOf))
 		for _, part := range s.AllOf {
 			parts = append(parts, g.tsType(part))
 		}
-		return strings.Join(parts, " & ")
+		return nullableTSType(strings.Join(parts, " & "), s)
 	}
+	base := "JsonValue"
 	switch schemaType(s) {
 	case "string":
 		if len(s.Enum) > 0 {
@@ -707,24 +733,32 @@ func (g generator) tsType(s *schema) string {
 				}
 			}
 			if len(vals) > 0 {
-				return strings.Join(vals, " | ")
+				base = strings.Join(vals, " | ")
+				break
 			}
 		}
-		return "string"
+		base = "string"
 	case "integer", "number":
-		return "number"
+		base = "number"
 	case "boolean":
-		return "boolean"
+		base = "boolean"
 	case "array":
-		return g.tsType(s.Items) + "[]"
+		base = g.tsType(s.Items) + "[]"
 	case "object":
 		if ap := additionalSchema(s); ap != nil {
-			return "{ [key: string]: " + g.tsType(ap) + " }"
+			base = "{ [key: string]: " + g.tsType(ap) + " }"
+			break
 		}
-		return "JsonObject"
-	default:
-		return "JsonValue"
+		base = "JsonObject"
 	}
+	return nullableTSType(base, s)
+}
+
+func nullableTSType(base string, s *schema) string {
+	if !schemaNullable(s) || strings.Contains(base, " | null") {
+		return base
+	}
+	return base + " | null"
 }
 
 func (g generator) writeTSOperationTypes(b *bytes.Buffer, op operation) {

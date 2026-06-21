@@ -48,7 +48,11 @@ describe('tenant data lifecycle (S-T5)', () => {
     const base = defaultFetch()
     const stub = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith('/v1/lifecycle/retention') && init?.method === 'PUT')
-        return jsonResponse({ flow_retention_days: 14 })
+        return jsonResponse({
+          tenant_id: '00000000-0000-0000-0000-000000000001',
+          flow_retention_days: 14,
+          isolation_model: 'pooled',
+        })
       return base(input, init)
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', stub)

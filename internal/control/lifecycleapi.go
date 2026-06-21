@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"strings"
 
@@ -18,6 +19,15 @@ import (
 // attestation. All tenant-scoped; the big hammers sit behind the dedicated
 // lifecycle.export / lifecycle.erase permissions (admin-seeded).
 
+type tenantLifecycleEngine interface {
+	ExportRedacted(context.Context, string, io.Writer, bool) (tenantlife.Manifest, error)
+	ExportSubject(context.Context, string, string, io.Writer, bool) (tenantlife.SubjectManifest, error)
+	RetentionFor(context.Context, string) (tenantlife.RetentionPolicy, error)
+	SetRetention(context.Context, tenantlife.RetentionPolicy) error
+	Erase(context.Context, string, string, string) (tenantlife.Attestation, error)
+	EraseSubject(context.Context, string, string, string, string) (tenantlife.SubjectErasureReport, error)
+}
+
 // WithTenantLife attaches the lifecycle engine. nil = the endpoints answer
 // 503 not wired (honesty; community deployments DO get this — it is core —
 // but a pool-less unit server has nothing to run it against).
@@ -28,11 +38,19 @@ func (s *Server) WithTenantLife(e *tenantlife.Engine) *Server {
 	return s
 }
 
-func (s *Server) lifecycleEngine() (*tenantlife.Engine, error) {
+func (s *Server) lifecycleEngine() (tenantLifecycleEngine, error) {
 	if s.tenantLife == nil {
 		return nil, apierror.Unavailable("tenant lifecycle is not wired on this deployment")
 	}
 	return s.tenantLife, nil
+}
+
+var recordLifecycleRetentionAudit = func(s *Server, r *http.Request, tid string, days *int) error {
+	return s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		return s.recordAudit(ctx, sc, r, "lifecycle.retention_set", tid, map[string]any{
+			"flow_retention_days": days,
+		})
+	})
 }
 
 // tenantSlugAndMeta reads the caller's registry row (tenants has no RLS — it
@@ -115,6 +133,14 @@ type lifecycleStatus struct {
 	Residency      string `json:"residency,omitempty"`
 }
 
+func (s *Server) lifecycleStatusForPolicy(ctx context.Context, tenantID string, policy tenantlife.RetentionPolicy) (lifecycleStatus, error) {
+	_, isolation, residency, err := s.tenantSlugAndMeta(ctx, tenantID)
+	if err != nil {
+		return lifecycleStatus{}, err
+	}
+	return lifecycleStatus{RetentionPolicy: policy, IsolationModel: isolation, Residency: residency}, nil
+}
+
 func (s *Server) handleLifecycleRetentionGet(w http.ResponseWriter, r *http.Request) error {
 	e, err := s.lifecycleEngine()
 	if err != nil {
@@ -128,11 +154,11 @@ func (s *Server) handleLifecycleRetentionGet(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return apierror.Internal("retention read failed").Wrap(err)
 	}
-	_, isolation, residency, err := s.tenantSlugAndMeta(r.Context(), tid)
+	status, err := s.lifecycleStatusForPolicy(r.Context(), tid, policy)
 	if err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, lifecycleStatus{RetentionPolicy: policy, IsolationModel: isolation, Residency: residency})
+	writeJSON(w, http.StatusOK, status)
 	return nil
 }
 
@@ -158,14 +184,14 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 	if err := e.SetRetention(r.Context(), policy); err != nil {
 		return apierror.Internal("retention update failed").Wrap(err)
 	}
-	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		return s.recordAudit(ctx, sc, r, "lifecycle.retention_set", tid, map[string]any{
-			"flow_retention_days": in.FlowRetentionDays,
-		})
-	}); err != nil {
+	if err := recordLifecycleRetentionAudit(s, r, tid, in.FlowRetentionDays); err != nil {
 		return err
 	}
-	writeJSON(w, http.StatusOK, policy)
+	status, err := s.lifecycleStatusForPolicy(r.Context(), tid, policy)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, status)
 	return nil
 }
 

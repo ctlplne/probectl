@@ -47,7 +47,6 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/tenantcrypto"
-	"github.com/imfeelingtheagi/probectl/internal/tenantlife"
 	"github.com/imfeelingtheagi/probectl/internal/threat"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
 	"github.com/imfeelingtheagi/probectl/internal/version"
@@ -211,7 +210,7 @@ type Server struct {
 
 	// Tenant lifecycle engine (S-T5, core): export / retention / verifiable
 	// erasure. Set via WithTenantLife; nil answers 503 not wired.
-	tenantLife *tenantlife.Engine
+	tenantLife tenantLifecycleEngine
 
 	// Per-tenant key management (S-T6, ee-backed): set via WithKeyManager at
 	// the attach seam; nil = the /v1/security/keys surface hides (404).
