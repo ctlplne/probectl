@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
-import { REQUIRED_FEATURES } from '../featureCatalog'
+import { REQUIRED_FEATURES, type RequiredFeature } from '../featureCatalog'
 import { NAV } from '../nav/ia'
 import { SURFACES, checkRegistryShape, type SurfaceDecl } from '../surfaces'
 
@@ -56,6 +56,28 @@ function featureCoverageViolations(surfaces: SurfaceDecl[]): string[] {
   return violations
 }
 
+function futureFeatureViolations(features: RequiredFeature[], surfaces: SurfaceDecl[]): string[] {
+  const violations: string[] = []
+  for (const feature of features.filter((f) => f.status === 'future')) {
+    const decls = surfaces.filter((s) => s.featureIds?.includes(feature.id))
+    if (decls.length !== 1) {
+      violations.push(
+        `${feature.id} ${feature.name}: future feature must have exactly one non-GA declaration`,
+      )
+      continue
+    }
+    if (decls[0].kind !== 'none-by-design') {
+      violations.push(
+        `${feature.id} ${feature.name}: future feature must be none-by-design, got ${decls[0].kind}`,
+      )
+    }
+    if (!decls[0].noneReason || !/future|no current GA/i.test(decls[0].noneReason)) {
+      violations.push(`${feature.id} ${feature.name}: future feature lacks a GA exclusion reason`)
+    }
+  }
+  return violations
+}
+
 describe('frontend-coverage gate (S-FE6)', () => {
   test('registry shape: every nav destination is registered; every routed declaration is a nav destination', () => {
     const violations = checkRegistryShape(
@@ -71,6 +93,22 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F1')).toBe(true)
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F57')).toBe(true)
     expect(featureCoverageViolations(SURFACES)).toEqual([])
+  })
+
+  test('future/non-GA PRD features stay explicit none-by-design declarations', () => {
+    const futureFeatures = REQUIRED_FEATURES.filter((f) => f.status === 'future')
+    expect(futureFeatures.map((f) => f.id)).toEqual(['F49'])
+    expect(futureFeatureViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
+
+    const bad: SurfaceDecl[] = SURFACES.map(
+      (s): SurfaceDecl =>
+        s.featureIds?.includes('F49')
+          ? { ...s, kind: 'native', route: '/marketplace', noneReason: undefined }
+          : s,
+    )
+    expect(futureFeatureViolations(REQUIRED_FEATURES, bad)).toContain(
+      'F49 Plugin/detection marketplace: future feature must be none-by-design, got native',
+    )
   })
 
   test('the gate itself fails on a capability with no surface', () => {
