@@ -1625,6 +1625,8 @@ store, the document an auditor or a departing tenant actually gets to keep. The
 provider console adds the operator-side erase trigger. See
 `docs/runbooks/tenant-offboarding.md` for the full procedure and the
 per-store verification table.
+The data-class and purpose matrix for those clocks is
+[`data-retention.md`](data-retention.md).
 
 Subject lifecycle uses the same tenant-first boundary for a narrower privacy
 request: a data subject is a person or identifier named by the tenant admin,
