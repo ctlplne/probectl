@@ -29,7 +29,7 @@ ids=(
   SEC-003 SEC-004
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-003 SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
-  TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
+  TENANT-003 TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
   TEST-006 TEST-007 TEST-008 UX-006 VERIFY-005 VERIFY-006
   WIRE-005 WIRE-006 WIRE-007
 )
@@ -61,8 +61,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 96 ]; then
-  err "internal guard bug: expected 96 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 97 ]; then
+  err "internal guard bug: expected 97 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -423,13 +423,26 @@ need_pattern SUPPLY-007 scripts/check_npm_audit_policy.mjs 'critical advisory|hi
 need_pattern SUPPLY-007 scripts/verify_all.sh 'govulncheck|trivy fs --scanners vuln --severity CRITICAL,HIGH'
 
 # Tenant isolation controls.
-need_pattern TENANT-004 internal/tenancy/tenancy.go 'set_config.*probectl\.tenant_id|InTenant'
-need_pattern TENANT-005 internal/otel/otlp/receiver.go 'resourceTenant|authenticated|tenant'
-need_pattern TENANT-006 internal/store/flowstore/scoping_test.go 'tenantSettingName|tenant_id'
-need_pattern TENANT-007 internal/control/prometheus.go 'tenant_id'
-need_pattern TENANT-007 internal/control/resultview.go 'GetTenantId|TenantID|tenant'
+need_pattern TENANT-003 internal/tenancy/posture.go 'AssertIsolationPosture|NOBYPASSRLS|FORCE ROW LEVEL SECURITY|refusing to start'
+need_pattern TENANT-003 cmd/probectl-control/builders.go 'verifyServePosture|AssertIsolationPosture|tenant isolation posture verified'
+need_pattern TENANT-003 migrations/0002_tenancy_core.sql 'ENABLE ROW LEVEL SECURITY|FORCE ROW LEVEL SECURITY|tenant_isolation'
+need_pattern TENANT-003 internal/tenancy/isolation_gate_test.go 'TestCrossTenantIsolation|raw unscoped org count|ErrNoTenant'
+need_pattern TENANT-004 internal/config/config.go 'FlowCHTenantScoping|OTelCHTenantScoping|EBPFCHTenantScoping|PathCHTenantScoping|IngestStrictTenantLanes'
+need_pattern TENANT-004 cmd/probectl-control/builders.go 'installCHReaderPolicy|FlowCHTenantScoping|OTelCHTenantScoping|EBPFCHTenantScoping|PathCHTenantScoping'
+need_pattern TENANT-004 internal/store/flowstore/scoping_test.go 'tenantSettingName|tenant_id = getSetting|empty reader user must be rejected'
+need_pattern TENANT-004 internal/store/otelstore/query_scoping_isolation_test.go 'predicate-free query|setting-scoped reader with NO setting saw|fail closed'
+need_pattern TENANT-005 internal/promapi/selector.go 'ForceTenant|caller-supplied tenant_id matcher|TenantScoped'
+need_pattern TENANT-005 internal/promapi/upstream.go 'ErrUnscopedUpstreamQuery|requireScoped|LabelValues'
+need_pattern TENANT-005 internal/promapi/remotewrite.go 'DecodeRemoteWrite|tenant_id label to tenant|caller-supplied tenant_id is overwritten'
+need_pattern TENANT-005 internal/control/prometheus.go 'promSelectors|ForceTenant|DecodeRemoteWrite'
+need_pattern TENANT-005 internal/promapi/tenant_test.go 'TestForceTenantStripsCallerMatchers|TestUpstreamRefusesUnscopedForwards'
+need_pattern TENANT-006 internal/ai/query.go 'There is deliberately NO tenant field|authenticated principal'
+need_pattern TENANT-006 internal/ai/engine.go 'ErrNoTenant|tenant boundary is enforced FIRST|RBAC'
+need_pattern TENANT-006 internal/ai/mcp/server.go 'no tenant on principal|auth\.Authorize|ResourceTenantKey'
+need_pattern TENANT-006 internal/control/mcp.go 'tenant boundary then RBAC|tenancy\.InTenant|TenantAppend'
+need_pattern TENANT-006 internal/control/mcp_integration_test.go 'another tenant must not read tenant A|NewMCPAuthenticator'
+need_pattern TENANT-007 internal/otel/otlp/receiver.go 'resourceTenant|authenticated|tenant'
 need_pattern TENANT-008 internal/ai/engine_test.go 'denied query must not reach the source'
-need_pattern TENANT-008 internal/ai/mcp/server.go 'auth\.Authorize|ResourceTenantKey'
 
 # Verification meta-controls are backed by the remediation harness artifacts,
 # but the product must keep the export hook that turns gate results into review
