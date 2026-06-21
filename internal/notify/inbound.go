@@ -73,12 +73,16 @@ func parseGenericInbound(body []byte) (InboundResult, bool) {
 		ExternalRef string `json:"external_ref"`
 		Status      string `json:"status"`
 	}
-	if err := json.Unmarshal(body, &p); err != nil || p.ExternalRef == "" {
+	if err := json.Unmarshal(body, &p); err != nil {
+		return InboundResult{}, false
+	}
+	ref := strings.TrimSpace(p.ExternalRef)
+	if ref == "" {
 		return InboundResult{}, false
 	}
 	st := strings.ToLower(strings.TrimSpace(p.Status))
 	return InboundResult{
-		ExternalRef: p.ExternalRef,
+		ExternalRef: ref,
 		Resolved:    st == "resolved" || st == "closed",
 		Acked:       st == "acknowledged" || st == "ack",
 	}, true
@@ -92,14 +96,18 @@ func parseServiceNowInbound(body []byte) (InboundResult, bool) {
 		Number string `json:"number"`
 		State  string `json:"state"`
 	}
-	if err := json.Unmarshal(body, &p); err != nil || p.SysID == "" {
+	if err := json.Unmarshal(body, &p); err != nil {
+		return InboundResult{}, false
+	}
+	ref := strings.TrimSpace(p.SysID)
+	if ref == "" {
 		return InboundResult{}, false
 	}
 	switch strings.ToLower(strings.TrimSpace(p.State)) {
 	case "6", "7", "resolved", "closed":
-		return InboundResult{ExternalRef: p.SysID, Resolved: true}, true
+		return InboundResult{ExternalRef: ref, Resolved: true}, true
 	default:
-		return InboundResult{ExternalRef: p.SysID}, true
+		return InboundResult{ExternalRef: ref}, true
 	}
 }
 
@@ -121,8 +129,12 @@ func parseJiraInbound(body []byte) (InboundResult, bool) {
 	if err := json.Unmarshal(body, &p); err != nil || p.Issue.Key == "" {
 		return InboundResult{}, false
 	}
+	ref := strings.TrimSpace(p.Issue.Key)
+	if ref == "" {
+		return InboundResult{}, false
+	}
 	return InboundResult{
-		ExternalRef: p.Issue.Key,
+		ExternalRef: ref,
 		Resolved:    strings.EqualFold(p.Issue.Fields.Status.StatusCategory.Key, "done"),
 	}, true
 }

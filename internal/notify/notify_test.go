@@ -371,6 +371,15 @@ func TestParseInbound(t *testing.T) {
 	if r, ok := ParseInbound("pagerduty", []byte(`{"external_ref":"probectl-i1","status":"resolved"}`)); !ok || r.ExternalRef != "probectl-i1" || !r.Resolved {
 		t.Fatalf("generic resolved: %+v ok=%v", r, ok)
 	}
+	if _, ok := ParseInbound("pagerduty", []byte(`{"external_ref":" ","status":"resolved"}`)); ok {
+		t.Fatal("generic whitespace external_ref should not parse")
+	}
+	if _, ok := ParseInbound("servicenow", []byte(`{"sys_id":" ","state":"6"}`)); ok {
+		t.Fatal("servicenow whitespace sys_id should not parse")
+	}
+	if _, ok := ParseInbound("jira", []byte(`{"issue":{"key":" ","fields":{"status":{"statusCategory":{"key":"done"}}}}}`)); ok {
+		t.Fatal("jira whitespace issue key should not parse")
+	}
 	if _, ok := ParseInbound("jira", []byte(`not json`)); ok {
 		t.Fatal("garbage should not parse")
 	}
