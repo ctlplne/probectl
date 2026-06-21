@@ -19,6 +19,7 @@ ids=(
   KEYS-004 KEYS-005 KEYS-006 KEYS-007
   OPS-005 OPS-006 OPS-007 OPS-008 OPS-009 OPS-010
   PERF-008 PERF-009 PERF-010
+  PRIVACY-008 PRIVACY-009 PRIVACY-010 PRIVACY-011
   RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   SCALE-007 SCALE-008 SCALE-009
@@ -56,8 +57,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 77 ]; then
-  err "internal guard bug: expected 77 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 81 ]; then
+  err "internal guard bug: expected 81 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -191,6 +192,19 @@ need_pattern PERF-009 internal/perf/fullstack_integration_test.go 'TestFullStack
 need_pattern PERF-010 internal/ebpf/bench_test.go 'TestAgentOverheadReport|20k floor|AGENT OVERHEAD'
 need_pattern PERF-010 scripts/bench/agent_overhead.sh 'TestAgentOverheadReport|REFERENCE'
 need_pattern PERF-010 docs/agent-overhead.md 'TestAgentOverheadReport|live ring-buffer|reference-host row|n/a'
+need_pattern PRIVACY-008 internal/rum/beacon.go 'DisallowUnknownFields|RejectNoConsent|RedactPath|client IP and user agent are never stored'
+need_pattern PRIVACY-008 internal/rum/beacon_test.go 'TestParseBeaconPrivacyFailClosed|unknown field user_id|query string leaked|TestRedactPath'
+need_pattern PRIVACY-008 web/public/probectl-rum.js 'consent|doNotTrack|globalPrivacyControl|sendBeacon|PATH ONLY'
+need_pattern PRIVACY-009 internal/ebpf/l7policy.go 'OFF by default|L7CaptureConsentTenant|L7CaptureScope|RedactPayload'
+need_pattern PRIVACY-009 internal/ebpf/l7policy_test.go 'TestL7CaptureConsentGate|enabled without consent|consent for another tenant|TestAgentWithoutConsentHasNoL7Capture|TestRedactPayloadZeroesSensitiveHeaderValues|TestRedactPayloadZeroesNonStandardSecretHeaders'
+need_pattern PRIVACY-009 internal/ebpf/bpf/sslsniff.bpf.c 'scope_tgids|scope_cgroups|capture_cfg|window bounds|length-only'
+need_pattern PRIVACY-010 internal/ai/egress.go 'ErrEgressDenied|egressPolicy == nil|tenant_governance\.ai_remote_egress'
+need_pattern PRIVACY-010 internal/ai/redact.go 'reBearer|reKV|reAKIA|reIPv4|reEmail|rePhone|reMAC|tenant-scoped'
+need_pattern PRIVACY-010 internal/ai/egress_test.go 'TestRemoteModelEgressDeniedWithoutConsent|remote model was called|TestBuiltinModelNeverConsultsEgress|TestHTTPModelRemoteEgressFlag'
+need_pattern PRIVACY-010 internal/ai/redact_test.go 'TestRedactionTokenDictionaryAttackRequiresTenantKey|TestRemotePromptRedactedLocalUntouched|same value under another tenant must not match'
+need_pattern PRIVACY-011 internal/tenantlife/tenantlife.go 'flows|objects|tsdb|paths|topology|otel|ebpf|tenant_keys|ReportSHA256|lifecycle.erase'
+need_pattern PRIVACY-011 internal/tenantlife/tenantlife_test.go 'TestEraseGoneFromEveryStore|VerifiedZero|provider audit stream|report hash'
+need_pattern PRIVACY-011 internal/tenantlife/offboard_test.go 'unwired plane|Erase|attestation|Complete'
 
 # eBPF, fuzzing, keys, supply chain, and ops controls.
 need_pattern EBPF-004 internal/ebpf/observeonly_test.go 'TestBPFProgramsAreObserveOnly'
