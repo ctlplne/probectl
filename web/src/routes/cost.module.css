@@ -8,19 +8,21 @@
 }
 
 .totals dt {
-  font-size: var(--text-sm);
+  font-size: var(--font-size-sm);
   color: var(--color-text-muted);
 }
 
 .totals dd {
   margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-snug);
+  font-variant-numeric: tabular-nums;
 }
 
 .kind {
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--font-size-sm);
 }
 
 .notice {
@@ -29,5 +31,5 @@
   border-inline-start: 3px solid var(--color-warning);
   background: var(--color-warning-soft);
   border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
+  font-size: var(--font-size-sm);
 }

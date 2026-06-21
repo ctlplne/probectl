@@ -1,10 +1,15 @@
 /*
- * probectl design tokens (S8a · F54-foundation).
+ * probectl design tokens (S8a · F54-foundation · "Refined Slate" v2).
  *
  * The single source of truth for every design value. Components reference ONLY
  * these CSS custom properties — never raw colors/sizes — so per-tenant
  * white-label (S-T4) is a runtime override of this set, not a per-screen
  * retrofit. A second theme ([data-theme="aurora"]) exists to prove the swap.
+ *
+ * CONTRACT (enforced by tests):
+ *   - no-hardcoded-colors.test.ts → color literals live ONLY in this file.
+ *   - theme.test.tsx             → every theme defines the SAME --color-* set,
+ *                                   so a single attribute swap re-skins the UI.
  *
  * Color contrast targets WCAG 2.2 AA (>= 4.5:1 body text on its background).
  * No external fonts or URLs are referenced (sovereignty — CLAUDE.md §7 #11).
@@ -14,59 +19,69 @@
 [data-theme='dark'] {
   color-scheme: dark;
 
-  /* Surfaces (back to front). */
-  --color-bg: #0b0e14;
-  --color-surface: #11151f;
-  --color-surface-raised: #171c28;
-  --color-overlay: rgba(3, 5, 10, 0.66);
+  /* Surfaces — a real elevation ladder (back → front). Each step is a
+     deliberate, perceptible lift so panels, menus and modals layer instead of
+     sitting on one flat plane. */
+  --color-bg: #0a0c12;
+  --color-surface: #0e1119;
+  --color-surface-raised: #141823;
+  --color-surface-high: #1a1f2c; /* menus, popovers, modals */
+  --color-overlay: rgba(3, 5, 10, 0.62);
 
   /* Text. */
-  --color-text: #e7eaf2; /* ~13.9:1 on --color-bg */
-  --color-text-muted: #a6adbd; /* ~7.3:1 on --color-bg */
-  --color-text-subtle: #808a9b; /* >=4.5:1 on bg/surface/raised */
-  --color-text-inverse: #0b0e14;
+  --color-text: #e9ecf4; /* ~15:1 on --color-bg */
+  --color-text-muted: #a3acbd; /* ~7.4:1 */
+  --color-text-subtle: #808a9b; /* >=4.5:1 on bg/surface/raised/high */
+  --color-text-inverse: #0a0c12;
 
   /* Lines. */
-  --color-border: #232a38;
-  --color-border-strong: #323b4d;
+  --color-border: #1c2230;
+  --color-border-strong: #2a3140;
 
   /* Brand / accent — the primary white-label hook. */
   --color-accent: #2fb6a8;
-  --color-accent-hover: #3ccabb;
-  --color-accent-strong: #23a394;
-  --color-accent-soft: rgba(47, 182, 168, 0.14);
+  --color-accent-hover: #3acabb;
+  --color-accent-strong: #23a394; /* pressed / gradient terminus */
+  --color-accent-soft: rgba(47, 182, 168, 0.12);
   --color-accent-contrast: #04130f; /* text on an accent fill */
 
   /* Status (foreground + soft background). */
   --color-success: #46c08a;
-  --color-success-soft: rgba(70, 192, 138, 0.14);
+  --color-success-soft: rgba(70, 192, 138, 0.12);
   --color-warning: #e0b25a;
-  --color-warning-soft: rgba(224, 178, 90, 0.14);
+  --color-warning-soft: rgba(224, 178, 90, 0.12);
   --color-danger: #e8736b;
-  --color-danger-soft: rgba(232, 115, 107, 0.14);
+  --color-danger-soft: rgba(232, 115, 107, 0.12);
   --color-info: #5aa9e6;
-  --color-info-soft: rgba(90, 169, 230, 0.14);
+  --color-info-soft: rgba(90, 169, 230, 0.12);
 
   --color-focus: #6fd2c6;
 
+  /* Categorical data-viz ramp (charts/series). Cohesive with accent+status. */
   --color-chart-1: #2fb6a8;
   --color-chart-2: #5aa9e6;
   --color-chart-3: #a78bff;
   --color-chart-4: #e0b25a;
   --color-chart-5: #e8736b;
+
+  /* Gradients (brand mark, accent emphasis). */
+  --gradient-brand: linear-gradient(135deg, #3acabb 0%, #2fb6a8 100%);
+  --gradient-accent: linear-gradient(135deg, #3acabb 0%, #23a394 100%);
 }
 
 /*
  * "aurora" — a sample white-label theme (a lighter, violet-accented brand). It
  * overrides ONLY this token set; the entire UI re-skins with no component
  * changes. This is the F54 proof and the basis for per-tenant branding.
+ * It defines the SAME --color-* names as the dark theme (theme.test.tsx).
  */
 [data-theme='aurora'] {
   color-scheme: light;
 
-  --color-bg: #f6f7fb;
+  --color-bg: #f4f6fb;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
+  --color-surface-high: #ffffff;
   --color-overlay: rgba(23, 20, 40, 0.42);
 
   --color-text: #1b1d2a; /* ~14.6:1 on --color-bg */
@@ -74,8 +89,8 @@
   --color-text-subtle: #676d80; /* >4.5:1 on --color-bg and --color-surface */
   --color-text-inverse: #ffffff;
 
-  --color-border: #e3e5ee;
-  --color-border-strong: #cfd2e0;
+  --color-border: #e6e8f0;
+  --color-border-strong: #d2d6e2;
 
   --color-accent: #6a4cf0;
   --color-accent-hover: #5a3ce0;
@@ -99,30 +114,50 @@
   --color-chart-3: #6a4cf0;
   --color-chart-4: #b9821f;
   --color-chart-5: #d2463c;
+
+  --gradient-brand: linear-gradient(135deg, #7b5cff 0%, #6a4cf0 100%);
+  --gradient-accent: linear-gradient(135deg, #7b5cff 0%, #4f33d6 100%);
 }
 
 /* Non-color tokens are theme-independent by default. */
 :root {
-  /* Type — system stack only (no web-font fetch). */
+  /* Type — system stack only (no web-font fetch). A refined product look does
+     not require a downloaded typeface: hierarchy comes from scale + weight +
+     tracking, all tuned below. */
   --font-sans:
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
     'Apple Color Emoji', 'Segoe UI Emoji';
   --font-mono:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
 
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.8125rem;
-  --font-size-md: 0.875rem;
-  --font-size-lg: 1rem;
-  --font-size-xl: 1.25rem;
-  --font-size-2xl: 1.625rem;
+  /* Scale. 3xs/2xs replace previously-hardcoded tiny sizes; 3xl/4xl give hero
+     surfaces a real display tier (the scale used to stop at 2xl/26px). */
+  --font-size-3xs: 0.625rem; /* 10px — micro labels on dense viz */
+  --font-size-2xs: 0.6875rem; /* 11px — captions, kickers */
+  --font-size-xs: 0.75rem; /* 12px */
+  --font-size-sm: 0.8125rem; /* 13px */
+  --font-size-md: 0.875rem; /* 14px — body default */
+  --font-size-lg: 1rem; /* 16px */
+  --font-size-xl: 1.25rem; /* 20px */
+  --font-size-2xl: 1.625rem; /* 26px */
+  --font-size-3xl: 1.875rem; /* 30px — page titles */
+  --font-size-4xl: 2.375rem; /* 38px — hero / display */
 
+  --line-height-display: 1.1;
   --line-height-tight: 1.25;
   --line-height-normal: 1.5;
 
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* Letter-spacing — tightened on large sizes, opened on overline labels. */
+  --tracking-tight: -0.02em;
+  --tracking-snug: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.08em;
 
   /* Spacing — 4px base scale. */
   --space-0: 0;
@@ -132,22 +167,28 @@
   --space-4: 1rem;
   --space-5: 1.5rem;
   --space-6: 2rem;
+  --space-7: 2.5rem;
   --space-8: 3rem;
 
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-pill: 999px;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.34);
-  --shadow-lg: 0 18px 48px rgba(0, 0, 0, 0.46);
+  /* Elevation — layered, soft, and actually applied (cards/menus/modals).
+     Refined rather than heavy: short ambient + longer key shadow. */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.22);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.42), 0 2px 6px -3px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 18px 44px -14px rgba(0, 0, 0, 0.58), 0 6px 14px -6px rgba(0, 0, 0, 0.4);
 
   /* Motion. */
   --motion-fast: 120ms;
   --motion-normal: 200ms;
   --motion-slow: 320ms;
   --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
 
   /* Layout. */
   --layout-sidebar-width: 248px;

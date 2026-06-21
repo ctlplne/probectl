@@ -9,12 +9,12 @@
   border-inline-start: 3px solid var(--color-warning);
   background: var(--color-warning-soft);
   border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
+  font-size: var(--font-size-sm);
 }
 
 .meta {
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--font-size-sm);
 }
 
 .frameworks {

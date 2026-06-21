@@ -3,10 +3,10 @@
   width: var(--layout-sidebar-width);
   background: var(--color-surface);
   border-inline-end: 1px solid var(--color-border);
-  padding: var(--space-4) var(--space-3);
+  padding: var(--space-4) var(--space-3) var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-2);
   overflow-y: auto;
 }
 
@@ -14,21 +14,40 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-2);
+  padding: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .mark {
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent);
-  box-shadow: 0 0 0 4px var(--color-accent-soft);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--gradient-brand);
+  box-shadow: var(--shadow-xs);
 }
 
 .wordmark {
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--tracking-snug);
+}
+
+/* Grouped IA. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-4);
+}
+
+.groupLabel {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  color: var(--color-text-subtle);
 }
 
 .list {
@@ -39,6 +58,7 @@
 }
 
 .link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -62,13 +82,26 @@
   color: var(--color-accent);
 }
 
+/* A crisp inline-start indicator on the active item (refined, not loud). */
+.active::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--gradient-brand);
+}
+
 .icon {
   display: inline-flex;
   flex-shrink: 0;
 }
 
 .logo {
-  height: 22px;
+  height: 28px;
   width: auto;
   display: block;
 }

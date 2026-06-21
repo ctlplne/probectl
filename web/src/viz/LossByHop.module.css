@@ -19,5 +19,5 @@
 .label {
   fill: var(--color-text-subtle);
   font-family: var(--font-sans);
-  font-size: 0.625rem;
+  font-size: var(--font-size-3xs);
 }

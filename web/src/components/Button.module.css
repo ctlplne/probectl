@@ -13,6 +13,8 @@
   transition:
     background-color var(--motion-fast) var(--easing-standard),
     border-color var(--motion-fast) var(--easing-standard),
+    box-shadow var(--motion-fast) var(--easing-standard),
+    transform var(--motion-fast) var(--easing-standard),
     color var(--motion-fast) var(--easing-standard);
 }
 
@@ -50,9 +52,17 @@
 .primary {
   background: var(--color-accent);
   color: var(--color-accent-contrast);
+  box-shadow: var(--shadow-xs);
 }
 .primary:hover:not(:disabled) {
   background: var(--color-accent-hover);
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+.primary:active:not(:disabled) {
+  background: var(--color-accent-strong);
+  box-shadow: none;
+  transform: translateY(0);
 }
 
 .secondary {
@@ -63,6 +73,9 @@
 .secondary:hover:not(:disabled) {
   border-color: var(--color-accent);
   color: var(--color-accent);
+}
+.secondary:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .ghost {

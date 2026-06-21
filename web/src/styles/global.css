@@ -6,6 +6,8 @@ body {
   font-family: var(--font-sans);
   font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 /* A single, consistent keyboard-focus treatment across the app (WCAG 2.4.7). */
@@ -37,17 +39,42 @@ main a[href] {
   background: var(--color-accent-soft);
 }
 
+/* Headings — hierarchy comes from scale + weight + tracking (no web font). */
 h1,
 h2,
 h3 {
   line-height: var(--line-height-tight);
   font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-snug);
 }
 
 code,
 kbd {
   font-family: var(--font-mono);
   font-size: 0.9em;
+}
+
+/* Refined, unobtrusive scrollbars (token-driven; no third-party calls). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-subtle);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /* Visually hidden but available to assistive tech. */

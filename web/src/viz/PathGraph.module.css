@@ -104,9 +104,9 @@
 .mpls {
   fill: var(--color-info);
   font-family: var(--font-sans);
-  font-size: 0.625rem;
+  font-size: var(--font-size-3xs);
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--tracking-wide);
 }
 
 /* Hover/focus tooltip */
