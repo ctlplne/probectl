@@ -17,7 +17,7 @@ ids=(
   DOCS-004 DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-004 EBPF-005 EBPF-006 EBPF-007 FUZZ-005 FUZZ-007 FUZZ-008
   KEYS-004 KEYS-005 KEYS-006 KEYS-007
-  OPS-007 OPS-008 OPS-009 OPS-010
+  OPS-005 OPS-006 OPS-007 OPS-008 OPS-009 OPS-010
   RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   SCALE-007 SCALE-008 SCALE-009
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 72 ]; then
-  err "internal guard bug: expected 72 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 74 ]; then
+  err "internal guard bug: expected 74 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -252,8 +252,18 @@ need_absent KEYS-006 ee 'self.?update.*(download|install|apply|exec|binary|packa
 need_absent KEYS-006 pkg 'self.?update.*(download|install|apply|exec|binary|package)|auto.?update.*(download|install|apply|exec|binary|package)'
 need_pattern KEYS-007 internal/tenantcrypto 'fail|zero|cache|ttl|BYOK|KEK'
 need_pattern KEYS-007 internal/control/enrollapi.go 'agent-ca|revoke|SVID|SPIFFE'
-need_pattern OPS-007 scripts/check_helm_hardening.sh 'TLS|fail|secret|Secure'
-need_pattern OPS-007 deploy/compose/probectl.yml 'PROBECTL_SESSION_HMAC_KEY|TLS|443|8443'
+need_pattern OPS-005 docs/ops/fleet-rollout.md 'no agent self-update channel|agent never fetches or executes'
+need_pattern OPS-005 docs/ops/fleet-rollout.md 'deterministic waves|Verify the artifact|Resume'
+need_pattern OPS-005 internal/agent/rollout.go 'VerifiedArtifact|PlanRollout|Advance|Verify|Resume'
+need_pattern OPS-005 internal/agent/rollout.go 'unattested artifact|version-skew|waves never overlap|VerifyWindow|HeartbeatSLO'
+need_pattern OPS-005 internal/agent/rollout_test.go 'TestPlanRolloutRefusesUnattestedArtifacts|TestRolloutWavesNeverOverlapOrSkip|TestRolloutHaltsOnStragglerAfterWindow|TestRolloutResumeIsExplicitAndRecovers'
+need_pattern OPS-006 Makefile 'backup-restore-drill'
+need_pattern OPS-006 scripts/backup_postgres.sh 'backup-seal|refusing to write plaintext|PROBECTL_PLAINTEXT_BACKUP_ACK|\\.dump\\.pbk'
+need_pattern OPS-006 scripts/restore_postgres.sh 'sha256sum -c|DROP DATABASE|pg_restore'
+need_pattern OPS-006 scripts/backup_restore_drill.sh 'backup_postgres did not produce a sealed \\.dump\\.pbk|left a plaintext \\.dump|backup-open|verify marker survival'
+need_pattern OPS-007 internal/control/handlers.go 'handleReadyz|draining|apierror.Unavailable\("draining"\)|handleHealthz'
+need_pattern OPS-007 internal/control/server.go 'draining.Store\(true\)|ShutdownTimeout|http.Shutdown|context.WithTimeout'
+need_pattern OPS-007 internal/control/drain_test.go 'TestReadyzDrains|http.StatusServiceUnavailable|healthz should stay 200'
 need_pattern OPS-008 internal/agent/rollout.go 'wave|rollback|budget|pause'
 need_pattern OPS-008 scripts/check_version_consistency.sh 'compose|Helm|VERSION'
 need_pattern OPS-009 Makefile 'backup-restore-drill|migration-gate|helm-gate'
