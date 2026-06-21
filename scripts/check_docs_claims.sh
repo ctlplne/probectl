@@ -41,6 +41,20 @@ run_checks() { # run_checks <root>
     echo "DOCS-S02: vendor analytics/beacon SDK or hardcoded vendor egress URL found in source" >&2; f=1
   fi
 
+  # DOCS-S03 / DOCS-004: README and AI docs claim cited, caller-scoped RCA; the
+  # code backing that claim must still be the default in-process builtin plus a
+  # fail-closed egress gate for any explicit remote model path.
+  if ! grep -q 'cited evidence' "$r/README.md" 2>/dev/null \
+     || ! grep -q 'caller is allowed to see' "$r/README.md" 2>/dev/null; then
+    echo "DOCS-S03: README must keep the AI claim cited and scoped to what the caller may see" >&2; f=1
+  fi
+  if ! grep -qE 'no network call, no phone-home|no network; also' "$r/docs/ai-rca.md" 2>/dev/null \
+     || ! grep -q 'NewBuiltinModel' "$r/internal/ai/eval/eval.go" 2>/dev/null \
+     || ! grep -q 'network, no phone-home' "$r/internal/ai/model_builtin.go" 2>/dev/null \
+     || ! grep -q 'ErrEgressDenied' "$r/internal/ai/egressgate.go" 2>/dev/null; then
+    echo "DOCS-S03: AI/RCA docs must be backed by builtin no-phone-home implementation and fail-closed egress gate" >&2; f=1
+  fi
+
   # DOCS-S04: no remediation executor. The product is observe-only / human-gated;
   # there must be no function that applies a route / opens an SSH session to a
   # device to enact a change.

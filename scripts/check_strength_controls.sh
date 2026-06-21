@@ -14,7 +14,7 @@ ids=(
   ARCH-005 ARCH-006 ARCH-007 CODE-007 CODE-008 CODE-014
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008 CORRECT-009
   COVER-008 COVER-009
-  DOCS-005 DOCS-006 DOCS-007 DOCS-008
+  DOCS-004 DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-005 EBPF-006 FUZZ-005
   KEYS-005 KEYS-006 KEYS-007
   OPS-007 OPS-008 OPS-009 OPS-010
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 66 ]; then
-  err "internal guard bug: expected 66 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 67 ]; then
+  err "internal guard bug: expected 67 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -107,6 +107,15 @@ need_pattern COVER-009 web/src/surfaces.ts 'featureIds|native|federated|none-by-
 need_pattern COVER-009 web/src/test/surface-coverage.test.tsx 'featureCoverageViolations|futureFeatureViolations|missing surface declaration'
 need_pattern COVER-009 web/src/test/surface-coverage.test.tsx 'every native surface renders a real screen|PLACEHOLDER_MARKER|every federated surface has its declared evidence'
 need_pattern COVER-009 web/src/test/surface-coverage.test.tsx 'axe|toHaveNoViolations'
+need_pattern DOCS-004 README.md 'cited evidence'
+need_pattern DOCS-004 README.md 'caller is allowed to see'
+need_pattern DOCS-004 docs/ai-rca.md 'no network call, no phone-home'
+need_pattern DOCS-004 internal/control/ai.go 'AIModelEnabled'
+need_pattern DOCS-004 internal/control/ai.go 'NewBuiltinModel'
+need_pattern DOCS-004 internal/ai/egressgate.go 'ErrEgressDenied|fail closed'
+need_pattern DOCS-004 internal/ai/model_builtin.go 'network, no phone-home'
+need_pattern DOCS-004 internal/ai/eval/eval.go 'NewBuiltinModel'
+need_pattern DOCS-004 scripts/check_docs_claims.sh 'DOCS-S03|DOCS-004'
 need_pattern DOCS-005 scripts/check_docs_claims.sh 'SELFTEST'
 need_pattern DOCS-006 docs/otlp.md 'metrics|traces|logs'
 need_pattern DOCS-006 internal/otel/otlp/signals.go 'Metrics|TraceSink|LogSink'
