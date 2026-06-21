@@ -3,7 +3,10 @@
 probectl is self-hosted: you run the data tier (Kafka, ClickHouse, Postgres, the
 TSDB). This page gives reference sizing keyed to the scale tiers and a day-2
 runbook so an operator who isn't the author can stand it up and keep it healthy.
-These are starting points — measure against your own ingest and adjust.
+These are starting points. Use the capacity math in
+[`../capacity.md`](../capacity.md) to turn your tenant count, host count, event
+rate, row sizes, and retention window into disks, shards, and scale-out
+triggers.
 
 ## Sizing by tier
 
