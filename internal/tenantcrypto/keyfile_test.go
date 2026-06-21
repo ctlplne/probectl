@@ -4,6 +4,7 @@ package tenantcrypto
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,19 @@ func TestLoadOrGenerateKeyFileAtRestEncrypts(t *testing.T) {
 	got, err := s2.Open(context.Background(), "tenant-a", sealed, nil)
 	if err != nil || string(got) != "hook-secret" {
 		t.Fatalf("post-restart open: %q err=%v", got, err)
+	}
+}
+
+func TestLoadExistingKeyFileDoesNotGenerate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "keys", "envelope.key")
+	if _, err := LoadExistingKeyFile(path); err == nil || !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing existing key file must be not-exist, got %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("LoadExistingKeyFile must not create %s; stat err=%v", path, err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("LoadExistingKeyFile must not create parent dir %s; stat err=%v", filepath.Dir(path), err)
 	}
 }
 

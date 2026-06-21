@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -97,12 +98,12 @@ func backupKeyProvider(keyFile, keyID string) (crypto.KeyProvider, error) {
 		// LoadOrGenerate would MINT a key on a restore node that lacks it,
 		// silently producing an unreadable mismatch — for backups we require
 		// the existing key, so read it without generating.
-		b64, generated, err := tenantcrypto.LoadOrGenerateKeyFile(keyFile)
+		b64, err := tenantcrypto.LoadExistingKeyFile(keyFile)
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("backup key file %q did not exist — refusing to MINT a key for a backup (a sealed backup needs its ORIGINAL KEK; provide the existing key): %w", keyFile, err)
+			}
 			return nil, fmt.Errorf("backup key file: %w", err)
-		}
-		if generated {
-			return nil, fmt.Errorf("backup key file %q did not exist — refusing to MINT a key for a backup (a sealed backup needs its ORIGINAL KEK; provide the existing key)", keyFile)
 		}
 		openerKeys, err := parseEnvelopeOpenerKeys(os.Getenv("PROBECTL_ENVELOPE_OPENER_KEYS"))
 		if err != nil {

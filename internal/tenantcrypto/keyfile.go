@@ -56,6 +56,25 @@ func LoadOrGenerateKeyFile(path string) (kekB64 string, generated bool, err erro
 	return kek, true, nil
 }
 
+// LoadExistingKeyFile reads an already-provisioned deployment KEK. It never
+// creates parent directories and never mints key material; restore/backup paths
+// use this so a node missing the original KEK fails closed without leaving a
+// brand-new wrong key at the expected path.
+func LoadExistingKeyFile(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("tenantcrypto: empty key file path")
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("tenantcrypto: read key file: %w", err)
+	}
+	kek := strings.TrimSpace(string(b))
+	if derr := validKEK(kek); derr != nil {
+		return "", fmt.Errorf("tenantcrypto: key file %s: %w", path, derr)
+	}
+	return kek, nil
+}
+
 // validKEK enforces the 32-byte base64 contract before anything seals with it.
 func validKEK(kekB64 string) error {
 	raw, err := base64.StdEncoding.DecodeString(kekB64)

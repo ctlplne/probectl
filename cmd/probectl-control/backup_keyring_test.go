@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -44,6 +46,23 @@ func TestBackupKeyProviderUsesEnvelopeOpenerKeys(t *testing.T) {
 	}
 	if restored.String() != "historic backup" {
 		t.Fatalf("restored = %q", restored.String())
+	}
+}
+
+func TestBackupKeyProviderMissingKeyFileDoesNotMint(t *testing.T) {
+	t.Setenv("PROBECTL_ENVELOPE_KEY", "")
+	t.Setenv("PROBECTL_ENVELOPE_OPENER_KEYS", "")
+	path := filepath.Join(t.TempDir(), "missing", "envelope.key")
+
+	if _, err := backupKeyProvider(path, "file"); err == nil ||
+		!strings.Contains(err.Error(), "refusing to MINT a key for a backup") {
+		t.Fatalf("missing backup key file must fail closed with no minting, got %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("backupKeyProvider must not create %s; stat err=%v", path, err)
+	}
+	if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+		t.Fatalf("backupKeyProvider must not create parent dir %s; stat err=%v", filepath.Dir(path), err)
 	}
 }
 
