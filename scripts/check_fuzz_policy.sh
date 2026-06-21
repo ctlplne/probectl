@@ -47,6 +47,17 @@ if ! "$LIST" | grep -q $'./internal/promapi\tFuzzDecodeRemoteWrite'; then
   exit 1
 fi
 
+for pair in \
+  $'./internal/control\tFuzzDecodeSCIM' \
+  $'./internal/scim\tFuzzApplyUserPatch' \
+  $'./internal/scim\tFuzzParseGroupPatch'
+do
+  if ! "$LIST" | grep -q "$pair"; then
+    echo "fuzz-policy: ${pair} is not discovered" >&2
+    exit 1
+  fi
+done
+
 if ! grep -q 'list_fuzz_targets.sh' "$SMOKE"; then
   echo "fuzz-policy: fuzz_smoke.sh must consume scripts/list_fuzz_targets.sh" >&2
   exit 1
