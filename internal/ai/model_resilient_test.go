@@ -5,6 +5,7 @@ package ai
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -237,6 +238,47 @@ func TestCacheTTLAndShapeGuard(t *testing.T) {
 	}
 	if remote.calls.Load() != 2 {
 		t.Fatalf("expired entry must miss: %d calls", remote.calls.Load())
+	}
+}
+
+func TestCacheIsBoundedAndEvictsOldest(t *testing.T) {
+	remote := &flakySynth{}
+	m := NewResilientModel(remote, NewBuiltinModel(), time.Second)
+	ctx := tenancy.WithTenant(context.Background(), tenancy.ID("tenant-a"))
+
+	first := synthInput("ev-first")
+	first.Question = "question-000"
+	if _, err := m.Synthesize(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= cacheMaxEntries; i++ {
+		in := synthInput(fmt.Sprintf("ev-%03d", i))
+		in.Question = fmt.Sprintf("question-%03d", i)
+		if _, err := m.Synthesize(ctx, in); err != nil {
+			t.Fatalf("fill cache %d: %v", i, err)
+		}
+	}
+	if got := remote.calls.Load(); got != int64(cacheMaxEntries+1) {
+		t.Fatalf("cache fill provider calls = %d, want %d", got, cacheMaxEntries+1)
+	}
+
+	if _, err := m.Synthesize(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if got := remote.calls.Load(); got != int64(cacheMaxEntries+2) {
+		t.Fatalf("oldest entry must be evicted at capacity; provider calls = %d, want %d", got, cacheMaxEntries+2)
+	}
+
+	latest := synthInput(fmt.Sprintf("ev-%03d", cacheMaxEntries))
+	latest.Question = fmt.Sprintf("question-%03d", cacheMaxEntries)
+	if _, err := m.Synthesize(ctx, latest); err != nil {
+		t.Fatal(err)
+	}
+	if got := remote.calls.Load(); got != int64(cacheMaxEntries+2) {
+		t.Fatalf("newer cache entry should still hit; provider calls = %d", got)
+	}
+	if m.CacheHits() != 1 {
+		t.Fatalf("newer entry cache hit not counted: %d", m.CacheHits())
 	}
 }
 
