@@ -105,10 +105,19 @@ generates loopback TCP connects through the tracepoints for a configurable windo
 kernel-matrix smoke runs:
 
 ```sh
-# on a reference host (root, or CAP_BPF+CAP_PERFMON):
+# on a reference Linux host (root, or CAP_BPF+CAP_PERFMON):
+make ebpf-agent   # generates vmlinux.h, bpf2go bindings, and object digests
+
 PROBECTL_OVERHEAD_SECONDS=60 go test -tags ebpf -count=1 -v \
   -run '^TestLiveOverheadReport$' ./internal/ebpf/
 ```
+
+The `make ebpf-agent` step matters on a source checkout: the live Go files link
+against generated bpf2go bindings (`l4flow_bpfel.go`, `sslsniff_*.go`) and the
+digest manifest, and those generated files are intentionally not committed.
+Rows from Docker Desktop, CI-scale build checks, or a run that skipped because
+the host lacked BTF/capabilities do **not** populate the reference-host row.
+Only paste a row from a supported Linux host running the defined traffic mix.
 
 Paste the logged row into the table above; the "Live ring-buffer events/s" column
 stops being `n/a` the first time this runs on real hardware.
