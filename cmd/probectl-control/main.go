@@ -240,16 +240,6 @@ func run(cmd string) error {
 	} else {
 		topoStore = topology.NewIndexedStore() // the L/XL dedicated engine
 	}
-	// ebpfStore (ARCH-008: durable eBPF flow/L7 aggregate store) is built in
-	// buildServeStores above and consumed here.
-	g.Go(func() error {
-		return superviseRestart(gctx, "topology-consumer", log, func(ctx context.Context) error {
-			return control.NewTopologyConsumer(resultBus, topoStore, log).
-				WithTenantBinding(tenantBinding).
-				WithEBPFStore(ebpfStore).
-				Run(ctx)
-		})
-	})
 	log.Info("topology graph enabled", "engine", cfg.TopologyEngine, "ebpf_store", cfg.EBPFStoreMode)
 
 	// FinOps egress cost (S44): volume x public pricing over the local flow
@@ -402,6 +392,18 @@ func run(cmd string) error {
 	if ch, ok := otelStore.(*otelstore.ClickHouse); ok {
 		ch.WithMetrics(srv.Metrics())
 	}
+	// ebpfStore (ARCH-008: durable eBPF flow/L7 aggregate store) is built in
+	// buildServeStores above and consumed here. Start after srv exists so the
+	// topology integrity ledger is exported through the same /metrics registry.
+	g.Go(func() error {
+		return superviseRestart(gctx, "topology-consumer", log, func(ctx context.Context) error {
+			return control.NewTopologyConsumer(resultBus, topoStore, log).
+				WithTenantBinding(tenantBinding).
+				WithEBPFStore(ebpfStore).
+				WithMetrics(srv.Metrics()).
+				Run(ctx)
+		})
+	})
 	if enrollSvc != nil {
 		srv.SetEnrollService(enrollSvc)
 	}

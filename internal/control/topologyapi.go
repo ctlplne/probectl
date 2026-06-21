@@ -145,6 +145,7 @@ type TopologyConsumer struct {
 	log     *slog.Logger
 	binding pipeline.TenantBinding // TENANT-101; nil = unit tests
 	clock   func() time.Time
+	ledger  *topologyIntegrityLedger
 	// ebpf is the durable eBPF aggregate store (ARCH-008). When set, every
 	// verified service edge is also persisted, so the differentiator plane has
 	// history and survives a restart instead of living only in the RAM graph.
@@ -164,7 +165,7 @@ func NewTopologyConsumer(b bus.Bus, st topology.Store, log *slog.Logger) *Topolo
 	if log == nil {
 		log = slog.Default()
 	}
-	return &TopologyConsumer{store: st, bus: b, log: log, clock: time.Now}
+	return &TopologyConsumer{store: st, bus: b, log: log, clock: time.Now, ledger: newTopologyIntegrityLedger()}
 }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101)
@@ -191,6 +192,7 @@ func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane string, ids [
 		tc.log.Error("REJECTED batch: tenant verification failed (TENANT-101, fail closed)",
 			"view", "topology", "plane", plane, "claimed_tenant", ids[0].Tenant,
 			"agent_id", ids[0].Agent, "error", err.Error())
+		tc.ledger.addRejected(plane, 1)
 		return true
 	}
 	return false
@@ -211,8 +213,10 @@ func (tc *TopologyConsumer) Run(ctx context.Context) error {
 }
 
 func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) error {
+	tc.ledger.addReceived("ebpf", 1)
 	var batch ebpfv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+		tc.ledger.addMalformed("ebpf", 1)
 		tc.log.Warn("topology: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
@@ -235,6 +239,7 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 	// this rejects only the spoof shape, not legitimate traffic. (Unit tests
 	// run with no binding and keep the prior in-RAM behavior.)
 	if tc.binding != nil && len(ids) == 0 && len(batch.GetEdges()) > 0 {
+		tc.ledger.addRejected("ebpf", 1)
 		tc.log.Error("REJECTED batch: edges-only eBPF batch has no agent identity to verify (TENANT-006, fail closed)",
 			"view", "topology", "plane", "ebpf", "edges", len(batch.GetEdges()),
 			"claimed_tenant", batch.GetEdges()[0].GetTenantId())
@@ -243,6 +248,7 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 	if len(ids) > 0 {
 		for _, e := range batch.GetEdges() {
 			if e.GetTenantId() != "" && e.GetTenantId() != ids[0].Tenant {
+				tc.ledger.addRejected("ebpf", 1)
 				tc.log.Error("REJECTED batch: edge tenant differs from flow tenant (TENANT-101, fail closed)",
 					"view", "topology", "flow_tenant", ids[0].Tenant, "edge_tenant", e.GetTenantId())
 				return nil
@@ -253,6 +259,7 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 	var durable []ebpfstore.Edge
 	for _, e := range batch.GetEdges() {
 		if e.GetTenantId() == "" {
+			tc.ledger.addUnscoped("ebpf", 1)
 			continue
 		}
 		firstSeen, lastSeen := serviceEdgeTimes(e, receivedAt)
@@ -269,11 +276,13 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 				Bytes: e.GetBytes(), Packets: e.GetPackets(), Connections: e.GetConnections(),
 			})
 		}
+		tc.ledger.addStored("ebpf", 1)
 	}
 	// ARCH-008: persist the aggregates (best-effort — a store blip must not drop
 	// the in-RAM graph update above; the durable copy backfills on the next batch).
 	if tc.ebpf != nil && len(durable) > 0 {
 		if err := tc.ebpf.Insert(ctx, durable); err != nil {
+			tc.ledger.addPersistFailed("ebpf", uint64(len(durable)))
 			tc.log.Warn("ebpf aggregate persist failed (in-RAM graph unaffected)", "error", err.Error())
 		}
 	}
@@ -281,22 +290,28 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 }
 
 func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error {
+	tc.ledger.addReceived("bgp", 1)
 	var ev bgpv1.BGPEvent
 	if err := proto.Unmarshal(msg.Value, &ev); err != nil {
+		tc.ledger.addMalformed("bgp", 1)
 		tc.log.Warn("topology: skipping malformed bgp event", "error", err)
 		return nil
 	}
 	if ev.GetTenantId() == "" {
+		tc.ledger.addUnscoped("bgp", 1)
 		return nil
 	}
 	at := pipeline.NormalizeEventTimeUnixNano(ev.GetDetectedAtUnixNano(), tc.receivedAt())
 	tc.store.ObserveRouting(ev.GetTenantId(), topology.FromBGPEvent(&ev), at)
+	tc.ledger.addStored("bgp", 1)
 	return nil
 }
 
 func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) error {
+	tc.ledger.addReceived("device", 1)
 	var batch devicev1.DeviceMetricBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
+		tc.ledger.addMalformed("device", 1)
 		tc.log.Warn("topology: skipping malformed device batch", "error", err)
 		return nil
 	}
@@ -309,7 +324,12 @@ func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) e
 	}
 	receivedAt := tc.receivedAt()
 	for _, m := range batch.GetMetrics() {
-		if m.GetTenantId() == "" || m.GetDeviceAddress() == "" {
+		if m.GetTenantId() == "" {
+			tc.ledger.addUnscoped("device", 1)
+			continue
+		}
+		if m.GetDeviceAddress() == "" {
+			tc.ledger.addMalformed("device", 1)
 			continue
 		}
 		// S39 telemetry exposes no interface IPs yet, so this yields device
@@ -319,6 +339,7 @@ func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) e
 			Address: m.GetDeviceAddress(),
 			Name:    m.GetDeviceName(),
 		}, pipeline.NormalizeEventTimeUnixNano(m.GetTimeUnixNano(), receivedAt))
+		tc.ledger.addStored("device", 1)
 	}
 	return nil
 }
