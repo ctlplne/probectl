@@ -40,3 +40,16 @@ func TestAggregationsReadFinal(t *testing.T) {
 		t.Errorf("Capacity SQL does not read %s with FINAL — redelivered flows double-count:\n%s", table, capSQLText)
 	}
 }
+
+func TestFlowDedupDDLUsesReplacingMergeTreeRowID(t *testing.T) {
+	ddl := createFlowsDedupDDL(sharedFlowsTable)
+	for _, want := range []string{
+		"ENGINE = ReplacingMergeTree",
+		"row_id String",
+		"ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr, src_port, dst_port, protocol, row_id)",
+	} {
+		if !strings.Contains(ddl, want) {
+			t.Fatalf("dedup DDL missing %q:\n%s", want, ddl)
+		}
+	}
+}
