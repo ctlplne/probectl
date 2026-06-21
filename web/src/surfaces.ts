@@ -115,6 +115,13 @@ export const SURFACES: SurfaceDecl[] = [
     route: '/ask',
   },
   {
+    capability: 'Curated in-app dashboards',
+    featureIds: ['F9'],
+    sprint: 'S45',
+    kind: 'native',
+    route: '/dashboards',
+  },
+  {
     capability: 'Agent fleet admin',
     featureIds: ['F1'],
     sprint: 'S9',
@@ -419,16 +426,6 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'none-by-design',
     noneReason:
       'PRD v1.0 marks F49 as a deliberate Phase-4 future bet; the detection-as-code substrate exists, but no current GA surface is promised.',
-  },
-
-  // --- declared placeholders (engine lands with the named sprint) ---
-
-  {
-    capability: 'Curated in-app dashboards',
-    featureIds: ['F9'],
-    sprint: 'S45 (Grafana covers it today via S40)',
-    kind: 'placeholder',
-    route: '/dashboards',
   },
 ]
 

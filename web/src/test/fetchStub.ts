@@ -45,6 +45,57 @@ const sampleAgents = [
   },
 ]
 
+const sampleIncident = {
+  id: 'inc-dashboard',
+  tenant_id: '00000000-0000-0000-0000-000000000001',
+  status: 'open',
+  severity: 'warning',
+  title: 'checkout latency burn',
+  target: 'https://checkout.probectl.test',
+  started_at: '2026-06-04T11:45:00Z',
+  last_seen_at: '2026-06-04T12:00:00Z',
+  signal_count: 3,
+  signals: [
+    {
+      plane: 'synthetic',
+      kind: 'http.latency',
+      severity: 'warning',
+      title: 'HTTP latency above SLO',
+      target: 'https://checkout.probectl.test',
+      occurred_at: '2026-06-04T11:55:00Z',
+    },
+    {
+      plane: 'flow',
+      kind: 'capacity.anomaly',
+      severity: 'warning',
+      title: 'edge-r1 throughput spike',
+      target: 'edge-r1',
+      occurred_at: '2026-06-04T11:58:00Z',
+    },
+  ],
+}
+
+const sampleLatestResults = [
+  {
+    agent_id: 'a1',
+    type: 'http',
+    target: 'https://checkout.probectl.test',
+    success: true,
+    duration_ms: 184,
+    metrics: { 'http.total.ms': 184, 'http.status': 200 },
+    observed_at: '2026-06-04T12:00:00Z',
+  },
+  {
+    agent_id: 'a1',
+    type: 'dns',
+    target: 'checkout.probectl.test',
+    success: true,
+    duration_ms: 18,
+    metrics: { 'dns.query.ms': 18 },
+    observed_at: '2026-06-04T12:00:00Z',
+  },
+]
+
 /**
  * pathOf parses a fetched URL to its PATHNAME (no query, no origin) so stub
  * routes match by exact path, not substring. RED-006/UX-006: matching with
@@ -91,8 +142,27 @@ export function defaultFetch(): typeof fetch {
     // pathOf, so the exact path matches regardless. Return one (final) page.
     if (path === '/v1/agents') return jsonResponse({ items: sampleAgents })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
+    if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
+    if (path === '/v1/incidents/inc-dashboard') return jsonResponse(sampleIncident)
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
-    if (path === '/v1/alerts/active') return jsonResponse({ items: [], evaluator_running: true })
+    if (path === '/v1/alerts/active')
+      return jsonResponse({
+        items: [
+          {
+            fingerprint: 'fp-dashboard',
+            rule_id: 'r-dashboard',
+            rule_name: 'checkout latency burn',
+            severity: 'warning',
+            metric: 'probectl_result_duration_ms',
+            labels: { target: 'checkout', service: 'checkout' },
+            value: 184,
+            reason: 'p95 latency above objective',
+            since: '2026-06-04T11:45:00Z',
+            last_seen_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        evaluator_running: true,
+      })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/threat/detections')
       return jsonResponse({ items: [], detections_running: true })
@@ -110,7 +180,8 @@ export function defaultFetch(): typeof fetch {
         ],
         collector_running: true,
       })
-    if (path === '/v1/results/latest') return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/results/latest')
+      return jsonResponse({ items: sampleLatestResults, collector_running: true })
     if (path === '/v1/topology')
       return jsonResponse({
         topology_running: true,
@@ -185,27 +256,72 @@ export function defaultFetch(): typeof fetch {
           zones_mapped: true,
           pricing_source: 'test',
           pricing_as_of: '2026-06-01',
-          total_bytes: 0,
-          total_usd: 0,
-          by_class: {},
-          by_service: {},
-          by_team: {},
+          total_bytes: 17 * 2 ** 30,
+          total_usd: 0.38,
+          by_class: { inter_az: { bytes: 10 * 2 ** 30, usd: 0.1 } },
+          by_service: { checkout: { bytes: 12 * 2 ** 30, usd: 0.38 } },
+          by_team: { payments: { bytes: 12 * 2 ** 30, usd: 0.38 } },
           chatty_pairs: [],
-          trend: [],
-          budgets: [],
+          trend: [
+            { hour: '2026-06-04T10:00:00Z', bytes: 4 * 2 ** 30, usd: 0.08 },
+            { hour: '2026-06-04T11:00:00Z', bytes: 7 * 2 ** 30, usd: 0.16 },
+            { hour: '2026-06-04T12:00:00Z', bytes: 17 * 2 ** 30, usd: 0.38 },
+          ],
+          budgets: [
+            { kind: 'team', name: 'payments', monthly_usd: 500, spent_usd: 0.38, exceeded: false },
+          ],
         },
       })
-    if (path === '/v1/slos') return jsonResponse({ slo_running: true, items: [] })
+    if (path === '/v1/slos')
+      return jsonResponse({
+        slo_running: true,
+        items: [
+          {
+            name: 'checkout-availability',
+            display_name: 'Checkout availability',
+            service: 'checkout',
+            team: 'payments',
+            objective: 0.99,
+            window: '30d',
+            attainment: 0.982,
+            error_budget_remaining: 0.12,
+            total_events: 300,
+            cold_start: false,
+            burn_rates: [
+              {
+                window: 'fast',
+                long: '1h0m0s',
+                short: '5m0s',
+                burn: 16.2,
+                limit: 14.4,
+                firing: true,
+              },
+            ],
+          },
+        ],
+      })
     if (path === '/v1/compliance')
       return jsonResponse({
         compliance_running: true,
-        items: [],
+        items: [
+          {
+            policy: 'pci-east-west',
+            rule_id: 'deny-checkout-db',
+            description: 'Checkout must not talk directly to cardholder database',
+            from: 'checkout',
+            to: 'cardholder-db',
+            ports: '5432',
+            verdict: 'violation',
+            violations: 2,
+            observed_pairs: 1,
+          },
+        ],
         coverage: {
-          flow_observed: false,
-          ebpf_observed: false,
-          observations: 0,
-          zones_seen: 0,
-          zones_total: 0,
+          flow_observed: true,
+          ebpf_observed: true,
+          observations: 3,
+          zones_seen: 2,
+          zones_total: 2,
           notes: [],
         },
       })

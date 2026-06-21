@@ -15,6 +15,7 @@ import { AlertsPage } from './AlertsPage'
 import { SecurityPage } from './SecurityPage'
 import { EndpointsPage } from './EndpointsPage'
 import { AskPage } from './AskPage'
+import { DashboardsPage } from './DashboardsPage'
 import { Gallery } from './Gallery'
 
 /** The route tree (kept separate from the router so tests can supply their own). */
@@ -36,6 +37,7 @@ export function AppRoutes() {
         <Route path="/security" element={<SecurityPage />} />
         <Route path="/endpoints" element={<EndpointsPage />} />
         <Route path="/ask" element={<AskPage />} />
+        <Route path="/dashboards" element={<DashboardsPage />} />
         <Route path="/topology" element={<TopologyPage />} />
         <Route path="/cost" element={<CostPage />} />
         <Route path="/slos" element={<SLOsPage />} />
@@ -53,6 +55,7 @@ export function AppRoutes() {
               '/security',
               '/endpoints',
               '/ask',
+              '/dashboards',
               '/topology',
               '/cost',
               '/slos',
