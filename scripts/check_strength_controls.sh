@@ -13,7 +13,7 @@ ids=(
   AIRCA-004 AIRCA-005 AIRCA-006 AIRCA-007
   ARCH-005 ARCH-006 ARCH-007 CODE-007 CODE-008 CODE-014
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008 CORRECT-009
-  COVER-008
+  COVER-008 COVER-009
   DOCS-005 DOCS-006 DOCS-007 DOCS-008
   EBPF-005 EBPF-006 FUZZ-005
   KEYS-005 KEYS-006 KEYS-007
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 65 ]; then
-  err "internal guard bug: expected 65 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 66 ]; then
+  err "internal guard bug: expected 66 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -101,6 +101,12 @@ need_pattern COVER-008 scripts/check_openapi.sh 'TestOpenAPIGateCatchesPlantedRo
 need_pattern COVER-008 internal/control/openapi_test.go 'TestOpenAPIMatchesRoutes|TestOpenAPIGateCatchesPlantedRouteAndSpecDrift|documented but has no registered route'
 need_pattern COVER-008 ee/provider/openapi_test.go 'TestProviderOpenAPIMatchesRoutes|TestProviderOpenAPIGateCatchesPlantedDrift|documented phantom route'
 need_pattern COVER-008 docs/development.md 'provider .*/provider/v1'
+need_pattern COVER-009 web/package.json 'coverage-gate'
+need_pattern COVER-009 web/src/featureCatalog.ts 'REQUIRED_FEATURES|PLANE_ACTIVE_SYNTHETIC|F57|future'
+need_pattern COVER-009 web/src/surfaces.ts 'featureIds|native|federated|none-by-design|offNav'
+need_pattern COVER-009 web/src/test/surface-coverage.test.tsx 'featureCoverageViolations|futureFeatureViolations|missing surface declaration'
+need_pattern COVER-009 web/src/test/surface-coverage.test.tsx 'every native surface renders a real screen|PLACEHOLDER_MARKER|every federated surface has its declared evidence'
+need_pattern COVER-009 web/src/test/surface-coverage.test.tsx 'axe|toHaveNoViolations'
 need_pattern DOCS-005 scripts/check_docs_claims.sh 'SELFTEST'
 need_pattern DOCS-006 docs/otlp.md 'metrics|traces|logs'
 need_pattern DOCS-006 internal/otel/otlp/signals.go 'Metrics|TraceSink|LogSink'
