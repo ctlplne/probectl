@@ -39,6 +39,72 @@ type Error struct {
 	err     error
 }
 
+// Code is the stable machine-readable error code returned in API envelopes.
+// Messages may be localized; codes are the client branching contract.
+type Code string
+
+const (
+	CodeInternal     Code = "internal"
+	CodeBadRequest   Code = "bad_request"
+	CodeValidation   Code = "validation"
+	CodeUnauthorized Code = "unauthorized"
+	CodeForbidden    Code = "forbidden"
+	CodeNotFound     Code = "not_found"
+	CodeConflict     Code = "conflict"
+	CodeUnavailable  Code = "unavailable"
+	CodeRateLimited  Code = "rate_limited"
+	CodeTooLarge     Code = "too_large"
+
+	CodeWriterUnavailable   Code = "writer_unavailable"
+	CodeQuotaExceeded       Code = "quota_exceeded"
+	CodeTenantSuspended     Code = "tenant_suspended"
+	CodeTenantOffboarded    Code = "tenant_offboarded"
+	CodeApprovalsDisabled   Code = "approvals_disabled"
+	CodeBlastRadiusExceeded Code = "blast_radius_exceeded"
+	CodeBlastRadiusUnknown  Code = "blast_radius_unknown"
+	CodeNotProposed         Code = "not_proposed"
+)
+
+var registeredCodes = []Code{
+	CodeInternal,
+	CodeBadRequest,
+	CodeValidation,
+	CodeUnauthorized,
+	CodeForbidden,
+	CodeNotFound,
+	CodeConflict,
+	CodeUnavailable,
+	CodeRateLimited,
+	CodeTooLarge,
+	CodeWriterUnavailable,
+	CodeQuotaExceeded,
+	CodeTenantSuspended,
+	CodeTenantOffboarded,
+	CodeApprovalsDisabled,
+	CodeBlastRadiusExceeded,
+	CodeBlastRadiusUnknown,
+	CodeNotProposed,
+}
+
+// RegisteredCodes returns the complete public API error-code registry.
+func RegisteredCodes() []string {
+	out := make([]string, 0, len(registeredCodes))
+	for _, code := range registeredCodes {
+		out = append(out, string(code))
+	}
+	return out
+}
+
+// IsRegisteredCode reports whether code is part of the public API contract.
+func IsRegisteredCode(code string) bool {
+	for _, registered := range registeredCodes {
+		if string(registered) == code {
+			return true
+		}
+	}
+	return false
+}
+
 func (e *Error) Error() string {
 	if e.err != nil {
 		return fmt.Sprintf("%s: %s: %v", e.Code, e.Message, e.err)
@@ -73,16 +139,26 @@ func newError(kind Kind, code, message string) *Error {
 }
 
 // Constructors with sensible default codes.
-func Internal(message string) *Error     { return newError(KindInternal, "internal", message) }
-func BadRequest(message string) *Error   { return newError(KindBadRequest, "bad_request", message) }
-func Validation(message string) *Error   { return newError(KindValidation, "validation", message) }
-func Unauthorized(message string) *Error { return newError(KindUnauthorized, "unauthorized", message) }
-func Forbidden(message string) *Error    { return newError(KindForbidden, "forbidden", message) }
-func NotFound(message string) *Error     { return newError(KindNotFound, "not_found", message) }
-func Conflict(message string) *Error     { return newError(KindConflict, "conflict", message) }
-func Unavailable(message string) *Error  { return newError(KindUnavailable, "unavailable", message) }
-func RateLimited(message string) *Error  { return newError(KindRateLimited, "rate_limited", message) }
-func TooLarge(message string) *Error     { return newError(KindTooLarge, "too_large", message) }
+func Internal(message string) *Error { return newError(KindInternal, string(CodeInternal), message) }
+func BadRequest(message string) *Error {
+	return newError(KindBadRequest, string(CodeBadRequest), message)
+}
+func Validation(message string) *Error {
+	return newError(KindValidation, string(CodeValidation), message)
+}
+func Unauthorized(message string) *Error {
+	return newError(KindUnauthorized, string(CodeUnauthorized), message)
+}
+func Forbidden(message string) *Error { return newError(KindForbidden, string(CodeForbidden), message) }
+func NotFound(message string) *Error  { return newError(KindNotFound, string(CodeNotFound), message) }
+func Conflict(message string) *Error  { return newError(KindConflict, string(CodeConflict), message) }
+func Unavailable(message string) *Error {
+	return newError(KindUnavailable, string(CodeUnavailable), message)
+}
+func RateLimited(message string) *Error {
+	return newError(KindRateLimited, string(CodeRateLimited), message)
+}
+func TooLarge(message string) *Error { return newError(KindTooLarge, string(CodeTooLarge), message) }
 
 // LocalizedMessage returns a localized label for a stable API error code.
 func LocalizedMessage(locale, code, fallback string) string {

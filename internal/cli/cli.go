@@ -129,14 +129,8 @@ func (c *client) do(method, path string, body any, out any) error {
 	data, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode/100 != 2 {
-		var env struct {
-			Error struct {
-				Code, Message string
-			} `json:"error"`
-		}
-		if json.Unmarshal(data, &env) == nil && env.Error.Message != "" {
-			msg := i18n.ErrorMessage(c.cfg.Locale, env.Error.Code, env.Error.Message)
-			return fmt.Errorf("%s (%s)", msg, env.Error.Code)
+		if ok, err := formatAPIError(data, c.cfg.Locale); ok {
+			return err
 		}
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
@@ -176,19 +170,31 @@ func (c *client) stream(method, path string, body any, w io.Writer) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		data, _ := io.ReadAll(resp.Body)
-		var env struct {
-			Error struct {
-				Code, Message string
-			} `json:"error"`
-		}
-		if json.Unmarshal(data, &env) == nil && env.Error.Message != "" {
-			msg := i18n.ErrorMessage(c.cfg.Locale, env.Error.Code, env.Error.Message)
-			return fmt.Errorf("%s (%s)", msg, env.Error.Code)
+		if ok, err := formatAPIError(data, c.cfg.Locale); ok {
+			return err
 		}
 		return fmt.Errorf("unexpected status %d", resp.StatusCode)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
+}
+
+func formatAPIError(data []byte, locale string) (bool, error) {
+	var env struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(data, &env) != nil || env.Error.Message == "" {
+		return false, nil
+	}
+	msg := i18n.ErrorMessage(locale, env.Error.Code, env.Error.Message)
+	if env.Error.RequestID != "" {
+		return true, fmt.Errorf("%s (%s, request_id=%s)", msg, env.Error.Code, env.Error.RequestID)
+	}
+	return true, fmt.Errorf("%s (%s)", msg, env.Error.Code)
 }
 
 func envOr(getenv func(string) string, key, def string) string {

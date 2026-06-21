@@ -291,7 +291,16 @@ type DiscoverProposalList struct {
 
 // The standard error envelope returned by every endpoint.
 type Error struct {
-	Error map[string]any `json:"error"`
+	Error ErrorDetail `json:"error"`
+}
+
+type ErrorCode string
+
+// The inner API error object. Code is stable and machine-readable; message is human-facing; request_id joins client output to server logs.
+type ErrorDetail struct {
+	Code      ErrorCode `json:"code"`
+	Message   string    `json:"message"`
+	RequestId string    `json:"request_id,omitempty"`
 }
 
 type FlowAnomaly struct {
@@ -597,7 +606,7 @@ func (c *Client) GetHealthz(ctx context.Context, req GetHealthzRequest) (*Health
 	return &out, nil
 }
 
-// RUM beacon ingest (S47b) — app-key authenticated
+// RUM beacon ingest (S47b) — public-key routed
 type IngestRumBeaconRequest struct {
 	Body *map[string]any `json:"-"`
 }

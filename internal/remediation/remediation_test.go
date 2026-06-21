@@ -5,6 +5,8 @@ package remediation
 import (
 	"errors"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 )
 
 func TestValidKind(t *testing.T) {
@@ -36,5 +38,13 @@ func TestErrorAsAndCode(t *testing.T) {
 	}
 	if ErrBlastRadiusExceeded.Error() == "" || ErrUnknownBlastRadius.Error() == "" || ErrNotProposed.Error() == "" {
 		t.Fatal("error messages must be non-empty")
+	}
+}
+
+func TestRemediationErrorCodesAreRegisteredAPIContract(t *testing.T) {
+	for _, err := range []Error{ErrApprovalsDisabled, ErrBlastRadiusExceeded, ErrNotProposed, ErrUnknownBlastRadius} {
+		if !apierror.IsRegisteredCode(err.Code) {
+			t.Errorf("remediation code %q is not in the public API registry", err.Code)
+		}
 	}
 }

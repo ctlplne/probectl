@@ -5187,27 +5187,55 @@
           "arch"
         ]
       },
+      "ErrorCode": {
+        "type": "string",
+        "description": "Stable machine-readable API error codes. Clients branch on this enum; message is human-facing and may be localized.",
+        "enum": [
+          "internal",
+          "bad_request",
+          "validation",
+          "unauthorized",
+          "forbidden",
+          "not_found",
+          "conflict",
+          "unavailable",
+          "rate_limited",
+          "too_large",
+          "writer_unavailable",
+          "quota_exceeded",
+          "tenant_suspended",
+          "tenant_offboarded",
+          "approvals_disabled",
+          "blast_radius_exceeded",
+          "blast_radius_unknown",
+          "not_proposed"
+        ]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "description": "The inner API error object. Code is stable and machine-readable; message is human-facing; request_id joins client output to server logs.",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
       "Error": {
         "type": "object",
         "description": "The standard error envelope returned by every endpoint.",
         "properties": {
           "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              },
-              "request_id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "code",
-              "message"
-            ]
+            "$ref": "#/components/schemas/ErrorDetail"
           }
         },
         "required": [

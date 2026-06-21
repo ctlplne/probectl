@@ -107,6 +107,16 @@ func TestCLIAPIErrorLocalizesByStableCode(t *testing.T) {
 	}
 }
 
+func TestCLIAPIErrorIncludesRequestID(t *testing.T) {
+	ok, err := formatAPIError([]byte(`{"error":{"code":"unavailable","message":"try later","request_id":"req-123"}}`), "en")
+	if !ok {
+		t.Fatal("formatAPIError did not recognize API error envelope")
+	}
+	if got := err.Error(); !strings.Contains(got, "request_id=req-123") || !strings.Contains(got, "unavailable") {
+		t.Fatalf("formatted error missing code/request_id: %s", got)
+	}
+}
+
 func TestCLITestList(t *testing.T) {
 	srv := fakeAPI(t)
 	out, _, code := run(t, srv, "test", "list")

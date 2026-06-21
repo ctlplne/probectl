@@ -220,7 +220,15 @@ export interface DiscoverProposalList {
 }
 
 export interface Error {
-  error: JsonObject
+  error: ErrorDetail
+}
+
+export type ErrorCode = "internal" | "bad_request" | "validation" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unavailable" | "rate_limited" | "too_large" | "writer_unavailable" | "quota_exceeded" | "tenant_suspended" | "tenant_offboarded" | "approvals_disabled" | "blast_radius_exceeded" | "blast_radius_unknown" | "not_proposed"
+
+export interface ErrorDetail {
+  code: ErrorCode
+  message: string
+  request_id?: string
 }
 
 export interface FlowAnomaly {

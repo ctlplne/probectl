@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 )
@@ -62,7 +63,8 @@ type openAPIParameter struct {
 
 type openAPISchema struct {
 	Ref        string                   `json:"$ref"`
-	Type       string                   `json:"type"`
+	Type       any                      `json:"type"`
+	Enum       []string                 `json:"enum"`
 	Properties map[string]openAPISchema `json:"properties"`
 }
 
@@ -88,6 +90,63 @@ func parseOperation(t *testing.T, raw json.RawMessage) openAPIOperation {
 		t.Fatalf("parse openapi operation: %v", err)
 	}
 	return op
+}
+
+func TestOpenAPIErrorCodeRegistry(t *testing.T) {
+	var spec struct {
+		Components struct {
+			Schemas map[string]openAPISchema `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(openapiJSON, &spec); err != nil {
+		t.Fatalf("parse openapi.json: %v", err)
+	}
+	codeSchema, ok := spec.Components.Schemas["ErrorCode"]
+	if !ok {
+		t.Fatal("OpenAPI is missing components.schemas.ErrorCode")
+	}
+	if openAPISchemaType(codeSchema) != "string" {
+		t.Fatalf("ErrorCode type = %v, want string", codeSchema.Type)
+	}
+	if got, want := codeSchema.Enum, apierror.RegisteredCodes(); !sameStrings(got, want) {
+		t.Fatalf("ErrorCode enum drifted:\ngot  %v\nwant %v", got, want)
+	}
+	detailSchema := spec.Components.Schemas["ErrorDetail"]
+	detailCodeRef := detailSchema.Properties["code"].Ref
+	if detailCodeRef != "#/components/schemas/ErrorCode" {
+		t.Fatalf("ErrorDetail.code ref = %q, want ErrorCode", detailCodeRef)
+	}
+	errorSchema := spec.Components.Schemas["Error"]
+	detailRef := errorSchema.Properties["error"].Ref
+	if detailRef != "#/components/schemas/ErrorDetail" {
+		t.Fatalf("Error.error ref = %q, want ErrorDetail", detailRef)
+	}
+}
+
+func openAPISchemaType(schema openAPISchema) string {
+	switch t := schema.Type.(type) {
+	case string:
+		return t
+	case []any:
+		for _, item := range t {
+			if s, ok := item.(string); ok && s != "null" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CLAUDE.md §6, §8):

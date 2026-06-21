@@ -191,6 +191,11 @@ All errors share one JSON shape and a stable domain-error → HTTP mapping:
 { "error": { "code": "not_found", "message": "…", "request_id": "…" } }
 ```
 
+`error.code` is the client branching contract: it is enumerated as `ErrorCode`
+in `/openapi.json`. `message` is for humans and may be localized. `request_id`
+is optional, but when present the CLI prints it next to the code so operators can
+join a user-facing failure to server logs.
+
 | Domain kind   | Code           | HTTP |
 | ------------- | -------------- | ---- |
 | BadRequest    | `bad_request`  | 400  |
@@ -199,8 +204,15 @@ All errors share one JSON shape and a stable domain-error → HTTP mapping:
 | NotFound      | `not_found`    | 404  |
 | Conflict      | `conflict`     | 409  |
 | Validation    | `validation`   | 422  |
+| RateLimited   | `rate_limited` | 429  |
+| TooLarge      | `too_large`    | 413  |
 | Internal      | `internal`     | 500  |
 | Unavailable   | `unavailable`  | 503  |
+
+Specialized stable codes include `writer_unavailable`, `quota_exceeded`,
+`tenant_suspended`, `tenant_offboarded`, `approvals_disabled`,
+`blast_radius_exceeded`, `blast_radius_unknown`, and `not_proposed`; the
+OpenAPI `ErrorCode` enum is the authoritative list.
 
 ### Transport security
 
@@ -865,7 +877,8 @@ environment: `PROBECTL_API_URL` (default `http://localhost:8080`),
 `X-Probectl-Tenant`), and `PROBECTL_LOCALE` (default `en`; accepts shipped
 language tags such as `es`/`es-MX` for CLI help and API error messages). API
 error `code` values stay stable and machine-readable; only the human message is
-localized.
+localized. When an API error includes `request_id`, the CLI includes it in the
+terminal error output for support/debugging.
 
 The terminal-native product surface is the CLI. There is no separate committed
 TUI mode today; if one is added later it must be declared in the surface catalog

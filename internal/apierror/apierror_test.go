@@ -5,6 +5,14 @@ package apierror
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +43,96 @@ func TestConstructorsSetKindAndCode(t *testing.T) {
 	}
 }
 
+func TestRegisteredCodesCoverConstructors(t *testing.T) {
+	for _, e := range []*Error{
+		Internal("x"),
+		BadRequest("x"),
+		Validation("x"),
+		Unauthorized("x"),
+		Forbidden("x"),
+		NotFound("x"),
+		Conflict("x"),
+		Unavailable("x"),
+		RateLimited("x"),
+		TooLarge("x"),
+	} {
+		if !IsRegisteredCode(e.Code) {
+			t.Errorf("constructor code %q is not in the public registry", e.Code)
+		}
+	}
+}
+
+func TestRegisteredCodesAreUnique(t *testing.T) {
+	seen := map[string]bool{}
+	for _, code := range RegisteredCodes() {
+		if code == "" {
+			t.Fatal("registered error code must not be empty")
+		}
+		if seen[code] {
+			t.Fatalf("duplicate registered error code %q", code)
+		}
+		seen[code] = true
+	}
+}
+
+func TestWithCodeStringLiteralsAreRegistered(t *testing.T) {
+	root := filepath.Clean(filepath.Join("..", ".."))
+	dirs := []string{"cmd", "ee", "internal", "pkg"}
+	fset := token.NewFileSet()
+	for _, dir := range dirs {
+		base := filepath.Join(root, dir)
+		if _, err := os.Stat(base); err != nil {
+			continue
+		}
+		err := filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				switch d.Name() {
+				case ".git", "node_modules", "vendor":
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			file, err := parser.ParseFile(fset, path, nil, 0)
+			if err != nil {
+				return err
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok || len(call.Args) == 0 {
+					return true
+				}
+				sel, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok || sel.Sel.Name != "WithCode" {
+					return true
+				}
+				lit, ok := call.Args[0].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				code, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Errorf("%s: invalid WithCode literal %s", fset.Position(lit.Pos()), lit.Value)
+					return true
+				}
+				if !IsRegisteredCode(code) {
+					t.Errorf("%s: WithCode(%q) is not in the public registry", fset.Position(lit.Pos()), code)
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestWrapUnwrap(t *testing.T) {
 	cause := errors.New("root cause")
 	e := NotFound("missing").Wrap(cause)
@@ -55,9 +153,9 @@ func TestAs(t *testing.T) {
 }
 
 func TestWithCode(t *testing.T) {
-	e := Validation("bad").WithCode("field_required")
-	if e.Code != "field_required" {
-		t.Errorf("Code = %q, want field_required", e.Code)
+	e := Validation("bad").WithCode(string(CodeQuotaExceeded))
+	if e.Code != string(CodeQuotaExceeded) {
+		t.Errorf("Code = %q, want %s", e.Code, CodeQuotaExceeded)
 	}
 }
 
