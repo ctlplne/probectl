@@ -18,6 +18,7 @@ ids=(
   EBPF-004 EBPF-005 EBPF-006 EBPF-007 FUZZ-005 FUZZ-007 FUZZ-008
   KEYS-004 KEYS-005 KEYS-006 KEYS-007
   OPS-005 OPS-006 OPS-007 OPS-008 OPS-009 OPS-010
+  PERF-008 PERF-009 PERF-010
   RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   SCALE-007 SCALE-008 SCALE-009
@@ -55,8 +56,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 74 ]; then
-  err "internal guard bug: expected 74 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 77 ]; then
+  err "internal guard bug: expected 77 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -178,6 +179,18 @@ need_pattern SCALE-007 internal/fairness 'tenant|quota|limit'
 need_pattern SCALE-008 internal/bus/kafka.go 'Commit|Batch|TenantKey|key'
 need_pattern SCALE-009 internal/store/flowstore/clickhouse.go 'PARTITION BY \(tenant_id|TTL|retention'
 need_pattern SCALE-009 internal/store/otelstore/clickhouse.go 'PARTITION BY \(tenant_id|TTL|retention'
+need_pattern PERF-008 Makefile 'perf-smoke|TestIngestBaseline|TestPooledMultiTenant'
+need_pattern PERF-008 .github/workflows/ci.yml 'perf-smoke|Load/perf smoke'
+need_pattern PERF-008 docs/perf-baseline.md 'smoke detector|not a full scale validation|Pooled isolation'
+need_pattern PERF-008 internal/perf/hotpaths.go 'MeasurementLoadGate|make perf-smoke'
+need_pattern PERF-009 Makefile 'scale-gate-m|TestScaleGate'
+need_pattern PERF-009 .github/workflows/nightly.yml 'scale-gate-m|M-tier FULL-STACK regression'
+need_pattern PERF-009 docs/scale-gate.md 'TestScaleGateFlowPlaneCI|M-tier full-stack gates|reference hardware'
+need_pattern PERF-009 internal/perf/scale_test.go 'TestScaleGateFlowPlaneCI|DriveFlowPlane'
+need_pattern PERF-009 internal/perf/fullstack_integration_test.go 'TestFullStackFlowGate|ClickHouse'
+need_pattern PERF-010 internal/ebpf/bench_test.go 'TestAgentOverheadReport|20k floor|AGENT OVERHEAD'
+need_pattern PERF-010 scripts/bench/agent_overhead.sh 'TestAgentOverheadReport|REFERENCE'
+need_pattern PERF-010 docs/agent-overhead.md 'TestAgentOverheadReport|live ring-buffer|reference-host row|n/a'
 
 # eBPF, fuzzing, keys, supply chain, and ops controls.
 need_pattern EBPF-004 internal/ebpf/observeonly_test.go 'TestBPFProgramsAreObserveOnly'
