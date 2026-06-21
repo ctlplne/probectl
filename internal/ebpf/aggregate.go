@@ -20,9 +20,9 @@ type Stats struct {
 	// L7AttachFailures counts TLS-uprobe attach failures (U-015): an
 	// encrypted-traffic visibility gap is surfaced, never silent.
 	L7AttachFailures uint64
-	// FilteredNonIPv4 counts flows dropped IN-KERNEL because they are not
-	// IPv4 (l4flow captures IPv4 only today; U-073). The blind spot is
-	// measurable, not silent — an IPv6-heavy host shows a rising count.
+	// FilteredNonIPv4 is the legacy metric name for flows dropped IN-KERNEL
+	// because their L3 family is unsupported. IPv6 is captured; unsupported
+	// families remain measurable, not silent.
 	FilteredNonIPv4 uint64
 }
 
@@ -75,8 +75,8 @@ func (a *Aggregator) RecordDropStats(s DropStats) {
 	a.dropOther.Add(s.Other)
 }
 
-// RecordFilteredNonIPv4 adds n to the in-kernel non-IPv4 filter counter
-// (U-073) so the IPv4-only capture limitation is measurable.
+// RecordFilteredNonIPv4 adds n to the in-kernel unsupported-family filter
+// counter. The method keeps the legacy metric name while IPv6 is now captured.
 func (a *Aggregator) RecordFilteredNonIPv4(n uint64) { a.filteredNonIPv4.Add(n) }
 
 // RecordL7AttachFailure counts a failed TLS-uprobe attach (U-015) so the

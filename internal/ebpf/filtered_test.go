@@ -9,6 +9,8 @@ import (
 )
 
 // A source exposing the optional FilteredNonIPv4() (the live source does).
+// The method name is legacy; it now counts unsupported address families while
+// IPv6 is captured.
 type filteringSource struct {
 	sliceSource
 	filtered uint64
@@ -28,8 +30,8 @@ func TestAggregatorFilteredNonIPv4(t *testing.T) {
 	}
 }
 
-// The agent folds the source's cumulative in-kernel non-IPv4 filter count into
-// its telemetry as a DELTA (U-073) — the blind spot is measurable.
+// The agent folds the source's cumulative in-kernel unsupported-family filter
+// count into its telemetry as a DELTA.
 func TestAgentSyncsFilteredNonIPv4(t *testing.T) {
 	cfg := Default()
 	cfg.TenantID = "t1"

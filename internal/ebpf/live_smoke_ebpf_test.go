@@ -53,6 +53,129 @@ func TestLiveLoadAttachL4Flow(t *testing.T) {
 	}
 }
 
+func TestLiveIPv6Flow(t *testing.T) {
+	ln, done := liveTCPServer(t, "tcp6", "[::1]:0")
+	defer ln.Close()
+
+	cfg := Default()
+	cfg.TenantID = "kernel-matrix"
+	src, err := newLiveSource(cfg)
+	if err != nil {
+		t.Skipf("live source unavailable on this kernel/privileges: %v", err)
+	}
+	defer src.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	flows, err := src.Flows(ctx)
+	if err != nil {
+		t.Fatalf("flows stream: %v", err)
+	}
+	liveTCPTransfer(t, "tcp6", ln.Addr().String(), []byte("probectl-ipv6"))
+	waitLiveTCPServer(t, ctx, done)
+
+	f, ok := waitLiveFlow(ctx, flows, func(f Flow) bool {
+		return f.NetworkType == NetworkIPv6 && (f.Source.Address == "::1" || f.Destination.Address == "::1")
+	})
+	if !ok {
+		t.Fatal("no IPv6 flow observed from loopback transfer")
+	}
+	if f.Source.Address == "" || f.Destination.Address == "" {
+		t.Fatalf("IPv6 flow carried empty endpoint: %+v", f)
+	}
+}
+
+func TestLiveBytePacketCounters(t *testing.T) {
+	ln, done := liveTCPServer(t, "tcp4", "127.0.0.1:0")
+	defer ln.Close()
+
+	cfg := Default()
+	cfg.TenantID = "kernel-matrix"
+	src, err := newLiveSource(cfg)
+	if err != nil {
+		t.Skipf("live source unavailable on this kernel/privileges: %v", err)
+	}
+	defer src.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	flows, err := src.Flows(ctx)
+	if err != nil {
+		t.Fatalf("flows stream: %v", err)
+	}
+	liveTCPTransfer(t, "tcp4", ln.Addr().String(), []byte(strings.Repeat("x", 4096)))
+	waitLiveTCPServer(t, ctx, done)
+
+	f, ok := waitLiveFlow(ctx, flows, func(f Flow) bool {
+		return f.State == StateClose && f.Bytes > 0 && f.Packets > 0
+	})
+	if !ok {
+		t.Fatal("no close-state flow with non-zero byte/packet counters observed")
+	}
+	if f.NetworkType != NetworkIPv4 {
+		t.Fatalf("counter smoke expected IPv4 loopback flow, got %+v", f)
+	}
+}
+
+func liveTCPServer(t *testing.T, network, addr string) (net.Listener, <-chan struct{}) {
+	t.Helper()
+	ln, err := net.Listen(network, addr)
+	if err != nil {
+		t.Skipf("%s listen unavailable at %s: %v", network, addr, err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer c.Close()
+		_, _ = io.Copy(io.Discard, c)
+	}()
+	return ln, done
+}
+
+func liveTCPTransfer(t *testing.T, network, addr string, payload []byte) {
+	t.Helper()
+	c, err := net.DialTimeout(network, addr, 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial %s %s: %v", network, addr, err)
+	}
+	if _, err := c.Write(payload); err != nil {
+		_ = c.Close()
+		t.Fatalf("write transfer payload: %v", err)
+	}
+	if err := c.Close(); err != nil {
+		t.Fatalf("close transfer socket: %v", err)
+	}
+}
+
+func waitLiveTCPServer(t *testing.T, ctx context.Context, done <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		t.Fatalf("server did not finish transfer before timeout: %v", ctx.Err())
+	}
+}
+
+func waitLiveFlow(ctx context.Context, flows <-chan Flow, pred func(Flow) bool) (Flow, bool) {
+	for {
+		select {
+		case <-ctx.Done():
+			return Flow{}, false
+		case f, ok := <-flows:
+			if !ok {
+				return Flow{}, false
+			}
+			if pred(f) {
+				return f, true
+			}
+		}
+	}
+}
+
 func TestLiveLoadAttachSslsniff(t *testing.T) {
 	cfg := Default()
 	cfg.TenantID = "kernel-matrix"

@@ -196,15 +196,13 @@ the *true* chunk size, so loss-to-redaction is visible rather than silent.
 
 ## Capture limitations (measured, not hidden)
 
-Two real blind spots exist today. Both are *documented and counted*, not papered
-over:
+Two real blind spots exist today. They are *documented and counted or bounded*,
+not papered over:
 
-- **IPv6:** `l4flow` captures **IPv4 only** right now — non-IPv4 sockets are
-  filtered in the kernel. The blind spot is **measurable**: a per-CPU BPF counter
-  is summed and surfaced as `filtered_non_ipv4_total` in the agent's flush
-  telemetry, so an IPv6-heavy host shows a *rising count* instead of silent gaps.
-  IPv6 is a planned extension — the tracepoint already carries the address family;
-  it needs the 16-byte address path and a wider event struct.
+- **Unsupported L3 families:** `l4flow` captures IPv4 and IPv6 TCP sockets. Other
+  address families are filtered in the kernel and counted through the legacy
+  `filtered_non_ipv4_total` flush field, so a host with unsupported families shows
+  a rising counter instead of silent gaps.
 - **Go's `crypto/tls`:** the L7 capture uprobes attach to the **system** TLS
   libraries (OpenSSL / BoringSSL / GnuTLS). **Go programs don't use libssl** — they
   ship their own TLS — so a Go process's L7 *plaintext* is **not captured**. This
@@ -272,9 +270,10 @@ The flush log carries both the roll-up and the reason labels:
 `drop_decode_failures_total`, `drop_l4_ring_buffer_full_total`,
 `drop_l7_ring_buffer_full_total`, `drop_l7_active_read_failures_total`, and
 `drop_other_total`, plus `observed_total`, `l7_total`, `l7_attach_failures`, and
-`filtered_non_ipv4_total`. If only counters changed and there is no flow batch to
-emit, the agent still logs `ebpf counters updated` so an all-dropped window is
-visible — probectl observes probectl.
+the legacy `filtered_non_ipv4_total` unsupported-family counter. If only counters
+changed and there is no flow batch to emit, the agent still logs
+`ebpf counters updated` so an all-dropped window is visible — probectl observes
+probectl.
 
 ## Tuning and kernel lockdown
 
@@ -486,13 +485,13 @@ See [`configuration.md`](configuration.md#ebpf-host-agent) for the full
 
 ## Scope and follow-ups
 
-In scope today: the agent, L3/L4 capture, the service map, **L7 parsing
-(HTTP/1.1+2, gRPC, DNS, Kafka) with TLS-uprobe plaintext capture**, OTel emit, and
-the kernel/uprobe matrix. On the consuming side, the control plane already drains
-`probectl.ebpf.flows` on three independent, tenant-verified consumer groups: the
-**topology** view (service edges feed the graph), **segmentation validation**
-(declared policy vs observed traffic), and **NDR detection**. Natural follow-ups
-(out of scope here): IPv6 + byte/packet counters; the **5-tuple↔SSL correlation**
-and the **Go-TLS** capture path; and raw-flow retention in ClickHouse with a
-flow-level query API. Detection, segmentation validation, TLS posture, and cost
-all build on this layer.
+In scope today: the agent, IPv4/IPv6 L3/L4 capture with byte/packet counters, the
+service map, **L7 parsing (HTTP/1.1+2, gRPC, DNS, Kafka) with TLS-uprobe plaintext
+capture**, OTel emit, and the kernel/uprobe matrix. On the consuming side, the
+control plane already drains `probectl.ebpf.flows` on three independent,
+tenant-verified consumer groups: the **topology** view (service edges feed the
+graph), **segmentation validation** (declared policy vs observed traffic), and
+**NDR detection**. Natural follow-ups (out of scope here): the **5-tuple↔SSL
+correlation** and the **Go-TLS** capture path; and raw-flow retention in
+ClickHouse with a flow-level query API. Detection, segmentation validation, TLS
+posture, and cost all build on this layer.

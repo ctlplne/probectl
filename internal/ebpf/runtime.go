@@ -362,9 +362,9 @@ func (a *Agent) syncDrops() bool {
 	return delta.Total() > 0
 }
 
-// syncFilteredNonIPv4 folds the live source's in-kernel non-IPv4 filter count
-// into the aggregator (U-073) — measurable, not silent. Sources that don't
-// expose it (the fixture) are skipped.
+// syncFilteredNonIPv4 folds the live source's in-kernel unsupported-family
+// filter count into the aggregator. The method keeps the legacy metric name;
+// IPv6 is captured now. Sources that don't expose it (the fixture) are skipped.
 func (a *Agent) syncFilteredNonIPv4() bool {
 	fs, ok := a.source.(interface{ FilteredNonIPv4() uint64 })
 	if !ok {

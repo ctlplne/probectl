@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"net/netip"
 	"sync/atomic"
 
 	cebpf "github.com/cilium/ebpf"
@@ -24,29 +23,18 @@ const l4DropRingBufferFull = uint32(0)
 
 // liveSource is the CO-RE eBPF flow source: it loads bpf/l4flow.bpf.c, attaches
 // it to the inet_sock_set_state tracepoint (observe-only), and decodes
-// ring-buffer records into Flows. Compiled only under -tags ebpf; it needs a BTF
-// kernel (>= 5.8) and CAP_BPF (or root). The bpf2go-generated symbols
-// (loadL4flowObjects / l4flowObjects) come from `go generate` (see the directive
-// above) — run it on a Linux host with clang before building with -tags ebpf.
+// ring-buffer records into Flows, including IPv4/IPv6 addresses and TCP
+// byte/packet counters when the kernel exposes them. Compiled only under -tags
+// ebpf; it needs a BTF kernel (>= 5.8) and CAP_BPF (or root). The
+// bpf2go-generated symbols (loadL4flowObjects / l4flowObjects) come from
+// `go generate` (see the directive above) — run it on a Linux host with clang
+// before building with -tags ebpf.
 type liveSource struct {
 	cfg   *Config
 	objs  l4flowObjects
 	tp    link.Link
 	rd    *ringbuf.Reader
 	drops atomic.Uint64
-}
-
-// l4eventC mirrors struct l4_event in bpf/l4flow.bpf.c (36 bytes, little-endian).
-type l4eventC struct {
-	PID      uint32
-	Comm     [16]byte
-	Saddr    [4]byte
-	Daddr    [4]byte
-	Sport    uint16
-	Dport    uint16
-	Family   uint16
-	NewState uint8
-	Pad      uint8
 }
 
 // newLiveSource loads and attaches the eBPF program. This is the only place that
@@ -139,20 +127,6 @@ func (s *liveSource) decodeFlowSafely(sample []byte) (flow Flow, ok bool) {
 	return e.toFlow(s.cfg), true
 }
 
-func (e l4eventC) toFlow(cfg *Config) Flow {
-	return Flow{
-		TenantID:    cfg.TenantID,
-		AgentID:     cfg.Host,
-		Host:        cfg.Host,
-		Source:      Endpoint{Address: netip.AddrFrom4(e.Saddr).String(), Port: uint32(e.Sport), PID: e.PID, Process: nullTerm(e.Comm[:])},
-		Destination: Endpoint{Address: netip.AddrFrom4(e.Daddr).String(), Port: uint32(e.Dport)},
-		Transport:   TransportTCP,
-		NetworkType: NetworkIPv4,
-		Direction:   DirectionEgress,
-		State:       StateEstablished,
-	}
-}
-
 // explainBPFLoadError wraps a bpf() load failure with a clear, structured
 // degradation message when the cause is kernel lockdown confidentiality mode
 // (U-075) — instead of surfacing a bare EPERM/"operation not permitted" that
@@ -182,9 +156,8 @@ func (s *liveSource) DropStats() DropStats {
 func (s *liveSource) Drops() uint64 { return s.DropStats().Total() }
 
 // FilteredNonIPv4 returns the cumulative count of flows dropped in-kernel for
-// being non-IPv4 (U-073) — summed across CPUs from the percpu `filtered` map.
-// The agent folds this into its filtered_non_ipv4_total telemetry so the
-// IPv4-only capture limitation is measurable, never silent.
+// an unsupported address family — summed across CPUs from the percpu `filtered`
+// map. The method keeps the legacy telemetry name; IPv6 is captured now.
 func (s *liveSource) FilteredNonIPv4() uint64 {
 	if s.objs.Filtered == nil {
 		return 0
@@ -224,11 +197,4 @@ func (s *liveSource) Close() error {
 		_ = s.tp.Close()
 	}
 	return s.objs.Close()
-}
-
-func nullTerm(b []byte) string {
-	if i := bytes.IndexByte(b, 0); i >= 0 {
-		return string(b[:i])
-	}
-	return string(b)
 }

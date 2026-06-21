@@ -39,6 +39,32 @@ func TestBPFProgramsCountKernelSideDrops(t *testing.T) {
 	}
 }
 
+func TestL4BPFProgramCapturesIPv6AndTCPVolume(t *testing.T) {
+	l4 := readBPFSource(t, "bpf/l4flow.bpf.c")
+	for _, want := range []string{
+		"AF_INET6",
+		"saddr_v6",
+		"daddr_v6",
+		"bytes_acked",
+		"bytes_received",
+		"data_segs_out",
+		"data_segs_in",
+		"BPF_TCP_CLOSE",
+	} {
+		if !strings.Contains(l4, want) {
+			t.Fatalf("l4flow.bpf.c missing %q: IPv6 and byte/packet capture must stay wired", want)
+		}
+	}
+	for _, stale := range []string{
+		"IPv4 only today",
+		"ctx->family != AF_INET) {",
+	} {
+		if strings.Contains(l4, stale) {
+			t.Fatalf("l4flow.bpf.c still contains stale IPv4-only path %q", stale)
+		}
+	}
+}
+
 func readBPFSource(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

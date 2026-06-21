@@ -123,7 +123,9 @@ func (m *ServiceMap) Observe(f Flow) {
 		}
 		m.edges[k] = e
 	}
-	e.Connections++
+	if f.State != StateClose || e.Connections == 0 {
+		e.Connections++
+	}
 	e.Bytes += f.Bytes
 	e.Packets += f.Packets
 	if ts.Before(e.FirstSeen) {
