@@ -859,6 +859,18 @@ and backed by its own parity tests. For automation, use `--json`; for newly adde
 tenant `/v1` JSON APIs, the CLI parity test requires either a resource command
 or a documented none-by-design exception.
 
+Journey-critical parity is currently served by the CLI:
+
+| Operator journey | CLI command family | Primary API path |
+| ---------------- | ------------------ | ---------------- |
+| Incident triage and drill-down | `probectl incident list|get|changes|cis` | `/v1/incidents*` |
+| Alert review and response | `probectl alert active|ack|silence` | `/v1/alerts*` |
+| Topology and path investigation | `probectl topology show|whatif` plus `probectl test path <id>` | `/v1/topology*`, `/v1/tests/{id}/path` |
+| Ask/RCA handoff | `probectl ai ask --body JSON` | `/v1/ai/ask` |
+| Human-gated remediation review | `probectl remediation list|get|create|approve|reject` | `/v1/remediation/proposals*` |
+| SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
+| Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
+
 ```bash
 probectl test list
 probectl test create --name edge-dns --type icmp --target 1.1.1.1 --interval 30
@@ -867,6 +879,10 @@ probectl agent list
 probectl incident list --query status=open
 probectl topology show
 probectl alert active
+probectl ai ask --body '{"question":"Why is WAN loss high?","subject":{"incident_id":"inc_123"}}'
+probectl remediation list
+probectl slo list
+probectl lifecycle export --redact > tenant-export.tar.gz
 probectl --json cost summary      # machine-readable output
 probectl api GET /v1/fairness     # raw escape hatch for JSON APIs
 ```

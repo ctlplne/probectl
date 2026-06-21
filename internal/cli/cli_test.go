@@ -242,6 +242,116 @@ func TestCLICollectorRegister(t *testing.T) {
 	}
 }
 
+func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
+	var seenAsk map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/incidents", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("status"); got != "open" {
+			t.Fatalf("incident status query = %q, want open", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "incident-123456789", "title": "WAN loss", "severity": "critical", "description": "edge packet loss"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/alerts/active", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "alert-1", "name": "packet loss", "severity": "warning", "description": "synthetic probe loss"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/topology", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"nodes": []map[string]any{{"id": "edge-1", "name": "edge router"}},
+			"links": []map[string]any{{"source": "edge-1", "target": "isp-1"}},
+		})
+	})
+	mux.HandleFunc("POST /v1/ai/ask", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seenAsk); err != nil {
+			t.Fatalf("decode ask request: %v", err)
+		}
+		if _, ok := seenAsk["tenant_id"]; ok {
+			t.Fatalf("ask request body must not carry tenant_id: %#v", seenAsk)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"answer_id":  "answer-1",
+			"root_cause": "ISP loss beyond edge",
+			"confidence": "high",
+		})
+	})
+	mux.HandleFunc("GET /v1/remediation/proposals", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "rem-1", "name": "open_ticket", "status": "pending", "description": "requires human approval"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/slos", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "slo-api", "name": "api availability", "status": "healthy", "description": "99.9 target"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/cost/summary", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"summary":  "monthly network cost normal",
+			"currency": "USD",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	body := `{"question":"Why is WAN loss high?","subject":{"incident_id":"incident-123456789","target":"edge-1"}}`
+	cases := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "incidents", args: []string{"incident", "list", "--query", "status=open"}, want: []string{"WAN loss", "critical"}},
+		{name: "alerts", args: []string{"alert", "active"}, want: []string{"packet loss", "warning"}},
+		{name: "topology", args: []string{"topology", "show"}, want: []string{"edge router", "isp-1"}},
+		{name: "ask", args: []string{"ai", "ask", "--body", body}, want: []string{"ISP loss beyond edge", "high"}},
+		{name: "remediation", args: []string{"remediation", "list"}, want: []string{"open_ticket", "pending"}},
+		{name: "slo", args: []string{"slo", "list"}, want: []string{"api availability", "healthy"}},
+		{name: "cost", args: []string{"cost", "summary"}, want: []string{"monthly network cost normal", "USD"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errs, code := run(t, srv, tc.args...)
+			if code != 0 {
+				t.Fatalf("exit = %d, stderr=%s", code, errs)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Fatalf("output missing %q:\n%s", want, out)
+				}
+			}
+		})
+	}
+	if seenAsk["question"] != "Why is WAN loss high?" {
+		t.Fatalf("ask request body = %#v", seenAsk)
+	}
+}
+
+func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("redact"); got != "true" {
+			t.Fatalf("redact query = %q, want true", got)
+		}
+		if got := r.Header.Get("Accept"); got != "application/gzip" {
+			t.Fatalf("Accept = %q, want application/gzip", got)
+		}
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write([]byte("tenant-bundle-bytes"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "lifecycle", "export", "--redact")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if out != "tenant-bundle-bytes" {
+		t.Fatalf("tenant bundle stream not copied to stdout: %q", out)
+	}
+}
+
 func TestCLILifecycleSubjectExportStreamsBundle(t *testing.T) {
 	var seen map[string]any
 	mux := http.NewServeMux()

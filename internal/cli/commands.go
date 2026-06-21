@@ -188,6 +188,8 @@ func cmdLifecycle(cfg Config, args []string, stdout, stderr io.Writer) int {
 	}
 	c := newClient(cfg)
 	switch args[0] {
+	case "export":
+		return lifecycleExport(c, args[1:], stdout, stderr)
 	case "subject-export":
 		return lifecycleSubjectExport(c, args[1:], stdout, stderr)
 	case "subject-erase":
@@ -196,6 +198,30 @@ func cmdLifecycle(cfg Config, args []string, stdout, stderr io.Writer) int {
 		spec := surfaceCommands["lifecycle"]
 		return cmdSurface(cfg, spec, args, stdout, stderr)
 	}
+}
+
+func lifecycleExport(c *client, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("lifecycle export", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	redact := fs.Bool("redact", false, "redact PII in the bundle")
+	query := kvFlag{}
+	fs.Var(&query, "query", "query parameter k=v (repeatable)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if len(fs.Args()) > 0 {
+		fmt.Fprintf(stderr, "unexpected args: %s\n", strings.Join(fs.Args(), " "))
+		return 2
+	}
+	params := map[string]string(query)
+	if *redact {
+		params["redact"] = "true"
+	}
+	path := withQuery("/v1/lifecycle/export", params)
+	if err := c.stream(http.MethodGet, path, nil, stdout); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
 }
 
 func lifecycleSubjectExport(c *client, args []string, stdout, stderr io.Writer) int {
