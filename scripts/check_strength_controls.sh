@@ -24,7 +24,7 @@ ids=(
   RED-005 RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   RESIL-S01 RESIL-S02 RESIL-S03
-  SCALE-007 SCALE-008 SCALE-009
+  SCALE-006 SCALE-007 SCALE-008 SCALE-009
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
   SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
@@ -59,8 +59,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 89 ]; then
-  err "internal guard bug: expected 89 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 90 ]; then
+  err "internal guard bug: expected 90 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -201,8 +201,17 @@ need_pattern RESIL-S03 deploy/helm/probectl/values-multitenant.yaml 'replicaCoun
 need_pattern RESIL-S03 internal/control/clusterapi.go 'Retry-After|writer_unavailable'
 need_pattern RESIL-S03 internal/control/cluster_test.go 'TestWriteFenceDuringFailover|Retry-After|writer_unavailable'
 need_pattern RESIL-S03 cmd/probectl-control/ha_reference_coherence_test.go 'TestMediumReferenceShipsCoherentTopology|replicaCount: 3|PodDisruptionBudget'
-need_pattern SCALE-007 internal/pipeline/cardinality_test.go 'tenant.*unaffected|TenantDropped'
-need_pattern SCALE-007 internal/fairness 'tenant|quota|limit'
+need_pattern SCALE-006 internal/pipeline/cardinality.go 'DefaultMaxSeriesPerAgent|DefaultMaxSeriesPerTenant|TenantActiveSeries|TenantDropped'
+need_pattern SCALE-006 internal/pipeline/cardinality_test.go 'TestCardinalityStatsExposeTenantActiveSeries|tenant.*unaffected|TenantDropped'
+need_pattern SCALE-006 internal/pipeline/otlp_fairness_test.go 'OTLPCardinalityCapAndFairness|fairness gate shed nothing'
+need_pattern SCALE-006 internal/fairness 'tenant|quota|limit'
+need_pattern SCALE-006 cmd/probectl-control/builders.go 'WithFairness|WithCardinalityCaps|WithWriteWorkers'
+need_pattern SCALE-007 internal/bus/kafka.go 'BOUNDED in-flight|ErrPublishShed|Stats\(\)|Flush blocks until every record'
+need_pattern SCALE-007 internal/pipeline/consumer.go 'BOUNDED channel|WriteQueueSaturated|writeWithRetry|dead-letter publish failed'
+need_pattern SCALE-007 internal/pipeline/durability_barrier_test.go 'TestDecoupledHandlerWaitsForDurableWrite|TestDecoupledTrueLossDoesNotCommit'
+need_pattern SCALE-007 internal/pipeline/retry_dlq_test.go 'TestStoreWriteRetriesTransientFailure|TestStoreWriteExhaustionDeadLetters|TestDLQPublishFailureIsCountedLoss'
+need_pattern SCALE-007 internal/agenttransport/service.go 'Flush|durability barrier|publish not durable'
+need_pattern SCALE-007 internal/agenttransport/streamresults_resilience_test.go 'TestStreamResultsRefusesAckWhenFlushFails|ack sent before the bus durability barrier'
 need_pattern SCALE-008 internal/bus/kafka.go 'Commit|Batch|TenantKey|key'
 need_pattern SCALE-009 internal/store/flowstore/clickhouse.go 'PARTITION BY \(tenant_id|TTL|retention'
 need_pattern SCALE-009 internal/store/otelstore/clickhouse.go 'PARTITION BY \(tenant_id|TTL|retention'

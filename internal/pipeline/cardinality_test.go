@@ -93,6 +93,30 @@ func TestCardinalityKnownSeriesKeepFlowing(t *testing.T) {
 	}
 }
 
+func TestCardinalityStatsExposeTenantActiveSeries(t *testing.T) {
+	l := NewCardinalityLimiter(100, 100)
+	l.Filter("tenant-a", "agent-1", seriesFor("a1"))
+	l.Filter("tenant-a", "agent-1", seriesFor("a2"))
+	l.Filter("tenant-a", "agent-2", seriesFor("a1"))
+	l.Filter("tenant-b", "agent-1", seriesFor("b1"))
+
+	st := l.Stats()
+	if st.ActiveSeries != 3 {
+		t.Fatalf("active series = %d, want 3", st.ActiveSeries)
+	}
+	if got := st.TenantActiveSeries["tenant-a"]; got != 2 {
+		t.Fatalf("tenant-a active series = %d, want 2", got)
+	}
+	if got := st.TenantActiveSeries["tenant-b"]; got != 1 {
+		t.Fatalf("tenant-b active series = %d, want 1", got)
+	}
+
+	st.TenantActiveSeries["tenant-a"] = 999
+	if got := l.Stats().TenantActiveSeries["tenant-a"]; got != 2 {
+		t.Fatalf("tenant active-series map must be a snapshot copy, got %d", got)
+	}
+}
+
 // The per-tenant wall holds across many agents.
 func TestCardinalityPerTenantWall(t *testing.T) {
 	l := NewCardinalityLimiter(1000, 5)

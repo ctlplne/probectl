@@ -197,10 +197,11 @@ func (l *CardinalityLimiter) Filter(tenant, agent string, series []tsdb.Series) 
 
 // CardinalityStats reports the rejection counters.
 type CardinalityStats struct {
-	Dropped       uint64
-	Evicted       uint64 // identities freed by the idle sweep (SCALE-003)
-	ActiveSeries  int    // live identities across all tenants (the memory bound)
-	TenantDropped map[string]uint64
+	Dropped            uint64
+	Evicted            uint64 // identities freed by the idle sweep (SCALE-003)
+	ActiveSeries       int    // live identities across all tenants (the memory bound)
+	TenantActiveSeries map[string]int
+	TenantDropped      map[string]uint64
 }
 
 // Stats snapshots the counters (per-tenant drops included, for fairness
@@ -208,9 +209,18 @@ type CardinalityStats struct {
 func (l *CardinalityLimiter) Stats() CardinalityStats {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := CardinalityStats{Dropped: l.dropped, Evicted: l.evicted, TenantDropped: map[string]uint64{}}
+	out := CardinalityStats{
+		Dropped:            l.dropped,
+		Evicted:            l.evicted,
+		TenantActiveSeries: map[string]int{},
+		TenantDropped:      map[string]uint64{},
+	}
 	for t, ts := range l.tenants {
-		out.ActiveSeries += len(ts.all)
+		active := len(ts.all)
+		out.ActiveSeries += active
+		if active > 0 {
+			out.TenantActiveSeries[t] = active
+		}
 		if ts.dropped > 0 {
 			out.TenantDropped[t] = ts.dropped
 		}
