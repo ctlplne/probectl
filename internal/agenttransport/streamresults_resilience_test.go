@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -74,6 +75,12 @@ func TestStreamResultsRestampsPayloadIdentityFromMTLS(t *testing.T) {
 	stream := &streamResultsTestStream{
 		ctx:  ctx,
 		reqs: []*agentv1.StreamResultsRequest{{Payload: payload}},
+		onSendAndClose: func() error {
+			if !capture.flushed {
+				return errors.New("ack sent before the bus durability barrier")
+			}
+			return nil
+		},
 	}
 	svc := &service{
 		bus: capture,
@@ -108,6 +115,41 @@ func TestStreamResultsRestampsPayloadIdentityFromMTLS(t *testing.T) {
 	}
 }
 
+func TestStreamResultsRefusesAckWhenFlushFails(t *testing.T) {
+	ctx := contextWithAgentIdentity(t, "tenant-a", "agent-a")
+	payload, err := proto.Marshal(&resultv1.Result{
+		CanaryType:        "icmp",
+		ServerAddress:     "192.0.2.30",
+		StartTimeUnixNano: 1,
+		DurationNano:      int64(time.Millisecond),
+		Success:           true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	capture := &captureFlushBus{flushErr: errors.New("broker flush failed")}
+	stream := &streamResultsTestStream{
+		ctx:  ctx,
+		reqs: []*agentv1.StreamResultsRequest{{Payload: payload}},
+	}
+	svc := &service{
+		bus: capture,
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+
+	err = svc.StreamResults(stream)
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("StreamResults error = %v, want Unavailable", err)
+	}
+	if stream.ack != nil {
+		t.Fatalf("StreamResults sent ACK after failed broker flush: %+v", stream.ack)
+	}
+	if !capture.flushed {
+		t.Fatal("StreamResults returned before exercising the bus durability barrier")
+	}
+}
+
 type dropPublishBus struct{}
 
 func (dropPublishBus) Publish(context.Context, string, []byte, []byte) error {
@@ -117,10 +159,11 @@ func (dropPublishBus) Subscribe(context.Context, string, string, bus.Handler) er
 func (dropPublishBus) Close() error                                                 { return nil }
 
 type captureFlushBus struct {
-	topic   string
-	key     []byte
-	value   []byte
-	flushed bool
+	topic    string
+	key      []byte
+	value    []byte
+	flushed  bool
+	flushErr error
 }
 
 func (b *captureFlushBus) Publish(_ context.Context, topic string, key, value []byte) error {
@@ -134,14 +177,15 @@ func (b *captureFlushBus) Subscribe(context.Context, string, string, bus.Handler
 func (b *captureFlushBus) Close() error                                                 { return nil }
 func (b *captureFlushBus) Flush(context.Context) error {
 	b.flushed = true
-	return nil
+	return b.flushErr
 }
 
 type streamResultsTestStream struct {
 	grpc.ServerStream
-	ctx  context.Context
-	reqs []*agentv1.StreamResultsRequest
-	ack  *agentv1.StreamResultsResponse
+	ctx            context.Context
+	reqs           []*agentv1.StreamResultsRequest
+	ack            *agentv1.StreamResultsResponse
+	onSendAndClose func() error
 }
 
 func (s *streamResultsTestStream) Context() context.Context { return s.ctx }
@@ -156,6 +200,11 @@ func (s *streamResultsTestStream) Recv() (*agentv1.StreamResultsRequest, error) 
 }
 
 func (s *streamResultsTestStream) SendAndClose(resp *agentv1.StreamResultsResponse) error {
+	if s.onSendAndClose != nil {
+		if err := s.onSendAndClose(); err != nil {
+			return err
+		}
+	}
 	s.ack = resp
 	return nil
 }
