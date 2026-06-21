@@ -32,6 +32,7 @@ func TestOperatingCostModelDocumentsTierWorksheet(t *testing.T) {
 	for _, want := range []string{
 		"Pending `make scale-fullstack TIER=L` receipt",
 		"Pending `make scale-fullstack TIER=XL` receipt",
+		"Pending `make scale-fullstack TIER=XXL` receipt",
 		"cost claim moves with the performance claim",
 	} {
 		if !strings.Contains(doc, want) {

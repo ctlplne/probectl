@@ -66,7 +66,7 @@ type HotPathSLO struct {
 
 // HotPathCatalog returns the GA hot-path SLO denominator. These are deliberately
 // conservative GA service objectives, not reference-hardware proof rows: PERF-001
-// owns L/XL validation, while this catalog makes every served path's target and
+// owns L/XL/XXL validation, while this catalog makes every served path's target and
 // receipt explicit enough for CI/review to guard.
 func HotPathCatalog() []HotPathSLO {
 	controlTrace := HotPathMeasurement{

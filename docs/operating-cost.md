@@ -47,8 +47,9 @@ tenant-specific retention overrides.
 | M | Nightly M guard | 320 | 8 | 56 vCPU, 192 GiB RAM, 5,472 GiB hot disk | 2,715 USD | 8.48 USD |
 | L | Pending `make scale-fullstack TIER=L` receipt | 3,200 | 32 | 216 vCPU, 752 GiB RAM, 29,696 GiB hot disk | 11,377 USD | 3.56 USD |
 | XL | Pending `make scale-fullstack TIER=XL` receipt | 19,200 | 64 | 784 vCPU, 2,784 GiB RAM, 112,640 GiB hot disk | 42,000 USD | 2.19 USD |
+| XXL | Pending `make scale-fullstack TIER=XXL` receipt | 100,000 | 100 | 2,400 vCPU, 9,600 GiB RAM, 600,000 GiB hot disk | 158,400 USD | 1.58 USD |
 
-Do not treat the L/XL prices as verified throughput prices until the matching
+Do not treat the L/XL/XXL prices as verified throughput prices until the matching
 `scale-fullstack` result rows are recorded. The worksheet is tied to those rows
 so the cost claim moves with the performance claim.
 

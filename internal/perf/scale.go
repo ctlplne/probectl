@@ -2,7 +2,7 @@
 
 package perf
 
-// The S48 L/XL scale gate: the S/M/L/XL reference-architecture load profiles
+// The S48 L/XL/XXL scale gate: the S/M/L/XL/XXL reference-architecture load profiles
 // (PRD §5.4), the numeric SLOs they are validated against, and the
 // multi-tenant NOISY-NEIGHBOR scenario (one tenant flooding must not bleed
 // into another tenant's experience — F57, the M14 milestone line).
@@ -10,7 +10,7 @@ package perf
 // ⚠ The numeric SLO targets are PROVISIONAL / UNVERIFIED (SCALE-004). CLAUDE.md
 // §2 lists numeric SLO targets as a human-owned open decision: these values are
 // engineering estimates recorded so the gate is runnable end to end. They become
-// VERIFIED only when a full L/XL run on reference hardware is recorded in
+// VERIFIED only when a full L/XL/XXL run on reference hardware is recorded in
 // docs/scale-gate.md — that run is the separate EXC-GATE-01 epic, NOT this
 // in-process gate. The in-process gate proves the gate's machinery (profiles
 // drive, the per-tenant fairness gate SHEDS a flooding neighbor — a timing-
@@ -40,10 +40,11 @@ type Tier string
 
 // The reference tiers (PRD §5.4).
 const (
-	TierS  Tier = "S"  // homelab/compose, single-tenant, ≤~25 agents
-	TierM  Tier = "M"  // HA K8s, small pooled multi-tenant, hundreds of agents
-	TierL  Tier = "L"  // sharded, pooled many-tenant, thousands of agents
-	TierXL Tier = "XL" // MSP-scale pooled+siloed mix, tens of thousands of agents
+	TierS   Tier = "S"   // homelab/compose, single-tenant, ≤~25 agents
+	TierM   Tier = "M"   // HA K8s, small pooled multi-tenant, hundreds of agents
+	TierL   Tier = "L"   // sharded, pooled many-tenant, thousands of agents
+	TierXL  Tier = "XL"  // MSP-scale pooled+siloed mix, tens of thousands of agents
+	TierXXL Tier = "XXL" // 100k-agent provider fan-out envelope
 )
 
 // ScaleSLO is the numeric gate for one tier — PROVISIONAL / UNVERIFIED (see the
@@ -118,6 +119,15 @@ func Profiles(scale float64) []Profile {
 			},
 			SLO:     ScaleSLO{MinIngestThroughput: 25000, MaxPublishP95: 200 * time.Millisecond, MaxNoisyInflation: 2},
 			Comment: "MSP-scale pooled mix, tens of thousands of agents",
+		},
+		{
+			Tier: TierXXL,
+			Ingest: IngestConfig{
+				Tenants: 100, AgentsPerTenant: s(1000), TestsPerAgent: 5,
+				ResultsPerTest: s(20), Producers: 64, SettleTimeout: 20 * time.Minute,
+			},
+			SLO:     ScaleSLO{MinIngestThroughput: 100000, MaxPublishP95: 250 * time.Millisecond, MaxNoisyInflation: 2},
+			Comment: "100k-agent provider fan-out envelope",
 		},
 	}
 }

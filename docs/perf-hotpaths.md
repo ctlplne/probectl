@@ -5,7 +5,7 @@ user-visible probectl hot paths. It answers a simple operational question:
 "when a tenant clicks, queries, ingests, or asks, what is fast enough?"
 
 These rows are **target definitions plus measurement receipts**. They do not
-replace the L/XL reference-hardware scale proof in
+replace the L/XL/XXL reference-hardware scale proof in
 [`scale-gate.md`](scale-gate.md). PERF-001 owns that external measurement. This
 catalog closes the separate gap where most hot paths had no written p50/p95/p99
 target and no receipt to measure against.

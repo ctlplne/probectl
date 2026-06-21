@@ -145,7 +145,7 @@ func TestDriveFullStackQueryLegCatchesScopingErrors(t *testing.T) {
 	}
 }
 
-// SCALE-002: L/XL profiles have more than eight tenants. The full-stack gate
+// SCALE-002: L/XL/XXL profiles have more than eight tenants. The full-stack gate
 // must check every tenant, because a missing tenant past the old sample window
 // can still satisfy the namespace total count.
 func TestDriveFullStackQueryLegChecksEveryTenant(t *testing.T) {

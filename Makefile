@@ -202,9 +202,9 @@ editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test)
 	$(GO) test -tags probectl_core -count=1 $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
 
 .PHONY: scale-gate
-scale-gate: ## The S48 L/XL scale gate at FULL scale (reference hardware): make scale-gate TIER=L
+scale-gate: ## The S48 L/XL/XXL scale gate at FULL scale (reference hardware): make scale-gate TIER=L
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
-		$(GO) test -count=1 -v -timeout 30m -run '^TestScaleGate' ./internal/perf/
+		$(GO) test -count=1 -v -timeout 120m -run '^TestScaleGate' ./internal/perf/
 
 .PHONY: scale-gate-m
 scale-gate-m: ## Sprint 17 nightly regression guard: the M profile (results + flow planes) at CI scale — fails on any SLO/materiality violation.
@@ -220,29 +220,29 @@ load-test-smoke: ## U-005/SCALE-001 S-tier FULL-STACK load smoke (real Kafka + P
 		$(GO) test -tags=integration -count=1 -v -timeout 12m -run '^TestFullStack(Load|Flow)Gate$$' ./internal/perf/
 
 .PHONY: load-test
-load-test: ## U-005/SCALE-001 full-stack L/XL load gate on reference hardware: make load-test TIER=L (commit the result rows to docs/scale-gate.md).
+load-test: ## U-005/SCALE-001 full-stack L/XL/XXL load gate on reference hardware: make load-test TIER=L (commit the result rows to docs/scale-gate.md).
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_PROM_URL=$(or $(PROBECTL_PROM_URL),http://localhost:9090) \
 	PROBECTL_FLOWSTORE_URL=$(or $(PROBECTL_FLOWSTORE_URL),http://probectl:probectl@localhost:8123) \
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
-		$(GO) test -tags=integration -count=1 -v -timeout 60m -run '^TestFullStack(Load|Flow)Gate$$' ./internal/perf/
+		$(GO) test -tags=integration -count=1 -v -timeout 180m -run '^TestFullStack(Load|Flow)Gate$$' ./internal/perf/
 
 .PHONY: scale-fullstack
-scale-fullstack: ## EXC-GATE-01: the full reference-hardware scale gate — in-process scale gate + full-stack load gates at TIER (L|XL) end to end through real Kafka + Prometheus + ClickHouse. Run on reference HW, then record the result rows in docs/scale-gate.md and promote the PROVISIONAL SLOs. See the "Reference-hardware full run + 72h soak" runbook there.
+scale-fullstack: ## EXC-GATE-01: the full reference-hardware scale gate — in-process scale gate + full-stack load gates at TIER (L|XL|XXL) end to end through real Kafka + Prometheus + ClickHouse. Run on reference HW, then record the result rows in docs/scale-gate.md and promote the PROVISIONAL SLOs. See the "Reference-hardware full run + 72h soak" runbook there.
 	@echo ">> scale-fullstack TIER=$(or $(TIER),L) — armed absolute SLOs (PROBECTL_SCALE=1)"
 	@echo ">> step 1/3: in-process scale gate (bus -> pipeline -> store, both planes)"
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
-		$(GO) test -count=1 -v -timeout 60m -run '^TestScaleGate' ./internal/perf/
+		$(GO) test -count=1 -v -timeout 180m -run '^TestScaleGate' ./internal/perf/
 	@echo ">> step 2/3: full-stack result load gate (real Kafka + Prometheus, end to end)"
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_PROM_URL=$(or $(PROBECTL_PROM_URL),http://localhost:9090) \
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
-		$(GO) test -tags=integration -count=1 -v -timeout 90m -run '^TestFullStackLoadGate$$' ./internal/perf/
+		$(GO) test -tags=integration -count=1 -v -timeout 240m -run '^TestFullStackLoadGate$$' ./internal/perf/
 	@echo ">> step 3/3: full-stack flow load gate (real Kafka + ClickHouse, end to end)"
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_FLOWSTORE_URL=$(or $(PROBECTL_FLOWSTORE_URL),http://probectl:probectl@localhost:8123) \
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
-		$(GO) test -tags=integration -count=1 -v -timeout 90m -run '^TestFullStackFlowGate$$' ./internal/perf/
+		$(GO) test -tags=integration -count=1 -v -timeout 240m -run '^TestFullStackFlowGate$$' ./internal/perf/
 	@echo ">> scale-fullstack TIER=$(or $(TIER),L) PASSED — record the RESULT ROW lines in docs/scale-gate.md and promote the SLOs (they stay UNVERIFIED until recorded)."
 
 .PHONY: perf-smoke

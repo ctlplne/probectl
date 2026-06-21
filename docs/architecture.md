@@ -735,7 +735,7 @@ across many tenants sharing the pooled Postgres stores, and asserts isolation
 bounded p95 (the 95th-percentile latency: what the slowest one-in-twenty query
 experiences). This is the first place a pooled-cardinality or RLS-cost problem
 would surface. `Baseline` holds the generous floors and ceilings that the CI
-`perf-smoke` job asserts; the larger L/XL scale gate and the fairness work both
+`perf-smoke` job asserts; the larger L/XL/XXL scale gate and the fairness work both
 build on this same harness (see [`scale-gate.md`](scale-gate.md)).
 
 ## Synthetic result views

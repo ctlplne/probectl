@@ -67,7 +67,7 @@ supports the tenant-facing attestation.*
 | Control | What probectl does | Code | Test / gate |
 |---|---|---|---|
 | SOC 2 **CC7.4 / A1.2**, ISO **A.8.13 / A.5.30** (backup, recovery, continuity) | Encrypted backups; restore drill in CI; DR runbook; multi-region metadata replication | `deploy/`, `docs/ops/dr.md`, `docs/ops/backup-restore.md` | `backup-restore-drill` / `failover-drill` CI jobs; DR-drill-on-real-infra is the operator action (see `docs/ops/dr.md`) |
-| SOC 2 **A1.1**, ISO **A.8.6** (capacity) | Scale gate (L/XL profiles) + fairness/noisy-neighbor enforcement; the full reference-HW run + 72h soak | `internal/perf/`, `internal/fairness/` | `scale-gate-m` (nightly), `make scale-fullstack` (reference HW — see `docs/scale-gate.md`) |
+| SOC 2 **A1.1**, ISO **A.8.6** (capacity) | Scale gate (L/XL/XXL profiles) + fairness/noisy-neighbor enforcement; the full reference-HW run + 72h soak | `internal/perf/`, `internal/fairness/` | `scale-gate-m` (nightly), `make scale-fullstack` (reference HW — see `docs/scale-gate.md`) |
 
 ## Confidentiality & privacy (data rights)
 

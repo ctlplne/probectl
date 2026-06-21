@@ -11,7 +11,7 @@ import (
 
 // The CI-scale gate run: proves the GATE end to end (profiles drive, SLOs
 // evaluate, noisy-neighbor isolation holds) on every CI pass. The full-scale
-// L/XL run is `make scale-gate TIER=L` on reference hardware (PROBECTL_SCALE_TIER
+// L/XL/XXL run is `make scale-gate TIER=L` on reference hardware (PROBECTL_SCALE_TIER
 // + PROBECTL_SCALE=1) — its numbers are recorded in docs/scale-gate.md.
 func TestScaleGateCI(t *testing.T) {
 	tier := Tier(os.Getenv("PROBECTL_SCALE_TIER"))
@@ -46,12 +46,34 @@ func TestScaleGateCI(t *testing.T) {
 	}
 }
 
+func TestScaleGateFleetEnvelopeCI(t *testing.T) {
+	tier := Tier(os.Getenv("PROBECTL_SCALE_TIER"))
+	scale := 0.05
+	if tier == "" {
+		tier = TierM
+	}
+	if os.Getenv("PROBECTL_SCALE") == "1" {
+		scale = 1
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	rep, err := DriveFleetEnvelope(ctx, tier, scale)
+	if err != nil {
+		t.Fatalf("fleet envelope %s: %v", tier, err)
+	}
+	t.Logf("RESULT ROW (docs/scale-gate.md): %s", rep)
+	if len(rep.Violations) > 0 {
+		t.Fatalf("FLEET ENVELOPE FAILED:\n%v", rep.Violations)
+	}
+}
+
 func TestProfilesShapeAndScaling(t *testing.T) {
 	full := Profiles(1)
-	if len(full) != 4 {
-		t.Fatalf("want 4 reference tiers, got %d", len(full))
+	if len(full) != 5 {
+		t.Fatalf("want 5 reference tiers, got %d", len(full))
 	}
-	// Tier ordering of ambition: S < M < L < XL by total results.
+	// Tier ordering of ambition: S < M < L < XL < XXL by total results.
 	for i := 1; i < len(full); i++ {
 		if full[i].Ingest.TotalResults() <= full[i-1].Ingest.TotalResults() {
 			t.Errorf("tier %s must be larger than %s", full[i].Tier, full[i-1].Tier)
@@ -74,8 +96,42 @@ func TestProfilesShapeAndScaling(t *testing.T) {
 			t.Errorf("%s: missing the noisy-neighbor SLO (F57)", p.Tier)
 		}
 	}
-	if _, err := ProfileFor("XXL", 1); err == nil {
+	xxl, err := ProfileFor(TierXXL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := xxl.Ingest.Tenants * xxl.Ingest.AgentsPerTenant; got != 100000 {
+		t.Fatalf("XXL must be the 100k-agent envelope, got %d agents", got)
+	}
+	if _, err := ProfileFor("XXXL", 1); err == nil {
 		t.Error("unknown tier must error")
+	}
+}
+
+func TestFleetEnvelopeXXLCovers100kFanout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	rep, err := DriveFleetEnvelope(ctx, TierXXL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.RegisteredAgents != 100000 {
+		t.Fatalf("XXL registered %d agents, want 100000", rep.RegisteredAgents)
+	}
+	if rep.Heartbeats != 100000 {
+		t.Fatalf("XXL heartbeated %d agents, want 100000", rep.Heartbeats)
+	}
+	if rep.ReconnectAgents != 100000 {
+		t.Fatalf("XXL reconnected %d agents, want 100000", rep.ReconnectAgents)
+	}
+	if rep.TenantsQueried != 100 {
+		t.Fatalf("XXL queried %d tenants, want 100", rep.TenantsQueried)
+	}
+	if rep.DrainBatches <= 1 {
+		t.Fatalf("XXL reconnect storm must drain in bounded batches, got %d", rep.DrainBatches)
+	}
+	if len(rep.Violations) > 0 {
+		t.Fatalf("XXL fleet envelope violations: %v", rep.Violations)
 	}
 }
 

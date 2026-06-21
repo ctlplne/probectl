@@ -1,4 +1,4 @@
-# The L/XL scale gate
+# The L/XL/XXL scale gate
 
 This is the test that proves probectl actually holds up at scale — not just that
 the unit tests pass. It drives the reference-architecture load profiles against
@@ -22,7 +22,7 @@ deployment sees.
 
 The numeric SLO targets below are engineering estimates, recorded so the gate is
 runnable end to end. They become validated capability numbers only when a full
-L/XL run on reference hardware is recorded in the tables further down — until
+L/XL/XXL run on reference hardware is recorded in the tables further down — until
 then, treat them as targets, not promises. Change them in
 `internal/perf/scale.go` (the `Profiles` function) and this table together so
 the two never drift.
@@ -33,6 +33,7 @@ the two never drift.
 | M  | 8 tenants × 40 agents | 3,000 results/s | 50 ms | ≤ 2× |
 | L  | 32 tenants × 100 agents | 10,000 results/s | 100 ms | ≤ 2× |
 | XL | 64 tenants × 300 agents | 25,000 results/s | 200 ms | ≤ 2× |
+| XXL | 100 tenants × 1000 agents | 100,000 results/s | 250 ms | ≤ 2× |
 
 Two subtleties make these numbers honest:
 
@@ -81,7 +82,7 @@ build. The p95-inflation ceiling still applies, but only as the *secondary*
 check that arms on reference hardware where latency is material.
 
 **SLO status: UNVERIFIED.** The numeric throughput/latency SLOs remain
-PROVISIONAL engineering estimates. They become *verified* only when a full L/XL
+PROVISIONAL engineering estimates. They become *verified* only when a full L/XL/XXL
 run on reference hardware is recorded in the tables below — that run is the
 separate EXC-GATE-01 epic and is **not** performed by this in-process gate. Until
 then, treat every absolute SLO number here as unverified; the in-process gate
@@ -109,9 +110,9 @@ in-process gate; the next is the full-stack one.
   `make scale-gate-m` — the M tier, both planes, at CI scale — and then the
   M-tier full-stack gates against real Kafka + Prometheus + ClickHouse as a
   second step. A regression that breaks an SLO, drops a record, or leaks a
-  tenant fails the night's build. It's the standing guard until the full L/XL
+  tenant fails the night's build. It's the standing guard until the full L/XL/XXL
   reference run is recorded.
-- **Full scale (reference hardware):** `make scale-gate TIER=L` (or `XL`) sets
+- **Full scale (reference hardware):** `make scale-gate TIER=L` (or `XL` / `XXL`) sets
   `PROBECTL_SCALE=1` and runs the real shape with the absolute SLOs armed. Record
   the numbers here when run:
 
@@ -119,6 +120,18 @@ in-process gate; the next is the full-stack one.
 |---|---|---|---|---|---|---|
 | _pending_ | L | _to be recorded_ | — | — | — | — |
 | _pending_ | XL | _to be recorded_ | — | — | — | — |
+| _pending_ | XXL | _to be recorded_ | — | — | — | — |
+
+The same `^TestScaleGate` invocation also logs the fleet-envelope row. This is
+the control-plane fan-out proof: every tier registers agents, heartbeats them,
+reconnects the fleet, drains bounded offline result batches, and queries every
+tenant's fleet counts.
+
+| Date | Tier | Hardware | Registered agents | Heartbeats | Reconnect agents | Drained results | Tenants queried | Verdict |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| _pending_ | L | _to be recorded_ | — | — | — | — | — | — |
+| _pending_ | XL | _to be recorded_ | — | — | — | — | — | — |
+| _pending_ | XXL | _to be recorded_ | — | — | — | — | — | — |
 
 ## The full-stack load gate
 
@@ -144,19 +157,21 @@ incomplete ingest, scoping error, or unbounded ClickHouse part growth.
   compose stack (`make load-test-smoke`, real Kafka + Prometheus + ClickHouse).
   Proves the harness, not the platform.
 - **Reference hardware (operator-scheduled):** `make compose-up && make load-test
-  TIER=L` (then `XL`). The tests log `RESULT ROW` lines for the result plane and
-  the flow plane — commit them below; once both tiers pass, the SLOs above stop
-  being provisional.
+  TIER=L` (then `XL` and `XXL`). The tests log `RESULT ROW` lines for the result
+  plane and the flow plane — commit them below; once the selected reference tiers
+  pass, the matching SLO rows above stop being provisional.
 
 | Date | Tier | Hardware | Throughput (results/s) | Publish p95 | Query p95 | Series confirmed | Verdict |
 |---|---|---|---|---|---|---|---|
 | _pending_ | L | _to be recorded_ | — | — | — | — | — |
 | _pending_ | XL | _to be recorded_ | — | — | — | — | — |
+| _pending_ | XXL | _to be recorded_ | — | — | — | — | — |
 
 | Date | Tier | Hardware | Throughput (flows/s) | Insert p95 | Query p95 | Rows confirmed | Active parts | Verdict |
 |---|---|---|---|---|---|---|---|---|
 | _pending_ | L | _to be recorded_ | — | — | — | — | — | — |
 | _pending_ | XL | _to be recorded_ | — | — | — | — | — | — |
+| _pending_ | XXL | _to be recorded_ | — | — | — | — | — | — |
 
 Run against a fresh stack (`make compose-down && make compose-up`): the consumer
 reads its topics from the start, and persistent stores keep prior runs' data
@@ -178,33 +193,37 @@ long-running `test/` soak covers endurance. CI-scale numbers prove the gate's
 This is the operator runbook for the single command that promotes the
 PROVISIONAL SLOs to committed numbers — `make scale-fullstack`. It runs **both**
 harnesses above at full scale, back to back, with the absolute SLOs armed
-(`PROBECTL_SCALE=1`): first the in-process scale gate (both result + flow planes,
-the noisy-neighbor fairness assertion at the material 5 ms floor), then the
-full-stack result load gate end to end through real Kafka + Prometheus, then the
-full-stack flow load gate end to end through real Kafka + ClickHouse. It is **not
-run in CI** and is **not runnable on a laptop** — it needs reference hardware
-(below) because the absolute throughput/latency SLOs only mean anything on the
-sizing a real deployment uses.
+(`PROBECTL_SCALE=1`): first the in-process scale gate (result + flow planes, the
+fleet-envelope fan-out pass, and the noisy-neighbor fairness assertion at the
+material 5 ms floor), then the full-stack result load gate end to end through
+real Kafka + Prometheus, then the full-stack flow load gate end to end through
+real Kafka + ClickHouse. It is **not run in CI** and is **not runnable on a
+laptop** — it needs reference hardware (below) because the absolute
+throughput/latency SLOs only mean anything on the sizing a real deployment uses.
 
-> **Until a row is recorded in both tables above, the SLOs remain UNVERIFIED /
-> PROVISIONAL** (see the status note near the top). `make scale-fullstack`
-> passing on reference hardware — and the result rows committed here — is what
-> flips them to committed. Do not edit the SLO numbers to "pass"; ratchet only
-> from a recorded run.
+> **Until rows are recorded in the burst and fleet-envelope tables above, the
+> SLOs remain UNVERIFIED / PROVISIONAL** (see the status note near the top).
+> `make scale-fullstack` passing on reference hardware — and the result rows
+> committed here — is what flips them to committed. Do not edit the SLO numbers
+> to "pass"; ratchet only from a recorded run.
 
 ### Required reference hardware
 
-The L/XL profiles are sized for, at minimum:
+The L/XL/XXL profiles are sized for, at minimum:
 
 - **Control plane:** 16 vCPU / 32 GiB, NVMe-backed, on a low-latency LAN to the
   data stores (not a shared CI runner — CI numbers are mechanics-only).
 - **Kafka:** a 3-broker cluster (or a single broker provisioned for the tier's
-  results/s floor — 10k/s at L, 25k/s at XL) with TLS in transit.
+  results/s floor — 10k/s at L, 25k/s at XL, 100k/s at XXL) with TLS in transit.
 - **Postgres** (pooled RLS) and **ClickHouse** (flow/eBPF) sized for the tier,
   plus a persistent **Prometheus** with the remote-write receiver enabled.
 - For the 72h soak: the same stack left running undisturbed, with host-level
   RSS / file-descriptor / Kafka-lag / ClickHouse-part-count metrics scraped so
   drift is visible.
+- **XXL floor:** the XXL run is the committed 100k-agent provider fan-out
+  envelope (100 tenants × 1000 agents). It must run on a horizontally scaled
+  cluster sized for that floor; a laptop or single shared CI runner can prove
+  only the harness mechanics, never the XXL platform claim.
 
 ### The command
 
@@ -215,6 +234,7 @@ make compose-down && make compose-up        # fresh stack (consumer reads from s
 # the full run, per tier — record each RESULT ROW in the tables above:
 make scale-fullstack TIER=L
 make scale-fullstack TIER=XL
+make scale-fullstack TIER=XXL
 ```
 
 Point it at a real cluster by exporting the brokers / Prometheus instead of the
@@ -224,7 +244,7 @@ compose defaults:
 PROBECTL_TEST_KAFKA=broker1:9093,broker2:9093,broker3:9093 \
 PROBECTL_PROM_URL=https://prom.internal:9090 \
 PROBECTL_FLOWSTORE_URL=https://clickhouse.internal:8123 \
-  make scale-fullstack TIER=XL
+  make scale-fullstack TIER=XXL
 ```
 
 ### The 72h soak (leak / compaction-drift guard)
@@ -241,11 +261,21 @@ scraping host + store trend metrics. A minimal driver:
 # compose-down between waves — the point is to watch drift accumulate):
 end=$(( $(date +%s) + 72*3600 ))
 while [ "$(date +%s)" -lt "$end" ]; do
-  PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=L make scale-fullstack TIER=L || break
+  PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=XXL make scale-fullstack TIER=XXL || break
 done
 # in parallel: scrape control-plane RSS/goroutines/FDs, Kafka consumer lag,
 # and ClickHouse active-part count for the full window.
 ```
+
+Record the soak receipt here. The 24-hour row is the reduced early-warning pass;
+the 72-hour row is the committed endurance receipt.
+
+| Date | Tier | Window | Hardware | Waves | RSS/FD drift | Kafka lag | ClickHouse parts | Verdict |
+|---|---|---|---|---:|---|---|---|---|
+| _pending_ | L | 24h | _to be recorded_ | — | — | — | — | — |
+| _pending_ | L | 72h | _to be recorded_ | — | — | — | — | — |
+| _pending_ | XL | 72h | _to be recorded_ | — | — | — | — | — |
+| _pending_ | XXL | 72h | _to be recorded_ | — | — | — | — | — |
 
 Pass criteria for the soak (record alongside the burst result row):
 

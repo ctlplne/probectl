@@ -14,7 +14,7 @@ package perf
 // Two entry points, one harness (mirroring the in-process gate):
 //   - S tier at CI scale: `make load-test-smoke` (the load-smoke ci job) —
 //     proves the full-stack HARNESS on every pass.
-//   - L/XL at scale 1: `make load-test TIER=L|XL` on reference hardware —
+//   - L/XL/XXL at scale 1: `make load-test TIER=L|XL|XXL` on reference hardware —
 //     the human-scheduled run whose numbers go into docs/scale-gate.md and
 //     flip the SLOs from PROVISIONAL.
 //
@@ -188,7 +188,7 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	// (each tenant sees exactly its own agents×tests success series) and
 	// latency. Enumerate every tenant: total namespace counts can hide a broken
 	// tenant-specific query path, and sampling only the first few tenants misses
-	// exactly the L/XL many-tenant skew this gate is supposed to catch.
+	// exactly the L/XL/XXL many-tenant skew this gate is supposed to catch.
 	perTenant := cfg.AgentsPerTenant * cfg.TestsPerAgent
 	var qLat Latencies
 	for t := 0; t < cfg.Tenants; t++ {

@@ -19,6 +19,7 @@ enrolled agents; "events/s" is sustained bus throughput across all planes.
 | M | ≤ 250 | ≤ 20k | 3 brokers, RF=3 | 3 nodes, 8 vCPU / 32 GiB / 1 TiB NVMe each | 4 vCPU / 16 GiB + replica | VictoriaMetrics 1 node, 8 vCPU / 32 GiB |
 | L | ≤ 2.5k | ≤ 200k | 5+ brokers, RF=3, tiered storage | sharded, 6+ nodes, 16 vCPU / 64 GiB / 2 TiB NVMe | 8 vCPU / 32 GiB + HA replica | VM cluster, 3+ nodes |
 | XL | 10k+ | 1M+ | 9+ brokers, dedicated ZK/KRaft quorum | sharded + replicated, 12+ nodes | 16 vCPU / 64 GiB + HA | VM cluster, sharded |
+| XXL | 100k | 5M+ | 15+ brokers, dedicated KRaft quorum, tiered storage | multi-shard replicated cluster, 24+ nodes | horizontally sharded / silo-aware HA | VM cluster, sharded |
 
 Reference operators (manage the stores on Kubernetes):
 

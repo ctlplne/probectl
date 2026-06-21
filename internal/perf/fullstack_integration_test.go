@@ -17,7 +17,7 @@ import (
 //
 //   - `make load-test-smoke` — S tier at CI scale against the dev compose
 //     stack (the load-smoke ci job): proves the harness on every pass.
-//   - `make load-test TIER=L|XL` — scale 1 on reference hardware: the
+//   - `make load-test TIER=L|XL|XXL` — scale 1 on reference hardware: the
 //     human-scheduled run; copy the logged report row into
 //     docs/scale-gate.md and flip the SLO labels from PROVISIONAL.
 //
@@ -40,6 +40,9 @@ func TestFullStackLoadGate(t *testing.T) {
 	if os.Getenv("PROBECTL_SCALE") == "1" {
 		scale = 1
 		timeout = 55 * time.Minute
+		if tier == TierXXL {
+			timeout = 3 * time.Hour
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -80,6 +83,9 @@ func TestFullStackFlowGate(t *testing.T) {
 	if os.Getenv("PROBECTL_SCALE") == "1" {
 		scale = 1
 		timeout = 55 * time.Minute
+		if tier == TierXXL {
+			timeout = 3 * time.Hour
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

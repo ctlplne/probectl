@@ -45,8 +45,8 @@ Two drivers exercise the core path **agents → bus → stores → query**:
 (Each result produces three series — probe success, probe duration, and one
 custom metric — which is why 2,000 results become 6,000 series.) These sizes are
 intentionally small (sub-second to a few seconds) so the job stays a CI smoke.
-The full L/XL multi-region sizes and the formal noisy-neighbor gate live in the
-full-stack load gate — see [`scale-gate.md`](scale-gate.md).
+The full L/XL/XXL multi-region sizes and the formal noisy-neighbor gate live in
+the full-stack load gate — see [`scale-gate.md`](scale-gate.md).
 
 User-visible hot paths such as RCA, MCP JSON-RPC, topology, what-if, OTLP ingest,
 incident correlation, and Prometheus-compatible reads have their own target
@@ -115,18 +115,19 @@ under concurrency, complementing the dedicated cross-tenant-isolation gate.
   services. This baseline focuses on the load-bearing early-warning signals —
   throughput, query latency, and isolation correctness.
 
-## Producing the soak + scale-gate rows (SCALE-002 / SCALE-020)
+## Producing the soak + scale-gate rows (SCALE-002 / SCALE-005 / SCALE-020)
 
-The L/XL scale-gate rows, the 24-hour reduced-L soak row, and the DR sign-off
+The L/XL/XXL scale-gate rows, the 24-hour reduced-L soak row, the 72-hour XXL
+soak row, and the DR sign-off
 (OPS-005) are **executed measurements on reference hardware** — they are not
 filled from estimates, so the tables stay marked _pending_ until a real run
 produces them. The harness to produce each is committed so the runs are
 reproducible:
 
-- **Scale gate (SCALE-002 / SCALE-001):** `make scale-gate TIER=L` and
-  `make load-test TIER=L` (then `TIER=XL`) on reference hardware; commit the
-  emitted result-plane and flow-plane result rows here and in
-  `docs/scale-gate.md`.
+- **Scale gate (SCALE-002 / SCALE-001 / SCALE-005):** `make scale-gate TIER=L`
+  and `make load-test TIER=L` (then `TIER=XL` and `TIER=XXL`) on reference
+  hardware; commit the emitted fleet-envelope, result-plane, and flow-plane
+  result rows here and in `docs/scale-gate.md`.
 - **24h soak (SCALE-020):** `DURATION=24h ./scripts/soak.sh` against a brought-up
   stack with the control plane running. It samples RSS, bus buffer/shed/handler-
   error, remote-write rejects, and lag (the CORRECT-009 gauges) on an interval

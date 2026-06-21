@@ -34,10 +34,11 @@ func TestCapacityModelDocumentsScaleProfiles(t *testing.T) {
 	for _, want := range []string{
 		"Pending `make scale-fullstack TIER=L` receipt",
 		"Pending `make scale-fullstack TIER=XL` receipt",
-		"Do not sell or capacity-plan L/XL from the provisional numbers alone",
+		"Pending `make scale-fullstack TIER=XXL` receipt",
+		"Do not sell or capacity-plan L/XL/XXL from the provisional numbers alone",
 	} {
 		if !strings.Contains(doc, want) {
-			t.Errorf("capacity.md must keep L/XL receipt caveat %q", want)
+			t.Errorf("capacity.md must keep L/XL/XXL receipt caveat %q", want)
 		}
 	}
 }

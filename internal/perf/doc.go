@@ -7,7 +7,7 @@
 // p50/p95) plus a pooled multi-tenant smoke that asserts tenant-scoped queries
 // stay correct AND bounded under mixed-tenant load. The point is a cheap,
 // repeatable early-warning baseline checked in at GA (M6): a regression guard,
-// not a soak test. The full L/XL scale gate (S48) and the per-tenant fairness
+// not a soak test. The full L/XL/XXL scale gate (S48) and the per-tenant fairness
 // gate (S-T7) reuse and extend these drivers.
 //
 // Two drivers, both pure (no global state):

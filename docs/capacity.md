@@ -23,11 +23,12 @@ provisional until the `scale-fullstack` RESULT ROW receipts are recorded.
 | Tier | Max tenants at SLO | Max hosts / agents at SLO | Result ingest floor | All-plane event budget | Full-stack receipt state |
 | --- | ---: | ---: | ---: | ---: | --- |
 | S | 1 | 25 | 1,500 results/s | 2,000 events/s | CI/dev smoke only; not a platform promise |
-| M | 8 | 320 | 3,000 results/s | 20,000 events/s | Nightly M guard; not an L/XL promise |
+| M | 8 | 320 | 3,000 results/s | 20,000 events/s | Nightly M guard; not an L/XL/XXL promise |
 | L | 32 | 3,200 | 10,000 results/s | 200,000 events/s | Pending `make scale-fullstack TIER=L` receipt |
 | XL | 64 | 19,200 | 25,000 results/s | 1,000,000 events/s | Pending `make scale-fullstack TIER=XL` receipt |
+| XXL | 100 | 100,000 | 100,000 results/s | 5,000,000 events/s | Pending `make scale-fullstack TIER=XXL` receipt |
 
-Do not sell or capacity-plan L/XL from the provisional numbers alone. The
+Do not sell or capacity-plan L/XL/XXL from the provisional numbers alone. The
 `scale-fullstack` receipt is the proof that the real Kafka, Prometheus, and
 ClickHouse path held the target percentiles on reference hardware. Until those
 rows are committed in `docs/scale-gate.md`, treat the table as a sizing target,
@@ -96,7 +97,7 @@ security boundary and keep deletion/export math simple.
 
 | Store | Split key | Rule |
 | --- | --- | --- |
-| Kafka | Tenant bucket and topic namespace | Keep enough partitions that large tenants do not serialize onto one partition. For L and XL, pre-create tenant-bucketed topics and keep replication factor 3 with `min.insync.replicas=2`. |
+| Kafka | Tenant bucket and topic namespace | Keep enough partitions that large tenants do not serialize onto one partition. For L, XL, and XXL, pre-create tenant-bucketed topics and keep replication factor 3 with `min.insync.replicas=2`. |
 | ClickHouse pooled | `tenant_id`, then month/day partition | Move the largest tenants to their own shard or database when one tenant accounts for more than 25% of write volume or query cost. Keep `tenant_id` leading the order key. |
 | ClickHouse siloed/hybrid | Tenant database or data-plane residency | Assign regulated or noisy tenants to their own database/cluster. Their circuit breaker and row policies stay independent from the pooled plane. |
 | TSDB | Tenant label and series hash | Put high-cardinality tenants into their own tenant label shard before raising global series limits. |
@@ -115,6 +116,7 @@ into `docs/scale-gate.md`:
 ```sh
 make scale-fullstack TIER=L
 make scale-fullstack TIER=XL
+make scale-fullstack TIER=XXL
 ```
 
 Until then, use this page to size an initial deployment, reserve disk, and set

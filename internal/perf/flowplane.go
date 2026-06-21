@@ -25,7 +25,7 @@ import (
 // completeness + throughput.
 //
 // In-process gate: memory bus + memory flow store (the same honesty contract
-// as RunScaleGate — it proves the pipeline shape; the L/XL run drives real
+// as RunScaleGate — it proves the pipeline shape; the L/XL/XXL run drives real
 // Kafka + ClickHouse via PROBECTL_FLOWSTORE_URL, runbook in
 // docs/scale-gate.md).
 
