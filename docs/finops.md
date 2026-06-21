@@ -17,6 +17,10 @@ with a **traffic class** (same zone, cross-AZ, cross-region, internet egress),
 multiply the bytes by a **per-class price**, and attribute the result to a
 service and team. Cheap to compute, because the bytes are already flowing.
 
+For the cost of running probectl's own infrastructure, use
+[`operating-cost.md`](operating-cost.md). This page is tenant traffic showback,
+not the operator's monthly run-cost worksheet.
+
 Three ground rules shape the whole feature:
 
 1. **Volume × public pricing, not billing.** Cloud billing APIs differ between
