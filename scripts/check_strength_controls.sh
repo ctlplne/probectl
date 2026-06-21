@@ -28,7 +28,7 @@ ids=(
   SCHEMA-002 SCHEMA-003 SCHEMA-004
   SEC-003 SEC-004
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
-  SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
+  SUPPLY-003 SUPPLY-004 SUPPLY-005 SUPPLY-006 SUPPLY-007
   TENANT-004 TENANT-005 TENANT-006 TENANT-007 TENANT-008
   TEST-006 TEST-007 TEST-008 UX-006 VERIFY-005 VERIFY-006
   WIRE-005 WIRE-006 WIRE-007
@@ -61,8 +61,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 95 ]; then
-  err "internal guard bug: expected 95 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 96 ]; then
+  err "internal guard bug: expected 96 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -403,11 +403,24 @@ need_pattern RED-006 scripts/check_helm_hardening.sh 'RED-003|tag-only|image-int
 need_pattern RED-007 internal/otel/otlp/receiver_test.go 'out-of-tenant|tenant.*mismatch|spoof'
 need_pattern RED-008 scripts/check_cosign_wiring.sh 'cosign|verify'
 need_pattern RED-008 scripts/check_supply_pins.sh 'supply-pins'
-need_pattern SUPPLY-004 .github/workflows/release.yml 'cosign verify|verify-blob'
-need_pattern SUPPLY-005 web/package-lock.json 'integrity'
-need_pattern SUPPLY-005 docs/third-party-licenses.md 'Third-party|License|Module'
-need_pattern SUPPLY-006 scripts/check_action_pins.sh 'SHA-pinned|floating action'
-need_pattern SUPPLY-007 internal/ebpf/integrity.go 'digest'
+need_pattern SUPPLY-003 .github/workflows/release.yml 'cosign sign --yes|steps\.build\.outputs\.digest|cosign verify'
+need_pattern SUPPLY-003 .github/workflows/release.yml 'cosign sign-blob --yes|all artifacts verify|all packages verify'
+need_pattern SUPPLY-003 docs/ops/verify-artifacts.md 'cosign verify-blob|certificate-identity-regexp|release\.yml@refs/tags'
+need_pattern SUPPLY-004 scripts/check_cosign_wiring.sh 'install\.sh, airgap bundle, Ansible package_url/airgap, image signing, and admission policy are fail-closed'
+need_pattern SUPPLY-004 deploy/agent/install.sh 'PROBECTL_VERIFY_COSIGN:-1|PROBECTL_UNVERIFIED_INSTALL_ACK|cosign verify-blob'
+need_pattern SUPPLY-004 deploy/ansible/roles/probectl_agents/tasks/main.yml 'probectl_verify_cosign|cosign verify-blob for the local air-gap package|probectl_airgap_pkg_path'
+need_pattern SUPPLY-004 scripts/airgap-bundle.sh 'PROBECTL_AIRGAP_VERIFY_COSIGN:-1|PROBECTL_AIRGAP_UNVERIFIED_ACK|IMAGE-VERIFICATION.txt'
+need_pattern SUPPLY-005 internal/ebpf/integrity.go 'VerifyObjectDigest|ObjectDigest|internal/crypto|refusing kernel load'
+need_pattern SUPPLY-005 internal/ebpf/trustboundary_test.go 'TestObjectDigestVerificationWiredIntoEveryLoader|TestNoOperatorSuppliedBPFObjectPath|VerifyObjectDigest before the kernel'
+need_pattern SUPPLY-005 internal/ebpf/integrity_test.go 'TestVerifyObjectDigest|tampered|missing'
+need_pattern SUPPLY-006 scripts/check_supply_pins.sh 'supply-pins SELFTEST|UNPINNED npm manifest dependency|UNPINNED Python manifest dependency|TAG-ONLY container'
+need_pattern SUPPLY-006 scripts/check_action_pins.sh 'every workflow action is SHA-pinned|floating action refs'
+need_pattern SUPPLY-006 docs/dependency-policy.md 'exact versions|supply-pins gate|semver ranges|digest pin'
+need_pattern SUPPLY-007 Makefile 'GOVULNCHECK_VERSION|govulncheck'
+need_pattern SUPPLY-007 .github/workflows/security-scan.yml 'govulncheck|npm audit|Gate on High and Critical|severity: CRITICAL,HIGH'
+need_pattern SUPPLY-007 .github/workflows/ci.yml 'govulncheck|Trivy filesystem scan|npm audit'
+need_pattern SUPPLY-007 scripts/check_npm_audit_policy.mjs 'critical advisory|high advisory|npm audit policy: OK'
+need_pattern SUPPLY-007 scripts/verify_all.sh 'govulncheck|trivy fs --scanners vuln --severity CRITICAL,HIGH'
 
 # Tenant isolation controls.
 need_pattern TENANT-004 internal/tenancy/tenancy.go 'set_config.*probectl\.tenant_id|InTenant'
