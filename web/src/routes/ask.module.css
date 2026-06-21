@@ -67,6 +67,13 @@
   margin-top: var(--space-4);
 }
 
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .rootCause {
   margin: 0;
   font-size: var(--font-size-lg);

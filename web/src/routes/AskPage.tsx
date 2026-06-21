@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import styles from './ask.module.css'
 import { Page } from './pages'
 import {
@@ -10,8 +11,11 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  useToast,
 } from '../components'
 import { confidenceTone, useAsk, useSubmitFeedback, type Answer, type Evidence } from '../api/ai'
+import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
+import { proposalFromAnswer, type ProposalContext } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
 
 function fmtVal(v: unknown): string {
@@ -38,13 +42,28 @@ const EXAMPLES = [
  *  by" backlink and expandable raw detail, the trust summary is sharper, and
  *  feedback takes an optional note. Built on the S8a design system. */
 export function AskPage() {
-  const [question, setQuestion] = useState('')
+  const [params] = useSearchParams()
+  const prefillQuestion = params.get('question') ?? ''
+  const incidentID = params.get('incident_id') ?? params.get('incident') ?? undefined
+  const target = params.get('target') ?? undefined
+  const [question, setQuestion] = useState(prefillQuestion)
   const ask = useAsk()
+  const context = useMemo<ProposalContext>(
+    () => ({ ...(incidentID ? { incidentID } : {}), ...(target ? { target } : {}) }),
+    [incidentID, target],
+  )
+
+  useEffect(() => {
+    if (prefillQuestion) setQuestion(prefillQuestion)
+  }, [prefillQuestion])
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
     const q = question.trim()
-    if (q) ask.mutate({ question: q })
+    const subject: Record<string, string> = {}
+    if (incidentID) subject.incident_id = incidentID
+    if (target) subject.target = target
+    if (q) ask.mutate(Object.keys(subject).length > 0 ? { question: q, subject } : { question: q })
   }
 
   return (
@@ -93,7 +112,7 @@ export function AskPage() {
       ) : ask.isError ? (
         <ErrorState description="The assistant is temporarily unavailable. Please try again." />
       ) : ask.data ? (
-        <AnswerView answer={ask.data} />
+        <AnswerView answer={ask.data} context={context} />
       ) : (
         <EmptyState
           title="Ask a question to begin"
@@ -109,10 +128,16 @@ interface PlaneGroup {
   items: Evidence[]
 }
 
-function AnswerView({ answer }: { answer: Answer }) {
+function AnswerView({ answer, context }: { answer: Answer; context?: ProposalContext }) {
   const feedback = useSubmitFeedback()
+  const remediations = useRemediations()
+  const createProposal = useCreateRemediationProposal()
+  const { push } = useToast()
   const [comment, setComment] = useState('')
   const [highlighted, setHighlighted] = useState<string | null>(null)
+  const canPropose = Boolean(remediations.data)
+  const proposalDisabled =
+    createProposal.isPending || answer.insufficient_evidence || answer.evidence.length === 0
 
   // Bidirectional grounding: which findings cite each piece of evidence.
   const citedBy = new Map<string, number[]>()
@@ -147,15 +172,44 @@ function AnswerView({ answer }: { answer: Answer }) {
     document.getElementById(`ev-${id}`)?.focus()
   }
 
+  function proposeFromAnswer() {
+    createProposal.mutate(proposalFromAnswer(answer, context), {
+      onSuccess: (p) =>
+        push({ tone: 'success', title: 'Proposal created', message: `${p.id} is proposed` }),
+      onError: (err) =>
+        push({
+          tone: 'danger',
+          title: 'Proposal failed',
+          message: err instanceof Error ? err.message : 'Could not create proposal',
+        }),
+    })
+  }
+
   return (
     <div className={styles.answer}>
       <Card>
         <CardHeader
           title="Root cause"
           actions={
-            <Badge
-              tone={confidenceTone(answer.confidence)}
-            >{`${answer.confidence} confidence`}</Badge>
+            <div className={styles.actionsRow}>
+              <Badge
+                tone={confidenceTone(answer.confidence)}
+              >{`${answer.confidence} confidence`}</Badge>
+              {canPropose ? (
+                <Button
+                  variant="secondary"
+                  onClick={proposeFromAnswer}
+                  disabled={proposalDisabled}
+                  title={
+                    answer.insufficient_evidence || answer.evidence.length === 0
+                      ? 'RCA evidence is insufficient for a remediation proposal.'
+                      : undefined
+                  }
+                >
+                  {createProposal.isPending ? 'Proposing...' : 'Propose remediation'}
+                </Button>
+              ) : null}
+            </div>
           }
         />
         <CardBody>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import styles from './incidents.module.css'
 import { Page } from './pages'
 import {
@@ -13,6 +13,7 @@ import {
   LoadingState,
   StatusDot,
   Table,
+  useToast,
   type Column,
 } from '../components'
 import {
@@ -23,14 +24,24 @@ import {
   useIncidents,
   useResolveIncident,
 } from '../api/incidents'
+import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
+import {
+  incidentTarget,
+  proposalFromIncident,
+  questionForIncident,
+} from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
 
 /** Timeline overlays every plane's signals for one incident in time order. The
  *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
  *  appears here with no UI change. */
 function Timeline({ incidentId }: { incidentId: string }) {
+  const navigate = useNavigate()
   const incident = useIncident(incidentId)
   const resolve = useResolveIncident(incidentId)
+  const remediations = useRemediations()
+  const createProposal = useCreateRemediationProposal()
+  const { push } = useToast()
 
   if (incident.isLoading) return <LoadingState label="Loading incident…" />
   if (incident.isError || !incident.data)
@@ -38,23 +49,60 @@ function Timeline({ incidentId }: { incidentId: string }) {
 
   const inc = incident.data
   const signals = inc.signals ?? []
+  const canPropose = Boolean(remediations.data)
+
+  function askAboutIncident() {
+    const params = new URLSearchParams({
+      incident_id: inc.id,
+      target: incidentTarget(inc),
+      question: questionForIncident(inc),
+    })
+    navigate(`/ask?${params.toString()}`)
+  }
+
+  function proposeIncidentReview() {
+    createProposal.mutate(proposalFromIncident(inc), {
+      onSuccess: (p) =>
+        push({ tone: 'success', title: 'Proposal created', message: `${p.id} is proposed` }),
+      onError: (err) =>
+        push({
+          tone: 'danger',
+          title: 'Proposal failed',
+          message: err instanceof Error ? err.message : 'Could not create proposal',
+        }),
+    })
+  }
 
   return (
     <Card>
       <CardHeader
         title={inc.title || inc.target || 'Incident'}
         actions={
-          inc.status === 'open' ? (
-            <Button
-              variant="secondary"
-              onClick={() => resolve.mutate()}
-              disabled={resolve.isPending}
-            >
-              Resolve
+          <div className={styles.actionsRow}>
+            <Button variant="secondary" onClick={askAboutIncident}>
+              Ask about this incident
             </Button>
-          ) : (
-            <Badge tone="neutral">resolved</Badge>
-          )
+            {canPropose ? (
+              <Button
+                variant="secondary"
+                onClick={proposeIncidentReview}
+                disabled={createProposal.isPending}
+              >
+                {createProposal.isPending ? 'Proposing...' : 'Propose remediation'}
+              </Button>
+            ) : null}
+            {inc.status === 'open' ? (
+              <Button
+                variant="secondary"
+                onClick={() => resolve.mutate()}
+                disabled={resolve.isPending}
+              >
+                Resolve
+              </Button>
+            ) : (
+              <Badge tone="neutral">resolved</Badge>
+            )}
+          </div>
         }
       />
       <CardBody>

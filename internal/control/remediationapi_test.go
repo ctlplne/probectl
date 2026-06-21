@@ -26,6 +26,8 @@ type fakeRemed struct {
 	getErr     error
 	lastBy     string // records the proposer/approver the handler passed
 	lastInput  remediation.ProposeInput
+	approveN   int
+	rejectN    int
 }
 
 func (f *fakeRemed) Propose(_ context.Context, tenantID, by string, in remediation.ProposeInput) (remediation.Proposal, error) {
@@ -38,6 +40,9 @@ func (f *fakeRemed) Propose(_ context.Context, tenantID, by string, in remediati
 	out.TenantID = tenantID
 	out.Kind = in.Kind
 	out.Title = in.Title
+	out.Rationale = in.Rationale
+	out.Target = in.Target
+	out.IncidentID = in.IncidentID
 	out.ProposedBy = by
 	out.State = remediation.StateProposed // the handler can never make it anything else
 	return out, nil
@@ -50,6 +55,7 @@ func (f *fakeRemed) Get(context.Context, string, string) (remediation.Proposal, 
 }
 func (f *fakeRemed) Approve(_ context.Context, _, approver, _, _ string) (remediation.Proposal, error) {
 	f.lastBy = approver
+	f.approveN++
 	if f.approveErr != nil {
 		return remediation.Proposal{}, f.approveErr
 	}
@@ -57,6 +63,7 @@ func (f *fakeRemed) Approve(_ context.Context, _, approver, _, _ string) (remedi
 }
 func (f *fakeRemed) Reject(_ context.Context, _, decider, _, _ string) (remediation.Proposal, error) {
 	f.lastBy = decider
+	f.rejectN++
 	return remediation.Proposal{State: remediation.StateRejected, DecidedBy: decider}, nil
 }
 func (f *fakeRemed) ApprovalsEnabled() bool { return f.approvals }
@@ -110,6 +117,35 @@ func TestRemediationProposeAlwaysProposed(t *testing.T) {
 		!strings.Contains(f.lastInput.Rationale, "det-2") ||
 		f.lastInput.Target != "203.0.113.66" {
 		t.Fatalf("proposal input lost detection evidence: %+v", f.lastInput)
+	}
+}
+
+func TestRemediationProposeWithIncidentContextIsObserveOnly(t *testing.T) {
+	f := &fakeRemed{approvals: true}
+	srv := testServer(nil)
+	srv.WithRemediation(f)
+
+	body := `{"kind":"open_ticket","title":"review RCA","target":"192.0.2.10","incident_id":"inc-1","rationale":"Root cause cites evidence E1 and E2. Human review only; probectl must not execute changes."}`
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/v1/remediation/proposals", strings.NewReader(body)))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var out remediation.Proposal
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.State != remediation.StateProposed {
+		t.Fatalf("state=%q, want proposed", out.State)
+	}
+	if out.IncidentID != "inc-1" || out.Target != "192.0.2.10" {
+		t.Fatalf("incident context not preserved in proposal: %+v", out)
+	}
+	if f.approveN != 0 || f.rejectN != 0 {
+		t.Fatalf("propose path made a decision: approve=%d reject=%d", f.approveN, f.rejectN)
+	}
+	if !strings.HasPrefix(f.lastBy, "user:") {
+		t.Fatalf("proposer=%q, want authenticated user", f.lastBy)
 	}
 }
 
