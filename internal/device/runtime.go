@@ -5,6 +5,7 @@ package device
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -13,14 +14,22 @@ import (
 
 // Stats are the collector's monotonic counters (probectl observes probectl).
 type Stats struct {
-	Polls       atomic.Uint64
-	PollErrors  atomic.Uint64
-	Metrics     atomic.Uint64
-	EmitErrors  atomic.Uint64
-	GNMIStreams atomic.Uint64
+	Polls         atomic.Uint64
+	PollErrors    atomic.Uint64
+	Metrics       atomic.Uint64
+	EmitErrors    atomic.Uint64
+	GNMIStreams   atomic.Uint64
+	CounterResets atomic.Uint64 // CORRECT-001: counter resets detected and dropped
 	// CredErrors counts per-cycle credential re-resolutions that failed (S41:
 	// the cycle is SKIPPED — fail closed, never poll with stale material).
 	CredErrors atomic.Uint64
+}
+
+// counterKey uniquely identifies one cumulative counter series within a device poll.
+type counterKey struct {
+	device  string
+	ifIndex uint32
+	name    string
 }
 
 // Runtime drives one collector process: an SNMP poll loop per SNMP device and
@@ -34,6 +43,15 @@ type Runtime struct {
 
 	correlator *Correlator
 	stats      Stats
+
+	// counterCache tracks the last emitted value of each cumulative counter
+	// (CORRECT-001). When a device reboots, counters wrap to zero, producing a
+	// huge apparent decrease. We detect this (current < previous) and drop the
+	// reset cycle's counter metrics — the TSDB then sees a gap instead of a
+	// huge negative rate spike. The cache is keyed per (device, ifIndex, metric)
+	// and lives for the lifetime of the Runtime (one per device loop).
+	counterMu    sync.Mutex
+	counterCache map[counterKey]float64
 
 	// dialSNMP/gnmiDialOpts are test seams (canned SNMP conns, bufconn gNMI).
 	dialSNMP func(Target, Credential) (snmpConn, error)
@@ -55,12 +73,13 @@ func New(cfg *Config, em Emitter, creds CredentialSource, log *slog.Logger) (*Ru
 		log = slog.Default()
 	}
 	return &Runtime{
-		cfg:        cfg,
-		creds:      creds,
-		emit:       em,
-		log:        log,
-		correlator: NewCorrelator(),
-		dialSNMP:   dialSNMP,
+		cfg:          cfg,
+		creds:        creds,
+		emit:         em,
+		log:          log,
+		correlator:   NewCorrelator(),
+		counterCache: make(map[counterKey]float64),
+		dialSNMP:     dialSNMP,
 	}, nil
 }
 
@@ -70,12 +89,13 @@ func (r *Runtime) Correlator() *Correlator { return r.correlator }
 // StatsSnapshot returns a copy of the counters.
 func (r *Runtime) StatsSnapshot() map[string]uint64 {
 	return map[string]uint64{
-		"polls":        r.stats.Polls.Load(),
-		"poll_errors":  r.stats.PollErrors.Load(),
-		"metrics":      r.stats.Metrics.Load(),
-		"emit_errors":  r.stats.EmitErrors.Load(),
-		"gnmi_streams": r.stats.GNMIStreams.Load(),
-		"cred_errors":  r.stats.CredErrors.Load(),
+		"polls":          r.stats.Polls.Load(),
+		"poll_errors":    r.stats.PollErrors.Load(),
+		"metrics":        r.stats.Metrics.Load(),
+		"emit_errors":    r.stats.EmitErrors.Load(),
+		"gnmi_streams":   r.stats.GNMIStreams.Load(),
+		"cred_errors":    r.stats.CredErrors.Load(),
+		"counter_resets": r.stats.CounterResets.Load(),
 	}
 }
 
@@ -171,10 +191,65 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 		return
 	}
 	r.correlator.Update(inv)
+
+	// CORRECT-001: apply counter-reset detection before emitting. Cumulative
+	// counters (octets, errors, discards) must never decrease between polls —
+	// a drop (current < previous) means the device rebooted and the 64-bit
+	// counter wrapped to zero. Emitting the wrap-to-zero value would let the
+	// TSDB's rate() produce a huge negative spike, corrupting capacity and SLO
+	// data. We detect the reset, log it, drop the affected counter metrics for
+	// this cycle (emitting a gap instead), and update the cache to the new
+	// post-reset baseline so the next cycle is clean.
+	metrics = r.filterCounterResets(metrics)
+
 	if err := r.emit.Emit(ctx, metrics); err != nil {
 		r.stats.EmitErrors.Add(1)
 		r.log.Error("device emit failed", "device", dev.Address, "metrics", len(metrics), "error", err.Error())
 		return
 	}
 	r.stats.Metrics.Add(uint64(len(metrics)))
+}
+
+// filterCounterResets inspects cumulative counter metrics, drops any that show
+// a decrease vs the previous cycle (counter wrap on device reboot), and updates
+// the cache. Non-counter metrics pass through unchanged.
+func (r *Runtime) filterCounterResets(metrics []Metric) []Metric {
+	out := metrics[:0:len(metrics)] // reuse backing array; capacity unchanged
+	r.counterMu.Lock()
+	defer r.counterMu.Unlock()
+	for _, m := range metrics {
+		if !isCounter(m.Name) {
+			out = append(out, m)
+			continue
+		}
+		k := counterKey{device: m.Device, ifIndex: m.IfIndex, name: m.Name}
+		prev, seen := r.counterCache[k]
+		r.counterCache[k] = m.Value
+		if seen && m.Value < prev {
+			// Counter decreased: device reset or counter wrapped. Drop this
+			// sample — the TSDB will see a gap, not a negative rate spike.
+			// Log at Warn (one line per reset counter) so operators can
+			// correlate the gap with a device reboot event.
+			r.stats.CounterResets.Add(1)
+			r.log.Warn("snmp counter reset detected — dropping sample (device reboot?)",
+				"device", m.Device, "if", m.IfName, "metric", m.Name,
+				"prev", fmt.Sprintf("%.0f", prev), "current", fmt.Sprintf("%.0f", m.Value))
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// isCounter reports whether a metric name is a cumulative counter (vs a gauge
+// or status). Only counters can exhibit reset-wrap; gauges (CPU %, oper-status,
+// speed, temperature) are immune and must pass through unchanged.
+func isCounter(name string) bool {
+	switch name {
+	case MetricIfInOctets, MetricIfOutOctets,
+		MetricIfInErrors, MetricIfOutErrors,
+		MetricIfInDiscards, MetricIfOutDiscards:
+		return true
+	}
+	return false
 }

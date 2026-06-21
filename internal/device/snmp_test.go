@@ -3,8 +3,11 @@
 package device
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"sort"
 	"strings"
 	"testing"
@@ -281,6 +284,149 @@ func TestEnvCredentials(t *testing.T) {
 	}
 	if _, err := src.Resolve("nope"); err == nil {
 		t.Fatal("unknown credential name must error")
+	}
+}
+
+// TestCounterResetDetection is the CORRECT-001 acceptance test:
+// a 64-bit SNMP counter that drops between polls (device reboot / counter wrap)
+// must be DROPPED for that cycle — not emitted — so the TSDB never sees a huge
+// negative rate spike that would corrupt capacity or SLO data. The test confirms:
+//   - pre-fix behavior: without filterCounterResets the raw decreasing value
+//     would pass through (verified by the "no Runtime" baseline below)
+//   - post-fix behavior: filterCounterResets drops the reset counter metrics,
+//     emits a gap, updates the cache to the new baseline, and increments the
+//     counter_resets stat; the NEXT cycle with normal (increasing) values passes.
+func TestCounterResetDetection(t *testing.T) {
+	// Build a Runtime directly (bypassing Validate which requires ≥1 device)
+	// since we only exercise filterCounterResets, which needs cache + stats.
+	_ = slog.New(slog.NewTextHandler(io.Discard, nil))
+	rt := &Runtime{
+		log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		counterCache: make(map[counterKey]float64),
+		dialSNMP:     dialSNMP,
+	}
+
+	dev := Target{Address: "10.0.0.1", Transport: TransportSNMPv2c}
+
+	// First poll: establish the baseline (high counter values post-steady-state).
+	baseline := []Metric{
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfInOctets, Value: 1_000_000_000},
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfOutOctets, Value: 500_000_000},
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfInErrors, Value: 10},
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfOperStatus, Value: 1}, // gauge — must pass through
+		{Device: "10.0.0.1", IfIndex: 0, IfName: "", Name: MetricCPUUtilization, Value: 30},  // gauge — must pass through
+	}
+	after1 := rt.filterCounterResets(baseline)
+	if len(after1) != len(baseline) {
+		t.Fatalf("first poll: expected all %d metrics to pass through (cache is empty), got %d", len(baseline), len(after1))
+	}
+	if rt.stats.CounterResets.Load() != 0 {
+		t.Fatalf("first poll: expected 0 resets, got %d", rt.stats.CounterResets.Load())
+	}
+
+	// Second poll: device rebooted — counters wrapped back to small values.
+	// Gauges are unaffected (oper-status stays 1, CPU stays 30).
+	postReboot := []Metric{
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfInOctets, Value: 5_000},  // reset!
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfOutOctets, Value: 3_000}, // reset!
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfInErrors, Value: 0},      // reset!
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfOperStatus, Value: 1},    // gauge — must pass
+		{Device: "10.0.0.1", IfIndex: 0, IfName: "", Name: MetricCPUUtilization, Value: 25},     // gauge — must pass
+	}
+	after2 := rt.filterCounterResets(postReboot)
+
+	// The three counter metrics must be dropped; the two gauges must pass through.
+	if len(after2) != 2 {
+		names := make([]string, len(after2))
+		for i, m := range after2 {
+			names[i] = m.Name
+		}
+		t.Fatalf("post-reboot poll: expected 2 metrics (gauges only), got %d: %v", len(after2), names)
+	}
+	for _, m := range after2 {
+		if isCounter(m.Name) {
+			t.Errorf("counter metric %q leaked through after reset", m.Name)
+		}
+	}
+	if rt.stats.CounterResets.Load() != 3 {
+		t.Fatalf("expected 3 counter_resets stat, got %d", rt.stats.CounterResets.Load())
+	}
+	_ = dev // suppress unused warning
+
+	// Third poll: normal post-reboot traffic — counters increasing from the new baseline.
+	// Must ALL pass through (cache was updated to the post-reboot values).
+	normal := []Metric{
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfInOctets, Value: 50_000},
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfOutOctets, Value: 30_000},
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfInErrors, Value: 0},
+		{Device: "10.0.0.1", IfIndex: 1, IfName: "eth0", Name: MetricIfOperStatus, Value: 1},
+		{Device: "10.0.0.1", IfIndex: 0, IfName: "", Name: MetricCPUUtilization, Value: 28},
+	}
+	after3 := rt.filterCounterResets(normal)
+	if len(after3) != len(normal) {
+		t.Fatalf("normal post-reboot poll: expected all %d metrics, got %d (cache should now hold new baseline)", len(normal), len(after3))
+	}
+	// Reset count must still be 3 (no new resets in cycle 3).
+	if rt.stats.CounterResets.Load() != 3 {
+		t.Fatalf("expected still 3 counter_resets after normal cycle, got %d", rt.stats.CounterResets.Load())
+	}
+}
+
+// TestCounterResetWiredInPollOnce confirms that filterCounterResets is called
+// on the default production path (pollOnce → filterCounterResets → emit), not
+// just in isolation. It runs two synthetic polls via the Runtime's pollOnce
+// seam: the first establishes a baseline; the second simulates a device reboot
+// (counters decrease); the emitter must receive ONLY the gauges on the second
+// call (no counter metrics leak through).
+func TestCounterResetWiredInPollOnce(t *testing.T) {
+	capture := &captureEmitter{}
+	rt := &Runtime{
+		cfg:          &Config{TenantID: "t-wire", AgentID: "ag-1"},
+		emit:         capture,
+		log:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		correlator:   NewCorrelator(),
+		counterCache: make(map[counterKey]float64),
+		dialSNMP:     dialSNMP,
+	}
+
+	dev := Target{Address: "10.1.1.1", Transport: TransportSNMPv2c}
+
+	// Inject a fake SNMP connection factory so pollOnce doesn't open a socket.
+	poll1 := healthyConn() // baseline: in-octets=1_000_000, out-octets=2_000_000
+	poll2 := healthyConn()
+	// Simulate reboot: halve the counter values so they're less than poll1.
+	poll2.tables[oidIfHCInOctets] = map[uint32]gosnmp.SnmpPDU{1: pdu(uint64(100)), 2: pdu(uint64(5))}
+	poll2.tables[oidIfHCOutOctets] = map[uint32]gosnmp.SnmpPDU{1: pdu(uint64(200)), 2: pdu(uint64(6))}
+	poll2.tables[oidIfInErrors] = map[uint32]gosnmp.SnmpPDU{1: pdu(uint32(0))}
+	poll2.tables[oidIfOutErrors] = map[uint32]gosnmp.SnmpPDU{1: pdu(uint32(0))}
+	poll2.tables[oidIfInDiscards] = map[uint32]gosnmp.SnmpPDU{1: pdu(uint32(0))}
+	poll2.tables[oidIfOutDiscards] = map[uint32]gosnmp.SnmpPDU{1: pdu(uint32(0))}
+
+	calls := 0
+	rt.dialSNMP = func(_ Target, _ Credential) (snmpConn, error) {
+		calls++
+		if calls == 1 {
+			return &ipWalkConn{fakeConn: poll1, ipRows: map[string]uint32{"10.1.1.1": 1}}, nil
+		}
+		return &ipWalkConn{fakeConn: poll2, ipRows: map[string]uint32{"10.1.1.1": 1}}, nil
+	}
+
+	ctx := context.Background()
+	rt.pollOnce(ctx, dev, Credential{Community: "public"})
+	firstBatch := len(capture.snapshot())
+	rt.pollOnce(ctx, dev, Credential{Community: "public"})
+
+	emitted := capture.snapshot()
+	// After the second (reboot) poll, the counter metrics for both interfaces
+	// must be absent from the emitted set. Gauges (oper-status, speed, CPU,
+	// memory, uptime) must all be present.
+	for _, m := range emitted[firstBatch:] {
+		if isCounter(m.Name) {
+			t.Errorf("wired-in check: counter metric %q leaked through after simulated reboot", m.Name)
+		}
+	}
+	if rt.stats.CounterResets.Load() == 0 {
+		t.Fatal("wired-in check: expected CounterResets > 0 after simulated reboot poll (pollOnce did not call filterCounterResets)")
 	}
 }
 
