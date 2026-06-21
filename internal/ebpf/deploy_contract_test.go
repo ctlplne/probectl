@@ -219,3 +219,78 @@ func TestAgentDocsMentionNonStandardSecretHeaderRedaction(t *testing.T) {
 		}
 	}
 }
+
+func TestEBPFCaptureFollowupContract(t *testing.T) {
+	agentDoc := readDeployContractFile(t, "docs/ebpf-agent.md")
+	feasibility := readDeployContractFile(t, "docs/ebpf-feasibility.md")
+	l4 := readDeployContractFile(t, "internal/ebpf/bpf/l4flow.bpf.c")
+	decoder := readDeployContractFile(t, "internal/ebpf/l4event.go")
+	policyTest := readDeployContractFile(t, "internal/ebpf/l7policy_test.go")
+
+	for _, stale := range []string{
+		"IPv4 only today",
+		"IPv6 as planned",
+		"IPv6 capture is planned",
+		"ctx->family != AF_INET) {",
+	} {
+		for _, doc := range []struct {
+			path string
+			body string
+		}{
+			{path: "docs/ebpf-agent.md", body: agentDoc},
+			{path: "internal/ebpf/bpf/l4flow.bpf.c", body: l4},
+		} {
+			if strings.Contains(doc.body, stale) {
+				t.Errorf("%s still carries stale IPv4-only capture wording/code %q (TRACE-OMIT-F11)", doc.path, stale)
+			}
+		}
+	}
+	for _, want := range []string{
+		"AF_INET6",
+		"saddr_v6",
+		"daddr_v6",
+	} {
+		if !strings.Contains(l4, want) {
+			t.Errorf("l4flow.bpf.c missing IPv6 capture contract %q (TRACE-OMIT-F11)", want)
+		}
+	}
+	for _, want := range []string{
+		"l4FamilyIPv6",
+		"NetworkIPv6",
+		"netip.AddrFrom16",
+	} {
+		if !strings.Contains(decoder, want) {
+			t.Errorf("l4event.go missing IPv6 decode contract %q (TRACE-OMIT-F11)", want)
+		}
+	}
+	for _, want := range []string{
+		"`l4flow` captures IPv4 and IPv6 TCP sockets",
+		"`filtered_non_ipv4_total` flush field",
+		"Go programs don't use libssl",
+		"separate strategy",
+	} {
+		if !strings.Contains(agentDoc, want) {
+			t.Errorf("docs/ebpf-agent.md missing capture limitation contract %q (TRACE-OMIT-F11)", want)
+		}
+	}
+	for _, want := range []string{
+		"Go-TLS as an explicitly-scoped",
+		"separately-tested module",
+		"ret-offset disassembly + goroutine tracking",
+		"socket-layer",
+		"plaintext L7",
+	} {
+		if !strings.Contains(feasibility, want) {
+			t.Errorf("docs/ebpf-feasibility.md missing Go-TLS strategy contract %q (TRACE-OMIT-F11)", want)
+		}
+	}
+	for _, want := range []string{
+		"TestRedactPayloadZeroesSensitiveHeaderValues",
+		"TestRedactPayloadZeroesNonStandardSecretHeaders",
+		"TestRedactSensitiveHeaderResponseSetCookie",
+	} {
+		if !strings.Contains(policyTest, want) {
+			t.Errorf("l7policy_test.go missing redaction regression %q (TRACE-OMIT-F11)", want)
+		}
+	}
+}
