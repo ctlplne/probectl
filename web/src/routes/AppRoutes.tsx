@@ -4,6 +4,7 @@ import { AppShell } from '../shell/AppShell'
 import { NAV } from '../nav/ia'
 import { AdminPage, NotFoundPage, PlaceholderPage, TargetsPage } from './pages'
 import { PathPage } from './PathPage'
+import { PlanesPage } from './PlanesPage'
 import { TopologyPage } from './TopologyPage'
 import { CostPage } from './CostPage'
 import { SLOsPage } from './SLOsPage'
@@ -29,6 +30,7 @@ export function AppRoutes() {
         <Route index element={<Navigate to="/targets" replace />} />
         <Route path="/targets" element={<TargetsPage />} />
         <Route path="/path" element={<PathPage />} />
+        <Route path="/planes" element={<PlanesPage />} />
         <Route path="/incidents" element={<IncidentsPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/security" element={<SecurityPage />} />
@@ -45,6 +47,7 @@ export function AppRoutes() {
             ![
               '/targets',
               '/path',
+              '/planes',
               '/incidents',
               '/alerts',
               '/security',

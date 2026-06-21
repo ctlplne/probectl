@@ -40,6 +40,7 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { to: '/targets', labelKey: 'nav.targets', icon: 'targets', group: 'monitor' },
   { to: '/path', labelKey: 'nav.path', icon: 'path', group: 'monitor' },
+  { to: '/planes', labelKey: 'nav.planes', icon: 'path', group: 'monitor' },
   { to: '/topology', labelKey: 'nav.topology', icon: 'path', group: 'monitor' },
   { to: '/incidents', labelKey: 'nav.incidents', icon: 'incidents', group: 'monitor' },
   { to: '/outages', labelKey: 'nav.outages', icon: 'outage', group: 'monitor' },

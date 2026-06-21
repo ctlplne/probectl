@@ -96,15 +96,86 @@ export function defaultFetch(): typeof fetch {
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/threat/detections')
       return jsonResponse({ items: [], detections_running: true })
-    if (path === '/v1/endpoints') return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/endpoints')
+      return jsonResponse({
+        items: [
+          {
+            agent_id: 'endpoint-1',
+            last_seen_at: '2026-06-04T12:00:00Z',
+            cause: 'none',
+            summary: 'healthy last-mile path',
+            confidence: 0.93,
+            slow: false,
+          },
+        ],
+        collector_running: true,
+      })
     if (path === '/v1/results/latest') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/topology')
       return jsonResponse({
         topology_running: true,
         at: '2026-06-04T12:00:00Z',
-        nodes: [],
-        edges: [],
-        coverage: { path_edges: 0, flow_edges: 0, routing_edges: 0, device_edges: 0 },
+        nodes: [
+          { id: 'as:64500', kind: 'as', label: 'AS64500' },
+          { id: 'prefix:203.0.113.0/24', kind: 'prefix', label: '203.0.113.0/24' },
+          { id: 'service:checkout', kind: 'service', label: 'checkout' },
+          { id: 'service:payments', kind: 'service', label: 'payments' },
+          { id: 'device:10.0.0.1', kind: 'device', label: 'edge-r1' },
+          { id: 'hop:10.0.0.1', kind: 'hop', label: '10.0.0.1' },
+        ],
+        edges: [
+          { from: 'as:64500', to: 'prefix:203.0.113.0/24', kind: 'routing' },
+          { from: 'service:checkout', to: 'service:payments', kind: 'flow', label: 'http' },
+          { from: 'device:10.0.0.1', to: 'hop:10.0.0.1', kind: 'device' },
+        ],
+        coverage: { path_edges: 0, flow_edges: 1, routing_edges: 1, device_edges: 1 },
+      })
+    if (path === '/v1/flows/top')
+      return jsonResponse({
+        items: [
+          {
+            key: '10.0.0.10',
+            detail: 'checkout',
+            bytes: 524_288_000,
+            packets: 120_000,
+            flows: 42,
+          },
+          {
+            key: '10.0.0.20',
+            detail: 'payments',
+            bytes: 104_857_600,
+            packets: 22_400,
+            flows: 18,
+          },
+        ],
+        effective_limit: 8,
+        window: '1h',
+      })
+    if (path === '/v1/flows/capacity')
+      return jsonResponse({
+        items: [
+          {
+            ts: '2026-06-04T12:00:00Z',
+            exporter: 'edge-r1',
+            iface: 1,
+            bps: 85_000_000,
+            pps: 12_000,
+          },
+        ],
+      })
+    if (path === '/v1/flows/anomalies')
+      return jsonResponse({
+        items: [
+          {
+            exporter: 'edge-r1',
+            iface: 1,
+            ts: '2026-06-04T12:00:00Z',
+            current_bps: 85_000_000,
+            baseline_bps: 35_000_000,
+            stddev_bps: 8_000_000,
+            sigma: 6.2,
+          },
+        ],
       })
     if (path === '/v1/cost/summary')
       return jsonResponse({
