@@ -15,7 +15,7 @@ ids=(
   CORRECT-004 CORRECT-005 CORRECT-006 CORRECT-007 CORRECT-008 CORRECT-009
   COVER-008 COVER-009
   DOCS-004 DOCS-005 DOCS-006 DOCS-007 DOCS-008
-  EBPF-004 EBPF-005 EBPF-006 EBPF-007 FUZZ-005
+  EBPF-004 EBPF-005 EBPF-006 EBPF-007 FUZZ-005 FUZZ-007 FUZZ-008
   KEYS-005 KEYS-006 KEYS-007
   OPS-007 OPS-008 OPS-009 OPS-010
   RED-006 RED-007 RED-008
@@ -55,8 +55,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 69 ]; then
-  err "internal guard bug: expected 69 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 71 ]; then
+  err "internal guard bug: expected 71 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -211,6 +211,20 @@ need_pattern EBPF-007 docs/ebpf-agent.md 'probectl-agent-capability-posture|poli
 need_pattern EBPF-007 deploy/helm/README.md 'probectl-agent-capability-posture|policy reports|EBPF-007'
 need_pattern FUZZ-005 scripts/fuzz_smoke.sh 'go test.*-fuzz|fuzz-smoke'
 need_pattern FUZZ-005 scripts/list_fuzz_targets.sh 'Fuzz'
+need_pattern FUZZ-007 scripts/check_fuzz_policy.sh 'list_fuzz_targets.sh|FuzzVerifyBatchTenant|FuzzDecodeRemoteWrite|FuzzProviderDecode|fromJSON\(needs.discover-fuzz-targets.outputs.matrix\)'
+need_pattern FUZZ-007 scripts/fuzz_smoke.sh 'Failing input written to|context deadline with ZERO executions|list_fuzz_targets.sh|fuzz-smoke: all targets clean'
+need_pattern FUZZ-007 scripts/list_fuzz_targets.sh 'roots=\(internal\)|roots\+=\(ee\)|--github-output|sort -u'
+need_pattern FUZZ-007 .github/workflows/ci.yml 'make fuzz-policy|make fuzz-smoke|Fuzz smoke \(untrusted-input parsers must not crash\)'
+need_pattern FUZZ-007 .github/workflows/nightly.yml 'discover-fuzz-targets|fromJSON\(needs.discover-fuzz-targets.outputs.matrix\)|FUZZ_NIGHTLY_FUZZTIME: "10m"|fuzz-crashers'
+need_pattern FUZZ-007 docs/development.md 'internal/` and, when present, `ee/`|PR smoke and the nightly matrix|never panic'
+need_pattern FUZZ-008 internal/otel/otlp/receiver.go 'grpc.MaxRecvMsgSize\(maxRecvBytes\)|http.MaxBytesReader|httpbody.ReadLimited|Content-Encoding.*gzip'
+need_pattern FUZZ-008 internal/otel/otlp/receiver_gzip_test.go 'TestReadOTLPBodyRejectsOversizedGzipOutput|ErrTooLarge|Content-Encoding'
+need_pattern FUZZ-008 internal/promapi/remotewrite.go 'MaxDecodedBytes|snappy.DecodedLen|MaxSeries|MaxSamples|MaxLabels|MaxLabelBytes'
+need_pattern FUZZ-008 internal/promapi/remotewrite_fuzz_test.go 'FuzzDecodeRemoteWrite|MaxDecodedBytes|MaxSamples|tenant-a'
+need_pattern FUZZ-008 internal/httpbody/body.go 'ReadLimited|LimitReader\(r, maxBytes\+1\)|ErrTooLarge|DecodeHTTPJSONStrict'
+need_pattern FUZZ-008 internal/httpbody/body_test.go 'TestReadLimitedRejectsOversizeWithoutTruncation|TestDecodeHTTPJSONStrictUsesMaxBytesReader|ErrTooLarge'
+need_pattern FUZZ-008 internal/ebpf/source_live_linux.go 'defer func\(\)|recover\(\)|DecodeFailures|DropStats'
+need_pattern FUZZ-008 internal/ebpf/runtime_test.go 'TestAgentRunReportsDetailedKernelDrops|DecodeFailures|L4RingBufferFull'
 need_pattern KEYS-005 scripts/check_crypto_imports.sh 'internal/crypto'
 need_pattern KEYS-005 internal/crypto/crypto.go 'Provider|Zeroize|Encrypt|Decrypt'
 need_pattern KEYS-006 .github/workflows/release.yml 'cosign|verify-blob|id-token'

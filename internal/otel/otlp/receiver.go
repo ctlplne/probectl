@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/imfeelingtheagi/probectl/internal/httpbody"
 	"github.com/imfeelingtheagi/probectl/internal/otel"
 )
 
@@ -184,7 +185,7 @@ func readOTLPBody(w http.ResponseWriter, r *http.Request, maxBytes int64) ([]byt
 			return nil, err
 		}
 		defer gz.Close()
-		return io.ReadAll(io.LimitReader(gz, maxBytes))
+		return httpbody.ReadLimited(gz, maxBytes)
 	}
 	return io.ReadAll(limited)
 }

@@ -194,10 +194,10 @@ deploy recipes are `sslmode=require` or stricter.
   mutated, adversarial inputs hunting for the one that crashes it. The Go fuzz
   targets cover the untrusted-input parsers and tenant-bound ingest invariants.
   `scripts/list_fuzz_targets.sh` discovers every `Fuzz*` target under
-  `internal/`, so adding a fuzz function automatically puts it in PR smoke and
-  the nightly matrix. The invariant is "never panic", and tenant-sensitive
-  paths must additionally never publish a tenant-less event under fuzzing — the
-  fail-closed tenancy rule (see the
+  `internal/` and, when present, `ee/`, so adding a fuzz function automatically
+  puts it in PR smoke and the nightly matrix. The invariant is "never panic",
+  and tenant-sensitive paths must additionally never publish a tenant-less event
+  under fuzzing — the fail-closed tenancy rule (see the
   [non-negotiables](../CONTRIBUTING.md#non-negotiables)). CI runs a short smoke;
   nightly runs each target in its own long-budget shard.
 - **Property** (Hypothesis, in the analyzer suite) — where fuzzing asks "does it
