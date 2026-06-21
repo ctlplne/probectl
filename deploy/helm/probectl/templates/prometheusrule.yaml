@@ -1,0 +1,67 @@
+{{- if .Values.metrics.prometheusRule.enabled }}
+{{- $rule := .Values.metrics.prometheusRule -}}
+{{- $thresholds := $rule.thresholds -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "probectl.fullname" . }}-self
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+    {{- with $rule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: probectl.self
+      rules:
+        - alert: ProbectlSelfMetricsMissing
+          expr: absent_over_time(probectl_build_info[{{ $thresholds.noSelfMetricsFor }}])
+          for: {{ $thresholds.noSelfMetricsFor }}
+          labels:
+            severity: critical
+            probectl_component: control-plane
+          annotations:
+            summary: probectl self-metrics are missing
+            description: The control plane has not emitted probectl_build_info during the alert window. Check scrape reachability, /metrics, and the control-plane process before trusting dashboards.
+            runbook_url: {{ $rule.runbookBaseURL | quote }}
+        - alert: ProbectlHighGoroutines
+          expr: max(probectl_self_goroutines) > {{ $thresholds.highGoroutines }}
+          for: {{ $thresholds.highGoroutinesFor }}
+          labels:
+            severity: warning
+            probectl_component: control-plane
+          annotations:
+            summary: probectl goroutine count is high
+            description: The control-plane goroutine count is above the configured threshold. Inspect recent traffic, stuck outbound integrations, and goroutine profiles.
+            runbook_url: {{ $rule.runbookBaseURL | quote }}
+        - alert: ProbectlHighMemory
+          expr: max(probectl_self_mem_sys_bytes) > {{ $thresholds.highMemoryBytes }}
+          for: {{ $thresholds.highMemoryFor }}
+          labels:
+            severity: warning
+            probectl_component: control-plane
+          annotations:
+            summary: probectl process memory is high
+            description: The control-plane process memory is above the configured threshold. Check heap profiles, recent query load, and ingest backlogs.
+            runbook_url: {{ $rule.runbookBaseURL | quote }}
+        - alert: ProbectlWritesPaused
+          expr: min(probectl_cluster_writes_usable) < 1
+          for: {{ $thresholds.writesPausedFor }}
+          labels:
+            severity: critical
+            probectl_component: cluster
+          annotations:
+            summary: probectl writes are paused
+            description: Cluster fencing reports writes_usable=false. Reads may still work, but config writes and mutable workflows are paused until the writer/fence state recovers.
+            runbook_url: {{ $rule.runbookBaseURL | quote }}
+        - alert: ProbectlReplicaLagHigh
+          expr: max(probectl_cluster_replica_lag_seconds) > {{ $thresholds.replicaLagSeconds }}
+          for: {{ $thresholds.replicaLagFor }}
+          labels:
+            severity: warning
+            probectl_component: cluster
+          annotations:
+            summary: probectl replica lag is high
+            description: The observed Postgres replica lag is above the configured threshold. This widens metadata RPO for asynchronous failover.
+            runbook_url: {{ $rule.runbookBaseURL | quote }}
+{{- end }}

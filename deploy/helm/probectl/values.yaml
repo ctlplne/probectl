@@ -207,6 +207,22 @@ metrics:
     scheme: http # the in-cluster Service port; set https + tlsConfig behind a TLS sidecar
     labels: {}
     tlsConfig: {}
+  prometheusRule:
+    # OPS-004: opt-in self-alert pack for the same process/cluster metrics the
+    # ServiceMonitor scrapes. Off by default because PrometheusRule is also a
+    # Prometheus Operator CRD; regulated profiles enable it.
+    enabled: false
+    labels: {}
+    runbookBaseURL: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md
+    thresholds:
+      noSelfMetricsFor: 5m
+      highGoroutines: 5000
+      highGoroutinesFor: 10m
+      highMemoryBytes: 4294967296 # 4 GiB process sys memory
+      highMemoryFor: 10m
+      writesPausedFor: 2m
+      replicaLagSeconds: 30
+      replicaLagFor: 5m
 
 # OPS-009: chart-managed PG + CH backup CronJobs (folded in from
 # deploy/backup/, U-030). OFF by default — opt in, then supply the

@@ -36,6 +36,29 @@
             "labels": { "type": "object" },
             "tlsConfig": { "type": "object" }
           }
+        },
+        "prometheusRule": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "labels": { "type": "object" },
+            "runbookBaseURL": { "type": "string", "minLength": 1 },
+            "thresholds": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "noSelfMetricsFor": { "type": "string", "minLength": 1 },
+                "highGoroutines": { "type": "integer", "minimum": 1 },
+                "highGoroutinesFor": { "type": "string", "minLength": 1 },
+                "highMemoryBytes": { "type": "integer", "minimum": 1 },
+                "highMemoryFor": { "type": "string", "minLength": 1 },
+                "writesPausedFor": { "type": "string", "minLength": 1 },
+                "replicaLagSeconds": { "type": "integer", "minimum": 1 },
+                "replicaLagFor": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
         }
       }
     },

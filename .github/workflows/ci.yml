@@ -407,14 +407,14 @@ jobs:
             --set database.url="${PROBECTL_HELM_TEST_DATABASE_URL}" \
             | /tmp/kubeconform -strict -summary
           # OPS-004/005/009: the strict regulated profile renders valid too
-          # (the ServiceMonitor is a Prometheus-Operator CRD — skip it).
+          # (ServiceMonitor and PrometheusRule are Prometheus-Operator CRDs — skip them).
           helm template probectl deploy/helm/probectl \
             -f deploy/helm/probectl/values-strict.yaml \
             --set ingress.host=h.example.com --set ingress.tlsSecretName=probectl-tls \
             --set secrets.envelopeKey="${PROBECTL_HELM_TEST_ENVELOPE_KEY}" \
             --set secrets.sessionHMACKey="${PROBECTL_HELM_TEST_SESSION_HMAC_KEY}" \
             --set database.url="${PROBECTL_HELM_TEST_DATABASE_URL}" \
-            | /tmp/kubeconform -strict -summary -skip ServiceMonitor
+            | /tmp/kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule
       - name: GitOps manifests valid (ArgoCD + Flux)
         run: |
           python3 -m pip install --quiet pyyaml==6.0.3 # SUPPLY-006: exact pin

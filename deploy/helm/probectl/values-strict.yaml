@@ -67,6 +67,8 @@ metrics:
           key: ca.crt
       serverName: probectl-metrics
       insecureSkipVerify: false
+  prometheusRule:
+    enabled: true
 
 # OPS-009: backups ON in the regulated profile. Supply the credentials
 # secret out-of-band; let the chart create the backups PVC.

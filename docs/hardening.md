@@ -438,7 +438,8 @@ datastore / bus / IdP egress allow-list — no allow-all rule survives. **Match 
 selectors and CIDRs to your cluster before applying.** A wrong selector fails
 **closed** (the API becomes unreachable), which is the safe failure direction.
 The strict profile also turns on the ServiceMonitor (the Prometheus operator's
-scrape-config object) and the backup CronJobs.
+scrape-config object), the PrometheusRule self-alert pack, and the backup
+CronJobs.
 
 Other day-2 surfaces, all chart-managed:
 
@@ -449,6 +450,9 @@ Other day-2 surfaces, all chart-managed:
 - **/metrics:** the control plane serves Prometheus self-metrics (process and
   aggregate only — no tenant data) at `/metrics`, scraped by the ServiceMonitor
   (`metrics.serviceMonitor.enabled`).
+- **Self-alerts:** the PrometheusRule pack (`metrics.prometheusRule.enabled`)
+  watches scrape presence, process pressure, write fencing, and replica lag with
+  runbook annotations.
 - **Backups:** Postgres and ClickHouse backup CronJobs are folded into the chart
   behind `backup.enabled` (off by default; supply the credentials secret).
 
