@@ -21,7 +21,7 @@ ids=(
   PERF-008 PERF-009 PERF-010
   PRIVACY-008 PRIVACY-009 PRIVACY-010 PRIVACY-011
   PRODUCT-011 PRODUCT-012 PRODUCT-013 PRODUCT-014
-  RED-006 RED-007 RED-008
+  RED-005 RED-006 RED-007 RED-008
   RESIL-008 RESIL-009 RESIL-010 RESIL-011 RESIL-012 RESIL-013
   SCALE-007 SCALE-008 SCALE-009
   SCHEMA-I01 SCHEMA-I02 SCHEMA-I03 SCHEMA-I04
@@ -58,8 +58,8 @@ need_absent() {
   fi
 }
 
-if [ "${#ids[@]}" -ne 85 ]; then
-  err "internal guard bug: expected 85 PROTECT IDs, got ${#ids[@]}"
+if [ "${#ids[@]}" -ne 86 ]; then
+  err "internal guard bug: expected 86 PROTECT IDs, got ${#ids[@]}"
 fi
 
 # AIRCA: air-gapped default, tenant/RBAC evidence gathering, citation hygiene,
@@ -322,7 +322,17 @@ need_pattern OPS-008 scripts/check_version_consistency.sh 'compose|Helm|VERSION'
 need_pattern OPS-009 Makefile 'backup-restore-drill|migration-gate|helm-gate'
 need_pattern OPS-010 internal/control/handlers.go 'ready|live|drain|shutdown'
 need_pattern OPS-010 internal/control/server.go 'Shutdown|draining|ShutdownTimeout'
-need_pattern RED-006 internal/ai/injection_test.go 'prompt|injection|uncited'
+need_pattern RED-005 internal/agenttransport/streamresults_resilience_test.go 'TestStreamResultsRestampsPayloadIdentityFromMTLS|TenantId:.*tenant-b|evil-agent|authoritative tenant/agent key'
+need_pattern RED-005 internal/agenttransport/service.go 'Authoritative identity comes from the mTLS certificate|TenantId = id\.TenantID|AgentId = id\.AgentID'
+need_pattern RED-005 internal/agenttransport/freshness.go 'FreshnessSentAtKey|FreshnessNonceKey|stale|replayed'
+need_pattern RED-005 internal/agenttransport/freshness_test.go 'TestFreshnessReplayWindow|same nonce inside the window is refused|missing freshness metadata must refuse|TestFreshnessNonceCacheBounded'
+need_pattern RED-005 internal/enroll/enroll_integration_test.go 'TestEnrollTokenReplayRejected|wrong-tenant rejection|TestRevokeAgentPersistsAndBlocksReissuance'
+need_pattern RED-006 internal/control/rolloutapi_test.go 'TestFleetRCERoutesDoNotAcceptAgentExecutablePayload|image_tag|executable|download_url'
+need_pattern RED-006 internal/control/rolloutapi.go 'version, digest, and verify_method are required|VerifiedArtifact'
+need_pattern RED-006 internal/agent/rollout.go 'NO agent self-update channel|fetch and exec new code is a fleet-wide RCE primitive|VerifiedArtifact'
+need_pattern RED-006 docs/ops/fleet-rollout.md 'no agent self-update channel|agent never fetches or executes|Verified artifacts only'
+need_pattern RED-006 deploy/helm/probectl-agent/templates/daemonset.yaml 'privileged eBPF agent image must be digest-pinned|image.allowTagOnly'
+need_pattern RED-006 scripts/check_helm_hardening.sh 'RED-003|tag-only|image-integrity|validationFailureAction'
 need_pattern RED-007 internal/otel/otlp/receiver_test.go 'out-of-tenant|tenant.*mismatch|spoof'
 need_pattern RED-008 scripts/check_cosign_wiring.sh 'cosign|verify'
 need_pattern RED-008 scripts/check_supply_pins.sh 'supply-pins'

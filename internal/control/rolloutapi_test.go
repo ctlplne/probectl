@@ -3,8 +3,11 @@
 package control
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -76,5 +79,56 @@ func TestRolloutReasonRequest(t *testing.T) {
 	r = httptest.NewRequest(http.MethodPost, "/v1/rollouts/r1/resume", strings.NewReader(`{"reason":" "}`))
 	if _, err := rolloutReason(r, "fallback reason"); err == nil {
 		t.Fatal("blank explicit reason must fail closed")
+	}
+}
+
+func TestFleetRCERoutesDoNotAcceptAgentExecutablePayload(t *testing.T) {
+	typ := reflect.TypeOf(rolloutCreateRequest{})
+	got := map[string]bool{}
+	for i := 0; i < typ.NumField(); i++ {
+		name := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
+		if name != "" && name != "-" {
+			got[name] = true
+		}
+	}
+	want := map[string]bool{
+		"version":        true,
+		"digest":         true,
+		"verify_method":  true,
+		"canary_percent": true,
+		"early_percent":  true,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rollout create JSON contract drifted:\ngot  %v\nwant %v", got, want)
+	}
+
+	forbidden := regexp.MustCompile(`(?i)"(image|image_tag|executable|binary|script|command|download_url|url)"\s*:`)
+	var spec struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(openapiJSON, &spec); err != nil {
+		t.Fatalf("parse openapi: %v", err)
+	}
+	for path, ops := range spec.Paths {
+		if !strings.HasPrefix(path, "/v1/agents") && !strings.HasPrefix(path, "/v1/rollouts") {
+			continue
+		}
+		for method, raw := range ops {
+			if !openAPIVerbs[method] {
+				continue
+			}
+			var op struct {
+				RequestBody json.RawMessage `json:"requestBody"`
+			}
+			if err := json.Unmarshal(raw, &op); err != nil {
+				t.Fatalf("parse operation for %s %s: %v", strings.ToUpper(method), path, err)
+			}
+			if len(op.RequestBody) == 0 {
+				continue
+			}
+			if forbidden.Match(op.RequestBody) {
+				t.Fatalf("%s %s accepts an agent executable/image/script mutation payload: %s", strings.ToUpper(method), path, op.RequestBody)
+			}
+		}
 	}
 }
