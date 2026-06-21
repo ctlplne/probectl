@@ -83,7 +83,7 @@ func (Rollouts) Get(ctx context.Context, s tenancy.Scope, id string) (*RolloutRe
 // List returns persisted rollout plans for the current tenant, newest first.
 func (Rollouts) List(ctx context.Context, s tenancy.Scope) ([]RolloutRecord, error) {
 	rows, err := s.Q.Query(ctx,
-		`SELECT `+rolloutCols+` FROM rollout_plans ORDER BY updated_at DESC, rollout_id`)
+		`SELECT `+rolloutCols+` FROM rollout_plans ORDER BY updated_at DESC, rollout_id LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}

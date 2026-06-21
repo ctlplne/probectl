@@ -94,7 +94,7 @@ func (o OTLPTokens) List(ctx context.Context, tenantID string) ([]OTLPToken, err
 func (o OTLPTokens) ListScoped(ctx context.Context, s tenancy.Scope) ([]OTLPToken, error) {
 	rows, err := s.Q.Query(ctx,
 		`SELECT id::text, tenant_id::text, name, created_at, last_used_at, revoked_at
-		 FROM otlp_tokens ORDER BY created_at DESC`)
+		 FROM otlp_tokens ORDER BY created_at DESC LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}

@@ -38,9 +38,47 @@ type lifecycleExtension struct {
 	Policy       string `json:"policy"`
 }
 
+type paginationExtension struct {
+	Mode        string `json:"mode"`
+	CursorParam string `json:"cursor_param"`
+	LimitParam  string `json:"limit_param"`
+	NextCursor  string `json:"next_cursor"`
+	MaxLimit    int    `json:"max_limit"`
+	MaxItems    int    `json:"max_items"`
+	Reason      string `json:"reason"`
+}
+
+type openAPIParameter struct {
+	Ref    string `json:"$ref"`
+	Name   string `json:"name"`
+	In     string `json:"in"`
+	Schema struct {
+		Type    string  `json:"type"`
+		Minimum float64 `json:"minimum"`
+		Maximum float64 `json:"maximum"`
+		Default float64 `json:"default"`
+	} `json:"schema"`
+}
+
+type openAPISchema struct {
+	Ref        string                   `json:"$ref"`
+	Type       string                   `json:"type"`
+	Properties map[string]openAPISchema `json:"properties"`
+}
+
+type openAPIResponse struct {
+	Content map[string]struct {
+		Schema openAPISchema `json:"schema"`
+	} `json:"content"`
+}
+
 type openAPIOperation struct {
-	Deprecated bool                `json:"deprecated"`
-	Lifecycle  *lifecycleExtension `json:"x-probectl-lifecycle"`
+	OperationID string                     `json:"operationId"`
+	Deprecated  bool                       `json:"deprecated"`
+	Lifecycle   *lifecycleExtension        `json:"x-probectl-lifecycle"`
+	Pagination  *paginationExtension       `json:"x-probectl-pagination"`
+	Parameters  []openAPIParameter         `json:"parameters"`
+	Responses   map[string]openAPIResponse `json:"responses"`
 }
 
 func parseOperation(t *testing.T, raw json.RawMessage) openAPIOperation {
@@ -278,6 +316,178 @@ func TestOpenAPIAgentPaginationContract(t *testing.T) {
 	if next.Type != "string" || !strings.Contains(next.Description, "SCALE-010") {
 		t.Fatalf("AgentList.next_cursor drifted: %+v", next)
 	}
+}
+
+var collectionPaginationContracts = map[string]string{
+	"/v1/tests":                  "cursor",
+	"/v1/agents":                 "cursor",
+	"/v1/audit":                  "cursor",
+	"/v1/alerts":                 "bounded",
+	"/v1/alerts/active":          "bounded",
+	"/v1/incidents":              "bounded",
+	"/v1/changes":                "bounded",
+	"/v1/incidents/{id}/changes": "bounded",
+	"/v1/abac/policies":          "bounded",
+	"/v1/directory/scim-tokens":  "bounded",
+	"/v1/flows/top":              "bounded",
+	"/v1/flows/capacity":         "bounded",
+	"/v1/flows/anomalies":        "bounded",
+	"/v1/topology":               "bounded",
+	"/v1/slos":                   "bounded",
+	"/v1/outages":                "bounded",
+	"/v1/rum":                    "bounded",
+	"/v1/compliance":             "bounded",
+	"/v1/tls/posture":            "bounded",
+	"/v1/threat/detections":      "bounded",
+	"/v1/endpoints":              "bounded",
+	"/v1/results/latest":         "bounded",
+	"/v1/otlp/traces":            "bounded",
+	"/v1/otlp/logs":              "bounded",
+	"/v1/otlp-tokens":            "bounded",
+	"/v1/rollouts":               "bounded",
+	"/v1/remediation/proposals":  "bounded",
+}
+
+// TestOpenAPICollectionPaginationContract is PRODUCT-009's guardrail. Every
+// collection-like GET has to either expose the shared cursor shape or document a
+// bounded snapshot/top-N contract with a hard item cap. That keeps high-cardinality
+// telemetry views from becoming accidental unbounded dumps.
+func TestOpenAPICollectionPaginationContract(t *testing.T) {
+	var spec struct {
+		Paths      map[string]map[string]json.RawMessage `json:"paths"`
+		Components struct {
+			Schemas map[string]openAPISchema `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(openapiJSON, &spec); err != nil {
+		t.Fatalf("parse openapi.json: %v", err)
+	}
+
+	for path, wantMode := range collectionPaginationContracts {
+		ops, ok := spec.Paths[path]
+		if !ok {
+			t.Fatalf("collection registry references missing path %s", path)
+		}
+		raw, ok := ops["get"]
+		if !ok {
+			t.Fatalf("collection registry references %s without GET operation", path)
+		}
+		op := parseOperation(t, raw)
+		if op.Pagination == nil {
+			t.Fatalf("GET %s is collection-like but lacks x-probectl-pagination", path)
+		}
+		pg := *op.Pagination
+		if pg.Mode != wantMode {
+			t.Fatalf("GET %s pagination mode = %q, want %q", path, pg.Mode, wantMode)
+		}
+		switch pg.Mode {
+		case "cursor":
+			assertCursorPagination(t, path, op, spec.Components.Schemas)
+		case "bounded":
+			assertBoundedPagination(t, path, op)
+		default:
+			t.Fatalf("GET %s has unknown pagination mode %q", path, pg.Mode)
+		}
+	}
+
+	for path, ops := range spec.Paths {
+		if !strings.HasPrefix(path, "/v1/") {
+			continue
+		}
+		raw, ok := ops["get"]
+		if !ok {
+			continue
+		}
+		op := parseOperation(t, raw)
+		if op.Pagination == nil && strings.HasPrefix(op.OperationID, "list") {
+			t.Errorf("GET %s (%s) is list-like but is missing from the collection pagination registry", path, op.OperationID)
+		}
+		if op.Pagination != nil {
+			if _, ok := collectionPaginationContracts[path]; !ok {
+				t.Errorf("GET %s declares x-probectl-pagination but is missing from the collection pagination registry", path)
+			}
+		}
+	}
+}
+
+func assertCursorPagination(t *testing.T, path string, op openAPIOperation, schemas map[string]openAPISchema) {
+	t.Helper()
+	pg := *op.Pagination
+	if pg.CursorParam == "" || pg.LimitParam == "" || pg.NextCursor == "" || pg.MaxLimit <= 0 {
+		t.Fatalf("GET %s cursor pagination is incomplete: %+v", path, pg)
+	}
+	params := queryParams(op.Parameters)
+	cursor, ok := params[pg.CursorParam]
+	if !ok || cursor.In != "query" {
+		t.Fatalf("GET %s cursor_param %q is not a query parameter", path, pg.CursorParam)
+	}
+	limit, ok := params[pg.LimitParam]
+	if !ok || limit.In != "query" {
+		t.Fatalf("GET %s limit_param %q is not a query parameter", path, pg.LimitParam)
+	}
+	if limit.Schema.Type != "integer" || limit.Schema.Minimum < 1 || int(limit.Schema.Maximum) != pg.MaxLimit {
+		t.Fatalf("GET %s limit parameter must be integer min=1 max=%d, got %+v", path, pg.MaxLimit, limit.Schema)
+	}
+	schema := resolveSchema(responseSchema(t, path, op), schemas)
+	if _, ok := schema.Properties[pg.NextCursor]; !ok {
+		t.Fatalf("GET %s response schema is missing next cursor field %q", path, pg.NextCursor)
+	}
+}
+
+func assertBoundedPagination(t *testing.T, path string, op openAPIOperation) {
+	t.Helper()
+	pg := *op.Pagination
+	if pg.MaxItems <= 0 || strings.TrimSpace(pg.Reason) == "" {
+		t.Fatalf("GET %s bounded pagination must declare max_items and reason: %+v", path, pg)
+	}
+	if pg.LimitParam == "" {
+		return
+	}
+	limit, ok := queryParams(op.Parameters)[pg.LimitParam]
+	if !ok || limit.In != "query" {
+		t.Fatalf("GET %s limit_param %q is not a query parameter", path, pg.LimitParam)
+	}
+	if limit.Schema.Type != "integer" || limit.Schema.Minimum < 1 {
+		t.Fatalf("GET %s bounded limit must be an integer with minimum 1, got %+v", path, limit.Schema)
+	}
+	if limit.Schema.Maximum > 0 && int(limit.Schema.Maximum) > pg.MaxItems {
+		t.Fatalf("GET %s limit maximum %v exceeds documented max_items %d", path, limit.Schema.Maximum, pg.MaxItems)
+	}
+}
+
+func queryParams(params []openAPIParameter) map[string]openAPIParameter {
+	out := map[string]openAPIParameter{}
+	for _, p := range params {
+		if p.Name != "" && p.In == "query" {
+			out[p.Name] = p
+		}
+	}
+	return out
+}
+
+func responseSchema(t *testing.T, path string, op openAPIOperation) openAPISchema {
+	t.Helper()
+	resp, ok := op.Responses["200"]
+	if !ok {
+		t.Fatalf("GET %s has no 200 response", path)
+	}
+	content, ok := resp.Content["application/json"]
+	if !ok {
+		t.Fatalf("GET %s has no application/json 200 response", path)
+	}
+	return content.Schema
+}
+
+func resolveSchema(schema openAPISchema, schemas map[string]openAPISchema) openAPISchema {
+	const prefix = "#/components/schemas/"
+	if !strings.HasPrefix(schema.Ref, prefix) {
+		return schema
+	}
+	name := strings.TrimPrefix(schema.Ref, prefix)
+	if resolved, ok := schemas[name]; ok {
+		return resolved
+	}
+	return schema
 }
 
 // jsonType maps a decoded JSON value to its OpenAPI type name.

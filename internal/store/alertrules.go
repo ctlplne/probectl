@@ -147,7 +147,7 @@ func (AlertRules) Get(ctx context.Context, s tenancy.Scope, id string) (*alert.R
 
 // List returns the tenant's alert rules, newest first.
 func (AlertRules) List(ctx context.Context, s tenancy.Scope) ([]alert.Rule, error) {
-	rows, err := s.Q.Query(ctx, `SELECT `+alertRuleCols+` FROM alert_rules ORDER BY created_at DESC`)
+	rows, err := s.Q.Query(ctx, `SELECT `+alertRuleCols+` FROM alert_rules ORDER BY created_at DESC LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}

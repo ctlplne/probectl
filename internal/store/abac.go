@@ -17,6 +17,7 @@ import (
 type ABACPolicies struct{}
 
 const abacCols = `id::text, name, effect, permission, subject, resource, priority, enabled`
+const maxABACPolicyAdminList = 500
 
 func scanPolicy(row interface{ Scan(...any) error }, p *auth.Policy) error {
 	var effect string
@@ -67,6 +68,28 @@ func (ABACPolicies) List(ctx context.Context, s tenancy.Scope) ([]auth.Policy, e
 	if err != nil {
 		return nil, err
 	}
+	return scanPolicyRows(ctx, rows)
+}
+
+// ListAdminPage returns the bounded admin/API policy view. Policy evaluation
+// still uses List above, because silently dropping deny rules would widen access.
+func (ABACPolicies) ListAdminPage(ctx context.Context, s tenancy.Scope, limit int) ([]auth.Policy, error) {
+	if limit <= 0 || limit > maxABACPolicyAdminList {
+		limit = maxABACPolicyAdminList
+	}
+	rows, err := s.Q.Query(ctx, `SELECT `+abacCols+` FROM abac_policies ORDER BY priority DESC, created_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanPolicyRows(ctx, rows)
+}
+
+func scanPolicyRows(_ context.Context, rows interface {
+	Close()
+	Next() bool
+	Scan(...any) error
+	Err() error
+}) ([]auth.Policy, error) {
 	defer rows.Close()
 	out := []auth.Policy{}
 	for rows.Next() {

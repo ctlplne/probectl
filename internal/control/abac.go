@@ -102,7 +102,7 @@ func (s *Server) abacDenies(ctx context.Context, p *auth.Principal, perm string,
 func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) error {
 	var out []auth.Policy
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		p, e := store.ABACPolicies{}.List(ctx, sc)
+		p, e := store.ABACPolicies{}.ListAdminPage(ctx, sc, 500)
 		out = p
 		return e
 	}); err != nil {

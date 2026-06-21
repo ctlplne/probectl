@@ -83,7 +83,7 @@ func (s ScimTokens) List(ctx context.Context, tenantID string) ([]ScimToken, err
 func (s ScimTokens) ListScoped(ctx context.Context, sc tenancy.Scope) ([]ScimToken, error) {
 	rows, err := sc.Q.Query(ctx,
 		`SELECT id::text, tenant_id::text, name, created_at, last_used_at, revoked_at
-		 FROM scim_tokens ORDER BY created_at DESC`)
+		 FROM scim_tokens ORDER BY created_at DESC LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}
