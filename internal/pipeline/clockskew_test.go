@@ -5,6 +5,8 @@ package pipeline
 import (
 	"testing"
 	"time"
+
+	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 )
 
 // CORRECT-012: a sample stamped far in the future is clamped to ingest time and
@@ -53,5 +55,29 @@ func TestNormalizeEventTimeUnixNano(t *testing.T) {
 	}
 	if FutureClamped() <= before {
 		t.Fatal("future event-time clamp was not counted")
+	}
+}
+
+func TestResultEventTimeUsesSharedNormalizer(t *testing.T) {
+	receivedAt := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	if got := ResultEventTime(nil, receivedAt); !got.Equal(receivedAt) {
+		t.Fatalf("nil result event time = %s, want receive time %s", got, receivedAt)
+	}
+	if got := ResultEventTime(&resultv1.Result{}, receivedAt); !got.Equal(receivedAt) {
+		t.Fatalf("zero result event time = %s, want receive time %s", got, receivedAt)
+	}
+
+	past := receivedAt.Add(-time.Hour)
+	if got := ResultEventTime(&resultv1.Result{StartTimeUnixNano: past.UnixNano()}, receivedAt); !got.Equal(past) {
+		t.Fatalf("past result event time was altered: got %s, want %s", got, past)
+	}
+
+	before := FutureClamped()
+	if got := ResultEventTime(&resultv1.Result{StartTimeUnixNano: receivedAt.Add(time.Hour).UnixNano()}, receivedAt); !got.Equal(receivedAt) {
+		t.Fatalf("future result event time = %s, want clamp to %s", got, receivedAt)
+	}
+	if FutureClamped() <= before {
+		t.Fatal("future result event-time clamp was not counted")
 	}
 }
