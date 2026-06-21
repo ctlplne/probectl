@@ -5,6 +5,9 @@
 {{- if and (not $policy.enabled) (not $policy.acceptedRisk) -}}
 {{- fail "admission.imageIntegrity.enabled=false requires admission.imageIntegrity.acceptedRisk describing the replacement image-signature control or approved dev exception" -}}
 {{- end -}}
+{{- if and $policy.enabled (ne $policy.validationFailureAction "Enforce") (not $policy.acceptedRisk) -}}
+{{- fail "admission.imageIntegrity.validationFailureAction must be Enforce for this privileged agent unless admission.imageIntegrity.acceptedRisk names the replacement control or approved dev exception" -}}
+{{- end -}}
 {{- if $policy.enabled }}
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy

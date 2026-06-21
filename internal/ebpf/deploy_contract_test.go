@@ -131,6 +131,81 @@ func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 	}
 }
 
+func TestAgentHelmImageIntegrityAdmissionIsFailClosed(t *testing.T) {
+	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
+	policy := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/image-integrity-policy.yaml")
+	standalone := readDeployContractFile(t, "deploy/admission/probectl-agent-image-integrity.kyverno.yaml")
+	hardening := readDeployContractFile(t, "scripts/check_helm_hardening.sh")
+	helmDoc := readDeployContractFile(t, "deploy/helm/README.md")
+	admissionDoc := readDeployContractFile(t, "deploy/admission/README.md")
+
+	for _, want := range []string{
+		"imageIntegrity:",
+		"enabled: true",
+		"acceptedRisk: \"\"",
+		"validationFailureAction: Enforce",
+		"Audit is allowed only when",
+	} {
+		if !strings.Contains(values, want) {
+			t.Errorf("agent values.yaml missing image-integrity admission contract %q (RED-003)", want)
+		}
+	}
+	for _, want := range []string{
+		"validationFailureAction must be Enforce",
+		"acceptedRisk names the replacement control",
+		"apiVersion: kyverno.io/v1",
+		"kind: ClusterPolicy",
+		"verifyImages:",
+		"required: true",
+		"verifyDigest: true",
+		"subjectRegExp:",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("agent image-integrity template missing fail-closed contract %q (RED-003)", want)
+		}
+	}
+	for _, want := range []string{
+		"kind: ClusterPolicy",
+		"verifyImages:",
+		"required: true",
+		"verifyDigest: true",
+		"release\\.yml@refs/tags",
+	} {
+		if !strings.Contains(standalone, want) {
+			t.Errorf("standalone admission policy missing verifier contract %q (RED-003)", want)
+		}
+	}
+	for _, want := range []string{
+		"non-enforcing image-integrity admission",
+		"validationFailureAction=Audit",
+		"admission.imageIntegrity.acceptedRisk",
+		"kind: ClusterPolicy",
+		"validationFailureAction: Enforce",
+	} {
+		if !strings.Contains(hardening, want) {
+			t.Errorf("helm hardening gate missing image-integrity admission proof %q (RED-003)", want)
+		}
+	}
+	for _, doc := range []struct {
+		path string
+		body string
+	}{
+		{path: "deploy/helm/README.md", body: helmDoc},
+		{path: "deploy/admission/README.md", body: admissionDoc},
+	} {
+		for _, want := range []string{
+			"Kyverno",
+			"ClusterPolicy",
+			"acceptedRisk",
+			"fail closed",
+		} {
+			if !strings.Contains(doc.body, want) {
+				t.Errorf("%s missing image-integrity admission documentation %q (RED-003)", doc.path, want)
+			}
+		}
+	}
+}
+
 func TestAgentDocsMentionNonStandardSecretHeaderRedaction(t *testing.T) {
 	doc := readDeployContractFile(t, "docs/ebpf-agent.md")
 	for _, want := range []string{

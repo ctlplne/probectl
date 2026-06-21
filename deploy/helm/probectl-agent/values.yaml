@@ -21,6 +21,9 @@ admission:
     enabled: true
     acceptedRisk: ""
     policyName: probectl-agent-image-integrity
+    # Enforce is the regulated/default posture. Audit is allowed only when the
+    # template also receives acceptedRisk naming the replacement control or
+    # approved dev exception.
     validationFailureAction: Enforce
     background: false
     imageReferences:

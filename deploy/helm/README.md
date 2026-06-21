@@ -100,8 +100,10 @@ helm install probectl-agent deploy/helm/probectl-agent \
 Because this is a privileged node agent, the chart also renders the Kyverno
 `ClusterPolicy` that verifies the eBPF-agent image digest and keyless cosign
 signature from the `release.yml` tag workflow before Kubernetes admits a pod.
-Kyverno must already be installed in the cluster. Disabling the verifier requires
-both `admission.imageIntegrity.enabled=false` and a non-empty
+Kyverno must already be installed in the cluster; regulated installs fail closed
+unless that rendered policy is enforcing or an equivalent admission control is
+named. Disabling the verifier requires both
+`admission.imageIntegrity.enabled=false` and a non-empty
 `admission.imageIntegrity.acceptedRisk` note so a tag-only/dev path leaves an
 audit-visible footprint in values.
 

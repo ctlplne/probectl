@@ -7,8 +7,8 @@ separately from workload charts. They do not phone home.
 
 ## probectl eBPF agent image integrity
 
-`probectl-agent-image-integrity.kyverno.yaml` makes the privileged eBPF agent
-fail closed at admission unless the image is:
+`probectl-agent-image-integrity.kyverno.yaml` is a Kyverno `ClusterPolicy` that
+makes the privileged eBPF agent fail closed at admission unless the image is:
 
 - referenced with an immutable digest, and
 - signed by the `imfeelingtheagi/probectl` release workflow running on a tag.

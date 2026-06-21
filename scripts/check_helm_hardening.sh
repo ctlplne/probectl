@@ -279,6 +279,11 @@ if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
      --set admission.imageIntegrity.enabled=false --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
   fail "agent chart disabled image-integrity admission without admission.imageIntegrity.acceptedRisk (SUPPLY-001)"
 fi
+if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9093}' \
+     --set admission.imageIntegrity.validationFailureAction=Audit \
+     --set-string image.tag="$AGENT_IMAGE_TAG" >/dev/null 2>&1; then
+  fail "agent chart rendered non-enforcing image-integrity admission without admission.imageIntegrity.acceptedRisk (RED-003)"
+fi
 tag_break_glass="$(arender \
   --set image.allowTagOnly=true \
   --set-string image.tag=0.4.0 \
@@ -286,6 +291,10 @@ tag_break_glass="$(arender \
   --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
 need "probectl-ebpf-agent:0.4.0" "$tag_break_glass" "agent: tag-only break-glass render failed"
 grep -q "kind: ClusterPolicy" <<<"$tag_break_glass" && fail "agent: accepted tag-only break-glass still rendered Kyverno verifier"
+audit_break_glass="$(arender \
+  --set admission.imageIntegrity.validationFailureAction=Audit \
+  --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
+need "validationFailureAction: Audit" "$audit_break_glass" "agent: accepted non-enforcing image-integrity render failed"
 if helm template agent "$AGENT" --set tenantID=t --set 'bus.brokers={k:9092}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set bus.tls.enabled=false >/dev/null 2>&1; then
   fail "agent chart rendered plaintext kafka without bus.allowPlaintext"
