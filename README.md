@@ -354,17 +354,26 @@ migrations/     # sequential, idempotent SQL migrations
 web/            # frontend (React + Vite + TypeScript, themeable design tokens)
 deploy/         # compose (eval + production + dev stacks), docker, helm,
                 #   agent hardening profiles, terraform, gitops
-docs/           # configuration, development, architecture, runbooks
+docs/           # journeys/ (usage paths) + features/ (per-capability) + glossary;
+                #   configuration, development, architecture, runbooks
 test/           # integration harness (separate Go module)
 ```
 
 ## Documentation
 
-New here? Start with **Why probectl** and **How it works** above, then walk the
-zero-to-first-data journey in getting started. Going deeper:
+New here? Start with the **[user journeys](docs/journeys.md)** — the end-to-end paths
+through the product (onboarding, alert→root-cause, threat response, tenant setup,
+cost/SLO governance, production operations). Each is a copy-along route that links to
+the feature pages behind it. The **[feature index](docs/features.md)** maps every
+capability (F1–F57) to its page, and the **[glossary](docs/glossary.md)** defines every
+term from zero knowledge. (Or skim **Why probectl** and **How it works** above first.)
+Going deeper:
 
 | Topic | Doc |
 |---|---|
+| **Start here — user journeys** (the product usage paths) | **[`docs/journeys.md`](docs/journeys.md)** |
+| Feature index — every capability (F1–F57) → its page | [`docs/features.md`](docs/features.md) |
+| Glossary — the zero-knowledge dictionary | [`docs/glossary.md`](docs/glossary.md) |
 | Getting started (zero → first real data) | [`docs/getting-started.md`](docs/getting-started.md) |
 | Deploying agents & collectors (the producers) | [`docs/deploying-agents.md`](docs/deploying-agents.md) |
 | Install & deploy (compose / Helm / air-gapped) | [`docs/install.md`](docs/install.md) |
