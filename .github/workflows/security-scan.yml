@@ -38,7 +38,7 @@ jobs:
           output-file: govulncheck.sarif
       - name: Evidence artifact
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: govulncheck-${{ github.run_id }}
           path: govulncheck.sarif
@@ -79,7 +79,7 @@ jobs:
             --policy ../docs/security/npm-audit-policy.json
       - name: Evidence artifacts
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-audit-${{ github.run_id }}
           path: npm-audit-*.json
@@ -101,7 +101,7 @@ jobs:
           exit-code: "0" # the gate is the second pass; this one is evidence
       - name: Evidence artifact
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: trivy-fs-${{ github.run_id }}
           path: trivy-fs.json
