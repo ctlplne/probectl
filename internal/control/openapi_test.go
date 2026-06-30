@@ -57,10 +57,10 @@ type openAPIParameter struct {
 	In       string `json:"in"`
 	Required bool   `json:"required"`
 	Schema   struct {
-		Type    string  `json:"type"`
-		Minimum float64 `json:"minimum"`
-		Maximum float64 `json:"maximum"`
-		Default float64 `json:"default"`
+		Type    openAPIType `json:"type"`
+		Minimum float64     `json:"minimum"`
+		Maximum float64     `json:"maximum"`
+		Default float64     `json:"default"`
 	} `json:"schema"`
 }
 
@@ -75,6 +75,28 @@ type openAPIResponse struct {
 	Content map[string]struct {
 		Schema openAPISchema `json:"schema"`
 	} `json:"content"`
+}
+
+type openAPIType string
+
+func (typ *openAPIType) UnmarshalJSON(data []byte) error {
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*typ = openAPIType(single)
+		return nil
+	}
+	var union []string
+	if err := json.Unmarshal(data, &union); err != nil {
+		return err
+	}
+	for _, item := range union {
+		if item != "null" {
+			*typ = openAPIType(item)
+			return nil
+		}
+	}
+	*typ = ""
+	return nil
 }
 
 type openAPIOperation struct {
@@ -150,6 +172,18 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func TestOpenAPITypeAcceptsNullableUnion(t *testing.T) {
+	var schema struct {
+		Type openAPIType `json:"type"`
+	}
+	if err := json.Unmarshal([]byte(`{"type":["string","null"]}`), &schema); err != nil {
+		t.Fatalf("parse nullable union type: %v", err)
+	}
+	if schema.Type != "string" {
+		t.Fatalf("nullable union type = %q, want string", schema.Type)
+	}
 }
 
 // TestOpenAPIMatchesRoutes upholds "no undocumented routes" (CLAUDE.md §6, §8):
@@ -337,8 +371,8 @@ func TestOpenAPIAgentPaginationContract(t *testing.T) {
 		Components struct {
 			Schemas map[string]struct {
 				Properties map[string]struct {
-					Type        string `json:"type"`
-					Description string `json:"description"`
+					Type        openAPIType `json:"type"`
+					Description string      `json:"description"`
 				} `json:"properties"`
 			} `json:"schemas"`
 		} `json:"components"`
@@ -354,10 +388,10 @@ func TestOpenAPIAgentPaginationContract(t *testing.T) {
 			In          string `json:"in"`
 			Description string `json:"description"`
 			Schema      struct {
-				Type    string  `json:"type"`
-				Minimum float64 `json:"minimum"`
-				Maximum float64 `json:"maximum"`
-				Default float64 `json:"default"`
+				Type    openAPIType `json:"type"`
+				Minimum float64     `json:"minimum"`
+				Maximum float64     `json:"maximum"`
+				Default float64     `json:"default"`
 			} `json:"schema"`
 		} `json:"parameters"`
 	}
@@ -367,7 +401,7 @@ func TestOpenAPIAgentPaginationContract(t *testing.T) {
 
 	params := map[string]struct {
 		In          string
-		Type        string
+		Type        openAPIType
 		Description string
 		Minimum     float64
 		Maximum     float64
@@ -379,7 +413,7 @@ func TestOpenAPIAgentPaginationContract(t *testing.T) {
 		}
 		params[p.Name] = struct {
 			In          string
-			Type        string
+			Type        openAPIType
 			Description string
 			Minimum     float64
 			Maximum     float64
