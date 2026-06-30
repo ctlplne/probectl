@@ -41,7 +41,7 @@ const sampleAgents = [
     hostname: 'host-a',
     agent_version: '0.1.0',
     status: 'online',
-    capabilities: ['icmp', 'tcp'],
+    capabilities: ['icmp', 'tcp', 'flow', 'device', 'ebpf', 'endpoint'],
   },
 ]
 
@@ -76,6 +76,15 @@ const sampleIncident = {
 }
 
 const sampleLatestResults = [
+  {
+    agent_id: 'a1',
+    type: 'dns',
+    target: '1.1.1.1',
+    success: true,
+    duration_ms: 21,
+    metrics: { 'dns.query.ms': 21 },
+    observed_at: '2026-06-04T12:00:00Z',
+  },
   {
     agent_id: 'a1',
     type: 'http',
@@ -165,7 +174,25 @@ export function defaultFetch(): typeof fetch {
       })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/threat/detections')
-      return jsonResponse({ items: [], detections_running: true })
+      return jsonResponse({
+        items: [
+          {
+            id: 'det-dashboard',
+            kind: 'ioc_match',
+            plane: 'threat',
+            severity: 'warning',
+            confidence: 0.82,
+            source: 'test-intel',
+            category: 'scanner',
+            indicator: '10.0.0.20',
+            entity: '10.0.0.20',
+            title: 'Known scanner contact',
+            summary: 'Flow evidence matched a locally cached threat-intel indicator.',
+            observed_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        detections_running: true,
+      })
     if (path === '/v1/endpoints')
       return jsonResponse({
         items: [

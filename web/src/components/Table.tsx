@@ -39,7 +39,7 @@ export function Table<Row>({
   const rendered = rows.length > maxRows ? rows.slice(0, maxRows) : rows
   const truncated = rows.length - rendered.length
   return (
-    <div className={styles.scroll}>
+    <div className={styles.scroll} tabIndex={0} aria-label={`${caption} table region`}>
       <table className={styles.table}>
         <caption className="sr-only">{caption}</caption>
         <thead>

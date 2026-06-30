@@ -20,6 +20,16 @@ const webRoot = join(repoRoot, "web");
 const browserWorkerRoot = join(repoRoot, "browser-worker");
 const themes = ["dark", "aurora"];
 const viewport = { width: 1366, height: 900 };
+const dashboardCaptions = [
+  "Active tests dashboard",
+  "BGP routing dashboard",
+  "Top flow contributors dashboard",
+  "Device inventory dashboard",
+  "eBPF evidence dashboard",
+  "Cost budget dashboard",
+  "Threat signal dashboard",
+  "Tenant health dashboard",
+];
 
 const bwRequire = createRequire(join(browserWorkerRoot, "package.json"));
 const webRequire = createRequire(join(webRoot, "package.json"));
@@ -32,6 +42,16 @@ function requireExistingPlaywright() {
       `browser-worker Playwright dependency is not installed. Run: npm --prefix ${browserWorkerRoot} ci --no-audit --no-fund\n${err}`,
     );
   }
+}
+
+function localChromiumExecutable() {
+  const candidates = [
+    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+  ].filter(Boolean);
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 async function loadVite() {
@@ -65,7 +85,7 @@ function json(body, status = 200) {
   return { status, body };
 }
 
-function apiPayload(path, method) {
+function apiPayload(path, method, pagePath = "") {
   const operator = {
     id: "op_1",
     email: "root@msp.example",
@@ -114,7 +134,7 @@ function apiPayload(path, method) {
       hostname: "host-a",
       agent_version: "0.1.0",
       status: "online",
-      capabilities: ["icmp", "tcp"],
+      capabilities: ["icmp", "tcp", "flow", "device", "ebpf", "endpoint"],
     },
   ];
 
@@ -130,18 +150,92 @@ function apiPayload(path, method) {
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/agents") return json({ items: sampleAgents });
   if (path === "/v1/ai/discover") return json({ proposals: [] });
+  if (path === "/v1/incidents")
+    return json({
+      items: [
+        {
+          id: "inc-dashboard",
+          tenant_id: "00000000-0000-0000-0000-000000000001",
+          status: "open",
+          severity: "warning",
+          title: "checkout latency burn",
+          target: "https://checkout.probectl.test",
+          started_at: "2026-06-04T11:45:00Z",
+          last_seen_at: "2026-06-04T12:00:00Z",
+          signal_count: 3,
+          signals: [],
+        },
+      ],
+    });
   if (path === "/v1/alerts") return json({ items: [] });
   if (path === "/v1/alerts/active")
-    return json({ items: [], evaluator_running: true });
+    return json({
+      items: [
+        {
+          fingerprint: "fp-dashboard",
+          rule_id: "r-dashboard",
+          rule_name: "checkout latency burn",
+          severity: "warning",
+          metric: "probectl_result_duration_ms",
+          labels: { target: "checkout", service: "checkout" },
+          value: 184,
+          reason: "p95 latency above objective",
+          since: "2026-06-04T11:45:00Z",
+          last_seen_at: "2026-06-04T12:00:00Z",
+        },
+      ],
+      evaluator_running: true,
+    });
   if (path === "/v1/tls/posture")
     return json({ items: [], collector_running: true });
   if (path === "/v1/threat/detections")
-    return json({ items: [], detections_running: true });
+    return json({
+      items: [
+        {
+          id: "det-dashboard",
+          kind: "ioc_match",
+          plane: "threat",
+          severity: "warning",
+          confidence: 0.82,
+          source: "test-intel",
+          category: "scanner",
+          indicator: "10.0.0.20",
+          entity: "10.0.0.20",
+          title: "Known scanner contact",
+          summary:
+            "Flow evidence matched a locally cached threat-intel indicator.",
+          observed_at: "2026-06-04T12:00:00Z",
+        },
+      ],
+      detections_running: true,
+    });
   if (path === "/v1/endpoints")
     return json({ items: [], collector_running: true });
   if (path === "/v1/results/latest")
-    return json({ items: [], collector_running: true });
-  if (path === "/v1/topology")
+    return json({
+      items: [
+        {
+          agent_id: "a1",
+          type: "dns",
+          target: "1.1.1.1",
+          success: true,
+          duration_ms: 21,
+          metrics: { "dns.query.ms": 21 },
+          observed_at: "2026-06-04T12:00:00Z",
+        },
+        {
+          agent_id: "a1",
+          type: "http",
+          target: "https://checkout.probectl.test",
+          success: true,
+          duration_ms: 184,
+          metrics: { "http.total.ms": 184, "http.status": 200 },
+          observed_at: "2026-06-04T12:00:00Z",
+        },
+      ],
+      collector_running: true,
+    });
+  if (path === "/v1/topology" && pagePath !== "/dashboards")
     return json({
       topology_running: true,
       at: "2026-06-04T12:00:00Z",
@@ -154,6 +248,80 @@ function apiPayload(path, method) {
         device_edges: 0,
       },
     });
+  if (path === "/v1/topology")
+    return json({
+      topology_running: true,
+      at: "2026-06-04T12:00:00Z",
+      nodes: [
+        { id: "as:64500", kind: "as", label: "AS64500" },
+        {
+          id: "prefix:203.0.113.0/24",
+          kind: "prefix",
+          label: "203.0.113.0/24",
+        },
+        { id: "service:checkout", kind: "service", label: "checkout" },
+        { id: "service:payments", kind: "service", label: "payments" },
+        { id: "device:10.0.0.1", kind: "device", label: "edge-r1" },
+        { id: "hop:10.0.0.1", kind: "hop", label: "10.0.0.1" },
+      ],
+      edges: [
+        { from: "as:64500", to: "prefix:203.0.113.0/24", kind: "routing" },
+        {
+          from: "service:checkout",
+          to: "service:payments",
+          kind: "flow",
+          label: "http",
+        },
+        { from: "device:10.0.0.1", to: "hop:10.0.0.1", kind: "device" },
+      ],
+      coverage: {
+        path_edges: 0,
+        flow_edges: 1,
+        routing_edges: 1,
+        device_edges: 1,
+      },
+    });
+  if (path === "/v1/flows/top")
+    return json({
+      items: [
+        {
+          key: "10.0.0.10",
+          detail: "checkout",
+          bytes: 524_288_000,
+          packets: 120_000,
+          flows: 42,
+        },
+      ],
+      effective_limit: 8,
+      window: "1h",
+    });
+  if (path === "/v1/flows/capacity")
+    return json({
+      items: [
+        {
+          ts: "2026-06-04T12:00:00Z",
+          exporter: "edge-r1",
+          iface: 1,
+          bps: 85_000_000,
+          pps: 12_000,
+        },
+      ],
+    });
+  if (path === "/v1/flows/anomalies")
+    return json({
+      items: [
+        {
+          exporter: "edge-r1",
+          iface: 1,
+          ts: "2026-06-04T12:00:00Z",
+          current_bps: 85_000_000,
+          baseline_bps: 35_000_000,
+          stddev_bps: 8_000_000,
+          sigma: 6.2,
+          model: "local-zscore-v1",
+        },
+      ],
+    });
   if (path === "/v1/cost/summary")
     return json({
       cost_running: true,
@@ -162,27 +330,78 @@ function apiPayload(path, method) {
         zones_mapped: true,
         pricing_source: "test",
         pricing_as_of: "2026-06-01",
-        total_bytes: 0,
-        total_usd: 0,
-        by_class: {},
-        by_service: {},
-        by_team: {},
+        total_bytes: 17 * 2 ** 30,
+        total_usd: 0.38,
+        by_class: { inter_az: { bytes: 10 * 2 ** 30, usd: 0.1 } },
+        by_service: { checkout: { bytes: 12 * 2 ** 30, usd: 0.38 } },
+        by_team: { payments: { bytes: 12 * 2 ** 30, usd: 0.38 } },
         chatty_pairs: [],
-        trend: [],
-        budgets: [],
+        trend: [
+          { hour: "2026-06-04T10:00:00Z", bytes: 4 * 2 ** 30, usd: 0.08 },
+          { hour: "2026-06-04T11:00:00Z", bytes: 7 * 2 ** 30, usd: 0.16 },
+          { hour: "2026-06-04T12:00:00Z", bytes: 17 * 2 ** 30, usd: 0.38 },
+        ],
+        budgets: [
+          {
+            kind: "team",
+            name: "payments",
+            monthly_usd: 500,
+            spent_usd: 0.38,
+            exceeded: false,
+          },
+        ],
       },
     });
-  if (path === "/v1/slos") return json({ slo_running: true, items: [] });
+  if (path === "/v1/slos")
+    return json({
+      slo_running: true,
+      items: [
+        {
+          name: "checkout-availability",
+          display_name: "Checkout availability",
+          service: "checkout",
+          team: "payments",
+          objective: 0.99,
+          window: "30d",
+          attainment: 0.982,
+          error_budget_remaining: 0.12,
+          total_events: 300,
+          cold_start: false,
+          burn_rates: [
+            {
+              window: "fast",
+              long: "1h0m0s",
+              short: "5m0s",
+              burn: 16.2,
+              limit: 14.4,
+              firing: true,
+            },
+          ],
+        },
+      ],
+    });
   if (path === "/v1/compliance")
     return json({
       compliance_running: true,
-      items: [],
+      items: [
+        {
+          policy: "pci-east-west",
+          rule_id: "deny-checkout-db",
+          description: "Checkout must not talk directly to cardholder database",
+          from: "checkout",
+          to: "cardholder-db",
+          ports: "5432",
+          verdict: "violation",
+          violations: 2,
+          observed_pairs: 1,
+        },
+      ],
       coverage: {
-        flow_observed: false,
-        ebpf_observed: false,
-        observations: 0,
-        zones_seen: 0,
-        zones_total: 0,
+        flow_observed: true,
+        ebpf_observed: true,
+        observations: 3,
+        zones_seen: 2,
+        zones_total: 2,
         notes: [],
       },
     });
@@ -199,6 +418,8 @@ function apiPayload(path, method) {
     });
   if (path === "/v1/rum") return json({ rum_running: false });
   if (path === "/v1/carbon") return json({ carbon_running: false });
+  if (path === "/v1/remediation/proposals")
+    return json({ items: [], approvals_enabled: false });
   if (path === "/v1/secrets/health")
     return json({
       resolver_running: true,
@@ -222,7 +443,16 @@ function apiPayload(path, method) {
     });
   if (path === "/branding") return json({ product_name: "probectl" });
   if (path === "/v1/security/keys")
-    return json({ error: { message: "not found" } }, 404);
+    return json({
+      items: [
+        {
+          version: 1,
+          mode: "managed",
+          state: "active",
+          created_at: "2026-06-04T12:00:00Z",
+        },
+      ],
+    });
   if (path === "/v1/lifecycle/retention")
     return json({ flow_retention_days: null, isolation_model: "pooled" });
   if (path === "/v1/editions")
@@ -372,7 +602,10 @@ function fetchStubSource(theme) {
       const method = String(init.method || 'GET').toUpperCase();
       const url = new URL(String(input), location.origin);
       if (url.pathname.includes('/v1/v1')) throw new Error('double /v1 prefix: ' + url.pathname);
-      return respond(payloads(url.pathname, method));
+      if (url.searchParams.has('tenant_id')) throw new Error('browser sent tenant_id query param: ' + url.pathname);
+      window.__probectlFetches = window.__probectlFetches || [];
+      window.__probectlFetches.push(url.pathname + url.search);
+      return respond(payloads(url.pathname, method, location.pathname));
     };
   })();`;
 }
@@ -518,6 +751,66 @@ async function targetAndTabChecks(page) {
   });
 }
 
+async function dashboardChecks(page) {
+  return page.evaluate((expectedCaptions) => {
+    const problems = [];
+    const normalize = (value) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const tables = [...document.querySelectorAll("table")];
+
+    for (const caption of expectedCaptions) {
+      const table = tables.find(
+        (candidate) => normalize(candidate.caption?.textContent) === caption,
+      );
+      if (!table) {
+        problems.push(`missing table caption: ${caption}`);
+        continue;
+      }
+      const bodyText = normalize(table.tBodies[0]?.textContent);
+      if (!table.tBodies[0]?.querySelector("tr")) {
+        problems.push(`${caption}: no body rows rendered`);
+      }
+      if (/^No\s|No data/i.test(bodyText)) {
+        problems.push(
+          `${caption}: rendered an empty/default state (${bodyText})`,
+        );
+      }
+    }
+
+    const requests = globalThis.__probectlFetches || [];
+    const tenantSpoof = requests.find((raw) =>
+      new URL(raw, location.origin).searchParams.has("tenant_id"),
+    );
+    if (tenantSpoof)
+      problems.push(`browser request carried tenant_id: ${tenantSpoof}`);
+
+    const requiredPaths = [
+      "/v1/me",
+      "/v1/tests",
+      "/v1/agents",
+      "/v1/results/latest",
+      "/v1/topology",
+      "/v1/flows/top",
+      "/v1/flows/capacity",
+      "/v1/flows/anomalies",
+      "/v1/cost/summary",
+      "/v1/threat/detections",
+    ];
+    for (const requiredPath of requiredPaths) {
+      if (
+        !requests.some(
+          (raw) => new URL(raw, location.origin).pathname === requiredPath,
+        )
+      ) {
+        problems.push(`missing tenant-scoped fetch: ${requiredPath}`);
+      }
+    }
+    return problems;
+  }, dashboardCaptions);
+}
+
 async function selfCheck(browser, axeSource) {
   const page = await browser.newPage({ viewport });
   await page.setContent(`
@@ -550,7 +843,11 @@ async function main() {
   }
   const axeSource = await readFile(axePath, "utf8");
   const { chromium } = requireExistingPlaywright();
-  const browser = await chromium.launch({ headless: true });
+  const executablePath = localChromiumExecutable();
+  const browser = await chromium.launch({
+    headless: true,
+    ...(executablePath ? { executablePath } : {}),
+  });
   const routes = await nativeRoutes();
   const { server, baseURL } = await startVite();
   const failures = [];
@@ -566,8 +863,26 @@ async function main() {
       for (const route of routes) {
         const page = await context.newPage();
         page.on("console", (msg) => {
-          if (msg.type() === "error")
-            failures.push(`${theme} ${route}: console error: ${msg.text()}`);
+          if (msg.type() === "error") {
+            const loc = msg.location();
+            if (
+              loc.url.endsWith("/favicon.ico") &&
+              msg.text().includes("Failed to load resource")
+            ) {
+              return;
+            }
+            failures.push(
+              `${theme} ${route}: console error: ${msg.text()} (${loc.url || "unknown"}:${loc.lineNumber})`,
+            );
+          }
+        });
+        page.on("response", (resp) => {
+          if (resp.status() >= 400) {
+            const url = new URL(resp.url());
+            failures.push(
+              `${theme} ${route}: HTTP ${resp.status()} ${url.pathname}`,
+            );
+          }
         });
         await page.goto(`${baseURL}${route}`, { waitUntil: "networkidle" });
         await page.waitForSelector("main", { timeout: 10_000 });
@@ -586,6 +901,14 @@ async function main() {
           failures.push(
             `${theme} ${route}: focus/target violations\n  ${custom.join("\n  ")}`,
           );
+        }
+        if (route === "/dashboards") {
+          const dashboard = await dashboardChecks(page);
+          if (dashboard.length > 0) {
+            failures.push(
+              `${theme} ${route}: dashboard coverage violations\n  ${dashboard.join("\n  ")}`,
+            );
+          }
         }
         await page.close();
       }

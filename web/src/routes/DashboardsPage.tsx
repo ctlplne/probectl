@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import styles from './dashboards.module.css'
 import { Page } from './pages'
 import {
@@ -13,17 +14,33 @@ import {
   Table,
   type Column,
 } from '../components'
+import { flattenAgents, useAgents, type Agent } from '../api/agents'
 import { useActiveAlerts, type ActiveAlert } from '../api/alerts'
-import { useCompliance, type RuleResult } from '../api/compliance'
-import { gib, usd, useCostSummary } from '../api/cost'
-import { useFlowTop, type FlowTopRow } from '../api/planes'
+import { useCompliance, type ComplianceCoverage, type RuleResult } from '../api/compliance'
+import { gib, usd, useCostSummary, type BudgetStatus } from '../api/cost'
+import {
+  useFlowAnomalies,
+  useFlowCapacity,
+  useFlowTop,
+  type FlowAnomaly,
+  type FlowTopRow,
+} from '../api/planes'
 import { useIncidents, severityTone, type Incident } from '../api/incidents'
-import { useLatestResults } from '../api/results'
+import { useLatestResults, type LatestResult } from '../api/results'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
-import { useTopology } from '../api/topology'
+import { useDetections, type Detection } from '../api/threat'
+import { useTests, type Test } from '../api/tests'
+import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
+import { useAuth } from '../auth/useAuth'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
-import { formatInteger, formatMultiplier, formatRatioPercent } from '../i18n/number'
+import {
+  formatDecimal,
+  formatInteger,
+  formatMultiplier,
+  formatRatioPercent,
+  formatScaledBitRate,
+} from '../i18n/number'
 
 function compact(n: number, locale: string): string {
   return formatInteger(n, locale)
@@ -38,17 +55,43 @@ function metricTone(value: number, healthyWhenZero = true): 'success' | 'warning
   return value > 0 ? 'success' : 'warning'
 }
 
+type MetricTone = 'success' | 'warning' | 'danger'
+
+interface ActiveTestRow {
+  test: Test
+  latest?: LatestResult
+}
+
+interface PlaneRow {
+  id: string
+  name: string
+  status: string
+  tone: MetricTone
+  detail: string
+  value: string
+}
+
 export function DashboardsPage() {
   const { locale } = useI18n()
+  const { tenant, user } = useAuth()
+  const tests = useTests()
+  const agentsQuery = useAgents()
   const incidents = useIncidents()
   const alerts = useActiveAlerts()
   const results = useLatestResults()
   const flowTop = useFlowTop('pair', '1h', 5)
+  const flowCapacity = useFlowCapacity('1h', '5m')
+  const flowAnomalies = useFlowAnomalies('1h', '5m')
   const topology = useTopology()
   const cost = useCostSummary()
   const slos = useSLOs()
   const compliance = useCompliance()
+  const detections = useDetections()
 
+  const testItems = tests.data ?? []
+  const enabledTests = testItems.filter((t) => t.enabled)
+  const agents = flattenAgents(agentsQuery.data?.pages)
+  const onlineAgents = agents.filter((a) => a.status === 'online')
   const incidentItems = incidents.data ?? []
   const openIncidents = incidentItems.filter((i) => i.status === 'open')
   const activeAlerts = alerts.data?.items ?? []
@@ -57,38 +100,112 @@ export function DashboardsPage() {
   const successRate = latestResults.length > 0 ? successfulResults / latestResults.length : 0
   const topFlows = flowTop.data?.items ?? []
   const flowTotal = topFlows.reduce((sum, row) => sum + row.bytes, 0)
+  const capacityPoints = flowCapacity.data?.items ?? []
+  const latestCapacity = capacityPoints[capacityPoints.length - 1]
+  const capacityTrend = capacityPoints.map((p) => p.bps)
+  const anomalies = flowAnomalies.data?.items ?? []
   const sloItems = slos.data?.items ?? []
   const burningSLOs = sloItems.filter((s) => s.burn_rates.some((b) => b.firing || b.burn > b.limit))
   const complianceItems = compliance.data?.items ?? []
+  const complianceCoverage = compliance.data?.coverage
   const violations = complianceItems.filter((r) => r.verdict === 'violation')
-  const serviceNodes = topology.data?.nodes.filter((n) => n.kind === 'service').length ?? 0
+  const nodes = topology.data?.nodes ?? []
+  const edges = topology.data?.edges ?? []
+  const serviceNodes = nodes.filter((n) => n.kind === 'service').length
+  const asNodes = nodes.filter((n) => n.kind === 'as')
+  const prefixNodes = nodes.filter((n) => n.kind === 'prefix')
+  const deviceNodes = nodes.filter((n) => n.kind === 'device')
+  const routingEdges = edges.filter((e) => e.kind === 'routing')
+  const flowEdges = edges.filter((e) => e.kind === 'flow')
+  const deviceEdges = edges.filter((e) => e.kind === 'device')
   const costSummary = cost.data?.summary
   const costTrend = (costSummary?.trend ?? []).map((p) => p.usd)
   const latencyTrend = latestResults.map((r) => r.duration_ms ?? r.metrics?.['rtt.avg.ms'] ?? 0)
+  const threatItems = detections.data?.items ?? []
+  const latestByTarget = useMemo(() => {
+    const byTarget = new Map<string, LatestResult>()
+    for (const result of latestResults) {
+      if (result.target) byTarget.set(result.target, result)
+    }
+    return byTarget
+  }, [latestResults])
+  const activeTestRows = useMemo<ActiveTestRow[]>(
+    () =>
+      testItems.slice(0, 6).map((test) => ({
+        test,
+        latest: test.target ? latestByTarget.get(test.target) : undefined,
+      })),
+    [latestByTarget, testItems],
+  )
+  const bgpRows = useMemo(
+    () => bgpDashboardRows(routingEdges, asNodes, prefixNodes),
+    [asNodes, prefixNodes, routingEdges],
+  )
+  const deviceRows = useMemo(
+    () => deviceDashboardRows(deviceNodes, deviceEdges, agents, locale),
+    [agents, deviceEdges, deviceNodes, locale],
+  )
+  const ebpfRows = useMemo(
+    () => ebpfDashboardRows(flowEdges, anomalies, complianceCoverage, agents, locale),
+    [agents, anomalies, complianceCoverage, flowEdges, locale],
+  )
+  const tenantHealthRows = useMemo(
+    () =>
+      tenantHealthDashboardRows({
+        tenantID: tenant.id,
+        userEmail: user.email,
+        agents,
+        topologyRunning: topology.data?.topology_running ?? false,
+        costRunning: cost.data?.cost_running ?? false,
+        complianceRunning: compliance.data?.compliance_running ?? false,
+        detectionsRunning: detections.data?.detections_running ?? false,
+        locale,
+      }),
+    [
+      agents,
+      compliance.data?.compliance_running,
+      cost.data?.cost_running,
+      detections.data?.detections_running,
+      locale,
+      tenant.id,
+      topology.data?.topology_running,
+      user.email,
+    ],
+  )
 
   const anyLoading =
+    tests.isLoading ||
+    agentsQuery.isLoading ||
     incidents.isLoading ||
     alerts.isLoading ||
     results.isLoading ||
     flowTop.isLoading ||
+    flowCapacity.isLoading ||
+    flowAnomalies.isLoading ||
     topology.isLoading ||
     cost.isLoading ||
     slos.isLoading ||
-    compliance.isLoading
+    compliance.isLoading ||
+    detections.isLoading
   const anyError =
+    tests.isError ||
+    agentsQuery.isError ||
     incidents.isError ||
     alerts.isError ||
     results.isError ||
     flowTop.isError ||
+    flowCapacity.isError ||
+    flowAnomalies.isError ||
     topology.isError ||
     cost.isError ||
     slos.isError ||
-    compliance.isError
+    compliance.isError ||
+    detections.isError
 
   return (
     <Page
       title="Dashboards"
-      subtitle="Curated operating view across incidents, signals, traffic, service health, and policy posture."
+      subtitle="Curated operating view across active tests, routing, flow, device, eBPF, cost, threat, and tenant health."
     >
       {anyError ? (
         <ErrorState description="Could not load every dashboard panel." />
@@ -98,53 +215,84 @@ export function DashboardsPage() {
         <>
           <div className={styles.metrics}>
             <DashboardMetric
-              label="Open incidents"
-              value={openIncidents.length}
-              detail={`${formatInteger(incidentItems.length, locale)} total incidents`}
-              tone={metricTone(openIncidents.length)}
-              locale={locale}
-            />
-            <DashboardMetric
-              label="Active alerts"
-              value={activeAlerts.length}
-              detail={`${formatInteger(
-                activeAlerts.filter((a) => a.severity === 'critical').length,
+              label="Active tests"
+              value={enabledTests.length}
+              detail={`${formatInteger(testItems.length, locale)} tests, ${formatRatioPercent(
+                successRate,
                 locale,
-              )} critical`}
-              tone={metricTone(activeAlerts.length)}
+                { maximumFractionDigits: 1 },
+              )} latest success`}
+              tone={enabledTests.length > 0 ? 'success' : 'warning'}
               locale={locale}
             />
             <DashboardMetric
-              label="Synthetic success"
-              value={formatRatioPercent(successRate, locale, { maximumFractionDigits: 1 })}
-              detail={`${formatInteger(successfulResults, locale)}/${formatInteger(
-                latestResults.length,
+              label="BGP routes"
+              value={routingEdges.length}
+              detail={`${formatInteger(asNodes.length, locale)} AS nodes, ${formatInteger(
+                prefixNodes.length,
                 locale,
-              )} latest results`}
-              tone={
-                latestResults.length === 0 ? 'warning' : successRate >= 0.99 ? 'success' : 'warning'
-              }
+              )} prefixes`}
+              tone={routingEdges.length > 0 ? 'success' : 'warning'}
               locale={locale}
             />
             <DashboardMetric
-              label="Top flow volume"
+              label="Flow volume"
               value={flowBytes(flowTotal, locale)}
               detail={`${formatInteger(topFlows.length, locale)} ranked contributors`}
               tone={metricTone(topFlows.length, false)}
               locale={locale}
             />
             <DashboardMetric
-              label="SLO burn watch"
-              value={burningSLOs.length}
-              detail={`${formatInteger(sloItems.length, locale)} SLO definitions`}
-              tone={metricTone(burningSLOs.length)}
+              label="Device nodes"
+              value={deviceNodes.length}
+              detail={`${formatInteger(deviceEdges.length, locale)} device topology edges`}
+              tone={deviceNodes.length > 0 ? 'success' : 'warning'}
               locale={locale}
             />
             <DashboardMetric
-              label="Segmentation violations"
-              value={violations.length}
-              detail={`${formatInteger(complianceItems.length, locale)} policy checks`}
-              tone={metricTone(violations.length)}
+              label="eBPF evidence"
+              value={complianceCoverage?.ebpf_observed ? 'observed' : 'watch'}
+              detail={`${formatInteger(flowEdges.length, locale)} L7/service edges, ${formatInteger(
+                anomalies.length,
+                locale,
+              )} anomalies`}
+              tone={complianceCoverage?.ebpf_observed ? 'success' : 'warning'}
+              locale={locale}
+            />
+            <DashboardMetric
+              label="Cost"
+              value={costSummary ? usd(costSummary.total_usd, locale) : 'unpriced'}
+              detail={
+                costSummary
+                  ? `${flowBytes(costSummary.total_bytes, locale)} attributed`
+                  : 'waiting for cost summary'
+              }
+              tone={costSummary?.priced ? 'success' : 'warning'}
+              locale={locale}
+            />
+            <DashboardMetric
+              label="Threat signals"
+              value={threatItems.length}
+              detail={`${formatInteger(
+                threatItems.filter((d) => d.severity === 'critical').length,
+                locale,
+              )} critical`}
+              tone={metricTone(threatItems.length)}
+              locale={locale}
+            />
+            <DashboardMetric
+              label="Tenant health"
+              value={`${formatInteger(
+                tenantHealthRows.filter((r) => r.tone === 'success').length,
+                locale,
+              )}/${formatInteger(tenantHealthRows.length, locale)}`}
+              detail={`${formatInteger(onlineAgents.length, locale)} of ${formatInteger(
+                agents.length,
+                locale,
+              )} collectors online`}
+              tone={
+                onlineAgents.length === agents.length && agents.length > 0 ? 'success' : 'warning'
+              }
               locale={locale}
             />
           </div>
@@ -152,7 +300,7 @@ export function DashboardsPage() {
           <div className={styles.grid}>
             <Card>
               <CardHeader
-                title="Traffic and spend"
+                title="Cost and capacity"
                 description={`${formatInteger(serviceNodes, locale)} services visible in topology`}
               />
               <CardBody className={styles.chartStack}>
@@ -170,6 +318,19 @@ export function DashboardsPage() {
                   <Sparkline data={costTrend.length > 0 ? costTrend : [0]} label="Cost trend" />
                 </ChartShell>
                 <ChartShell
+                  title="Flow capacity"
+                  legend={
+                    latestCapacity
+                      ? `${formatScaledBitRate(latestCapacity.bps, locale)} at ${latestCapacity.exporter} if${latestCapacity.iface}`
+                      : `${capacityPoints.length} tenant capacity samples`
+                  }
+                >
+                  <Sparkline
+                    data={capacityTrend.length > 0 ? capacityTrend : [0]}
+                    label="Flow capacity trend"
+                  />
+                </ChartShell>
+                <ChartShell
                   title="Latest test latency"
                   legend={`${latestResults.length} latest synthetic results`}
                 >
@@ -178,13 +339,31 @@ export function DashboardsPage() {
                     label="Synthetic latency trend"
                   />
                 </ChartShell>
+                <CostBudgetTable rows={costSummary?.budgets ?? []} locale={locale} />
               </CardBody>
             </Card>
 
             <Card>
-              <CardHeader title="Incident watch" />
+              <CardHeader
+                title="Active tests"
+                description="Synthetic coverage and newest result by target."
+              />
               <CardBody>
-                <IncidentTable incidents={openIncidents.slice(0, 5)} locale={locale} />
+                <ActiveTestTable rows={activeTestRows} locale={locale} />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="BGP routing"
+                description="AS, prefix, and routing-edge coverage."
+              />
+              <CardBody>
+                <PlaneTable
+                  caption="BGP routing dashboard"
+                  rows={bgpRows}
+                  emptyTitle="No BGP routing evidence"
+                />
               </CardBody>
             </Card>
 
@@ -192,6 +371,65 @@ export function DashboardsPage() {
               <CardHeader title="Flow contributors" />
               <CardBody>
                 <FlowTable rows={topFlows.slice(0, 5)} locale={locale} />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="Device inventory"
+                description="Device topology and collector evidence."
+              />
+              <CardBody>
+                <PlaneTable
+                  caption="Device inventory dashboard"
+                  rows={deviceRows}
+                  emptyTitle="No device inventory evidence"
+                />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="eBPF / L7"
+                description="Host and service-edge evidence without enforcement."
+              />
+              <CardBody>
+                <PlaneTable
+                  caption="eBPF evidence dashboard"
+                  rows={ebpfRows}
+                  emptyTitle="No eBPF evidence"
+                />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="Threat signals"
+                description="Confidence-scored detections, never inline blocking."
+              />
+              <CardBody>
+                <ThreatTable rows={threatItems.slice(0, 5)} locale={locale} />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="Tenant health"
+                description={`Session-scoped to tenant ${tenant.id}`}
+              />
+              <CardBody>
+                <PlaneTable
+                  caption="Tenant health dashboard"
+                  rows={tenantHealthRows}
+                  emptyTitle="No tenant health signals"
+                />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader title="Incident watch" />
+              <CardBody>
+                <IncidentTable incidents={openIncidents.slice(0, 5)} locale={locale} />
               </CardBody>
             </Card>
 
@@ -247,6 +485,284 @@ function DashboardMetric({
       </CardBody>
     </Card>
   )
+}
+
+function ActiveTestTable({ rows, locale }: { rows: ActiveTestRow[]; locale: string }) {
+  const columns: Column<ActiveTestRow>[] = [
+    {
+      key: 'test',
+      header: 'Test',
+      render: ({ test }) => (
+        <span>
+          <strong>{test.name}</strong>
+          <span className={styles.inlineDetail}> {test.target}</span>
+        </span>
+      ),
+    },
+    { key: 'type', header: 'Type', render: ({ test }) => <Badge tone="info">{test.type}</Badge> },
+    {
+      key: 'latest',
+      header: 'Latest',
+      render: ({ test, latest }) =>
+        latest ? (
+          <Badge tone={latest.success ? 'success' : 'danger'}>
+            {latest.success ? 'passing' : 'failing'}
+          </Badge>
+        ) : test.enabled ? (
+          <Badge tone="warning">scheduled</Badge>
+        ) : (
+          <Badge tone="neutral">disabled</Badge>
+        ),
+    },
+    {
+      key: 'duration',
+      header: 'Latency',
+      numeric: true,
+      render: ({ latest }) =>
+        latest?.duration_ms ? `${formatDecimal(latest.duration_ms, locale)} ms` : 'pending',
+    },
+  ]
+  return (
+    <Table
+      caption="Active tests dashboard"
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => r.test.id}
+      empty={<EmptyState title="No active tests" description="Create a synthetic test first." />}
+    />
+  )
+}
+
+function PlaneTable({
+  caption,
+  rows,
+  emptyTitle,
+}: {
+  caption: string
+  rows: PlaneRow[]
+  emptyTitle: string
+}) {
+  const columns: Column<PlaneRow>[] = [
+    { key: 'status', header: 'Status', render: (r) => <Badge tone={r.tone}>{r.status}</Badge> },
+    { key: 'name', header: 'Name', render: (r) => <strong>{r.name}</strong> },
+    { key: 'detail', header: 'Detail', render: (r) => r.detail },
+    { key: 'value', header: 'Value', render: (r) => r.value },
+  ]
+  return (
+    <Table
+      caption={caption}
+      columns={columns}
+      rows={rows}
+      rowKey={(r) => r.id}
+      empty={<EmptyState title={emptyTitle} description="This tenant has no served data yet." />}
+    />
+  )
+}
+
+function CostBudgetTable({ rows, locale }: { rows: BudgetStatus[]; locale: string }) {
+  const columns: Column<BudgetStatus>[] = [
+    { key: 'scope', header: 'Scope', render: (b) => `${b.kind}: ${b.name}` },
+    { key: 'spent', header: 'Spent', numeric: true, render: (b) => usd(b.spent_usd, locale) },
+    { key: 'budget', header: 'Budget', numeric: true, render: (b) => usd(b.monthly_usd, locale) },
+    {
+      key: 'state',
+      header: 'State',
+      render: (b) => (
+        <Badge tone={b.exceeded ? 'danger' : 'success'}>{b.exceeded ? 'over' : 'ok'}</Badge>
+      ),
+    },
+  ]
+  return (
+    <Table
+      caption="Cost budget dashboard"
+      columns={columns}
+      rows={rows}
+      rowKey={(b) => `${b.kind}-${b.name}`}
+      empty={
+        <EmptyState title="No cost budgets" description="Budget definitions are not configured." />
+      }
+    />
+  )
+}
+
+function ThreatTable({ rows, locale }: { rows: Detection[]; locale: string }) {
+  const columns: Column<Detection>[] = [
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (d) => <Badge tone={severityTone(d.severity)}>{d.severity}</Badge>,
+    },
+    { key: 'title', header: 'Detection', render: (d) => <strong>{d.title}</strong> },
+    {
+      key: 'confidence',
+      header: 'Confidence',
+      numeric: true,
+      render: (d) =>
+        d.confidence === undefined
+          ? 'n/a'
+          : formatRatioPercent(d.confidence, locale, { maximumFractionDigits: 0 }),
+    },
+    { key: 'source', header: 'Source', render: (d) => d.source || d.plane },
+  ]
+  return (
+    <Table
+      caption="Threat signal dashboard"
+      columns={columns}
+      rows={rows}
+      rowKey={(d) => d.id}
+      empty={<EmptyState title="No threat detections" description="Detection engine is quiet." />}
+    />
+  )
+}
+
+function bgpDashboardRows(
+  edges: TopoEdge[],
+  asNodes: TopoNode[],
+  prefixNodes: TopoNode[],
+): PlaneRow[] {
+  const labels = new Map([...asNodes, ...prefixNodes].map((node) => [node.id, node.label]))
+  const rows = edges.slice(0, 5).map((edge, i) => ({
+    id: `bgp-edge-${i}-${edge.from}-${edge.to}`,
+    name:
+      edge.label || `${labels.get(edge.from) ?? edge.from} -> ${labels.get(edge.to) ?? edge.to}`,
+    status: 'observed',
+    tone: 'success' as MetricTone,
+    detail: `${labels.get(edge.from) ?? edge.from} to ${labels.get(edge.to) ?? edge.to}`,
+    value: 'routing edge',
+  }))
+  if (rows.length > 0) return rows
+  if (asNodes.length === 0 && prefixNodes.length === 0) return []
+  return [
+    {
+      id: 'bgp-node-coverage',
+      name: 'BGP node coverage',
+      status: 'partial',
+      tone: 'warning',
+      detail: `${asNodes.length} AS nodes, ${prefixNodes.length} prefixes`,
+      value: 'waiting for routing edges',
+    },
+  ]
+}
+
+function deviceDashboardRows(
+  deviceNodes: TopoNode[],
+  deviceEdges: TopoEdge[],
+  agents: Agent[],
+  locale: string,
+): PlaneRow[] {
+  const collectors = agentsWithCapability(agents, 'device')
+  return deviceNodes.slice(0, 5).map((node) => {
+    const edgeCount = deviceEdges.filter(
+      (edge) => edge.from === node.id || edge.to === node.id,
+    ).length
+    return {
+      id: node.id,
+      name: node.label,
+      status: 'observed',
+      tone: 'success',
+      detail: `${formatInteger(edgeCount, locale)} topology edges`,
+      value:
+        collectors.length > 0
+          ? `${formatInteger(collectors.length, locale)} device collectors`
+          : 'topology evidence',
+    }
+  })
+}
+
+function ebpfDashboardRows(
+  flowEdges: TopoEdge[],
+  anomalies: FlowAnomaly[],
+  coverage: ComplianceCoverage | undefined,
+  agents: Agent[],
+  locale: string,
+): PlaneRow[] {
+  const collectors = agentsWithCapability(agents, 'ebpf')
+  const rows = flowEdges.slice(0, 5).map((edge, i) => ({
+    id: `ebpf-edge-${i}-${edge.from}-${edge.to}`,
+    name: edge.label || `${edge.from} -> ${edge.to}`,
+    status: coverage?.ebpf_observed ? 'observed' : 'flow-only',
+    tone: coverage?.ebpf_observed ? ('success' as MetricTone) : ('warning' as MetricTone),
+    detail: `${edge.from} to ${edge.to}`,
+    value:
+      collectors.length > 0
+        ? `${formatInteger(collectors.length, locale)} eBPF collectors`
+        : `${formatInteger(anomalies.length, locale)} anomaly signals`,
+  }))
+  if (rows.length > 0) return rows
+  return anomalies.slice(0, 5).map((a) => ({
+    id: `ebpf-anomaly-${a.exporter}-${a.iface}-${a.ts}`,
+    name: `${a.exporter || 'exporter'} if${a.iface}`,
+    status: 'anomaly',
+    tone: 'warning',
+    detail: a.model || 'local model',
+    value: `${formatDecimal(a.sigma, locale, { maximumFractionDigits: 1 })} sigma`,
+  }))
+}
+
+function tenantHealthDashboardRows({
+  tenantID,
+  userEmail,
+  agents,
+  topologyRunning,
+  costRunning,
+  complianceRunning,
+  detectionsRunning,
+  locale,
+}: {
+  tenantID: string
+  userEmail: string
+  agents: Agent[]
+  topologyRunning: boolean
+  costRunning: boolean
+  complianceRunning: boolean
+  detectionsRunning: boolean
+  locale: string
+}): PlaneRow[] {
+  const online = agents.filter((a) => a.status === 'online').length
+  return [
+    {
+      id: 'tenant-scope',
+      name: 'Tenant scope',
+      status: 'scoped',
+      tone: 'success',
+      detail: tenantID,
+      value: userEmail,
+    },
+    {
+      id: 'collector-fleet',
+      name: 'Collector fleet',
+      status: online === agents.length && agents.length > 0 ? 'steady' : 'watch',
+      tone: online === agents.length && agents.length > 0 ? 'success' : 'warning',
+      detail: `${formatInteger(online, locale)} of ${formatInteger(agents.length, locale)} online`,
+      value: capabilitySummary(agents),
+    },
+    {
+      id: 'engines',
+      name: 'Engines',
+      status:
+        topologyRunning && costRunning && complianceRunning && detectionsRunning
+          ? 'running'
+          : 'watch',
+      tone:
+        topologyRunning && costRunning && complianceRunning && detectionsRunning
+          ? 'success'
+          : 'warning',
+      detail: 'topology, cost, compliance, threat',
+      value: `${formatInteger(
+        [topologyRunning, costRunning, complianceRunning, detectionsRunning].filter(Boolean).length,
+        locale,
+      )}/4 running`,
+    },
+  ]
+}
+
+function agentsWithCapability(agents: Agent[], capability: string): Agent[] {
+  return agents.filter((agent) => agent.capabilities.includes(capability))
+}
+
+function capabilitySummary(agents: Agent[]): string {
+  const caps = new Set(agents.flatMap((a) => a.capabilities))
+  return caps.size > 0 ? [...caps].sort().join(', ') : 'no capabilities'
 }
 
 function IncidentTable({ incidents, locale }: { incidents: Incident[]; locale: string }) {

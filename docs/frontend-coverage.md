@@ -21,6 +21,10 @@ Two pieces make it work:
   starts the real Vite app, renders every native route under the dark and aurora
   themes, runs axe with browser-computed WCAG tags, and checks keyboard focus,
   focus-obscured, positive `tabindex`, and 24px minimum interactive targets.
+  The `/dashboards` route has an extra data-depth assertion in that same browser
+  pass: active tests, BGP, flow, device, eBPF, cost, threat, and tenant-health
+  dashboard tables must all render tenant-scoped fixture rows, and browser
+  requests must not carry a `tenant_id` query parameter.
 
 Think of the registry as a passenger manifest and the gate as the headcount:
 drift in _either_ direction — someone aboard who isn't on the list, or someone
