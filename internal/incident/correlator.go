@@ -35,6 +35,15 @@ type Store interface {
 	AppendSignal(ctx context.Context, tenant, incidentID string, sig Signal) (*Incident, error)
 }
 
+// TransactionalStore can serialize the read-correlate-create sequence in the
+// durable backing store. HA control-plane replicas do not share Correlator's
+// in-process mutex, so Postgres-backed stores use this seam to hold a tenant-keyed
+// transaction advisory lock across OpenIncidents/Create/AppendSignal.
+type TransactionalStore interface {
+	Store
+	WithTenantCorrelationLock(ctx context.Context, tenant string, fn func(context.Context, Store) error) error
+}
+
 // Observer is notified of an incident lifecycle transition during Ingest: opened
 // is true when the signal opened a NEW incident, false when it was correlated
 // into an existing one. It runs synchronously after the store commits, so it sees
@@ -59,15 +68,11 @@ type Correlator struct {
 	observer Observer
 	now      func() time.Time // injectable clock (CORRECT-009 skew clamp; tests)
 
-	// tenantLocks serializes the read-then-create sequence PER TENANT
-	// (CORRECT-013). Two signals for the same tenant arriving concurrently (the
-	// NDR, BGP, TLS, and IOC consumers all call Ingest from independent
-	// goroutines) could both observe "no open incident" and both Create —
-	// opening duplicate incidents for one event and splitting its evidence. A
-	// per-tenant lock makes the check-and-open atomic within the process.
-	// Locks are keyed by tenant so distinct tenants never contend (isolation +
-	// throughput). Cross-replica serialization (HA) rides the DB advisory lock
-	// added with the durable view layer in S3 (ARCH-003).
+	// tenantLocks serializes the read-then-create sequence PER TENANT inside
+	// one process (CORRECT-013). Durable stores can add cross-replica
+	// serialization by implementing TransactionalStore; the local lock still
+	// prevents needless same-process contention while tenant-keyed DB locks
+	// protect HA replicas.
 	tenantLocks sync.Map // tenant id -> *sync.Mutex
 }
 
@@ -137,35 +142,54 @@ func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) 
 	lock.Lock()
 	defer lock.Unlock()
 
-	open, err := c.store.OpenIncidents(ctx, sig.TenantID)
+	var (
+		updated *Incident
+		opened  bool
+		err     error
+	)
+	if txStore, ok := c.store.(TransactionalStore); ok {
+		err = txStore.WithTenantCorrelationLock(ctx, sig.TenantID, func(txCtx context.Context, txStore Store) error {
+			updated, opened, err = c.ingestWithStore(txCtx, txStore, sig)
+			return err
+		})
+	} else {
+		updated, opened, err = c.ingestWithStore(ctx, c.store, sig)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("incident: load open incidents: %w", err)
+		return nil, err
+	}
+	c.notify(ctx, updated, opened)
+	return updated, nil
+}
+
+func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) (*Incident, bool, error) {
+	open, err := st.OpenIncidents(ctx, sig.TenantID)
+	if err != nil {
+		return nil, false, fmt.Errorf("incident: load open incidents: %w", err)
 	}
 	for _, inc := range open {
 		if related(inc, sig, c.window) {
-			updated, err := c.store.AppendSignal(ctx, sig.TenantID, inc.ID, sig)
+			updated, err := st.AppendSignal(ctx, sig.TenantID, inc.ID, sig)
 			if err != nil {
-				return nil, fmt.Errorf("incident: append signal: %w", err)
+				return nil, false, fmt.Errorf("incident: append signal: %w", err)
 			}
 			c.log.Info("signal correlated to incident",
 				"incident_id", inc.ID, "plane", sig.Plane, "kind", sig.Kind, "tenant_id", sig.TenantID)
-			c.notify(ctx, updated, false)
-			return updated, nil
+			return updated, false, nil
 		}
 	}
 
-	created, err := c.store.Create(ctx, newIncident(sig))
+	created, err := st.Create(ctx, newIncident(sig))
 	if err != nil {
-		return nil, fmt.Errorf("incident: create: %w", err)
+		return nil, false, fmt.Errorf("incident: create: %w", err)
 	}
-	updated, err := c.store.AppendSignal(ctx, sig.TenantID, created.ID, sig)
+	updated, err := st.AppendSignal(ctx, sig.TenantID, created.ID, sig)
 	if err != nil {
-		return nil, fmt.Errorf("incident: append first signal: %w", err)
+		return nil, false, fmt.Errorf("incident: append first signal: %w", err)
 	}
 	c.log.Info("opened incident",
 		"incident_id", created.ID, "plane", sig.Plane, "kind", sig.Kind, "tenant_id", sig.TenantID)
-	c.notify(ctx, updated, true)
-	return updated, nil
+	return updated, true, nil
 }
 
 // --- in-memory store (lightweight mode + tests) ---

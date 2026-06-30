@@ -28,6 +28,10 @@ type pgIncidentStore struct {
 	pool *pgxpool.Pool
 }
 
+type pgIncidentTxStore struct {
+	scope tenancy.Scope
+}
+
 func (p pgIncidentStore) OpenIncidents(ctx context.Context, tenant string) ([]*incident.Incident, error) {
 	var out []*incident.Incident
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
@@ -42,6 +46,22 @@ func (p pgIncidentStore) OpenIncidents(ctx context.Context, tenant string) ([]*i
 	return out, err
 }
 
+func (p pgIncidentTxStore) OpenIncidents(ctx context.Context, tenant string) ([]*incident.Incident, error) {
+	if err := p.requireTenant(tenant); err != nil {
+		return nil, err
+	}
+	rs, err := store.Incidents{}.OpenIncidents(ctx, p.scope)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*incident.Incident, 0, len(rs))
+	for i := range rs {
+		v := rs[i]
+		out = append(out, &v)
+	}
+	return out, nil
+}
+
 func (p pgIncidentStore) Create(ctx context.Context, inc *incident.Incident) (*incident.Incident, error) {
 	var created *incident.Incident
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(inc.TenantID)), p.pool,
@@ -53,6 +73,16 @@ func (p pgIncidentStore) Create(ctx context.Context, inc *incident.Incident) (*i
 	return created, err
 }
 
+func (p pgIncidentTxStore) Create(ctx context.Context, inc *incident.Incident) (*incident.Incident, error) {
+	if inc == nil {
+		return nil, fmt.Errorf("incident transaction store: nil incident")
+	}
+	if err := p.requireTenant(inc.TenantID); err != nil {
+		return nil, err
+	}
+	return store.Incidents{}.Create(ctx, p.scope, *inc)
+}
+
 func (p pgIncidentStore) AppendSignal(ctx context.Context, tenant, incidentID string, sig incident.Signal) (*incident.Incident, error) {
 	var updated *incident.Incident
 	err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
@@ -62,6 +92,32 @@ func (p pgIncidentStore) AppendSignal(ctx context.Context, tenant, incidentID st
 			return e
 		})
 	return updated, err
+}
+
+func (p pgIncidentTxStore) AppendSignal(ctx context.Context, tenant, incidentID string, sig incident.Signal) (*incident.Incident, error) {
+	if err := p.requireTenant(tenant); err != nil {
+		return nil, err
+	}
+	return store.Incidents{}.AppendSignal(ctx, p.scope, incidentID, sig)
+}
+
+func (p pgIncidentTxStore) requireTenant(tenant string) error {
+	if tenant != p.scope.Tenant.String() {
+		return fmt.Errorf("incident transaction store: tenant mismatch %q != %q", tenant, p.scope.Tenant.String())
+	}
+	return nil
+}
+
+func (p pgIncidentStore) WithTenantCorrelationLock(ctx context.Context, tenant string, fn func(context.Context, incident.Store) error) error {
+	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), p.pool,
+		func(c context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(c,
+				`SELECT pg_advisory_xact_lock(hashtextextended('incident:'||$1::text, 0))`,
+				tenant); err != nil {
+				return fmt.Errorf("lock incident correlation: %w", err)
+			}
+			return fn(c, pgIncidentTxStore{scope: sc})
+		})
 }
 
 // BuildCorrelator constructs the Postgres-backed incident correlator. Optional

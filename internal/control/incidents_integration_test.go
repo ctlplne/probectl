@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -91,6 +92,79 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 	// A bad PATCH status → 422.
 	if rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, "", map[string]any{"status": "open"}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("invalid status = %d, want 422", rec.Code)
+	}
+}
+
+func TestIncidentCorrelationSerializesAcrossPostgresCorrelators(t *testing.T) {
+	_, db := setupAPI(t)
+	ctx := context.Background()
+	tn, err := store.NewTenants(db.Pool()).Create(ctx,
+		fmt.Sprintf("incha-%d", time.Now().UnixNano()), "Incident HA")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+
+	c1 := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	c2 := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	now := time.Now().UTC().Truncate(time.Second)
+	const n = 32
+	start := make(chan struct{})
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		c := c1
+		plane, kind := "network", "alert.firing"
+		if i%2 == 1 {
+			c = c2
+			plane, kind = "bgp", "bgp.possible_hijack"
+		}
+		wg.Add(1)
+		go func(i int, c *incident.Correlator, plane, kind string) {
+			defer wg.Done()
+			<-start
+			_, err := c.Ingest(ctx, incident.Signal{
+				TenantID: tn.ID, Plane: plane, Kind: kind, Severity: incident.SeverityWarning,
+				Title: fmt.Sprintf("%s signal %02d", plane, i), Target: "203.0.113.10",
+				OccurredAt: now.Add(time.Duration(i%3) * time.Second),
+			})
+			errs <- err
+		}(i, c, plane, kind)
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent ingest: %v", err)
+		}
+	}
+
+	var open []incident.Incident
+	var full *incident.Incident
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tn.ID)), db.Pool(),
+		func(ctx context.Context, sc tenancy.Scope) error {
+			var e error
+			open, e = store.Incidents{}.OpenIncidents(ctx, sc)
+			if e != nil || len(open) != 1 {
+				return e
+			}
+			full, e = store.Incidents{}.Get(ctx, sc, open[0].ID)
+			return e
+		}); err != nil {
+		t.Fatalf("read incidents: %v", err)
+	}
+	if len(open) != 1 {
+		t.Fatalf("two Postgres correlators opened %d incidents, want exactly 1", len(open))
+	}
+	if full.SignalCount != n || len(full.Signals) != n {
+		t.Fatalf("incident has count=%d signals=%d, want all %d signals in one incident", full.SignalCount, len(full.Signals), n)
+	}
+	planes := map[string]bool{}
+	for _, sig := range full.Signals {
+		planes[sig.Plane] = true
+	}
+	if len(planes) != 2 {
+		t.Fatalf("incident planes = %v, want both network and bgp evidence", planes)
 	}
 }
 
