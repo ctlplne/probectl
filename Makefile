@@ -202,8 +202,9 @@ audit-verify-gate: ## Validate repaired probectl-audit VERIFY appendices and cit
 
 editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test) + the core-only build/test (-tags probectl_core links ZERO ee/ code via the attach-seam twin).
 	SELFTEST=1 ./scripts/check_editions_imports.sh
-	$(GO) build -tags probectl_core $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
-	$(GO) test -tags probectl_core -count=1 $$($(GO) list ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee')
+	core_pkgs="$$( $(GO) list -tags probectl_core -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee' | grep . )"; \
+	$(GO) build -tags probectl_core $$core_pkgs; \
+	$(GO) test -tags probectl_core -count=1 $$core_pkgs
 
 .PHONY: scale-gate
 scale-gate: ## The S48 L/XL/XXL scale gate at FULL scale (reference hardware): make scale-gate TIER=L
