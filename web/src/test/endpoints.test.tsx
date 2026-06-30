@@ -2,7 +2,7 @@ import { describe, expect, test, vi, beforeEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { jsonResponse, pathOf } from './fetchStub'
 import type { EndpointView } from '../api/endpoints'
 
 /** The sprint's named fixture: local-WiFi degradation attributed to WiFi —
@@ -127,14 +127,67 @@ function endpointFixtures(): EndpointView[] {
 }
 
 function endpointsBackend(items: EndpointView[]) {
-  const state = { requests: [] as string[] }
+  type SavedView = {
+    id: string
+    tenant_id: string
+    surface: 'endpoints'
+    name: string
+    filters: Record<string, string>
+    created_at: string
+    updated_at: string
+  }
+  const state = { requests: [] as string[], saved: new Map<string, SavedView[]>() }
+  let tenant = 'tenant-a'
+  let seq = 0
+  const savedForTenant = () => {
+    if (!state.saved.has(tenant)) state.saved.set(tenant, [])
+    return state.saved.get(tenant)!
+  }
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     state.requests.push(`${init?.method ?? 'GET'} ${url}`)
-    if (url.endsWith('/v1/endpoints')) return jsonResponse({ items, collector_running: true })
+    const path = pathOf(input)
+    if (path === '/v1/endpoints') {
+      const parsed = new URL(url, 'http://t.invalid')
+      const cause = parsed.searchParams.get('cause') ?? 'all'
+      const q = (parsed.searchParams.get('q') ?? '').toLowerCase()
+      const filtered = items.filter((v) => {
+        if (cause === 'impaired' && !v.slow) return false
+        if (cause !== 'all' && cause !== 'impaired' && (v.cause ?? 'none') !== cause) return false
+        return !q || `${v.agent_id} ${v.summary ?? ''}`.toLowerCase().includes(q)
+      })
+      return jsonResponse({ items: filtered, collector_running: true })
+    }
+    if (path === '/v1/inventory/views' && (init?.method ?? 'GET') === 'GET') {
+      return jsonResponse({ items: savedForTenant() })
+    }
+    if (path === '/v1/inventory/views' && init?.method === 'POST') {
+      const body = JSON.parse(String(init.body)) as {
+        surface: 'endpoints'
+        name: string
+        filters: Record<string, string>
+      }
+      const now = '2026-06-30T12:00:00Z'
+      const view: SavedView = {
+        id: `view-${++seq}`,
+        tenant_id: tenant,
+        surface: body.surface,
+        name: body.name,
+        filters: body.filters,
+        created_at: now,
+        updated_at: now,
+      }
+      savedForTenant().unshift(view)
+      return jsonResponse(view, 201)
+    }
+    if (path.startsWith('/v1/inventory/views/') && (init?.method ?? 'GET') === 'GET') {
+      const id = path.split('/').pop()
+      const view = savedForTenant().find((v) => v.id === id)
+      return view ? jsonResponse(view) : jsonResponse({ error: { message: 'saved view not found' } }, 404)
+    }
     return jsonResponse({ items: [] })
   }) as unknown as typeof fetch
-  return { state, fetcher }
+  return { state, fetcher, setTenant: (next: string) => (tenant = next) }
 }
 
 describe('endpoint / WiFi DEM surface (S-FE4)', () => {
@@ -220,6 +273,37 @@ describe('endpoint / WiFi DEM surface (S-FE4)', () => {
         within(screen.getByRole('table', { name: 'Endpoint fleet' })).getAllByRole('row').length,
       ).toBe(2)
     })
+  })
+
+  test('saved views persist per tenant and drive server-side filters', async () => {
+    const backend = endpointsBackend(endpointFixtures())
+    backend.setTenant('tenant-a')
+    vi.stubGlobal('fetch', backend.fetcher)
+    const first = renderApp('/endpoints', { me: { tenant_id: 'tenant-a' } })
+    await screen.findByRole('table', { name: 'Endpoint fleet' })
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('Attribution', { selector: 'select' }),
+      'wifi',
+    )
+    await userEvent.type(screen.getByLabelText('Find'), 'laptop')
+    await userEvent.type(screen.getByLabelText('View name'), 'WiFi saved')
+    await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
+    await waitFor(() => expect(screen.getByRole('option', { name: 'WiFi saved' })).toBeDefined())
+    const saved = backend.state.saved.get('tenant-a')?.[0]
+    expect(saved?.filters).toEqual({ cause: 'wifi', q: 'laptop' })
+    expect(backend.state.requests.some((r) => r.includes('/v1/endpoints?') && r.includes('cause=wifi'))).toBe(
+      true,
+    )
+    first.unmount()
+
+    backend.setTenant('tenant-b')
+    vi.stubGlobal('fetch', backend.fetcher)
+    renderApp('/endpoints', { me: { tenant_id: 'tenant-b' } })
+    await screen.findByRole('table', { name: 'Endpoint fleet' })
+    expect(screen.queryByRole('option', { name: 'WiFi saved' })).toBeNull()
+    const openedAsB = await backend.fetcher(`/v1/inventory/views/${saved!.id}`)
+    expect(openedAsB.status).toBe(404)
   })
 
   test('tenant scoping: renders exactly the tenant-scoped API items, no tenant params sent', async () => {

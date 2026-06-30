@@ -186,6 +186,31 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Case-insensitive server-side search across endpoint id, summary, and privacy-allowed attributes."
+          },
+          {
+            "name": "cause",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "impaired",
+                "wifi",
+                "local",
+                "isp",
+                "network",
+                "none"
+              ]
+            },
+            "description": "Server-side attribution filter."
           }
         ],
         "requestBody": {
@@ -3902,6 +3927,119 @@
         }
       }
     },
+    "/v1/inventory/views": {
+      "get": {
+        "operationId": "listInventoryViews",
+        "summary": "List tenant-owned saved inventory views",
+        "tags": [
+          "inventory"
+        ],
+        "description": "Lists the caller tenant's saved list/filter views. A saved view stores filter choices only; opening one always re-queries the current tenant-scoped inventory.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "surface",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "endpoints"
+              ]
+            },
+            "description": "Optional surface filter."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved views.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventorySavedViewList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Saved views are bounded operator preferences, not inventory rows."
+        }
+      },
+      "post": {
+        "operationId": "createInventoryView",
+        "summary": "Create a tenant-owned saved inventory view",
+        "tags": [
+          "inventory"
+        ],
+        "description": "Persists a saved filter set in the caller tenant. The tenant_id is never accepted from the browser; it is resolved from the authenticated session before storage.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventorySavedViewInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created saved view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventorySavedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/inventory/views/{id}": {
+      "get": {
+        "operationId": "getInventoryView",
+        "summary": "Open a tenant-owned saved inventory view",
+        "tags": [
+          "inventory"
+        ],
+        "description": "Returns one saved view only when it belongs to the caller tenant. Cross-tenant IDs return 404.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved view.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventorySavedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/results/latest": {
       "get": {
         "operationId": "listLatestResults",
@@ -5828,6 +5966,87 @@
             }
           }
         }
+      },
+      "InventorySavedViewInput": {
+        "type": "object",
+        "properties": {
+          "surface": {
+            "type": "string",
+            "enum": [
+              "endpoints"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "surface",
+          "name"
+        ]
+      },
+      "InventorySavedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "surface": {
+            "type": "string",
+            "enum": [
+              "endpoints"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenant_id",
+          "surface",
+          "name",
+          "filters",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "InventorySavedViewList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventorySavedView"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
       },
       "Signal": {
         "type": "object",

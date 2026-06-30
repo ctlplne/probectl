@@ -495,6 +495,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/tls/posture":            "bounded",
 	"/v1/threat/detections":      "bounded",
 	"/v1/endpoints":              "bounded",
+	"/v1/inventory/views":        "bounded",
 	"/v1/results/latest":         "bounded",
 	"/v1/otlp/traces":            "bounded",
 	"/v1/otlp/logs":              "bounded",

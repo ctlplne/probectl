@@ -31,6 +31,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
+	"github.com/imfeelingtheagi/probectl/internal/inventory"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
@@ -129,7 +130,8 @@ type Server struct {
 
 	// Endpoint DEM views (S-FE4): the snapshot store the endpoint-view consumer
 	// maintains. Set via WithEndpointViews; nil reports collector_running=false.
-	endpointViews *endpoint.SnapshotStore
+	endpointViews  *endpoint.SnapshotStore
+	inventoryViews inventory.ViewStore
 
 	// Latest synthetic results (S-FE5): newest full result per (type, target,
 	// agent). Set via WithLatestResults; nil reports collector_running=false.
@@ -335,7 +337,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	}
 	v := version.Get()
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), startedAt: time.Now(),
+		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), inventoryViews: inventory.NewMemoryViewStore(), startedAt: time.Now(),
 		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit)}
 
 	// Identity & access (S18). The SSO provider factory is always present; the

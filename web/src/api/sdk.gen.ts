@@ -128,6 +128,19 @@ export interface AlertRule {
   window?: number
 }
 
+export interface AnomalyCitation {
+  metric?: string
+  plane?: string
+  ref?: string
+  source?: string
+}
+
+export interface AnomalyTrainingWindow {
+  end?: string
+  samples?: number
+  start?: string
+}
+
 export interface AuditEvent {
   action: string
   actor: string
@@ -231,25 +244,12 @@ export interface ErrorDetail {
   request_id?: string
 }
 
-export interface AnomalyCitation {
-  metric?: string
-  plane?: string
-  ref?: string
-  source?: string
-}
-
-export interface AnomalyTrainingWindow {
-  end?: string
-  samples?: number
-  start?: string
-}
-
 export interface FlowAnomaly {
   baseline_bps?: number
   current_bps?: number
   exporter?: string
   feature_citations?: AnomalyCitation[]
-  features?: Record<string, number>
+  features?: { [key: string]: number }
   iface?: number
   model?: string
   sigma?: number
@@ -329,6 +329,26 @@ export interface IncidentList {
 
 export interface IncidentPatch {
   status: "resolved"
+}
+
+export interface InventorySavedView {
+  created_at: string
+  filters: { [key: string]: string }
+  id: string
+  name: string
+  surface: "endpoints"
+  tenant_id: string
+  updated_at: string
+}
+
+export interface InventorySavedViewInput {
+  filters?: { [key: string]: string }
+  name: string
+  surface: "endpoints"
+}
+
+export interface InventorySavedViewList {
+  items: InventorySavedView[]
 }
 
 export interface LifecycleRetentionInput {
@@ -862,6 +882,24 @@ export interface IncidentCIsRequest {
 
 export type IncidentCIsResponse = JsonObject
 
+export interface ListInventoryViewsRequest {
+  surface?: "endpoints"
+}
+
+export type ListInventoryViewsResponse = InventorySavedViewList
+
+export interface CreateInventoryViewRequest {
+  body: InventorySavedViewInput
+}
+
+export type CreateInventoryViewResponse = InventorySavedView
+
+export interface GetInventoryViewRequest {
+  id: string
+}
+
+export type GetInventoryViewResponse = InventorySavedView
+
 export interface PostV1LifecycleEraseRequest {
 }
 
@@ -1065,6 +1103,8 @@ export interface ListTestsRequest {
 export type ListTestsResponse = TestList
 
 export interface CreateTestRequest {
+  q?: string
+  cause?: "all" | "impaired" | "wifi" | "local" | "isp" | "network" | "none"
   body: TestRequest
 }
 
@@ -1593,6 +1633,26 @@ export class ProbectlSDKClient {
     return this.requestJSON<IncidentCIsResponse>("GET", path, query, undefined)
   }
 
+  async listInventoryViews(request: ListInventoryViewsRequest = {}): Promise<ListInventoryViewsResponse> {
+    let path = "/v1/inventory/views"
+    const query = new URLSearchParams()
+    if (request.surface !== undefined) query.set("surface", String(request.surface))
+    return this.requestJSON<ListInventoryViewsResponse>("GET", path, query, undefined)
+  }
+
+  async createInventoryView(request: CreateInventoryViewRequest): Promise<CreateInventoryViewResponse> {
+    let path = "/v1/inventory/views"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateInventoryViewResponse>("POST", path, query, request.body)
+  }
+
+  async getInventoryView(request: GetInventoryViewRequest): Promise<GetInventoryViewResponse> {
+    let path = "/v1/inventory/views/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetInventoryViewResponse>("GET", path, query, undefined)
+  }
+
   async postV1LifecycleErase(): Promise<PostV1LifecycleEraseResponse> {
     let path = "/v1/lifecycle/erase"
     const query = new URLSearchParams()
@@ -1826,6 +1886,8 @@ export class ProbectlSDKClient {
   async createTest(request: CreateTestRequest): Promise<CreateTestResponse> {
     let path = "/v1/tests"
     const query = new URLSearchParams()
+    if (request.q !== undefined) query.set("q", String(request.q))
+    if (request.cause !== undefined) query.set("cause", String(request.cause))
     return this.requestJSON<CreateTestResponse>("POST", path, query, request.body)
   }
 

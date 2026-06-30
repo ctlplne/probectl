@@ -263,6 +263,27 @@ func TestCLIRolloutSurfaceMapsHumanGatedOps(t *testing.T) {
 	}
 }
 
+func TestCLIInventoryViewSurfaceMapsSavedViews(t *testing.T) {
+	spec, ok := surfaceCommands["inventory-view"]
+	if !ok {
+		t.Fatal("inventory-view CLI surface is not registered")
+	}
+	cases := map[string]apiOp{
+		"list":   {Method: http.MethodGet, Path: "/v1/inventory/views"},
+		"create": {Method: http.MethodPost, Path: "/v1/inventory/views"},
+		"get":    {Method: http.MethodGet, Path: "/v1/inventory/views/{id}", ArgName: "id"},
+	}
+	for name, want := range cases {
+		got, ok := spec.Ops[name]
+		if !ok {
+			t.Fatalf("inventory-view CLI missing %q", name)
+		}
+		if got.Method != want.Method || got.Path != want.Path || got.ArgName != want.ArgName {
+			t.Fatalf("inventory-view %s = %+v, want %+v", name, got, want)
+		}
+	}
+}
+
 func TestCLICollectorRegister(t *testing.T) {
 	var seen map[string]any
 	mux := http.NewServeMux()

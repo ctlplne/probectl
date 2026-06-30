@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import styles from './security.module.css'
 import { Page } from './pages'
 import {
@@ -14,6 +14,7 @@ import {
   Modal,
   Select,
   Table,
+  useToast,
   type Column,
 } from '../components'
 import {
@@ -21,9 +22,12 @@ import {
   causeLabel,
   causeTone,
   metric,
+  useCreateEndpointSavedView,
   useEndpoints,
+  useEndpointSavedViews,
   type DEMResult,
   type EndpointView,
+  type SavedInventoryView,
 } from '../api/endpoints'
 import { useRUM, type RUMAppStatus, type RUMVerdict } from '../api/rum'
 import { DateTime } from '../time/DateTime'
@@ -225,23 +229,49 @@ type CauseFilter = 'all' | 'impaired' | 'wifi' | 'local' | 'isp' | 'network' | '
  *  "it's your WiFi, not us" story, privacy-respecting. */
 export function EndpointsPage() {
   const { locale } = useI18n()
-  const endpoints = useEndpoints()
+  const { push } = useToast()
   const [cause, setCause] = useState<CauseFilter>('all')
   const [needle, setNeedle] = useState('')
+  const [viewName, setViewName] = useState('')
   const [detailID, setDetailID] = useState<string | null>(null)
+  const endpointFilters = useMemo(() => ({ q: needle, cause }), [needle, cause])
+  const endpoints = useEndpoints(endpointFilters)
+  const savedViews = useEndpointSavedViews()
+  const createView = useCreateEndpointSavedView()
 
   const items = useMemo(() => endpoints.data?.items ?? [], [endpoints.data])
 
-  const filtered = useMemo(() => {
-    const q = needle.trim().toLowerCase()
-    return items.filter((v) => {
-      if (cause === 'impaired' && !v.slow) return false
-      if (cause !== 'all' && cause !== 'impaired' && (v.cause ?? 'none') !== cause) return false
-      return !q || v.agent_id.toLowerCase().includes(q)
-    })
-  }, [items, cause, needle])
-
   const detail = items.find((v) => v.agent_id === detailID) ?? null
+
+  const applySavedView = (id: string) => {
+    if (!id) return
+    const view = savedViews.data?.items.find((v) => v.id === id)
+    if (!view) return
+    setNeedle(view.filters.q ?? '')
+    setCause(causeFromSavedView(view))
+  }
+
+  const saveView = (e: FormEvent) => {
+    e.preventDefault()
+    const name = viewName.trim()
+    if (!name) {
+      push({ tone: 'warning', title: 'Name required', message: 'Saved views need a label.' })
+      return
+    }
+    const filters: Record<string, string> = {}
+    if (needle.trim()) filters.q = needle.trim()
+    if (cause !== 'all') filters.cause = cause
+    createView.mutate(
+      { surface: 'endpoints', name, filters },
+      {
+        onSuccess: (view) => {
+          setViewName('')
+          push({ tone: 'success', title: 'View saved', message: view.name })
+        },
+        onError: (err) => push({ tone: 'danger', title: 'Save failed', message: err.message }),
+      },
+    )
+  }
 
   const columns: Column<EndpointView>[] = [
     { key: 'verdict', header: 'Verdict', render: (v) => verdictBadge(v) },
@@ -281,7 +311,7 @@ export function EndpointsPage() {
         <CardHeader
           title={`Fleet (${formatInteger(items.length, locale)})`}
           actions={
-            <div className={styles.filters}>
+            <form className={styles.filters} onSubmit={saveView}>
               <Field
                 label="Find"
                 value={needle}
@@ -302,7 +332,25 @@ export function EndpointsPage() {
                   { value: 'none', label: 'Healthy' },
                 ]}
               />
-            </div>
+              <Select
+                label="Saved views"
+                value=""
+                onChange={(e) => applySavedView(e.target.value)}
+                options={[
+                  { value: '', label: 'Choose view' },
+                  ...(savedViews.data?.items ?? []).map((v) => ({ value: v.id, label: v.name })),
+                ]}
+              />
+              <Field
+                label="View name"
+                value={viewName}
+                onChange={(e) => setViewName(e.target.value)}
+                placeholder="WiFi trouble"
+              />
+              <Button type="submit" disabled={createView.isPending}>
+                Save view
+              </Button>
+            </form>
           }
         />
         <CardBody>
@@ -321,7 +369,7 @@ export function EndpointsPage() {
               <Table
                 caption="Endpoint fleet"
                 columns={columns}
-                rows={filtered}
+                rows={items}
                 rowKey={(v) => v.agent_id}
                 empty={
                   <EmptyState
@@ -340,6 +388,21 @@ export function EndpointsPage() {
       {detail ? <EndpointDetail view={detail} onClose={() => setDetailID(null)} /> : null}
     </Page>
   )
+}
+
+function causeFromSavedView(view: SavedInventoryView): CauseFilter {
+  const cause = view.filters.cause
+  switch (cause) {
+    case 'impaired':
+    case 'wifi':
+    case 'local':
+    case 'isp':
+    case 'network':
+    case 'none':
+      return cause
+    default:
+      return 'all'
+  }
 }
 
 /** rumVerdictBadge renders the convergence call with honesty wording: every

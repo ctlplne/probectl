@@ -10,6 +10,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
@@ -84,7 +85,13 @@ func (s *Server) handleListEndpoints(w http.ResponseWriter, r *http.Request) err
 		writeJSON(w, http.StatusOK, map[string]any{"items": []endpoint.View{}, "collector_running": false})
 		return nil
 	}
-	items := s.endpointViews.List(tid)
+	items, ferr := s.endpointViews.ListFiltered(tid, endpoint.ListFilter{
+		Query: r.URL.Query().Get("q"),
+		Cause: r.URL.Query().Get("cause"),
+	})
+	if ferr != nil {
+		return apierror.Validation(ferr.Error())
+	}
 	if items == nil {
 		items = []endpoint.View{}
 	}

@@ -189,10 +189,14 @@ DEM agents; a `collector_running=false` flag distinguishes an unwired consumer
 from a genuinely empty fleet).
 
 The web surface lives at `/endpoints`: a fleet list (attribution verdict first —
-"slow: WiFi / ISP / network" — with Wi-Fi strength, gateway and ISP-edge RTT, a
-cause filter, and search) and a per-endpoint detail (Wi-Fi link, gateway / local
-network, last-mile segments, browser sessions, and the per-layer attribution
-scores).
+"slow: WiFi / ISP / network" — with Wi-Fi strength, gateway and ISP-edge RTT,
+server-side cause/text filters, saved views, and keyboard-submit controls) and a
+per-endpoint detail (Wi-Fi link, gateway / local network, last-mile segments,
+browser sessions, and the per-layer attribution scores). Saved views are
+tenant-owned filter sets under `GET/POST /v1/inventory/views`; they store only
+the filters, not endpoint rows, so opening one always re-queries the caller's
+current tenant-scoped inventory. Tenant B cannot list or open tenant A's saved
+view ID.
 
 **Privacy display contract:** identifiers the agent withheld (SSID / BSSID /
 gateway IP / public hops) are absent from the results, and the UI renders that

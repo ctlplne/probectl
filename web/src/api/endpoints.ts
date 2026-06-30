@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
 /**
@@ -35,17 +35,69 @@ export interface EndpointView {
   sessions?: DEMResult[]
 }
 
-interface EndpointsResponse {
+export interface EndpointsResponse {
   items: EndpointView[]
   collector_running: boolean
 }
 
+export interface EndpointFilters {
+  q?: string
+  cause?: string
+}
+
+export interface SavedInventoryView {
+  id: string
+  tenant_id: string
+  surface: 'endpoints'
+  name: string
+  filters: Record<string, string>
+  created_at: string
+  updated_at: string
+}
+
+export interface EndpointSavedViewsResponse {
+  items: SavedInventoryView[]
+}
+
+export interface SavedInventoryViewInput {
+  surface: 'endpoints'
+  name: string
+  filters: Record<string, string>
+}
+
 /** useEndpoints polls the tenant's DEM fleet (30s cadence). */
-export function useEndpoints() {
+export function useEndpoints(filters: EndpointFilters = {}) {
   return useQuery({
-    queryKey: ['endpoints'],
-    queryFn: () => apiFetch<EndpointsResponse>('/endpoints'),
+    queryKey: ['endpoints', filters],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (filters.q?.trim()) params.set('q', filters.q.trim())
+      if (filters.cause && filters.cause !== 'all') params.set('cause', filters.cause)
+      return apiFetch<EndpointsResponse>(`/endpoints?${params.toString()}`)
+    },
     refetchInterval: 30_000,
+  })
+}
+
+function jsonInit(method: string, body: unknown): RequestInit {
+  return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+}
+
+/** useEndpointSavedViews lists tenant-owned saved views for the endpoint fleet. */
+export function useEndpointSavedViews() {
+  return useQuery({
+    queryKey: ['inventory', 'views', 'endpoints'],
+    queryFn: () => apiFetch<EndpointSavedViewsResponse>('/inventory/views?surface=endpoints'),
+  })
+}
+
+/** useCreateEndpointSavedView saves the current endpoint inventory filters. */
+export function useCreateEndpointSavedView() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: SavedInventoryViewInput) =>
+      apiFetch<SavedInventoryView>('/inventory/views', jsonInit('POST', input)),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['inventory', 'views', 'endpoints'] }),
   })
 }
 

@@ -173,11 +173,25 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/endpoints.ts',
     method: 'GET',
-    path: '/endpoints',
+    path: '`/endpoints?${params.toString()}`',
     response: 'EndpointsResponse',
     generated: 'ListEndpointsResponse',
     reason:
       'OpenAPI currently emits JsonObject for endpoint DEM views; EndpointsResponse is the explicit view model.',
+  },
+  {
+    file: 'api/endpoints.ts',
+    method: 'GET',
+    path: '/inventory/views?surface=endpoints',
+    response: 'EndpointSavedViewsResponse',
+    generated: 'ListInventoryViewsResponse',
+  },
+  {
+    file: 'api/endpoints.ts',
+    method: 'POST',
+    path: '/inventory/views',
+    response: 'SavedInventoryView',
+    generated: 'CreateInventoryViewResponse',
   },
   {
     file: 'api/identity.ts',

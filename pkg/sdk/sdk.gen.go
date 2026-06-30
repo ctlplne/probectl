@@ -195,6 +195,19 @@ type AlertRule struct {
 	Window          int               `json:"window,omitempty"`
 }
 
+type AnomalyCitation struct {
+	Metric string `json:"metric,omitempty"`
+	Plane  string `json:"plane,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+type AnomalyTrainingWindow struct {
+	End     string `json:"end,omitempty"`
+	Samples int    `json:"samples,omitempty"`
+	Start   string `json:"start,omitempty"`
+}
+
 // One record in the tenant's hash-chained, tamper-evident audit log. Privacy erasure is a projection: actor/target/data can be returned as erased tokens, while prev_hash/hash remain the raw-chain proof.
 type AuditEvent struct {
 	Action    string         `json:"action"`
@@ -303,31 +316,18 @@ type ErrorDetail struct {
 	RequestId string    `json:"request_id,omitempty"`
 }
 
-type AnomalyCitation struct {
-	Metric string `json:"metric,omitempty"`
-	Plane  string `json:"plane,omitempty"`
-	Ref    string `json:"ref,omitempty"`
-	Source string `json:"source,omitempty"`
-}
-
-type AnomalyTrainingWindow struct {
-	End     string `json:"end,omitempty"`
-	Samples int    `json:"samples,omitempty"`
-	Start   string `json:"start,omitempty"`
-}
-
 type FlowAnomaly struct {
-	BaselineBps      float64                `json:"baseline_bps,omitempty"`
-	CurrentBps       float64                `json:"current_bps,omitempty"`
-	Exporter         string                 `json:"exporter,omitempty"`
-	FeatureCitations []AnomalyCitation      `json:"feature_citations,omitempty"`
-	Features         map[string]float64     `json:"features,omitempty"`
-	Iface            int                    `json:"iface,omitempty"`
-	Model            string                 `json:"model,omitempty"`
-	Sigma            float64                `json:"sigma,omitempty"`
-	StddevBps        float64                `json:"stddev_bps,omitempty"`
-	TrainingWindow   *AnomalyTrainingWindow `json:"training_window,omitempty"`
-	Ts               string                 `json:"ts,omitempty"`
+	BaselineBps      float64               `json:"baseline_bps,omitempty"`
+	CurrentBps       float64               `json:"current_bps,omitempty"`
+	Exporter         string                `json:"exporter,omitempty"`
+	FeatureCitations []AnomalyCitation     `json:"feature_citations,omitempty"`
+	Features         map[string]float64    `json:"features,omitempty"`
+	Iface            int                   `json:"iface,omitempty"`
+	Model            string                `json:"model,omitempty"`
+	Sigma            float64               `json:"sigma,omitempty"`
+	StddevBps        float64               `json:"stddev_bps,omitempty"`
+	TrainingWindow   AnomalyTrainingWindow `json:"training_window,omitempty"`
+	Ts               string                `json:"ts,omitempty"`
 }
 
 type FlowAnomalyList struct {
@@ -403,6 +403,26 @@ type IncidentList struct {
 
 type IncidentPatch struct {
 	Status string `json:"status"`
+}
+
+type InventorySavedView struct {
+	CreatedAt string            `json:"created_at"`
+	Filters   map[string]string `json:"filters"`
+	Id        string            `json:"id"`
+	Name      string            `json:"name"`
+	Surface   string            `json:"surface"`
+	TenantId  string            `json:"tenant_id"`
+	UpdatedAt string            `json:"updated_at"`
+}
+
+type InventorySavedViewInput struct {
+	Filters map[string]string `json:"filters,omitempty"`
+	Name    string            `json:"name"`
+	Surface string            `json:"surface"`
+}
+
+type InventorySavedViewList struct {
+	Items []InventorySavedView `json:"items"`
 }
 
 type LifecycleRetentionInput struct {
@@ -1618,6 +1638,58 @@ func (c *Client) IncidentCIs(ctx context.Context, req IncidentCIsRequest) (map[s
 	return out, nil
 }
 
+// List tenant-owned saved inventory views
+type ListInventoryViewsRequest struct {
+	Surface *string `json:"-"`
+}
+
+func (c *Client) ListInventoryViews(ctx context.Context, req ListInventoryViewsRequest) (*InventorySavedViewList, error) {
+	path := "/v1/inventory/views"
+	query := url.Values{}
+	if req.Surface != nil {
+		query.Set("surface", formatQueryValue(*req.Surface))
+	}
+	var out InventorySavedViewList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create a tenant-owned saved inventory view
+type CreateInventoryViewRequest struct {
+	Body *InventorySavedViewInput `json:"-"`
+}
+
+func (c *Client) CreateInventoryView(ctx context.Context, req CreateInventoryViewRequest) (*InventorySavedView, error) {
+	path := "/v1/inventory/views"
+	query := url.Values{}
+	var out InventorySavedView
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Open a tenant-owned saved inventory view
+type GetInventoryViewRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetInventoryView(ctx context.Context, req GetInventoryViewRequest) (*InventorySavedView, error) {
+	path := "/v1/inventory/views/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out InventorySavedView
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // IRREVERSIBLE verifiable erasure across every store; requires confirm=<tenant slug>; returns the deletion attestation (also appended to the provider audit chain)
 type PostV1LifecycleEraseRequest struct {
 }
@@ -2143,12 +2215,20 @@ func (c *Client) ListTests(ctx context.Context, req ListTestsRequest) (*TestList
 
 // Create a synthetic test
 type CreateTestRequest struct {
-	Body *TestRequest `json:"-"`
+	Q     *string      `json:"-"`
+	Cause *string      `json:"-"`
+	Body  *TestRequest `json:"-"`
 }
 
 func (c *Client) CreateTest(ctx context.Context, req CreateTestRequest) (*Test, error) {
 	path := "/v1/tests"
 	query := url.Values{}
+	if req.Q != nil {
+		query.Set("q", formatQueryValue(*req.Q))
+	}
+	if req.Cause != nil {
+		query.Set("cause", formatQueryValue(*req.Cause))
+	}
 	var out Test
 	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err

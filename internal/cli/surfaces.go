@@ -97,6 +97,11 @@ var surfaceCommands = map[string]surfaceCommand{
 		"changes": {Method: http.MethodGet, Path: "/v1/incidents/{id}/changes", ArgName: "id"},
 		"cis":     {Method: http.MethodGet, Path: "/v1/incidents/{id}/cis", ArgName: "id"},
 	}},
+	"inventory-view": {Name: "inventory-view", Summary: "saved inventory list views", Ops: map[string]apiOp{
+		"list":   {Method: http.MethodGet, Path: "/v1/inventory/views"},
+		"create": {Method: http.MethodPost, Path: "/v1/inventory/views"},
+		"get":    {Method: http.MethodGet, Path: "/v1/inventory/views/{id}", ArgName: "id"},
+	}},
 	"lifecycle": {Name: "lifecycle", Summary: "tenant data lifecycle", Ops: map[string]apiOp{
 		"erase":          {Method: http.MethodPost, Path: "/v1/lifecycle/erase"},
 		"export":         {Method: http.MethodGet, Path: "/v1/lifecycle/export"},
