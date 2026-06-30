@@ -482,6 +482,8 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/incidents":              "bounded",
 	"/v1/changes":                "bounded",
 	"/v1/bgp/events":             "bounded",
+	"/v1/devices":                "bounded",
+	"/v1/device/metrics":         "bounded",
 	"/v1/incidents/{id}/changes": "bounded",
 	"/v1/abac/policies":          "bounded",
 	"/v1/directory/scim-tokens":  "bounded",

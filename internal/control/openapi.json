@@ -32,6 +32,10 @@
       "description": "BGP/routing event read model, tenant-scoped through the incident timeline."
     },
     {
+      "name": "devices",
+      "description": "Device telemetry inventory and latest metric summaries."
+    },
+    {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
     }
@@ -1296,6 +1300,112 @@
           "limit_param": "limit",
           "max_items": 200,
           "reason": "BGP events are a newest-first bounded read model over tenant-scoped incident signals."
+        }
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "operationId": "listDevices",
+        "summary": "List topology-visible managed devices",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum devices to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Topology-visible device inventory for the caller tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceInventoryList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Device inventory is a bounded newest-first projection over topology device nodes."
+        }
+      }
+    },
+    "/v1/device/metrics": {
+      "get": {
+        "operationId": "listDeviceMetricSummaries",
+        "summary": "List latest device metric summaries",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "required": false,
+            "description": "Optional device management address filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "metric",
+            "in": "query",
+            "required": false,
+            "description": "Optional metric filter, accepting probectl.device.* or probectl_device_* spelling.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum summaries to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Latest device metric summaries for the caller tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceMetricSummaryList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Device metric summaries collapse time-series samples to latest per device/metric/interface and clamp the response size."
         }
       }
     },
@@ -6688,6 +6798,116 @@
             }
           },
           "bgp_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "DeviceInventory": {
+        "type": "object",
+        "description": "One managed network device visible in the tenant topology graph.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "first_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceInventoryList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceInventory"
+            }
+          },
+          "topology_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceMetricSummary": {
+        "type": "object",
+        "description": "Latest retained sample for one device/metric/interface series.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "if_index": {
+            "type": "string"
+          },
+          "if_name": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceMetricSummaryList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceMetricSummary"
+            }
+          },
+          "metrics_running": {
             "type": "boolean"
           },
           "effective_limit": {

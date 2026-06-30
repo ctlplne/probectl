@@ -452,6 +452,57 @@ func TestCLIBGPSurfaceEvents(t *testing.T) {
 	}
 }
 
+func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
+	if got := surfaceCommands["device"].Ops["list"]; got.Method != http.MethodGet || got.Path != "/v1/devices" {
+		t.Fatalf("device list op = %+v, want GET /v1/devices", got)
+	}
+	if got := surfaceCommands["device"].Ops["metrics"]; got.Method != http.MethodGet || got.Path != "/v1/device/metrics" {
+		t.Fatalf("device metrics op = %+v, want GET /v1/device/metrics", got)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/devices", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "device:10.0.0.1", "name": "edge-r1", "address": "10.0.0.1"},
+		}})
+	})
+	mux.HandleFunc("GET /v1/device/metrics", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("device"); got != "10.0.0.1" {
+			t.Fatalf("device query = %q, want 10.0.0.1", got)
+		}
+		if got := r.URL.Query().Get("metric"); got != "probectl.device.cpu.utilization" {
+			t.Fatalf("metric query = %q, want probectl.device.cpu.utilization", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "3" {
+			t.Fatalf("limit query = %q, want 3", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "collector-1|10.0.0.1|||probectl_device_cpu_utilization", "device": "10.0.0.1", "name": "probectl_device_cpu_utilization", "summary": "10.0.0.1", "metric": "probectl_device_cpu_utilization", "value": 42, "last_seen": "2026-06-30T12:00:00Z"},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "device", "list")
+	if code != 0 {
+		t.Fatalf("list exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "edge-r1") || !strings.Contains(out, "device:1") {
+		t.Fatalf("device list output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "metrics",
+		"--query", "device=10.0.0.1",
+		"--query", "metric=probectl.device.cpu.utilization",
+		"--query", "limit=3")
+	if code != 0 {
+		t.Fatalf("metrics exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "10.0.0.1") || !strings.Contains(out, "probectl_device_cpu_utilization") {
+		t.Fatalf("device metrics output missing expected row:\n%s", out)
+	}
+}
+
 func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {

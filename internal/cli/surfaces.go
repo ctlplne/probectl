@@ -59,6 +59,10 @@ var surfaceCommands = map[string]surfaceCommand{
 	"carbon": {Name: "carbon", Summary: "carbon and energy estimates", Ops: map[string]apiOp{
 		"summary": {Method: http.MethodGet, Path: "/v1/carbon"},
 	}},
+	"device": {Name: "device", Summary: "device inventory and telemetry", Ops: map[string]apiOp{
+		"list":    {Method: http.MethodGet, Path: "/v1/devices"},
+		"metrics": {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
+	}},
 	"change": {Name: "change", Summary: "change correlation events", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/changes"},
 	}},
