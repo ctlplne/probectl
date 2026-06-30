@@ -16,6 +16,10 @@
 //     (ifIndex, ifName, addresses from ipAddrTable); the Correlator joins
 //     path hops (responder IP -> device interface) and flow records
 //     (exporter + ifIndex -> named interface) onto the device plane.
+//   - Discovery: bounded private/link-local/loopback IPv4 ranges can be probed
+//     with tenant-owned SNMP credential references. Results are classified from
+//     sysName/sysDescr/interface evidence and stop at pending review; activation
+//     requires an explicit review step.
 //   - Credentials are resolved through the CredentialSource seam by NAME —
 //     config carries references, never secrets (CLAUDE.md §7 guardrail 6).
 //     The env provider is the pre-S41 default; S41 plugs Vault/CyberArk into

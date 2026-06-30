@@ -1203,6 +1203,29 @@ gNMI connections are **TLS with certificate verification** (system roots or a
 per-device `ca_file`); there is no skip-verify option. `plaintext: true` is an
 explicit lab-only YAML opt-in and is loudly logged — never a silent plaintext default.
 
+#### Discovery jobs
+
+`probectl-device-agent discover -job discovery.json -out review.json` runs a
+bounded, tenant-scoped SNMP discovery pass and writes **review candidates**. It
+does not mutate the YAML config and does not activate monitoring; accepted
+devices must be explicitly reviewed into normal `devices:` targets.
+
+The job file is JSON:
+
+| Field | Meaning |
+| --- | --- |
+| `id` | operator-chosen discovery job ID, included in audit events |
+| `tenant_id` | tenant boundary for the job, every credential, and every result |
+| `created_by` | optional actor string for audit receipts |
+| `ranges` | private, loopback, or link-local IPv4 addresses/CIDRs only; public ranges fail before probing |
+| `max_hosts` | maximum expanded targets, default `1024` |
+| `credentials[]` | tenant-owned credential references: `tenant_id`, `name`, `transport` (`snmpv2c` or `snmpv3`), optional `port` |
+| `classifier_rules[]` | optional rules using `sys_name_contains`, `sys_descr_contains`, `if_name_contains`, `min_interfaces`, `role`, and `confidence` |
+
+The command uses the same `PROBECTL_DEVICE_CRED_<NAME>_*` variables and secrets
+resolver described above. The optional `-fixture fixture.json` flag supplies
+canned device inventories for offline demos/tests and avoids network probes.
+
 ### OTLP receiver
 
 OTLP is the OpenTelemetry protocol — the vendor-neutral standard wire format for

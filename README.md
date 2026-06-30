@@ -140,7 +140,7 @@ The five observability planes:
 | **Active / synthetic** | canaries — scheduled probes that send traffic and time the answer (ICMP/TCP/UDP/HTTP/DNS/…) — plus ECMP/MPLS-aware path discovery, browser-synthetic checks, endpoint digital-experience monitoring |
 | **BGP / routing** | RouteViews + RIPE RIS ingestion, direct mTLS BMP sessions from routers, route/path analysis, RPKI validity, a collective internet-outage view |
 | **Flow analytics** | NetFlow / sFlow / IPFIX plus AWS VPC, Azure NSG, and GCP VPC flow-log import into ClickHouse, with local learned per-tenant anomaly detection |
-| **Device telemetry** | SNMP polling + gNMI streaming, folded into the topology graph |
+| **Device telemetry** | tenant-scoped SNMP discovery/import review, SNMP polling + gNMI streaming, folded into the topology graph |
 | **eBPF host / L7** | service map + L7 visibility, observation-only (the Retina model). **Default builds replay recorded fixtures** (no kernel access needed — CI/macOS/demo path); live kernel capture is the separate `-tags ebpf` build on a BTF kernel ([build matrix](docs/ebpf-agent.md)) |
 
 Intelligence, security, and platform layers built across the planes:

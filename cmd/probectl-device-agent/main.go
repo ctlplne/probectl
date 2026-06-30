@@ -19,12 +19,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/device"
@@ -38,6 +40,12 @@ func main() {
 		switch os.Args[1] {
 		case "version", "-version", "--version":
 			fmt.Println("probectl-device-agent", version.Get())
+			return
+		case "discover":
+			if err := runDiscover(os.Args[2:]); err != nil {
+				fmt.Fprintln(os.Stderr, "probectl-device-agent discover:", err)
+				os.Exit(1)
+			}
 			return
 		}
 	}
@@ -93,6 +101,65 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return rt.Run(ctx)
+}
+
+func runDiscover(args []string) error {
+	fs := flag.NewFlagSet("probectl-device-agent discover", flag.ContinueOnError)
+	jobPath := fs.String("job", "", "path to JSON discovery job")
+	fixturePath := fs.String("fixture", "", "optional JSON fixture for offline discovery")
+	outPath := fs.String("out", "-", "output path for review JSON (- for stdout)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *jobPath == "" {
+		return fmt.Errorf("-job is required")
+	}
+	jobFile, err := os.Open(*jobPath)
+	if err != nil {
+		return fmt.Errorf("read job: %w", err)
+	}
+	defer jobFile.Close()
+	var job device.DiscoveryJob
+	dec := json.NewDecoder(jobFile)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&job); err != nil {
+		return fmt.Errorf("parse job: %w", err)
+	}
+
+	res, err := secrets.FromEnv(0)
+	if err != nil {
+		return err
+	}
+	creds, err := device.NewSecretsCredentials(nil, res.Resolve)
+	if err != nil {
+		return err
+	}
+	var prober device.DiscoveryProber = device.SNMPDiscoveryProber{}
+	if *fixturePath != "" {
+		fixtureFile, err := os.Open(*fixturePath)
+		if err != nil {
+			return fmt.Errorf("read fixture: %w", err)
+		}
+		defer fixtureFile.Close()
+		prober, err = device.LoadDiscoveryFixture(fixtureFile)
+		if err != nil {
+			return fmt.Errorf("parse fixture: %w", err)
+		}
+	}
+	result, err := device.RunDiscovery(context.Background(), job, creds, prober, time.Now)
+	if err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	if *outPath == "-" {
+		_, err = os.Stdout.Write(raw)
+		return err
+	}
+	return os.WriteFile(*outPath, raw, 0o600)
 }
 
 func envOr(key, def string) string {

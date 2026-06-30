@@ -145,7 +145,7 @@ func TestPollSNMPHealthyDevice(t *testing.T) {
 		t.Fatalf("poll: %v", err)
 	}
 
-	if inv.SysName != "core-sw1" || len(inv.Interfaces) != 2 {
+	if inv.SysName != "core-sw1" || inv.SysDescr != "probeOS 1.0" || len(inv.Interfaces) != 2 {
 		t.Fatalf("inventory = %+v", inv)
 	}
 	eth0 := inv.Interfaces[1]

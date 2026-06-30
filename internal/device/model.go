@@ -90,5 +90,6 @@ type Interface struct {
 type Inventory struct {
 	Device     string // management address (the config key)
 	SysName    string
+	SysDescr   string
 	Interfaces map[uint32]Interface
 }

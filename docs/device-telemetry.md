@@ -109,6 +109,73 @@ This is what lets a cross-plane incident say *"the path test slowed at the same
 interface where the flow plane sees a traffic spike and the device plane sees
 rising discards"* — one interface, three views.
 
+## Discovery and import review
+
+The device agent can also run a **review-only discovery job**:
+
+```bash
+./bin/probectl-device-agent discover -job discovery.json -out review.json
+```
+
+Discovery is intentionally shaped like a flashlight, not a bulldozer. A job must
+name one tenant, one or more **safe IPv4 ranges**, and one or more tenant-owned
+credential references. Safe means private RFC1918, loopback, or link-local; a
+public range such as `8.8.8.0/24` is rejected before any probe runs. Jobs also
+have a `max_hosts` ceiling (default `1024`) so a typo cannot become a broad
+scan.
+
+Example job:
+
+```json
+{
+  "id": "edge-rack-01",
+  "tenant_id": "t-acme",
+  "created_by": "netops@example.com",
+  "ranges": ["10.10.40.0/28"],
+  "max_hosts": 14,
+  "credentials": [
+    {"tenant_id": "t-acme", "name": "core-ro", "transport": "snmpv2c"}
+  ],
+  "classifier_rules": [
+    {"role": "edge-router", "sys_name_contains": ["edge"], "confidence": 0.9},
+    {"role": "access-switch", "sys_descr_contains": ["switch"], "min_interfaces": 8}
+  ]
+}
+```
+
+Credential entries are names only. The same `PROBECTL_DEVICE_CRED_<NAME>_*`
+environment or secret-reference resolver used by normal polling resolves the
+material at probe time. If a credential name is wrong or belongs to a different
+tenant than the job, discovery fails closed.
+
+Each answering device is classified from SNMP evidence: `sysName`, `sysDescr`,
+and interface names/descriptions. Operator classifier rules run first; built-in
+fallbacks label obvious routers, switches, and firewalls conservatively. The
+output is a **review JSON** with `status: "review_required"` and each device in
+`activation_state: "pending_review"`. In other words, discovery can suggest
+targets, but it cannot activate monitoring by itself. An explicit review step
+turns accepted candidates into ordinary device-agent `devices:` targets, and the
+result carries audit events for job start, device discovery, review required,
+and per-device approval.
+
+For demos and tests, `-fixture fixture.json` drives the same workflow without
+touching the network:
+
+```json
+{
+  "devices": [
+    {
+      "address": "10.10.40.2",
+      "sys_name": "edge-r1",
+      "sys_descr": "router os",
+      "interfaces": [
+        {"index": 1, "name": "wan0", "oper_up": true, "addrs": ["10.10.40.2"]}
+      ]
+    }
+  ]
+}
+```
+
 ## Credentials — referenced by name, never stored
 
 Device credentials (SNMP communities, SNMPv3 passphrases, gNMI passwords) are
@@ -175,11 +242,21 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
 ./bin/probectl-device-agent
 ```
 
+Discovery quick start against a bounded private range:
+
+```bash
+export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
+./bin/probectl-device-agent discover -job discovery.json -out review.json
+```
+
 ## Testing
 
 - The poller/normalizer is table-driven against canned-PDU fakes (a healthy
   device, degraded MIBs, an unreachable device), and the gNMI client runs against
   an in-process mock target over bufconn — both in `go test ./internal/device/...`.
+- Discovery is pinned by fixture-network tests that classify devices, keep them
+  pending review, build reviewed imports, and prove a tenant cannot list another
+  tenant's discovery result.
 - `TestSNMPIntegration` drives the **real** SNMP client against a live target
   (snmpsim or lab gear) when `PROBECTL_TEST_SNMP_TARGET` is set; CI wires a
   snmpsim container for it.

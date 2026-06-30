@@ -158,6 +158,8 @@ func pollSNMP(conn snmpConn, dev Target, tenant, agent string, now time.Time) ([
 		switch {
 		case strings.HasPrefix(p.Name, oidSysName[:len(oidSysName)-2]):
 			inv.SysName = pduString(p)
+		case strings.HasPrefix(p.Name, oidSysDescr[:len(oidSysDescr)-2]):
+			inv.SysDescr = pduString(p)
 		case strings.HasPrefix(p.Name, oidSysUpTime[:len(oidSysUpTime)-2]):
 			m := base
 			m.DeviceName = inv.SysName
