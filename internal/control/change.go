@@ -148,11 +148,8 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 	if typ == "" || typ == "change" || typ == "bgp" || typ == "routing" {
 		if s.pool != nil {
 			if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				since := r.Start
-				if since.IsZero() {
-					since = time.Now().Add(-24 * time.Hour)
-				}
-				evs, err := (store.ChangeEvents{}).Since(ctx, sc, since, limit)
+				start, end := changeEvidenceWindow(r)
+				evs, err := (store.ChangeEvents{}).Between(ctx, sc, start, end, limit)
 				if err != nil {
 					return err
 				}
@@ -187,6 +184,22 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 		rows = append(rows, flowRows...)
 	}
 	return rows, nil
+}
+
+func changeEvidenceWindow(r ai.TimeRange) (time.Time, time.Time) {
+	end := r.End
+	if end.IsZero() {
+		end = time.Now().UTC()
+	} else {
+		end = end.UTC()
+	}
+	start := r.Start
+	if start.IsZero() {
+		start = end.Add(-24 * time.Hour)
+	} else {
+		start = start.UTC()
+	}
+	return start, end
 }
 
 func (s changeEventsSource) queryFlowEvents(ctx context.Context, tenant string, sel map[string]string, r ai.TimeRange, limit int) ([]ai.Row, error) {

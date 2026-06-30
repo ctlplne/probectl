@@ -216,3 +216,33 @@ func TestRCACitesChange(t *testing.T) {
 		t.Errorf("RCA should cite the change as evidence: %s", rec.Body)
 	}
 }
+
+// AI/RCA evidence must obey both sides of the planned query window. A change that
+// occurs after the question's end time is future evidence; it must not be cited
+// just because it is newer than the start time.
+func TestAIAskExcludesFutureChangeEvidence(t *testing.T) {
+	db := changeDB(t)
+	h := buildChangeHandler(db, nil)
+	tenant := freshTenant(t, db, "chgrcafuture")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	seedChange(t, db, tenant, change.Event{Source: "github", Kind: change.KindDeploy,
+		Title: "deploy payments-api in current window", Target: "api.example.com", Actor: "alice",
+		OccurredAt: now.Add(-10 * time.Minute)})
+	seedChange(t, db, tenant, change.Event{Source: "github", Kind: change.KindDeploy,
+		Title: "deploy payments-api after query end", Target: "api.example.com", Actor: "mallory",
+		OccurredAt: now.Add(2 * time.Hour)})
+
+	rec := apiReq(t, h, http.MethodPost, "/v1/ai/ask", tenant,
+		map[string]any{"question": "what changed for api.example.com? any recent deploy?"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ai ask: %d %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "deploy payments-api after query end") {
+		t.Fatalf("RCA cited future change evidence outside the query end: %s", body)
+	}
+	if !strings.Contains(body, "deploy payments-api in current window") {
+		t.Fatalf("RCA should still cite in-window change evidence: %s", body)
+	}
+}

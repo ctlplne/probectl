@@ -50,6 +50,22 @@ func TestGenericNormalize(t *testing.T) {
 	}
 }
 
+func TestNormalizeClampsGrossFutureOccurredAt(t *testing.T) {
+	p := genericProvider{}
+	future := t0.Add(2 * time.Hour).Format(time.RFC3339Nano)
+	body := []byte(`{"kind":"deploy","title":"future deploy","target":"api.example.com","occurred_at":"` + future + `"}`)
+	evs, err := p.Normalize(body, nil, t0)
+	if err != nil || len(evs) != 1 {
+		t.Fatalf("normalize: %v %+v", err, evs)
+	}
+	if !evs[0].OccurredAt.Equal(t0) {
+		t.Fatalf("gross future occurred_at should clamp to ingest time: got %s want %s", evs[0].OccurredAt, t0)
+	}
+	if evs[0].Attributes["occurred_at_clamped"] != "true" || evs[0].Attributes["original_occurred_at"] != future {
+		t.Fatalf("clamp provenance missing: %+v", evs[0].Attributes)
+	}
+}
+
 func TestGitHubNormalize(t *testing.T) {
 	p := githubProvider{}
 	push := []byte(`{"ref":"refs/heads/main","compare":"https://gh/compare","pusher":{"name":"alice"},

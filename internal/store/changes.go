@@ -75,6 +75,25 @@ func (ChangeEvents) Since(ctx context.Context, s tenancy.Scope, since time.Time,
 		FROM change_events WHERE occurred_at >= $1 ORDER BY occurred_at DESC LIMIT $2`, since, limit)
 }
 
+// Between returns the tenant's change events inside an inclusive time window,
+// newest first. AI/RCA evidence uses this instead of Since so a future-dated
+// change cannot appear in an answer for a bounded question window.
+func (ChangeEvents) Between(ctx context.Context, s tenancy.Scope, start, end time.Time, limit int) ([]change.Event, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 500
+	}
+	if end.IsZero() {
+		end = time.Now().UTC()
+	}
+	if end.Before(start) {
+		return []change.Event{}, nil
+	}
+	return queryChanges(ctx, s, `SELECT `+changeCols+`
+		FROM change_events
+		WHERE occurred_at >= $1 AND occurred_at <= $2
+		ORDER BY occurred_at DESC LIMIT $3`, start, end, limit)
+}
+
 func queryChanges(ctx context.Context, s tenancy.Scope, sql string, args ...any) ([]change.Event, error) {
 	rows, err := s.Q.Query(ctx, sql, args...)
 	if err != nil {

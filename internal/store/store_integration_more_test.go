@@ -147,6 +147,17 @@ func TestChangeEventsStore(t *testing.T) {
 		if err != nil || len(since) != 1 || since[0].Title != "recent deploy" {
 			t.Fatalf("since: %v / %+v", err, since)
 		}
+		future := time.Now().UTC().Add(2 * time.Hour)
+		if _, err := (ChangeEvents{}).Create(ctx, s, change.Event{
+			TenantID: tn.ID, Source: "generic", Kind: change.Kind("deploy"),
+			Title: "future deploy", Target: "svc-a", OccurredAt: future,
+		}); err != nil {
+			t.Fatalf("create future: %v", err)
+		}
+		window, err := (ChangeEvents{}).Between(ctx, s, recent.Add(-time.Minute), recent.Add(time.Minute), 10)
+		if err != nil || len(window) != 1 || window[0].Title != "recent deploy" {
+			t.Fatalf("between should exclude future events: %v / %+v", err, window)
+		}
 		return nil
 	})
 }

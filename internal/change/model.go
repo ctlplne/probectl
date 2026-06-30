@@ -11,6 +11,8 @@ package change
 
 import "time"
 
+const grossFutureSkew = 15 * time.Minute
+
 // Kind classifies a change so correlation + the UI can group by type.
 type Kind string
 
@@ -47,7 +49,9 @@ type Event struct {
 
 // normalize fills defaults so a partially-populated event is still safe to store
 // and correlate: a missing kind becomes "other"; a missing occurred-at is stamped
-// now (the caller passes a clock for determinism).
+// now (the caller passes a clock for determinism). Grossly future-dated events are
+// clamped to ingest time and annotated, so a bad source clock cannot poison later
+// AI/RCA windows.
 func (e *Event) normalize(source string, now time.Time) {
 	if e.Source == "" {
 		e.Source = source
@@ -57,5 +61,14 @@ func (e *Event) normalize(source string, now time.Time) {
 	}
 	if e.OccurredAt.IsZero() {
 		e.OccurredAt = now
+	}
+	if e.OccurredAt.After(now.Add(grossFutureSkew)) {
+		original := e.OccurredAt
+		e.OccurredAt = now
+		if e.Attributes == nil {
+			e.Attributes = map[string]string{}
+		}
+		e.Attributes["occurred_at_clamped"] = "true"
+		e.Attributes["original_occurred_at"] = original.UTC().Format(time.RFC3339Nano)
 	}
 }
