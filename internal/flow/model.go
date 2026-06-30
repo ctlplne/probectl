@@ -12,10 +12,13 @@ import (
 
 // Wire protocols a Record can be decoded from (FlowRecord.flow_protocol).
 const (
-	ProtoNetFlow5 = "netflow5"
-	ProtoNetFlow9 = "netflow9"
-	ProtoIPFIX    = "ipfix"
-	ProtoSFlow5   = "sflow5"
+	ProtoNetFlow5         = "netflow5"
+	ProtoNetFlow9         = "netflow9"
+	ProtoIPFIX            = "ipfix"
+	ProtoSFlow5           = "sflow5"
+	ProtoAWSVPCFlowLogs   = "aws_vpc_flow_logs"
+	ProtoAzureNSGFlowLogs = "azure_nsg_flow_logs"
+	ProtoGCPVPCFlowLogs   = "gcp_vpc_flow_logs"
 )
 
 // Record is one normalized flow observation, decoded from any of the four wire

@@ -21,7 +21,7 @@ upstream schemas are vendored so probectl interoperates with the real ecosystem.
 | `probectl/agent/v1/agent.proto` | `probectl.agent.v1` | `AgentService` — Register / Attest / Heartbeat + the streaming config/result RPCs (agent ↔ control plane over mTLS) |
 | `probectl/result/v1/result.proto` | `probectl.result.v1` | the canonical probe-result envelope (`Result` / `ResultBatch`), modeled on OTel resource + network semantic conventions; tenant carried as `probectl.tenant.id` |
 | `probectl/bgp/v1/bgp.proto` | `probectl.bgp.v1` | `BGPEvent` / `BGPEventBatch` — the canonical form the Go bridge republishes from the Python analyzer |
-| `probectl/flow/v1/flow.proto` | `probectl.flow.v1` | `FlowRecord` / `FlowBatch` — NetFlow/IPFIX/sFlow records |
+| `probectl/flow/v1/flow.proto` | `probectl.flow.v1` | `FlowRecord` / `FlowBatch` — device and cloud flow records |
 | `probectl/ebpf/v1/ebpf.proto` | `probectl.ebpf.v1` | `Flow` / `ServiceEdge` / `L7Call` — eBPF host/L7 observations |
 | `probectl/device/v1/device.proto` | `probectl.device.v1` | `DeviceMetric` / `DeviceMetricBatch` — SNMP/gNMI device telemetry |
 | `prometheus/v1/remote.proto` | `prometheus.v1` | a minimal Prometheus remote-write schema (so probectl avoids the large Prometheus Go module) |

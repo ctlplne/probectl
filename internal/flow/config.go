@@ -31,6 +31,13 @@ type BusConfig struct {
 	Namespace string `yaml:"namespace"`
 }
 
+// CloudImportConfig selects a local cloud flow-log file to import and exit.
+// It never fetches cloud APIs; the file/object export must already be local.
+type CloudImportConfig struct {
+	Provider string `yaml:"provider"`
+	Path     string `yaml:"path"`
+}
+
 // Config is the flow-collector configuration: a YAML file with PROBECTL_FLOW_*
 // environment overrides. Every key is documented in docs/configuration.md.
 type Config struct {
@@ -50,6 +57,10 @@ type Config struct {
 	NetFlow ListenerConfig `yaml:"netflow"`
 	IPFIX   ListenerConfig `yaml:"ipfix"`
 	SFlow   ListenerConfig `yaml:"sflow"`
+
+	// CloudImport loads one local/exported AWS/Azure/GCP flow-log file, emits it
+	// to the bus under this agent's tenant binding, and exits.
+	CloudImport CloudImportConfig `yaml:"cloud_import"`
 
 	// Batching: a flush goes out when BatchSize records accumulate or
 	// FlushInterval elapses, whichever is first.
@@ -161,6 +172,8 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	set("PROBECTL_FLOW_IPFIX_LISTEN", &c.IPFIX.Listen)
 	setBool("PROBECTL_FLOW_SFLOW_ENABLED", &c.SFlow.Enabled)
 	set("PROBECTL_FLOW_SFLOW_LISTEN", &c.SFlow.Listen)
+	set("PROBECTL_FLOW_CLOUD_PROVIDER", &c.CloudImport.Provider)
+	set("PROBECTL_FLOW_CLOUD_FILE", &c.CloudImport.Path)
 	setInt("PROBECTL_FLOW_BATCH_SIZE", &c.BatchSize)
 	setDur("PROBECTL_FLOW_FLUSH_INTERVAL", &c.FlushInterval)
 	setDur("PROBECTL_FLOW_TEMPLATE_TTL", &c.TemplateTTL)
@@ -175,13 +188,31 @@ func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("flow: tenant_id is required (PROBECTL_FLOW_TENANT)")
 	}
-	if !c.NetFlow.Enabled && !c.IPFIX.Enabled && !c.SFlow.Enabled {
-		return errors.New("flow: no listener enabled")
+	cloud := c.cloudImportEnabled()
+	if !c.NetFlow.Enabled && !c.IPFIX.Enabled && !c.SFlow.Enabled && !cloud {
+		return errors.New("flow: no listener or cloud import enabled")
+	}
+	if cloud {
+		if c.CloudImport.Provider == "" {
+			return errors.New("flow: cloud_import.provider is required when cloud import is enabled")
+		}
+		if c.CloudImport.Path == "" {
+			return errors.New("flow: cloud_import.path is required when cloud import is enabled")
+		}
+		switch c.CloudImport.Provider {
+		case ProtoAWSVPCFlowLogs, ProtoAzureNSGFlowLogs, ProtoGCPVPCFlowLogs:
+		default:
+			return fmt.Errorf("flow: unknown cloud_import.provider %q", c.CloudImport.Provider)
+		}
 	}
 	if c.BatchSize <= 0 || c.QueueSize <= 0 || c.FlushInterval <= 0 {
 		return errors.New("flow: batch_size, queue_size and flush_interval must be positive")
 	}
 	return nil
+}
+
+func (c *Config) cloudImportEnabled() bool {
+	return c.CloudImport.Provider != "" || c.CloudImport.Path != ""
 }
 
 func splitCSV(s string) []string {

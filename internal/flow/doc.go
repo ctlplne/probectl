@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: LicenseRef-probectl-TBD
 
 // Package flow implements the S38 (F17) passive flow-collection plane: UDP
-// collectors for NetFlow v5, NetFlow v9, IPFIX, and sFlow v5 that decode
-// exporter datagrams into one normalized, tenant-scoped Record and publish
-// batches to the bus (probectl.flow.events) for the control plane to enrich
-// (ASN/geo, S15) and persist to ClickHouse (internal/store/flowstore).
+// collectors for NetFlow v5, NetFlow v9, IPFIX, and sFlow v5 plus local
+// cloud-flow importers for AWS VPC Flow Logs, Azure NSG Flow Logs, and GCP VPC
+// Flow Logs. Every source decodes into one normalized, tenant-scoped Record and
+// publishes batches to the bus (probectl.flow.events) for the control plane to
+// enrich (ASN/geo, S15) and persist to ClickHouse
+// (internal/store/flowstore).
 //
 // Design notes:
 //

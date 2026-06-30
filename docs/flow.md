@@ -1,4 +1,4 @@
-# Flow analytics — NetFlow / IPFIX / sFlow
+# Flow analytics — NetFlow / IPFIX / sFlow / cloud flow logs
 
 ## What this is
 
@@ -8,7 +8,10 @@ destination IP, source port, destination port, protocol — plus byte/packet
 counts) and ships them off the box. NetFlow, IPFIX, and sFlow are the three
 common wire formats for that export: **NetFlow** is Cisco's original (v5 with a
 fixed layout, v9 template-based), **IPFIX** is the IETF standard that grew out
-of v9, and **sFlow** ships sampled raw packet headers instead of summaries.
+of v9, and **sFlow** ships sampled raw packet headers instead of summaries. For
+cloud-first estates, probectl also imports already-exported **AWS VPC Flow
+Logs**, **Azure NSG Flow Logs**, and **GCP VPC Flow Logs** from local files or
+object-export pipelines; it does not call cloud APIs by default.
 
 If a synthetic probe is placing a test call yourself, a flow record is a line
 on the itemized phone bill: it can't tell you how the call *sounded*, but it
@@ -29,6 +32,7 @@ is anything anomalous?*
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   R[routers / switches<br/>NetFlow v5/v9 · IPFIX · sFlow v5] -- UDP --> C[probectl-flow-agent<br/>decode · templates · sampling]
+  CL[cloud flow-log exports<br/>AWS VPC · Azure NSG · GCP VPC] -- "local file / object export" --> C
   C -- "probectl.flow.events (FlowBatch, tenant-keyed)" --> B[(bus)]
   B --> P[control-plane FlowConsumer<br/>verify tenant · ASN/geo enrich (opt-in)]
   P --> S[(ClickHouse probectl_flows<br/>tenant-first partition + ORDER BY)]
@@ -48,18 +52,21 @@ section is just a zoom-in on one arrow:
 4. the `/v1/flows/*` handlers (`internal/control/flows.go`) run the analytics
    queries, tenant-scoped, against that store.
 
-## Wire protocols
+## Sources
 
 The collector binds three UDP listeners — one socket shared by NetFlow v5 and
 v9 (it sniffs the version word in the header), plus IPFIX and sFlow on their own
 IANA ports. Disable any listener you don't run.
 
-| Protocol   | Port (default) | Notes                                                                   |
-| ---------- | -------------- | ----------------------------------------------------------------------- |
-| NetFlow v5 | `:2055`        | fixed-layout records; sampling interval lives in the v5 header          |
-| NetFlow v9 | `:2055`        | template-based (RFC 3954); shares the v5 socket (version-sniffed)       |
-| IPFIX      | `:4739`        | RFC 7011; unknown/enterprise + variable-length fields are skipped by their declared length |
-| sFlow v5   | `:6343`        | raw-packet-header samples, parsed Ethernet / 802.1Q / IPv4 / IPv6 / TCP / UDP far enough for the 5-tuple |
+| Source | Port / input | Notes |
+| --- | --- | --- |
+| NetFlow v5 | `:2055` | fixed-layout records; sampling interval lives in the v5 header |
+| NetFlow v9 | `:2055` | template-based (RFC 3954); shares the v5 socket (version-sniffed) |
+| IPFIX | `:4739` | RFC 7011; unknown/enterprise + variable-length fields are skipped by their declared length |
+| sFlow v5 | `:6343` | raw-packet-header samples, parsed Ethernet / 802.1Q / IPv4 / IPv6 / TCP / UDP far enough for the 5-tuple |
+| AWS VPC Flow Logs | local line export | default v2 text fields; `log-status != OK` rows are ignored |
+| Azure NSG Flow Logs | local JSON Lines | Network Watcher v2 flow-tuples are normalized into the same 5-tuple/counter shape |
+| GCP VPC Flow Logs | local JSON Lines | Cloud Logging VPC flow entries are normalized from `jsonPayload.connection` |
 
 **Templates (v9 / IPFIX).** Unlike v5's fixed layout, v9 and IPFIX describe
 their record shape in a *template* the exporter sends periodically — the legend
@@ -108,6 +115,25 @@ signals rather than remapping them. The mapping (see
   `destination.*` equivalents), because OTel has no AS/geo convention (ECS is
   the Elastic Common Schema — another widely-used naming dictionary).
 
+## Cloud flow logs
+
+Cloud flow-log import lives in `internal/flow/cloudflow`. It is intentionally a
+local connector, not a cloud SDK client: an operator points probectl at files or
+object-store exports that already exist inside their environment. That keeps the
+default no-phone-home posture intact and lets air-gapped deployments use the same
+normalization path after they move logs across their boundary.
+
+Every imported row is stamped with the authenticated agent/operator tenant before
+storage; tenant identity is never accepted from the cloud log payload. AWS
+interface IDs, Azure NSG resource IDs/MACs, and GCP subnetwork labels are kept as
+exporter provenance, while `flow_protocol` records which cloud format was parsed.
+
+Use `probectl-flow-agent` in one-shot import mode with
+`PROBECTL_FLOW_CLOUD_PROVIDER` and `PROBECTL_FLOW_CLOUD_FILE` (or the equivalent
+`cloud_import` YAML block). The agent publishes the normalized records to the
+same tenant-keyed `probectl.flow.events` topic and exits; the control plane then
+uses the ordinary flow consumer and store path.
+
 ## Security posture
 
 Flow export is **plaintext UDP with no authentication — by protocol design**
@@ -115,13 +141,13 @@ Flow export is **plaintext UDP with no authentication — by protocol design**
 untrusted ingestion surface (see
 [`security/threat-model.md`](security/threat-model.md)):
 
-- every datagram is **untrusted input**: decoders are pure and bounds-checked,
-  record counts and template state are capped, and malformed input is counted
-  and dropped — never a panic in a production path;
+- every datagram or cloud-log line is **untrusted input**: decoders are pure and
+  bounds-checked, record counts, line size, and template state are capped, and
+  malformed input is counted and dropped — never a panic in a production path;
 - the tenant on every record comes from the **collector's own tenant binding**
-  (its config, or the SPIFFE workload identity on its client certificate),
-  never from anything the datagram claims — a datagram cannot assert which
-  tenant it belongs to;
+  (its config, the SPIFFE workload identity on its client certificate, or the
+  authenticated local import context), never from anything the datagram or cloud
+  log claims — source payloads cannot assert which tenant they belong to;
 - deploy the collector **adjacent to its exporters** (management network / same
   site) so flow datagrams never cross an untrusted segment;
 - everything downstream of the collector rides the standard authenticated paths

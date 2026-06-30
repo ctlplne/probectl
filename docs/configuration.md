@@ -1027,10 +1027,13 @@ exactly what it collects at startup** and never phones home.
 A **flow record** is a router's summary of one conversation — who talked to
 whom, on which ports/protocol, when, and how many bytes/packets — with **no
 payload**: the phone bill, not the phone call. NetFlow, IPFIX, and sFlow are the
-three export dialects devices speak. The flow collector listens for NetFlow
-v5/v9, IPFIX, and sFlow v5 datagrams from
-network devices, decodes them (template + sampling handling), and publishes
-normalized batches to `probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed).
+three export dialects devices speak; AWS VPC Flow Logs, Azure NSG Flow Logs, and
+GCP VPC Flow Logs are the equivalent cloud-export path. The flow collector
+listens for NetFlow v5/v9, IPFIX, and sFlow v5 datagrams from network devices,
+decodes them (template + sampling handling), and publishes normalized batches to
+`probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed). Cloud flow logs are
+imported from local/exported files through the flow cloud connector, not fetched
+from cloud APIs by default.
 It reads a YAML config (default path `PROBECTL_FLOW_CONFIG`); `PROBECTL_FLOW_*`
 env vars override the file. The defaults serve all three protocols on their
 standard ports (NetFlow `:2055`, IPFIX `:4739`, sFlow `:6343`). See
@@ -1052,6 +1055,8 @@ design, so every datagram is treated as untrusted and the collector should sit
 | `PROBECTL_FLOW_IPFIX_LISTEN`       | `:4739`     | IPFIX UDP listen address                                        |
 | `PROBECTL_FLOW_SFLOW_ENABLED`      | `true`      | serve sFlow v5                                                  |
 | `PROBECTL_FLOW_SFLOW_LISTEN`       | `:6343`     | sFlow UDP listen address                                        |
+| `PROBECTL_FLOW_CLOUD_PROVIDER`     | (none)      | one-shot local cloud-flow import provider: `aws_vpc_flow_logs`, `azure_nsg_flow_logs`, or `gcp_vpc_flow_logs`; when set, the agent imports and exits |
+| `PROBECTL_FLOW_CLOUD_FILE`         | (none)      | local file path for cloud-flow import, or `-` for stdin; required when `PROBECTL_FLOW_CLOUD_PROVIDER` is set |
 | `PROBECTL_FLOW_BATCH_SIZE`         | `1000`      | records per emitted batch                                       |
 | `PROBECTL_FLOW_FLUSH_INTERVAL`     | `2s`        | max time a record waits before emission                         |
 | `PROBECTL_FLOW_TEMPLATE_TTL`       | `30m`       | v9/IPFIX template expiry                                        |
@@ -1061,6 +1066,18 @@ design, so every datagram is treated as untrusted and the collector should sit
 | `PROBECTL_FLOW_WORKERS`            | `2`         | reader goroutines per socket                                    |
 | `PROBECTL_FLOW_LOG_LEVEL`          | `info`      | `debug` \| `info` \| `warn` \| `error`                          |
 | `PROBECTL_FLOW_LOG_FORMAT`         | `json`      | `json` \| `text`                                                |
+
+YAML equivalent for one-shot cloud import:
+
+```yaml
+cloud_import:
+  provider: aws_vpc_flow_logs
+  path: /var/lib/probectl/cloud-flow/aws-vpc-flow.log
+```
+
+If all UDP listeners are disabled, `cloud_import` must be complete; otherwise
+the flow agent refuses to start. Cloud import still publishes to the configured
+bus as `probectl.flow.events`, tenant-keyed by `tenant_id`.
 
 The **control plane** consumes that flow topic, optionally enriches each record
 with ASN/geo, and persists to the flow store behind `/v1/flows/*` (top-talkers /

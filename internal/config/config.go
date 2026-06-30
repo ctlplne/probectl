@@ -245,8 +245,8 @@ type Config struct {
 	PathStoreMode string
 	PathStoreURL  string
 
-	// Flow store (S38): where device-flow records (NetFlow/IPFIX/sFlow) land and
-	// the flow analytics are served from. memory (default) or clickhouse.
+	// Flow store (S38): where device/cloud flow records land and the flow
+	// analytics are served from. memory (default) or clickhouse.
 	// FlowRetentionDays > 0 applies a ClickHouse delete-TTL (high-volume
 	// retention). FlowEnrichASN opts in to ASN/geo enrichment via the S15
 	// opendata sources (Team Cymru DNS lookups — an OUTBOUND dependency, so it

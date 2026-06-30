@@ -1,0 +1,1 @@
+{"timestamp":"2026-06-30T12:04:00Z","resource":{"type":"gce_subnetwork","labels":{"subnetwork_id":"subnet-prod"}},"jsonPayload":{"connection":{"src_ip":"10.10.0.7","dest_ip":"34.117.59.81","src_port":53001,"dest_port":443,"protocol":6},"bytes_sent":"3072","packets_sent":"3","start_time":"2026-06-30T12:03:30Z","end_time":"2026-06-30T12:04:00Z"}}

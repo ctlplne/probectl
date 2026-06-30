@@ -17,6 +17,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/flow"
+	"github.com/imfeelingtheagi/probectl/internal/flow/cloudflow"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
@@ -67,14 +69,40 @@ func run() error {
 	if err != nil {
 		return err // RED-006: malformed silo namespace refuses start
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if cfg.CloudImport.Provider != "" {
+		return runCloudImport(ctx, cfg, emitter, log)
+	}
+
 	collector, err := flow.New(cfg, emitter, log)
 	if err != nil {
 		return err
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	return collector.Run(ctx)
+}
+
+func runCloudImport(ctx context.Context, cfg *flow.Config, emitter flow.Emitter, log *slog.Logger) error {
+	var r io.Reader = os.Stdin
+	if cfg.CloudImport.Path != "-" {
+		f, err := os.Open(cfg.CloudImport.Path)
+		if err != nil {
+			return fmt.Errorf("flow: open cloud import file: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+		r = f
+	}
+	n, err := cloudflow.Emit(ctx, cloudflow.Provider(cfg.CloudImport.Provider), cfg.TenantID, cfg.AgentID, r, emitter)
+	if err != nil {
+		return err
+	}
+	log.Info("flow: cloud import complete",
+		"provider", cfg.CloudImport.Provider,
+		"path", cfg.CloudImport.Path,
+		"records", n,
+		"tenant", cfg.TenantID)
+	return nil
 }
 
 func envOr(key, def string) string {

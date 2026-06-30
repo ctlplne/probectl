@@ -176,8 +176,8 @@ Two checks pin this layer in CI:
   enforced. The full three-signal ingest path is exercised by
   `TestOTLPThreeSignalRoundTrip` (`internal/pipeline`).
 - `internal/otel.TestAllSignalMappingsConform` holds **every** signal mapping —
-  result, eBPF flow, L7, device flow (NetFlow/IPFIX/sFlow), device telemetry,
-  BGP, path — to the OTel / `probectl.*` naming discipline.
+  result, eBPF flow, L7, device/cloud flow, device telemetry, BGP, path — to the
+  OTel / `probectl.*` naming discipline.
 
 ## Deploying behind an OTel Collector
 

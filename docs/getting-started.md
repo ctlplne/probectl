@@ -439,10 +439,10 @@ the shared setup runs `dev.yml` and wired the control plane to
 > **Where eBPF data shows up — read this carefully.** The eBPF host agent feeds the
 > **topology / service-map** plane (`GET /v1/topology`). The `/v1/flows/*`
 > analytics views (top talkers, capacity, anomalies) are a **different** producer —
-> the NetFlow/IPFIX/sFlow **flow collector** (`probectl-flow-agent`), which lands
-> in ClickHouse and is covered in [`flow.md`](flow.md). Both are "flow data" in
-> plain English, but they are distinct planes with distinct producers. This path is
-> the eBPF service map.
+> the NetFlow/IPFIX/sFlow **flow collector** (`probectl-flow-agent`) or the
+> local cloud-flow import path, which land in ClickHouse and are covered in
+> [`flow.md`](flow.md). Both are "flow data" in plain English, but they are
+> distinct planes with distinct producers. This path is the eBPF service map.
 
 ### Option A — recorded sample flows (no kernel; works on a Mac)
 
@@ -576,7 +576,7 @@ and correlates, the API and UI show it. From here:
   catalog of every producer and which infrastructure each needs (gRPC-to-control
   vs. bus). The depth docs per plane:
   - synthetic — [`agent/enrollment.md`](agent/enrollment.md), [`configuration.md`](configuration.md)
-  - device flow analytics (NetFlow/IPFIX/sFlow) — [`flow.md`](flow.md)
+  - device/cloud flow analytics (NetFlow/IPFIX/sFlow + cloud flow logs) — [`flow.md`](flow.md)
   - eBPF host/L7 — [`ebpf-agent.md`](ebpf-agent.md)
   - device / streaming telemetry (SNMP/gNMI) — [`device-telemetry.md`](device-telemetry.md)
 - **Make it production-shaped.** Swap dev auth for OIDC SSO and run behind real

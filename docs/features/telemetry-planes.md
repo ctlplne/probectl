@@ -17,8 +17,9 @@ same:
   signals are shaped to the OpenTelemetry (OTel) standard from their first field,
   so it speaks the OpenTelemetry Protocol (OTLP) in both directions for all three
   signal types: metrics, traces, and logs.
-- **Flow analytics** — decodes the flow summaries your routers and switches
-  already export (NetFlow, IPFIX, and sFlow) into one record per conversation.
+- **Flow analytics** — decodes the flow summaries your routers, switches, and
+  cloud accounts already export (NetFlow, IPFIX, sFlow, AWS VPC Flow Logs,
+  Azure NSG Flow Logs, and GCP VPC Flow Logs) into one record per conversation.
 - **Device telemetry** — reads the switches' and routers' own health (interface
   counters, link state, CPU, memory, temperature) over SNMP and gNMI.
 
@@ -91,14 +92,18 @@ application-performance-monitoring (APM) replacement and not a log store.
 **Flow analytics.** Routers and switches export flow records — a five-tuple plus
 byte and packet counts — as UDP (User Datagram Protocol) datagrams to a small
 collector. The collector decodes NetFlow v5/v9, IPFIX, and sFlow into one
-normalized, tenant-bound record. Two details matter: template-based formats (v9,
-IPFIX) send the record's shape in a *template* the exporter resends periodically,
-so data that arrives before its template is counted as a miss and the gap
-self-heals; and high-rate links *sample* (say 1 in 1000), so every record keeps
-both the raw counters and the sampling rate and carries pre-scaled estimates that
-all analytics read. The tenant on each record comes from the collector's own
-binding, never from anything the datagram claims — a datagram cannot assert which
-tenant it belongs to.
+normalized, tenant-bound record. Cloud networks export the same idea as logs:
+AWS VPC Flow Logs, Azure NSG Flow Logs, and GCP VPC Flow Logs enter through a
+local file/object-export connector and land in the same record shape, with the
+provider resource kept as exporter provenance. Two details matter:
+template-based formats (v9, IPFIX) send the record's shape in a *template* the
+exporter resends periodically, so data that arrives before its template is
+counted as a miss and the gap self-heals; and high-rate links *sample* (say 1 in
+1000), so every record keeps both the raw counters and the sampling rate and
+carries pre-scaled estimates that all analytics read. The tenant on each record
+comes from the collector's own binding or authenticated local import context,
+never from anything the datagram or cloud log claims — source payloads cannot
+assert which tenant they belong to.
 
 **Device telemetry.** One agent reads devices two ways and emits the same metric
 names from both. Over SNMP it *polls* on a schedule, asking each device a list of
@@ -192,7 +197,8 @@ l7_capture_redaction: headers       # bodies and credential header values zeroed
 - Flow query endpoints: `GET /v1/flows/top`, `GET /v1/flows/capacity`,
   `GET /v1/flows/anomalies` (all require the flow read permission and are scoped to
   the caller's tenant first). Default UDP ports: NetFlow v5/v9 `:2055`, IPFIX
-  `:4739`, sFlow v5 `:6343`.
+  `:4739`, sFlow v5 `:6343`. Cloud flow-log import reads local/exported AWS,
+  Azure, or GCP log files; it does not fetch provider APIs by default.
 - OTLP ingest: gRPC services for metrics, traces, and logs, plus HTTP
   `POST /v1/metrics`, `/v1/traces`, `/v1/logs`. Query traces and logs back,
   tenant-scoped, at `GET /v1/otlp/traces` and `GET /v1/otlp/logs`. Mint a

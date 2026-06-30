@@ -1,12 +1,13 @@
 syntax = "proto3";
 
-// Device flow records (S38, F17): NetFlow v5/v9, IPFIX, and sFlow v5 datagrams
-// decoded by the flow collector into one normalized record. Field names follow
-// OpenTelemetry source.* / destination.* / network.* semantic conventions from
-// the first field (matching result.proto / ebpf.proto), so the OTLP layer (S22)
-// EXPOSES these signals rather than remapping them; fields with no OTel/ECS
-// equivalent use the probectl.flow.* namespace. The tenant is the outermost
-// scope (probectl.tenant.id, F50): every batch is tenant-tagged on the bus and
+// Device and cloud flow records (S38, F17): NetFlow v5/v9, IPFIX, sFlow v5,
+// AWS VPC Flow Logs, Azure NSG Flow Logs, and GCP VPC Flow Logs decoded into
+// one normalized record. Field names follow OpenTelemetry source.* /
+// destination.* / network.* semantic conventions from the first field
+// (matching result.proto / ebpf.proto), so the OTLP layer (S22) EXPOSES these
+// signals rather than remapping them; fields with no OTel/ECS equivalent use
+// the probectl.flow.* namespace. The tenant is the outermost scope
+// (probectl.tenant.id, F50): every batch is tenant-tagged on the bus and
 // tenant-scoped in ClickHouse.
 //
 // Sampling: bytes/packets carry the RAW exported counters; sampling_rate is the
@@ -25,8 +26,9 @@ message FlowRecord {
   string exporter_address = 3; // -> "probectl.flow.exporter.address" (the device)
   uint32 observation_domain = 4; // v9 source ID / IPFIX observation domain / sFlow sub-agent
 
-  // flow_protocol is the wire protocol the record was decoded from:
-  // netflow5 | netflow9 | ipfix | sflow5.
+  // flow_protocol is the source format the record was decoded from:
+  // netflow5 | netflow9 | ipfix | sflow5 | aws_vpc_flow_logs |
+  // azure_nsg_flow_logs | gcp_vpc_flow_logs.
   string flow_protocol = 5; // -> "probectl.flow.protocol"
 
   int64 observed_at_unix_nano = 6; // collector receive time (OTel-style ns)

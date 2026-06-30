@@ -115,10 +115,10 @@ Plus `network.protocol.name` (the protocol itself) on every call, and
 (a hook on a userspace library's functions — here, reading the plaintext
 before the library encrypts it).
 
-## Device flow — NetFlow / IPFIX / sFlow (`probectl.flow.v1.FlowRecord`)
+## Device and cloud flow — NetFlow / IPFIX / sFlow / cloud flow logs (`probectl.flow.v1.FlowRecord`)
 
 The passive flow-plane signal (see [`flow.md`](flow.md)) — one record per flow
-a router or switch exported. Mapping in `internal/otel/netflow.go`
+a router, switch, or cloud flow-log export emitted. Mapping in `internal/otel/netflow.go`
 (`NetFlowAttributes`). The 5-tuple reuses the same `source.*` /
 `destination.*` / `network.*` keys the eBPF flow mapping registers; the
 flow-export specifics have no OTel home and use `probectl.flow.*`; AS/geo

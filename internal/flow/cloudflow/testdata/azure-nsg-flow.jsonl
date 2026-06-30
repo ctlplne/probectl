@@ -1,0 +1,1 @@
+{"records":[{"time":"2026-06-30T12:02:00Z","resourceId":"/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Network/networkSecurityGroups/nsg-prod","properties":{"Version":2,"flows":[{"rule":"AllowHTTPS","flows":[{"mac":"000D3A123456","flowTuples":["1782820920,10.10.0.6,20.20.20.20,53000,443,T,O,A,B,7,4096,2,1024"]}]}]}}]}

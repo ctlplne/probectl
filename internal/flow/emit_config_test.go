@@ -83,6 +83,8 @@ func TestConfigEnvOverrides(t *testing.T) {
 		"PROBECTL_FLOW_WORKERS":           "4",
 		"PROBECTL_FLOW_MAX_TEMPLATES":     "9",
 		"PROBECTL_FLOW_READ_BUFFER_BYTES": "1024",
+		"PROBECTL_FLOW_CLOUD_PROVIDER":    ProtoAWSVPCFlowLogs,
+		"PROBECTL_FLOW_CLOUD_FILE":        "/var/lib/probectl/aws-vpc-flow.log",
 	}
 	cfg.applyEnv(func(k string) string { return env[k] })
 
@@ -101,6 +103,9 @@ func TestConfigEnvOverrides(t *testing.T) {
 	if cfg.QueueSize != 100 || cfg.Workers != 4 || cfg.MaxTemplates != 9 || cfg.ReadBufferBytes != 1024 {
 		t.Errorf("tuning = %+v", cfg)
 	}
+	if cfg.CloudImport.Provider != ProtoAWSVPCFlowLogs || cfg.CloudImport.Path != "/var/lib/probectl/aws-vpc-flow.log" {
+		t.Errorf("cloud import = %+v", cfg.CloudImport)
+	}
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("validate: %v", err)
 	}
@@ -108,6 +113,27 @@ func TestConfigEnvOverrides(t *testing.T) {
 	bad := Default()
 	if err := bad.Validate(); err == nil {
 		t.Error("missing tenant must fail validation")
+	}
+}
+
+func TestConfigCloudImportCanRunWithoutUDPListeners(t *testing.T) {
+	cfg := Default()
+	cfg.TenantID = "t-cloud"
+	cfg.NetFlow.Enabled, cfg.IPFIX.Enabled, cfg.SFlow.Enabled = false, false, false
+	cfg.CloudImport = CloudImportConfig{Provider: ProtoGCPVPCFlowLogs, Path: "-"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("cloud import should be valid without UDP listeners: %v", err)
+	}
+
+	cfg.CloudImport.Provider = "aws"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "unknown cloud_import.provider") {
+		t.Fatalf("unknown provider should fail closed, got %v", err)
+	}
+
+	cfg.CloudImport.Provider = ProtoAzureNSGFlowLogs
+	cfg.CloudImport.Path = ""
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "cloud_import.path") {
+		t.Fatalf("missing path should fail closed, got %v", err)
 	}
 }
 
