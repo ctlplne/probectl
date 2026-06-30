@@ -8,6 +8,7 @@ package silo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -105,6 +106,9 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	router := NewRouter(pool, nil, time.Second)
 	tenancy.SetRouter(router)
 	t.Cleanup(func() { tenancy.SetRouter(nil) })
+	if _, err := router.TargetsFor(ctx, "00000000-0000-0000-0000-000000000000"); !errors.Is(err, ErrUnknownTenant) {
+		t.Fatalf("unknown tenant must fail closed under the registry-backed router: %v", err)
+	}
 
 	// The same tenant-scoped write for both tenants — THE parity operation.
 	insertTest := func(tenantID, name string) error {

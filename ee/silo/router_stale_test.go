@@ -86,3 +86,24 @@ func TestRouterColdStartFailsClosed(t *testing.T) {
 		t.Fatal("cold start with a down registry must error, never default-route")
 	}
 }
+
+func TestRouterUnknownTenantFailsClosed(t *testing.T) {
+	r := NewRouter(nil, nil, time.Second)
+	r.fetch = func(context.Context) (map[string]registryRow, error) {
+		return map[string]registryRow{
+			"t-pool": {slug: "pool", status: "active", model: tenancy.IsolationPooled},
+		}, nil
+	}
+
+	targets, err := r.TargetsFor(context.Background(), "t-pool")
+	if err != nil {
+		t.Fatalf("explicit pooled registry row should route: %v", err)
+	}
+	if targets.Model != tenancy.IsolationPooled || targets.PGSchema != "" || targets.CHDatabase != "" {
+		t.Fatalf("explicit pooled row routed unexpectedly: %+v", targets)
+	}
+
+	if _, err := r.TargetsFor(context.Background(), "missing"); !errors.Is(err, ErrUnknownTenant) {
+		t.Fatalf("unknown tenant must fail closed with ErrUnknownTenant, got %v", err)
+	}
+}

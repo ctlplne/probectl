@@ -6,6 +6,7 @@ package silo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
+
+var ErrUnknownTenant = errors.New("silo: tenant is not present in the registry")
 
 // Router implements tenancy.Router over the tenant registry: it resolves
 // every tenant's isolation targets from the tenants table (read as the
@@ -149,10 +152,10 @@ func (r *Router) TargetsFor(ctx context.Context, tenantID string) (tenancy.Targe
 	}
 	row, ok := reg[tenantID]
 	if !ok {
-		// Unknown to the registry = pooled (the default tenant in dev, or a
-		// tenant created outside the provider plane). Pooled is not a silo
-		// downgrade here: the tenant never had isolated stores.
-		return tenancy.Targets{Model: tenancy.IsolationPooled}, nil
+		// Under the registry-backed router, every routable tenant must have an
+		// explicit registry row. Pooled tenants are represented as pooled rows;
+		// absence is a lifecycle/routing error and must fail closed.
+		return tenancy.Targets{}, fmt.Errorf("%w: %s", ErrUnknownTenant, tenantID)
 	}
 	t := tenancy.Targets{Model: row.model, Residency: row.residency}
 	switch row.model {
