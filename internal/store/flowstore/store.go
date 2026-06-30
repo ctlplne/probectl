@@ -20,6 +20,8 @@ import (
 	"io"
 	"strconv"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/anomaly"
 )
 
 // Row is one stored flow record (post-decode, post-enrichment).
@@ -144,13 +146,17 @@ type AnomalyQuery struct {
 
 // Anomaly is one flagged interface.
 type Anomaly struct {
-	Exporter    string    `json:"exporter"`
-	Iface       uint32    `json:"iface"`
-	TS          time.Time `json:"ts"`
-	CurrentBps  float64   `json:"current_bps"`
-	BaselineBps float64   `json:"baseline_bps"`
-	StdDevBps   float64   `json:"stddev_bps"`
-	Sigma       float64   `json:"sigma"`
+	Exporter         string                 `json:"exporter"`
+	Iface            uint32                 `json:"iface"`
+	TS               time.Time              `json:"ts"`
+	CurrentBps       float64                `json:"current_bps"`
+	BaselineBps      float64                `json:"baseline_bps"`
+	StdDevBps        float64                `json:"stddev_bps"`
+	Sigma            float64                `json:"sigma"`
+	Model            string                 `json:"model,omitempty"`
+	TrainingWindow   anomaly.TrainingWindow `json:"training_window,omitempty"`
+	FeatureCitations []anomaly.Citation     `json:"feature_citations,omitempty"`
+	Features         map[string]float64     `json:"features,omitempty"`
 }
 
 // Store is the flow persistence + analytics contract.

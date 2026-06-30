@@ -231,13 +231,30 @@ export interface ErrorDetail {
   request_id?: string
 }
 
+export interface AnomalyCitation {
+  metric?: string
+  plane?: string
+  ref?: string
+  source?: string
+}
+
+export interface AnomalyTrainingWindow {
+  end?: string
+  samples?: number
+  start?: string
+}
+
 export interface FlowAnomaly {
   baseline_bps?: number
   current_bps?: number
   exporter?: string
+  feature_citations?: AnomalyCitation[]
+  features?: Record<string, number>
   iface?: number
+  model?: string
   sigma?: number
   stddev_bps?: number
+  training_window?: AnomalyTrainingWindow
   ts?: string
 }
 

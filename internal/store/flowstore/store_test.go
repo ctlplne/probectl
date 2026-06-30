@@ -246,6 +246,18 @@ func TestAnomalyDetection(t *testing.T) {
 	if an[0].Iface != 1 || an[0].CurrentBps <= an[0].BaselineBps {
 		t.Fatalf("anomaly = %+v", an[0])
 	}
+	if an[0].Model != "local-zscore-v1" {
+		t.Fatalf("model = %q, want local-zscore-v1", an[0].Model)
+	}
+	if an[0].TrainingWindow.Samples != 9 || an[0].TrainingWindow.Start.IsZero() || an[0].TrainingWindow.End.IsZero() {
+		t.Fatalf("training window = %+v", an[0].TrainingWindow)
+	}
+	if len(an[0].FeatureCitations) == 0 {
+		t.Fatalf("missing feature citations: %+v", an[0])
+	}
+	if an[0].Features["flow.bps"] <= an[0].BaselineBps {
+		t.Fatalf("features did not carry the current flow vector: %+v", an[0].Features)
+	}
 	// Below MinBps nothing is flagged even with a big relative jump.
 	an, _ = m.Anomalies(context.Background(), AnomalyQuery{
 		TenantID: "t-a", Window: 10 * time.Minute, Bucket: time.Minute,

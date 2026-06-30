@@ -29,6 +29,19 @@ export interface FlowCapacityResponse {
   items: FlowCapacityPoint[]
 }
 
+export interface AnomalyCitation {
+  ref: string
+  plane: string
+  source: string
+  metric: string
+}
+
+export interface AnomalyTrainingWindow {
+  start: string
+  end: string
+  samples: number
+}
+
 export interface FlowAnomaly {
   exporter: string
   iface: number
@@ -37,6 +50,10 @@ export interface FlowAnomaly {
   baseline_bps: number
   stddev_bps: number
   sigma: number
+  model?: string
+  training_window?: AnomalyTrainingWindow
+  feature_citations?: AnomalyCitation[]
+  features?: Record<string, number>
 }
 
 export interface FlowAnomalyResponse {

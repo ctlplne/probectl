@@ -345,6 +345,7 @@ function FlowPanel({
       numeric: true,
       render: (a) => formatDecimal(a.sigma, locale, { maximumFractionDigits: 1 }),
     },
+    { key: 'model', header: 'Model', render: (a) => a.model || 'local' },
   ]
   return (
     <section id="plane-panel-flow" role="tabpanel" className={styles.panelGrid}>

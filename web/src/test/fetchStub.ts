@@ -245,6 +245,24 @@ export function defaultFetch(): typeof fetch {
             baseline_bps: 35_000_000,
             stddev_bps: 8_000_000,
             sigma: 6.2,
+            model: 'local-zscore-v1',
+            training_window: {
+              start: '2026-06-04T11:15:00Z',
+              end: '2026-06-04T11:55:00Z',
+              samples: 9,
+            },
+            feature_citations: [
+              {
+                ref: 'flow:capacity:edge-r1:if1:1780574400',
+                plane: 'flow',
+                source: 'edge-r1',
+                metric: 'bps',
+              },
+            ],
+            features: {
+              'flow.bps': 85_000_000,
+              'flow.pps': 12_000,
+            },
           },
         ],
       })

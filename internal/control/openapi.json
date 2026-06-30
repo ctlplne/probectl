@@ -6600,6 +6600,57 @@
           },
           "sigma": {
             "type": "number"
+          },
+          "model": {
+            "type": "string"
+          },
+          "training_window": {
+            "$ref": "#/components/schemas/AnomalyTrainingWindow"
+          },
+          "feature_citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCitation"
+            }
+          },
+          "features": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "AnomalyTrainingWindow": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "samples": {
+            "type": "integer"
+          }
+        }
+      },
+      "AnomalyCitation": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "plane": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
           }
         }
       },

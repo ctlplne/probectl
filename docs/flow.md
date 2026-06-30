@@ -186,7 +186,7 @@ the flow store (`internal/store/flowstore/clickhouse.go`):
   keeps flows indefinitely, which the control plane warns about at boot;
 - a `memory` store (the default) implements the same `Store` contract for the
   lightweight / single-node deploy, and is the reference implementation the
-  ClickHouse SQL must agree with (the two share one anomaly detector, so both
+  ClickHouse SQL must agree with (the two share one local anomaly model, so both
   backends flag identically). The control plane selects the backend with
   `PROBECTL_FLOWSTORE_MODE=memory|clickhouse` (+ `PROBECTL_FLOWSTORE_URL` for
   ClickHouse).
@@ -216,14 +216,17 @@ GET /v1/flows/anomalies?window=1h&bucket=3m&k=3&min_bps=1000
   (bits per second / packets per second) over
   time. `direction` selects which interface (ingress/egress) to group by
   (default `in`); `bucket` defaults to `window/20`, with a one-minute floor.
-- **Anomalies** runs the capacity series through a baseline detector: for each
-  interface, the latest bucket is compared against the mean + `k`·stddev of its
-  *own* preceding buckets — each link is judged against its own history, never
-  against other links (stddev is the standard deviation, the usual measure of
-  how much a series wobbles; `k` is how many wobbles above normal counts as
-  anomalous). It needs at least three baseline buckets plus the one
-  under test. `k` defaults to 3 and `min_bps` to 1000 (so tiny links don't
-  trip). The same detector runs over both store backends.
+- **Anomalies** runs the capacity series through the local-default anomaly model
+  (`local-zscore-v1`): for each interface, the latest bucket is compared against
+  what the model learned from that interface's own preceding buckets — each link
+  is judged against its own history, never against other links. The model is
+  pluggable, but the default is fully in-process and air-gapped: it makes no
+  network calls and refuses to train on features whose `tenant_id` differs from
+  the query tenant. It needs at least three training buckets plus the one under
+  test. `k` defaults to 3 and `min_bps` to 1000 (so tiny links don't trip). The
+  response includes the model name, training-window provenance, the latest
+  tenant-local feature vector, and feature citations. The same detector runs over
+  both store backends.
 
 ## Operations
 

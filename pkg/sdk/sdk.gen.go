@@ -303,14 +303,31 @@ type ErrorDetail struct {
 	RequestId string    `json:"request_id,omitempty"`
 }
 
+type AnomalyCitation struct {
+	Metric string `json:"metric,omitempty"`
+	Plane  string `json:"plane,omitempty"`
+	Ref    string `json:"ref,omitempty"`
+	Source string `json:"source,omitempty"`
+}
+
+type AnomalyTrainingWindow struct {
+	End     string `json:"end,omitempty"`
+	Samples int    `json:"samples,omitempty"`
+	Start   string `json:"start,omitempty"`
+}
+
 type FlowAnomaly struct {
-	BaselineBps float64 `json:"baseline_bps,omitempty"`
-	CurrentBps  float64 `json:"current_bps,omitempty"`
-	Exporter    string  `json:"exporter,omitempty"`
-	Iface       int     `json:"iface,omitempty"`
-	Sigma       float64 `json:"sigma,omitempty"`
-	StddevBps   float64 `json:"stddev_bps,omitempty"`
-	Ts          string  `json:"ts,omitempty"`
+	BaselineBps      float64                `json:"baseline_bps,omitempty"`
+	CurrentBps       float64                `json:"current_bps,omitempty"`
+	Exporter         string                 `json:"exporter,omitempty"`
+	FeatureCitations []AnomalyCitation      `json:"feature_citations,omitempty"`
+	Features         map[string]float64     `json:"features,omitempty"`
+	Iface            int                    `json:"iface,omitempty"`
+	Model            string                 `json:"model,omitempty"`
+	Sigma            float64                `json:"sigma,omitempty"`
+	StddevBps        float64                `json:"stddev_bps,omitempty"`
+	TrainingWindow   *AnomalyTrainingWindow `json:"training_window,omitempty"`
+	Ts               string                 `json:"ts,omitempty"`
 }
 
 type FlowAnomalyList struct {
