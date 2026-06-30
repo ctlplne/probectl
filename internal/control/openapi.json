@@ -36,6 +36,10 @@
       "description": "Device telemetry inventory and latest metric summaries."
     },
     {
+      "name": "ebpf",
+      "description": "eBPF host/L7 service-map read model."
+    },
+    {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
     }
@@ -1406,6 +1410,79 @@
           "limit_param": "limit",
           "max_items": 500,
           "reason": "Device metric summaries collapse time-series samples to latest per device/metric/interface and clamp the response size."
+        }
+      }
+    },
+    "/v1/ebpf/service-map": {
+      "get": {
+        "operationId": "listEBPFServiceMap",
+        "summary": "List eBPF host/L7 service edges",
+        "tags": [
+          "ebpf"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "description": "Optional source workload filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive lower bound for aggregate windows (RFC 3339).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "description": "Exclusive upper bound for aggregate windows (RFC 3339).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum service edges to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant-scoped eBPF service-edge/L7 map.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EBPFServiceMap"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 1000,
+          "reason": "eBPF service edges are returned as a bounded top-N aggregate per tenant and time window."
         }
       }
     },
@@ -6909,6 +6986,69 @@
           },
           "metrics_running": {
             "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "EBPFServiceEdge": {
+        "type": "object",
+        "description": "One tenant-scoped eBPF host/L7 service edge aggregate.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "destination_port": {
+            "type": "integer"
+          },
+          "l7_protocol": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "packets": {
+            "type": "integer"
+          },
+          "connections": {
+            "type": "integer"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      },
+      "EBPFServiceMap": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EBPFServiceEdge"
+            }
+          },
+          "ebpf_running": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
           },
           "effective_limit": {
             "type": "integer"

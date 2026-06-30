@@ -63,6 +63,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":    {Method: http.MethodGet, Path: "/v1/devices"},
 		"metrics": {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
 	}},
+	"ebpf": {Name: "ebpf", Summary: "eBPF host/L7 service map", Ops: map[string]apiOp{
+		"service-map": {Method: http.MethodGet, Path: "/v1/ebpf/service-map", Description: "list tenant eBPF service edges"},
+	}},
 	"change": {Name: "change", Summary: "change correlation events", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/changes"},
 	}},

@@ -278,6 +278,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithLatestResults(rt.latestResults).
 		WithSecrets(rt.secretsResolver).
 		WithTopology(rt.topoStore).
+		WithEBPFStore(rt.ebpfStore).
 		WithCost(rt.costEngine).
 		WithCarbon(rt.carbonEngine)
 	if rt.sloEngine != nil {

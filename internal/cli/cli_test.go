@@ -503,6 +503,50 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	}
 }
 
+func TestCLIEBPFServiceMapSurface(t *testing.T) {
+	op, ok := surfaceCommands["ebpf"].Ops["service-map"]
+	if !ok {
+		t.Fatal("missing probectl ebpf service-map surface")
+	}
+	if op.Method != http.MethodGet || op.Path != "/v1/ebpf/service-map" {
+		t.Fatalf("ebpf service-map op = %+v, want GET /v1/ebpf/service-map", op)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/ebpf/service-map", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("source"); got != "checkout" {
+			t.Fatalf("source query = %q, want checkout", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "5" {
+			t.Fatalf("limit query = %q, want 5", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{
+				"id":               "checkout|payments|port 8443|grpc",
+				"name":             "checkout -> payments",
+				"summary":          "grpc port 8443",
+				"source":           "checkout",
+				"destination":      "payments",
+				"destination_port": 8443,
+				"l7_protocol":      "grpc",
+				"bytes":            9000,
+			},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "ebpf", "service-map",
+		"--query", "source=checkout",
+		"--query", "limit=5")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "checkout -> payments") || !strings.Contains(out, "grpc port 8443") {
+		t.Fatalf("eBPF service map output missing expected row:\n%s", out)
+	}
+}
+
 func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {

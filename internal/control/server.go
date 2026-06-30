@@ -42,6 +42,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/rum"
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -144,6 +145,10 @@ type Server struct {
 	// Topology graph + what-if (S43): the dependency-graph store. Set via
 	// WithTopology; nil reports topology_running=false.
 	topo topology.Store
+	// eBPF aggregate store (ARCH-008): durable service-edge/L7 aggregates.
+	// Set via WithEBPFStore; nil lets /v1/ebpf/service-map fall back to the
+	// live topology graph and report ebpf_running=false when neither is wired.
+	ebpfStore ebpfstore.Store
 
 	// FinOps cost engine (S44). Set via WithCost; nil reports
 	// cost_running=false.
