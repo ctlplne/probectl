@@ -28,6 +28,10 @@
       "description": "Change intelligence: the change timeline + change-to-incident correlation (S29)."
     },
     {
+      "name": "bgp",
+      "description": "BGP/routing event read model, tenant-scoped through the incident timeline."
+    },
+    {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
     }
@@ -1230,6 +1234,68 @@
           "mode": "bounded",
           "max_items": 200,
           "reason": "Change timeline returns the newest tenant changes with a hard store limit."
+        }
+      }
+    },
+    "/v1/bgp/events": {
+      "get": {
+        "operationId": "listBGPEvents",
+        "summary": "List recent BGP/routing events",
+        "tags": [
+          "bgp"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "required": false,
+            "description": "Optional CIDR prefix filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asn",
+            "in": "query",
+            "required": false,
+            "description": "Optional ASN filter matched against BGP origin/peer attributes.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum events to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent BGP/routing events for the caller tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BGPEventList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 200,
+          "reason": "BGP events are a newest-first bounded read model over tenant-scoped incident signals."
         }
       }
     },
@@ -6569,6 +6635,63 @@
             "items": {
               "$ref": "#/components/schemas/ChangeEvent"
             }
+          }
+        }
+      },
+      "BGPEvent": {
+        "type": "object",
+        "description": "A tenant-scoped BGP/routing signal projected from the incident timeline.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "incident_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "attributes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "BGPEventList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BGPEvent"
+            }
+          },
+          "bgp_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer"
           }
         }
       },

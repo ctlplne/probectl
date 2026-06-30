@@ -255,3 +255,71 @@ func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
 		t.Fatalf("tenant B detection view wrong: %s", rec.Body.String())
 	}
 }
+
+func TestBGPEventsAPIReadsTenantScopedDurableSignals(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	tn, err := store.NewTenants(db.Pool()).Create(ctx,
+		fmt.Sprintf("bgpiso-%d", time.Now().UnixNano()), "BGP Isolation")
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+
+	match, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenancy.DefaultTenantID.String(),
+		Plane:    "bgp", Kind: "bgp.possible_hijack", Severity: incident.SeverityCritical,
+		Title: "possible hijack 192.0.2.0/24", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
+		OccurredAt: now,
+		Attributes: map[string]string{
+			"collector": "rrc00", "new_origin_asn": "64500", "rpki_status": "RPKI_STATUS_INVALID",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenancy.DefaultTenantID.String(),
+		Plane:    "bgp", Kind: "bgp.origin_change", Severity: incident.SeverityWarning,
+		Title: "origin change 198.51.100.0/24", Target: "198.51.100.0/24", Prefix: "198.51.100.0/24",
+		OccurredAt: now.Add(time.Second),
+		Attributes: map[string]string{"new_origin_asn": "64501"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tn.ID,
+		Plane:    "bgp", Kind: "bgp.possible_hijack", Severity: incident.SeverityCritical,
+		Title: "tenant B hijack 192.0.2.0/24", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
+		OccurredAt: now.Add(2 * time.Second),
+		Attributes: map[string]string{"new_origin_asn": "64500"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := apiReq(t, h, http.MethodGet, "/v1/bgp/events?prefix=192.0.2.0/24&asn=AS64500&limit=10", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list bgp events = %d: %s", rec.Code, rec.Body)
+	}
+	var resp struct {
+		BGPRunning     bool           `json:"bgp_running"`
+		EffectiveLimit int            `json:"effective_limit"`
+		Items          []bgpEventItem `json:"items"`
+	}
+	mustJSON(t, rec, &resp)
+	if !resp.BGPRunning || resp.EffectiveLimit != 10 || len(resp.Items) != 1 {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if got := resp.Items[0]; got.IncidentID != match.ID || got.ID != match.ID || got.Prefix != "192.0.2.0/24" || got.Attributes["new_origin_asn"] != "64500" {
+		t.Fatalf("BGP event = %+v, want default tenant matching signal", got)
+	}
+	if strings.Contains(rec.Body.String(), "tenant B hijack") || strings.Contains(rec.Body.String(), "198.51.100.0/24") {
+		t.Fatalf("BGP event view leaked wrong rows: %s", rec.Body)
+	}
+
+	rec = apiReq(t, h, http.MethodGet, "/v1/bgp/events?prefix=192.0.2.0/24&asn=64500", tn.ID, nil)
+	if !strings.Contains(rec.Body.String(), "tenant B hijack") || strings.Contains(rec.Body.String(), "possible hijack 192.0.2.0/24") {
+		t.Fatalf("tenant B BGP view wrong: %s", rec.Body.String())
+	}
+}

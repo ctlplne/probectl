@@ -405,6 +405,53 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 	}
 }
 
+func TestCLIBGPSurfaceEvents(t *testing.T) {
+	op, ok := surfaceCommands["bgp"].Ops["events"]
+	if !ok {
+		t.Fatal("missing probectl bgp events surface")
+	}
+	if op.Method != http.MethodGet || op.Path != "/v1/bgp/events" {
+		t.Fatalf("bgp events op = %+v, want GET /v1/bgp/events", op)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/bgp/events", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("prefix"); got != "192.0.2.0/24" {
+			t.Fatalf("prefix query = %q, want 192.0.2.0/24", got)
+		}
+		if got := r.URL.Query().Get("asn"); got != "AS64500" {
+			t.Fatalf("asn query = %q, want AS64500", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "5" {
+			t.Fatalf("limit query = %q, want 5", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{
+				"id":          "incident-bgp-1",
+				"incident_id": "incident-bgp-1",
+				"kind":        "bgp.possible_hijack",
+				"severity":    "critical",
+				"title":       "possible hijack 192.0.2.0/24",
+				"prefix":      "192.0.2.0/24",
+				"occurred_at": "2026-06-30T12:00:00Z",
+			},
+		}})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "bgp", "events",
+		"--query", "prefix=192.0.2.0/24",
+		"--query", "asn=AS64500",
+		"--query", "limit=5")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "incident") || !strings.Contains(out, "possible hijack") || !strings.Contains(out, "critical") {
+		t.Fatalf("BGP table output missing expected event:\n%s", out)
+	}
+}
+
 func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {
