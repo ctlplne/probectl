@@ -614,8 +614,9 @@ Where the discovered hops/links are stored is a control-plane choice:
 BGP is the protocol networks use to tell each other which IP blocks (prefixes)
 they can reach — the internet's routing gossip — so a wrong announcement
 elsewhere can silently hijack or blackhole *your* traffic without touching your
-equipment. The BGP plane watches for exactly that: a Python analyzer
-(`analyzer/`) plus a Go bridge (`internal/bgp`); see
+equipment. The BGP plane watches for exactly that in two ways: a Python analyzer
+(`analyzer/`) plus a Go bridge (`internal/bgp`) for public collectors, and a
+direct BMP listener for routers that can stream their own BGP view; see
 [`architecture.md`](architecture.md). The analyzer ingests **public** collector
 data — MRT files (the archive format for routing-table dumps, e.g.
 RouteViews/RIPE RIS) and RIS Live (RIPE's websocket firehose of route updates as
@@ -657,6 +658,46 @@ full RIB in memory); a down RPKI/collector source degrades gracefully rather
 than breaking the plane.
 RouteViews/RIS are open data — their AUP/provenance matters for MSP/commercial
 resale, not for private development or single-tenant OSS use.
+
+For operators who run routers that export **BMP** (BGP Monitoring Protocol), run
+`probectl-bmp-listener` next to the routing fabric. It serves **mTLS only**:
+every router/collector peer presents a SPIFFE-style client certificate
+(`spiffe://probectl/tenant/<tenant>/agent/<router-id>`), and the listener derives
+the tenant from that verified certificate instead of trusting any BMP payload
+field. Route-monitoring updates are decoded, the peer is recorded in an
+in-process tenant-scoped peer inventory, and each observed prefix is published to
+the same `probectl.bgp.events` topic as the public-collector analyzer.
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `PROBECTL_BMP_LISTEN_ADDR` | (none) | BMP TCP listen address, for example `:1179`; required |
+| `PROBECTL_BMP_TLS_CERT_FILE` | (none) | server certificate PEM; required |
+| `PROBECTL_BMP_TLS_KEY_FILE` | (none) | server private key PEM; required |
+| `PROBECTL_BMP_TLS_CA_FILE` | (none) | CA bundle that signs router/client certificates; required |
+| `PROBECTL_BMP_COLLECTOR` | `bmp` | collector label written on published BGP events |
+| `PROBECTL_BMP_BUS_MODE` | `memory` | `memory` \| `kafka` |
+| `PROBECTL_BMP_BUS_BROKERS` | (none) | comma-separated Kafka brokers (required for kafka mode) |
+| `PROBECTL_BMP_BUS_TLS_ENABLED` | `false` | TLS to Kafka brokers; required in kafka mode unless the explicit dev-only plaintext flag is set |
+| `PROBECTL_BMP_BUS_TLS_CA_FILE` | (none) | private CA bundle for Kafka |
+| `PROBECTL_BMP_BUS_TLS_CERT_FILE` / `PROBECTL_BMP_BUS_TLS_KEY_FILE` | (none) | Kafka client certificate and key |
+| `PROBECTL_BMP_BUS_SASL_MECHANISM` / `PROBECTL_BMP_BUS_SASL_USER` / `PROBECTL_BMP_BUS_SASL_PASSWORD` | (none) | Kafka SASL authentication |
+| `PROBECTL_BMP_BUS_ALLOW_PLAINTEXT` | `false` | dev-only Kafka plaintext escape hatch |
+| `PROBECTL_BMP_BUS_MAX_BUFFERED` | `0` (= built-in bound `65536`) | async Kafka producer in-flight record bound |
+| `PROBECTL_BMP_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
+| `PROBECTL_BMP_LOG_FORMAT` | `json` | `json` \| `text` |
+
+Example:
+
+```sh
+PROBECTL_BMP_LISTEN_ADDR=:1179 \
+PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
+PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
+PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
+PROBECTL_BMP_BUS_MODE=kafka \
+PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
+PROBECTL_BMP_BUS_TLS_ENABLED=true \
+  probectl-bmp-listener
+```
 
 ### Open-data enrichment
 

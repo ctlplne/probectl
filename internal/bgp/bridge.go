@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: LicenseRef-probectl-TBD
 
-// Package bgp bridges the Python BGP analyzer into the control plane (S14).
+// Package bgp bridges BGP observations into the control plane (S14).
 //
 // The analyzer (analyzer/) ingests public collector data and emits
-// probectl.bgp.events as JSON Lines. The Bridge reads that stream, validates each
-// event's tenant (the outermost scope — F50), and republishes it onto the bus as
-// the canonical probectl.bgp.v1.BGPEvent protobuf, keyed by tenant so a tenant's
-// routing events stay co-located (pooled tenant-tagging). Detections are signals,
-// not actions (CLAUDE.md §7 guardrail 9): the bridge transports them, it does not
-// act on routing.
+// probectl.bgp.events as JSON Lines. The BMP listener accepts direct router BMP
+// sessions over tenant-bound mTLS. Both paths validate each event's tenant (the
+// outermost scope — F50), and publish the canonical probectl.bgp.v1.BGPEvent
+// protobuf keyed by tenant so routing events stay co-located (pooled
+// tenant-tagging). Detections are signals, not actions (CLAUDE.md §7 guardrail
+// 9): this package transports them, it does not act on routing.
 package bgp
 
 import (
@@ -53,6 +53,23 @@ func NewBridge(b Publisher, log *slog.Logger) *Bridge {
 	return &Bridge{bus: b, log: log}
 }
 
+// PublishEvent validates and publishes one canonical BGP event. It is shared by
+// the JSONL analyzer bridge and the BMP listener so every source uses the same
+// tenant fail-closed path and the same bus key.
+func PublishEvent(ctx context.Context, pub Publisher, ev Event) error {
+	if err := ev.validate(); err != nil {
+		return err
+	}
+	value, err := proto.Marshal(ev.toProto())
+	if err != nil {
+		return fmt.Errorf("bgp: marshal event: %w", err)
+	}
+	if err := pub.Publish(ctx, bus.BGPEventsTopic, []byte(ev.TenantID), value); err != nil {
+		return fmt.Errorf("bgp: publish event: %w", err)
+	}
+	return nil
+}
+
 // Ingest reads JSON-Lines events from r until EOF, publishing each valid event
 // to probectl.bgp.events keyed by its tenant. A malformed or tenant-less line is
 // logged and skipped (fail closed), so one bad record never blocks the stream or
@@ -79,14 +96,8 @@ func (br *Bridge) Ingest(ctx context.Context, r io.Reader) (Stats, error) {
 			br.log.Warn("skipping invalid bgp event", "error", err)
 			continue
 		}
-		value, err := proto.Marshal(ev.toProto())
-		if err != nil {
-			stats.Skipped++
-			br.log.Warn("skipping unmarshalable bgp event", "error", err, "prefix", ev.Prefix)
-			continue
-		}
-		if err := br.bus.Publish(ctx, bus.BGPEventsTopic, []byte(ev.TenantID), value); err != nil {
-			return stats, fmt.Errorf("bgp: publish event: %w", err)
+		if err := PublishEvent(ctx, br.bus, ev); err != nil {
+			return stats, err
 		}
 		stats.Published++
 		br.log.Info("bgp event bridged",

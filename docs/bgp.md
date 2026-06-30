@@ -40,7 +40,9 @@ what *should* be true.
    collectors** — independent vantage points run by RouteViews and RIPE **RIS**
    (Routing Information Service) that record what they hear other networks announce.
    The archived form of that feed is **MRT** (a standard binary record format,
-   **RFC 6396**).
+   **RFC 6396**). If you operate routers that export BMP (BGP Monitoring
+   Protocol), `probectl-bmp-listener` can also accept their direct route-monitoring
+   stream over mTLS and publish it into the same tenant-scoped event path.
 2. **Filter to you.** It keeps only the announcements that touch the prefixes you've
    declared as yours.
 3. **Check against ground truth.** For each one it asks: did the **origin AS** change?
@@ -64,6 +66,9 @@ What probectl guarantees you:
   is stale — a flaky upstream never takes your monitoring down.
 - **Your data stays yours.** The feeds are public, but which prefixes you care about and
   what probectl finds are scoped to your tenant and never leave your network.
+- **Direct router feeds are tenant-authenticated.** A BMP peer's tenant comes from
+  its verified SPIFFE client certificate, not from the BMP payload. Unknown or
+  plaintext peers are refused before route data is read.
 
 ## Use it
 
@@ -99,23 +104,43 @@ timeline:
 You see the prefix, the AS that *should* originate it versus the one that *did*, and
 the RPKI verdict — enough to act in seconds.
 
+To ingest direct router BMP streams, run the listener with a server certificate and
+the CA that signs router/client certificates:
+
+```sh
+PROBECTL_BMP_LISTEN_ADDR=:1179 \
+PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \
+PROBECTL_BMP_TLS_KEY_FILE=/etc/probectl/bmp/tls.key \
+PROBECTL_BMP_TLS_CA_FILE=/etc/probectl/agent-ca.crt \
+PROBECTL_BMP_BUS_MODE=kafka \
+PROBECTL_BMP_BUS_BROKERS=kafka-1:9093 \
+PROBECTL_BMP_BUS_TLS_ENABLED=true \
+  probectl-bmp-listener
+```
+
+Each router/client certificate uses the same tenant-bound identity shape as
+probectl agents: `spiffe://probectl/tenant/<tenant>/agent/<router-id>`. The
+listener records a per-tenant peer inventory in memory and emits `BGPEvent`
+records keyed by that tenant.
+
 ## Pitfalls & limits
 
 - **It's a signal, not a shield.** probectl tells you about a hijack; stopping it
   (calling your upstream, pushing the RPKI fix) is still your move. By design — see
   [limitations.md](limitations.md).
-- **You only see what the collectors see.** Public vantage points are broad but not
-  omniscient; a hijack visible only deep inside one region may never reach a collector.
-  Declaring more of *your* prefixes improves coverage of your footprint, not of the
-  whole internet.
+- **You only see what the collectors and your routers see.** Public vantage points
+  are broad but not omniscient; a hijack visible only deep inside one region may
+  never reach a collector. Direct BMP improves your own routing-fabric view, but
+  it still cannot see the whole internet by itself.
 - **RPKI "unknown" is not "safe."** Many legitimate prefixes still have no ROA; an
   unknown verdict lowers confidence rather than raising an alarm, so you'll tune
   thresholds to your own address space.
 
 ## Reference
 
-- Inputs: public route collectors (RouteViews, RIPE RIS); RPKI origin validation; MRT
-  (RFC 6396) for archived records.
+- Inputs: public route collectors (RouteViews, RIPE RIS); direct router BMP
+  route-monitoring sessions; RPKI origin validation; MRT (RFC 6396) for archived
+  records.
 - Event types: `origin_change`, `possible_hijack`, `possible_leak`,
   `rpki_invalid`.
 - Config: the prefix allow-list you monitor, collector endpoints, and per-type

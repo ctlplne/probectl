@@ -10,7 +10,9 @@ validation (checking each announcement against cryptographically published
 statements of which AS may originate a prefix), and emits `probectl.bgp.events`
 as JSON Lines (one JSON object per line — streamable, no enclosing array). The Go
 side (`internal/bgp`) bridges those onto the bus as the canonical
-`probectl.bgp.v1.BGPEvent` protobuf, tenant-keyed.
+`probectl.bgp.v1.BGPEvent` protobuf, tenant-keyed. Direct router BMP ingest lives
+in Go (`probectl-bmp-listener`) because it is a served mTLS socket, not a public
+collector fetch.
 
 ## Modules
 
@@ -49,6 +51,10 @@ Events are written as JSON Lines to stdout (or `--out FILE`). The Go side
 standalone CLI: it reads this JSONL stream, validates each event's tenant, and
 republishes onto the bus as the `probectl.bgp.v1.BGPEvent` protobuf. Wire the
 analyzer's output to that reader (e.g. a file/pipe the control plane consumes).
+
+For router-native BMP (BGP Monitoring Protocol), use `probectl-bmp-listener`
+instead. It accepts mTLS sessions, derives the tenant from the peer certificate,
+and publishes into the same `probectl.bgp.events` topic.
 
 ### Config (`config.json`)
 
