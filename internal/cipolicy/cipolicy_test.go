@@ -338,6 +338,41 @@ func TestFIPSArtifactsCoverPOSTEntrypoints(t *testing.T) {
 	}
 }
 
+func TestEditionsGateSkipsTestOnlyPackages(t *testing.T) {
+	makefile := readRepoFile(t, "Makefile")
+	editionsGate := makeTargetBlock(t, makefile, "editions-gate")
+	for _, want := range []string{
+		"{{if .GoFiles}}{{.ImportPath}}{{end}}",
+		"-tags probectl_core",
+		"grep -v '^github.com/imfeelingtheagi/probectl/ee'",
+		"$(GO) build -tags probectl_core $$core_pkgs",
+		"$(GO) test -tags probectl_core -count=1 $$core_pkgs",
+	} {
+		if !strings.Contains(editionsGate, want) {
+			t.Errorf("editions-gate no longer has the buildable-package filter piece %q", want)
+		}
+	}
+
+	entries, err := os.ReadDir(filepath.Join(repoRoot(t), "docs"))
+	if err != nil {
+		t.Fatalf("read docs/: %v", err)
+	}
+	hasTestOnlyFixture := false
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") {
+			continue
+		}
+		if !strings.HasSuffix(name, "_test.go") {
+			t.Fatalf("docs/ is no longer a test-only Go package; %s is a non-test Go file, so update this policy test", name)
+		}
+		hasTestOnlyFixture = true
+	}
+	if !hasTestOnlyFixture {
+		t.Fatal("docs/ no longer has test-only Go files; the editions-gate regression fixture disappeared")
+	}
+}
+
 func makeVariableWords(t *testing.T, makefile, name string) []string {
 	t.Helper()
 	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `\s*:?=\s*(.+)$`)
