@@ -6,6 +6,9 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"net/netip"
+	"net/url"
+	"strings"
 	"time"
 )
 
@@ -86,11 +89,14 @@ func InternalClientTLSConfig() *tls.Config { return hardenedServerTLS() }
 // HardenedHTTPClient returns an *http.Client whose transport validates server
 // certificates with the hardened TLS policy. timeout bounds the entire request
 // (a non-positive value leaves it unbounded — callers should pass a positive
-// timeout). The only crypto policy routes through internal/crypto, so callers
-// import no crypto package directly.
+// timeout). Redirects are re-checked here so shared outbound clients do not
+// leak credentials or follow a public feed into private/metadata space. The
+// only crypto policy routes through internal/crypto, so callers import no crypto
+// package directly.
 func HardenedHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Timeout: timeout,
+		Timeout:       timeout,
+		CheckRedirect: hardenedHTTPRedirectPolicy,
 		Transport: &http.Transport{
 			TLSClientConfig:     hardenedTLS(),
 			ForceAttemptHTTP2:   true,
@@ -99,4 +105,129 @@ func HardenedHTTPClient(timeout time.Duration) *http.Client {
 			TLSHandshakeTimeout: 10 * time.Second,
 		},
 	}
+}
+
+const hardenedHTTPMaxRedirects = 5
+
+func hardenedHTTPRedirectPolicy(req *http.Request, via []*http.Request) error {
+	if len(via) >= hardenedHTTPMaxRedirects {
+		return fmt.Errorf("crypto: redirect rejected after %d hops", hardenedHTTPMaxRedirects)
+	}
+	if req == nil || req.URL == nil {
+		return fmt.Errorf("crypto: redirect rejected: missing target URL")
+	}
+	if err := checkRedirectURL(req.URL); err != nil {
+		return err
+	}
+	if len(via) == 0 {
+		return nil
+	}
+	prev := via[len(via)-1]
+	if prev != nil && prev.URL != nil && prev.URL.Scheme == "https" && req.URL.Scheme != "https" {
+		return fmt.Errorf("crypto: redirect rejected: HTTPS-to-%s scheme downgrade", req.URL.Scheme)
+	}
+	if prev != nil && prev.URL != nil && !sameOrigin(prev.URL, req.URL) && redirectCarriesCredentialHeaders(via) {
+		return fmt.Errorf("crypto: redirect rejected: credential-bearing request crossed origin from %s to %s", origin(prev.URL), origin(req.URL))
+	}
+	return nil
+}
+
+func checkRedirectURL(u *url.URL) error {
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "https" && scheme != "http" {
+		return fmt.Errorf("crypto: redirect rejected: unsupported target scheme %q", u.Scheme)
+	}
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if host == "" {
+		return fmt.Errorf("crypto: redirect rejected: empty target host")
+	}
+	if host == "localhost" || redirectMetadataHost(host) {
+		return fmt.Errorf("crypto: redirect rejected: private/link-local target %q", host)
+	}
+	addr, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	if err != nil {
+		return nil
+	}
+	addr = addr.Unmap()
+	switch {
+	case !addr.IsValid(),
+		addr.IsLoopback(),
+		addr.IsLinkLocalUnicast(),
+		addr.IsLinkLocalMulticast(),
+		addr.IsMulticast(),
+		addr.IsPrivate(),
+		addr.IsUnspecified(),
+		addr.Is4() && redirectCGNAT.Contains(addr),
+		addr.Is4() && redirectZeroNet.Contains(addr),
+		addr.Is4() && addr == netip.AddrFrom4([4]byte{255, 255, 255, 255}):
+		return fmt.Errorf("crypto: redirect rejected: private/link-local target %s", addr)
+	}
+	return nil
+}
+
+func redirectMetadataHost(host string) bool {
+	switch host {
+	case "metadata", "metadata.google.internal", "metadata.google.internal.":
+		return true
+	default:
+		return false
+	}
+}
+
+var (
+	redirectCGNAT   = netip.MustParsePrefix("100.64.0.0/10")
+	redirectZeroNet = netip.MustParsePrefix("0.0.0.0/8")
+)
+
+func redirectCarriesCredentialHeaders(via []*http.Request) bool {
+	for _, r := range via {
+		if r == nil {
+			continue
+		}
+		for name := range r.Header {
+			if redirectCredentialHeader(name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func redirectCredentialHeader(name string) bool {
+	canonical := http.CanonicalHeaderKey(name)
+	lower := strings.ToLower(canonical)
+	switch lower {
+	case "authorization", "cookie", "proxy-authorization", "x-vault-token":
+		return true
+	}
+	if strings.HasPrefix(lower, "x-") {
+		return true
+	}
+	return strings.Contains(lower, "token") ||
+		strings.Contains(lower, "secret") ||
+		strings.Contains(lower, "credential") ||
+		strings.Contains(lower, "api-key") ||
+		strings.Contains(lower, "auth")
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return origin(a) == origin(b)
+}
+
+func origin(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		}
+	}
+	return scheme + "://" + host + ":" + port
 }
