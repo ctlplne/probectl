@@ -33,6 +33,11 @@ There is exactly **one** feature→tier table in the whole codebase:
 `tierFeatures` in `internal/license/license.go`. Tier knowledge is never
 duplicated anywhere else, so there is a single source of truth.
 
+The buyer-facing pricing boundary follows that table: the full five-plane core
+platform is free, and commercial gating is tenant-band/provider/governance
+oriented. Provider/MSP metering can export usage counters for chargeback, but
+the core product is not a per-host, per-flow, or per-GB toll on telemetry.
+
 | Tier | Gated features |
 |---|---|
 | `community` | None — everything not listed below is core and free forever. |
