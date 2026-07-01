@@ -95,7 +95,11 @@ collector. The collector decodes NetFlow v5/v9, IPFIX, and sFlow into one
 normalized, tenant-bound record. Cloud networks export the same idea as logs:
 AWS VPC Flow Logs, Azure NSG Flow Logs, and GCP VPC Flow Logs enter through a
 local file/object-export connector and land in the same record shape, with the
-provider resource kept as exporter provenance. Two details matter:
+provider resource kept as exporter provenance. Where operators want first-class
+cloud onboarding, the cloud connector framework uses read-only AWS, Azure, or
+GCP credentials over TLS to pull metric snapshots and flow-log object manifests,
+caching the last good result so a down cloud API degrades instead of breaking the
+flow plane. Two details matter:
 template-based formats (v9, IPFIX) send the record's shape in a *template* the
 exporter resends periodically, so data that arrives before its template is
 counted as a miss and the gap self-heals; and high-rate links *sample* (say 1 in
@@ -222,7 +226,8 @@ l7_capture_redaction: headers       # bodies and credential header values zeroed
   `GET /v1/flows/anomalies` (all require the flow read permission and are scoped to
   the caller's tenant first). Default UDP ports: NetFlow v5/v9 `:2055`, IPFIX
   `:4739`, sFlow v5 `:6343`. Cloud flow-log import reads local/exported AWS,
-  Azure, or GCP log files; it does not fetch provider APIs by default.
+  Azure, or GCP log files; cloud metric and flow-object pulls require an
+  explicit read-only cloud connector config and never run by default.
 - OTLP ingest: gRPC services for metrics, traces, and logs, plus HTTP
   `POST /v1/metrics`, `/v1/traces`, `/v1/logs`. Query traces and logs back,
   tenant-scoped, at `GET /v1/otlp/traces` and `GET /v1/otlp/logs`. Mint a
