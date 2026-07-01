@@ -16,7 +16,9 @@ interface MeFixture {
   mfa_satisfied: boolean
   permissions: string[]
   tenant_time_zone?: string
+  tenant_locale?: string
   time_zone?: string
+  locale?: string
 }
 
 const DEFAULT_ME: MeFixture = {

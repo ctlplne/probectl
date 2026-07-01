@@ -26,9 +26,18 @@ func NewSessions(pool *pgxpool.Pool) Sessions { return Sessions{pool: pool} }
 // Create stores a session keyed by the hash of its opaque token.
 func (s Sessions) Create(ctx context.Context, tokenHash []byte, sess auth.Session) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO sessions (token_hash, tenant_id, user_id, email, display_name, mfa_satisfied, expires_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		tokenHash, sess.TenantID, sess.UserID, sess.Email, sess.DisplayName, sess.MFASatisfied, sess.ExpiresAt)
+		`INSERT INTO sessions (
+			token_hash, tenant_id, user_id, email, display_name, mfa_satisfied,
+			time_zone, locale, tenant_time_zone, tenant_locale, expires_at
+		 )
+		 VALUES (
+			$1, $2, $3, $4, $5, $6,
+			COALESCE(NULLIF($7, ''), 'UTC'), COALESCE(NULLIF($8, ''), 'en'),
+			COALESCE(NULLIF($9, ''), 'UTC'), COALESCE(NULLIF($10, ''), 'en'),
+			$11
+		 )`,
+		tokenHash, sess.TenantID, sess.UserID, sess.Email, sess.DisplayName, sess.MFASatisfied,
+		sess.TimeZone, sess.Locale, sess.TenantTimeZone, sess.TenantLocale, sess.ExpiresAt)
 	return err
 }
 
@@ -37,10 +46,12 @@ func (s Sessions) Create(ctx context.Context, tokenHash []byte, sess auth.Sessio
 func (s Sessions) LookupByHash(ctx context.Context, tokenHash []byte) (*auth.Session, error) {
 	var sess auth.Session
 	err := s.pool.QueryRow(ctx,
-		`SELECT id::text, tenant_id::text, user_id::text, email, display_name, mfa_satisfied, expires_at, created_at
+		`SELECT id::text, tenant_id::text, user_id::text, email, display_name, mfa_satisfied,
+		        time_zone, locale, tenant_time_zone, tenant_locale, expires_at, created_at
 		 FROM sessions WHERE token_hash = $1 AND expires_at > now()`, tokenHash).
 		Scan(&sess.ID, &sess.TenantID, &sess.UserID, &sess.Email, &sess.DisplayName,
-			&sess.MFASatisfied, &sess.ExpiresAt, &sess.CreatedAt)
+			&sess.MFASatisfied, &sess.TimeZone, &sess.Locale, &sess.TenantTimeZone,
+			&sess.TenantLocale, &sess.ExpiresAt, &sess.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

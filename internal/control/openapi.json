@@ -7372,6 +7372,22 @@
           "mfa_satisfied": {
             "type": "boolean"
           },
+          "time_zone": {
+            "type": "string",
+            "description": "The caller's preferred IANA timezone. Defaults to UTC when no user preference is known."
+          },
+          "locale": {
+            "type": "string",
+            "description": "The caller's preferred BCP 47 locale tag. Defaults to en when no user preference is known."
+          },
+          "tenant_time_zone": {
+            "type": "string",
+            "description": "The tenant default IANA timezone. User preference wins when both are present."
+          },
+          "tenant_locale": {
+            "type": "string",
+            "description": "The tenant default BCP 47 locale tag. User preference wins when both are present."
+          },
           "permissions": {
             "type": "array",
             "items": {

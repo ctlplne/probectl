@@ -126,6 +126,8 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 		Subject:     fmt.Sprintf("sub-%d", time.Now().UnixNano()),
 		Email:       fmt.Sprintf("sso-user-%d@example.com", time.Now().UnixNano()),
 		DisplayName: "SSO User",
+		TimeZone:    "Asia/Tokyo",
+		Locale:      "ar-EG",
 	}
 	srv, db := setupSessionAPI(t, ident)
 	h := srv.Handler()
@@ -170,13 +172,23 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 		t.Fatalf("me: want 200, got %d: %s", me.Code, me.Body)
 	}
 	var meBody struct {
-		UserID      string   `json:"user_id"`
-		Email       string   `json:"email"`
-		Permissions []string `json:"permissions"`
+		UserID         string   `json:"user_id"`
+		Email          string   `json:"email"`
+		TimeZone       string   `json:"time_zone"`
+		Locale         string   `json:"locale"`
+		TenantTimeZone string   `json:"tenant_time_zone"`
+		TenantLocale   string   `json:"tenant_locale"`
+		Permissions    []string `json:"permissions"`
 	}
 	mustDecode(t, me, &meBody)
 	if meBody.Email != ident.Email {
 		t.Fatalf("me email = %s", meBody.Email)
+	}
+	if meBody.TimeZone != "Asia/Tokyo" || meBody.Locale != "ar-EG" {
+		t.Fatalf("me user prefs = timezone:%q locale:%q", meBody.TimeZone, meBody.Locale)
+	}
+	if meBody.TenantTimeZone != "UTC" || meBody.TenantLocale != "en" {
+		t.Fatalf("me tenant prefs = timezone:%q locale:%q", meBody.TenantTimeZone, meBody.TenantLocale)
 	}
 	if len(meBody.Permissions) != 0 {
 		t.Fatalf("a new SSO user must have no roles, got %v", meBody.Permissions)

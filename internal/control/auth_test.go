@@ -211,14 +211,22 @@ func TestMeEndpoint(t *testing.T) {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
 	var body struct {
-		TenantID    string   `json:"tenant_id"`
-		Permissions []string `json:"permissions"`
+		TenantID       string   `json:"tenant_id"`
+		TimeZone       string   `json:"time_zone"`
+		Locale         string   `json:"locale"`
+		TenantTimeZone string   `json:"tenant_time_zone"`
+		TenantLocale   string   `json:"tenant_locale"`
+		Permissions    []string `json:"permissions"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	if body.TenantID != tenancy.DefaultTenantID.String() {
 		t.Fatalf("tenant_id = %s", body.TenantID)
+	}
+	if body.TimeZone != "UTC" || body.Locale != "en" || body.TenantTimeZone != "UTC" || body.TenantLocale != "en" {
+		t.Fatalf("preferences = timezone:%q locale:%q tenant_timezone:%q tenant_locale:%q",
+			body.TimeZone, body.Locale, body.TenantTimeZone, body.TenantLocale)
 	}
 	if len(body.Permissions) != len(allPermissionKeys) {
 		t.Fatalf("want %d permissions, got %v", len(allPermissionKeys), body.Permissions)

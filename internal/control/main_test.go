@@ -44,8 +44,18 @@ func testDevAuthHook(_ *Server, w http.ResponseWriter, r *http.Request) (*auth.P
 	for _, k := range allPermissionKeys {
 		perms[k] = true
 	}
-	return &auth.Principal{TenantID: tid.String(), UserID: "dev", Email: "dev@probectl.local",
-		DisplayName: "Dev", Permissions: perms, Attributes: map[string]string{"mfa": "true"}}, false
+	return &auth.Principal{
+		TenantID:       tid.String(),
+		UserID:         "dev",
+		Email:          "dev@probectl.local",
+		DisplayName:    "Dev",
+		TimeZone:       "UTC",
+		Locale:         "en",
+		TenantTimeZone: "UTC",
+		TenantLocale:   "en",
+		Permissions:    perms,
+		Attributes:     map[string]string{"mfa": "true"},
+	}, false
 }
 
 type fakePinger struct{ err error }

@@ -20,6 +20,8 @@ type Identity struct {
 	Subject     string
 	Email       string
 	DisplayName string
+	TimeZone    string
+	Locale      string
 	// MFASatisfied is set from the ID token's amr/acr claims (SEC-005): true
 	// when the IdP asserts a SECOND factor was used. It flows into the session
 	// → principal → the "mfa" ABAC attribute, and gates PROBECTL_REQUIRE_MFA.
@@ -32,26 +34,34 @@ type Identity struct {
 // Session is a server-side session. The opaque token is never stored — only its
 // hash — so a database read cannot mint a session.
 type Session struct {
-	ID           string
-	TenantID     string
-	UserID       string
-	Email        string
-	DisplayName  string
-	MFASatisfied bool
-	ExpiresAt    time.Time
-	CreatedAt    time.Time
+	ID             string
+	TenantID       string
+	UserID         string
+	Email          string
+	DisplayName    string
+	MFASatisfied   bool
+	TimeZone       string
+	Locale         string
+	TenantTimeZone string
+	TenantLocale   string
+	ExpiresAt      time.Time
+	CreatedAt      time.Time
 }
 
 // Principal is the authenticated caller resolved for a request: its tenant, user,
 // the effective permission set (RBAC), and the subject attributes that ABAC
 // policies evaluate (e.g. department, mfa) — the two layers of the S31 model.
 type Principal struct {
-	TenantID     string
-	UserID       string
-	Email        string
-	DisplayName  string
-	MFASatisfied bool
-	Permissions  map[string]bool
+	TenantID       string
+	UserID         string
+	Email          string
+	DisplayName    string
+	MFASatisfied   bool
+	TimeZone       string
+	Locale         string
+	TenantTimeZone string
+	TenantLocale   string
+	Permissions    map[string]bool
 	// Attributes are the subject's ABAC attributes (from the user's SCIM-provisioned
 	// attributes plus derived ones like "mfa"). nil when ABAC is not in use.
 	Attributes map[string]string

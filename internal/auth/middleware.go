@@ -59,11 +59,15 @@ func principalFromSession(sess *Session, keys []string) *Principal {
 		set[k] = true
 	}
 	return &Principal{
-		TenantID:     sess.TenantID,
-		UserID:       sess.UserID,
-		Email:        sess.Email,
-		DisplayName:  sess.DisplayName,
-		MFASatisfied: sess.MFASatisfied,
-		Permissions:  set,
+		TenantID:       sess.TenantID,
+		UserID:         sess.UserID,
+		Email:          sess.Email,
+		DisplayName:    sess.DisplayName,
+		MFASatisfied:   sess.MFASatisfied,
+		TimeZone:       sess.TimeZone,
+		Locale:         sess.Locale,
+		TenantTimeZone: sess.TenantTimeZone,
+		TenantLocale:   sess.TenantLocale,
+		Permissions:    set,
 	}
 }

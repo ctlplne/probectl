@@ -404,11 +404,15 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	token, err := s.sessions.Issue(r.Context(), auth.Session{
-		TenantID:     tid.String(),
-		UserID:       user.ID,
-		Email:        user.Email,
-		DisplayName:  user.DisplayName,
-		MFASatisfied: ident.MFASatisfied, // SEC-005: from the ID token's amr/acr
+		TenantID:       tid.String(),
+		UserID:         user.ID,
+		Email:          user.Email,
+		DisplayName:    user.DisplayName,
+		MFASatisfied:   ident.MFASatisfied, // SEC-005: from the ID token's amr/acr
+		TimeZone:       prefOrDefault(ident.TimeZone, "UTC"),
+		Locale:         prefOrDefault(ident.Locale, "en"),
+		TenantTimeZone: "UTC",
+		TenantLocale:   "en",
 	})
 	if err != nil {
 		return err
@@ -448,14 +452,25 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 	}
 	sort.Strings(perms)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"tenant_id":     p.TenantID,
-		"user_id":       p.UserID,
-		"email":         p.Email,
-		"display_name":  p.DisplayName,
-		"mfa_satisfied": p.MFASatisfied,
-		"permissions":   perms,
+		"tenant_id":        p.TenantID,
+		"user_id":          p.UserID,
+		"email":            p.Email,
+		"display_name":     p.DisplayName,
+		"mfa_satisfied":    p.MFASatisfied,
+		"time_zone":        prefOrDefault(p.TimeZone, "UTC"),
+		"locale":           prefOrDefault(p.Locale, "en"),
+		"tenant_time_zone": prefOrDefault(p.TenantTimeZone, "UTC"),
+		"tenant_locale":    prefOrDefault(p.TenantLocale, "en"),
+		"permissions":      perms,
 	})
 	return nil
+}
+
+func prefOrDefault(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 // setOAuthCookie writes a short-lived, HttpOnly transient OAuth cookie.

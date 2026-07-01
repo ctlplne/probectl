@@ -206,11 +206,14 @@ func TestSessionStore(t *testing.T) {
 	h1 := crypto.Hash([]byte("sess1-" + sfx))
 	if err := sess.Create(ctx, h1, auth.Session{
 		TenantID: tn.ID, UserID: userID, Email: "sess-" + sfx + "@x.com",
-		DisplayName: "Sess User", MFASatisfied: true, ExpiresAt: time.Now().Add(time.Hour),
+		DisplayName: "Sess User", MFASatisfied: true, TimeZone: "Asia/Tokyo", Locale: "ar-EG",
+		TenantTimeZone: "America/New_York", TenantLocale: "es", ExpiresAt: time.Now().Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("session create: %v", err)
 	}
-	if got, err := sess.LookupByHash(ctx, h1); err != nil || got == nil || got.UserID != userID {
+	if got, err := sess.LookupByHash(ctx, h1); err != nil || got == nil || got.UserID != userID ||
+		got.TimeZone != "Asia/Tokyo" || got.Locale != "ar-EG" ||
+		got.TenantTimeZone != "America/New_York" || got.TenantLocale != "es" {
 		t.Fatalf("lookupByHash: %v / %+v", err, got)
 	}
 	if err := sess.DeleteByHash(ctx, h1); err != nil {

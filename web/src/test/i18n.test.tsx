@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
@@ -172,6 +172,26 @@ describe('i18n catalog', () => {
     const input = await screen.findByRole('combobox', { name: 'البحث في الأوامر' })
     expect(input).toHaveAttribute('placeholder', 'ابحث في الأوامر...')
     expect(screen.getByRole('option', { name: /انتقل إلى انقطاعات الإنترنت/ })).toBeInTheDocument()
+  })
+
+  test('/v1/me tenant locale drives the app locale when no test override is set', async () => {
+    vi.stubGlobal('fetch', stubWith(outageFixture()))
+
+    renderApp('/outages', { me: { tenant_locale: 'es' } })
+
+    expect(await screen.findByRole('heading', { name: 'Cortes de Internet' })).toBeInTheDocument()
+    await waitFor(() => expect(document.documentElement.lang).toBe('es'))
+    expect(document.documentElement.dir).toBe('ltr')
+  })
+
+  test('/v1/me user locale overrides the tenant locale and flips RTL direction', async () => {
+    vi.stubGlobal('fetch', stubWith(outageFixture()))
+
+    renderApp('/outages', { me: { tenant_locale: 'es', locale: 'ar-EG' } })
+
+    expect(await screen.findByRole('heading', { name: 'انقطاعات الإنترنت' })).toBeInTheDocument()
+    await waitFor(() => expect(document.documentElement.lang).toBe('ar'))
+    expect(document.documentElement.dir).toBe('rtl')
   })
 
   test('Spanish locale renders the outage empty state from the catalog', async () => {

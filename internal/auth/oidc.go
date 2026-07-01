@@ -76,6 +76,8 @@ func (p *oidcProvider) Exchange(ctx context.Context, code string) (*Identity, er
 		Email             string   `json:"email"`
 		Name              string   `json:"name"`
 		PreferredUsername string   `json:"preferred_username"`
+		ZoneInfo          string   `json:"zoneinfo"`
+		Locale            string   `json:"locale"`
 		AMR               []string `json:"amr"` // RFC 8176 authentication methods
 		ACR               string   `json:"acr"` // authentication context class
 	}
@@ -90,6 +92,8 @@ func (p *oidcProvider) Exchange(ctx context.Context, code string) (*Identity, er
 		Subject:      claims.Subject,
 		Email:        claims.Email,
 		DisplayName:  name,
+		TimeZone:     claims.ZoneInfo,
+		Locale:       claims.Locale,
 		MFASatisfied: mfaFromAuthContext(claims.AMR, claims.ACR),
 		Nonce:        idToken.Nonce,
 	}, nil

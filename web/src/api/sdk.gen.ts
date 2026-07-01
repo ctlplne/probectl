@@ -568,9 +568,13 @@ export interface MPLSLabel {
 export interface Me {
   display_name?: string
   email?: string
+  locale?: string
   mfa_satisfied?: boolean
   permissions: string[]
   tenant_id: string
+  tenant_locale?: string
+  tenant_time_zone?: string
+  time_zone?: string
   user_id: string
 }
 

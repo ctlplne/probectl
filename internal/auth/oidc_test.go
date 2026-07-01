@@ -31,7 +31,7 @@ type mockIDP struct {
 	clientID string
 	issuer   string
 	// claims overrides for the next minted token.
-	sub, email, name string
+	sub, email, name, zoneinfo, locale string
 }
 
 func newMockIDP(t *testing.T, clientID string) *mockIDP {
@@ -65,6 +65,8 @@ func newMockIDP(t *testing.T, clientID string) *mockIDP {
 		sub:      "user-123",
 		email:    "alice@example.com",
 		name:     "Alice Example",
+		zoneinfo: "America/New_York",
+		locale:   "en-US",
 	}
 
 	jwks := jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{
@@ -102,14 +104,16 @@ func (m *mockIDP) mintIDToken(t *testing.T) string {
 	t.Helper()
 	now := time.Now()
 	claims := map[string]any{
-		"iss":   m.issuer,
-		"sub":   m.sub,
-		"aud":   m.clientID,
-		"exp":   now.Add(time.Hour).Unix(),
-		"iat":   now.Unix(),
-		"email": m.email,
-		"name":  m.name,
-		"nonce": "nonce-abc", // SEC-004: surfaced as Identity.Nonce
+		"iss":      m.issuer,
+		"sub":      m.sub,
+		"aud":      m.clientID,
+		"exp":      now.Add(time.Hour).Unix(),
+		"iat":      now.Unix(),
+		"email":    m.email,
+		"name":     m.name,
+		"zoneinfo": m.zoneinfo,
+		"locale":   m.locale,
+		"nonce":    "nonce-abc", // SEC-004: surfaced as Identity.Nonce
 	}
 	payload, err := json.Marshal(claims)
 	if err != nil {
@@ -159,6 +163,9 @@ func TestOIDCProviderExchange(t *testing.T) {
 	}
 	if id.Subject != "user-123" || id.Email != "alice@example.com" || id.DisplayName != "Alice Example" {
 		t.Fatalf("wrong identity: %+v", id)
+	}
+	if id.TimeZone != "America/New_York" || id.Locale != "en-US" {
+		t.Fatalf("wrong preferences: timezone=%q locale=%q", id.TimeZone, id.Locale)
 	}
 	// SEC-004: the ID token's nonce claim surfaces on the identity so the
 	// callback can enforce it against the login-minted value.

@@ -92,6 +92,21 @@ describe('timezone-aware DateTime rendering', () => {
     expect(within(table).getAllByText(/UTC/).length).toBeGreaterThan(0)
   })
 
+  test('user timezone from /v1/me overrides the tenant timezone', async () => {
+    vi.stubEnv('TZ', 'America/New_York')
+    stubIncidents()
+
+    renderApp('/incidents', {
+      me: { tenant_time_zone: 'America/New_York', time_zone: 'Asia/Tokyo' },
+    })
+
+    const table = await screen.findByRole('table', {
+      name: /incidents by severity and recent activity/i,
+    })
+    expect(within(table).getAllByText(TOKYO_ZONE).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /Tokyo/i })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   test('formatter always includes an explicit zone label', () => {
     expect(formatDateTime(INCIDENT_TIME, { locale: 'en', timeZone: 'UTC' }).text).toMatch(/UTC/)
     expect(
