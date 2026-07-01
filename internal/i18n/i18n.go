@@ -140,6 +140,8 @@ Commands:
   collector register --body JSON register a bus collector identity
   incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
                                 resource groups for served product surfaces
+  provider|tenant|billing|branding|isolation|governance|oncall ...
+                                provider/operator and operating-model groups
   version                        print the CLI version
 
 Global flags:
@@ -194,6 +196,8 @@ Comandos:
   collector register --body JSON registra una identidad de colector de bus
   incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
                                 grupos de recursos para superficies servidas
+  provider|tenant|billing|branding|isolation|governance|oncall ...
+                                grupos de proveedor/operador y modelo operativo
   version                        imprime la version de la CLI
 
 Flags globales:

@@ -63,7 +63,7 @@ func TestCLIHelpListsExpandedSurfaceGroups(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
 	}
-	for _, want := range []string{"incident|alert|flow", "topology", "slo", "compliance", "rollout create", "api <method> <path>"} {
+	for _, want := range []string{"incident|alert|flow", "provider|tenant|billing", "topology", "slo", "compliance", "rollout create", "api <method> <path>"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help missing %q:\n%s", want, out.String())
 		}

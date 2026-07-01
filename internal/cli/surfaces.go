@@ -59,6 +59,18 @@ var surfaceCommands = map[string]surfaceCommand{
 	"carbon": {Name: "carbon", Summary: "carbon and energy estimates", Ops: map[string]apiOp{
 		"summary": {Method: http.MethodGet, Path: "/v1/carbon"},
 	}},
+	"billing": {Name: "billing", Summary: "provider usage, billing export, and quotas", Ops: map[string]apiOp{
+		"usage":      {Method: http.MethodGet, Path: "/provider/v1/usage"},
+		"export":     {Method: http.MethodGet, Path: "/provider/v1/usage/export"},
+		"quotas":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/quotas", ArgName: "id"},
+		"set-quotas": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/quotas", ArgName: "id"},
+	}},
+	"branding": {Name: "branding", Summary: "provider and tenant white-label branding", Ops: map[string]apiOp{
+		"provider":     {Method: http.MethodGet, Path: "/provider/v1/branding"},
+		"set-provider": {Method: http.MethodPut, Path: "/provider/v1/branding"},
+		"tenant":       {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/branding", ArgName: "id"},
+		"set-tenant":   {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/branding", ArgName: "id"},
+	}},
 	"device": {Name: "device", Summary: "device inventory and telemetry", Ops: map[string]apiOp{
 		"list":    {Method: http.MethodGet, Path: "/v1/devices"},
 		"metrics": {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
@@ -100,6 +112,10 @@ var surfaceCommands = map[string]surfaceCommand{
 		"capacity":  {Method: http.MethodGet, Path: "/v1/flows/capacity"},
 		"anomalies": {Method: http.MethodGet, Path: "/v1/flows/anomalies"},
 	}},
+	"governance": {Name: "governance", Summary: "provider data-governance policy", Ops: map[string]apiOp{
+		"tenant":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
+		"set-tenant": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
+	}},
 	"incident": {Name: "incident", Summary: "incidents and correlations", Ops: map[string]apiOp{
 		"list":    {Method: http.MethodGet, Path: "/v1/incidents"},
 		"get":     {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
@@ -111,6 +127,12 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":   {Method: http.MethodGet, Path: "/v1/inventory/views"},
 		"create": {Method: http.MethodPost, Path: "/v1/inventory/views"},
 		"get":    {Method: http.MethodGet, Path: "/v1/inventory/views/{id}", ArgName: "id"},
+	}},
+	"isolation": {Name: "isolation", Summary: "provider tenant isolation model operations", Ops: map[string]apiOp{
+		"tenants":      {Method: http.MethodGet, Path: "/provider/v1/tenants"},
+		"set-tenant":   {Method: http.MethodPatch, Path: "/provider/v1/tenants/{id}", ArgName: "id"},
+		"governance":   {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
+		"set-fairness": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/fairness", ArgName: "id"},
 	}},
 	"lifecycle": {Name: "lifecycle", Summary: "tenant data lifecycle", Ops: map[string]apiOp{
 		"erase":          {Method: http.MethodPost, Path: "/v1/lifecycle/erase"},
@@ -146,6 +168,36 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"outage": {Name: "outage", Summary: "internet outage view", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/outages"},
+	}},
+	"oncall": {Name: "oncall", Summary: "on-call alert and incident view", Ops: map[string]apiOp{
+		"alerts":    {Method: http.MethodGet, Path: "/v1/alerts/active"},
+		"ack":       {Method: http.MethodPost, Path: "/v1/alerts/active/ack"},
+		"silence":   {Method: http.MethodPost, Path: "/v1/alerts/active/silence"},
+		"incidents": {Method: http.MethodGet, Path: "/v1/incidents"},
+		"changes":   {Method: http.MethodGet, Path: "/v1/changes"},
+	}},
+	"provider": {Name: "provider", Summary: "provider/MSP operator plane", Ops: map[string]apiOp{
+		"me":                 {Method: http.MethodGet, Path: "/provider/v1/me"},
+		"license":            {Method: http.MethodGet, Path: "/provider/v1/license"},
+		"operators":          {Method: http.MethodGet, Path: "/provider/v1/operators"},
+		"create-operator":    {Method: http.MethodPost, Path: "/provider/v1/operators"},
+		"operator-status":    {Method: http.MethodPost, Path: "/provider/v1/operators/{id}/status", ArgName: "id"},
+		"tenants":            {Method: http.MethodGet, Path: "/provider/v1/tenants"},
+		"create-tenant":      {Method: http.MethodPost, Path: "/provider/v1/tenants"},
+		"update-tenant":      {Method: http.MethodPatch, Path: "/provider/v1/tenants/{id}", ArgName: "id"},
+		"suspend-tenant":     {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/suspend", ArgName: "id"},
+		"resume-tenant":      {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/resume", ArgName: "id"},
+		"offboard-tenant":    {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/offboard", ArgName: "id"},
+		"erase-tenant":       {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/erase", ArgName: "id"},
+		"fleet":              {Method: http.MethodGet, Path: "/provider/v1/fleet"},
+		"breakglass":         {Method: http.MethodGet, Path: "/provider/v1/breakglass"},
+		"request-breakglass": {Method: http.MethodPost, Path: "/provider/v1/breakglass"},
+		"revoke-breakglass":  {Method: http.MethodPost, Path: "/provider/v1/breakglass/{id}/revoke", ArgName: "id"},
+		"breakglass-results": {Method: http.MethodGet, Path: "/provider/v1/breakglass/{id}/results", ArgName: "id"},
+		"consent":            {Method: http.MethodGet, Path: "/provider/v1/consent"},
+		"decide-consent":     {Method: http.MethodPost, Path: "/provider/v1/consent/{id}", ArgName: "id"},
+		"fairness":           {Method: http.MethodGet, Path: "/provider/v1/fairness"},
+		"set-fairness":       {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/fairness", ArgName: "id"},
 	}},
 	"remediation": {Name: "remediation", Summary: "human-gated remediation proposals", Ops: map[string]apiOp{
 		"list":    {Method: http.MethodGet, Path: "/v1/remediation/proposals"},
@@ -194,6 +246,15 @@ var surfaceCommands = map[string]surfaceCommand{
 	"topology": {Name: "topology", Summary: "topology and what-if simulation", Ops: map[string]apiOp{
 		"show":   {Method: http.MethodGet, Path: "/v1/topology"},
 		"whatif": {Method: http.MethodPost, Path: "/v1/topology/whatif"},
+	}},
+	"tenant": {Name: "tenant", Summary: "provider tenant lifecycle", Ops: map[string]apiOp{
+		"list":     {Method: http.MethodGet, Path: "/provider/v1/tenants"},
+		"create":   {Method: http.MethodPost, Path: "/provider/v1/tenants"},
+		"update":   {Method: http.MethodPatch, Path: "/provider/v1/tenants/{id}", ArgName: "id"},
+		"suspend":  {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/suspend", ArgName: "id"},
+		"resume":   {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/resume", ArgName: "id"},
+		"offboard": {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/offboard", ArgName: "id"},
+		"erase":    {Method: http.MethodPost, Path: "/provider/v1/tenants/{id}/erase", ArgName: "id"},
 	}},
 }
 
