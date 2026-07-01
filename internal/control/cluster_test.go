@@ -22,6 +22,42 @@ func clusterTopo() cluster.Topology {
 		ReplicationMode: cluster.ReplicationSync, RTOSeconds: 60}
 }
 
+// TestWriteFenceStartupFailsClosedUntilFirstWriterProbe: a configured cluster
+// manager starts fenced. Every mutating method stays read-only until the first
+// successful writer-role probe proves the endpoint is safe.
+func TestWriteFenceStartupFailsClosedUntilFirstWriterProbe(t *testing.T) {
+	srv := testServer(nil)
+	probe := &stubProbe{p: cluster.Probe{InRecovery: false, Epoch: 1, WriterRegion: "us-east"}}
+	mgr := cluster.NewManager(clusterTopo(), probe, nil)
+	srv.WithCluster(mgr)
+
+	mutating := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/v1/tests"},
+		{http.MethodPut, "/v1/tests/startup-fence"},
+		{http.MethodPatch, "/v1/tests/startup-fence"},
+		{http.MethodDelete, "/v1/tests/startup-fence"},
+	}
+	for _, tc := range mutating {
+		rr := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
+		if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "writer_unavailable") {
+			t.Fatalf("%s %s before first probe = %d %s, want 503 writer_unavailable", tc.method, tc.path, rr.Code, rr.Body.String())
+		}
+	}
+
+	mgr.Refresh(context.Background())
+	for _, tc := range mutating {
+		rr := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rr, httptest.NewRequest(tc.method, tc.path, strings.NewReader(`{}`)))
+		if rr.Code == http.StatusServiceUnavailable && strings.Contains(rr.Body.String(), "writer_unavailable") {
+			t.Fatalf("%s %s after writer probe must not be fenced: %s", tc.method, tc.path, rr.Body.String())
+		}
+	}
+}
+
 // TestWriteFenceDuringFailover: while the writer is fenced (a failover in
 // progress), mutating API requests get 503 writer_unavailable with Retry-After,
 // reads keep working, and /readyz stays 200 (ready for reads) but reports

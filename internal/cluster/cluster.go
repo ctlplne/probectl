@@ -128,7 +128,13 @@ func NewManager(topo Topology, writer, reader Prober) *Manager {
 	if topo.ReplicationMode == "" {
 		topo.ReplicationMode = ReplicationAsync
 	}
-	return &Manager{topo: topo, writer: writer, reader: reader, now: time.Now}
+	return &Manager{
+		topo:        topo,
+		writer:      writer,
+		reader:      reader,
+		now:         time.Now,
+		writerState: NodeStatus{Role: RoleUnknown, Error: "initial cluster probe has not completed"},
+	}
 }
 
 // WithNow injects a clock (tests).
@@ -203,8 +209,7 @@ func (m *Manager) WriterUsable() (bool, string) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if !m.started {
-		// Not probed yet: allow (startup). The first Refresh resolves it.
-		return true, ""
+		return false, "initial cluster probe has not completed"
 	}
 	switch m.writerState.Role {
 	case RoleWriter:
@@ -240,7 +245,7 @@ func (m *Manager) Status() Status {
 // writerUsableLocked is WriterUsable without re-locking (callers hold mu).
 func (m *Manager) writerUsableLocked() (bool, string) {
 	if !m.started {
-		return true, ""
+		return false, "initial cluster probe has not completed"
 	}
 	switch m.writerState.Role {
 	case RoleWriter:

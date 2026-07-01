@@ -121,12 +121,17 @@ func TestStandbyEndpointFenced(t *testing.T) {
 	}
 }
 
-// TestUsableBeforeFirstProbe: writes are allowed before the first Refresh
-// (startup), so a slow first probe never blocks a freshly-booted replica.
-func TestUsableBeforeFirstProbe(t *testing.T) {
+// TestFencedBeforeFirstProbe: configured multi-region replicas start read-only
+// until the first cluster probe proves the writer endpoint is the current
+// primary. Startup is the riskiest moment for split-brain, so fail closed.
+func TestFencedBeforeFirstProbe(t *testing.T) {
 	m := NewManager(topo(), &fakeProbe{}, nil)
-	if ok, _ := m.WriterUsable(); !ok {
-		t.Fatal("writes must be allowed until the first probe resolves")
+	if ok, reason := m.WriterUsable(); ok || reason == "" {
+		t.Fatalf("writes must be fenced until the first probe resolves: ok=%v reason=%q", ok, reason)
+	}
+	st := m.Status()
+	if st.WritesUsable || st.Writer.Role != RoleUnknown {
+		t.Fatalf("unprobed status must surface an unknown/fenced writer: %+v", st)
 	}
 }
 
