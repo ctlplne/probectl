@@ -180,6 +180,19 @@ returns — a siloed tenant never exists without its silo. A residency pin place
 that tenant's telemetry databases on the named regional data plane. Offboarding
 later tears those isolated stores down cleanly.
 
+**Inspect the effective posture from inside the tenant:**
+
+```sh
+probectl isolation status
+curl https://control.example/v1/isolation/status
+```
+
+What you should observe: the response names the caller tenant's effective model
+(`pooled`, `siloed`, or `hybrid`), the sanitized Postgres RLS health bit, the bus
+lane namespace used by that tenant, and the tenant's own silo-routing targets.
+It does not list tenants, counts by model, registry rows, data-plane URLs, or raw
+router/RLS errors that could reveal another tenant's identifiers.
+
 ## Pitfalls & limits
 
 - **Pooled is shared infrastructure, hardened — not physical separation.** It is

@@ -679,6 +679,42 @@ func TestCLIOncallStatusSurface(t *testing.T) {
 	}
 }
 
+func TestCLIIsolationStatusSurface(t *testing.T) {
+	op, ok := surfaceCommands["isolation"].Ops["status"]
+	if !ok {
+		t.Fatal("missing probectl isolation status surface")
+	}
+	if op.Method != http.MethodGet || op.Path != "/v1/isolation/status" {
+		t.Fatalf("isolation status op = %+v, want GET /v1/isolation/status", op)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/isolation/status", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":              "isolation",
+			"name":            "Isolation posture",
+			"status":          "healthy",
+			"summary":         "siloed isolation; RLS healthy; bus lane tenant_namespaced",
+			"effective_model": "siloed",
+			"lane_namespace": map[string]any{
+				"mode":          "tenant_namespaced",
+				"namespace":     "t-acme",
+				"topic_example": "probectl.t-acme.network.results",
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "isolation", "status")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "Isolation posture") || !strings.Contains(out, "siloed isolation") {
+		t.Fatalf("isolation status output missing expected posture:\n%s", out)
+	}
+}
+
 func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {

@@ -78,7 +78,7 @@ var requiredFeatureCLICoverage = map[string]cliFeatureCoverage{
 	"F49":                    {Reason: "Future Phase-4 marketplace feature; no current GA CLI surface is promised."},
 	"F50":                    {Command: "probectl tenant list"},
 	"F51":                    {Command: "probectl provider tenants"},
-	"F52":                    {Command: "probectl isolation tenants"},
+	"F52":                    {Command: "probectl isolation status"},
 	"F53":                    {Command: "probectl billing usage"},
 	"F54":                    {Command: "probectl branding provider"},
 	"F55":                    {Command: "probectl lifecycle export"},

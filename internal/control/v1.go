@@ -70,6 +70,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/hierarchy/orgs", s.handleCreateOrganization, permOrgWrite},
 		{http.MethodPost, "/v1/hierarchy/orgs/{id}/teams", s.handleCreateTeam, permOrgWrite},
 		{http.MethodPost, "/v1/hierarchy/teams/{id}/projects", s.handleCreateProject, permOrgWrite},
+		{http.MethodGet, "/v1/isolation/status", s.handleIsolationStatus, permTenantRead},
 		{http.MethodGet, "/v1/changes", s.handleListChanges, permChangeRead},
 		{http.MethodGet, "/v1/bgp/events", s.handleListBGPEvents, ai.PermEventsRead},
 		{http.MethodGet, "/v1/devices", s.handleListDevices, ai.PermMetricsRead},

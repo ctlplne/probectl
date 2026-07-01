@@ -907,6 +907,33 @@
         }
       }
     },
+    "/v1/isolation/status": {
+      "get": {
+        "operationId": "getIsolationStatus",
+        "summary": "Get the caller tenant's effective isolation posture",
+        "tags": [
+          "tenancy"
+        ],
+        "description": "Read-only tenant-scoped status for the caller's effective isolation model, Postgres RLS posture, bus lane namespace, and silo routing targets. The response reports only the caller tenant's targets and sanitizes router/RLS errors so another tenant's identifiers or internal data-plane URLs are never exposed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The caller tenant's isolation posture.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IsolationStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/hierarchy/orgs": {
       "post": {
         "operationId": "createHierarchyOrganization",
@@ -8565,6 +8592,161 @@
           "flow_retention_days",
           "isolation_model"
         ]
+      },
+      "IsolationStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "unknown"
+            ]
+          },
+          "summary": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "effective_model": {
+            "type": "string",
+            "enum": [
+              "pooled",
+              "siloed",
+              "hybrid"
+            ]
+          },
+          "registry_model": {
+            "type": "string"
+          },
+          "residency": {
+            "type": "string"
+          },
+          "rls": {
+            "$ref": "#/components/schemas/IsolationRLSStatus"
+          },
+          "lane_namespace": {
+            "$ref": "#/components/schemas/IsolationLaneStatus"
+          },
+          "silo_routing": {
+            "$ref": "#/components/schemas/IsolationRoutingStatus"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "summary",
+          "tenant_id",
+          "effective_model",
+          "registry_model",
+          "rls",
+          "lane_namespace",
+          "silo_routing"
+        ],
+        "additionalProperties": false
+      },
+      "IsolationRLSStatus": {
+        "type": "object",
+        "properties": {
+          "database_configured": {
+            "type": "boolean"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "enforced": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Sanitized RLS health detail. Full catalog/role errors stay in control-plane logs to avoid exposing tenant schema identifiers."
+          }
+        },
+        "required": [
+          "database_configured",
+          "healthy",
+          "enforced",
+          "detail"
+        ],
+        "additionalProperties": false
+      },
+      "IsolationLaneStatus": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "shared_tenant_tagged",
+              "tenant_namespaced",
+              "invalid"
+            ]
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "topic_example": {
+            "type": "string"
+          },
+          "tenant_tagged": {
+            "type": "boolean"
+          },
+          "strict": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "topic_example",
+          "tenant_tagged",
+          "strict"
+        ],
+        "additionalProperties": false
+      },
+      "IsolationRoutingStatus": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "fail_closed": {
+            "type": "boolean"
+          },
+          "pg_schema": {
+            "type": "string"
+          },
+          "clickhouse_database": {
+            "type": "string"
+          },
+          "clickhouse_residency_plane_configured": {
+            "type": "boolean"
+          },
+          "object_prefix": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string",
+            "description": "Sanitized routing error for this tenant only."
+          }
+        },
+        "required": [
+          "resolved",
+          "enabled",
+          "fail_closed",
+          "clickhouse_residency_plane_configured"
+        ],
+        "additionalProperties": false
       },
       "CollectorRegisterRequest": {
         "type": "object",

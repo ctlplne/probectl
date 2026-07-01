@@ -207,6 +207,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/hierarchy/orgs":                     auditExplicit(auditFacetMutation, "directory.hierarchy_org_create"),
 	"POST /v1/hierarchy/orgs/{id}/teams":          auditExplicit(auditFacetMutation, "directory.hierarchy_team_create"),
 	"POST /v1/hierarchy/teams/{id}/projects":      auditExplicit(auditFacetMutation, "directory.hierarchy_project_create"),
+	"GET /v1/isolation/status":                    auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/changes":                             auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/bgp/events":                          auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/devices":                             auditWrapped(auditFacetSensitiveRead),

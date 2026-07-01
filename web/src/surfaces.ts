@@ -404,7 +404,7 @@ export const SURFACES: SurfaceDecl[] = [
     featureIds: ['F50', 'F52'],
     sprint: 'S-T1/S-T7',
     kind: 'federated',
-    evidence: ['file:docs/security/tenant-isolation.md', 'file:ee/silo'],
+    evidence: ['openapi:/v1/isolation/status', 'file:docs/security/tenant-isolation.md', 'file:ee/silo'],
   },
   {
     capability: 'Per-tenant keys and BYOK administration',

@@ -139,7 +139,8 @@ var surfaceCommands = map[string]surfaceCommand{
 		"create": {Method: http.MethodPost, Path: "/v1/inventory/views"},
 		"get":    {Method: http.MethodGet, Path: "/v1/inventory/views/{id}", ArgName: "id"},
 	}},
-	"isolation": {Name: "isolation", Summary: "provider tenant isolation model operations", Ops: map[string]apiOp{
+	"isolation": {Name: "isolation", Summary: "tenant and provider isolation model operations", Ops: map[string]apiOp{
+		"status":       {Method: http.MethodGet, Path: "/v1/isolation/status", Description: "show this tenant's effective isolation posture"},
 		"tenants":      {Method: http.MethodGet, Path: "/provider/v1/tenants"},
 		"set-tenant":   {Method: http.MethodPatch, Path: "/provider/v1/tenants/{id}", ArgName: "id"},
 		"governance":   {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
