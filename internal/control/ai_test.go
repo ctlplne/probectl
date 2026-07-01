@@ -4,6 +4,7 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +52,43 @@ func TestHandleAIAskValidationAndAirGappedDefault(t *testing.T) {
 	}
 	if !ans.InsufficientEvidence || ans.ID == "" {
 		t.Errorf("no-evidence answer should be insufficient with an id, got %+v", ans)
+	}
+}
+
+type aiTestRemoteModel struct {
+	calls int
+}
+
+func (m *aiTestRemoteModel) Name() string       { return "test-remote" }
+func (m *aiTestRemoteModel) RemoteEgress() bool { return true }
+func (m *aiTestRemoteModel) Endpoint() string   { return "https://ai.example.test/v1/chat" }
+func (m *aiTestRemoteModel) Synthesize(context.Context, ai.SynthesisInput) (ai.Synthesis, error) {
+	m.calls++
+	return ai.Synthesis{InsufficientEvidence: true}, nil
+}
+
+func TestAIAskRemoteEgressDeniedReturnsForbidden(t *testing.T) {
+	srv := testServer(nil)
+	model := &aiTestRemoteModel{}
+	srv.analyzer = ai.NewAnalyzer(ai.NewEngine(), ai.WithModel(model))
+	h := srv.Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, aiTestReq(http.MethodPost, "/v1/ai/ask", map[string]any{
+		"question": "why is checkout slow?",
+	}))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("ask status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if model.calls != 0 {
+		t.Fatalf("remote model was called %d times despite egress denial", model.calls)
+	}
+	var body errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Error.Code != "forbidden" || !strings.Contains(body.Error.Message, "tenant_governance.ai_remote_egress") {
+		t.Fatalf("error body = %+v, want consent-oriented forbidden", body.Error)
 	}
 }
 

@@ -301,6 +301,9 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 		if errors.Is(err, ai.ErrNoTenant) {
 			return apierror.Unauthorized("authentication required")
 		}
+		if errors.Is(err, ai.ErrEgressDenied) {
+			return apierror.Forbidden("remote AI model egress is disabled for this tenant; enable tenant_governance.ai_remote_egress or use the air-gapped builtin/local model")
+		}
 		// U-048: the analyzer's process-wide concurrency backstop is
 		// saturated — tell the caller to back off, like the fairness gate.
 		if errors.Is(err, ai.ErrBusy) {
