@@ -66,11 +66,19 @@ l7Capture:
   # without at least one scoped workload.
   scope: []
   # headers = keep protocol metadata but zero bodies + secret-bearing header
-  # values; length = no payload bytes; full = consented debugging only.
+  # values and identity-like header values; length = no payload bytes; full =
+  # consented debugging only.
   redaction: headers
   # Max plaintext bytes/chunk that may transit the kernel ring in headers mode.
   # 0 lets the agent default to 1024; valid explicit range is 128..4095.
   kernelWindow: 1024
+  # Extra header-name fragments whose values are identity-like and must be
+  # zeroed in headers mode. Built-ins already cover user, email, subject,
+  # employee, account, customer, session, and person.
+  identityHeaderFragments: []
+  # Replace every non-denied header value with a length-preserving sha256
+  # fingerprint. Secret and identity-like header values are still zeroed.
+  hashAllHeaderValues: false
 
 # Kernel capability matrix (deploy/agent/README.md):
 #   modern — kernels >= 5.8: CAP_BPF + CAP_PERFMON (the minimal pair).

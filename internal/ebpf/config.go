@@ -78,6 +78,14 @@ type Config struct {
 	L7CaptureEnabled       bool   `yaml:"l7_capture_enabled"`
 	L7CaptureConsentTenant string `yaml:"l7_capture_consent_tenant"`
 	L7CaptureRedaction     string `yaml:"l7_capture_redaction"`
+	// L7CaptureIdentityHeaderFragments extends the built-in identity-header
+	// deny fragments (user, email, subject, employee, account, customer,
+	// session, person). Matching header values are zeroed in headers mode.
+	L7CaptureIdentityHeaderFragments []string `yaml:"l7_capture_identity_header_fragments"`
+	// L7CaptureHashAllHeaderValues replaces every non-denied header value with
+	// a length-preserving sha256 fingerprint in headers mode. Denied secret and
+	// identity header values are still zeroed.
+	L7CaptureHashAllHeaderValues bool `yaml:"l7_capture_hash_all_header_values"`
 
 	// L7CaptureScope is the EXPLICIT workload opt-in (EBPF-001/RED-003):
 	// entries pid:<n>, exe:/abs/path, cgroup:/abs/cgroup-dir. The kernel
@@ -216,6 +224,12 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	if v := getenv("PROBECTL_EBPF_L7_REDACTION"); v != "" {
 		c.L7CaptureRedaction = v
+	}
+	if v := getenv("PROBECTL_EBPF_L7_IDENTITY_HEADER_FRAGMENTS"); v != "" {
+		c.L7CaptureIdentityHeaderFragments = splitComma(v)
+	}
+	if v := getenv("PROBECTL_EBPF_L7_HASH_ALL_HEADER_VALUES"); v != "" {
+		c.L7CaptureHashAllHeaderValues = v == "true"
 	}
 	if v := getenv("PROBECTL_EBPF_L7_SCOPE"); v != "" {
 		c.L7CaptureScope = splitComma(v)

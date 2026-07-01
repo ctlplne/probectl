@@ -45,6 +45,8 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 		"scope: []",
 		"redaction: headers",
 		"kernelWindow: 1024",
+		"identityHeaderFragments: []",
+		"hashAllHeaderValues: false",
 	} {
 		if !strings.Contains(values, want) {
 			t.Errorf("agent values.yaml missing L7 capture knob %q (EBPF-002)", want)
@@ -56,6 +58,8 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 		"l7_capture_scope:",
 		"l7_capture_redaction:",
 		"l7_capture_kernel_window:",
+		"l7_capture_identity_header_fragments:",
+		"l7_capture_hash_all_header_values:",
 	} {
 		if !strings.Contains(configmap, want) {
 			t.Errorf("agent ConfigMap template missing L7 fail-closed/rendering contract %q (EBPF-002)", want)
@@ -67,6 +71,8 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 		"pid:[0-9]+|exe:/.*|cgroup:/.*",
 		"\"redaction\"",
 		"\"kernelWindow\"",
+		"\"identityHeaderFragments\"",
+		"\"hashAllHeaderValues\"",
 	} {
 		if !strings.Contains(schema, want) {
 			t.Errorf("agent values.schema.json missing L7 schema contract %q (EBPF-002)", want)
@@ -353,7 +359,11 @@ func TestAgentDocsMentionNonStandardSecretHeaderRedaction(t *testing.T) {
 		"X-API-Key",
 		"X-Amz-Security-Token",
 		"custom `*Token*`",
+		"X-User-ID",
+		"PROBECTL_EBPF_L7_IDENTITY_HEADER_FRAGMENTS",
 		"TestRedactPayloadZeroesNonStandardSecretHeaders",
+		"TestRedactPayloadZeroesIdentityHeaderValues",
+		"TestRedactPayloadHashAllHeaderValues",
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("docs/ebpf-agent.md missing non-standard secret header redaction detail %q (EBPF-003)", want)
@@ -428,6 +438,8 @@ func TestEBPFCaptureFollowupContract(t *testing.T) {
 	for _, want := range []string{
 		"TestRedactPayloadZeroesSensitiveHeaderValues",
 		"TestRedactPayloadZeroesNonStandardSecretHeaders",
+		"TestRedactPayloadZeroesIdentityHeaderValues",
+		"TestRedactPayloadHashAllHeaderValues",
 		"TestRedactSensitiveHeaderResponseSetCookie",
 	} {
 		if !strings.Contains(policyTest, want) {

@@ -4,7 +4,11 @@ package ebpf
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
+	"strings"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // TLS-plaintext capture policy (U-003, C13; path map in
@@ -111,7 +115,26 @@ var (
 		[]byte("credential"),
 		[]byte("x-amz-"),
 	}
+	// identityHeaderFragments catches non-secret but person-identifying header
+	// families. These values are PII even when they are not credentials:
+	// X-User-ID, X-Email, X-Subject, X-Employee-ID, X-Account-ID,
+	// X-Customer-ID, X-Session-User, X-Person, and similar custom spellings.
+	identityHeaderFragments = [][]byte{
+		[]byte("user"),
+		[]byte("email"),
+		[]byte("subject"),
+		[]byte("employee"),
+		[]byte("account"),
+		[]byte("customer"),
+		[]byte("session"),
+		[]byte("person"),
+	}
 )
+
+type headerValuePolicy struct {
+	identityFragments []string
+	hashAllValues     bool
+}
 
 // asciiToLower lowercases an ASCII byte for case-insensitive header-name
 // matching without allocating.
@@ -155,32 +178,52 @@ func headerNameContains(name, needle []byte) bool {
 	return false
 }
 
-// sensitiveHeaderValueStart returns the byte offset of the value if line is a
-// credential-bearing header line.
-func sensitiveHeaderValueStart(line []byte) (int, bool) {
+// headerValueAction returns the byte offset and action for a header value that
+// must not survive verbatim in headers mode.
+func headerValueAction(line []byte, policy headerValuePolicy) (int, headerValueRedaction, bool) {
 	colon := bytes.IndexByte(line, ':')
 	if colon <= 0 {
-		return 0, false
+		return 0, headerValueKeep, false
 	}
 	name := line[:colon]
 	for _, h := range sensitiveHeadersExact {
 		if headerNameEquals(name, h) {
-			return colon + 1, true
+			return colon + 1, headerValueZero, true
 		}
 	}
 	for _, frag := range sensitiveHeaderFragments {
 		if headerNameContains(name, frag) {
-			return colon + 1, true
+			return colon + 1, headerValueZero, true
 		}
 	}
-	return 0, false
+	for _, frag := range identityHeaderFragments {
+		if headerNameContains(name, frag) {
+			return colon + 1, headerValueZero, true
+		}
+	}
+	for _, frag := range policy.identityFragments {
+		if headerNameContains(name, []byte(frag)) {
+			return colon + 1, headerValueZero, true
+		}
+	}
+	if policy.hashAllValues {
+		return colon + 1, headerValueHash, true
+	}
+	return 0, headerValueKeep, false
 }
 
-// redactSensitiveHeaderValues zeroes the VALUE bytes of credential-bearing
-// header lines within region (the kept header bytes), in place. The header
-// name and the CRLF line framing are preserved; only the bytes after the
-// colon up to the line's CRLF are zeroed. Runs only in "headers" mode.
-func redactSensitiveHeaderValues(region []byte) {
+type headerValueRedaction int
+
+const (
+	headerValueKeep headerValueRedaction = iota
+	headerValueZero
+	headerValueHash
+)
+
+// redactHeaderValues rewrites protected header VALUE bytes within region (the
+// kept header bytes), in place. Header names and CRLF line framing are
+// preserved. Runs only in "headers" mode.
+func redactHeaderValues(region []byte, policy headerValuePolicy) {
 	start := 0
 	for start < len(region) {
 		eol := bytes.Index(region[start:], []byte("\r\n"))
@@ -193,13 +236,37 @@ func redactSensitiveHeaderValues(region []byte) {
 			line = region[start : start+eol]
 			next = start + eol + 2
 		}
-		if valueStart, ok := sensitiveHeaderValueStart(line); ok {
-			for i := valueStart; i < len(line); i++ {
-				line[i] = 0
-			}
+		if valueStart, action, ok := headerValueAction(line, policy); ok {
+			redactHeaderValueBytes(line[valueStart:], action)
 		}
 		start = next
 	}
+}
+
+func redactHeaderValueBytes(value []byte, action headerValueRedaction) {
+	switch action {
+	case headerValueZero:
+		for i := range value {
+			value[i] = 0
+		}
+	case headerValueHash:
+		digest := []byte("sha256:" + hex.EncodeToString(crypto.Hash(bytes.TrimSpace(value))))
+		for i := range value {
+			value[i] = 0
+		}
+		copy(value, digest)
+	}
+}
+
+func normalizeHeaderFragments(frags []string) []string {
+	out := make([]string, 0, len(frags))
+	for _, frag := range frags {
+		frag = strings.ToLower(strings.TrimSpace(frag))
+		if frag != "" {
+			out = append(out, frag)
+		}
+	}
+	return out
 }
 
 // l7CaptureAuthorized is the consent gate — now THREE explicit statements
@@ -228,6 +295,13 @@ func l7CaptureAuthorized(cfg *Config) (bool, string) {
 // framing (e.g. Content-Length accounting) stays parseable; the zeroed
 // region is the retained-plaintext kill zone.
 func RedactPayload(p []byte, mode string) []byte {
+	return redactPayloadWithPolicy(p, mode, headerValuePolicy{})
+}
+
+// redactPayloadWithPolicy is RedactPayload plus deployment-supplied header
+// identity fragments and optional hash-all-header-values behavior.
+func redactPayloadWithPolicy(p []byte, mode string, policy headerValuePolicy) []byte {
+	policy.identityFragments = normalizeHeaderFragments(policy.identityFragments)
 	if mode == RedactFull {
 		return p
 	}
@@ -254,7 +328,7 @@ func RedactPayload(p []byte, mode string) []byte {
 	if keep < len(p) {
 		kept = p[:keep]
 	}
-	redactSensitiveHeaderValues(kept)
+	redactHeaderValues(kept, policy)
 	if keep >= len(p) {
 		return p
 	}

@@ -176,7 +176,7 @@ The three redaction modes:
 
 | Mode | What transits | What you can parse |
 |---|---|---|
-| `headers` (default) | metadata up to the header terminator; the body is zeroed (credential header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization plus common `api-key`/`token`/`secret`/`credential`/`x-amz-*` headers — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
+| `headers` (default) | metadata up to the header terminator; the body is zeroed (credential and identity-like header **values** — Authorization/Cookie/Set-Cookie/Proxy-Authorization, common `api-key`/`token`/`secret`/`credential`/`x-amz-*` headers, and user/email/subject/employee/account/customer/session/person families — are also zeroed, names survive) | full L7 calls; HTTP/2-gRPC bodies degraded |
 | `length` | **no payload bytes** — kernel window forced to 0; only chunk direction + true size (`DataEvent.Size`) | traffic *shape* only; no parsed L7 calls |
 | `full` | everything (consented debugging only — still behind the enable+consent+scope gates) | full L7 calls including bodies |
 
@@ -187,12 +187,22 @@ the *true* chunk size, so loss-to-redaction is visible rather than silent.
 > mode, the **values** of credential-bearing headers (`Authorization`,
 > `Cookie`, `Set-Cookie`, `Proxy-Authorization`) and common non-standard secret
 > families (`X-API-Key`, `Api-Key`, `X-Amz-Security-Token`, custom `*Token*`,
-> `*Secret*`, and `*Credential*` headers) are zeroed in place — only the header
-> *names* and line framing survive, so bearer tokens, API keys, and session
-> cookies never reach the control plane. If you need *all* header secrecy (not
-> just credentials), choose `length` mode, which captures no payload bytes at all.
-> This default is enforced by `TestRedactPayloadZeroesSensitiveHeaderValues` and
-> `TestRedactPayloadZeroesNonStandardSecretHeaders`.
+> `*Secret*`, and `*Credential*` headers) are zeroed in place. Non-secret
+> identity values are denied too: built-ins cover headers like `X-User-ID`,
+> `X-Email`, `X-Subject`, `X-Employee-ID`, `X-Account-ID`, `X-Customer-ID`,
+> `X-Session-User`, and `X-Person`, and operators can add local fragments with
+> `PROBECTL_EBPF_L7_IDENTITY_HEADER_FRAGMENTS` (or
+> `l7_capture_identity_header_fragments`). Only the header *names* and line
+> framing survive, so bearer tokens, API keys, session cookies, user ids, email
+> addresses, and account identifiers never reach the control plane in default
+> mode. `PROBECTL_EBPF_L7_HASH_ALL_HEADER_VALUES=true` can hash every remaining
+> non-denied header value for correlation; denied secret and identity values are
+> still zeroed, not hashed. If you need *all* header secrecy, choose `length`
+> mode, which captures no payload bytes at all. These defaults are enforced by
+> `TestRedactPayloadZeroesSensitiveHeaderValues`,
+> `TestRedactPayloadZeroesNonStandardSecretHeaders`,
+> `TestRedactPayloadZeroesIdentityHeaderValues`, and
+> `TestRedactPayloadHashAllHeaderValues`.
 
 ## Capture limitations (measured, not hidden)
 

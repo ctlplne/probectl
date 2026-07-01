@@ -29,4 +29,9 @@ data:
 {{ toYaml .Values.l7Capture.scope | nindent 6 }}
     l7_capture_redaction: {{ .Values.l7Capture.redaction | quote }}
     l7_capture_kernel_window: {{ .Values.l7Capture.kernelWindow }}
+    {{- with .Values.l7Capture.identityHeaderFragments }}
+    l7_capture_identity_header_fragments:
+{{ toYaml . | nindent 6 }}
+    {{- end }}
+    l7_capture_hash_all_header_values: {{ .Values.l7Capture.hashAllHeaderValues }}
     {{- end }}

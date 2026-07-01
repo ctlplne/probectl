@@ -132,6 +132,16 @@
               "maximum": 4095
             }
           ]
+        },
+        "identityHeaderFragments": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "hashAllHeaderValues": {
+          "type": "boolean"
         }
       }
     },

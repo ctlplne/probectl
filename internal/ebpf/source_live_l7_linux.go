@@ -284,7 +284,10 @@ func (s *liveL7Source) decodeChunkSafely(sample []byte) (ev L7Event, ok bool) {
 			ev, ok = L7Event{}, false
 		}
 	}()
-	e, err := decodeChunk(sample, s.cfg.TenantID, s.cfg.L7CaptureRedaction)
+	e, err := decodeChunkWithPolicy(sample, s.cfg.TenantID, s.cfg.L7CaptureRedaction, headerValuePolicy{
+		identityFragments: s.cfg.L7CaptureIdentityHeaderFragments,
+		hashAllValues:     s.cfg.L7CaptureHashAllHeaderValues,
+	})
 	if err != nil {
 		s.drops.Add(1)
 		return L7Event{}, false

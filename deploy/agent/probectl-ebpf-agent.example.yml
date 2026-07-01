@@ -43,3 +43,7 @@ ring_buffer_bytes: 16777216 # 16 MiB kernel ring buffer (live source only)
 #   - pid:1234                    #   one exact process
 # l7_capture_redaction: headers   # headers (bodies zeroed) | length (no payload bytes) | full (consented debugging)
 # l7_capture_kernel_window: 1024  # max plaintext bytes/chunk that may transit the kernel ring (headers mode; 128-4095)
+# l7_capture_identity_header_fragments: # extra identity-like header-name fragments whose values are zeroed
+#   - member
+#   - viewer
+# l7_capture_hash_all_header_values: false # hash every non-denied header value in headers mode; secret/identity values stay zeroed

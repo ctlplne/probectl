@@ -36,6 +36,10 @@ type sslChunk struct {
 // is redacted BEFORE this function returns — nothing upstream of it retains
 // plaintext (raw is kernel-owned ring memory, reused on the next read).
 func decodeChunk(raw []byte, tenantID, mode string) (L7Event, error) {
+	return decodeChunkWithPolicy(raw, tenantID, mode, headerValuePolicy{})
+}
+
+func decodeChunkWithPolicy(raw []byte, tenantID, mode string, policy headerValuePolicy) (L7Event, error) {
 	var c sslChunk
 	if err := binary.Read(bytes.NewReader(raw), binary.LittleEndian, &c); err != nil {
 		return L7Event{}, fmt.Errorf("ebpf: decode tls chunk: %w", err)
@@ -48,7 +52,7 @@ func decodeChunk(raw []byte, tenantID, mode string) (L7Event, error) {
 	if n > uint32(len(c.Data)) {
 		n = uint32(len(c.Data))
 	}
-	payload := RedactPayload(append([]byte(nil), c.Data[:n]...), mode)
+	payload := redactPayloadWithPolicy(append([]byte(nil), c.Data[:n]...), mode, policy)
 	return L7Event{
 		ConnID:      c.Conn,
 		TenantID:    tenantID,

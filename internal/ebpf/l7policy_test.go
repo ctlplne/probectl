@@ -284,6 +284,83 @@ func TestRedactPayloadZeroesNonStandardSecretHeaders(t *testing.T) {
 	}
 }
 
+func TestRedactPayloadZeroesIdentityHeaderValues(t *testing.T) {
+	req := []byte("GET /profile HTTP/1.1\r\n" +
+		"Host: app.example\r\n" +
+		"X-User-ID: user-123\r\n" +
+		"X-Email: alice@example.com\r\n" +
+		"X-Subject: employee-alice\r\n" +
+		"X-Employee-ID: E-1001\r\n" +
+		"X-Account-ID: acct-7788\r\n" +
+		"X-Customer-ID: cust-99\r\n" +
+		"X-Session-User: session-alice\r\n" +
+		"X-Person: Alice Example\r\n" +
+		"X-Member-ID: member-42\r\n" +
+		"Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00\r\n\r\n")
+	red := redactPayloadWithPolicy(append([]byte(nil), req...), RedactHeaders, headerValuePolicy{
+		identityFragments: []string{"member"},
+	})
+
+	for _, value := range [][]byte{
+		[]byte("user-123"),
+		[]byte("alice@example.com"),
+		[]byte("employee-alice"),
+		[]byte("E-1001"),
+		[]byte("acct-7788"),
+		[]byte("cust-99"),
+		[]byte("session-alice"),
+		[]byte("Alice Example"),
+		[]byte("member-42"),
+	} {
+		if bytes.Contains(red, value) {
+			t.Fatalf("identity header value leaked through headers-mode redaction: %q in %q", value, red)
+		}
+	}
+	for _, name := range []string{
+		"X-User-ID", "X-Email", "X-Subject", "X-Employee-ID", "X-Account-ID",
+		"X-Customer-ID", "X-Session-User", "X-Person", "X-Member-ID",
+	} {
+		assertHeaderValueZeroed(t, red, name)
+	}
+	if !bytes.Contains(red, []byte("Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00")) {
+		t.Fatalf("non-identity metadata must survive: %q", red)
+	}
+}
+
+func TestRedactPayloadHashAllHeaderValues(t *testing.T) {
+	req := []byte("GET /api HTTP/1.1\r\n" +
+		"Host: app.example\r\n" +
+		"Accept: application/json\r\n" +
+		"Authorization: Bearer should-zero\r\n\r\n")
+	red := redactPayloadWithPolicy(append([]byte(nil), req...), RedactHeaders, headerValuePolicy{hashAllValues: true})
+
+	for _, raw := range [][]byte{[]byte("app.example"), []byte("application/json"), []byte("should-zero")} {
+		if bytes.Contains(red, raw) {
+			t.Fatalf("raw header value leaked in hash-all mode: %q in %q", raw, red)
+		}
+	}
+	if !bytes.Contains(red, []byte("Host:")) || !bytes.Contains(red, []byte("Accept:")) || !bytes.Contains(red, []byte("Authorization:")) {
+		t.Fatalf("header names/framing must survive hash-all mode: %q", red)
+	}
+	if !bytes.Contains(red, []byte("sha256:")) {
+		t.Fatalf("non-denied header values should carry a hash marker: %q", red)
+	}
+	assertHeaderValueZeroed(t, red, "Authorization")
+}
+
+func TestRedactPayloadLengthModeZeroesAllBytesWithHeaderPolicy(t *testing.T) {
+	req := []byte("GET /api HTTP/1.1\r\nHost: app.example\r\nX-User-ID: user-123\r\n\r\n")
+	red := redactPayloadWithPolicy(append([]byte(nil), req...), RedactLengthOnly, headerValuePolicy{
+		identityFragments: []string{"member"},
+		hashAllValues:     true,
+	})
+	for i, b := range red {
+		if b != 0 {
+			t.Fatalf("length mode leaked byte %d=%q with header policy: %q", i, b, red)
+		}
+	}
+}
+
 // TestRedactSensitiveHeaderResponseSetCookie guards the Set-Cookie response
 // case explicitly (the value carries the session secret a server issues).
 func TestRedactSensitiveHeaderResponseSetCookie(t *testing.T) {
@@ -296,5 +373,25 @@ func TestRedactSensitiveHeaderResponseSetCookie(t *testing.T) {
 	}
 	if !bytes.Contains(red, []byte("Set-Cookie:")) || !bytes.Contains(red, []byte("Content-Type: text/html")) {
 		t.Fatalf("Set-Cookie name / other headers must survive: %q", red)
+	}
+}
+
+func assertHeaderValueZeroed(t *testing.T, payload []byte, name string) {
+	t.Helper()
+	prefix := []byte(name + ":")
+	start := bytes.Index(payload, prefix)
+	if start < 0 {
+		t.Fatalf("header name %q missing from %q", name, payload)
+	}
+	valueStart := start + len(prefix)
+	eol := bytes.Index(payload[valueStart:], []byte("\r\n"))
+	if eol < 0 {
+		t.Fatalf("header %q has no CRLF in %q", name, payload)
+	}
+	value := payload[valueStart : valueStart+eol]
+	for i, b := range value {
+		if b != 0 {
+			t.Fatalf("%s value byte %d not zeroed: %q in %q", name, i, b, payload)
+		}
 	}
 }

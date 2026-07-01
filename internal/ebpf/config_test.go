@@ -16,6 +16,8 @@ func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 
 	t.Setenv("PROBECTL_EBPF_TENANT_ID", "t-env")
 	t.Setenv("PROBECTL_EBPF_FLUSH_INTERVAL", "2s")
+	t.Setenv("PROBECTL_EBPF_L7_IDENTITY_HEADER_FRAGMENTS", "member, viewer ")
+	t.Setenv("PROBECTL_EBPF_L7_HASH_ALL_HEADER_VALUES", "true")
 
 	cfg, err := Load(path)
 	if err != nil {
@@ -26,6 +28,12 @@ func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 	}
 	if cfg.FlushInterval != 2*time.Second {
 		t.Errorf("flush = %v, want 2s", cfg.FlushInterval)
+	}
+	if got := strings.Join(cfg.L7CaptureIdentityHeaderFragments, ","); got != "member,viewer" {
+		t.Errorf("identity header fragments = %q, want member,viewer", got)
+	}
+	if !cfg.L7CaptureHashAllHeaderValues {
+		t.Error("hash-all header values env override should be true")
 	}
 }
 
