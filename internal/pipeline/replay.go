@@ -30,6 +30,7 @@ import (
 // dlqSource maps each dead-letter topic to the source topic its records replay
 // into. A DLQ topic with no mapping is a programming error (fail closed).
 var dlqSource = map[string]string{
+	bus.DeadLetterBGPTopic:         bus.BGPEventsTopic,
 	bus.DeadLetterResultsTopic:     bus.NetworkResultsTopic,
 	bus.DeadLetterDeviceTopic:      bus.DeviceMetricsTopic,
 	bus.DeadLetterFlowTopic:        bus.FlowEventsTopic,

@@ -246,6 +246,7 @@ func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, 
 	stampBGPEventLaneTenant(&ev, laneTenant)
 	if _, err := cs.correlator.Ingest(ctx, signalFromBGPEvent(&ev)); err != nil {
 		cs.log.Warn("correlate bgp event into incident failed", "error", err)
+		return fmt.Errorf("bgp incident correlation: %w", err)
 	}
 	return nil
 }

@@ -3,10 +3,15 @@
 package control
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/bus"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 )
@@ -69,4 +74,45 @@ func TestBGPKindAndSeverity(t *testing.T) {
 	if bgpSeverity(bgpv1.Severity_SEVERITY_UNSPECIFIED) != incident.SeverityInfo {
 		t.Error("unspecified should map to info")
 	}
+}
+
+func TestBGPIncidentConsumerReturnsCorrelatorError(t *testing.T) {
+	wantErr := errors.New("incident store down")
+	c := incident.NewCorrelator(failingIncidentStore{err: wantErr}, time.Minute, intelTestLog())
+	consumer := NewBGPIncidentConsumer(bus.NewMemory(), c, intelTestLog())
+	raw, err := proto.Marshal(&bgpv1.BGPEvent{
+		TenantId:  "tenant-a",
+		EventType: bgpv1.EventType_EVENT_TYPE_POSSIBLE_HIJACK,
+		Severity:  bgpv1.Severity_SEVERITY_CRITICAL,
+		Prefix:    "203.0.113.0/24",
+		Message:   "possible hijack",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = consumer.handleLane(context.Background(), bus.Message{
+		Topic: bus.BGPEventsTopic,
+		Key:   []byte("tenant-a"),
+		Value: raw,
+	}, "")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("handleLane error = %v, want wrapping %v", err, wantErr)
+	}
+}
+
+type failingIncidentStore struct {
+	err error
+}
+
+func (s failingIncidentStore) OpenIncidents(context.Context, string) ([]*incident.Incident, error) {
+	return nil, s.err
+}
+
+func (s failingIncidentStore) Create(context.Context, *incident.Incident) (*incident.Incident, error) {
+	return nil, errors.New("unexpected create")
+}
+
+func (s failingIncidentStore) AppendSignal(context.Context, string, string, incident.Signal) (*incident.Incident, error) {
+	return nil, errors.New("unexpected append")
 }

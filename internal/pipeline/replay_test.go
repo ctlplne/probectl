@@ -96,6 +96,7 @@ func TestDeadLetterReplayRejectsUnknownTopic(t *testing.T) {
 // TestReplaySourceMapping pins every DLQ topic to its source.
 func TestReplaySourceMapping(t *testing.T) {
 	cases := map[string]string{
+		bus.DeadLetterBGPTopic:         bus.BGPEventsTopic,
 		bus.DeadLetterResultsTopic:     bus.NetworkResultsTopic,
 		bus.DeadLetterDeviceTopic:      bus.DeviceMetricsTopic,
 		bus.DeadLetterFlowTopic:        bus.FlowEventsTopic,
@@ -109,4 +110,13 @@ func TestReplaySourceMapping(t *testing.T) {
 			t.Errorf("SourceTopicFor(%q) = %q,%v; want %q", dlq, got, ok, want)
 		}
 	}
+}
+
+func TestReplayableTopicsIncludesBGP(t *testing.T) {
+	for _, topic := range ReplayableTopics() {
+		if topic == bus.DeadLetterBGPTopic {
+			return
+		}
+	}
+	t.Fatalf("ReplayableTopics() missing %q", bus.DeadLetterBGPTopic)
 }
