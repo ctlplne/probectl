@@ -73,6 +73,23 @@ func postBeacon(srv *Server, body string) *httptest.ResponseRecorder {
 	return rec
 }
 
+func requireErrorEnvelope(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int, wantCode, wantMessage string) {
+	t.Helper()
+	if rec.Code != wantStatus {
+		t.Fatalf("status = %d want %d body=%s", rec.Code, wantStatus, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("Content-Type = %q, want JSON error envelope", ct)
+	}
+	var body errorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error envelope: %v body=%s", err, rec.Body.String())
+	}
+	if body.Error.Code != wantCode || body.Error.Message != wantMessage {
+		t.Fatalf("error = %+v, want code=%q message=%q", body.Error, wantCode, wantMessage)
+	}
+}
+
 func TestBuildRUMGatingAndFailClosed(t *testing.T) {
 	if _, _, on, err := BuildRUM(&config.Config{RUMEnabled: false}, intelTestLog()); on || err != nil {
 		t.Fatalf("disabled: on=%v err=%v", on, err)
@@ -196,6 +213,14 @@ func TestRUMBeaconIngestRejections(t *testing.T) {
 	}
 }
 
+func TestRUMBeaconTooLargeUsesAPIErrorEnvelope(t *testing.T) {
+	fb := &fakeRUMBus{}
+	srv, _ := rumTestServer(t, fb)
+
+	rec := postBeacon(srv, `{"v":1,"key":"pk_abc","consent":true,"host":"a.example","page":"/`+strings.Repeat("x", rum.MaxBeaconBytes)+`"}`)
+	requireErrorEnvelope(t, rec, http.StatusRequestEntityTooLarge, "too_large", "beacon exceeds size cap")
+}
+
 func TestRUMBeaconRateLimitAndPreflight(t *testing.T) {
 	fb := &fakeRUMBus{}
 	eng, apps, _, err := BuildRUM(&config.Config{
@@ -221,6 +246,26 @@ func TestRUMBeaconRateLimitAndPreflight(t *testing.T) {
 	if prec.Code != http.StatusNoContent || prec.Header().Get("Access-Control-Allow-Methods") == "" {
 		t.Fatalf("preflight wrong: %d", prec.Code)
 	}
+}
+
+func TestRUMBeaconRateLimitedUsesAPIErrorEnvelope(t *testing.T) {
+	fb := &fakeRUMBus{}
+	eng, apps, _, err := BuildRUM(&config.Config{
+		RUMEnabled: true, RUMApps: map[string]string{"pk_abc": "t1/shop"}, RUMRatePerMin: 1,
+	}, intelTestLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := testServer(fakePinger{}).WithRUM(eng, apps, fb.publish, 1)
+
+	if rec := postBeacon(srv, rumBeaconBody("pk_abc")); rec.Code != http.StatusAccepted {
+		t.Fatalf("first beacon: %d", rec.Code)
+	}
+	rec := postBeacon(srv, rumBeaconBody("pk_abc"))
+	if rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("Retry-After = %q, want 60", rec.Header().Get("Retry-After"))
+	}
+	requireErrorEnvelope(t, rec, http.StatusTooManyRequests, "rate_limited", "beacon rate exceeded")
 }
 
 func TestRUMBeaconDedupeIDDropsReplay(t *testing.T) {

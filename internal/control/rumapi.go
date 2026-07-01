@@ -263,8 +263,7 @@ func (s *Server) handleRUMBeacon(w http.ResponseWriter, r *http.Request) error {
 	}
 	if len(body) > rum.MaxBeaconBytes {
 		rumCORS(w, r.Header.Get("Origin"), nil)
-		http.Error(w, `{"error":{"code":"too_large","message":"beacon exceeds size cap"}}`, http.StatusRequestEntityTooLarge)
-		return nil
+		return apierror.TooLarge("beacon exceeds size cap")
 	}
 
 	// Resolve the app key FIRST (leniently — even a beacon that will fail the
@@ -283,8 +282,7 @@ func (s *Server) handleRUMBeacon(w http.ResponseWriter, r *http.Request) error {
 	}
 	if !s.rumLimiter.allow(key) {
 		w.Header().Set("Retry-After", "60")
-		http.Error(w, `{"error":{"code":"rate_limited","message":"beacon rate exceeded"}}`, http.StatusTooManyRequests)
-		return nil
+		return apierror.RateLimited("beacon rate exceeded")
 	}
 
 	beacon, reason, err := rum.ParseBeacon(body)
