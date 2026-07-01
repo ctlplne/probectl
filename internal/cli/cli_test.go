@@ -284,6 +284,28 @@ func TestCLIInventoryViewSurfaceMapsSavedViews(t *testing.T) {
 	}
 }
 
+func TestCLIHierarchySurfaceMapsOrgTeamProjectOps(t *testing.T) {
+	spec, ok := surfaceCommands["hierarchy"]
+	if !ok {
+		t.Fatal("hierarchy CLI surface is not registered")
+	}
+	cases := map[string]apiOp{
+		"show":           {Method: http.MethodGet, Path: "/v1/hierarchy"},
+		"create-org":     {Method: http.MethodPost, Path: "/v1/hierarchy/orgs"},
+		"create-team":    {Method: http.MethodPost, Path: "/v1/hierarchy/orgs/{id}/teams", ArgName: "id"},
+		"create-project": {Method: http.MethodPost, Path: "/v1/hierarchy/teams/{id}/projects", ArgName: "id"},
+	}
+	for name, want := range cases {
+		got, ok := spec.Ops[name]
+		if !ok {
+			t.Fatalf("hierarchy CLI missing %q", name)
+		}
+		if got.Method != want.Method || got.Path != want.Path || got.ArgName != want.ArgName {
+			t.Fatalf("hierarchy %s = %+v, want %+v", name, got, want)
+		}
+	}
+}
+
 func TestCLICollectorRegister(t *testing.T) {
 	var seen map[string]any
 	mux := http.NewServeMux()

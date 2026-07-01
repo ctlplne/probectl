@@ -119,6 +119,13 @@ organization. The directory-admin permissions are seeded to the admin role, whic
 is what makes a *tenant* administrator able to manage SCIM tokens and ABAC
 policies without involving a platform operator.
 
+The hierarchy itself is available through `GET /v1/hierarchy` and
+`probectl hierarchy show`; tenant admins can create organizations, teams, and
+projects with the matching `POST /v1/hierarchy/...` routes or
+`probectl hierarchy create-*` commands. Parent lookups run inside the caller's
+tenant RLS scope before insert, so a team or project cannot be attached to
+another tenant's parent object.
+
 ## Use it
 
 **Point probectl at your IdP** (Helm values or environment). Any

@@ -48,6 +48,10 @@
       "description": "On-call and ITSM connector status."
     },
     {
+      "name": "hierarchy",
+      "description": "Tenant organization, team, and project hierarchy."
+    },
+    {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
     }
@@ -869,6 +873,185 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/hierarchy": {
+      "get": {
+        "operationId": "getHierarchy",
+        "summary": "Get the tenant org/team/project hierarchy",
+        "tags": [
+          "hierarchy"
+        ],
+        "description": "Returns the caller tenant's hierarchy as organizations with nested teams and projects. Reads run inside the tenant RLS scope; a caller can never request another tenant's hierarchy.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant hierarchy.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hierarchy"
+                }
+              }
+            }
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/hierarchy/orgs": {
+      "post": {
+        "operationId": "createHierarchyOrganization",
+        "summary": "Create an organization in the caller tenant",
+        "tags": [
+          "hierarchy"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HierarchyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created organization.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HierarchyOrganizationFlat"
+                }
+              }
+            }
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/hierarchy/orgs/{id}/teams": {
+      "post": {
+        "operationId": "createHierarchyTeam",
+        "summary": "Create a team under an organization",
+        "tags": [
+          "hierarchy"
+        ],
+        "description": "The parent organization is looked up inside the caller tenant's RLS scope before insert, so a foreign-tenant org UUID fails closed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HierarchyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created team.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HierarchyTeamFlat"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/hierarchy/teams/{id}/projects": {
+      "post": {
+        "operationId": "createHierarchyProject",
+        "summary": "Create a project under a team",
+        "tags": [
+          "hierarchy"
+        ],
+        "description": "The parent team is looked up inside the caller tenant's RLS scope before insert, so a foreign-tenant team UUID fails closed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "$ref": "#/components/parameters/IdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HierarchyCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HierarchyProject"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "409": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -7025,6 +7208,185 @@
             "type": "string"
           },
           "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HierarchyCreate": {
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Hierarchy": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HierarchyOrganization"
+            }
+          }
+        }
+      },
+      "HierarchyOrganization": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/HierarchyOrganizationFlat"
+          },
+          {
+            "type": "object",
+            "required": [
+              "teams"
+            ],
+            "properties": {
+              "teams": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/HierarchyTeam"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "HierarchyTeam": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/HierarchyTeamFlat"
+          },
+          {
+            "type": "object",
+            "required": [
+              "projects"
+            ],
+            "properties": {
+              "projects": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/HierarchyProject"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "HierarchyOrganizationFlat": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "slug",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HierarchyTeamFlat": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "org_id",
+          "slug",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "org_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "HierarchyProject": {
+        "type": "object",
+        "required": [
+          "id",
+          "tenant_id",
+          "team_id",
+          "slug",
+          "name",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
             "type": "string",
             "format": "date-time"
           }

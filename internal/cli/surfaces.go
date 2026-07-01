@@ -121,6 +121,12 @@ var surfaceCommands = map[string]surfaceCommand{
 		"tenant":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
 		"set-tenant": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/governance", ArgName: "id"},
 	}},
+	"hierarchy": {Name: "hierarchy", Summary: "tenant org/team/project hierarchy", Ops: map[string]apiOp{
+		"show":           {Method: http.MethodGet, Path: "/v1/hierarchy"},
+		"create-org":     {Method: http.MethodPost, Path: "/v1/hierarchy/orgs"},
+		"create-team":    {Method: http.MethodPost, Path: "/v1/hierarchy/orgs/{id}/teams", ArgName: "id"},
+		"create-project": {Method: http.MethodPost, Path: "/v1/hierarchy/teams/{id}/projects", ArgName: "id"},
+	}},
 	"incident": {Name: "incident", Summary: "incidents and correlations", Ops: map[string]apiOp{
 		"list":    {Method: http.MethodGet, Path: "/v1/incidents"},
 		"get":     {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},

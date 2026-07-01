@@ -337,7 +337,7 @@ export const SURFACES: SurfaceDecl[] = [
     featureIds: ['F24'],
     sprint: 'S-T3',
     kind: 'federated',
-    evidence: ['file:internal/store/hierarchy.go'],
+    evidence: ['openapi:/v1/hierarchy', 'file:internal/cli/surfaces.go'],
   },
   {
     capability: 'SIEM export and tenant-routed forwarding',

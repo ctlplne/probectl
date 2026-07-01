@@ -50,7 +50,7 @@ var requiredFeatureCLICoverage = map[string]cliFeatureCoverage{
 	"F21":                    {Command: "probectl test create"},
 	"F22":                    {Command: "probectl me show"},
 	"F23":                    {Command: "probectl audit list"},
-	"F24":                    {Reason: "Tenant/org/team/project hierarchy is a storage and authorization model today; no runtime CLI/API surface is intended yet."},
+	"F24":                    {Command: "probectl hierarchy show"},
 	"F25":                    {Command: "probectl scim tokens"},
 	"F26":                    {Command: "probectl siem status"},
 	"F27":                    {Command: "probectl oncall alerts"},
