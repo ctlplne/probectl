@@ -86,6 +86,11 @@ Verification you ran, not verification you described.
   drift, no codegen poisoning).
 - **openapi-gate** — every registered core `/v1` and provider `/provider/v1`
   route exactly matches its OpenAPI 3.1 spec; no undocumented routes ship.
+- **docs-claims gate** — `scripts/check_docs_claims.sh SELFTEST &&
+  scripts/check_docs_claims.sh` proves the public docs stay honest about
+  sovereignty, observe-only remediation, performance framing, non-goals, and
+  served-vs-library limitations; SELFTEST runs one negative fixture per
+  advertised DOCS-S label so the gate cannot go vacuously green.
 - **migration-gate** — DB migrations are additive / expand-only: it rejects
   destructive or blocking changes (drop column, column-type change, rename,
   adding `NOT NULL`) so release N's schema still works with N-1's code during a
