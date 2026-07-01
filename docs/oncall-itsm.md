@@ -35,6 +35,12 @@ tooling, so the whole feature stays off unless `PROBECTL_NOTIFY_CONNECTORS` is s
 Routing is **per-tenant**: a connector is registered against one tenant id and
 only ever fires for incidents of that tenant.
 
+Operators can inspect the tenant-scoped, redacted integration posture with
+`GET /v1/oncall/status` or `probectl oncall status`. The status response shows
+provider counts, sanitized endpoint hosts, and inbound webhook paths for the
+caller tenant only; connector secrets and endpoint path/query values are never
+returned.
+
 ## Lifecycle + mapping
 
 ```mermaid

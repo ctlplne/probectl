@@ -97,6 +97,10 @@ the same effect as once — a doorbell, not a counter), so a retry or a restart
 never double-pages. Resolution syncs both ways: close the ServiceNow ticket and
 probectl resolves the incident and syncs the *other* connectors — but never
 echoes the resolution back to its origin, which would ping-pong forever.
+The operator-visible surface is `GET /v1/oncall/status` plus
+`probectl oncall status`: a tenant-scoped posture view that reports configured
+providers and sanitized endpoint hosts without returning connector secrets or
+webhook URL path/query material.
 
 **Inbound webhooks are authenticated per delivery and treated as untrusted.** A
 **webhook** is an HTTP POST another system makes to you when something happens —

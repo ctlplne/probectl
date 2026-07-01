@@ -175,6 +175,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list": {Method: http.MethodGet, Path: "/v1/outages"},
 	}},
 	"oncall": {Name: "oncall", Summary: "on-call alert and incident view", Ops: map[string]apiOp{
+		"status":    {Method: http.MethodGet, Path: "/v1/oncall/status"},
 		"alerts":    {Method: http.MethodGet, Path: "/v1/alerts/active"},
 		"ack":       {Method: http.MethodPost, Path: "/v1/alerts/active/ack"},
 		"silence":   {Method: http.MethodPost, Path: "/v1/alerts/active/silence"},

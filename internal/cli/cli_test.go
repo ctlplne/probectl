@@ -619,6 +619,44 @@ func TestCLISIEMStatusSurface(t *testing.T) {
 	}
 }
 
+func TestCLIOncallStatusSurface(t *testing.T) {
+	op, ok := surfaceCommands["oncall"].Ops["status"]
+	if !ok {
+		t.Fatal("missing probectl oncall status surface")
+	}
+	if op.Method != http.MethodGet || op.Path != "/v1/oncall/status" {
+		t.Fatalf("oncall status op = %+v, want GET /v1/oncall/status", op)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/oncall/status", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":                       "oncall",
+			"name":                     "On-call + ITSM",
+			"summary":                  "On-call and ITSM integration is configured with 1 outbound connector(s) and 1 inbound webhook(s)",
+			"configured":               true,
+			"outbound_connector_count": 1,
+			"inbound_webhook_count":    1,
+			"tls_required":             true,
+			"secrets_redacted":         true,
+			"providers": []map[string]any{{
+				"provider":                 "pagerduty",
+				"outbound_connector_count": 1,
+			}},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "oncall", "status")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "On-call + ITSM") || !strings.Contains(out, "configured with 1 outbound") {
+		t.Fatalf("oncall status output missing expected posture:\n%s", out)
+	}
+}
+
 func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {

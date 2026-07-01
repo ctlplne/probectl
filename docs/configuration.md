@@ -1550,6 +1550,9 @@ closes. probectl is the forwarder, not the system of record — it never auto-bl
 anything.
 See [`oncall-itsm.md`](oncall-itsm.md) for the connector matrix, mapping, and the
 inbound webhook contract.
+Use `GET /v1/oncall/status` or `probectl oncall status` to inspect the
+tenant-scoped posture; the response is redacted and never returns connector
+secrets or endpoint path/query values.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |

@@ -44,6 +44,10 @@
       "description": "SIEM export status and delivery posture."
     },
     {
+      "name": "oncall",
+      "description": "On-call and ITSM connector status."
+    },
+    {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
     }
@@ -838,6 +842,33 @@
           },
           "422": {
             "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/oncall/status": {
+      "get": {
+        "operationId": "getOncallStatus",
+        "summary": "Get on-call and ITSM integration status",
+        "tags": [
+          "oncall"
+        ],
+        "description": "Read-only, tenant-scoped posture for outbound on-call/ITSM connectors and inbound status-sync webhooks. The response reports counts, providers, sanitized endpoint hosts, and webhook paths for the caller's tenant only. Connector credentials, inbound secrets, and URL path/query values are never returned.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "On-call and ITSM integration status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OncallStatus"
+                }
+              }
+            }
           }
         }
       }
@@ -6996,6 +7027,162 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "OncallStatus": {
+        "type": "object",
+        "description": "Read-only, tenant-scoped on-call/ITSM posture. Secrets and endpoint path/query values are intentionally omitted.",
+        "required": [
+          "id",
+          "name",
+          "summary",
+          "configured",
+          "dispatcher_running",
+          "outbound_configured",
+          "inbound_configured",
+          "outbound_connector_count",
+          "inbound_webhook_count",
+          "tls_required",
+          "secrets_redacted",
+          "providers",
+          "outbound",
+          "inbound",
+          "supported_providers"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "dispatcher_running": {
+            "type": "boolean"
+          },
+          "outbound_configured": {
+            "type": "boolean"
+          },
+          "inbound_configured": {
+            "type": "boolean"
+          },
+          "outbound_connector_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inbound_webhook_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tls_required": {
+            "type": "boolean"
+          },
+          "secrets_redacted": {
+            "type": "boolean"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "provider",
+                "outbound_connector_count",
+                "inbound_webhook_count"
+              ],
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "outbound_connector_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "inbound_webhook_count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "outbound": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "provider",
+                "endpoint_configured",
+                "endpoint_tls_configured",
+                "credential_configured",
+                "endpoint_secrets_redacted"
+              ],
+              "properties": {
+                "provider": {
+                  "type": "string"
+                },
+                "endpoint_configured": {
+                  "type": "boolean"
+                },
+                "endpoint_tls_configured": {
+                  "type": "boolean"
+                },
+                "endpoint_host": {
+                  "type": "string",
+                  "description": "Host:port metadata only; URL path, query, and credentials are never returned."
+                },
+                "credential_configured": {
+                  "type": "boolean"
+                },
+                "endpoint_secrets_redacted": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "inbound": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "provider",
+                "path",
+                "credential_configured"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "provider": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "credential_configured": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "supported_providers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pagerduty",
+                "opsgenie",
+                "slack",
+                "teams",
+                "servicenow",
+                "jira"
+              ]
+            }
           }
         }
       },

@@ -202,6 +202,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/incidents/{id}":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/changes":              auditWrapped(auditFacetSensitiveRead),
 	"PATCH /v1/incidents/{id}":                    auditExplicit(auditFacetMutation, "incident.resolve"),
+	"GET /v1/oncall/status":                       auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/changes":                             auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/bgp/events":                          auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/devices":                             auditWrapped(auditFacetSensitiveRead),
