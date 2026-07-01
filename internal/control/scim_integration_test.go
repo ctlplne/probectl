@@ -69,6 +69,20 @@ func scimID(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return id
 }
 
+type scimListDoc struct {
+	TotalResults int              `json:"totalResults"`
+	StartIndex   int              `json:"startIndex"`
+	ItemsPerPage int              `json:"itemsPerPage"`
+	Resources    []map[string]any `json:"Resources"`
+}
+
+func scimList(t *testing.T, rec *httptest.ResponseRecorder) scimListDoc {
+	t.Helper()
+	var out scimListDoc
+	mustJSON(t, rec, &out)
+	return out
+}
+
 func sessionReq(t *testing.T, h http.Handler, method, path string, cookie *http.Cookie, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	var r *bytes.Reader
@@ -166,6 +180,94 @@ func TestSCIMAuthAndTenantIsolation(t *testing.T) {
 	// B's token cannot see A's user (RLS) → 404
 	if rec := scimReq(t, h, http.MethodGet, "/scim/v2/Users/"+id, tokB, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("cross-tenant get: %d, want 404", rec.Code)
+	}
+	listB := scimReq(t, h, http.MethodGet, "/scim/v2/Users?count=10", tokB, "")
+	if listB.Code != http.StatusOK {
+		t.Fatalf("tenant B list: %d %s", listB.Code, listB.Body)
+	}
+	if lr := scimList(t, listB); lr.TotalResults != 0 || len(lr.Resources) != 0 {
+		t.Fatalf("tenant B list saw tenant A users: %+v", lr)
+	}
+}
+
+func TestSCIMDirectoryCapsAndSQLPagination(t *testing.T) {
+	srv, db := setupSessionAPI(t, auth.Identity{})
+	srv.WithSCIMControls(2, 2, 0)
+	h := srv.Handler()
+	tenant := freshTenant(t, db, "scimcap")
+	token := scimToken(t, db, tenant, "okta")
+
+	first := scimReq(t, h, http.MethodPost, "/scim/v2/Users", token, scimUserBody("cap1@x.com", "cap-1", "eng"))
+	if first.Code != http.StatusCreated {
+		t.Fatalf("create first user: %d %s", first.Code, first.Body)
+	}
+	second := scimReq(t, h, http.MethodPost, "/scim/v2/Users", token, scimUserBody("cap2@x.com", "cap-2", "eng"))
+	if second.Code != http.StatusCreated {
+		t.Fatalf("create second user: %d %s", second.Code, second.Body)
+	}
+	overUser := scimReq(t, h, http.MethodPost, "/scim/v2/Users", token, scimUserBody("cap3@x.com", "cap-3", "eng"))
+	if overUser.Code != http.StatusConflict || !strings.Contains(overUser.Body.String(), `"scimType":"tooMany"`) {
+		t.Fatalf("over user cap = %d %s, want 409 tooMany", overUser.Code, overUser.Body)
+	}
+
+	allUsers := scimList(t, scimReq(t, h, http.MethodGet, "/scim/v2/Users?startIndex=1&count=2", token, ""))
+	if allUsers.TotalResults != 2 || allUsers.ItemsPerPage != 2 || len(allUsers.Resources) != 2 {
+		t.Fatalf("all users page = %+v, want total/items/resources 2", allUsers)
+	}
+	secondUser := scimList(t, scimReq(t, h, http.MethodGet, "/scim/v2/Users?startIndex=2&count=1", token, ""))
+	if secondUser.TotalResults != 2 || secondUser.StartIndex != 2 || secondUser.ItemsPerPage != 1 || len(secondUser.Resources) != 1 {
+		t.Fatalf("second users page = %+v, want SQL-bounded page 2/1", secondUser)
+	}
+	if secondUser.Resources[0]["id"] != allUsers.Resources[1]["id"] {
+		t.Fatalf("users startIndex=2 returned id %v, want second full-page id %v", secondUser.Resources[0]["id"], allUsers.Resources[1]["id"])
+	}
+
+	g1 := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token, `{"displayName":"Engineers A"}`)
+	if g1.Code != http.StatusCreated {
+		t.Fatalf("create first group: %d %s", g1.Code, g1.Body)
+	}
+	g2 := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token, `{"displayName":"Engineers B"}`)
+	if g2.Code != http.StatusCreated {
+		t.Fatalf("create second group: %d %s", g2.Code, g2.Body)
+	}
+	overGroup := scimReq(t, h, http.MethodPost, "/scim/v2/Groups", token, `{"displayName":"Engineers C"}`)
+	if overGroup.Code != http.StatusConflict || !strings.Contains(overGroup.Body.String(), `"scimType":"tooMany"`) {
+		t.Fatalf("over group cap = %d %s, want 409 tooMany", overGroup.Code, overGroup.Body)
+	}
+	allGroups := scimList(t, scimReq(t, h, http.MethodGet, "/scim/v2/Groups?startIndex=1&count=2", token, ""))
+	if allGroups.TotalResults != 2 || allGroups.ItemsPerPage != 2 || len(allGroups.Resources) != 2 {
+		t.Fatalf("all groups page = %+v, want total/items/resources 2", allGroups)
+	}
+	secondGroup := scimList(t, scimReq(t, h, http.MethodGet, "/scim/v2/Groups?startIndex=2&count=1", token, ""))
+	if secondGroup.TotalResults != 2 || secondGroup.StartIndex != 2 || secondGroup.ItemsPerPage != 1 || len(secondGroup.Resources) != 1 {
+		t.Fatalf("second groups page = %+v, want SQL-bounded page 2/1", secondGroup)
+	}
+	if secondGroup.Resources[0]["id"] != allGroups.Resources[1]["id"] {
+		t.Fatalf("groups startIndex=2 returned id %v, want second full-page id %v", secondGroup.Resources[0]["id"], allGroups.Resources[1]["id"])
+	}
+}
+
+func TestSCIMTokenScopedRateLimit(t *testing.T) {
+	srv, db := setupSessionAPI(t, auth.Identity{})
+	srv.WithSCIMControls(100, 100, 1)
+	h := srv.Handler()
+	tA := freshTenant(t, db, "scimrateA")
+	tokA := scimToken(t, db, tA, "a")
+	tB := freshTenant(t, db, "scimrateB")
+	tokB := scimToken(t, db, tB, "b")
+
+	if invalid := scimReq(t, h, http.MethodGet, "/scim/v2/Users", "bogus-token", ""); invalid.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token = %d %s, want 401", invalid.Code, invalid.Body)
+	}
+	if first := scimReq(t, h, http.MethodGet, "/scim/v2/Users", tokA, ""); first.Code != http.StatusOK {
+		t.Fatalf("first token A request = %d %s, want 200", first.Code, first.Body)
+	}
+	second := scimReq(t, h, http.MethodGet, "/scim/v2/Users", tokA, "")
+	if second.Code != http.StatusTooManyRequests || second.Header().Get("Retry-After") == "" {
+		t.Fatalf("second token A request = %d retry=%q body=%s, want 429 + Retry-After", second.Code, second.Header().Get("Retry-After"), second.Body)
+	}
+	if other := scimReq(t, h, http.MethodGet, "/scim/v2/Users", tokB, ""); other.Code != http.StatusOK {
+		t.Fatalf("token B must not share token A's bucket: %d %s", other.Code, other.Body)
 	}
 }
 

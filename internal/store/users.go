@@ -5,8 +5,12 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -76,14 +80,31 @@ func (Users) Create(ctx context.Context, s tenancy.Scope, email, displayName str
 // CreateSCIM provisions a user from a SCIM create (external_id + userName +
 // attributes). A duplicate userName/external_id surfaces as a conflict.
 func (Users) CreateSCIM(ctx context.Context, s tenancy.Scope, in User) (*User, error) {
+	return (Users{}).CreateSCIMLimited(ctx, s, in, 0)
+}
+
+// CreateSCIMLimited provisions a SCIM user only while the tenant remains under
+// maxUsers. The cap check lives in the INSERT statement so the database, not a
+// pre-handler slice, is the growth boundary.
+func (Users) CreateSCIMLimited(ctx context.Context, s tenancy.Scope, in User, maxUsers int) (*User, error) {
 	attrs, _ := json.Marshal(orEmptyAttrs(in.Attributes))
 	var u User
-	err := scanUser(s.Q.QueryRow(ctx,
-		`INSERT INTO users (tenant_id, email, display_name, status, external_id, user_name, attributes)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING `+userCols,
-		s.Tenant.String(), in.Email, in.DisplayName, statusOrActive(in.Status),
-		strOrNil(in.ExternalID), strOrNil(in.UserName), attrs), &u)
+	sql := `INSERT INTO users (tenant_id, email, display_name, status, external_id, user_name, attributes)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING ` + userCols
+	args := []any{s.Tenant.String(), in.Email, in.DisplayName, statusOrActive(in.Status),
+		strOrNil(in.ExternalID), strOrNil(in.UserName), attrs}
+	if maxUsers > 0 {
+		sql = `INSERT INTO users (tenant_id, email, display_name, status, external_id, user_name, attributes)
+		 SELECT $1,$2,$3,$4,$5,$6,$7::jsonb
+		  WHERE (SELECT count(*) FROM users) < $8
+		 RETURNING ` + userCols
+		args = append(args, maxUsers)
+	}
+	err := scanUser(s.Q.QueryRow(ctx, sql, args...), &u)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.Validation("tenant SCIM user limit reached").WithCode(string(apierror.CodeQuotaExceeded))
+		}
 		return nil, mapWriteErr("user", err)
 	}
 	return &u, nil
@@ -136,27 +157,62 @@ func (Users) GetByExternalID(ctx context.Context, s tenancy.Scope, externalID st
 // List returns the tenant's users, optionally filtered by exact userName (the
 // SCIM `userName eq` filter).
 func (Users) List(ctx context.Context, s tenancy.Scope, userNameFilter string) ([]User, error) {
-	sql := `SELECT ` + userCols + ` FROM users`
+	total, err := (Users{}).Count(ctx, s, userNameFilter)
+	if err != nil {
+		return nil, err
+	}
+	users, _, err := (Users{}).ListPage(ctx, s, userNameFilter, 1, total)
+	return users, err
+}
+
+// Count returns the number of users visible in the caller's tenant, optionally
+// filtered by exact SCIM userName.
+func (Users) Count(ctx context.Context, s tenancy.Scope, userNameFilter string) (int, error) {
+	sql := `SELECT count(*) FROM users`
 	args := []any{}
 	if userNameFilter != "" {
 		sql += ` WHERE user_name = $1`
 		args = append(args, userNameFilter)
 	}
-	sql += ` ORDER BY created_at`
+	var n int
+	if err := s.Q.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// ListPage returns a SQL-bounded page of tenant users plus the total matching
+// count. startIndex is SCIM's 1-based cursor; count=0 is a real empty page.
+func (Users) ListPage(ctx context.Context, s tenancy.Scope, userNameFilter string, startIndex, count int) ([]User, int, error) {
+	total, err := (Users{}).Count(ctx, s, userNameFilter)
+	if err != nil {
+		return nil, 0, err
+	}
+	if startIndex < 1 {
+		startIndex = 1
+	}
+	offset := startIndex - 1
+	sql := `SELECT ` + userCols + ` FROM users`
+	args := []any{count, offset}
+	if userNameFilter != "" {
+		sql += ` WHERE user_name = $3`
+		args = append(args, userNameFilter)
+	}
+	sql += ` ORDER BY created_at, id LIMIT $1 OFFSET $2`
 	rows, err := s.Q.Query(ctx, sql, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	out := []User{}
 	for rows.Next() {
 		var u User
 		if err := scanUser(rows, &u); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, u)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // Delete removes a user (SCIM DELETE → the resource is gone). Sessions/tokens are

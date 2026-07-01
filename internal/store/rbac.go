@@ -4,7 +4,11 @@ package store
 
 import (
 	"context"
+	"errors"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -22,11 +26,27 @@ func scanRole(row interface{ Scan(...any) error }, r *Role) error {
 
 // Create inserts a role in the caller's tenant.
 func (Roles) Create(ctx context.Context, s tenancy.Scope, slug, name, description string) (*Role, error) {
+	return (Roles{}).CreateLimited(ctx, s, slug, name, description, 0)
+}
+
+// CreateLimited inserts a role only while the tenant remains under maxRoles.
+// SCIM groups map to roles, so this is the directory group cap boundary.
+func (Roles) CreateLimited(ctx context.Context, s tenancy.Scope, slug, name, description string, maxRoles int) (*Role, error) {
 	var r Role
-	err := scanRole(s.Q.QueryRow(ctx,
-		`INSERT INTO roles (tenant_id, slug, name, description) VALUES ($1, $2, $3, $4) RETURNING `+roleCols,
-		s.Tenant.String(), slug, name, description), &r)
+	sql := `INSERT INTO roles (tenant_id, slug, name, description) VALUES ($1, $2, $3, $4) RETURNING ` + roleCols
+	args := []any{s.Tenant.String(), slug, name, description}
+	if maxRoles > 0 {
+		sql = `INSERT INTO roles (tenant_id, slug, name, description)
+		 SELECT $1, $2, $3, $4
+		  WHERE (SELECT count(*) FROM roles) < $5
+		 RETURNING ` + roleCols
+		args = append(args, maxRoles)
+	}
+	err := scanRole(s.Q.QueryRow(ctx, sql, args...), &r)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apierror.Validation("tenant SCIM group limit reached").WithCode(string(apierror.CodeQuotaExceeded))
+		}
 		return nil, err
 	}
 	return &r, nil
@@ -73,20 +93,48 @@ func (Roles) Delete(ctx context.Context, s tenancy.Scope, id string) error {
 
 // List returns the tenant's roles.
 func (Roles) List(ctx context.Context, s tenancy.Scope) ([]Role, error) {
-	rows, err := s.Q.Query(ctx, `SELECT `+roleCols+` FROM roles ORDER BY created_at`)
+	total, err := (Roles{}).Count(ctx, s)
 	if err != nil {
 		return nil, err
+	}
+	roles, _, err := (Roles{}).ListPage(ctx, s, 1, total)
+	return roles, err
+}
+
+// Count returns the tenant's role count.
+func (Roles) Count(ctx context.Context, s tenancy.Scope) (int, error) {
+	var n int
+	if err := s.Q.QueryRow(ctx, `SELECT count(*) FROM roles`).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// ListPage returns a SQL-bounded role page plus the total count. startIndex is
+// SCIM's 1-based cursor; count=0 is an empty page.
+func (Roles) ListPage(ctx context.Context, s tenancy.Scope, startIndex, count int) ([]Role, int, error) {
+	total, err := (Roles{}).Count(ctx, s)
+	if err != nil {
+		return nil, 0, err
+	}
+	if startIndex < 1 {
+		startIndex = 1
+	}
+	offset := startIndex - 1
+	rows, err := s.Q.Query(ctx, `SELECT `+roleCols+` FROM roles ORDER BY created_at, id LIMIT $1 OFFSET $2`, count, offset)
+	if err != nil {
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var out []Role
 	for rows.Next() {
 		var r Role
 		if err := scanRole(rows, &r); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, r)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 // AddPermission grants a catalog permission to a role (idempotent).

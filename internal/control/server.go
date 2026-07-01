@@ -229,6 +229,14 @@ type Server struct {
 	// The store is accessed via s.pool (same pattern as scim/mcp tokens).
 	otlpTokenAuth OTLPTokenAuthManager
 
+	// SCIM provisioning controls (SEC/COVER-020): each bearer token gets its own
+	// rate bucket, and every tenant has hard directory growth caps. The caps are
+	// enforced in the store write statements; the limiter protects the pre-tenant
+	// SCIM surface before it can do unbounded work.
+	scimLimiter   *keyLimiter
+	scimMaxUsers  int
+	scimMaxGroups int
+
 	// Fairness gate (S-T7, core): per-tenant ingest bounds + query-cost
 	// guards. Set via WithFairness; nil = no enforcement (small/dev
 	// deployments), self-view reports enforcing=false.
@@ -344,7 +352,9 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	v := version.Get()
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
 		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), inventoryViews: inventory.NewMemoryViewStore(), startedAt: time.Now(),
-		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit)}
+		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit),
+		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
+		scimMaxGroups: scimDefaultMaxGroupsPerTenant}
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).

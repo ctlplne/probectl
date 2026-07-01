@@ -1479,6 +1479,13 @@ The `/scim/v2/*` surface is gated by a valid SCIM token (no token ⇒ `401`), an
 directory-admin APIs (`/v1/directory/scim-tokens`, `/v1/abac/policies`) require
 `directory.read`/`directory.write`.
 
+SCIM provisioning is bounded per tenant even though it has no environment knobs:
+each tenant may hold up to 10,000 SCIM users and 2,000 SCIM groups, list calls
+are SQL-paged with a maximum `count` of 200, and each SCIM bearer token has its
+own 600-request/minute bucket. A noisy or compromised IdP token therefore burns
+only its own local budget; it cannot force an unbounded directory scan or grow a
+tenant directory forever.
+
 ### Change intelligence
 
 Most outages follow a change. This feature ingests change webhooks — deploys,

@@ -4,6 +4,7 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -38,13 +39,47 @@ func isConflict(err error) bool {
 // or DELETE) revokes the user's sessions + tokens IMMEDIATELY (the S31 watch-out).
 // Responses use the SCIM media type + the SCIM error envelope (IdPs are strict).
 
-const scimMaxBody = 1 << 20
+const (
+	scimMaxBody = 1 << 20
+
+	scimDefaultPageSize = 100
+	scimMaxPageSize     = 200
+
+	scimDefaultMaxUsersPerTenant  = 10000
+	scimDefaultMaxGroupsPerTenant = 2000
+	scimDefaultRatePerMin         = 600
+)
+
+// WithSCIMControls overrides the built-in SCIM directory caps and token-scoped
+// rate limit. Non-positive caps keep the hardened defaults; a non-positive rate
+// disables the token bucket for test/dev profiles that need it.
+func (s *Server) WithSCIMControls(maxUsers, maxGroups, ratePerMin int) *Server {
+	if maxUsers > 0 {
+		s.scimMaxUsers = maxUsers
+	}
+	if maxGroups > 0 {
+		s.scimMaxGroups = maxGroups
+	}
+	s.scimLimiter = newKeyLimiter(ratePerMin)
+	return s
+}
 
 // scim wraps a SCIM handler with bearer→tenant resolution and SCIM-formatted
 // errors, so the standard JSON error mapper never sees these routes.
 func (s *Server) scim(fn func(w http.ResponseWriter, r *http.Request, tenantID string)) apiHandler {
 	return func(w http.ResponseWriter, r *http.Request) error {
-		tenantID, err := s.scimTenant(r)
+		tok := bearerToken(r)
+		if tok == "" {
+			writeSCIMError(w, http.StatusUnauthorized, "", "invalid or missing bearer token")
+			return nil
+		}
+		tokenHash := crypto.Hash([]byte(tok))
+		if !s.scimLimiter.allow(hex.EncodeToString(tokenHash)) {
+			w.Header().Set("Retry-After", "60")
+			writeSCIMError(w, http.StatusTooManyRequests, "tooMany", "SCIM token rate limit exceeded")
+			return nil
+		}
+		tenantID, err := s.scimTenant(r.Context(), tokenHash)
 		if err != nil {
 			writeSCIMError(w, http.StatusUnauthorized, "", "invalid or missing bearer token")
 			return nil
@@ -55,15 +90,11 @@ func (s *Server) scim(fn func(w http.ResponseWriter, r *http.Request, tenantID s
 }
 
 // scimTenant resolves the SCIM bearer token to its tenant (pre-tenant auth).
-func (s *Server) scimTenant(r *http.Request) (string, error) {
+func (s *Server) scimTenant(ctx context.Context, tokenHash []byte) (string, error) {
 	if s.pool == nil {
 		return "", store.ErrInvalidScimToken
 	}
-	tok := bearerToken(r)
-	if tok == "" {
-		return "", store.ErrInvalidScimToken
-	}
-	return store.NewScimTokens(s.pool).Authenticate(r.Context(), crypto.Hash([]byte(tok)))
+	return store.NewScimTokens(s.pool).Authenticate(ctx, tokenHash)
 }
 
 func bearerToken(r *http.Request) string {
@@ -101,7 +132,7 @@ func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request, tenantID
 	}
 	var out *store.User
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		u, e := store.Users{}.CreateSCIM(ctx, sc, scimToUser(in))
+		u, e := store.Users{}.CreateSCIMLimited(ctx, sc, scimToUser(in), s.scimMaxUsers)
 		if e != nil {
 			return e
 		}
@@ -117,17 +148,17 @@ func (s *Server) scimCreateUser(w http.ResponseWriter, r *http.Request, tenantID
 
 func (s *Server) scimListUsers(w http.ResponseWriter, r *http.Request, tenantID string) {
 	filter := scimEqFilter(r.URL.Query().Get("filter"), "userName")
-	start := atoiDefault(r.URL.Query().Get("startIndex"), 1)
-	count := atoiDefault(r.URL.Query().Get("count"), 100)
+	start, count := scimPage(r)
 	base := scimBase(r)
 
 	var resources []any
+	total := 0
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		users, e := store.Users{}.List(ctx, sc, filter)
+		users, n, e := store.Users{}.ListPage(ctx, sc, filter, start, count)
 		if e != nil {
 			return e
 		}
-		users = pageUsers(users, start, count)
+		total = n
 		for _, u := range users {
 			resources = append(resources, userToSCIM(u, base))
 		}
@@ -137,7 +168,7 @@ func (s *Server) scimListUsers(w http.ResponseWriter, r *http.Request, tenantID 
 		writeSCIMError(w, http.StatusInternalServerError, "", "list users failed")
 		return
 	}
-	writeSCIM(w, http.StatusOK, scim.NewList(resources, len(resources), start, len(resources)))
+	writeSCIM(w, http.StatusOK, scim.NewList(resources, total, start, len(resources)))
 }
 
 func (s *Server) scimGetUser(w http.ResponseWriter, r *http.Request, tenantID string) {
@@ -256,7 +287,7 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request, tenantI
 	}
 	var role *store.Role
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		role0, e := store.Roles{}.Create(ctx, sc, slugify(in.DisplayName), in.DisplayName, "SCIM group")
+		role0, e := store.Roles{}.CreateLimited(ctx, sc, slugify(in.DisplayName), in.DisplayName, "SCIM group", s.scimMaxGroups)
 		if e != nil {
 			return e
 		}
@@ -276,12 +307,15 @@ func (s *Server) scimCreateGroup(w http.ResponseWriter, r *http.Request, tenantI
 }
 
 func (s *Server) scimListGroups(w http.ResponseWriter, r *http.Request, tenantID string) {
+	start, count := scimPage(r)
 	var resources []any
+	total := 0
 	err := s.inTenantID(r.Context(), tenantID, func(ctx context.Context, sc tenancy.Scope) error {
-		roles, e := store.Roles{}.List(ctx, sc)
+		roles, n, e := store.Roles{}.ListPage(ctx, sc, start, count)
 		if e != nil {
 			return e
 		}
+		total = n
 		for _, role := range roles {
 			resources = append(resources, s.groupToSCIMScoped(ctx, sc, r, role))
 		}
@@ -291,7 +325,7 @@ func (s *Server) scimListGroups(w http.ResponseWriter, r *http.Request, tenantID
 		writeSCIMError(w, http.StatusInternalServerError, "", "list groups failed")
 		return
 	}
-	writeSCIM(w, http.StatusOK, scim.NewList(resources, len(resources), 1, len(resources)))
+	writeSCIM(w, http.StatusOK, scim.NewList(resources, total, start, len(resources)))
 }
 
 func (s *Server) scimGetGroup(w http.ResponseWriter, r *http.Request, tenantID string) {
@@ -436,7 +470,7 @@ func (s *Server) scimServiceProviderConfig(w http.ResponseWriter, _ *http.Reques
 		"documentationUri":      "https://docs.probectl.example/scim",
 		"patch":                 map[string]any{"supported": true},
 		"bulk":                  map[string]any{"supported": false, "maxOperations": 0, "maxPayloadSize": 0},
-		"filter":                map[string]any{"supported": true, "maxResults": 200},
+		"filter":                map[string]any{"supported": true, "maxResults": scimMaxPageSize},
 		"changePassword":        map[string]any{"supported": false},
 		"sort":                  map[string]any{"supported": false},
 		"etag":                  map[string]any{"supported": false},
@@ -521,12 +555,35 @@ func writeSCIMError(w http.ResponseWriter, status int, scimType, detail string) 
 // violation becomes 409). SEC-008: the response is GENERIC — internal store
 // error text is logged server-side only, never echoed to the IdP client.
 func (s *Server) writeSCIMStoreError(w http.ResponseWriter, err error, resource string) {
+	if ae, ok := apierror.As(err); ok && ae.Code == string(apierror.CodeQuotaExceeded) {
+		writeSCIMError(w, http.StatusConflict, "tooMany", resource+" limit reached")
+		return
+	}
+	if ae, ok := apierror.As(err); ok && ae.Kind == apierror.KindRateLimited {
+		writeSCIMError(w, http.StatusTooManyRequests, "tooMany", resource+" rate limit exceeded")
+		return
+	}
 	if isConflict(err) {
 		writeSCIMError(w, http.StatusConflict, "uniqueness", resource+" already exists")
 		return
 	}
 	s.log.Warn("scim store error (returned generic)", "resource", resource, "error", err.Error())
 	writeSCIMError(w, http.StatusBadRequest, "invalidValue", "invalid "+resource+" attributes")
+}
+
+func scimPage(r *http.Request) (int, int) {
+	start := atoiDefault(r.URL.Query().Get("startIndex"), 1)
+	if start < 1 {
+		start = 1
+	}
+	count := atoiDefault(r.URL.Query().Get("count"), scimDefaultPageSize)
+	switch {
+	case count < 0:
+		count = scimDefaultPageSize
+	case count > scimMaxPageSize:
+		count = scimMaxPageSize
+	}
+	return start, count
 }
 
 func scimEqFilter(filter, attr string) string {
@@ -538,21 +595,6 @@ func scimEqFilter(filter, attr string) string {
 		return ""
 	}
 	return strings.Trim(strings.TrimSpace(f[len(prefix):]), `"`)
-}
-
-func pageUsers(u []store.User, start, count int) []store.User {
-	if start < 1 {
-		start = 1
-	}
-	i := start - 1
-	if i >= len(u) {
-		return nil
-	}
-	u = u[i:]
-	if count >= 0 && count < len(u) {
-		u = u[:count]
-	}
-	return u
 }
 
 func atoiDefault(s string, def int) int {
