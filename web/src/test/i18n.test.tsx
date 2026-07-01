@@ -81,6 +81,9 @@ describe('i18n catalog', () => {
       resolve(process.cwd(), 'src/nav/ia.ts'),
       resolve(process.cwd(), 'src/shell/CommandPalette.tsx'),
       resolve(process.cwd(), 'src/routes/OutagesPage.tsx'),
+      resolve(process.cwd(), 'src/routes/AlertsPage.tsx'),
+      resolve(process.cwd(), 'src/routes/SLOsPage.tsx'),
+      resolve(process.cwd(), 'src/routes/admin/AdminCards.tsx'),
     ]
     const banned = [
       'Targets & Tests',
@@ -92,6 +95,17 @@ describe('i18n catalog', () => {
       'Search commands',
       'No matching commands',
       'Go to ',
+      'Create alert rule',
+      'Rule updated',
+      'Window (samples)',
+      'Delivery channel',
+      'Secrets stay write-only',
+      'Service-level objectives',
+      'SLO engine not wired',
+      'No SLOs defined',
+      'AI remediation proposals',
+      'Approvals are disabled',
+      'Approved (not executed)',
     ]
 
     for (const source of sources) {

@@ -44,6 +44,7 @@ import {
   type OncallOutboundConnector,
 } from '../api/alerts'
 import { DateTime } from '../time/DateTime'
+import { useI18n } from '../i18n/useI18n'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 
@@ -287,6 +288,7 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
 /** RuleForm creates or edits one alert rule (server-validated; errors surface
  *  inline via toast). */
 function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) {
+  const { t } = useI18n()
   const { push } = useToast()
   const save = useSaveAlertRule()
   const testChannel = useTestAlertChannel()
@@ -360,51 +362,55 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         onSuccess: (saved) => {
           push({
             tone: 'success',
-            title: rule ? 'Rule updated' : 'Rule created',
+            title: rule ? t('alerts.rule.updated') : t('alerts.rule.created'),
             message: saved.name,
           })
           onClose()
         },
-        onError: (err) => push({ tone: 'danger', title: 'Save failed', message: err.message }),
+        onError: (err) => push({ tone: 'danger', title: t('alerts.rule.saveFailed'), message: err.message }),
       },
     )
   }
 
   return (
-    <Modal open onClose={onClose} title={rule ? `Edit rule: ${rule.name}` : 'Create alert rule'}>
+    <Modal
+      open
+      onClose={onClose}
+      title={rule ? t('alerts.rule.editTitle', { name: rule.name }) : t('alerts.rule.createTitle')}
+    >
       <form onSubmit={submit} className={styles.formGrid}>
-        <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <Field label={t('alerts.rule.name')} value={name} onChange={(e) => setName(e.target.value)} required />
         <Field
-          label="Metric"
+          label={t('alerts.rule.metric')}
           value={metric}
           onChange={(e) => setMetric(e.target.value)}
           required
-          hint="A TSDB series name, e.g. probectl_result_rtt_ms"
+          hint={t('alerts.rule.metricHint')}
         />
         <Select
-          label="Type"
+          label={t('alerts.rule.type')}
           value={type}
           onChange={(e) => setType(e.target.value as 'threshold' | 'baseline')}
           options={[
-            { value: 'threshold', label: 'Threshold' },
-            { value: 'baseline', label: 'Baseline (anomaly)' },
+            { value: 'threshold', label: t('alerts.rule.typeThreshold') },
+            { value: 'baseline', label: t('alerts.rule.typeBaseline') },
           ]}
         />
         {type === 'threshold' ? (
           <>
             <Select
-              label="Comparison"
+              label={t('alerts.rule.comparison')}
               value={comparison}
               onChange={(e) => setComparison(e.target.value as typeof comparison)}
               options={[
-                { value: 'gt', label: '> greater than' },
-                { value: 'gte', label: '≥ at least' },
-                { value: 'lt', label: '< less than' },
-                { value: 'lte', label: '≤ at most' },
+                { value: 'gt', label: t('alerts.rule.comparisonGt') },
+                { value: 'gte', label: t('alerts.rule.comparisonGte') },
+                { value: 'lt', label: t('alerts.rule.comparisonLt') },
+                { value: 'lte', label: t('alerts.rule.comparisonLte') },
               ]}
             />
             <Field
-              label="Threshold"
+              label={t('alerts.rule.threshold')}
               type="number"
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
@@ -414,84 +420,84 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
         ) : (
           <>
             <Field
-              label="Window (samples)"
+              label={t('alerts.rule.windowSamples')}
               type="number"
               value={windowN}
               onChange={(e) => setWindowN(e.target.value)}
-              hint="History before the baseline evaluates"
+              hint={t('alerts.rule.windowHint')}
             />
             <Field
-              label="Sensitivity (σ)"
+              label={t('alerts.rule.sensitivity')}
               type="number"
               value={sensitivity}
               onChange={(e) => setSensitivity(e.target.value)}
-              hint="Deviation in standard deviations"
+              hint={t('alerts.rule.sensitivityHint')}
             />
           </>
         )}
         <Select
-          label="Severity"
+          label={t('alerts.rule.severity')}
           value={severity}
           onChange={(e) => setSeverity(e.target.value as typeof severity)}
           options={[
-            { value: 'info', label: 'Info' },
-            { value: 'warning', label: 'Warning' },
-            { value: 'critical', label: 'Critical' },
+            { value: 'info', label: t('alerts.rule.severityInfo') },
+            { value: 'warning', label: t('alerts.rule.severityWarning') },
+            { value: 'critical', label: t('alerts.rule.severityCritical') },
           ]}
         />
         <Field
-          label="For N evaluations"
+          label={t('alerts.rule.forEvaluations')}
           type="number"
           value={forN}
           onChange={(e) => setForN(e.target.value)}
-          hint="Consecutive breaches before firing (debounce)"
+          hint={t('alerts.rule.forEvaluationsHint')}
         />
         <label className={styles.check}>
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />{' '}
-          Enabled
+          {t('alerts.rule.enabled')}
         </label>
         <Field
-          label="Renotify (seconds)"
+          label={t('alerts.rule.renotify')}
           type="number"
           value={renotify}
           onChange={(e) => setRenotify(e.target.value)}
-          hint="0 sends once per firing episode"
+          hint={t('alerts.rule.renotifyHint')}
         />
         <div className={styles.formSection}>
           <Select
-            label="Delivery channel"
+            label={t('alerts.rule.deliveryChannel')}
             value={channelType}
             onChange={(e) => setChannelType(e.target.value as typeof channelType)}
             options={[
-              { value: 'none', label: 'None' },
-              { value: 'webhook', label: 'Webhook' },
-              { value: 'email', label: 'Email' },
+              { value: 'none', label: t('alerts.rule.channelNone') },
+              { value: 'webhook', label: t('alerts.rule.channelWebhook') },
+              { value: 'email', label: t('alerts.rule.channelEmail') },
             ]}
           />
           {channelType === 'webhook' ? (
             <>
               <Field
-                label="Webhook URL"
+                label={t('alerts.rule.webhookUrl')}
                 value={channelURL}
                 onChange={(e) => setChannelURL(e.target.value)}
                 placeholder="https://hooks.example/alerts"
               />
               <Field
-                label="Webhook secret"
+                label={t('alerts.rule.webhookSecret')}
                 type="password"
                 value={channelSecret}
                 onChange={(e) => setChannelSecret(e.target.value)}
                 hint={
                   initialChannel?.secret === '***'
-                    ? 'The stored secret is redacted; leave *** to preserve it, or type a replacement.'
-                    : 'Optional HMAC signing key; never returned by the API.'
+                    ? t('alerts.rule.secretStoredHint')
+                    : t('alerts.rule.secretNewHint')
                 }
               />
             </>
           ) : null}
           {channelType === 'email' ? (
             <Field
-              label="Recipients"
+              label={t('alerts.rule.recipients')}
               value={recipients}
               onChange={(e) => setRecipients(e.target.value)}
               placeholder="ops@example.com, noc@example.com"
@@ -505,18 +511,18 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
                 disabled={testChannel.isPending || !canTestChannel()}
                 onClick={testCurrentChannel}
               >
-                Test channel
+                {t('alerts.rule.testChannel')}
               </Button>
-              <span className={styles.muted}>Secrets stay write-only; responses return redacted state.</span>
+              <span className={styles.muted}>{t('alerts.rule.secretsWriteOnly')}</span>
             </div>
           ) : null}
         </div>
         <div className={styles.actionsRow}>
           <Button type="submit" disabled={save.isPending}>
-            {rule ? 'Save changes' : 'Create rule'}
+            {rule ? t('alerts.rule.saveChanges') : t('alerts.rule.createRule')}
           </Button>
           <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
+            {t('alerts.rule.cancel')}
           </Button>
         </div>
       </form>

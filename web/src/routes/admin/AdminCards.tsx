@@ -16,6 +16,7 @@ import {
 import { ApiError } from '../../api/client'
 import { useKeys, useRotateKey, type KeyInfo } from '../../api/keys'
 import { useRemediations, useDecideRemediation, type Proposal } from '../../api/remediation'
+import { useI18n } from '../../i18n/useI18n'
 import { DateTime } from '../../time/DateTime'
 
 /** RemediationCard (S-EE5, ee): AI-proposed remediations awaiting a human
@@ -25,6 +26,7 @@ import { DateTime } from '../../time/DateTime'
  *  Unlicensed deployments answer 404 and the card renders NOTHING
  *  (hidden-unlicensed). */
 export function RemediationCard() {
+  const { t } = useI18n()
   const { data, isPending, isError, error } = useRemediations()
   const decide = useDecideRemediation()
 
@@ -35,14 +37,14 @@ export function RemediationCard() {
   const approvalsEnabled = data?.approvals_enabled ?? false
 
   const columns: Column<Proposal>[] = [
-    { key: 'title', header: 'Proposal', render: (p) => <strong>{p.title}</strong> },
-    { key: 'kind', header: 'Kind', render: (p) => <code>{p.kind}</code> },
+    { key: 'title', header: t('remediation.column.proposal'), render: (p) => <strong>{p.title}</strong> },
+    { key: 'kind', header: t('remediation.column.kind'), render: (p) => <code>{p.kind}</code> },
     {
       key: 'blast',
-      header: 'Blast radius',
+      header: t('remediation.column.blast'),
       render: (p) =>
         p.dry_run.blast_radius < 0 ? (
-          <Badge tone="warning">unknown</Badge>
+          <Badge tone="warning">{t('remediation.blast.unknown')}</Badge>
         ) : (
           <Badge tone={p.dry_run.blast_radius > 0 ? 'accent' : 'neutral'}>
             {p.dry_run.blast_radius}
@@ -51,24 +53,24 @@ export function RemediationCard() {
     },
     {
       key: 'state',
-      header: 'State',
+      header: t('remediation.column.state'),
       render: (p) =>
         p.state === 'proposed' ? (
-          <StatusDot tone="warning" label="Proposed" />
+          <StatusDot tone="warning" label={t('remediation.state.proposed')} />
         ) : p.state === 'approved' ? (
-          <StatusDot tone="success" label="Approved (not executed)" />
+          <StatusDot tone="success" label={t('remediation.state.approved')} />
         ) : p.state === 'rejected' ? (
-          <StatusDot tone="neutral" label="Rejected" />
+          <StatusDot tone="neutral" label={t('remediation.state.rejected')} />
         ) : (
-          <StatusDot tone="neutral" label="Applied (by operator)" />
+          <StatusDot tone="neutral" label={t('remediation.state.applied')} />
         ),
     },
     {
       key: 'actions',
-      header: 'Decision',
+      header: t('remediation.column.decision'),
       render: (p) =>
         p.state !== 'proposed' ? (
-          <span>{p.decided_by ? `by ${p.decided_by}` : '—'}</span>
+          <span>{p.decided_by ? t('remediation.decidedBy', { actor: p.decided_by }) : '—'}</span>
         ) : (
           <span className={styles.actions}>
             <Button
@@ -76,14 +78,14 @@ export function RemediationCard() {
               disabled={!approvalsEnabled || decide.isPending}
               onClick={() => decide.mutate({ id: p.id, decision: 'approve' })}
             >
-              Approve
+              {t('remediation.approve')}
             </Button>
             <Button
               variant="ghost"
               disabled={decide.isPending}
               onClick={() => decide.mutate({ id: p.id, decision: 'reject' })}
             >
-              Reject
+              {t('remediation.reject')}
             </Button>
           </span>
         ),
@@ -93,30 +95,31 @@ export function RemediationCard() {
   return (
     <Card>
       <CardHeader
-        title="AI remediation proposals"
-        description="The assistant PROPOSES remediations grounded in RCA + a topology what-if; a human decides. probectl never executes — Approve is a recorded, audited sign-off you carry out in your own change process."
+        title={t('remediation.card.title')}
+        description={t('remediation.card.description')}
       />
       <CardBody>
         {!approvalsEnabled ? (
           <p role="status" className={styles.editionsLede}>
-            <Badge tone="neutral">advisory-only</Badge> Approvals are disabled — proposals are
-            review-only until an operator enables them (
-            <code>PROBECTL_REMEDIATION_APPROVALS_ENABLED=true</code>).
+            <Badge tone="neutral">{t('remediation.advisoryBadge')}</Badge>{' '}
+            {t('remediation.advisoryMessage', {
+              env: 'PROBECTL_REMEDIATION_APPROVALS_ENABLED=true',
+            })}
           </p>
         ) : null}
         {isError ? (
-          <ErrorState description="Could not load remediation proposals." />
+          <ErrorState description={t('remediation.error')} />
         ) : (
           <Table
-            caption="Proposed remediations"
+            caption={t('remediation.table.caption')}
             columns={columns}
             rows={data?.items ?? []}
             rowKey={(p) => p.id}
             empty={
               <EmptyState
                 icon="admin"
-                title="No proposals"
-                description="The assistant files proposals here when it has an RCA-grounded remediation to suggest."
+                title={t('remediation.empty.title')}
+                description={t('remediation.empty.description')}
               />
             }
           />

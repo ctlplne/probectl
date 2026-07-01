@@ -19,13 +19,13 @@ import { formatInteger, formatMultiplier } from '../i18n/number'
  * error budgets, and multi-window burn rates per service/team. Definitions
  * are OpenSLO YAML (import/export via the API). */
 export function SLOsPage() {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const { data, isPending, isError } = useSLOs()
 
   const columns: Column<SLOStatus>[] = [
     {
       key: 'name',
-      header: 'SLO',
+      header: t('slo.column.slo'),
       render: (s) => (
         <div>
           <strong>{s.display_name || s.name}</strong>
@@ -36,27 +36,28 @@ export function SLOsPage() {
         </div>
       ),
     },
-    { key: 'objective', header: 'Objective', render: (s) => pct(s.objective, locale) },
+    { key: 'objective', header: t('slo.column.objective'), render: (s) => pct(s.objective, locale) },
     {
       key: 'attainment',
-      header: 'Attainment',
+      header: t('slo.column.attainment'),
       render: (s) =>
-        s.cold_start ? <Badge tone="neutral">cold start</Badge> : pct(s.attainment, locale),
+        s.cold_start ? <Badge tone="neutral">{t('slo.coldStart')}</Badge> : pct(s.attainment, locale),
     },
     {
       key: 'budget',
-      header: 'Error budget',
+      header: t('slo.column.errorBudget'),
       render: (s) => {
         if (s.cold_start) return '—'
         const remaining = Math.max(0, Math.min(1, s.error_budget_remaining))
+        const remainingText = pct(remaining, locale)
         const cls = remaining <= 0 ? styles.budgetGone : remaining < 0.25 ? styles.budgetLow : ''
         return (
           <div className={`${styles.budgetCell} ${cls}`}>
-            {pct(remaining, locale)} left
+            {t('slo.budget.left', { value: remainingText })}
             <div
               className={styles.budgetBar}
               role="img"
-              aria-label={`${pct(remaining, locale)} of the error budget remains`}
+              aria-label={t('slo.budget.aria', { value: remainingText })}
             >
               <div className={styles.budgetFill} style={{ width: `${remaining * 100}%` }} />
             </div>
@@ -66,7 +67,7 @@ export function SLOsPage() {
     },
     {
       key: 'burn',
-      header: 'Burn rates',
+      header: t('slo.column.burnRates'),
       render: (s) => (
         <div className={styles.burns}>
           {s.burn_rates.map((b) => (
@@ -77,41 +78,41 @@ export function SLOsPage() {
         </div>
       ),
     },
-    { key: 'events', header: 'Events', render: (s) => formatInteger(s.total_events, locale) },
+    { key: 'events', header: t('slo.column.events'), render: (s) => formatInteger(s.total_events, locale) },
   ]
 
   return (
     <Page
-      title="SLOs"
-      subtitle="Error budgets and burn rates over the network planes — OpenSLO in, OpenSLO out."
+      title={t('slo.page.title')}
+      subtitle={t('slo.page.subtitle')}
     >
       <Card>
         <CardHeader
-          title="Service-level objectives"
-          description="Multi-window burn rates (fast 1h/5m, medium 6h/30m, slow 3d/6h); breaches raise incident signals."
+          title={t('slo.card.title')}
+          description={t('slo.card.description')}
         />
         <CardBody>
           {isPending ? (
-            <LoadingState label="Loading SLOs…" />
+            <LoadingState label={t('slo.loading')} />
           ) : isError ? (
-            <ErrorState description="Could not load SLO statuses." />
+            <ErrorState description={t('slo.error')} />
           ) : !data?.slo_running ? (
             <EmptyState
               icon="slo"
-              title="SLO engine not wired"
-              description="The control plane started without the SLO engine."
+              title={t('slo.unwired.title')}
+              description={t('slo.unwired.description')}
             />
           ) : (
             <Table
-              caption="SLO statuses"
+              caption={t('slo.table.caption')}
               columns={columns}
               rows={data.items}
               rowKey={(s) => s.name}
               empty={
                 <EmptyState
                   icon="slo"
-                  title="No SLOs defined"
-                  description="Drop OpenSLO YAML definitions into PROBECTL_SLO_DIR to start tracking."
+                  title={t('slo.empty.title')}
+                  description={t('slo.empty.description')}
                 />
               }
             />
