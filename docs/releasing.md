@@ -31,6 +31,13 @@ binary's variables as it is linked) and surfaced at the `/version` HTTP endpoint
 and via `probectl-control version`. So a running binary can always tell you
 exactly which tag it was cut from.
 
+The core OpenAPI artifact follows the same product version: `info.version` in
+`internal/control/openapi.json` must match the repo-root `VERSION` exactly. The
+REST API major is carried by the URL namespace (`/v1/...`), so a client can read
+`info.version` as "which probectl release produced this schema" while using the
+path prefix to reason about API-major compatibility. `make openapi-gate` rejects
+release/spec drift before code generation or publishing.
+
 ## What a release publishes
 
 Pushing a `v*` tag runs `release.yml`, which publishes:

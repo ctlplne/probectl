@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "probectl control-plane API",
-    "version": "0.1.0",
+    "version": "0.4.0",
     "description": "Operational endpoints plus the versioned /v1 resource API. Protected /v1 routes resolve the tenant from the authenticated session/OIDC principal, then enforce the tenant boundary before RBAC/ABAC. The X-Probectl-Tenant header is a local dev-auth/test override only; release binaries do not accept it as an identity source."
   },
   "servers": [

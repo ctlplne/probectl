@@ -24,13 +24,24 @@ with open(spec) as f:
 version = str(doc.get("openapi", ""))
 if not version.startswith("3.1"):
     sys.exit(f"openapi gate: expected OpenAPI 3.1, got {version!r}")
+release_version = open("VERSION").read().strip()
+info_version = str((doc.get("info") or {}).get("version", "")).strip()
+if info_version != release_version:
+    sys.exit(
+        "openapi gate: core info.version "
+        f"({info_version!r}) must match VERSION ({release_version!r}); "
+        "the /v1 path carries the REST API major"
+    )
 paths = doc.get("paths") or {}
 if not paths:
     sys.exit("openapi gate: no paths documented")
 v1 = [p for p in paths if p.startswith("/v1/")]
 if not v1:
     sys.exit("openapi gate: no /v1 operations documented")
-print(f"   openapi {version}, {len(paths)} paths ({len(v1)} under /v1)")
+print(
+    f"   openapi {version}, info.version {info_version}, "
+    f"{len(paths)} paths ({len(v1)} under /v1)"
+)
 PY
 
 echo ">> openapi: generated-spec claim drift"
