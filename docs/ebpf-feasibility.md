@@ -225,10 +225,10 @@ more brittle code path than the C-library case, with real Go-version sensitivity
 
 **The decisions for the L7/TLS layer:** ship the C-library uprobe path
 (OpenSSL/BoringSSL/GnuTLS) first; treat **Go-TLS as an explicitly-scoped,
-separately-tested module** with a documented version-sensitivity matrix; and for
-stripped/static binaries with no resolvable symbols, fall back to **socket-layer
-(plaintext L7) parsing only** and mark the edge's TLS-L7 coverage as "unavailable"
-rather than silently missing it.
+post-GA / out-of-scope-for-GA module** with a documented version-sensitivity
+matrix and separate tests; and for stripped/static binaries with no resolvable
+symbols, fall back to **socket-layer (plaintext L7) parsing only** and mark the
+edge's TLS-L7 coverage as "unavailable" rather than silently missing it.
 
 ---
 
@@ -290,7 +290,7 @@ overhead test for the ring-buffer path — all documented in
 | D2 | **Ring buffer only** (the perf-buffer <5.8 fallback was considered, dropped) | lower overhead + ordering; one codebase; pre-5.8 reports unavailable |
 | D3 | **CO-RE + BTF**, graceful "unsupported" when BTF is absent (the automatic **BTFHub** fallback was deferred — the probe names it as the manual avenue) | portability across the distro matrix without per-kernel builds |
 | D4 | L3/L4 via **stable tracepoints** first, CO-RE struct reads where required | minimizes per-kernel offset risk |
-| D5 | **Go-TLS is a separate sub-module**, not an OpenSSL variant | Go ABI + uretprobe incompatibility |
+| D5 | **Go-TLS is a separate post-GA sub-module**, not an OpenSSL variant | Go ABI + uretprobe incompatibility |
 | D6 | **Socket-layer fallback** for stripped/static binaries | uprobe symbol resolution will fail there |
 | D7 | **CI = userspace unit tests + recorded fixtures**; privileged integration test behind a BTF-kernel runner | no-kernel CI is the norm |
 

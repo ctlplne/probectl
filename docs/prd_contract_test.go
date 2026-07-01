@@ -88,14 +88,15 @@ func TestPRDAlertOpsContractMatchesPersistenceImplementation(t *testing.T) {
 
 // TestPRDEBPFContractMatchesIPv6Implementation keeps the GA steering list from
 // asking for IPv6 L4 capture after the BPF program, userspace decoder, and
-// live-kernel smoke already cover it. Go crypto/tls remains an explicit L7
-// strategy follow-up, not a hidden L4 IPv6 gap.
+// live-kernel smoke already cover it. Go crypto/tls L7 plaintext capture is a
+// disclosed post-GA module, not a hidden F11 GA promise.
 func TestPRDEBPFContractMatchesIPv6Implementation(t *testing.T) {
 	prd := readPRDv1(t)
 
 	for _, stale := range []string{
 		"measured IPv4-only blind spot",
 		"IPv6 capture (blind spot currently *measured*",
+		"Remaining GA steering is the Go-TLS L7 strategy decision",
 	} {
 		if strings.Contains(prd, stale) {
 			t.Fatalf("probectl-PRD-v1.0.md still contains stale eBPF contract wording %q", stale)
@@ -108,7 +109,8 @@ func TestPRDEBPFContractMatchesIPv6Implementation(t *testing.T) {
 		"internal/ebpf/bpf/l4flow.bpf.c",
 		"internal/ebpf/l4event.go",
 		"internal/ebpf/live_smoke_ebpf_test.go",
-		"Remaining GA steering is the Go-TLS L7 strategy decision",
+		"Go `crypto/tls` plaintext capture is explicitly post-GA/out-of-scope for GA",
+		"C-library TLS uprobes default-off/consent-gated/redacted",
 	} {
 		if !strings.Contains(prd, want) {
 			t.Fatalf("probectl-PRD-v1.0.md missing eBPF IPv6/Go-TLS contract wording %q", want)

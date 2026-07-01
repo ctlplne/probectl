@@ -202,8 +202,10 @@ l7_capture_redaction: headers       # bodies and credential header values zeroed
   the system TLS libraries (OpenSSL, BoringSSL, GnuTLS). Go programs ship their own
   TLS, so a Go process's L7 *plaintext* is not captured today. Its connections and
   service-map edges are still seen — only the decoded application calls are out of
-  scope. Stripped or statically-linked binaries with no resolvable symbols fall
-  back to cleartext-only capture for the same reason.
+  scope. Go `crypto/tls` plaintext capture is explicitly **post-GA / out of scope
+  for GA**, because the safe version needs a separately tested Go-runtime module.
+  Stripped or statically-linked binaries with no resolvable symbols fall back to
+  cleartext-only capture for the same reason.
 - **Flow export is plaintext UDP with no authentication, by protocol design.**
   Deploy the collector adjacent to its exporters (management network or same site)
   so datagrams never cross an untrusted segment. Every datagram is treated as

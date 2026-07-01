@@ -218,9 +218,10 @@ not papered over:
   ship their own TLS — so a Go process's L7 *plaintext* is **not captured**. This
   is a known gap (detailed in [`ebpf-feasibility.md`](ebpf-feasibility.md)): the
   established workaround disassembles the Go binary for `RET` offsets and tracks
-  the goroutine ABI, a meaningfully more brittle path that's roadmapped
-  separately. L4 flow and the service map still see Go processes fine — only their
-  L7 plaintext is out of scope.
+  the goroutine ABI, a meaningfully more brittle path. That module is explicitly
+  **post-GA / out of scope for GA**; do not count Go `crypto/tls` plaintext as
+  delivered L7 coverage. L4 flow and the service map still see Go processes fine
+  — only their L7 plaintext is out of scope.
 
 ### TLS-library uprobe coverage
 
@@ -229,7 +230,7 @@ not papered over:
 | OpenSSL | `SSL_write` / `SSL_read` (read at return) | ✅ |
 | BoringSSL | same `SSL_*` API | ✅ if symbols resolvable / ⚠️ if stripped/static |
 | GnuTLS | `gnutls_record_send` / `gnutls_record_recv` | ✅ (attaches the same way) |
-| **Go `crypto/tls`** | no libssl — pure Go; `uretprobe` unsafe on Go | ⚠️ **separate strategy** (ret-offset disassembly + goroutine tracking — see [`ebpf-feasibility.md`](ebpf-feasibility.md)) |
+| **Go `crypto/tls`** | no libssl — pure Go; `uretprobe` unsafe on Go | ⛔ **post-GA / out of scope for GA** (ret-offset disassembly + goroutine tracking — see [`ebpf-feasibility.md`](ebpf-feasibility.md)) |
 | Stripped / static, no symbols | — | ❌ socket-layer cleartext only |
 
 Two limits carry over from the feasibility study: **stripped or statically-linked

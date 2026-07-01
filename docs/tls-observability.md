@@ -124,10 +124,11 @@ things:
   functions. It is
   [built, not yet served](limitations.md#built-not-yet-served-edges): not wired
   into the posture pipeline yet — and when it is, it carries a structural blind
-  spot: a **Go server terminates TLS inside the Go runtime**, not in a system TLS
-  library probectl's uprobes attach to, so a Go server's TLS stays invisible to
-  the eBPF path until Go-runtime uprobes land (the same Go-TLS limitation described in
-  [`ebpf-feasibility.md`](ebpf-feasibility.md)).
+	  spot: a **Go server terminates TLS inside the Go runtime**, not in a system TLS
+	  library probectl's uprobes attach to, so a Go server's TLS stays invisible to
+	  the eBPF path. Go `crypto/tls` plaintext capture is explicitly post-GA / out of
+	  scope for GA (the same Go-TLS limitation described in
+	  [`ebpf-feasibility.md`](ebpf-feasibility.md)).
 
 The synthetic path is unaffected by either caveat: anything you point an HTTPS
 test at lands in the inventory.

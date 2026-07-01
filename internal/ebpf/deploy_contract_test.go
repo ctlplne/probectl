@@ -418,7 +418,7 @@ func TestEBPFCaptureFollowupContract(t *testing.T) {
 		"`l4flow` captures IPv4 and IPv6 TCP sockets",
 		"`filtered_non_ipv4_total` flush field",
 		"Go programs don't use libssl",
-		"separate strategy",
+		"post-GA / out of scope for GA",
 	} {
 		if !strings.Contains(agentDoc, want) {
 			t.Errorf("docs/ebpf-agent.md missing capture limitation contract %q (TRACE-OMIT-F11)", want)
@@ -426,7 +426,7 @@ func TestEBPFCaptureFollowupContract(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Go-TLS as an explicitly-scoped",
-		"separately-tested module",
+		"post-GA / out-of-scope-for-GA module",
 		"ret-offset disassembly + goroutine tracking",
 		"socket-layer",
 		"plaintext L7",

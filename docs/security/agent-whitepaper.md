@@ -96,7 +96,8 @@ The L7 probe works by attaching to supported system TLS libraries
 *process itself* holds plaintext, which is why no key extraction or traffic
 decryption is involved. The Go-TLS limitation is disclosed, not hidden:
 `crypto/tls` does not use these C TLS libraries, so Go processes are outside L7
-capture today (`docs/ebpf-feasibility.md` §7).
+capture today. Go `crypto/tls` plaintext capture is explicitly post-GA / out of
+scope for GA (`docs/ebpf-feasibility.md` §7).
 
 ## 5. Kernel compatibility
 
