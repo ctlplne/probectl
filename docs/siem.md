@@ -20,6 +20,14 @@ which maps `audit.Event` + `incident.Signal` onto the canonical `siem.Event`.
 SIEM, so it is explicit and config-gated — off unless `PROBECTL_SIEM_ENABLED=true`
 (sovereignty / no-phone-home).
 
+**Inbound syslog is a separate collection path.** probectl can also accept
+device/security syslog as an input for correlation, but that does not make it the
+operator's log-search SIEM. The inbound receiver is tenant-bound by source
+configuration, parses RFC 5424 and RFC 3164 lines as untrusted input, rate-limits
+each source, stores provenance with the normalized event, and requires either an
+HMAC signature or a TLS client-certificate subject. The listener is TLS-only:
+missing TLS config fails closed.
+
 ## What is forwarded
 
 | Source | Category | Severity | Notes |
@@ -125,6 +133,11 @@ embedded bearer tokens or `token=...` / `password=...`-style secrets.
   another's id.
 - **Secrets** — the ingest token is runtime config; inject it from a secret
   manager, never commit it, and it is never logged.
+- **Syslog in** — inbound syslog is stamped with the tenant from the registered
+  source, not from the payload. The source must authenticate with
+  `sha256=<hmac>` over the exact line or with a configured TLS client subject;
+  malformed, oversized, unsigned, forged, or rate-limited messages are rejected
+  before storage.
 
 ## Configuration
 

@@ -77,6 +77,14 @@ backoff. Exported audit events are scrubbed of secrets and personally
 identifiable information first — the SIEM gets the security record, never a copy
 of the credentials inside it.
 
+**Syslog collection brings device events in without becoming a SIEM.** For
+network gear that emits syslog, probectl accepts RFC 5424 and RFC 3164 over a
+TLS-only listener, authenticates each configured source with an HMAC signature or
+TLS client-certificate subject, stamps the tenant from the source credential, and
+keeps parser provenance on the normalized event. That gives incidents another
+correlation signal while leaving long-term search, retention, and SOC workflows
+in the operator's SIEM.
+
 **On-call and ITSM connectors mirror each incident outward.** When a signal opens
 a *new* incident, probectl pages, posts, and opens a ticket on each of the
 tenant's connectors, and records the external reference (ticket id, page dedup

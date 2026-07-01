@@ -1514,6 +1514,15 @@ redacted** (built-in denylist + `PROBECTL_SIEM_REDACT_KEYS`, followed by the
 core governance PII scanner over actor/action/target/outcome and
 non-denylisted values).
 
+Inbound syslog collection is a separate input path, not SIEM export. A deployment
+profile that enables it registers tenant-bound sources with a source name,
+optional address allow-list, either an HMAC secret or TLS client-certificate
+subject, a per-source rate limit, and a max line size. The receiver accepts RFC
+5424 and RFC 3164 over TLS only, rejects malformed or oversized lines, stamps the
+tenant from the registered source instead of trusting the payload, and records
+event provenance (`source.name`, `auth.method`, wire format, source address) for
+incident correlation.
+
 ### On-call + ITSM integration
 
 ITSM (IT service management) tooling is where operations work is tracked —

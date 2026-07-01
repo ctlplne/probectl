@@ -190,6 +190,177 @@ func TestPreset(t *testing.T) {
 	}
 }
 
+func TestSyslogIngestReplaysRFC5424AndRFC3164PerTenant(t *testing.T) {
+	now := time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC)
+	store := NewMemorySyslogStore(10)
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID: "tenant-a",
+		Now:      func() time.Time { return now },
+		Sources: []SyslogSource{
+			{
+				Name:       "edge-fw",
+				Address:    "192.0.2.10",
+				HMACSecret: "edge-secret",
+			},
+			{
+				Name:             "access-switch",
+				Address:          "198.51.100.3",
+				TLSClientSubject: "CN=access-switch",
+			},
+		},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rfc5424 := []byte(`<34>1 2026-06-30T13:00:00Z edge-1 firewall 731 link_down [probectlSrc@32473 ifIndex="7" role="wan"] uplink down on Gi0/1`)
+	event, err := receiver.Record(context.Background(), SyslogEnvelope{
+		Line:          rfc5424,
+		SourceAddress: "192.0.2.10:6514",
+		Signature:     SyslogSignature("edge-secret", rfc5424),
+		ReceivedAt:    now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.TenantID != "tenant-a" || event.Source != SourceSyslog || event.SourceName != "edge-fw" {
+		t.Fatalf("tenant/source stamping failed: %+v", event)
+	}
+	if event.Format != "rfc5424" || event.Facility != 4 || event.Severity != 2 {
+		t.Fatalf("rfc5424 pri normalization failed: %+v", event)
+	}
+	if event.Hostname != "edge-1" || event.AppName != "firewall" || event.ProcID != "731" || event.MsgID != "link_down" {
+		t.Fatalf("rfc5424 header normalization failed: %+v", event)
+	}
+	if event.StructuredData == "" || event.Message != "uplink down on Gi0/1" {
+		t.Fatalf("rfc5424 body normalization failed: %+v", event)
+	}
+	if event.AuthMethod != "hmac-sha256" || event.Provenance["auth.method"] != "hmac-sha256" {
+		t.Fatalf("signature provenance missing: %+v", event)
+	}
+
+	rfc3164 := []byte(`<13>Jun 30 13:00:00 access-1 snmpd[123]: linkUp ifIndex=7`)
+	event, err = receiver.Record(context.Background(), SyslogEnvelope{
+		Line:             rfc3164,
+		SourceAddress:    "198.51.100.3:6514",
+		TLSClientSubject: "CN=access-switch",
+		ReceivedAt:       now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if event.Format != "rfc3164" || event.Facility != 1 || event.Severity != 5 {
+		t.Fatalf("rfc3164 pri normalization failed: %+v", event)
+	}
+	if event.Timestamp.Year() != 2026 || event.Hostname != "access-1" || event.AppName != "snmpd" || event.ProcID != "123" {
+		t.Fatalf("rfc3164 header normalization failed: %+v", event)
+	}
+	if event.AuthMethod != "tls-client-cert" || event.AuthPrincipal != "CN=access-switch" {
+		t.Fatalf("tls provenance missing: %+v", event)
+	}
+
+	if got := len(store.ListSyslogEvents("tenant-a")); got != 2 {
+		t.Fatalf("tenant-a syslog rows = %d, want 2", got)
+	}
+	if got := len(store.ListSyslogEvents("tenant-b")); got != 0 {
+		t.Fatalf("tenant-b syslog rows = %d, want 0", got)
+	}
+}
+
+func TestSyslogIngestSignatureAndRateLimit(t *testing.T) {
+	now := time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC)
+	line := []byte(`<34>1 2026-06-30T13:00:00Z edge-1 firewall - link_down - first`)
+
+	unsignedStore := NewMemorySyslogStore(10)
+	unsigned, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID: "tenant-a",
+		Now:      func() time.Time { return now },
+		Sources:  []SyslogSource{{Name: "edge-fw", HMACSecret: "edge-secret"}},
+	}, unsignedStore)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unsigned.Record(context.Background(), SyslogEnvelope{Line: line, Signature: "sha256=00", ReceivedAt: now}); !errors.Is(err, ErrSyslogUnauthenticated) {
+		t.Fatalf("forged signature err = %v, want unauthenticated", err)
+	}
+	if got := len(unsignedStore.ListSyslogEvents("tenant-a")); got != 0 {
+		t.Fatalf("forged syslog stored %d rows", got)
+	}
+
+	store := NewMemorySyslogStore(10)
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID: "tenant-a",
+		Now:      func() time.Time { return now },
+		Sources: []SyslogSource{{
+			Name:            "edge-fw",
+			HMACSecret:      "edge-secret",
+			RateLimit:       2,
+			RateLimitWindow: time.Hour,
+		}},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := receiver.Record(context.Background(), SyslogEnvelope{
+			Line:       line,
+			Signature:  SyslogSignature("edge-secret", line),
+			ReceivedAt: now.Add(time.Duration(i) * time.Second),
+		}); err != nil {
+			t.Fatalf("accepted syslog %d: %v", i, err)
+		}
+	}
+	if _, err := receiver.Record(context.Background(), SyslogEnvelope{
+		Line:       line,
+		Signature:  SyslogSignature("edge-secret", line),
+		ReceivedAt: now.Add(2 * time.Second),
+	}); !errors.Is(err, ErrSyslogRateLimited) {
+		t.Fatalf("third syslog err = %v, want rate limited", err)
+	}
+	if got := len(store.ListSyslogEvents("tenant-a")); got != 2 {
+		t.Fatalf("rate limited store rows = %d, want 2", got)
+	}
+}
+
+func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
+	store := NewMemorySyslogStore(10)
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID:     "tenant-a",
+		MaxLineBytes: 32,
+		Sources:      []SyslogSource{{Name: "edge-fw", HMACSecret: "edge-secret"}},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	malformed := []byte(`<999>1 2026-06-30T13:00:00Z edge app - msg - bad`)
+	if _, err := receiver.Record(context.Background(), SyslogEnvelope{
+		Line:      malformed,
+		Signature: SyslogSignature("edge-secret", malformed),
+	}); !errors.Is(err, ErrSyslogParse) {
+		t.Fatalf("malformed pri err = %v, want parse", err)
+	}
+	oversized := []byte(`<34>1 2026-06-30T13:00:00Z edge app - msg - too-long`)
+	if _, err := receiver.Record(context.Background(), SyslogEnvelope{
+		Line:      oversized,
+		Signature: SyslogSignature("edge-secret", oversized),
+	}); !errors.Is(err, ErrSyslogParse) {
+		t.Fatalf("oversized err = %v, want parse", err)
+	}
+	if got := len(store.ListSyslogEvents("tenant-a")); got != 0 {
+		t.Fatalf("malformed syslog stored %d rows", got)
+	}
+	if err := receiver.ListenTLS(context.Background(), "127.0.0.1:0", nil); err == nil || !strings.Contains(err.Error(), "TLS config required") {
+		t.Fatalf("nil TLS config should fail closed, got %v", err)
+	}
+	if _, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID: "tenant-a",
+		Sources:  []SyslogSource{{Name: "plain-source"}},
+	}, NewMemorySyslogStore(1)); err == nil {
+		t.Fatal("source without signature or TLS client subject should fail closed")
+	}
+}
+
 // fakeDoer captures the last request and returns a canned status.
 type fakeDoer struct {
 	last   *http.Request
