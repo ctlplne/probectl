@@ -4,6 +4,7 @@ package tenantcrypto
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -70,6 +71,30 @@ func TestLoadExistingKeyFileDoesNotGenerate(t *testing.T) {
 	}
 }
 
+func TestLoadExistingKeyFileReadsValidKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "envelope.key")
+	kek := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := os.WriteFile(path, []byte("  "+kek+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadExistingKeyFile(path)
+	if err != nil {
+		t.Fatalf("load existing key: %v", err)
+	}
+	if got != kek {
+		t.Fatalf("loaded key = %q, want trimmed %q", got, kek)
+	}
+}
+
+func TestLoadKeyFileRejectsEmptyPath(t *testing.T) {
+	if _, _, err := LoadOrGenerateKeyFile(""); err == nil {
+		t.Fatal("LoadOrGenerateKeyFile must reject an empty path")
+	}
+	if _, err := LoadExistingKeyFile(""); err == nil {
+		t.Fatal("LoadExistingKeyFile must reject an empty path")
+	}
+}
+
 // A corrupt/truncated key file must REFUSE (fail closed), not seal weakly.
 func TestLoadKeyFileRejectsMalformedAtRest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "envelope.key")
@@ -84,5 +109,8 @@ func TestLoadKeyFileRejectsMalformedAtRest(t *testing.T) {
 	}
 	if _, _, err := LoadOrGenerateKeyFile(path); err == nil {
 		t.Fatal("non-base64 KEK must be rejected")
+	}
+	if _, err := LoadExistingKeyFile(path); err == nil {
+		t.Fatal("LoadExistingKeyFile must reject malformed key material")
 	}
 }

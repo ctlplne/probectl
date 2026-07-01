@@ -97,6 +97,33 @@ func TestFailSafeUnknownScheme(t *testing.T) {
 	}
 }
 
+func TestSchemeHelpersAndAADBinding(t *testing.T) {
+	defer Reset()
+	Reset()
+
+	if got := (ErrUnknownScheme{Scheme: "tk1"}).Error(); !strings.Contains(got, "tk1") || !strings.Contains(got, "failing safe") {
+		t.Fatalf("unknown-scheme error should name the scheme and fail-safe posture: %q", got)
+	}
+	if HasScheme("dv1:dep:abc:def") {
+		t.Fatal("unregistered dv1 must not report as sealed by an available scheme")
+	}
+
+	SetPrimary(testSealer(t, "dep"))
+	if !HasScheme("dv1:dep:abc:def") {
+		t.Fatal("registered dv1 value should report as sealed")
+	}
+	for _, stored := range []string{"plain", "user:pass", "tk1:1:abc"} {
+		if HasScheme(stored) {
+			t.Fatalf("%q must not report as sealed by an available scheme", stored)
+		}
+	}
+
+	got := BindAAD("tenant-a", []byte("alert"))
+	if string(got) != "tenant:tenant-a:alert" {
+		t.Fatalf("BindAAD = %q, want tenant-bound prefix", got)
+	}
+}
+
 func TestOpenerChainAcrossPrimaryChange(t *testing.T) {
 	defer Reset()
 	Reset()
@@ -187,6 +214,28 @@ func TestDeploymentEnvelopeRewrapMovesOldKeyIDToActive(t *testing.T) {
 	}
 }
 
+func TestDeploymentEnvelopeRewrapRejectsNonDV1AndKeylessOutput(t *testing.T) {
+	defer Reset()
+	Reset()
+	ctx := context.Background()
+
+	if _, err := RewrapDeploymentEnvelope(ctx, "tnA", "plain", nil); err == nil || !strings.Contains(err.Error(), "not a dv1") {
+		t.Fatalf("non-dv1 rewrap must fail closed, got %v", err)
+	}
+
+	dep := testSealer(t, "old")
+	SetPrimary(dep)
+	oldStored, err := Seal(ctx, "tnA", []byte("old secret"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetPrimary(nil) // opener remains, but new seals would be plaintext.
+	AddOpener(dep)
+	if _, err := RewrapDeploymentEnvelope(ctx, "tnA", oldStored, nil); err == nil || !strings.Contains(err.Error(), "did not produce a dv1") {
+		t.Fatalf("rewrap must refuse keyless/plaintext output, got %v", err)
+	}
+}
+
 func TestDestroyKeysWithoutDestroyer(t *testing.T) {
 	defer Reset()
 	Reset()
@@ -194,6 +243,27 @@ func TestDestroyKeysWithoutDestroyer(t *testing.T) {
 	n, supported, err := DestroyKeys(context.Background(), "tnA")
 	if err != nil || supported || n != 0 {
 		t.Fatalf("deployment sealer must report unsupported: n=%d supported=%v err=%v", n, supported, err)
+	}
+}
+
+type destroyerSealer struct {
+	*EnvelopeSealer
+	n   int
+	err error
+}
+
+func (s destroyerSealer) DestroyKeys(context.Context, string) (int, error) {
+	return s.n, s.err
+}
+
+func TestDestroyKeysWithDestroyer(t *testing.T) {
+	defer Reset()
+	Reset()
+	wantErr := errors.New("kms offline")
+	SetPrimary(destroyerSealer{EnvelopeSealer: testSealer(t, "dep"), n: 2, err: wantErr})
+	n, supported, err := DestroyKeys(context.Background(), "tnA")
+	if !supported || n != 2 || !errors.Is(err, wantErr) {
+		t.Fatalf("destroyer result = n=%d supported=%v err=%v, want n=2 supported err", n, supported, err)
 	}
 }
 
