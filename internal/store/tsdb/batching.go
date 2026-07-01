@@ -54,6 +54,9 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 	if len(series) == 0 {
 		return nil
 	}
+	if err := ValidateTenantSeries(series); err != nil {
+		return err
+	}
 	for len(series) > 0 {
 		b.mu.Lock()
 		if b.batch == nil {
@@ -84,6 +87,23 @@ func (b *BatchingWriter) Write(ctx context.Context, series []Series) error {
 		}
 	}
 	return nil
+}
+
+// WriteGlobal forwards explicit non-tenant control-plane metrics to an
+// underlying GlobalWriter. These low-volume series do not need batching, and
+// bypassing the tenant-owned queue keeps the escape hatch visible.
+func (b *BatchingWriter) WriteGlobal(ctx context.Context, series []Series) error {
+	if len(series) == 0 {
+		return nil
+	}
+	if err := ValidateGlobalSeries(series); err != nil {
+		return err
+	}
+	gw, ok := b.w.(GlobalWriter)
+	if !ok {
+		return ErrGlobalWriterUnsupported
+	}
+	return gw.WriteGlobal(ctx, series)
 }
 
 // batchCancelGrace is how long Write waits for an in-flight shared batch to

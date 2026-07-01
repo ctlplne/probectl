@@ -4,11 +4,27 @@ package cluster
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
+
+type clusterGlobalOnlyWriter struct {
+	series []tsdb.Series
+}
+
+func (w *clusterGlobalOnlyWriter) Write(context.Context, []tsdb.Series) error {
+	return errors.New("tenant Write called for cluster global metrics")
+}
+
+func (w *clusterGlobalOnlyWriter) WriteGlobal(_ context.Context, s []tsdb.Series) error {
+	w.series = append(w.series, s...)
+	return nil
+}
+
+func (w *clusterGlobalOnlyWriter) Close() error { return nil }
 
 // TestWriteSeries: cluster accounting lands in the TSDB as region-labeled
 // series — the multi-region observability leg.
@@ -93,5 +109,23 @@ func TestRunRefreshesInitial(t *testing.T) {
 	<-done
 	if ok, _ := m.WriterUsable(); ok {
 		t.Fatal("Run must perform an immediate initial refresh")
+	}
+}
+
+func TestWriteSeriesUsesExplicitGlobalWriter(t *testing.T) {
+	w := &clusterGlobalOnlyWriter{}
+	m := NewManager(Topology{Region: "us-east"}, &fakeProbe{p: Probe{Epoch: 1}}, nil)
+	m.Refresh(context.Background())
+
+	if err := WriteSeries(context.Background(), w, m); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.series) == 0 {
+		t.Fatal("cluster metrics did not reach the explicit global writer")
+	}
+	for _, s := range w.series {
+		if _, ok := s.Labels[tsdb.TenantLabel]; ok {
+			t.Fatalf("cluster global metric carried tenant_id: %+v", s)
+		}
 	}
 }

@@ -32,6 +32,24 @@ func (c *countingWriter) Write(_ context.Context, s []Series) error {
 }
 func (c *countingWriter) Close() error { return nil }
 
+type globalCountingWriter struct {
+	countingWriter
+	globalCalls  int
+	globalSeries int
+}
+
+func (g *globalCountingWriter) WriteGlobal(_ context.Context, s []Series) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.globalCalls++
+	g.globalSeries += len(s)
+	return nil
+}
+
+func tenantSeries(metric string) Series {
+	return Series{Metric: metric, Labels: map[string]string{TenantLabel: "t"}, Value: 1, TimeMillis: 1}
+}
+
 // blockingUnderWriter holds a write open until released, recording call count.
 type blockingUnderWriter struct {
 	release chan struct{}
@@ -64,7 +82,7 @@ func TestBatchingWriterCanceledCallerSeesRealOutcomeNoDoubleWrite(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	errc := make(chan error, 1)
 	go func() {
-		errc <- bw.Write(ctx, []Series{{Metric: "m", Value: 1, TimeMillis: 1}})
+		errc <- bw.Write(ctx, []Series{tenantSeries("m")})
 	}()
 
 	// Let the size-triggered flush start (it blocks inside the under-writer).
@@ -106,7 +124,7 @@ func TestBatchingWriterCoalesces(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := bw.Write(context.Background(), []Series{{Metric: "m", Value: 1, TimeMillis: 1}}); err == nil {
+			if err := bw.Write(context.Background(), []Series{tenantSeries("m")}); err == nil {
 				oks.Add(1)
 			}
 		}()
@@ -132,7 +150,9 @@ func TestBatchingWriterSizeTrigger(t *testing.T) {
 	under := &countingWriter{}
 	bw := NewBatchingWriter(under, 3, time.Hour) // huge wait → only size can flush
 	done := make(chan error, 1)
-	go func() { done <- bw.Write(context.Background(), []Series{{}, {}, {}}) }()
+	go func() {
+		done <- bw.Write(context.Background(), []Series{tenantSeries("a"), tenantSeries("b"), tenantSeries("c")})
+	}()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -148,7 +168,8 @@ func TestBatchingWriterSplitsSingleLargeWrite(t *testing.T) {
 	bw := NewBatchingWriter(under, 3, time.Hour)
 	series := make([]Series, 9)
 	for i := range series {
-		series[i] = Series{Metric: "m", Value: float64(i)}
+		series[i] = tenantSeries("m")
+		series[i].Value = float64(i)
 	}
 	if err := bw.Write(context.Background(), series); err != nil {
 		t.Fatal(err)
@@ -173,7 +194,40 @@ func TestBatchingWriterSplitsSingleLargeWrite(t *testing.T) {
 func TestBatchingWriterPropagatesError(t *testing.T) {
 	under := &countingWriter{failNext: true}
 	bw := NewBatchingWriter(under, 500, 10*time.Millisecond)
-	if err := bw.Write(context.Background(), []Series{{Metric: "m"}}); err == nil {
+	if err := bw.Write(context.Background(), []Series{tenantSeries("m")}); err == nil {
 		t.Fatal("a failed flush must surface to the caller for DLQ attribution")
+	}
+}
+
+func TestBatchingWriterRejectsUnlabeledTenantSeries(t *testing.T) {
+	under := &countingWriter{}
+	bw := NewBatchingWriter(under, 500, 10*time.Millisecond)
+	err := bw.Write(context.Background(), []Series{{Metric: "m", Value: 1}})
+	if !errors.Is(err, ErrTenantRequired) {
+		t.Fatalf("Write without tenant_id = %v, want ErrTenantRequired", err)
+	}
+	under.mu.Lock()
+	defer under.mu.Unlock()
+	if under.calls != 0 {
+		t.Fatalf("underlying writer called for rejected series: %d", under.calls)
+	}
+}
+
+func TestBatchingWriterGlobalPathBypassesTenantQueue(t *testing.T) {
+	under := &globalCountingWriter{}
+	bw := NewBatchingWriter(under, 500, 10*time.Millisecond)
+	if err := bw.WriteGlobal(context.Background(), []Series{{Metric: "probectl_self_uptime_seconds", Value: 1}}); err != nil {
+		t.Fatalf("WriteGlobal: %v", err)
+	}
+	if err := bw.WriteGlobal(context.Background(), []Series{{Metric: "probe_up", Labels: map[string]string{TenantLabel: "t"}, Value: 1}}); !errors.Is(err, ErrGlobalTenantLabel) {
+		t.Fatalf("WriteGlobal tenant-labeled series = %v, want ErrGlobalTenantLabel", err)
+	}
+	under.mu.Lock()
+	defer under.mu.Unlock()
+	if under.globalCalls != 1 || under.globalSeries != 1 {
+		t.Fatalf("global path calls/series = %d/%d, want 1/1", under.globalCalls, under.globalSeries)
+	}
+	if under.calls != 0 {
+		t.Fatalf("global path should not use tenant Write queue, calls=%d", under.calls)
 	}
 }

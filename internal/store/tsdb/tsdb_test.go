@@ -4,8 +4,53 @@ package tsdb
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
+
+func TestMemoryWriteRejectsUnlabeledTenantSeries(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	tests := []Series{
+		{Metric: "probe_up", Labels: nil, Value: 1},
+		{Metric: "probe_up", Labels: map[string]string{}, Value: 1},
+		{Metric: "probe_up", Labels: map[string]string{TenantLabel: ""}, Value: 1},
+	}
+	for _, s := range tests {
+		if err := m.Write(ctx, []Series{s}); !errors.Is(err, ErrTenantRequired) {
+			t.Fatalf("Write(%+v) error = %v, want ErrTenantRequired", s, err)
+		}
+	}
+	if got := m.Len(); got != 0 {
+		t.Fatalf("rejected unlabeled writes must not retain samples: len=%d", got)
+	}
+}
+
+func TestPrometheusWriteRejectsUnlabeledBeforeNetwork(t *testing.T) {
+	p := NewPrometheus("http://127.0.0.1:1")
+	err := p.Write(context.Background(), []Series{{Metric: "probe_up", Labels: nil, Value: 1}})
+	if !errors.Is(err, ErrTenantRequired) {
+		t.Fatalf("prometheus Write without tenant_id = %v, want ErrTenantRequired", err)
+	}
+}
+
+func TestExplicitGlobalWriterPath(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	global := []Series{{Metric: "probectl_self_goroutines", Labels: map[string]string{}, Value: 9}}
+	if err := m.Write(ctx, global); !errors.Is(err, ErrTenantRequired) {
+		t.Fatalf("tenant Write for global series = %v, want ErrTenantRequired", err)
+	}
+	if err := WriteGlobal(ctx, m, global); err != nil {
+		t.Fatalf("WriteGlobal: %v", err)
+	}
+	if got := m.Query("probectl_self_goroutines", nil); len(got) != 1 || got[0].Value != 9 {
+		t.Fatalf("global series not retained via explicit path: %+v", got)
+	}
+	if err := WriteGlobal(ctx, m, []Series{{Metric: "probe_up", Labels: map[string]string{TenantLabel: "t1"}, Value: 1}}); !errors.Is(err, ErrGlobalTenantLabel) {
+		t.Fatalf("WriteGlobal with tenant_id = %v, want ErrGlobalTenantLabel", err)
+	}
+}
 
 func TestMemoryWriteQuery(t *testing.T) {
 	m := NewMemory()
@@ -73,24 +118,40 @@ func TestNewModes(t *testing.T) {
 	}
 }
 
-// TestMemoryDeleteTenant (S-T5): tenant-labeled series are removed in place;
-// other tenants' series survive; a re-delete reads zero (verification).
+// TestMemoryDeleteTenant (S-T5): every tenant-labeled series for the tenant is
+// removed in place; other tenants and explicit global metrics survive; a
+// re-delete reads zero (verification).
 func TestMemoryDeleteTenant(t *testing.T) {
 	m := NewMemory()
-	_ = m.Write(context.Background(), []Series{
+	ctx := context.Background()
+	if err := m.Write(ctx, []Series{
 		{Metric: "probe_rtt", Labels: map[string]string{"tenant_id": "tnA"}, Value: 1},
 		{Metric: "probe_rtt", Labels: map[string]string{"tenant_id": "tnA"}, Value: 2},
+		{Metric: "probe_up", Labels: map[string]string{"tenant_id": "tnA"}, Value: 1},
 		{Metric: "probe_rtt", Labels: map[string]string{"tenant_id": "tnB"}, Value: 3},
-		{Metric: "probe_up", Labels: nil, Value: 1}, // unlabeled survives too
-	})
-	n, err := m.DeleteTenant(context.Background(), "tnA")
-	if err != nil || n != 2 {
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteGlobal(ctx, m, []Series{{Metric: "probectl_self_goroutines", Labels: nil, Value: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := m.DeleteTenant(ctx, "tnA")
+	if err != nil || n != 3 {
 		t.Fatalf("delete: n=%d err=%v", n, err)
 	}
-	if n, _ := m.DeleteTenant(context.Background(), "tnA"); n != 0 {
+	if got := m.Query("probe_rtt", map[string]string{"tenant_id": "tnA"}); len(got) != 0 {
+		t.Fatalf("tenant A probe_rtt survived delete: %+v", got)
+	}
+	if got := m.Query("probe_up", map[string]string{"tenant_id": "tnA"}); len(got) != 0 {
+		t.Fatalf("tenant A probe_up survived delete: %+v", got)
+	}
+	if got := m.Query("probectl_self_goroutines", nil); len(got) != 1 || got[0].Labels[TenantLabel] != "" {
+		t.Fatalf("explicit global series must survive tenant delete: %+v", got)
+	}
+	if n, _ := m.DeleteTenant(ctx, "tnA"); n != 0 {
 		t.Fatalf("re-delete must read zero: %d", n)
 	}
-	if n, _ := m.DeleteTenant(context.Background(), "tnB"); n != 1 {
+	if n, _ := m.DeleteTenant(ctx, "tnB"); n != 1 {
 		t.Fatalf("tenant B must have survived: %d", n)
 	}
 }

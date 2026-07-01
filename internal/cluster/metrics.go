@@ -52,7 +52,7 @@ func WriteSeries(ctx context.Context, w tsdb.Writer, m *Manager) error {
 			Value: st.Reader.LagSeconds, TimeMillis: now,
 		})
 	}
-	return w.Write(ctx, series)
+	return tsdb.WriteGlobal(ctx, w, series)
 }
 
 // RunMetrics writes cluster series every interval until ctx is canceled.

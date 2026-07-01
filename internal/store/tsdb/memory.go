@@ -96,8 +96,23 @@ func sampleKey(s Series) string {
 	return b.String()
 }
 
-// Write retains the series, then enforces retention + the byte wall.
-func (m *Memory) Write(_ context.Context, series []Series) error {
+// Write retains tenant-owned series, then enforces retention + the byte wall.
+func (m *Memory) Write(ctx context.Context, series []Series) error {
+	if err := ValidateTenantSeries(series); err != nil {
+		return err
+	}
+	return m.write(ctx, series)
+}
+
+// WriteGlobal retains explicit non-tenant control-plane metrics.
+func (m *Memory) WriteGlobal(ctx context.Context, series []Series) error {
+	if err := ValidateGlobalSeries(series); err != nil {
+		return err
+	}
+	return m.write(ctx, series)
+}
+
+func (m *Memory) write(_ context.Context, series []Series) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.enforceLocked()

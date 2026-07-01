@@ -261,8 +261,23 @@ func (p *Prometheus) InstantVector(ctx context.Context, promql string) ([]Labele
 	return samples, nil
 }
 
-// Write remote-writes the series.
+// Write remote-writes tenant-owned series.
 func (p *Prometheus) Write(ctx context.Context, series []Series) error {
+	if err := ValidateTenantSeries(series); err != nil {
+		return err
+	}
+	return p.write(ctx, series)
+}
+
+// WriteGlobal remote-writes explicit non-tenant control-plane metrics.
+func (p *Prometheus) WriteGlobal(ctx context.Context, series []Series) error {
+	if err := ValidateGlobalSeries(series); err != nil {
+		return err
+	}
+	return p.write(ctx, series)
+}
+
+func (p *Prometheus) write(ctx context.Context, series []Series) error {
 	if len(series) == 0 {
 		return nil
 	}

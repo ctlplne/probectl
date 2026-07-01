@@ -6,7 +6,27 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+)
+
+// TenantLabel is the storage-layer boundary label every tenant-owned series
+// must carry. Query code may use package-local aliases, but writes validate this
+// canonical label before a sample can reach any backing TSDB.
+const TenantLabel = "tenant_id"
+
+var (
+	// ErrTenantRequired is returned before write when tenant-owned telemetry is
+	// missing its storage/query-layer tenant boundary. This is fail-closed: the
+	// whole caller write is rejected, rather than preserving an unlabeled series
+	// that no tenant deletion or tenant-scoped query can reason about.
+	ErrTenantRequired = errors.New("tsdb: tenant-owned series missing tenant_id")
+	// ErrGlobalTenantLabel is returned by the explicit global metrics path when
+	// a caller tries to sneak tenant-owned telemetry through it.
+	ErrGlobalTenantLabel = errors.New("tsdb: global series must not carry tenant_id")
+	// ErrGlobalWriterUnsupported means a wrapper/fake Writer has not exposed the
+	// explicit global metrics path required for non-tenant control-plane series.
+	ErrGlobalWriterUnsupported = errors.New("tsdb: writer does not support explicit global metrics")
 )
 
 // Series is one metric data point: a metric name + labels + a value at a time.
@@ -22,6 +42,50 @@ type Series struct {
 type Writer interface {
 	Write(ctx context.Context, series []Series) error
 	Close() error
+}
+
+// GlobalWriter is the explicit non-tenant control-plane metrics path. Normal
+// Writer.Write is tenant-owned and requires tenant_id; global health/build
+// gauges must opt into this separate method so unlabeled tenant telemetry cannot
+// be stored by accident.
+type GlobalWriter interface {
+	WriteGlobal(ctx context.Context, series []Series) error
+}
+
+// ValidateTenantSeries enforces the default tenant-owned TSDB write contract.
+func ValidateTenantSeries(series []Series) error {
+	for i, s := range series {
+		if s.Labels == nil || strings.TrimSpace(s.Labels[TenantLabel]) == "" {
+			return fmt.Errorf("%w: series[%d] metric %q", ErrTenantRequired, i, s.Metric)
+		}
+	}
+	return nil
+}
+
+// ValidateGlobalSeries enforces the explicit non-tenant metrics contract.
+func ValidateGlobalSeries(series []Series) error {
+	for i, s := range series {
+		if s.Labels != nil {
+			if _, ok := s.Labels[TenantLabel]; ok {
+				return fmt.Errorf("%w: series[%d] metric %q", ErrGlobalTenantLabel, i, s.Metric)
+			}
+		}
+	}
+	return nil
+}
+
+// WriteGlobal writes non-tenant control-plane metrics through the explicit
+// escape hatch. It refuses wrappers/fakes that have not made that choice
+// visible in their type.
+func WriteGlobal(ctx context.Context, w Writer, series []Series) error {
+	if len(series) == 0 || w == nil {
+		return nil
+	}
+	gw, ok := w.(GlobalWriter)
+	if !ok {
+		return ErrGlobalWriterUnsupported
+	}
+	return gw.WriteGlobal(ctx, series)
 }
 
 // New builds a Writer for the given mode. "memory" (or empty) is in-process

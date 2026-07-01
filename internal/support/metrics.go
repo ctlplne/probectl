@@ -47,7 +47,7 @@ func WriteSelfSeries(ctx context.Context, w tsdb.Writer, startedAt time.Time) er
 		Labels: map[string]string{"version": info.Version, "commit": info.Commit, "go": info.GoVersion},
 		Value:  1, TimeMillis: now,
 	})
-	return w.Write(ctx, series)
+	return tsdb.WriteGlobal(ctx, w, series)
 }
 
 // RunSelfMetrics emits the self series every interval until ctx is canceled.
