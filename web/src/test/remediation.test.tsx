@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
 import { jsonResponse, defaultFetch } from './fetchStub'
 import type { Proposal } from '../api/remediation'
@@ -47,6 +48,14 @@ function licensedFetch(opts?: {
   }) as unknown as typeof fetch
 }
 
+async function tabUntil(user: ReturnType<typeof userEvent.setup>, target: HTMLElement) {
+  for (let i = 0; i < 80; i++) {
+    await user.tab()
+    if (document.activeElement === target) return
+  }
+  throw new Error(`tab order did not reach ${target.textContent ?? target.getAttribute('aria-label')}`)
+}
+
 describe('guarded remediation (S-EE5)', () => {
   test('hidden-unlicensed: the default 404 renders no card at all', async () => {
     vi.stubGlobal('fetch', defaultFetch())
@@ -56,16 +65,33 @@ describe('guarded remediation (S-EE5)', () => {
     expect(screen.queryByText(/ai remediation proposals/i)).not.toBeInTheDocument()
   })
 
-  test('advisory-only (default): proposals render but Approve is disabled', async () => {
-    vi.stubGlobal('fetch', licensedFetch({ approvals: false }))
-    renderApp('/admin')
+  test('advisory-only (default): proposals render accessibly, Approve is disabled, and Reject is keyboard reachable', async () => {
+    const user = userEvent.setup()
+    const calls: { url: string; body: unknown }[] = []
+    vi.stubGlobal(
+      'fetch',
+      licensedFetch({ approvals: false, onDecide: (url, body) => calls.push({ url, body }) }),
+    )
+    const { container } = renderApp('/admin')
     expect(await screen.findByText(/ai remediation proposals/i)).toBeInTheDocument()
     expect(screen.getByText(/reroute around failing hop/i)).toBeInTheDocument()
     expect(screen.getByText(/advisory-only/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled()
+    expect(await axe(container)).toHaveNoViolations()
+
+    const reject = screen.getByRole('button', { name: /reject/i })
+    expect(reject).toBeEnabled()
+    await tabUntil(user, reject)
+    expect(reject).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(await screen.findByText(/rejected/i)).toBeInTheDocument()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].url).toMatch(/\/remediation\/proposals\/rem-1\/reject$/)
   })
 
-  test('approvals enabled: Approve posts to the approve route (human sign-off, no execution)', async () => {
+  test('approvals enabled: keyboard Approve posts to the approve route (human sign-off, no execution)', async () => {
+    const user = userEvent.setup()
     const calls: { url: string; body: unknown }[] = []
     vi.stubGlobal(
       'fetch',
@@ -74,7 +100,9 @@ describe('guarded remediation (S-EE5)', () => {
     renderApp('/admin')
     const approve = await screen.findByRole('button', { name: /approve/i })
     expect(approve).toBeEnabled()
-    await userEvent.click(approve)
+    await tabUntil(user, approve)
+    expect(approve).toHaveFocus()
+    await user.keyboard('{Enter}')
     expect(await screen.findByText(/approved \(not executed\)/i)).toBeInTheDocument()
     expect(calls).toHaveLength(1)
     expect(calls[0].url).toMatch(/\/remediation\/proposals\/rem-1\/approve$/)
