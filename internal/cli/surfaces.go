@@ -53,6 +53,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"maintenance-upsert":  {Method: http.MethodPost, Path: "/v1/alerts/maintenance"},
 		"maintenance-preview": {Method: http.MethodPost, Path: "/v1/alerts/maintenance/preview"},
 		"maintenance-delete":  {Method: http.MethodDelete, Path: "/v1/alerts/maintenance/{id}", ArgName: "id"},
+		"test-channel":        {Method: http.MethodPost, Path: "/v1/alerts/test-channel", Description: "send a tenant-scoped test alert through one channel"},
 	}},
 	"audit": {Name: "audit", Summary: "audit log and verification", Ops: map[string]apiOp{
 		"list":   {Method: http.MethodGet, Path: "/v1/audit"},
@@ -188,6 +189,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"silence":   {Method: http.MethodPost, Path: "/v1/alerts/active/silence"},
 		"incidents": {Method: http.MethodGet, Path: "/v1/incidents"},
 		"changes":   {Method: http.MethodGet, Path: "/v1/changes"},
+		"test":      {Method: http.MethodPost, Path: "/v1/oncall/test", Description: "send an on-call connector test notification"},
 	}},
 	"provider": {Name: "provider", Summary: "provider/MSP operator plane", Ops: map[string]apiOp{
 		"me":                 {Method: http.MethodGet, Path: "/provider/v1/me"},

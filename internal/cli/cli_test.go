@@ -384,8 +384,38 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 			{"window_id": "mw-db", "name": "database patch", "status": "matched"},
 		}})
 	})
+	mux.HandleFunc("POST /v1/alerts/test-channel", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode alert channel test request: %v", err)
+		}
+		if body["channel_id"] != "pagerduty-primary" {
+			t.Fatalf("alert channel test body = %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":      "alert-channel-test",
+			"name":    "pagerduty-primary",
+			"status":  "sent",
+			"summary": "test alert delivered",
+		})
+	})
 	mux.HandleFunc("DELETE /v1/alerts/maintenance/mw-db", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /v1/oncall/test", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode oncall test request: %v", err)
+		}
+		if body["connector_id"] != "slack-1" {
+			t.Fatalf("oncall test body = %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":      "oncall-test",
+			"name":    "slack-1",
+			"status":  "sent",
+			"summary": "test notification delivered",
+		})
 	})
 	mux.HandleFunc("GET /v1/topology", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -428,6 +458,8 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 	body := `{"question":"Why is WAN loss high?","subject":{"incident_id":"incident-123456789","target":"edge-1"}}`
 	maintenanceBody := `{"name":"database patch","starts_at":"2026-06-04T12:00:00Z","ends_at":"2026-06-04T13:00:00Z"}`
 	maintenancePreviewBody := `{"rule_id":"r1","labels":{"target":"db"},"from":"2026-06-04T12:00:00Z","to":"2026-06-05T12:00:00Z"}`
+	alertChannelTestBody := `{"channel_id":"pagerduty-primary"}`
+	oncallTestBody := `{"connector_id":"slack-1"}`
 	cases := []struct {
 		name string
 		args []string
@@ -439,6 +471,8 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 		{name: "maintenance-upsert", args: []string{"alert", "maintenance-upsert", "--body", maintenanceBody}, want: []string{"mw-new", "database patch"}},
 		{name: "maintenance-preview", args: []string{"alert", "maintenance-preview", "--body", maintenancePreviewBody}, want: []string{"mw-db", "matched"}},
 		{name: "maintenance-delete", args: []string{"alert", "maintenance-delete", "mw-db"}, want: []string{"ok"}},
+		{name: "alert-test-channel", args: []string{"alert", "test-channel", "--body", alertChannelTestBody}, want: []string{"pagerduty-primary", "sent"}},
+		{name: "oncall-test", args: []string{"oncall", "test", "--body", oncallTestBody}, want: []string{"slack-1", "sent"}},
 		{name: "topology", args: []string{"topology", "show"}, want: []string{"edge router", "isp-1"}},
 		{name: "ask", args: []string{"ai", "ask", "--body", body}, want: []string{"ISP loss beyond edge", "high"}},
 		{name: "remediation", args: []string{"remediation", "list"}, want: []string{"open_ticket", "pending"}},
