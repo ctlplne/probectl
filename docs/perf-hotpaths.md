@@ -27,6 +27,7 @@ target and no receipt to measure against.
 | ID | Hot path | Served surface | p50 | p95 | p99 | Throughput floor | Receipt |
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `hp-agent-control-checkin` | Agent control-plane check-in/read model | `GET /v1/agents/{id}/ci` | 50 ms | 250 ms | 750 ms | 50 req/s | `duration_ms` access logs plus `make perf-smoke` pooled query receipt |
+| `hp-agent-result-push` | Agent result-push ingest | gRPC/mTLS `StreamResults` → bus → result TSDB write | 100 ms | 500 ms | 2 s | 50 results/s | `go test ./internal/perf -run '^TestAgentResultPushLatency$' -count=1 -v` logs stream ACK latency through bus flush and result TSDB storage |
 | `hp-results-latest` | Latest synthetic result read model | `GET /v1/results/latest` | 75 ms | 300 ms | 1 s | 40 req/s | `duration_ms` access logs grouped by method and path |
 | `hp-incident-feed` | Incident feed and detail | `GET /v1/incidents`, `GET /v1/incidents/{id}` | 100 ms | 500 ms | 1.5 s | 25 req/s | `duration_ms` access logs grouped by method and path |
 | `hp-incident-correlation` | Incident cross-plane correlation | `GET /v1/incidents/{id}/cis`, MCP `correlate_incident` | 250 ms | 1.5 s | 3 s | 5 req/s | access-log `duration_ms`; `go test ./internal/ai/mcp -bench BenchmarkHandleToolCallListTests -run '^$' -benchmem` |
@@ -46,6 +47,10 @@ The catalog is code, not just documentation:
 - `go test ./internal/perf -run TestHotPathCatalog` verifies every row has a
   stable ID, p50/p95/p99 ceilings, a throughput floor, and a trace/benchmark/load
   receipt.
+- `go test ./internal/perf -run TestAgentResultPushLatency -count=1 -v`
+  opens the native mTLS agent gRPC transport, streams results through
+  `StreamResults`, waits for the bus flush barrier, and verifies the result TSDB
+  receipt under the certificate tenant/agent identity.
 - `go test ./internal/perf -run TestProbeResultToIncidentLatency -count=1 -v`
   drives a probe result through IOC ingest, incident correlation, and incident
   write, logging phase timings.

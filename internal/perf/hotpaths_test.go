@@ -11,6 +11,7 @@ import (
 func TestHotPathCatalogCoversAuditedSurfaces(t *testing.T) {
 	required := []string{
 		"hp-agent-control-checkin",
+		"hp-agent-result-push",
 		"hp-results-latest",
 		"hp-incident-feed",
 		"hp-incident-correlation",

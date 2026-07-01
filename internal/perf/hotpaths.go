@@ -91,6 +91,24 @@ func HotPathCatalog() []HotPathSLO {
 			Notes: "The row covers the tenant-scoped agent/CI read path operators hit during rollout and enrollment checks.",
 		},
 		{
+			ID:    "hp-agent-result-push",
+			Name:  "Agent result-push ingest",
+			Owner: "agenttransport",
+			Surfaces: []HotPathSurface{
+				{Kind: SurfaceAgent, Method: "StreamResults", Pattern: "probectl.agent.v1.AgentService/StreamResults"},
+			},
+			Targets: HotPathTargets{P50: 100 * time.Millisecond, P95: 500 * time.Millisecond, P99: 2 * time.Second, MinThroughputPerSecond: 50},
+			Measurements: []HotPathMeasurement{
+				{
+					Kind:    MeasurementBenchmark,
+					Command: "go test ./internal/perf -run '^TestAgentResultPushLatency$' -count=1 -v",
+					Receipt: "mTLS StreamResults ack latency through agent gRPC, bus flush, and result TSDB write",
+					Source:  "internal/perf/agent_result_push_latency_test.go:TestAgentResultPushLatency",
+				},
+			},
+			Notes: "Covers native agent gRPC/mTLS result streams through the bus durability barrier and result pipeline store; downstream incident correlation remains hp-probe-result-to-incident.",
+		},
+		{
 			ID:    "hp-results-latest",
 			Name:  "Latest synthetic result read model",
 			Owner: "control",

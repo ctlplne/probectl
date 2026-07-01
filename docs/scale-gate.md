@@ -185,8 +185,10 @@ per-tenant query p95) stays covered by the `perf-smoke` integration job
 (`DrivePooled`, described in [`architecture.md`](architecture.md)); the fairness
 work extends it.
 
-**Honesty notes.** The in-process harness measures only the bus → pipeline → store
-path — it excludes network hops and the gRPC agent transport. Real Kafka,
+**Honesty notes.** The in-process scale harness measures only the bus → pipeline
+→ store path. The distinct `hp-agent-result-push` receipt in
+[`perf-hotpaths.md`](perf-hotpaths.md) covers native gRPC/mTLS agent result push
+through the bus flush barrier and result TSDB write at CI scale. Real Kafka,
 Prometheus, and ClickHouse are covered by the full-stack gates above, while the
 long-running `test/` soak covers endurance. CI-scale numbers prove the gate's
 *mechanics* only: never quote them as platform capability.
