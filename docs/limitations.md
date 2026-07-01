@@ -99,4 +99,5 @@ how. That absence is by design, not a misconfiguration.
 [NDR-lite](ndr.md) · [Guarded remediation](remediation.md) ·
 [Provider plane](provider-plane.md) · [glossary](glossary.md) (IPS, SIEM, NDR)
 
-**Covers:** F49
+**Covers:** F47, F49, and the built-not-yet-served eBPF TLS posture, raw flow
+retention, and browser artifact backend edges.

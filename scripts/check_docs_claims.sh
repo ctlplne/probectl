@@ -160,6 +160,28 @@ run_checks() { # run_checks <root>
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/browser-synthetic.md" 2>/dev/null; then
     echo "DOCS-S15: built-not-yet-served feature caveats must link to docs/limitations.md" >&2; f=1
   fi
+  local disclosure_hits hit file
+  disclosure_hits="$(grep -RniE 'not wired|not shipped yet|not exposed|not reachable' "$r/docs" --include='*.md' 2>/dev/null || true)"
+  while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    file="${hit%%:*}"
+    case "$file" in
+      "$r/docs/limitations.md")
+        continue
+        ;;
+      # Runtime deployment state flags, not library-only product edges.
+      "$r/docs/carbon.md"|"$r/docs/slo.md"|"$r/docs/features/topology-and-change.md"|"$r/docs/journeys/alert-to-root-cause.md")
+        continue
+        ;;
+      # Config/hardening caveats: not buyer-relevant served-vs-library claims.
+      "$r/docs/configuration.md"|"$r/docs/features/alerting-and-incidents.md")
+        continue
+        ;;
+    esac
+    if ! grep -q 'limitations.md#built-not-yet-served-edges' "$file" 2>/dev/null; then
+      echo "DOCS-S15: buyer-relevant built-not-yet-served disclosure lacks a docs/limitations.md backlink: $hit" >&2; f=1
+    fi
+  done <<<"$disclosure_hits"
 
   # SEC-004: SECURITY.md scopes provider-operator break-glass abuse as in-scope.
   if [ -f "$r/SECURITY.md" ] \
@@ -360,11 +382,8 @@ cited evidence stays scoped to what the caller is allowed to see.
 EOF
       ;;
     DOCS-S15)
-      cat > "$d/docs/limitations.md" <<'EOF'
-The plugin/detection marketplace is a non-goal.
-inline IPS/firewall
-autonomous remediation
-vendor-hosted public SaaS
+      cat > "$d/docs/unlisted-edge.md" <<'EOF'
+The packet mirror is not wired yet.
 EOF
       ;;
     SEC-004)
