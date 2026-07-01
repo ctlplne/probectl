@@ -4,6 +4,7 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
@@ -29,7 +30,7 @@ func TestCardinalityLabelCaps(t *testing.T) {
 		t.Fatalf("over-label series: admitted=%d dropped=%d, want 0/1", len(adm), dropped)
 	}
 
-	// A 1 MiB label value is truncated to maxLabelValueLen, then admitted.
+	// A 1 MiB label value is replaced by a bounded hash marker, then admitted.
 	huge := make([]byte, 1<<20)
 	for i := range huge {
 		huge[i] = 'a'
@@ -39,8 +40,29 @@ func TestCardinalityLabelCaps(t *testing.T) {
 	if len(adm) != 1 || dropped != 0 {
 		t.Fatalf("over-value series: admitted=%d dropped=%d, want 1/0", len(adm), dropped)
 	}
-	if got := len(adm[0].Labels["big"]); got != maxLabelValueLen {
-		t.Errorf("label value truncated to %d, want %d", got, maxLabelValueLen)
+	if got := adm[0].Labels["big"]; len(got) > maxLabelValueLen || !strings.HasPrefix(got, "truncated:sha256:") {
+		t.Errorf("label value marker = %q (len=%d)", got, len(got))
+	}
+	if st := l.Stats(); st.LabelTruncated != 1 || st.TenantTruncated["t"] != 1 {
+		t.Fatalf("truncation stats = %+v, want 1", st)
+	}
+
+	// Two different overlong values sharing the same first 256 bytes must NOT
+	// collapse into one identity.
+	prefix := strings.Repeat("p", maxLabelValueLen)
+	twin := []tsdb.Series{
+		{Metric: "m3", Labels: map[string]string{"tenant_id": "x", "identity": prefix + "-left"}, Value: 1},
+		{Metric: "m3", Labels: map[string]string{"tenant_id": "x", "identity": prefix + "-right"}, Value: 1},
+	}
+	adm, dropped = l.Filter("t", "a", twin)
+	if len(adm) != 2 || dropped != 0 {
+		t.Fatalf("same-prefix overlong values: admitted=%d dropped=%d, want 2/0", len(adm), dropped)
+	}
+	if adm[0].Labels["identity"] == adm[1].Labels["identity"] {
+		t.Fatalf("overlong values conflated into %q", adm[0].Labels["identity"])
+	}
+	if st := l.Stats(); st.LabelTruncated != 3 || st.TenantTruncated["t"] != 3 {
+		t.Fatalf("truncation stats after twins = %+v, want 3", st)
 	}
 }
 

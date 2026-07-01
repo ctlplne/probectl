@@ -464,12 +464,18 @@ func (c *Consumer) handleLane(ctx context.Context, msg bus.Message, lane topicGr
 	// Cardinality caps (U-017): NEW series identities past the per-agent /
 	// per-tenant caps are rejected per-series and counted; known identities
 	// keep flowing, other tenants are untouched.
-	series, droppedSeries := c.card.Filter(r.GetTenantId(), r.GetAgentId(), ResultToSeries(&r))
-	if droppedSeries > 0 {
-		c.ledger.addCardinalityDropped(uint64(droppedSeries))
+	series, cardStats := c.card.FilterDetailed(r.GetTenantId(), r.GetAgentId(), ResultToSeries(&r))
+	if cardStats.LabelTruncated > 0 {
+		c.ledger.addLabelTruncated(uint64(cardStats.LabelTruncated))
+		c.log.Warn("series label value normalized by cardinality cap",
+			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
+			"normalized", cardStats.LabelTruncated, "normalized_total", c.card.Stats().LabelTruncated)
+	}
+	if cardStats.Dropped > 0 {
+		c.ledger.addCardinalityDropped(uint64(cardStats.Dropped))
 		c.log.Warn("series rejected by cardinality cap",
 			"tenant_id", r.GetTenantId(), "agent_id", r.GetAgentId(),
-			"rejected", droppedSeries, "rejected_total", c.card.Stats().Dropped)
+			"rejected", cardStats.Dropped, "rejected_total", c.card.Stats().Dropped)
 	}
 	// CORRECT-005: a fully cardinality-dropped result stores nothing — it must
 	// NOT be metered (the comment promised stored-only billing, but metering

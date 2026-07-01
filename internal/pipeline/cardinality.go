@@ -3,11 +3,14 @@
 package pipeline
 
 import (
+	"encoding/hex"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
@@ -42,6 +45,7 @@ const (
 	// guards the agent-supplied Result.Metrics path.
 	maxLabelsPerSeries = 32
 	maxLabelValueLen   = 256
+	labelHashPrefixLen = 32
 )
 
 // CardinalityLimiter admits series identities under per-agent and per-tenant
@@ -54,15 +58,17 @@ type CardinalityLimiter struct {
 	mu        sync.Mutex
 	tenants   map[string]*tenantSeries
 	dropped   uint64 // total rejected series (never silent)
+	truncated uint64 // total label values normalized with a hash marker
 	evicted   uint64 // identities freed by the idle sweep
 	lastSweep time.Time
 	now       func() time.Time
 }
 
 type tenantSeries struct {
-	all     map[string]time.Time            // tenant-wide identities -> last seen
-	byAgent map[string]map[string]time.Time // agent -> identity -> last seen
-	dropped uint64
+	all       map[string]time.Time            // tenant-wide identities -> last seen
+	byAgent   map[string]map[string]time.Time // agent -> identity -> last seen
+	dropped   uint64
+	truncated uint64
 }
 
 // NewCardinalityLimiter builds a limiter; non-positive caps use the defaults.
@@ -110,7 +116,7 @@ func (l *CardinalityLimiter) sweepLocked(now time.Time) {
 				delete(ts.byAgent, agent)
 			}
 		}
-		if len(ts.all) == 0 && ts.dropped == 0 {
+		if len(ts.all) == 0 && ts.dropped == 0 && ts.truncated == 0 {
 			delete(l.tenants, tenant)
 		}
 	}
@@ -134,12 +140,33 @@ func seriesIdentity(s tsdb.Series) string {
 	return b.String()
 }
 
+func boundedLabelValue(v string) (string, bool) {
+	if len(v) <= maxLabelValueLen {
+		return v, false
+	}
+	sum := hex.EncodeToString(crypto.Hash([]byte(v)))[:labelHashPrefixLen]
+	return "truncated:sha256:" + sum + ":len:" + strconv.Itoa(len(v)), true
+}
+
+// CardinalityFilterStats is per-call accounting for integrity ledgers.
+type CardinalityFilterStats struct {
+	Dropped        int
+	LabelTruncated int
+}
+
 // Filter returns the admitted subset of series for (tenant, agent) and the
 // number rejected by the caps. Known identities always pass (steady-state
 // telemetry keeps flowing at the cap); only NEW identities are gated.
 func (l *CardinalityLimiter) Filter(tenant, agent string, series []tsdb.Series) ([]tsdb.Series, int) {
+	admitted, st := l.FilterDetailed(tenant, agent, series)
+	return admitted, st.Dropped
+}
+
+// FilterDetailed is Filter plus per-call normalization/drop accounting for
+// pipeline integrity ledgers.
+func (l *CardinalityLimiter) FilterDetailed(tenant, agent string, series []tsdb.Series) ([]tsdb.Series, CardinalityFilterStats) {
 	if l == nil {
-		return series, 0
+		return series, CardinalityFilterStats{}
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -159,18 +186,22 @@ func (l *CardinalityLimiter) Filter(tenant, agent string, series []tsdb.Series) 
 
 	admitted := series[:0]
 	droppedHere := 0
+	truncatedHere := 0
 	for _, s := range series {
 		// SCALE-007: a series with too many labels is rejected outright (a
 		// label explosion is as damaging as a series explosion); over-long
-		// label VALUES are truncated in place before they enter the identity
-		// key so they cannot bloat the limiter map or the downstream store.
+		// label VALUES are replaced with a deterministic hash marker before
+		// they enter the identity key. The marker is bounded, non-conflating,
+		// and visible in integrity counters instead of silently aliasing two
+		// different values that share the same prefix.
 		if len(s.Labels) > maxLabelsPerSeries {
 			droppedHere++
 			continue
 		}
 		for k, v := range s.Labels {
-			if len(v) > maxLabelValueLen {
-				s.Labels[k] = v[:maxLabelValueLen]
+			if bounded, ok := boundedLabelValue(v); ok {
+				s.Labels[k] = bounded
+				truncatedHere++
 			}
 		}
 		id := seriesIdentity(s)
@@ -192,16 +223,22 @@ func (l *CardinalityLimiter) Filter(tenant, agent string, series []tsdb.Series) 
 		l.dropped += uint64(droppedHere)
 		ts.dropped += uint64(droppedHere)
 	}
-	return admitted, droppedHere
+	if truncatedHere > 0 {
+		l.truncated += uint64(truncatedHere)
+		ts.truncated += uint64(truncatedHere)
+	}
+	return admitted, CardinalityFilterStats{Dropped: droppedHere, LabelTruncated: truncatedHere}
 }
 
 // CardinalityStats reports the rejection counters.
 type CardinalityStats struct {
 	Dropped            uint64
+	LabelTruncated     uint64 // label values normalized with a hash marker
 	Evicted            uint64 // identities freed by the idle sweep (SCALE-003)
 	ActiveSeries       int    // live identities across all tenants (the memory bound)
 	TenantActiveSeries map[string]int
 	TenantDropped      map[string]uint64
+	TenantTruncated    map[string]uint64
 }
 
 // Stats snapshots the counters (per-tenant drops included, for fairness
@@ -211,9 +248,11 @@ func (l *CardinalityLimiter) Stats() CardinalityStats {
 	defer l.mu.Unlock()
 	out := CardinalityStats{
 		Dropped:            l.dropped,
+		LabelTruncated:     l.truncated,
 		Evicted:            l.evicted,
 		TenantActiveSeries: map[string]int{},
 		TenantDropped:      map[string]uint64{},
+		TenantTruncated:    map[string]uint64{},
 	}
 	for t, ts := range l.tenants {
 		active := len(ts.all)
@@ -223,6 +262,9 @@ func (l *CardinalityLimiter) Stats() CardinalityStats {
 		}
 		if ts.dropped > 0 {
 			out.TenantDropped[t] = ts.dropped
+		}
+		if ts.truncated > 0 {
+			out.TenantTruncated[t] = ts.truncated
 		}
 	}
 	return out

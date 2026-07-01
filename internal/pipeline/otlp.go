@@ -146,11 +146,15 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	// SCALE-003: per-tenant series-cardinality cap — a unique-attribute flood is
 	// dropped+counted per series; known identities keep flowing.
 	if c.card != nil {
-		var dropped int
-		series, dropped = c.card.Filter(tenant, "", series)
-		if dropped > 0 {
-			c.ledger.addCardinalityDropped(uint64(dropped))
-			c.log.Warn("otlp series rejected by cardinality cap", "tenant_id", tenant, "rejected", dropped)
+		var st CardinalityFilterStats
+		series, st = c.card.FilterDetailed(tenant, "", series)
+		if st.LabelTruncated > 0 {
+			c.ledger.addLabelTruncated(uint64(st.LabelTruncated))
+			c.log.Warn("otlp series label value normalized by cardinality cap", "tenant_id", tenant, "normalized", st.LabelTruncated)
+		}
+		if st.Dropped > 0 {
+			c.ledger.addCardinalityDropped(uint64(st.Dropped))
+			c.log.Warn("otlp series rejected by cardinality cap", "tenant_id", tenant, "rejected", st.Dropped)
 		}
 		if len(series) == 0 {
 			return nil

@@ -222,11 +222,16 @@ func (c *DeviceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTe
 	// SCALE-005: series-cardinality cap per (tenant, agent) — a runaway
 	// device fleet cannot mint unbounded identities.
 	agentID := batch.Metrics[0].GetAgentId()
-	series, droppedSeries := c.card.Filter(tenant, agentID, series)
-	if droppedSeries > 0 {
-		c.ledger.addCardinalityDropped(uint64(droppedSeries))
+	series, cardStats := c.card.FilterDetailed(tenant, agentID, series)
+	if cardStats.LabelTruncated > 0 {
+		c.ledger.addLabelTruncated(uint64(cardStats.LabelTruncated))
+		c.log.Warn("device series label value normalized by cardinality cap",
+			"tenant_id", tenant, "agent_id", agentID, "normalized", cardStats.LabelTruncated)
+	}
+	if cardStats.Dropped > 0 {
+		c.ledger.addCardinalityDropped(uint64(cardStats.Dropped))
 		c.log.Warn("device series rejected by cardinality cap",
-			"tenant_id", tenant, "agent_id", agentID, "rejected", droppedSeries)
+			"tenant_id", tenant, "agent_id", agentID, "rejected", cardStats.Dropped)
 	}
 	if len(series) == 0 {
 		return nil

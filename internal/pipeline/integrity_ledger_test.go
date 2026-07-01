@@ -31,9 +31,10 @@ func TestIntegrityLedgerExposesEveryLossCounter(t *testing.T) {
 	ledger.addTenantRejected(4)
 	ledger.addFairnessShed(5)
 	ledger.addCardinalityDropped(6)
-	ledger.addUnsupported(7)
-	ledger.addDeadLettered(8)
-	ledger.addDropped(9)
+	ledger.addLabelTruncated(7)
+	ledger.addUnsupported(8)
+	ledger.addDeadLettered(9)
+	ledger.addDropped(10)
 
 	wantStats := IntegrityStats{
 		Received:           1,
@@ -42,9 +43,10 @@ func TestIntegrityLedgerExposesEveryLossCounter(t *testing.T) {
 		TenantRejected:     4,
 		FairnessShed:       5,
 		CardinalityDropped: 6,
-		Unsupported:        7,
-		DeadLettered:       8,
-		Dropped:            9,
+		LabelTruncated:     7,
+		Unsupported:        8,
+		DeadLettered:       9,
+		Dropped:            10,
 	}
 	if got := ledger.stats(); got != wantStats {
 		t.Fatalf("ledger stats = %+v, want %+v", got, wantStats)
@@ -57,9 +59,10 @@ func TestIntegrityLedgerExposesEveryLossCounter(t *testing.T) {
 		"probectl_pipeline_fixture_tenant_rejected_total":     4,
 		"probectl_pipeline_fixture_fairness_shed_total":       5,
 		"probectl_pipeline_fixture_cardinality_dropped_total": 6,
-		"probectl_pipeline_fixture_unsupported_total":         7,
-		"probectl_pipeline_fixture_dead_lettered_total":       8,
-		"probectl_pipeline_fixture_dropped_total":             9,
+		"probectl_pipeline_fixture_label_truncated_total":     7,
+		"probectl_pipeline_fixture_unsupported_total":         8,
+		"probectl_pipeline_fixture_dead_lettered_total":       9,
+		"probectl_pipeline_fixture_dropped_total":             10,
 	}
 	for name, want := range wantMetrics {
 		if got := reg.Counter(name, "").Value(); got != want {

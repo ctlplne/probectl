@@ -18,6 +18,7 @@ type IntegrityStats struct {
 	TenantRejected     uint64
 	FairnessShed       uint64
 	CardinalityDropped uint64
+	LabelTruncated     uint64
 	Unsupported        uint64
 	DeadLettered       uint64
 	Dropped            uint64
@@ -32,6 +33,7 @@ type integrityLedger struct {
 	tenantRejected     atomic.Uint64
 	fairnessShed       atomic.Uint64
 	cardinalityDropped atomic.Uint64
+	labelTruncated     atomic.Uint64
 	unsupported        atomic.Uint64
 	deadLettered       atomic.Uint64
 	dropped            atomic.Uint64
@@ -46,6 +48,7 @@ type integrityCounters struct {
 	tenantRejected     *metrics.Counter
 	fairnessShed       *metrics.Counter
 	cardinalityDropped *metrics.Counter
+	labelTruncated     *metrics.Counter
 	unsupported        *metrics.Counter
 	deadLettered       *metrics.Counter
 	dropped            *metrics.Counter
@@ -66,6 +69,7 @@ func (l *integrityLedger) withMetrics(reg *metrics.Registry) {
 	l.metrics.tenantRejected = reg.Counter(prefix+"tenant_rejected_total", "Tenant-verification rejects in the "+l.signal+" pipeline.")
 	l.metrics.fairnessShed = reg.Counter(prefix+"fairness_shed_total", "Payloads shed by fairness bounds in the "+l.signal+" pipeline.")
 	l.metrics.cardinalityDropped = reg.Counter(prefix+"cardinality_dropped_total", "Series or records dropped by cardinality caps in the "+l.signal+" pipeline.")
+	l.metrics.labelTruncated = reg.Counter(prefix+"label_truncated_total", "Label values normalized by cardinality bounds in the "+l.signal+" pipeline.")
 	l.metrics.unsupported = reg.Counter(prefix+"unsupported_total", "Unsupported telemetry units skipped by the "+l.signal+" pipeline.")
 	l.metrics.deadLettered = reg.Counter(prefix+"dead_lettered_total", "Payloads dead-lettered by the "+l.signal+" pipeline.")
 	l.metrics.dropped = reg.Counter(prefix+"dropped_total", "Payloads lost after store and dead-letter publish both failed in the "+l.signal+" pipeline.")
@@ -104,6 +108,12 @@ func (l *integrityLedger) addFairnessShed(n uint64) {
 func (l *integrityLedger) addCardinalityDropped(n uint64) {
 	if l != nil {
 		l.add(&l.cardinalityDropped, l.metrics.cardinalityDropped, n)
+	}
+}
+
+func (l *integrityLedger) addLabelTruncated(n uint64) {
+	if l != nil {
+		l.add(&l.labelTruncated, l.metrics.labelTruncated, n)
 	}
 }
 
@@ -146,6 +156,7 @@ func (l *integrityLedger) stats() IntegrityStats {
 		TenantRejected:     l.tenantRejected.Load(),
 		FairnessShed:       l.fairnessShed.Load(),
 		CardinalityDropped: l.cardinalityDropped.Load(),
+		LabelTruncated:     l.labelTruncated.Load(),
 		Unsupported:        l.unsupported.Load(),
 		DeadLettered:       l.deadLettered.Load(),
 		Dropped:            l.dropped.Load(),
