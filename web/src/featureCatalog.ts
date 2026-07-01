@@ -162,7 +162,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F28',
     name: 'Zero-downtime lifecycle and fleet rollout',
-    status: 'partial',
+    status: 'delivered',
     source: 'prd-v1.0:3',
   },
   { id: 'F29', name: 'IaC and GitOps', status: 'delivered', source: 'prd-v1.0:3' },
@@ -181,7 +181,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F32',
     name: 'FIPS-mode crypto',
-    status: 'partial',
+    status: 'delivered',
     source: 'prd-v1.0:3',
   },
   {
@@ -271,7 +271,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F47',
     name: 'Network chaos',
-    status: 'partial',
+    status: 'delivered',
     source: 'prd-v1.0:3',
   },
   {

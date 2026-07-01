@@ -3,7 +3,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
-import { REQUIRED_FEATURES, type RequiredFeature } from '../featureCatalog'
+import {
+  REQUIRED_FEATURES,
+  type RequiredFeature,
+  type RequiredFeatureStatus,
+} from '../featureCatalog'
 import { NAV } from '../nav/ia'
 import { SURFACES, checkRegistryShape, type SurfaceDecl } from '../surfaces'
 
@@ -208,8 +212,62 @@ function evidenceViolations(surfaces: SurfaceDecl[]): string[] {
   return violations
 }
 
+function prdCellsFor(id: string): string[] | undefined {
+  for (const row of prd.split('\n')) {
+    const cells = row
+      .split('|')
+      .map((cell) => cell.trim())
+      .filter(Boolean)
+    if (cells[0]?.split('/').includes(id)) {
+      return cells
+    }
+  }
+  return undefined
+}
+
 function prdRowFor(id: string): string | undefined {
-  return prd.split('\n').find((line) => line.startsWith(`| ${id} |`))
+  return prd.split('\n').find((row) => {
+    const cells = row
+      .split('|')
+      .map((cell) => cell.trim())
+      .filter(Boolean)
+    return cells[0]?.split('/').includes(id)
+  })
+}
+
+function prdStatusFor(id: string): RequiredFeatureStatus | undefined {
+  const cells = prdCellsFor(id)
+  if (!cells) {
+    return undefined
+  }
+  const statusCell = cells[2] ?? ''
+  if (statusCell.includes('✅')) {
+    return 'delivered'
+  }
+  if (statusCell.includes('⛔')) {
+    return 'future'
+  }
+  if (statusCell.includes('🔶') || statusCell.includes('⏳')) {
+    return 'partial'
+  }
+  return undefined
+}
+
+function prdCatalogStatusViolations(features: RequiredFeature[]): string[] {
+  const violations: string[] = []
+  for (const feature of features.filter((f) => f.source === 'prd-v1.0:3')) {
+    const prdStatus = prdStatusFor(feature.id)
+    if (!prdStatus) {
+      violations.push(`${feature.id} ${feature.name}: missing PRD status`)
+      continue
+    }
+    if (feature.status !== prdStatus) {
+      violations.push(
+        `${feature.id} ${feature.name}: catalog status ${feature.status} != PRD status ${prdStatus}`,
+      )
+    }
+  }
+  return violations
 }
 
 describe('frontend-coverage gate (S-FE6)', () => {
@@ -226,6 +284,7 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(REQUIRED_FEATURES[0].id).toBe('PLANE_ACTIVE_SYNTHETIC')
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F1')).toBe(true)
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F57')).toBe(true)
+    expect(prdCatalogStatusViolations(REQUIRED_FEATURES)).toEqual([])
     expect(featureCoverageViolations(SURFACES)).toEqual([])
     expect(servedEvidenceViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
   })
@@ -352,6 +411,16 @@ describe('frontend-coverage gate (S-FE6)', () => {
     ]
     expect(featureCoverageViolations(legacyPlaceholder)).toContain(
       'legacy placeholder taxonomy: feature F1 lacks a declared surface kind',
+    )
+
+    const staleCatalog = REQUIRED_FEATURES.map((feature): RequiredFeature => {
+      if (feature.id !== 'F28') {
+        return feature
+      }
+      return { ...feature, status: 'partial' }
+    })
+    expect(prdCatalogStatusViolations(staleCatalog)).toContain(
+      'F28 Zero-downtime lifecycle and fleet rollout: catalog status partial != PRD status delivered',
     )
   })
 
