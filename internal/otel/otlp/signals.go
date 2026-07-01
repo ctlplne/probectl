@@ -66,24 +66,24 @@ func (s Sinks) validate() error {
 }
 
 // NewBusTraceSink mirrors NewBusSink for the traces topic.
-func NewBusTraceSink(publish func(ctx context.Context, tenant string, payload []byte) error) TraceSink {
+func NewBusTraceSink(publish func(ctx context.Context, tenant, entropy string, payload []byte) error) TraceSink {
 	return TraceSinkFunc(func(ctx context.Context, tenant string, req *coltracepb.ExportTraceServiceRequest) error {
 		payload, err := proto.Marshal(req)
 		if err != nil {
 			return fmt.Errorf("otlp: marshal ingested traces: %w", err)
 		}
-		return publish(ctx, tenant, payload)
+		return publish(ctx, tenant, traceBusEntropy(req), payload)
 	})
 }
 
 // NewBusLogSink mirrors NewBusSink for the logs topic.
-func NewBusLogSink(publish func(ctx context.Context, tenant string, payload []byte) error) LogSink {
+func NewBusLogSink(publish func(ctx context.Context, tenant, entropy string, payload []byte) error) LogSink {
 	return LogSinkFunc(func(ctx context.Context, tenant string, req *collogspb.ExportLogsServiceRequest) error {
 		payload, err := proto.Marshal(req)
 		if err != nil {
 			return fmt.Errorf("otlp: marshal ingested logs: %w", err)
 		}
-		return publish(ctx, tenant, payload)
+		return publish(ctx, tenant, logBusEntropy(req), payload)
 	})
 }
 

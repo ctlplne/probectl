@@ -33,6 +33,13 @@ func tenantResource(tenant string) *resourcepb.Resource {
 	}}}
 }
 
+func stringKV(key, value string) *commonpb.KeyValue {
+	return &commonpb.KeyValue{
+		Key:   key,
+		Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: value}},
+	}
+}
+
 // traceReq builds a one-ResourceSpans request. tenant=="" leaves the Resource
 // nil (to exercise the stamp-an-unset-resource path).
 func traceReq(tenant string) *coltracepb.ExportTraceServiceRequest {
@@ -139,28 +146,33 @@ func TestSinksValidateRejectsIncomplete(t *testing.T) {
 func TestNewBusTraceAndLogSinks(t *testing.T) {
 	var (
 		gotTenant  string
+		gotEntropy string
 		gotPayload []byte
 	)
-	ts := NewBusTraceSink(func(_ context.Context, tenant string, payload []byte) error {
-		gotTenant, gotPayload = tenant, payload
+	ts := NewBusTraceSink(func(_ context.Context, tenant, entropy string, payload []byte) error {
+		gotTenant, gotEntropy, gotPayload = tenant, entropy, payload
 		return nil
 	})
-	if err := ts.ConsumeTraces(context.Background(), "t-a", traceReq("t-a")); err != nil {
+	tr := traceReq("t-a")
+	tr.ResourceSpans[0].Resource.Attributes = append(tr.ResourceSpans[0].Resource.Attributes, stringKV("service.name", "checkout"))
+	if err := ts.ConsumeTraces(context.Background(), "t-a", tr); err != nil {
 		t.Fatalf("ConsumeTraces: %v", err)
 	}
-	if gotTenant != "t-a" || len(gotPayload) == 0 {
-		t.Errorf("bus trace sink: tenant=%q payloadLen=%d", gotTenant, len(gotPayload))
+	if gotTenant != "t-a" || gotEntropy == "" || len(gotPayload) == 0 {
+		t.Errorf("bus trace sink: tenant=%q entropy=%q payloadLen=%d", gotTenant, gotEntropy, len(gotPayload))
 	}
 
-	ls := NewBusLogSink(func(_ context.Context, tenant string, payload []byte) error {
-		gotTenant, gotPayload = tenant, payload
+	ls := NewBusLogSink(func(_ context.Context, tenant, entropy string, payload []byte) error {
+		gotTenant, gotEntropy, gotPayload = tenant, entropy, payload
 		return nil
 	})
-	if err := ls.ConsumeLogs(context.Background(), "t-b", logReq("t-b")); err != nil {
+	lr := logReq("t-b")
+	lr.ResourceLogs[0].Resource.Attributes = append(lr.ResourceLogs[0].Resource.Attributes, stringKV("service.name", "checkout"))
+	if err := ls.ConsumeLogs(context.Background(), "t-b", lr); err != nil {
 		t.Fatalf("ConsumeLogs: %v", err)
 	}
-	if gotTenant != "t-b" || len(gotPayload) == 0 {
-		t.Errorf("bus log sink: tenant=%q payloadLen=%d", gotTenant, len(gotPayload))
+	if gotTenant != "t-b" || gotEntropy == "" || len(gotPayload) == 0 {
+		t.Errorf("bus log sink: tenant=%q entropy=%q payloadLen=%d", gotTenant, gotEntropy, len(gotPayload))
 	}
 }
 

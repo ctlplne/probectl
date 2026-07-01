@@ -51,13 +51,13 @@ func (f SinkFunc) ConsumeMetrics(ctx context.Context, tenant string, req *colmet
 // NewBusSink returns a Sink that marshals each (already tenant-scoped) request
 // and hands it to publish — e.g. a tenant-keyed bus topic. It keeps the OTLP
 // package decoupled from internal/bus.
-func NewBusSink(publish func(ctx context.Context, tenant string, payload []byte) error) Sink {
+func NewBusSink(publish func(ctx context.Context, tenant, entropy string, payload []byte) error) Sink {
 	return SinkFunc(func(ctx context.Context, tenant string, req *colmetricspb.ExportMetricsServiceRequest) error {
 		payload, err := proto.Marshal(req)
 		if err != nil {
 			return fmt.Errorf("otlp: marshal ingested metrics: %w", err)
 		}
-		return publish(ctx, tenant, payload)
+		return publish(ctx, tenant, metricsBusEntropy(req), payload)
 	})
 }
 

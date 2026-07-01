@@ -49,6 +49,22 @@ func TestOTLPSubsystemsSuperviseHotIngestionPaths(t *testing.T) {
 	}
 }
 
+func TestOTLPSubsystemsUseTenantBucketKeys(t *testing.T) {
+	src := buildersSource(t)
+	for name, rawKey := range map[string]string{
+		"metrics": "bus.OTLPMetricsTopic, []byte(tenant)",
+		"traces":  "bus.OTLPTracesTopic, []byte(tenant)",
+		"logs":    "bus.OTLPLogsTopic, []byte(tenant)",
+	} {
+		if strings.Contains(src, rawKey) {
+			t.Fatalf("OTLP %s publish path uses a raw tenant key; use bus.TenantKey(tenant, entropy)", name)
+		}
+	}
+	if got := strings.Count(src, "bus.TenantKey(tenant, entropy)"); got < 3 {
+		t.Fatalf("OTLP publish paths must bucket all three signals with bus.TenantKey; found %d uses", got)
+	}
+}
+
 func buildersSource(t *testing.T) string {
 	t.Helper()
 	srcBytes, err := os.ReadFile("builders.go")

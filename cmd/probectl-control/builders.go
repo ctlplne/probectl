@@ -570,14 +570,14 @@ func startOTLPSubsystems(
 	srv.WithOTLPTokenAuth(otlpAuth)
 
 	sinks := otlp.Sinks{
-		Metrics: otlp.NewBusSink(func(ctx context.Context, tenant string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPMetricsTopic, []byte(tenant), payload)
+		Metrics: otlp.NewBusSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.OTLPMetricsTopic, bus.TenantKey(tenant, entropy), payload)
 		}),
-		Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPTracesTopic, []byte(tenant), payload)
+		Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.OTLPTracesTopic, bus.TenantKey(tenant, entropy), payload)
 		}),
-		Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPLogsTopic, []byte(tenant), payload)
+		Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
+			return resultBus.Publish(ctx, bus.OTLPLogsTopic, bus.TenantKey(tenant, entropy), payload)
 		}),
 	}
 	otlpSrv, err := otlp.NewServer(
