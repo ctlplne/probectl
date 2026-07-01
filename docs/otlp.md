@@ -46,6 +46,10 @@ store (see "Deliberate bounds" below).
   endpoint's signal suffix is used to derive the sibling trace/log endpoints.
   Because this is tenant telemetry leaving probectl, remote export is encrypted
   by default and fails closed if a remote collector is configured without TLS.
+  This is the portability and no-lock-in path: operators decide when data leaves,
+  where it goes, and which upstream collector receives it. OTLP export is an
+  exit path under your control, not a vendor-hosted siphon or a paid hostage
+  feature.
 - **Deliberate bounds.** probectl ingests traces + logs for **correlation** —
   bounded attributes, capped bodies, retention-limited, and redacted before
   persistence. Span names, service/resource attributes, span/log attributes,

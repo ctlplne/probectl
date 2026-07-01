@@ -63,7 +63,9 @@ list (see the license file below) — not by an implied inheritance.
 commercial:**
 
 - Per-tenant data export and verifiable deletion — a *compliance right*, not a
-  product to sell.
+  product to sell. This is the exit/no-lock-in posture: a tenant can export its
+  records and prove deletion in core, while OTLP export remains an
+  operator-controlled data portability path.
 - Fairness *enforcement* — it protects the shared pooled platform, so everyone
   gets it. (The provider-console *views* of fairness live in `ee/`.)
 - Support-bundle *generation* — the tool is core; the support SLA is a contract,

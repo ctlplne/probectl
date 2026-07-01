@@ -95,6 +95,9 @@ Four choices set it apart:
   — **metrics, traces, and logs** — bounded for correlation, and re-exports
   probectl's own signals as OTLP **metrics**; the schemas follow OTel resource +
   network semantic conventions everywhere ([`docs/otlp.md`](docs/otlp.md)).
+  The same choice is the no-lock-in story: data portability is under operator
+  control through OTLP export and tenant export paths, so you can take your data
+  out without turning a commercial feature on.
 - **It does not meter the core by surprise.** The full five-plane core platform
   is free; commercial gates are about tenant-band/provider operations,
   governance, HA support/SLA, BYOK, and resale controls, not per-host, per-flow,
