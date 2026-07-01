@@ -278,6 +278,56 @@ func TestBYOKRevocationInstantTTLZero(t *testing.T) {
 	}
 }
 
+func TestBYOKPositiveTTLZeroizesExpiredCache(t *testing.T) {
+	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x42}, 32))
+	var resolves int
+	resolve := func(_ context.Context, _ string) ([]byte, func(), error) {
+		resolves++
+		b, cleanup := byokMaterial(material)
+		return b, cleanup, nil
+	}
+	k, _ := newRing(t, resolve)
+	now := time.Unix(30_000, 0)
+	k.WithClock(func() time.Time { return now }).WithBYOKTTL(time.Second)
+	ctx := context.Background()
+	aad := []byte("x")
+
+	kv, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek")
+	if err != nil || kv.Mode != ModeBYOK {
+		t.Fatalf("byok rotate: %+v %v", kv, err)
+	}
+	blob, err := k.Seal(ctx, "tnA", []byte("secret"), aad)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	cached := captureCachedKEK(t, k, "tnA", kv.Version)
+	if cached == nil || allZero(cached) {
+		t.Fatalf("expected non-zero cached BYOK KEK before expiry: %x", cached)
+	}
+	resolvesBeforeCacheHit := resolves
+	plain, err := k.Open(ctx, "tnA", blob, aad)
+	if err != nil || string(plain) != "secret" {
+		t.Fatalf("open through live BYOK cache: %q %v", plain, err)
+	}
+	crypto.Zeroize(plain)
+	if resolves != resolvesBeforeCacheHit {
+		t.Fatalf("live BYOK cache hit re-resolved: before=%d after=%d", resolvesBeforeCacheHit, resolves)
+	}
+
+	now = now.Add(2 * time.Second)
+	plain, err = k.Open(ctx, "tnA", blob, aad)
+	if err != nil || string(plain) != "secret" {
+		t.Fatalf("open after BYOK cache expiry: %q %v", plain, err)
+	}
+	crypto.Zeroize(plain)
+	if !allZero(cached) {
+		t.Fatalf("expired BYOK cached KEK was not zeroized: %x", cached)
+	}
+	if resolves != resolvesBeforeCacheHit+1 {
+		t.Fatalf("expected BYOK cache expiry to re-resolve once, before=%d after=%d", resolvesBeforeCacheHit, resolves)
+	}
+}
+
 func TestBYOKResolverSlicesZeroizedAfterSealOpen(t *testing.T) {
 	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x5a}, 32))
 	var resolved [][]byte

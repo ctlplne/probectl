@@ -151,9 +151,13 @@ cannot silently get a fresh v1 by writing new data.
   `probectl-control envelope-rewrap --verify-retired-key-id=<old-id>`. Rewrap or
   expire old `.pbk` backups with `probectl-control backup-rewrap` before
   destroying the old deployment KEK.
-- **Key cache:** unwrapped or resolved keys are cached in memory for 30 seconds
-  (rotation and destroy purge the tenant's cache immediately). A BYOK revocation
-  therefore takes effect within seconds, not at the next session.
+- **Key cache:** managed tenant KEKs are cached in memory for 30 seconds by
+  default (rotation and destroy purge the tenant's cache immediately, and TTL
+  eviction wipes the old bytes in place). BYOK defaults to **no key cache**
+  (`resolve-on-every-use`), so a customer revocation is seen by the next seal or
+  open in the same process. If an operator explicitly configures a positive
+  BYOK cache TTL, that TTL is the maximum revocation window and expired entries
+  are zeroized before re-resolve.
 - **Key-store outage:** if Postgres is unavailable for the `tenant_keys` table,
   seal and open fail with an error (fail safe). Telemetry ingestion is
   unaffected — only sealed-value reads/writes (e.g. using an alert-channel

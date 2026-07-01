@@ -28,6 +28,9 @@ no hardcoded or logged secrets, and TLS on every channel.
    the `internal/crypto` provider) under an ephemeral per-process key — one
    minted at process start and never written anywhere — so even a memory dump
    of the cache yields ciphertext, and a restart re-resolves everything fresh.
+   Runtime consumers that can accept bytes use the resolver's cleanup-returning
+   byte path; the string path exists only for legacy config seams that require
+   immutable strings.
 2. **Short-lived leases.** A **lease** is permission to keep using a resolved
    value for a bounded time — a borrow with an expiry, not a copy to keep. A
    resolved value is served from cache for the lease TTL (default 5 minutes),

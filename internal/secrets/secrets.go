@@ -32,6 +32,10 @@
 //     rotated upstream secrets are picked up without restarts.
 //   - Redaction: errors and health snapshots never contain secret material;
 //     reference strings are shown with their fragment redacted.
+//   - Memory lifetime: callers that can consume bytes use ResolveBytes and call
+//     the returned cleanup; byte-capable backends implement ByteSource so the
+//     resolver avoids creating an immutable secret string. Resolve remains for
+//     legacy config APIs that must receive strings, and documents that boundary.
 package secrets
 
 import (
@@ -98,6 +102,14 @@ func Parse(raw string) (Ref, error) {
 type Source interface {
 	Scheme() string
 	Fetch(ctx context.Context, ref Ref) (string, error)
+}
+
+// ByteSource is an optional custody-tight Source extension. Backends that can
+// materialize secret values as caller-owned bytes implement this so ResolveBytes
+// can avoid creating an immutable Go string for the secret. Cleanup is called
+// after the resolver/client boundary consumes the bytes.
+type ByteSource interface {
+	FetchBytes(ctx context.Context, ref Ref) ([]byte, func(), error)
 }
 
 // ErrUnavailable wraps backend-unreachable failures (still fail-closed — the
@@ -212,13 +224,12 @@ func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func()
 	if src == nil {
 		return nil, nil, fmt.Errorf("secrets: %s backend not configured (reference %s)", ref.Scheme, ref.Redacted())
 	}
-	value, ferr := src.Fetch(ctx, ref)
-	valueBytes := []byte(value)
+	valueBytes, valueCleanup, ferr := fetchBytes(ctx, src, ref)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.closed {
-		crypto.Zeroize(valueBytes)
+		cleanupBytes(valueBytes, valueCleanup)
 		return nil, nil, fmt.Errorf("secrets: resolver is closed")
 	}
 	if ferr != nil {
@@ -231,7 +242,7 @@ func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func()
 			crypto.Zeroize(old.sealed)
 			delete(r.cache, raw)
 		}
-		crypto.Zeroize(valueBytes)
+		cleanupBytes(valueBytes, valueCleanup)
 		return nil, nil, fmt.Errorf("secrets: resolve %s: %w", ref.Redacted(), ferr)
 	}
 	st.Resolves++
@@ -243,7 +254,25 @@ func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func()
 		}
 		r.cache[raw] = cacheEntry{sealed: sealed, expires: now.Add(r.lease)}
 	}
-	return valueBytes, func() { crypto.Zeroize(valueBytes) }, nil
+	return valueBytes, func() { cleanupBytes(valueBytes, valueCleanup) }, nil
+}
+
+func fetchBytes(ctx context.Context, src Source, ref Ref) ([]byte, func(), error) {
+	if bs, ok := src.(ByteSource); ok {
+		return bs.FetchBytes(ctx, ref)
+	}
+	value, err := src.Fetch(ctx, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []byte(value), nil, nil
+}
+
+func cleanupBytes(b []byte, cleanup func()) {
+	crypto.Zeroize(b)
+	if cleanup != nil {
+		cleanup()
+	}
 }
 
 // Health returns per-backend snapshots (sorted, no secret material).

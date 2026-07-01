@@ -101,6 +101,33 @@ func (c *countingSource) Fetch(context.Context, Ref) (string, error) {
 	return c.value, nil
 }
 
+type byteCountingSource struct {
+	calls       int
+	stringCalls int
+	cleanups    int
+	fail        bool
+	value       []byte
+	returned    [][]byte
+}
+
+func (c *byteCountingSource) Scheme() string { return "vault" }
+func (c *byteCountingSource) Fetch(context.Context, Ref) (string, error) {
+	c.stringCalls++
+	return "", fmt.Errorf("string fetch should not be used for byte-capable source")
+}
+func (c *byteCountingSource) FetchBytes(context.Context, Ref) ([]byte, func(), error) {
+	c.calls++
+	if c.fail {
+		return nil, nil, fmt.Errorf("%w: byte backend refused", ErrUnavailable)
+	}
+	b := append([]byte(nil), c.value...)
+	c.returned = append(c.returned, b)
+	return b, func() {
+		c.cleanups++
+		crypto.Zeroize(b)
+	}, nil
+}
+
 func TestLeaseCacheSealedAndFailClosedOnRotation(t *testing.T) {
 	src := &countingSource{value: "s3cr3t-A"}
 	res, err := NewResolver(time.Minute, src)
@@ -158,6 +185,78 @@ func TestLeaseCacheSealedAndFailClosedOnRotation(t *testing.T) {
 	}
 	if !strings.Contains(health, `"failures":1`) || !strings.Contains(health, `"resolves":2`) {
 		t.Fatalf("health counters wrong: %s", health)
+	}
+}
+
+func TestResolveBytesByteSourceLeaseEvictionAndCleanup(t *testing.T) {
+	src := &byteCountingSource{value: []byte("s3cr3t-A")}
+	res, err := NewResolver(time.Minute, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	res.clock = func() time.Time { return now }
+
+	ref := "vault:kv/netops#community"
+	plain, cleanup, err := res.ResolveBytes(ctxT(t), ref)
+	if err != nil || string(plain) != "s3cr3t-A" {
+		t.Fatalf("resolve bytes: %q %v", plain, err)
+	}
+	cleanup()
+	if src.stringCalls != 0 {
+		t.Fatalf("byte-capable backend used immutable string Fetch %d times", src.stringCalls)
+	}
+	if src.calls != 1 || src.cleanups != 1 {
+		t.Fatalf("byte fetch calls/cleanups = %d/%d, want 1/1", src.calls, src.cleanups)
+	}
+	if !allZeroBytes(src.returned[0]) {
+		t.Fatalf("source-returned plaintext bytes were not zeroized: %x", src.returned[0])
+	}
+
+	res.mu.Lock()
+	var oldSealed []byte
+	for _, e := range res.cache {
+		oldSealed = e.sealed
+		if bytes.Contains(e.sealed, []byte("s3cr3t-A")) {
+			res.mu.Unlock()
+			t.Fatal("plaintext byte-source secret found in resolver cache")
+		}
+	}
+	res.mu.Unlock()
+	if len(oldSealed) == 0 || allZeroBytes(oldSealed) {
+		t.Fatalf("expected non-zero sealed cache entry before lease expiry: %x", oldSealed)
+	}
+
+	src.value = []byte("s3cr3t-B")
+	plain, cleanup, err = res.ResolveBytes(ctxT(t), ref)
+	if err != nil || string(plain) != "s3cr3t-A" {
+		t.Fatalf("cache hit before expiry: %q %v", plain, err)
+	}
+	cleanup()
+	if src.calls != 1 {
+		t.Fatalf("source re-fetched before lease expiry: calls=%d", src.calls)
+	}
+
+	now = now.Add(2 * time.Minute)
+	plain, cleanup, err = res.ResolveBytes(ctxT(t), ref)
+	if err != nil || string(plain) != "s3cr3t-B" {
+		t.Fatalf("post-lease resolve: %q %v", plain, err)
+	}
+	cleanup()
+	if src.calls != 2 || src.cleanups != 2 {
+		t.Fatalf("post-lease calls/cleanups = %d/%d, want 2/2", src.calls, src.cleanups)
+	}
+	if !allZeroBytes(oldSealed) {
+		t.Fatalf("expired sealed cache entry was not zeroized: %x", oldSealed)
+	}
+
+	var health string
+	for _, h := range res.Health() {
+		b, _ := json.Marshal(h)
+		health += string(b)
+	}
+	if strings.Contains(health, "s3cr3t") {
+		t.Fatalf("health leaked byte-source secret material: %s", health)
 	}
 }
 
