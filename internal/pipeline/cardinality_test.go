@@ -5,6 +5,8 @@ package pipeline
 import (
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
@@ -162,5 +164,94 @@ func TestCardinalityIdentityIncludesLabels(t *testing.T) {
 	l.Filter("t", "ag", b)
 	if _, d := l.Filter("t", "ag", c); d != 1 {
 		t.Fatal("label-value explosion not capped")
+	}
+}
+
+func TestCardinalityLimiterConcurrentTenantShards(t *testing.T) {
+	const tenants = 64
+	const perTenant = 8
+	l := NewCardinalityLimiter(100, 1000)
+
+	var wg sync.WaitGroup
+	var failures atomic.Int64
+	for tenantN := 0; tenantN < tenants; tenantN++ {
+		for seriesN := 0; seriesN < perTenant; seriesN++ {
+			wg.Add(1)
+			go func(tenantN, seriesN int) {
+				defer wg.Done()
+				tenant := fmt.Sprintf("tenant-%02d", tenantN)
+				agent := fmt.Sprintf("agent-%02d", seriesN%4)
+				admitted, dropped := l.Filter(tenant, agent, seriesFor(fmt.Sprintf("metric_%02d", seriesN)))
+				if len(admitted) != 1 || dropped != 0 {
+					failures.Add(1)
+				}
+			}(tenantN, seriesN)
+		}
+	}
+	wg.Wait()
+	if failures.Load() != 0 {
+		t.Fatalf("concurrent sharded filter had %d failed admissions", failures.Load())
+	}
+
+	st := l.Stats()
+	if st.ActiveSeries != tenants*perTenant {
+		t.Fatalf("active series = %d, want %d", st.ActiveSeries, tenants*perTenant)
+	}
+	for tenantN := 0; tenantN < tenants; tenantN++ {
+		tenant := fmt.Sprintf("tenant-%02d", tenantN)
+		if got := st.TenantActiveSeries[tenant]; got != perTenant {
+			t.Fatalf("%s active series = %d, want %d", tenant, got, perTenant)
+		}
+	}
+}
+
+// BenchmarkCardinalityLimiterConcurrentTenants is the SPINE-006 contention
+// receipt. Before sharding, both sub-benchmarks serialized on one global mutex;
+// after sharding, the many-tenant case exercises cross-tenant parallelism while
+// the single-tenant case remains intentionally serialized to preserve one
+// tenant's per-agent/per-tenant cap semantics.
+func BenchmarkCardinalityLimiterConcurrentTenants(b *testing.B) {
+	const (
+		agentCount  = 8
+		seriesCount = 256
+	)
+	seriesPool := make([]tsdb.Series, seriesCount)
+	for i := range seriesPool {
+		seriesPool[i] = tsdb.Series{
+			Metric: fmt.Sprintf("bench_metric_%03d", i),
+			Labels: map[string]string{"host": fmt.Sprintf("host-%03d", i)},
+			Value:  float64(i),
+		}
+	}
+	agents := make([]string, agentCount)
+	for i := range agents {
+		agents[i] = fmt.Sprintf("agent-%02d", i)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		tenants int
+	}{
+		{name: "single_tenant_contention_control", tenants: 1},
+		{name: "many_tenants_sharded", tenants: 128},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			l := NewCardinalityLimiter(seriesCount+1, seriesCount+1)
+			tenants := make([]string, tc.tenants)
+			for i := range tenants {
+				tenants[i] = fmt.Sprintf("tenant-%03d", i)
+			}
+			var seq atomic.Uint64
+			b.ReportAllocs()
+			b.SetParallelism(8)
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					n := int(seq.Add(1))
+					s := []tsdb.Series{seriesPool[n%len(seriesPool)]}
+					l.Filter(tenants[n%len(tenants)], agents[n%len(agents)], s)
+				}
+			})
+		})
 	}
 }

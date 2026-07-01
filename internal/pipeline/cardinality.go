@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -46,6 +47,11 @@ const (
 	maxLabelsPerSeries = 32
 	maxLabelValueLen   = 256
 	labelHashPrefixLen = 32
+
+	// SPINE-006: stripe tenant state so high-cardinality ingest for different
+	// tenants does not serialize on one process-wide mutex. One tenant still maps
+	// to exactly one shard, preserving per-tenant/per-agent cap semantics.
+	cardinalityShards = 32
 )
 
 // CardinalityLimiter admits series identities under per-agent and per-tenant
@@ -55,13 +61,18 @@ type CardinalityLimiter struct {
 	perTenant int
 	idleTTL   time.Duration
 
+	shards [cardinalityShards]cardinalityShard
+
+	dropped   atomic.Uint64 // total rejected series (never silent)
+	truncated atomic.Uint64 // total label values normalized with a hash marker
+	evicted   atomic.Uint64 // identities freed by the idle sweep
+	now       func() time.Time
+}
+
+type cardinalityShard struct {
 	mu        sync.Mutex
 	tenants   map[string]*tenantSeries
-	dropped   uint64 // total rejected series (never silent)
-	truncated uint64 // total label values normalized with a hash marker
-	evicted   uint64 // identities freed by the idle sweep
 	lastSweep time.Time
-	now       func() time.Time
 }
 
 type tenantSeries struct {
@@ -79,10 +90,11 @@ func NewCardinalityLimiter(perAgent, perTenant int) *CardinalityLimiter {
 	if perTenant <= 0 {
 		perTenant = DefaultMaxSeriesPerTenant
 	}
-	return &CardinalityLimiter{
-		perAgent: perAgent, perTenant: perTenant, idleTTL: DefaultSeriesIdleTTL,
-		tenants: map[string]*tenantSeries{}, now: time.Now,
+	l := &CardinalityLimiter{perAgent: perAgent, perTenant: perTenant, idleTTL: DefaultSeriesIdleTTL, now: time.Now}
+	for i := range l.shards {
+		l.shards[i].tenants = map[string]*tenantSeries{}
 	}
+	return l
 }
 
 // WithIdleTTL overrides the identity idle eviction window (tests; config).
@@ -93,23 +105,35 @@ func (l *CardinalityLimiter) WithIdleTTL(ttl time.Duration) *CardinalityLimiter 
 	return l
 }
 
+// shardFor maps a tenant to its cardinality state stripe (FNV-1a, mirroring the
+// fairness gate's tenant hash). A tenant is always on the same shard, so its
+// state never spans locks.
+func (l *CardinalityLimiter) shardFor(tenantID string) *cardinalityShard {
+	var h uint32 = 2166136261
+	for i := 0; i < len(tenantID); i++ {
+		h ^= uint32(tenantID[i])
+		h *= 16777619
+	}
+	return &l.shards[h%cardinalityShards]
+}
+
 // sweepLocked frees identities idle past the TTL and removes empty agents and
-// tenants — the memory bound (SCALE-003). Called under mu, at most once per
-// sweepInterval, from the Filter hot path (amortized; no background goroutine
-// to leak).
-func (l *CardinalityLimiter) sweepLocked(now time.Time) {
-	if now.Sub(l.lastSweep) < sweepInterval {
+// tenants — the memory bound (SCALE-003). Called under the tenant shard lock, at
+// most once per sweepInterval per shard, from the Filter hot path (amortized; no
+// background goroutine to leak).
+func (l *CardinalityLimiter) sweepLocked(sh *cardinalityShard, now time.Time) {
+	if now.Sub(sh.lastSweep) < sweepInterval {
 		return
 	}
-	l.lastSweep = now
+	sh.lastSweep = now
 	cutoff := now.Add(-l.idleTTL)
-	for tenant, ts := range l.tenants {
+	for tenant, ts := range sh.tenants {
 		for agent, ids := range ts.byAgent {
 			for id, seen := range ids {
 				if seen.Before(cutoff) {
 					delete(ids, id)
 					delete(ts.all, id)
-					l.evicted++
+					l.evicted.Add(1)
 				}
 			}
 			if len(ids) == 0 {
@@ -117,7 +141,7 @@ func (l *CardinalityLimiter) sweepLocked(now time.Time) {
 			}
 		}
 		if len(ts.all) == 0 && ts.dropped == 0 && ts.truncated == 0 {
-			delete(l.tenants, tenant)
+			delete(sh.tenants, tenant)
 		}
 	}
 }
@@ -168,15 +192,16 @@ func (l *CardinalityLimiter) FilterDetailed(tenant, agent string, series []tsdb.
 	if l == nil {
 		return series, CardinalityFilterStats{}
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	now := l.now()
-	l.sweepLocked(now)
+	sh := l.shardFor(tenant)
+	sh.mu.Lock()
+	defer sh.mu.Unlock()
+	l.sweepLocked(sh, now)
 
-	ts := l.tenants[tenant]
+	ts := sh.tenants[tenant]
 	if ts == nil {
 		ts = &tenantSeries{all: map[string]time.Time{}, byAgent: map[string]map[string]time.Time{}}
-		l.tenants[tenant] = ts
+		sh.tenants[tenant] = ts
 	}
 	ag := ts.byAgent[agent]
 	if ag == nil {
@@ -220,11 +245,11 @@ func (l *CardinalityLimiter) FilterDetailed(tenant, agent string, series []tsdb.
 		admitted = append(admitted, s)
 	}
 	if droppedHere > 0 {
-		l.dropped += uint64(droppedHere)
+		l.dropped.Add(uint64(droppedHere))
 		ts.dropped += uint64(droppedHere)
 	}
 	if truncatedHere > 0 {
-		l.truncated += uint64(truncatedHere)
+		l.truncated.Add(uint64(truncatedHere))
 		ts.truncated += uint64(truncatedHere)
 	}
 	return admitted, CardinalityFilterStats{Dropped: droppedHere, LabelTruncated: truncatedHere}
@@ -244,28 +269,31 @@ type CardinalityStats struct {
 // Stats snapshots the counters (per-tenant drops included, for fairness
 // visibility).
 func (l *CardinalityLimiter) Stats() CardinalityStats {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	out := CardinalityStats{
-		Dropped:            l.dropped,
-		LabelTruncated:     l.truncated,
-		Evicted:            l.evicted,
+		Dropped:            l.dropped.Load(),
+		LabelTruncated:     l.truncated.Load(),
+		Evicted:            l.evicted.Load(),
 		TenantActiveSeries: map[string]int{},
 		TenantDropped:      map[string]uint64{},
 		TenantTruncated:    map[string]uint64{},
 	}
-	for t, ts := range l.tenants {
-		active := len(ts.all)
-		out.ActiveSeries += active
-		if active > 0 {
-			out.TenantActiveSeries[t] = active
+	for i := range l.shards {
+		sh := &l.shards[i]
+		sh.mu.Lock()
+		for t, ts := range sh.tenants {
+			active := len(ts.all)
+			out.ActiveSeries += active
+			if active > 0 {
+				out.TenantActiveSeries[t] = active
+			}
+			if ts.dropped > 0 {
+				out.TenantDropped[t] = ts.dropped
+			}
+			if ts.truncated > 0 {
+				out.TenantTruncated[t] = ts.truncated
+			}
 		}
-		if ts.dropped > 0 {
-			out.TenantDropped[t] = ts.dropped
-		}
-		if ts.truncated > 0 {
-			out.TenantTruncated[t] = ts.truncated
-		}
+		sh.mu.Unlock()
 	}
 	return out
 }

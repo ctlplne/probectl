@@ -69,11 +69,14 @@ func TestCardinalityEvictionBoundsMemory(t *testing.T) {
 
 	// A tenant that disappears entirely is removed (no leak across churn).
 	now = now.Add(time.Hour)
-	l.Filter("t-other", "a", mk("x")) // trigger a sweep via another tenant
-	l.mu.Lock()
-	_, exists := l.tenants["t-a"]
-	l.mu.Unlock()
-	if exists {
+	// Sweeps are per shard after SPINE-006, so touch another tenant that maps to
+	// the same shard as t-a.
+	trigger := "t-other"
+	for i := 0; l.shardFor(trigger) != l.shardFor("t-a"); i++ {
+		trigger = fmt.Sprintf("t-other-%d", i)
+	}
+	l.Filter(trigger, "a", mk("x"))
+	if _, exists := l.Stats().TenantActiveSeries["t-a"]; exists {
 		t.Fatal("fully-idle tenant entry was not evicted")
 	}
 }
