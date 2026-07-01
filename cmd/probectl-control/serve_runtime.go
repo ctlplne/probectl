@@ -153,7 +153,7 @@ func (rt *serveRuntime) configureFlowEnrichment() {
 	if !rt.cfg.FlowEnrichASN {
 		return
 	}
-	en := opendata.NewEnricher(rt.log)
+	en := opendata.NewEnricher(rt.log, opendata.WithCacheMaxEntries(rt.cfg.FlowEnrichCacheMax))
 	en.Register(opendata.NewCymru(net.DefaultResolver))
 	async := pipeline.NewAsyncEnricher(en, rt.log)
 	rt.flowEnricher = async
@@ -267,6 +267,9 @@ func (rt *serveRuntime) buildAPIServer() error {
 	}
 	if ch, ok := rt.otelStore.(*otelstore.ClickHouse); ok {
 		ch.WithMetrics(rt.srv.Metrics())
+	}
+	if rt.ipEnricher != nil {
+		rt.ipEnricher.WithMetrics(rt.srv.Metrics())
 	}
 	if rt.enrollSvc != nil {
 		rt.srv.SetEnrollService(rt.enrollSvc)

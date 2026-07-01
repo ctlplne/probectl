@@ -293,6 +293,26 @@ func TestResultPipelineConfig(t *testing.T) {
 	}
 }
 
+func TestFlowEnrichmentCacheMaxConfig(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FlowEnrichCacheMax != 65536 {
+		t.Fatalf("FlowEnrichCacheMax default = %d, want 65536", cfg.FlowEnrichCacheMax)
+	}
+	cfg, err = Load(envFunc(map[string]string{"PROBECTL_FLOW_ENRICH_CACHE_MAX": "128"}))
+	if err != nil {
+		t.Fatalf("load override: %v", err)
+	}
+	if cfg.FlowEnrichCacheMax != 128 {
+		t.Fatalf("FlowEnrichCacheMax override = %d, want 128", cfg.FlowEnrichCacheMax)
+	}
+	if _, err := Load(envFunc(map[string]string{"PROBECTL_FLOW_ENRICH_CACHE_MAX": "0"})); err == nil || !strings.Contains(err.Error(), "PROBECTL_FLOW_ENRICH_CACHE_MAX") {
+		t.Fatalf("zero cache max should fail closed, got %v", err)
+	}
+}
+
 func TestLoadOverrides(t *testing.T) {
 	cfg, err := Load(envFunc(map[string]string{
 		"PROBECTL_HTTP_ADDR":          ":9000",

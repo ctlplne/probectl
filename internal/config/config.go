@@ -251,7 +251,8 @@ type Config struct {
 	// retention). FlowEnrichASN opts in to ASN/geo enrichment via the S15
 	// opendata sources (Team Cymru DNS lookups — an OUTBOUND dependency, so it
 	// is off by default per the no-phone-home guardrail; device-asserted AS
-	// numbers always pass through).
+	// numbers always pass through). FlowEnrichCacheMax is the hard process-wide
+	// entry cap for the shared open-data cache.
 	FlowStoreMode string
 	FlowStoreURL  string
 	// OTelStoreMode/URL/RetentionDays (ARCH-001): where externally-ingested
@@ -268,8 +269,9 @@ type Config struct {
 	EBPFStoreURL      string
 	EBPFRetentionDays int
 	// PathRetentionDays bounds the path/traceroute tables (SCALE-006).
-	PathRetentionDays int
-	FlowEnrichASN     bool
+	PathRetentionDays  int
+	FlowEnrichASN      bool
+	FlowEnrichCacheMax int
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -723,6 +725,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.FlowRetentionDays = l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650)
 	cfg.PathRetentionDays = l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650)
 	cfg.FlowEnrichASN = l.boolean("PROBECTL_FLOW_ENRICH_ASN", false)
+	cfg.FlowEnrichCacheMax = l.intRange("PROBECTL_FLOW_ENRICH_CACHE_MAX", 65536, 1, 10_000_000)
 	// TENANT-004: profile-defaulted DB-level ClickHouse scoping.
 	cfg.FlowCHTenantScoping = l.boolean("PROBECTL_FLOWSTORE_TENANT_SCOPING", chScopeDefault)
 	cfg.FlowCHReaderUser = l.str("PROBECTL_FLOWSTORE_READER_USER", "")
@@ -1149,6 +1152,7 @@ func (c *Config) Redacted() map[string]any {
 		"residency":                   c.Residency,
 		"replication_mode":            c.ReplicationMode,
 		"flow_retention_days":         c.FlowRetentionDays,
+		"flow_enrich_cache_max":       c.FlowEnrichCacheMax,
 		"backup_retention_note":       c.BackupRetentionNote,
 		"data_planes_configured":      c.DataPlanes != "",
 		"envelope_key_configured":     c.EnvelopeKey != "", // a boolean, never the key

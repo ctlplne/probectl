@@ -1149,6 +1149,7 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `90` | delete-after-N-days TTL for the `probectl_flows` ClickHouse table. `0` disables the TTL and keeps flows indefinitely; the control plane logs a loud warning because the flow table can then grow without bound |
 | `PROBECTL_EBPF_RETENTION_DAYS`    | `30` | delete-after-N-days TTL for the eBPF ClickHouse tables. `0` disables the TTL and keeps eBPF history indefinitely; use a finite value for high-churn L7/service-edge deployments |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
+| `PROBECTL_FLOW_ENRICH_CACHE_MAX`  | `65536`  | hard maximum entries in the shared open-data enrichment cache. When more distinct IPs arrive, stale entries expire first and then the least-recently-used entry is evicted; cache size/hits/misses/evictions are exposed on `/metrics` |
 
 `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` and `regulated` are production-like
 profiles, so startup refuses volatile raw-ingest/serving defaults. Set

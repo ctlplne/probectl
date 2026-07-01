@@ -5,8 +5,14 @@ package opendata
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http/httptest"
 	"net/netip"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 )
 
 // TestEnricherMergesAllPlanes is the S15 Done-when: an IP is enriched with
@@ -125,6 +131,101 @@ func TestEnricherCachesByIP(t *testing.T) {
 	}
 	if src.calls != 1 {
 		t.Errorf("expected 1 source call (cached), got %d", src.calls)
+	}
+}
+
+func TestEnricherCacheMaxEntriesEvictsAndExpires(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	en := NewEnricher(discardLogger(), WithCacheTTL(time.Minute), WithCacheMaxEntries(3))
+	en.cache.now = func() time.Time { return now }
+	src := &fakeSource{desc: Descriptor{Name: "src"}, fn: func(_ netip.Addr, e *Enrichment) error {
+		e.CountryCode = "ZZ"
+		return nil
+	}}
+	en.Register(src)
+
+	for i := 1; i <= 5; i++ {
+		if _, err := en.Enrich(context.Background(), fmt.Sprintf("203.0.113.%d", i)); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(time.Second)
+	}
+	st := en.CacheStats()
+	if st.Entries > 3 || st.MaxEntries != 3 {
+		t.Fatalf("cache size = %d/%d, want <=3/3", st.Entries, st.MaxEntries)
+	}
+	if st.Evictions == 0 {
+		t.Fatalf("expected cap evictions after 5 unique IPs into cap=3: %+v", st)
+	}
+	if st.ApproxBytes <= 0 || st.ApproxBytes > int64(st.MaxEntries)*1024 {
+		t.Fatalf("cache approximate bytes not bounded by cap: %+v", st)
+	}
+	if src.calls != 5 {
+		t.Fatalf("source calls after unique IPs = %d, want 5", src.calls)
+	}
+
+	if _, err := en.Enrich(context.Background(), "203.0.113.5"); err != nil {
+		t.Fatal(err)
+	}
+	if src.calls != 5 {
+		t.Fatalf("recent cached IP should hit before TTL expiry; calls=%d", src.calls)
+	}
+
+	now = now.Add(2 * time.Minute)
+	if _, err := en.Enrich(context.Background(), "203.0.113.5"); err != nil {
+		t.Fatal(err)
+	}
+	st = en.CacheStats()
+	if st.Entries > 3 {
+		t.Fatalf("cache grew past cap after stale refresh: %+v", st)
+	}
+	if st.Expired == 0 {
+		t.Fatalf("expected stale entries to expire: %+v", st)
+	}
+	if src.calls != 6 {
+		t.Fatalf("expired entry should be refreshed once; calls=%d", src.calls)
+	}
+}
+
+func TestEnricherCacheMetrics(t *testing.T) {
+	reg := metrics.New("test", "abc")
+	en := NewEnricher(discardLogger(), WithCacheTTL(time.Minute), WithCacheMaxEntries(1)).WithMetrics(reg)
+	src := &fakeSource{desc: Descriptor{Name: "src"}, fn: func(_ netip.Addr, e *Enrichment) error {
+		e.CountryCode = "ZZ"
+		return nil
+	}}
+	en.Register(src)
+
+	if _, err := en.Enrich(context.Background(), "203.0.113.10"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := en.Enrich(context.Background(), "203.0.113.10"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := en.Enrich(context.Background(), "203.0.113.11"); err != nil {
+		t.Fatal(err)
+	}
+	if got := reg.Counter("probectl_opendata_cache_hits_total", "").Value(); got != 1 {
+		t.Fatalf("cache hit metric = %d, want 1", got)
+	}
+	if got := reg.Counter("probectl_opendata_cache_misses_total", "").Value(); got != 2 {
+		t.Fatalf("cache miss metric = %d, want 2", got)
+	}
+	if got := reg.Counter("probectl_opendata_cache_evictions_total", "").Value(); got != 1 {
+		t.Fatalf("cache eviction metric = %d, want 1", got)
+	}
+
+	rr := httptest.NewRecorder()
+	reg.Handler().ServeHTTP(rr, httptest.NewRequest("GET", "/metrics", nil))
+	body := rr.Body.String()
+	for _, want := range []string{
+		"probectl_opendata_cache_entries 1",
+		"probectl_opendata_cache_max_entries 1",
+		"probectl_opendata_cache_approx_bytes ",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("/metrics missing %q:\n%s", want, body)
+		}
 	}
 }
 

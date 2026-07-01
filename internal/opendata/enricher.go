@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 )
 
 const (
@@ -42,7 +44,11 @@ type Option func(*Enricher)
 func WithSourceTimeout(d time.Duration) Option { return func(e *Enricher) { e.timeout = d } }
 
 // WithCacheTTL sets the enrichment cache TTL (0 disables caching).
-func WithCacheTTL(d time.Duration) Option { return func(e *Enricher) { e.cache = newCache(d) } }
+func WithCacheTTL(d time.Duration) Option { return func(e *Enricher) { e.cache.setTTL(d) } }
+
+// WithCacheMaxEntries sets the hard entry cap for the shared enrichment cache.
+// Non-positive values disable caching; callers normally keep the finite default.
+func WithCacheMaxEntries(n int) Option { return func(e *Enricher) { e.cache.setMax(n) } }
 
 // NewEnricher builds an Enricher. Register sources with Register.
 func NewEnricher(log *slog.Logger, opts ...Option) *Enricher {
@@ -55,6 +61,16 @@ func NewEnricher(log *slog.Logger, opts ...Option) *Enricher {
 	}
 	return e
 }
+
+// WithMetrics exposes aggregate cache metrics. The cache is shared and
+// tenant-agnostic, so these are process/cache metrics with no tenant labels.
+func (en *Enricher) WithMetrics(reg *metrics.Registry) *Enricher {
+	en.cache.withMetrics(reg)
+	return en
+}
+
+// CacheStats returns aggregate cache behavior for tests and diagnostics.
+func (en *Enricher) CacheStats() CacheStats { return en.cache.stats() }
 
 // Register adds a source (enabled by default). Sources run in registration order,
 // so an ASN-providing source (Team Cymru) should be registered before one that
