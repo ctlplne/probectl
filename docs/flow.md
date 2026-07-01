@@ -184,6 +184,11 @@ the flow store (`internal/store/flowstore/clickhouse.go`):
   (`toDateTime(ts) + INTERVAL N DAY DELETE` — a time-to-live: ClickHouse
   deletes expired rows itself). The default is `90`; `0` disables the TTL and
   keeps flows indefinitely, which the control plane warns about at boot;
+- hourly rollups (`probectl_flow_rollups_hour`) are materialized before raw rows
+  age out. They keep tenant-scoped lower-resolution bytes/packets/flow counts
+  queryable for long-term cost and trend views. A controlled backfill path
+  rebuilds a tenant+window idempotently by deleting that rollup window first,
+  then re-materializing duplicate-safe hourly facts from raw rows;
 - a `memory` store (the default) implements the same `Store` contract for the
   lightweight / single-node deploy, and is the reference implementation the
   ClickHouse SQL must agree with (the two share one local anomaly model, so both

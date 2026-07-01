@@ -113,8 +113,8 @@ func TestClickHouseRefusesUnscopedOperations(t *testing.T) {
 	}
 }
 
-// U-026: the row-policy DDL covers both tables, exempts exactly the service
-// user, and defaults that user to `default`.
+// U-026: the row-policy DDL covers raw + rollup tables, exempts exactly the
+// service user, and defaults that user to `default`.
 func TestClickHouseRowPolicyDDL(t *testing.T) {
 	f, ch := newFakeCH(t)
 	if err := ch.EnsureRowPolicies(context.Background(), ""); err != nil {
@@ -128,12 +128,13 @@ func TestClickHouseRowPolicyDDL(t *testing.T) {
 		}
 	}
 	f.mu.Unlock()
-	if len(policies) != 4 {
-		t.Fatalf("want 4 row policies (2 per table), got %d: %v", len(policies), policies)
+	if len(policies) != 8 {
+		t.Fatalf("want 8 row policies (2 per table), got %d: %v", len(policies), policies)
 	}
 	joined := strings.Join(policies, "\n")
 	for _, want := range []string{
-		"ON probectl_path_hops", "ON probectl_path_links",
+		"ON probectl_path_hops2", "ON probectl_path_links2",
+		"ON probectl_path_hops_rollups_hour", "ON probectl_path_links_rollups_hour",
 		"tenant_id = currentUser() TO ALL EXCEPT default", "USING 1 TO default",
 	} {
 		if !strings.Contains(joined, want) {

@@ -7,11 +7,11 @@ it, which shelf it sits on, and which timer removes it.
 
 This page is a governance/control map, not a new retention engine. Today,
 retention is still enforced by the owning stores and lifecycle paths:
-ClickHouse TTLs, the in-memory TSDB window, audit pruning after durable export,
-AI-answer pruning on write, and tenant/subject erasure. `flow_retention_days is
-the only tenant-scoped age-retention override today`; other age clocks are
-deployment-level settings unless the tenant is siloed onto separately configured
-stores.
+ClickHouse TTLs plus ClickHouse hourly rollups, the in-memory TSDB window, audit
+pruning after durable export, AI-answer pruning on write, and tenant/subject
+erasure. `flow_retention_days is the only tenant-scoped age-retention override
+today`; other age clocks are deployment-level settings unless the tenant is
+siloed onto separately configured stores.
 
 ## Enforcement Model
 
@@ -19,8 +19,9 @@ stores.
   export cursor is tenant-scoped before RBAC or governance policy is considered.
   If the tenant cannot be proven, the read/delete path returns nothing.
 - **Age retention is store-owned.** High-volume ClickHouse stores use delete
-  TTLs; the in-memory TSDB uses an arrival-time window; audit logs prune only
-  after WORM/SIEM export proves the evidence survived elsewhere.
+  TTLs for raw rows and hourly rollup tables for lower-resolution history; the
+  in-memory TSDB uses an arrival-time window; audit logs prune only after
+  WORM/SIEM export proves the evidence survived elsewhere.
 - **Lifecycle deletion is wider than age retention.** Tenant erase and subject
   erase are the privacy "big brooms": they remove or project data across live
   stores even when a store has no age TTL.
@@ -36,9 +37,9 @@ stores.
 | Data set | Default class | Purpose | Primary home | Retention and deletion clock |
 |---|---|---|---|---|
 | Synthetic/canary probe results, including **DNS answers** | `pii` for IPs/targets; `internal` for labels; result attributes may carry tenant data | Network and SLO troubleshooting: "did this tenant's path resolve and respond?" | TSDB series, result views, and bus payloads under `tenant_id` | Lightweight mode uses `PROBECTL_TSDB_MEMORY_RETENTION` (`0` means the built-in 1h window). Remote Prometheus/VictoriaMetrics retention is configured in that TSDB. Tenant erase deletes in-memory series or calls the Prometheus admin delete-series path when enabled; otherwise the attestation records the manual step. DNS answers live inside the result attributes, so they follow the probe-result clock. |
-| Flow telemetry | `pii` for source/destination IPs; `confidential` for ports/protocols/ASN enrichment | Traffic accounting, segmentation evidence, incident context, and cost attribution | ClickHouse `probectl_flows` or in-memory flow store | `PROBECTL_FLOW_RETENTION_DAYS` defaults to 90 days and applies a ClickHouse delete TTL; `0` is an explicit keep-forever opt-out. Per-tenant `flow_retention_days` can tighten this clock. Tenant/subject erase deletes matching flow rows. |
+| Flow telemetry | `pii` for source/destination IPs; `confidential` for ports/protocols/ASN enrichment | Traffic accounting, segmentation evidence, incident context, and cost attribution | ClickHouse `probectl_flows` plus hourly `probectl_flow_rollups_hour`, or in-memory flow store | `PROBECTL_FLOW_RETENTION_DAYS` defaults to 90 days and applies a ClickHouse delete TTL to raw rows; `0` is an explicit keep-forever opt-out. Hourly rollups are tenant-partitioned, backfillable, and remain queryable after raw rows age out until tenant/subject erase removes matching rollup rows. Per-tenant `flow_retention_days` can tighten the raw-row clock. |
 | eBPF host/L7 flow telemetry | `pii` for peer IPs and process/user-adjacent labels; `confidential` for service edges | Host/service dependency mapping, L7 observability, and NDR-lite signals | ClickHouse eBPF tables or in-memory eBPF store | `PROBECTL_EBPF_RETENTION_DAYS` defaults to 30 days and applies eBPF ClickHouse TTLs; `0` disables that age TTL. Tenant erase removes the tenant's live eBPF rows. |
-| Path/traceroute evidence and **Topology labels** | `pii` for hop IPs; `internal` or `confidential` for hostnames, interface labels, sites, and topology annotations | Change-aware topology, path RCA, and blast-radius reasoning | ClickHouse path tables plus `internal/topology` memory/index stores | `PROBECTL_PATH_RETENTION_DAYS` defaults to 90 days for path/traceroute ClickHouse TTLs. The topology memory/index store has no independent time TTL; it rebuilds from fresh observations and is cleared by tenant deletion (`DeleteTenant`) or process restart. |
+| Path/traceroute evidence and **Topology labels** | `pii` for hop IPs; `internal` or `confidential` for hostnames, interface labels, sites, and topology annotations | Change-aware topology, path RCA, and blast-radius reasoning | ClickHouse path tables plus hourly path hop/link rollups and `internal/topology` memory/index stores | `PROBECTL_PATH_RETENTION_DAYS` defaults to 90 days for raw path/traceroute ClickHouse TTLs. Hourly hop/link rollups keep lower-resolution tenant-scoped history while raw path rows age out. The topology memory/index store has no independent time TTL; it rebuilds from fresh observations and is cleared by tenant deletion (`DeleteTenant`) or process restart. |
 | OTLP traces and logs | `pii` or `restricted` when attributes/bodies contain user IDs, IPs, emails, tokens, or request data | Application/host correlation with network incidents | ClickHouse OTLP store or memory store | `PROBECTL_OTEL_RETENTION_DAYS` defaults to 30 days for ClickHouse trace/log TTLs; `0` disables that TTL. Attribute/body caps and redaction reduce blast radius, but tenant/subject erase is the privacy deletion path for matching OTLP data. |
 | Device telemetry, endpoint/DEM metrics, and SNMP/gNMI attributes | `pii` for management IPs and endpoint-user identifiers; `confidential` for inventory/config posture | Device health, endpoint experience, and operational inventory correlation | TSDB, device/endpoint stores, and tenant-scoped API views | Metric samples follow the TSDB retention clock (`PROBECTL_TSDB_MEMORY_RETENTION` in memory mode or the remote TSDB's policy). Durable inventory/config rows are lifecycle-managed and erased with the tenant or data subject; they do not currently have a separate age TTL. |
 | **User directory attributes**, RBAC, SCIM, sessions, and tenant membership | `pii` for names/emails; `restricted` for credentials/tokens; `confidential` for roles and groups | Authentication, authorization, provisioning, and audit attribution | Postgres tenant tables with RLS and envelope-sealed secrets where applicable | Kept while the identity/tenant is active. User deprovision, subject erase, and tenant erase are the deletion paths. Tokens/secrets are stored as hashes or sealed values; no age TTL exists for directory rows unless the owning subsystem adds one. |
@@ -54,9 +55,9 @@ stores.
 | Clock | Default | Scope | What it controls |
 |---|---|---|---|
 | `PROBECTL_TSDB_MEMORY_RETENTION` | `0` = built-in 1h | Deployment | In-memory TSDB sample window. |
-| `PROBECTL_FLOW_RETENTION_DAYS` | `90` | Deployment, with tenant override via `flow_retention_days` | ClickHouse flow delete TTL. |
+| `PROBECTL_FLOW_RETENTION_DAYS` | `90` | Deployment, with tenant override via `flow_retention_days` | ClickHouse raw-flow delete TTL; hourly flow rollups remain until lifecycle deletion. |
 | `PROBECTL_EBPF_RETENTION_DAYS` | `30` | Deployment | ClickHouse eBPF delete TTL. |
-| `PROBECTL_PATH_RETENTION_DAYS` | `90` | Deployment | ClickHouse path/traceroute delete TTL. |
+| `PROBECTL_PATH_RETENTION_DAYS` | `90` | Deployment | ClickHouse raw path/traceroute delete TTL; hourly path rollups remain until lifecycle deletion. |
 | `PROBECTL_OTEL_RETENTION_DAYS` | `30` | Deployment | ClickHouse OTLP trace/log delete TTL. |
 | `PROBECTL_AUDIT_RETENTION` | `0` = keep forever | Deployment | Audit prune eligibility after durable WORM/SIEM export. |
 | `PROBECTL_AI_PERSIST_ANSWERS` | `false` | Deployment | Whether AI answers are stored at all. |

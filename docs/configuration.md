@@ -1159,10 +1159,15 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_PATHSTORE_TENANT_SCOPING` | profile | TENANT-004: DB-level reader scoping on the path plane; defaults ON under `multi-tenant`/`regulated` |
 | `PROBECTL_PATHSTORE_READER_USER` | (none) | the ClickHouse reader user the path setting-scoped row policy is installed on at boot |
 | `PROBECTL_INGEST_STRICT_TENANT_LANES` | profile | WIRE-001: refuse agent-published collector planes (flow/eBPF/device/endpoint) on the **shared pooled bus lane**, forcing them onto tenant-namespaced lanes (broker-ACL isolated, forgery-proof). Closes the residual shared-lane forgery surface. Defaults ON under `multi-tenant`/`regulated`, OFF under `single`. Rejections increment `probectl_pipeline_tenant_rejected_total` on `/metrics` |
-| `PROBECTL_FLOW_RETENTION_DAYS`    | `90` | delete-after-N-days TTL for the `probectl_flows` ClickHouse table. `0` disables the TTL and keeps flows indefinitely; the control plane logs a loud warning because the flow table can then grow without bound |
+| `PROBECTL_FLOW_RETENTION_DAYS`    | `90` | delete-after-N-days TTL for the raw `probectl_flows` ClickHouse table. Hourly tenant-scoped rollups remain queryable in `probectl_flow_rollups_hour` until tenant/subject lifecycle deletion. `0` disables the raw TTL and keeps flows indefinitely; the control plane logs a loud warning because the raw flow table can then grow without bound |
 | `PROBECTL_EBPF_RETENTION_DAYS`    | `30` | delete-after-N-days TTL for the eBPF ClickHouse tables. `0` disables the TTL and keeps eBPF history indefinitely; use a finite value for high-churn L7/service-edge deployments |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
 | `PROBECTL_FLOW_ENRICH_CACHE_MAX`  | `65536`  | hard maximum entries in the shared open-data enrichment cache. When more distinct IPs arrive, stale entries expire first and then the least-recently-used entry is evicted; cache size/hits/misses/evictions are exposed on `/metrics` |
+
+`PROBECTL_PATH_RETENTION_DAYS` applies the same pattern to raw path/traceroute
+ClickHouse rows: raw hops/links age out, while hourly tenant-scoped hop/link
+rollups stay available for lower-resolution trend and RCA context until tenant
+deletion removes them.
 
 `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` and `regulated` are production-like
 profiles, so startup refuses volatile raw-ingest/serving defaults. Set

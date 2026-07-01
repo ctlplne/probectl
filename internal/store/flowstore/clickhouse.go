@@ -79,7 +79,49 @@ func flowRowID(r Row) string {
 	return fmt.Sprintf("%x", h[:16])
 }
 
-const sharedFlowsTable = "probectl_flows"
+const (
+	sharedFlowsTable       = "probectl_flows"
+	sharedFlowRollupsTable = "probectl_flow_rollups_hour"
+	sharedFlowRollupsMV    = "probectl_flow_rollups_hour_mv"
+)
+
+// createFlowRollupsDDL is the long-retention/hourly aggregate store
+// (COMPETE-011): raw high-cardinality rows can age out via TTL while these
+// tenant-partitioned hourly summaries remain queryable.
+func createFlowRollupsDDL(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String,
+  bucket DateTime,
+  protocol LowCardinality(String),
+  exporter String,
+  src_addr String,
+  dst_addr String,
+  transport LowCardinality(String),
+  row_id String,
+  bytes_scaled UInt64,
+  packets_scaled UInt64,
+  flow_count UInt64
+) ENGINE = ReplacingMergeTree
+PARTITION BY (tenant_id, toYYYYMMDD(bucket))
+ORDER BY (tenant_id, bucket, protocol, exporter, src_addr, dst_addr, transport, row_id)`
+}
+
+func createFlowRollupsMVDDL(view, source, dest string) string {
+	return `CREATE MATERIALIZED VIEW IF NOT EXISTS ` + view + ` TO ` + dest + ` AS
+SELECT tenant_id,
+  toStartOfHour(ts) AS bucket,
+  protocol,
+  exporter,
+  src_addr,
+  dst_addr,
+  transport,
+  row_id,
+  bytes_scaled,
+  packets_scaled,
+  toUInt64(1) AS flow_count
+FROM ` + source + `
+WHERE row_id != ''`
+}
 
 // maxInsertChunk bounds the rows encoded into one INSERT request body
 // (SCALE-008). The FlowBatch is agent-controlled, so a 1M-row batch is chunked
@@ -111,6 +153,16 @@ func tableFor(t Target) (string, error) {
 		return "", fmt.Errorf("flowstore: refusing malformed database name %q", t.Database)
 	}
 	return t.Database + "." + sharedFlowsTable, nil
+}
+
+func rollupTableFor(t Target) (string, error) {
+	if t.Database == "" {
+		return sharedFlowRollupsTable, nil
+	}
+	if !chIdentRe.MatchString(t.Database) {
+		return "", fmt.Errorf("flowstore: refusing malformed database name %q", t.Database)
+	}
+	return t.Database + "." + sharedFlowRollupsTable, nil
 }
 
 // ClickHouse persists flows over the ClickHouse HTTP interface (pathstore
@@ -148,6 +200,8 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 // Shipped versions are immutable — schema changes are NEW versions with
 // idempotent (IF NOT EXISTS / additive) statements.
 func chMigrationsFor(table string) []chmigrate.Migration {
+	rollupTable := strings.Replace(table, sharedFlowsTable, sharedFlowRollupsTable, 1)
+	rollupView := strings.Replace(table, sharedFlowsTable, sharedFlowRollupsMV, 1)
 	return []chmigrate.Migration{
 		{Version: 1, Name: "create_flows", Statements: []string{createFlowsDDL(table)}},
 		// CORRECT-002: rebuild the shared flows table into a dedup
@@ -168,6 +222,10 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 			Destructive:   true,
 			Justification: "atomic dedup rebuild: rows are INSERT...SELECT-copied before the RENAME and the v1 table is kept as _pre_dedup — no data loss",
 		},
+		{Version: 3, Name: "hourly_flow_rollups", Statements: []string{
+			createFlowRollupsDDL(rollupTable),
+			createFlowRollupsMVDDL(rollupView, table, rollupTable),
+		}},
 	}
 }
 
@@ -342,7 +400,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if err := chValidUser(readerUser); err != nil {
 		return fmt.Errorf("flowstore: reader user: %w", err)
 	}
-	for _, table := range []string{sharedFlowsTable} {
+	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
 		ddl := fmt.Sprintf(
 			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
 			table, tenantSettingName, readerUser)
@@ -366,7 +424,7 @@ func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) 
 	if err := chValidUser(serviceUser); err != nil {
 		return fmt.Errorf("flowstore: service user: %w", err)
 	}
-	for _, table := range []string{sharedFlowsTable} {
+	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
 		for _, ddl := range []string{
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
@@ -457,6 +515,109 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 			Bytes:   uint64(chToFloat(r["b"])),
 			Packets: uint64(chToFloat(r["p"])),
 			Flows:   uint64(chToFloat(r["f"])),
+		})
+	}
+	return out, nil
+}
+
+// HourlyRollup is one long-retention, downsampled flow bucket.
+type HourlyRollup struct {
+	Bucket    time.Time `json:"bucket"`
+	Protocol  string    `json:"protocol"`
+	Exporter  string    `json:"exporter"`
+	Transport string    `json:"transport"`
+	Bytes     uint64    `json:"bytes"`
+	Packets   uint64    `json:"packets"`
+	Flows     uint64    `json:"flows"`
+}
+
+// BackfillRollups rebuilds one tenant's hourly flow summaries for [from, to).
+// It deletes the tenant+window rollups first so manual catch-up is idempotent.
+func (c *ClickHouse) BackfillRollups(ctx context.Context, tenantID string, from, to time.Time) error {
+	if tenantID == "" {
+		return ErrNoTenant
+	}
+	if !to.After(from) {
+		return errors.New("flowstore: rollup backfill requires to > from")
+	}
+	t, err := c.route(tenantID)
+	if err != nil {
+		return err
+	}
+	table, err := tableFor(t)
+	if err != nil {
+		return err
+	}
+	rollup, err := rollupTableFor(t)
+	if err != nil {
+		return err
+	}
+	p := chParams{"tenant": tenantID, "from": chTimeParam(from), "to": chTimeParam(to)}
+	if err := c.exec(ctx, t.BaseURL,
+		"DELETE FROM "+rollup+" WHERE tenant_id={tenant:String} AND bucket >= toStartOfHour({from:DateTime64(3)}) AND bucket < toStartOfHour({to:DateTime64(3)}) SETTINGS mutations_sync=2",
+		p, nil); err != nil {
+		return fmt.Errorf("flowstore: delete rollup backfill window: %w", err)
+	}
+	return c.exec(ctx, t.BaseURL, flowRollupBackfillSQL(table, rollup), p, nil)
+}
+
+func flowRollupBackfillSQL(table, rollup string) string {
+	return `INSERT INTO ` + rollup + `
+SELECT tenant_id,
+  toStartOfHour(ts) AS bucket,
+  protocol,
+  exporter,
+  src_addr,
+  dst_addr,
+  transport,
+  row_id,
+  bytes_scaled,
+  packets_scaled,
+  toUInt64(1) AS flow_count
+FROM ` + table + ` FINAL
+WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)}
+AND row_id != ''`
+}
+
+// HourlyRollups reads tenant-scoped long-retention flow summaries.
+func (c *ClickHouse) HourlyRollups(ctx context.Context, tenantID string, from, to time.Time) ([]HourlyRollup, error) {
+	if tenantID == "" {
+		return nil, ErrNoTenant
+	}
+	if !to.After(from) {
+		return nil, errors.New("flowstore: rollup query requires to > from")
+	}
+	t, err := c.route(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	rollup, err := rollupTableFor(t)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		`SELECT bucket, protocol, exporter, transport,
+  sum(bytes_scaled) AS bytes_scaled,
+  sum(packets_scaled) AS packets_scaled,
+  sum(flow_count) AS flow_count
+FROM `+rollup+`
+FINAL WHERE tenant_id={tenant:String} AND bucket >= {from:DateTime64(3)} AND bucket < {to:DateTime64(3)}
+GROUP BY bucket, protocol, exporter, transport
+ORDER BY bucket, protocol, exporter, transport`,
+		chParams{"tenant": tenantID, "from": chTimeParam(from), "to": chTimeParam(to)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]HourlyRollup, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, HourlyRollup{
+			Bucket:    chParseTime(chToString(r["bucket"])),
+			Protocol:  chToString(r["protocol"]),
+			Exporter:  chToString(r["exporter"]),
+			Transport: chToString(r["transport"]),
+			Bytes:     uint64(chToFloat(r["bytes_scaled"])),
+			Packets:   uint64(chToFloat(r["packets_scaled"])),
+			Flows:     uint64(chToFloat(r["flow_count"])),
 		})
 	}
 	return out, nil
@@ -575,20 +736,24 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 		}
 		return 0, nil
 	}
-	if err := c.exec(ctx, t.BaseURL,
-		"DELETE FROM "+sharedFlowsTable+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2",
-		chParams{"tenant": tenantID}, nil); err != nil {
-		return -1, fmt.Errorf("flowstore: delete tenant: %w", err)
-	}
-	rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
-		"SELECT count() AS n FROM "+sharedFlowsTable+" WHERE tenant_id={tenant:String}",
-		chParams{"tenant": tenantID})
-	if err != nil {
-		return -1, err
+	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
+		if err := c.exec(ctx, t.BaseURL,
+			"DELETE FROM "+table+" WHERE tenant_id={tenant:String} SETTINGS mutations_sync=2",
+			chParams{"tenant": tenantID}, nil); err != nil {
+			return -1, fmt.Errorf("flowstore: delete tenant: %w", err)
+		}
 	}
 	var remaining int64
-	if len(rows) > 0 {
-		remaining = int64(chToFloat(rows[0]["n"]))
+	for _, table := range []string{sharedFlowsTable, sharedFlowRollupsTable} {
+		rows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+			"SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}",
+			chParams{"tenant": tenantID})
+		if err != nil {
+			return -1, err
+		}
+		if len(rows) > 0 {
+			remaining += int64(chToFloat(rows[0]["n"]))
+		}
 	}
 	return remaining, nil
 }
@@ -621,6 +786,12 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 	if err := c.exec(ctx, t.BaseURL,
 		"DELETE FROM "+table+" WHERE "+flowSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
 		return 0, -1, fmt.Errorf("flowstore: delete subject: %w", err)
+	}
+	if rollup, rerr := rollupTableFor(t); rerr != nil {
+		return 0, -1, rerr
+	} else if err := c.exec(ctx, t.BaseURL,
+		"DELETE FROM "+rollup+" WHERE "+flowSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
+		return 0, -1, fmt.Errorf("flowstore: delete subject rollups: %w", err)
 	}
 	remaining, err = c.countSubject(ctx, t.BaseURL, tenantID, table, p)
 	if err != nil {

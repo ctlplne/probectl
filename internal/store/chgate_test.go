@@ -54,10 +54,12 @@ var goldenCHChecksums = map[string]string{
 	"ebpfstore|1": "aa012aac6d4d404946fdd39def7560d56b3943bfd8f0b191fc793519c04a80e9",
 	"flowstore|1": "875071f5ce661cb0cd28321315d4eff9ea89081c1c5795165b4049bad28d27db",
 	"flowstore|2": "026b57e815a6cbcd0ee70cd6b000f339846573305cd75dc57de7735db2ea4855",
+	"flowstore|3": "8d57cd291e20bfb21ef07200fb5cbc71c7f6d92ba290d64a3d659158c3c62e76",
 	"otelstore|1": "386721d17bf79ac6ddd91eb798f920fdf28ce4d0c80919a44055a3922569acd0",
 	"otelstore|2": "c7eddbb7f304453dfe47a5f53398d2346da81d190cf892732780ece08ff28a67",
 	"pathstore|1": "487d228b1b871ef223a377bb47e8621a61e56e8f2f9ef3469490c66061ff8b42",
 	"pathstore|2": "53f0f1079adfc037e3e481d3397a523a2e8049c79be9fbef87b7edcff964a76f",
+	"pathstore|3": "279b7a534d9247afe2a82e9ae49182158d656f44dceac628861e034cfaa54f41",
 }
 
 // TestClickHouseMigrationChecksumsAreImmutable: SCHEMA-007. Editing any shipped

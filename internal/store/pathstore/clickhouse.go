@@ -29,8 +29,12 @@ import (
 // the retention TTL drops whole day-parts cheaply instead of mutating rows.
 // tenant_id leads every ORDER BY so tenant-scoped reads prune by it.
 const (
-	hopsTable  = "probectl_path_hops2"
-	linksTable = "probectl_path_links2"
+	hopsTable         = "probectl_path_hops2"
+	linksTable        = "probectl_path_links2"
+	hopsRollupsTable  = "probectl_path_hops_rollups_hour"
+	linksRollupsTable = "probectl_path_links_rollups_hour"
+	hopsRollupsMV     = "probectl_path_hops_rollups_hour_mv"
+	linksRollupsMV    = "probectl_path_links_rollups_hour_mv"
 )
 
 // createHopsFor / createLinksFor render the v2 (day-partitioned) shape for an
@@ -51,6 +55,68 @@ func createLinksFor(table string) string {
   tenant_id String, path_id String, target String, ts DateTime64(3),
   ttl UInt8, from_ip String, to_ip String
 ) ENGINE = MergeTree PARTITION BY (tenant_id, toYYYYMMDD(ts)) ORDER BY (tenant_id, target, ts, ttl, from_ip, to_ip)`
+}
+
+func createHopsRollupsFor(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String,
+  bucket DateTime,
+  target String,
+  mode LowCardinality(String),
+  ttl UInt8,
+  responder String,
+  samples UInt64,
+  sent UInt64,
+  received UInt64,
+  loss_sum Float64,
+  rtt_avg_sum_ms Float64
+) ENGINE = SummingMergeTree
+PARTITION BY (tenant_id, toYYYYMMDD(bucket))
+ORDER BY (tenant_id, bucket, target, mode, ttl, responder)`
+}
+
+func createLinksRollupsFor(table string) string {
+	return `CREATE TABLE IF NOT EXISTS ` + table + ` (
+  tenant_id String,
+  bucket DateTime,
+  target String,
+  ttl UInt8,
+  from_ip String,
+  to_ip String,
+  link_count UInt64
+) ENGINE = SummingMergeTree
+PARTITION BY (tenant_id, toYYYYMMDD(bucket))
+ORDER BY (tenant_id, bucket, target, ttl, from_ip, to_ip)`
+}
+
+func createHopsRollupsMVFor(view, source, dest string) string {
+	return `CREATE MATERIALIZED VIEW IF NOT EXISTS ` + view + ` TO ` + dest + ` AS
+SELECT tenant_id,
+  toStartOfHour(ts) AS bucket,
+  target,
+  mode,
+  ttl,
+  responder,
+  count() AS samples,
+  sum(sent) AS sent,
+  sum(received) AS received,
+  sum(loss_ratio) AS loss_sum,
+  sum(rtt_avg_ms) AS rtt_avg_sum_ms
+FROM ` + source + `
+GROUP BY tenant_id, bucket, target, mode, ttl, responder`
+}
+
+func createLinksRollupsMVFor(view, source, dest string) string {
+	return `CREATE MATERIALIZED VIEW IF NOT EXISTS ` + view + ` TO ` + dest + ` AS
+SELECT tenant_id,
+  toStartOfHour(ts) AS bucket,
+  target,
+  ttl,
+  from_ip,
+  to_ip,
+  count() AS link_count
+FROM ` + source + `
+GROUP BY tenant_id, bucket, target, ttl, from_ip, to_ip`
 }
 
 // chIdentRe validates a ClickHouse database identifier (names derive from
@@ -180,6 +246,10 @@ func (c *ClickHouse) WithTenantScoping(on bool) *ClickHouse { c.tenantScoping = 
 // Shipped versions are immutable — schema changes are NEW versions with
 // idempotent (IF NOT EXISTS / additive) statements.
 func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migration {
+	hopsRollup := strings.Replace(hopsV2, hopsTable, hopsRollupsTable, 1)
+	linksRollup := strings.Replace(linksV2, linksTable, linksRollupsTable, 1)
+	hopsRollupMV := strings.Replace(hopsV2, hopsTable, hopsRollupsMV, 1)
+	linksRollupMV := strings.Replace(linksV2, linksTable, linksRollupsMV, 1)
 	return []chmigrate.Migration{
 		{Version: 1, Name: "create_path_tables", Statements: []string{createHopsV1For(hopsV1), createLinksV1For(linksV1)}},
 		// v2 (Sprint 16, SCALE-006): (tenant_id, day) partitioning so the
@@ -200,6 +270,12 @@ func chMigrationsFor(hopsV1, linksV1, hopsV2, linksV2 string) []chmigrate.Migrat
 			Destructive:   true,
 			Justification: "PARTITION BY is immutable in ClickHouse; path-discovery snapshots are a re-discoverable cache (continuously re-probed), not durable telemetry — the day-partition re-partition discards only cache that is rebuilt over time (SCHEMA-002)",
 		},
+		{Version: 3, Name: "hourly_path_rollups", Statements: []string{
+			createHopsRollupsFor(hopsRollup),
+			createLinksRollupsFor(linksRollup),
+			createHopsRollupsMVFor(hopsRollupMV, hopsV2, hopsRollup),
+			createLinksRollupsMVFor(linksRollupMV, linksV2, linksRollup),
+		}},
 	}
 }
 
@@ -310,7 +386,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if !chUserRe.MatchString(readerUser) {
 		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
-	for _, table := range []string{hopsTable, linksTable} {
+	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
 		ddl := fmt.Sprintf(
 			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
 			table, tenantSettingName, readerUser)
@@ -331,7 +407,7 @@ func (c *ClickHouse) EnsureRowPolicies(ctx context.Context, serviceUser string) 
 	if !chUserRe.MatchString(serviceUser) {
 		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", serviceUser)
 	}
-	for _, table := range []string{hopsTable, linksTable} {
+	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
 		for _, ddl := range []string{
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_tenant_isolation ON %s FOR SELECT USING tenant_id = currentUser() TO ALL EXCEPT %s", table, serviceUser),
 			fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_service_access ON %s FOR SELECT USING 1 TO %s", table, serviceUser),
@@ -446,7 +522,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (deleted
 		return 0, 0, nil
 	}
 	tp := chParams{"tenant": tenantID}
-	for _, table := range []string{hopsTable, linksTable} {
+	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
 		out, qerr := c.queryScoped(ctx, t.BaseURL, tenantID, "SELECT count() AS n FROM "+table+" WHERE tenant_id={tenant:String}", tp)
 		if qerr != nil {
 			return deleted, -1, qerr
