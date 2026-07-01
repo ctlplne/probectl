@@ -3,10 +3,13 @@
 package canary
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -54,6 +57,49 @@ func TestHTTPTransportIgnoresAmbientProxy(t *testing.T) {
 	transport := h.transport(nil, &tlsState, &tlsVerified)
 	if transport.Proxy != nil {
 		t.Fatal("HTTP canary transport must not honor ambient HTTP_PROXY/HTTPS_PROXY")
+	}
+}
+
+func TestHTTPCanaryRunBypassesAmbientProxy(t *testing.T) {
+	var proxyHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyHits.Add(1)
+		http.Error(w, "proxy should not be reached", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+
+	var targetHits atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetHits.Add(1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer target.Close()
+
+	t.Setenv("HTTP_PROXY", proxy.URL)
+	t.Setenv("HTTPS_PROXY", proxy.URL)
+	t.Setenv("NO_PROXY", "")
+
+	c, err := NewHTTP(Config{
+		Target:  target.URL,
+		Timeout: time.Second,
+		Params:  map[string]string{AllowPrivateParam: "true"},
+	})
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("direct probe failed: success=%v err=%q", res.Success, res.Error)
+	}
+	if got := targetHits.Load(); got != 1 {
+		t.Fatalf("target hits = %d, want 1", got)
+	}
+	if got := proxyHits.Load(); got != 0 {
+		t.Fatalf("ambient proxy hits = %d, want 0", got)
 	}
 }
 
