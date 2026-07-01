@@ -23,6 +23,7 @@ export interface ABACPolicyList {
 
 export interface AIAnswer {
   confidence?: "low" | "medium" | "high"
+  degraded?: boolean
   evidence?: AIEvidence[]
   findings?: AIFinding[]
   id?: string
@@ -30,6 +31,8 @@ export interface AIAnswer {
   model?: string
   question?: string
   root_cause?: string
+  root_cause_citations?: AICitation[]
+  root_cause_grounded?: boolean
   tenant?: string
 }
 

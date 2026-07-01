@@ -141,6 +141,8 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
   const canPropose = Boolean(remediations.data)
   const proposalDisabled =
     createProposal.isPending || answer.insufficient_evidence || answer.evidence.length === 0
+  const rootCauseGrounded = answer.root_cause_grounded === true
+  const rootCauseCitations = answer.root_cause_citations ?? []
 
   // Bidirectional grounding: which findings cite each piece of evidence.
   const citedBy = new Map<string, number[]>()
@@ -198,6 +200,10 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
               <Badge
                 tone={confidenceTone(answer.confidence)}
               >{`${answer.confidence} confidence`}</Badge>
+              <Badge tone={rootCauseGrounded ? 'success' : 'warning'}>
+                {rootCauseGrounded ? 'root cause grounded' : 'root cause ungrounded'}
+              </Badge>
+              {answer.degraded ? <Badge tone="warning">degraded fallback</Badge> : null}
               {canPropose ? (
                 <Button
                   variant="secondary"
@@ -223,8 +229,39 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
               guess.
             </p>
           ) : null}
+          {!rootCauseGrounded && !answer.insufficient_evidence ? (
+            <p className={styles.note}>
+              The root-cause claim is not marked as grounded, so treat the cited findings as the
+              source of truth.
+            </p>
+          ) : null}
+          {answer.degraded ? (
+            <p className={styles.note}>
+              The assistant used a degraded fallback path; tenant scope and citations still apply.
+            </p>
+          ) : null}
+          {rootCauseCitations.length > 0 ? (
+            <p className={[styles.cites, styles.rootCites].join(' ')}>
+              <span className={styles.citeLabel}>Root cause cited:</span>
+              {rootCauseCitations.map((c) => (
+                <a
+                  key={c.evidence_id}
+                  href={`#ev-${c.evidence_id}`}
+                  className={styles.cite}
+                  onClick={(ev) => {
+                    ev.preventDefault()
+                    focusEvidence(c.evidence_id)
+                  }}
+                >
+                  {c.evidence_id}
+                </a>
+              ))}
+            </p>
+          ) : null}
           <p className={styles.provenance}>
-            {`Synthesized by ${answer.model} · grounded in ${formatCount(
+            {`Synthesized by ${answer.model}${answer.degraded ? ' (degraded fallback)' : ''} · ${
+              rootCauseGrounded ? 'root cause grounded' : 'root cause ungrounded'
+            } · grounded in ${formatCount(
               answer.evidence.length,
               'signal',
               'signals',

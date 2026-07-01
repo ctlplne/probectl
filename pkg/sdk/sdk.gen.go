@@ -90,6 +90,7 @@ type ABACPolicyList struct {
 
 type AIAnswer struct {
 	Confidence           string       `json:"confidence,omitempty"`
+	Degraded             bool         `json:"degraded,omitempty"`
 	Evidence             []AIEvidence `json:"evidence,omitempty"`
 	Findings             []AIFinding  `json:"findings,omitempty"`
 	Id                   string       `json:"id,omitempty"`
@@ -97,6 +98,8 @@ type AIAnswer struct {
 	Model                string       `json:"model,omitempty"`
 	Question             string       `json:"question,omitempty"`
 	RootCause            string       `json:"root_cause,omitempty"`
+	RootCauseCitations   []AICitation `json:"root_cause_citations,omitempty"`
+	RootCauseGrounded    bool         `json:"root_cause_grounded,omitempty"`
 	Tenant               string       `json:"tenant,omitempty"`
 }
 

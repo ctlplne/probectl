@@ -11,6 +11,9 @@ const answer = {
   tenant: 't',
   question: 'why is 192.0.2.0/24 unreachable?',
   root_cause: 'Most likely root cause: "possible hijack 192.0.2.0/24" (critical).',
+  root_cause_citations: [{ evidence_id: 'E1' }],
+  root_cause_grounded: true,
+  degraded: false,
   confidence: 'high',
   model: 'builtin',
   insufficient_evidence: false,
@@ -45,7 +48,7 @@ const answer = {
   ],
 }
 
-function stubAI() {
+function stubAI(response = answer) {
   const calls: Array<{ url: string; body: unknown }> = []
   vi.stubGlobal(
     'fetch',
@@ -53,7 +56,7 @@ function stubAI() {
       const url = String(input)
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ url, body })
-      if (url.endsWith('/v1/ai/ask')) return jsonResponse(answer)
+      if (url.endsWith('/v1/ai/ask')) return jsonResponse(response)
       if (url.endsWith('/v1/ai/feedback')) return new Response(null, { status: 204 })
       return jsonResponse({ error: { code: 'not_found', message: 'no route' } }, 404)
     }),
@@ -61,8 +64,8 @@ function stubAI() {
   return calls
 }
 
-async function askAndRender() {
-  const calls = stubAI()
+async function askAndRender(response = answer) {
+  const calls = stubAI(response)
   renderApp('/ask')
   await screen.findByRole('heading', { name: /ask \(ai\)/i })
   fireEvent.change(screen.getByLabelText(/your question/i), {
@@ -82,6 +85,8 @@ describe('AI assistant surface', () => {
       2,
     )
     expect(screen.getByText(/high confidence/i)).toBeTruthy()
+    expect(screen.getAllByText(/root cause grounded/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/root cause cited:/i)).toBeTruthy()
     // Trust summary spells out the grounding breadth.
     expect(screen.getByText(/grounded in 2 signals across 2 planes: bgp, metrics/i)).toBeTruthy()
 
@@ -101,7 +106,7 @@ describe('AI assistant surface', () => {
     expect(screen.getByText(/cited in finding 2/i)).toBeTruthy()
 
     // Clicking a citation moves focus to the exact cited signal.
-    fireEvent.click(screen.getByRole('link', { name: 'E1' }))
+    fireEvent.click(screen.getAllByRole('link', { name: 'E1' })[0])
     expect(document.activeElement?.id).toBe('ev-E1')
 
     // Raw signal detail is available for drill-down.
@@ -122,6 +127,20 @@ describe('AI assistant surface', () => {
       rating: 'down',
       comment: 'the real cause was the upstream peer',
     })
+  })
+
+  test('renders degraded and ungrounded RCA trust state', async () => {
+    await askAndRender({
+      ...answer,
+      root_cause_citations: [],
+      root_cause_grounded: false,
+      degraded: true,
+    })
+
+    expect(screen.getAllByText(/root cause ungrounded/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/degraded fallback/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/treat the cited findings as the source of truth/i)).toBeTruthy()
+    expect(screen.getByText(/used a degraded fallback path/i)).toBeTruthy()
   })
 
   test('the answered surface has no a11y violations', async () => {

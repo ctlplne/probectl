@@ -92,6 +92,23 @@ function generatedSDKTypes(): Map<string, string> {
   return out
 }
 
+function generatedInterfaceMembers(name: string): Set<string> {
+  const src = readFileSync(join(apiDir, 'sdk.gen.ts'), 'utf8')
+  const sf = ts.createSourceFile('sdk.gen.ts', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const members = new Set<string>()
+
+  function walk(node: ts.Node) {
+    if (ts.isInterfaceDeclaration(node) && node.name.text === name) {
+      for (const member of node.members) {
+        if (ts.isPropertySignature(member) && member.name) members.add(member.name.getText(sf))
+      }
+    }
+    ts.forEachChild(node, walk)
+  }
+  walk(sf)
+  return members
+}
+
 describe('API wire and OpenAPI shape contracts', () => {
   const calls = sourceFiles().flatMap(apiFetchCalls)
   const contracts: readonly APICallContract[] = API_CALL_CONTRACTS
@@ -136,5 +153,12 @@ describe('API wire and OpenAPI shape contracts', () => {
         ).toBeTruthy()
       }
     }
+  })
+
+  it('exposes RCA grounding and degraded-state fields on AIAnswer', () => {
+    const members = generatedInterfaceMembers('AIAnswer')
+    expect([...members]).toEqual(
+      expect.arrayContaining(['root_cause_citations', 'root_cause_grounded', 'degraded']),
+    )
   })
 })

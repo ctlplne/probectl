@@ -32,6 +32,9 @@ export interface Answer {
   tenant: string
   question: string
   root_cause: string
+  root_cause_citations?: Citation[]
+  root_cause_grounded?: boolean
+  degraded?: boolean
   confidence: Confidence
   findings: Finding[]
   evidence: Evidence[]

@@ -8049,6 +8049,18 @@
           "root_cause": {
             "type": "string"
           },
+          "root_cause_citations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AICitation"
+            }
+          },
+          "root_cause_grounded": {
+            "type": "boolean"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
           "confidence": {
             "type": "string",
             "enum": [
