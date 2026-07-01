@@ -53,6 +53,12 @@ record, agent, query, metric, event, and object.
 > now is hardening toward GA. Compose + Helm are **HTTPS-by-default**. The
 > license is intentionally **`TBD`** — **source-available, not open source
 > (yet)** ([details](#license)).
+>
+> **Scale proof:** CI/dev-scale gates are committed, and L/XL/XXL architecture
+> targets are documented, but the buyer-facing verified scale rows remain
+> **provisional** until operator-scheduled reference hardware runs are recorded
+> in [`docs/scale-gate.md`](docs/scale-gate.md). Treat dev-run flows/sec figures
+> as smoke evidence, not production capacity claims.
 
 **Try it in a few minutes** (Docker only, no Go toolchain on your host — the
 image builds from source on first run, then it's ~60 seconds to first data;
