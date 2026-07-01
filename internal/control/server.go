@@ -190,11 +190,13 @@ type Server struct {
 	// RUM convergence (S47b). Set via WithRUM; nil engine = ingest answers
 	// 503 and /v1/rum reports rum_running=false. rumApps maps app keys to
 	// their VERIFIED (tenant, app) binding; rumPublish writes accepted
-	// beacons to the bus; rumLimiter rate-bounds each key.
+	// beacons to the bus; rumLimiter rate-bounds each key; rumDedupe drops
+	// short-lived beacon-id replays per tenant/app.
 	rumEngine  *rum.Engine
 	rumApps    map[string]RUMApp
 	rumPublish RUMPublisher
 	rumLimiter *keyLimiter
+	rumDedupe  *rumDedupe
 
 	// Carbon/power estimation (S48). Set via WithCarbon; nil reports
 	// carbon_running=false.

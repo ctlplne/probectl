@@ -35,6 +35,7 @@
   var vitals = {}
   var errors = 0
   var failed = 0
+  var viewID = beaconID()
 
   // Web vitals via passive observers (buffered: late registration still sees
   // earlier entries).
@@ -95,6 +96,7 @@
     navTimings()
     var beacon = {
       v: 1,
+      id: viewID,
       key: key,
       consent: true,
       host: location.hostname.toLowerCase(),
@@ -120,6 +122,20 @@
     if (/Chrome\//.test(ua)) return 'chrome'
     if (/Safari\//.test(ua)) return 'safari'
     return 'other'
+  }
+
+  function beaconID() {
+    try {
+      var a = new Uint32Array(4)
+      crypto.getRandomValues(a)
+      return Array.prototype.map
+        .call(a, function (n) {
+          return ('00000000' + n.toString(16)).slice(-8)
+        })
+        .join('')
+    } catch (e) {
+      return String(Date.now()) + '-' + Math.random().toString(16).slice(2)
+    }
   }
 
   // One beacon per page view, at pagehide (covers tab close + navigation).

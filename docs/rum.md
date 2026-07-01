@@ -25,7 +25,9 @@ one signal, not a storm) and re-arm on recovery. The `healthy`, `synthetic_only`
 and RUM-only `user_only_synthetic_blind` states never page from the RUM plane:
 alerting/SLOs own synthetic-only stories, and public RUM keys are replayable, so
 RUM-only degradation is treated as an uncorroborated blind-spot indicator until
-the synthetic plane provides independent proof. The logic lives in
+the synthetic plane provides independent proof. `/v1/rum` labels that state as
+`evidence_trust: "rum_only_low_trust"`; a correlated incident signal upgrades to
+`rum.signal_trust: "synthetic_corroborated"`. The logic lives in
 `internal/rum/engine.go`.
 
 ## The beacon contract (schema v1)
@@ -41,7 +43,7 @@ the payload to name its own tenant, and the key grants no read access to
 anything.
 
 ```json
-{"v": 1, "key": "pk_storefront", "consent": true,
+{"v": 1, "id": "random-page-view-id", "key": "pk_storefront", "consent": true,
  "host": "web.acme.example", "page": "/checkout/12345",
  "browser": "chrome",
  "vitals": {"ttfb_ms": 120, "fcp_ms": 900, "lcp_ms": 1800, "cls": 0.02, "inp_ms": 180, "load_ms": 2400},
@@ -113,6 +115,10 @@ The ingest endpoint treats every beacon as untrusted input
 - **Public app-key routing.** An unknown key gets a `401`. Known keys bind the
   beacon to the server-configured tenant/app and rate-limit bucket, but the key
   is not a secret and does not prove the browser's identity.
+- **Replay/dedupe.** The SDK sends a random `id` per page view. The server keeps
+  a bounded, short-lived per-replica replay cache keyed by the verified
+  tenant/app/id and accepts but does not republish duplicate IDs. The id is not
+  stored in the canonical result.
 - **Origin allow-list.** Add `;origins=https://app.example|https://www.app.example`
   to a RUM app binding to accept beacons only from those browser Origins. For
   local development, `http://localhost` and loopback HTTP origins are allowed;

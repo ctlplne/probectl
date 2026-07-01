@@ -47,6 +47,11 @@ func rumBeaconBody(key string) string {
 		"page":"/checkout/12345","vitals":{"lcp_ms":1800},"errors":0,"failed_requests":0}`, key)
 }
 
+func rumBeaconBodyWithID(key, id string) string {
+	return fmt.Sprintf(`{"v":1,"id":%q,"key":%q,"consent":true,"host":"web.acme.example",
+		"page":"/checkout/12345","vitals":{"lcp_ms":1800},"errors":0,"failed_requests":0}`, id, key)
+}
+
 func rumTestServer(t *testing.T, fb *fakeRUMBus) (*Server, *rum.Engine) {
 	t.Helper()
 	eng, apps, on, err := BuildRUM(&config.Config{
@@ -215,6 +220,32 @@ func TestRUMBeaconRateLimitAndPreflight(t *testing.T) {
 	srv.Handler().ServeHTTP(prec, req)
 	if prec.Code != http.StatusNoContent || prec.Header().Get("Access-Control-Allow-Methods") == "" {
 		t.Fatalf("preflight wrong: %d", prec.Code)
+	}
+}
+
+func TestRUMBeaconDedupeIDDropsReplay(t *testing.T) {
+	fb := &fakeRUMBus{}
+	srv, _ := rumTestServer(t, fb)
+
+	body := rumBeaconBodyWithID("pk_abc", "view-123")
+	if rec := postBeacon(srv, body); rec.Code != http.StatusAccepted {
+		t.Fatalf("first beacon: %d %s", rec.Code, rec.Body)
+	}
+	dup := postBeacon(srv, body)
+	if dup.Code != http.StatusAccepted || !strings.Contains(dup.Body.String(), `"duplicate":true`) {
+		t.Fatalf("duplicate beacon = %d %s, want accepted duplicate", dup.Code, dup.Body)
+	}
+	if len(fb.payloads) != 1 {
+		t.Fatalf("duplicate beacon id must publish once, got %d publishes", len(fb.payloads))
+	}
+
+	// The replay key is scoped to the verified tenant/app, so another app using
+	// the same client-generated id is not dropped.
+	if rec := postBeacon(srv, rumBeaconBodyWithID("pk_other", "view-123")); rec.Code != http.StatusAccepted {
+		t.Fatalf("same id under different app scope: %d %s", rec.Code, rec.Body)
+	}
+	if len(fb.payloads) != 2 || fb.tenants[1] != "other-tenant" {
+		t.Fatalf("scoped dedupe published tenants=%v payloads=%d", fb.tenants, len(fb.payloads))
 	}
 }
 
@@ -397,6 +428,9 @@ func TestRUMPublicKeyReplayDoesNotOpenIncidentWithoutSyntheticCorroboration(t *t
 	}
 	if snap.Apps[0].Verdict != rum.VerdictUserOnly || !snap.Apps[0].RUMDegraded {
 		t.Fatalf("RUM-only verdict = %+v, want degraded blind spot", snap.Apps[0])
+	}
+	if snap.Apps[0].EvidenceTrust != "rum_only_low_trust" {
+		t.Fatalf("RUM-only evidence trust = %q, want low-trust label", snap.Apps[0].EvidenceTrust)
 	}
 	incs, err := incStore.OpenIncidents(context.Background(), tid)
 	if err != nil {

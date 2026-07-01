@@ -189,6 +189,7 @@ func (s *Server) WithRUM(e *rum.Engine, apps map[string]RUMApp, publish RUMPubli
 		s.rumApps = apps
 		s.rumPublish = publish
 		s.rumLimiter = newKeyLimiter(ratePerMin)
+		s.rumDedupe = newRUMDedupe(10*time.Minute, 65536)
 	}
 	return s
 }
@@ -291,6 +292,10 @@ func (s *Server) handleRUMBeacon(w http.ResponseWriter, r *http.Request) error {
 		s.rumEngine.RecordReject(app.Tenant, reason)
 		return apierror.BadRequest("beacon rejected: " + string(reason))
 	}
+	if beacon.ID != "" && s.rumDedupe.remember(app.Tenant+"|"+app.App+"|"+beacon.ID) {
+		writeJSON(w, http.StatusAccepted, map[string]any{"accepted": true, "duplicate": true})
+		return nil
+	}
 	res := rum.ToResult(app.Tenant, app.App, beacon, time.Now().UnixNano())
 	raw, err := proto.Marshal(res)
 	if err != nil {
@@ -367,6 +372,42 @@ func (l *keyLimiter) allow(key string) bool {
 	}
 	b.tokens--
 	return true
+}
+
+type rumDedupe struct {
+	mu         sync.Mutex
+	ttl        time.Duration
+	maxEntries int
+	seen       map[string]time.Time
+	now        func() time.Time
+}
+
+func newRUMDedupe(ttl time.Duration, maxEntries int) *rumDedupe {
+	return &rumDedupe{ttl: ttl, maxEntries: maxEntries, seen: map[string]time.Time{}, now: time.Now}
+}
+
+func (d *rumDedupe) remember(key string) bool {
+	if d == nil || key == "" || d.ttl <= 0 || d.maxEntries <= 0 {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := d.now()
+	if exp, ok := d.seen[key]; ok && exp.After(now) {
+		return true
+	}
+	if len(d.seen) >= d.maxEntries {
+		for k, exp := range d.seen {
+			if !exp.After(now) {
+				delete(d.seen, k)
+			}
+		}
+		if len(d.seen) >= d.maxEntries {
+			d.seen = map[string]time.Time{}
+		}
+	}
+	d.seen[key] = now.Add(d.ttl)
+	return false
 }
 
 // RUMConsumer joins the two planes: real-user views from the RUM topic and

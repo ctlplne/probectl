@@ -8,7 +8,7 @@ import (
 )
 
 func validBeacon() string {
-	return `{"v":1,"key":"pk_abc","consent":true,"app":"storefront","host":"Web.Acme.Example",
+	return `{"v":1,"id":"view-abc123","key":"pk_abc","consent":true,"app":"storefront","host":"Web.Acme.Example",
 		"page":"/checkout/12345?token=SECRET#frag","browser":"Chrome",
 		"vitals":{"ttfb_ms":120,"lcp_ms":1800,"cls":0.02},"errors":0,"failed_requests":0,"sdk":"0.1.0"}`
 }
@@ -34,6 +34,9 @@ func TestParseBeaconValidNormalizes(t *testing.T) {
 	}
 	if b.Host != "web.acme.example" {
 		t.Errorf("host must lowercase: %q", b.Host)
+	}
+	if b.ID != "view-abc123" {
+		t.Errorf("beacon id must parse for dedupe, got %q", b.ID)
 	}
 	// THE privacy assertions: query/fragment gone, volatile segment collapsed.
 	if b.Page != "/checkout/:id" {
@@ -117,6 +120,9 @@ func TestToResultCanonicalMapping(t *testing.T) {
 	// OTel semconv names where they exist.
 	if r.GetAttributes()["url.path"] != "/checkout/:id" || r.GetAttributes()["browser.name"] != "chrome" {
 		t.Errorf("attributes wrong: %+v", r.GetAttributes())
+	}
+	if r.GetAttributes()["rum.signal_trust"] != "public_beacon_low_trust" {
+		t.Errorf("RUM result must carry low-trust evidence label, attrs=%+v", r.GetAttributes())
 	}
 	if r.GetMetrics()["rum.lcp_ms"] != 1800 {
 		t.Errorf("vitals wrong: %+v", r.GetMetrics())

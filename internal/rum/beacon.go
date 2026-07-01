@@ -38,8 +38,9 @@ const MaxBeaconBytes = 16 << 10
 // grants no read access. It is stripped before storage.
 type Beacon struct {
 	V       int    `json:"v"`
-	Key     string `json:"key"`     // app key → (tenant, app); never stored
-	Consent bool   `json:"consent"` // explicit user consent; false/absent = rejected
+	ID      string `json:"id,omitempty"` // random per-page-view id; short-lived server dedupe key
+	Key     string `json:"key"`          // app key → (tenant, app); never stored
+	Consent bool   `json:"consent"`      // explicit user consent; false/absent = rejected
 	App     string `json:"app,omitempty"`
 	Host    string `json:"host"` // the page host — the synthetic↔RUM join key
 	Page    string `json:"page"` // path only; server re-redacts regardless
@@ -105,6 +106,7 @@ func ParseBeacon(raw []byte) (Beacon, RejectReason, error) {
 		return Beacon{}, RejectBadField, fmt.Errorf("rum: invalid host")
 	}
 	b.Host = host
+	b.ID = sanitizeLabel(b.ID, 128)
 	b.Page = RedactPath(b.Page)
 	b.Browser = browserFamily(b.Browser)
 	b.App = sanitizeLabel(b.App, 64)
@@ -254,10 +256,11 @@ func ToResult(tenant, app string, b Beacon, receivedUnixNano int64) *resultv1.Re
 		StartTimeUnixNano: receivedUnixNano,
 		Metrics:           metrics,
 		Attributes: map[string]string{
-			"rum.app":      app,
-			"url.path":     b.Page,
-			"browser.name": b.Browser,
-			"rum.sdk":      b.SDK,
+			"rum.app":          app,
+			"url.path":         b.Page,
+			"browser.name":     b.Browser,
+			"rum.sdk":          b.SDK,
+			"rum.signal_trust": "public_beacon_low_trust",
 		},
 	}
 }

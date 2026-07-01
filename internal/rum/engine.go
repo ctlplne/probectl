@@ -62,6 +62,7 @@ type AppStatus struct {
 	SyntheticObserved bool        `json:"synthetic_observed"` // any synthetic covers this host
 	SyntheticDegraded bool        `json:"synthetic_degraded"`
 	Verdict           Verdict     `json:"verdict"`
+	EvidenceTrust     string      `json:"evidence_trust"`
 	Pages             []PageStats `json:"pages"`
 }
 
@@ -408,6 +409,19 @@ func describeSynthetic(observed, degraded bool) string {
 	}
 }
 
+func evidenceTrust(v Verdict) string {
+	switch v {
+	case VerdictUserImpactConfirmed:
+		return "synthetic_corroborated"
+	case VerdictUserOnly:
+		return "rum_only_low_trust"
+	case VerdictSyntheticOnly:
+		return "synthetic_only_annotation"
+	default:
+		return "observed"
+	}
+}
+
 // Snapshot renders ONE tenant's convergence view. Nothing from any other
 // tenant is reachable from here.
 func (e *Engine) Snapshot(tenant string) Snapshot {
@@ -439,8 +453,9 @@ func (e *Engine) Snapshot(tenant string) Snapshot {
 			WindowViews: views, ErrorRate: round3(errRate),
 			P75LCPms: p75lcp, P75TTFBms: p75ttfb,
 			RUMDegraded: rumDeg, SyntheticObserved: synObs, SyntheticDegraded: synDeg,
-			Verdict: verdict(rumDeg, synObs, synDeg),
-			Pages:   agg.pageStats(now),
+			Verdict:       verdict(rumDeg, synObs, synDeg),
+			EvidenceTrust: evidenceTrust(verdict(rumDeg, synObs, synDeg)),
+			Pages:         agg.pageStats(now),
 		}
 		snap.Apps = append(snap.Apps, st)
 	}

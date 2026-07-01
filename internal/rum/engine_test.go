@@ -88,6 +88,9 @@ func TestUserImpactConfirmedCorrelation(t *testing.T) {
 	if snap.Apps[0].Verdict != VerdictUserImpactConfirmed {
 		t.Fatalf("verdict = %s want %s", snap.Apps[0].Verdict, VerdictUserImpactConfirmed)
 	}
+	if snap.Apps[0].EvidenceTrust != "synthetic_corroborated" {
+		t.Fatalf("evidence trust = %q want synthetic_corroborated", snap.Apps[0].EvidenceTrust)
+	}
 	if !snap.Apps[0].SyntheticObserved || !snap.Apps[0].SyntheticDegraded || !snap.Apps[0].RUMDegraded {
 		t.Fatalf("plane states wrong: %+v", snap.Apps[0])
 	}
@@ -121,8 +124,8 @@ func TestUserOnlyBlindSpotIsVisibleButNotPaged(t *testing.T) {
 	if len(kinds) != 0 {
 		t.Fatalf("RUM-only blind spots are visible but not incident signals, got %v", kinds)
 	}
-	if snap := e.Snapshot("t1"); snap.Apps[0].Verdict != VerdictUserOnly {
-		t.Fatalf("verdict = %s want %s", snap.Apps[0].Verdict, VerdictUserOnly)
+	if snap := e.Snapshot("t1"); snap.Apps[0].Verdict != VerdictUserOnly || snap.Apps[0].EvidenceTrust != "rum_only_low_trust" {
+		t.Fatalf("blind-spot status = %+v, want low-trust user-only verdict", snap.Apps[0])
 	}
 }
 

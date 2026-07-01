@@ -3739,7 +3739,7 @@
         "tags": [
           "rum"
         ],
-        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon carries a public app key in the body (sendBeacon cannot set headers); the key routes to the configured tenant/app and rate-limit bucket, but it is not authentication and never grants read access. The server binds to the KEY's configured tenant, never the payload's. Multi-tenant and regulated deployments require configured origins, and any configured origin allow-list rejects off-list or missing Origins before publish. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After) and a 16KiB size cap (413) bound the surface. CORS: wildcard only when no origin allow-list is configured; allow-listed apps echo only matching Origins; write-only, credential-less; OPTIONS serves the preflight.",
+        "description": "The browser-beacon ingest. NOT session-authenticated: each beacon carries a public app key in the body (sendBeacon cannot set headers); the key routes to the configured tenant/app and rate-limit bucket, but it is not authentication and never grants read access. The server binds to the KEY's configured tenant, never the payload's. Multi-tenant and regulated deployments require configured origins, and any configured origin allow-list rejects off-list or missing Origins before publish. The privacy contract is enforced here, fail-closed: consent must be explicitly true; unknown fields reject the beacon (identifier-bearing payloads can never ingest); URLs are redacted server-side (query/fragment stripped, volatile segments collapsed); the client IP and user agent are never stored. Per-key rate limiting (429 + Retry-After), optional beacon-id dedupe (accepted duplicates are not republished), and a 16KiB size cap (413) bound the surface. CORS: wildcard only when no origin allow-list is configured; allow-listed apps echo only matching Origins; write-only, credential-less; OPTIONS serves the preflight.",
         "requestBody": {
           "required": true,
           "content": {
@@ -3763,6 +3763,10 @@
                   "key": {
                     "type": "string",
                     "description": "app key \u2192 (tenant, app); an identifier, not a secret; never stored"
+                  },
+                  "id": {
+                    "type": "string",
+                    "description": "random page-view id used for short-lived replay/dedupe; not stored in the canonical result"
                   },
                   "consent": {
                     "type": "boolean",
@@ -3821,13 +3825,16 @@
         },
         "responses": {
           "202": {
-            "description": "Beacon accepted and published.",
+            "description": "Beacon accepted. duplicate=true means a replayed beacon id was accepted but not republished.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "accepted": {
+                      "type": "boolean"
+                    },
+                    "duplicate": {
                       "type": "boolean"
                     }
                   }
