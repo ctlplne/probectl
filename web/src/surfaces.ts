@@ -8,8 +8,9 @@
  *                   the a11y bar).
  *  - "federated":   served through an external surface by design (Grafana /
  *                   Prometheus / OTLP / API). The gate verifies the declared
- *                   EVIDENCE exists ("file:<repo-relative path>" or
- *                   "openapi:<path>" in the control plane's OpenAPI spec).
+ *                   EVIDENCE exists ("file:<repo-relative path>",
+ *                   "openapi:<path>" in the control plane's OpenAPI spec, or
+ *                   "cli:<probectl command>" in the terminal surface).
  *  - "none-by-design": deliberately no current surface. The gate requires a
  *                   reason, and the feature denominator test still counts it.
  *
@@ -31,7 +32,11 @@ export interface SurfaceDecl {
   kind: SurfaceKind
   /** The app route (native kind only). */
   route?: string
-  /** Federated proof: "file:<repo-relative>" | "openapi:<api path>". */
+  /**
+   * Served proof: "file:<repo-relative>" | "openapi:<api path>" |
+   * "cli:<probectl command>". Required for federated surfaces; optional for
+   * native surfaces when a PRD row needs API/CLI parity proof.
+   */
   evidence?: string[]
   /** Required for none-by-design declarations. */
   noneReason?: string
@@ -276,6 +281,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S13',
     kind: 'native',
     route: '/planes/bgp',
+    evidence: ['openapi:/v1/bgp/events', 'cli:probectl bgp events', 'file:docs/bgp.md'],
   },
   {
     capability: 'Flow analytics APIs and ClickHouse-backed views',
@@ -290,6 +296,13 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S33',
     kind: 'native',
     route: '/planes/device',
+    evidence: [
+      'openapi:/v1/devices',
+      'openapi:/v1/device/metrics',
+      'cli:probectl device list',
+      'cli:probectl device metrics',
+      'file:docs/features/telemetry-planes.md',
+    ],
   },
   {
     capability: 'eBPF host/L7 visibility and service map',
@@ -297,6 +310,11 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S31',
     kind: 'native',
     route: '/planes/ebpf',
+    evidence: [
+      'openapi:/v1/ebpf/service-map',
+      'cli:probectl ebpf service-map',
+      'file:docs/features/telemetry-planes.md',
+    ],
   },
   {
     capability: 'REST/gRPC API and CLI/TUI command surface',
@@ -346,7 +364,12 @@ export const SURFACES: SurfaceDecl[] = [
     featureIds: ['F26'],
     sprint: 'S38',
     kind: 'federated',
-    evidence: ['file:docs/siem.md', 'file:internal/siem'],
+    evidence: [
+      'openapi:/v1/siem/status',
+      'cli:probectl siem status',
+      'file:docs/siem.md',
+      'file:internal/siem',
+    ],
   },
   {
     capability: 'IaC and GitOps deployment surfaces',
@@ -400,7 +423,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S53',
     kind: 'none-by-design',
     noneReason:
-      'Library/test-harness only: internal/chaos and the dependency drill can exercise local faults, but no REST, UI, MCP, CLI, or agent-control surface serves chaos until a human-gated and audited operator workflow exists.',
+      'Library/test-harness only: internal/chaos and cmd/probectl-chaos-dependency-drill can exercise local faults, but no REST, UI, MCP, probectl operator CLI, or agent-control surface serves chaos until a human-gated and audited operator workflow exists.',
   },
   {
     capability: 'Tenant isolation model operations (pooled, siloed, hybrid)',

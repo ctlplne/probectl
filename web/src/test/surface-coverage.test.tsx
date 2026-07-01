@@ -21,6 +21,9 @@ const PLACEHOLDER_MARKER = /lands in a later sprint/i
 
 const openapi = readFileSync(join(REPO_ROOT, 'internal/control/openapi.json'), 'utf8')
 const openapiPaths = Object.keys((JSON.parse(openapi) as { paths: Record<string, unknown> }).paths)
+const cliSurfaceSource = readFileSync(join(REPO_ROOT, 'internal/cli/surfaces.go'), 'utf8')
+const cliCommands = cliCommandsFromSurfaceSource(cliSurfaceSource)
+const prd = readPRDv1()
 const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>(['native', 'federated', 'none-by-design'])
 const TELEMETRY_PLANE_ROUTES = [
   { route: '/planes/bgp', tab: /BGP/i },
@@ -29,6 +32,79 @@ const TELEMETRY_PLANE_ROUTES = [
   { route: '/planes/ebpf', tab: /eBPF/i },
 ]
 const requiredFeatureIds = new Set(REQUIRED_FEATURES.map((f) => f.id))
+const PRD_ROW_SURFACE_PARITY: Array<{
+  id: string
+  name: string
+  kind: SurfaceDecl['kind']
+  route?: string
+  evidence?: string[]
+  noneReason?: RegExp[]
+}> = [
+  {
+    id: 'F6',
+    name: 'BGP monitoring',
+    kind: 'native',
+    route: '/planes/bgp',
+    evidence: ['openapi:/v1/bgp/events', 'cli:probectl bgp events'],
+  },
+  {
+    id: 'F11',
+    name: 'eBPF host/L7 agent',
+    kind: 'native',
+    route: '/planes/ebpf',
+    evidence: ['openapi:/v1/ebpf/service-map', 'cli:probectl ebpf service-map'],
+  },
+  {
+    id: 'F18',
+    name: 'Device telemetry',
+    kind: 'native',
+    route: '/planes/device',
+    evidence: [
+      'openapi:/v1/devices',
+      'openapi:/v1/device/metrics',
+      'cli:probectl device metrics',
+    ],
+  },
+  {
+    id: 'F26',
+    name: 'SIEM integration',
+    kind: 'federated',
+    evidence: ['openapi:/v1/siem/status', 'cli:probectl siem status'],
+  },
+  {
+    id: 'F47',
+    name: 'Network chaos',
+    kind: 'none-by-design',
+    noneReason: [/Library\/test-harness only/i, /no REST, UI, MCP, probectl operator CLI/i],
+  },
+]
+
+function readPRDv1(): string {
+  const candidates = [
+    join(REPO_ROOT, '../probectl-PRD-v1.0.md'),
+    join(REPO_ROOT, '../../probectl-PRD-v1.0.md'),
+  ]
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return readFileSync(candidate, 'utf8')
+    }
+  }
+  throw new Error(`probectl-PRD-v1.0.md not found in ${candidates.join(' or ')}`)
+}
+
+function cliCommandsFromSurfaceSource(source: string): Set<string> {
+  const commands = new Set<string>()
+  const groups = source.matchAll(
+    /\n\t"([^"]+)": \{Name: "([^"]+)", Summary: "[^"]+", Ops: map\[string\]apiOp\{([\s\S]*?)\n\t\}\},/g,
+  )
+  for (const group of groups) {
+    const commandGroup = group[2]
+    for (const op of group[3].matchAll(/\n\t\t"([^"]+)":\s+\{Method:/g)) {
+      commands.add(`probectl ${commandGroup} ${op[1]}`)
+    }
+  }
+  return commands
+}
 
 function uniqueRoutes(kind: SurfaceDecl['kind']): string[] {
   return [...new Set(SURFACES.filter((s) => s.kind === kind && s.route).map((s) => s.route!))]
@@ -57,6 +133,29 @@ function featureCoverageViolations(surfaces: SurfaceDecl[]): string[] {
   return violations
 }
 
+function hasServedEvidence(s: SurfaceDecl): boolean {
+  if (s.kind === 'native') {
+    return Boolean(s.route)
+  }
+  if (s.kind === 'federated') {
+    return Boolean(s.evidence?.length)
+  }
+  return Boolean(s.noneReason?.trim())
+}
+
+function servedEvidenceViolations(features: RequiredFeature[], surfaces: SurfaceDecl[]): string[] {
+  const violations: string[] = []
+  for (const feature of features.filter((f) => f.status !== 'future')) {
+    const decls = surfaces.filter((s) => s.featureIds?.includes(feature.id))
+    if (!decls.some(hasServedEvidence)) {
+      violations.push(
+        `${feature.id} ${feature.name}: missing native, API/CLI, federated, or none-by-design evidence`,
+      )
+    }
+  }
+  return violations
+}
+
 function futureFeatureViolations(features: RequiredFeature[], surfaces: SurfaceDecl[]): string[] {
   const violations: string[] = []
   for (const feature of features.filter((f) => f.status === 'future')) {
@@ -79,6 +178,40 @@ function futureFeatureViolations(features: RequiredFeature[], surfaces: SurfaceD
   return violations
 }
 
+function evidenceViolations(surfaces: SurfaceDecl[]): string[] {
+  const violations: string[] = []
+  for (const s of surfaces) {
+    for (const ev of s.evidence ?? []) {
+      if (ev.startsWith('file:')) {
+        const p = ev.slice('file:'.length)
+        if (!existsSync(join(REPO_ROOT, p))) {
+          violations.push(`${s.capability}: missing ${p}`)
+        }
+      } else if (ev.startsWith('openapi:')) {
+        const path = ev.slice('openapi:'.length)
+        if (path === '/openapi.json') {
+          continue
+        }
+        if (!openapiPaths.includes(path)) {
+          violations.push(`${s.capability}: ${path} not in openapi.json`)
+        }
+      } else if (ev.startsWith('cli:')) {
+        const command = ev.slice('cli:'.length)
+        if (!cliCommands.has(command)) {
+          violations.push(`${s.capability}: ${command} not in internal/cli/surfaces.go`)
+        }
+      } else {
+        violations.push(`${s.capability}: unknown evidence kind ${ev}`)
+      }
+    }
+  }
+  return violations
+}
+
+function prdRowFor(id: string): string | undefined {
+  return prd.split('\n').find((line) => line.startsWith(`| ${id} |`))
+}
+
 describe('frontend-coverage gate (S-FE6)', () => {
   test('registry shape: every nav destination is registered; routed declarations sit on or under nav', () => {
     const violations = checkRegistryShape(
@@ -94,6 +227,33 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F1')).toBe(true)
     expect(REQUIRED_FEATURES.some((f) => f.id === 'F57')).toBe(true)
     expect(featureCoverageViolations(SURFACES)).toEqual([])
+    expect(servedEvidenceViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
+  })
+
+  test('audited PRD rows trace to first-class operator surfaces or explicit none-by-design reasons', () => {
+    for (const row of PRD_ROW_SURFACE_PARITY) {
+      expect(prdRowFor(row.id), `${row.id}: missing PRD row`).toContain(`| ${row.name} |`)
+      const decls = SURFACES.filter((s) => s.featureIds?.includes(row.id))
+      expect(decls.length, `${row.id}: no surface declaration`).toBeGreaterThan(0)
+      expect(
+        decls.some((s) => s.kind === row.kind),
+        `${row.id}: missing ${row.kind} surface declaration`,
+      ).toBe(true)
+      if (row.route) {
+        expect(
+          decls.some((s) => s.kind === 'native' && s.route === row.route),
+          `${row.id}: missing native route ${row.route}`,
+        ).toBe(true)
+      }
+      const evidence = new Set(decls.flatMap((s) => s.evidence ?? []))
+      for (const ev of row.evidence ?? []) {
+        expect(evidence.has(ev), `${row.id}: missing served evidence ${ev}`).toBe(true)
+      }
+      const noneReasons = decls.map((s) => s.noneReason ?? '').join('\n')
+      for (const reason of row.noneReason ?? []) {
+        expect(noneReasons, `${row.id}: none-by-design reason missing ${reason}`).toMatch(reason)
+      }
+    }
   })
 
   test('future/non-GA PRD features stay explicit none-by-design declarations', () => {
@@ -223,19 +383,12 @@ describe('frontend-coverage gate (S-FE6)', () => {
     }
   }, 60_000)
 
-  test('every federated surface has its declared evidence', () => {
+  test('every declared file, OpenAPI, and CLI evidence exists', () => {
+    expect(evidenceViolations(SURFACES)).toEqual([])
     for (const s of SURFACES.filter((x) => x.kind === 'federated')) {
-      for (const ev of s.evidence ?? []) {
-        if (ev.startsWith('file:')) {
-          const p = ev.slice('file:'.length)
-          expect(existsSync(join(REPO_ROOT, p)), `${s.capability}: missing ${p}`).toBe(true)
-        } else if (ev.startsWith('openapi:')) {
-          const path = ev.slice('openapi:'.length)
-          expect(openapiPaths, `${s.capability}: ${path} not in openapi.json`).toContain(path)
-        } else {
-          throw new Error(`${s.capability}: unknown evidence kind ${ev}`)
-        }
-      }
+      expect(s.evidence?.length ?? 0, `${s.capability}: federated surface declares evidence`).toBeGreaterThan(
+        0,
+      )
     }
   })
 
