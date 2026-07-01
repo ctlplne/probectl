@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { Field, Modal, StatusDot } from '../components'
 import { SkipLink } from '../shell/SkipLink'
+import { renderApp } from './renderApp'
 
 function ModalHarness() {
   const [open, setOpen] = useState(false)
@@ -32,6 +33,17 @@ describe('accessible shell and component primitives', () => {
       '#main-content',
     )
     expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
+  })
+
+  test('route navigation moves focus to the new main content', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets')
+
+    await screen.findByRole('heading', { name: /targets & tests/i })
+    await user.click(screen.getByRole('link', { name: /path analysis/i }))
+
+    await screen.findByRole('heading', { name: /path & topology/i })
+    await waitFor(() => expect(screen.getByRole('main')).toHaveFocus())
   })
 
   test('field labels, descriptions, and errors are machine-readable', () => {

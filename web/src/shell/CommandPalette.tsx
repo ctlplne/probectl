@@ -13,6 +13,7 @@ interface Command {
   label: string
   hint: string
   icon: IconName
+  changesRoute?: boolean
   run: () => void
 }
 
@@ -21,7 +22,15 @@ interface Command {
  * combobox: focus stays in the input, options are tracked with
  * aria-activedescendant, arrows move, Enter runs, Escape closes.
  */
-export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CommandPalette({
+  open,
+  onClose,
+  onRouteCommand,
+}: {
+  open: boolean
+  onClose: () => void
+  onRouteCommand?: () => void
+}) {
   const navigate = useNavigate()
   const { setTheme, themes } = useTheme()
   const { tenants, switchTenant } = useAuth()
@@ -37,6 +46,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       label: t('command.goTo', { label: t(n.labelKey) }),
       hint: t('command.navigate'),
       icon: n.icon,
+      changesRoute: true,
       run: () => navigate(n.to),
     }))
     const theme = themes.map<Command>((themeName) => ({
@@ -76,6 +86,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   function run(cmd?: Command) {
     if (!cmd) return
+    if (cmd.changesRoute) onRouteCommand?.()
     cmd.run()
     setQuery('')
     onClose()
