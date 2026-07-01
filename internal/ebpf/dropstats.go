@@ -10,12 +10,13 @@ type DropStats struct {
 	L4RingBufferFull     uint64
 	L7RingBufferFull     uint64
 	L7ActiveReadFailures uint64
+	L7ScopeSyncFailures  uint64
 	Other                uint64
 }
 
 // Total returns the aggregate dropped-record count represented by s.
 func (s DropStats) Total() uint64 {
-	return s.DecodeFailures + s.L4RingBufferFull + s.L7RingBufferFull + s.L7ActiveReadFailures + s.Other
+	return s.DecodeFailures + s.L4RingBufferFull + s.L7RingBufferFull + s.L7ActiveReadFailures + s.L7ScopeSyncFailures + s.Other
 }
 
 // Add returns the field-wise sum of two cumulative snapshots.
@@ -25,6 +26,7 @@ func (s DropStats) Add(o DropStats) DropStats {
 		L4RingBufferFull:     s.L4RingBufferFull + o.L4RingBufferFull,
 		L7RingBufferFull:     s.L7RingBufferFull + o.L7RingBufferFull,
 		L7ActiveReadFailures: s.L7ActiveReadFailures + o.L7ActiveReadFailures,
+		L7ScopeSyncFailures:  s.L7ScopeSyncFailures + o.L7ScopeSyncFailures,
 		Other:                s.Other + o.Other,
 	}
 }
@@ -38,6 +40,7 @@ func (s DropStats) Delta(prev DropStats) DropStats {
 		L4RingBufferFull:     positiveDelta(s.L4RingBufferFull, prev.L4RingBufferFull),
 		L7RingBufferFull:     positiveDelta(s.L7RingBufferFull, prev.L7RingBufferFull),
 		L7ActiveReadFailures: positiveDelta(s.L7ActiveReadFailures, prev.L7ActiveReadFailures),
+		L7ScopeSyncFailures:  positiveDelta(s.L7ScopeSyncFailures, prev.L7ScopeSyncFailures),
 		Other:                positiveDelta(s.Other, prev.Other),
 	}
 }

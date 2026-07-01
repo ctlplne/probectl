@@ -41,6 +41,7 @@ type Aggregator struct {
 	dropL4RingFull  atomic.Uint64
 	dropL7RingFull  atomic.Uint64
 	dropActiveReads atomic.Uint64
+	dropL7ScopeSync atomic.Uint64
 	dropOther       atomic.Uint64
 	l7attachFailed  atomic.Uint64
 	filteredNonIPv4 atomic.Uint64
@@ -72,6 +73,7 @@ func (a *Aggregator) RecordDropStats(s DropStats) {
 	a.dropL4RingFull.Add(s.L4RingBufferFull)
 	a.dropL7RingFull.Add(s.L7RingBufferFull)
 	a.dropActiveReads.Add(s.L7ActiveReadFailures)
+	a.dropL7ScopeSync.Add(s.L7ScopeSyncFailures)
 	a.dropOther.Add(s.Other)
 }
 
@@ -126,6 +128,7 @@ func (a *Aggregator) Stats() Stats {
 			L4RingBufferFull:     a.dropL4RingFull.Load(),
 			L7RingBufferFull:     a.dropL7RingFull.Load(),
 			L7ActiveReadFailures: a.dropActiveReads.Load(),
+			L7ScopeSyncFailures:  a.dropL7ScopeSync.Load(),
 			Other:                a.dropOther.Load(),
 		},
 		Edges:            uint64(a.smap.Len()),

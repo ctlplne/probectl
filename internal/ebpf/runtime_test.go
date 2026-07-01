@@ -144,6 +144,7 @@ func TestAgentRunReportsDetailedKernelDrops(t *testing.T) {
 	l7src := &sliceL7Source{dropStats: DropStats{
 		L7RingBufferFull:     2,
 		L7ActiveReadFailures: 4,
+		L7ScopeSyncFailures:  6,
 	}}
 	em := &captureEmitter{}
 	cfg := &Config{TenantID: "t1", Host: "h", FlushInterval: time.Hour}
@@ -156,11 +157,11 @@ func TestAgentRunReportsDetailedKernelDrops(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := a.agg.Stats()
-	if st.Dropped != 10 {
-		t.Fatalf("dropped_total = %d, want 10", st.Dropped)
+	if st.Dropped != 16 {
+		t.Fatalf("dropped_total = %d, want 16", st.Dropped)
 	}
-	if st.DecodeFailures != 1 || st.L4RingBufferFull != 3 || st.L7RingBufferFull != 2 || st.L7ActiveReadFailures != 4 {
-		t.Fatalf("drop stats = %+v, want decode=1 l4_ring=3 l7_ring=2 active_reads=4", st.DropStats)
+	if st.DecodeFailures != 1 || st.L4RingBufferFull != 3 || st.L7RingBufferFull != 2 || st.L7ActiveReadFailures != 4 || st.L7ScopeSyncFailures != 6 {
+		t.Fatalf("drop stats = %+v, want decode=1 l4_ring=3 l7_ring=2 active_reads=4 scope_sync=6", st.DropStats)
 	}
 }
 
@@ -173,7 +174,7 @@ func TestAgentSyncsDropStatsAsDeltas(t *testing.T) {
 	if !a.syncDrops() {
 		t.Fatal("first sync should report changed counters")
 	}
-	src.dropStats = DropStats{L4RingBufferFull: 5, L7ActiveReadFailures: 1}
+	src.dropStats = DropStats{L4RingBufferFull: 5, L7ActiveReadFailures: 1, L7ScopeSyncFailures: 2}
 	if !a.syncDrops() {
 		t.Fatal("second sync should report changed counters")
 	}
@@ -182,8 +183,8 @@ func TestAgentSyncsDropStatsAsDeltas(t *testing.T) {
 	}
 
 	st := a.agg.Stats()
-	if st.Dropped != 6 || st.L4RingBufferFull != 5 || st.L7ActiveReadFailures != 1 {
-		t.Fatalf("stats after deltas = %+v, want dropped=6 l4_ring=5 active_reads=1", st)
+	if st.Dropped != 8 || st.L4RingBufferFull != 5 || st.L7ActiveReadFailures != 1 || st.L7ScopeSyncFailures != 2 {
+		t.Fatalf("stats after deltas = %+v, want dropped=8 l4_ring=5 active_reads=1 scope_sync=2", st)
 	}
 }
 

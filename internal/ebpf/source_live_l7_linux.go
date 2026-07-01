@@ -22,6 +22,7 @@ package ebpf
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 	"sync/atomic"
@@ -56,6 +57,8 @@ type liveL7Source struct {
 	scope   []ScopeEntry
 	exePIDs map[uint32]struct{} // tgids we programmed for exe: entries (refresher diff)
 	drops   atomic.Uint64
+
+	scopeRefresh *l7ScopeSyncMonitor
 }
 
 // scopeRefreshInterval is how often exe: entries are re-resolved against
@@ -63,7 +66,7 @@ type liveL7Source struct {
 // exited PIDs leave it). Test-tunable.
 var scopeRefreshInterval = 10 * time.Second
 
-func newLiveL7Source(cfg *Config) (L7Source, error) {
+func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		return nil, fmt.Errorf("ebpf: remove memlock: %w", err)
 	}
@@ -78,6 +81,9 @@ func newLiveL7Source(cfg *Config) (L7Source, error) {
 		return nil, fmt.Errorf("ebpf: l7_capture_scope is empty — TLS capture requires an explicit workload allowlist (EBPF-001)")
 	}
 	s := &liveL7Source{cfg: cfg, scope: scope, exePIDs: map[uint32]struct{}{}}
+	if s.hasExeEntries() {
+		s.scopeRefresh = newL7ScopeSyncMonitor(cfg, log, scopeExe)
+	}
 	// U-014: the embedded object must match the build-time manifest before
 	// the kernel ever sees it; a tampered/stale object refuses to load. The
 	// object (and so its manifest key) is per-arch — see the bpf2go directive.
@@ -230,7 +236,7 @@ func (s *liveL7Source) L7Events(ctx context.Context) (<-chan L7Event, error) {
 				case <-ctx.Done():
 					return
 				case <-t.C:
-					_ = s.syncScope() // transient /proc races retry next tick
+					s.scopeRefresh.Refresh(s.syncScope) // transient /proc races retry next tick
 				}
 			}
 		}()
@@ -291,10 +297,29 @@ func (s *liveL7Source) DropStats() DropStats {
 		DecodeFailures:       s.drops.Load(),
 		L7RingBufferFull:     percpuCounter(s.objs.DropCounters, l7DropRingBufferFull),
 		L7ActiveReadFailures: percpuCounter(s.objs.DropCounters, l7DropActiveReadFailures),
+		L7ScopeSyncFailures:  s.L7ScopeSyncFailures(),
 	}
 }
 
 func (s *liveL7Source) Drops() uint64 { return s.DropStats().Total() }
+
+func (s *liveL7Source) L7ScopeSyncFailures() uint64 {
+	if s.scopeRefresh == nil {
+		return 0
+	}
+	return s.scopeRefresh.Failures()
+}
+
+func (s *liveL7Source) L7ScopeSyncDegraded() bool {
+	return s.scopeRefresh != nil && s.scopeRefresh.Degraded()
+}
+
+func (s *liveL7Source) L7ScopeSyncLastError() string {
+	if s.scopeRefresh == nil {
+		return ""
+	}
+	return s.scopeRefresh.LastError()
+}
 
 func (s *liveL7Source) Close() error {
 	if s.rd != nil {

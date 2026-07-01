@@ -46,7 +46,15 @@ type Agent struct {
 
 // Ready reports whether the agent's source is attached and streaming (the
 // k8s readiness probe). Live reports process liveness (the liveness probe).
-func (a *Agent) Ready() bool { return a.ready.Load() }
+func (a *Agent) Ready() bool {
+	if !a.ready.Load() {
+		return false
+	}
+	if h, ok := a.l7source.(l7ScopeHealthReporter); ok && h.L7ScopeSyncDegraded() {
+		return false
+	}
+	return true
+}
 
 // Live reports that the agent process is up and running its loop.
 func (a *Agent) Live() bool { return a.started.Load() }
@@ -99,7 +107,7 @@ func New(cfg *Config, b bus.Bus, log *slog.Logger) (*Agent, error) {
 		// U-003: live TLS-plaintext capture is OFF unless explicitly enabled
 		// AND consented for this agent's tenant. Off is the default posture.
 		log.Info("ebpf L7 TLS capture off", "reason", reason)
-	} else if live, lerr := newLiveL7Source(cfg); lerr == nil {
+	} else if live, lerr := newLiveL7Source(cfg, log); lerr == nil {
 		l7src = live
 	} else {
 		// U-015: a missing TLS uprobe is an encrypted-traffic VISIBILITY GAP —
@@ -342,6 +350,7 @@ func (a *Agent) logFlushStats(msg string, flows, edges, l7calls int) {
 		"drop_l4_ring_buffer_full_total", st.L4RingBufferFull,
 		"drop_l7_ring_buffer_full_total", st.L7RingBufferFull,
 		"drop_l7_active_read_failures_total", st.L7ActiveReadFailures,
+		"l7_scope_sync_failures_total", st.L7ScopeSyncFailures,
 		"drop_other_total", st.Other,
 		"l7_attach_failures", st.L7AttachFailures, "filtered_non_ipv4_total", st.FilteredNonIPv4)
 }
