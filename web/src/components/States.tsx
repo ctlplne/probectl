@@ -7,11 +7,13 @@ export function EmptyState({
   title,
   description,
   action,
+  preview,
 }: {
   icon?: IconName
   title: string
   description?: ReactNode
   action?: ReactNode
+  preview?: ReactNode
 }) {
   return (
     <div className={styles.state}>
@@ -21,6 +23,7 @@ export function EmptyState({
       <h3 className={styles.title}>{title}</h3>
       {description ? <p className={styles.description}>{description}</p> : null}
       {action ? <div className={styles.action}>{action}</div> : null}
+      {preview ? <div className={styles.preview}>{preview}</div> : null}
     </div>
   )
 }

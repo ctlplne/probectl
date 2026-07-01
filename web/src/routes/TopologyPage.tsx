@@ -11,6 +11,7 @@ import {
   ErrorState,
   Field,
   LoadingState,
+  TopologyPreview,
 } from '../components'
 import { useTopology, useWhatIf, type TopoNode, type WhatIfImpact } from '../api/topology'
 import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
@@ -127,12 +128,14 @@ function TopologyFallbackCard({
             icon="path"
             title="Topology not wired"
             description="The control plane started without a topology store."
+            preview={<TopologyPreview />}
           />
         ) : (
           <EmptyState
             icon="path"
             title="No topology observed yet"
             description="Run a path discovery, or let eBPF/BGP/device telemetry stream in."
+            preview={<TopologyPreview />}
           />
         )}
       </CardBody>

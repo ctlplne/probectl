@@ -39,6 +39,11 @@
   margin-top: var(--space-2);
 }
 
+.preview {
+  width: min(100%, 420px);
+  margin-top: var(--space-2);
+}
+
 .spinner {
   width: 28px;
   height: 28px;

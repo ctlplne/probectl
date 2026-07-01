@@ -1,0 +1,131 @@
+.panel,
+.metrics,
+.graph {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-sm);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-align: start;
+}
+
+.row strong {
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dotSuccess,
+.dotInfo {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+}
+
+.dotSuccess {
+  background: var(--color-success);
+}
+
+.dotInfo {
+  background: var(--color-info);
+}
+
+.graph {
+  display: grid;
+  grid-template-columns: minmax(56px, 1fr) 28px minmax(56px, 1fr) 28px minmax(56px, 1fr);
+  align-items: center;
+  padding: var(--space-4) var(--space-3);
+}
+
+.node,
+.nodeAccent {
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: 650;
+  text-align: center;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.nodeAccent {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.edge {
+  height: 2px;
+  background: var(--color-border-strong);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+.metrics span {
+  min-width: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  text-align: start;
+}
+
+.metrics strong,
+.metrics small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metrics strong {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.metrics small {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+@media (max-width: 520px) {
+  .graph {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .edge {
+    width: 2px;
+    height: 14px;
+    justify-self: center;
+  }
+}

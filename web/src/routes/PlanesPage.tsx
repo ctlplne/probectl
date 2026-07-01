@@ -11,6 +11,7 @@ import {
   EmptyState,
   ErrorState,
   LoadingState,
+  PlanesPreview,
   Select,
   Table,
   type Column,
@@ -305,6 +306,7 @@ function BGPPanel({
                 <EmptyState
                   title="No BGP routing evidence"
                   description="BGP events appear here after the analyzer publishes tenant-scoped routing events."
+                  preview={<PlanesPreview />}
                 />
               }
             />
@@ -423,6 +425,7 @@ function FlowPanel({
                   <EmptyState
                     title="No flow rows"
                     description="Flow collectors have not reported in this window."
+                    preview={<PlanesPreview />}
                   />
                 }
               />
@@ -446,6 +449,7 @@ function FlowPanel({
                   <EmptyState
                     title="No anomalies"
                     description="No interface departed from baseline in the current window."
+                    preview={<PlanesPreview />}
                   />
                 }
               />
@@ -529,6 +533,7 @@ function DevicePanel({
                   <EmptyState
                     title="No devices"
                     description="Device collectors have not reported topology-visible devices yet."
+                    preview={<PlanesPreview />}
                   />
                 }
               />
@@ -547,6 +552,7 @@ function DevicePanel({
                 <EmptyState
                   title="No endpoint telemetry"
                   description="Endpoint agents publish last-mile and WiFi evidence here."
+                  preview={<PlanesPreview />}
                 />
               }
             />
@@ -612,6 +618,7 @@ function EBPFPanel({
                 <EmptyState
                   title="No service edges"
                   description="The eBPF agent has not reported service-to-service traffic yet."
+                  preview={<PlanesPreview />}
                 />
               }
             />

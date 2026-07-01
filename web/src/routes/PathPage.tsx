@@ -9,10 +9,12 @@ import {
   CardHeader,
   EmptyState,
   ErrorState,
+  FirstRunPreview,
   Icon,
   LoadingState,
   Select,
   StatusDot,
+  TopologyPreview,
   useToast,
 } from '../components'
 import { useTests } from '../api/tests'
@@ -108,6 +110,7 @@ export function PathPage() {
               icon="path"
               title="No tests yet"
               description="Create a test on the Targets page, then discover its network path here."
+              preview={<FirstRunPreview />}
             />
           </CardBody>
         </Card>
@@ -141,6 +144,7 @@ export function PathPage() {
                       Discover path
                     </Button>
                   }
+                  preview={<TopologyPreview />}
                 />
               ) : (
                 <>

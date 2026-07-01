@@ -7,6 +7,7 @@ import {
   CardBody,
   CardHeader,
   ChartShell,
+  DashboardPreview,
   EmptyState,
   ErrorState,
   LoadingState,
@@ -532,7 +533,13 @@ function ActiveTestTable({ rows, locale }: { rows: ActiveTestRow[]; locale: stri
       columns={columns}
       rows={rows}
       rowKey={(r) => r.test.id}
-      empty={<EmptyState title="No active tests" description="Create a synthetic test first." />}
+      empty={
+        <EmptyState
+          title="No active tests"
+          description="Create a synthetic test first."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -558,7 +565,13 @@ function PlaneTable({
       columns={columns}
       rows={rows}
       rowKey={(r) => r.id}
-      empty={<EmptyState title={emptyTitle} description="This tenant has no served data yet." />}
+      empty={
+        <EmptyState
+          title={emptyTitle}
+          description="This tenant has no served data yet."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -583,7 +596,11 @@ function CostBudgetTable({ rows, locale }: { rows: BudgetStatus[]; locale: strin
       rows={rows}
       rowKey={(b) => `${b.kind}-${b.name}`}
       empty={
-        <EmptyState title="No cost budgets" description="Budget definitions are not configured." />
+        <EmptyState
+          title="No cost budgets"
+          description="Budget definitions are not configured."
+          preview={<DashboardPreview />}
+        />
       }
     />
   )
@@ -614,7 +631,13 @@ function ThreatTable({ rows, locale }: { rows: Detection[]; locale: string }) {
       columns={columns}
       rows={rows}
       rowKey={(d) => d.id}
-      empty={<EmptyState title="No threat detections" description="Detection engine is quiet." />}
+      empty={
+        <EmptyState
+          title="No threat detections"
+          description="Detection engine is quiet."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -795,7 +818,13 @@ function IncidentTable({ incidents, locale }: { incidents: Incident[]; locale: s
       columns={columns}
       rows={incidents}
       rowKey={(i) => i.id}
-      empty={<EmptyState title="No open incidents" description="Correlated incidents are quiet." />}
+      empty={
+        <EmptyState
+          title="No open incidents"
+          description="Correlated incidents are quiet."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -821,7 +850,13 @@ function FlowTable({ rows, locale }: { rows: FlowTopRow[]; locale: string }) {
       columns={columns}
       rows={rows}
       rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
-      empty={<EmptyState title="No flow contributors" description="Flow collectors are quiet." />}
+      empty={
+        <EmptyState
+          title="No flow contributors"
+          description="Flow collectors are quiet."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -853,7 +888,13 @@ function SLOTable({ rows, locale }: { rows: SLOStatus[]; locale: string }) {
       columns={columns}
       rows={rows}
       rowKey={(s) => s.name}
-      empty={<EmptyState title="No SLO burn" description="No SLO is above its burn threshold." />}
+      empty={
+        <EmptyState
+          title="No SLO burn"
+          description="No SLO is above its burn threshold."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -874,7 +915,13 @@ function AlertTable({ rows }: { rows: ActiveAlert[] }) {
       columns={columns}
       rows={rows}
       rowKey={(a) => a.fingerprint}
-      empty={<EmptyState title="No active alerts" description="Alert evaluator is quiet." />}
+      empty={
+        <EmptyState
+          title="No active alerts"
+          description="Alert evaluator is quiet."
+          preview={<DashboardPreview />}
+        />
+      }
     />
   )
 }
@@ -892,7 +939,11 @@ function ComplianceTable({ rows }: { rows: RuleResult[] }) {
       rows={rows}
       rowKey={(r) => `${r.policy}-${r.rule_id}`}
       empty={
-        <EmptyState title="No segmentation violations" description="Observed policies are clean." />
+        <EmptyState
+          title="No segmentation violations"
+          description="Observed policies are clean."
+          preview={<DashboardPreview />}
+        />
       }
     />
   )

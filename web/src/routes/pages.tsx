@@ -13,6 +13,7 @@ import {
   EmptyState,
   ErrorState,
   Field,
+  FirstRunPreview,
   Icon,
   LoadingState,
   Modal,
@@ -371,6 +372,7 @@ export function TargetsPage() {
                         New test
                       </Button>
                     }
+                    preview={<FirstRunPreview />}
                   />
                 }
               />
