@@ -51,6 +51,50 @@ If a tenant emits unusually wide labels, many custom metrics, or long event
 metadata, multiply the relevant constant by 2 until the first measured
 compression report is available.
 
+## Cardinality Memory Worksheet
+
+The cardinality limiter is an in-memory guest list of active metric identities.
+It protects the TSDB path from an agent or tenant minting infinite new series.
+The limiter is intentionally per control-plane replica: the ingest hot path does
+not pause on a shared cross-replica counter. That keeps ingestion simple and
+available, but capacity planning must reserve the worst case as replicas x cap.
+
+The limiter defaults come from `internal/pipeline/cardinality.go`:
+
+| Constant | Planning value | Meaning |
+| --- | ---: | --- |
+| `DefaultMaxSeriesPerAgent` | 1,000 active series | One tenant-bound agent cannot create more new identities than this on one replica. |
+| `DefaultMaxSeriesPerTenant` | 50,000 active series per replica | One tenant cannot create more active identities than this on one replica. |
+| `DefaultSeriesIdleTTL` | 1h | An identity that has not appeared for this long is swept out and frees its slot. |
+
+Use this worksheet for control-plane heap, not disk retention:
+
+```text
+worst_case_active_series = replicas x active_tenants x per_tenant_cap
+memory_budget = worst_case_active_series x bytes_per_identity
+```
+
+Plan with 512 B/identity until a heap profile says otherwise. That reserve
+covers the identity string, tenant and agent maps, timestamps, and Go map
+overhead. It is deliberately separate from the 1,536 B/result retention row
+because this memory sits in each control-plane process before data reaches the
+TSDB.
+
+| Replicas | Active tenants | Per-tenant cap | Worst-case active series | Memory at 512 B/identity |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 8 | 50,000 | 400,000 | 195 MiB |
+| 3 | 32 | 50,000 | 4,800,000 | 2.3 GiB |
+| 6 | 64 | 50,000 | 19,200,000 | 9.2 GiB |
+| 10 | 100 | 50,000 | 50,000,000 | 23.8 GiB |
+
+Keep cardinality-index memory below 10% of control-plane RSS in steady state.
+Scale when cardinality-index memory exceeds 10% of control-plane RSS for 15
+minutes or two load waves; page when it exceeds 20%, when drops rise for quiet
+tenants, or when RSS keeps climbing after the idle TTL sweep window. Adding
+replicas increases the replicas x cap worst case, so split high-cardinality
+tenants, move noisy tenants to a silo, lower per-tenant caps, or shorten the
+idle TTL only after checking that normal churn will not be counted as abuse.
+
 ## Retention Growth
 
 Use this formula for each stored class:
@@ -82,7 +126,7 @@ load waves. A single spike is a page candidate, not an immediate reshard.
 | --- | --- | --- |
 | Kafka | Producer p95 or consumer lag | Publish p95 exceeds the tier ceiling, lag rises for two waves, or disk is above 70%. Add partitions/brokers before increasing buffers. |
 | ClickHouse flow/eBPF | Part pressure or query tail | `active_parts` grows wave-over-wave, insert p95 or flow query p95 exceeds 2s, or disk is above 70%. Add shards before raising retention. |
-| TSDB | Remote-write/query tail | Remote-write rejects rise, query p95 exceeds the hot-path target, or series cardinality approaches node memory limits. Add storage/select shards. |
+| TSDB | Remote-write/query tail | Remote-write rejects rise, query p95 exceeds the hot-path target, or cardinality-index memory exceeds 10% of control-plane RSS. Add storage/select shards and check the cardinality worksheet before adding replicas. |
 | Postgres | RLS query tail | Pooled tenant query p95 exceeds 250ms in `perf-smoke`, lock waits rise, or CPU stays above 70%. Add read replicas first; split provider/global tables only with a migration plan. |
 | Control plane | CPU/RSS/goroutines | CPU stays above 70%, RSS is a staircase during soak, or goroutines/open FDs do not return to baseline. Add stateless replicas and check backpressure first. |
 
@@ -100,7 +144,7 @@ security boundary and keep deletion/export math simple.
 | Kafka | Tenant bucket and topic namespace | Keep enough partitions that large tenants do not serialize onto one partition. For L, XL, and XXL, pre-create tenant-bucketed topics and keep replication factor 3 with `min.insync.replicas=2`. |
 | ClickHouse pooled | `tenant_id`, then month/day partition | Move the largest tenants to their own shard or database when one tenant accounts for more than 25% of write volume or query cost. Keep `tenant_id` leading the order key. |
 | ClickHouse siloed/hybrid | Tenant database or data-plane residency | Assign regulated or noisy tenants to their own database/cluster. Their circuit breaker and row policies stay independent from the pooled plane. |
-| TSDB | Tenant label and series hash | Put high-cardinality tenants into their own tenant label shard before raising global series limits. |
+| TSDB | Tenant label and series hash | Put high-cardinality tenants into their own tenant label shard before raising global series limits. Do not add replicas blindly; replicas multiply the limiter worst case. |
 | Postgres | Pooled RLS table, then tenant silo | Use pooled RLS until p95/lock triggers hold under realistic load. Move large tenants to a siloed schema/instance only through the tenant residency planner. |
 | Object store | Tenant prefix or bucket | Use per-tenant prefixes by default; use per-tenant buckets when legal hold, BYOK, or deletion evidence requires a physical boundary. |
 

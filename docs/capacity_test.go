@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/perf"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 )
 
 func TestCapacityModelDocumentsScaleProfiles(t *testing.T) {
@@ -62,6 +63,32 @@ func TestCapacityModelDocumentsRowsRetentionAndSplits(t *testing.T) {
 	} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("capacity.md missing required capacity-model text %q", want)
+		}
+	}
+}
+
+func TestCapacityModelDocumentsCardinalityMemory(t *testing.T) {
+	b, err := os.ReadFile("capacity.md")
+	if err != nil {
+		t.Fatalf("read capacity.md: %v", err)
+	}
+	doc := string(b)
+
+	for _, want := range []string{
+		"Cardinality Memory Worksheet",
+		fmt.Sprintf("| `DefaultMaxSeriesPerAgent` | %s active series |", commaInt(pipeline.DefaultMaxSeriesPerAgent)),
+		fmt.Sprintf("| `DefaultMaxSeriesPerTenant` | %s active series per replica |", commaInt(pipeline.DefaultMaxSeriesPerTenant)),
+		fmt.Sprintf("| `DefaultSeriesIdleTTL` | %dh |", int(pipeline.DefaultSeriesIdleTTL.Hours())),
+		"worst_case_active_series = replicas x active_tenants x per_tenant_cap",
+		"memory_budget = worst_case_active_series x bytes_per_identity",
+		"replicas x cap",
+		"Plan with 512 B/identity",
+		"Scale when cardinality-index memory exceeds 10% of control-plane RSS",
+		"page when it exceeds 20%",
+		"replicas multiply the limiter worst case",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("capacity.md missing cardinality capacity text %q", want)
 		}
 	}
 }
