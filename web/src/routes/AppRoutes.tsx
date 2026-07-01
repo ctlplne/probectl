@@ -34,6 +34,7 @@ export function AppRoutes() {
         <Route path="/targets" element={<TargetsPage />} />
         <Route path="/path" element={<PathPage />} />
         <Route path="/planes" element={<PlanesPage />} />
+        <Route path="/planes/:plane" element={<PlanesPage />} />
         <Route path="/incidents" element={<IncidentsPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/security" element={<SecurityPage />} />

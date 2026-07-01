@@ -275,28 +275,28 @@ export const SURFACES: SurfaceDecl[] = [
     featureIds: ['PLANE_BGP_ROUTING', 'F6'],
     sprint: 'S13',
     kind: 'native',
-    route: '/planes',
+    route: '/planes/bgp',
   },
   {
     capability: 'Flow analytics APIs and ClickHouse-backed views',
     featureIds: ['PLANE_FLOW_ANALYTICS', 'F17'],
     sprint: 'S32',
     kind: 'native',
-    route: '/planes',
+    route: '/planes/flow',
   },
   {
     capability: 'Device telemetry collectors and topology attribution',
     featureIds: ['PLANE_DEVICE_TELEMETRY', 'F18'],
     sprint: 'S33',
     kind: 'native',
-    route: '/planes',
+    route: '/planes/device',
   },
   {
     capability: 'eBPF host/L7 visibility and service map',
     featureIds: ['PLANE_EBPF_HOST_L7', 'F11'],
     sprint: 'S31',
     kind: 'native',
-    route: '/planes',
+    route: '/planes/ebpf',
   },
   {
     capability: 'REST/gRPC API and CLI/TUI command surface',
@@ -404,7 +404,11 @@ export const SURFACES: SurfaceDecl[] = [
     featureIds: ['F50', 'F52'],
     sprint: 'S-T1/S-T7',
     kind: 'federated',
-    evidence: ['openapi:/v1/isolation/status', 'file:docs/security/tenant-isolation.md', 'file:ee/silo'],
+    evidence: [
+      'openapi:/v1/isolation/status',
+      'file:docs/security/tenant-isolation.md',
+      'file:ee/silo',
+    ],
   },
   {
     capability: 'Per-tenant keys and BYOK administration',
@@ -441,7 +445,7 @@ export interface RegistryViolation {
 
 /** checkRegistryShape runs the pure (render-free) registry checks: every nav
  *  destination is registered, every routed declaration points at a nav
- *  destination, and every declaration is well-formed. The render/a11y checks
+ *  destination or a child of one, and every declaration is well-formed. The render/a11y checks
  *  live in the gate test (they need the DOM). */
 export function checkRegistryShape(
   navRoutes: string[],
@@ -493,7 +497,7 @@ export function checkRegistryShape(
     routed.set(s.route, [...(routed.get(s.route) ?? []), s])
   }
   for (const nav of navRoutes) {
-    if (!routed.has(nav)) {
+    if (!routed.has(nav) && ![...routed.keys()].some((route) => isChildRoute(nav, route))) {
       violations.push({
         capability: `nav:${nav}`,
         problem: 'nav destination has no registered surface (register it native)',
@@ -501,7 +505,10 @@ export function checkRegistryShape(
     }
   }
   for (const [route, decls] of routed) {
-    if (!navRoutes.includes(route) && !decls.every((d) => d.offNav)) {
+    if (
+      !navRoutes.some((nav) => route === nav || isChildRoute(nav, route)) &&
+      !decls.every((d) => d.offNav)
+    ) {
       violations.push({
         capability: decls[0].capability,
         problem: `route ${route} is not a nav destination`,
@@ -516,4 +523,8 @@ export function checkRegistryShape(
     }
   }
   return violations
+}
+
+function isChildRoute(parent: string, route: string): boolean {
+  return route.startsWith(`${parent}/`)
 }

@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import styles from './planes.module.css'
 import { Page } from './pages'
 import {
@@ -41,6 +42,10 @@ const PLANES: Plane[] = [
   { id: 'ebpf', label: 'eBPF', feature: 'F11 / P5' },
 ]
 
+function isPlaneID(value: string | undefined): value is PlaneID {
+  return PLANES.some((plane) => plane.id === value)
+}
+
 const EMPTY_TOPO_NODES: TopoNode[] = []
 const EMPTY_TOPO_EDGES: TopoEdge[] = []
 
@@ -73,8 +78,10 @@ function toneForCount(n: number) {
 }
 
 export function PlanesPage() {
+  const { plane } = useParams()
+  const navigate = useNavigate()
   const { locale } = useI18n()
-  const [active, setActive] = useState<PlaneID>('bgp')
+  const active: PlaneID = isPlaneID(plane) ? plane : 'bgp'
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
   const topology = useTopology()
   const endpoints = useEndpoints()
@@ -97,6 +104,11 @@ export function PlanesPage() {
     b.ts.localeCompare(a.ts),
   )[0]
   const impairedEndpoints = endpointItems.filter((e) => e.slow).length
+  const setActive = (next: PlaneID) => navigate(`/planes/${next}`)
+
+  if (plane && !isPlaneID(plane)) {
+    return <Navigate to="/planes/bgp" replace />
+  }
 
   return (
     <Page
@@ -332,7 +344,12 @@ function FlowPanel({
   const anomalyColumns: Column<NonNullable<typeof anomalies.data>['items'][number]>[] = [
     { key: 'exporter', header: 'Exporter', render: (a) => a.exporter || 'any' },
     { key: 'iface', header: 'Iface', numeric: true, render: (a) => a.iface },
-    { key: 'current', header: 'Current', numeric: true, render: (a) => rate(a.current_bps, locale) },
+    {
+      key: 'current',
+      header: 'Current',
+      numeric: true,
+      render: (a) => rate(a.current_bps, locale),
+    },
     {
       key: 'baseline',
       header: 'Baseline',

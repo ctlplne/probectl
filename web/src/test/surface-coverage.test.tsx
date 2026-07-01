@@ -21,11 +21,13 @@ const PLACEHOLDER_MARKER = /lands in a later sprint/i
 
 const openapi = readFileSync(join(REPO_ROOT, 'internal/control/openapi.json'), 'utf8')
 const openapiPaths = Object.keys((JSON.parse(openapi) as { paths: Record<string, unknown> }).paths)
-const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>([
-  'native',
-  'federated',
-  'none-by-design',
-])
+const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>(['native', 'federated', 'none-by-design'])
+const TELEMETRY_PLANE_ROUTES = [
+  { route: '/planes/bgp', tab: /BGP/i },
+  { route: '/planes/flow', tab: /Flow/i },
+  { route: '/planes/device', tab: /Device/i },
+  { route: '/planes/ebpf', tab: /eBPF/i },
+]
 const requiredFeatureIds = new Set(REQUIRED_FEATURES.map((f) => f.id))
 
 function uniqueRoutes(kind: SurfaceDecl['kind']): string[] {
@@ -78,7 +80,7 @@ function futureFeatureViolations(features: RequiredFeature[], surfaces: SurfaceD
 }
 
 describe('frontend-coverage gate (S-FE6)', () => {
-  test('registry shape: every nav destination is registered; every routed declaration is a nav destination', () => {
+  test('registry shape: every nav destination is registered; routed declarations sit on or under nav', () => {
     const violations = checkRegistryShape(
       NAV.map((n) => n.to),
       SURFACES,
@@ -98,9 +100,9 @@ describe('frontend-coverage gate (S-FE6)', () => {
     const futureFeatures = REQUIRED_FEATURES.filter((f) => f.status === 'future')
     expect(futureFeatures.map((f) => f.id)).toEqual(['F49'])
     expect(futureFeatureViolations(REQUIRED_FEATURES, SURFACES)).toEqual([])
-    expect(
-      SURFACES.find((s) => s.featureIds?.includes('F49'))?.noneReason,
-    ).toContain('outside the GA completeness denominator')
+    expect(SURFACES.find((s) => s.featureIds?.includes('F49'))?.noneReason).toContain(
+      'outside the GA completeness denominator',
+    )
 
     const bad: SurfaceDecl[] = SURFACES.map(
       (s): SurfaceDecl =>
@@ -147,6 +149,17 @@ describe('frontend-coverage gate (S-FE6)', () => {
       },
     ]
     expect(checkRegistryShape([], declared)).toEqual([])
+
+    const childRoute: SurfaceDecl[] = [
+      {
+        capability: 'plane child',
+        featureIds: ['F1'],
+        sprint: 'Sz',
+        kind: 'native',
+        route: '/planes/flow',
+      },
+    ]
+    expect(checkRegistryShape(['/planes'], childRoute)).toEqual([])
   })
 
   test('the gate itself fails when a required PRD feature disappears or has no surface kind', () => {
@@ -197,6 +210,18 @@ describe('frontend-coverage gate (S-FE6)', () => {
       unmount()
     }
   })
+
+  test('each telemetry plane has a deep-linkable native route and passes axe', async () => {
+    for (const plane of TELEMETRY_PLANE_ROUTES) {
+      const { container, findByRole, unmount } = renderApp(plane.route)
+      expect(await findByRole('main'), `${plane.route}: no main landmark`).toBeTruthy()
+      const activeTab = await findByRole('tab', { name: plane.tab })
+      expect(activeTab, `${plane.route}: active tab`).toHaveAttribute('aria-selected', 'true')
+      const results = await axe(container)
+      expect(results, `${plane.route} fails the a11y bar`).toHaveNoViolations()
+      unmount()
+    }
+  }, 60_000)
 
   test('every federated surface has its declared evidence', () => {
     for (const s of SURFACES.filter((x) => x.kind === 'federated')) {
