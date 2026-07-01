@@ -17,6 +17,48 @@ export interface ChannelSpec {
   recipients?: string[]
 }
 
+export interface OncallOutboundConnector {
+  id: string
+  provider: string
+  tenant_routed: boolean
+  endpoint_configured: boolean
+  endpoint_tls_configured: boolean
+  endpoint_host?: string
+  credential_configured: boolean
+  endpoint_secrets_redacted: boolean
+}
+
+export interface OncallInboundWebhook {
+  id: string
+  provider: string
+  path: string
+  credential_configured: boolean
+}
+
+export interface OncallProviderStatus {
+  provider: string
+  outbound_connector_count: number
+  inbound_webhook_count: number
+}
+
+export interface OncallStatus {
+  id: string
+  name: string
+  summary: string
+  configured: boolean
+  dispatcher_running: boolean
+  outbound_configured: boolean
+  inbound_configured: boolean
+  outbound_connector_count: number
+  inbound_webhook_count: number
+  tls_required: boolean
+  secrets_redacted: boolean
+  providers: OncallProviderStatus[]
+  outbound: OncallOutboundConnector[]
+  inbound: OncallInboundWebhook[]
+  supported_providers: string[]
+}
+
 export interface AlertRule {
   id: string
   tenant_id: string
@@ -78,6 +120,13 @@ export function useAlertRules() {
   })
 }
 
+export function useOncallStatus() {
+  return useQuery({
+    queryKey: ['oncall', 'status'],
+    queryFn: () => apiFetch<OncallStatus>('/oncall/status'),
+  })
+}
+
 function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
 }
@@ -100,6 +149,34 @@ export function useDeleteAlertRule() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<undefined>(`/alerts/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['alerts', 'rules'] }),
+  })
+}
+
+export function useTestAlertChannel() {
+  return useMutation({
+    mutationFn: ({
+      ruleName,
+      metric,
+      channel,
+    }: {
+      ruleName: string
+      metric: string
+      channel: ChannelSpec
+    }) =>
+      apiFetch<{ accepted: boolean; type: string }>(
+        '/alerts/test-channel',
+        jsonInit('POST', { rule_name: ruleName, metric, channel }),
+      ),
+  })
+}
+
+export function useTestOncallConnector() {
+  return useMutation({
+    mutationFn: (connectorID: string) =>
+      apiFetch<{ accepted: boolean; connector_id: string; provider: string; status?: string }>(
+        '/oncall/test',
+        jsonInit('POST', { connector_id: connectorID }),
+      ),
   })
 }
 

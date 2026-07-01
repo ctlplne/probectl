@@ -75,6 +75,15 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/alerts.ts',
+    method: 'GET',
+    path: '/oncall/status',
+    response: 'OncallStatus',
+    generated: 'JsonObject',
+    reason:
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; OncallStatus is the explicit redacted routing view model.',
+  },
+  {
+    file: 'api/alerts.ts',
     method: 'PUT',
     path: '`/alerts/${id}`',
     response: 'AlertRule',
@@ -93,6 +102,24 @@ export const API_CALL_CONTRACTS = [
     path: '`/alerts/${id}`',
     response: 'undefined',
     generated: 'DeleteAlertResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'POST',
+    path: '/alerts/test-channel',
+    response: '{ accepted: boolean; type: string }',
+    generated: 'JsonObject',
+    reason:
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; the response is a narrow test-delivery acknowledgement.',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'POST',
+    path: '/oncall/test',
+    response: '{ accepted: boolean; connector_id: string; provider: string; status?: string }',
+    generated: 'JsonObject',
+    reason:
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; the response is a narrow connector-test acknowledgement.',
   },
   {
     file: 'api/alerts.ts',

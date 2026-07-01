@@ -13,6 +13,8 @@ import (
 )
 
 // alertRequest is the create/update body for an alert rule.
+const redactedAlertSecret = "***"
+
 type alertRequest struct {
 	Name            string              `json:"name"`
 	Enabled         *bool               `json:"enabled"`
@@ -68,7 +70,7 @@ func redactRule(r *alert.Rule) alert.Rule {
 		copy(ch, r.Channels)
 		for i := range ch {
 			if ch[i].Secret != "" {
-				ch[i].Secret = "***"
+				ch[i].Secret = redactedAlertSecret
 			}
 		}
 		out.Channels = ch
@@ -168,6 +170,11 @@ func (s *Server) handleUpdateAlert(w http.ResponseWriter, r *http.Request) error
 	}
 	var updated *alert.Rule
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		before, e := store.AlertRules{}.Get(ctx, sc, id)
+		if e != nil {
+			return e
+		}
+		preserveRedactedAlertSecrets(&rule, before)
 		x, e := store.AlertRules{}.Update(ctx, sc, id, rule)
 		if e != nil {
 			return e
@@ -194,4 +201,19 @@ func (s *Server) handleDeleteAlert(w http.ResponseWriter, r *http.Request) error
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func preserveRedactedAlertSecrets(next *alert.Rule, before *alert.Rule) {
+	if next == nil || before == nil {
+		return
+	}
+	for i := range next.Channels {
+		if next.Channels[i].Secret != redactedAlertSecret || i >= len(before.Channels) {
+			continue
+		}
+		prev := before.Channels[i]
+		if prev.Type == next.Channels[i].Type && prev.URL == next.Channels[i].URL {
+			next.Channels[i].Secret = prev.Secret
+		}
+	}
 }

@@ -70,6 +70,9 @@ func TestOncallStatusIsTenantScopedAndRedacted(t *testing.T) {
 	if len(resp.Outbound) != 2 || resp.Outbound[0].EndpointHost == "" || resp.Outbound[1].EndpointHost == "" {
 		t.Fatalf("outbound posture missing sanitized hosts: %+v", resp.Outbound)
 	}
+	if resp.Outbound[0].ID == "" || !resp.Outbound[0].TenantRouted {
+		t.Fatalf("outbound posture missing connector id / tenant routing: %+v", resp.Outbound)
+	}
 	if len(resp.Inbound) != 1 || resp.Inbound[0].ID != "snow-a" || resp.Inbound[0].Path != "/ingest/itsm/servicenow/snow-a" {
 		t.Fatalf("inbound posture = %+v", resp.Inbound)
 	}
@@ -93,14 +96,79 @@ func TestOncallStatusIsTenantScopedAndRedacted(t *testing.T) {
 	}
 }
 
-func TestOncallStatusRouteIsIncidentRead(t *testing.T) {
+func TestNotificationRoutingTestDelivery(t *testing.T) {
+	var oncallHit bool
+	oncallSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		oncallHit = true
+		if r.URL.RawQuery != "" {
+			t.Fatalf("connector test leaked query into request URL: %s", r.URL.String())
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer oncallSink.Close()
+
+	srv := testServer(fakePinger{})
+	srv.cfg.NotifyConnectors = []config.NotifyConnector{{
+		TenantID: tenancy.DefaultTenantID.String(),
+		Provider: "slack",
+		Endpoint: oncallSink.URL,
+		Secret:   "not-returned",
+	}}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/oncall/test", strings.NewReader(`{"connector_id":"slack-1"}`))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("oncall test status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !oncallHit {
+		t.Fatal("on-call connector test did not deliver")
+	}
+	if strings.Contains(rec.Body.String(), "not-returned") {
+		t.Fatalf("on-call test response leaked secret: %s", rec.Body.String())
+	}
+}
+
+func TestAlertChannelTestDeliverySignsWebhookAndRedactsSecret(t *testing.T) {
+	var signature string
+	alertSink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		signature = r.Header.Get("X-Probectl-Signature")
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer alertSink.Close()
+
+	srv := testServer(fakePinger{})
+	body := `{"rule_name":"latency smoke","metric":"probectl_result_rtt_ms","channel":{"type":"webhook","url":"` + alertSink.URL + `","secret":"sign-me"}}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/alerts/test-channel", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("alert channel test status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.HasPrefix(signature, "sha256=") {
+		t.Fatalf("webhook signature missing: %q", signature)
+	}
+	if strings.Contains(rec.Body.String(), "sign-me") {
+		t.Fatalf("alert channel test response leaked secret: %s", rec.Body.String())
+	}
+}
+
+func TestNotificationRoutingRoutesPermissions(t *testing.T) {
+	want := map[string]string{
+		http.MethodGet + " /v1/oncall/status":        permIncidentRead,
+		http.MethodPost + " /v1/oncall/test":         permIncidentWrite,
+		http.MethodPost + " /v1/alerts/test-channel": permAlertWrite,
+	}
 	for _, rt := range testServer(fakePinger{}).apiRoutes() {
-		if rt.Method == http.MethodGet && rt.Pattern == "/v1/oncall/status" {
-			if rt.Permission != permIncidentRead {
-				t.Fatalf("oncall status permission = %q, want %q", rt.Permission, permIncidentRead)
+		key := rt.Method + " " + rt.Pattern
+		if perm, ok := want[key]; ok {
+			if rt.Permission != perm {
+				t.Fatalf("%s permission = %q, want %q", key, rt.Permission, perm)
 			}
-			return
+			delete(want, key)
 		}
 	}
-	t.Fatal("GET /v1/oncall/status route not registered")
+	if len(want) != 0 {
+		t.Fatalf("routes not registered: %+v", want)
+	}
 }

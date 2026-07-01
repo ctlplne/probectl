@@ -768,7 +768,10 @@ rule:
 A `channels` entry is `{"type":"webhook","url":...,"secret":...}` or
 `{"type":"email","recipients":[...]}`. The webhook **secret** is the HMAC key; it
 is **redacted (`***`) from API responses** and never returned. SMTP for email is
-configured at the deployment level (a follow-up exposes it as config).
+configured at the deployment level (a follow-up exposes it as config). The Alerts
+page exposes these rule channels, shows the redacted/signed state, and can send a
+tenant-scoped test delivery through `POST /v1/alerts/test-channel` before a rule
+is saved.
 
 **Webhook payload (`probectl.alert.v1`).** On fire/resolve the webhook channel POSTs:
 
@@ -1581,6 +1584,13 @@ endpoint is the `…/api/now/table/incident` URL. Inbound deliveries must includ
 `X-Probectl-Signature: sha256=<hmac>` or `X-Probectl-Token: <secret>` over TLS; an
 unsigned or forged delivery is rejected (`401`). Secrets are runtime config —
 inject them from a secret manager, never commit them.
+
+The Alerts page renders the same tenant-scoped connector posture: provider
+choices (`pagerduty`, `opsgenie`, `slack`, `teams`, `servicenow`, `jira`),
+sanitized endpoint host, TLS posture, credential presence, inbound webhook path,
+and redaction state. `POST /v1/oncall/test` sends an operator-triggered test
+incident through an already-configured connector id for the caller's tenant; the
+browser never supplies ad-hoc endpoints or secrets.
 
 ### Topology graph + what-if
 

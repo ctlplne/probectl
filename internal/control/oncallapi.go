@@ -3,11 +3,20 @@
 package control
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
+	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/notify"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 var oncallSupportedProviders = []string{"pagerduty", "opsgenie", "slack", "teams", "servicenow", "jira"}
@@ -37,7 +46,9 @@ type oncallProviderStatus struct {
 }
 
 type oncallOutboundStatus struct {
+	ID                      string `json:"id"`
 	Provider                string `json:"provider"`
+	TenantRouted            bool   `json:"tenant_routed"`
 	EndpointConfigured      bool   `json:"endpoint_configured"`
 	EndpointTLSConfigured   bool   `json:"endpoint_tls_configured"`
 	EndpointHost            string `json:"endpoint_host,omitempty"`
@@ -52,6 +63,29 @@ type oncallInboundStatus struct {
 	CredentialConfigured bool   `json:"credential_configured"`
 }
 
+type oncallTestRequest struct {
+	ConnectorID string `json:"connector_id"`
+}
+
+type oncallTestResponse struct {
+	Accepted    bool   `json:"accepted"`
+	ConnectorID string `json:"connector_id"`
+	Provider    string `json:"provider"`
+	Status      string `json:"status,omitempty"`
+	ExternalRef string `json:"external_ref,omitempty"`
+}
+
+type alertChannelTestRequest struct {
+	RuleName string            `json:"rule_name"`
+	Metric   string            `json:"metric"`
+	Channel  alert.ChannelSpec `json:"channel"`
+}
+
+type alertChannelTestResponse struct {
+	Accepted bool   `json:"accepted"`
+	Type     string `json:"type"`
+}
+
 // handleOncallStatus exposes a tenant-scoped, read-only posture view for
 // on-call/ITSM integrations. It is intentionally a redacted status surface, not
 // a config dump: connector credentials and URL path/query values can contain
@@ -62,6 +96,119 @@ func (s *Server) handleOncallStatus(w http.ResponseWriter, r *http.Request) erro
 		return err
 	}
 	writeJSON(w, http.StatusOK, oncallStatusFromConfig(s.cfg, tid, s.dispatcher != nil))
+	return nil
+}
+
+func (s *Server) handleOncallTest(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var req oncallTestRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	nc, ok := findOncallConnector(s.cfg, tid, req.ConnectorID)
+	if !ok {
+		return apierror.NotFound("on-call connector is not configured for this tenant")
+	}
+	c, ok := notify.NewConnector(nc.Provider, nc.Endpoint, nc.Secret, nil)
+	if !ok {
+		return apierror.Validation("unsupported on-call connector provider")
+	}
+	testID, err := crypto.UUIDv4()
+	if err != nil {
+		return apierror.Internal("could not generate test incident id").Wrap(err)
+	}
+	if s.pool != nil {
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			return s.recordAudit(ctx, sc, r, "notify.test_delivery", req.ConnectorID,
+				map[string]any{"provider": nc.Provider})
+		}); err != nil {
+			return err
+		}
+	}
+	del, err := c.Open(r.Context(), incident.Incident{
+		ID:         "test-" + testID,
+		TenantID:   tid,
+		Status:     incident.StatusOpen,
+		Severity:   incident.SeverityInfo,
+		Title:      "probectl test delivery",
+		Target:     "notification-routing",
+		StartedAt:  time.Now().UTC(),
+		LastSeenAt: time.Now().UTC(),
+	})
+	if err != nil {
+		return apierror.Unavailable("on-call test delivery failed").Wrap(err)
+	}
+	writeJSON(w, http.StatusAccepted, oncallTestResponse{
+		Accepted:    true,
+		ConnectorID: req.ConnectorID,
+		Provider:    nc.Provider,
+		Status:      del.Status,
+		ExternalRef: del.ExternalRef,
+	})
+	return nil
+}
+
+func (s *Server) handleAlertChannelTest(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var req alertChannelTestRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	ruleName := strings.TrimSpace(req.RuleName)
+	if ruleName == "" {
+		ruleName = "probectl test alert"
+	}
+	metric := strings.TrimSpace(req.Metric)
+	if metric == "" {
+		metric = "probectl_test_delivery"
+	}
+	rule := alert.Rule{
+		ID:         "test",
+		TenantID:   tid,
+		Name:       ruleName,
+		Enabled:    true,
+		Metric:     metric,
+		Type:       alert.Threshold,
+		Comparison: alert.GT,
+		Threshold:  1,
+		ForN:       1,
+		Severity:   alert.SeverityInfo,
+		Channels:   []alert.ChannelSpec{req.Channel},
+	}
+	if err := rule.Validate(); err != nil {
+		return apierror.Validation(err.Error())
+	}
+	if s.pool != nil {
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			return s.recordAudit(ctx, sc, r, "alert.channel_test", ruleName,
+				map[string]any{"type": req.Channel.Type})
+		}); err != nil {
+			return err
+		}
+	}
+	delivered := alert.NewNotifier(alert.ChannelDeps{}, s.log).Deliver(r.Context(), rule, alert.Alert{
+		RuleID:     "test",
+		RuleName:   ruleName,
+		TenantID:   tid,
+		State:      alert.StateFiring,
+		Severity:   alert.SeverityInfo,
+		Metric:     metric,
+		Value:      2,
+		Threshold:  1,
+		Comparison: alert.GT,
+		Reason:     "probectl operator-triggered test delivery",
+		At:         time.Now().UTC(),
+	})
+	if delivered == 0 {
+		return apierror.Unavailable("alert channel test delivery failed")
+	}
+	writeJSON(w, http.StatusAccepted, alertChannelTestResponse{Accepted: true, Type: req.Channel.Type})
 	return nil
 }
 
@@ -82,13 +229,17 @@ func oncallStatusFromConfig(cfg *config.Config, tenantID string, dispatcherRunni
 	}
 
 	providers := map[string]*oncallProviderStatus{}
+	ordinals := map[string]int{}
 	for _, nc := range cfg.NotifyConnectors {
 		if nc.TenantID != tenantID {
 			continue
 		}
+		ordinals[nc.Provider]++
 		configured, tlsConfigured, host := siemEndpointPosture(nc.Endpoint)
 		status.Outbound = append(status.Outbound, oncallOutboundStatus{
+			ID:                      oncallConnectorID(nc.Provider, ordinals[nc.Provider]),
 			Provider:                nc.Provider,
+			TenantRouted:            true,
 			EndpointConfigured:      configured,
 			EndpointTLSConfigured:   tlsConfigured,
 			EndpointHost:            host,
@@ -148,4 +299,25 @@ func oncallProviderBucket(providers map[string]*oncallProviderStatus, provider s
 		providers[provider] = p
 	}
 	return p
+}
+
+func oncallConnectorID(provider string, ordinal int) string {
+	return fmt.Sprintf("%s-%d", strings.ToLower(strings.TrimSpace(provider)), ordinal)
+}
+
+func findOncallConnector(cfg *config.Config, tenantID, connectorID string) (config.NotifyConnector, bool) {
+	if cfg == nil {
+		return config.NotifyConnector{}, false
+	}
+	ordinals := map[string]int{}
+	for _, nc := range cfg.NotifyConnectors {
+		if nc.TenantID != tenantID {
+			continue
+		}
+		ordinals[nc.Provider]++
+		if oncallConnectorID(nc.Provider, ordinals[nc.Provider]) == connectorID {
+			return nc, true
+		}
+	}
+	return config.NotifyConnector{}, false
 }

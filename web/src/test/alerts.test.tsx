@@ -53,6 +53,43 @@ function alertsBackend() {
         last_seen_at: since,
       } as ActiveAlert,
     ],
+    oncall: {
+      id: 'oncall',
+      name: 'On-call + ITSM',
+      summary: 'On-call and ITSM integration is configured with 1 outbound connector(s) and 1 inbound webhook(s)',
+      configured: true,
+      dispatcher_running: true,
+      outbound_configured: true,
+      inbound_configured: true,
+      outbound_connector_count: 1,
+      inbound_webhook_count: 1,
+      tls_required: true,
+      secrets_redacted: true,
+      providers: [{ provider: 'pagerduty', outbound_connector_count: 1, inbound_webhook_count: 0 }],
+      outbound: [
+        {
+          id: 'pagerduty-1',
+          provider: 'pagerduty',
+          tenant_routed: true,
+          endpoint_configured: true,
+          endpoint_tls_configured: true,
+          endpoint_host: 'events.pagerduty.com',
+          credential_configured: true,
+          endpoint_secrets_redacted: true,
+        },
+      ],
+      inbound: [
+        {
+          id: 'snow-a',
+          provider: 'servicenow',
+          path: '/ingest/itsm/servicenow/snow-a',
+          credential_configured: true,
+        },
+      ],
+      supported_providers: ['pagerduty', 'opsgenie', 'slack', 'teams', 'servicenow', 'jira'],
+    },
+    channelTests: [] as Record<string, unknown>[],
+    connectorTests: [] as string[],
     requests: [] as { method: string; url: string }[],
   }
 
@@ -81,6 +118,17 @@ function alertsBackend() {
     }
     if (url.endsWith('/v1/alerts') && method === 'GET') {
       return jsonResponse({ items: state.rules })
+    }
+    if (url.endsWith('/v1/alerts/test-channel') && method === 'POST') {
+      state.channelTests.push(body)
+      return jsonResponse({ accepted: true, type: (body.channel as { type?: string })?.type }, 202)
+    }
+    if (url.endsWith('/v1/oncall/status') && method === 'GET') {
+      return jsonResponse(state.oncall)
+    }
+    if (url.endsWith('/v1/oncall/test') && method === 'POST') {
+      state.connectorTests.push(String(body.connector_id))
+      return jsonResponse({ accepted: true, connector_id: body.connector_id, provider: 'pagerduty', status: 'triggered' }, 202)
     }
     if (url.endsWith('/v1/alerts') && method === 'POST') {
       const rule = {
@@ -205,6 +253,40 @@ describe('alerting surface (S-FE1)', () => {
       expect(
         within(screen.getByRole('table', { name: 'Alert rules' })).getByText('loss high'),
       ).toBeDefined()
+    })
+  })
+
+  test('configures alert-channel delivery and tests tenant-routed incident connectors with redacted secrets', async () => {
+    const { state, fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts')
+
+    const connectors = await screen.findByRole('table', { name: 'Incident connectors' })
+    expect(within(connectors).getByText('Pagerduty')).toBeDefined()
+    expect(within(connectors).getByText('current tenant')).toBeDefined()
+    expect(within(connectors).getByText('events.pagerduty.com')).toBeDefined()
+    expect(screen.queryByText(/routing-key|secret/i)).toBeNull()
+
+    await userEvent.click(within(connectors).getByRole('button', { name: 'Test' }))
+    await waitFor(() => expect(state.connectorTests).toEqual(['pagerduty-1']))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'webhook delivery')
+    await userEvent.type(within(dialog).getByLabelText('Metric'), 'probectl_result_loss_pct')
+    await userEvent.selectOptions(within(dialog).getByLabelText('Delivery channel'), 'webhook')
+    await userEvent.type(within(dialog).getByLabelText('Webhook URL'), 'https://hooks.example/alerts')
+    await userEvent.type(within(dialog).getByLabelText('Webhook secret'), 'super-secret')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Test channel' }))
+    await waitFor(() => expect(state.channelTests.length).toBe(1))
+    expect(screen.queryByText('super-secret')).toBeNull()
+
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Create rule' }))
+    await waitFor(() => expect(state.rules.length).toBe(2))
+    expect(state.rules[1].channels?.[0]).toMatchObject({
+      type: 'webhook',
+      url: 'https://hooks.example/alerts',
+      secret: 'super-secret',
     })
   })
 

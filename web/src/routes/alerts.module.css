@@ -32,6 +32,13 @@
   gap: var(--space-3);
 }
 
+.formSection {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--color-border-subtle);
+}
+
 .check {
   display: flex;
   align-items: center;
@@ -47,7 +54,17 @@
   font-size: var(--font-size-sm);
 }
 
+.muted {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
 .stack {
   display: grid;
   gap: var(--space-4);
+}
+
+.routingStack {
+  display: grid;
+  gap: var(--space-3);
 }

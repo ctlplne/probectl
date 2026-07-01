@@ -24,11 +24,17 @@ import {
   useActiveAlerts,
   useAlertRules,
   useDeleteAlertRule,
+  useOncallStatus,
   useSaveAlertRule,
   useSilenceAlert,
+  useTestAlertChannel,
+  useTestOncallConnector,
   type ActiveAlert,
   type AlertRule,
   type AlertRuleInput,
+  type ChannelSpec,
+  type OncallInboundWebhook,
+  type OncallOutboundConnector,
 } from '../api/alerts'
 import { DateTime } from '../time/DateTime'
 
@@ -38,6 +44,30 @@ function labelText(labels?: Record<string, string>): string {
     .filter(([k]) => k !== 'tenant_id') // the tenant is ambient (always-visible indicator)
     .map(([k, v]) => `${k}=${v}`)
     .join(', ')
+}
+
+function recipientsText(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function channelSummary(channels?: ChannelSpec[]): string {
+  if (!channels || channels.length === 0) return 'none'
+  return channels
+    .map((c) => {
+      if (c.type === 'webhook') return `webhook ${c.secret ? '(signed)' : '(unsigned)'}`
+      return `email ${c.recipients?.length ?? 0}`
+    })
+    .join(', ')
+}
+
+function providerLabel(provider: string): string {
+  return provider
+    .split(/[-_]/)
+    .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : s))
+    .join(' ')
 }
 
 /** stateTone maps an active alert's display state to a Badge tone. */
@@ -159,6 +189,8 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
 function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) {
   const { push } = useToast()
   const save = useSaveAlertRule()
+  const testChannel = useTestAlertChannel()
+  const initialChannel = rule?.channels?.[0]
   const [name, setName] = useState(rule?.name ?? '')
   const [metric, setMetric] = useState(rule?.metric ?? '')
   const [type, setType] = useState<'threshold' | 'baseline'>(rule?.type ?? 'threshold')
@@ -168,10 +200,47 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
   const [sensitivity, setSensitivity] = useState(String(rule?.sensitivity ?? '3'))
   const [severity, setSeverity] = useState(rule?.severity ?? 'warning')
   const [forN, setForN] = useState(String(rule?.for_n ?? '1'))
+  const [renotify, setRenotify] = useState(String(rule?.renotify_seconds ?? '0'))
   const [enabled, setEnabled] = useState(rule?.enabled ?? true)
+  const [channelType, setChannelType] = useState<'none' | 'webhook' | 'email'>(
+    initialChannel?.type ?? 'none',
+  )
+  const [channelURL, setChannelURL] = useState(initialChannel?.url ?? '')
+  const [channelSecret, setChannelSecret] = useState(initialChannel?.secret ?? '')
+  const [recipients, setRecipients] = useState(initialChannel?.recipients?.join(', ') ?? '')
+
+  const currentChannel = (): ChannelSpec | null => {
+    if (channelType === 'none') return null
+    if (channelType === 'webhook') {
+      return { type: 'webhook', url: channelURL.trim(), secret: channelSecret.trim() }
+    }
+    return { type: 'email', recipients: recipientsText(recipients) }
+  }
+
+  const canTestChannel = () => {
+    const ch = currentChannel()
+    if (!ch) return false
+    if (ch.type === 'webhook') return !!ch.url
+    return (ch.recipients?.length ?? 0) > 0
+  }
+
+  const testCurrentChannel = () => {
+    const channel = currentChannel()
+    if (!channel) return
+    testChannel.mutate(
+      { ruleName: name || 'probectl test alert', metric: metric || 'probectl_test_delivery', channel },
+      {
+        onSuccess: () =>
+          push({ tone: 'success', title: 'Test delivery sent', message: channel.type }),
+        onError: (err) =>
+          push({ tone: 'danger', title: 'Test delivery failed', message: err.message }),
+      },
+    )
+  }
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
+    const channel = currentChannel()
     const input: AlertRuleInput = {
       name,
       metric,
@@ -179,6 +248,8 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
       type,
       severity,
       for_n: Number(forN) || 1,
+      renotify_seconds: Number(renotify) || 0,
+      channels: channel ? [channel] : [],
       ...(type === 'threshold'
         ? { comparison: comparison, threshold: Number(threshold) }
         : { window: Number(windowN) || 20, sensitivity: Number(sensitivity) || 3 }),
@@ -279,6 +350,67 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />{' '}
           Enabled
         </label>
+        <Field
+          label="Renotify (seconds)"
+          type="number"
+          value={renotify}
+          onChange={(e) => setRenotify(e.target.value)}
+          hint="0 sends once per firing episode"
+        />
+        <div className={styles.formSection}>
+          <Select
+            label="Delivery channel"
+            value={channelType}
+            onChange={(e) => setChannelType(e.target.value as typeof channelType)}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'webhook', label: 'Webhook' },
+              { value: 'email', label: 'Email' },
+            ]}
+          />
+          {channelType === 'webhook' ? (
+            <>
+              <Field
+                label="Webhook URL"
+                value={channelURL}
+                onChange={(e) => setChannelURL(e.target.value)}
+                placeholder="https://hooks.example/alerts"
+              />
+              <Field
+                label="Webhook secret"
+                type="password"
+                value={channelSecret}
+                onChange={(e) => setChannelSecret(e.target.value)}
+                hint={
+                  initialChannel?.secret === '***'
+                    ? 'The stored secret is redacted; leave *** to preserve it, or type a replacement.'
+                    : 'Optional HMAC signing key; never returned by the API.'
+                }
+              />
+            </>
+          ) : null}
+          {channelType === 'email' ? (
+            <Field
+              label="Recipients"
+              value={recipients}
+              onChange={(e) => setRecipients(e.target.value)}
+              placeholder="ops@example.com, noc@example.com"
+            />
+          ) : null}
+          {channelType !== 'none' ? (
+            <div className={styles.actionsRow}>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={testChannel.isPending || !canTestChannel()}
+                onClick={testCurrentChannel}
+              >
+                Test channel
+              </Button>
+              <span className={styles.muted}>Secrets stay write-only; responses return redacted state.</span>
+            </div>
+          ) : null}
+        </div>
         <div className={styles.actionsRow}>
           <Button type="submit" disabled={save.isPending}>
             {rule ? 'Save changes' : 'Create rule'}
@@ -366,6 +498,7 @@ export function AlertsPage() {
       header: 'Severity',
       render: (r) => <Badge tone={severityTone(r.severity)}>{r.severity}</Badge>,
     },
+    { key: 'delivery', header: 'Delivery', render: (r) => channelSummary(r.channels) },
     {
       key: 'enabled',
       header: 'Enabled',
@@ -489,6 +622,8 @@ export function AlertsPage() {
             )}
           </CardBody>
         </Card>
+
+        <OncallRoutingCard />
       </div>
       {detailAlert ? (
         <ActiveAlertDetail alert={detailAlert} onClose={() => setDetail(null)} />
@@ -496,5 +631,137 @@ export function AlertsPage() {
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}
       {editing ? <RuleForm rule={editing} onClose={() => setEditing(null)} /> : null}
     </Page>
+  )
+}
+
+function OncallRoutingCard() {
+  const status = useOncallStatus()
+  const testConnector = useTestOncallConnector()
+  const { push } = useToast()
+
+  const outboundColumns: Column<OncallOutboundConnector>[] = [
+    { key: 'provider', header: 'Provider', render: (c) => providerLabel(c.provider) },
+    {
+      key: 'route',
+      header: 'Tenant routing',
+      render: (c) => (
+        <Badge tone={c.tenant_routed ? 'success' : 'danger'}>
+          {c.tenant_routed ? 'current tenant' : 'not scoped'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'endpoint',
+      header: 'Endpoint',
+      render: (c) => c.endpoint_host || 'configured, redacted',
+    },
+    {
+      key: 'tls',
+      header: 'TLS',
+      render: (c) => (
+        <Badge tone={c.endpoint_tls_configured ? 'success' : 'warning'}>
+          {c.endpoint_tls_configured ? 'https' : 'loopback/dev'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'secret',
+      header: 'Credential',
+      render: (c) => (
+        <Badge tone={c.credential_configured ? 'success' : 'neutral'}>
+          {c.credential_configured ? 'configured' : 'not used'}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'end',
+      render: (c) => (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={testConnector.isPending}
+          onClick={() =>
+            testConnector.mutate(c.id, {
+              onSuccess: (r) =>
+                push({
+                  tone: 'success',
+                  title: 'Connector test sent',
+                  message: `${providerLabel(r.provider)} ${r.status ?? ''}`.trim(),
+                }),
+              onError: (err) =>
+                push({ tone: 'danger', title: 'Connector test failed', message: err.message }),
+            })
+          }
+        >
+          Test
+        </Button>
+      ),
+    },
+  ]
+
+  const inboundColumns: Column<OncallInboundWebhook>[] = [
+    { key: 'id', header: 'ID', render: (c) => c.id },
+    { key: 'provider', header: 'Provider', render: (c) => providerLabel(c.provider) },
+    { key: 'path', header: 'Webhook path', render: (c) => c.path },
+    {
+      key: 'secret',
+      header: 'Credential',
+      render: (c) => (
+        <Badge tone={c.credential_configured ? 'success' : 'danger'}>
+          {c.credential_configured ? 'configured' : 'missing'}
+        </Badge>
+      ),
+    },
+  ]
+
+  return (
+    <Card>
+      <CardHeader title="Notification routing" />
+      <CardBody>
+        {status.isLoading ? (
+          <LoadingState label="Loading notification routing…" />
+        ) : status.isError ? (
+          <ErrorState description="Could not load notification routing." />
+        ) : (
+          <div className={styles.routingStack}>
+            <p className={styles.notice}>
+              <Badge tone={status.data?.configured ? 'success' : 'neutral'}>
+                {status.data?.configured ? 'configured' : 'off'}
+              </Badge>
+              {status.data?.summary}
+            </p>
+            <p className={styles.muted}>
+              Provider choices: {(status.data?.supported_providers ?? []).map(providerLabel).join(', ')}
+            </p>
+            <Table
+              caption="Incident connectors"
+              columns={outboundColumns}
+              rows={status.data?.outbound ?? []}
+              rowKey={(c) => c.id}
+              empty={
+                <EmptyState
+                  title="No incident connectors"
+                  description="Configured connectors for this tenant appear here with redacted endpoints and credentials."
+                />
+              }
+            />
+            <Table
+              caption="Inbound status webhooks"
+              columns={inboundColumns}
+              rows={status.data?.inbound ?? []}
+              rowKey={(c) => c.id}
+              empty={
+                <EmptyState
+                  title="No inbound status webhooks"
+                  description="Inbound resolution sync credentials for this tenant appear here."
+                />
+              }
+            />
+          </div>
+        )}
+      </CardBody>
+    </Card>
   )
 }

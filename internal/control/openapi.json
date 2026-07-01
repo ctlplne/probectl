@@ -670,6 +670,49 @@
         }
       }
     },
+    "/v1/alerts/test-channel": {
+      "post": {
+        "operationId": "testAlertChannel",
+        "summary": "Send a test alert delivery to a supplied channel",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Tenant-scoped operator action that sends a synthetic alert through one supplied webhook/email channel spec. Secrets are accepted only in the request body for this delivery and are never returned.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertChannelTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The test delivery was accepted by the channel.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertChannelTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/alerts/{id}": {
       "parameters": [
         {
@@ -873,6 +916,52 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/v1/oncall/test": {
+      "post": {
+        "operationId": "testOncallConnector",
+        "summary": "Send a test incident through a configured on-call connector",
+        "tags": [
+          "oncall"
+        ],
+        "description": "Tenant-scoped operator action that sends a synthetic incident through an already configured outbound connector id from GET /v1/oncall/status. The browser cannot supply ad-hoc endpoints or secrets.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OncallTestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "The connector accepted the synthetic incident.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OncallTestResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
           }
         }
       }
@@ -6809,6 +6898,42 @@
           }
         }
       },
+      "AlertChannelTestRequest": {
+        "type": "object",
+        "required": [
+          "channel"
+        ],
+        "properties": {
+          "rule_name": {
+            "type": "string"
+          },
+          "metric": {
+            "type": "string"
+          },
+          "channel": {
+            "$ref": "#/components/schemas/ChannelSpec"
+          }
+        }
+      },
+      "AlertChannelTestResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "type"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "webhook",
+              "email"
+            ]
+          }
+        }
+      },
       "AlertRequest": {
         "type": "object",
         "required": [
@@ -7511,15 +7636,25 @@
             "items": {
               "type": "object",
               "required": [
+                "id",
                 "provider",
+                "tenant_routed",
                 "endpoint_configured",
                 "endpoint_tls_configured",
                 "credential_configured",
                 "endpoint_secrets_redacted"
               ],
               "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Opaque connector id for test delivery; unique only within the caller tenant's status response."
+                },
                 "provider": {
                   "type": "string"
+                },
+                "tenant_routed": {
+                  "type": "boolean",
+                  "description": "True when the connector is registered only for the caller tenant."
                 },
                 "endpoint_configured": {
                   "type": "boolean"
@@ -7579,6 +7714,42 @@
                 "jira"
               ]
             }
+          }
+        }
+      },
+      "OncallTestRequest": {
+        "type": "object",
+        "required": [
+          "connector_id"
+        ],
+        "properties": {
+          "connector_id": {
+            "type": "string"
+          }
+        }
+      },
+      "OncallTestResponse": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "connector_id",
+          "provider"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "external_ref": {
+            "type": "string"
           }
         }
       },
