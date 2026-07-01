@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S14, SEC-004).
+# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S15, SEC-004).
 #
 # The audit confirmed a set of HONEST-CLAIM strengths: the default AI is the
 # air-gapped builtin, there is no vendor-telemetry egress in the source, no
@@ -93,6 +93,23 @@ run_checks() { # run_checks <root>
     echo "DOCS-S14: README lost its 'What probectl is not' section" >&2; f=1
   fi
 
+  # DOCS-S15: built-not-yet-served limitations stay canonical. Feature pages may
+  # state local caveats, but the durable denominator lives in docs/limitations.md.
+  local limits="$r/docs/limitations.md"
+  if ! grep -q '## Built, not yet served edges' "$limits" 2>/dev/null \
+     || ! grep -q 'Chaos injector API/control-plane surface' "$limits" 2>/dev/null \
+     || ! grep -q 'eBPF TLS posture ingest' "$limits" 2>/dev/null \
+     || ! grep -q 'Raw eBPF flow retention' "$limits" 2>/dev/null \
+     || ! grep -q 'Browser artifact S3 / MinIO backend' "$limits" 2>/dev/null; then
+    echo "DOCS-S15: docs/limitations.md must keep the canonical built-not-yet-served table" >&2; f=1
+  fi
+  if ! grep -q '../limitations.md#built-not-yet-served-edges' "$r/docs/features/cost-slo-and-chaos.md" 2>/dev/null \
+     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/tls-observability.md" 2>/dev/null \
+     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/deploying-agents.md" 2>/dev/null \
+     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/browser-synthetic.md" 2>/dev/null; then
+    echo "DOCS-S15: built-not-yet-served feature caveats must link to docs/limitations.md" >&2; f=1
+  fi
+
   # SEC-004: SECURITY.md scopes provider-operator break-glass abuse as in-scope.
   if [ -f "$r/SECURITY.md" ] \
      && ! grep -qi 'break-glass-gate bypass' "$r/SECURITY.md"; then
@@ -122,4 +139,4 @@ fi
 
 run_checks "." || fail=1
 if [ "$fail" -ne 0 ]; then exit 1; fi
-echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S14, SEC-004)"
+echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S15, SEC-004)"

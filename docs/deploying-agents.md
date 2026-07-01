@@ -309,7 +309,9 @@ fixture-replay mode exists only for CI / no-kernel boxes.
 shipped artifacts default to **`bus.mode: kafka`**. **Infra it needs: Kafka.**
 Control-plane consumers (topology, segmentation, NDR) read these flows live;
 raw flow-by-flow retention in ClickHouse is not wired yet, so there is no
-queryable per-flow history — only what the consumers derive. The agent
+queryable per-flow history — only what the consumers derive. That retention edge
+is tracked in the canonical
+[limitations table](limitations.md#built-not-yet-served-edges). The agent
 **refuses plaintext Kafka** unless you explicitly opt in for a lab.
 
 **Deploy it (VM / bare metal).**

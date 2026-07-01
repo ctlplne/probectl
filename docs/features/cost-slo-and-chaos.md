@@ -119,9 +119,11 @@ packets) that perturbs *only* traffic explicitly addressed to its own listener.
 It touches no kernel state, no firewall rules, no agent or tenant traffic, and it
 is **not reachable from any application programming interface (API)** — actions
 against the network are human-gated by design in probectl, and this one is not
-even wired in. A chaos run has a fixed shape: healthy baseline → inject → observe
-→ heal → observe. The baseline-first shape is what makes the result evidence — an
-alert already firing before the fault proves nothing.
+even wired in. This is tracked as a built-not-yet-served edge in the canonical
+[limitations table](../limitations.md#built-not-yet-served-edges). A chaos run
+has a fixed shape: healthy baseline → inject → observe → heal → observe. The
+baseline-first shape is what makes the result evidence — an alert already firing
+before the fault proves nothing.
 
 **Carbon: two multiplications, honestly labeled.** The carbon engine reuses the
 *same* flow stream and the *same* zone and owner attribution as the cost engine,

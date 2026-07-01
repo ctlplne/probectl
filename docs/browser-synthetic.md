@@ -123,7 +123,8 @@ stores nothing — fail closed).
 Two implementations ship today: **filesystem** (the default) and **in-memory**
 (tests). The store is a deliberately small `Store` interface
 (`Put`/`Get`/`Stat`/`List`/`DeletePrefix`), so an S3 / MinIO backend can slot
-in behind it — pluggable by design, but **not shipped yet**; don't plan a
+in behind it — pluggable by design, but
+[**not shipped yet**](limitations.md#built-not-yet-served-edges); don't plan a
 deployment around S3 support that isn't there.
 
 Successful runs store nothing by default (to bound storage); set

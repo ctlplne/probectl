@@ -22,7 +22,8 @@ affected, and the injector is **not wired into the control plane** — it
 cannot be reached from any API. Actions against the network are human-gated
 by design in probectl (a project
 [non-negotiable](../CONTRIBUTING.md#non-negotiables)); this one isn't even
-reachable.
+reachable. The API/control-plane absence is tracked in the
+[limitations table](limitations.md#built-not-yet-served-edges).
 
 ## The fault config (the contract)
 
@@ -101,7 +102,9 @@ forces the cardinality limiter to drop a noisy tenant while admitting a quiet
 tenant. The pod-kill leg kills a disposable worker process with one message in
 flight, restarts it, and proves the message is requeued. The dependency-outage
 leg drops and restarts a loopback TCP dependency, then proves recovery. This is
-deliberately not wired to any API and does not mutate a live cluster.
+deliberately not wired to any API and does not mutate a live cluster; the
+served-surface edge stays canonical in
+[limitations.md](limitations.md#built-not-yet-served-edges).
 
 ## Using it against your own stack
 
