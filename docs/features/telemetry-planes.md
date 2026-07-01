@@ -109,6 +109,15 @@ comes from the collector's own binding or authenticated local import context,
 never from anything the datagram or cloud log claims — source payloads cannot
 assert which tenant they belong to.
 
+For AI/GPU fabrics and hybrid/multi-cloud networks, treat flow as the shared
+context layer. probectl can show who is talking to whom, how much traffic crosses
+an on-prem/cloud or cloud/cloud boundary, which eBPF-observed service edge is
+hot, which synthetic/path probe changed, and which device counter moved at the
+same time. It does not yet decode specialist **RoCE**, **InfiniBand**, or
+**lossless Ethernet** fabric-control details; those remain future/deeper
+fabric-specific work. The value today is correlation around those fabrics: flow,
+eBPF, path, and device evidence in one tenant-scoped incident.
+
 **Device telemetry.** One agent reads devices two ways and emits the same metric
 names from both. Over SNMP it *polls* on a schedule, asking each device a list of
 questions; over gNMI it *subscribes* and the device *streams* changes. Table walks

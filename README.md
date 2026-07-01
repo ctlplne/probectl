@@ -122,6 +122,12 @@ probectl is organized around the questions operators actually ask at 2 a.m.:
   blast radius before you touch production.
 - *"Who's saturating this link, and what's it costing?"* — flow analytics plus
   per-tenant FinOps egress attribution.
+- *"Is my AI/GPU fabric or hybrid cloud path the bottleneck?"* — today probectl
+  observes the surrounding IP/Ethernet reality: flow volume, eBPF service edges,
+  synthetic/path probes, and device counters across on-prem, hybrid cloud, and
+  multi-cloud segments. It does **not** yet replace specialist RoCE, InfiniBand,
+  or lossless Ethernet fabric tooling; it gives the shared cross-plane view those
+  tools usually lack.
 
 Or just ask the built-in assistant *"why is checkout slow for tenant X?"* — this
 is sovereign network observability AI by default: it runs the cross-plane
