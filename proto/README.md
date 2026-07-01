@@ -67,3 +67,10 @@ tree exactly, so neither hand-edits nor codegen drift can hide there. If you
 genuinely need an incompatible change, ship a new versioned package instead —
 the process is in
 [CONTRIBUTING.md](../CONTRIBUTING.md#proto-schemas-are-append-only).
+
+`internal/schema/testdata/oldwire/` also carries committed serialized protobuf
+fixtures for the first-party bus/RPC payload families (result, BGP, flow,
+device, eBPF, and agent). `TestOldWireFixturesDecode` unmarshals those old bytes
+with current generated code and asserts default semantics for fields older
+agents never sent, so append-only compatibility is tested against replayable
+wire data rather than only against source diffs.
