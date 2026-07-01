@@ -153,7 +153,9 @@ func TestTelemetryDRProfileIsDocumentedAndDrilled(t *testing.T) {
 		"off-box artifact",
 		"backup-restore-drill-large",
 		"PROBECTL_DRILL_MIN_ARTIFACT_BYTES",
+		"PROBECTL_DRILL_RPO_SECONDS",
 		"PROBECTL_DRILL_RTO_BUDGET_SECONDS",
+		"backup-restore-results.csv",
 		"BACKUP_RESTORE_RESULT",
 	} {
 		if !strings.Contains(backupDoc, want) {
@@ -174,7 +176,7 @@ func TestTelemetryDRProfileIsDocumentedAndDrilled(t *testing.T) {
 			t.Errorf("Helm values must describe the shipped ClickHouse telemetry DR profile detail %q", want)
 		}
 	}
-	for _, want := range []string{"tenant_id", "CH_OTHER_TENANT", "clickhouse regional-loss drill: PASS", "PROBECTL_DRILL_MIN_ARTIFACT_BYTES", "PROBECTL_DRILL_RTO_BUDGET_SECONDS", "BACKUP_RESTORE_RESULT"} {
+	for _, want := range []string{"tenant_id", "CH_OTHER_TENANT", "clickhouse regional-loss drill: PASS", "PROBECTL_DRILL_MIN_ARTIFACT_BYTES", "PROBECTL_DRILL_RPO_SECONDS", "PROBECTL_DRILL_RTO_BUDGET_SECONDS", "rpo_seconds", "BACKUP_RESTORE_RESULT"} {
 		if !strings.Contains(drill, want) {
 			t.Errorf("backup_restore_drill.sh must prove tenant-scoped ClickHouse regional recovery detail %q", want)
 		}

@@ -19,7 +19,10 @@ CH_ROWS="${PROBECTL_DRILL_CH_ROWS:-251}"
 CH_OTHER_ROWS="${PROBECTL_DRILL_CH_OTHER_ROWS:-17}"
 MIN_ARTIFACT_BYTES="${PROBECTL_DRILL_MIN_ARTIFACT_BYTES:-0}"
 RTO_BUDGET_SECONDS="${PROBECTL_DRILL_RTO_BUDGET_SECONDS:-0}"
+RPO_SECONDS="${PROBECTL_DRILL_RPO_SECONDS:-86400}"
 RESULT_FILE="${PROBECTL_DRILL_RESULT_FILE:-}"
+RUN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 CH_TENANT="11111111-1111-1111-1111-111111111111"
 CH_OTHER_TENANT="22222222-2222-2222-2222-222222222222"
 NONCE="drill-$(date -u +%s)-$$"
@@ -36,7 +39,7 @@ file_size() {
   fi
 }
 
-for v in PG_ROWS CH_ROWS CH_OTHER_ROWS MIN_ARTIFACT_BYTES RTO_BUDGET_SECONDS; do
+for v in PG_ROWS CH_ROWS CH_OTHER_ROWS MIN_ARTIFACT_BYTES RTO_BUDGET_SECONDS RPO_SECONDS; do
   eval "value=\${${v}}"
   is_uint "${value}" || { echo "drill: ${v} must be an unsigned integer, got ${value}" >&2; exit 1; }
 done
@@ -141,15 +144,15 @@ if [ "${RTO_BUDGET_SECONDS}" -gt 0 ] && [ "${restore_secs}" -gt "${RTO_BUDGET_SE
   exit 1
 fi
 
-result_row="BACKUP_RESTORE_RESULT profile=${DRILL_PROFILE} pg_rows=${PG_ROWS} ch_rows=${CH_ROWS} ch_other_rows=${CH_OTHER_ROWS} postgres_artifact_bytes=${pbk_bytes} clickhouse_artifact_bytes=${ch_bytes} artifact_bytes=${artifact_bytes} backup_secs=${backup_secs} restore_secs=${restore_secs} rto_budget_seconds=${RTO_BUDGET_SECONDS}"
+result_row="BACKUP_RESTORE_RESULT run_at=${RUN_AT} git_sha=${GIT_SHA} profile=${DRILL_PROFILE} pg_rows=${PG_ROWS} ch_rows=${CH_ROWS} ch_other_rows=${CH_OTHER_ROWS} postgres_artifact_bytes=${pbk_bytes} clickhouse_artifact_bytes=${ch_bytes} artifact_bytes=${artifact_bytes} backup_secs=${backup_secs} restore_secs=${restore_secs} rpo_seconds=${RPO_SECONDS} rto_budget_seconds=${RTO_BUDGET_SECONDS}"
 if [ -n "${RESULT_FILE}" ]; then
   if [ ! -s "${RESULT_FILE}" ]; then
-    echo "profile,pg_rows,ch_rows,ch_other_rows,postgres_artifact_bytes,clickhouse_artifact_bytes,artifact_bytes,backup_secs,restore_secs,rto_budget_seconds" > "${RESULT_FILE}"
+    echo "run_at,git_sha,profile,pg_rows,ch_rows,ch_other_rows,postgres_artifact_bytes,clickhouse_artifact_bytes,artifact_bytes,backup_secs,restore_secs,rpo_seconds,rto_budget_seconds" > "${RESULT_FILE}"
   fi
-  echo "${DRILL_PROFILE},${PG_ROWS},${CH_ROWS},${CH_OTHER_ROWS},${pbk_bytes},${ch_bytes},${artifact_bytes},${backup_secs},${restore_secs},${RTO_BUDGET_SECONDS}" >> "${RESULT_FILE}"
+  echo "${RUN_AT},${GIT_SHA},${DRILL_PROFILE},${PG_ROWS},${CH_ROWS},${CH_OTHER_ROWS},${pbk_bytes},${ch_bytes},${artifact_bytes},${backup_secs},${restore_secs},${RPO_SECONDS},${RTO_BUDGET_SECONDS}" >> "${RESULT_FILE}"
 fi
 
 echo
-echo "clickhouse regional-loss drill: PASS (tenant ${CH_TENANT} rows ${ch_count}/${CH_ROWS}; default shipped telemetry RPO <= 24h with nightly off-region backups)"
+echo "clickhouse regional-loss drill: PASS (tenant ${CH_TENANT} rows ${ch_count}/${CH_ROWS}; default shipped telemetry RPO <= 24h; documented telemetry RPO ${RPO_SECONDS}s with the selected backup cadence)"
 echo "${result_row}"
 echo "backup-restore drill: PASS (backup ${backup_secs}s, restore ${restore_secs}s — record in docs/ops/backup-restore.md)"

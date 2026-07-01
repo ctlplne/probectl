@@ -10,7 +10,8 @@ recent data you can afford to lose), and the recovery drill are in
 [`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md). The restore
 path is exercised, not asserted: CI's `backup-drill` job runs a full
 seed → backup → wipe → restore → verify cycle (`make backup-restore-drill`) on
-every pass.
+every pass and uploads the measured `backup-restore-results` CSV artifact with
+the profile name, artifact bytes, RPO seconds, and restore seconds.
 
 **Backups contain tenant data.** Store them encrypted at rest on an
 access-controlled volume/bucket inside the operator's own infrastructure —

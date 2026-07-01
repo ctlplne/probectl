@@ -716,7 +716,15 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: backup → wipe → restore drill
-        run: make backup-restore-drill
+        env:
+          PROBECTL_DRILL_RESULT_FILE: artifacts/backup-restore-results.csv
+        run: |
+          mkdir -p artifacts
+          make backup-restore-drill
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backup-restore-results
+          path: artifacts/backup-restore-results.csv
 
   failover-drill:
     name: failover-drill
