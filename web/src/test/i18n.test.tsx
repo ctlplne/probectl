@@ -148,6 +148,32 @@ describe('i18n catalog', () => {
     expect(screen.getByRole('option', { name: /Ir a Cortes de Internet/ })).toBeInTheDocument()
   })
 
+  test('Arabic locale renders dense surfaces in RTL from the shipped catalog', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', stubWith(outageFixture()))
+
+    renderApp('/outages', { locale: 'ar-EG' })
+
+    expect(await screen.findByRole('heading', { name: 'انقطاعات الإنترنت' })).toBeInTheDocument()
+    expect(screen.getByText('المراقبة')).toBeInTheDocument()
+    expect(document.documentElement.lang).toBe('ar-eg')
+    expect(document.documentElement.dir).toBe('rtl')
+
+    const events = await screen.findByRole('table', { name: 'أحداث الانقطاع الخارجية' })
+    expect(within(events).getByText('الانقطاع')).toBeInTheDocument()
+    expect(within(events).getByText('حرجة')).toBeInTheDocument()
+    expect(within(events).getByText('مستمر')).toBeInTheDocument()
+    expect(within(events).getByRole('link', { name: 'الدليل' })).toHaveAttribute(
+      'href',
+      'https://ioda.inetintel.cc.gatech.edu/asn/64500',
+    )
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: 'البحث في الأوامر' })
+    expect(input).toHaveAttribute('placeholder', 'ابحث في الأوامر...')
+    expect(screen.getByRole('option', { name: /انتقل إلى انقطاعات الإنترنت/ })).toBeInTheDocument()
+  })
+
   test('Spanish locale renders the outage empty state from the catalog', async () => {
     vi.stubGlobal('fetch', stubWith({ outage_running: false }))
 

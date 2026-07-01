@@ -1,25 +1,32 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 import { directionForLocale, resolveLocale } from '../i18n/core'
 import { I18nProvider } from '../i18n/I18nProvider'
+import { useI18n } from '../i18n/useI18n'
 
 const PHYSICAL_INLINE_DECLARATION =
   /^\s*(?:(?:left|right|inset-left|inset-right|padding-(?:left|right)|margin-(?:left|right)|border-(?:left|right)(?:-(?:width|style|color))?)\s*:|(?:text-align|float)\s*:\s*(?:left|right)\b)/gm
 
 describe('RTL shell contract', () => {
-  test('requested RTL locales set html direction while messages safely fall back', () => {
+  function LocaleProbe() {
+    const { locale, t } = useI18n()
+    return <span data-locale={locale}>{t('nav.outages')}</span>
+  }
+
+  test('requested RTL locales resolve to the shipped Arabic catalog', () => {
     render(
       <I18nProvider initialLocale="ar-EG">
-        <span>probe</span>
+        <LocaleProbe />
       </I18nProvider>,
     )
 
-    expect(resolveLocale('ar-EG')).toBe('en')
+    expect(resolveLocale('ar-EG')).toBe('ar')
     expect(directionForLocale('ar-EG')).toBe('rtl')
     expect(document.documentElement.lang).toBe('ar-eg')
     expect(document.documentElement.dir).toBe('rtl')
+    expect(screen.getByText('انقطاعات الإنترنت')).toHaveAttribute('data-locale', 'ar')
   })
 
   test('the app starts with an explicit LTR direction and mirrors the shell in RTL', () => {
