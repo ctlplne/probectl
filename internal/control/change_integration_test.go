@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -85,8 +86,37 @@ func postWebhook(t *testing.T, h http.Handler, provider, id string, body []byte,
 	return rec
 }
 
-func genericSig(secret string, body []byte) string {
+func hmacSig(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(crypto.Sign([]byte(secret), body))
+}
+
+func genericSig(secret, timestamp string, body []byte) string {
+	payload := make([]byte, 0, len(timestamp)+1+len(body))
+	payload = append(payload, timestamp...)
+	payload = append(payload, '.')
+	payload = append(payload, body...)
+	return "sha256=" + hex.EncodeToString(crypto.Sign([]byte(secret), payload))
+}
+
+func signedGenericHeaders(secret string, body []byte, deliveryID string, now time.Time) map[string]string {
+	ts := strconv.FormatInt(now.Unix(), 10)
+	return map[string]string{
+		change.GenericDeliveryIDHeader: deliveryID,
+		change.GenericTimestampHeader:  ts,
+		change.GenericSignatureHeader:  genericSig(secret, ts, body),
+	}
+}
+
+func countTenantRows(t *testing.T, db *store.DB, tenant, sql string, args ...any) int {
+	t.Helper()
+	var n int
+	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
+	if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		return sc.Q.QueryRow(ctx, sql, args...).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count tenant rows: %v", err)
+	}
+	return n
 }
 
 // A validly-signed delivery is accepted, normalized, and lands on the tenant's
@@ -98,7 +128,7 @@ func TestChangeWebhookIngestAndTimeline(t *testing.T) {
 	h := buildChangeHandler(db, map[string]config.ChangeWebhook{id: {TenantID: tenant, Provider: "generic", Secret: secret}})
 
 	body := []byte(`{"kind":"deploy","title":"deploy payments-api to prod","target":"api.example.com","actor":"ci"}`)
-	rec := postWebhook(t, h, "generic", id, body, map[string]string{change.GenericSignatureHeader: genericSig(secret, body)})
+	rec := postWebhook(t, h, "generic", id, body, signedGenericHeaders(secret, body, "delivery-"+tenant[:8], time.Now().UTC()))
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("ingest: %d %s", rec.Code, rec.Body)
 	}
@@ -120,10 +150,10 @@ func TestChangeWebhookRejectsUnsignedAndForged(t *testing.T) {
 	if rec := postWebhook(t, h, "generic", id, body, nil); rec.Code != http.StatusUnauthorized {
 		t.Errorf("unsigned: code = %d, want 401", rec.Code)
 	}
-	if rec := postWebhook(t, h, "generic", id, body, map[string]string{change.GenericSignatureHeader: genericSig("wrong-secret", body)}); rec.Code != http.StatusUnauthorized {
+	if rec := postWebhook(t, h, "generic", id, body, signedGenericHeaders("wrong-secret", body, "forged-"+tenant[:8], time.Now().UTC())); rec.Code != http.StatusUnauthorized {
 		t.Errorf("forged: code = %d, want 401", rec.Code)
 	}
-	if rec := postWebhook(t, h, "generic", "no-such-id", body, map[string]string{change.GenericSignatureHeader: genericSig(secret, body)}); rec.Code != http.StatusUnauthorized {
+	if rec := postWebhook(t, h, "generic", "no-such-id", body, signedGenericHeaders(secret, body, "unknown-"+tenant[:8], time.Now().UTC())); rec.Code != http.StatusUnauthorized {
 		t.Errorf("unknown id: code = %d, want 401", rec.Code)
 	}
 	if rec := apiReq(t, h, http.MethodGet, "/v1/changes", tenant, nil); rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "sneaky deploy") {
@@ -146,7 +176,7 @@ func TestChangeWebhookTenantIsolation(t *testing.T) {
 	})
 
 	body := []byte(`{"title":"A-only deploy","target":"a.example.com"}`)
-	if rec := postWebhook(t, h, "generic", idA, body, map[string]string{change.GenericSignatureHeader: genericSig(secretA, body)}); rec.Code != http.StatusAccepted {
+	if rec := postWebhook(t, h, "generic", idA, body, signedGenericHeaders(secretA, body, "delivery-"+tenantA[:8], time.Now().UTC())); rec.Code != http.StatusAccepted {
 		t.Fatalf("A ingest: %d %s", rec.Code, rec.Body)
 	}
 	if rec := apiReq(t, h, http.MethodGet, "/v1/changes", tenantA, nil); !strings.Contains(rec.Body.String(), "A-only deploy") {
@@ -156,8 +186,91 @@ func TestChangeWebhookTenantIsolation(t *testing.T) {
 		t.Errorf("B must NOT see A's change: %s", rec.Body)
 	}
 	// B signs with its own secret but targets A's webhook → HMAC fails → rejected.
-	if rec := postWebhook(t, h, "generic", idA, body, map[string]string{change.GenericSignatureHeader: genericSig(secretB, body)}); rec.Code != http.StatusUnauthorized {
+	if rec := postWebhook(t, h, "generic", idA, body, signedGenericHeaders(secretB, body, "cross-"+tenantA[:8], time.Now().UTC())); rec.Code != http.StatusUnauthorized {
 		t.Errorf("cross-tenant injection must be rejected: code = %d", rec.Code)
+	}
+}
+
+// Replaying the exact same signed provider delivery is an idempotent success:
+// the delivery receipt is updated, but no second change event or audit row is
+// appended.
+func TestChangeWebhookDeduplicatesSignedDeliveries(t *testing.T) {
+	db := changeDB(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	cases := []struct {
+		name     string
+		provider string
+		body     []byte
+		headers  func(secret, tenant string, body []byte) map[string]string
+	}{
+		{
+			name:     "generic",
+			provider: "generic",
+			body:     []byte(`{"kind":"deploy","title":"dedupe generic deploy","target":"api.example.com","actor":"ci"}`),
+			headers: func(secret, tenant string, body []byte) map[string]string {
+				return signedGenericHeaders(secret, body, "generic-delivery-"+tenant[:8], now)
+			},
+		},
+		{
+			name:     "github",
+			provider: "github",
+			body: []byte(`{"ref":"refs/heads/main","compare":"https://github.example/acme/shop/compare","pusher":{"name":"alice"},
+				"repository":{"full_name":"acme/shop"},"head_commit":{"id":"deadbeef","message":"fix checkout","url":"https://github.example/acme/shop/commit/deadbeef","timestamp":"` + now.Format(time.RFC3339) + `"},
+				"commits":[{"id":"deadbeef"}]}`),
+			headers: func(secret, tenant string, body []byte) map[string]string {
+				return map[string]string{
+					change.GitHubDeliveryHeader:  "github-delivery-" + tenant[:8],
+					change.GitHubSignatureHeader: hmacSig(secret, body),
+					"X-GitHub-Event":             "push",
+				}
+			},
+		},
+		{
+			name:     "gitlab",
+			provider: "gitlab",
+			body: []byte(`{"ref":"refs/heads/main","user_name":"carol","checkout_sha":"99aa",
+				"project":{"path_with_namespace":"team/svc","web_url":"https://gitlab.example/team/svc"},
+				"commits":[{"message":"bump","url":"https://gitlab.example/team/svc/-/commit/99aa"}]}`),
+			headers: func(secret, tenant string, _ []byte) map[string]string {
+				return map[string]string{
+					change.GitLabEventUUIDHeader: "gitlab-delivery-" + tenant[:8],
+					change.GitLabTokenHeader:     secret,
+					"X-Gitlab-Event":             "Push Hook",
+				}
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tenant := freshTenant(t, db, "chgreplay")
+			id, secret := "wh-"+tc.provider+"-"+tenant[:8], "secret-"+tc.provider+"-"+tenant[:8]
+			h := buildChangeHandler(db, map[string]config.ChangeWebhook{id: {TenantID: tenant, Provider: tc.provider, Secret: secret}})
+			headers := tc.headers(secret, tenant, tc.body)
+
+			first := postWebhook(t, h, tc.provider, id, tc.body, headers)
+			if first.Code != http.StatusAccepted {
+				t.Fatalf("first delivery: %d %s", first.Code, first.Body)
+			}
+			replay := postWebhook(t, h, tc.provider, id, tc.body, headers)
+			if replay.Code != http.StatusAccepted {
+				t.Fatalf("replay delivery: %d %s", replay.Code, replay.Body)
+			}
+			if !strings.Contains(replay.Body.String(), `"duplicate":true`) {
+				t.Fatalf("replay should be reported as duplicate success: %s", replay.Body)
+			}
+
+			if got := countTenantRows(t, db, tenant, `SELECT count(*) FROM change_events WHERE source = $1`, tc.provider); got != 1 {
+				t.Fatalf("change event count = %d, want 1", got)
+			}
+			if got := countTenantRows(t, db, tenant, `SELECT count(*) FROM audit_events WHERE action = 'change.ingest' AND target = $1`, id); got != 1 {
+				t.Fatalf("audit ingest count = %d, want 1", got)
+			}
+			if got := countTenantRows(t, db, tenant, `SELECT COALESCE(sum(duplicate_count), 0)::int FROM webhook_deliveries WHERE credential_id = $1 AND provider = $2`, id, tc.provider); got != 1 {
+				t.Fatalf("delivery duplicate count = %d, want 1", got)
+			}
+		})
 	}
 }
 

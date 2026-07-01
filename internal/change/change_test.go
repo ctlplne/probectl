@@ -5,6 +5,7 @@ package change
 import (
 	"encoding/hex"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 
 func hmacHeader(secret string, body []byte) string {
 	return "sha256=" + hex.EncodeToString(crypto.Sign([]byte(secret), body))
+}
+
+func genericHMACHeader(secret, timestamp string, body []byte) string {
+	return "sha256=" + hex.EncodeToString(crypto.Sign([]byte(secret), genericSignedPayload(timestamp, body)))
 }
 
 var t0 = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -123,38 +128,67 @@ func TestVerify(t *testing.T) {
 
 	// generic HMAC
 	g := genericProvider{}
-	if !g.Verify(secret, body, hdr(GenericSignatureHeader, hmacHeader(secret, body))) {
+	ts := strconv.FormatInt(t0.Unix(), 10)
+	if !g.Verify(secret, body, hdrs(
+		GenericTimestampHeader, ts,
+		GenericSignatureHeader, genericHMACHeader(secret, ts, body),
+	), t0) {
 		t.Error("generic: valid HMAC should verify")
 	}
-	if g.Verify(secret, body, nil) {
+	if g.Verify(secret, body, nil, t0) {
 		t.Error("generic: unsigned must be rejected")
 	}
-	if g.Verify(secret, body, hdr(GenericSignatureHeader, hmacHeader("wrong", body))) {
+	if g.Verify(secret, body, hdrs(
+		GenericTimestampHeader, ts,
+		GenericSignatureHeader, genericHMACHeader("wrong", ts, body),
+	), t0) {
 		t.Error("generic: forged HMAC must be rejected")
 	}
-	if g.Verify(secret, []byte(`{"title":"tampered"}`), hdr(GenericSignatureHeader, hmacHeader(secret, body))) {
+	if g.Verify(secret, []byte(`{"title":"tampered"}`), hdrs(
+		GenericTimestampHeader, ts,
+		GenericSignatureHeader, genericHMACHeader(secret, ts, body),
+	), t0) {
 		t.Error("generic: tampered body must be rejected")
+	}
+	stale := strconv.FormatInt(t0.Add(-10*time.Minute).Unix(), 10)
+	if g.Verify(secret, body, hdrs(
+		GenericTimestampHeader, stale,
+		GenericSignatureHeader, genericHMACHeader(secret, stale, body),
+	), t0) {
+		t.Error("generic: stale signed timestamp must be rejected")
+	}
+	if _, ok := g.DeliveryID(hdr(GenericDeliveryIDHeader, "delivery-1")); !ok {
+		t.Error("generic: delivery id should be extracted")
 	}
 
 	// github HMAC
 	gh := githubProvider{}
-	if !gh.Verify(secret, body, hdr(GitHubSignatureHeader, hmacHeader(secret, body))) {
+	if !gh.Verify(secret, body, hdr(GitHubSignatureHeader, hmacHeader(secret, body)), t0) {
 		t.Error("github: valid signature should verify")
 	}
-	if gh.Verify(secret, body, hdr(GitHubSignatureHeader, "sha256=00")) {
+	if gh.Verify(secret, body, hdr(GitHubSignatureHeader, "sha256=00"), t0) {
 		t.Error("github: forged signature must be rejected")
+	}
+	if _, ok := gh.DeliveryID(hdr(GitHubDeliveryHeader, "gh-delivery-1")); !ok {
+		t.Error("github: delivery id should be extracted")
 	}
 
 	// gitlab shared token (constant-time compare)
 	gl := gitlabProvider{}
-	if !gl.Verify(secret, body, hdr(GitLabTokenHeader, secret)) {
+	if !gl.Verify(secret, body, hdr(GitLabTokenHeader, secret), t0) {
 		t.Error("gitlab: matching token should verify")
 	}
-	if gl.Verify(secret, body, hdr(GitLabTokenHeader, "nope")) {
+	if gl.Verify(secret, body, hdr(GitLabTokenHeader, "nope"), t0) {
 		t.Error("gitlab: wrong token must be rejected")
 	}
-	if gl.Verify(secret, body, nil) {
+	if gl.Verify(secret, body, nil, t0) {
 		t.Error("gitlab: missing token must be rejected")
+	}
+	if _, ok := gl.DeliveryID(hdr(GitLabEventUUIDHeader, "gl-event-uuid")); !ok {
+		t.Error("gitlab: event uuid should be extracted")
+	}
+	if _, ok := gl.DeliveryID(hdr(GitLabWebhookUUIDHeader, "gl-webhook-uuid")); !ok {
+		t.Error("gitlab: webhook uuid should be accepted as a fallback")
 	}
 }
 
@@ -212,5 +246,13 @@ func TestCandidates(t *testing.T) {
 func hdr(k, v string) http.Header {
 	h := http.Header{}
 	h.Set(k, v)
+	return h
+}
+
+func hdrs(kv ...string) http.Header {
+	h := http.Header{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		h.Set(kv[i], kv[i+1])
+	}
 	return h
 }

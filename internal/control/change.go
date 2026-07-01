@@ -55,23 +55,42 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 		}
 		return apierror.BadRequest("cannot read request body")
 	}
-	if !p.Verify(cred.Secret, body, r.Header) {
+	now := time.Now().UTC()
+	if !p.Verify(cred.Secret, body, r.Header, now) {
 		// unsigned / forged / wrong-token → reject before normalization (fail closed).
 		return apierror.Unauthorized("invalid webhook signature")
 	}
+	deliveryID, ok := p.DeliveryID(r.Header)
+	if !ok {
+		return apierror.Unauthorized("missing webhook delivery id")
+	}
 
-	events, err := p.Normalize(body, r.Header, time.Now().UTC())
+	events, err := p.Normalize(body, r.Header, now)
 	if err != nil {
 		return apierror.BadRequest("cannot parse change payload")
 	}
 
 	stored := 0
+	duplicate := false
 	if len(events) > 0 {
 		if s.pool == nil {
 			return apierror.Internal("change ingestion requires a database")
 		}
 		ctx := tenancy.WithTenant(r.Context(), tenancy.ID(cred.TenantID))
 		if err := tenancy.InTenant(ctx, s.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			fresh, e := (store.WebhookDeliveries{}).Record(ctx, sc, store.WebhookDelivery{
+				CredentialID: id,
+				Provider:     cred.Provider,
+				DeliveryID:   deliveryID,
+				EventCount:   len(events),
+			})
+			if e != nil {
+				return e
+			}
+			if !fresh {
+				duplicate = true
+				return nil
+			}
 			for i := range events {
 				events[i].TenantID = cred.TenantID // bind to the verified credential
 				if _, e := (store.ChangeEvents{}).Create(ctx, sc, events[i]); e != nil {
@@ -79,15 +98,15 @@ func (s *Server) handleChangeWebhook(w http.ResponseWriter, r *http.Request) err
 				}
 				stored++
 			}
-			_, e := audit.TenantAppend(ctx, sc, "webhook:"+cred.Provider, "change.ingest", id,
+			_, e = audit.TenantAppend(ctx, sc, "webhook:"+cred.Provider, "change.ingest", id,
 				map[string]any{"events": stored, "provider": cred.Provider})
 			return e
 		}); err != nil {
 			return err
 		}
 	}
-	s.log.Info("change webhook ingested", "provider", cred.Provider, "tenant_id", cred.TenantID, "events", stored)
-	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": stored, "provider": cred.Provider})
+	s.log.Info("change webhook ingested", "provider", cred.Provider, "tenant_id", cred.TenantID, "events", stored, "duplicate", duplicate)
+	writeJSON(w, http.StatusAccepted, map[string]any{"accepted": stored, "provider": cred.Provider, "duplicate": duplicate})
 	return nil
 }
 

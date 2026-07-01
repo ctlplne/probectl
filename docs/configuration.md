@@ -1520,8 +1520,12 @@ table.
 | `PROBECTL_CHANGE_CORRELATION_WINDOW` | `24h` | how far before an incident a change is treated as a candidate cause |
 
 Each inbound delivery is **TLS + signature-verified (HMAC/token, constant-time) +
-tenant-bound to the credential**; an unsigned or forged event is rejected before
-storage, and one tenant cannot inject another's changes. Webhook secrets are
+tenant-bound to the credential + replay-deduplicated by provider delivery ID**;
+an unsigned, stale, forged, or duplicate event is rejected before a second
+mutation, and one tenant cannot inject another's changes. Generic webhooks sign
+`<unix-timestamp>.<body>` and include `X-Probectl-Delivery`,
+`X-Probectl-Timestamp`, and `X-Probectl-Signature`; GitHub/GitLab use their
+provider delivery UUID headers. Webhook secrets are
 runtime config — inject them from a secret manager, never commit them.
 
 ### SIEM export

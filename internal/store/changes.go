@@ -17,6 +17,21 @@ import (
 // change<->incident correlation never cross tenants.
 type ChangeEvents struct{}
 
+// WebhookDelivery is the idempotency receipt for one signed change-webhook
+// delivery. It deliberately stores only routing metadata, never the untrusted
+// webhook payload.
+type WebhookDelivery struct {
+	CredentialID string
+	Provider     string
+	DeliveryID   string
+	EventCount   int
+}
+
+// WebhookDeliveries records signed webhook receipts before downstream mutation.
+// The unique key is tenant + credential + provider + provider delivery ID, which
+// lets a replay return success without appending duplicate change or audit rows.
+type WebhookDeliveries struct{}
+
 const changeCols = `id::text, tenant_id::text, source, kind, title, summary, target, prefix,
 	actor, ref, url, attributes, occurred_at, received_at`
 
@@ -54,6 +69,26 @@ func (ChangeEvents) Create(ctx context.Context, s tenancy.Scope, ev change.Event
 		return nil, mapWriteErr("change_event", err)
 	}
 	return &out, nil
+}
+
+// Record claims a delivery for this tenant. It returns true only for the first
+// sighting; duplicate sightings atomically increment duplicate_count and return
+// false so callers can treat replay as an idempotent no-op.
+func (WebhookDeliveries) Record(ctx context.Context, s tenancy.Scope, d WebhookDelivery) (bool, error) {
+	var fresh bool
+	err := s.Q.QueryRow(ctx,
+		`INSERT INTO webhook_deliveries
+		   (tenant_id, credential_id, provider, delivery_id, event_count, first_seen_at, last_seen_at, duplicate_count)
+		 VALUES ($1,$2,$3,$4,$5,now(),now(),0)
+		 ON CONFLICT (tenant_id, credential_id, provider, delivery_id)
+		   DO UPDATE SET last_seen_at = now(),
+		                 duplicate_count = webhook_deliveries.duplicate_count + 1
+		 RETURNING duplicate_count = 0`,
+		s.Tenant.String(), d.CredentialID, d.Provider, d.DeliveryID, d.EventCount).Scan(&fresh)
+	if err != nil {
+		return false, mapWriteErr("webhook_delivery", err)
+	}
+	return fresh, nil
 }
 
 // List returns the tenant's change timeline, newest first.

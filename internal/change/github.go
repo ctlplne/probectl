@@ -14,6 +14,7 @@ import (
 // GitHub webhook headers.
 const (
 	GitHubSignatureHeader = "X-Hub-Signature-256"
+	GitHubDeliveryHeader  = "X-GitHub-Delivery"
 	githubEventHeader     = "X-GitHub-Event"
 )
 
@@ -23,8 +24,12 @@ type githubProvider struct{}
 
 func (githubProvider) Name() string { return ProviderGitHub }
 
-func (githubProvider) Verify(secret string, body []byte, h http.Header) bool {
+func (githubProvider) Verify(secret string, body []byte, h http.Header, _ time.Time) bool {
 	return verifyHMAC(secret, body, h.Get(GitHubSignatureHeader))
+}
+
+func (githubProvider) DeliveryID(h http.Header) (string, bool) {
+	return deliveryHeader(h, GitHubDeliveryHeader)
 }
 
 func (githubProvider) Normalize(body []byte, h http.Header, now time.Time) ([]Event, error) {

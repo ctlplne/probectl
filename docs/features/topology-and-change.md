@@ -181,16 +181,22 @@ webhook's secret:
 ```sh
 BODY='{"kind":"deploy","title":"deploy payments-api to prod",
  "target":"api.example.com","actor":"ci","ref":"abc123"}'
+TS="$(date +%s)"
+DELIVERY_ID="$(uuidgen)"
 
 curl -X POST https://control.example/ingest/changes/generic/my-webhook-id \
-  -H "X-Probectl-Signature: sha256=$(compute_hmac "$WEBHOOK_SECRET" "$BODY")" \
+  -H "X-Probectl-Delivery: $DELIVERY_ID" \
+  -H "X-Probectl-Timestamp: $TS" \
+  -H "X-Probectl-Signature: sha256=$(compute_hmac "$WEBHOOK_SECRET" "$TS.$BODY")" \
   -d "$BODY"
 ```
 
 What you should observe: a verified delivery returns `202 Accepted` with
 `{"accepted": 1}`. An unsigned or forged delivery returns `401` and stores
-nothing. A verified-but-empty delivery (such as a setup ping) returns success and
-stores zero events.
+nothing. Replaying the exact same delivery ID returns success with
+`"duplicate": true` and does not append another change or audit row. A
+verified-but-empty delivery (such as a setup ping) returns success and stores
+zero events.
 
 **Ask an incident what changed near it:**
 

@@ -90,11 +90,11 @@ the timeline, but it can only correlate to an *untargeted* incident (see below).
 
 ## Providers & signatures
 
-| Provider | `provider` | Signature header | Scheme | Events normalized |
-| -------- | ---------- | ---------------- | ------ | ----------------- |
-| **probectl / CI / IaC** | `generic` | `X-Probectl-Signature: sha256=<hmac>` | HMAC-SHA256 | probectl change schema (a single object, an array, or `{"events":[…]}`) |
-| **GitHub** | `github` | `X-Hub-Signature-256: sha256=<hmac>` | HMAC-SHA256 | `push` → commit; `deployment` / `deployment_status` → deploy |
-| **GitLab** | `gitlab` | `X-Gitlab-Token: <token>` | shared token (constant-time) | `Push Hook` → commit; `Deployment Hook` → deploy |
+| Provider | `provider` | Replay key | Signature header | Scheme | Events normalized |
+| -------- | ---------- | ---------- | ---------------- | ------ | ----------------- |
+| **probectl / CI / IaC** | `generic` | `X-Probectl-Delivery` | `X-Probectl-Signature: sha256=<hmac>` + `X-Probectl-Timestamp` | HMAC-SHA256 over `<timestamp>.<body>`; timestamp must be fresh | probectl change schema (a single object, an array, or `{"events":[…]}`) |
+| **GitHub** | `github` | `X-GitHub-Delivery` | `X-Hub-Signature-256: sha256=<hmac>` | HMAC-SHA256 over the body | `push` → commit; `deployment` / `deployment_status` → deploy |
+| **GitLab** | `gitlab` | `X-Gitlab-Event-UUID` (`X-Gitlab-Webhook-UUID` fallback) | `X-Gitlab-Token: <token>` | shared token (constant-time) | `Push Hook` → commit; `Deployment Hook` → deploy |
 
 The **generic** provider is the path for network-automation / CI / Terraform /
 Atlantis: it accepts probectl's own schema and carries an explicit correlation
@@ -106,7 +106,9 @@ deploy's `environment_url` host becomes the correlation target.
 
 ```text
 POST /ingest/changes/generic/<webhook-id>
-X-Probectl-Signature: sha256=<hmac-sha256(secret, body)>
+X-Probectl-Delivery: <stable-delivery-id>
+X-Probectl-Timestamp: <unix-seconds>
+X-Probectl-Signature: sha256=<hmac-sha256(secret, timestamp + "." + body)>
 
 {"kind":"deploy","title":"deploy payments-api to prod",
  "target":"api.example.com","actor":"ci","ref":"abc123"}
@@ -115,6 +117,12 @@ X-Probectl-Signature: sha256=<hmac-sha256(secret, body)>
 A verified delivery returns `202 Accepted` with the count ingested
 (`{"accepted": <n>}`). A verified-but-empty delivery (e.g. a GitHub ping) is not
 an error — it stores zero events.
+
+probectl records `(tenant, webhook id, provider, delivery id)` before writing the
+change event or audit row. Replaying the exact same signed delivery is therefore
+an idempotent success (`"duplicate": true`) and does not append a second change
+or audit record. Generic timestamps have a short freshness window so a captured
+delivery cannot be replayed later by only reusing the old HMAC.
 
 ## Correlation (avoid drowning in changes)
 
@@ -171,15 +179,17 @@ config (inject from a secret manager) — never commit them.
 
 ## Security properties
 
-- **Untrusted + signature-verified + TLS + tenant-scoped** ingestion; a forged or
-  unsigned event is rejected before normalization.
+- **Untrusted + signature-verified + replay-deduped + TLS + tenant-scoped**
+  ingestion; a forged, stale, unsigned, or duplicate event is stopped before a
+  second mutation.
 - **Tenant binding** to the verified credential — cross-tenant injection is
   structurally impossible.
 - **Signal, not action.** Changes are context fed to the RCA, not alarms, and
   trigger no remediation.
 - **FIPS crypto abstraction.** HMAC + constant-time compare route through
   `internal/crypto`.
-- **Audited.** Each ingest appends a tenant audit event (`change.ingest`).
+- **Audited.** Each first-seen ingest appends a tenant audit event
+  (`change.ingest`); duplicate deliveries only update the receipt ledger.
 
 ## Out of scope (deferred)
 

@@ -14,8 +14,10 @@ import (
 
 // GitLab webhook headers.
 const (
-	GitLabTokenHeader = "X-Gitlab-Token"
-	gitlabEventHeader = "X-Gitlab-Event"
+	GitLabEventUUIDHeader   = "X-Gitlab-Event-UUID"
+	GitLabTokenHeader       = "X-Gitlab-Token"
+	GitLabWebhookUUIDHeader = "X-Gitlab-Webhook-UUID"
+	gitlabEventHeader       = "X-Gitlab-Event"
 )
 
 // gitlabProvider verifies GitLab's shared-token scheme (X-Gitlab-Token, compared
@@ -25,12 +27,16 @@ type gitlabProvider struct{}
 
 func (gitlabProvider) Name() string { return ProviderGitLab }
 
-func (gitlabProvider) Verify(secret string, _ []byte, h http.Header) bool {
+func (gitlabProvider) Verify(secret string, _ []byte, h http.Header, _ time.Time) bool {
 	tok := h.Get(GitLabTokenHeader)
 	if secret == "" || tok == "" {
 		return false
 	}
 	return crypto.ConstantTimeEqual([]byte(tok), []byte(secret))
+}
+
+func (gitlabProvider) DeliveryID(h http.Header) (string, bool) {
+	return deliveryHeader(h, GitLabEventUUIDHeader, GitLabWebhookUUIDHeader)
 }
 
 func (gitlabProvider) Normalize(body []byte, h http.Header, now time.Time) ([]Event, error) {
