@@ -88,7 +88,10 @@ semantics. Current inventory IDs: `audit-evidence`, `ai-artifacts`,
   `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS`; a tenant's tighter
   `flow_retention_days` shortens that derived-cache window too.
 - If they ask about a person, use subject export/erase. Age TTLs are coarse
-  timers; subject lifecycle is the tenant-scoped privacy control.
+  timers; subject lifecycle is the tenant-scoped privacy control. Its manifest
+  lists every privacy-relevant plane with exported/deleted counts, projected
+  audit status, not-deployed status, or `not_subject_addressable` for aggregate
+  and derived surfaces that cannot safely identify one person by substring.
 - If they ask about backups or SIEM, give the probectl attestation/cursor plus
   the operator's SIEM or backup policy. probectl cannot truthfully promise the
   destination deleted its copy.

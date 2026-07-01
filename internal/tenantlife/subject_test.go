@@ -12,8 +12,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/endpoint"
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
+	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
 
 func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
@@ -41,8 +45,46 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	topo := topology.NewMemoryStore()
+	taTopo, err := topo.ForTenant("tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	taTopo.ObservePath(topology.PathInput{
+		AgentID: "agent-a", Target: subject, TargetIP: "203.0.113.44",
+		Hops: []string{"192.0.2.44"},
+	}, now)
+	taTopo.ObserveDevice(topology.DeviceInput{
+		Address:      "198.51.100.44",
+		Name:         subject,
+		InterfaceIPs: []string{"192.0.2.44"},
+	}, now)
+	edges := ebpfstore.NewMemory()
+	if err := edges.Insert(ctx, []ebpfstore.Edge{{
+		TenantID: "tenant-a", AgentID: "node-a", WindowStart: now,
+		SrcWorkload: subject, DstWorkload: "checkout", DstPort: 443,
+		Bytes: 100, Packets: 10, Connections: 1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	endpoints := endpoint.NewSnapshotStore(0)
+	endpoints.Record("tenant-a", "laptop-a", endpoint.ResultView{
+		Type: endpoint.TypeWiFi, Target: subject, Success: true, ObservedAt: now,
+		Attributes: map[string]string{"wifi.ssid": subject},
+	})
+	mem := tsdb.NewMemory()
+	if err := mem.Write(ctx, []tsdb.Series{
+		{Metric: "rum.lcp_ms", Labels: map[string]string{"tenant_id": "tenant-a", "rum.host": subject, "url.path": "/users/" + subject}, Value: 1800},
+		{Metric: "probectl_device_if_oper_status", Labels: map[string]string{"tenant_id": "tenant-a", "device_name": subject, "if_name": subject}, Value: 1},
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	e := New(nil, flows, nil, nil, nil, "backups expire by policy", nil).WithOtel(otel)
+	e := New(nil, flows, nil, mem, nil, "backups expire by policy", nil).
+		WithOtel(otel).
+		WithTopology(topo).
+		WithEBPF(edges).
+		WithEndpointRetention(endpoints)
 	var bundle bytes.Buffer
 	man, err := e.ExportSubject(ctx, "tenant-a", subject, &bundle, false)
 	if err != nil {
@@ -60,6 +102,15 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	if strings.Contains(files["flows.jsonl"], "router-b") || strings.Contains(files["otel_spans.jsonl"], `"tenant_id":"tenant-b"`) {
 		t.Fatalf("subject export leaked another tenant:\nflows=%s\nspans=%s", files["flows.jsonl"], files["otel_spans.jsonl"])
 	}
+	exportPlanes := subjectPlanesByName(man.Planes)
+	if exportPlanes["flows"].Rows != 1 || exportPlanes["otel_spans"].Rows != 1 || exportPlanes["otel_logs"].Rows != 1 {
+		t.Fatalf("export counts missing subject-addressable planes: %+v", exportPlanes)
+	}
+	for _, plane := range []string{"topology", "ebpf", "rum", "device", "endpoint"} {
+		if exportPlanes[plane].Status != SubjectStatusNotAddressable {
+			t.Fatalf("export plane %s status = %+v, want not-addressable", plane, exportPlanes[plane])
+		}
+	}
 
 	report, err := e.EraseSubject(ctx, "tenant-a", subject, "privacy-admin", "dsar")
 	if err != nil {
@@ -67,6 +118,18 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	}
 	if !report.Complete || report.ReportSHA256 == "" {
 		t.Fatalf("subject erasure report incomplete/unhashed: %+v", report)
+	}
+	erasePlanes := subjectPlanesByName(report.Planes)
+	if erasePlanes["flows"].Deleted != 1 || erasePlanes["flows"].Remaining != 0 {
+		t.Fatalf("flow erasure receipt = %+v", erasePlanes["flows"])
+	}
+	if erasePlanes["otel"].Deleted != 2 || erasePlanes["otel"].Remaining != 0 {
+		t.Fatalf("otel erasure receipt = %+v", erasePlanes["otel"])
+	}
+	for _, plane := range []string{"topology", "ebpf", "rum", "device", "endpoint"} {
+		if erasePlanes[plane].Status != SubjectStatusNotAddressable {
+			t.Fatalf("erase plane %s status = %+v, want not-addressable", plane, erasePlanes[plane])
+		}
 	}
 	var afterA bytes.Buffer
 	if _, err := flows.ExportTenant(ctx, "tenant-a", &afterA); err != nil {
@@ -92,6 +155,14 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	if len(spansB) != 1 || len(logsB) != 1 {
 		t.Fatalf("tenant-b otel rows must be untouched: spans=%v logs=%v", spansB, logsB)
 	}
+}
+
+func subjectPlanesByName(planes []SubjectPlaneResult) map[string]SubjectPlaneResult {
+	out := map[string]SubjectPlaneResult{}
+	for _, p := range planes {
+		out[p.Plane] = p
+	}
+	return out
 }
 
 func readTarGz(t *testing.T, raw []byte) map[string]string {

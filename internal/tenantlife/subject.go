@@ -23,12 +23,23 @@ import (
 // SubjectPlaneResult is one plane's subject-lifecycle receipt.
 type SubjectPlaneResult struct {
 	Plane     string `json:"plane"`
+	Status    string `json:"status,omitempty"`
 	Rows      int64  `json:"rows,omitempty"`
 	Deleted   int64  `json:"deleted,omitempty"`
 	Remaining int64  `json:"remaining,omitempty"`
 	Projected bool   `json:"projected,omitempty"`
 	Notes     string `json:"notes,omitempty"`
 }
+
+const (
+	SubjectStatusExported       = "exported"
+	SubjectStatusDeleted        = "deleted"
+	SubjectStatusProjected      = "projected"
+	SubjectStatusFailed         = "failed"
+	SubjectStatusNotDeployed    = "not_deployed"
+	SubjectStatusNotCapable     = "not_capable"
+	SubjectStatusNotAddressable = "not_subject_addressable"
+)
 
 // SubjectManifest describes a subject portability bundle.
 type SubjectManifest struct {
@@ -142,7 +153,7 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 			if err := writeTarFile(tw, "postgres/"+table+".jsonl", out, man.ExportedAt); err != nil {
 				return man, err
 			}
-			man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "postgres:" + table, Rows: count})
+			man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "postgres:" + table, Status: SubjectStatusExported, Rows: count})
 		}
 	}
 
@@ -161,7 +172,9 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 				return man, err
 			}
 		}
-		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "flows", Rows: n})
+		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusExported, Rows: n})
+	} else {
+		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
 	}
 
 	if ox, ok := e.otel.(otelSubjectExporter); ok {
@@ -189,11 +202,14 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 			}
 		}
 		man.Planes = append(man.Planes,
-			SubjectPlaneResult{Plane: "otel_spans", Rows: sn},
-			SubjectPlaneResult{Plane: "otel_logs", Rows: ln})
+			SubjectPlaneResult{Plane: "otel_spans", Status: SubjectStatusExported, Rows: sn},
+			SubjectPlaneResult{Plane: "otel_logs", Status: SubjectStatusExported, Rows: ln})
+	} else if e.otel == nil {
+		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
 	} else {
-		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "otel", Notes: "store not deployed or not subject-export capable"})
+		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotCapable, Notes: "store is deployed but not subject-export capable"})
 	}
+	man.Planes = append(man.Planes, e.subjectNonAddressablePlanes()...)
 
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
@@ -244,7 +260,7 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		Complete:      true,
 	}
 	fail := func(plane, note string) {
-		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: plane, Remaining: -1, Notes: note})
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: plane, Status: SubjectStatusFailed, Remaining: -1, Notes: note})
 		rep.Complete = false
 	}
 
@@ -262,10 +278,10 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		}); err != nil {
 			fail("audit", "subject marker failed: "+err.Error())
 		} else {
-			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "audit", Projected: true, Notes: "append-only privacy.subject_erase marker recorded"})
+			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "audit", Status: SubjectStatusProjected, Projected: true, Notes: "append-only privacy.subject_erase marker recorded"})
 		}
 	} else {
-		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "postgres", Notes: "store not deployed"})
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "postgres", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
 	}
 
 	if fd, ok := e.flows.(flowSubjectDeleter); ok {
@@ -273,13 +289,13 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		if err != nil {
 			fail("flows", err.Error())
 		} else {
-			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "flows", Deleted: deleted, Remaining: remaining})
+			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusDeleted, Deleted: deleted, Remaining: remaining})
 			if remaining != 0 {
 				rep.Complete = false
 			}
 		}
 	} else if e.flows == nil {
-		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "flows", Notes: "store not deployed"})
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
 	} else {
 		fail("flows", "store is deployed but not subject-erase capable")
 	}
@@ -289,16 +305,17 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		if err != nil {
 			fail("otel", err.Error())
 		} else {
-			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "otel", Deleted: int64(deleted), Remaining: int64(remaining)})
+			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusDeleted, Deleted: int64(deleted), Remaining: int64(remaining)})
 			if remaining != 0 {
 				rep.Complete = false
 			}
 		}
 	} else if e.otel == nil {
-		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "otel", Notes: "store not deployed"})
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
 	} else {
 		fail("otel", "store is deployed but not subject-erase capable")
 	}
+	rep.Planes = append(rep.Planes, e.subjectNonAddressablePlanes()...)
 
 	rep.FinishedAt = e.now().UTC()
 	rep.ReportSHA256 = rep.hash()
@@ -311,6 +328,28 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		}
 	}
 	return rep, nil
+}
+
+func (e *Engine) subjectNonAddressablePlanes() []SubjectPlaneResult {
+	return []SubjectPlaneResult{
+		e.subjectDerivedPlane("topology", e.topo != nil,
+			"derived graph labels are not a subject-indexed store; source telemetry and tenant erasure own deletion"),
+		e.subjectDerivedPlane("ebpf", e.ebpf != nil,
+			"eBPF service-edge aggregates are workload aggregates, not subject-indexed personal records"),
+		{Plane: "rum", Status: SubjectStatusNotAddressable,
+			Notes: "RUM host/path samples are privacy-redacted result signals and are not subject-indexed by lifecycle"},
+		{Plane: "device", Status: SubjectStatusNotAddressable,
+			Notes: "device sysName/interface labels are operational inventory labels and are not subject-indexed by lifecycle"},
+		e.subjectDerivedPlane("endpoint", e.endpointRetention != nil,
+			"endpoint latest-view labels are derived DEM cache entries and are not subject-indexed by lifecycle"),
+	}
+}
+
+func (e *Engine) subjectDerivedPlane(plane string, deployed bool, notes string) SubjectPlaneResult {
+	if !deployed {
+		return SubjectPlaneResult{Plane: plane, Status: SubjectStatusNotDeployed, Notes: "store not deployed"}
+	}
+	return SubjectPlaneResult{Plane: plane, Status: SubjectStatusNotAddressable, Notes: notes}
 }
 
 func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject string) ([]SubjectPlaneResult, error) {
@@ -326,7 +365,7 @@ DELETE FROM users
 			if err != nil {
 				return err
 			}
-			out = append(out, SubjectPlaneResult{Plane: "identity", Deleted: tag.RowsAffected()})
+			out = append(out, SubjectPlaneResult{Plane: "identity", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
 		}
 		if tableExists(ctx, sc, "ai_answers") {
 			tag, err := sc.Q.Exec(ctx, `
@@ -335,7 +374,7 @@ DELETE FROM ai_answers
 			if err != nil {
 				return err
 			}
-			out = append(out, SubjectPlaneResult{Plane: "ai_answers", Deleted: tag.RowsAffected()})
+			out = append(out, SubjectPlaneResult{Plane: "ai_answers", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
 		}
 		return nil
 	})

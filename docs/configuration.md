@@ -1837,7 +1837,11 @@ to erase that subject. Both routes require the lifecycle permissions
 (`lifecycle.export` and `lifecycle.erase`) and intentionally use POST bodies so
 the subject never appears in URLs, proxy logs, or browser history. The receipt
 stores only a tenant-scoped subject hash, deleted/remaining counts per plane,
-and the report hash.
+and the report hash. The subject manifest is complete across privacy-relevant
+surfaces: flow and OTLP planes report exported/deleted row counts; immutable
+audit reports `projected`; aggregate or derived surfaces such as topology,
+eBPF, RUM, device labels, and endpoint latest views report
+`not_subject_addressable` instead of disappearing from the receipt.
 
 Audit subject erasure is layered on the append-only audit chain. A
 `privacy.subject_erase` marker stores only a tenant-scoped subject hash; later

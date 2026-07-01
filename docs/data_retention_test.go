@@ -37,6 +37,7 @@ func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {
 		"derived identity-cache pruning",
 		"audit.retention_prune",
 		"lifecycle.retention_sweep",
+		"not_subject_addressable",
 		"subject-erasure markers",
 		"PROBECTL_AI_ANSWER_RETENTION",
 		"PROBECTL_BACKUP_RETENTION_DAYS",
