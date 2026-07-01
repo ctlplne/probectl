@@ -96,6 +96,13 @@ func (Agents) Get(ctx context.Context, s tenancy.Scope, id string) (*Agent, erro
 	return &a, nil
 }
 
+// Exists reports whether the tenant has at least one registered agent.
+func (Agents) Exists(ctx context.Context, s tenancy.Scope) (bool, error) {
+	var ok bool
+	err := s.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agents)`).Scan(&ok)
+	return ok, err
+}
+
 // Rename updates an agent's display name (the agent's id and tenant remain
 // certificate-derived; only the human label is editable via the API).
 func (Agents) Rename(ctx context.Context, s tenancy.Scope, id, name string) (*Agent, error) {

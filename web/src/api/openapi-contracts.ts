@@ -44,6 +44,13 @@ export const API_CALL_CONTRACTS = [
     generated: 'RegisterCollectorResponse',
   },
   {
+    file: 'api/agents.ts',
+    method: 'GET',
+    path: '/onboarding/progress',
+    response: 'OnboardingProgress',
+    generated: 'GetOnboardingProgressResponse',
+  },
+  {
     file: 'api/ai.ts',
     method: 'POST',
     path: '/ai/ask',
@@ -569,6 +576,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   agent: true,
   collectorRegisterRequest: true,
   collectorRegistration: true,
+  onboardingProgress: true,
   aiAnswer: true,
   alertRule: true,
   alertRequest: true,
@@ -604,6 +612,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
     SDK.CollectorRegistration,
     Agents.CollectorRegistration
   >
+  onboardingProgress: GeneratedHasViewKeys<SDK.OnboardingProgress, Agents.OnboardingProgress>
   aiAnswer: GeneratedHasViewKeys<SDK.AIAnswer, AI.Answer>
   alertRule: GeneratedHasViewKeys<SDK.AlertRule, Alerts.AlertRule>
   alertRequest: GeneratedHasViewKeys<SDK.AlertRequest, Alerts.AlertRuleInput>

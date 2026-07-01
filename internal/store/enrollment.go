@@ -34,6 +34,15 @@ type EnrollTokens struct{ pool *pgxpool.Pool }
 // NewEnrollTokens binds the repository to the pool (pre-tenant paths).
 func NewEnrollTokens(pool *pgxpool.Pool) EnrollTokens { return EnrollTokens{pool: pool} }
 
+// CreatedScoped reports whether this tenant has ever minted an agent enrollment
+// token. It intentionally returns only a boolean: the one-time token secret is
+// show-once, but first-run progress can still resume after a browser reload.
+func (e EnrollTokens) CreatedScoped(ctx context.Context, s tenancy.Scope) (bool, error) {
+	var ok bool
+	err := s.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agent_enroll_tokens)`).Scan(&ok)
+	return ok, err
+}
+
 // Create mints a token row. agentID "" lets the server assign one at
 // enrollment; non-empty pins the enrolling agent's identity.
 func (e EnrollTokens) Create(ctx context.Context, tenantID, agentID, name, createdBy string, tokenHash []byte, ttl time.Duration) (string, error) {

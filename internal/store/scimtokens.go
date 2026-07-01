@@ -99,6 +99,14 @@ func (s ScimTokens) ListScoped(ctx context.Context, sc tenancy.Scope) ([]ScimTok
 	return out, rows.Err()
 }
 
+// CreatedScoped reports whether the tenant has ever created a SCIM token. This
+// is a checklist/progress bit, not a secret-bearing token read.
+func (s ScimTokens) CreatedScoped(ctx context.Context, sc tenancy.Scope) (bool, error) {
+	var ok bool
+	err := sc.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM scim_tokens)`).Scan(&ok)
+	return ok, err
+}
+
 // Revoke marks a tenant's SCIM token revoked.
 func (s ScimTokens) Revoke(ctx context.Context, tenantID, id string) error {
 	return tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), s.pool, func(ctx context.Context, sc tenancy.Scope) error {

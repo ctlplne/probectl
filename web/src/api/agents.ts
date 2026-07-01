@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useMutation } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
 export interface Agent {
@@ -51,6 +51,13 @@ export interface CollectorRegistration {
   }
 }
 
+export interface OnboardingProgress {
+  agent_enroll_token_created: boolean
+  agent_registered: boolean
+  first_test_created: boolean
+  scim_token_created: boolean
+}
+
 // UX-004: the agent fleet can be large, so the list MUST ride the backend's
 // cursor pagination (handleListAgents: ?after=<id>&limit=<n>, next_cursor when a
 // full page is returned). Previously useAgents() fetched bare `/agents` and
@@ -92,6 +99,13 @@ export function useRegisterCollector() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(input),
       }),
+  })
+}
+
+export function useOnboardingProgress() {
+  return useQuery({
+    queryKey: ['onboarding', 'progress'],
+    queryFn: () => apiFetch<OnboardingProgress>('/onboarding/progress'),
   })
 }
 

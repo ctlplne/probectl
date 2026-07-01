@@ -97,6 +97,13 @@ func (Tests) Get(ctx context.Context, s tenancy.Scope, id string) (*Test, error)
 	return &t, nil
 }
 
+// Exists reports whether the tenant has at least one synthetic test.
+func (Tests) Exists(ctx context.Context, s tenancy.Scope) (bool, error) {
+	var ok bool
+	err := s.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM tests)`).Scan(&ok)
+	return ok, err
+}
+
 // DefaultTestPageSize bounds an unspecified tests page (SCALE-002). Mirrors
 // Agents.DefaultAgentPageSize — the tests table had no LIMIT while agents did.
 const DefaultTestPageSize = 200

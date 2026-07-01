@@ -180,6 +180,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/tests/{id}/path":                     auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/tests/{id}/path":                    auditWrapped(auditFacetOperational),
 	"GET /v1/agents":                              auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/onboarding/progress":                 auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/agents/enroll-tokens":               auditExplicit(auditFacetOperational, "agent.enroll_token_minted"),
 	"POST /v1/collectors/register":                auditExplicit(auditFacetOperational, "collector.registered"),
 	"POST /v1/agents/{id}/revoke":                 auditExplicit(auditFacetOperational, "agent.revoked"),

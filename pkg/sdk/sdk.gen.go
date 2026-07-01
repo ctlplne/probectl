@@ -661,6 +661,13 @@ type Me struct {
 	UserId         string   `json:"user_id"`
 }
 
+type OnboardingProgress struct {
+	AgentEnrollTokenCreated bool `json:"agent_enroll_token_created"`
+	AgentRegistered         bool `json:"agent_registered"`
+	FirstTestCreated        bool `json:"first_test_created"`
+	ScimTokenCreated        bool `json:"scim_token_created"`
+}
+
 // Read-only, tenant-scoped on-call/ITSM posture. Secrets and endpoint path/query values are intentionally omitted.
 type OncallStatus struct {
 	Configured             bool             `json:"configured"`
@@ -2308,6 +2315,20 @@ func (c *Client) GetMe(ctx context.Context, req GetMeRequest) (*Me, error) {
 	path := "/v1/me"
 	query := url.Values{}
 	var out Me
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Read first-run onboarding checklist progress
+type GetOnboardingProgressRequest struct {
+}
+
+func (c *Client) GetOnboardingProgress(ctx context.Context, req GetOnboardingProgressRequest) (*OnboardingProgress, error) {
+	path := "/v1/onboarding/progress"
+	query := url.Values{}
+	var out OnboardingProgress
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}

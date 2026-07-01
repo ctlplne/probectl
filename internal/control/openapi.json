@@ -467,6 +467,39 @@
         }
       }
     },
+    "/v1/onboarding/progress": {
+      "get": {
+        "operationId": "getOnboardingProgress",
+        "summary": "Read first-run onboarding checklist progress",
+        "description": "Returns tenant-scoped setup milestones derived from persisted rows. One-time enrollment and SCIM token secrets are never returned.",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The tenant's first-run checklist progress.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OnboardingProgress"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/agents/{id}": {
       "parameters": [
         {
@@ -6920,6 +6953,34 @@
         },
         "required": [
           "items"
+        ]
+      },
+      "OnboardingProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agent_enroll_token_created": {
+            "type": "boolean",
+            "description": "True once this tenant has minted at least one agent enrollment token. The token value remains show-once only."
+          },
+          "agent_registered": {
+            "type": "boolean",
+            "description": "True once at least one agent row exists for this tenant."
+          },
+          "first_test_created": {
+            "type": "boolean",
+            "description": "True once at least one synthetic test exists for this tenant."
+          },
+          "scim_token_created": {
+            "type": "boolean",
+            "description": "True once at least one SCIM provisioning token row exists for this tenant."
+          }
+        },
+        "required": [
+          "agent_enroll_token_created",
+          "agent_registered",
+          "first_test_created",
+          "scim_token_created"
         ]
       },
       "MPLSLabel": {

@@ -16,6 +16,7 @@ import {
   flattenAgents,
   useAgents,
   useMintAgentEnrollToken,
+  useOnboardingProgress,
   type AgentEnrollToken,
 } from '../api/agents'
 import { useCreateScimToken, type CreatedScimToken, useScimTokens } from '../api/identity'
@@ -54,6 +55,7 @@ export function OnboardingPage() {
   const agentsQuery = useAgents()
   const testsQuery = useTests()
   const scimQuery = useScimTokens()
+  const onboardingProgress = useOnboardingProgress()
   const mintAgent = useMintAgentEnrollToken()
   const createTest = useCreateTest()
   const createInvite = useCreateScimToken()
@@ -75,53 +77,80 @@ export function OnboardingPage() {
   const agents = flattenAgents(agentsQuery.data?.pages)
   const tests = testsQuery.data ?? []
   const scimTokens = scimQuery.data ?? []
+  const persistedProgress = onboardingProgress.data
   const command = agentToken
     ? agentEnrollCommand(agentToken, controlURL.trim() || defaultControlPlaneURL())
     : ''
 
   const progress = useMemo(
-    () => [
-      {
-        label: 'Session',
-        done: true,
-        detail: `${user.email} in tenant ${tenant.slug || tenant.id}`,
-      },
-      {
-        label: 'Agent',
-        done: agents.length > 0 || agentToken !== null,
-        detail:
-          agents.length > 0
-            ? `${agents.length} agent${agents.length === 1 ? '' : 's'} visible`
-            : agentToken
-              ? 'enrollment token minted'
-              : 'waiting for an enrollment token',
-      },
-      {
-        label: 'First test',
-        done: tests.length > 0 || createdTest !== null,
-        detail:
-          tests.length > 0
-            ? `${tests.length} test${tests.length === 1 ? '' : 's'} configured`
-            : createdTest
-              ? `${createdTest.name} created`
-              : 'waiting for a synthetic target',
-      },
-      {
-        label: 'Teammates',
-        done: scimTokens.length > 0 || inviteToken !== null,
-        detail:
-          scimTokens.length > 0
-            ? `${scimTokens.length} SCIM token${scimTokens.length === 1 ? '' : 's'} active`
-            : inviteToken
-              ? `${inviteToken.name} token created`
-              : 'waiting for an invite/provisioning token',
-      },
-    ],
+    () => {
+      const agentDone =
+        agents.length > 0 ||
+        agentToken !== null ||
+        Boolean(
+          persistedProgress?.agent_registered || persistedProgress?.agent_enroll_token_created,
+        )
+      const testDone =
+        tests.length > 0 || createdTest !== null || Boolean(persistedProgress?.first_test_created)
+      const teammatesDone =
+        scimTokens.length > 0 ||
+        inviteToken !== null ||
+        Boolean(persistedProgress?.scim_token_created)
+      return [
+        {
+          label: 'Session',
+          done: true,
+          detail: `${user.email} in tenant ${tenant.slug || tenant.id}`,
+        },
+        {
+          label: 'Agent',
+          done: agentDone,
+          detail:
+            agents.length > 0
+              ? `${agents.length} agent${agents.length === 1 ? '' : 's'} visible`
+              : agentToken
+                ? 'enrollment token minted'
+                : persistedProgress?.agent_registered
+                  ? 'agent already registered'
+                  : persistedProgress?.agent_enroll_token_created
+                    ? 'enrollment token already minted'
+                    : 'waiting for an enrollment token',
+        },
+        {
+          label: 'First test',
+          done: testDone,
+          detail:
+            tests.length > 0
+              ? `${tests.length} test${tests.length === 1 ? '' : 's'} configured`
+              : createdTest
+                ? `${createdTest.name} created`
+                : persistedProgress?.first_test_created
+                  ? 'first test already configured'
+                  : 'waiting for a synthetic target',
+        },
+        {
+          label: 'Teammates',
+          done: teammatesDone,
+          detail:
+            scimTokens.length > 0
+              ? `${scimTokens.length} SCIM token${scimTokens.length === 1 ? '' : 's'} active`
+              : inviteToken
+                ? `${inviteToken.name} token created`
+                : persistedProgress?.scim_token_created
+                  ? 'SCIM token already created'
+                  : 'waiting for an invite/provisioning token',
+        },
+      ]
+    },
     [
       agentToken,
       agents.length,
       createdTest,
       inviteToken,
+      persistedProgress?.agent_enroll_token_created,
+      persistedProgress?.agent_registered,
+      persistedProgress?.first_test_created,
+      persistedProgress?.scim_token_created,
       scimTokens.length,
       tenant.id,
       tenant.slug,

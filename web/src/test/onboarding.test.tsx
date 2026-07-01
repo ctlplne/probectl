@@ -10,17 +10,25 @@ function onboardingFetch(capture: {
   invite?: Record<string, unknown>
 }) {
   const base = defaultFetch()
+  const progress = {
+    agent_enroll_token_created: false,
+    agent_registered: false,
+    first_test_created: false,
+    scim_token_created: false,
+  }
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
     const path = pathOf(input)
     const method = init?.method ?? 'GET'
     if (path === '/v1/agents') return jsonResponse({ items: [] })
+    if (path === '/v1/onboarding/progress') return jsonResponse(progress)
     if (path === '/v1/tests' && method === 'GET') return jsonResponse({ items: [] })
     if (path === '/v1/directory/scim-tokens' && method === 'GET') {
       return jsonResponse({ items: [] })
     }
     if (path === '/v1/agents/enroll-tokens' && method === 'POST') {
       capture.enroll = JSON.parse(String(init!.body)) as Record<string, unknown>
+      progress.agent_enroll_token_created = true
       return jsonResponse(
         {
           token: 'pjt_onboarding_agent',
@@ -35,6 +43,7 @@ function onboardingFetch(capture: {
     if (path === '/v1/tests' && method === 'POST') {
       const body = JSON.parse(String(init!.body)) as Record<string, unknown>
       capture.test = body
+      progress.first_test_created = true
       return jsonResponse(
         {
           ...body,
@@ -48,6 +57,7 @@ function onboardingFetch(capture: {
     }
     if (path === '/v1/directory/scim-tokens' && method === 'POST') {
       capture.invite = JSON.parse(String(init!.body)) as Record<string, unknown>
+      progress.scim_token_created = true
       return jsonResponse(
         {
           id: 'scim_onboarding',
@@ -125,5 +135,33 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     expect(capture.enroll).not.toHaveProperty('tenant_id')
     expect(capture.test).not.toHaveProperty('tenant_id')
     expect(capture.invite).not.toHaveProperty('tenant_id')
+  })
+
+  test('resumes token-created progress after a reload without browser storage', async () => {
+    const user = userEvent.setup()
+    const capture: {
+      enroll?: Record<string, unknown>
+      test?: Record<string, unknown>
+      invite?: Record<string, unknown>
+    } = {}
+    const fetchStub = onboardingFetch(capture)
+    vi.stubGlobal('fetch', fetchStub)
+
+    const firstRender = renderApp('/')
+    expect(await screen.findByRole('heading', { name: /first-run setup/i })).toBeInTheDocument()
+
+    const agent = cardByHeading(/enroll an agent/i)
+    await user.click(within(agent).getByRole('button', { name: /mint enrollment token/i }))
+
+    expect(await screen.findByDisplayValue('pjt_onboarding_agent')).toBeInTheDocument()
+    expect(screen.getByText(/enrollment token minted/i)).toBeInTheDocument()
+
+    firstRender.unmount()
+    vi.stubGlobal('fetch', fetchStub)
+    renderApp('/')
+
+    expect(await screen.findByText(/enrollment token already minted/i)).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('pjt_onboarding_agent')).not.toBeInTheDocument()
+    expect(capture.enroll).toMatchObject({ name: 'edge-canary-1', ttl_seconds: 3600 })
   })
 })

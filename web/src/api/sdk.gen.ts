@@ -582,6 +582,13 @@ export interface Me {
   user_id: string
 }
 
+export interface OnboardingProgress {
+  agent_enroll_token_created: boolean
+  agent_registered: boolean
+  first_test_created: boolean
+  scim_token_created: boolean
+}
+
 export interface OncallStatus {
   configured: boolean
   dispatcher_running: boolean
@@ -1285,6 +1292,11 @@ export interface GetMeRequest {
 }
 
 export type GetMeResponse = Me
+
+export interface GetOnboardingProgressRequest {
+}
+
+export type GetOnboardingProgressResponse = OnboardingProgress
 
 export interface GetOncallStatusRequest {
 }
@@ -2169,6 +2181,12 @@ export class ProbectlSDKClient {
     let path = "/v1/me"
     const query = new URLSearchParams()
     return this.requestJSON<GetMeResponse>("GET", path, query, undefined)
+  }
+
+  async getOnboardingProgress(): Promise<GetOnboardingProgressResponse> {
+    let path = "/v1/onboarding/progress"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetOnboardingProgressResponse>("GET", path, query, undefined)
   }
 
   async getOncallStatus(): Promise<GetOncallStatusResponse> {
