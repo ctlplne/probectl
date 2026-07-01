@@ -37,6 +37,7 @@ The buyer-facing pricing boundary follows that table: the full five-plane core
 platform is free, and commercial gating is tenant-band/provider/governance
 oriented. Provider/MSP metering can export usage counters for chargeback, but
 the core product is not a per-host, per-flow, or per-GB toll on telemetry.
+The public buyer-facing plan summary lives in [`pricing.md`](pricing.md).
 
 | Tier | Gated features |
 |---|---|

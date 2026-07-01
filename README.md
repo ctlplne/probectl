@@ -251,7 +251,8 @@ plane, siloed/hybrid physical isolation and residency controls,
 metering/billing, and white-label. Hard tenant isolation is a core-platform
 property; Provider/MSP adds stronger placement and operations controls on top.
 Unlicensed commercial features are simply hidden (no lockware). See
-**[`docs/editions.md`](docs/editions.md)**.
+**[`docs/editions.md`](docs/editions.md)** and
+**[`docs/pricing.md`](docs/pricing.md)**.
 
 ## Quickstart (run it)
 
@@ -390,7 +391,7 @@ Going deeper:
 | Day-2 admin (audit, roles, SSO) | [`docs/admin.md`](docs/admin.md) |
 | Architecture deep-dives | [`docs/architecture.md`](docs/architecture.md) |
 | Every config key | [`docs/configuration.md`](docs/configuration.md) |
-| Editions & licensing model | [`docs/editions.md`](docs/editions.md) |
+| Editions, pricing & licensing model | [`docs/editions.md`](docs/editions.md) · [`docs/pricing.md`](docs/pricing.md) |
 | Tenant isolation (pooled/siloed/hybrid) | [`docs/isolation.md`](docs/isolation.md) |
 | Provider / MSP plane | [`docs/provider-plane.md`](docs/provider-plane.md) |
 | Using the AI (ask → local model → MCP, in 10 min) | [`docs/ai-quickstart.md`](docs/ai-quickstart.md) |
