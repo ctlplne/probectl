@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
 import type { SecretsHealthResponse } from '../api/secrets'
 
 /** S41 surface: the Admin page's "Secret backends" card — per-backend
@@ -27,11 +27,10 @@ function healthFixture(): SecretsHealthResponse {
 }
 
 function stubWith(health: SecretsHealthResponse | { resolver_running: false; backends: [] }) {
-  return vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
-    if (url.endsWith('/v1/secrets/health')) return jsonResponse(health)
-    if (url.endsWith('/v1/agents')) return jsonResponse({ items: [] })
-    return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
+  const fallback = defaultFetch()
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (pathOf(input) === '/v1/secrets/health') return Promise.resolve(jsonResponse(health))
+    return fallback(input, init)
   }) as unknown as typeof fetch
 }
 

@@ -26,6 +26,7 @@ import {
   formatScaledBitRate,
   formatScaledBytes,
 } from '../i18n/number'
+import { BgpAsPathView, FlowSankeyView } from '../viz/PlaneRelationships'
 
 type PlaneID = 'bgp' | 'flow' | 'device' | 'ebpf'
 
@@ -284,6 +285,16 @@ function BGPPanel({
             <LoadingState label="Loading BGP plane..." />
           ) : isError ? (
             <ErrorState description="Could not load topology routing evidence." />
+          ) : rows.length > 0 ? (
+            <div className={styles.visualStack}>
+              <BgpAsPathView nodes={nodes} routingEdges={routingEdges} />
+              <Table
+                caption="BGP routing edges"
+                columns={columns}
+                rows={rows}
+                rowKey={(r) => r.id}
+              />
+            </div>
           ) : (
             <Table
               caption="BGP routing edges"
@@ -326,6 +337,7 @@ function FlowPanel({
   latestCapacity?: { bps: number; pps: number; exporter: string; iface: number; ts: string }
 }) {
   const { locale } = useI18n()
+  const topRows = topTalkers.data?.items ?? []
   const topColumns: Column<NonNullable<typeof topTalkers.data>['items'][number]>[] = [
     {
       key: 'key',
@@ -391,11 +403,21 @@ function FlowPanel({
               <LoadingState label="Loading flow analytics..." />
             ) : topTalkers.isError ? (
               <ErrorState description="Could not load flow top talkers." />
+            ) : topRows.length > 0 ? (
+              <div className={styles.visualStack}>
+                <FlowSankeyView rows={topRows} />
+                <Table
+                  caption="Flow top talkers"
+                  columns={topColumns}
+                  rows={topRows}
+                  rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
+                />
+              </div>
             ) : (
               <Table
                 caption="Flow top talkers"
                 columns={topColumns}
-                rows={topTalkers.data?.items ?? []}
+                rows={topRows}
                 rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
                 empty={
                   <EmptyState
