@@ -155,6 +155,9 @@ to ClickHouse via `PROBECTL_FLOWSTORE_URL`, then confirms every tenant through
 and active-part growth so MergeTree compaction pressure is visible. Each run
 namespaces its own tenants, and the gates fail on any SLO violation,
 incomplete ingest, scoping error, or unbounded ClickHouse part growth.
+The same ClickHouse insert/query ceilings are mirrored in the hot-path catalog
+as `hp-flow-clickhouse-insert` and `hp-flow-clickhouse-query`, so the operator
+sees the storage-path target beside the served `/v1/flows/*` response target.
 
 - **CI (every pass):** the `load-smoke` job — S tier at 5% scale against the dev
   compose stack (`make load-test-smoke`, real Kafka + Prometheus + ClickHouse).

@@ -12,6 +12,7 @@ const (
 	SurfaceOTLPHTTP   HotPathSurfaceKind = "otlp-http"
 	SurfaceMCPJSONRPC HotPathSurfaceKind = "mcp-json-rpc"
 	SurfaceAgent      HotPathSurfaceKind = "agent-transport"
+	SurfaceFlowStore  HotPathSurfaceKind = "flow-store"
 )
 
 // MeasurementKind names how a row is measured. Trace-derived rows use
@@ -181,6 +182,8 @@ func HotPathCatalog() []HotPathSLO {
 			},
 			Notes: "Applies to tenant-scoped flow summaries used by the flows workspace and RCA evidence.",
 		},
+		flowClickHouseInsertHotPath(),
+		flowClickHouseQueryHotPath(),
 		{
 			ID:    "hp-topology-read",
 			Name:  "Topology graph read",
@@ -271,6 +274,60 @@ func HotPathCatalog() []HotPathSLO {
 			},
 			Notes: "Covers Grafana datasource and federated scrape reads; long range-query fanout belongs to full-stack/reference runs.",
 		},
+	}
+}
+
+func flowClickHouseInsertHotPath() HotPathSLO {
+	return HotPathSLO{
+		ID:    "hp-flow-clickhouse-insert",
+		Name:  "ClickHouse flow insert",
+		Owner: "perf",
+		Surfaces: []HotPathSurface{
+			{Kind: SurfaceFlowStore, Method: "insert", Pattern: "probectl.flow.events -> FlowConsumer -> ClickHouse"},
+		},
+		Targets: HotPathTargets{P50: 500 * time.Millisecond, P95: maxFlowInsertP95, P99: 5 * time.Second, MinThroughputPerSecond: 2000},
+		Measurements: []HotPathMeasurement{
+			{
+				Kind:    MeasurementLoadGate,
+				Command: "make load-test-smoke",
+				Receipt: "full-stack flow gate logs flow insert latency and confirms rows in ClickHouse",
+				Source:  "internal/perf/fullstack_integration_test.go:TestFullStackFlowGate",
+			},
+			{
+				Kind:    MeasurementLoadGate,
+				Command: "make load-test TIER=L",
+				Receipt: "reference-hardware flow gate RESULT ROW with Insert p95 and Rows confirmed",
+				Source:  "internal/perf/fullstack_flow.go:DriveFullStackFlow",
+			},
+		},
+		Notes: "Mirrors the ClickHouse insert p95 gate from the full-stack flow harness; L/XL/XXL platform proof stays tied to recorded RESULT ROW receipts in docs/scale-gate.md.",
+	}
+}
+
+func flowClickHouseQueryHotPath() HotPathSLO {
+	return HotPathSLO{
+		ID:    "hp-flow-clickhouse-query",
+		Name:  "ClickHouse flow TopTalkers query",
+		Owner: "perf",
+		Surfaces: []HotPathSurface{
+			{Kind: SurfaceFlowStore, Method: "TopTalkers", Pattern: "flowstore.Store.TopTalkers"},
+		},
+		Targets: HotPathTargets{P50: 500 * time.Millisecond, P95: maxFlowQueryP95, P99: 5 * time.Second, MinThroughputPerSecond: 10},
+		Measurements: []HotPathMeasurement{
+			{
+				Kind:    MeasurementLoadGate,
+				Command: "make load-test-smoke",
+				Receipt: "full-stack flow gate confirms every tenant through TopTalkers and logs Query p95",
+				Source:  "internal/perf/fullstack_integration_test.go:TestFullStackFlowGate",
+			},
+			{
+				Kind:    MeasurementLoadGate,
+				Command: "make load-test TIER=L",
+				Receipt: "reference-hardware flow gate RESULT ROW with Query p95 and tenant rows confirmed",
+				Source:  "internal/perf/fullstack_flow.go:DriveFullStackFlow",
+			},
+		},
+		Notes: "Measures the real ClickHouse read path used by the flow surfaces; the control API response budget remains hp-flow-query.",
 	}
 }
 

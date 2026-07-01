@@ -17,6 +17,8 @@ func TestHotPathCatalogCoversAuditedSurfaces(t *testing.T) {
 		"hp-incident-correlation",
 		"hp-probe-result-to-incident",
 		"hp-flow-query",
+		"hp-flow-clickhouse-insert",
+		"hp-flow-clickhouse-query",
 		"hp-topology-read",
 		"hp-topology-whatif",
 		"hp-ai-ask",
