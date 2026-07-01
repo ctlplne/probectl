@@ -12,9 +12,11 @@
 set -euo pipefail
 
 VERSION="${VERSION:?set VERSION (e.g. 0.2.0)}"
+VERSION_NO_V="${VERSION#v}"
 TAG="${TAG:-v${VERSION#v}}"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/imfeelingtheagi}"
 OUT="${OUT:-probectl-airgap-${VERSION}}"
+DIST="${DIST:-dist}"
 COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl"
 VERIFY_COSIGN="${PROBECTL_AIRGAP_VERIFY_COSIGN:-1}"
 UNVERIFIED_ACK_VALUE="allow-unverified-airgap-artifacts"
@@ -96,21 +98,26 @@ for c in $COMPONENTS; do
   docker save "$digest_ref" -o "$OUT/images/${c}.tar"
 done
 
-# 2. Helm chart (versioned, OCI-publishable too — OPS-001). OPS-008: stamp BOTH
-#    the chart version and appVersion from $VERSION so the bundled chart targets
-#    exactly the images carried alongside it (no appVersion/tag skew).
-helm package deploy/helm/probectl --version "$VERSION" --app-version "$VERSION" --destination "$OUT/charts" >/dev/null
-
-# 3. Binaries and packages. The release jobs produce these into dist/, each with
+# 2. Release artifacts. The release jobs produce these into $DIST, each with
 #    <artifact>.sig + <artifact>.pem. Missing signatures fail closed before the
 #    bundle is written.
-if [ ! -d dist ]; then
+if [ ! -d "$DIST" ]; then
   echo "airgap: dist/ is required and must contain signed release artifacts" >&2
   exit 1
 fi
 
+# 3. Helm chart. The chart package is signed by release.yml, self-verified after
+#    signing, and pushed as a cosign-signed OCI artifact. The air-gap bundle
+#    carries the same signed package bytes; it never re-packages an unsigned chart
+#    locally because that would bypass the release identity proof.
+chart_pkg="${DIST}/probectl-${VERSION_NO_V}.tgz"
+copy_signed "$chart_pkg" "$OUT/charts"
+chart_digest="${DIST}/probectl-${VERSION_NO_V}.chart-digest.txt"
+[ -f "$chart_digest" ] && cp "$chart_digest" "$OUT/charts/"
+
+# 4. Binaries and packages.
 copied_binary=0
-for f in dist/probectl_"${TAG}"_linux_* dist/probectl-*_"${TAG}"_linux_*; do
+for f in "${DIST}"/probectl_"${TAG}"_linux_* "${DIST}"/probectl-*_"${TAG}"_linux_*; do
   [ -e "$f" ] || continue
   case "$f" in *.sig|*.pem) continue;; esac
   copy_signed "$f" "$OUT/bin"
@@ -119,7 +126,7 @@ done
 [ "$copied_binary" -eq 1 ] || { echo "airgap: no signed release binaries found for ${TAG}" >&2; exit 1; }
 
 copied_package=0
-for f in dist/*.deb dist/*.rpm; do
+for f in "${DIST}"/*.deb "${DIST}"/*.rpm; do
   [ -e "$f" ] || continue
   case "$f" in *.sig|*.pem) continue;; esac
   copy_signed "$f" "$OUT/packages"
@@ -127,21 +134,23 @@ for f in dist/*.deb dist/*.rpm; do
 done
 [ "$copied_package" -eq 1 ] || { echo "airgap: no signed deb/rpm packages found in dist/" >&2; exit 1; }
 
-if [ -f dist/checksums.txt ]; then
-  copy_signed dist/checksums.txt "$OUT"
-  (cd dist && sha256sum --ignore-missing -c checksums.txt >/dev/null)
+if [ -f "${DIST}/checksums.txt" ]; then
+  copy_signed "${DIST}/checksums.txt" "$OUT"
+  (cd "$DIST" && sha256sum --ignore-missing -c checksums.txt >/dev/null)
 fi
 
-# 4. Signatures + the offline procedure.
+# 5. Signatures + the offline procedure.
 cp -r deploy/packaging "$OUT/packaging" 2>/dev/null || true
 cp docs/ops/air-gap.md "$OUT/INSTALL.md"
 
-# 5. Manifest with digests so the far side can verify nothing was swapped.
+# 6. Manifest with digests so the far side can verify nothing was swapped.
 {
   echo "probectl air-gap bundle ${VERSION}"
   echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "images:"
   sed 's/^/  /' "$OUT/IMAGE-VERIFICATION.txt"
+  echo "charts:"
+  (cd "$OUT/charts" && sha256sum * 2>/dev/null || true) | sed 's/^/  /'
   echo "binaries:"
   (cd "$OUT/bin" && sha256sum probectl-* 2>/dev/null || true) | sed 's/^/  /'
   echo "packages:"

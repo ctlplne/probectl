@@ -241,12 +241,13 @@ jobs:
     # 0.1.0-chart-deploys-a-control-plane-that-refuses-v0.4.0-agents trap. Assert
     # the chart's appVersion matches the release tag before publishing, and push
     # the chart as an OCI artifact to GHCR alongside the images.
-    needs: require-green-ci
+    needs: [require-green-ci, binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
       packages: write
+      id-token: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: appVersion must match the release tag
@@ -259,12 +260,48 @@ jobs:
             exit 1
           fi
           echo "chart appVersion matches tag $tag"
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
       - name: Helm login + push (OCI to GHCR)
         run: |
           set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          chart_pkg="probectl-${tag}.tgz"
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          helm package deploy/helm/probectl --version "${GITHUB_REF_NAME#v}"
-          helm push "probectl-${GITHUB_REF_NAME#v}.tgz" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package deploy/helm/probectl --version "${tag}" --app-version "${tag}"
+          cosign sign-blob --yes \
+            --output-signature "${chart_pkg}.sig" \
+            --output-certificate "${chart_pkg}.pem" \
+            "${chart_pkg}"
+          cosign verify-blob \
+            --certificate "${chart_pkg}.pem" \
+            --signature "${chart_pkg}.sig" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "${chart_pkg}"
+          push_out="$(helm push "${chart_pkg}" "oci://ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts")"
+          printf '%s\n' "$push_out"
+          chart_digest="$(printf '%s\n' "$push_out" | awk '/Digest:/ {print $2; exit}')"
+          case "$chart_digest" in
+            sha256:*) ;;
+            *) echo "::error::helm push did not report an immutable chart digest"; exit 1 ;;
+          esac
+          chart_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts/probectl@${chart_digest}"
+          printf '%s\n' "$chart_ref" > "probectl-${tag}.chart-digest.txt"
+          cosign sign --yes "$chart_ref"
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/\.github/workflows/release\.yml@refs/tags/" \
+            "$chart_ref"
+          echo "chart package and OCI digest verify"
+      - name: Attach signed chart package evidence to the release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            probectl-*.tgz
+            probectl-*.tgz.sig
+            probectl-*.tgz.pem
+            probectl-*.chart-digest.txt
 
   packages:
     name: deb/rpm packages (${{ matrix.agent }})

@@ -51,10 +51,23 @@ grep -q 'cosign verify-blob' "$AIRGAP" || { echo "airgap: missing signed binary/
 grep -q 'cosign verify' "$AIRGAP" || { echo "airgap: missing image signature verification"; fail=1; }
 grep -q 'IMAGE-VERIFICATION.txt' "$AIRGAP" || { echo "airgap: missing image verification manifest"; fail=1; }
 grep -q 'OUT/packages' "$AIRGAP" || { echo "airgap: signed deb/rpm packages are not bundled"; fail=1; }
+grep -q 'DIST="${DIST:-dist}"' "$AIRGAP" || { echo "airgap: release artifact directory is not overridable for self-tests"; fail=1; }
+grep -q 'chart_pkg="${DIST}/probectl-${VERSION_NO_V}.tgz"' "$AIRGAP" || { echo "airgap: signed chart package is not sourced from release artifacts"; fail=1; }
+grep -q 'copy_signed "$chart_pkg" "$OUT/charts"' "$AIRGAP" || { echo "airgap: chart package does not use the signed-artifact copy path"; fail=1; }
+grep -q 'chart-digest.txt' "$AIRGAP" || { echo "airgap: chart OCI digest evidence is not bundled when present"; fail=1; }
+if grep -q 'helm package deploy/helm/probectl' "$AIRGAP"; then
+  echo "airgap: chart is locally re-packaged instead of using signed release bytes"; fail=1
+fi
 
 grep -q 'cosign sign --yes "${IMAGE_REF}"' "$RELEASE" || { echo "release: image digest cosign signing is missing"; fail=1; }
 grep -q 'steps.build.outputs.digest' "$RELEASE" || { echo "release: image signing is not tied to the immutable build digest"; fail=1; }
 grep -q 'cosign verify' "$RELEASE" || { echo "release: image signature self-verify step is missing"; fail=1; }
+grep -q 'chart_pkg="probectl-${tag}.tgz"' "$RELEASE" || { echo "release: chart package path is not explicit"; fail=1; }
+grep -q 'cosign sign-blob --yes' "$RELEASE" || { echo "release: chart package sign-blob is missing"; fail=1; }
+grep -q 'cosign verify-blob' "$RELEASE" || { echo "release: chart package self-verify is missing"; fail=1; }
+grep -q 'chart_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts/probectl@${chart_digest}"' "$RELEASE" || { echo "release: chart OCI digest reference is not immutable"; fail=1; }
+grep -q 'cosign sign --yes "$chart_ref"' "$RELEASE" || { echo "release: chart OCI digest signing is missing"; fail=1; }
+grep -Fq 'probectl-*.chart-digest.txt' "$RELEASE" || { echo "release: chart digest evidence is not attached to the GitHub release"; fail=1; }
 
 grep -q 'verifyImages:' "$ADMISSION" || { echo "admission: Kyverno verifyImages policy missing"; fail=1; }
 grep -q 'verifyDigest: true' "$ADMISSION" || { echo "admission: digest verification is not enforced"; fail=1; }
@@ -79,6 +92,32 @@ fi
 stub="$tmp/path"; mkdir -p "$stub"
 printf '#!/bin/sh\nexit 0\n' > "$stub/cosign"; chmod +x "$stub/cosign"
 printf '#!/bin/sh\nexit 0\n' > "$stub/id"; chmod +x "$stub/id"  # not used; real id is fine
+cat > "$stub/docker" <<'SH'
+#!/bin/sh
+set -eu
+if [ "${1:-}" = "pull" ]; then
+  exit 0
+fi
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "inspect" ]; then
+  printf '%s@sha256:0000000000000000000000000000000000000000000000000000000000000000\n' "$3"
+  exit 0
+fi
+if [ "${1:-}" = "save" ]; then
+  out=""
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then
+      shift
+      out="$1"
+    fi
+    shift || true
+  done
+  [ -n "$out" ] || exit 2
+  : > "$out"
+  exit 0
+fi
+exit 2
+SH
+chmod +x "$stub/docker"
 if PATH="$stub:/usr/bin:/bin" PROBECTL_COSIGN_SIG="$tmp/missing.sig" \
      bash "$INSTALL" "$tmp/bin" >/dev/null 2>&1; then
   echo "install.sh SUCCEEDED with the signature absent (must fail closed)"; fail=1
@@ -99,6 +138,19 @@ if PATH="$stub:/usr/bin:/bin" \
   echo "install.sh --no-verify with acknowledgement unexpectedly succeeded as non-root"; fail=1
 elif ! grep -q 'BREAK-GLASS' "$breakglass_log" || ! grep -q 'run as root' "$breakglass_log"; then
   echo "install.sh --no-verify acknowledgement did not reach the audited root preflight"; fail=1
+fi
+
+# (e) the air-gap builder must fail before producing a bundle when the signed
+#     chart package is missing its detached signature material.
+airgap_dist="$tmp/airgap-dist"
+mkdir -p "$airgap_dist"
+printf 'chart bytes\n' > "$airgap_dist/probectl-0.0.0.tgz"
+airgap_log="$tmp/airgap.log"
+if PATH="$stub:/usr/bin:/bin" VERSION=0.0.0 OUT="$tmp/probectl-airgap-0.0.0" DIST="$airgap_dist" \
+     bash "$AIRGAP" >"$airgap_log" 2>&1; then
+  echo "airgap bundle SUCCEEDED without chart signature material (must fail closed)"; fail=1
+elif ! grep -q 'missing signature .*probectl-0.0.0.tgz.sig' "$airgap_log"; then
+  echo "airgap bundle failed for the wrong reason; expected missing chart signature"; fail=1
 fi
 
 if [[ $fail -ne 0 ]]; then

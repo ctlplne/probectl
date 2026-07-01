@@ -81,6 +81,42 @@ to the workflow `release.yml` in `imfeelingtheagi/probectl`, running for a
 workflow in the same repo, or a re-signed binary all fail that regexp match —
 which is exactly the guarantee you want.
 
+## Helm chart
+
+The release also signs the packaged Helm chart as a blob and signs the pushed OCI
+chart artifact by immutable digest. Verify the package exactly like a binary:
+
+```sh
+TAG=v0.2.0
+CHART=probectl-${TAG#v}.tgz
+BASE=https://github.com/imfeelingtheagi/probectl/releases/download/${TAG}
+
+curl -fsSLO ${BASE}/${CHART} -O ${BASE}/${CHART}.sig -O ${BASE}/${CHART}.pem
+cosign verify-blob \
+  --certificate ${CHART}.pem \
+  --signature   ${CHART}.sig \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp \
+    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+  ${CHART}
+```
+
+For the OCI chart, verify the digest the release recorded:
+
+```sh
+curl -fsSLO ${BASE}/probectl-${TAG#v}.chart-digest.txt
+CHART_REF="$(cat probectl-${TAG#v}.chart-digest.txt)"
+cosign verify \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp \
+    "^https://github.com/imfeelingtheagi/probectl/\.github/workflows/release\.yml@refs/tags/" \
+  "${CHART_REF}"
+```
+
+Both checks must verify before you install from the chart. The air-gap bundle
+uses the same signed chart package bytes and refuses to build when the `.sig` or
+`.pem` files are absent.
+
 ## SBOM
 
 Each release also publishes `probectl_<tag>_sbom.spdx.json` — an SPDX-JSON
@@ -112,12 +148,12 @@ sbom: true`). Inspect them with `docker buildx imagetools inspect`.
 ## The release self-checks too
 
 After signing, the release workflow runs `cosign verify-blob` on its **own**
-artifacts and `cosign verify` on every pushed image digest before publishing. A
-release whose artifacts do not verify simply does not publish — so a published
-release is, by construction, a verifiable one. This is why the copy-paste block
-above can be trusted to work: it isn't parallel documentation that could drift
-from the release process; it *is* the release's own exit gate, run from your
-side.
+artifacts, including the packaged Helm chart, and `cosign verify` on every
+pushed image and chart digest before publishing. A release whose artifacts do not
+verify simply does not publish — so a published release is, by construction, a
+verifiable one. This is why the copy-paste block above can be trusted to work:
+it isn't parallel documentation that could drift from the release process; it
+*is* the release's own exit gate, run from your side.
 
 ## The installers verify for you (SUPPLY-002)
 
