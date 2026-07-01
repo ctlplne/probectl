@@ -1,6 +1,8 @@
 {{- if .Values.restore.enabled }}
+{{- $restoreBackupFile := required "restore.backupFile is required when restore.enabled=true" .Values.restore.backupFile }}
 # OPS-007: parameterized restore Job for Kubernetes, mirroring the compose
-# restore scripts (verify → backup-open → drop → restore → migrate → readyz).
+# restore scripts (verify checksum → backup-open to ephemeral workdir → drop →
+# restore → migrate → readyz).
 # It is a one-shot Job (NOT a CronJob): an operator sets restore.enabled=true
 # and restore.backupFile to the sealed dump on the backups PVC, applies, and
 # deletes it after. Drilled on kind in CI (the backup-drill job) so the path
@@ -22,7 +24,8 @@ spec:
         runAsNonRoot: true
       initContainers:
         # Stage the control-plane binary so backup-open can decrypt the sealed
-        # dump in-pipe — plaintext never lands on disk (OPS-002 symmetry).
+        # dump into the restore-only emptyDir after checksum verification —
+        # plaintext never lands on the backups PVC (OPS-002 symmetry).
         - name: stage-probectl
           image: {{ include "probectl.image" . }}
           # The control-plane image installs its single static binary at
@@ -42,14 +45,24 @@ spec:
           args:
             - |
               echo "restore: verifying backup is readable…"
-              test -s "/backups/{{ .Values.restore.backupFile }}"
-              echo "restore: decrypting + restoring into {{ .Values.restore.database }}…"
+              backup_file="{{ $restoreBackupFile }}"
+              backup="/backups/${backup_file}"
+              sha="${backup}.sha256"
+              work="/restore-work/postgres.dump"
+              trap 'rm -f "${work}"' EXIT
+              test -s "${backup}"
+              test -s "${sha}"
+              (cd /backups && sha256sum -c "${backup_file}.sha256" >/dev/null)
+              echo "restore: checksum verified"
+              echo "restore: decrypting into an ephemeral work volume…"
               # backup-open is a stdin→stdout decryption filter; it takes the KEK
               # from PROBECTL_ENVELOPE_KEY (env, below) — it has NO --in/--out flags.
-              /shared/probectl-control backup-open \
-                < "/backups/{{ .Values.restore.backupFile }}" \
-                | pg_restore --clean --if-exists --no-owner \
-                    -h "{{ .Values.restore.host }}" -U "$PGUSER" -d "{{ .Values.restore.database }}"
+              /shared/probectl-control backup-open < "${backup}" > "${work}"
+              test -s "${work}"
+              echo "restore: restoring into {{ .Values.restore.database }}…"
+              pg_restore --clean --if-exists --no-owner \
+                -h "{{ .Values.restore.host }}" -U "$PGUSER" -d "{{ .Values.restore.database }}" \
+                "${work}"
               echo "restore: applying migrations (idempotent)…"
               /shared/probectl-control migrate
               echo "restore: done. Verify /readyz on the control plane before resuming traffic."
@@ -65,11 +78,14 @@ spec:
           volumeMounts:
             - { name: backups, mountPath: /backups, readOnly: true }
             - { name: shared, mountPath: /shared }
+            - { name: restore-work, mountPath: /restore-work }
       volumes:
         - name: backups
           persistentVolumeClaim:
             claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
         - name: shared
+          emptyDir: {}
+        - name: restore-work
           emptyDir: {}
 {{- end }}
 {{- if .Values.restore.clickhouse.enabled }}

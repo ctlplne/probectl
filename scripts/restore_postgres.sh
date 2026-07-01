@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # restore_postgres.sh <dump-file> — restore a scripts/backup_postgres.sh
-# dump (U-030). Verifies the SHA-256 manifest when present, force-drops and
+# dump (U-030). Verifies the SHA-256 manifest first, force-drops and
 # recreates the database, and pg_restores the dump from stdin (so an
 # off-box artifact restores without entering the container's filesystem).
 #
@@ -16,10 +16,9 @@ PGDATABASE="${PGDATABASE:-probectl}"
 DUMP="${1:?usage: restore_postgres.sh <dump-file>}"
 
 test -s "${DUMP}" || { echo "restore_postgres: no dump at ${DUMP}" >&2; exit 1; }
-if [ -f "${DUMP}.sha256" ]; then
-  (cd "$(dirname "${DUMP}")" && sha256sum -c "$(basename "${DUMP}").sha256" >/dev/null)
-  echo "restore_postgres: checksum verified"
-fi
+test -s "${DUMP}.sha256" || { echo "restore_postgres: missing checksum sidecar ${DUMP}.sha256" >&2; exit 1; }
+(cd "$(dirname "${DUMP}")" && sha256sum -c "$(basename "${DUMP}").sha256" >/dev/null)
+echo "restore_postgres: checksum verified"
 
 psql_admin() {
   docker compose -f "${COMPOSE_FILE}" exec -T "${PG_SERVICE}" \

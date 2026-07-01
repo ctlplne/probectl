@@ -85,6 +85,8 @@ PBK="$(find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump.pbk' -print -qu
 CH_ZIP="$(find "${OUT}" -maxdepth 1 -name 'clickhouse-probectl-*.zip' -print -quit)"
 test -n "${PBK}" && test -s "${PBK}" || { echo "drill: backup_postgres did not produce a sealed .dump.pbk" >&2; exit 1; }
 test -n "${CH_ZIP}" && test -s "${CH_ZIP}" || { echo "drill: backup_clickhouse did not produce a .zip artifact" >&2; exit 1; }
+test -s "${PBK}.sha256" || { echo "drill: missing Postgres sealed checksum ${PBK}.sha256" >&2; exit 1; }
+(cd "$(dirname "${PBK}")" && sha256sum -c "$(basename "${PBK}").sha256" >/dev/null)
 pbk_bytes="$(file_size "${PBK}")"
 ch_bytes="$(file_size "${CH_ZIP}")"
 artifact_bytes=$(( pbk_bytes + ch_bytes ))
@@ -115,8 +117,10 @@ t1=$(date +%s)
 # Mirror restore-job.yaml line-for-line: backup-open reads the .pbk on stdin
 # (NO --in/--out flags) and emits the plaintext dump on stdout for restore.
 DECRYPTED="${OUT}/postgres-probectl.decrypted.dump"
+(cd "$(dirname "${PBK}")" && sha256sum -c "$(basename "${PBK}").sha256" >/dev/null)
 "${PCTL_BIN}" backup-open < "${PBK}" > "${DECRYPTED}"
 test -s "${DECRYPTED}" || { echo "drill: backup-open produced an empty dump (flag/contract break?)" >&2; exit 1; }
+(cd "$(dirname "${DECRYPTED}")" && sha256sum "$(basename "${DECRYPTED}")" > "$(basename "${DECRYPTED}").sha256")
 ./scripts/restore_postgres.sh "${DECRYPTED}"
 ./scripts/restore_clickhouse.sh "${CH_ZIP}"
 restore_secs=$(( $(date +%s) - t1 ))

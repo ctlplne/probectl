@@ -4,6 +4,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,15 +89,167 @@ func TestRestoreJobInvokesBackupOpenAsRealCLI(t *testing.T) {
 	if !strings.Contains(body, "/usr/local/bin/app") {
 		t.Error("restore-job.yaml must copy the binary from /usr/local/bin/app (the real Dockerfile path)")
 	}
-	// backup-open must read the sealed file on stdin (shell redirection).
-	if !strings.Contains(body, "backup-open") || !strings.Contains(body, "< \"/backups/") {
-		t.Error("restore-job.yaml must pipe the sealed backup into backup-open via stdin redirection")
+	// backup-open must read the sealed file on stdin (shell redirection), after
+	// the backup path has been verified from the backups PVC.
+	if !strings.Contains(body, "backup-open") || !strings.Contains(body, "backup=\"/backups/${backup_file}\"") || !strings.Contains(body, "backup-open < \"${backup}\"") {
+		t.Error("restore-job.yaml must feed the verified sealed backup into backup-open via stdin redirection")
+	}
+}
+
+func TestRestoreJobVerifiesChecksumBeforeMutatingPostgres(t *testing.T) {
+	body := readArtifact(t, "deploy/helm/probectl/templates/restore-job.yaml")
+	stripped := stripComments(body)
+
+	idxChecksum := strings.Index(stripped, "sha256sum -c")
+	idxOpen := strings.Index(stripped, "backup-open")
+	idxRestore := strings.Index(stripped, "pg_restore")
+	idxMigrate := strings.Index(stripped, "migrate")
+	for name, idx := range map[string]int{
+		"sha256sum -c": idxChecksum,
+		"backup-open":  idxOpen,
+		"pg_restore":   idxRestore,
+		"migrate":      idxMigrate,
+	} {
+		if idx < 0 {
+			t.Fatalf("restore-job.yaml missing %s in executable restore path", name)
+		}
+	}
+	if idxChecksum >= idxOpen || idxOpen >= idxRestore || idxRestore >= idxMigrate {
+		t.Fatalf("restore order must be checksum -> backup-open -> pg_restore -> migrate; indexes checksum=%d open=%d restore=%d migrate=%d",
+			idxChecksum, idxOpen, idxRestore, idxMigrate)
+	}
+	for _, want := range []string{
+		"test -s \"${sha}\"",
+		"test -s \"${work}\"",
+		"restore-work",
+		"emptyDir: {}",
+	} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("restore-job.yaml missing %q — corrupt .pbk/.sha256 must fail before database mutation", want)
+		}
+	}
+	if strings.Contains(stripped, "| pg_restore") {
+		t.Fatal("restore-job.yaml must not pipe backup-open directly into pg_restore without pipefail")
+	}
+}
+
+func TestRestoreJobCorruptChecksumStopsBeforePostgresMutation(t *testing.T) {
+	if _, err := exec.LookPath("sha256sum"); err != nil {
+		t.Skipf("sha256sum not available for restore-job corrupt-checksum drill: %v", err)
+	}
+
+	tmp := t.TempDir()
+	backups := filepath.Join(tmp, "backups")
+	shared := filepath.Join(tmp, "shared")
+	workdir := filepath.Join(tmp, "restore-work")
+	bin := filepath.Join(tmp, "bin")
+	for _, dir := range []string{backups, shared, workdir, bin} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	backupFile := "postgres-probectl-corrupt.dump.pbk"
+	if err := os.WriteFile(filepath.Join(backups, backupFile), []byte("sealed backup bytes"), 0o600); err != nil {
+		t.Fatalf("write corrupt pbk: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(backups, backupFile+".sha256"), []byte(strings.Repeat("0", 64)+"  "+backupFile+"\n"), 0o600); err != nil {
+		t.Fatalf("write corrupt checksum: %v", err)
+	}
+
+	openMarker := filepath.Join(tmp, "backup-open-called")
+	mutationMarker := filepath.Join(tmp, "pg-restore-called")
+	fakeControl := "#!/bin/sh\nprintf 'backup-open reached\\n' > \"$PROBECTL_TEST_OPEN_MARKER\"\ncat\n"
+	if err := os.WriteFile(filepath.Join(shared, "probectl-control"), []byte(fakeControl), 0o755); err != nil {
+		t.Fatalf("write fake probectl-control: %v", err)
+	}
+	fakeRestore := "#!/bin/sh\nprintf 'pg_restore reached\\n' > \"$PROBECTL_TEST_MUTATION_MARKER\"\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(bin, "pg_restore"), []byte(fakeRestore), 0o755); err != nil {
+		t.Fatalf("write fake pg_restore: %v", err)
+	}
+
+	script := `
+set -euo pipefail
+backup_file="${BACKUP_FILE}"
+backup="${BACKUPS}/${backup_file}"
+sha="${backup}.sha256"
+work="${WORKDIR}/postgres.dump"
+trap 'rm -f "${work}"' EXIT
+test -s "${backup}"
+test -s "${sha}"
+(cd "${BACKUPS}" && sha256sum -c "${backup_file}.sha256" >/dev/null)
+"${SHARED}/probectl-control" backup-open < "${backup}" > "${work}"
+test -s "${work}"
+pg_restore --clean --if-exists --no-owner -h "postgres" -U "$PGUSER" -d "probectl" "${work}"
+`
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Env = append(os.Environ(),
+		"BACKUP_FILE="+backupFile,
+		"BACKUPS="+backups,
+		"WORKDIR="+workdir,
+		"SHARED="+shared,
+		"PGUSER=probectl",
+		"PROBECTL_TEST_OPEN_MARKER="+openMarker,
+		"PROBECTL_TEST_MUTATION_MARKER="+mutationMarker,
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("corrupt checksum restore drill unexpectedly succeeded:\n%s", out)
+	}
+	for _, marker := range []struct {
+		path string
+		name string
+	}{
+		{openMarker, "backup-open"},
+		{mutationMarker, "pg_restore"},
+	} {
+		if _, statErr := os.Stat(marker.path); !os.IsNotExist(statErr) {
+			t.Fatalf("corrupt checksum reached %s before failing; marker err=%v output:\n%s", marker.name, statErr, out)
+		}
 	}
 }
 
 func TestPITRRecipesUseRealCLI(t *testing.T) {
 	body := readArtifact(t, "docs/ops/backup-restore.md")
 	assertNoBadBackupFlags(t, "docs/ops/backup-restore.md", body)
+	stripped := stripComments(body)
+	for _, want := range []struct{ substr, why string }{
+		{".dump.pbk.sha256", "operators must verify the sealed backup checksum before backup-open"},
+		{"sha256sum postgres-probectl-<ts>.dump > postgres-probectl-<ts>.dump.sha256", "the decrypted temporary dump must get its own checksum sidecar before restore_postgres.sh"},
+		{"Checksum sidecars are required restore inputs", "the runbook must not describe checksum verification as optional"},
+	} {
+		if !strings.Contains(stripped, want.substr) {
+			t.Errorf("docs/ops/backup-restore.md: missing %q — %s", want.substr, want.why)
+		}
+	}
+}
+
+func TestRestorePostgresRequiresChecksumBeforeMutation(t *testing.T) {
+	body := readArtifact(t, "scripts/restore_postgres.sh")
+	stripped := stripComments(body)
+
+	idxMissing := strings.Index(stripped, "missing checksum sidecar")
+	idxChecksum := strings.Index(stripped, "sha256sum -c")
+	idxDrop := strings.Index(stripped, "DROP DATABASE")
+	idxRestore := strings.Index(stripped, "pg_restore")
+	for name, idx := range map[string]int{
+		"missing checksum sidecar": idxMissing,
+		"sha256sum -c":             idxChecksum,
+		"DROP DATABASE":            idxDrop,
+		"pg_restore":               idxRestore,
+	} {
+		if idx < 0 {
+			t.Fatalf("restore_postgres.sh missing %s in executable restore path", name)
+		}
+	}
+	if idxMissing >= idxChecksum || idxChecksum >= idxDrop || idxDrop >= idxRestore {
+		t.Fatalf("restore_postgres.sh order must be require sidecar -> verify checksum -> drop -> pg_restore; indexes missing=%d checksum=%d drop=%d restore=%d",
+			idxMissing, idxChecksum, idxDrop, idxRestore)
+	}
+	if strings.Contains(stripped, "if [ -f \"${DUMP}.sha256\" ]") {
+		t.Fatal("restore_postgres.sh must require the checksum sidecar, not treat it as optional")
+	}
 }
 
 // OPS-005 / RESIL-003: the CI backup-drill must exercise the SEALED .pbk path
@@ -116,6 +269,8 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 		{".pbk", "the drill must produce/round-trip a .pbk artifact, not just a plaintext .dump"},
 		{"left a plaintext .dump", "the drill must fail if backup_postgres.sh writes the raw tenant dump"},
 		{"backup-open", "the drill must restore by DECRYPTING the .pbk via backup-open"},
+		{"sha256sum -c \"$(basename \"${PBK}\").sha256\"", "the drill must verify the sealed .pbk sidecar before backup-open"},
+		{"sha256sum \"$(basename \"${DECRYPTED}\")\" > \"$(basename \"${DECRYPTED}\").sha256\"", "the drill must create the decrypted dump sidecar before destructive restore"},
 		{"tenant_id", "the ClickHouse regional-loss proof must query restored telemetry by tenant"},
 		{"clickhouse regional-loss drill: PASS", "the drill must print an explicit telemetry DR receipt"},
 		{"default shipped telemetry RPO <= 24h", "the drill receipt must name the numeric shipped telemetry RPO"},

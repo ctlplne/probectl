@@ -148,10 +148,13 @@ results are lost while it is down.
 ```sh
 # 1. Stop probectl-control. Agents buffer; the UI is down from here.
 
-# 2a. If the Postgres backup is ENCRYPTED (.dump.pbk), decrypt it first. This
-#     needs the ORIGINAL envelope key — a fresh node only needs that one key:
+# 2a. If the Postgres backup is ENCRYPTED (.dump.pbk), verify the sealed
+#     artifact first, then decrypt it. This needs the ORIGINAL envelope key —
+#     a fresh node only needs that one key:
+(cd /srv/probectl-backups && sha256sum -c postgres-probectl-<ts>.dump.pbk.sha256)
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
   probectl-control backup-open < postgres-probectl-<ts>.dump.pbk > postgres-probectl-<ts>.dump
+(cd /srv/probectl-backups && sha256sum postgres-probectl-<ts>.dump > postgres-probectl-<ts>.dump.sha256)
 
 # 2b. Verify + restore Postgres (drops + recreates, pg_restore from stdin):
 ./scripts/restore_postgres.sh   /srv/probectl-backups/postgres-probectl-<ts>.dump
@@ -171,9 +174,12 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 The `backup-open` step is the normal Postgres restore path because shipped
 backups are `.dump.pbk` by default. A plain `.dump` should exist only from the
 explicit plaintext break-glass acknowledgement; if you have one, it can go
-straight to `restore_postgres.sh`, but treat it as exposed tenant data. If the
-`.sha256` manifest sits next to the artifact, both restore scripts verify it
-automatically before touching the database, and abort on mismatch.
+straight to `restore_postgres.sh` only with its adjacent `.dump.sha256`, but
+treat it as exposed tenant data. Checksum sidecars are required restore inputs:
+the encrypted path verifies `.dump.pbk.sha256` before `backup-open`, then writes
+an ephemeral `.dump.sha256` for the destructive `restore_postgres.sh` handoff.
+Both restore scripts abort before touching the database when a checksum sidecar
+is missing or mismatched.
 
 ### Restoring on Kubernetes (chart-managed restore Jobs)
 
@@ -187,7 +193,7 @@ path (`restore.clickhouse.serverBackupPath`, default `/backups`). A PVC mounted
 only into the restore Job pod is the wrong filesystem.
 
 ```sh
-# Postgres — decrypts the sealed .pbk in-pipe (backup-open) then pg_restore:
+# Postgres — verifies .pbk.sha256, decrypts into an ephemeral work volume, then pg_restore:
 helm upgrade probectl deploy/helm/probectl --reuse-values \
   --set restore.enabled=true \
   --set restore.backupFile=postgres-probectl-<ts>.dump.pbk
