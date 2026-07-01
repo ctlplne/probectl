@@ -48,6 +48,17 @@ if ! "$LIST" | grep -q $'./internal/promapi\tFuzzDecodeRemoteWrite'; then
 fi
 
 for pair in \
+  $'./internal/canary\tFuzzDNSDoHResponseSummary' \
+  $'./internal/canary\tFuzzHTTPExpectAndDrain' \
+  $'./internal/ebpf\tFuzzL4DecodeFlowSample'
+do
+  if ! "$LIST" | grep -q "$pair"; then
+    echo "fuzz-policy: ${pair} is not discovered" >&2
+    exit 1
+  fi
+done
+
+for pair in \
   $'./internal/control\tFuzzDecodeSCIM' \
   $'./internal/scim\tFuzzApplyUserPatch' \
   $'./internal/scim\tFuzzParseGroupPatch'

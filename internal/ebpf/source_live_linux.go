@@ -7,9 +7,7 @@ package ebpf
 //go:generate bash gen_bpf.sh l4flow
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"sync/atomic"
 
@@ -119,12 +117,12 @@ func (s *liveSource) decodeFlowSafely(sample []byte) (flow Flow, ok bool) {
 			flow, ok = Flow{}, false
 		}
 	}()
-	var e l4eventC
-	if err := binary.Read(bytes.NewReader(sample), binary.LittleEndian, &e); err != nil {
+	flow, err := decodeL4FlowSample(sample, s.cfg)
+	if err != nil {
 		s.drops.Add(1)
 		return Flow{}, false
 	}
-	return e.toFlow(s.cfg), true
+	return flow, true
 }
 
 // explainBPFLoadError wraps a bpf() load failure with a clear, structured

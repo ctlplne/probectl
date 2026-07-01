@@ -195,7 +195,7 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	n, _ := io.Copy(io.Discard, io.LimitReader(resp.Body, c.maxBody))
+	n := drainHTTPBody(resp.Body, c.maxBody)
 	total := time.Since(start)
 
 	res.Metrics["http.status"] = float64(resp.StatusCode)
@@ -263,6 +263,14 @@ func (c *httpCanary) statusOK(code int) bool {
 		}
 	}
 	return false
+}
+
+func drainHTTPBody(body io.Reader, maxBytes int64) int64 {
+	if maxBytes < 0 {
+		maxBytes = 0
+	}
+	n, _ := io.Copy(io.Discard, io.LimitReader(body, maxBytes))
+	return n
 }
 
 // trustRoots returns the verification root pool: the system pool plus any

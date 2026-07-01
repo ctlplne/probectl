@@ -4,6 +4,7 @@ package ebpf
 
 import (
 	"bytes"
+	"encoding/binary"
 	"net/netip"
 )
 
@@ -47,6 +48,14 @@ func (e l4eventC) toFlow(cfg *Config) Flow {
 		Direction:   DirectionEgress,
 		State:       e.state(),
 	}
+}
+
+func decodeL4FlowSample(sample []byte, cfg *Config) (Flow, error) {
+	var e l4eventC
+	if err := binary.Read(bytes.NewReader(sample), binary.LittleEndian, &e); err != nil {
+		return Flow{}, err
+	}
+	return e.toFlow(cfg), nil
 }
 
 func (e l4eventC) state() string {

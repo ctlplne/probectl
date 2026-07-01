@@ -352,7 +352,7 @@ need_pattern EBPF-007 docs/ebpf-agent.md 'probectl-agent-capability-posture|poli
 need_pattern EBPF-007 deploy/helm/README.md 'probectl-agent-capability-posture|policy reports|EBPF-007'
 need_pattern FUZZ-005 scripts/fuzz_smoke.sh 'go test.*-fuzz|fuzz-smoke'
 need_pattern FUZZ-005 scripts/list_fuzz_targets.sh 'Fuzz'
-need_pattern FUZZ-007 scripts/check_fuzz_policy.sh 'list_fuzz_targets.sh|FuzzVerifyBatchTenant|FuzzDecodeRemoteWrite|FuzzProviderDecode|fromJSON\(needs.discover-fuzz-targets.outputs.matrix\)'
+need_pattern FUZZ-007 scripts/check_fuzz_policy.sh 'list_fuzz_targets.sh|FuzzVerifyBatchTenant|FuzzDecodeRemoteWrite|FuzzDNSDoHResponseSummary|FuzzHTTPExpectAndDrain|FuzzL4DecodeFlowSample|FuzzProviderDecode|fromJSON\(needs.discover-fuzz-targets.outputs.matrix\)'
 need_pattern FUZZ-007 scripts/fuzz_smoke.sh 'Failing input written to|context deadline with ZERO executions|list_fuzz_targets.sh|fuzz-smoke: all targets clean'
 need_pattern FUZZ-007 scripts/list_fuzz_targets.sh 'roots=\(internal\)|roots\+=\(ee\)|--github-output|sort -u'
 need_pattern FUZZ-007 .github/workflows/ci.yml 'make fuzz-policy|make fuzz-smoke|Fuzz smoke \(untrusted-input parsers must not crash\)'
