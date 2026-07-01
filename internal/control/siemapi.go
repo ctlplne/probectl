@@ -4,6 +4,7 @@ package control
 
 import (
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -126,5 +127,23 @@ func siemEndpointPosture(endpoint string) (configured bool, tlsConfigured bool, 
 	if err != nil {
 		return true, false, ""
 	}
-	return true, u.Scheme == "https" && u.Host != "", u.Host
+	return true, endpointTransportAllowed(u), u.Host
+}
+
+func endpointTransportAllowed(u *url.URL) bool {
+	if u.Host == "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }

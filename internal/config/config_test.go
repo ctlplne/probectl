@@ -719,4 +719,32 @@ func TestThreatTLSConfig(t *testing.T) {
 	if cfg.TrustctlURL != "https://trustctl.example" || !cfg.CTEnabled || cfg.TLSExpiryWarning.Hours() != 240 {
 		t.Errorf("threat config = %+v", cfg)
 	}
+
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_CT_ENABLED":  "true",
+		"PROBECTL_CT_ENDPOINT": "http://crt.example",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_CT_ENDPOINT") {
+		t.Fatalf("remote plaintext CT endpoint should fail closed, got %v", err)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_CT_ENABLED":  "true",
+		"PROBECTL_CT_ENDPOINT": "http://127.0.0.1:8080",
+	})); err != nil {
+		t.Fatalf("loopback plaintext CT fixture should be allowed: %v", err)
+	}
+}
+
+func TestSIEMRejectsPlaintextRemote(t *testing.T) {
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_SIEM_ENABLED":  "true",
+		"PROBECTL_SIEM_ENDPOINT": "http://siem.example/ingest",
+	})); err == nil || !strings.Contains(err.Error(), "PROBECTL_SIEM_ENDPOINT") {
+		t.Fatalf("remote plaintext SIEM endpoint should fail closed, got %v", err)
+	}
+	if _, err := Load(envFunc(map[string]string{
+		"PROBECTL_SIEM_ENABLED":  "true",
+		"PROBECTL_SIEM_ENDPOINT": "http://localhost:18080/ingest",
+	})); err != nil {
+		t.Fatalf("loopback plaintext SIEM fixture should be allowed: %v", err)
+	}
 }

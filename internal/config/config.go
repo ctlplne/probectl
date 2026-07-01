@@ -916,11 +916,21 @@ func validateConfig(l *loader, cfg *Config) {
 }
 
 func validateExternalEndpoints(l *loader, cfg *Config) {
+	if cfg.CTEnabled {
+		if err := validateHTTPSOrLoopbackHTTP(cfg.CTEndpoint, "PROBECTL_CT_ENDPOINT"); err != nil {
+			l.errf("%v", err)
+		}
+	}
 	if cfg.CMDBProvider != "" {
 		if cfg.CMDBURL == "" || cfg.CMDBSecret == "" {
 			l.errf("PROBECTL_CMDB_PROVIDER=%s requires PROBECTL_CMDB_URL and PROBECTL_CMDB_SECRET", cfg.CMDBProvider)
 		} else if !strings.HasPrefix(cfg.CMDBURL, "https://") && !isLoopbackURL(cfg.CMDBURL) {
 			l.errf("PROBECTL_CMDB_URL must be https (plain http is allowed only for loopback test instances)")
+		}
+	}
+	if cfg.SIEMEnabled && cfg.SIEMEndpoint != "" {
+		if err := validateHTTPSOrLoopbackHTTP(cfg.SIEMEndpoint, "PROBECTL_SIEM_ENDPOINT"); err != nil {
+			l.errf("%v", err)
 		}
 	}
 	if (cfg.OTLPGRPCAddr != "" || cfg.OTLPHTTPAddr != "") && !cfg.OTLPEnabled() {
@@ -959,6 +969,17 @@ func validateExternalEndpoints(l *loader, cfg *Config) {
 	if cfg.MCPHTTPAddr != "" && !cfg.MCPEnabled() {
 		l.errf("the MCP HTTP transport is TLS-only and authenticated: set PROBECTL_MCP_TLS_CERT_FILE and PROBECTL_MCP_TLS_KEY_FILE alongside PROBECTL_MCP_HTTP_ADDR")
 	}
+}
+
+func validateHTTPSOrLoopbackHTTP(endpoint, name string) error {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Hostname() == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return fmt.Errorf("%s must be an http(s) URL with a host", name)
+	}
+	if u.Scheme != "https" && !isLoopbackHostname(u.Hostname()) {
+		return fmt.Errorf("%s must be https:// for remote endpoints; plaintext http:// is allowed only for loopback test fixtures", name)
+	}
+	return nil
 }
 
 // BusSecurity renders the Kafka transport policy (U-010) for bus.New.

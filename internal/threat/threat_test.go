@@ -121,6 +121,21 @@ func TestCrtShGraceful(t *testing.T) {
 	}
 }
 
+func TestCrtShRejectsPlaintextRemote(t *testing.T) {
+	leaf := cert(t, crypto.TestCertOptions{CommonName: "crtsh.example"})
+	if _, ok := NewCrtSh("http://crt.example", time.Second).Check(context.Background(), leaf); ok {
+		t.Fatal("remote plaintext CT endpoint must fail closed without a lookup")
+	}
+
+	loopback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer loopback.Close()
+	if f, ok := NewCrtSh(loopback.URL, time.Second).Check(context.Background(), leaf); !ok || f.Kind != FindingCTNotLogged {
+		t.Fatalf("loopback plaintext CT fixture should be allowed, got %v/%v", f, ok)
+	}
+}
+
 func TestFromCanaryAttributes(t *testing.T) {
 	now := time.Now()
 	c := cert(t, crypto.TestCertOptions{CommonName: "obs.example", DNSNames: []string{"obs.example"}})

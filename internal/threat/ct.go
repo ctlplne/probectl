@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"time"
@@ -42,11 +43,18 @@ func NewCrtSh(endpoint string, timeout time.Duration) *CrtSh {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &CrtSh{endpoint: strings.TrimRight(endpoint, "/"), client: crypto.HardenedHTTPClient(timeout)}
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if !ctEndpointTransportAllowed(endpoint) {
+		endpoint = ""
+	}
+	return &CrtSh{endpoint: endpoint, client: crypto.HardenedHTTPClient(timeout)}
 }
 
 // Check queries crt.sh by the cert's serial number.
 func (c *CrtSh) Check(ctx context.Context, leaf *x509.Certificate) (Finding, bool) {
+	if c.endpoint == "" {
+		return Finding{}, false
+	}
 	serial := fmt.Sprintf("%x", leaf.SerialNumber)
 	endpoint := c.endpoint + "/?serial=" + url.QueryEscape(serial) + "&output=json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -73,4 +81,23 @@ func (c *CrtSh) Check(ctx context.Context, leaf *x509.Certificate) (Finding, boo
 		}, true
 	}
 	return Finding{}, false // present in CT → no anomaly
+}
+
+func ctEndpointTransportAllowed(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Hostname() == "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	if u.Scheme != "http" {
+		return false
+	}
+	host := u.Hostname()
+	if host == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(host)
+	return err == nil && ip.IsLoopback()
 }

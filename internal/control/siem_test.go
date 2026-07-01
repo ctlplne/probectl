@@ -273,6 +273,9 @@ func TestBuildSIEMGating(t *testing.T) {
 	if _, ok := BuildSIEM(&config.Config{SIEMEnabled: true, SIEMEndpoint: "http://x"}, log); ok {
 		t.Fatal("non-HTTPS endpoint must not build")
 	}
+	if fw, ok := BuildSIEM(&config.Config{SIEMEnabled: true, SIEMEndpoint: "http://127.0.0.1:18080"}, log); !ok || fw == nil {
+		t.Fatal("loopback http SIEM fixture should build")
+	}
 	if _, ok := BuildSIEM(&config.Config{SIEMEnabled: true, SIEMEndpoint: "https://x", SIEMFormat: "bogus"}, log); ok {
 		t.Fatal("unknown format must not build")
 	}
