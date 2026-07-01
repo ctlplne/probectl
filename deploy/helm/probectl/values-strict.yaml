@@ -16,6 +16,8 @@
 # becomes unreachable — which is the safe direction for this profile.
 # Referenced from docs/hardening.md as the regulated-profile recommendation.
 
+allowPlaintextHTTP: false
+
 networkPolicy:
   enabled: true
   # HOLE 1 CLOSED: only the named ingress controller (and the monitoring
@@ -48,19 +50,18 @@ networkPolicy:
 # OPS-005: scrape /metrics via the Prometheus Operator (the monitoring
 # namespace is the second ingress selector above).
 # OPS-012: the strict/regulated profile must not scrape over plaintext — guardrail
-# §7.12 puts TLS on every listener. Scrape over HTTPS (terminate TLS at the
-# metrics sidecar, same pattern as the API listener) and verify the server cert
-# against the in-cluster CA. scheme/tlsConfig render into the ServiceMonitor
-# endpoint (see templates/servicemonitor.yaml).
+# §7.12 puts TLS on every listener. The control process serves HTTPS directly
+# from control.tls.existingSecret; Service, probes, ingress, and ServiceMonitor
+# all target that same HTTPS listener.
 metrics:
   serviceMonitor:
     enabled: true
     interval: 30s
     scheme: https
     tlsConfig:
-      # The CA the metrics TLS sidecar's serving cert chains to. Provide this
-      # secret out-of-band in the monitoring namespace; insecureSkipVerify MUST
-      # stay false (fail closed on an unverifiable cert).
+      # The CA the control listener's serving cert chains to. Provide this
+      # secret out-of-band for Prometheus; insecureSkipVerify MUST stay false
+      # (fail closed on an unverifiable cert).
       ca:
         secret:
           name: probectl-metrics-ca
@@ -91,5 +92,8 @@ podSecurityContext:
 # subject); this profile flips it closed. Combine with a local/sovereign model
 # adapter to keep telemetry fully on-network.
 control:
+  tls:
+    enabled: true
+    existingSecret: probectl-metrics-tls
   extraEnv:
     PROBECTL_AI_REDACT_HOSTNAMES: "true"

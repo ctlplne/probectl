@@ -445,7 +445,10 @@ selectors and CIDRs to your cluster before applying.** A wrong selector fails
 **closed** (the API becomes unreachable), which is the safe failure direction.
 The strict profile also turns on the ServiceMonitor (the Prometheus operator's
 scrape-config object), the PrometheusRule self-alert pack, and the backup
-CronJobs.
+CronJobs. It also sets `control.tls.enabled=true`, which mounts the
+operator-provided `control.tls.existingSecret` into the control pod so the
+process serves HTTPS directly; the Service, probes, ingress backend, and
+ServiceMonitor all target that same named `https` listener.
 
 Other day-2 surfaces, all chart-managed:
 
@@ -458,7 +461,9 @@ Other day-2 surfaces, all chart-managed:
   silently dead pod.
 - **/metrics:** the control plane serves Prometheus self-metrics (process and
   aggregate only — no tenant data) at `/metrics`, scraped by the ServiceMonitor
-  (`metrics.serviceMonitor.enabled`).
+  (`metrics.serviceMonitor.enabled`). The ServiceMonitor scheme must match the
+  rendered control listener: `http` in the default in-cluster profile, `https`
+  when `control.tls.enabled=true`.
 - **Self-alerts:** the PrometheusRule pack (`metrics.prometheusRule.enabled`)
   watches scrape presence, process pressure, write fencing, and replica lag with
   runbook annotations.

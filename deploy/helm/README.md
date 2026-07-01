@@ -135,7 +135,7 @@ Pick a sizing profile and layer your overrides on top:
 | large | [`probectl/values-large.yaml`](probectl/values-large.yaml) | HPA 4–12 + PDB + filled NetworkPolicy egress allow-list |
 | provider (MSP) | [`probectl/values-multitenant.yaml`](probectl/values-multitenant.yaml) | 3 replicas + anti-affinity + PDB |
 | multi-region | [`probectl/values-multiregion.yaml`](probectl/values-multiregion.yaml) | active-active HA, one release per region ([`docs/multi-region.md`](../../docs/multi-region.md)) |
-| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | regulated/air-gapped: egress hole closed + ServiceMonitor + PrometheusRule self-alerts + backup CronJobs |
+| strict | [`probectl/values-strict.yaml`](probectl/values-strict.yaml) | regulated/air-gapped: app-terminated HTTPS listener, egress hole closed, ServiceMonitor, PrometheusRule self-alerts, backup CronJobs |
 
 `values.schema.json` types every key (Helm validates it). The security defaults
 (non-root pinned uid, read-only root FS, drop-ALL caps, NetworkPolicy/PDB/HPA,
@@ -143,12 +143,11 @@ Pick a sizing profile and layer your overrides on top:
 render without envelope and session-HMAC keys) are enforced by `make helm-gate`, which runs
 [`scripts/check_helm_hardening.sh`](../../scripts/check_helm_hardening.sh):
 hardening assertions against the rendered default / medium / large /
-multitenant / strict profiles, `helm lint` across the default and
-small/medium/large/multitenant profiles, **and** the agent chart's privilege
-contract + image-integrity admission policy + lint. (The strict profile is
-render-asserted — closed holes, ServiceMonitor, PrometheusRule self-alerts, backup CronJobs — rather than
-linted; the multiregion profile reuses the same templates but is not separately
-exercised by the gate.) CI's
+multitenant / strict profiles, `helm lint` across every values file, **and** the
+agent chart's privilege contract + image-integrity admission policy + lint. The
+strict render check also proves the ServiceMonitor HTTPS endpoint resolves to an
+actual HTTPS Service target and container listener, with the control TLS Secret
+mounted into the pod. CI's
 `helm-gate` job runs the same gate plus kubeconform (a schema validator
 proving the rendered YAML is well-formed Kubernetes) on the rendered
 charts, so a hardening regression fails the build, not a customer install.
@@ -158,7 +157,11 @@ Opt-in extras, both off by default and enabled in the strict profile:
 CronJobs ([`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md));
 `metrics.serviceMonitor.enabled=true` renders a Prometheus-Operator
 ServiceMonitor; `metrics.prometheusRule.enabled=true` renders the
-PrometheusRule self-alert pack with runbook annotations.
+PrometheusRule self-alert pack with runbook annotations. In the default profile,
+that ServiceMonitor scrapes the in-cluster `http` Service port behind
+NetworkPolicy; in the strict profile, `control.tls.enabled=true` makes the
+control process serve HTTPS directly, and the ServiceMonitor, probes, Service,
+and ingress backend all switch to the named `https` target.
 
 **NetworkPolicy is ON by default** in every profile. API ingress is already
 restricted to the named ingress-controller namespace, so ordinary in-cluster

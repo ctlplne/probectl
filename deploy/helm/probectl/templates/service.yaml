@@ -11,7 +11,7 @@ spec:
   selector:
     {{- include "probectl.selectorLabels" . | nindent 4 }}
   ports:
-    - name: http
+    - name: {{ include "probectl.servicePortName" . }}
       port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: {{ include "probectl.servicePortName" . }}
       protocol: TCP

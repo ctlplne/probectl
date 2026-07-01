@@ -1,7 +1,13 @@
 {{- if .Values.metrics.serviceMonitor.enabled }}
-# OPS-005: scrape probectl's /metrics with the Prometheus Operator. The
-# endpoint is self-metrics only (no tenant data), so a plain scrape is safe;
-# the strict NetworkPolicy profile scopes WHICH namespace may reach the port.
+{{- if ne .Values.metrics.serviceMonitor.scheme (include "probectl.serviceScheme" .) }}
+{{- fail "metrics.serviceMonitor.scheme must match the rendered control listener transport (set control.tls.enabled=true for https scrapes, or keep scheme=http)" }}
+{{- end }}
+{{- if and (ne .Values.metrics.serviceMonitor.scheme "https") .Values.metrics.serviceMonitor.tlsConfig }}
+{{- fail "metrics.serviceMonitor.tlsConfig requires metrics.serviceMonitor.scheme=https" }}
+{{- end }}
+# OPS-005/RUNOPS-004: scrape probectl's /metrics with the Prometheus Operator.
+# The ServiceMonitor endpoint must match the rendered control listener; strict
+# profiles use app-terminated HTTPS instead of a documented-but-missing sidecar.
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
@@ -16,7 +22,7 @@ spec:
     matchLabels:
       {{- include "probectl.selectorLabels" . | nindent 6 }}
   endpoints:
-    - port: http
+    - port: {{ include "probectl.servicePortName" . }}
       path: /metrics
       interval: {{ .Values.metrics.serviceMonitor.interval }}
       scheme: {{ .Values.metrics.serviceMonitor.scheme }}

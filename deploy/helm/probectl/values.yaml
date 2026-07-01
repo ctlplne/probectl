@@ -28,6 +28,16 @@ control:
   logLevel: info
   # RFC 9116 disclosure contact served at /.well-known/security.txt.
   securityContact: "mailto:security@your-org.example"
+  # Direct HTTPS listener for regulated profiles. When enabled, the same control
+  # process serves TLS on service.port; Service, probes, ingress backend, and
+  # ServiceMonitor all switch to the named "https" target. Provide a Secret with
+  # tls.crt/tls.key or override certKey/keyKey to match your Secret.
+  tls:
+    enabled: false
+    existingSecret: ""
+    certKey: tls.crt
+    keyKey: tls.key
+    mountPath: /etc/probectl/http-tls
   # Extra PROBECTL_* env vars, as a map of name: value.
   extraEnv: {}
 
@@ -204,7 +214,9 @@ metrics:
     # object would not apply); regulated profiles enable it.
     enabled: false
     interval: 30s
-    scheme: http # the in-cluster Service port; set https + tlsConfig behind a TLS sidecar
+    # Must match the rendered Service target: http by default, https when
+    # control.tls.enabled=true.
+    scheme: http
     labels: {}
     tlsConfig: {}
   prometheusRule:

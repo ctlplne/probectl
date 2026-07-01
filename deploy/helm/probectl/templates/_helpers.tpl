@@ -55,3 +55,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
+
+{{/* Named Service/container port for the control listener transport. */}}
+{{- define "probectl.servicePortName" -}}
+{{- if .Values.control.tls.enabled -}}https{{- else -}}http{{- end -}}
+{{- end -}}
+
+{{/* Kubernetes HTTP probe scheme for the rendered control listener. */}}
+{{- define "probectl.probeScheme" -}}
+{{- if .Values.control.tls.enabled -}}HTTPS{{- else -}}HTTP{{- end -}}
+{{- end -}}
+
+{{/* Prometheus ServiceMonitor scheme for the rendered control listener. */}}
+{{- define "probectl.serviceScheme" -}}
+{{- if .Values.control.tls.enabled -}}https{{- else -}}http{{- end -}}
+{{- end -}}

@@ -20,6 +20,9 @@ metadata:
     # than via a configuration-snippet annotation — modern ingress-nginx ignores
     # snippet annotations by default, so a snippet-delivered HSTS would silently
     # vanish. The app path is on-by-default and ingress-controller-agnostic.
+    {{- if .Values.control.tls.enabled }}
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    {{- end }}
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -39,5 +42,5 @@ spec:
               service:
                 name: {{ include "probectl.fullname" . }}
                 port:
-                  name: http
+                  name: {{ include "probectl.servicePortName" . }}
 {{- end }}

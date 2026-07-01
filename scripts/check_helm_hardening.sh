@@ -162,6 +162,30 @@ strict_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$strict")"
 grep -qE '^[[:space:]]*-[[:space:]]*\{\}[[:space:]]*$' <<<"$strict_np" \
   && fail "strict profile still has an allow-all egress rule (a HOLE) — default-deny not achieved"
 need "kind: ServiceMonitor"         "$strict" "strict profile missing ServiceMonitor (OPS-005)"
+# RUNOPS-004: the strict ServiceMonitor asks Prometheus to use HTTPS. Prove that
+# this is not just a scrape setting: the Service target, container listener,
+# probes, ConfigMap TLS env, mounted Secret, and ingress backend all render as
+# the same HTTPS transport.
+strict_svc="$(awk '/kind: Service$/,/^---/' <<<"$strict")"
+strict_dep="$(awk '/kind: Deployment$/,/^---/' <<<"$strict")"
+strict_cm="$(awk '/kind: ConfigMap$/,/^---/' <<<"$strict")"
+strict_sm="$(awk '/kind: ServiceMonitor$/,/^---/' <<<"$strict")"
+strict_ing="$(awk '/kind: Ingress$/,/^---/' <<<"$strict")"
+need "name: https" "$strict_svc" "strict Service does not expose a named https port (RUNOPS-004)"
+need "targetPort: https" "$strict_svc" "strict Service https port does not target the https container listener (RUNOPS-004)"
+need "name: https" "$strict_dep" "strict Deployment does not expose a named https container port (RUNOPS-004)"
+need "scheme: HTTPS" "$strict_dep" "strict Deployment probes do not use HTTPS against the HTTPS listener (RUNOPS-004)"
+need_fixed "PROBECTL_ALLOW_PLAINTEXT_HTTP: \"false\"" "$strict_cm" "strict ConfigMap still permits plaintext HTTP (RUNOPS-004)"
+need "PROBECTL_TLS_CERT_FILE" "$strict_cm" "strict ConfigMap missing TLS cert env (RUNOPS-004)"
+need "PROBECTL_TLS_KEY_FILE" "$strict_cm" "strict ConfigMap missing TLS key env (RUNOPS-004)"
+need "control-tls" "$strict_dep" "strict Deployment does not mount the control TLS secret (RUNOPS-004)"
+need "port: https" "$strict_sm" "strict ServiceMonitor endpoint does not select the https Service port (RUNOPS-004)"
+need "scheme: https" "$strict_sm" "strict ServiceMonitor endpoint does not scrape with HTTPS (RUNOPS-004)"
+need_fixed 'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' "$strict_ing" "strict ingress does not use HTTPS to the backend Service (RUNOPS-004)"
+need "name: https" "$strict_ing" "strict ingress backend does not route to the https Service port (RUNOPS-004)"
+if render -f "$CHART/values-strict.yaml" --set control.tls.enabled=false >/dev/null 2>&1; then
+  fail "strict ServiceMonitor rendered an HTTPS scrape without an HTTPS control listener (RUNOPS-004)"
+fi
 need "kind: PrometheusRule"         "$strict" "strict profile missing self-alert PrometheusRule (OPS-004)"
 need "alert: ProbectlSelfMetricsMissing" "$strict" "strict profile missing self-metrics-missing alert (OPS-004)"
 need "alert: ProbectlWritesPaused"  "$strict" "strict profile missing cluster writes-paused alert (OPS-004)"
@@ -180,7 +204,13 @@ grep -q "kind: ServiceMonitor" <<<"$base" && fail "ServiceMonitor must be OFF by
 grep -q "kind: PrometheusRule" <<<"$base" && fail "PrometheusRule must be OFF by default (Prometheus-Operator CRD gate)"
 grep -q "kind: CronJob" <<<"$base" && fail "backup CronJobs must be OFF by default (backup.enabled)"
 need "kind: CronJob" "$(render --set backup.enabled=true)" "backup.enabled=true must render the backup CronJobs (OPS-009)"
-need "kind: ServiceMonitor" "$(render --set metrics.serviceMonitor.enabled=true)" "metrics.serviceMonitor.enabled=true must render the ServiceMonitor (OPS-005)"
+default_sm="$(render --set metrics.serviceMonitor.enabled=true)"
+need "kind: ServiceMonitor" "$default_sm" "metrics.serviceMonitor.enabled=true must render the ServiceMonitor (OPS-005)"
+need "port: http" "$default_sm" "default ServiceMonitor must target the default http Service port (RUNOPS-004)"
+need "scheme: http" "$default_sm" "default ServiceMonitor must scrape HTTP when the control listener is plaintext behind ingress (RUNOPS-004)"
+if render --set metrics.serviceMonitor.enabled=true --set metrics.serviceMonitor.scheme=https >/dev/null 2>&1; then
+  fail "chart rendered https ServiceMonitor scheme while control.tls.enabled=false (RUNOPS-004)"
+fi
 need "alert: ProbectlHighGoroutines" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render self-alert rules (OPS-004)"
 need "alert: ProbectlWORMExportGap" "$(render --set metrics.prometheusRule.enabled=true)" "metrics.prometheusRule.enabled=true must render RUNOPS WORM alert (RUNOPS-003)"
 
@@ -269,7 +299,6 @@ fi
 http_agent="$(arender --set health.mode=http --set health.allowPlaintextHTTP=true)"
 need "path: /healthz"                   "$http_agent" "agent: acknowledged HTTP health mode missing /healthz"
 need "path: /readyz"                    "$http_agent" "agent: acknowledged HTTP health mode missing /readyz"
-grep -q "SYS_ADMIN" <<<"$agent" && fail "agent: SYS_ADMIN in the DEFAULT profile (legacy mode only)"
 # EBPF-002: L7 capture must render the full runtime contract, and enabled
 # capture without scope must fail at template time.
 if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
@@ -287,6 +316,8 @@ need "l7_capture_redaction: \"length\"" "$l7" "agent: L7 redaction not rendered 
 need "l7_capture_kernel_window: 0"      "$l7" "agent: L7 kernel window not rendered (EBPF-002)"
 
 # EBPF-004: legacy SYS_ADMIN is fenced behind an explicit acknowledgement.
+agent_ds="$(awk '/kind: DaemonSet$/,/^---/' <<<"$agent")"
+grep -q "SYS_ADMIN" <<<"$agent_ds" && fail "agent: SYS_ADMIN in the DEFAULT DaemonSet (legacy mode only)"
 if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
      --set-string image.tag="$AGENT_IMAGE_TAG" --set capabilityMode=legacy >/dev/null 2>&1; then
   fail "agent chart rendered legacy SYS_ADMIN without legacyKernelRingBufferAck (EBPF-004)"
@@ -323,7 +354,8 @@ tag_break_glass="$(arender \
   --set admission.imageIntegrity.enabled=false \
   --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
 need "probectl-ebpf-agent:0.4.0" "$tag_break_glass" "agent: tag-only break-glass render failed"
-grep -q "kind: ClusterPolicy" <<<"$tag_break_glass" && fail "agent: accepted tag-only break-glass still rendered Kyverno verifier"
+grep -q "probectl-agent-image-integrity" <<<"$tag_break_glass" && fail "agent: accepted tag-only break-glass still rendered the image-integrity Kyverno verifier"
+need "probectl-agent-capability-posture" "$tag_break_glass" "agent: tag-only break-glass lost capability posture audit policy (EBPF-007)"
 audit_break_glass="$(arender \
   --set admission.imageIntegrity.validationFailureAction=Audit \
   --set-string admission.imageIntegrity.acceptedRisk=dev-registry-has-equivalent-admission-control)"
