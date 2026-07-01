@@ -2912,6 +2912,20 @@ func (c *Client) ListThreatDetections(ctx context.Context, req ListThreatDetecti
 	return out, nil
 }
 
+// Open-data and threat-intel AUP plus refresh health matrix
+type GetThreatIntelStatusRequest struct {
+}
+
+func (c *Client) GetThreatIntelStatus(ctx context.Context, req GetThreatIntelStatusRequest) (map[string]any, error) {
+	path := "/v1/threat/intel/status"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TLS/certificate posture inventory (latest analyzed posture per target)
 type ListTlsPostureRequest struct {
 }

@@ -16,11 +16,18 @@ import {
   Select,
   Table,
   useToast,
+  type BadgeTone,
   type Column,
 } from '../components'
 import { severityTone } from '../api/incidents'
 import { daysUntil, findingLabel, useTLSPosture, type TLSPosture } from '../api/tls'
-import { useDetections, type Detection } from '../api/threat'
+import {
+  useDetections,
+  useThreatIntelStatus,
+  type Detection,
+  type OpenDataSourceStatus,
+  type ThreatIntelFeedStatus,
+} from '../api/threat'
 import {
   useCreateRemediationProposal,
   useRemediations,
@@ -247,6 +254,135 @@ function DetectionDetail({
 }
 
 type DetSeverityFilter = 'all' | 'info' | 'warning' | 'critical'
+
+function healthTone(enabled: boolean, status: string): BadgeTone {
+  if (!enabled || status === 'disabled') return 'neutral'
+  if (status === 'ok') return 'success'
+  if (status === 'degraded') return 'warning'
+  return 'danger'
+}
+
+function cadenceLabel(seconds: number) {
+  if (!seconds) return 'manual'
+  if (seconds % 86_400 === 0) return `${seconds / 86_400}d`
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`
+  if (seconds % 60 === 0) return `${seconds / 60}m`
+  return `${seconds}s`
+}
+
+function aupLabel(source: OpenDataSourceStatus) {
+  const commercial = source.aup.commercial_use || 'unknown'
+  const license = source.aup.license || 'unpublished'
+  return `${commercial} · ${license}`
+}
+
+function SourceStatusBadge({ source }: { source: OpenDataSourceStatus }) {
+  return <Badge tone={healthTone(source.enabled, source.status)}>{source.status}</Badge>
+}
+
+function SourceLastSuccess({ value }: { value: string }) {
+  return value ? <DateTime value={value} /> : <>never</>
+}
+
+function AUPCell({ source }: { source: OpenDataSourceStatus }) {
+  const label = aupLabel(source)
+  return source.aup.url ? (
+    <a href={source.aup.url} target="_blank" rel="noreferrer">
+      {label}
+    </a>
+  ) : (
+    label
+  )
+}
+
+function ThreatIntelStatusCard() {
+  const status = useThreatIntelStatus()
+
+  const feedColumns: Column<ThreatIntelFeedStatus>[] = [
+    { key: 'name', header: 'Feed', render: (s) => s.name },
+    { key: 'status', header: 'Status', render: (s) => <SourceStatusBadge source={s} /> },
+    { key: 'count', header: 'IOCs', numeric: true, render: (s) => s.ioc_count.toLocaleString() },
+    { key: 'cadence', header: 'Cadence', render: (s) => cadenceLabel(s.cadence_seconds) },
+    { key: 'aup', header: 'AUP', render: (s) => <AUPCell source={s} /> },
+    {
+      key: 'last_success',
+      header: 'Last good',
+      render: (s) => <SourceLastSuccess value={s.last_success} />,
+    },
+    { key: 'last_error', header: 'Last error', render: (s) => s.last_error || '—' },
+  ]
+
+  const sourceColumns: Column<OpenDataSourceStatus>[] = [
+    { key: 'name', header: 'Source', render: (s) => s.name },
+    { key: 'kind', header: 'Kind', render: (s) => s.kind },
+    { key: 'status', header: 'Status', render: (s) => <SourceStatusBadge source={s} /> },
+    { key: 'cadence', header: 'Cadence', render: (s) => cadenceLabel(s.cadence_seconds) },
+    { key: 'aup', header: 'AUP', render: (s) => <AUPCell source={s} /> },
+    {
+      key: 'last_success',
+      header: 'Last good',
+      render: (s) => <SourceLastSuccess value={s.last_success} />,
+    },
+    { key: 'last_error', header: 'Last error', render: (s) => s.last_error || '—' },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="Open-data & intel sources"
+        actions={
+          status.data ? (
+            <div className={styles.actionsRow}>
+              <Badge tone={status.data.threat_intel_enabled ? 'success' : 'neutral'}>
+                intel {status.data.threat_intel_enabled ? 'on' : 'off'}
+              </Badge>
+              <Badge tone={status.data.open_data_enabled ? 'success' : 'neutral'}>
+                open-data {status.data.open_data_enabled ? 'on' : 'off'}
+              </Badge>
+              <Badge tone="neutral">{status.data.ioc_count.toLocaleString()} IOCs</Badge>
+            </div>
+          ) : null
+        }
+      />
+      <CardBody>
+        {status.isLoading ? (
+          <LoadingState label="Loading source status…" />
+        ) : status.isError ? (
+          <ErrorState description="Could not load source status." />
+        ) : status.data ? (
+          <div className={styles.sourceTables}>
+            <Table
+              caption="Threat-intel feed status"
+              columns={feedColumns}
+              rows={status.data.threat_intel_feeds}
+              rowKey={(s) => s.name}
+              empty={
+                <EmptyState title="No feeds" description="No threat-intel feeds are declared." />
+              }
+            />
+            {status.data.open_data_sources.length > 0 ? (
+              <>
+                <h2 className={styles.sectionTitle}>Open-data sources</h2>
+                <Table
+                  caption="Open-data source status"
+                  columns={sourceColumns}
+                  rows={status.data.open_data_sources}
+                  rowKey={(s) => s.name}
+                  empty={
+                    <EmptyState
+                      title="No sources"
+                      description="No open-data sources are registered."
+                    />
+                  }
+                />
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </CardBody>
+    </Card>
+  )
+}
 
 /** DetectionsCard is the IOC/NDR triage list (S-FE3; S42 detections land here). */
 function DetectionsCard() {
@@ -516,6 +652,7 @@ export function SecurityPage() {
       subtitle="Threat triage and certificate posture from observed traffic — signals, never blocks."
     >
       <div className={styles.stack}>
+        <ThreatIntelStatusCard />
         <DetectionsCard />
         <Card>
           <CardHeader title={`Expiring soon (${worklist.length})`} />

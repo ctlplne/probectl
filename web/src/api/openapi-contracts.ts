@@ -514,6 +514,15 @@ export const API_CALL_CONTRACTS = [
       'OpenAPI currently emits JsonObject for threat detections; DetectionsResponse is the explicit view model.',
   },
   {
+    file: 'api/threat.ts',
+    method: 'GET',
+    path: '/threat/intel/status',
+    response: 'ThreatIntelStatusResponse',
+    generated: 'GetThreatIntelStatusResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for the nested AUP/feed matrix; ThreatIntelStatusResponse is the explicit view model.',
+  },
+  {
     file: 'api/tls.ts',
     method: 'GET',
     path: '/tls/posture',

@@ -22,7 +22,8 @@ every dataset — ingredients and permitted use, readable by code, carried with
 the data instead of buried in a wiki. That metadata is the `OpenDataSource`
 model — a source's
 `Descriptor().AUP` — and the live health of each source is surfaced at runtime
-via `Enricher.Status()`.
+via `Enricher.Status()` and the operator route
+`GET /v1/threat/intel/status`.
 
 ## Why provenance matters
 
@@ -79,9 +80,12 @@ Every source obeys the same safety rules, enforced in code:
 (The `name`, license, attribution, and commercial-use cells above are taken
 verbatim from each source's `Descriptor().AUP` in `internal/opendata` —
 `cymru.go`, `maxmind.go`, `peeringdb.go`, `rir.go`. The `name` is what
-`Enricher.Status()` reports per source at runtime. The RIPE Atlas row is the
-exception: it is a *scheduler hook*, not an enrichment source, so it has no
-descriptor — its terms come from RIPE's credit-based AUP, noted in `atlas.go`.)
+`Enricher.Status()` and `GET /v1/threat/intel/status` report per source at
+runtime. The served route also returns `enabled`, `status`, `last_success`, and
+`last_error` so an operator can see which public datasets are actually active
+without sampling probectl's own docs. The RIPE Atlas row is the exception: it
+is a *scheduler hook*, not an enrichment source, so it has no descriptor — its
+terms come from RIPE's credit-based AUP, noted in `atlas.go`.)
 
 Notes:
 

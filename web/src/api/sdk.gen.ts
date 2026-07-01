@@ -1509,6 +1509,11 @@ export interface ListThreatDetectionsRequest {
 
 export type ListThreatDetectionsResponse = JsonObject
 
+export interface GetThreatIntelStatusRequest {
+}
+
+export type GetThreatIntelStatusResponse = JsonObject
+
 export interface ListTlsPostureRequest {
 }
 
@@ -2419,6 +2424,12 @@ export class ProbectlSDKClient {
     let path = "/v1/threat/detections"
     const query = new URLSearchParams()
     return this.requestJSON<ListThreatDetectionsResponse>("GET", path, query, undefined)
+  }
+
+  async getThreatIntelStatus(): Promise<GetThreatIntelStatusResponse> {
+    let path = "/v1/threat/intel/status"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetThreatIntelStatusResponse>("GET", path, query, undefined)
   }
 
   async listTlsPosture(): Promise<ListTlsPostureResponse> {

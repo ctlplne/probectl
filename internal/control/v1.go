@@ -107,6 +107,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/tls/posture", s.handleTLSPosture, permThreatRead},
 		{http.MethodGet, "/v1/siem/status", s.handleSIEMStatus, permThreatRead},
 		{http.MethodGet, "/v1/threat/detections", s.handleThreatDetections, permThreatRead},
+		{http.MethodGet, "/v1/threat/intel/status", s.handleThreatIntelStatus, permThreatRead},
 		{http.MethodGet, "/v1/cmdb/lookup", s.handleCMDBLookup, permCMDBRead},
 		{http.MethodGet, "/v1/secrets/health", s.handleSecretsHealth, permDirectoryRead},
 		{http.MethodGet, "/v1/topology", s.handleTopology, ai.PermTopologyRead},

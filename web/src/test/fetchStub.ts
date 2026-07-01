@@ -75,6 +75,49 @@ const sampleIncident = {
   ],
 }
 
+const sampleIntelStatus = {
+  open_data_enabled: true,
+  threat_intel_enabled: true,
+  ioc_count: 1200,
+  open_data_sources: [
+    {
+      name: 'test_cymru',
+      kind: 'asn',
+      cadence_seconds: 86_400,
+      aup: {
+        license: 'public lookup',
+        url: 'https://terms.example/opendata',
+        attribution: 'Example Data',
+        commercial_use: 'allowed-with-attribution',
+        redistribution: 'cached lookup only',
+      },
+      enabled: true,
+      status: 'ok',
+      last_success: '2026-06-04T12:00:00Z',
+      last_error: '',
+    },
+  ],
+  threat_intel_feeds: [
+    {
+      name: 'feodo_tracker',
+      kind: 'threat_intel',
+      cadence_seconds: 3600,
+      aup: {
+        license: 'abuse.ch CC0',
+        url: 'https://abuse.ch/',
+        attribution: '',
+        commercial_use: 'allowed',
+        redistribution: '',
+      },
+      enabled: true,
+      status: 'ok',
+      last_success: '2026-06-04T12:00:00Z',
+      last_error: '',
+      ioc_count: 1200,
+    },
+  ],
+}
+
 const sampleLatestResults = [
   {
     agent_id: 'a1',
@@ -175,6 +218,7 @@ export function defaultFetch(): typeof fetch {
         evaluator_running: true,
       })
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/threat/intel/status') return jsonResponse(sampleIntelStatus)
     if (path === '/v1/threat/detections')
       return jsonResponse({
         items: [

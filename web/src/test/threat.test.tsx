@@ -43,6 +43,51 @@ function detectionFixtures(): Detection[] {
   ]
 }
 
+function intelStatusFixture() {
+  return {
+    open_data_enabled: true,
+    threat_intel_enabled: true,
+    ioc_count: 1200,
+    open_data_sources: [
+      {
+        name: 'test_cymru',
+        kind: 'asn',
+        cadence_seconds: 86_400,
+        aup: {
+          license: 'public lookup',
+          url: 'https://terms.example/opendata',
+          attribution: 'Example Data',
+          commercial_use: 'allowed-with-attribution',
+          redistribution: 'cached lookup only',
+        },
+        enabled: true,
+        status: 'ok',
+        last_success: '2026-06-04T12:00:00Z',
+        last_error: '',
+      },
+    ],
+    threat_intel_feeds: [
+      {
+        name: 'feodo_tracker',
+        kind: 'threat_intel',
+        cadence_seconds: 3600,
+        aup: {
+          license: 'abuse.ch CC0',
+          url: 'https://abuse.ch/',
+          attribution: '',
+          commercial_use: 'allowed',
+          redistribution: '',
+        },
+        enabled: true,
+        status: 'ok',
+        last_success: '2026-06-04T12:00:00Z',
+        last_error: '',
+        ioc_count: 1200,
+      },
+    ],
+  }
+}
+
 function threatBackend(items: Detection[]) {
   const state = {
     requests: [] as string[],
@@ -55,6 +100,7 @@ function threatBackend(items: Detection[]) {
     const method = init?.method ?? 'GET'
     state.requests.push(`${method} ${url}`)
     if (path === '/v1/threat/detections') return jsonResponse({ items, detections_running: true })
+    if (path === '/v1/threat/intel/status') return jsonResponse(intelStatusFixture())
     if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
     if (path === '/v1/remediation/proposals' && method === 'GET')
       return jsonResponse({ items: [], approvals_enabled: false })
@@ -185,6 +231,7 @@ describe('threat/IOC triage surface (S-FE3)', () => {
       const path = pathOf(input)
       if (path === '/v1/threat/detections')
         return jsonResponse({ items: detectionFixtures(), detections_running: true })
+      if (path === '/v1/threat/intel/status') return jsonResponse(intelStatusFixture())
       if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
       if (path === '/v1/remediation/proposals')
         return jsonResponse({ error: { message: 'not found' } }, 404)
@@ -248,6 +295,7 @@ describe('threat/IOC triage surface (S-FE3)', () => {
       const path = pathOf(input)
       if (path === '/v1/threat/detections')
         return jsonResponse({ items: [], detections_running: false })
+      if (path === '/v1/threat/intel/status') return jsonResponse(intelStatusFixture())
       if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
       return jsonResponse({ items: [] })
     }) as unknown as typeof fetch

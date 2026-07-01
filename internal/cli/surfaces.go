@@ -255,8 +255,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":   {Method: http.MethodGet, Path: "/v1/slos"},
 		"export": {Method: http.MethodGet, Path: "/v1/slos/openslo"},
 	}},
-	"threat": {Name: "threat", Summary: "threat detections", Ops: map[string]apiOp{
-		"detections": {Method: http.MethodGet, Path: "/v1/threat/detections"},
+	"threat": {Name: "threat", Summary: "threat detections and intel status", Ops: map[string]apiOp{
+		"detections":   {Method: http.MethodGet, Path: "/v1/threat/detections"},
+		"intel-status": {Method: http.MethodGet, Path: "/v1/threat/intel/status"},
 	}},
 	"tls": {Name: "tls", Summary: "TLS/certificate posture", Ops: map[string]apiOp{
 		"posture": {Method: http.MethodGet, Path: "/v1/tls/posture"},

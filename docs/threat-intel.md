@@ -174,6 +174,13 @@ Resolve redistribution terms before enabling provider mode commercially.
 Set `PROBECTL_THREATINTEL_FEEDS` to a comma-separated subset of the `name`
 column, or leave it empty to load all built-in feeds.
 
+The live operator matrix is served at `GET /v1/threat/intel/status` and on the
+Security page. It enumerates each feed member-by-member with AUP fields,
+enabled/disabled state, last successful refresh, last error, and retained IOC
+count. When threat intel is disabled, the route still lists the built-in feed
+descriptors with `status: "disabled"` so an operator can review terms before
+turning on outbound fetches.
+
 ## Reliability and accuracy caveats
 
 - **Graceful degradation** — a down or rate-limited external source must never

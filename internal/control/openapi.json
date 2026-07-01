@@ -4814,6 +4814,145 @@
         }
       }
     },
+    "/v1/threat/intel/status": {
+      "get": {
+        "operationId": "getThreatIntelStatus",
+        "summary": "Open-data and threat-intel AUP plus refresh health matrix",
+        "tags": [
+          "threat"
+        ],
+        "description": "Tenant-authenticated, threat.read-gated operator status for shared open-data and threat-intel sources. It enumerates configured open-data sources and built-in threat-intel feed descriptors with AUP/provenance, enabled state, last-good refresh health, last error, and retained IOC counts. The response is shared-source metadata only: no tenant telemetry, detections, flows, or documents are returned.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Open-data and threat-intel status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "open_data_enabled": {
+                      "type": "boolean"
+                    },
+                    "threat_intel_enabled": {
+                      "type": "boolean"
+                    },
+                    "ioc_count": {
+                      "type": "integer"
+                    },
+                    "open_data_sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "cadence_seconds": {
+                            "type": "integer"
+                          },
+                          "aup": {
+                            "type": "object",
+                            "properties": {
+                              "license": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "attribution": {
+                                "type": "string"
+                              },
+                              "commercial_use": {
+                                "type": "string"
+                              },
+                              "redistribution": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "last_success": {
+                            "type": "string"
+                          },
+                          "last_error": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "threat_intel_feeds": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "cadence_seconds": {
+                            "type": "integer"
+                          },
+                          "aup": {
+                            "type": "object",
+                            "properties": {
+                              "license": {
+                                "type": "string"
+                              },
+                              "url": {
+                                "type": "string"
+                              },
+                              "attribution": {
+                                "type": "string"
+                              },
+                              "commercial_use": {
+                                "type": "string"
+                              },
+                              "redistribution": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "last_success": {
+                            "type": "string"
+                          },
+                          "last_error": {
+                            "type": "string"
+                          },
+                          "ioc_count": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/endpoints": {
       "get": {
         "operationId": "listEndpoints",

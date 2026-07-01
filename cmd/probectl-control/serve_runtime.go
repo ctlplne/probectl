@@ -108,6 +108,8 @@ type serveRuntime struct {
 	resultViewSinks []control.ResultSink
 	siemFwd         *siem.Forwarder
 	iocStore        *opendata.IOCStore
+	iocRefresher    *opendata.IntelRefresher
+	threatIntelOn   bool
 	alertingActive  bool
 	nsTenants       map[string]string
 }
@@ -120,6 +122,7 @@ func runServe(cfg *config.Config, db *store.DB, log *slog.Logger, st *serveStore
 	if err := rt.buildServeEngines(); err != nil {
 		return err
 	}
+	rt.configureThreatIntel()
 	if err := rt.buildAPIServer(); err != nil {
 		return err
 	}
@@ -255,6 +258,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithTSDB(rt.tsdbWriter).
 		WithCMDB(rt.cmdbResolver).
 		WithTLSPosture(rt.tlsPostures).
+		WithOpenDataStatus(rt.ipEnricher, rt.iocStore, rt.iocRefresher).
 		WithEndpointViews(rt.endpointViews).
 		WithLatestResults(rt.latestResults).
 		WithSecrets(rt.secretsResolver).
@@ -564,16 +568,18 @@ func (rt *serveRuntime) startSIEM() {
 }
 
 func (rt *serveRuntime) startThreatIntel() {
-	iocStore, iocRefresher, intelOn := control.BuildThreatIntel(rt.cfg, rt.log)
-	rt.iocStore = iocStore
-	if !intelOn {
+	if !rt.threatIntelOn {
 		return
 	}
-	rt.g.Go(func() error { return iocRefresher.Run(rt.gctx) })
+	rt.g.Go(func() error { return rt.iocRefresher.Run(rt.gctx) })
 	ioc := control.NewIOCConsumer(rt.resultBus, rt.correlator, rt.iocStore, rt.log).
 		WithSIEM(rt.siemFwd)
 	rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "threat-intel-ip", Fn: ioc.SinkResult})
 	rt.log.Info("threat-intel enrichment enabled", "refresh", rt.cfg.ThreatIntelRefresh)
+}
+
+func (rt *serveRuntime) configureThreatIntel() {
+	rt.iocStore, rt.iocRefresher, rt.threatIntelOn = control.BuildThreatIntel(rt.cfg, rt.log)
 }
 
 func (rt *serveRuntime) startNDR() error {

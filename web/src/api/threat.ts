@@ -32,11 +32,51 @@ interface DetectionsResponse {
   detections_running: boolean
 }
 
+export interface SourceAUP {
+  license: string
+  url: string
+  attribution: string
+  commercial_use: string
+  redistribution: string
+}
+
+export interface OpenDataSourceStatus {
+  name: string
+  kind: string
+  cadence_seconds: number
+  aup: SourceAUP
+  enabled: boolean
+  status: string
+  last_success: string
+  last_error: string
+}
+
+export interface ThreatIntelFeedStatus extends OpenDataSourceStatus {
+  ioc_count: number
+}
+
+export interface ThreatIntelStatusResponse {
+  open_data_enabled: boolean
+  threat_intel_enabled: boolean
+  ioc_count: number
+  open_data_sources: OpenDataSourceStatus[]
+  threat_intel_feeds: ThreatIntelFeedStatus[]
+}
+
 /** useDetections polls the tenant's recent detections (15s cadence). */
 export function useDetections() {
   return useQuery({
     queryKey: ['threat', 'detections'],
     queryFn: () => apiFetch<DetectionsResponse>('/threat/detections'),
     refetchInterval: 15_000,
+  })
+}
+
+/** useThreatIntelStatus polls the shared feed AUP + last-good health matrix. */
+export function useThreatIntelStatus() {
+  return useQuery({
+    queryKey: ['threat', 'intel-status'],
+    queryFn: () => apiFetch<ThreatIntelStatusResponse>('/threat/intel/status'),
+    refetchInterval: 60_000,
   })
 }

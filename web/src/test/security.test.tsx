@@ -97,6 +97,68 @@ function postureFixtures(): TLSPosture[] {
   ]
 }
 
+function intelStatusFixture() {
+  return {
+    open_data_enabled: true,
+    threat_intel_enabled: true,
+    ioc_count: 2048,
+    open_data_sources: [
+      {
+        name: 'test_cymru',
+        kind: 'asn',
+        cadence_seconds: 86_400,
+        aup: {
+          license: 'public lookup',
+          url: 'https://terms.example/opendata',
+          attribution: 'Example Data',
+          commercial_use: 'allowed-with-attribution',
+          redistribution: 'cached lookup only',
+        },
+        enabled: true,
+        status: 'ok',
+        last_success: '2026-06-04T12:00:00Z',
+        last_error: '',
+      },
+    ],
+    threat_intel_feeds: [
+      {
+        name: 'feodo_tracker',
+        kind: 'threat_intel',
+        cadence_seconds: 3600,
+        aup: {
+          license: 'abuse.ch CC0',
+          url: 'https://abuse.ch/',
+          attribution: '',
+          commercial_use: 'allowed',
+          redistribution: '',
+        },
+        enabled: true,
+        status: 'ok',
+        last_success: '2026-06-04T12:00:00Z',
+        last_error: '',
+        ioc_count: 2048,
+      },
+      {
+        name: 'firehol_level1',
+        kind: 'threat_intel',
+        cadence_seconds: 14_400,
+        aup: {
+          license: 'mixed terms',
+          url: 'https://iplists.firehol.org/',
+          attribution: '',
+          commercial_use: 'restricted',
+          redistribution: 'verify before resale',
+        },
+        enabled: true,
+        status: 'degraded',
+        last_success: '2026-06-04T10:00:00Z',
+        last_error: 'rate limited',
+        ioc_count: 0,
+      },
+    ],
+  }
+}
+
 function tlsBackend(items: TLSPosture[]) {
   const state = { requests: [] as string[] }
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -105,6 +167,7 @@ function tlsBackend(items: TLSPosture[]) {
     if (url.endsWith('/v1/tls/posture')) {
       return jsonResponse({ items, collector_running: true })
     }
+    if (url.endsWith('/v1/threat/intel/status')) return jsonResponse(intelStatusFixture())
     if (url.endsWith('/v1/alerts/active'))
       return jsonResponse({ items: [], evaluator_running: true })
     if (url.endsWith('/v1/alerts')) return jsonResponse({ items: [] })
@@ -137,6 +200,24 @@ describe('TLS/cert posture surface (S-FE2)', () => {
     expect(rows.length).toBe(1 + 2) // header + expired + self/expiring
     expect(within(rows[1]).getByText('expired.acme.example:443')).toBeDefined()
     expect(within(rows[2]).getByText('self.acme.example:8443')).toBeDefined()
+  })
+
+  test('renders the open-data and threat-intel AUP health matrix', async () => {
+    const { fetcher } = tlsBackend(postureFixtures())
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/security')
+
+    expect(await screen.findByText('2,048 IOCs')).toBeDefined()
+    const feeds = within(await screen.findByRole('table', { name: 'Threat-intel feed status' }))
+    expect(feeds.getByText('feodo_tracker')).toBeDefined()
+    expect(feeds.getByText(/allowed · abuse\.ch CC0/)).toBeDefined()
+    expect(feeds.getByText('firehol_level1')).toBeDefined()
+    expect(feeds.getByText(/restricted · mixed terms/)).toBeDefined()
+    expect(feeds.getByText('rate limited')).toBeDefined()
+
+    const sources = within(screen.getByRole('table', { name: 'Open-data source status' }))
+    expect(sources.getByText('test_cymru')).toBeDefined()
+    expect(sources.getByText(/allowed-with-attribution · public lookup/)).toBeDefined()
   })
 
   test('filters by flag and free text', async () => {
@@ -202,6 +283,7 @@ describe('TLS/cert posture surface (S-FE2)', () => {
       const url = String(input)
       if (url.endsWith('/v1/tls/posture'))
         return jsonResponse({ items: [], collector_running: false })
+      if (url.endsWith('/v1/threat/intel/status')) return jsonResponse(intelStatusFixture())
       return jsonResponse({ items: [] })
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', fetcher)

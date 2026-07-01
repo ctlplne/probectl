@@ -35,6 +35,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
+	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
 	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/promapi"
@@ -128,6 +129,13 @@ type Server struct {
 	// the durable incident_signals table via pool/RLS. WithDetections remains as
 	// the lightweight in-memory fallback for tests and DB-less profiles.
 	detections *threat.DetectionStore
+
+	// Open-data / threat-intel AUP + health matrix (THREAT-003). External feeds
+	// are shared infrastructure, so this status is operator metadata, not tenant
+	// telemetry; the route is still tenant-authenticated and threat.read guarded.
+	openDataEnricher *opendata.Enricher
+	iocStore         *opendata.IOCStore
+	intelRefresher   *opendata.IntelRefresher
 
 	// Endpoint DEM views (S-FE4): the snapshot store the endpoint-view consumer
 	// maintains. Set via WithEndpointViews; nil reports collector_running=false.
