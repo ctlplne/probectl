@@ -702,6 +702,7 @@ func startHAAndTenantLifecycle(
 	srv.WithTenantLife(lifeEngine)
 	g.Go(func() error { lifeEngine.RunRetention(ctx, 24*time.Hour); return nil })
 
+	var providerAuditWatermark audit.ProviderWatermarkFunc
 	if cfg.AuditWORMDir != "" {
 		wormStore, werr := objectstore.NewFS(cfg.AuditWORMDir)
 		if werr != nil {
@@ -720,8 +721,17 @@ func startHAAndTenantLifecycle(
 			return nil, fmt.Errorf("audit worm exporter: %w", werr)
 		}
 		worm.WithMetrics(srv.Metrics())
+		providerAuditWatermark = worm.ExportedWatermark
 		g.Go(func() error { worm.Run(ctx, cfg.AuditWORMInterval); return nil })
 		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
+	}
+	if cfg.AuditRetention > 0 {
+		retention := audit.NewRetentionRunnerPG(db.Pool(), audit.RetentionPolicy{Window: cfg.AuditRetention}, providerAuditWatermark, log)
+		g.Go(func() error { retention.Run(ctx, time.Hour); return nil })
+		log.Info("audit retention prune enabled",
+			"retention", cfg.AuditRetention.String(),
+			"interval", time.Hour.String(),
+			"provider_watermark", providerAuditWatermark != nil)
 	}
 
 	srv.WithTenantStatus(control.NewTenantStatusCache(db.Pool(), 0))

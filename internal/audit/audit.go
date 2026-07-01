@@ -111,6 +111,28 @@ func TenantVerify(ctx context.Context, s tenancy.Scope) error {
 	return verify(rows, s.Tenant.String(), genesis)
 }
 
+// TenantVerifyFrom recomputes the tenant chain AFTER afterSeq, anchoring on that
+// record's stored hash. It is the scoped verifier used after retention pruning:
+// the pruned prefix is proven by WORM/SIEM export, while the kept suffix must
+// still be internally unbroken.
+func TenantVerifyFrom(ctx context.Context, s tenancy.Scope, afterSeq int64) error {
+	prev := genesis
+	if afterSeq > 0 {
+		if err := s.Q.QueryRow(ctx,
+			`SELECT hash FROM audit_events WHERE seq = $1`, afterSeq).Scan(&prev); err != nil {
+			return fmt.Errorf("read tenant audit anchor seq %d: %w", afterSeq, err)
+		}
+	}
+	rows, err := s.Q.Query(ctx,
+		`SELECT seq, actor, action, target, data, prev_hash, hash FROM audit_events
+		  WHERE seq > $1 ORDER BY seq`, afterSeq)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	return verify(rows, s.Tenant.String(), prev)
+}
+
 // ProviderAppend appends an event to the global provider/break-glass chain.
 // It opens its own transaction so the same advisory-lock serialization that
 // protects the per-tenant chains protects the global one (see TenantAppend) —

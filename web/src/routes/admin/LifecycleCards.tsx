@@ -108,6 +108,11 @@ export function LifecycleCard() {
                 Redacted export
               </a>
             </p>
+            <p className={styles.editionsLede}>
+              Audit retention is deployment-level: PROBECTL_AUDIT_RETENTION defaults to keep
+              forever. When enabled, local audit rows prune only after WORM/SIEM export
+              receipts; unexported evidence stays.
+            </p>
             <form
               className={styles.actions}
               onSubmit={(e) => {

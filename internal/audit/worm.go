@@ -252,6 +252,16 @@ func (w *WormExporter) ExportOnce(ctx context.Context) (int, error) {
 	return len(events), nil
 }
 
+// ExportedWatermark returns the highest provider-audit seq already present in
+// signed WORM segments. The retention runner uses this as a durable export
+// receipt; if the object store cannot be read, pruning fails closed.
+func (w *WormExporter) ExportedWatermark(ctx context.Context) (int64, error) {
+	if w == nil {
+		return 0, nil
+	}
+	return w.lastExportedSeq(ctx)
+}
+
 // lastExportedSeq derives the cursor from the existing segment keys (no
 // mutable state object — the segments themselves are the ledger).
 func (w *WormExporter) lastExportedSeq(ctx context.Context) (int64, error) {
