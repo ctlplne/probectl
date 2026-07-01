@@ -6546,7 +6546,7 @@
       "post": {
         "operationId": "registerCollector",
         "summary": "Register a tenant-scoped bus collector from a one-time enrollment token",
-        "description": "Consumes a tenant-scoped one-time token inside the caller tenant and returns the collector identity to stamp on flow, device, eBPF, or endpoint records.",
+        "description": "Consumes a tenant-scoped one-time token inside the caller tenant and returns the collector identity to stamp on BGP, flow, device, eBPF, or endpoint records.",
         "tags": [
           "agents"
         ],
@@ -9157,6 +9157,7 @@
           "plane": {
             "type": "string",
             "enum": [
+              "bgp",
               "flow",
               "device",
               "ebpf",
@@ -9187,6 +9188,10 @@
             "additionalProperties": {
               "type": "string"
             }
+          },
+          "startup_command": {
+            "type": "string",
+            "description": "Optional command to start the matching collector binary with the returned env/YAML hints."
           }
         },
         "required": [
@@ -9206,6 +9211,7 @@
           "plane": {
             "type": "string",
             "enum": [
+              "bgp",
               "flow",
               "device",
               "ebpf",

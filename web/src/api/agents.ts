@@ -30,7 +30,7 @@ export interface AgentEnrollToken {
   server_cert_pin?: string
 }
 
-export type CollectorPlane = 'flow' | 'device' | 'ebpf' | 'endpoint'
+export type CollectorPlane = 'bgp' | 'flow' | 'device' | 'ebpf' | 'endpoint'
 
 export interface RegisterCollectorInput {
   token: string
@@ -47,6 +47,7 @@ export interface CollectorRegistration {
   config: {
     env: Record<string, string>
     yaml: Record<string, string>
+    startup_command?: string
   }
 }
 

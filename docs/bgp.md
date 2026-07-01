@@ -107,6 +107,16 @@ the RPKI verdict — enough to act in seconds.
 To ingest direct router BMP streams, run the listener with a server certificate and
 the CA that signs router/client certificates:
 
+From the product surface, go to **Admin & Settings > Agents > Register
+collector**, choose **BGP**, and enter a source label such as `rrc00`. The
+control plane mints and consumes a one-time tenant token without the browser
+sending `tenant_id`, then returns the BMP env/YAML hints, `source_type: bmp`,
+and the startup command. Automation can call the same surface with:
+
+```sh
+probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'
+```
+
 ```sh
 PROBECTL_BMP_LISTEN_ADDR=:1179 \
 PROBECTL_BMP_TLS_CERT_FILE=/etc/probectl/bmp/tls.crt \

@@ -281,7 +281,12 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S13',
     kind: 'native',
     route: '/planes/bgp',
-    evidence: ['openapi:/v1/bgp/events', 'cli:probectl bgp events', 'file:docs/bgp.md'],
+    evidence: [
+      'openapi:/v1/bgp/events',
+      'cli:probectl bgp events',
+      'cli:probectl bgp setup',
+      'file:docs/bgp.md',
+    ],
   },
   {
     capability: 'Flow analytics APIs and ClickHouse-backed views',

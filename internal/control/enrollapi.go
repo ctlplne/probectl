@@ -146,8 +146,9 @@ func (s *Server) handleMintEnrollToken(w http.ResponseWriter, r *http.Request) e
 }
 
 type collectorConfigHint struct {
-	Env  map[string]string `json:"env"`
-	YAML map[string]string `json:"yaml"`
+	Env            map[string]string `json:"env"`
+	YAML           map[string]string `json:"yaml"`
+	StartupCommand string            `json:"startup_command,omitempty"`
 }
 
 type collectorRegistrationResponse struct {
@@ -200,7 +201,7 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 			s.authLimiter.Fail("ip:" + clientIP(r))
 			return apierror.Unauthorized("invalid enrollment token")
 		case errors.Is(err, enroll.ErrInvalidCollectorPlane):
-			return apierror.BadRequest("collector plane must be one of: flow, device, ebpf, endpoint")
+			return apierror.BadRequest("collector plane must be one of: bgp, flow, device, ebpf, endpoint")
 		}
 		s.log.Error("collector registration failed", "error", err.Error())
 		return apierror.Internal("collector registration failed")
@@ -212,6 +213,26 @@ func (s *Server) handleRegisterCollector(w http.ResponseWriter, r *http.Request)
 func collectorConfig(plane, tenantID, agentID string) collectorConfigHint {
 	h := collectorConfigHint{Env: map[string]string{}, YAML: map[string]string{"tenant_id": tenantID}}
 	switch plane {
+	case "bgp":
+		h.Env["PROBECTL_BGP_TENANT_ID"] = tenantID
+		h.Env["PROBECTL_BMP_COLLECTOR"] = agentID
+		h.Env["PROBECTL_BMP_LISTEN_ADDR"] = ":1179"
+		h.Env["PROBECTL_BMP_TLS_CERT_FILE"] = "/etc/probectl/bmp/tls.crt"
+		h.Env["PROBECTL_BMP_TLS_KEY_FILE"] = "/etc/probectl/bmp/tls.key"
+		h.Env["PROBECTL_BMP_TLS_CA_FILE"] = "/etc/probectl/agent-ca.crt"
+		h.Env["PROBECTL_BMP_BUS_MODE"] = "kafka"
+		h.Env["PROBECTL_BMP_BUS_BROKERS"] = "kafka-1:9093"
+		h.Env["PROBECTL_BMP_BUS_TLS_ENABLED"] = "true"
+		h.YAML["collector"] = agentID
+		h.YAML["source_type"] = "bmp"
+		h.YAML["listen_addr"] = ":1179"
+		h.YAML["tls_cert_file"] = "/etc/probectl/bmp/tls.crt"
+		h.YAML["tls_key_file"] = "/etc/probectl/bmp/tls.key"
+		h.YAML["tls_ca_file"] = "/etc/probectl/agent-ca.crt"
+		h.YAML["bus_mode"] = "kafka"
+		h.YAML["bus_brokers"] = "kafka-1:9093"
+		h.YAML["bus_tls_enabled"] = "true"
+		h.StartupCommand = "probectl-bmp-listener"
 	case "flow":
 		h.Env["PROBECTL_FLOW_TENANT"] = tenantID
 		h.Env["PROBECTL_FLOW_AGENT_ID"] = agentID

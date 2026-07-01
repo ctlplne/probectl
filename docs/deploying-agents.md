@@ -41,13 +41,14 @@ own schedule — which means the depot has to be standing.
   and the high-cardinality planes land in **ClickHouse** (the column store built
   for billions of small event rows) — so these producers
   imply *"you are running Kafka + ClickHouse"* (or the lightweight in-memory bus,
-  for a single-node dev box only). This is the **flow**, **device**, **eBPF**, and
-  **endpoint** producers — the postal model, and the depot is Kafka.
+  for a single-node dev box only). This is the **BGP**, **flow**, **device**,
+  **eBPF**, and **endpoint** producers — the postal model, and the depot is
+  Kafka.
 
 So: a synthetic-only deployment can run with just the control plane and its
-Postgres. The moment you want flow, device telemetry, eBPF, or endpoint data at
-fleet scale, you are also standing up Kafka and ClickHouse. Each section below
-says which camp its producer is in.
+Postgres. The moment you want BGP router feeds, flow, device telemetry, eBPF, or
+endpoint data at fleet scale, you are also standing up Kafka and ClickHouse.
+Each section below says which camp its producer is in.
 
 ## Enroll once: how an agent gets its identity
 
@@ -127,7 +128,7 @@ threat model, see **[agent enrollment & rotation](agent/enrollment.md)**.
 
 ## Register bus collectors
 
-Flow, device, eBPF, and endpoint collectors publish to the bus instead of
+BGP, flow, device, eBPF, and endpoint collectors publish to the bus instead of
 streaming over the mTLS agent channel, so they do not redeem an SVID. They still
 need a tenant-bound registry identity: every published record carries
 `tenant_id` and `agent_id`, and the control plane checks that pair against the
@@ -148,13 +149,16 @@ probectl agent enroll-token --body '{"name":"edge-flow-1","ttl_seconds":300}'
 
 # 2. Register the collector with that token.
 probectl collector register --body '{"token":"pjt_...","plane":"flow","hostname":"edge-flow-1"}'
+probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'
 ```
 
 The response includes `tenant_id`, `agent_id`, `capabilities`, and concrete
 config hints. Flow, device, and endpoint use `agent_id` in YAML/env. eBPF's
 current runtime uses `host` as its bus `agent_id`, so the eBPF hint returns
 `host: <collector-id>` and `PROBECTL_EBPF_HOST=<collector-id>` instead of
-inventing a second unsupported key.
+inventing a second unsupported key. BGP returns BMP listener hints, including
+`source_type: bmp`, `PROBECTL_BMP_COLLECTOR=<collector-id>`, and the startup
+command `probectl-bmp-listener`.
 
 ## The producers
 

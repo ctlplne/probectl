@@ -165,6 +165,7 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
 }
 
 const collectorPlanes: { value: CollectorPlane; label: string }[] = [
+  { value: 'bgp', label: 'BGP' },
   { value: 'flow', label: 'Flow' },
   { value: 'device', label: 'Device' },
   { value: 'ebpf', label: 'eBPF' },
@@ -208,6 +209,7 @@ function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: ()
   }
 
   const envText = registered ? formatKeyValues(registered.config.env) : ''
+  const labelPlaceholder = plane === 'bgp' ? 'rrc00' : 'edge-flow-1'
 
   return (
     <Modal
@@ -238,6 +240,9 @@ function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: ()
           <p className={styles.editionsLede}>
             Capabilities: <code>{registered.capabilities.join(', ')}</code>
           </p>
+          {registered.config.startup_command ? (
+            <Field label="Startup command" value={registered.config.startup_command} readOnly />
+          ) : null}
           <p className={styles.editionsLede}>Environment</p>
           {Object.entries(registered.config.env).map(([key, value]) => (
             <Field key={key} label={key} value={`${key}=${value}`} readOnly />
@@ -269,7 +274,7 @@ function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: ()
             label="Collector label"
             value={hostname}
             onChange={(e) => setHostname(e.target.value)}
-            placeholder="edge-flow-1"
+            placeholder={labelPlaceholder}
             hint="Optional host or source label recorded in the registry."
           />
           <Field

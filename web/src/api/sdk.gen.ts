@@ -236,12 +236,13 @@ export interface ChannelSpec {
 
 export interface CollectorConfigHint {
   env: { [key: string]: string }
+  startup_command?: string
   yaml: { [key: string]: string }
 }
 
 export interface CollectorRegisterRequest {
   hostname?: string
-  plane: "flow" | "device" | "ebpf" | "endpoint"
+  plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
   token: string
 }
 
@@ -250,7 +251,7 @@ export interface CollectorRegistration {
   capabilities: string[]
   config: CollectorConfigHint
   hostname?: string
-  plane: "flow" | "device" | "ebpf" | "endpoint"
+  plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
   tenant_id: string
 }
 

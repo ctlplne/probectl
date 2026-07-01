@@ -61,6 +61,7 @@ var surfaceCommands = map[string]surfaceCommand{
 	}},
 	"bgp": {Name: "bgp", Summary: "BGP/routing events", Ops: map[string]apiOp{
 		"events": {Method: http.MethodGet, Path: "/v1/bgp/events", Description: "list tenant BGP/routing events"},
+		"setup":  {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a tenant BGP source/collector"},
 	}},
 	"carbon": {Name: "carbon", Summary: "carbon and energy estimates", Ops: map[string]apiOp{
 		"summary": {Method: http.MethodGet, Path: "/v1/carbon"},

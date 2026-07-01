@@ -45,7 +45,7 @@ const PRD_ROW_SURFACE_PARITY: Array<{
     name: 'BGP monitoring',
     kind: 'native',
     route: '/planes/bgp',
-    evidence: ['openapi:/v1/bgp/events', 'cli:probectl bgp events'],
+    evidence: ['openapi:/v1/bgp/events', 'cli:probectl bgp events', 'cli:probectl bgp setup'],
   },
   {
     id: 'F11',

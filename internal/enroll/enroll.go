@@ -281,7 +281,7 @@ type CollectorIdentity struct {
 }
 
 // RegisterCollector is the sanctioned registration path for bus-publishing
-// collectors: the eBPF, flow, device, and endpoint planes (ARCH-011). They
+// collectors: the BGP, eBPF, flow, device, and endpoint planes (ARCH-011). They
 // publish straight to the bus rather than streaming over the agent gRPC, so
 // they never went through Enroll and had NO registry row; the tenant-binding
 // then rejected their batches fail-closed. RegisterCollector consumes a
@@ -339,7 +339,7 @@ func (s *Service) RegisterCollectorForTenant(ctx context.Context, expectedTenant
 func NormalizeCollectorPlane(plane string) (string, error) {
 	plane = strings.ToLower(strings.TrimSpace(plane))
 	switch plane {
-	case "flow", "device", "ebpf", "endpoint":
+	case "bgp", "flow", "device", "ebpf", "endpoint":
 		return plane, nil
 	default:
 		return "", ErrInvalidCollectorPlane

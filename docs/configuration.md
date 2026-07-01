@@ -680,6 +680,11 @@ the tenant from that verified certificate instead of trusting any BMP payload
 field. Route-monitoring updates are decoded, the peer is recorded in an
 in-process tenant-scoped peer inventory, and each observed prefix is published to
 the same `probectl.bgp.events` topic as the public-collector analyzer.
+The setup on-ramp is the same tenant-bound collector registration used by the
+other bus publishers: **Admin & Settings > Agents > Register collector > BGP**
+or `probectl bgp setup --body '{"token":"pjt_...","plane":"bgp","hostname":"rrc00"}'`.
+The response includes `source_type: bmp`, `PROBECTL_BMP_COLLECTOR`, and the
+startup command `probectl-bmp-listener`.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |

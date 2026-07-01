@@ -544,6 +544,60 @@ func TestCLIBGPSurfaceEvents(t *testing.T) {
 	}
 }
 
+func TestCLIBGPSetupSurfaceRegistersBGPSource(t *testing.T) {
+	op, ok := surfaceCommands["bgp"].Ops["setup"]
+	if !ok {
+		t.Fatal("missing probectl bgp setup surface")
+	}
+	if op.Method != http.MethodPost || op.Path != "/v1/collectors/register" {
+		t.Fatalf("bgp setup op = %+v, want POST /v1/collectors/register", op)
+	}
+
+	var seen map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/collectors/register", func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&seen); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"tenant_id":    "00000000-0000-0000-0000-000000000001",
+			"agent_id":     "11111111-1111-4111-8111-111111111111",
+			"plane":        "bgp",
+			"hostname":     "rrc00",
+			"capabilities": []string{"collector", "bgp"},
+			"config": map[string]any{
+				"env": map[string]string{
+					"PROBECTL_BGP_TENANT_ID": "00000000-0000-0000-0000-000000000001",
+					"PROBECTL_BMP_COLLECTOR": "11111111-1111-4111-8111-111111111111",
+				},
+				"yaml": map[string]string{
+					"tenant_id":   "00000000-0000-0000-0000-000000000001",
+					"collector":   "11111111-1111-4111-8111-111111111111",
+					"source_type": "bmp",
+				},
+				"startup_command": "probectl-bmp-listener",
+			},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	body := `{"token":"pjt_token","plane":"bgp","hostname":"rrc00"}`
+	out, errs, code := run(t, srv, "--json", "bgp", "setup", "--body", body)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if seen["token"] != "pjt_token" || seen["plane"] != "bgp" || seen["hostname"] != "rrc00" {
+		t.Fatalf("request body = %#v", seen)
+	}
+	if !strings.Contains(out, `"plane": "bgp"`) ||
+		!strings.Contains(out, "PROBECTL_BMP_COLLECTOR") ||
+		!strings.Contains(out, "probectl-bmp-listener") {
+		t.Fatalf("BGP setup output missing identity/config: %s", out)
+	}
+}
+
 func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["list"]; got.Method != http.MethodGet || got.Path != "/v1/devices" {
 		t.Fatalf("device list op = %+v, want GET /v1/devices", got)
