@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 )
@@ -103,6 +104,67 @@ func TestCorrelatorGroupsNetworkAndBGP(t *testing.T) {
 	// Timeline is time-ordered network → BGP.
 	if i2.Signals[0].Plane != "network" || i2.Signals[1].Plane != "bgp" {
 		t.Errorf("timeline order = %s,%s", i2.Signals[0].Plane, i2.Signals[1].Plane)
+	}
+}
+
+func TestCorrelatorObserverDoesNotHoldTenantLock(t *testing.T) {
+	store := NewMemoryStore()
+	observerEntered := make(chan struct{})
+	releaseObserver := make(chan struct{})
+	var enteredOnce, releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releaseObserver) })
+
+	c := NewCorrelator(store, 5*time.Minute, discard(), WithObserver(func(_ context.Context, _ *Incident, opened bool) {
+		if !opened {
+			return
+		}
+		enteredOnce.Do(func() { close(observerEntered) })
+		<-releaseObserver
+	}))
+	ctx := context.Background()
+	firstErr := make(chan error, 1)
+	go func() {
+		_, err := c.Ingest(ctx, Signal{
+			TenantID: "t1", Plane: "network", Kind: "alert.firing", Target: "192.0.2.10",
+			OccurredAt: t0,
+		})
+		firstErr <- err
+	}()
+
+	select {
+	case <-observerEntered:
+	case <-time.After(time.Second):
+		t.Fatal("first ingest did not reach the blocking observer")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := c.Ingest(ctx, Signal{
+			TenantID: "t1", Plane: "bgp", Kind: "bgp.possible_hijack", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
+			OccurredAt: t0.Add(time.Second),
+		})
+		secondDone <- err
+	}()
+	select {
+	case err := <-secondDone:
+		if err != nil {
+			t.Fatalf("second ingest: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second same-tenant ingest blocked behind observer-held tenant lock")
+	}
+
+	releaseOnce.Do(func() { close(releaseObserver) })
+	select {
+	case err := <-firstErr:
+		if err != nil {
+			t.Fatalf("first ingest: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first ingest did not finish after observer release")
+	}
+	if store.Len() != 1 {
+		t.Fatalf("related signals should still land in one incident, got %d", store.Len())
 	}
 }
 

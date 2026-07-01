@@ -68,6 +68,15 @@ func (c *captureConnector) resolved() int {
 	return len(c.resolve)
 }
 
+func drainNotify(t *testing.T, d *notify.Dispatcher, tenant string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := d.Drain(ctx, tenant); err != nil {
+		t.Fatalf("drain notify dispatcher: %v", err)
+	}
+}
+
 func openIncidentVia(t *testing.T, db *store.DB, d *notify.Dispatcher, tenant, target string) *incident.Incident {
 	t.Helper()
 	corr := BuildCorrelator(db.Pool(), time.Minute, logging.New(io.Discard, "error", "json"),
@@ -80,6 +89,7 @@ func openIncidentVia(t *testing.T, db *store.DB, d *notify.Dispatcher, tenant, t
 	if err != nil {
 		t.Fatalf("ingest: %v", err)
 	}
+	drainNotify(t, d, tenant)
 	return inc
 }
 
@@ -103,6 +113,7 @@ func TestIncidentOpenPagesAndTicketsIdempotent(t *testing.T) {
 	// A correlated follow-up (same target, within window) must NOT re-page.
 	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
 	d.Opened(ctx, *inc) // simulate a redelivery / restart re-emitting "opened"
+	drainNotify(t, d, tenant)
 	if pd.opened() != 1 || sn.opened() != 1 {
 		t.Fatalf("redelivery must be idempotent: pd=%d sn=%d", pd.opened(), sn.opened())
 	}
@@ -162,6 +173,7 @@ func TestInboundResolveSyncsAndLoopProtected(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("inbound resolve should be 202, got %d: %s", rec.Code, rec.Body)
 	}
+	drainNotify(t, d, tenant)
 
 	// The incident is resolved.
 	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
@@ -191,6 +203,7 @@ func TestInboundResolveSyncsAndLoopProtected(t *testing.T) {
 	dup.Header.Set("X-Probectl-Signature", sign(secret, body))
 	dr := httptest.NewRecorder()
 	h.ServeHTTP(dr, dup)
+	drainNotify(t, d, tenant)
 	if pd.resolved() != 1 {
 		t.Fatalf("duplicate inbound must not re-resolve pagerduty, got %d", pd.resolved())
 	}

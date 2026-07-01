@@ -46,9 +46,10 @@ type TransactionalStore interface {
 
 // Observer is notified of an incident lifecycle transition during Ingest: opened
 // is true when the signal opened a NEW incident, false when it was correlated
-// into an existing one. It runs synchronously after the store commits, so it sees
-// a persisted incident; it must not block for long (S33 wires incident → on-call
-// /ITSM here). A nil observer is a no-op.
+// into an existing one. It runs after the store commits and after the tenant
+// correlation lock is released, so it sees a persisted incident without putting
+// connector backpressure on the correlation critical section. A nil observer is
+// a no-op.
 type Observer func(ctx context.Context, inc *Incident, opened bool)
 
 // Option configures a Correlator.
@@ -135,9 +136,19 @@ func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) 
 		sig.Severity = SeverityInfo
 	}
 
+	updated, opened, err := c.correlateLocked(ctx, sig)
+	if err != nil {
+		return nil, err
+	}
+	c.notify(ctx, updated, opened)
+	return updated, nil
+}
+
+func (c *Correlator) correlateLocked(ctx context.Context, sig Signal) (*Incident, bool, error) {
 	// CORRECT-013: hold the per-tenant lock across the whole read→correlate→
 	// create sequence so concurrent signals for one tenant cannot both open a
-	// fresh incident for the same event.
+	// fresh incident for the same event. Observer work happens after this helper
+	// returns, so slow notification connectors cannot hold the tenant lock.
 	lock := c.tenantLock(sig.TenantID)
 	lock.Lock()
 	defer lock.Unlock()
@@ -156,10 +167,9 @@ func (c *Correlator) Ingest(ctx context.Context, sig Signal) (*Incident, error) 
 		updated, opened, err = c.ingestWithStore(ctx, c.store, sig)
 	}
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	c.notify(ctx, updated, opened)
-	return updated, nil
+	return updated, opened, nil
 }
 
 func (c *Correlator) ingestWithStore(ctx context.Context, st Store, sig Signal) (*Incident, bool, error) {

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
@@ -21,6 +22,15 @@ func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)
 
 func sampleIncident() incident.Incident {
 	return incident.Incident{ID: "i1", TenantID: "t1", Title: "packet loss high", Severity: incident.SeverityCritical, Target: "10.0.0.5"}
+}
+
+func drain(t *testing.T, d *Dispatcher, tenant string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := d.Drain(ctx, tenant); err != nil {
+		t.Fatalf("drain dispatcher: %v", err)
+	}
 }
 
 // --- fake HTTP client ---
@@ -259,6 +269,7 @@ func TestDispatcherOpenIsIdempotent(t *testing.T) {
 
 	d.Opened(context.Background(), inc)
 	d.Opened(context.Background(), inc) // a retry / control-plane restart
+	drain(t, d, "t1")
 
 	if n := countAction(fd.calls(), "trigger"); n != 1 {
 		t.Fatalf("expected exactly one page on retry, got %d", n)
@@ -285,6 +296,7 @@ func TestDispatcherLoopProtection(t *testing.T) {
 	d.Opened(context.Background(), inc)
 	// Resolution ARRIVED from servicenow → sync pagerduty, do NOT echo servicenow.
 	d.Resolved(context.Background(), inc, "servicenow")
+	drain(t, d, "t1")
 
 	if got := countAction(pdFD.calls(), "resolve"); got != 1 {
 		t.Fatalf("pagerduty should be resolved once, got %d", got)
@@ -304,6 +316,7 @@ func TestDispatcherLoopProtection(t *testing.T) {
 	// A duplicate inbound resolve is a no-op (idempotent).
 	before := len(pdFD.calls())
 	d.Resolved(context.Background(), inc, "servicenow")
+	drain(t, d, "t1")
 	if len(pdFD.calls()) != before {
 		t.Fatal("duplicate resolve should be a no-op")
 	}
@@ -319,12 +332,54 @@ func TestDispatcherGracefulDegrade(t *testing.T) {
 	inc := sampleIncident()
 
 	d.Opened(context.Background(), inc) // must not panic
+	drain(t, d, "t1")
 
 	if l, _ := store.Get(context.Background(), "t1", "i1", "opsgenie"); l != nil {
 		t.Fatal("a failed open must not persist a link (so it retries next time)")
 	}
 	if l, _ := store.Get(context.Background(), "t1", "i1", "pagerduty"); l == nil {
 		t.Fatal("the healthy connector should still have opened")
+	}
+}
+
+type blockingConnector struct {
+	name    string
+	started chan struct{}
+	once    sync.Once
+}
+
+func (c *blockingConnector) Name() string           { return c.name }
+func (c *blockingConnector) Capability() Capability { return CapabilityPager }
+func (c *blockingConnector) Open(ctx context.Context, _ incident.Incident) (Delivery, error) {
+	c.once.Do(func() { close(c.started) })
+	<-ctx.Done()
+	return Delivery{}, ctx.Err()
+}
+func (c *blockingConnector) Resolve(ctx context.Context, _ incident.Incident, _ string) error {
+	c.once.Do(func() { close(c.started) })
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestDispatcherConnectorTimeoutReleasesTenantQueue(t *testing.T) {
+	store := newMemStore()
+	slow := &blockingConnector{name: "slow", started: make(chan struct{})}
+	d := NewDispatcher(store, quiet()).WithDispatchControls(4, 25*time.Millisecond)
+	d.Register("t1", slow)
+
+	start := time.Now()
+	d.Opened(context.Background(), sampleIncident())
+	select {
+	case <-slow.started:
+	case <-time.After(time.Second):
+		t.Fatal("slow connector did not start")
+	}
+	drain(t, d, "t1")
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("connector timeout did not release queue promptly; elapsed=%s", elapsed)
+	}
+	if l, _ := store.Get(context.Background(), "t1", "i1", "slow"); l != nil {
+		t.Fatal("timed-out connector must not persist an open link")
 	}
 }
 
