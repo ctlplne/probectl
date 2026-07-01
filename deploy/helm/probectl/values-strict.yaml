@@ -49,10 +49,11 @@ networkPolicy:
 
 # OPS-005: scrape /metrics via the Prometheus Operator (the monitoring
 # namespace is the second ingress selector above).
-# OPS-012: the strict/regulated profile must not scrape over plaintext — guardrail
-# §7.12 puts TLS on every listener. The control process serves HTTPS directly
-# from control.tls.existingSecret; Service, probes, ingress, and ServiceMonitor
-# all target that same HTTPS listener.
+# OPS-012/WIRE-003: the strict/regulated profile must not scrape over plaintext
+# or rely on the ingress-terminated plaintext backend — guardrail §7.12 puts TLS
+# on every listener. The control process serves HTTPS directly from
+# control.tls.existingSecret; Service, probes, ingress, and ServiceMonitor all
+# target that same HTTPS listener.
 metrics:
   serviceMonitor:
     enabled: true

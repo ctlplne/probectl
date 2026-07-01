@@ -20,18 +20,20 @@ touching its safety cage. Two charts ship here:
   (the controller that runs exactly one copy per node — right for a per-host
   capture agent; see [its section](#the-agent-chart-probectl-agent)).
 
-The control-plane chart is **HTTPS-by-default**: the API is exposed only through
-a TLS-terminating ingress that emits HSTS (the header telling browsers to
-refuse plaintext HTTP for this host from then on) and force-redirects
-HTTP → HTTPS; the
-Service is `ClusterIP` (a cluster-internal virtual IP, unreachable from
-outside), so no plaintext API is reachable from outside the
-cluster ("TLS on every listener" is a
-[non-negotiable](../../CONTRIBUTING.md#non-negotiables)). The in-cluster API pod
-hop is plaintext behind that ingress, so the default NetworkPolicy allows it
-only from the named ingress-controller namespace and fails closed if that source
-list is empty. The database migration runs as an init container; the pod runs
-non-root with a read-only root filesystem.
+The control-plane chart is **HTTPS-by-default at the public edge**: the API is
+exposed only through a TLS-terminating ingress that emits HSTS (the header
+telling browsers to refuse plaintext HTTP for this host from then on) and
+force-redirects HTTP → HTTPS; the Service is `ClusterIP` (a cluster-internal
+virtual IP, unreachable from outside), so no plaintext API is reachable from
+outside the cluster. The in-cluster API pod hop is plaintext behind that ingress,
+so the default NetworkPolicy allows it only from the named ingress-controller
+namespace and fails closed if that source list is empty. Treat that backend as
+the ingress-termination compatibility profile. For regulated installs that
+require TLS on the pod listener too, use `probectl/values-strict.yaml`: the
+control process serves HTTPS directly, and the Service, probes, ingress backend,
+and ServiceMonitor all target that same HTTPS listener. The database migration
+runs as an init container; the pod runs non-root with a read-only root
+filesystem.
 
 ## Install (single-tenant / sovereign)
 

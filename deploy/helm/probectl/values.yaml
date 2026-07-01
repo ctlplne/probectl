@@ -1,10 +1,13 @@
 # Default values for probectl — SINGLE-TENANT (sovereign) reference.
 #
-# HTTPS-by-default: the ingress terminates TLS and sets HSTS; the Service is
-# ClusterIP (no plaintext API is exposed externally), and the default
-# NetworkPolicy allows the plaintext in-cluster API hop only from the named
-# ingress-controller namespace. See values-multitenant.yaml for the MSP /
-# provider reference.
+# HTTPS-by-default at the public edge: the ingress terminates TLS and sets HSTS;
+# the Service is ClusterIP (no plaintext API is exposed externally), and the
+# default NetworkPolicy allows the plaintext in-cluster API hop only from the
+# named ingress-controller namespace. This is the ingress-termination
+# compatibility profile. Regulated installs that require TLS on the pod listener
+# too use values-strict.yaml, where the control process serves HTTPS directly
+# and ServiceMonitor/probes/ingress target that HTTPS backend. See
+# values-multitenant.yaml for the MSP / provider reference.
 
 image:
   repository: ghcr.io/imfeelingtheagi/probectl-control

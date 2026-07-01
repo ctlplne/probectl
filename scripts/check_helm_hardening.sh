@@ -162,10 +162,11 @@ strict_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$strict")"
 grep -qE '^[[:space:]]*-[[:space:]]*\{\}[[:space:]]*$' <<<"$strict_np" \
   && fail "strict profile still has an allow-all egress rule (a HOLE) — default-deny not achieved"
 need "kind: ServiceMonitor"         "$strict" "strict profile missing ServiceMonitor (OPS-005)"
-# RUNOPS-004: the strict ServiceMonitor asks Prometheus to use HTTPS. Prove that
-# this is not just a scrape setting: the Service target, container listener,
-# probes, ConfigMap TLS env, mounted Secret, and ingress backend all render as
-# the same HTTPS transport.
+# RUNOPS-004/WIRE-003: the strict ServiceMonitor asks Prometheus to use HTTPS.
+# Prove that this is not just a scrape setting: the Service target, container
+# listener, probes, ConfigMap TLS env, mounted Secret, and ingress backend all
+# render as the same HTTPS transport. The negative assertions make the regulated
+# profile fail closed if it drifts back to plaintext.
 strict_svc="$(awk '/kind: Service$/,/^---/' <<<"$strict")"
 strict_dep="$(awk '/kind: Deployment$/,/^---/' <<<"$strict")"
 strict_cm="$(awk '/kind: ConfigMap$/,/^---/' <<<"$strict")"
@@ -176,11 +177,17 @@ need "targetPort: https" "$strict_svc" "strict Service https port does not targe
 need "name: https" "$strict_dep" "strict Deployment does not expose a named https container port (RUNOPS-004)"
 need "scheme: HTTPS" "$strict_dep" "strict Deployment probes do not use HTTPS against the HTTPS listener (RUNOPS-004)"
 need_fixed "PROBECTL_ALLOW_PLAINTEXT_HTTP: \"false\"" "$strict_cm" "strict ConfigMap still permits plaintext HTTP (RUNOPS-004)"
+if grep -q 'PROBECTL_ALLOW_PLAINTEXT_HTTP: "true"' <<<"$strict_cm"; then
+  fail "strict/regulated profile rendered PROBECTL_ALLOW_PLAINTEXT_HTTP=true (WIRE-003)"
+fi
 need "PROBECTL_TLS_CERT_FILE" "$strict_cm" "strict ConfigMap missing TLS cert env (RUNOPS-004)"
 need "PROBECTL_TLS_KEY_FILE" "$strict_cm" "strict ConfigMap missing TLS key env (RUNOPS-004)"
 need "control-tls" "$strict_dep" "strict Deployment does not mount the control TLS secret (RUNOPS-004)"
 need "port: https" "$strict_sm" "strict ServiceMonitor endpoint does not select the https Service port (RUNOPS-004)"
 need "scheme: https" "$strict_sm" "strict ServiceMonitor endpoint does not scrape with HTTPS (RUNOPS-004)"
+if grep -qE '^[[:space:]]*scheme:[[:space:]]*http[[:space:]]*$' <<<"$strict_sm"; then
+  fail "strict/regulated ServiceMonitor rendered scheme=http (WIRE-003)"
+fi
 need_fixed 'nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"' "$strict_ing" "strict ingress does not use HTTPS to the backend Service (RUNOPS-004)"
 need "name: https" "$strict_ing" "strict ingress backend does not route to the https Service port (RUNOPS-004)"
 if render -f "$CHART/values-strict.yaml" --set control.tls.enabled=false >/dev/null 2>&1; then
