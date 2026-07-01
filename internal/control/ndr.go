@@ -72,7 +72,8 @@ type NDRConsumer struct {
 	// any tenant_id and have a detection raised against that victim tenant. With
 	// a binding, a batch whose claimed identities don't verify is dropped
 	// fail-closed. nil = unit tests only (production always sets it).
-	binding pipeline.TenantBinding
+	binding   pipeline.TenantBinding
+	nsTenants map[string]string
 
 	// SCALE-005: the NDR consumer is a SECOND consumer group on the flow/eBPF
 	// lanes (in addition to the storage FlowConsumer), and it ran with no
@@ -128,6 +129,15 @@ func (cs *NDRConsumer) WithTenantBinding(b pipeline.TenantBinding) *NDRConsumer 
 	return cs
 }
 
+// WithNamespaceTenants subscribes NDR to each siloed tenant's flow/eBPF lane.
+func (cs *NDRConsumer) WithNamespaceTenants(ns map[string]string) *NDRConsumer {
+	cs.nsTenants = ns
+	return cs
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cs *NDRConsumer) LaneFanoutEnabled() bool { return true }
+
 // rejectFlows verifies the claimed identities against the registry, dropping
 // the whole batch fail-closed on mismatch (TENANT-101, ARCH-012).
 func (cs *NDRConsumer) rejectFlows(ctx context.Context, plane string, ids []pipeline.Identity) bool {
@@ -168,7 +178,7 @@ func (cs *NDRConsumer) WithSIEM(fw *siem.Forwarder) *NDRConsumer {
 func (cs *NDRConsumer) Run(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		return cs.bus.Subscribe(gctx, bus.NetworkResultsTopic, "ndr-dns", cs.handleResult)
+		return pipeline.RunLanes(gctx, cs.bus, bus.NetworkResultsTopic, "ndr-dns", cs.nsTenants, cs.handleResultLane)
 	})
 	g.Go(func() error { return cs.RunFlowLanes(gctx) })
 	return g.Wait()
@@ -179,21 +189,21 @@ func (cs *NDRConsumer) Run(ctx context.Context) error {
 func (cs *NDRConsumer) RunFlowLanes(ctx context.Context) error {
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		return cs.bus.Subscribe(gctx, bus.FlowEventsTopic, "ndr-flow", cs.handleFlowBatch)
+		return pipeline.RunLanes(gctx, cs.bus, bus.FlowEventsTopic, "ndr-flow", cs.nsTenants, cs.handleFlowBatchLane)
 	})
 	g.Go(func() error {
-		return cs.bus.Subscribe(gctx, bus.EBPFFlowsTopic, "ndr-ebpf", cs.handleEBPFBatch)
+		return pipeline.RunLanes(gctx, cs.bus, bus.EBPFFlowsTopic, "ndr-ebpf", cs.nsTenants, cs.handleEBPFBatchLane)
 	})
 	return g.Wait()
 }
 
-// handleResult feeds DNS canary lookups (S12) into the DNS detectors.
-func (cs *NDRConsumer) handleResult(ctx context.Context, msg bus.Message) error {
+func (cs *NDRConsumer) handleResultLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		cs.log.Warn("ndr: skipping malformed result", "error", err)
 		return nil
 	}
+	stampResultLaneTenant(&r, laneTenant)
 	return cs.SinkResult(ctx, &r)
 }
 
@@ -223,11 +233,16 @@ func (cs *NDRConsumer) SinkResult(ctx context.Context, r *resultv1.Result) error
 
 // handleFlowBatch feeds device flow records (S38) into the flow detectors.
 func (cs *NDRConsumer) handleFlowBatch(ctx context.Context, msg bus.Message) error {
+	return cs.handleFlowBatchLane(ctx, msg, "")
+}
+
+func (cs *NDRConsumer) handleFlowBatchLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cs.log.Warn("ndr: skipping malformed flow batch", "error", err)
 		return nil
 	}
+	stampFlowBatchLaneTenant(&batch, laneTenant)
 	ids := make([]pipeline.Identity, len(batch.GetFlows()))
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
@@ -266,11 +281,16 @@ func (cs *NDRConsumer) handleFlowBatch(ctx context.Context, msg bus.Message) err
 // handleEBPFBatch feeds eBPF flows (S20) and L7 DNS calls (S21) into the
 // detectors — host-level east-west visibility.
 func (cs *NDRConsumer) handleEBPFBatch(ctx context.Context, msg bus.Message) error {
+	return cs.handleEBPFBatchLane(ctx, msg, "")
+}
+
+func (cs *NDRConsumer) handleEBPFBatchLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch ebpfv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cs.log.Warn("ndr: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
+	stampEBPFBatchLaneTenant(&batch, laneTenant)
 	// ARCH-012: verify both the flow identities and the L7-call identities
 	// against the registry before any detection is raised; a mismatch drops the
 	// whole batch fail-closed.

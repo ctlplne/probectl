@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
@@ -29,6 +30,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/rum"
 )
 
@@ -375,6 +377,7 @@ type RUMConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	log        *slog.Logger
+	nsTenants  map[string]string
 }
 
 // NewRUMConsumer builds the consumer over a non-nil engine.
@@ -385,45 +388,44 @@ func NewRUMConsumer(b bus.Bus, e *rum.Engine, c *incident.Correlator, log *slog.
 	return &RUMConsumer{engine: e, bus: b, correlator: c, log: log}
 }
 
+// WithNamespaceTenants subscribes RUM to each siloed tenant's RUM/result lanes.
+func (rc *RUMConsumer) WithNamespaceTenants(ns map[string]string) *RUMConsumer {
+	rc.nsTenants = ns
+	return rc
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (rc *RUMConsumer) LaneFanoutEnabled() bool { return true }
+
 // RunViews consumes ONLY the RUM beacon topic — production mode when the
 // synthetic results arrive via the decode-once ResultFan (SCALE-013).
 func (rc *RUMConsumer) RunViews(ctx context.Context) error {
-	return rc.bus.Subscribe(ctx, bus.RUMEventsTopic, "rum-views", rc.handleRUMEvent)
+	return pipeline.RunLanes(ctx, rc.bus, bus.RUMEventsTopic, "rum-views", rc.nsTenants, rc.handleRUMEventLane)
 }
 
 // Run subscribes to both topics (own consumer groups) until ctx ends.
 func (rc *RUMConsumer) Run(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	errs := make(chan error, 2)
-	var wg sync.WaitGroup
-	for _, sub := range []struct {
-		topic, group string
-		handle       func(context.Context, bus.Message) error
-	}{
-		{bus.RUMEventsTopic, "rum-views", rc.handleRUMEvent},
-		{bus.NetworkResultsTopic, "rum-synthetic", rc.handleSynthetic},
-	} {
-		wg.Add(1)
-		go func(topic, group string, h func(context.Context, bus.Message) error) {
-			defer wg.Done()
-			if err := rc.bus.Subscribe(ctx, topic, group, h); err != nil && ctx.Err() == nil {
-				errs <- err
-				cancel()
-			}
-		}(sub.topic, sub.group, sub.handle)
-	}
-	wg.Wait()
-	close(errs)
-	return <-errs
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, rc.bus, bus.RUMEventsTopic, "rum-views", rc.nsTenants, rc.handleRUMEventLane)
+	})
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, rc.bus, bus.NetworkResultsTopic, "rum-synthetic", rc.nsTenants, rc.handleSyntheticLane)
+	})
+	return g.Wait()
 }
 
 func (rc *RUMConsumer) handleRUMEvent(ctx context.Context, msg bus.Message) error {
+	return rc.handleRUMEventLane(ctx, msg, "")
+}
+
+func (rc *RUMConsumer) handleRUMEventLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		rc.log.Warn("rum: skipping malformed event", "error", err)
 		return nil
 	}
+	stampResultLaneTenant(&r, laneTenant)
 	rc.ingest(ctx, rc.engine.ObserveRUM(&r))
 	return nil
 }
@@ -439,10 +441,15 @@ func webFacing(canaryType string) bool {
 }
 
 func (rc *RUMConsumer) handleSynthetic(ctx context.Context, msg bus.Message) error {
+	return rc.handleSyntheticLane(ctx, msg, "")
+}
+
+func (rc *RUMConsumer) handleSyntheticLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		return nil // the result pipeline owns malformed-result logging
 	}
+	stampResultLaneTenant(&r, laneTenant)
 	return rc.SinkResult(ctx, &r)
 }
 

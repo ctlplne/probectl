@@ -94,6 +94,7 @@ type CostConsumer struct {
 	correlator *incident.Correlator
 	log        *slog.Logger
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
+	nsTenants  map[string]string
 }
 
 // NewCostConsumer builds the consumer over a non-nil engine.
@@ -104,9 +105,9 @@ func NewCostConsumer(b bus.Bus, e *cost.Engine, c *incident.Correlator, log *slo
 	return &CostConsumer{engine: e, bus: b, correlator: c, log: log}
 }
 
-// Run subscribes to the flow topic (own consumer group) until ctx ends.
+// Run subscribes to the shared flow topic plus every siloed-tenant lane until ctx ends.
 func (cc *CostConsumer) Run(ctx context.Context) error {
-	return cc.bus.Subscribe(ctx, bus.FlowEventsTopic, "cost-flow", cc.handle)
+	return pipeline.RunLanes(ctx, cc.bus, bus.FlowEventsTopic, "cost-flow", cc.nsTenants, cc.handleLane)
 }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101).
@@ -115,12 +116,26 @@ func (cc *CostConsumer) WithTenantBinding(b pipeline.TenantBinding) *CostConsume
 	return cc
 }
 
+// WithNamespaceTenants subscribes the cost engine to each siloed tenant's flow lane.
+func (cc *CostConsumer) WithNamespaceTenants(ns map[string]string) *CostConsumer {
+	cc.nsTenants = ns
+	return cc
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cc *CostConsumer) LaneFanoutEnabled() bool { return true }
+
 func (cc *CostConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return cc.handleLane(ctx, msg, "")
+}
+
+func (cc *CostConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("cost: skipping malformed flow batch", "error", err)
 		return nil
 	}
+	stampFlowBatchLaneTenant(&batch, laneTenant)
 	if cc.binding != nil && len(batch.GetFlows()) > 0 {
 		ids := make([]pipeline.Identity, len(batch.GetFlows()))
 		for i, f := range batch.GetFlows() {

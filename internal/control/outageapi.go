@@ -23,6 +23,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 )
 
 // BuildOutageFeeds builds the shared external-event store + refresher.
@@ -159,6 +160,7 @@ type OutageConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	log        *slog.Logger
+	nsTenants  map[string]string
 }
 
 // NewOutageConsumer builds the consumer over a non-nil engine.
@@ -169,18 +171,32 @@ func NewOutageConsumer(b bus.Bus, e *outage.Engine, c *incident.Correlator, log 
 	return &OutageConsumer{engine: e, bus: b, correlator: c, log: log}
 }
 
+// WithNamespaceTenants subscribes outage detection to each siloed tenant's result lane.
+func (oc *OutageConsumer) WithNamespaceTenants(ns map[string]string) *OutageConsumer {
+	oc.nsTenants = ns
+	return oc
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (oc *OutageConsumer) LaneFanoutEnabled() bool { return true }
+
 // Run subscribes to the network-results topic (own consumer group) until ctx
 // ends.
 func (oc *OutageConsumer) Run(ctx context.Context) error {
-	return oc.bus.Subscribe(ctx, bus.NetworkResultsTopic, "outage-vantage", oc.handle)
+	return pipeline.RunLanes(ctx, oc.bus, bus.NetworkResultsTopic, "outage-vantage", oc.nsTenants, oc.handleLane)
 }
 
 func (oc *OutageConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return oc.handleLane(ctx, msg, "")
+}
+
+func (oc *OutageConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var r resultv1.Result
 	if err := proto.Unmarshal(msg.Value, &r); err != nil {
 		oc.log.Warn("outage: skipping malformed result", "error", err)
 		return nil
 	}
+	stampResultLaneTenant(&r, laneTenant)
 	return oc.SinkResult(ctx, &r)
 }
 

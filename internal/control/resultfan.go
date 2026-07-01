@@ -11,6 +11,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 )
 
 // ResultFan is the decode-once fan-out for the control plane's sidecar result
@@ -25,10 +26,11 @@ import (
 // blocks the other sinks (these are derived caches/signals; the durable
 // pipeline is the separate tsdb consumer with retry+DLQ).
 type ResultFan struct {
-	bus   bus.Bus
-	log   *slog.Logger
-	group string
-	sinks []ResultSink
+	bus       bus.Bus
+	log       *slog.Logger
+	group     string
+	sinks     []ResultSink
+	nsTenants map[string]string
 
 	decoded   atomic.Uint64
 	sinkFails atomic.Uint64
@@ -63,29 +65,40 @@ func (f *ResultFan) WithViewGroup(base string) *ResultFan {
 	return f.WithGroup(viewGroup(base))
 }
 
-// Run subscribes (one group, one decode) until ctx is canceled.
+// WithNamespaceTenants subscribes the fan to each siloed tenant's result lane.
+func (f *ResultFan) WithNamespaceTenants(ns map[string]string) *ResultFan {
+	f.nsTenants = ns
+	return f
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (f *ResultFan) LaneFanoutEnabled() bool { return true }
+
+// Run subscribes (one group per lane, one decode per message) until ctx is canceled.
 func (f *ResultFan) Run(ctx context.Context) error {
 	names := make([]string, len(f.sinks))
 	for i, s := range f.sinks {
 		names[i] = s.Name
 	}
 	f.log.Info("result fan starting (decode once, fan out)", "group", f.group, "sinks", names)
-	return f.bus.Subscribe(ctx, bus.NetworkResultsTopic, f.group,
-		func(ctx context.Context, msg bus.Message) error {
-			var r resultv1.Result
-			if err := proto.Unmarshal(msg.Value, &r); err != nil {
-				f.log.Warn("result fan: skipping malformed result", "error", err)
-				return nil
-			}
-			f.decoded.Add(1)
-			for _, s := range f.sinks {
-				if err := s.Fn(ctx, &r); err != nil {
-					f.sinkFails.Add(1)
-					f.log.Warn("result sink failed (continuing)", "sink", s.Name, "error", err.Error())
-				}
-			}
-			return nil
-		})
+	return pipeline.RunLanes(ctx, f.bus, bus.NetworkResultsTopic, f.group, f.nsTenants, f.handleLane)
+}
+
+func (f *ResultFan) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+	var r resultv1.Result
+	if err := proto.Unmarshal(msg.Value, &r); err != nil {
+		f.log.Warn("result fan: skipping malformed result", "error", err)
+		return nil
+	}
+	stampResultLaneTenant(&r, laneTenant)
+	f.decoded.Add(1)
+	for _, s := range f.sinks {
+		if err := s.Fn(ctx, &r); err != nil {
+			f.sinkFails.Add(1)
+			f.log.Warn("result sink failed (continuing)", "sink", s.Name, "error", err.Error())
+		}
+	}
+	return nil
 }
 
 // Decoded reports messages decoded (each exactly once).
@@ -94,14 +107,14 @@ func (f *ResultFan) Decoded() uint64 { return f.decoded.Load() }
 // runResultSink is the standalone-mode helper the individual consumers' Run
 // methods use (tests / non-fan deployments): one subscription, one decode,
 // one typed sink — the same code path the fan exercises.
-func runResultSink(ctx context.Context, b bus.Bus, group string, log *slog.Logger, sink func(context.Context, *resultv1.Result) error) error {
-	return b.Subscribe(ctx, bus.NetworkResultsTopic, group,
-		func(ctx context.Context, msg bus.Message) error {
-			var r resultv1.Result
-			if err := proto.Unmarshal(msg.Value, &r); err != nil {
-				log.Warn("skipping malformed result", "error", err)
-				return nil
-			}
-			return sink(ctx, &r)
-		})
+func runResultSinkLanes(ctx context.Context, b bus.Bus, group string, log *slog.Logger, nsTenants map[string]string, sink func(context.Context, *resultv1.Result) error) error {
+	return pipeline.RunLanes(ctx, b, bus.NetworkResultsTopic, group, nsTenants, func(ctx context.Context, msg bus.Message, laneTenant string) error {
+		var r resultv1.Result
+		if err := proto.Unmarshal(msg.Value, &r); err != nil {
+			log.Warn("skipping malformed result", "error", err)
+			return nil
+		}
+		stampResultLaneTenant(&r, laneTenant)
+		return sink(ctx, &r)
+	})
 }

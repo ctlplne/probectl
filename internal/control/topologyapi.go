@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
@@ -144,12 +145,13 @@ func atParam(r *http.Request, def time.Time) (time.Time, error) {
 // (S14), and device telemetry (S39). Path discoveries fold in at save time
 // (see handleDiscoverPath). Unscoped records are dropped (guardrail 1).
 type TopologyConsumer struct {
-	store   topology.Store
-	bus     bus.Bus
-	log     *slog.Logger
-	binding pipeline.TenantBinding // TENANT-101; nil = unit tests
-	clock   func() time.Time
-	ledger  *topologyIntegrityLedger
+	store     topology.Store
+	bus       bus.Bus
+	log       *slog.Logger
+	binding   pipeline.TenantBinding // TENANT-101; nil = unit tests
+	clock     func() time.Time
+	ledger    *topologyIntegrityLedger
+	nsTenants map[string]string
 	// ebpf is the durable eBPF aggregate store (ARCH-008). When set, every
 	// verified service edge is also persisted, so the differentiator plane has
 	// history and survives a restart instead of living only in the RAM graph.
@@ -179,6 +181,16 @@ func (tc *TopologyConsumer) WithTenantBinding(b pipeline.TenantBinding) *Topolog
 	return tc
 }
 
+// WithNamespaceTenants subscribes topology to each siloed tenant's telemetry
+// lane. The lane tenant overrides the payload tenant before graph mutation.
+func (tc *TopologyConsumer) WithNamespaceTenants(ns map[string]string) *TopologyConsumer {
+	tc.nsTenants = ns
+	return tc
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (tc *TopologyConsumer) LaneFanoutEnabled() bool { return true }
+
 func (tc *TopologyConsumer) receivedAt() time.Time {
 	if tc != nil && tc.clock != nil {
 		return tc.clock()
@@ -207,16 +219,24 @@ func (tc *TopologyConsumer) rejectBatch(ctx context.Context, plane string, ids [
 // in the whole stream and builds the complete graph, making /v1/topology
 // coherent at any replica count (ARCH-003).
 func (tc *TopologyConsumer) Run(ctx context.Context) error {
-	errc := make(chan error, 3)
-	go func() { errc <- tc.bus.Subscribe(ctx, bus.EBPFFlowsTopic, viewGroup("topology-ebpf"), tc.handleEBPF) }()
-	go func() { errc <- tc.bus.Subscribe(ctx, bus.BGPEventsTopic, viewGroup("topology-bgp"), tc.handleBGP) }()
-	go func() {
-		errc <- tc.bus.Subscribe(ctx, bus.DeviceMetricsTopic, viewGroup("topology-device"), tc.handleDevice)
-	}()
-	return <-errc
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, tc.bus, bus.EBPFFlowsTopic, viewGroup("topology-ebpf"), tc.nsTenants, tc.handleEBPFLane)
+	})
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, tc.bus, bus.BGPEventsTopic, viewGroup("topology-bgp"), tc.nsTenants, tc.handleBGPLane)
+	})
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, tc.bus, bus.DeviceMetricsTopic, viewGroup("topology-device"), tc.nsTenants, tc.handleDeviceLane)
+	})
+	return g.Wait()
 }
 
 func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) error {
+	return tc.handleEBPFLane(ctx, msg, "")
+}
+
+func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	tc.ledger.addReceived("ebpf", 1)
 	var batch ebpfv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
@@ -224,6 +244,7 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 		tc.log.Warn("topology: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
+	stampEBPFBatchLaneTenant(&batch, laneTenant)
 	// Identity comes from the FLOWS (edges carry tenant only); every edge must
 	// share the flows' tenant — a mixed batch is rejected as an injection
 	// vector. An edges-only batch (no agent to verify) passes homogeneity
@@ -299,7 +320,11 @@ func (tc *TopologyConsumer) handleEBPF(ctx context.Context, msg bus.Message) err
 	return nil
 }
 
-func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error {
+func (tc *TopologyConsumer) handleBGP(ctx context.Context, msg bus.Message) error {
+	return tc.handleBGPLane(ctx, msg, "")
+}
+
+func (tc *TopologyConsumer) handleBGPLane(_ context.Context, msg bus.Message, laneTenant string) error {
 	tc.ledger.addReceived("bgp", 1)
 	var ev bgpv1.BGPEvent
 	if err := proto.Unmarshal(msg.Value, &ev); err != nil {
@@ -307,6 +332,7 @@ func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error 
 		tc.log.Warn("topology: skipping malformed bgp event", "error", err)
 		return nil
 	}
+	stampBGPEventLaneTenant(&ev, laneTenant)
 	if ev.GetTenantId() == "" {
 		tc.ledger.addUnscoped("bgp", 1)
 		return nil
@@ -324,6 +350,10 @@ func (tc *TopologyConsumer) handleBGP(_ context.Context, msg bus.Message) error 
 }
 
 func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) error {
+	return tc.handleDeviceLane(ctx, msg, "")
+}
+
+func (tc *TopologyConsumer) handleDeviceLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	tc.ledger.addReceived("device", 1)
 	var batch devicev1.DeviceMetricBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
@@ -331,6 +361,7 @@ func (tc *TopologyConsumer) handleDevice(ctx context.Context, msg bus.Message) e
 		tc.log.Warn("topology: skipping malformed device batch", "error", err)
 		return nil
 	}
+	stampDeviceBatchLaneTenant(&batch, laneTenant)
 	ids := make([]pipeline.Identity, 0, len(batch.GetMetrics()))
 	for _, m := range batch.GetMetrics() {
 		ids = append(ids, pipeline.Identity{Tenant: m.GetTenantId(), Agent: m.GetAgentId()})

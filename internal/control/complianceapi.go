@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
@@ -103,6 +104,7 @@ type ComplianceConsumer struct {
 	siem       *siem.Forwarder
 	log        *slog.Logger
 	binding    pipeline.TenantBinding // TENANT-101; nil = unit tests
+	nsTenants  map[string]string
 }
 
 // NewComplianceConsumer builds the consumer over a non-nil engine.
@@ -119,12 +121,16 @@ func (cc *ComplianceConsumer) WithSIEM(fw *siem.Forwarder) *ComplianceConsumer {
 	return cc
 }
 
-// Run subscribes to the flow and eBPF topics (own groups) until ctx ends.
+// Run subscribes to the shared flow/eBPF topics plus every siloed-tenant lane.
 func (cc *ComplianceConsumer) Run(ctx context.Context) error {
-	errc := make(chan error, 2)
-	go func() { errc <- cc.bus.Subscribe(ctx, bus.FlowEventsTopic, "compliance-flow", cc.handleFlow) }()
-	go func() { errc <- cc.bus.Subscribe(ctx, bus.EBPFFlowsTopic, "compliance-ebpf", cc.handleEBPF) }()
-	return <-errc
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, cc.bus, bus.FlowEventsTopic, "compliance-flow", cc.nsTenants, cc.handleFlowLane)
+	})
+	g.Go(func() error {
+		return pipeline.RunLanes(gctx, cc.bus, bus.EBPFFlowsTopic, "compliance-ebpf", cc.nsTenants, cc.handleEBPFLane)
+	})
+	return g.Wait()
 }
 
 // WithTenantBinding installs registry-backed tenant verification (TENANT-101).
@@ -132,6 +138,15 @@ func (cc *ComplianceConsumer) WithTenantBinding(b pipeline.TenantBinding) *Compl
 	cc.binding = b
 	return cc
 }
+
+// WithNamespaceTenants subscribes compliance to each siloed tenant's flow/eBPF lane.
+func (cc *ComplianceConsumer) WithNamespaceTenants(ns map[string]string) *ComplianceConsumer {
+	cc.nsTenants = ns
+	return cc
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cc *ComplianceConsumer) LaneFanoutEnabled() bool { return true }
 
 // rejectFlows verifies claimed identities, dropping the batch fail-closed.
 func (cc *ComplianceConsumer) rejectFlows(ctx context.Context, plane string, ids []pipeline.Identity) bool {
@@ -148,11 +163,16 @@ func (cc *ComplianceConsumer) rejectFlows(ctx context.Context, plane string, ids
 }
 
 func (cc *ComplianceConsumer) handleFlow(ctx context.Context, msg bus.Message) error {
+	return cc.handleFlowLane(ctx, msg, "")
+}
+
+func (cc *ComplianceConsumer) handleFlowLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch flowv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("compliance: skipping malformed flow batch", "error", err)
 		return nil
 	}
+	stampFlowBatchLaneTenant(&batch, laneTenant)
 	ids := make([]pipeline.Identity, len(batch.GetFlows()))
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}
@@ -177,12 +197,13 @@ func (cc *ComplianceConsumer) handleFlow(ctx context.Context, msg bus.Message) e
 	return nil
 }
 
-func (cc *ComplianceConsumer) handleEBPF(ctx context.Context, msg bus.Message) error {
+func (cc *ComplianceConsumer) handleEBPFLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var batch ebpfv1.FlowBatch
 	if err := proto.Unmarshal(msg.Value, &batch); err != nil {
 		cc.log.Warn("compliance: skipping malformed ebpf batch", "error", err)
 		return nil
 	}
+	stampEBPFBatchLaneTenant(&batch, laneTenant)
 	ids := make([]pipeline.Identity, len(batch.GetFlows()))
 	for i, f := range batch.GetFlows() {
 		ids[i] = pipeline.Identity{Tenant: f.GetTenantId(), Agent: f.GetAgentId()}

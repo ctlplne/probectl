@@ -18,6 +18,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -211,6 +212,7 @@ type BGPIncidentConsumer struct {
 	bus        bus.Bus
 	correlator *incident.Correlator
 	log        *slog.Logger
+	nsTenants  map[string]string
 }
 
 // NewBGPIncidentConsumer builds the consumer.
@@ -221,20 +223,31 @@ func NewBGPIncidentConsumer(b bus.Bus, c *incident.Correlator, log *slog.Logger)
 	return &BGPIncidentConsumer{bus: b, correlator: c, log: log}
 }
 
+// WithNamespaceTenants subscribes BGP incident correlation to siloed tenant lanes.
+func (cs *BGPIncidentConsumer) WithNamespaceTenants(ns map[string]string) *BGPIncidentConsumer {
+	cs.nsTenants = ns
+	return cs
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cs *BGPIncidentConsumer) LaneFanoutEnabled() bool { return true }
+
 // Run subscribes until ctx is canceled.
 func (cs *BGPIncidentConsumer) Run(ctx context.Context) error {
-	return cs.bus.Subscribe(ctx, bus.BGPEventsTopic, "incident-correlator",
-		func(ctx context.Context, msg bus.Message) error {
-			var ev bgpv1.BGPEvent
-			if err := proto.Unmarshal(msg.Value, &ev); err != nil {
-				cs.log.Warn("skipping malformed bgp event", "error", err)
-				return nil
-			}
-			if _, err := cs.correlator.Ingest(ctx, signalFromBGPEvent(&ev)); err != nil {
-				cs.log.Warn("correlate bgp event into incident failed", "error", err)
-			}
-			return nil
-		})
+	return pipeline.RunLanes(ctx, cs.bus, bus.BGPEventsTopic, "incident-correlator", cs.nsTenants, cs.handleLane)
+}
+
+func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
+	var ev bgpv1.BGPEvent
+	if err := proto.Unmarshal(msg.Value, &ev); err != nil {
+		cs.log.Warn("skipping malformed bgp event", "error", err)
+		return nil
+	}
+	stampBGPEventLaneTenant(&ev, laneTenant)
+	if _, err := cs.correlator.Ingest(ctx, signalFromBGPEvent(&ev)); err != nil {
+		cs.log.Warn("correlate bgp event into incident failed", "error", err)
+	}
+	return nil
 }
 
 // --- /v1/incidents handlers ---

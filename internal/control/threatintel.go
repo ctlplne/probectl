@@ -53,6 +53,7 @@ type IOCConsumer struct {
 	store      *opendata.IOCStore
 	siem       *siem.Forwarder
 	log        *slog.Logger
+	nsTenants  map[string]string
 }
 
 // NewIOCConsumer builds the consumer. store must be non-nil (gate on
@@ -78,10 +79,19 @@ func (cs *IOCConsumer) WithSIEM(fw *siem.Forwarder) *IOCConsumer {
 	return cs
 }
 
+// WithNamespaceTenants subscribes standalone IOC matching to siloed result lanes.
+func (cs *IOCConsumer) WithNamespaceTenants(ns map[string]string) *IOCConsumer {
+	cs.nsTenants = ns
+	return cs
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cs *IOCConsumer) LaneFanoutEnabled() bool { return true }
+
 // Run subscribes to the network-results topic until ctx is canceled
 // (standalone mode; production uses SinkResult via the ResultFan, SCALE-013).
 func (cs *IOCConsumer) Run(ctx context.Context) error {
-	return runResultSink(ctx, cs.bus, "threat-intel-ip", cs.log, cs.SinkResult)
+	return runResultSinkLanes(ctx, cs.bus, "threat-intel-ip", cs.log, cs.nsTenants, cs.SinkResult)
 }
 
 // SinkResult scores one DECODED result (shared immutable — never mutated).

@@ -187,21 +187,9 @@ func (rt *serveRuntime) buildServeEngines() error {
 	if err != nil {
 		return err
 	}
-	if costOn {
-		rt.g.Go(func() error {
-			return control.NewCostConsumer(rt.resultBus, rt.costEngine, rt.correlator, rt.log).WithTenantBinding(rt.tenantBinding).Run(rt.gctx)
-		})
-	}
 	rt.carbonEngine, carbonOn, err = control.BuildCarbon(rt.cfg, rt.log)
 	if err != nil {
 		return err
-	}
-	if carbonOn {
-		rt.g.Go(func() error {
-			return superviseRestart(rt.gctx, "carbon-consumer", rt.log, func(ctx context.Context) error {
-				return control.NewCarbonConsumer(rt.resultBus, rt.carbonEngine, rt.log).Run(ctx)
-			})
-		})
 	}
 	rt.sloEngine, sloOn, err = control.BuildSLO(rt.cfg, rt.log)
 	if err != nil {
@@ -223,8 +211,6 @@ func (rt *serveRuntime) buildServeEngines() error {
 		rt.g.Go(func() error { return rt.outageRefresher.Run(rt.gctx) })
 	}
 	if rt.outageOn {
-		oc := control.NewOutageConsumer(rt.resultBus, rt.outageEngine, rt.correlator, rt.log)
-		rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "outage-vantage", Fn: oc.SinkResult})
 		rt.log.Info("outage view enabled", "feeds", rt.outageFeedsOn, "scope_resolution", rt.ipEnricher != nil)
 	}
 
@@ -233,20 +219,15 @@ func (rt *serveRuntime) buildServeEngines() error {
 		return err
 	}
 	if rt.rumOn {
-		rc := control.NewRUMConsumer(rt.resultBus, rt.rumEngine, rt.correlator, rt.log)
-		rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "rum-synthetic", Fn: rc.SinkResult})
-		rt.g.Go(func() error { return rc.RunViews(rt.gctx) })
+		rt.log.Info("rum convergence enabled", "apps", len(rt.rumApps))
 	}
 
-	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "bgp-incident-consumer", rt.log, func(ctx context.Context) error {
-			return control.NewBGPIncidentConsumer(rt.resultBus, rt.correlator, rt.log).Run(ctx)
-		})
-	})
 	rt.tlsPostures = threat.NewPostureStore(0)
 	rt.endpointViews = endpoint.NewSnapshotStore(0)
 	rt.latestResults = control.NewLatestResults(0)
 	rt.alertingActive = false
+	_ = costOn
+	_ = carbonOn
 	_ = sloOn
 	_ = complianceOn
 	return rt.loadEnrollment()
@@ -287,7 +268,6 @@ func (rt *serveRuntime) buildAPIServer() error {
 	if ch, ok := rt.otelStore.(*otelstore.ClickHouse); ok {
 		ch.WithMetrics(rt.srv.Metrics())
 	}
-	rt.startTopologyConsumer()
 	if rt.enrollSvc != nil {
 		rt.srv.SetEnrollService(rt.enrollSvc)
 	}
@@ -330,6 +310,7 @@ func (rt *serveRuntime) startTopologyConsumer() {
 		return superviseRestart(rt.gctx, "topology-consumer", rt.log, func(ctx context.Context) error {
 			return control.NewTopologyConsumer(rt.resultBus, rt.topoStore, rt.log).
 				WithTenantBinding(rt.tenantBinding).
+				WithNamespaceTenants(rt.nsTenants).
 				WithEBPFStore(rt.ebpfStore).
 				WithMetrics(rt.srv.Metrics()).
 				Run(ctx)
@@ -451,7 +432,9 @@ func (rt *serveRuntime) startIngestConsumers() {
 	})
 	rt.g.Go(func() error {
 		return superviseRestart(rt.gctx, "endpoint-view", rt.log, func(ctx context.Context) error {
-			return control.NewEndpointViewConsumer(rt.resultBus, rt.endpointViews, rt.log).Run(ctx)
+			return control.NewEndpointViewConsumer(rt.resultBus, rt.endpointViews, rt.log).
+				WithNamespaceTenants(nsTenants).
+				Run(ctx)
 		})
 	})
 	rt.resultViewSinks = append(rt.resultViewSinks, control.ResultSink{
@@ -474,28 +457,85 @@ func (rt *serveRuntime) startSLOAndComplianceConsumers(nsTenants map[string]stri
 				return control.NewComplianceConsumer(rt.resultBus, rt.complianceEngine, rt.correlator, rt.log).
 					WithSIEM(rt.siemFwd).
 					WithTenantBinding(rt.tenantBinding).
+					WithNamespaceTenants(nsTenants).
 					Run(ctx)
 			})
 		})
 	}
 }
 
+func (rt *serveRuntime) startCostCarbonConsumers() {
+	if rt.costEngine != nil {
+		rt.g.Go(func() error {
+			return superviseRestart(rt.gctx, "cost-consumer", rt.log, func(ctx context.Context) error {
+				return control.NewCostConsumer(rt.resultBus, rt.costEngine, rt.correlator, rt.log).
+					WithTenantBinding(rt.tenantBinding).
+					WithNamespaceTenants(rt.nsTenants).
+					Run(ctx)
+			})
+		})
+	}
+	if rt.carbonEngine != nil {
+		rt.g.Go(func() error {
+			return superviseRestart(rt.gctx, "carbon-consumer", rt.log, func(ctx context.Context) error {
+				return control.NewCarbonConsumer(rt.resultBus, rt.carbonEngine, rt.log).
+					WithNamespaceTenants(rt.nsTenants).
+					Run(ctx)
+			})
+		})
+	}
+}
+
+func (rt *serveRuntime) startOutageRUMConsumers() {
+	if rt.outageOn {
+		oc := control.NewOutageConsumer(rt.resultBus, rt.outageEngine, rt.correlator, rt.log).
+			WithNamespaceTenants(rt.nsTenants)
+		rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "outage-vantage", Fn: oc.SinkResult})
+	}
+	if rt.rumOn {
+		rc := control.NewRUMConsumer(rt.resultBus, rt.rumEngine, rt.correlator, rt.log).
+			WithNamespaceTenants(rt.nsTenants)
+		rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "rum-synthetic", Fn: rc.SinkResult})
+		rt.g.Go(func() error {
+			return superviseRestart(rt.gctx, "rum-views", rt.log, func(ctx context.Context) error {
+				return rc.RunViews(ctx)
+			})
+		})
+	}
+}
+
+func (rt *serveRuntime) startBGPIncidentConsumer() {
+	rt.g.Go(func() error {
+		return superviseRestart(rt.gctx, "bgp-incident-consumer", rt.log, func(ctx context.Context) error {
+			return control.NewBGPIncidentConsumer(rt.resultBus, rt.correlator, rt.log).
+				WithNamespaceTenants(rt.nsTenants).
+				Run(ctx)
+		})
+	})
+}
+
 func (rt *serveRuntime) startSignalConsumers() error {
 	rt.startSIEM()
 	rt.startThreatIntel()
+	rt.startTopologyConsumer()
+	rt.startCostCarbonConsumers()
+	rt.startOutageRUMConsumers()
+	rt.startBGPIncidentConsumer()
 	rt.startSLOAndComplianceConsumers(rt.nsTenants)
 	if err := rt.startNDR(); err != nil {
 		return err
 	}
 	rt.startTLSPostureSinks()
-	resultFan := control.NewResultFan(rt.resultBus, rt.log, rt.resultSinks...)
+	resultFan := control.NewResultFan(rt.resultBus, rt.log, rt.resultSinks...).
+		WithNamespaceTenants(rt.nsTenants)
 	rt.g.Go(func() error {
 		return superviseRestart(rt.gctx, "result-fan", rt.log, func(ctx context.Context) error {
 			return resultFan.Run(ctx)
 		})
 	})
 	resultViewFan := control.NewResultFan(rt.resultBus, rt.log, rt.resultViewSinks...).
-		WithViewGroup("result-read-views")
+		WithViewGroup("result-read-views").
+		WithNamespaceTenants(rt.nsTenants)
 	rt.g.Go(func() error {
 		return superviseRestart(rt.gctx, "result-read-views", rt.log, func(ctx context.Context) error {
 			return resultViewFan.Run(ctx)
@@ -540,6 +580,7 @@ func (rt *serveRuntime) startNDR() error {
 	}
 	ndrc := control.NewNDRConsumer(rt.resultBus, ndrEngine, rt.correlator, rt.log).
 		WithTenantBinding(rt.tenantBinding).
+		WithNamespaceTenants(rt.nsTenants).
 		WithFairness(rt.fairGate).
 		WithSIEM(rt.siemFwd)
 	rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})

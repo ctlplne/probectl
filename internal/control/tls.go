@@ -41,6 +41,7 @@ type TLSPostureConsumer struct {
 	analyzer   *threat.Analyzer
 	siem       *siem.Forwarder
 	log        *slog.Logger
+	nsTenants  map[string]string
 }
 
 // NewTLSPostureConsumer builds the consumer.
@@ -72,10 +73,19 @@ func (cs *TLSPostureConsumer) WithSIEM(fw *siem.Forwarder) *TLSPostureConsumer {
 	return cs
 }
 
+// WithNamespaceTenants subscribes standalone TLS posture to siloed result lanes.
+func (cs *TLSPostureConsumer) WithNamespaceTenants(ns map[string]string) *TLSPostureConsumer {
+	cs.nsTenants = ns
+	return cs
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cs *TLSPostureConsumer) LaneFanoutEnabled() bool { return true }
+
 // Run subscribes until ctx is canceled (standalone mode; production uses
 // SinkResult via the ResultFan, SCALE-013).
 func (cs *TLSPostureConsumer) Run(ctx context.Context) error {
-	return runResultSink(ctx, cs.bus, "tls-posture", cs.log, cs.SinkResult)
+	return runResultSinkLanes(ctx, cs.bus, "tls-posture", cs.log, cs.nsTenants, cs.SinkResult)
 }
 
 // SinkPosture updates only the TLS posture read model. It is safe for

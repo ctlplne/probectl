@@ -121,9 +121,10 @@ func (s *LatestResults) Len(tenant string) int {
 // ResultViewConsumer feeds the store from the network-results topic (its own
 // group, independent of the TSDB pipeline).
 type ResultViewConsumer struct {
-	bus   bus.Bus
-	store *LatestResults
-	log   *slog.Logger
+	bus       bus.Bus
+	store     *LatestResults
+	log       *slog.Logger
+	nsTenants map[string]string
 }
 
 // NewResultViewConsumer builds the consumer.
@@ -134,11 +135,20 @@ func NewResultViewConsumer(b bus.Bus, store *LatestResults, log *slog.Logger) *R
 	return &ResultViewConsumer{bus: b, store: store, log: log}
 }
 
+// WithNamespaceTenants subscribes standalone result views to siloed result lanes.
+func (cs *ResultViewConsumer) WithNamespaceTenants(ns map[string]string) *ResultViewConsumer {
+	cs.nsTenants = ns
+	return cs
+}
+
+// LaneFanoutEnabled satisfies pipeline.LaneFanout (CORRECT-005 coverage gate).
+func (cs *ResultViewConsumer) LaneFanoutEnabled() bool { return true }
+
 // Run consumes until ctx is done; malformed messages are dropped.
 // (Standalone mode — production wires SinkResult through the decode-once
 // ResultFan, SCALE-013.)
 func (cs *ResultViewConsumer) Run(ctx context.Context) error {
-	return runResultSink(ctx, cs.bus, viewGroup("result-view"), cs.log, cs.SinkResult)
+	return runResultSinkLanes(ctx, cs.bus, viewGroup("result-view"), cs.log, cs.nsTenants, cs.SinkResult)
 }
 
 // SinkResult records one DECODED result (shared immutable — never mutated).
