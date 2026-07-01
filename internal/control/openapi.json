@@ -4892,11 +4892,11 @@
     "/v1/inventory/views": {
       "get": {
         "operationId": "listInventoryViews",
-        "summary": "List tenant-owned saved inventory views",
+        "summary": "List per-user saved inventory views",
         "tags": [
           "inventory"
         ],
-        "description": "Lists the caller tenant's saved list/filter views. A saved view stores filter choices only; opening one always re-queries the current tenant-scoped inventory.",
+        "description": "Lists the caller's saved list/filter views inside the current tenant. A saved view stores filter choices only; opening one always re-queries the current tenant-scoped inventory.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -4907,7 +4907,11 @@
             "schema": {
               "type": "string",
               "enum": [
-                "endpoints"
+                "endpoints",
+                "targets",
+                "agents",
+                "incidents",
+                "alerts"
               ]
             },
             "description": "Optional surface filter."
@@ -4933,11 +4937,11 @@
       },
       "post": {
         "operationId": "createInventoryView",
-        "summary": "Create a tenant-owned saved inventory view",
+        "summary": "Create a per-user saved inventory view",
         "tags": [
           "inventory"
         ],
-        "description": "Persists a saved filter set in the caller tenant. The tenant_id is never accepted from the browser; it is resolved from the authenticated session before storage.",
+        "description": "Persists a saved filter set for the authenticated user in the caller tenant. The tenant_id and owner_id are never accepted from the browser; they are resolved from the authenticated session before storage.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -4970,11 +4974,11 @@
     "/v1/inventory/views/{id}": {
       "get": {
         "operationId": "getInventoryView",
-        "summary": "Open a tenant-owned saved inventory view",
+        "summary": "Open a per-user saved inventory view",
         "tags": [
           "inventory"
         ],
-        "description": "Returns one saved view only when it belongs to the caller tenant. Cross-tenant IDs return 404.",
+        "description": "Returns one saved view only when it belongs to the authenticated user inside the caller tenant. Cross-tenant or cross-user IDs return 404.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -7127,7 +7131,11 @@
           "surface": {
             "type": "string",
             "enum": [
-              "endpoints"
+              "endpoints",
+              "targets",
+              "agents",
+              "incidents",
+              "alerts"
             ]
           },
           "name": {
@@ -7154,10 +7162,18 @@
           "tenant_id": {
             "type": "string"
           },
+          "owner_id": {
+            "type": "string",
+            "description": "Authenticated user that owns this preset inside the tenant."
+          },
           "surface": {
             "type": "string",
             "enum": [
-              "endpoints"
+              "endpoints",
+              "targets",
+              "agents",
+              "incidents",
+              "alerts"
             ]
           },
           "name": {
@@ -7181,6 +7197,7 @@
         "required": [
           "id",
           "tenant_id",
+          "owner_id",
           "surface",
           "name",
           "filters",

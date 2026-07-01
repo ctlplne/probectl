@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import styles from './pages.module.css'
 import { NAV } from '../nav/ia'
 import {
@@ -25,6 +26,8 @@ import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
 import { ResultDetail } from './ResultDetail'
 import { useI18n } from '../i18n/useI18n'
+import { FilterBar, SavedViews } from './listControls'
+import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 
 export function Page({
   title,
@@ -198,6 +201,24 @@ export function TargetsPage() {
   const { push } = useToast()
   const [creating, setCreating] = useState(false)
   const [resultsFor, setResultsFor] = useState<Test | null>(null)
+  const [params, setParams] = useSearchParams()
+  const defaults = { q: '', type: 'all', enabled: 'all' }
+  const q = filterValue(params, 'q')
+  const type = filterValue(params, 'type', 'all')
+  const enabled = filterValue(params, 'enabled', 'all')
+  const setFilter = (patch: Record<string, string>) =>
+    setURLFilters(params, setParams, defaults, patch)
+  const filteredTests = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    return (data ?? []).filter((t) => {
+      const haystack = [t.name, t.type, t.target ?? ''].join(' ').toLowerCase()
+      return (
+        (!needle || haystack.includes(needle)) &&
+        (type === 'all' || t.type === type) &&
+        (enabled === 'all' || (enabled === 'enabled' ? t.enabled : !t.enabled))
+      )
+    })
+  }, [data, enabled, q, type])
 
   function remove(t: Test) {
     del.mutate(t.id, {
@@ -287,6 +308,47 @@ export function TargetsPage() {
         <CardHeader
           title="Tests"
           description="Open Results on any test for its per-type latest result detail."
+          actions={
+            <FilterBar>
+              <Field
+                label="Find"
+                value={q}
+                onChange={(e) => setFilter({ q: e.target.value })}
+                placeholder="dns, edge, 1.1.1.1"
+              />
+              <Select
+                label="Type"
+                value={type}
+                onChange={(e) => setFilter({ type: e.target.value })}
+                options={[
+                  { value: 'all', label: 'All types' },
+                  ...TEST_TYPES.map((t) => ({ value: t, label: t })),
+                ]}
+              />
+              <Select
+                label="State"
+                value={enabled}
+                onChange={(e) => setFilter({ enabled: e.target.value })}
+                options={[
+                  { value: 'all', label: 'All states' },
+                  { value: 'enabled', label: 'Enabled' },
+                  { value: 'disabled', label: 'Disabled' },
+                ]}
+              />
+              <SavedViews
+                surface="targets"
+                filters={filtersForSave(params, defaults)}
+                onApply={(filters) =>
+                  setURLFilters(params, setParams, defaults, {
+                    q: filters.q ?? '',
+                    type: filters.type ?? 'all',
+                    enabled: filters.enabled ?? 'all',
+                  })
+                }
+                placeholder="DNS tests"
+              />
+            </FilterBar>
+          }
         />
         <CardBody>
           {isPending ? (
@@ -298,7 +360,7 @@ export function TargetsPage() {
               <Table
                 caption="Synthetic tests"
                 columns={columns}
-                rows={data ?? []}
+                rows={filteredTests}
                 rowKey={(t) => t.id}
                 empty={
                   <EmptyState

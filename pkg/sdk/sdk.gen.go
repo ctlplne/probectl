@@ -562,6 +562,7 @@ type InventorySavedView struct {
 	Filters   map[string]string `json:"filters"`
 	Id        string            `json:"id"`
 	Name      string            `json:"name"`
+	OwnerId   string            `json:"owner_id"`
 	Surface   string            `json:"surface"`
 	TenantId  string            `json:"tenant_id"`
 	UpdatedAt string            `json:"updated_at"`
@@ -2154,7 +2155,7 @@ func (c *Client) IncidentCIs(ctx context.Context, req IncidentCIsRequest) (map[s
 	return out, nil
 }
 
-// List tenant-owned saved inventory views
+// List per-user saved inventory views
 type ListInventoryViewsRequest struct {
 	Surface *string `json:"-"`
 }
@@ -2172,7 +2173,7 @@ func (c *Client) ListInventoryViews(ctx context.Context, req ListInventoryViewsR
 	return &out, nil
 }
 
-// Create a tenant-owned saved inventory view
+// Create a per-user saved inventory view
 type CreateInventoryViewRequest struct {
 	Body *InventorySavedViewInput `json:"-"`
 }
@@ -2187,7 +2188,7 @@ func (c *Client) CreateInventoryView(ctx context.Context, req CreateInventoryVie
 	return &out, nil
 }
 
-// Open a tenant-owned saved inventory view
+// Open a per-user saved inventory view
 type GetInventoryViewRequest struct {
 	Id string `json:"-"`
 }

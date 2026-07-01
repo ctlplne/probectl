@@ -484,7 +484,8 @@ export interface InventorySavedView {
   filters: { [key: string]: string }
   id: string
   name: string
-  surface: "endpoints"
+  owner_id: string
+  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
   tenant_id: string
   updated_at: string
 }
@@ -492,7 +493,7 @@ export interface InventorySavedView {
 export interface InventorySavedViewInput {
   filters?: { [key: string]: string }
   name: string
-  surface: "endpoints"
+  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
 }
 
 export interface InventorySavedViewList {
@@ -1217,7 +1218,7 @@ export interface IncidentCIsRequest {
 export type IncidentCIsResponse = JsonObject
 
 export interface ListInventoryViewsRequest {
-  surface?: "endpoints"
+  surface?: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
 }
 
 export type ListInventoryViewsResponse = InventorySavedViewList

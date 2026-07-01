@@ -17,7 +17,13 @@ import (
 	"time"
 )
 
-const SurfaceEndpoints = "endpoints"
+const (
+	SurfaceEndpoints = "endpoints"
+	SurfaceTargets   = "targets"
+	SurfaceAgents    = "agents"
+	SurfaceIncidents = "incidents"
+	SurfaceAlerts    = "alerts"
+)
 
 var ErrNotFound = errors.New("inventory saved view not found")
 
@@ -32,6 +38,7 @@ type SaveViewInput struct {
 type SavedView struct {
 	ID        string            `json:"id"`
 	TenantID  string            `json:"tenant_id"`
+	OwnerID   string            `json:"owner_id,omitempty"`
 	Surface   string            `json:"surface"`
 	Name      string            `json:"name"`
 	Filters   map[string]string `json:"filters"`
@@ -41,9 +48,9 @@ type SavedView struct {
 
 // ViewStore persists saved views behind a tenant boundary.
 type ViewStore interface {
-	Save(ctx context.Context, tenantID string, input SaveViewInput) (SavedView, error)
-	List(ctx context.Context, tenantID, surface string) ([]SavedView, error)
-	Get(ctx context.Context, tenantID, id string) (SavedView, error)
+	Save(ctx context.Context, tenantID, ownerID string, input SaveViewInput) (SavedView, error)
+	List(ctx context.Context, tenantID, ownerID, surface string) ([]SavedView, error)
+	Get(ctx context.Context, tenantID, ownerID, id string) (SavedView, error)
 }
 
 // MemoryViewStore is the lightweight/test implementation. Its outer map key is
@@ -62,12 +69,16 @@ func NewMemoryViewStore() *MemoryViewStore {
 }
 
 // Save creates a saved view for one tenant.
-func (s *MemoryViewStore) Save(ctx context.Context, tenantID string, input SaveViewInput) (SavedView, error) {
+func (s *MemoryViewStore) Save(ctx context.Context, tenantID, ownerID string, input SaveViewInput) (SavedView, error) {
 	if err := ctx.Err(); err != nil {
 		return SavedView{}, err
 	}
 	if strings.TrimSpace(tenantID) == "" {
 		return SavedView{}, errors.New("inventory saved view: tenant_id is required")
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return SavedView{}, errors.New("inventory saved view: owner_id is required")
 	}
 	input, err := cleanInput(input)
 	if err != nil {
@@ -77,6 +88,7 @@ func (s *MemoryViewStore) Save(ctx context.Context, tenantID string, input SaveV
 	view := SavedView{
 		ID:        fmt.Sprintf("view-%d", s.seq.Add(1)),
 		TenantID:  tenantID,
+		OwnerID:   ownerID,
 		Surface:   input.Surface,
 		Name:      input.Name,
 		Filters:   copyFilters(input.Filters),
@@ -93,18 +105,25 @@ func (s *MemoryViewStore) Save(ctx context.Context, tenantID string, input SaveV
 }
 
 // List returns the tenant's saved views, newest first.
-func (s *MemoryViewStore) List(ctx context.Context, tenantID, surface string) ([]SavedView, error) {
+func (s *MemoryViewStore) List(ctx context.Context, tenantID, ownerID, surface string) ([]SavedView, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, errors.New("inventory saved view: tenant_id is required")
 	}
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return nil, errors.New("inventory saved view: owner_id is required")
+	}
 	surface = strings.ToLower(strings.TrimSpace(surface))
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []SavedView{}
 	for _, view := range s.byTenant[tenantID] {
+		if view.OwnerID != ownerID {
+			continue
+		}
 		if surface != "" && view.Surface != surface {
 			continue
 		}
@@ -120,14 +139,18 @@ func (s *MemoryViewStore) List(ctx context.Context, tenantID, surface string) ([
 }
 
 // Get returns one tenant-owned saved view by ID.
-func (s *MemoryViewStore) Get(ctx context.Context, tenantID, id string) (SavedView, error) {
+func (s *MemoryViewStore) Get(ctx context.Context, tenantID, ownerID, id string) (SavedView, error) {
 	if err := ctx.Err(); err != nil {
 		return SavedView{}, err
+	}
+	ownerID = strings.TrimSpace(ownerID)
+	if ownerID == "" {
+		return SavedView{}, errors.New("inventory saved view: owner_id is required")
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	view, ok := s.byTenant[tenantID][id]
-	if !ok {
+	if !ok || view.OwnerID != ownerID {
 		return SavedView{}, ErrNotFound
 	}
 	return cloneView(view), nil
@@ -139,7 +162,7 @@ func cleanInput(input SaveViewInput) (SaveViewInput, error) {
 	if input.Surface == "" {
 		return SaveViewInput{}, errors.New("inventory saved view: surface is required")
 	}
-	if input.Surface != SurfaceEndpoints {
+	if !supportedSurface(input.Surface) {
 		return SaveViewInput{}, fmt.Errorf("inventory saved view: unsupported surface %q", input.Surface)
 	}
 	if input.Name == "" {
@@ -167,6 +190,15 @@ func cleanInput(input SaveViewInput) (SaveViewInput, error) {
 		}
 	}
 	return input, nil
+}
+
+func supportedSurface(surface string) bool {
+	switch surface {
+	case SurfaceEndpoints, SurfaceTargets, SurfaceAgents, SurfaceIncidents, SurfaceAlerts:
+		return true
+	default:
+		return false
+	}
 }
 
 func copyFilters(in map[string]string) map[string]string {

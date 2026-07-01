@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/inventory"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -40,7 +41,7 @@ func (s *Server) handleListInventoryViews(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return err
 	}
-	views, err := s.viewStore().List(r.Context(), tid, r.URL.Query().Get("surface"))
+	views, err := s.viewStore().List(r.Context(), tid, savedViewOwner(r), r.URL.Query().Get("surface"))
 	if err != nil {
 		return mapInventoryViewError(err)
 	}
@@ -54,7 +55,7 @@ func (s *Server) handleGetInventoryView(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
-	view, err := s.viewStore().Get(r.Context(), tid, r.PathValue("id"))
+	view, err := s.viewStore().Get(r.Context(), tid, savedViewOwner(r), r.PathValue("id"))
 	if err != nil {
 		return mapInventoryViewError(err)
 	}
@@ -72,7 +73,7 @@ func (s *Server) handleCreateInventoryView(w http.ResponseWriter, r *http.Reques
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
-	view, err := s.viewStore().Save(r.Context(), tid, inventory.SaveViewInput{
+	view, err := s.viewStore().Save(r.Context(), tid, savedViewOwner(r), inventory.SaveViewInput{
 		Surface: req.Surface,
 		Name:    req.Name,
 		Filters: req.Filters,
@@ -93,6 +94,18 @@ func (s *Server) handleCreateInventoryView(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Location", "/v1/inventory/views/"+view.ID)
 	writeJSON(w, http.StatusCreated, view)
 	return nil
+}
+
+func savedViewOwner(r *http.Request) string {
+	if p := auth.PrincipalFrom(r.Context()); p != nil {
+		if p.UserID != "" {
+			return p.UserID
+		}
+		if p.Email != "" {
+			return p.Email
+		}
+	}
+	return "unknown"
 }
 
 func mapInventoryViewError(err error) error {

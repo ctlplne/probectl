@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -19,10 +19,11 @@ describe('command palette (keyboard-first)', () => {
 
     const input = await screen.findByRole('combobox', { name: /search commands/i })
     expect(input).toHaveFocus()
-    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    const listbox = screen.getByRole('listbox')
+    expect(listbox).toBeInTheDocument()
 
     await user.type(input, 'Security')
-    const options = screen.getAllByRole('option')
+    const options = within(listbox).getAllByRole('option')
     expect(options[0]).toHaveTextContent(/security/i)
     expect(options[0]).toHaveAttribute('aria-selected', 'true')
 
@@ -42,10 +43,12 @@ describe('command palette (keyboard-first)', () => {
     await screen.findByRole('heading', { name: /targets & tests/i })
 
     await user.keyboard('{Meta>}k{/Meta}')
-    expect(await screen.findByRole('combobox')).toBeInTheDocument()
+    expect(await screen.findByRole('combobox', { name: /search commands/i })).toBeInTheDocument()
 
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('combobox', { name: /search commands/i })).not.toBeInTheDocument(),
+    )
   })
 
   test('search input has a tokenized visible focus style', () => {

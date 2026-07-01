@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import styles from './alerts.module.css'
 import { Page } from './pages'
 import {
@@ -37,6 +38,8 @@ import {
   type OncallOutboundConnector,
 } from '../api/alerts'
 import { DateTime } from '../time/DateTime'
+import { FilterBar, SavedViews } from './listControls'
+import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -434,20 +437,29 @@ export function AlertsPage() {
   const rules = useAlertRules()
   const del = useDeleteAlertRule()
   const { push } = useToast()
-  const [stateFilter, setStateFilter] = useState<StateFilter>('all')
-  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all')
+  const [params, setParams] = useSearchParams()
+  const defaults = { alert_q: '', alert_state: 'all', alert_severity: 'all' }
+  const query = filterValue(params, 'alert_q')
+  const stateFilter = filterValue(params, 'alert_state', 'all') as StateFilter
+  const severityFilter = filterValue(params, 'alert_severity', 'all') as SeverityFilter
+  const setFilter = (patch: Record<string, string>) =>
+    setURLFilters(params, setParams, defaults, patch)
   const [detail, setDetail] = useState<string | null>(null) // fingerprint
   const [editing, setEditing] = useState<AlertRule | null>(null)
   const [creating, setCreating] = useState(false)
 
   const items = useMemo(() => {
     const all = active.data?.items ?? []
-    return all.filter(
-      (a) =>
+    const needle = query.trim().toLowerCase()
+    return all.filter((a) => {
+      const haystack = [a.rule_name, a.metric, labelText(a.labels), a.reason].join(' ').toLowerCase()
+      return (
+        (!needle || haystack.includes(needle)) &&
         (stateFilter === 'all' || alertStateOf(a) === stateFilter) &&
-        (severityFilter === 'all' || a.severity === severityFilter),
-    )
-  }, [active.data, stateFilter, severityFilter])
+        (severityFilter === 'all' || a.severity === severityFilter)
+      )
+    })
+  }, [active.data, query, stateFilter, severityFilter])
 
   const detailAlert = items.find((a) => a.fingerprint === detail) ?? null
 
@@ -540,11 +552,17 @@ export function AlertsPage() {
           <CardHeader
             title="Active alerts"
             actions={
-              <div className={styles.actionsRow}>
+              <FilterBar>
+                <Field
+                  label="Find"
+                  value={query}
+                  onChange={(e) => setFilter({ alert_q: e.target.value })}
+                  placeholder="rule, metric, target"
+                />
                 <Select
                   label="State"
                   value={stateFilter}
-                  onChange={(e) => setStateFilter(e.target.value as StateFilter)}
+                  onChange={(e) => setFilter({ alert_state: e.target.value })}
                   options={[
                     { value: 'all', label: 'All states' },
                     { value: 'firing', label: 'Firing' },
@@ -555,7 +573,7 @@ export function AlertsPage() {
                 <Select
                   label="Severity"
                   value={severityFilter}
-                  onChange={(e) => setSeverityFilter(e.target.value as SeverityFilter)}
+                  onChange={(e) => setFilter({ alert_severity: e.target.value })}
                   options={[
                     { value: 'all', label: 'All severities' },
                     { value: 'critical', label: 'Critical' },
@@ -563,7 +581,19 @@ export function AlertsPage() {
                     { value: 'info', label: 'Info' },
                   ]}
                 />
-              </div>
+                <SavedViews
+                  surface="alerts"
+                  filters={filtersForSave(params, defaults)}
+                  onApply={(filters) =>
+                    setURLFilters(params, setParams, defaults, {
+                      alert_q: filters.alert_q ?? '',
+                      alert_state: filters.alert_state ?? 'all',
+                      alert_severity: filters.alert_severity ?? 'all',
+                    })
+                  }
+                  placeholder="Critical database"
+                />
+              </FilterBar>
             }
           />
           <CardBody>

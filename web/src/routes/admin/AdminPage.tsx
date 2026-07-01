@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Badge,
   Button,
@@ -33,6 +34,8 @@ import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
 import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
+import { FilterBar, SavedViews } from '../listControls'
+import { filterValue, filtersForSave, setURLFilters } from '../urlFilters'
 
 // --- Admin & Settings: the agent fleet (live /v1/agents) + secret-backend
 // health (S41, live /v1/secrets/health) ---
@@ -372,8 +375,32 @@ export function AdminPage() {
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useAgents()
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [collectorOpen, setCollectorOpen] = useState(false)
+  const [params, setParams] = useSearchParams()
+  const defaults = { agent_q: '', agent_status: 'all', agent_capability: 'all' }
+  const q = filterValue(params, 'agent_q')
+  const status = filterValue(params, 'agent_status', 'all')
+  const capability = filterValue(params, 'agent_capability', 'all')
+  const setFilter = (patch: Record<string, string>) =>
+    setURLFilters(params, setParams, defaults, patch)
   // UX-004: flatten the cursor-paged result into the rows fetched so far.
   const agents = flattenAgents(data?.pages)
+  const capabilities = useMemo(
+    () => Array.from(new Set(agents.flatMap((a) => a.capabilities))).sort(),
+    [agents],
+  )
+  const filteredAgents = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    return agents.filter((agent) => {
+      const haystack = [agent.name, agent.hostname, agent.agent_version, agent.status, ...agent.capabilities]
+        .join(' ')
+        .toLowerCase()
+      return (
+        (!needle || haystack.includes(needle)) &&
+        (status === 'all' || agent.status === status) &&
+        (capability === 'all' || agent.capabilities.includes(capability))
+      )
+    })
+  }, [agents, capability, q, status])
 
   const columns: Column<Agent>[] = [
     { key: 'name', header: 'Agent', render: (a) => <strong>{a.name}</strong> },
@@ -416,6 +443,46 @@ export function AdminPage() {
           }
         />
         <CardBody>
+          <FilterBar>
+            <Field
+              label="Find"
+              value={q}
+              onChange={(e) => setFilter({ agent_q: e.target.value })}
+              placeholder="agent, host, version"
+            />
+            <Select
+              label="Status"
+              value={status}
+              onChange={(e) => setFilter({ agent_status: e.target.value })}
+              options={[
+                { value: 'all', label: 'All statuses' },
+                { value: 'online', label: 'Online' },
+                { value: 'offline', label: 'Offline' },
+                { value: 'registered', label: 'Registered' },
+              ]}
+            />
+            <Select
+              label="Capability"
+              value={capability}
+              onChange={(e) => setFilter({ agent_capability: e.target.value })}
+              options={[
+                { value: 'all', label: 'All capabilities' },
+                ...capabilities.map((c) => ({ value: c, label: c })),
+              ]}
+            />
+            <SavedViews
+              surface="agents"
+              filters={filtersForSave(params, defaults)}
+              onApply={(filters) =>
+                setURLFilters(params, setParams, defaults, {
+                  agent_q: filters.agent_q ?? '',
+                  agent_status: filters.agent_status ?? 'all',
+                  agent_capability: filters.agent_capability ?? 'all',
+                })
+              }
+              placeholder="Online eBPF"
+            />
+          </FilterBar>
           {isPending ? (
             <LoadingState label="Loading agents…" />
           ) : isError ? (
@@ -425,7 +492,7 @@ export function AdminPage() {
               <Table
                 caption="Registered agents"
                 columns={columns}
-                rows={agents}
+                rows={filteredAgents}
                 rowKey={(a) => a.id}
                 empty={
                   <EmptyState

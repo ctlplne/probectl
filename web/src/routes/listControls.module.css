@@ -1,0 +1,13 @@
+.filterBar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  min-width: min(100%, 860px);
+}
+
+@media (max-width: 720px) {
+  .filterBar {
+    grid-template-columns: 1fr;
+  }
+}

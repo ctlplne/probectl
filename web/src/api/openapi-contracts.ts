@@ -235,6 +235,20 @@ export const API_CALL_CONTRACTS = [
     generated: 'CreateInventoryViewResponse',
   },
   {
+    file: 'api/savedViews.ts',
+    method: 'GET',
+    path: '`/inventory/views?surface=${surface}`',
+    response: 'SavedInventoryViewsResponse',
+    generated: 'ListInventoryViewsResponse',
+  },
+  {
+    file: 'api/savedViews.ts',
+    method: 'POST',
+    path: '/inventory/views',
+    response: 'SavedInventoryView',
+    generated: 'CreateInventoryViewResponse',
+  },
+  {
     file: 'api/identity.ts',
     method: 'GET',
     path: '/directory/scim-tokens',

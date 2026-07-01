@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import styles from './incidents.module.css'
 import { Page } from './pages'
@@ -10,7 +10,9 @@ import {
   CardHeader,
   EmptyState,
   ErrorState,
+  Field,
   LoadingState,
+  Select,
   StatusDot,
   Table,
   useToast,
@@ -31,6 +33,8 @@ import {
   questionForIncident,
 } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
+import { FilterBar, SavedViews } from './listControls'
+import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 
 /** Timeline overlays every plane's signals for one incident in time order. The
  *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
@@ -157,14 +161,37 @@ export function IncidentsPage() {
   const incidents = useIncidents()
   // Deep-link support (?incident=<id>): other surfaces (threat triage S-FE3,
   // alerts) pivot straight into a specific incident's timeline.
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<string | null>(params.get('incident'))
+  const defaults = { incident_q: '', incident_status: 'all', incident_severity: 'all' }
+  const query = filterValue(params, 'incident_q')
+  const status = filterValue(params, 'incident_status', 'all')
+  const severity = filterValue(params, 'incident_severity', 'all')
+  const setFilter = (patch: Record<string, string>) =>
+    setURLFilters(params, setParams, defaults, patch)
+  const filteredIncidents = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return (incidents.data ?? []).filter((inc) => {
+      const haystack = [inc.title, inc.target ?? '', inc.prefix ?? '', inc.status, inc.severity]
+        .join(' ')
+        .toLowerCase()
+      return (
+        (!needle || haystack.includes(needle)) &&
+        (status === 'all' || inc.status === status) &&
+        (severity === 'all' || inc.severity === severity)
+      )
+    })
+  }, [incidents.data, query, severity, status])
 
   useEffect(() => {
-    if (selected === null && incidents.data && incidents.data.length > 0) {
-      setSelected(incidents.data[0].id)
+    if (filteredIncidents.length === 0) {
+      setSelected(null)
+      return
     }
-  }, [incidents.data, selected])
+    if (selected === null || !filteredIncidents.some((inc) => inc.id === selected)) {
+      setSelected(filteredIncidents[0].id)
+    }
+  }, [filteredIncidents, selected])
 
   const columns: Column<Incident>[] = [
     {
@@ -199,6 +226,47 @@ export function IncidentsPage() {
 
   return (
     <Page title="Incidents" subtitle="Related signals across planes, grouped into one timeline.">
+      <FilterBar>
+        <Field
+          label="Find"
+          value={query}
+          onChange={(e) => setFilter({ incident_q: e.target.value })}
+          placeholder="target, title, prefix"
+        />
+        <Select
+          label="Status"
+          value={status}
+          onChange={(e) => setFilter({ incident_status: e.target.value })}
+          options={[
+            { value: 'all', label: 'All statuses' },
+            { value: 'open', label: 'Open' },
+            { value: 'resolved', label: 'Resolved' },
+          ]}
+        />
+        <Select
+          label="Severity"
+          value={severity}
+          onChange={(e) => setFilter({ incident_severity: e.target.value })}
+          options={[
+            { value: 'all', label: 'All severities' },
+            { value: 'critical', label: 'Critical' },
+            { value: 'warning', label: 'Warning' },
+            { value: 'info', label: 'Info' },
+          ]}
+        />
+        <SavedViews
+          surface="incidents"
+          filters={filtersForSave(params, defaults)}
+          onApply={(filters) =>
+            setURLFilters(params, setParams, defaults, {
+              incident_q: filters.incident_q ?? '',
+              incident_status: filters.incident_status ?? 'all',
+              incident_severity: filters.incident_severity ?? 'all',
+            })
+          }
+          placeholder="Critical open"
+        />
+      </FilterBar>
       {incidents.isLoading ? (
         <LoadingState label="Loading incidents…" />
       ) : incidents.isError ? (
@@ -208,12 +276,14 @@ export function IncidentsPage() {
           title="No incidents"
           description="Correlated signals will appear here as incidents."
         />
+      ) : filteredIncidents.length === 0 ? (
+        <EmptyState title="No matching incidents" description="No incidents matched." />
       ) : (
         <div className={styles.layout}>
           <Table
             caption="Incidents by severity and recent activity"
             columns={columns}
-            rows={incidents.data}
+            rows={filteredIncidents}
             rowKey={(r) => r.id}
           />
           {selected ? <Timeline incidentId={selected} /> : null}
