@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/secrets"
@@ -69,6 +70,10 @@ func run() error {
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_DEVICE_LOG_LEVEL", "info"), envOr("PROBECTL_DEVICE_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
+
+	if err := crypto.RunPowerOnSelfTest(log); err != nil {
+		return err
+	}
 
 	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_DEVICE_BUS"))
 	if err != nil {

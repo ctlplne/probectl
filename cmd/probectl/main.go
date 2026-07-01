@@ -11,11 +11,17 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/imfeelingtheagi/probectl/internal/cli"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 func main() {
+	if err := crypto.RunPowerOnSelfTest(nil); err != nil {
+		fmt.Fprintln(os.Stderr, "probectl:", err)
+		os.Exit(1)
+	}
 	os.Exit(cli.Run(os.Args[1:], os.Getenv, os.Stdout, os.Stderr))
 }

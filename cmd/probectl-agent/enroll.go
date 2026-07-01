@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/agent"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
@@ -30,6 +31,9 @@ func runEnroll(args []string) error {
 	hostname := fs.String("hostname", "", "agent hostname (defaults to os.Hostname)")
 	allowPlaintextLoopback := fs.Bool("allow-plaintext-loopback", false, "dev/test only: allow http://localhost or loopback enrollment")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := crypto.RunPowerOnSelfTest(nil); err != nil {
 		return err
 	}
 

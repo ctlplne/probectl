@@ -25,6 +25,7 @@ import (
 	"syscall"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/version"
@@ -58,6 +59,10 @@ func run() error {
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_ENDPOINT_LOG_LEVEL", "info"), envOr("PROBECTL_ENDPOINT_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
+
+	if err := crypto.RunPowerOnSelfTest(log); err != nil {
+		return err
+	}
 
 	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_ENDPOINT_BUS"))
 	if err != nil {

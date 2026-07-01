@@ -67,14 +67,10 @@ func run() error {
 	log := logging.New(os.Stdout, envOr("PROBECTL_AGENT_LOG_LEVEL", "info"), envOr("PROBECTL_AGENT_LOG_FORMAT", "json"))
 	slog.SetDefault(log)
 
-	// FIPS power-on self-test (S-EE1): the agent's mTLS/identity crypto is the
-	// same abstraction; fail closed if the self-test fails (guardrail 3).
-	if err := crypto.PowerOnSelfTest(); err != nil {
-		return fmt.Errorf("crypto power-on self-test: %w", err)
-	}
-	if st := crypto.Status(); st.BuildTag || st.ModuleActive {
-		log.Info("crypto self-test passed", "fips_build", st.BuildTag,
-			"fips_module_active", st.ModuleActive, "module_version", st.ModuleVersion)
+	// S-EE1/guardrail 3: prove the shared crypto provider before first-boot
+	// enrollment, mTLS identity loading, or probe runtime setup.
+	if err := crypto.RunPowerOnSelfTest(log); err != nil {
+		return err
 	}
 
 	// Signal context first, so SIGTERM cancels a first-boot enrollment retry.

@@ -56,6 +56,10 @@ func run() error {
 	}
 
 	log := logging.New(os.Stdout, envOr("PROBECTL_BMP_LOG_LEVEL", "info"), envOr("PROBECTL_BMP_LOG_FORMAT", "json"))
+	if err := probectlc.RunPowerOnSelfTest(log); err != nil {
+		return err
+	}
+
 	tlsCfg, err := probectlc.ServerMTLSConfig(*certFile, *keyFile, *caFile)
 	if err != nil {
 		return err

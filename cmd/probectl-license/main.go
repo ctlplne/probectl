@@ -34,6 +34,10 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
+	if err := crypto.RunPowerOnSelfTest(nil); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 	var err error
 	switch os.Args[1] {
 	case "gen-key":

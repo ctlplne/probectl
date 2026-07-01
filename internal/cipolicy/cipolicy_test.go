@@ -44,9 +44,14 @@ func repoRoot(t *testing.T) string {
 
 func readWorkflow(t *testing.T, name string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", name))
+	return readRepoFile(t, ".github", "workflows", name)
+}
+
+func readRepoFile(t *testing.T, elems ...string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(append([]string{repoRoot(t)}, elems...)...))
 	if err != nil {
-		t.Fatalf("read workflow %s: %v", name, err)
+		t.Fatalf("read %s: %v", filepath.Join(elems...), err)
 	}
 	return string(b)
 }
@@ -269,6 +274,137 @@ func TestScheduledTrivyFilesystemScanFailsOnHighs(t *testing.T) {
 	if strings.Contains(securityScan, "Gate on Critical\n") || strings.Contains(securityScan, "severity: CRITICAL\n") {
 		t.Error("security-scan.yml still appears to gate only on Critical vulnerabilities")
 	}
+}
+
+func TestFIPSArtifactsCoverPOSTEntrypoints(t *testing.T) {
+	makefile := readRepoFile(t, "Makefile")
+	vars := map[string][]string{
+		"BINARIES":      makeVariableWords(t, makefile, "BINARIES"),
+		"FIPS_BINARIES": nil,
+	}
+	vars["FIPS_BINARIES"] = expandMakeWords(makeVariableWords(t, makefile, "FIPS_BINARIES"), vars)
+	binaries := stringSet(vars["BINARIES"])
+	fipsBinaries := stringSet(vars["FIPS_BINARIES"])
+	if len(binaries) == 0 || len(fipsBinaries) == 0 {
+		t.Fatalf("Makefile BINARIES/FIPS_BINARIES parse failed: binaries=%v fips=%v", vars["BINARIES"], vars["FIPS_BINARIES"])
+	}
+	for b := range binaries {
+		if !fipsBinaries[b] {
+			t.Errorf("FIPS_BINARIES omits Makefile binary %q — customer-shipped artifacts must have a FIPS build", b)
+		}
+	}
+
+	buildFIPS := makeTargetBlock(t, makefile, "build-fips")
+	if !strings.Contains(buildFIPS, "$(FIPS_BINARIES)") {
+		t.Error("build-fips must loop over $(FIPS_BINARIES), not a hand-maintained partial list")
+	}
+	fipsGate := makeTargetBlock(t, makefile, "fips-gate")
+	if !strings.Contains(fipsGate, "TestFIPSArtifactsCoverPOSTEntrypoints") {
+		t.Error("fips-gate must run the CI policy test that protects FIPS artifact coverage")
+	}
+
+	cmdDir := filepath.Join(repoRoot(t), "cmd")
+	postEntrypoints := map[string]bool{}
+	entries, err := os.ReadDir(cmdDir)
+	if err != nil {
+		t.Fatalf("read cmd/: %v", err)
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		mainPath := filepath.Join(cmdDir, e.Name(), "main.go")
+		b, err := os.ReadFile(mainPath)
+		if err != nil {
+			continue
+		}
+		main := string(b)
+		if strings.Contains(main, "RunPowerOnSelfTest(") {
+			postEntrypoints[e.Name()] = true
+		}
+		if strings.Contains(main, "PowerOnSelfTest(") && !strings.Contains(main, "RunPowerOnSelfTest(") {
+			t.Errorf("%s calls the raw POST directly; entrypoints must use crypto.RunPowerOnSelfTest", mainPath)
+		}
+	}
+	for name := range fipsBinaries {
+		if !postEntrypoints[name] {
+			t.Errorf("FIPS-built command %q does not call crypto.RunPowerOnSelfTest from main.go", name)
+		}
+	}
+	for name := range postEntrypoints {
+		if !fipsBinaries[name] {
+			t.Errorf("POST-bearing command %q is not listed in FIPS_BINARIES", name)
+		}
+	}
+}
+
+func makeVariableWords(t *testing.T, makefile, name string) []string {
+	t.Helper()
+	re := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(name) + `\s*:?=\s*(.+)$`)
+	m := re.FindStringSubmatch(makefile)
+	if m == nil {
+		t.Fatalf("Makefile missing %s variable", name)
+	}
+	return strings.Fields(m[1])
+}
+
+func expandMakeWords(words []string, vars map[string][]string) []string {
+	out := make([]string, 0, len(words))
+	for _, w := range words {
+		if strings.HasPrefix(w, "$(") && strings.HasSuffix(w, ")") {
+			out = append(out, vars[strings.TrimSuffix(strings.TrimPrefix(w, "$("), ")")]...)
+			continue
+		}
+		out = append(out, w)
+	}
+	return uniqueSorted(out)
+}
+
+func stringSet(items []string) map[string]bool {
+	out := map[string]bool{}
+	for _, item := range items {
+		out[item] = true
+	}
+	return out
+}
+
+func uniqueSorted(items []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func makeTargetBlock(t *testing.T, makefile, target string) string {
+	t.Helper()
+	lines := strings.Split(makefile, "\n")
+	start := -1
+	prefix := target + ":"
+	for i, line := range lines {
+		if strings.HasPrefix(line, prefix) {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("Makefile missing target %s", target)
+	}
+	end := len(lines)
+	targetRe := regexp.MustCompile(`^[A-Za-z0-9_.-]+:`)
+	for i := start + 1; i < len(lines); i++ {
+		if targetRe.MatchString(lines[i]) {
+			end = i
+			break
+		}
+	}
+	return strings.Join(lines[start:end], "\n")
 }
 
 // TestPRImageMatrixMatchesMakefileBinaries closes TEST-004: every binary the

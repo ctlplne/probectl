@@ -9,6 +9,9 @@ MODULE   := github.com/imfeelingtheagi/probectl
 GO       ?= go
 BIN_DIR  := bin
 BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl
+# FIPS artifacts cover every customer-shipped binary plus security-sensitive
+# local/router tools that use probectl crypto but are not customer images.
+FIPS_BINARIES := $(BINARIES) probectl-license probectl-bmp-listener
 
 # FIPS 140-3 validated Go Cryptographic Module version (S-EE1). Selected at
 # build time via GOFIPS140 — see docs/hardening.md for the validated boundary.
@@ -61,9 +64,9 @@ build: ## Build all Go binaries into ./bin.
 	done
 
 .PHONY: build-fips
-build-fips: ## Build the FIPS 140-3 distribution artifact (S-EE1): validated Go Cryptographic Module (GOFIPS140) + the probectl_fips marker tag. The artifact is the gate — no runtime license check.
+build-fips: ## Build FIPS 140-3 artifacts (S-EE1): validated Go Cryptographic Module (GOFIPS140) + probectl_fips marker tag. The artifact is the gate — no runtime license check.
 	@mkdir -p $(BIN_DIR)
-	@for b in probectl-control probectl-agent; do \
+	@for b in $(FIPS_BINARIES); do \
 		echo ">> building $$b (FIPS 140-3, GOFIPS140=$(FIPS_MODULE), GOTOOLCHAIN=local)"; \
 		GOTOOLCHAIN=local GOFIPS140=$(FIPS_MODULE) CGO_ENABLED=0 $(GO) build -trimpath -tags probectl_fips \
 			-ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$$b-fips ./cmd/$$b || exit 1; \
@@ -74,6 +77,7 @@ build-fips: ## Build the FIPS 140-3 distribution artifact (S-EE1): validated Go 
 fips-gate: ## S-EE1 gate: the FIPS artifact builds AND its power-on self-test passes with the validated module active (proves the build is real, not just tagged).
 	GOFIPS140=$(FIPS_MODULE) $(GO) test -tags probectl_fips -count=1 \
 		-run '^TestPowerOnSelfTest$$|^TestTransparentSwap$$|^TestStatusReflectsBuild$$' ./internal/crypto/
+	$(GO) test -count=1 -run '^TestFIPSArtifactsCoverPOSTEntrypoints$$' ./internal/cipolicy/
 	@echo "fips-gate: OK (validated module active, KATs pass, swap transparent)"
 
 .PHONY: build-cross

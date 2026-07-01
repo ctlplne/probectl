@@ -46,6 +46,10 @@ any future certification-grade STIG/CIS package.
 - `internal/crypto/selftest.go` runs known-answer tests and, in a FIPS-tagged
   build, fails closed unless `crypto/fips140.Enabled()` is true.
 - `Makefile` targets:
-  - `make build-fips` builds the distribution artifact with `GOFIPS140=v1.0.0`
-    and `-tags probectl_fips`.
-  - `make fips-gate` runs the FIPS-tagged self-test with the module active.
+  - `make build-fips` builds every `FIPS_BINARIES` entry with
+    `GOFIPS140=v1.0.0` and `-tags probectl_fips`: all normal `BINARIES` plus
+    security-sensitive local/router tools (`probectl-license`,
+    `probectl-bmp-listener`).
+  - `make fips-gate` runs the FIPS-tagged self-test with the module active and
+    a CI policy test that keeps `FIPS_BINARIES`, POST-bearing entrypoints, and
+    the build loop in sync.

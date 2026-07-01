@@ -7,6 +7,7 @@ import (
 	"crypto/fips140"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 )
 
@@ -57,6 +58,33 @@ func Status() FIPSStatus {
 	}
 	st.SelfTestPassed = selfTestPassed.Load()
 	return st
+}
+
+// RunPowerOnSelfTest is the process-start helper for commands that use
+// probectl crypto. It wraps the POST with the uniform fail-closed error and the
+// optional structured FIPS posture log.
+func RunPowerOnSelfTest(log *slog.Logger) error {
+	if err := PowerOnSelfTest(); err != nil {
+		return fmt.Errorf("crypto power-on self-test: %w", err)
+	}
+	LogPowerOnSelfTestStatus(log)
+	return nil
+}
+
+// LogPowerOnSelfTestStatus reports the live FIPS posture after the POST has
+// passed. Nil loggers are intentional for stdout-sensitive commands such as
+// backup filters and signing CLIs.
+func LogPowerOnSelfTestStatus(log *slog.Logger) {
+	if log == nil {
+		return
+	}
+	if st := Status(); st.BuildTag || st.ModuleActive {
+		log.Info("crypto self-test passed",
+			"fips_build", st.BuildTag,
+			"fips_module_active", st.ModuleActive,
+			"fips_enforced", st.Enforced,
+			"module_version", st.ModuleVersion)
+	}
 }
 
 // Known-answer test vectors (published, standardized — the transparent-swap

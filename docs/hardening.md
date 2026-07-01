@@ -206,7 +206,7 @@ on concrete regulated-buyer demand. Until then, no probectl-level certificate is
 claimed anywhere.
 
 ```sh
-make build-fips                 # GOFIPS140=v1.0.0 -tags probectl_fips -> bin/*-fips
+make build-fips                 # GOFIPS140=v1.0.0 -tags probectl_fips -> bin/<FIPS_BINARIES>-fips
 make fips-gate                  # build + power-on self-test with the module active
 ```
 
@@ -218,10 +218,15 @@ FIPS. The build you run is the gate.
 
 ### Power-on self-test (POST)
 
-Both `probectl-control` and `probectl-agent` run `crypto.PowerOnSelfTest()` at
-startup, before serving any traffic, and **fail closed** if it errors (an
-errored self-test means the process refuses to start — never "warn and serve").
-The POST:
+Every command in Makefile `FIPS_BINARIES` runs
+`crypto.RunPowerOnSelfTest()` before it can touch cryptographic material:
+`probectl-control`, `probectl-agent`, `probectl-ebpf-agent`,
+`probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`,
+`probectl`, `probectl-license`, and `probectl-bmp-listener`. That means the POST
+runs before listeners, bus clients, first-boot enrollment, secret resolution,
+backup sealing/opening, certificate generation, license signing, and BMP mTLS
+setup. It **fails closed** if it errors (an errored self-test means the process
+refuses to start — never "warn and serve"). The POST:
 
 - Known-answer tests (a KAT feeds an algorithm a fixed input and demands the
   standard's exact published output — catching a swapped or miscompiled

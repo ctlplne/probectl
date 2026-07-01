@@ -59,6 +59,15 @@ func main() {
 }
 
 func run(cmd string) error {
+	// S-EE1/guardrail 3: every control-plane command that can touch crypto
+	// material runs the shared POST before early subcommands (gen-cert,
+	// backup-*) or the configured serve path can load keys/secrets. Version is
+	// the lone metadata-only escape hatch.
+	if cmd != "version" && cmd != "-version" && cmd != "--version" {
+		if err := crypto.RunPowerOnSelfTest(nil); err != nil {
+			return err
+		}
+	}
 	// CODE-001: the no-DB subcommands (version/gen-cert/support-bundle/preflight/
 	// backup-*) dispatch first; serve + the configured-path subcommands fall
 	// through to the wiring below. Behavior is identical — this is mechanical
@@ -71,12 +80,6 @@ func run(cmd string) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	// S41/SEC-002/S-T6: resolve secret-reference config and install the at-rest
-	// envelope sealer (extracted to setupSecretsAndEnvelope — CODE-005).
-	secretsResolver, envelopeGenerated, err := setupSecretsAndEnvelope(cfg)
-	if err != nil {
-		return err
-	}
 	// mcp-stdio uses stdout for its JSON-RPC channel, so its logs go to stderr.
 	logOut := os.Stdout
 	if cmd == "mcp-stdio" {
@@ -84,6 +87,14 @@ func run(cmd string) error {
 	}
 	log := logging.New(logOut, cfg.LogLevel, cfg.LogFormat)
 	slog.SetDefault(log)
+	crypto.LogPowerOnSelfTestStatus(log)
+
+	// S41/SEC-002/S-T6: resolve secret-reference config and install the at-rest
+	// envelope sealer (extracted to setupSecretsAndEnvelope — CODE-005).
+	secretsResolver, envelopeGenerated, err := setupSecretsAndEnvelope(cfg)
+	if err != nil {
+		return err
+	}
 	if envelopeGenerated {
 		log.Warn("GENERATED a new at-rest envelope key — back this file up like any key material; losing it makes sealed values unreadable",
 			"key_file", cfg.EnvelopeKeyFile, "key_id", cfg.EnvelopeKeyID)
@@ -91,19 +102,6 @@ func run(cmd string) error {
 
 	if err := validateDevAuthMode(cfg); err != nil {
 		return err
-	}
-
-	// FIPS power-on self-test (S-EE1): exercise every crypto primitive (KATs)
-	// before serving traffic and — in the FIPS artifact — assert the validated
-	// module is active. Fail closed: a control plane whose crypto self-test
-	// fails must not run (guardrail 3).
-	if err := crypto.PowerOnSelfTest(); err != nil {
-		return fmt.Errorf("crypto power-on self-test: %w", err)
-	}
-	if st := crypto.Status(); st.BuildTag || st.ModuleActive {
-		log.Info("crypto self-test passed",
-			"fips_build", st.BuildTag, "fips_module_active", st.ModuleActive,
-			"fips_enforced", st.Enforced, "module_version", st.ModuleVersion)
 	}
 
 	db, err := store.Open(context.Background(), cfg.DatabaseURL,
