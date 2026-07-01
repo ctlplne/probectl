@@ -1,0 +1,44 @@
+PROBECTL_DRILL_PROFILE="${PROBECTL_DRILL_PROFILE:-production-shaped}" ./scripts/backup_restore_drill.sh
+
+== drill: prepare backup sealing key + probectl-control ==
+
+== drill: boot postgres + clickhouse (dev compose) ==
+ Container probectl-dev-postgres-1 Running 
+ Container probectl-dev-clickhouse-1 Running 
+ Container probectl-dev-clickhouse-1 Waiting 
+ Container probectl-dev-postgres-1 Waiting 
+ Container probectl-dev-postgres-1 Healthy 
+ Container probectl-dev-clickhouse-1 Healthy 
+
+== drill: seed marker data (nonce drill-1782888273-42321) ==
+NOTICE:  relation "probectl_drill_marker" already exists, skipping
+
+== drill: backup both stores ==
+backup_postgres: wrote /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/postgres-probectl-20260701T064439Z.dump.pbk (  393143 bytes)
+ probectl-dev-clickhouse-1 Copying probectl-dev-clickhouse-1:/backups/clickhouse-probectl-20260701T064439Z.zip to /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/clickhouse-probectl-20260701T064439Z.zip
+ probectl-dev-clickhouse-1 Copied probectl-dev-clickhouse-1:/backups/clickhouse-probectl-20260701T064439Z.zip to /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/clickhouse-probectl-20260701T064439Z.zip
+backup_clickhouse: wrote /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/clickhouse-probectl-20260701T064439Z.zip (  611640 bytes)
+total 83048
+-rw-r-----@ 1 shankar  staff    611640 Jul  1 02:44 clickhouse-probectl-20260701T064439Z.zip
+-rw-r--r--@ 1 shankar  staff       107 Jul  1 02:44 clickhouse-probectl-20260701T064439Z.zip.sha256
+-rw-r--r--@ 1 shankar  staff    393143 Jul  1 02:44 postgres-probectl-20260701T064439Z.dump.pbk
+-rw-r--r--@ 1 shankar  staff       110 Jul  1 02:44 postgres-probectl-20260701T064439Z.dump.pbk.sha256
+-rwxr-xr-x@ 1 shankar  staff  41501538 Jul  1 02:44 probectl-control
+
+== drill: WIPE both stores (simulated regional loss; restore only from off-box artifacts) ==
+wipe confirmed: both databases gone
+
+== drill: restore from the ENCRYPTED .pbk via backup-open (the shipped Job's command) ==
+restore_postgres: checksum verified
+NOTICE:  database "probectl" does not exist, skipping
+restore_postgres: restored probectl from /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/postgres-probectl.decrypted.dump
+restore_clickhouse: checksum verified
+ probectl-dev-clickhouse-1 Copying /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/clickhouse-probectl-20260701T064439Z.zip to probectl-dev-clickhouse-1:/backups/restore-clickhouse-probectl-20260701T064439Z.zip
+ probectl-dev-clickhouse-1 Copied /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/clickhouse-probectl-20260701T064439Z.zip to probectl-dev-clickhouse-1:/backups/restore-clickhouse-probectl-20260701T064439Z.zip
+restore_clickhouse: restored probectl from /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.CZ2ZuX/clickhouse-probectl-20260701T064439Z.zip
+
+== drill: verify marker survival ==
+
+clickhouse regional-loss drill: PASS (tenant 11111111-1111-1111-1111-111111111111 rows 250000/250000; default shipped telemetry RPO <= 24h; documented telemetry RPO 86400s with the selected backup cadence)
+BACKUP_RESTORE_RESULT run_at=2026-07-01T06:44:33Z git_sha=b68568478d68 profile=large pg_rows=20000 ch_rows=250000 ch_other_rows=1700 postgres_artifact_bytes=393143 clickhouse_artifact_bytes=611640 artifact_bytes=1004783 backup_secs=0 restore_secs=1 rpo_seconds=86400 rto_budget_seconds=600
+backup-restore drill: PASS (backup 0s, restore 1s — record in docs/ops/backup-restore.md)

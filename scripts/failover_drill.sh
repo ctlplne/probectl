@@ -21,6 +21,10 @@ DEV="deploy/compose/dev.yml"
 DRILL="deploy/compose/dr-drill.yml"
 DC=(docker compose -f "$DEV" -f "$DRILL")
 ACKED="$(mktemp "${TMPDIR:-/tmp}/drill-acked.XXXXXX")"
+DRILL_PROFILE="${PROBECTL_FAILOVER_PROFILE:-ci-dev-compose}"
+RESULT_FILE="${PROBECTL_FAILOVER_RESULT_FILE:-}"
+RUN_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+GIT_SHA="$(git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
 
 step() { echo; echo "== failover drill: $1 =="; }
 psql_primary() { "${DC[@]}" exec -T postgres psql -U probectl -d probectl -qAt -v ON_ERROR_STOP=1 -c "$1"; }
@@ -84,6 +88,15 @@ lost=$((last_acked - survived))
 [ "$lost" -lt 0 ] && lost=0
 rpo_s="$(awk -v l="$lost" -v r="$rate" 'BEGIN{ if (r>0) printf "%.2f", l/r; else print "0" }')"
 
+if [ -n "${RESULT_FILE}" ]; then
+  mkdir -p "$(dirname "${RESULT_FILE}")"
+  if [ ! -s "${RESULT_FILE}" ]; then
+    echo "run_at,git_sha,profile,write_rate_per_s,rto_ms,rpo_acked_rows,rpo_seconds" > "${RESULT_FILE}"
+  fi
+  echo "${RUN_AT},${GIT_SHA},${DRILL_PROFILE},${rate},${rto_ms},${lost},${rpo_s}" >> "${RESULT_FILE}"
+fi
+
 echo
 echo "failover drill: PASS — RTO ${rto_ms}ms (kill → promoted+writable); RPO ${lost} acked rows (~${rpo_s}s at ${rate} writes/s)"
+echo "FAILOVER_RESULT run_at=${RUN_AT} git_sha=${GIT_SHA} profile=${DRILL_PROFILE} write_rate_per_s=${rate} rto_ms=${rto_ms} rpo_acked_rows=${lost} rpo_seconds=${rpo_s}"
 echo "record this row in docs/ops/dr.md"

@@ -200,6 +200,10 @@ third-party-gate: third-party ## SUPPLY-009 gate: regenerate the inventory and f
 strength-gate: ## PROTECT strength-controls regression guard.
 	bash scripts/check_strength_controls.sh
 
+.PHONY: drill-evidence-gate
+drill-evidence-gate: ## RUNOPS gate: representative restore/failover rows are fresh, non-placeholder, and backed by archived logs.
+	bash scripts/check_drill_evidence.sh
+
 .PHONY: audit-verify-gate
 audit-verify-gate: ## Validate repaired probectl-audit VERIFY appendices and citation summary. Set PROBECTL_AUDIT_OUTPUTS to override the sibling audit output directory.
 	node scripts/check_audit_verify_outputs.mjs --repo . --outputs "$${PROBECTL_AUDIT_OUTPUTS:-../probectl-audit/outputs}"
@@ -290,6 +294,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	./scripts/check_crypto_imports.sh
 	./scripts/check_repo_hygiene.sh SELFTEST && ./scripts/check_repo_hygiene.sh
 	./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
+	bash scripts/check_drill_evidence.sh
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	./scripts/check_swallowed_errors.sh
 	./scripts/check_http_clients.sh

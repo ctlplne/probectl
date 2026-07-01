@@ -781,7 +781,14 @@ jobs:
         # value matches deploy/compose/dev.yml's postgres (probectl).
         env:
           POSTGRES_PASSWORD: probectl
-        run: make failover-drill
+          PROBECTL_FAILOVER_RESULT_FILE: artifacts/failover-results.csv
+        run: |
+          mkdir -p artifacts
+          make failover-drill
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: failover-results
+          path: artifacts/failover-results.csv
 
   chaos-dependency-drill:
     name: chaos-dependency-drill

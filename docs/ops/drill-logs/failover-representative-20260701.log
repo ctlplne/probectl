@@ -1,0 +1,30 @@
+./scripts/failover_drill.sh
+
+== failover drill: boot the primary ==
+ Container probectl-dev-postgres-1 Running 
+ Container probectl-dev-postgres-1 Waiting 
+ Container probectl-dev-postgres-1 Healthy 
+
+== failover drill: allow streaming replication + start the replica ==
+ Container probectl-dev-pg-replica-1 Creating 
+ Container probectl-dev-pg-replica-1 Created 
+ Container probectl-dev-pg-replica-1 Starting 
+ Container probectl-dev-pg-replica-1 Started 
+ Container probectl-dev-pg-replica-1 Waiting 
+ Container probectl-dev-pg-replica-1 Healthy 
+
+== failover drill: continuous acked writes against the primary ==
+writer: 34 acked writes in 5s (~6.8/s)
+
+== failover drill: REGION LOSS: kill -9 the primary ==
+ Container probectl-dev-postgres-1 Killing 
+ Container probectl-dev-postgres-1 Killed 
+last client-ACKED write: seq 35
+
+== failover drill: promote the replica ==
+
+== failover drill: measure RPO on the promoted node ==
+
+failover drill: PASS — RTO 673ms (kill → promoted+writable); RPO 0 acked rows (~0.00s at 6.8 writes/s)
+FAILOVER_RESULT run_at=2026-07-01T06:44:55Z git_sha=b68568478d68 profile=representative-compose write_rate_per_s=6.8 rto_ms=673 rpo_acked_rows=0 rpo_seconds=0.00
+record this row in docs/ops/dr.md

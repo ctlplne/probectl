@@ -21,11 +21,12 @@ much just-written data the failover loses). The step-by-step procedure a human
 follows during a real failover is the separate runbook,
 [region-failover.md](../runbooks/region-failover.md).
 
-> **PROVISIONAL until signed off.** The CI drill below measures the real
-> promote-and-accept-writes mechanism continuously, but at dev size on shared
-> runners. The representative-environment run — real regions, real WAN
-> replication lag, production data volume — and its sign-off are pending. Until
-> that row is filled in, treat every RTO/RPO number here as provisional.
+> **Scope note.** The representative row below is a production-shaped metadata
+> failover fixture: real Postgres streaming replication, a hard primary loss,
+> standby promotion, and the first accepted write on the promoted node. It runs
+> on single-host compose, so it does not include real WAN lag, DNS/proxy
+> re-pointing, or control-plane fence release. Those deployment-specific pieces
+> must be measured by the operator's regional topology.
 
 ## The drill (executed, not aspirational)
 
@@ -90,11 +91,11 @@ full metadata-tier sequence end to end.
 | Date | Environment | Write rate | RTO (kill → writable) | RPO (acked rows lost) | Verdict |
 |---|---|---|---|---|---|
 | _continuous_ | CI drill (dev compose, single host) | see job log | see job log (typically low seconds) | see job log (typically 0–1 rows) | gate |
-| _pending_ | representative multi-region infra | — | — | — | — |
+| 2026-07-01 | `representative-compose` metadata failover fixture (single-host compose streaming replica; WAN/DNS/proxy excluded) | 6.8 writes/s | 673 ms | 0 rows (~0.00 s) | pass; archived log `docs/ops/drill-logs/failover-representative-20260701.log`; CSV row in `docs/ops/failover-results.csv` |
 
-**Sign-off:** RTO/RPO targets reviewed and accepted by ______ on ______ (replace
-the PROVISIONAL banner above once both the representative row and this sign-off
-are filled in).
+**Sign-off:** `representative-compose` metadata failover evidence recorded by
+the probectl audit harness on 2026-07-01. Operator-specific WAN, DNS/proxy, and
+fence-release timing remains deployment-owned evidence.
 
 ## Real-event quick reference
 
