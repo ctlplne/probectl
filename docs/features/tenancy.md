@@ -215,13 +215,14 @@ router/RLS errors that could reveal another tenant's identifiers.
   move under a per-tenant key namespace on the same backend — strong logical
   separation, but not a separate storage system. Stated plainly so it is never a
   surprise.
-- **The fairness query guards default to unlimited; the ingest bounds do not.**
-  The shipped defaults bound ingest rates out of the box (the thing one tenant is
-  most likely to wreck) but leave the two query guards unlimited until you set
-  them. The device-metrics and OTLP-series rates *are* enforced per tenant (their
-  own token buckets), but their *values* are deployment defaults with no per-tenant
-  override today — the per-tenant override store covers the other meters, not
-  these two.
+- **The fairness query guards and ingest bounds are on by default.** The shipped
+  defaults bound ingest rates and tenant-scoped query paths out of the box. The
+  query defaults are generous (`4` in-flight queries and `120` queries/minute per
+  tenant) but still fail closed with HTTP 429 when one reader floods the shared
+  plane. The device-metrics and OTLP-series rates *are* enforced per tenant
+  (their own token buckets), but their *values* are deployment defaults with no
+  per-tenant override today — the per-tenant override store covers the other
+  meters, not these two.
 - **Fairness is protection, not billing or hard isolation.** It bounds rates on
   the shared pipeline. Counting usage is a separate concern, and hard separation
   is what siloed mode is for.

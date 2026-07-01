@@ -23,8 +23,8 @@
 // Defaults doctrine: the deployment ships SANE per-tenant ingest bounds on
 // every plane, enabled by default (not opt-in). A zero or unset policy field
 // means "use the deployment default" — which is itself bounded — so to change a
-// bound you set a POSITIVE value; there is no negative/unlimited override for the
-// ingest bounds (the query-cost guards do default to 0 = unlimited). A policy-store
+// bound you set a POSITIVE value; there is no negative override for any bound
+// (explicit 0 in deployment config is the only unlimited posture). A policy-store
 // outage degrades to the deployment defaults (availability over precision; a
 // down Postgres must not stall ingest). Shedding is never silent: every shed
 // unit is counted, surfaced, and attributable. Cost guards bound CONCURRENCY

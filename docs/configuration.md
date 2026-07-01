@@ -1910,12 +1910,11 @@ lockout warning, crypto-offboarding — is in `docs/byok.md`.
 
 These are the per-tenant bounds that protect a *pooled* (shared) deployment, so
 one noisy tenant can't starve the others — and they are core in every edition. The
-ingest-rate bounds are **on by default** with conservative numbers; you opt *out*
-of a bound by setting it to an explicit **`0`** (unlimited). Unset keeps the
-default, and a negative value is a startup error — config validation rejects it.
-The two query bounds already default to `0`, i.e. unlimited until you set them.
-Per-tenant overrides are set from the provider console into `tenant_fairness`.
-Full model: `docs/fairness.md`.
+ingest-rate and query bounds are **on by default** with conservative numbers; you
+opt *out* of a bound by setting it to an explicit **`0`** (unlimited). Unset keeps
+the default, and a negative value is a startup error — config validation rejects
+it. Per-tenant overrides are set from the provider console into
+`tenant_fairness`. Full model: `docs/fairness.md`.
 
 These are token-bucket rate limits: the steady rate is the value below, and the
 bucket can hold a burst of `rate × PROBECTL_FAIRNESS_BURST_SECONDS`. Telemetry over
@@ -1929,8 +1928,8 @@ a bound is admission-controlled (shed + counted), never silently corrupted.
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant SNMP/gNMI device-sample admission rate. Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_OTLP_SERIES_PER_SEC` | `5000` | per-tenant OTLP metric/trace/log series admission rate (SCALE-003). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | burst window: bucket capacity = rate × this. `0` falls back to 10 — an enforced bucket always has a burst |
-| `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `0` (unlimited) | per-tenant in-flight query cap (HTTP 429 over it) |
-| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `0` (unlimited) | per-tenant query budget per minute (HTTP 429 over it) |
+| `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `4` | per-tenant in-flight query cap (HTTP 429 over it). Explicit `0` = unlimited |
+| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `120` | per-tenant query budget per minute (HTTP 429 over it). Explicit `0` = unlimited |
 | `PROBECTL_FAIRNESS_TENANT_IDLE_TTL` | `24h` | evict a tenant's in-memory fairness state after it is idle this long (SCALE-002), bounding the gate's per-tenant map under tenant churn. A returning tenant's state is re-created (defaults re-enforced) on its next message. `0` falls back to 24h |
 
 ### Multi-region / active-active HA (core)

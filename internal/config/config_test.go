@@ -65,6 +65,12 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.DatabaseMinConns != 2 { // SCALE-009: warm floor
 		t.Errorf("DatabaseMinConns = %d, want 2", cfg.DatabaseMinConns)
 	}
+	if cfg.FairnessQueryConcurrency != 4 {
+		t.Errorf("FairnessQueryConcurrency = %d, want 4", cfg.FairnessQueryConcurrency)
+	}
+	if cfg.FairnessQueriesPerMin != 120 {
+		t.Errorf("FairnessQueriesPerMin = %v, want 120", cfg.FairnessQueriesPerMin)
+	}
 }
 
 // TENANT-004: DB-enforced ClickHouse tenant isolation must default ON across

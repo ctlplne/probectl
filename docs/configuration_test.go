@@ -42,6 +42,33 @@ func TestFlowRetentionDefaultMatchesConfig(t *testing.T) {
 	}
 }
 
+func TestFairnessQueryDefaultsMatchConfig(t *testing.T) {
+	cfg, err := config.Load(func(string) string { return "" })
+	if err != nil {
+		t.Fatalf("load config defaults: %v", err)
+	}
+	doc, err := os.ReadFile("configuration.md")
+	if err != nil {
+		t.Fatalf("read configuration.md: %v", err)
+	}
+	check := func(key string, want string) {
+		t.Helper()
+		rowRE := regexp.MustCompile("(?m)^\\|\\s*`" + regexp.QuoteMeta(key) + "`\\s*\\|\\s*`([^`]+)`\\s*\\|([^\\n]+)$")
+		match := rowRE.FindStringSubmatch(string(doc))
+		if match == nil {
+			t.Fatalf("configuration.md missing %s row", key)
+		}
+		if got := strings.TrimSpace(match[1]); got != want {
+			t.Fatalf("documented %s default = %q, want actual config default %q", key, got, want)
+		}
+		if !strings.Contains(match[2], "Explicit `0` = unlimited") {
+			t.Fatalf("%s row must explain that explicit 0 is the unlimited opt-out: %s", key, strings.TrimSpace(match[2]))
+		}
+	}
+	check("PROBECTL_FAIRNESS_QUERY_CONCURRENCY", fmt.Sprintf("%d", cfg.FairnessQueryConcurrency))
+	check("PROBECTL_FAIRNESS_QUERIES_PER_MIN", fmt.Sprintf("%.0f", cfg.FairnessQueriesPerMin))
+}
+
 // TestControlPlaneEnvKeysHaveConfigurationRows keeps the page-level promise
 // honest: every PROBECTL_* key the control-plane config loader reads gets a
 // real markdown table row, not just a stray mention in prose.

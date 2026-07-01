@@ -54,8 +54,9 @@ Grafana-federable, written every 30 seconds).
 
 ## The policy model
 
-A policy is a set of bounds. Two of the bounds default to "unlimited", and the
-rest default to **sane, generous limits** — see the table for which is which.
+A policy is a set of bounds. Deployment defaults are **sane, generous limits**;
+set a bound to explicit `0` only when you intentionally want that meter
+unlimited.
 
 | Field | Meaning |
 |---|---|
@@ -68,12 +69,12 @@ rest default to **sane, generous limits** — see the table for which is which.
 | `queries_per_min` | per-minute query budget; 0 = unlimited (the bucket holds one full minute) |
 | `weight` | operator vocabulary for relative share (recorded, not yet used to gate) |
 
-**Defaults are bounded for ingest, unlimited for queries.** The deployment ships
-with real ingest ceilings out of the box (see the configuration table below for
-the exact numbers): generous enough for real fleets, a hard wall for a runaway
-tenant. The two query guards default to 0, meaning unlimited. This is a
-deliberate posture — the shared *ingest* pipeline is the most likely thing one
-tenant can wreck, so it is protected by default.
+**Defaults are bounded for ingest and queries.** The deployment ships with real
+ceilings out of the box (see the configuration table below for the exact
+numbers): generous enough for real fleets, a hard wall for a runaway tenant.
+This is deliberate pooled-platform posture: the ingest pipeline gets token
+buckets, and tenant-scoped query paths get both a concurrency cap and a
+per-minute budget so a single heavy reader cannot starve neighbors.
 
 **How values resolve.** Deployment-wide defaults come from the
 `PROBECTL_FAIRNESS_*` keys. Per-tenant overrides live in the `tenant_fairness`
@@ -134,8 +135,8 @@ enforced.
 | `PROBECTL_FAIRNESS_INGEST_BYTES_PER_SEC` | `2097152` (2 MiB/s) | per-tenant ingest byte rate |
 | `PROBECTL_FAIRNESS_DEVICE_METRICS_PER_SEC` | `2000` | per-tenant device (SNMP/gNMI) sample rate |
 | `PROBECTL_FAIRNESS_BURST_SECONDS` | `10` | bucket capacity multiplier (capacity = rate × this) |
-| `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `0` (unlimited) | per-tenant in-flight query cap |
-| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `0` (unlimited) | per-tenant query budget |
+| `PROBECTL_FAIRNESS_QUERY_CONCURRENCY` | `4` | per-tenant in-flight query cap |
+| `PROBECTL_FAIRNESS_QUERIES_PER_MIN` | `120` | per-tenant query budget |
 
 Three rules govern what a value means:
 
