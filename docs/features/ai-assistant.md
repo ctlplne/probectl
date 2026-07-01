@@ -38,11 +38,13 @@ from reading another tenant's data, and what stops it from inventing an answer?
 probectl answers both structurally, so swapping or upgrading the model cannot
 weaken either guarantee.
 
-It also exists to stay sovereign. The default RCA engine is not a large language
-model (LLM) at all — it is ordinary probectl code that runs inside the control
-plane, makes no network call, and works on a machine with no internet path.
-Connecting a real model, local or cloud, is an explicit opt-in. Nothing ever
-*requires* your data to leave infrastructure you control.
+It also exists to make the AI sovereign instead of SaaS-bound. The default RCA
+engine is not a large language model (LLM) at all — it is ordinary probectl code
+that runs inside the control plane, makes no network call, and works on a machine
+with no internet path. If you want fuller prose, local Ollama or vLLM keeps that
+assistant path inside your network; a remote model is explicit opt-in and must
+pass consent, redaction, and audit before tenant evidence can leave
+infrastructure you control.
 
 ## How it works
 

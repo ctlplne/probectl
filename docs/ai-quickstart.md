@@ -12,12 +12,12 @@ dev rig from [`getting-started.md`](getting-started.md) is perfect (its
 Each later step states its own extra prerequisite at the top. Total time, all
 five steps: ~15 minutes.
 
-**The honesty contract first**, because it explains everything below: the
-assistant answers with **citations to real signals you are allowed to see**, it
-runs **air-gapped by default** (no language model is contacted until you
-configure one), and it **never acts** — it explains, and at most *proposes* (a
-human approves). Tenant first, then RBAC, on every path: the model never sees
-data the asking user couldn't query directly.
+**The honesty contract first**, because it explains everything below: this is the
+air-gapped assistant path for sovereign AI. It answers with **citations to real
+signals you are allowed to see**, contacts no language model until you configure
+one, and it **never acts** — it explains, and at most *proposes* (a human
+approves). Tenant first, then RBAC, on every path: the model never sees data the
+asking user couldn't query directly.
 
 ## Choosing your rung (you can climb later)
 

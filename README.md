@@ -120,9 +120,12 @@ probectl is organized around the questions operators actually ask at 2 a.m.:
 - *"Who's saturating this link, and what's it costing?"* — flow analytics plus
   per-tenant FinOps egress attribution.
 
-Or just ask the built-in assistant *"why is checkout slow for tenant X?"* — it
-runs the cross-plane correlation and answers with **cited evidence**, scoped to
-exactly what the caller is allowed to see.
+Or just ask the built-in assistant *"why is checkout slow for tenant X?"* — this
+is sovereign network observability AI by default: it runs the cross-plane
+correlation inside your control plane, answers with **cited evidence**, and is
+scoped to exactly what the caller is allowed to see. Local Ollama/vLLM keeps the
+LLM path air-gapped; any remote model requires explicit consent, redaction, and
+audit before tenant evidence can leave your network.
 
 ## Who it's for
 
@@ -151,7 +154,7 @@ Intelligence, security, and platform layers built across the planes:
 
 | Layer | What it does |
 |---|---|
-| **AI assistant** | cross-plane RCA grounded in correlated incidents, natural-language semantic query, AI test authoring, and an **MCP server** (MCP — the Model Context Protocol, how external AI apps call tools; here read-only tools + a proposal-only remediation tool) — all **tenant- then RBAC-scoped**. **Default engine: a deterministic in-process heuristic — no LLM is involved or contacted unless you explicitly connect one** (local Ollama/vLLM for full air-gap, or a cloud provider as explicit opt-in; start with [`docs/ai-quickstart.md`](docs/ai-quickstart.md)) |
+| **AI assistant** | sovereign network observability AI: cross-plane RCA grounded in correlated incidents, natural-language semantic query, AI test authoring, and an **MCP server** (MCP — the Model Context Protocol, how external AI apps call tools; here read-only tools + a proposal-only remediation tool) — all **tenant- then RBAC-scoped**. **Default engine: a deterministic in-process heuristic — no LLM is involved or contacted unless you explicitly connect one** (local Ollama/vLLM for full air-gap, or a cloud provider only after explicit consent, redaction, and audit; start with [`docs/ai-quickstart.md`](docs/ai-quickstart.md)) |
 | **Topology** | a versioned, change-aware dependency graph with **what-if** impact simulation |
 | **Security / threat** | TLS/cert posture + NDR-lite, **confidence-scored detections** (a signal exported to your SIEM — never an inline IPS) |
 | **Cost / SLO** | FinOps egress-cost attribution, an OpenSLO engine, and segmentation/compliance validation with evidence |
