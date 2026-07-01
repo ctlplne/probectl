@@ -7,7 +7,8 @@ cd "$(dirname "$0")/.."
 
 : "${PROBECTL_TEST_SNMP_TARGET:?device-live CI must set PROBECTL_TEST_SNMP_TARGET}"
 : "${PROBECTL_TEST_SNMP_COMMUNITY:=public}"
-export PROBECTL_TEST_SNMP_TARGET PROBECTL_TEST_SNMP_COMMUNITY
+: "${PROBECTL_TEST_REQUIRE_SERVICES:=1}"
+export PROBECTL_TEST_SNMP_TARGET PROBECTL_TEST_SNMP_COMMUNITY PROBECTL_TEST_REQUIRE_SERVICES
 
 target_host="${PROBECTL_TEST_SNMP_TARGET%:*}"
 target_port="${PROBECTL_TEST_SNMP_TARGET##*:}"
@@ -26,8 +27,10 @@ sysLocation probectl-ci
 sysContact probectl-ci@example.invalid
 EOF
 
+echo "device-live: starting loopback SNMP target with net-snmp snmpd on ${PROBECTL_TEST_SNMP_TARGET}"
 sudo snmpd -C -c "$conf" -Lf "$log"
 trap 'sudo pkill -f "snmpd .*probectl-snmpd.conf" >/dev/null 2>&1 || true' EXIT
+echo "device-live: snmpd started; running TestSNMPIntegration with PROBECTL_TEST_REQUIRE_SERVICES=${PROBECTL_TEST_REQUIRE_SERVICES}"
 
 for _ in $(seq 1 20); do
   if go test -count=1 -run '^TestSNMPIntegration$' -v ./internal/device; then

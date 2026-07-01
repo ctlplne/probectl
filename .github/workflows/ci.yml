@@ -238,6 +238,7 @@ jobs:
         env:
           PROBECTL_TEST_SNMP_TARGET: 127.0.0.1:1161
           PROBECTL_TEST_SNMP_COMMUNITY: public
+          PROBECTL_TEST_REQUIRE_SERVICES: "1"
         run: bash scripts/device_snmp_live_ci.sh
 
   path-raw-live:

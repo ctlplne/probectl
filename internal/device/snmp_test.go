@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/testsupport"
+
 	"github.com/gosnmp/gosnmp"
 )
 
@@ -432,13 +434,13 @@ func TestCounterResetWiredInPollOnce(t *testing.T) {
 }
 
 // TestSNMPIntegration drives the REAL gosnmp client against a live target
-// (snmpsim or lab gear): PROBECTL_TEST_SNMP_TARGET=host[:port] with
-// PROBECTL_TEST_SNMP_COMMUNITY. Skipped otherwise (CI starts a loopback snmpd
-// target for this).
+// (net-snmp snmpd, snmpsim, or lab gear): PROBECTL_TEST_SNMP_TARGET=host[:port] with
+// PROBECTL_TEST_SNMP_COMMUNITY. Skipped locally when unset, but fatal under
+// PROBECTL_TEST_REQUIRE_SERVICES=1 so CI cannot pass by silently skipping it.
 func TestSNMPIntegration(t *testing.T) {
 	target := getenvDefault("PROBECTL_TEST_SNMP_TARGET", "")
 	if target == "" {
-		t.Skip("PROBECTL_TEST_SNMP_TARGET not set")
+		testsupport.SkipOrFatal(t, "PROBECTL_TEST_SNMP_TARGET not set")
 	}
 	host, port, err := snmpIntegrationTarget(target)
 	if err != nil {
