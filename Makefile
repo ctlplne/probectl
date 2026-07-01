@@ -378,7 +378,8 @@ migrate: ## Apply DB migrations against PROBECTL_DATABASE_URL.
 # ---- security ------------------------------------------------------------
 .PHONY: vuln
 vuln: ## Scan Go dependencies for known vulnerabilities (govulncheck).
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	GO=$(GO) GOVULNCHECK_VERSION=$(GOVULNCHECK_VERSION) GO_MODULE_DIRS="$(GO_MODULE_DIRS)" SELFTEST=1 bash scripts/govulncheck_packages.sh
+	GO=$(GO) GOVULNCHECK_VERSION=$(GOVULNCHECK_VERSION) GO_MODULE_DIRS="$(GO_MODULE_DIRS)" bash scripts/govulncheck_packages.sh
 
 # ---- containers / dev stack ---------------------------------------------
 .PHONY: images

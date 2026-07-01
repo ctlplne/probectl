@@ -45,7 +45,7 @@ run_step editions     make editions-gate
 run_step openapi      make openapi-gate
 
 note "govulncheck (BLOCKING)"
-( set -o pipefail; go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./... 2>&1 | tee "$RECEIPTS/govulncheck.txt" )
+( set -o pipefail; GOVULNCHECK_VERSION=v1.1.4 bash scripts/govulncheck_packages.sh 2>&1 | tee "$RECEIPTS/govulncheck.txt" )
 
 require trivy "install from https://aquasecurity.github.io/trivy (CI uses trivy-action v0.36.0 with the same flags)"
 # vuln-only: secret scanning is gitleaks' job (the CI secret-scan gate, which owns
