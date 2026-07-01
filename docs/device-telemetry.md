@@ -263,8 +263,8 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
   pending review, build reviewed imports, and prove a tenant cannot list another
   tenant's discovery result.
 - `TestSNMPIntegration` drives the **real** SNMP client against a live target
-  (snmpsim or lab gear) when `PROBECTL_TEST_SNMP_TARGET` is set; CI wires a
-  snmpsim container for it.
+  when `PROBECTL_TEST_SNMP_TARGET` is set; CI starts a loopback `snmpd` target
+  for it, and local runs can point at lab gear or another simulator.
 - The correlation contract (hop IP ↔ interface, flow exporter+ifIndex ↔
   interface) is pinned by `TestCorrelatorHopToInterface` and
   `TestCorrelatorFlowToInterface`.

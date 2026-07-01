@@ -59,8 +59,8 @@ awk -v mod="${MODULE}" '
     # UDP read loops are exercised by the collector e2e test.
     floor["internal/flow"]           = 75
     # SNMP poller/creds/correlator/config are unit-tested against fakes and the
-    # gNMI client against a bufconn mock target; the live SNMP dial + the
-    # reconnect/supervision loops run against snmpsim/lab gear (env-gated).
+    # gNMI client against a bufconn mock target; the live SNMP dial runs
+    # against loopback snmpd in CI when PROBECTL_TEST_SNMP_TARGET is set.
     floor["internal/device"]         = 65
     # Selector parser/eval/render/remote-write are pure logic, fully unit-tested;
     # the upstream proxy (upstream.go) runs against a live TSDB only, so it does

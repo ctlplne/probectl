@@ -114,7 +114,7 @@ jobs:
         run: make lint-go
       - name: No time-bomb dates in tests (TEST-002)
         run: ./scripts/check-test-clocks.sh
-      - name: Docs/claims drift gate (DOCS-S01..S14, SEC-004)
+      - name: Docs/claims drift gate (DOCS-S01..S15, SEC-004)
         run: ./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
       - name: PROTECT strength-controls gate
         run: make strength-gate
@@ -219,6 +219,26 @@ jobs:
         run: make build-cross
       - name: Endpoint agent cross-OS build (Linux/macOS/Windows)
         run: make endpoint-build
+
+  device-live:
+    name: device-live (SNMP integration)
+    # COVER-015: TestSNMPIntegration is intentionally env-gated so local
+    # service-free runs can skip it, but CI must prove the real gosnmp wire path
+    # against a live target. net-snmp's snmpd is loopback-only here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install loopback SNMP target
+        run: sudo apt-get update -y && sudo apt-get install -y snmpd
+      - name: Live SNMP integration (PROBECTL_TEST_SNMP_TARGET required)
+        env:
+          PROBECTL_TEST_SNMP_TARGET: 127.0.0.1:1161
+          PROBECTL_TEST_SNMP_COMMUNITY: public
+        run: bash scripts/device_snmp_live_ci.sh
 
   # U-049 → TEST-003 (Sprint 21, FOUNDER DECISION): the RCA quality eval is
   # BLOCKING. "Non-blocking initially" served its purpose — the baseline

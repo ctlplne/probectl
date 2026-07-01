@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -432,15 +433,19 @@ func TestCounterResetWiredInPollOnce(t *testing.T) {
 
 // TestSNMPIntegration drives the REAL gosnmp client against a live target
 // (snmpsim or lab gear): PROBECTL_TEST_SNMP_TARGET=host[:port] with
-// PROBECTL_TEST_SNMP_COMMUNITY. Skipped otherwise (the CI compose stack wires
-// snmpsim for this).
+// PROBECTL_TEST_SNMP_COMMUNITY. Skipped otherwise (CI starts a loopback snmpd
+// target for this).
 func TestSNMPIntegration(t *testing.T) {
 	target := getenvDefault("PROBECTL_TEST_SNMP_TARGET", "")
 	if target == "" {
 		t.Skip("PROBECTL_TEST_SNMP_TARGET not set")
 	}
+	host, port, err := snmpIntegrationTarget(target)
+	if err != nil {
+		t.Fatalf("PROBECTL_TEST_SNMP_TARGET: %v", err)
+	}
 	community := getenvDefault("PROBECTL_TEST_SNMP_COMMUNITY", "public")
-	dev := Target{Address: target, Port: 161, Transport: TransportSNMPv2c, Interval: time.Minute, Credential: "it"}
+	dev := Target{Address: host, Port: port, Transport: TransportSNMPv2c, Interval: time.Minute, Credential: "it"}
 	conn, err := dialSNMP(dev, Credential{Community: community})
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -454,4 +459,58 @@ func TestSNMPIntegration(t *testing.T) {
 		t.Fatalf("expected live metrics + sysName, got %d metrics, inv=%+v", len(ms), inv)
 	}
 	t.Logf("live poll: %d metrics from %s (%d interfaces)", len(ms), inv.SysName, len(inv.Interfaces))
+}
+
+func TestSNMPIntegrationTargetParsesOptionalPort(t *testing.T) {
+	tests := []struct {
+		raw      string
+		wantHost string
+		wantPort uint16
+		wantErr  bool
+	}{
+		{raw: "192.0.2.10", wantHost: "192.0.2.10", wantPort: 161},
+		{raw: "127.0.0.1:1161", wantHost: "127.0.0.1", wantPort: 1161},
+		{raw: "localhost:2161", wantHost: "localhost", wantPort: 2161},
+		{raw: ":1161", wantErr: true},
+		{raw: "127.0.0.1:0", wantErr: true},
+		{raw: "127.0.0.1:not-a-port", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.raw, func(t *testing.T) {
+			host, port, err := snmpIntegrationTarget(tt.raw)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got host=%q port=%d", host, port)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if host != tt.wantHost || port != tt.wantPort {
+				t.Fatalf("target = %q:%d, want %q:%d", host, port, tt.wantHost, tt.wantPort)
+			}
+		})
+	}
+}
+
+func snmpIntegrationTarget(raw string) (string, uint16, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", 0, errors.New("empty target")
+	}
+	host := raw
+	port := uint16(161)
+	if h, p, ok := strings.Cut(raw, ":"); ok {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			return "", 0, errors.New("missing host")
+		}
+		n, err := strconv.ParseUint(strings.TrimSpace(p), 10, 16)
+		if err != nil || n == 0 {
+			return "", 0, fmt.Errorf("invalid port %q", p)
+		}
+		host, port = h, uint16(n)
+	}
+	return host, port, nil
 }
