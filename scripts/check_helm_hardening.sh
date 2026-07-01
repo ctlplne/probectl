@@ -219,6 +219,16 @@ for f in values-medium.yaml values-multitenant.yaml; do
   need "kind: PodDisruptionBudget" "$(render -f "$CHART/$f")" "$f missing PodDisruptionBudget"
 done
 
+# 4a. TENANT-002: the multi-tenant reference profile must render the
+# ClickHouse scoped-reader envs. The binary fails closed without these in
+# ClickHouse-backed multi-tenant/regulated profiles; the chart must not make
+# operators discover that only at pod startup.
+multitenant="$(render -f "$CHART/values-multitenant.yaml")"
+need_fixed 'PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"' "$multitenant" "multi-tenant profile did not render PROBECTL_DEPLOYMENT_PROFILE=multi-tenant (TENANT-002)"
+for env in PROBECTL_PATHSTORE_READER_USER PROBECTL_FLOWSTORE_READER_USER PROBECTL_OTELSTORE_READER_USER PROBECTL_EBPFSTORE_READER_USER; do
+  need_fixed "$env: \"probectl_reader\"" "$multitenant" "multi-tenant profile did not render $env scoped reader user (TENANT-002)"
+done
+
 # 5. Every profile lints clean — EVERY values-*.yaml in the chart, so a new
 # profile can never ship un-linted by being forgotten here (the strict and
 # multiregion profiles once were).
