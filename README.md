@@ -75,7 +75,10 @@ typically five separate products with five separate dashboards. You find out at
 probectl collapses that. Every plane lands in **one** tenant-scoped control
 plane, gets correlated into a single incident, and an AI assistant explains the
 root cause *across* planes instead of leaving you to guess which dashboard to
-open first.
+open first. The practical outcome is fewer dashboards during an incident,
+shorter **MTTI** (mean time to identify the likely cause), and faster
+time-to-resolve because the evidence, owner context, and next safe human action
+are already in one place.
 
 Four choices set it apart:
 

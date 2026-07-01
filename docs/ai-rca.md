@@ -13,6 +13,14 @@ to see. A **citation** works like a footnote: each statement points at the
 specific evidence record behind it, so you can check. "Permission-scoped" means
 the answer is built only from data your account may read.
 
+The goal is operational, not magical: reduce tool-hopping during a live
+incident, shorten **MTTI** (mean time to identify) by naming the likely cause
+with citations, and support lower **MTTR** (mean time to resolve) by putting the
+relevant evidence and human-gated next steps in one answer. probectl does not
+claim a fixed percentage improvement; the point is that identification and
+resolution start from one tenant-scoped evidence bundle instead of five
+separate dashboards.
+
 It's a primary product surface (the **Ask (AI)** page in the UI), not just an API.
 Two properties make it unusual:
 

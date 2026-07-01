@@ -38,6 +38,13 @@ they live in the database. "What is firing" is a live computation over the lates
 samples — deriving it from the engine on every read means the UI can never drift
 from reality or show a stale "firing" badge.
 
+For incident response, the alert is only the starting signal. probectl pushes
+that signal into the tenant-scoped incident timeline so the same view can show
+the related BGP, flow, eBPF, device, change, and SLO evidence. That is the
+plain-language MTTR/MTTI outcome language here: fewer screens to chase, faster
+time to identify the likely cause, and a cleaner path to resolve without
+claiming a made-up numeric ROI.
+
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
