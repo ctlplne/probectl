@@ -130,9 +130,17 @@
   text-decoration: none;
 }
 
-.cite:hover,
+.cite:hover {
+  border-color: var(--color-accent);
+}
+
 .cite:focus-visible {
   border-color: var(--color-accent);
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.cite:focus:not(:focus-visible) {
   outline: none;
 }
 

@@ -1,6 +1,8 @@
 import { describe, expect, test, vi } from 'vitest'
 import { fireEvent, screen } from '@testing-library/react'
 import { axe } from 'jest-axe'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
 
@@ -130,5 +132,13 @@ describe('AI assistant surface', () => {
     fireEvent.click(screen.getByRole('button', { name: /^ask$/i }))
     await screen.findByText(/most likely root cause:/i)
     expect(await axe(container)).toHaveNoViolations()
+  })
+
+  test('citation links have a tokenized visible focus style', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/routes/ask.module.css'), 'utf8')
+
+    expect(css).toMatch(
+      /\.cite:focus-visible\s*{[^}]*border-color:\s*var\(--color-accent\);[^}]*outline:\s*2px\s+solid\s+var\(--color-focus\);[^}]*outline-offset:\s*2px;/s,
+    )
   })
 })
