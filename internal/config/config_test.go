@@ -20,21 +20,25 @@ func envFunc(m map[string]string) func(string) string {
 
 func durableTenantProfileEnv(profile string) map[string]string {
 	return map[string]string{
-		"PROBECTL_DEPLOYMENT_PROFILE": profile,
-		"PROBECTL_SESSION_HMAC_KEY":   testSessionHMACKeyHex,
-		"PROBECTL_BUS_MODE":           "kafka",
-		"PROBECTL_BUS_BROKERS":        "kafka.example:9093",
-		"PROBECTL_BUS_TLS_ENABLED":    "true",
-		"PROBECTL_TSDB_MODE":          "prometheus",
-		"PROBECTL_TSDB_URL":           "https://prometheus.example",
-		"PROBECTL_PATHSTORE_MODE":     "clickhouse",
-		"PROBECTL_PATHSTORE_URL":      "https://clickhouse.example:8443",
-		"PROBECTL_FLOWSTORE_MODE":     "clickhouse",
-		"PROBECTL_FLOWSTORE_URL":      "https://clickhouse.example:8443",
-		"PROBECTL_OTELSTORE_MODE":     "clickhouse",
-		"PROBECTL_OTELSTORE_URL":      "https://clickhouse.example:8443",
-		"PROBECTL_EBPFSTORE_MODE":     "clickhouse",
-		"PROBECTL_EBPFSTORE_URL":      "https://clickhouse.example:8443",
+		"PROBECTL_DEPLOYMENT_PROFILE":    profile,
+		"PROBECTL_SESSION_HMAC_KEY":      testSessionHMACKeyHex,
+		"PROBECTL_BUS_MODE":              "kafka",
+		"PROBECTL_BUS_BROKERS":           "kafka.example:9093",
+		"PROBECTL_BUS_TLS_ENABLED":       "true",
+		"PROBECTL_TSDB_MODE":             "prometheus",
+		"PROBECTL_TSDB_URL":              "https://prometheus.example",
+		"PROBECTL_PATHSTORE_MODE":        "clickhouse",
+		"PROBECTL_PATHSTORE_URL":         "https://clickhouse.example:8443",
+		"PROBECTL_PATHSTORE_READER_USER": "probectl_path_reader",
+		"PROBECTL_FLOWSTORE_MODE":        "clickhouse",
+		"PROBECTL_FLOWSTORE_URL":         "https://clickhouse.example:8443",
+		"PROBECTL_FLOWSTORE_READER_USER": "probectl_flow_reader",
+		"PROBECTL_OTELSTORE_MODE":        "clickhouse",
+		"PROBECTL_OTELSTORE_URL":         "https://clickhouse.example:8443",
+		"PROBECTL_OTELSTORE_READER_USER": "probectl_otel_reader",
+		"PROBECTL_EBPFSTORE_MODE":        "clickhouse",
+		"PROBECTL_EBPFSTORE_URL":         "https://clickhouse.example:8443",
+		"PROBECTL_EBPFSTORE_READER_USER": "probectl_ebpf_reader",
 	}
 }
 
@@ -101,20 +105,66 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 			}
 		})
 	}
-	t.Run("explicit env overrides the profile default", func(t *testing.T) {
-		env := durableTenantProfileEnv("regulated")
-		env["PROBECTL_OTELSTORE_TENANT_SCOPING"] = "false"
+	t.Run("single profile may explicitly enable one DB scoping plane", func(t *testing.T) {
+		env := map[string]string{
+			"PROBECTL_OTELSTORE_TENANT_SCOPING": "true",
+			"PROBECTL_OTELSTORE_READER_USER":    "probectl_otel_reader",
+		}
 		cfg, err := Load(envFunc(env))
 		if err != nil {
 			t.Fatalf("load: %v", err)
 		}
-		if cfg.OTelCHTenantScoping {
-			t.Error("explicit PROBECTL_OTELSTORE_TENANT_SCOPING=false did not override the profile default")
+		if !cfg.OTelCHTenantScoping {
+			t.Error("explicit PROBECTL_OTELSTORE_TENANT_SCOPING=true did not apply in single profile")
 		}
-		if !cfg.FlowCHTenantScoping {
-			t.Error("flow scoping should still be ON from the regulated profile")
+		if cfg.FlowCHTenantScoping {
+			t.Error("flow scoping should still be OFF from the single profile")
 		}
 	})
+}
+
+func TestTenantProfilesRequireClickHouseReaderUsers(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		for _, tc := range []struct {
+			name string
+			env  string
+		}{
+			{name: "path", env: "PROBECTL_PATHSTORE_READER_USER"},
+			{name: "flow", env: "PROBECTL_FLOWSTORE_READER_USER"},
+			{name: "otel", env: "PROBECTL_OTELSTORE_READER_USER"},
+			{name: "ebpf", env: "PROBECTL_EBPFSTORE_READER_USER"},
+		} {
+			t.Run(profile+" missing "+tc.name+" reader", func(t *testing.T) {
+				env := durableTenantProfileEnv(profile)
+				delete(env, tc.env)
+				_, err := Load(envFunc(env))
+				if err == nil {
+					t.Fatal("tenant profile without a ClickHouse scoped reader user should fail closed")
+				}
+				msg := err.Error()
+				if !strings.Contains(msg, tc.env) || !strings.Contains(msg, "PROBECTL_DEPLOYMENT_PROFILE="+profile) {
+					t.Fatalf("error %q missing reader env/profile context", msg)
+				}
+			})
+		}
+	}
+}
+
+func TestTenantProfilesRejectClickHouseScopingDowngrade(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile, func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_OTELSTORE_TENANT_SCOPING"] = "false"
+			_, err := Load(envFunc(env))
+			if err == nil {
+				t.Fatal("tenant profile with ClickHouse scoping disabled should fail closed")
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "PROBECTL_OTELSTORE_TENANT_SCOPING=true") || !strings.Contains(msg, "PROBECTL_OTELSTORE_MODE=clickhouse") {
+				t.Fatalf("error %q missing scoping downgrade context", msg)
+			}
+		})
+	}
 }
 
 func TestTenantProfilesRejectVolatileStores(t *testing.T) {

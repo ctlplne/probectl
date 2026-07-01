@@ -25,6 +25,13 @@ control:
     # RED-001: enable ClickHouse row-policies + bus strict-lane for multi-tenant.
     # Without this the single-profile default leaves them OFF and boot fails closed.
     PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"
+    # RED-001: every ClickHouse-backed lane needs the scoped reader user whose
+    # setting-scoped row policy is installed at boot. Operators may split these
+    # by plane; the reference profile uses one SELECT-only reader account.
+    PROBECTL_PATHSTORE_READER_USER: "probectl_reader"
+    PROBECTL_FLOWSTORE_READER_USER: "probectl_reader"
+    PROBECTL_OTELSTORE_READER_USER: "probectl_reader"
+    PROBECTL_EBPFSTORE_READER_USER: "probectl_reader"
 
 # Keep a quorum during the S34 rolling upgrade / node drains.
 podDisruptionBudget:

@@ -111,14 +111,16 @@ admin counts across all tenants. So if Layer 1's `WHERE` scoping were ever
 bypassed — a code bug, an injection that defeated Layer 2 — that single account
 could read across tenants. Stated plainly so it is never a surprise.
 
-The backstop, opt-in via `PROBECTL_FLOWSTORE_TENANT_SCOPING=true`, removes that
-residual reach from the read path entirely:
+The backstop, opt-in in `single` deployments and required in `multi-tenant` /
+`regulated` ClickHouse deployments, removes that residual reach from the read
+path entirely:
 
 1. Every tenant-scoped **read** attaches a per-request custom setting,
    `SQL_probectl_tenant=<tenant>`. (Admin / cross-tenant reads — migrations,
    global counts — pass no setting, by design.)
-2. A dedicated **reader user** (`PROBECTL_FLOWSTORE_READER_USER`, e.g.
-   `probectl_reader`) gets `EnsureReaderRowPolicy`: a policy
+2. A dedicated **reader user** (for example `PROBECTL_FLOWSTORE_READER_USER`;
+   the same pattern exists for path, OTLP, and eBPF) gets
+   `EnsureReaderRowPolicy`: a policy
    `probectl_reader_scope ... FOR SELECT USING tenant_id =
    getSetting('SQL_probectl_tenant')`, with no permissive escape. Because the
    reader user's setting **defaults to `''`** server-side, an unset or dropped
@@ -132,8 +134,12 @@ residual reach from the read path entirely:
 Operator prerequisites (documented, not auto-configured): allow the custom
 setting prefix (`<custom_settings_prefixes>SQL_</custom_settings_prefixes>`),
 create the reader user with a default `SQL_probectl_tenant = ''`, and grant it
-`SELECT` only. Until you enable this, Layer 1 is the boundary and the service
-account remains read-capable across tenants.
+`SELECT` only. Under `PROBECTL_DEPLOYMENT_PROFILE=multi-tenant` or `regulated`,
+the control plane refuses to start unless every ClickHouse-backed lane keeps
+tenant scoping on and names its scoped reader user; the serve path then refuses
+to start if row-policy installation fails. In the `single` profile, not enabling
+this means Layer 1 is the boundary and the service account remains read-capable
+across tenants.
 
 **What the service/write account can still do (residual, by design):** insert
 into any tenant's partition, run cross-tenant counts, and — without the reader

@@ -288,7 +288,9 @@ type Config struct {
 	//                   multi-tenant for the CH planes (siloing/BYOK are
 	//                   selected separately).
 	// The per-plane CHTenantScoping flags below default to true under
-	// multi-tenant/regulated unless an explicit env value overrides them.
+	// multi-tenant/regulated. In those profiles, ClickHouse-backed lanes may
+	// not downgrade the DB boundary: scoping must stay on and each lane must
+	// name the scoped reader user whose row policy is installed at boot.
 	DeploymentProfile string
 
 	// {OTel,EBPF,Path}CHTenantScoping + readers (TENANT-003/004 parity): each
@@ -896,6 +898,7 @@ func validateConfig(l *loader, cfg *Config) {
 	if cfg.EBPFStoreMode == "clickhouse" && cfg.EBPFStoreURL == "" {
 		l.errf("PROBECTL_EBPFSTORE_MODE=clickhouse requires PROBECTL_EBPFSTORE_URL")
 	}
+	validateClickHouseTenantReaders(l, cfg)
 	if volatile := volatileProductionModes(cfg); len(volatile) > 0 {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires durable bus/store modes; volatile lightweight modes are not allowed: %s", cfg.DeploymentProfile, strings.Join(volatile, ", "))
 	}
@@ -1022,6 +1025,31 @@ func volatileProductionModes(c *Config) []string {
 		volatile = append(volatile, "PROBECTL_EBPFSTORE_MODE=memory")
 	}
 	return volatile
+}
+
+func validateClickHouseTenantReaders(l *loader, c *Config) {
+	if c.DeploymentProfile == "single" {
+		return
+	}
+	for _, lane := range []struct {
+		modeEnv, modeValue, scopingEnv, readerEnv, readerUser string
+		scoping                                               bool
+	}{
+		{modeEnv: "PROBECTL_PATHSTORE_MODE", modeValue: c.PathStoreMode, scopingEnv: "PROBECTL_PATHSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_PATHSTORE_READER_USER", readerUser: c.PathCHReaderUser, scoping: c.PathCHTenantScoping},
+		{modeEnv: "PROBECTL_FLOWSTORE_MODE", modeValue: c.FlowStoreMode, scopingEnv: "PROBECTL_FLOWSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_FLOWSTORE_READER_USER", readerUser: c.FlowCHReaderUser, scoping: c.FlowCHTenantScoping},
+		{modeEnv: "PROBECTL_OTELSTORE_MODE", modeValue: c.OTelStoreMode, scopingEnv: "PROBECTL_OTELSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_OTELSTORE_READER_USER", readerUser: c.OTelCHReaderUser, scoping: c.OTelCHTenantScoping},
+		{modeEnv: "PROBECTL_EBPFSTORE_MODE", modeValue: c.EBPFStoreMode, scopingEnv: "PROBECTL_EBPFSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_EBPFSTORE_READER_USER", readerUser: c.EBPFCHReaderUser, scoping: c.EBPFCHTenantScoping},
+	} {
+		if lane.modeValue != "clickhouse" {
+			continue
+		}
+		if !lane.scoping {
+			l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s=true when %s=clickhouse", c.DeploymentProfile, lane.scopingEnv, lane.modeEnv)
+		}
+		if strings.TrimSpace(lane.readerUser) == "" {
+			l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s when %s=clickhouse and %s=true", c.DeploymentProfile, lane.readerEnv, lane.modeEnv, lane.scopingEnv)
+		}
+	}
 }
 
 // LoadFromEnv resolves configuration from the process environment.

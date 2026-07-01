@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/a2a"
@@ -301,10 +302,10 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 
 // installCHReaderPolicy applies DB-level tenant reader scoping to a
 // ClickHouse-backed store when the plane's scoping flag is on: it turns on
-// per-request tenant settings and, if a reader user is configured, installs the
-// setting-scoped row policy (defense-in-depth above app WHERE scoping). When the
+// per-request tenant settings and installs the setting-scoped row policy on the
+// configured reader user (defense-in-depth above app WHERE scoping). When the
 // store isn't ClickHouse-backed (memory mode) it is a no-op. Extracted from the
-// four identical blocks in run() (CODE-001) — behavior is unchanged.
+// four identical blocks in run() (CODE-001).
 //
 // store is taken as `any` because each plane's concrete type differs; the
 // WithTenantScoping/EnsureReaderRowPolicy method set is asserted via the typed
@@ -323,9 +324,9 @@ func installCHReaderPolicy(
 	if !ok {
 		return nil // not ClickHouse-backed (e.g. memory mode) — nothing to scope
 	}
+	readerUser = strings.TrimSpace(readerUser)
 	if readerUser == "" {
-		log.Warn(plane+": tenant scoping on but reader user unset — reads carry the setting but no policy enforces it yet", "finding", finding)
-		return nil
+		return fmt.Errorf("%s reader policy: tenant scoping is on but reader user is unset (refusing to start; %s)", plane, finding)
 	}
 	if err := ensure(context.Background(), readerUser); err != nil {
 		return fmt.Errorf("%s reader policy: %w", plane, err)

@@ -1130,7 +1130,7 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode         |
 | `PROBECTL_EBPFSTORE_MODE`         | `memory` | where eBPF flow/L7 service-edge aggregates live: `memory` (lightweight/single-binary) \| `clickhouse` (durable history) |
 | `PROBECTL_EBPFSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_EBPFSTORE_MODE=clickhouse` |
-| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path) — defense-in-depth above app code (guardrail 7.1). The per-plane `*_TENANT_SCOPING` toggles below default off this profile; set one explicitly to override |
+| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path) — defense-in-depth above app code (guardrail 7.1). In `multi-tenant`/`regulated`, ClickHouse-backed lanes may not downgrade this: startup requires each `*_TENANT_SCOPING=true` and its matching `*_READER_USER` |
 | `PROBECTL_FLOWSTORE_TENANT_SCOPING` | profile | defense-in-depth: also constrain flow reads at the **database** by attaching a per-request tenant setting that a ClickHouse row policy enforces (needs server-side `custom_settings_prefixes=SQL_` + a reader user). Defaults ON under `multi-tenant`/`regulated`, off under `single` |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | the ClickHouse reader user the setting-scoped row policy is installed on at boot (pairs with the toggle above) |
 | `PROBECTL_OTELSTORE_TENANT_SCOPING` | profile | TENANT-003/004: DB-level reader scoping on the OTLP traces+logs plane (the PII-heaviest). Same mechanism as flow; defaults ON under `multi-tenant`/`regulated` |
@@ -1149,8 +1149,11 @@ profiles, so startup refuses volatile raw-ingest/serving defaults. Set
 `PROBECTL_BUS_MODE=kafka`, `PROBECTL_TSDB_MODE=prometheus`, and
 `PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`, `PROBECTL_OTELSTORE_MODE`,
 and `PROBECTL_EBPFSTORE_MODE` to `clickhouse` with their required URLs before
-using those profiles. The default `single` profile may still use memory modes
-for a lightweight sovereign/lab install.
+using those profiles. Each ClickHouse lane also needs the corresponding scoped
+reader user (`PROBECTL_PATHSTORE_READER_USER`, `PROBECTL_FLOWSTORE_READER_USER`,
+`PROBECTL_OTELSTORE_READER_USER`, and `PROBECTL_EBPFSTORE_READER_USER`) so boot
+can install the database row policy. The default `single` profile may still use
+memory modes for a lightweight sovereign/lab install.
 
 ### Device telemetry agent (`probectl-device-agent`)
 
