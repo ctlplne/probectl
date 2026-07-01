@@ -3938,6 +3938,317 @@
         }
       }
     },
+    "/v1/alerts/maintenance": {
+      "get": {
+        "operationId": "listMaintenanceWindows",
+        "summary": "List reusable planned-maintenance windows",
+        "tags": [
+          "alerts"
+        ],
+        "description": "The caller tenant's alert evaluator schedule. Windows suppress matching firing notifications during planned work; evaluator_running=false distinguishes an empty schedule from a tenant with no running evaluator.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Maintenance windows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "evaluator_running": {
+                      "type": "boolean"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "tenant_id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string"
+                          },
+                          "starts_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "ends_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "recurrence": {
+                            "type": "string",
+                            "enum": [
+                              "daily",
+                              "weekly"
+                            ]
+                          },
+                          "match": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "rule_ids": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "created_by": {
+                            "type": "string"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "updated_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Maintenance windows are the bounded in-memory evaluator schedule, not an alert-history stream."
+        }
+      },
+      "post": {
+        "operationId": "upsertMaintenanceWindow",
+        "summary": "Create or update a planned-maintenance window",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Installs a tenant-scoped reusable suppression window. It can target rule_ids, resource labels in match, or both; daily and weekly recurrence are supported. Writes emit alert.maintenance_upsert audit events.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name",
+                  "starts_at",
+                  "ends_at"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  },
+                  "starts_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "ends_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "recurrence": {
+                    "type": "string",
+                    "enum": [
+                      "daily",
+                      "weekly"
+                    ]
+                  },
+                  "match": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "rule_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The created or updated maintenance window.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The alert evaluator is not running for this tenant."
+          }
+        }
+      }
+    },
+    "/v1/alerts/maintenance/preview": {
+      "post": {
+        "operationId": "previewMaintenanceWindows",
+        "summary": "Preview planned-maintenance occurrences",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Previews saved windows, or an unsaved window supplied in the request, against a rule_id and resource labels over a bounded time range. The preview range must be <= 90 days and does not mutate evaluator state.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "rule_id": {
+                    "type": "string"
+                  },
+                  "rule_name": {
+                    "type": "string"
+                  },
+                  "labels": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  },
+                  "from": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "to": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "window": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Matching occurrences.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "to": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "window_id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "starts_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "ends_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The alert evaluator is not running for this tenant."
+          }
+        }
+      }
+    },
+    "/v1/alerts/maintenance/{id}": {
+      "delete": {
+        "operationId": "deleteMaintenanceWindow",
+        "summary": "Delete a planned-maintenance window",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Deletes one tenant-scoped reusable maintenance window and emits an alert.maintenance_delete audit event.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Maintenance window id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted."
+          },
+          "404": {
+            "description": "No maintenance window with that id."
+          },
+          "503": {
+            "description": "The alert evaluator is not running for this tenant."
+          }
+        }
+      }
+    },
     "/v1/tls/posture": {
       "get": {
         "operationId": "listTLSPosture",

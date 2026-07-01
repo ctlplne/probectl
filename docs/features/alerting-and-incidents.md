@@ -189,6 +189,7 @@ its cross-plane evidence and related change context.
 | List firing alerts (with operator state) | `GET /v1/alerts/active` | `alert.read` |
 | Silence a firing series | `POST /v1/alerts/active/silence` | `alert.write` |
 | Acknowledge a firing series | `POST /v1/alerts/active/ack` | `alert.write` |
+| Manage planned maintenance windows | `/v1/alerts/maintenance*` | `alert.read` / `alert.write` |
 | Create / edit / delete rules | `/v1/alerts` | `alert.read` / `alert.write` |
 | List correlated incidents | `GET /v1/incidents` | `incident.read` |
 | One incident's cross-plane evidence | `GET /v1/incidents/<id>` | `incident.read` |
@@ -196,7 +197,8 @@ its cross-plane evidence and related change context.
 Properties you can rely on: the displayed firing state is always the engine's
 current truth (never computed in the browser); silences and acknowledgements
 persist across a restart and never leak from one firing episode into the next;
-every silence and acknowledgement is tenant-scoped and audited; and one
+maintenance windows are reusable, tenant-scoped planned suppressors with preview
+and audit on change; every silence and acknowledgement is tenant-scoped and audited; and one
 underlying fault surfaces as one tenant-scoped incident with evidence drawn from
 every plane that observed it.
 

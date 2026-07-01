@@ -335,6 +335,36 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 			{"id": "alert-1", "name": "packet loss", "severity": "warning", "description": "synthetic probe loss"},
 		}})
 	})
+	mux.HandleFunc("GET /v1/alerts/maintenance", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "mw-db", "name": "database patch", "status": "daily", "description": "planned maintenance"},
+		}})
+	})
+	mux.HandleFunc("POST /v1/alerts/maintenance", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode maintenance request: %v", err)
+		}
+		if body["name"] != "database patch" {
+			t.Fatalf("maintenance request body = %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "mw-new", "name": body["name"], "status": "created"})
+	})
+	mux.HandleFunc("POST /v1/alerts/maintenance/preview", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode maintenance preview request: %v", err)
+		}
+		if body["rule_id"] != "r1" {
+			t.Fatalf("maintenance preview body = %#v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"window_id": "mw-db", "name": "database patch", "status": "matched"},
+		}})
+	})
+	mux.HandleFunc("DELETE /v1/alerts/maintenance/mw-db", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/topology", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"nodes": []map[string]any{{"id": "edge-1", "name": "edge router"}},
@@ -374,6 +404,8 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	body := `{"question":"Why is WAN loss high?","subject":{"incident_id":"incident-123456789","target":"edge-1"}}`
+	maintenanceBody := `{"name":"database patch","starts_at":"2026-06-04T12:00:00Z","ends_at":"2026-06-04T13:00:00Z"}`
+	maintenancePreviewBody := `{"rule_id":"r1","labels":{"target":"db"},"from":"2026-06-04T12:00:00Z","to":"2026-06-05T12:00:00Z"}`
 	cases := []struct {
 		name string
 		args []string
@@ -381,6 +413,10 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 	}{
 		{name: "incidents", args: []string{"incident", "list", "--query", "status=open"}, want: []string{"WAN loss", "critical"}},
 		{name: "alerts", args: []string{"alert", "active"}, want: []string{"packet loss", "warning"}},
+		{name: "maintenance", args: []string{"alert", "maintenance"}, want: []string{"database patch", "daily"}},
+		{name: "maintenance-upsert", args: []string{"alert", "maintenance-upsert", "--body", maintenanceBody}, want: []string{"mw-new", "database patch"}},
+		{name: "maintenance-preview", args: []string{"alert", "maintenance-preview", "--body", maintenancePreviewBody}, want: []string{"mw-db", "matched"}},
+		{name: "maintenance-delete", args: []string{"alert", "maintenance-delete", "mw-db"}, want: []string{"ok"}},
 		{name: "topology", args: []string{"topology", "show"}, want: []string{"edge router", "isp-1"}},
 		{name: "ask", args: []string{"ai", "ask", "--body", body}, want: []string{"ISP loss beyond edge", "high"}},
 		{name: "remediation", args: []string{"remediation", "list"}, want: []string{"open_ticket", "pending"}},

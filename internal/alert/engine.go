@@ -35,6 +35,8 @@ type Engine struct {
 	mu     sync.Mutex
 	states map[string]*seriesState
 
+	maintenance map[string]MaintenanceWindow
+
 	// Persisted operator state (Sprint 16, ARCH-005 — the volatile-stores
 	// ADR's documented exception): silences/acks restored from the store are
 	// re-applied when their series fires again; onResolve lets the API layer
@@ -205,6 +207,12 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, b
 				}
 			}
 		}
+		if occ, ok := en.activeMaintenanceLocked(rule, s, now); ok {
+			if occ.EndsAt.After(st.silencedUntil) {
+				st.silencedUntil = occ.EndsAt
+			}
+			return Alert{}, false
+		}
 		// A silence (S-FE1) suppresses firing notifications until its deadline;
 		// the series keeps evaluating and stays visible as firing.
 		if st.silencedUntil.After(now) {
@@ -212,7 +220,7 @@ func (en *Engine) transition(key string, rule Rule, st *seriesState, s Sample, b
 		}
 		renotify := rule.RenotifySeconds > 0 &&
 			now.Sub(st.lastNotified) >= time.Duration(rule.RenotifySeconds)*time.Second
-		if firstFiring || renotify {
+		if firstFiring || st.lastNotified.IsZero() || renotify {
 			st.lastNotified = now
 			return en.alert(rule, s, StateFiring, reason), true
 		}

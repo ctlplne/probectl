@@ -134,7 +134,7 @@ func printGenericItems(w io.Writer, items []any) {
 	fmt.Fprintln(tw, "ID\tNAME\tSTATUS\tSUMMARY")
 	for _, item := range items {
 		m, _ := item.(map[string]any)
-		id := firstString(m, "id", "answer_id", "name")
+		id := firstString(m, "id", "window_id", "answer_id", "name")
 		name := firstString(m, "name", "title", "target", "service")
 		status := firstString(m, "status", "severity", "state", "confidence")
 		summary := firstString(m, "summary", "description", "root_cause", "model")

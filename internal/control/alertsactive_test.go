@@ -17,16 +17,20 @@ import (
 // stubAlertState is a deterministic AlertStateSource standing in for the
 // evaluator engine.
 type stubAlertState struct {
-	items map[string]*alert.ActiveAlert
+	items   map[string]*alert.ActiveAlert
+	windows map[string]alert.MaintenanceWindow
 }
 
 func newStubAlertState() *stubAlertState {
 	since := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	return &stubAlertState{items: map[string]*alert.ActiveAlert{
-		"fp-1": {Fingerprint: "fp-1", RuleID: "r1", RuleName: "rtt high", Severity: alert.SeverityCritical,
-			Metric: "probectl_result_rtt_ms", Labels: map[string]string{"target": "db"},
-			Value: 250, Reason: "rtt=250 gt 100", Since: since, LastSeenAt: since},
-	}}
+	return &stubAlertState{
+		items: map[string]*alert.ActiveAlert{
+			"fp-1": {Fingerprint: "fp-1", RuleID: "r1", RuleName: "rtt high", Severity: alert.SeverityCritical,
+				Metric: "probectl_result_rtt_ms", Labels: map[string]string{"target": "db"},
+				Value: 250, Reason: "rtt=250 gt 100", Since: since, LastSeenAt: since},
+		},
+		windows: map[string]alert.MaintenanceWindow{},
+	}
 }
 
 func (s *stubAlertState) Active() []alert.ActiveAlert {
@@ -59,6 +63,40 @@ func (s *stubAlertState) Acknowledge(fp, by string) (alert.ActiveAlert, error) {
 	t := a.Since.Add(time.Minute)
 	a.AckedBy, a.AckedAt = by, &t
 	return *a, nil
+}
+
+func (s *stubAlertState) MaintenanceWindows() []alert.MaintenanceWindow {
+	out := make([]alert.MaintenanceWindow, 0, len(s.windows))
+	for _, w := range s.windows {
+		out = append(out, w)
+	}
+	return out
+}
+
+func (s *stubAlertState) UpsertMaintenanceWindow(w alert.MaintenanceWindow) (alert.MaintenanceWindow, error) {
+	if err := w.Validate(); err != nil {
+		return alert.MaintenanceWindow{}, err
+	}
+	s.windows[w.ID] = w
+	return w, nil
+}
+
+func (s *stubAlertState) DeleteMaintenanceWindow(id string) bool {
+	if _, ok := s.windows[id]; !ok {
+		return false
+	}
+	delete(s.windows, id)
+	return true
+}
+
+func (s *stubAlertState) PreviewMaintenance(rule alert.Rule, labels map[string]string, from, to time.Time) []alert.MaintenancePreview {
+	var out []alert.MaintenancePreview
+	for _, w := range s.windows {
+		if w.Matches(rule, labels) {
+			out = append(out, w.OccurrencesBetween(from, to)...)
+		}
+	}
+	return out
 }
 
 func doJSONReq(srv *Server, method, path, body string) *httptest.ResponseRecorder {
@@ -135,19 +173,59 @@ func TestSilenceAndAckEndpoints(t *testing.T) {
 	}
 }
 
+func TestMaintenanceWindowEndpoints(t *testing.T) {
+	state := newStubAlertState()
+	srv := testServer(fakePinger{}).WithAlertState(tenancy.DefaultTenantID.String(), state)
+	body := `{"id":"mw-api","name":"database patch","reason":"planned deploy","starts_at":"2026-06-04T12:00:00Z","ends_at":"2026-06-04T13:00:00Z","recurrence":"daily","match":{"target":"db"},"rule_ids":["r1"]}`
+
+	rec := doJSONReq(srv, http.MethodPost, "/v1/alerts/maintenance", body)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"created_by":"dev@probectl.local"`) {
+		t.Fatalf("upsert maintenance = %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(srv, http.MethodGet, "/v1/alerts/maintenance")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "database patch") {
+		t.Fatalf("list maintenance = %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSONReq(srv, http.MethodPost, "/v1/alerts/maintenance/preview", `{"rule_id":"r1","labels":{"target":"db"},"from":"2026-06-04T12:00:00Z","to":"2026-06-06T12:00:00Z"}`)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"window_id":"mw-api"`) {
+		t.Fatalf("preview maintenance = %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(srv, http.MethodDelete, "/v1/alerts/maintenance/mw-api")
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete maintenance = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Another tenant gets no engine/schedule from the default tenant.
+	rec2 := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/alerts/maintenance", nil)
+	req.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
+	srv.Handler().ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusOK || strings.Contains(rec2.Body.String(), "database patch") {
+		t.Fatalf("cross-tenant list leaked maintenance: %d %s", rec2.Code, rec2.Body.String())
+	}
+}
+
 func TestActiveAlertRoutePerms(t *testing.T) {
 	srv := testServer(fakePinger{})
 	want := map[string]string{
-		"/v1/alerts/active":         permAlertRead,
-		"/v1/alerts/active/silence": permAlertWrite,
-		"/v1/alerts/active/ack":     permAlertWrite,
+		"GET /v1/alerts/active":               permAlertRead,
+		"POST /v1/alerts/active/silence":      permAlertWrite,
+		"POST /v1/alerts/active/ack":          permAlertWrite,
+		"GET /v1/alerts/maintenance":          permAlertRead,
+		"POST /v1/alerts/maintenance":         permAlertWrite,
+		"POST /v1/alerts/maintenance/preview": permAlertRead,
+		"DELETE /v1/alerts/maintenance/{id}":  permAlertWrite,
 	}
 	seen := 0
 	for _, rt := range srv.apiRoutes() {
-		if p, ok := want[rt.Pattern]; ok {
+		key := rt.Method + " " + rt.Pattern
+		if p, ok := want[key]; ok {
 			seen++
 			if rt.Permission != p {
-				t.Errorf("%s perm = %q, want %q", rt.Pattern, rt.Permission, p)
+				t.Errorf("%s perm = %q, want %q", key, rt.Permission, p)
 			}
 		}
 	}

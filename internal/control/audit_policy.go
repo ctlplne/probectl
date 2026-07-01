@@ -153,6 +153,7 @@ var auditSensitiveReadRoutes = map[string]bool{
 	"POST /v1/grafana/api/v1/query_range": true,
 	"POST /v1/grafana/api/v1/series":      true,
 	"POST /v1/grafana/api/v1/labels":      true,
+	"POST /v1/alerts/maintenance/preview": true,
 	"POST /v1/ai/ask":                     true,
 	"POST /v1/ai/author":                  true,
 }
@@ -190,6 +191,10 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/alerts/active":                       auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/alerts/active/silence":              auditExplicit(auditFacetOperational, "alert.silence"),
 	"POST /v1/alerts/active/ack":                  auditExplicit(auditFacetOperational, "alert.acknowledge"),
+	"GET /v1/alerts/maintenance":                  auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/alerts/maintenance":                 auditExplicit(auditFacetMutation, "alert.maintenance_upsert"),
+	"POST /v1/alerts/maintenance/preview":         auditWrapped(auditFacetSensitiveRead),
+	"DELETE /v1/alerts/maintenance/{id}":          auditExplicit(auditFacetMutation, "alert.maintenance_delete"),
 	"GET /v1/alerts/{id}":                         auditWrapped(auditFacetSensitiveRead),
 	"PUT /v1/alerts/{id}":                         auditExplicit(auditFacetMutation, "alert.update"),
 	"DELETE /v1/alerts/{id}":                      auditExplicit(auditFacetMutation, "alert.delete"),
