@@ -3,6 +3,7 @@
 package canary
 
 import (
+	"context"
 	"math"
 	"strings"
 	"testing"
@@ -139,6 +140,29 @@ func TestNewVoiceValidation(t *testing.T) {
 	vc := c.(*voiceCanary)
 	if vc.codec.Name != "g729" || vc.seconds != 2 {
 		t.Errorf("params not applied: %+v", vc)
+	}
+}
+
+func TestVoiceDialFailureReturnsFailedResult(t *testing.T) {
+	c, err := NewVoice(Config{
+		Type: voiceType, Target: "127.0.0.1:0", Timeout: time.Millisecond,
+		Params: map[string]string{"allow_private_targets": "true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("dial failure returned plugin error: %v", err)
+	}
+	if res.Success || res.Error == "" || !strings.Contains(res.Error, "dial") {
+		t.Fatalf("dial failure result = %+v", res)
+	}
+	if res.Duration <= 0 || res.Type != voiceType || res.Target != "127.0.0.1:0" {
+		t.Fatalf("dial failure metadata = %+v", res)
+	}
+	if res.Attributes["voice.codec"] != "g711" || res.Attributes["voice.method"] == "" {
+		t.Fatalf("voice attributes were not preserved: %+v", res.Attributes)
 	}
 }
 

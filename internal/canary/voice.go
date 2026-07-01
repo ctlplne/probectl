@@ -122,7 +122,10 @@ func (c *voiceCanary) Run(ctx context.Context) (Result, error) {
 	dialer := net.Dialer{Control: c.guard.DialControl(dialControl(c.dscp))}
 	conn, err := dialer.DialContext(ctx, "udp", addr)
 	if err != nil {
-		return Result{}, fmt.Errorf("voice: dial %s: %w", addr, err)
+		res.Duration = time.Since(start)
+		res.Success = false
+		res.Error = fmt.Sprintf("voice: dial %s: %v", addr, err)
+		return res, nil
 	}
 	defer conn.Close()
 
