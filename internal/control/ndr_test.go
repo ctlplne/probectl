@@ -67,7 +67,9 @@ func TestNDRConsumerFlowToDetectionAndIncident(t *testing.T) {
 		t.Fatalf("detections = %d, want 1", len(items))
 	}
 	d := items[0]
-	if d.Kind != "ndr.egress_intel" || d.Source != "ndr-egress-intel-default" || d.Category != "egress_intel" {
+	if d.Kind != "ndr.egress_intel" || d.Source != "ndr-egress-intel-default" ||
+		d.Category != "botnet_c2" || d.Type != "ip" || d.License != "abuse.ch CC0" ||
+		d.Indicator != "192.0.2.66" {
 		t.Fatalf("detection = %+v", d)
 	}
 	if d.IncidentID == "" {

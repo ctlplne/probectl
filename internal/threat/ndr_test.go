@@ -126,7 +126,7 @@ func TestDNSExfilDetection(t *testing.T) {
 func TestBeaconingDetectionAndIntelBoost(t *testing.T) {
 	intel := opendata.NewIOCStore()
 	intel.Load([]opendata.IOC{{Type: opendata.IOCTypeIP, Value: "203.0.113.66",
-		Source: "feodo_tracker", Category: opendata.CategoryBotnetC2, Confidence: 90}})
+		Source: "feodo_tracker", Category: opendata.CategoryBotnetC2, Confidence: 90, License: "abuse.ch CC0"}})
 
 	plain := testEngine(t, nil, nil)
 	boosted := testEngine(t, intel, nil)
@@ -159,8 +159,13 @@ func TestBeaconingDetectionAndIntelBoost(t *testing.T) {
 	// The boosted signal carries the intel provenance.
 	sigs := fire(testEngine(t, intel, nil))
 	for _, s := range sigs {
-		if s.Kind == "ndr.beaconing" && s.Attributes["intel.source"] != "feodo_tracker" {
-			t.Fatalf("missing intel evidence: %+v", s.Attributes)
+		if s.Kind == "ndr.beaconing" {
+			if s.Attributes["intel.source"] != "feodo_tracker" ||
+				s.Attributes["intel.type"] != string(opendata.IOCTypeIP) ||
+				s.Attributes["intel.category"] != opendata.CategoryBotnetC2 ||
+				s.Attributes["intel.license"] != "abuse.ch CC0" {
+				t.Fatalf("missing intel evidence: %+v", s.Attributes)
+			}
 		}
 	}
 }
@@ -233,7 +238,7 @@ func TestEgressColdStartNeverFires(t *testing.T) {
 func TestTorEgressDetection(t *testing.T) {
 	intel := opendata.NewIOCStore()
 	intel.Load([]opendata.IOC{{Type: opendata.IOCTypeIP, Value: "192.0.2.5",
-		Source: "tor_exit", Category: opendata.CategoryTorExit, Confidence: 60}})
+		Source: "tor_exit", Category: opendata.CategoryTorExit, Confidence: 60, License: "tor bulk list"}})
 	e := testEngine(t, intel, nil)
 
 	sigs := e.ObserveFlow("t1", FlowObservation{
@@ -247,12 +252,63 @@ func TestTorEgressDetection(t *testing.T) {
 	if hit == nil {
 		t.Fatal("Tor egress did not fire")
 	}
-	if hit.Attributes["intel.category"] != "tor_exit" || hit.Attributes["intel.source"] != "tor_exit" {
+	if hit.Attributes["intel.category"] != "tor_exit" || hit.Attributes["intel.source"] != "tor_exit" ||
+		hit.Attributes["intel.type"] != string(opendata.IOCTypeIP) || hit.Attributes["intel.license"] != "tor bulk list" {
 		t.Fatalf("attrs = %+v", hit.Attributes)
 	}
 	if hit.Severity != incident.Severity("critical") {
 		t.Fatalf("severity = %s", hit.Severity)
 	}
+}
+
+func TestNDRIntelSignalsCarryLicenseAndType(t *testing.T) {
+	intel := opendata.NewIOCStore()
+	intel.Load([]opendata.IOC{
+		{Type: opendata.IOCTypeIP, Value: "203.0.113.66", Source: "feodo_tracker",
+			Category: opendata.CategoryBotnetC2, Confidence: 90, License: "abuse.ch CC0"},
+		{Type: opendata.IOCTypeIP, Value: "192.0.2.5", Source: "tor_exit",
+			Category: opendata.CategoryTorExit, Confidence: 60, License: "tor bulk list"},
+	})
+	requireIntel := func(t *testing.T, attrs map[string]string, source, category, license string) {
+		t.Helper()
+		if attrs["intel.source"] != source ||
+			attrs["intel.type"] != string(opendata.IOCTypeIP) ||
+			attrs["intel.category"] != category ||
+			attrs["intel.license"] != license {
+			t.Fatalf("intel attrs = %+v", attrs)
+		}
+	}
+
+	egress := testEngine(t, intel, nil)
+	var egressHit *incident.Signal
+	for _, s := range egress.ObserveFlow("t1", FlowObservation{
+		Src: "10.0.0.4", Dst: "192.0.2.5", DstPort: 9001, Bytes: 4096, At: t0,
+	}) {
+		if s.Kind == "ndr.egress_intel" {
+			egressHit = &s
+		}
+	}
+	if egressHit == nil {
+		t.Fatal("egress intel did not fire")
+	}
+	requireIntel(t, egressHit.Attributes, "tor_exit", opendata.CategoryTorExit, "tor bulk list")
+
+	beacon := testEngine(t, intel, nil)
+	var beaconHit *incident.Signal
+	for i := 0; i < 12; i++ {
+		for _, s := range beacon.ObserveFlow("t1", FlowObservation{
+			Src: "10.0.0.5", Dst: "203.0.113.66", DstPort: 443, Bytes: 512,
+			At: t0.Add(time.Duration(i) * 30 * time.Second),
+		}) {
+			if s.Kind == "ndr.beaconing" {
+				beaconHit = &s
+			}
+		}
+	}
+	if beaconHit == nil {
+		t.Fatal("beaconing did not fire")
+	}
+	requireIntel(t, beaconHit.Attributes, "feodo_tracker", opendata.CategoryBotnetC2, "abuse.ch CC0")
 }
 
 func TestBadASNEgressViaRuleOverride(t *testing.T) {

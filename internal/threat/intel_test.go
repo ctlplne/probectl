@@ -22,7 +22,7 @@ func TestAnalyzeThreatIntelCertAndJA3(t *testing.T) {
 	store := opendata.NewIOCStore()
 	store.Load([]opendata.IOC{
 		{Type: opendata.IOCTypeCertSHA1, Value: sha1, Source: "sslbl", Category: opendata.CategoryMaliciousCert, Confidence: 95, License: "abuse.ch CC0"},
-		{Type: opendata.IOCTypeJA3, Value: testJA3, Source: "sslbl_ja3", Category: opendata.CategoryMaliciousJA3, Confidence: 85},
+		{Type: opendata.IOCTypeJA3, Value: testJA3, Source: "sslbl_ja3", Category: opendata.CategoryMaliciousJA3, Confidence: 85, License: "abuse.ch CC0"},
 	})
 
 	a := NewAnalyzer(Config{}, nil).WithIntel(store)
@@ -43,29 +43,53 @@ func TestAnalyzeThreatIntelCertAndJA3(t *testing.T) {
 		t.Errorf("malicious cert should not produce a renewal handoff: %+v", p.Handoff)
 	}
 
-	var cf Finding
+	var cf, jf Finding
 	for _, f := range p.Findings {
 		if f.Kind == FindingMaliciousCert {
 			cf = f
 		}
+		if f.Kind == FindingMaliciousJA3 {
+			jf = f
+		}
 	}
-	if cf.Source != "sslbl" || cf.Confidence != 95 || cf.Indicator != sha1 {
+	if cf.Source != "sslbl" || cf.Type != string(opendata.IOCTypeCertSHA1) ||
+		cf.Category != opendata.CategoryMaliciousCert || cf.License != "abuse.ch CC0" ||
+		cf.Confidence != 95 || cf.Indicator != sha1 {
 		t.Errorf("cert finding provenance = %+v", cf)
+	}
+	if jf.Source != "sslbl_ja3" || jf.Type != string(opendata.IOCTypeJA3) ||
+		jf.Category != opendata.CategoryMaliciousJA3 || jf.License != "abuse.ch CC0" ||
+		jf.Confidence != 85 || jf.Indicator != testJA3 {
+		t.Errorf("JA3 finding provenance = %+v", jf)
 	}
 
 	// signals carry intel.* provenance so an analyst can see/why and tune it
 	sigs := ToSignals("tenant-a", p)
-	found := false
+	foundCert, foundJA3 := false, false
 	for _, s := range sigs {
 		if s.Kind == "tls.malicious_cert" {
-			found = true
-			if s.Attributes["intel.source"] != "sslbl" || s.Attributes["intel.confidence"] != "95" || s.Attributes["intel.indicator"] != sha1 {
+			foundCert = true
+			if s.Attributes["intel.source"] != "sslbl" ||
+				s.Attributes["intel.type"] != string(opendata.IOCTypeCertSHA1) ||
+				s.Attributes["intel.category"] != opendata.CategoryMaliciousCert ||
+				s.Attributes["intel.license"] != "abuse.ch CC0" ||
+				s.Attributes["intel.confidence"] != "95" || s.Attributes["intel.indicator"] != sha1 {
 				t.Errorf("signal intel attrs = %+v", s.Attributes)
 			}
 		}
+		if s.Kind == "tls.malicious_ja3" {
+			foundJA3 = true
+			if s.Attributes["intel.source"] != "sslbl_ja3" ||
+				s.Attributes["intel.type"] != string(opendata.IOCTypeJA3) ||
+				s.Attributes["intel.category"] != opendata.CategoryMaliciousJA3 ||
+				s.Attributes["intel.license"] != "abuse.ch CC0" ||
+				s.Attributes["intel.confidence"] != "85" || s.Attributes["intel.indicator"] != testJA3 {
+				t.Errorf("JA3 signal intel attrs = %+v", s.Attributes)
+			}
+		}
 	}
-	if !found {
-		t.Error("no tls.malicious_cert signal emitted")
+	if !foundCert || !foundJA3 {
+		t.Errorf("missing intel signals: cert=%v ja3=%v", foundCert, foundJA3)
 	}
 }
 

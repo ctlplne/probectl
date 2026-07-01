@@ -19,6 +19,7 @@ func intelSignal(tenant, target string) incident.Signal {
 		Target:   target,
 		Attributes: map[string]string{
 			"intel.source": "feodo", "intel.category": "botnet",
+			"intel.type":      "ip",
 			"intel.indicator": "203.0.113.66", "intel.confidence": "90",
 			"intel.license": "non-commercial",
 		},
@@ -32,9 +33,32 @@ func TestDetectionFromSignal(t *testing.T) {
 		t.Fatal("intel signal not recognized")
 	}
 	if d.Source != "feodo" || d.Confidence != 90 || d.Indicator != "203.0.113.66" ||
-		d.Category != "botnet" || d.License != "non-commercial" ||
+		d.Type != "ip" || d.Category != "botnet" || d.License != "non-commercial" ||
 		d.Kind != "ioc.botnet" || d.IncidentID != "inc-1" || d.Entity != "203.0.113.66" {
 		t.Fatalf("detection = %+v", d)
+	}
+
+	ndr, ok := DetectionFromSignal(incident.Signal{
+		TenantID: "t-a", Plane: "threat", Kind: "ndr.beaconing",
+		Severity: incident.SeverityCritical,
+		Target:   "10.0.0.5",
+		Title:    "Periodic beaconing",
+		Attributes: map[string]string{
+			"detector.rule": "ndr-beaconing-default", "detector.kind": "beaconing",
+			"detector.confidence": "91",
+			"intel.source":        "feodo", "intel.category": "botnet_c2",
+			"intel.type": "ip", "intel.indicator": "203.0.113.66",
+			"intel.license": "CC0",
+		},
+		OccurredAt: time.Now(),
+	}, "inc-ndr")
+	if !ok {
+		t.Fatal("NDR intel signal not recognized")
+	}
+	if ndr.Source != "ndr-beaconing-default" || ndr.Category != "botnet_c2" ||
+		ndr.Type != "ip" || ndr.License != "CC0" || ndr.Indicator != "203.0.113.66" ||
+		ndr.Confidence != 91 {
+		t.Fatalf("NDR detection provenance = %+v", ndr)
 	}
 
 	// Non-threat planes and unattributed threat signals are not detections.

@@ -437,10 +437,7 @@ func (e *Engine) observeBeacon(tenant string, ts *tenantState, obs FlowObservati
 		}
 		if m := e.bestIntel(obs.Dst); m != nil {
 			conf += 20
-			evidence["intel.source"] = m.Source
-			evidence["intel.category"] = m.Category
-			evidence["intel.indicator"] = m.Indicator
-			evidence["intel.confidence"] = strconv.Itoa(m.Confidence)
+			addIntelEvidence(evidence, *m)
 		}
 		out = append(out, e.signal(tenant, rule, key, rule.Name,
 			fmt.Sprintf("%s calls %s:%d every %.0fs (jitter %.1f%%) — C2-heartbeat pattern",
@@ -518,10 +515,7 @@ func (e *Engine) observeEgressIntel(tenant string, ts *tenantState, obs FlowObse
 			hit = true
 			category = m.Category
 			conf = rule.BaseConfidence + m.Confidence/3
-			evidence["intel.source"] = m.Source
-			evidence["intel.category"] = m.Category
-			evidence["intel.indicator"] = m.Indicator
-			evidence["intel.confidence"] = strconv.Itoa(m.Confidence)
+			addIntelEvidence(evidence, *m)
 		}
 		if !hit && obs.DstASN != 0 {
 			for _, asn := range rule.Lists["bad_asns"] {
@@ -621,6 +615,17 @@ func (e *Engine) bestIntel(dst string) *opendata.IOCMatch {
 		}
 	}
 	return &best
+}
+
+func addIntelEvidence(evidence map[string]string, m opendata.IOCMatch) {
+	evidence["intel.source"] = m.Source
+	evidence["intel.type"] = string(m.Type)
+	evidence["intel.category"] = m.Category
+	evidence["intel.indicator"] = m.Indicator
+	evidence["intel.confidence"] = strconv.Itoa(m.Confidence)
+	if m.License != "" {
+		evidence["intel.license"] = m.License
+	}
 }
 
 func portWatched(rule DetectionRule, port uint16) bool {

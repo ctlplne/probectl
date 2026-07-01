@@ -24,6 +24,7 @@ type Detection struct {
 	Confidence int       `json:"confidence,omitempty"`
 	Source     string    `json:"source,omitempty"`   // the feed / detector that attributed it
 	Category   string    `json:"category,omitempty"` // feed category (botnet/tor/blocklist/...)
+	Type       string    `json:"type,omitempty"`     // IOC type when intel-backed (ip/cidr/domain/cert_sha1/ja3)
 	License    string    `json:"license,omitempty"`  // feed AUP/license tag (provenance)
 	Indicator  string    `json:"indicator,omitempty"`
 	Entity     string    `json:"entity"` // the flagged thing (IP/host/target)
@@ -46,13 +47,18 @@ func DetectionFromSignal(sig incident.Signal, incidentID string) (Detection, boo
 	// evidence (intel.*) rides along when the detector consulted a feed.
 	if rule := sig.Attributes["detector.rule"]; rule != "" {
 		conf, _ := strconv.Atoi(sig.Attributes["detector.confidence"])
+		category := sig.Attributes["intel.category"]
+		if category == "" {
+			category = sig.Attributes["detector.kind"]
+		}
 		return Detection{
 			Kind:       sig.Kind,
 			Plane:      sig.Plane,
 			Severity:   string(sig.Severity),
 			Confidence: conf,
 			Source:     rule,
-			Category:   sig.Attributes["detector.kind"],
+			Category:   category,
+			Type:       sig.Attributes["intel.type"],
 			License:    sig.Attributes["intel.license"],
 			Indicator:  sig.Attributes["intel.indicator"],
 			Entity:     sig.Target,
@@ -74,6 +80,7 @@ func DetectionFromSignal(sig incident.Signal, incidentID string) (Detection, boo
 		Confidence: conf,
 		Source:     src,
 		Category:   sig.Attributes["intel.category"],
+		Type:       sig.Attributes["intel.type"],
 		License:    sig.Attributes["intel.license"],
 		Indicator:  sig.Attributes["intel.indicator"],
 		Entity:     sig.Target,

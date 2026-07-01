@@ -141,6 +141,9 @@ func intelFinding(m opendata.IOCMatch) Finding {
 		Severity:   SeverityCritical,
 		Message:    fmt.Sprintf("%s matches threat-intel indicator %s (%s) from %s", what, m.Indicator, m.Category, m.Source),
 		Source:     m.Source,
+		Type:       string(m.Type),
+		Category:   m.Category,
+		License:    m.License,
 		Confidence: m.Confidence,
 		Indicator:  m.Indicator,
 	}

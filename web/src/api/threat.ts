@@ -17,6 +17,7 @@ export interface Detection {
   confidence?: number
   source?: string
   category?: string
+  type?: string
   license?: string
   indicator?: string
   entity: string

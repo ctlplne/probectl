@@ -27,6 +27,9 @@ export interface TLSFinding {
   severity: 'info' | 'warning' | 'critical'
   message: string
   source?: string
+  type?: string
+  category?: string
+  license?: string
   confidence?: number
   indicator?: string
 }

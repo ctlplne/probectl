@@ -42,6 +42,15 @@ func ToSignals(tenantID string, p Posture) []incident.Signal {
 		if f.Source != "" {
 			attrs["intel.source"] = f.Source
 			attrs["intel.confidence"] = strconv.Itoa(f.Confidence)
+			if f.Type != "" {
+				attrs["intel.type"] = f.Type
+			}
+			if f.Category != "" {
+				attrs["intel.category"] = f.Category
+			}
+			if f.License != "" {
+				attrs["intel.license"] = f.License
+			}
 			if f.Indicator != "" {
 				attrs["intel.indicator"] = f.Indicator
 			}

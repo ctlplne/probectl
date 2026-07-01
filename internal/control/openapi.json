@@ -4773,6 +4773,9 @@
                           "category": {
                             "type": "string"
                           },
+                          "type": {
+                            "type": "string"
+                          },
                           "license": {
                             "type": "string"
                           },

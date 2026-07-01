@@ -81,6 +81,9 @@ type Finding struct {
 	Severity   Severity    `json:"severity"`
 	Message    string      `json:"message"`
 	Source     string      `json:"source,omitempty"`     // threat-intel feed name
+	Type       string      `json:"type,omitempty"`       // threat-intel IOC type
+	Category   string      `json:"category,omitempty"`   // threat-intel feed category
+	License    string      `json:"license,omitempty"`    // feed AUP/license tag
 	Confidence int         `json:"confidence,omitempty"` // 0..100
 	Indicator  string      `json:"indicator,omitempty"`  // the matched IOC value
 }
