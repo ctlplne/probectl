@@ -264,8 +264,11 @@ overhead test for the ring-buffer path — all documented in
 ## 9. Privileges, safety, and the observe-only guardrail
 
 - **Privileges:** loading/attaching needs **`CAP_BPF` + `CAP_PERFMON`** (Linux
-  ≥ 5.8) or, on older kernels, **`CAP_SYS_ADMIN`**. Document the minimal set; don't
-  run the whole agent as root where the capability split is available.
+  ≥ 5.8). Generic pre-5.8 kernels are unsupported because the shipped agent
+  requires BTF plus the BPF ring buffer. **`CAP_SYS_ADMIN`** is only an explicit
+  legacy break-glass for hosts where the runtime probe can still confirm BTF +
+  ring-buffer support but the deployment cannot grant the split
+  `CAP_BPF`/`CAP_PERFMON` pair; do not use it as an older-kernel workaround.
 - **Observe-only is a hard guardrail.** The agent loads **only** observability
   program types (tracepoints, kprobes, socket *observation*) and **never** attaches
   a policy-enforcing or traffic-dropping program. probectl's eBPF layer watches; it

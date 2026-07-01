@@ -116,6 +116,7 @@ func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 		"deploy/agent/probectl-ebpf-agent.service",
 		"deploy/agent/install.sh",
 		"docs/ebpf-agent.md",
+		"docs/ebpf-feasibility.md",
 	} {
 		body := readDeployContractFile(t, rel)
 		for _, banned := range []string{
@@ -127,6 +128,8 @@ func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 			"SYS_ADMIN only on kernels < 5.8",
 			"CAP_SYS_ADMIN only for pre-5.8 kernels",
 			"CAP_SYS_ADMIN only as the pre-5.8 fallback",
+			"on older kernels, **`CAP_SYS_ADMIN`**",
+			"on older kernels, `CAP_SYS_ADMIN`",
 			"replace both with CAP_SYS_ADMIN",
 			"set `capabilityMode: legacy` for 5.4",
 		} {
