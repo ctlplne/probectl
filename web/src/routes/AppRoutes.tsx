@@ -17,6 +17,7 @@ import { EndpointsPage } from './EndpointsPage'
 import { AskPage } from './AskPage'
 import { DashboardsPage } from './DashboardsPage'
 import { OnboardingPage } from './OnboardingPage'
+import { ApiDocsPage } from './ApiDocsPage'
 import { Gallery } from './Gallery'
 
 /** The route tree (kept separate from the router so tests can supply their own). */
@@ -47,6 +48,7 @@ export function AppRoutes() {
         <Route path="/compliance" element={<CompliancePage />} />
         <Route path="/outages" element={<OutagesPage />} />
         <Route path="/admin" element={<AdminPage />} />
+        <Route path="/docs/api" element={<ApiDocsPage />} />
         {NAV.filter(
           (n) =>
             ![
@@ -66,6 +68,7 @@ export function AppRoutes() {
               '/compliance',
               '/outages',
               '/admin',
+              '/docs/api',
             ].includes(n.to),
         ).map((n) => (
           <Route key={n.to} path={n.to} element={<PlaceholderPage to={n.to} />} />

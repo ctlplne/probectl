@@ -54,4 +54,5 @@ export const NAV: NavItem[] = [
   { to: '/cost', labelKey: 'nav.cost', icon: 'cost', group: 'operate' },
   { to: '/slos', labelKey: 'nav.slos', icon: 'slo', group: 'operate' },
   { to: '/admin', labelKey: 'nav.admin', icon: 'admin', group: 'operate' },
+  { to: '/docs/api', labelKey: 'nav.apiDocs', icon: 'info', group: 'operate' },
 ]

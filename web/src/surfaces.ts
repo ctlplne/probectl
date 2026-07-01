@@ -301,8 +301,9 @@ export const SURFACES: SurfaceDecl[] = [
   {
     capability: 'REST/gRPC API and CLI/TUI command surface',
     featureIds: ['F10'],
-    sprint: 'S12',
-    kind: 'federated',
+    sprint: 'DESIGN-002',
+    kind: 'native',
+    route: '/docs/api',
     evidence: ['openapi:/openapi.json', 'file:cmd/probectl', 'file:proto'],
   },
   {
