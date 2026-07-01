@@ -43,6 +43,9 @@ describe('plane workspaces', () => {
     expect(
       await screen.findByRole('img', { name: /flow sankey view with 2 of 2/i }),
     ).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: /scrollable flow sankey visualization/i }),
+    ).toHaveAttribute('tabindex', '0')
     expect(screen.getByText(/showing 2 of 2 contributors/i)).toBeInTheDocument()
     const table = screen.getByRole('table', { name: /flow top talkers/i })
     expect(within(table).getByText('10.0.0.10')).toBeInTheDocument()
@@ -97,9 +100,7 @@ describe('plane workspaces', () => {
 
     renderApp('/planes/bgp')
 
-    expect(
-      await screen.findByText(/showing 16 of 20 routing relationships/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByText(/showing 16 of 20 routing relationships/i)).toBeInTheDocument()
     expect(screen.getByRole('table', { name: /bgp routing edges/i })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Flow' }))

@@ -189,6 +189,10 @@ terraform-gate: ## Terraform fmt + validate the probectl module (S35). Needs ter
 browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs node. (Real-browser smoke runs in CI's Playwright container.)
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
 
+.PHONY: web-rendered-a11y
+web-rendered-a11y: ## Run the rendered Chromium a11y gate in the same Playwright container CI uses.
+	bash scripts/web_rendered_a11y_container.sh
+
 .PHONY: editions-gate
 third-party: ## SUPPLY-009: regenerate the third-party license inventory (NOTICE + docs/third-party-licenses.md) from the module graph.
 	./scripts/gen_third_party.sh

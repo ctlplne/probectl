@@ -630,19 +630,25 @@ async function startVite() {
 async function runAxe(page, axeSource) {
   await page.addScriptTag({ content: axeSource });
   return page.evaluate(async () => {
-    return await globalThis.axe.run(document, {
-      runOnly: {
-        type: "tag",
-        values: [
-          "wcag2a",
-          "wcag2aa",
-          "wcag21a",
-          "wcag21aa",
-          "wcag22aa",
-          "best-practice",
-        ],
+    return await globalThis.axe.run(
+      {
+        include: [["body"]],
+        exclude: [["svg[aria-hidden='true']"]],
       },
-    });
+      {
+        runOnly: {
+          type: "tag",
+          values: [
+            "wcag2a",
+            "wcag2aa",
+            "wcag21a",
+            "wcag21aa",
+            "wcag22aa",
+            "best-practice",
+          ],
+        },
+      },
+    );
   });
 }
 
@@ -884,33 +890,40 @@ async function main() {
             );
           }
         });
-        await page.goto(`${baseURL}${route}`, { waitUntil: "networkidle" });
-        await page.waitForSelector("main", { timeout: 10_000 });
-        await page.addStyleTag({
-          content: `*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }`,
-        });
-        const axe = await runAxe(page, axeSource);
-        const axeFailures = blockingAxeResults(axe);
-        if (axeFailures.length > 0) {
-          failures.push(
-            `${theme} ${route}: axe violations\n${formatAxe(axeFailures)}`,
-          );
-        }
-        const custom = await targetAndTabChecks(page);
-        if (custom.length > 0) {
-          failures.push(
-            `${theme} ${route}: focus/target violations\n  ${custom.join("\n  ")}`,
-          );
-        }
-        if (route === "/dashboards") {
-          const dashboard = await dashboardChecks(page);
-          if (dashboard.length > 0) {
+        try {
+          await page.goto(`${baseURL}${route}`, { waitUntil: "networkidle" });
+          await page.waitForSelector("main", { timeout: 10_000 });
+          await page.addStyleTag({
+            content: `*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }`,
+          });
+          const axe = await runAxe(page, axeSource);
+          const axeFailures = blockingAxeResults(axe);
+          if (axeFailures.length > 0) {
             failures.push(
-              `${theme} ${route}: dashboard coverage violations\n  ${dashboard.join("\n  ")}`,
+              `${theme} ${route}: axe violations\n${formatAxe(axeFailures)}`,
             );
           }
+          const custom = await targetAndTabChecks(page);
+          if (custom.length > 0) {
+            failures.push(
+              `${theme} ${route}: focus/target violations\n  ${custom.join("\n  ")}`,
+            );
+          }
+          if (route === "/dashboards") {
+            const dashboard = await dashboardChecks(page);
+            if (dashboard.length > 0) {
+              failures.push(
+                `${theme} ${route}: dashboard coverage violations\n  ${dashboard.join("\n  ")}`,
+              );
+            }
+          }
+        } catch (err) {
+          failures.push(
+            `${theme} ${route}: route check failed: ${err.message}`,
+          );
+        } finally {
+          await page.close();
         }
-        await page.close();
       }
       await context.close();
     }

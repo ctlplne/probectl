@@ -16,6 +16,7 @@
     "i18n:check": "vitest run src/test/i18n.test.tsx",
     "prea11y:browser": "npm --prefix ../browser-worker ci --no-audit --no-fund",
     "a11y:browser": "node ../scripts/web_rendered_a11y.mjs",
+    "a11y:browser:container": "bash ../scripts/web_rendered_a11y_container.sh",
     "coverage": "vitest run --coverage",
     "coverage-gate": "vitest run src/test/surface-coverage.test.tsx"
   },

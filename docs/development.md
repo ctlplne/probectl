@@ -60,30 +60,30 @@ local/CI convenience.
 Run `make help` for the authoritative, self-documenting list. The ones you'll
 reach for most:
 
-| Target                             | What it does                                                                      |
-| ---------------------------------- | --------------------------------------------------------------------------------- |
-| `make build`                       | Build all binaries into `./bin` (version stamped via `-ldflags`)                  |
-| `make build-cross`                 | Cross-compile every binary for linux amd64 + arm64 (smoke)                        |
-| `make run`                         | Run `probectl-control` locally                                                    |
-| `make test`                        | Unit tests across all workspace modules (`-race`)                                 |
-| `make test-isolation`              | Cross-tenant isolation gate (`-tags=isolation`)                                   |
-| `make test-integration`            | Integration tests (`-tags=integration`; needs a DB / dev stack)                   |
-| `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                       |
-| `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`) |
+| Target                             | What it does                                                                                     |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `make build`                       | Build all binaries into `./bin` (version stamped via `-ldflags`)                                 |
+| `make build-cross`                 | Cross-compile every binary for linux amd64 + arm64 (smoke)                                       |
+| `make run`                         | Run `probectl-control` locally                                                                   |
+| `make test`                        | Unit tests across all workspace modules (`-race`)                                                |
+| `make test-isolation`              | Cross-tenant isolation gate (`-tags=isolation`)                                                  |
+| `make test-integration`            | Integration tests (`-tags=integration`; needs a DB / dev stack)                                  |
+| `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                      |
+| `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`)                |
 | `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics |
-| `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                 |
-| `make lint`                        | `lint-go` + `lint-python`                                                         |
-| `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                 |
-| `make sdk`                         | Generate Go + TypeScript REST SDKs from `internal/control/openapi.json`           |
-| `make sdk-gate`                    | Regenerate REST SDKs, fail on drift, and compile the generated Go SDK sample      |
-| `make proto`                       | `buf lint` + generate Go (+ gRPC) from `proto/`                                   |
-| `make proto-tools`                 | Install protobuf codegen tools (buf + Go plugins, pinned)                         |
-| `make migrate`                     | Apply DB migrations via `probectl-control migrate`                                |
-| `make vuln`                        | `govulncheck` over Go dependencies                                                |
-| `make images`                      | Multi-arch (`amd64`/`arm64`) images for every component                           |
-| `make compose-up` / `compose-down` | Start / stop the local dev dependency stack                                       |
-| `make tools`                       | Install pinned dev tools (golangci-lint)                                          |
-| `make ci`                          | `lint` + `test` + `test-isolation` (the core gates locally)                       |
+| `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                                |
+| `make lint`                        | `lint-go` + `lint-python`                                                                        |
+| `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                                |
+| `make sdk`                         | Generate Go + TypeScript REST SDKs from `internal/control/openapi.json`                          |
+| `make sdk-gate`                    | Regenerate REST SDKs, fail on drift, and compile the generated Go SDK sample                     |
+| `make proto`                       | `buf lint` + generate Go (+ gRPC) from `proto/`                                                  |
+| `make proto-tools`                 | Install protobuf codegen tools (buf + Go plugins, pinned)                                        |
+| `make migrate`                     | Apply DB migrations via `probectl-control migrate`                                               |
+| `make vuln`                        | `govulncheck` over Go dependencies                                                               |
+| `make images`                      | Multi-arch (`amd64`/`arm64`) images for every component                                          |
+| `make compose-up` / `compose-down` | Start / stop the local dev dependency stack                                                      |
+| `make tools`                       | Install pinned dev tools (golangci-lint)                                                         |
+| `make ci`                          | `lint` + `test` + `test-isolation` (the core gates locally)                                      |
 
 > `make ci` runs the **core** gates fast and locally. It is _not_ the full CI
 > suite — the integration, isolation-against-real-DBs, eBPF-kernel-matrix,
@@ -101,44 +101,51 @@ green before the change may proceed: each one defends a specific invariant, so
 the table below doubles as a list of the things probectl refuses to break.
 This is the full list; `ci.yml` is the source of truth.
 
-| Job                      | Gate                                                                                                                                                                                                                                                     |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `action-pins`            | every workflow action is commit-SHA-pinned + the supply-pins gate (no `:latest` image refs under `deploy/`, no unpinned installs)                                                                                                                        |
-| `secret-scan`            | gitleaks over every reachable git commit (`fetch-depth: 0`, `gitleaks git --log-opts=--all`); `.gitleaks.toml` allow-lists only deliberate test fixtures and exact historical false positives                                                           |
-| `no-devauth-in-release`  | the dev-auth bypass is **physically absent** from release binaries — symbol + literal absence, and the binary refuses `PROBECTL_AUTH_MODE=dev` at boot                                                                                                   |
-| `lint-go`                | `gofmt` + `go vet` + `golangci-lint` + crypto/editions/SQL/TLS import guards                                                                                                                                                                             |
-| `lint-python`            | `ruff check` + `black --check`                                                                                                                                                                                                                           |
-| `editions-gate`          | `ee/` import guard + the core-only build/test (`-tags probectl_core`)                                                                                                                                                                                    |
-| `fips-gate`              | FIPS artifact builds + power-on self-test passes                                                                                                                                                                                                         |
-| `test-go`                | unit tests (`-race`) + backup/erasure tests + **fuzz smoke** (parsers must not crash) + bench smoke + cross-compile (incl. the endpoint agent's Linux/macOS/Windows builds)                                                                              |
-| `rca-eval`               | the AI root-cause eval set through the real pipeline; **blocking** floors: answer accuracy ≥ 0.85, citation precision ≥ 0.85                                                                                                                             |
-| `coverage`               | per-package coverage floor on service-free packages (`make cover-gate`)                                                                                                                                                                                  |
-| `test-python`            | analyzer `pytest` (incl. Hypothesis property tests) + hash-lock drift refusal                                                                                                                                                                            |
-| `browser-worker`         | the Playwright synthetic worker: real-browser scripted-login smoke inside the official Playwright image                                                                                                                                                  |
-| `openapi-gate`           | specs are valid OpenAPI 3.1 and the registered core `/v1` plus provider `/provider/v1` routes exactly match them (no undocumented routes)                                                                                                                 |
-| `sdk-gate`               | REST SDKs regenerate from `internal/control/openapi.json` without drift, and the generated Go SDK sample compiles against `ListTests`                                                                                                                     |
-| `migration-gate`         | expand/contract migrations only — rejects destructive/blocking schema changes                                                                                                                                                                            |
-| `helm-gate`              | chart hardening for every profile + the agent chart (`make helm-gate`), kubeconform on the rendered charts, GitOps manifest validation (`make gitops-gate`), compose config validation                                                                   |
-| `compose-image-gate`     | shipped Compose image, install docs, GHCR auth/mirror instructions, and optional anonymous-pull smoke stay in lockstep                                                                                                                                   |
-| `terraform-gate`         | `terraform fmt -check` + `terraform validate` of the module's example root                                                                                                                                                                               |
+| Job                      | Gate                                                                                                                                                                                                                             |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `action-pins`            | every workflow action is commit-SHA-pinned + the supply-pins gate (no `:latest` image refs under `deploy/`, no unpinned installs)                                                                                                |
+| `secret-scan`            | gitleaks over every reachable git commit (`fetch-depth: 0`, `gitleaks git --log-opts=--all`); `.gitleaks.toml` allow-lists only deliberate test fixtures and exact historical false positives                                    |
+| `no-devauth-in-release`  | the dev-auth bypass is **physically absent** from release binaries — symbol + literal absence, and the binary refuses `PROBECTL_AUTH_MODE=dev` at boot                                                                           |
+| `lint-go`                | `gofmt` + `go vet` + `golangci-lint` + crypto/editions/SQL/TLS import guards                                                                                                                                                     |
+| `lint-python`            | `ruff check` + `black --check`                                                                                                                                                                                                   |
+| `editions-gate`          | `ee/` import guard + the core-only build/test (`-tags probectl_core`)                                                                                                                                                            |
+| `fips-gate`              | FIPS artifact builds + power-on self-test passes                                                                                                                                                                                 |
+| `test-go`                | unit tests (`-race`) + backup/erasure tests + **fuzz smoke** (parsers must not crash) + bench smoke + cross-compile (incl. the endpoint agent's Linux/macOS/Windows builds)                                                      |
+| `rca-eval`               | the AI root-cause eval set through the real pipeline; **blocking** floors: answer accuracy ≥ 0.85, citation precision ≥ 0.85                                                                                                     |
+| `coverage`               | per-package coverage floor on service-free packages (`make cover-gate`)                                                                                                                                                          |
+| `test-python`            | analyzer `pytest` (incl. Hypothesis property tests) + hash-lock drift refusal                                                                                                                                                    |
+| `browser-worker`         | the Playwright synthetic worker: real-browser scripted-login smoke inside the official Playwright image                                                                                                                          |
+| `openapi-gate`           | specs are valid OpenAPI 3.1 and the registered core `/v1` plus provider `/provider/v1` routes exactly match them (no undocumented routes)                                                                                        |
+| `sdk-gate`               | REST SDKs regenerate from `internal/control/openapi.json` without drift, and the generated Go SDK sample compiles against `ListTests`                                                                                            |
+| `migration-gate`         | expand/contract migrations only — rejects destructive/blocking schema changes                                                                                                                                                    |
+| `helm-gate`              | chart hardening for every profile + the agent chart (`make helm-gate`), kubeconform on the rendered charts, GitOps manifest validation (`make gitops-gate`), compose config validation                                           |
+| `compose-image-gate`     | shipped Compose image, install docs, GHCR auth/mirror instructions, and optional anonymous-pull smoke stay in lockstep                                                                                                           |
+| `terraform-gate`         | `terraform fmt -check` + `terraform validate` of the module's example root                                                                                                                                                       |
 | `ebpf-kernel-matrix`     | the BPF programs **load and attach** on real LTS kernels (5.15/6.6 plus a lockdown-hardened entry) booted under QEMU/KVM on amd64 and on the self-hosted Linux/ARM64 `kvm` runner; missing KVM is a CI failure, not a green skip |
-| `ebpf-image-live`        | the shipped eBPF-agent image is the live `-tags ebpf` build, not the fixture replayer                                                                                                                                                                    |
-| `cross-tenant-isolation` | **permanent** tenant-isolation gate (a [non-negotiable](../CONTRIBUTING.md#non-negotiables)), against real Postgres (TLS) + ClickHouse                                                                                                                   |
-| `integration`            | migrations are idempotent + `/readyz` passes + result pipeline, against a real Postgres + Prometheus                                                                                                                                                     |
-| `perf-smoke`             | ingest baseline + pooled multi-tenant query-latency smoke                                                                                                                                                                                                |
-| `backup-drill`           | the backup → wipe → restore drill executes against real stores                                                                                                                                                                                           |
-| `failover-drill`         | timed kill-the-primary → promote-the-replica drill (RTO/RPO measured)                                                                                                                                                                                    |
-| `chaos-dependency-drill` | dependency chaos injects agent-buffer disk pressure, a disposable control-plane pod kill, dependency outage, memory pressure, and prints recovery counters                                                                                               |
-| `load-smoke`             | S-tier full-stack load smoke through real Kafka + Prometheus + ClickHouse                                                                                                                                                                                |
-| `proto`                  | `buf lint` + `buf breaking` vs `main` (additive-only wire contract) + generated-code drift                                                                                                                                                               |
-| `web`                    | typecheck + lint + the frontend surface-coverage gate + jsdom axe/theme/no-hardcoded-token gates + rendered Chromium a11y (`web-rendered-a11y`) + `npm audit` + production build                                                                         |
-| `dependency-scan`        | `govulncheck` + Trivy filesystem scan (**vulnerabilities only**)                                                                                                                                                                                         |
-| `image-scan`             | Trivy image scan (**vulnerabilities only**)                                                                                                                                                                                                              |
-| `build-images`           | multi-arch image build for every component (Buildx + QEMU)                                                                                                                                                                                               |
-| `commitlint`             | Conventional Commits (pull requests only)                                                                                                                                                                                                                |
-| `dco`                    | every commit carries a `Signed-off-by` trailer (pull requests only)                                                                                                                                                                                      |
-| `sbom`                   | CycloneDX SBOM (a **software bill of materials** — the machine-readable parts list) of the Go module graph, retained 90 days (informational, not a merge gate)                                                                                           |
-| `verify-all`             | the umbrella check: red unless every verification job it depends on concluded green — the gates are wired in series, like a strand of old holiday lights: one dark bulb darkens the whole strand                                                         |
+| `ebpf-image-live`        | the shipped eBPF-agent image is the live `-tags ebpf` build, not the fixture replayer                                                                                                                                            |
+| `cross-tenant-isolation` | **permanent** tenant-isolation gate (a [non-negotiable](../CONTRIBUTING.md#non-negotiables)), against real Postgres (TLS) + ClickHouse                                                                                           |
+| `integration`            | migrations are idempotent + `/readyz` passes + result pipeline, against a real Postgres + Prometheus                                                                                                                             |
+| `perf-smoke`             | ingest baseline + pooled multi-tenant query-latency smoke                                                                                                                                                                        |
+| `backup-drill`           | the backup → wipe → restore drill executes against real stores                                                                                                                                                                   |
+| `failover-drill`         | timed kill-the-primary → promote-the-replica drill (RTO/RPO measured)                                                                                                                                                            |
+| `chaos-dependency-drill` | dependency chaos injects agent-buffer disk pressure, a disposable control-plane pod kill, dependency outage, memory pressure, and prints recovery counters                                                                       |
+| `load-smoke`             | S-tier full-stack load smoke through real Kafka + Prometheus + ClickHouse                                                                                                                                                        |
+| `proto`                  | `buf lint` + `buf breaking` vs `main` (additive-only wire contract) + generated-code drift                                                                                                                                       |
+| `web`                    | typecheck + lint + the frontend surface-coverage gate + jsdom axe/theme/no-hardcoded-token gates + rendered Chromium a11y (`web-rendered-a11y`) + `npm audit` + production build                                                 |
+| `dependency-scan`        | `govulncheck` + Trivy filesystem scan (**vulnerabilities only**)                                                                                                                                                                 |
+| `image-scan`             | Trivy image scan (**vulnerabilities only**)                                                                                                                                                                                      |
+| `build-images`           | multi-arch image build for every component (Buildx + QEMU)                                                                                                                                                                       |
+| `commitlint`             | Conventional Commits (pull requests only)                                                                                                                                                                                        |
+| `dco`                    | every commit carries a `Signed-off-by` trailer (pull requests only)                                                                                                                                                              |
+| `sbom`                   | CycloneDX SBOM (a **software bill of materials** — the machine-readable parts list) of the Go module graph, retained 90 days (informational, not a merge gate)                                                                   |
+| `verify-all`             | the umbrella check: red unless every verification job it depends on concluded green — the gates are wired in series, like a strand of old holiday lights: one dark bulb darkens the whole strand                                 |
+
+For the rendered Chromium accessibility gate, `cd web && npm run a11y:browser`
+uses a local Chrome/Chromium binary or the Playwright browser cache. On a fresh
+machine, use `make web-rendered-a11y` from the repo root instead; it runs the
+same digest-pinned Playwright container as CI's `web-rendered-a11y` job and does
+not require a local browser install. `PROBECTL_PLAYWRIGHT_IMAGE` overrides the
+image for mirrored or air-gapped environments.
 
 > **Trivy is vulnerability-only here, by design.** Secret scanning is the separate
 > `secret-scan` job (gitleaks), which owns the `.gitleaks.toml` allow-list for the

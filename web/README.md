@@ -72,7 +72,13 @@ npm run build        # typecheck (tsc --noEmit) + production build
 npm run test         # Vitest (a11y, theme-swap, command palette, surface coverage, per-surface tests)
 npm run coverage-gate # the surface-coverage gate on its own
 npm run lint         # ESLint
+npm run a11y:browser # rendered Chromium a11y gate (uses local Chrome/Chromium or Playwright browser cache)
 ```
+
+Fresh machines do not need a hand-installed Playwright browser cache. From the
+repo root, run `make web-rendered-a11y`; from `web/`, run
+`npm run a11y:browser:container`. Both use the same digest-pinned Playwright
+container as CI's `web-rendered-a11y` job.
 
 The dev server proxies `/v1` and `/provider` to a locally-running control plane
 (`http://localhost:8080` by default — see `vite.config.ts`); production serves

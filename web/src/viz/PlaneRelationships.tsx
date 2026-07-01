@@ -12,6 +12,7 @@ const NODE_W = 178
 const NODE_H = 38
 const LEFT_X = 32
 const RIGHT_X = SVG_W - LEFT_X - NODE_W
+const LINK_GAP = 24
 
 interface Relationship {
   id: string
@@ -52,7 +53,7 @@ function NodeLabel({
   return (
     <g className={[styles.node, styles[variant]].join(' ')} transform={`translate(${x} ${y})`}>
       <rect width={NODE_W} height={NODE_H} rx={6} />
-      <text x={12} y={24}>
+      <text x={12} y={24} aria-hidden="true">
         {clip(label)}
       </text>
       <title>{label}</title>
@@ -60,7 +61,13 @@ function NodeLabel({
   )
 }
 
-export function BgpAsPathView({ nodes, routingEdges }: { nodes: TopoNode[]; routingEdges: TopoEdge[] }) {
+export function BgpAsPathView({
+  nodes,
+  routingEdges,
+}: {
+  nodes: TopoNode[]
+  routingEdges: TopoEdge[]
+}) {
   const relationships: Relationship[] = routingEdges.map((edge, index) => ({
     id: `${edge.from}-${edge.to}-${index}`,
     source: labelFor(nodes, edge.from),
@@ -72,6 +79,7 @@ export function BgpAsPathView({ nodes, routingEdges }: { nodes: TopoNode[]; rout
   const rowCount = Math.max(sources.length, targets.length, 1)
   const svgH = Math.max(210, rowCount * 54)
   const hidden = Math.max(0, relationships.length - visible.length)
+  const imageLabel = `BGP AS-path arc view with ${visible.length} of ${relationships.length} routing relationships`
 
   return (
     <ChartShell
@@ -84,21 +92,27 @@ export function BgpAsPathView({ nodes, routingEdges }: { nodes: TopoNode[]; rout
         </span>
       }
     >
-      <div className={styles.canvas}>
+      <div
+        className={styles.canvas}
+        tabIndex={0}
+        role="region"
+        aria-label="Scrollable BGP AS-path visualization"
+      >
+        <span className="sr-only" role="img" aria-label={imageLabel} />
         <svg
           className={styles.svg}
           width={SVG_W}
           height={svgH}
           viewBox={`0 0 ${SVG_W} ${svgH}`}
-          role="img"
-          aria-label={`BGP AS-path arc view with ${visible.length} of ${relationships.length} routing relationships`}
+          aria-hidden="true"
+          focusable="false"
         >
           <g className={styles.links}>
             {visible.map((rel) => {
               const sy = yFor(sources.indexOf(rel.source), sources.length, svgH) + NODE_H / 2
               const ty = yFor(targets.indexOf(rel.target), targets.length, svgH) + NODE_H / 2
-              const sx = LEFT_X + NODE_W
-              const tx = RIGHT_X
+              const sx = LEFT_X + NODE_W + LINK_GAP
+              const tx = RIGHT_X - LINK_GAP
               return (
                 <path
                   key={rel.id}
@@ -143,6 +157,7 @@ export function FlowSankeyView({ rows }: { rows: FlowTopRow[] }) {
   const svgH = Math.max(210, rowCount * 54)
   const maxBytes = Math.max(...visible.map((row) => row.bytes), 1)
   const hidden = Math.max(0, rows.length - visible.length)
+  const imageLabel = `Flow Sankey view with ${visible.length} of ${rows.length} contributors`
 
   return (
     <ChartShell
@@ -155,22 +170,28 @@ export function FlowSankeyView({ rows }: { rows: FlowTopRow[] }) {
         </span>
       }
     >
-      <div className={styles.canvas}>
+      <div
+        className={styles.canvas}
+        tabIndex={0}
+        role="region"
+        aria-label="Scrollable flow Sankey visualization"
+      >
+        <span className="sr-only" role="img" aria-label={imageLabel} />
         <svg
           className={styles.svg}
           width={SVG_W}
           height={svgH}
           viewBox={`0 0 ${SVG_W} ${svgH}`}
-          role="img"
-          aria-label={`Flow Sankey view with ${visible.length} of ${rows.length} contributors`}
+          aria-hidden="true"
+          focusable="false"
         >
           <g className={styles.links}>
             {visible.map((row) => {
               const target = row.detail || 'tenant aggregate'
               const sy = yFor(sources.indexOf(row.key), sources.length, svgH) + NODE_H / 2
               const ty = yFor(targets.indexOf(target), targets.length, svgH) + NODE_H / 2
-              const sx = LEFT_X + NODE_W
-              const tx = RIGHT_X
+              const sx = LEFT_X + NODE_W + LINK_GAP
+              const tx = RIGHT_X - LINK_GAP
               const width = 4 + (row.bytes / maxBytes) * 18
               return (
                 <path
