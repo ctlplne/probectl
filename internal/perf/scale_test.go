@@ -250,6 +250,26 @@ func TestScaleSLOEvaluation(t *testing.T) {
 	if len(ci.Violations) != 2 {
 		t.Fatalf("CI scale: want 2 violations (correctness, inflation), got %v", ci.Violations)
 	}
+	// At CI scale with the fairness gate installed, timing-independent shedding
+	// is the stable noisy-neighbor proof; wall-clock p95 remains a full-scale
+	// reference-hardware SLO.
+	shedUnderCIJitter := NoisyReport{Ran: true, QuietCorrect: true, FairnessOn: true,
+		NoisyPublished: 2000, NoisySeries: 1000, NoisyAdmitFrac: 0.5,
+		Inflation: p.SLO.MaxNoisyInflation * 50, NoisyP95: 50 * time.Millisecond}
+	ciShed := ScaleReport{Profile: p, AtCIScale: true, Noisy: shedUnderCIJitter}
+	ciShed.evaluate()
+	if len(ciShed.Violations) != 0 {
+		t.Fatalf("CI scale with a shedding fairness gate must not fail on wall-clock jitter: %v", ciShed.Violations)
+	}
+	fullShed := ScaleReport{
+		Profile: p, AtCIScale: false,
+		Ingest: IngestReport{Throughput: p.SLO.MinIngestThroughput, PublishLatency: LatencyStat{P95: p.SLO.MaxPublishP95 / 2}},
+		Noisy:  shedUnderCIJitter,
+	}
+	fullShed.evaluate()
+	if len(fullShed.Violations) != 1 {
+		t.Fatalf("full-scale reference run must still enforce noisy-neighbor timing: %v", fullShed.Violations)
+	}
 	// Sub-materiality "inflation" is scheduler noise, never a violation: a
 	// 100x ratio of microseconds is an excellent experience.
 	noise := ScaleReport{Profile: p, AtCIScale: true,

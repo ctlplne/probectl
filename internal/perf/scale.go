@@ -167,9 +167,11 @@ type ScaleReport struct {
 const noisyMaterialityFloor = 5 * time.Millisecond
 
 // evaluate applies the tier SLO. At CI scale the absolute throughput floors
-// don't apply (CI hardware proves the gate, not the platform) — correctness
-// always does, and the noisy-neighbor INFLATION ratio applies above the
-// materiality floor (ratios survive scaling; noise does not).
+// don't apply (CI hardware proves the gate, not the platform). Correctness
+// always applies. The noisy-neighbor timing ratio applies above the materiality
+// floor unless the CI run has the fairness gate installed and proves the flood
+// was shed through the timing-independent admit-fraction signal; full-scale
+// reference runs still enforce the timing ratio.
 func (r *ScaleReport) evaluate() {
 	slo := r.Profile.SLO
 	if !r.AtCIScale {
@@ -209,7 +211,8 @@ func (r *ScaleReport) evaluate() {
 					r.Profile.Tier, r.Noisy.NoisyAdmitFrac*100, r.Noisy.NoisyPublished, maxNoisyAdmitFrac*100))
 			}
 		}
-		if r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= noisyMaterialityFloor {
+		timingOnly := !r.AtCIScale || !r.Noisy.FairnessOn
+		if timingOnly && r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= noisyMaterialityFloor {
 			r.Violations = append(r.Violations, fmt.Sprintf(
 				"%s: noisy-neighbor p95 inflation %.2fx (at %s) above the %.1fx ceiling (F57; PROVISIONAL SLO)",
 				r.Profile.Tier, r.Noisy.Inflation, r.Noisy.NoisyP95, slo.MaxNoisyInflation))

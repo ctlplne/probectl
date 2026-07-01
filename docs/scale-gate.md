@@ -40,8 +40,12 @@ Two subtleties make these numbers honest:
 - **The inflation ratio only counts above a materiality floor of 5 ms.** If a
   quiet tenant's latency goes from 50 microseconds to 5 milliseconds that's a
   huge *ratio* but it's just scheduler noise — the experience is still excellent.
-  Below the floor, the ratio is ignored; above it, the ≤ 2× ceiling bites. The
-  floor is the **same 5 ms in CI and at full scale**, not a loosened CI value.
+  Below the floor, the ratio is ignored; above it, the ≤ 2× ceiling bites. When
+  the timing check is armed, the floor is the **same 5 ms in CI and at full
+  scale**, not a loosened CI value. The in-process CI run that installs the
+  fairness gate uses the timing-independent shed/admit-fraction assertion below
+  as its hard noisy-neighbor signal; wall-clock p95 remains the full-scale
+  reference-hardware SLO.
 - **Correctness has no floor and no scale exemption.** Throughput floors can scale
   down for a CI run, but every quiet-tenant result must always land complete and
   correctly tenant-scoped, no matter what the neighbor does. This is tenant
@@ -62,10 +66,9 @@ self-normalizes — like weighing yourself before and after lunch on the same
 miscalibrated scale: the scale's error cancels out of the *difference*. If
 there's a one-off stall, it poisons at most one pair, and the
 median absorbs it. Only *sustained* contention inflates every pair — and that
-still trips the gate. So CI can enforce the exact same documented floor as
-reference hardware, rather than a loosened one. The report records the median
-pair's solo p95, under-noise p95, and inflation ratio, plus a hard correctness
-verdict AND-ed over every phase of every pair.
+still trips the timing gate when the timing check is armed. The report records
+the median pair's solo p95, under-noise p95, and inflation ratio, plus a hard
+correctness verdict AND-ed over every phase of every pair.
 
 **The fairness gate is the primary, timing-independent isolation signal
 (SCALE-004).** On the in-process stack the in-memory bus has *microsecond*
