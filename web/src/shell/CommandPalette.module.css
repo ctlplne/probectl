@@ -38,6 +38,11 @@
   font-size: var(--font-size-lg);
 }
 
+.input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .input::placeholder {
   color: var(--color-text-subtle);
 }

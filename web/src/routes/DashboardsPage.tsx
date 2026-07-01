@@ -71,6 +71,10 @@ interface PlaneRow {
   value: string
 }
 
+const EMPTY_TESTS: Test[] = []
+const EMPTY_RESULTS: LatestResult[] = []
+const EMPTY_FLOW_ANOMALIES: FlowAnomaly[] = []
+
 export function DashboardsPage() {
   const { locale } = useI18n()
   const { tenant, user } = useAuth()
@@ -88,14 +92,14 @@ export function DashboardsPage() {
   const compliance = useCompliance()
   const detections = useDetections()
 
-  const testItems = tests.data ?? []
+  const testItems = tests.data ?? EMPTY_TESTS
   const enabledTests = testItems.filter((t) => t.enabled)
   const agents = flattenAgents(agentsQuery.data?.pages)
   const onlineAgents = agents.filter((a) => a.status === 'online')
   const incidentItems = incidents.data ?? []
   const openIncidents = incidentItems.filter((i) => i.status === 'open')
   const activeAlerts = alerts.data?.items ?? []
-  const latestResults = results.data?.items ?? []
+  const latestResults = results.data?.items ?? EMPTY_RESULTS
   const successfulResults = latestResults.filter((r) => r.success).length
   const successRate = latestResults.length > 0 ? successfulResults / latestResults.length : 0
   const topFlows = flowTop.data?.items ?? []
@@ -103,7 +107,7 @@ export function DashboardsPage() {
   const capacityPoints = flowCapacity.data?.items ?? []
   const latestCapacity = capacityPoints[capacityPoints.length - 1]
   const capacityTrend = capacityPoints.map((p) => p.bps)
-  const anomalies = flowAnomalies.data?.items ?? []
+  const anomalies = flowAnomalies.data?.items ?? EMPTY_FLOW_ANOMALIES
   const sloItems = slos.data?.items ?? []
   const burningSLOs = sloItems.filter((s) => s.burn_rates.some((b) => b.firing || b.burn > b.limit))
   const complianceItems = compliance.data?.items ?? []
@@ -621,12 +625,12 @@ function bgpDashboardRows(
   prefixNodes: TopoNode[],
 ): PlaneRow[] {
   const labels = new Map([...asNodes, ...prefixNodes].map((node) => [node.id, node.label]))
-  const rows = edges.slice(0, 5).map((edge, i) => ({
+  const rows: PlaneRow[] = edges.slice(0, 5).map((edge, i) => ({
     id: `bgp-edge-${i}-${edge.from}-${edge.to}`,
     name:
       edge.label || `${labels.get(edge.from) ?? edge.from} -> ${labels.get(edge.to) ?? edge.to}`,
     status: 'observed',
-    tone: 'success' as MetricTone,
+    tone: 'success',
     detail: `${labels.get(edge.from) ?? edge.from} to ${labels.get(edge.to) ?? edge.to}`,
     value: 'routing edge',
   }))
@@ -677,11 +681,11 @@ function ebpfDashboardRows(
   locale: string,
 ): PlaneRow[] {
   const collectors = agentsWithCapability(agents, 'ebpf')
-  const rows = flowEdges.slice(0, 5).map((edge, i) => ({
+  const rows: PlaneRow[] = flowEdges.slice(0, 5).map((edge, i) => ({
     id: `ebpf-edge-${i}-${edge.from}-${edge.to}`,
     name: edge.label || `${edge.from} -> ${edge.to}`,
     status: coverage?.ebpf_observed ? 'observed' : 'flow-only',
-    tone: coverage?.ebpf_observed ? ('success' as MetricTone) : ('warning' as MetricTone),
+    tone: coverage?.ebpf_observed ? 'success' : 'warning',
     detail: `${edge.from} to ${edge.to}`,
     value:
       collectors.length > 0

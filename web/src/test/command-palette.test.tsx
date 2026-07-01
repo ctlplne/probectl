@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { renderApp } from './renderApp'
 
 describe('command palette (keyboard-first)', () => {
@@ -44,5 +46,13 @@ describe('command palette (keyboard-first)', () => {
 
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('combobox')).not.toBeInTheDocument())
+  })
+
+  test('search input has a tokenized visible focus style', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/shell/CommandPalette.module.css'), 'utf8')
+
+    expect(css).toMatch(
+      /\.input:focus-visible\s*{[^}]*outline:\s*2px\s+solid\s+var\(--color-focus\);[^}]*outline-offset:\s*2px;/s,
+    )
   })
 })
