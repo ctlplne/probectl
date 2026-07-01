@@ -37,6 +37,37 @@ func newRing(t *testing.T, resolve RefResolver) (*Keyring, *MemStore) {
 	return k, store
 }
 
+func byokMaterial(material string) ([]byte, func()) {
+	b := []byte(material)
+	return b, func() { crypto.Zeroize(b) }
+}
+
+type recordingProvider struct {
+	base       crypto.Provider
+	encryptKey []byte
+	decryptKey []byte
+}
+
+func (p *recordingProvider) Hash(data []byte) []byte { return p.base.Hash(data) }
+
+func (p *recordingProvider) Random(n int) ([]byte, error) { return p.base.Random(n) }
+
+func (p *recordingProvider) Encrypt(key, plaintext, aad []byte) ([]byte, error) {
+	p.encryptKey = key
+	return p.base.Encrypt(key, plaintext, aad)
+}
+
+func (p *recordingProvider) Decrypt(key, ciphertext, aad []byte) ([]byte, error) {
+	p.decryptKey = key
+	return p.base.Decrypt(key, ciphertext, aad)
+}
+
+func (p *recordingProvider) Sign(key, data []byte) []byte { return p.base.Sign(key, data) }
+
+func (p *recordingProvider) Verify(key, data, mac []byte) bool {
+	return p.base.Verify(key, data, mac)
+}
+
 // TestPerTenantIsolation is the named isolation test: tenant A's key cannot
 // read tenant B's data — a blob sealed for A fails to open as B (and vice
 // versa), even with identical plaintext/AAD.
@@ -159,14 +190,15 @@ func TestCryptoOffboard(t *testing.T) {
 func TestBYOKFailSafe(t *testing.T) {
 	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
 	live := true
-	resolve := func(_ context.Context, ref string) (string, error) {
+	resolve := func(_ context.Context, ref string) ([]byte, func(), error) {
 		if !live {
-			return "", errors.New("vault sealed")
+			return nil, nil, errors.New("vault sealed")
 		}
 		if ref != "vault:kv/tenants/acme#kek" {
-			return "", errors.New("not found")
+			return nil, nil, errors.New("not found")
 		}
-		return material, nil
+		b, cleanup := byokMaterial(material)
+		return b, cleanup, nil
 	}
 	k, _ := newRing(t, resolve)
 	ctx := context.Background()
@@ -208,11 +240,12 @@ func TestBYOKFailSafe(t *testing.T) {
 func TestBYOKRevocationInstantTTLZero(t *testing.T) {
 	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
 	live := true
-	resolve := func(_ context.Context, _ string) (string, error) {
+	resolve := func(_ context.Context, _ string) ([]byte, func(), error) {
 		if !live {
-			return "", errors.New("revoked")
+			return nil, nil, errors.New("revoked")
 		}
-		return material, nil
+		b, cleanup := byokMaterial(material)
+		return b, cleanup, nil
 	}
 	k, _ := newRing(t, resolve)
 	// Pin the clock so the test cannot accidentally rely on wall-clock TTL expiry.
@@ -242,6 +275,54 @@ func TestBYOKRevocationInstantTTLZero(t *testing.T) {
 	live = false
 	if _, err := k.Open(ctx, "tnA", blob, aad); !errors.Is(err, ErrKeyUnavailable) {
 		t.Fatalf("revoked byok open must fail unavailable immediately (TTL 0): %v", err)
+	}
+}
+
+func TestBYOKResolverSlicesZeroizedAfterSealOpen(t *testing.T) {
+	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x5a}, 32))
+	var resolved [][]byte
+	resolve := func(_ context.Context, _ string) ([]byte, func(), error) {
+		b, cleanup := byokMaterial(material)
+		resolved = append(resolved, b)
+		return b, cleanup, nil
+	}
+	k, _ := newRing(t, resolve)
+	ctx := context.Background()
+	aad := []byte("x")
+
+	base := crypto.Default
+	rec := &recordingProvider{base: base}
+	crypto.Default = rec
+	t.Cleanup(func() { crypto.Default = base })
+
+	if _, err := k.Rotate(ctx, "tnA", ModeBYOK, "vault:kv/acme#kek"); err != nil {
+		t.Fatalf("byok rotate: %v", err)
+	}
+	blob, err := k.Seal(ctx, "tnA", []byte("secret"), aad)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if rec.encryptKey == nil || !allZero(rec.encryptKey) {
+		t.Fatalf("uncached BYOK seal KEK was not zeroized: %x", rec.encryptKey)
+	}
+	for i, b := range resolved {
+		if !allZero(b) {
+			t.Fatalf("resolved base64 material %d was not zeroized after seal path: %x", i, b)
+		}
+	}
+
+	plain, err := k.Open(ctx, "tnA", blob, aad)
+	if err != nil || string(plain) != "secret" {
+		t.Fatalf("open: %q %v", plain, err)
+	}
+	crypto.Zeroize(plain)
+	if rec.decryptKey == nil || !allZero(rec.decryptKey) {
+		t.Fatalf("uncached BYOK open KEK was not zeroized: %x", rec.decryptKey)
+	}
+	for i, b := range resolved {
+		if !allZero(b) {
+			t.Fatalf("resolved base64 material %d was not zeroized after open path: %x", i, b)
+		}
 	}
 }
 
@@ -299,6 +380,52 @@ func TestManagedKEKCacheOverwriteZeroizesPreviousEntry(t *testing.T) {
 	current := captureCachedKEK(t, k, "tnA", 1)
 	if !bytes.Equal(current, second) {
 		t.Fatalf("current cached KEK = %x, want %x", current, second)
+	}
+}
+
+func TestManagedCacheEvictionPreservesRotationReads(t *testing.T) {
+	k, _ := newRing(t, nil)
+	now := time.Unix(20_000, 0)
+	k.WithClock(func() time.Time { return now }).WithTTL(time.Second)
+	ctx := context.Background()
+	aad := []byte("x")
+
+	v1, err := k.Seal(ctx, "tnA", []byte("first"), aad)
+	if err != nil {
+		t.Fatalf("seal v1: %v", err)
+	}
+	cachedV1 := captureCachedKEK(t, k, "tnA", 1)
+	if cachedV1 == nil || allZero(cachedV1) {
+		t.Fatalf("expected cached v1 KEK before rotation: %x", cachedV1)
+	}
+	if _, err := k.Rotate(ctx, "tnA", ModeManaged, ""); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if !allZero(cachedV1) {
+		t.Fatalf("rotation did not zeroize evicted v1 cache entry: %x", cachedV1)
+	}
+	v2, err := k.Seal(ctx, "tnA", []byte("second"), aad)
+	if err != nil {
+		t.Fatalf("seal v2: %v", err)
+	}
+	cachedV2 := captureCachedKEK(t, k, "tnA", 2)
+	if cachedV2 == nil || allZero(cachedV2) {
+		t.Fatalf("expected cached v2 KEK before TTL eviction: %x", cachedV2)
+	}
+
+	now = now.Add(2 * time.Second)
+	if p, err := k.Open(ctx, "tnA", v1, aad); err != nil || string(p) != "first" {
+		t.Fatalf("v1 after rotation/cache eviction: %q %v", p, err)
+	} else {
+		crypto.Zeroize(p)
+	}
+	if p, err := k.Open(ctx, "tnA", v2, aad); err != nil || string(p) != "second" {
+		t.Fatalf("v2 after rotation/cache eviction: %q %v", p, err)
+	} else {
+		crypto.Zeroize(p)
+	}
+	if !allZero(cachedV2) {
+		t.Fatalf("TTL eviction did not zeroize old v2 cache entry: %x", cachedV2)
 	}
 }
 

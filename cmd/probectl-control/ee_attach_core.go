@@ -29,7 +29,7 @@ import (
 func attachEE(context.Context, *control.Server, *config.Config, *slog.Logger,
 	*license.Manager, *pgxpool.Pool, *control.LatestResults, flowstore.Store,
 	*pathstore.ClickHouse, ebpfstore.Store, otelstore.Store,
-	*tenantlife.Engine, func(context.Context, string) (string, error),
+	*tenantlife.Engine, func(context.Context, string) ([]byte, func(), error),
 	*fairness.Gate, topology.Store) error {
 	return nil
 }

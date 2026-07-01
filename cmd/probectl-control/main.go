@@ -95,6 +95,7 @@ func run(cmd string) error {
 	if err != nil {
 		return err
 	}
+	defer secretsResolver.Close()
 	if envelopeGenerated {
 		log.Warn("GENERATED a new at-rest envelope key — back this file up like any key material; losing it makes sealed values unreadable",
 			"key_file", cfg.EnvelopeKeyFile, "key_id", cfg.EnvelopeKeyID)

@@ -375,7 +375,7 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	}
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
 		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.lifeEngine,
-		rt.secretsResolver.Resolve, rt.fairGate, rt.topoStore); err != nil {
+		rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore); err != nil {
 		return err
 	}
 	if sup, ok := control.BuildAlertEvaluatorSupervisor(rt.db.Pool(), rt.tsdbWriter, alert.ChannelDeps{},

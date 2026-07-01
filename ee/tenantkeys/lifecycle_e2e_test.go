@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // TestBYOKLifecycleE2E walks the full F500 BYOK key lifecycle in one narrative
@@ -31,14 +33,15 @@ func TestBYOKLifecycleE2E(t *testing.T) {
 	// vault. We flip `live` to simulate the customer revoking probectl's access.
 	material := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x5a}, 32))
 	live := true
-	resolve := func(_ context.Context, ref string) (string, error) {
+	resolve := func(_ context.Context, ref string) ([]byte, func(), error) {
 		if !live {
-			return "", errors.New("vault: access revoked by customer")
+			return nil, nil, errors.New("vault: access revoked by customer")
 		}
 		if ref != "vault:kv/acme#kek" {
-			return "", errors.New("vault: not found")
+			return nil, nil, errors.New("vault: not found")
 		}
-		return material, nil
+		b := []byte(material)
+		return b, func() { crypto.Zeroize(b) }, nil
 	}
 
 	k, store := newRing(t, resolve)

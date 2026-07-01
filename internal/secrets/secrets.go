@@ -134,6 +134,7 @@ type Resolver struct {
 	lease    time.Duration
 	key      []byte // ephemeral per-process cache key
 	clock    func() time.Time
+	closed   bool
 }
 
 // NewResolver builds a resolver over the given backends. lease <= 0 takes
@@ -161,55 +162,88 @@ func NewResolver(lease time.Duration, backends ...Source) (*Resolver, error) {
 	return r, nil
 }
 
-// Resolve returns the value for raw: literals pass through (with the
-// "literal:" escape stripped), references resolve via their backend. Fails
-// closed on unknown schemes, unconfigured backends, and backend errors.
+// Resolve returns the value for raw as a string: literals pass through (with
+// the "literal:" escape stripped), references resolve via their backend. The
+// byte buffer used internally is zeroized after the string crosses this API
+// boundary. Fails closed on unknown schemes, unconfigured backends, and backend
+// errors.
 func (r *Resolver) Resolve(ctx context.Context, raw string) (string, error) {
+	plain, cleanup, err := r.ResolveBytes(ctx, raw)
+	if err != nil {
+		return "", err
+	}
+	defer cleanup()
+	return string(plain), nil
+}
+
+// ResolveBytes returns caller-owned resolved bytes plus a cleanup function that
+// must be called once the backend/client boundary has consumed them.
+func (r *Resolver) ResolveBytes(ctx context.Context, raw string) ([]byte, func(), error) {
 	if !IsRef(raw) {
-		return strings.TrimPrefix(raw, "literal:"), nil
+		plain := []byte(strings.TrimPrefix(raw, "literal:"))
+		return plain, func() { crypto.Zeroize(plain) }, nil
 	}
 	ref, err := Parse(raw)
 	if err != nil {
-		return "", err
+		return nil, nil, err
 	}
 	now := r.clock()
 
 	r.mu.Lock()
+	if r.closed {
+		r.mu.Unlock()
+		return nil, nil, fmt.Errorf("secrets: resolver is closed")
+	}
 	if e, ok := r.cache[raw]; ok && now.Before(e.expires) {
 		plain, derr := crypto.Default.Decrypt(r.key, e.sealed, []byte(raw))
 		r.mu.Unlock()
 		if derr != nil {
-			return "", fmt.Errorf("secrets: cache unseal %s: %w", ref.Redacted(), derr)
+			return nil, nil, fmt.Errorf("secrets: cache unseal %s: %w", ref.Redacted(), derr)
 		}
-		return string(plain), nil
+		return plain, func() { crypto.Zeroize(plain) }, nil
+	} else if ok {
+		crypto.Zeroize(e.sealed)
+		delete(r.cache, raw)
 	}
 	src := r.backends[ref.Scheme]
 	st := r.stats[ref.Scheme]
 	r.mu.Unlock()
 
 	if src == nil {
-		return "", fmt.Errorf("secrets: %s backend not configured (reference %s)", ref.Scheme, ref.Redacted())
+		return nil, nil, fmt.Errorf("secrets: %s backend not configured (reference %s)", ref.Scheme, ref.Redacted())
 	}
 	value, ferr := src.Fetch(ctx, ref)
+	valueBytes := []byte(value)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		crypto.Zeroize(valueBytes)
+		return nil, nil, fmt.Errorf("secrets: resolver is closed")
+	}
 	if ferr != nil {
 		st.Failures++
 		st.LastError = ferr.Error()
 		st.LastErrorAt = now
 		// Fail closed: no stale fallback for credentials — a rotated-away secret
 		// must stop being used (the S41 'watch out for').
-		delete(r.cache, raw)
-		return "", fmt.Errorf("secrets: resolve %s: %w", ref.Redacted(), ferr)
+		if old, ok := r.cache[raw]; ok {
+			crypto.Zeroize(old.sealed)
+			delete(r.cache, raw)
+		}
+		crypto.Zeroize(valueBytes)
+		return nil, nil, fmt.Errorf("secrets: resolve %s: %w", ref.Redacted(), ferr)
 	}
 	st.Resolves++
 	st.LastOK = now
-	sealed, serr := crypto.Default.Encrypt(r.key, []byte(value), []byte(raw))
+	sealed, serr := crypto.Default.Encrypt(r.key, valueBytes, []byte(raw))
 	if serr == nil {
+		if old, ok := r.cache[raw]; ok {
+			crypto.Zeroize(old.sealed)
+		}
 		r.cache[raw] = cacheEntry{sealed: sealed, expires: now.Add(r.lease)}
 	}
-	return value, nil
+	return valueBytes, func() { crypto.Zeroize(valueBytes) }, nil
 }
 
 // Health returns per-backend snapshots (sorted, no secret material).
@@ -245,4 +279,24 @@ func (r *Resolver) Schemes() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// Close wipes the resolver's ephemeral cache key and sealed cache entries.
+// After Close, Resolve/ResolveBytes fail closed.
+func (r *Resolver) Close() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
+	crypto.Zeroize(r.key)
+	r.key = nil
+	for raw, e := range r.cache {
+		crypto.Zeroize(e.sealed)
+		delete(r.cache, raw)
+	}
+	r.closed = true
 }

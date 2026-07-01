@@ -161,6 +161,60 @@ func TestLeaseCacheSealedAndFailClosedOnRotation(t *testing.T) {
 	}
 }
 
+func TestResolverCloseZeroizesKeyAndCache(t *testing.T) {
+	src := &countingSource{value: "s3cr3t-A"}
+	res, err := NewResolver(time.Minute, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := "vault:kv/netops#community"
+	if v, err := res.Resolve(ctxT(t), ref); err != nil || v != "s3cr3t-A" {
+		t.Fatalf("resolve: %q %v", v, err)
+	}
+
+	res.mu.Lock()
+	keyRef := res.key
+	var sealedRefs [][]byte
+	for _, e := range res.cache {
+		sealedRefs = append(sealedRefs, e.sealed)
+	}
+	res.mu.Unlock()
+	if len(keyRef) == 0 || allZeroBytes(keyRef) {
+		t.Fatalf("expected non-zero resolver cache key before close: %x", keyRef)
+	}
+	if len(sealedRefs) != 1 || allZeroBytes(sealedRefs[0]) {
+		t.Fatalf("expected one non-zero sealed cache entry before close: %x", sealedRefs)
+	}
+
+	res.Close()
+	if !allZeroBytes(keyRef) {
+		t.Fatalf("resolver cache key was not zeroized: %x", keyRef)
+	}
+	for i, sealed := range sealedRefs {
+		if !allZeroBytes(sealed) {
+			t.Fatalf("sealed cache entry %d was not zeroized: %x", i, sealed)
+		}
+	}
+	res.mu.Lock()
+	cacheLen, closed := len(res.cache), res.closed
+	res.mu.Unlock()
+	if cacheLen != 0 || !closed {
+		t.Fatalf("resolver close state: cache=%d closed=%v", cacheLen, closed)
+	}
+	if _, err := res.Resolve(ctxT(t), ref); err == nil {
+		t.Fatal("closed resolver must fail closed")
+	}
+}
+
+func allZeroBytes(b []byte) bool {
+	for _, x := range b {
+		if x != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func TestVaultKV2AndAppRole(t *testing.T) {
 	var loginCalls int
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

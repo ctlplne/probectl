@@ -55,7 +55,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
 	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store,
 	life *tenantlife.Engine,
-	resolveSecret func(context.Context, string) (string, error),
+	resolveSecret func(context.Context, string) ([]byte, func(), error),
 	fairGate *fairness.Gate, topoStore topology.Store) error {
 	// Siloed/hybrid isolation (S-T2). Attached BEFORE the provider plane so
 	// tenant provisioning can create isolated stores from the first call.

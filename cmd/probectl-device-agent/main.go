@@ -88,6 +88,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer res.Close()
 	creds, err := device.NewSecretsCredentials(nil, res.Resolve)
 	if err != nil {
 		return err
@@ -135,6 +136,7 @@ func runDiscover(args []string) error {
 	if err != nil {
 		return err
 	}
+	defer res.Close()
 	creds, err := device.NewSecretsCredentials(nil, res.Resolve)
 	if err != nil {
 		return err

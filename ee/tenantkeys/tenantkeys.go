@@ -27,6 +27,7 @@
 package tenantkeys
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -91,9 +92,10 @@ type Store interface {
 	Chain(ctx context.Context, tenantID string) ([]KeyVersion, error)
 }
 
-// RefResolver resolves a BYOK secret reference to base64 key material (the
-// S41 resolver in production).
-type RefResolver func(ctx context.Context, ref string) (string, error)
+// RefResolver resolves a BYOK secret reference to base64-encoded key material
+// bytes (the S41 resolver in production). The cleanup function must wipe the
+// returned bytes when the keyring is done decoding them.
+type RefResolver func(ctx context.Context, ref string) ([]byte, func(), error)
 
 // Keyring implements tenantcrypto.Sealer + Destroyer over a Store: the
 // per-tenant envelope. KEKs cache briefly; every cache entry is keyed
@@ -114,6 +116,25 @@ type Keyring struct {
 type cachedKEK struct {
 	kek     []byte
 	fetched time.Time
+}
+
+type keyLease struct {
+	kek     []byte
+	cleanup func()
+}
+
+func (l keyLease) Close() {
+	if l.cleanup != nil {
+		l.cleanup()
+	}
+}
+
+func borrowedKEK(kek []byte) keyLease {
+	return keyLease{kek: kek, cleanup: func() {}}
+}
+
+func ownedKEK(kek []byte) keyLease {
+	return keyLease{kek: kek, cleanup: func() { zeroize(kek) }}
 }
 
 // NewKeyring wires the keyring. master is REQUIRED (managed KEKs are sealed
@@ -198,6 +219,12 @@ func (k *Keyring) provisionManaged(ctx context.Context, tenantID string, version
 	if err != nil {
 		return nil, err
 	}
+	cached := false
+	defer func() {
+		if !cached {
+			zeroize(kek)
+		}
+	}()
 	sealed, err := k.master.Seal(ctx, kek, []byte("tenant-kek:"+tenantID+":"+strconv.Itoa(version)))
 	if err != nil {
 		return nil, err
@@ -209,20 +236,20 @@ func (k *Keyring) provisionManaged(ctx context.Context, tenantID string, version
 	if err := k.store.Insert(ctx, kv); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
 	}
-	k.cachePut(tenantID, version, ModeManaged, kek)
+	cached = k.cachePut(tenantID, version, ModeManaged, kek)
 	return &kv, nil
 }
 
 // kekFor returns the raw KEK for (tenant, version), failing safe.
-func (k *Keyring) kekFor(ctx context.Context, kv *KeyVersion) ([]byte, error) {
+func (k *Keyring) kekFor(ctx context.Context, kv *KeyVersion) (keyLease, error) {
 	if kv.State == StateDestroyed {
-		return nil, ErrKeyDestroyed
+		return keyLease{}, ErrKeyDestroyed
 	}
 	ttl := k.ttlFor(kv.Mode)
 	key := kv.TenantID + ":" + strconv.Itoa(kv.Version)
 	if ttl > 0 {
 		if kek, ok := k.cacheGet(key, ttl); ok {
-			return kek, nil
+			return borrowedKEK(kek), nil
 		}
 	}
 
@@ -231,29 +258,38 @@ func (k *Keyring) kekFor(ctx context.Context, kv *KeyVersion) ([]byte, error) {
 	case ModeManaged:
 		sealed, err := decodeSealed(kv.WrappedKEK)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
+			return keyLease{}, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
 		}
 		kek, err = k.master.Open(ctx, sealed, []byte("tenant-kek:"+kv.TenantID+":"+strconv.Itoa(kv.Version)))
 		if err != nil {
-			return nil, fmt.Errorf("%w: unwrap managed kek: %v", ErrKeyUnavailable, err)
+			return keyLease{}, fmt.Errorf("%w: unwrap managed kek: %v", ErrKeyUnavailable, err)
 		}
 	case ModeBYOK:
 		if k.resolve == nil {
-			return nil, fmt.Errorf("%w: no secret-reference resolver configured for byok", ErrKeyUnavailable)
+			return keyLease{}, fmt.Errorf("%w: no secret-reference resolver configured for byok", ErrKeyUnavailable)
 		}
-		material, err := k.resolve(ctx, kv.BYOKRef)
+		material, cleanup, err := k.resolve(ctx, kv.BYOKRef)
 		if err != nil {
-			return nil, fmt.Errorf("%w: byok reference: %v", ErrKeyUnavailable, err)
+			return keyLease{}, fmt.Errorf("%w: byok reference: %v", ErrKeyUnavailable, err)
 		}
-		kek, err = base64.StdEncoding.DecodeString(strings.TrimSpace(material))
+		if cleanup != nil {
+			defer cleanup()
+		}
+		trimmed := bytes.TrimSpace(material)
+		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(trimmed)))
+		n, err := base64.StdEncoding.Decode(decoded, trimmed)
+		kek = decoded[:n]
 		if err != nil || len(kek) != 32 {
-			return nil, fmt.Errorf("%w: byok material must be base64 of exactly 32 bytes", ErrKeyUnavailable)
+			zeroize(decoded)
+			return keyLease{}, fmt.Errorf("%w: byok material must be base64 of exactly 32 bytes", ErrKeyUnavailable)
 		}
 	default:
-		return nil, fmt.Errorf("%w: unknown key mode %q", ErrKeyUnavailable, kv.Mode)
+		return keyLease{}, fmt.Errorf("%w: unknown key mode %q", ErrKeyUnavailable, kv.Mode)
 	}
-	k.cachePut(kv.TenantID, kv.Version, kv.Mode, kek)
-	return kek, nil
+	if k.cachePut(kv.TenantID, kv.Version, kv.Mode, kek) {
+		return borrowedKEK(kek), nil
+	}
+	return ownedKEK(kek), nil
 }
 
 // cacheGet returns a cached KEK when still inside TTL. If the entry exists but
@@ -277,9 +313,9 @@ func (k *Keyring) cacheGet(key string, ttl time.Duration) ([]byte, bool) {
 // cachePut stores a KEK only when caching is enabled for its mode (KEYS-003).
 // With TTL 0 (the BYOK default) nothing is retained, so a revoked reference
 // cannot be served from a stale cache entry.
-func (k *Keyring) cachePut(tenantID string, version int, mode string, kek []byte) {
+func (k *Keyring) cachePut(tenantID string, version int, mode string, kek []byte) bool {
 	if k.ttlFor(mode) <= 0 {
-		return
+		return false
 	}
 	k.mu.Lock()
 	key := tenantID + ":" + strconv.Itoa(version)
@@ -288,6 +324,7 @@ func (k *Keyring) cachePut(tenantID string, version int, mode string, kek []byte
 	}
 	k.cache[key] = cachedKEK{kek: kek, fetched: k.now()}
 	k.mu.Unlock()
+	return true
 }
 
 // purgeTenant drops every cached KEK of a tenant (rotation/destroy), zeroizing
@@ -311,11 +348,12 @@ func (k *Keyring) Seal(ctx context.Context, tenantID string, plaintext, aad []by
 	if err != nil {
 		return "", err
 	}
-	kek, err := k.kekFor(ctx, kv)
+	lease, err := k.kekFor(ctx, kv)
 	if err != nil {
 		return "", err
 	}
-	ct, err := crypto.Encrypt(kek, plaintext, sealAAD(tenantID, kv.Version, aad))
+	defer lease.Close()
+	ct, err := crypto.Encrypt(lease.kek, plaintext, sealAAD(tenantID, kv.Version, aad))
 	if err != nil {
 		return "", err
 	}
@@ -342,15 +380,16 @@ func (k *Keyring) Open(ctx context.Context, tenantID string, stored string, aad 
 		// or a destroyed-and-erased chain. Either way: fail safe.
 		return nil, ErrKeyUnavailable
 	}
-	kek, err := k.kekFor(ctx, kv)
+	lease, err := k.kekFor(ctx, kv)
 	if err != nil {
 		return nil, err
 	}
+	defer lease.Close()
 	ct, err := base64.RawStdEncoding.DecodeString(parts[2])
 	if err != nil {
 		return nil, errors.New("tenantkeys: malformed tk1 ciphertext")
 	}
-	plain, err := crypto.Decrypt(kek, ct, sealAAD(tenantID, version, aad))
+	plain, err := crypto.Decrypt(lease.kek, ct, sealAAD(tenantID, version, aad))
 	if err != nil {
 		return nil, fmt.Errorf("tenantkeys: decrypt failed (wrong tenant key or tampered value): %w", err)
 	}
@@ -384,9 +423,11 @@ func (k *Keyring) Rotate(ctx context.Context, tenantID, mode, byokRef string) (*
 			return nil, fmt.Errorf("%w: no secret-reference resolver configured for byok", ErrKeyUnavailable)
 		}
 		probe := KeyVersion{TenantID: tenantID, Version: next, Mode: ModeBYOK, BYOKRef: byokRef, State: StateActive}
-		if _, err := k.kekFor(ctx, &probe); err != nil {
+		lease, err := k.kekFor(ctx, &probe)
+		if err != nil {
 			return nil, fmt.Errorf("tenantkeys: byok reference rejected before activation (lockout guard): %w", err)
 		}
+		lease.Close()
 	}
 	if err := k.store.Retire(ctx, tenantID, k.now().UTC()); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrKeyUnavailable, err)
