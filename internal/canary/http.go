@@ -161,39 +161,7 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 	)
 	trace := tm.clientTrace(start, &peerAddr)
 
-	transport := &http.Transport{
-		DisableKeepAlives: true,
-		ForceAttemptHTTP2: true,
-		Proxy:             http.ProxyFromEnvironment,
-		// SSRF guard (U-002): every connection — initial, redirect hop, or a
-		// rebinding re-resolution — passes the guard at dial time.
-		DialContext: (&net.Dialer{
-			Timeout: c.timeout,
-			Control: c.guard.DialControl(nil),
-		}).DialContext,
-	}
-	if c.scheme == "https" {
-		transport.TLSClientConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			ServerName: c.host,
-			// We skip the runtime's own verification and verify manually in
-			// VerifyConnection so the cert chain is captured even when it is
-			// invalid (expired/untrusted) — S27 consumes the captured fields,
-			// and an invalid cert still fails the probe below.
-			InsecureSkipVerify: true,
-			VerifyConnection: func(cs tls.ConnectionState) error {
-				snapshot := cs
-				tlsState = &snapshot
-				if c.insecure {
-					return nil
-				}
-				err := verifyPeer(cs, c.host, roots)
-				ok := err == nil
-				tlsVerified = &ok
-				return err
-			},
-		}
-	}
+	transport := c.transport(roots, &tlsState, &tlsVerified)
 
 	reqCtx, cancel := context.WithTimeout(httptrace.WithClientTrace(ctx, trace), c.timeout)
 	defer cancel()
@@ -245,6 +213,47 @@ func (c *httpCanary) Run(ctx context.Context) (Result, error) {
 		res.Error = fmt.Sprintf("unexpected HTTP status %d (want %s)", resp.StatusCode, describeExpect(c.expect))
 	}
 	return res, nil
+}
+
+func (c *httpCanary) transport(roots *x509.CertPool, tlsState **tls.ConnectionState, tlsVerified **bool) *http.Transport {
+	transport := &http.Transport{
+		DisableKeepAlives: true,
+		ForceAttemptHTTP2: true,
+		// RED-002: do not honor ambient HTTP_PROXY/HTTPS_PROXY. A proxy is a
+		// second target that can resolve/fetch private space on the agent's
+		// behalf; this code path has no tenant-scoped explicit proxy allowlist,
+		// so guarded canaries go direct only.
+		Proxy: nil,
+		// SSRF guard (U-002): every direct connection — initial, redirect hop,
+		// or a rebinding re-resolution — passes the guard at dial time.
+		DialContext: (&net.Dialer{
+			Timeout: c.timeout,
+			Control: c.guard.DialControl(nil),
+		}).DialContext,
+	}
+	if c.scheme == "https" {
+		transport.TLSClientConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: c.host,
+			// We skip the runtime's own verification and verify manually in
+			// VerifyConnection so the cert chain is captured even when it is
+			// invalid (expired/untrusted) — S27 consumes the captured fields,
+			// and an invalid cert still fails the probe below.
+			InsecureSkipVerify: true,
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				snapshot := cs
+				*tlsState = &snapshot
+				if c.insecure {
+					return nil
+				}
+				err := verifyPeer(cs, c.host, roots)
+				ok := err == nil
+				*tlsVerified = &ok
+				return err
+			},
+		}
+	}
+	return transport
 }
 
 func (c *httpCanary) statusOK(code int) bool {

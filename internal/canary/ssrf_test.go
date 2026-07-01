@@ -3,8 +3,11 @@
 package canary
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 )
@@ -168,5 +171,38 @@ func TestCanaryFactoriesEnforceGuard(t *testing.T) {
 	// The dns default (system resolver) stays exempt: no server param, no error.
 	if _, err := NewDNS(Config{Target: "example.com"}); err != nil {
 		t.Fatalf("dns default resolver must construct: %v", err)
+	}
+}
+
+func TestHTTPCanaryRejectsDeniedTargetsBeforeAmbientProxy(t *testing.T) {
+	var proxyHits atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyHits.Add(1)
+		http.Error(w, "proxy should not be reached", http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	t.Setenv("HTTP_PROXY", proxy.URL)
+	t.Setenv("HTTPS_PROXY", proxy.URL)
+	t.Setenv("NO_PROXY", "")
+
+	for _, target := range []string{
+		"http://169.254.169.254/latest/meta-data", // link-local / cloud metadata
+		"https://169.254.169.254/",
+		"http://127.0.0.1:8080/admin", // loopback
+		"http://10.0.0.7/",            // RFC1918
+		"http://192.168.1.10/",        // RFC1918
+	} {
+		t.Run(target, func(t *testing.T) {
+			_, err := NewHTTP(Config{Target: target})
+			if err == nil {
+				t.Fatal("factory accepted a denied HTTP target")
+			}
+			if !strings.Contains(err.Error(), "denied") {
+				t.Fatalf("error should explain the SSRF guard, got %v", err)
+			}
+		})
+	}
+	if proxyHits.Load() != 0 {
+		t.Fatalf("denied HTTP targets reached ambient proxy %d times", proxyHits.Load())
 	}
 }

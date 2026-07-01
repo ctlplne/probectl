@@ -487,6 +487,12 @@ it checks the **resolved** IP at dial time (a DNS name that later re-resolves to
 something internal is caught too), and why lifting it is a per-test, admin-only,
 audited act rather than a global switch.
 
+HTTP canaries ignore ambient `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`
+environment settings. A proxy is another network target that could resolve or
+fetch private space on the agent's behalf, so the guarded HTTP transport goes
+direct unless probectl later adds an explicit tenant-scoped proxy setting that is
+checked by the same SSRF guard.
+
 `expect_status` is a comma list of exact codes (`200`), classes (`2xx`), and
 inclusive ranges (`200-204`); a response outside the set is `success=false` (the
 status is still reported). The probe emits the timing breakdown as metrics —

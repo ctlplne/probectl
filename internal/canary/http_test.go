@@ -3,6 +3,7 @@
 package canary
 
 import (
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"net/http"
@@ -36,6 +37,23 @@ func TestNewHTTPDefaults(t *testing.T) {
 	}
 	if h.Describe().Type != httpType {
 		t.Errorf("Describe().Type = %q", h.Describe().Type)
+	}
+}
+
+func TestHTTPTransportIgnoresAmbientProxy(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:18080")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:18081")
+
+	c, err := NewHTTP(Config{Target: "https://example.com/health"})
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	h := c.(*httpCanary)
+	var tlsState *tls.ConnectionState
+	var tlsVerified *bool
+	transport := h.transport(nil, &tlsState, &tlsVerified)
+	if transport.Proxy != nil {
+		t.Fatal("HTTP canary transport must not honor ambient HTTP_PROXY/HTTPS_PROXY")
 	}
 }
 
