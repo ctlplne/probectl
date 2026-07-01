@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/govern"
 )
 
 func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {
@@ -38,6 +40,11 @@ func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {
 	for _, want := range required {
 		if !strings.Contains(flatDoc, want) {
 			t.Fatalf("data-retention.md missing required privacy retention term %q", want)
+		}
+	}
+	for _, id := range govern.RequiredDataInventoryIDs() {
+		if !strings.Contains(flatDoc, "`"+id+"`") {
+			t.Fatalf("data-retention.md missing maintained data inventory id %q", id)
 		}
 	}
 }

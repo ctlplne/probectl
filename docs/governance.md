@@ -151,7 +151,8 @@ owned by its own subsystem — governance is the dashboard, not a second engine:
   re-derive to confirm the deletion happened). **Erasure covers all live
   stores**; backups are the operator's documented backup-TTL
   (`PROBECTL_BACKUP_RETENTION_NOTE`) — a governed deletion is not a backup purge.
-  The data-class/purpose matrix is [`data-retention.md`](data-retention.md);
+  The data-class/purpose matrix is [`data-retention.md`](data-retention.md),
+  backed by the code-owned `internal/govern.DataInventory()` inventory;
   the operational procedure is [`runbooks/tenant-offboarding.md`](runbooks/tenant-offboarding.md).
 - **Subject lifecycle** is also core (`internal/tenantlife`): `POST
   /v1/lifecycle/subjects/export` and `POST /v1/lifecycle/subjects/erase`

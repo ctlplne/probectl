@@ -13,6 +13,15 @@ erasure. `flow_retention_days is the only tenant-scoped age-retention override
 today`; other age clocks are deployment-level settings unless the tenant is
 siloed onto separately configured stores.
 
+The machine-checkable data inventory lives in `internal/govern.DataInventory()`.
+The privacy gate fails if a row lacks owner, data classes, retention,
+processors, export behavior, tenant deletion semantics, or subject deletion
+semantics. Current inventory IDs: `audit-evidence`, `ai-artifacts`,
+`backups-snapshots`, `device-endpoint-state`, `ebpf-telemetry`,
+`flow-telemetry`, `identity-rbac-scim`, `object-artifacts`,
+`otlp-traces-logs`, `path-topology`, `probe-results`, `shared-open-data`,
+`siem-cursors`.
+
 ## Enforcement Model
 
 - **Tenant first, then purpose.** Every retained row, object key, metric, and
