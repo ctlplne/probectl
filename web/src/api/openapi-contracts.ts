@@ -140,6 +140,20 @@ export const API_CALL_CONTRACTS = [
       'OpenAPI currently emits JsonObject for active-alert actions; ActiveAlert is the explicit view model.',
   },
   {
+    file: 'api/audit.ts',
+    method: 'GET',
+    path: '`/audit?${q.toString()}`',
+    response: 'AuditList',
+    generated: 'ListAuditResponse',
+  },
+  {
+    file: 'api/audit.ts',
+    method: 'GET',
+    path: '/audit/verify',
+    response: 'AuditVerify',
+    generated: 'VerifyAuditResponse',
+  },
+  {
     file: 'api/authoring.ts',
     method: 'POST',
     path: '/ai/author',

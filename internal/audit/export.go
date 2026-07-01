@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -30,18 +31,36 @@ const (
 	MaxExportPageSize     = 1000
 )
 
+// Filter narrows tenant audit reads by the operator-facing fields auditors use
+// most often. Values are contains matches, executed inside the tenant RLS scope.
+type Filter struct {
+	Actor  string
+	Action string
+	Target string
+}
+
 // List returns a page of the calling tenant's audit events with seq greater than
 // afterSeq, in ascending order (the natural export cursor). RLS confines it to
 // the tenant. A non-positive limit uses DefaultExportPageSize; limit is capped at
 // MaxExportPageSize. The returned events carry the stored chain fields so a
 // consumer can re-verify or forward them.
 func List(ctx context.Context, s tenancy.Scope, afterSeq int64, limit int) ([]Event, error) {
+	return ListFiltered(ctx, s, afterSeq, limit, Filter{})
+}
+
+// ListFiltered is List plus optional contains filters on actor/action/target.
+// Filtering remains server-side and parameterized so the browser never becomes
+// the authority for audit scope, and RLS still applies before any rows return.
+func ListFiltered(ctx context.Context, s tenancy.Scope, afterSeq int64, limit int, filter Filter) ([]Event, error) {
 	if limit <= 0 {
 		limit = DefaultExportPageSize
 	}
 	if limit > MaxExportPageSize {
 		limit = MaxExportPageSize
 	}
+	filter.Actor = normalizeFilter(filter.Actor)
+	filter.Action = normalizeFilter(filter.Action)
+	filter.Target = normalizeFilter(filter.Target)
 	erased, err := subjectErasureHashes(ctx, s)
 	if err != nil {
 		return nil, err
@@ -50,8 +69,11 @@ func List(ctx context.Context, s tenancy.Scope, afterSeq int64, limit int) ([]Ev
 		`SELECT seq, actor, action, target, data, prev_hash, hash, created_at
 		   FROM audit_events
 		  WHERE seq > $1
+		    AND ($3 = '' OR actor ILIKE '%' || $3 || '%')
+		    AND ($4 = '' OR action ILIKE '%' || $4 || '%')
+		    AND ($5 = '' OR target ILIKE '%' || $5 || '%')
 		  ORDER BY seq
-		  LIMIT $2`, afterSeq, limit)
+		  LIMIT $2`, afterSeq, limit, filter.Actor, filter.Action, filter.Target)
 	if err != nil {
 		return nil, fmt.Errorf("list audit events: %w", err)
 	}
@@ -72,6 +94,14 @@ func List(ctx context.Context, s tenancy.Scope, afterSeq int64, limit int) ([]Ev
 		out = append(out, projectErasedSubjects(ev, s.Tenant.String(), erased))
 	}
 	return out, rows.Err()
+}
+
+func normalizeFilter(v string) string {
+	v = strings.TrimSpace(v)
+	if len(v) > 256 {
+		return v[:256]
+	}
+	return v
 }
 
 // Drain reads the tenant's audit events after afterSeq and pushes each to sink,

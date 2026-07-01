@@ -155,6 +155,17 @@ type AgentPatch struct {
 	Name string `json:"name"`
 }
 
+type AlertChannelTestRequest struct {
+	Channel  ChannelSpec `json:"channel"`
+	Metric   string      `json:"metric,omitempty"`
+	RuleName string      `json:"rule_name,omitempty"`
+}
+
+type AlertChannelTestResponse struct {
+	Accepted bool   `json:"accepted"`
+	Type     string `json:"type"`
+}
+
 type AlertList struct {
 	Items []AlertRule `json:"items,omitempty"`
 }
@@ -234,6 +245,26 @@ type AuthorRequest struct {
 	Prompt string `json:"prompt"`
 }
 
+// A tenant-scoped BGP/routing signal projected from the incident timeline.
+type BGPEvent struct {
+	Attributes map[string]string `json:"attributes,omitempty"`
+	Id         string            `json:"id,omitempty"`
+	IncidentId string            `json:"incident_id,omitempty"`
+	Kind       string            `json:"kind,omitempty"`
+	OccurredAt string            `json:"occurred_at,omitempty"`
+	Prefix     string            `json:"prefix,omitempty"`
+	Severity   string            `json:"severity,omitempty"`
+	Summary    string            `json:"summary,omitempty"`
+	Target     string            `json:"target,omitempty"`
+	Title      string            `json:"title,omitempty"`
+}
+
+type BGPEventList struct {
+	BgpRunning     bool       `json:"bgp_running,omitempty"`
+	EffectiveLimit int        `json:"effective_limit,omitempty"`
+	Items          []BGPEvent `json:"items,omitempty"`
+}
+
 // A change scored as a candidate cause of an incident.
 type ChangeCandidate struct {
 	Event  ChangeEvent `json:"event,omitempty"`
@@ -291,6 +322,45 @@ type CollectorRegistration struct {
 	TenantId     string              `json:"tenant_id"`
 }
 
+// One managed network device visible in the tenant topology graph.
+type DeviceInventory struct {
+	Address   string            `json:"address,omitempty"`
+	FirstSeen string            `json:"first_seen,omitempty"`
+	Id        string            `json:"id,omitempty"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	LastSeen  string            `json:"last_seen,omitempty"`
+	Name      string            `json:"name,omitempty"`
+}
+
+type DeviceInventoryList struct {
+	At              string            `json:"at,omitempty"`
+	EffectiveLimit  int               `json:"effective_limit,omitempty"`
+	Items           []DeviceInventory `json:"items,omitempty"`
+	TopologyRunning bool              `json:"topology_running,omitempty"`
+}
+
+// Latest retained sample for one device/metric/interface series.
+type DeviceMetricSummary struct {
+	AgentId    string  `json:"agent_id,omitempty"`
+	Device     string  `json:"device,omitempty"`
+	DeviceName string  `json:"device_name,omitempty"`
+	Id         string  `json:"id,omitempty"`
+	IfIndex    string  `json:"if_index,omitempty"`
+	IfName     string  `json:"if_name,omitempty"`
+	LastSeen   string  `json:"last_seen,omitempty"`
+	Metric     string  `json:"metric,omitempty"`
+	Name       string  `json:"name,omitempty"`
+	Source     string  `json:"source,omitempty"`
+	Summary    string  `json:"summary,omitempty"`
+	Value      float64 `json:"value,omitempty"`
+}
+
+type DeviceMetricSummaryList struct {
+	EffectiveLimit int                   `json:"effective_limit,omitempty"`
+	Items          []DeviceMetricSummary `json:"items,omitempty"`
+	MetricsRunning bool                  `json:"metrics_running,omitempty"`
+}
+
 type DiscoverProposal struct {
 	Rationale string   `json:"rationale,omitempty"`
 	Score     int      `json:"score,omitempty"`
@@ -300,6 +370,29 @@ type DiscoverProposal struct {
 
 type DiscoverProposalList struct {
 	Proposals []DiscoverProposal `json:"proposals,omitempty"`
+}
+
+// One tenant-scoped eBPF host/L7 service edge aggregate.
+type EBPFServiceEdge struct {
+	AgentId         string `json:"agent_id,omitempty"`
+	Bytes           int    `json:"bytes,omitempty"`
+	Connections     int    `json:"connections,omitempty"`
+	Destination     string `json:"destination,omitempty"`
+	DestinationPort int    `json:"destination_port,omitempty"`
+	Id              string `json:"id,omitempty"`
+	L7Protocol      string `json:"l7_protocol,omitempty"`
+	Name            string `json:"name,omitempty"`
+	Packets         int    `json:"packets,omitempty"`
+	Source          string `json:"source,omitempty"`
+	Summary         string `json:"summary,omitempty"`
+	WindowStart     string `json:"window_start,omitempty"`
+}
+
+type EBPFServiceMap struct {
+	EbpfRunning    bool              `json:"ebpf_running,omitempty"`
+	EffectiveLimit int               `json:"effective_limit,omitempty"`
+	Items          []EBPFServiceEdge `json:"items,omitempty"`
+	Source         string            `json:"source,omitempty"`
 }
 
 // The standard error envelope returned by every endpoint.
@@ -365,6 +458,65 @@ type Health struct {
 	Status string `json:"status"`
 }
 
+type Hierarchy struct {
+	Items []HierarchyOrganization `json:"items"`
+}
+
+type HierarchyCreate struct {
+	Name string `json:"name"`
+	Slug string `json:"slug"`
+}
+
+type HierarchyOrganization struct {
+	CreatedAt string          `json:"created_at"`
+	Id        string          `json:"id"`
+	Name      string          `json:"name"`
+	Slug      string          `json:"slug"`
+	Teams     []HierarchyTeam `json:"teams"`
+	TenantId  string          `json:"tenant_id"`
+	UpdatedAt string          `json:"updated_at"`
+}
+
+type HierarchyOrganizationFlat struct {
+	CreatedAt string `json:"created_at"`
+	Id        string `json:"id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	TenantId  string `json:"tenant_id"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type HierarchyProject struct {
+	CreatedAt string `json:"created_at"`
+	Id        string `json:"id"`
+	Name      string `json:"name"`
+	Slug      string `json:"slug"`
+	TeamId    string `json:"team_id"`
+	TenantId  string `json:"tenant_id"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type HierarchyTeam struct {
+	CreatedAt string             `json:"created_at"`
+	Id        string             `json:"id"`
+	Name      string             `json:"name"`
+	OrgId     string             `json:"org_id"`
+	Projects  []HierarchyProject `json:"projects"`
+	Slug      string             `json:"slug"`
+	TenantId  string             `json:"tenant_id"`
+	UpdatedAt string             `json:"updated_at"`
+}
+
+type HierarchyTeamFlat struct {
+	CreatedAt string `json:"created_at"`
+	Id        string `json:"id"`
+	Name      string `json:"name"`
+	OrgId     string `json:"org_id"`
+	Slug      string `json:"slug"`
+	TenantId  string `json:"tenant_id"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 type Hop struct {
 	Nodes []HopNode `json:"nodes"`
 	Ttl   int       `json:"ttl"`
@@ -425,6 +577,46 @@ type InventorySavedViewList struct {
 	Items []InventorySavedView `json:"items"`
 }
 
+type IsolationLaneStatus struct {
+	Mode         string `json:"mode"`
+	Namespace    string `json:"namespace,omitempty"`
+	Strict       bool   `json:"strict"`
+	TenantTagged bool   `json:"tenant_tagged"`
+	TopicExample string `json:"topic_example"`
+}
+
+type IsolationRLSStatus struct {
+	DatabaseConfigured bool   `json:"database_configured"`
+	Detail             string `json:"detail"`
+	Enforced           bool   `json:"enforced"`
+	Healthy            bool   `json:"healthy"`
+}
+
+type IsolationRoutingStatus struct {
+	ClickhouseDatabase                 string `json:"clickhouse_database,omitempty"`
+	ClickhouseResidencyPlaneConfigured bool   `json:"clickhouse_residency_plane_configured"`
+	Enabled                            bool   `json:"enabled"`
+	Error                              string `json:"error,omitempty"`
+	FailClosed                         bool   `json:"fail_closed"`
+	ObjectPrefix                       string `json:"object_prefix,omitempty"`
+	PgSchema                           string `json:"pg_schema,omitempty"`
+	Resolved                           bool   `json:"resolved"`
+}
+
+type IsolationStatus struct {
+	EffectiveModel string                 `json:"effective_model"`
+	Id             string                 `json:"id"`
+	LaneNamespace  IsolationLaneStatus    `json:"lane_namespace"`
+	Name           string                 `json:"name"`
+	RegistryModel  string                 `json:"registry_model"`
+	Residency      string                 `json:"residency,omitempty"`
+	Rls            IsolationRLSStatus     `json:"rls"`
+	SiloRouting    IsolationRoutingStatus `json:"silo_routing"`
+	Status         string                 `json:"status"`
+	Summary        string                 `json:"summary"`
+	TenantId       string                 `json:"tenant_id"`
+}
+
 type LifecycleRetentionInput struct {
 	FlowRetentionDays *int `json:"flow_retention_days"`
 }
@@ -458,6 +650,37 @@ type Me struct {
 	Permissions  []string `json:"permissions"`
 	TenantId     string   `json:"tenant_id"`
 	UserId       string   `json:"user_id"`
+}
+
+// Read-only, tenant-scoped on-call/ITSM posture. Secrets and endpoint path/query values are intentionally omitted.
+type OncallStatus struct {
+	Configured             bool             `json:"configured"`
+	DispatcherRunning      bool             `json:"dispatcher_running"`
+	Id                     string           `json:"id"`
+	Inbound                []map[string]any `json:"inbound"`
+	InboundConfigured      bool             `json:"inbound_configured"`
+	InboundWebhookCount    int              `json:"inbound_webhook_count"`
+	Name                   string           `json:"name"`
+	Outbound               []map[string]any `json:"outbound"`
+	OutboundConfigured     bool             `json:"outbound_configured"`
+	OutboundConnectorCount int              `json:"outbound_connector_count"`
+	Providers              []map[string]any `json:"providers"`
+	SecretsRedacted        bool             `json:"secrets_redacted"`
+	Summary                string           `json:"summary"`
+	SupportedProviders     []string         `json:"supported_providers"`
+	TlsRequired            bool             `json:"tls_required"`
+}
+
+type OncallTestRequest struct {
+	ConnectorId string `json:"connector_id"`
+}
+
+type OncallTestResponse struct {
+	Accepted    bool   `json:"accepted"`
+	ConnectorId string `json:"connector_id"`
+	ExternalRef string `json:"external_ref,omitempty"`
+	Provider    string `json:"provider"`
+	Status      string `json:"status,omitempty"`
 }
 
 // A merged, multi-path traceroute result.
@@ -495,6 +718,29 @@ type SCIMTokenCreated struct {
 
 type SCIMTokenList struct {
 	Items []SCIMToken `json:"items,omitempty"`
+}
+
+// Read-only SIEM export posture. Endpoint path/query and ingest token are intentionally omitted.
+type SIEMStatus struct {
+	AuditPollInterval     string   `json:"audit_poll_interval"`
+	BufferSize            int      `json:"buffer_size"`
+	Configured            bool     `json:"configured"`
+	Enabled               bool     `json:"enabled"`
+	EndpointConfigured    bool     `json:"endpoint_configured"`
+	EndpointHost          string   `json:"endpoint_host,omitempty"`
+	EndpointTlsConfigured bool     `json:"endpoint_tls_configured"`
+	Format                string   `json:"format"`
+	Id                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	NoDropDelivery        bool     `json:"no_drop_delivery"`
+	Preset                string   `json:"preset"`
+	Reason                string   `json:"reason,omitempty"`
+	RedactKeyCount        int      `json:"redact_key_count"`
+	SiemRunning           bool     `json:"siem_running"`
+	Streams               []string `json:"streams"`
+	Summary               string   `json:"summary"`
+	TlsRequired           bool     `json:"tls_required"`
+	TokenConfigured       bool     `json:"token_configured"`
 }
 
 // One plane's observation on an incident timeline (extensible: plane/kind are free-form, attributes is arbitrary).
@@ -680,6 +926,21 @@ func (c *Client) GetReadyz(ctx context.Context, req GetReadyzRequest) (*Health, 
 		return nil, err
 	}
 	return &out, nil
+}
+
+// Start a tenant-scoped agent-to-agent site mesh
+type StartA2aMeshRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) StartA2aMesh(ctx context.Context, req StartA2aMeshRequest) (map[string]any, error) {
+	path := "/v1/a2a/mesh"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Start a brokered agent-to-agent measurement session
@@ -974,6 +1235,80 @@ func (c *Client) SilenceAlert(ctx context.Context, req SilenceAlertRequest) (map
 	return out, nil
 }
 
+// List reusable planned-maintenance windows
+type ListMaintenanceWindowsRequest struct {
+}
+
+func (c *Client) ListMaintenanceWindows(ctx context.Context, req ListMaintenanceWindowsRequest) (map[string]any, error) {
+	path := "/v1/alerts/maintenance"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Create or update a planned-maintenance window
+type UpsertMaintenanceWindowRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) UpsertMaintenanceWindow(ctx context.Context, req UpsertMaintenanceWindowRequest) (map[string]any, error) {
+	path := "/v1/alerts/maintenance"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Preview planned-maintenance occurrences
+type PreviewMaintenanceWindowsRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) PreviewMaintenanceWindows(ctx context.Context, req PreviewMaintenanceWindowsRequest) (map[string]any, error) {
+	path := "/v1/alerts/maintenance/preview"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Delete a planned-maintenance window
+type DeleteMaintenanceWindowRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) DeleteMaintenanceWindow(ctx context.Context, req DeleteMaintenanceWindowRequest) error {
+	path := "/v1/alerts/maintenance/{id}"
+	if req.Id == "" {
+		return fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// Send a test alert delivery to a supplied channel
+type TestAlertChannelRequest struct {
+	Body *AlertChannelTestRequest `json:"-"`
+}
+
+func (c *Client) TestAlertChannel(ctx context.Context, req TestAlertChannelRequest) (*AlertChannelTestResponse, error) {
+	path := "/v1/alerts/test-channel"
+	query := url.Values{}
+	var out AlertChannelTestResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Get an alert rule
 type GetAlertRequest struct {
 }
@@ -1015,8 +1350,11 @@ func (c *Client) DeleteAlert(ctx context.Context, req DeleteAlertRequest) error 
 
 // Read a page of the tenant's tamper-evident audit trail
 type ListAuditRequest struct {
-	After *int `json:"-"`
-	Limit *int `json:"-"`
+	After  *int    `json:"-"`
+	Limit  *int    `json:"-"`
+	Actor  *string `json:"-"`
+	Action *string `json:"-"`
+	Target *string `json:"-"`
 }
 
 func (c *Client) ListAudit(ctx context.Context, req ListAuditRequest) (*AuditList, error) {
@@ -1027,6 +1365,15 @@ func (c *Client) ListAudit(ctx context.Context, req ListAuditRequest) (*AuditLis
 	}
 	if req.Limit != nil {
 		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	if req.Actor != nil {
+		query.Set("actor", formatQueryValue(*req.Actor))
+	}
+	if req.Action != nil {
+		query.Set("action", formatQueryValue(*req.Action))
+	}
+	if req.Target != nil {
+		query.Set("target", formatQueryValue(*req.Target))
 	}
 	var out AuditList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
@@ -1043,6 +1390,32 @@ func (c *Client) VerifyAudit(ctx context.Context, req VerifyAuditRequest) (*Audi
 	path := "/v1/audit/verify"
 	query := url.Values{}
 	var out AuditVerify
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List recent BGP/routing events
+type ListBgpEventsRequest struct {
+	Prefix *string `json:"-"`
+	Asn    *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListBgpEvents(ctx context.Context, req ListBgpEventsRequest) (*BGPEventList, error) {
+	path := "/v1/bgp/events"
+	query := url.Values{}
+	if req.Prefix != nil {
+		query.Set("prefix", formatQueryValue(*req.Prefix))
+	}
+	if req.Asn != nil {
+		query.Set("asn", formatQueryValue(*req.Asn))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out BGPEventList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
@@ -1152,6 +1525,50 @@ func (c *Client) GetCostSummary(ctx context.Context, req GetCostSummaryRequest) 
 	return out, nil
 }
 
+// List latest device metric summaries
+type ListDeviceMetricSummariesRequest struct {
+	Device *string `json:"-"`
+	Metric *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceMetricSummaries(ctx context.Context, req ListDeviceMetricSummariesRequest) (*DeviceMetricSummaryList, error) {
+	path := "/v1/device/metrics"
+	query := url.Values{}
+	if req.Device != nil {
+		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.Metric != nil {
+		query.Set("metric", formatQueryValue(*req.Metric))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceMetricSummaryList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List topology-visible managed devices
+type ListDevicesRequest struct {
+	Limit *int `json:"-"`
+}
+
+func (c *Client) ListDevices(ctx context.Context, req ListDevicesRequest) (*DeviceInventoryList, error) {
+	path := "/v1/devices"
+	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceInventoryList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // Deep health report (S-EE4): per-component status (database, secrets resolver, cluster, license) aggregated to the worst — admin diagnostics.read
 type GetV1DiagnosticsRequest struct {
 }
@@ -1209,6 +1626,36 @@ func (c *Client) RevokeScimToken(ctx context.Context, req RevokeScimTokenRequest
 	path := "/v1/directory/scim-tokens/{id}"
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodDelete, path, query, nil, nil)
+}
+
+// List eBPF host/L7 service edges
+type ListEbpfServiceMapRequest struct {
+	Source *string `json:"-"`
+	Since  *string `json:"-"`
+	Until  *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListEbpfServiceMap(ctx context.Context, req ListEbpfServiceMapRequest) (*EBPFServiceMap, error) {
+	path := "/v1/ebpf/service-map"
+	query := url.Values{}
+	if req.Source != nil {
+		query.Set("source", formatQueryValue(*req.Source))
+	}
+	if req.Since != nil {
+		query.Set("since", formatQueryValue(*req.Since))
+	}
+	if req.Until != nil {
+		query.Set("until", formatQueryValue(*req.Until))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out EBPFServiceMap
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Editions / license state (S-T0)
@@ -1562,6 +2009,75 @@ func (c *Client) PromBuildInfo(ctx context.Context, req PromBuildInfoRequest) (m
 	return out, nil
 }
 
+// Get the tenant org/team/project hierarchy
+type GetHierarchyRequest struct {
+}
+
+func (c *Client) GetHierarchy(ctx context.Context, req GetHierarchyRequest) (*Hierarchy, error) {
+	path := "/v1/hierarchy"
+	query := url.Values{}
+	var out Hierarchy
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create an organization in the caller tenant
+type CreateHierarchyOrganizationRequest struct {
+	Body *HierarchyCreate `json:"-"`
+}
+
+func (c *Client) CreateHierarchyOrganization(ctx context.Context, req CreateHierarchyOrganizationRequest) (*HierarchyOrganizationFlat, error) {
+	path := "/v1/hierarchy/orgs"
+	query := url.Values{}
+	var out HierarchyOrganizationFlat
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create a team under an organization
+type CreateHierarchyTeamRequest struct {
+	Id   string           `json:"-"`
+	Body *HierarchyCreate `json:"-"`
+}
+
+func (c *Client) CreateHierarchyTeam(ctx context.Context, req CreateHierarchyTeamRequest) (*HierarchyTeamFlat, error) {
+	path := "/v1/hierarchy/orgs/{id}/teams"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out HierarchyTeamFlat
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create a project under a team
+type CreateHierarchyProjectRequest struct {
+	Id   string           `json:"-"`
+	Body *HierarchyCreate `json:"-"`
+}
+
+func (c *Client) CreateHierarchyProject(ctx context.Context, req CreateHierarchyProjectRequest) (*HierarchyProject, error) {
+	path := "/v1/hierarchy/teams/{id}/projects"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out HierarchyProject
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List incidents
 type ListIncidentsRequest struct {
 }
@@ -1690,6 +2206,20 @@ func (c *Client) GetInventoryView(ctx context.Context, req GetInventoryViewReque
 	return &out, nil
 }
 
+// Get the caller tenant's effective isolation posture
+type GetIsolationStatusRequest struct {
+}
+
+func (c *Client) GetIsolationStatus(ctx context.Context, req GetIsolationStatusRequest) (*IsolationStatus, error) {
+	path := "/v1/isolation/status"
+	query := url.Values{}
+	var out IsolationStatus
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // IRREVERSIBLE verifiable erasure across every store; requires confirm=<tenant slug>; returns the deletion attestation (also appended to the provider audit chain)
 type PostV1LifecycleEraseRequest struct {
 }
@@ -1770,6 +2300,35 @@ func (c *Client) GetMe(ctx context.Context, req GetMeRequest) (*Me, error) {
 	query := url.Values{}
 	var out Me
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get on-call and ITSM integration status
+type GetOncallStatusRequest struct {
+}
+
+func (c *Client) GetOncallStatus(ctx context.Context, req GetOncallStatusRequest) (*OncallStatus, error) {
+	path := "/v1/oncall/status"
+	query := url.Values{}
+	var out OncallStatus
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Send a test incident through a configured on-call connector
+type TestOncallConnectorRequest struct {
+	Body *OncallTestRequest `json:"-"`
+}
+
+func (c *Client) TestOncallConnector(ctx context.Context, req TestOncallConnectorRequest) (*OncallTestResponse, error) {
+	path := "/v1/oncall/test"
+	query := url.Values{}
+	var out OncallTestResponse
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -2165,6 +2724,20 @@ func (c *Client) PostV1SecurityKeysRotate(ctx context.Context, req PostV1Securit
 	path := "/v1/security/keys/rotate"
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+}
+
+// Get SIEM export status
+type GetSiemStatusRequest struct {
+}
+
+func (c *Client) GetSiemStatus(ctx context.Context, req GetSiemStatusRequest) (*SIEMStatus, error) {
+	path := "/v1/siem/status"
+	query := url.Values{}
+	var out SIEMStatus
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // SLO statuses (S45)

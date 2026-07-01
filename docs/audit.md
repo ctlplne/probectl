@@ -61,8 +61,10 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
   "https://probectl.example.com/v1/audit?limit=100"
 ```
 
-The CLI equivalents are `probectl audit list` (page through entries) and
-`probectl audit verify` (check the hash chain).
+The in-product route is `/audit`: it pages by sequence cursor, filters by actor,
+action, and target, verifies the tenant hash chain, and downloads the filtered
+JSON page. The CLI equivalents are `probectl audit list` (page through entries)
+and `probectl audit verify` (check the hash chain).
 
 Expected result — entries oldest-first (ascending by sequence), wrapped with a
 `next` cursor:

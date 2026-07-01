@@ -1176,7 +1176,7 @@
       "get": {
         "operationId": "listAudit",
         "summary": "Read a page of the tenant's tamper-evident audit trail",
-        "description": "Returns the tenant audit projection. Append-only privacy.subject_erase markers are applied at read/export time: matching structured actor, target, and data values are replaced with an erased token while seq, prev_hash, and hash remain the raw-chain integrity proof.",
+        "description": "Returns the tenant audit projection with optional actor/action/target contains filters. Append-only privacy.subject_erase markers are applied at read/export time: matching structured actor, target, and data values are replaced with an erased token while seq, prev_hash, and hash remain the raw-chain integrity proof.",
         "tags": [
           "audit"
         ],
@@ -1204,6 +1204,36 @@
               "minimum": 1,
               "maximum": 1000,
               "default": 100
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "required": false,
+            "description": "Contains filter for the actor identity.",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "description": "Contains filter for the action name.",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "description": "Contains filter for the target identifier.",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
             }
           }
         ],

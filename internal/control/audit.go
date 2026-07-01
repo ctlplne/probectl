@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
@@ -45,10 +46,15 @@ func (s *Server) recordAudit(ctx context.Context, sc tenancy.Scope, r *http.Requ
 func (s *Server) handleListAudit(w http.ResponseWriter, r *http.Request) error {
 	after := int64Query(r, "after", 0)
 	limit := intQuery(r, "limit", audit.DefaultExportPageSize)
+	filter := audit.Filter{
+		Actor:  stringQuery(r, "actor"),
+		Action: stringQuery(r, "action"),
+		Target: stringQuery(r, "target"),
+	}
 
 	var events []audit.Event
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		e, err := audit.List(ctx, sc, after, limit)
+		e, err := audit.ListFiltered(ctx, sc, after, limit, filter)
 		events = e
 		return err
 	}); err != nil {
@@ -101,4 +107,13 @@ func intQuery(r *http.Request, name string, def int) int {
 		}
 	}
 	return def
+}
+
+// stringQuery reads a trimmed, bounded query filter. Empty means no filter.
+func stringQuery(r *http.Request, name string) string {
+	v := strings.TrimSpace(r.URL.Query().Get(name))
+	if len(v) > 256 {
+		return v[:256]
+	}
+	return v
 }

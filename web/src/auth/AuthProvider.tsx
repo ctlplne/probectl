@@ -27,6 +27,7 @@ export interface AuthContextValue {
   user: User
   tenant: Tenant
   tenants: Tenant[]
+  permissions: string[]
   switchTenant: (id: string) => void
   signOut: () => void
 }
@@ -40,6 +41,7 @@ interface Me {
   user_id: string
   email: string
   display_name: string
+  permissions?: string[]
   tenant_time_zone?: string | null
   time_zone?: string | null
 }
@@ -96,7 +98,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: me.email,
       time_zone: me.time_zone,
     }
-    return { user, tenant, tenants: [tenant], switchTenant: () => {}, signOut }
+    return {
+      user,
+      tenant,
+      tenants: [tenant],
+      permissions: me.permissions ?? [],
+      switchTenant: () => {},
+      signOut,
+    }
   }, [me, signOut])
 
   if (status === 'loading') {

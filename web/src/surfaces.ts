@@ -329,8 +329,9 @@ export const SURFACES: SurfaceDecl[] = [
   {
     capability: 'Audit log and tamper-evident verification',
     featureIds: ['F23'],
-    sprint: 'S-T4',
-    kind: 'federated',
+    sprint: 'DESIGN-003',
+    kind: 'native',
+    route: '/audit',
     evidence: ['openapi:/v1/audit', 'openapi:/v1/audit/verify'],
   },
   {

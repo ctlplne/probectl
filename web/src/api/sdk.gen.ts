@@ -88,6 +88,17 @@ export interface AgentPatch {
   name: string
 }
 
+export interface AlertChannelTestRequest {
+  channel: ChannelSpec
+  metric?: string
+  rule_name?: string
+}
+
+export interface AlertChannelTestResponse {
+  accepted: boolean
+  type: "webhook" | "email"
+}
+
 export interface AlertList {
   items?: AlertRule[]
 }
@@ -166,6 +177,25 @@ export interface AuthorRequest {
   prompt: string
 }
 
+export interface BGPEvent {
+  attributes?: { [key: string]: string }
+  id?: string
+  incident_id?: string
+  kind?: string
+  occurred_at?: string
+  prefix?: string
+  severity?: string
+  summary?: string
+  target?: string
+  title?: string
+}
+
+export interface BGPEventList {
+  bgp_running?: boolean
+  effective_limit?: number
+  items?: BGPEvent[]
+}
+
 export interface ChangeCandidate {
   event?: ChangeEvent
   reason?: string
@@ -221,6 +251,43 @@ export interface CollectorRegistration {
   tenant_id: string
 }
 
+export interface DeviceInventory {
+  address?: string
+  first_seen?: string
+  id?: string
+  labels?: { [key: string]: string }
+  last_seen?: string
+  name?: string
+}
+
+export interface DeviceInventoryList {
+  at?: string
+  effective_limit?: number
+  items?: DeviceInventory[]
+  topology_running?: boolean
+}
+
+export interface DeviceMetricSummary {
+  agent_id?: string
+  device?: string
+  device_name?: string
+  id?: string
+  if_index?: string
+  if_name?: string
+  last_seen?: string
+  metric?: string
+  name?: string
+  source?: string
+  summary?: string
+  value?: number
+}
+
+export interface DeviceMetricSummaryList {
+  effective_limit?: number
+  items?: DeviceMetricSummary[]
+  metrics_running?: boolean
+}
+
 export interface DiscoverProposal {
   rationale?: string
   score?: number
@@ -230,6 +297,28 @@ export interface DiscoverProposal {
 
 export interface DiscoverProposalList {
   proposals?: DiscoverProposal[]
+}
+
+export interface EBPFServiceEdge {
+  agent_id?: string
+  bytes?: number
+  connections?: number
+  destination?: string
+  destination_port?: number
+  id?: string
+  l7_protocol?: string
+  name?: string
+  packets?: number
+  source?: string
+  summary?: string
+  window_start?: string
+}
+
+export interface EBPFServiceMap {
+  ebpf_running?: boolean
+  effective_limit?: number
+  items?: EBPFServiceEdge[]
+  source?: string
 }
 
 export interface Error {
@@ -292,6 +381,65 @@ export interface Health {
   status: string
 }
 
+export interface Hierarchy {
+  items: HierarchyOrganization[]
+}
+
+export interface HierarchyCreate {
+  name: string
+  slug: string
+}
+
+export interface HierarchyOrganization {
+  created_at: string
+  id: string
+  name: string
+  slug: string
+  teams: HierarchyTeam[]
+  tenant_id: string
+  updated_at: string
+}
+
+export interface HierarchyOrganizationFlat {
+  created_at: string
+  id: string
+  name: string
+  slug: string
+  tenant_id: string
+  updated_at: string
+}
+
+export interface HierarchyProject {
+  created_at: string
+  id: string
+  name: string
+  slug: string
+  team_id: string
+  tenant_id: string
+  updated_at: string
+}
+
+export interface HierarchyTeam {
+  created_at: string
+  id: string
+  name: string
+  org_id: string
+  projects: HierarchyProject[]
+  slug: string
+  tenant_id: string
+  updated_at: string
+}
+
+export interface HierarchyTeamFlat {
+  created_at: string
+  id: string
+  name: string
+  org_id: string
+  slug: string
+  tenant_id: string
+  updated_at: string
+}
+
 export interface Hop {
   nodes: HopNode[]
   ttl: number
@@ -351,6 +499,46 @@ export interface InventorySavedViewList {
   items: InventorySavedView[]
 }
 
+export interface IsolationLaneStatus {
+  mode: "shared_tenant_tagged" | "tenant_namespaced" | "invalid"
+  namespace?: string
+  strict: boolean
+  tenant_tagged: boolean
+  topic_example: string
+}
+
+export interface IsolationRLSStatus {
+  database_configured: boolean
+  detail: string
+  enforced: boolean
+  healthy: boolean
+}
+
+export interface IsolationRoutingStatus {
+  clickhouse_database?: string
+  clickhouse_residency_plane_configured: boolean
+  enabled: boolean
+  error?: string
+  fail_closed: boolean
+  object_prefix?: string
+  pg_schema?: string
+  resolved: boolean
+}
+
+export interface IsolationStatus {
+  effective_model: "pooled" | "siloed" | "hybrid"
+  id: string
+  lane_namespace: IsolationLaneStatus
+  name: string
+  registry_model: string
+  residency?: string
+  rls: IsolationRLSStatus
+  silo_routing: IsolationRoutingStatus
+  status: "healthy" | "degraded" | "unknown"
+  summary: string
+  tenant_id: string
+}
+
 export interface LifecycleRetentionInput {
   flow_retention_days: number | null
 }
@@ -385,6 +573,36 @@ export interface Me {
   user_id: string
 }
 
+export interface OncallStatus {
+  configured: boolean
+  dispatcher_running: boolean
+  id: string
+  inbound: JsonObject[]
+  inbound_configured: boolean
+  inbound_webhook_count: number
+  name: string
+  outbound: JsonObject[]
+  outbound_configured: boolean
+  outbound_connector_count: number
+  providers: JsonObject[]
+  secrets_redacted: boolean
+  summary: string
+  supported_providers: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira"[]
+  tls_required: boolean
+}
+
+export interface OncallTestRequest {
+  connector_id: string
+}
+
+export interface OncallTestResponse {
+  accepted: boolean
+  connector_id: string
+  external_ref?: string
+  provider: string
+  status?: string
+}
+
 export interface Path {
   destination_reached?: boolean
   hops: Hop[]
@@ -417,6 +635,28 @@ export interface SCIMTokenCreated {
 
 export interface SCIMTokenList {
   items?: SCIMToken[]
+}
+
+export interface SIEMStatus {
+  audit_poll_interval: string
+  buffer_size: number
+  configured: boolean
+  enabled: boolean
+  endpoint_configured: boolean
+  endpoint_host?: string
+  endpoint_tls_configured: boolean
+  format: string
+  id: string
+  name: string
+  no_drop_delivery: boolean
+  preset: "generic" | "splunk" | "sentinel" | "elastic" | "chronicle"
+  reason?: "disabled" | "missing_endpoint" | "insecure_endpoint" | "invalid_format" | "configured"
+  redact_key_count: number
+  siem_running: boolean
+  streams: "audit" | "threat"[]
+  summary: string
+  tls_required: boolean
+  token_configured: boolean
 }
 
 export interface Signal {
@@ -536,6 +776,12 @@ export interface GetReadyzRequest {
 
 export type GetReadyzResponse = Health
 
+export interface StartA2aMeshRequest {
+  body: JsonObject
+}
+
+export type StartA2aMeshResponse = JsonObject
+
 export interface StartA2aSessionRequest {
   body: JsonObject
 }
@@ -650,6 +896,35 @@ export interface SilenceAlertRequest {
 
 export type SilenceAlertResponse = JsonObject
 
+export interface ListMaintenanceWindowsRequest {
+}
+
+export type ListMaintenanceWindowsResponse = JsonObject
+
+export interface UpsertMaintenanceWindowRequest {
+  body: JsonObject
+}
+
+export type UpsertMaintenanceWindowResponse = JsonObject
+
+export interface PreviewMaintenanceWindowsRequest {
+  body: JsonObject
+}
+
+export type PreviewMaintenanceWindowsResponse = JsonObject
+
+export interface DeleteMaintenanceWindowRequest {
+  id: string
+}
+
+export type DeleteMaintenanceWindowResponse = void
+
+export interface TestAlertChannelRequest {
+  body: AlertChannelTestRequest
+}
+
+export type TestAlertChannelResponse = AlertChannelTestResponse
+
 export interface GetAlertRequest {
 }
 
@@ -669,6 +944,9 @@ export type DeleteAlertResponse = void
 export interface ListAuditRequest {
   after?: number
   limit?: number
+  actor?: string
+  action?: string
+  target?: string
 }
 
 export type ListAuditResponse = AuditList
@@ -677,6 +955,14 @@ export interface VerifyAuditRequest {
 }
 
 export type VerifyAuditResponse = AuditVerify
+
+export interface ListBgpEventsRequest {
+  prefix?: string
+  asn?: string
+  limit?: number
+}
+
+export type ListBgpEventsResponse = BGPEventList
 
 export interface GetCarbonRequest {
 }
@@ -715,6 +1001,20 @@ export interface GetCostSummaryRequest {
 
 export type GetCostSummaryResponse = JsonObject
 
+export interface ListDeviceMetricSummariesRequest {
+  device?: string
+  metric?: string
+  limit?: number
+}
+
+export type ListDeviceMetricSummariesResponse = DeviceMetricSummaryList
+
+export interface ListDevicesRequest {
+  limit?: number
+}
+
+export type ListDevicesResponse = DeviceInventoryList
+
 export interface GetV1DiagnosticsRequest {
 }
 
@@ -740,6 +1040,15 @@ export interface RevokeScimTokenRequest {
 }
 
 export type RevokeScimTokenResponse = void
+
+export interface ListEbpfServiceMapRequest {
+  source?: string
+  since?: string
+  until?: string
+  limit?: number
+}
+
+export type ListEbpfServiceMapResponse = EBPFServiceMap
 
 export interface GetEditionsRequest {
 }
@@ -855,6 +1164,31 @@ export interface PromBuildInfoRequest {
 
 export type PromBuildInfoResponse = JsonObject
 
+export interface GetHierarchyRequest {
+}
+
+export type GetHierarchyResponse = Hierarchy
+
+export interface CreateHierarchyOrganizationRequest {
+  body: HierarchyCreate
+}
+
+export type CreateHierarchyOrganizationResponse = HierarchyOrganizationFlat
+
+export interface CreateHierarchyTeamRequest {
+  id: string
+  body: HierarchyCreate
+}
+
+export type CreateHierarchyTeamResponse = HierarchyTeamFlat
+
+export interface CreateHierarchyProjectRequest {
+  id: string
+  body: HierarchyCreate
+}
+
+export type CreateHierarchyProjectResponse = HierarchyProject
+
 export interface ListIncidentsRequest {
 }
 
@@ -900,6 +1234,11 @@ export interface GetInventoryViewRequest {
 
 export type GetInventoryViewResponse = InventorySavedView
 
+export interface GetIsolationStatusRequest {
+}
+
+export type GetIsolationStatusResponse = IsolationStatus
+
 export interface PostV1LifecycleEraseRequest {
 }
 
@@ -937,6 +1276,17 @@ export interface GetMeRequest {
 }
 
 export type GetMeResponse = Me
+
+export interface GetOncallStatusRequest {
+}
+
+export type GetOncallStatusResponse = OncallStatus
+
+export interface TestOncallConnectorRequest {
+  body: OncallTestRequest
+}
+
+export type TestOncallConnectorResponse = OncallTestResponse
 
 export interface ListOtlpTokensRequest {
 }
@@ -1084,6 +1434,11 @@ export interface PostV1SecurityKeysRotateRequest {
 }
 
 export type PostV1SecurityKeysRotateResponse = void
+
+export interface GetSiemStatusRequest {
+}
+
+export type GetSiemStatusResponse = SIEMStatus
 
 export interface ListSlOsRequest {
 }
@@ -1242,6 +1597,12 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetReadyzResponse>("GET", path, query, undefined)
   }
 
+  async startA2aMesh(request: StartA2aMeshRequest): Promise<StartA2aMeshResponse> {
+    let path = "/v1/a2a/mesh"
+    const query = new URLSearchParams()
+    return this.requestJSON<StartA2aMeshResponse>("POST", path, query, request.body)
+  }
+
   async startA2aSession(request: StartA2aSessionRequest): Promise<StartA2aSessionResponse> {
     let path = "/v1/a2a/sessions"
     const query = new URLSearchParams()
@@ -1366,6 +1727,37 @@ export class ProbectlSDKClient {
     return this.requestJSON<SilenceAlertResponse>("POST", path, query, request.body)
   }
 
+  async listMaintenanceWindows(): Promise<ListMaintenanceWindowsResponse> {
+    let path = "/v1/alerts/maintenance"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListMaintenanceWindowsResponse>("GET", path, query, undefined)
+  }
+
+  async upsertMaintenanceWindow(request: UpsertMaintenanceWindowRequest): Promise<UpsertMaintenanceWindowResponse> {
+    let path = "/v1/alerts/maintenance"
+    const query = new URLSearchParams()
+    return this.requestJSON<UpsertMaintenanceWindowResponse>("POST", path, query, request.body)
+  }
+
+  async previewMaintenanceWindows(request: PreviewMaintenanceWindowsRequest): Promise<PreviewMaintenanceWindowsResponse> {
+    let path = "/v1/alerts/maintenance/preview"
+    const query = new URLSearchParams()
+    return this.requestJSON<PreviewMaintenanceWindowsResponse>("POST", path, query, request.body)
+  }
+
+  async deleteMaintenanceWindow(request: DeleteMaintenanceWindowRequest): Promise<DeleteMaintenanceWindowResponse> {
+    let path = "/v1/alerts/maintenance/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    await this.request("DELETE", path, query, undefined)
+  }
+
+  async testAlertChannel(request: TestAlertChannelRequest): Promise<TestAlertChannelResponse> {
+    let path = "/v1/alerts/test-channel"
+    const query = new URLSearchParams()
+    return this.requestJSON<TestAlertChannelResponse>("POST", path, query, request.body)
+  }
+
   async getAlert(): Promise<GetAlertResponse> {
     let path = "/v1/alerts/{id}"
     const query = new URLSearchParams()
@@ -1389,6 +1781,9 @@ export class ProbectlSDKClient {
     const query = new URLSearchParams()
     if (request.after !== undefined) query.set("after", String(request.after))
     if (request.limit !== undefined) query.set("limit", String(request.limit))
+    if (request.actor !== undefined) query.set("actor", String(request.actor))
+    if (request.action !== undefined) query.set("action", String(request.action))
+    if (request.target !== undefined) query.set("target", String(request.target))
     return this.requestJSON<ListAuditResponse>("GET", path, query, undefined)
   }
 
@@ -1396,6 +1791,15 @@ export class ProbectlSDKClient {
     let path = "/v1/audit/verify"
     const query = new URLSearchParams()
     return this.requestJSON<VerifyAuditResponse>("GET", path, query, undefined)
+  }
+
+  async listBgpEvents(request: ListBgpEventsRequest = {}): Promise<ListBgpEventsResponse> {
+    let path = "/v1/bgp/events"
+    const query = new URLSearchParams()
+    if (request.prefix !== undefined) query.set("prefix", String(request.prefix))
+    if (request.asn !== undefined) query.set("asn", String(request.asn))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListBgpEventsResponse>("GET", path, query, undefined)
   }
 
   async getCarbon(): Promise<GetCarbonResponse> {
@@ -1441,6 +1845,22 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetCostSummaryResponse>("GET", path, query, undefined)
   }
 
+  async listDeviceMetricSummaries(request: ListDeviceMetricSummariesRequest = {}): Promise<ListDeviceMetricSummariesResponse> {
+    let path = "/v1/device/metrics"
+    const query = new URLSearchParams()
+    if (request.device !== undefined) query.set("device", String(request.device))
+    if (request.metric !== undefined) query.set("metric", String(request.metric))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDeviceMetricSummariesResponse>("GET", path, query, undefined)
+  }
+
+  async listDevices(request: ListDevicesRequest = {}): Promise<ListDevicesResponse> {
+    let path = "/v1/devices"
+    const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListDevicesResponse>("GET", path, query, undefined)
+  }
+
   async getV1Diagnostics(): Promise<GetV1DiagnosticsResponse> {
     let path = "/v1/diagnostics"
     const query = new URLSearchParams()
@@ -1469,6 +1889,16 @@ export class ProbectlSDKClient {
     let path = "/v1/directory/scim-tokens/{id}"
     const query = new URLSearchParams()
     await this.request("DELETE", path, query, undefined)
+  }
+
+  async listEbpfServiceMap(request: ListEbpfServiceMapRequest = {}): Promise<ListEbpfServiceMapResponse> {
+    let path = "/v1/ebpf/service-map"
+    const query = new URLSearchParams()
+    if (request.source !== undefined) query.set("source", String(request.source))
+    if (request.since !== undefined) query.set("since", String(request.since))
+    if (request.until !== undefined) query.set("until", String(request.until))
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListEbpfServiceMapResponse>("GET", path, query, undefined)
   }
 
   async getEditions(): Promise<GetEditionsResponse> {
@@ -1602,6 +2032,32 @@ export class ProbectlSDKClient {
     return this.requestJSON<PromBuildInfoResponse>("GET", path, query, undefined)
   }
 
+  async getHierarchy(): Promise<GetHierarchyResponse> {
+    let path = "/v1/hierarchy"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetHierarchyResponse>("GET", path, query, undefined)
+  }
+
+  async createHierarchyOrganization(request: CreateHierarchyOrganizationRequest): Promise<CreateHierarchyOrganizationResponse> {
+    let path = "/v1/hierarchy/orgs"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateHierarchyOrganizationResponse>("POST", path, query, request.body)
+  }
+
+  async createHierarchyTeam(request: CreateHierarchyTeamRequest): Promise<CreateHierarchyTeamResponse> {
+    let path = "/v1/hierarchy/orgs/{id}/teams"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateHierarchyTeamResponse>("POST", path, query, request.body)
+  }
+
+  async createHierarchyProject(request: CreateHierarchyProjectRequest): Promise<CreateHierarchyProjectResponse> {
+    let path = "/v1/hierarchy/teams/{id}/projects"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateHierarchyProjectResponse>("POST", path, query, request.body)
+  }
+
   async listIncidents(): Promise<ListIncidentsResponse> {
     let path = "/v1/incidents"
     const query = new URLSearchParams()
@@ -1653,6 +2109,12 @@ export class ProbectlSDKClient {
     return this.requestJSON<GetInventoryViewResponse>("GET", path, query, undefined)
   }
 
+  async getIsolationStatus(): Promise<GetIsolationStatusResponse> {
+    let path = "/v1/isolation/status"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetIsolationStatusResponse>("GET", path, query, undefined)
+  }
+
   async postV1LifecycleErase(): Promise<PostV1LifecycleEraseResponse> {
     let path = "/v1/lifecycle/erase"
     const query = new URLSearchParams()
@@ -1693,6 +2155,18 @@ export class ProbectlSDKClient {
     let path = "/v1/me"
     const query = new URLSearchParams()
     return this.requestJSON<GetMeResponse>("GET", path, query, undefined)
+  }
+
+  async getOncallStatus(): Promise<GetOncallStatusResponse> {
+    let path = "/v1/oncall/status"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetOncallStatusResponse>("GET", path, query, undefined)
+  }
+
+  async testOncallConnector(request: TestOncallConnectorRequest): Promise<TestOncallConnectorResponse> {
+    let path = "/v1/oncall/test"
+    const query = new URLSearchParams()
+    return this.requestJSON<TestOncallConnectorResponse>("POST", path, query, request.body)
   }
 
   async listOtlpTokens(): Promise<ListOtlpTokensResponse> {
@@ -1861,6 +2335,12 @@ export class ProbectlSDKClient {
     let path = "/v1/security/keys/rotate"
     const query = new URLSearchParams()
     await this.request("POST", path, query, undefined)
+  }
+
+  async getSiemStatus(): Promise<GetSiemStatusResponse> {
+    let path = "/v1/siem/status"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetSiemStatusResponse>("GET", path, query, undefined)
   }
 
   async listSlOs(): Promise<ListSlOsResponse> {

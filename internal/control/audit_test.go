@@ -64,4 +64,13 @@ func TestQueryParsers(t *testing.T) {
 	if got := intQuery(bad, "limit", 100); got != 100 {
 		t.Errorf("non-numeric limit should fall back, got %d", got)
 	}
+
+	s := httptest.NewRequest(http.MethodGet, "/v1/audit?actor=%20alice%20", nil)
+	if got := stringQuery(s, "actor"); got != "alice" {
+		t.Errorf("string query trim = %q, want alice", got)
+	}
+	long := httptest.NewRequest(http.MethodGet, "/v1/audit?target="+strings.Repeat("x", 300), nil)
+	if got := len(stringQuery(long, "target")); got != 256 {
+		t.Errorf("string query length = %d, want 256", got)
+	}
 }

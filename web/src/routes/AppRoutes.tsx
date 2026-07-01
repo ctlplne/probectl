@@ -18,6 +18,7 @@ import { AskPage } from './AskPage'
 import { DashboardsPage } from './DashboardsPage'
 import { OnboardingPage } from './OnboardingPage'
 import { ApiDocsPage } from './ApiDocsPage'
+import { AuditPage } from './AuditPage'
 import { Gallery } from './Gallery'
 
 /** The route tree (kept separate from the router so tests can supply their own). */
@@ -49,6 +50,7 @@ export function AppRoutes() {
         <Route path="/outages" element={<OutagesPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/docs/api" element={<ApiDocsPage />} />
+        <Route path="/audit" element={<AuditPage />} />
         {NAV.filter(
           (n) =>
             ![
@@ -69,6 +71,7 @@ export function AppRoutes() {
               '/outages',
               '/admin',
               '/docs/api',
+              '/audit',
             ].includes(n.to),
         ).map((n) => (
           <Route key={n.to} path={n.to} element={<PlaceholderPage to={n.to} />} />

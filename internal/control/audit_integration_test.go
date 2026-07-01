@@ -5,10 +5,14 @@
 package control
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // TestAuditCapturesMutations proves the S19 Done-when: config + data-access
@@ -84,6 +88,49 @@ func TestAuditCapturesMutations(t *testing.T) {
 	mustJSON(t, rec, &v)
 	if !v.OK {
 		t.Fatalf("audit chain not intact: %s", v.Detail)
+	}
+}
+
+func TestAuditListFiltersActorActionAndTarget(t *testing.T) {
+	h, db := setupAPI(t)
+	tenant := freshTenant(t, db, "audit-filter")
+
+	ctx := tenancy.WithTenant(context.Background(), tenancy.ID(tenant))
+	if err := tenancy.InTenant(ctx, db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+		if _, err := audit.TenantAppend(ctx, sc, "alice@example.com", "alert.create", "alert/api", nil); err != nil {
+			return err
+		}
+		if _, err := audit.TenantAppend(ctx, sc, "bob@example.com", "test.create", "test/t1", nil); err != nil {
+			return err
+		}
+		_, err := audit.TenantAppend(ctx, sc, "alice@example.com", "test.delete", "test/t2", nil)
+		return err
+	}); err != nil {
+		t.Fatalf("seed audit rows: %v", err)
+	}
+
+	rec := apiReq(t, h, http.MethodGet, "/v1/audit?actor=alice&action=test&target=t2&limit=10", tenant, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list audit filters = %d: %s", rec.Code, rec.Body.String())
+	}
+	var page struct {
+		Items []struct {
+			Actor  string `json:"actor"`
+			Action string `json:"action"`
+			Target string `json:"target"`
+		} `json:"items"`
+		Next int64 `json:"next"`
+	}
+	mustJSON(t, rec, &page)
+	if len(page.Items) != 1 {
+		t.Fatalf("filtered events = %d, want 1: %+v", len(page.Items), page.Items)
+	}
+	got := page.Items[0]
+	if got.Actor != "alice@example.com" || got.Action != "test.delete" || got.Target != "test/t2" {
+		t.Fatalf("filtered event = %+v", got)
+	}
+	if page.Next == 0 {
+		t.Fatal("filtered page must still return the matching seq cursor")
 	}
 }
 
