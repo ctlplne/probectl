@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -195,9 +196,19 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 }
 
 // resolvePrincipal returns the caller's principal, or nil when unauthenticated,
-// by resolving the session cookie to a real principal. Dev auth never reaches
-// here — it exists only behind devModeHook (compiled in via -tags devauth).
+// by resolving a bearer token or session cookie to a real principal. Dev auth
+// never reaches here — it exists only behind devModeHook (compiled in via
+// -tags devauth).
 func (s *Server) resolvePrincipal(r *http.Request) *auth.Principal {
+	if token, ok := bearerTokenFromRequest(r); ok {
+		p, err := s.resolveBearerPrincipal(r, token)
+		if err != nil {
+			s.log.Warn("bearer token resolve failed", "error", err)
+			return nil
+		}
+		s.loadSubjectAttributes(r.Context(), p)
+		return p
+	}
 	if s.authn == nil {
 		return nil
 	}
@@ -208,6 +219,51 @@ func (s *Server) resolvePrincipal(r *http.Request) *auth.Principal {
 	}
 	s.loadSubjectAttributes(r.Context(), p)
 	return p
+}
+
+func bearerTokenFromRequest(r *http.Request) (string, bool) {
+	h := strings.TrimSpace(r.Header.Get("Authorization"))
+	if h == "" {
+		return "", false
+	}
+	scheme, token, ok := strings.Cut(h, " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") || strings.TrimSpace(token) == "" {
+		return "", true
+	}
+	return strings.TrimSpace(token), true
+}
+
+func (s *Server) resolveBearerPrincipal(r *http.Request, token string) (*auth.Principal, error) {
+	if s.pool == nil {
+		return nil, store.ErrInvalidToken
+	}
+	ctx := r.Context()
+	tenantID, userID, err := store.NewMCPTokens(s.pool).Authenticate(ctx, crypto.Hash([]byte(token)))
+	if err != nil {
+		return nil, err
+	}
+	if asserted := strings.TrimSpace(r.Header.Get("X-Probectl-Tenant")); asserted != "" && asserted != tenantID {
+		return nil, store.ErrInvalidToken
+	}
+	keys, err := permLoader{pool: s.pool}.ForUser(ctx, tenantID, userID)
+	if err != nil {
+		return nil, err
+	}
+	perms := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		perms[k] = true
+	}
+	p := &auth.Principal{TenantID: tenantID, UserID: userID, Permissions: perms}
+	_ = s.inTenantID(ctx, tenantID, func(ctx context.Context, sc tenancy.Scope) error {
+		u, err := (store.Users{}).Get(ctx, sc, userID)
+		if err != nil {
+			return err
+		}
+		p.Email = u.Email
+		p.DisplayName = u.DisplayName
+		return nil
+	})
+	return p, nil
 }
 
 // loadSubjectAttributes attaches the principal's ABAC subject attributes (S31):

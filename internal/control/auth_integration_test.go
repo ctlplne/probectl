@@ -11,11 +11,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/config"
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
@@ -217,6 +219,57 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	}
 	if rec := withCookie(t, h, http.MethodGet, "/v1/me", sess); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("after logout: want 401, got %d", rec.Code)
+	}
+}
+
+func TestBearerTokenAuthenticatesTenantAPI(t *testing.T) {
+	srv, db := setupSessionAPI(t, auth.Identity{})
+	h := srv.Handler()
+	tenant := freshTenant(t, db, "bearer")
+	other := freshTenant(t, db, "bearer-other")
+	userID := createUserWithPerm(t, db, tenant, "api-bearer@example.com", nil, permTestRead)
+	token, err := auth.RandomToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.NewMCPTokens(db.Pool()).Create(context.Background(), tenant, userID, "first-api-smoke", crypto.Hash([]byte(token))); err != nil {
+		t.Fatalf("create bearer token: %v", err)
+	}
+
+	meReq := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	meReq.Header.Set("Authorization", "Bearer "+token)
+	meReq.Header.Set("X-Probectl-Tenant", tenant)
+	me := httptest.NewRecorder()
+	h.ServeHTTP(me, meReq)
+	if me.Code != http.StatusOK {
+		t.Fatalf("bearer /v1/me: want 200, got %d: %s", me.Code, me.Body)
+	}
+	var meBody struct {
+		TenantID string `json:"tenant_id"`
+		UserID   string `json:"user_id"`
+		Email    string `json:"email"`
+	}
+	mustDecode(t, me, &meBody)
+	if meBody.TenantID != tenant || meBody.UserID != userID || meBody.Email != "api-bearer@example.com" {
+		t.Fatalf("bearer principal = %+v, want tenant=%s user=%s email", meBody, tenant, userID)
+	}
+
+	testsReq := httptest.NewRequest(http.MethodGet, "/v1/tests", nil)
+	testsReq.Header.Set("Authorization", "Bearer "+token)
+	testsReq.Header.Set("X-Probectl-Tenant", tenant)
+	tests := httptest.NewRecorder()
+	h.ServeHTTP(tests, testsReq)
+	if tests.Code != http.StatusOK {
+		t.Fatalf("bearer /v1/tests: want 200, got %d: %s", tests.Code, tests.Body)
+	}
+
+	mismatchReq := httptest.NewRequest(http.MethodGet, "/v1/tests", nil)
+	mismatchReq.Header.Set("Authorization", "Bearer "+token)
+	mismatchReq.Header.Set("X-Probectl-Tenant", other)
+	mismatch := httptest.NewRecorder()
+	h.ServeHTTP(mismatch, mismatchReq)
+	if mismatch.Code != http.StatusUnauthorized || !strings.Contains(mismatch.Body.String(), "authentication required") {
+		t.Fatalf("mismatched tenant assertion: want 401 authentication required, got %d: %s", mismatch.Code, mismatch.Body)
 	}
 }
 

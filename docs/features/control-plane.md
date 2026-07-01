@@ -98,8 +98,10 @@ curl --cacert ./ca.crt https://probectl.example.com/readyz
 
 ```sh
 # A real, tenant-scoped read: the latest synthetic result per target.
+# $TOKEN is minted with `probectl-control mcp-token`; $TENANT_ID must match it.
 curl --cacert ./ca.crt \
   -H "Authorization: Bearer $TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
   https://probectl.example.com/v1/results/latest
 ```
 
@@ -119,15 +121,11 @@ curl --cacert ./ca.crt \
 ```
 
 The same call through the CLI — point it at your control plane and hand it the
-same credential, and it renders a table instead of raw JSON:
+same credential. `--json` gives the raw object for scripts and CI jobs:
 
 ```sh
-probectl --url https://probectl.example.com --token "$TOKEN" \
+probectl --url https://probectl.example.com --token "$TOKEN" --tenant "$TENANT_ID" --json \
   result latest
-
-# Observe: a TARGET | TYPE | SUCCESS | DNS | CONNECT | TLS | TTFB table — the same
-# data as the JSON above, formatted for a human. Add --json for the raw
-# object, e.g. to pipe into jq in a CI job.
 ```
 
 Because the API is described by an OpenAPI 3.1 document, you can also generate a

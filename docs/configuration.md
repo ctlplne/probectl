@@ -880,6 +880,17 @@ The seeded system roles for the default tenant are **admin** (all permissions),
 **editor** (read everything + manage tests/alerts/incidents), and **viewer**
 (read-only). `GET /v1/me` requires only authentication (no specific permission).
 
+**Programmatic bearer tokens.** Browser users authenticate with the session cookie;
+scripts and the `probectl` CLI can instead send `Authorization: Bearer <token>`.
+Mint that token with `probectl-control mcp-token --tenant <tenant-uuid> --user
+<user-uuid> --name <label>` after the user exists through OIDC login or SCIM. The
+token is stored only as a hash in `mcp_tokens`, resolves to exactly that user's
+tenant and effective RBAC permissions, and can be sent with
+`X-Probectl-Tenant: <tenant-uuid>` as a tenant assertion. A mismatched tenant
+assertion fails closed; the header does not let a token switch tenants. Do not use
+SCIM, OTLP, or agent-enrollment tokens for normal `/v1` API calls: those tokens
+authenticate only their own subsystem.
+
 **Dev mode.** `PROBECTL_AUTH_MODE=dev` bypasses SSO and synthesizes an
 all-permissions principal for the default tenant, with the
 `X-Probectl-Tenant: <uuid>` override for multi-tenant dev. It is

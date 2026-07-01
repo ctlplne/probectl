@@ -262,6 +262,78 @@ curl --cacert ./certs/ca.crt https://127.0.0.1:8443/readyz   # -> {"status":"rea
 
 That is your consumer, ready and empty. Now pick a path.
 
+### First authenticated production API call
+
+The commands above use `dev` auth so a laptop can prove the data path without an
+identity provider. In a production-shaped deployment you should also prove the
+same API path with **session auth** (`PROBECTL_AUTH_MODE=session`) and a
+tenant-scoped bearer token. Think of the browser session as your interactive
+login, and the bearer token as a script badge for one already-provisioned user:
+the token inherits that user's tenant and RBAC permissions.
+
+After the user has logged in once through OIDC, or has been provisioned by SCIM,
+mint a one-time-visible control-plane bearer token on the control host. The token
+uses the same hash-only `mcp_tokens` store as the MCP server, but it also works
+for normal `/v1` API and CLI calls:
+
+```sh
+export PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable'
+export TENANT_ID=00000000-0000-0000-0000-000000000001
+export USER_EMAIL='operator@example.com'
+
+# Find the user row that the session-mode login or SCIM sync created.
+export USER_ID="$(
+  psql "$PROBECTL_DATABASE_URL" -At \
+    -v tenant="$TENANT_ID" \
+    -v email="$USER_EMAIL" \
+    -c "SELECT id FROM users WHERE tenant_id = :'tenant'::uuid AND email = :'email' LIMIT 1;"
+)"
+test -n "$USER_ID"
+
+# Print the bearer secret once. PROBECTL_LOG_LEVEL=error keeps stdout token-only.
+PROBECTL_LOG_LEVEL=error \
+  ./bin/probectl-control mcp-token \
+  -tenant "$TENANT_ID" \
+  -user "$USER_ID" \
+  -name first-api-smoke > .probectl-api-token
+
+export PROBECTL_API_TOKEN="$(cat .probectl-api-token)"
+```
+
+Now make the first authenticated API read. `Authorization` proves the user, and
+`X-Probectl-Tenant` is a tenant assertion: it must match the token's tenant or
+the request fails closed.
+
+```sh
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/me
+
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/results/latest
+```
+
+The same tenant-scoped read through the CLI, in JSON form:
+
+```sh
+PROBECTL_API_URL=https://probectl.example.com \
+PROBECTL_API_TOKEN="$PROBECTL_API_TOKEN" \
+PROBECTL_TENANT="$TENANT_ID" \
+  probectl --json result latest
+```
+
+Use the CLI form against a deployment whose TLS certificate is trusted by the
+host running the CLI. For the self-signed laptop certificate in this guide, the
+`curl --cacert ./certs/ca.crt` form is the exact smoke test.
+
+The remaining curl examples keep the production-shaped auth headers visible. If
+you are only running the local `dev` auth control plane from the source
+walkthrough, you may omit those two headers; dev auth synthesizes the admin
+principal for loopback evaluation only.
+
 ---
 
 ## Path 1 — Synthetic probes (the canary agent)
@@ -390,18 +462,21 @@ result.
 ### 5. See the result
 
 ```sh
-curl --cacert ./certs/ca.crt https://127.0.0.1:8443/v1/results/latest
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/results/latest
 ```
 
 You will see the latest synthetic result per target — your `https://example.com/`
 probe with its DNS / connect / TLS / time-to-first-byte breakdown. In the UI, the
 same data is on the **Targets / synthetic results** screen.
 
-> **Why `curl`/UI and not the `probectl` CLI here?** The `probectl` CLI defaults to
-> `http://localhost:8080`, expects a **Bearer token**, and uses a plain-HTTP client
-> — so it is not the frictionless tool against a self-signed-HTTPS control plane on
-> a different port. For this first-data check, `curl` (with `--cacert ca.crt` when
-> you are on HTTPS) and the UI are the smooth path.
+> **Why `curl`/UI and not the `probectl` CLI here?** The `probectl` CLI speaks the
+> same `/v1` API and supports `--json`, but it relies on the host trust store for
+> TLS. Against this guide's self-signed HTTPS endpoint, `curl --cacert ca.crt` is
+> the exact tool. Against a production/session-mode endpoint with a trusted cert,
+> use the CLI form above.
 
 > **Where is the UI?** The control plane serves the web UI itself, embedded in
 > the binary (ARCH-004): open the control plane's base URL — `/` redirects to
@@ -541,8 +616,15 @@ Now you have **synthetic results** (Path 1) and a **service map** (Path 2) behin
 one tenant, on one control plane. Confirm both planes are populated:
 
 ```sh
-curl --cacert ./certs/ca.crt https://127.0.0.1:8443/v1/results/latest   # synthetic plane
-curl --cacert ./certs/ca.crt https://127.0.0.1:8443/v1/topology          # eBPF service map
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/results/latest   # synthetic plane
+
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/topology          # eBPF service map
 ```
 
 ### See a correlated incident
@@ -551,9 +633,15 @@ The control plane continuously groups related signals **across planes** into a
 single incident, tenant-scoped. List what it has correlated:
 
 ```sh
-curl --cacert ./certs/ca.crt https://127.0.0.1:8443/v1/incidents
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/incidents
 # then drill into one:
-curl --cacert ./certs/ca.crt https://127.0.0.1:8443/v1/incidents/<id>
+curl --cacert ./certs/ca.crt \
+  -H "Authorization: Bearer $PROBECTL_API_TOKEN" \
+  -H "X-Probectl-Tenant: $TENANT_ID" \
+  https://127.0.0.1:8443/v1/incidents/<id>
 ```
 
 When a synthetic probe to a service starts failing **and** that service is a node
