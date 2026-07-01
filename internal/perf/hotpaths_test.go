@@ -14,6 +14,7 @@ func TestHotPathCatalogCoversAuditedSurfaces(t *testing.T) {
 		"hp-results-latest",
 		"hp-incident-feed",
 		"hp-incident-correlation",
+		"hp-probe-result-to-incident",
 		"hp-flow-query",
 		"hp-topology-read",
 		"hp-topology-whatif",

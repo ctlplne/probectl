@@ -129,6 +129,24 @@ func HotPathCatalog() []HotPathSLO {
 			Notes: "The control route and MCP tool both enforce tenant first, then RBAC; this row covers their served response budget.",
 		},
 		{
+			ID:    "hp-probe-result-to-incident",
+			Name:  "Probe result to incident write",
+			Owner: "incident",
+			Surfaces: []HotPathSurface{
+				{Kind: SurfaceAgent, Method: "publish", Pattern: "probectl.network.results -> incident"},
+			},
+			Targets: HotPathTargets{P50: 250 * time.Millisecond, P95: 2 * time.Second, P99: 5 * time.Second, MinThroughputPerSecond: 20},
+			Measurements: []HotPathMeasurement{
+				{
+					Kind:    MeasurementLoadGate,
+					Command: "go test ./internal/perf -run '^TestProbeResultToIncidentLatency$' -count=1 -v",
+					Receipt: "ingest_e2e plus correlation_read and incident_write phase timings",
+					Source:  "internal/perf/probe_incident_latency_test.go:TestProbeResultToIncidentLatency",
+				},
+			},
+			Notes: "Measures the write-side user promise: a tenant-bound probe result that raises a signal is correlated and visible as an incident quickly.",
+		},
+		{
 			ID:    "hp-flow-query",
 			Name:  "Flow analytics query",
 			Owner: "control",

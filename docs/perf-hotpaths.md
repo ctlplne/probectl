@@ -30,6 +30,7 @@ target and no receipt to measure against.
 | `hp-results-latest` | Latest synthetic result read model | `GET /v1/results/latest` | 75 ms | 300 ms | 1 s | 40 req/s | `duration_ms` access logs grouped by method and path |
 | `hp-incident-feed` | Incident feed and detail | `GET /v1/incidents`, `GET /v1/incidents/{id}` | 100 ms | 500 ms | 1.5 s | 25 req/s | `duration_ms` access logs grouped by method and path |
 | `hp-incident-correlation` | Incident cross-plane correlation | `GET /v1/incidents/{id}/cis`, MCP `correlate_incident` | 250 ms | 1.5 s | 3 s | 5 req/s | access-log `duration_ms`; `go test ./internal/ai/mcp -bench BenchmarkHandleToolCallListTests -run '^$' -benchmem` |
+| `hp-probe-result-to-incident` | Probe result to incident write | `probectl.network.results -> incident` | 250 ms | 2 s | 5 s | 20 signals/s | `go test ./internal/perf -run '^TestProbeResultToIncidentLatency$' -count=1 -v` logs ingest-to-incident e2e, correlation-read, and incident-write timings |
 | `hp-flow-query` | Flow analytics query | `/v1/flows/*`, MCP `query_flows` | 200 ms | 1 s | 2.5 s | 10 req/s | access-log `duration_ms`; MCP tool-call benchmark |
 | `hp-topology-read` | Topology graph read | `GET /v1/topology`, MCP `get_path` | 250 ms | 1.5 s | 3 s | 8 req/s | access-log `duration_ms`; MCP tool-call benchmark |
 | `hp-topology-whatif` | Topology what-if simulation | `POST /v1/topology/whatif` | 300 ms | 2 s | 5 s | 3 req/s | access-log `duration_ms` |
@@ -45,6 +46,9 @@ The catalog is code, not just documentation:
 - `go test ./internal/perf -run TestHotPathCatalog` verifies every row has a
   stable ID, p50/p95/p99 ceilings, a throughput floor, and a trace/benchmark/load
   receipt.
+- `go test ./internal/perf -run TestProbeResultToIncidentLatency -count=1 -v`
+  drives a probe result through IOC ingest, incident correlation, and incident
+  write, logging phase timings.
 - `go test ./internal/control -run TestHotPathCatalogControlRoutesExist` verifies
   control API rows still point at mounted routes.
 - `go test ./internal/ai/mcp -bench BenchmarkHandle -run '^$' -benchmem` measures
