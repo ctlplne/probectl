@@ -151,6 +151,30 @@ export PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY=public
 # appear in the time-series database, labeled by tenant, device, and interface.
 ```
 
+Listen for authenticated SNMP traps:
+
+```yaml
+apiVersion: probectl.io/device-agent/v1
+tenant_id: t-acme
+traps:
+  enabled: true
+  listen: ":9162"
+  sources:
+    - name: core-switches
+      address: 192.0.2.10
+      transport: snmpv3
+      credential: core-traps
+```
+
+```sh
+export PROBECTL_DEVICE_CRED_CORE_TRAPS_USERNAME=trap-user
+export PROBECTL_DEVICE_CRED_CORE_TRAPS_AUTH_PROTO=sha256
+export PROBECTL_DEVICE_CRED_CORE_TRAPS_AUTH_PASS='from-your-secret-store'
+./bin/probectl-device-agent -config device-traps.yml
+# Observe: accepted traps create tenant-scoped event and alert rows; duplicate
+# replays are deduplicated by trap fingerprint.
+```
+
 Turn on eBPF L7 plaintext capture only for a named workload (it refuses to start
 without a scope, so host-wide capture is impossible):
 

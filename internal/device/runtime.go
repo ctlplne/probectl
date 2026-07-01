@@ -42,6 +42,7 @@ type Runtime struct {
 	log   *slog.Logger
 
 	correlator *Correlator
+	traps      TrapStore
 	stats      Stats
 
 	// counterCache tracks the last emitted value of each cumulative counter
@@ -78,6 +79,7 @@ func New(cfg *Config, em Emitter, creds CredentialSource, log *slog.Logger) (*Ru
 		emit:         em,
 		log:          log,
 		correlator:   NewCorrelator(),
+		traps:        NewMemoryTrapStore(0),
 		counterCache: make(map[counterKey]float64),
 		dialSNMP:     dialSNMP,
 	}, nil
@@ -85,6 +87,10 @@ func New(cfg *Config, em Emitter, creds CredentialSource, log *slog.Logger) (*Ru
 
 // Correlator exposes the path/flow correlation index built from SNMP polls.
 func (r *Runtime) Correlator() *Correlator { return r.correlator }
+
+// TrapStore exposes accepted trap event/alert rows for tests and lightweight
+// operator views.
+func (r *Runtime) TrapStore() TrapStore { return r.traps }
 
 // StatsSnapshot returns a copy of the counters.
 func (r *Runtime) StatsSnapshot() map[string]uint64 {
@@ -102,6 +108,19 @@ func (r *Runtime) StatsSnapshot() map[string]uint64 {
 // Run blocks until ctx is canceled, supervising one loop per device.
 func (r *Runtime) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
+	if r.cfg.Traps.Enabled {
+		receiver, err := r.trapReceiver()
+		if err != nil {
+			return err
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := receiver.Listen(ctx, r.cfg.Traps.Listen); err != nil && ctx.Err() == nil {
+				r.log.Error("snmp trap listener stopped", "listen", r.cfg.Traps.Listen, "error", err.Error())
+			}
+		}()
+	}
 	for _, dev := range r.cfg.Devices {
 		dev := dev
 		if _, err := r.creds.Resolve(dev.Credential); err != nil {
@@ -149,6 +168,27 @@ func (r *Runtime) Run(ctx context.Context) error {
 				"correlated_devices", r.correlator.Devices())
 		}
 	}
+}
+
+func (r *Runtime) trapReceiver() (*TrapReceiver, error) {
+	sources := make([]TrapSource, 0, len(r.cfg.Traps.Sources))
+	for _, src := range r.cfg.Traps.Sources {
+		cred, err := r.creds.Resolve(src.Credential)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, TrapSource{
+			Name:       src.Name,
+			Address:    src.Address,
+			Transport:  src.Transport,
+			Credential: cred,
+		})
+	}
+	return NewTrapReceiver(TrapReceiverConfig{
+		TenantID: r.cfg.TenantID,
+		AgentID:  r.cfg.AgentID,
+		Sources:  sources,
+	}, r.traps)
 }
 
 // pollLoop polls one SNMP device on its interval: re-resolve credential ->

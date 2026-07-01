@@ -9,8 +9,7 @@ the *outside* (your synthetic probes pass) while a switch is quietly dropping
 packets on one port or running hot. This plane reads that truth straight from
 the gear.
 
-One agent, `probectl-device-agent`, talks to network devices two ways and turns
-both into one shape:
+One agent, `probectl-device-agent`, talks to network devices three ways:
 
 - **SNMP** (the Simple Network Management Protocol, v2c or v3) — the agent
   *polls*: every interval it asks the device a
@@ -23,6 +22,10 @@ both into one shape:
   vendor-neutral OpenConfig path schema) — the agent *subscribes*: the device
   *streams* updates as
   they change, over a gRPC channel.
+- **SNMP traps** — the agent *listens* for device-pushed events such as link
+  up/down and cold start. Traps are off by default and accepted only from
+  configured sources with a matching v2c community or authenticated v3 USM user;
+  accepted traps become tenant-scoped event and alert rows.
 
 The shape difference is a nurse doing rounds versus a wearable monitor: SNMP
 takes vitals on a schedule; gNMI reports the moment something changes.
@@ -36,8 +39,10 @@ dashboards see them exactly like every other series.
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart LR
   D[switches / routers] -- "SNMP v2c/v3 (poll)" --> A[probectl-device-agent]
+  D -- "SNMP traps (authenticated sources)" --> A
   D -- "gNMI Subscribe (stream, TLS)" --> A
   A -- "probectl.device.metrics (DeviceMetricBatch, tenant-keyed)" --> B[(bus)]
+  A -- "SNMP trap events + alerts (tenant-scoped)" --> E[(trap store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]
   A -- "interface inventory (ifIndex, ifName, addresses)" --> C[Correlator]

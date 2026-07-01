@@ -50,6 +50,24 @@ type Target struct {
 	GNMI       GNMIConfig    `yaml:"gnmi"`
 }
 
+// TrapSourceRef names one authenticated SNMP trap sender. Credential is a
+// reference resolved through CredentialSource; the community/passphrases never
+// live in config.
+type TrapSourceRef struct {
+	Name       string `yaml:"name"`
+	Address    string `yaml:"address"`
+	Transport  string `yaml:"transport"` // snmpv2c | snmpv3
+	Credential string `yaml:"credential"`
+}
+
+// TrapConfig enables the inbound SNMP trap listener for the tenant-bound device
+// agent. Traps are optional and fail closed unless every source has credentials.
+type TrapConfig struct {
+	Enabled bool            `yaml:"enabled"`
+	Listen  string          `yaml:"listen"`
+	Sources []TrapSourceRef `yaml:"sources"`
+}
+
 // BusConfig selects the bus backend for emission (memory | kafka).
 type BusConfig struct {
 	Mode    string   `yaml:"mode"`
@@ -73,7 +91,8 @@ type Config struct {
 
 	Bus BusConfig `yaml:"bus"`
 
-	Devices []Target `yaml:"devices"`
+	Devices []Target   `yaml:"devices"`
+	Traps   TrapConfig `yaml:"traps"`
 }
 
 // Default returns the built-in defaults (memory bus, hostname agent id).
@@ -170,8 +189,11 @@ func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("device: tenant_id is required (PROBECTL_DEVICE_TENANT)")
 	}
-	if len(c.Devices) == 0 {
+	if len(c.Devices) == 0 && !c.Traps.Enabled {
 		return errors.New("device: no devices configured")
+	}
+	if err := c.Traps.validate(); err != nil {
+		return err
 	}
 	for i := range c.Devices {
 		d := &c.Devices[i]
@@ -204,6 +226,34 @@ func (c *Config) Validate() error {
 		}
 		if d.Credential == "" {
 			return fmt.Errorf("device: devices[%d] (%s): credential name is required", i, d.Address)
+		}
+	}
+	return nil
+}
+
+func (t *TrapConfig) validate() error {
+	if !t.Enabled {
+		return nil
+	}
+	if t.Listen == "" {
+		t.Listen = ":9162"
+	}
+	if len(t.Sources) == 0 {
+		return errors.New("device: traps.sources requires at least one authenticated source")
+	}
+	for i := range t.Sources {
+		src := &t.Sources[i]
+		if src.Name == "" {
+			return fmt.Errorf("device: traps.sources[%d] name is required", i)
+		}
+		if src.Transport == "" {
+			src.Transport = TransportSNMPv2c
+		}
+		if src.Transport != TransportSNMPv2c && src.Transport != TransportSNMPv3 {
+			return fmt.Errorf("device: traps.sources[%d] (%s): unknown transport %q (want snmpv2c|snmpv3)", i, src.Name, src.Transport)
+		}
+		if src.Credential == "" {
+			return fmt.Errorf("device: traps.sources[%d] (%s): credential name is required", i, src.Name)
 		}
 	}
 	return nil

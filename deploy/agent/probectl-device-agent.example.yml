@@ -13,6 +13,18 @@ bus:
   mode: memory # memory | kafka
   brokers: []  # kafka mode, e.g. ["kafka-1:9092", "kafka-2:9092"]
 
+# Optional SNMP trap receiver. It is off by default; when enabled, every source
+# must name a credential resolved at runtime. The community/passphrases never go
+# in this file.
+traps:
+  enabled: false
+  # listen: ":9162"
+  # sources:
+  #   - name: core-switches
+  #     address: "192.0.2.10" # optional source-IP allow-list
+  #     transport: snmpv3     # snmpv2c | snmpv3
+  #     credential: core-traps
+
 devices:
   # SNMP v2c poll every 60s. Resolves PROBECTL_DEVICE_CRED_CORE_RO_COMMUNITY.
   - address: "192.0.2.1"

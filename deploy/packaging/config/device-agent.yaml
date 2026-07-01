@@ -11,6 +11,16 @@ bus:
   mode: kafka                 # memory | kafka
   brokers: ["BROKER-HOST:9093"]
   namespace: ""               # siloed bus lane for this tenant; empty = pooled
+# Optional authenticated SNMP trap listener. Enable only with named sources and
+# credentials from the secret source; do not inline communities/passphrases here.
+traps:
+  enabled: false
+  # listen: ":9162"
+  # sources:
+  #   - name: "core-switches"
+  #     address: "192.0.2.10"
+  #     transport: "snmpv3"
+  #     credential: "device-traps"
 # One entry per polled/subscribed device. Replace with your fleet.
 devices:
   - address: "192.0.2.1"

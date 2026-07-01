@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-probectl-TBD
 
 // Package device implements the S39 (F18) device-telemetry plane: an SNMP
-// poller (v2c/v3) and a gNMI/OpenConfig streaming collector that both
-// normalize into one DeviceMetric, published to the bus
+// poller (v2c/v3), an authenticated SNMP trap receiver, and a gNMI/OpenConfig
+// streaming collector. Poll/subscription samples normalize into one DeviceMetric,
+// published to the bus
 // (probectl.device.metrics) and landed in the TSDB by the control plane —
 // the LibreNMS plane, OTel-disciplined.
 //

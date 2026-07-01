@@ -55,6 +55,43 @@ devices:
 	}
 }
 
+func TestConfigLoadAllowsTrapOnlyAuthenticatedListener(t *testing.T) {
+	path := writeDeviceConfig(t, `
+apiVersion: probectl.io/device-agent/v1
+tenant_id: t
+traps:
+  enabled: true
+  sources:
+    - name: core-switches
+      address: 192.0.2.10
+      transport: snmpv2c
+      credential: core-traps
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("trap-only config should load: %v", err)
+	}
+	if cfg.Traps.Listen != ":9162" {
+		t.Fatalf("trap listen default = %q, want :9162", cfg.Traps.Listen)
+	}
+	if len(cfg.Devices) != 0 || len(cfg.Traps.Sources) != 1 {
+		t.Fatalf("loaded config = %+v", cfg)
+	}
+}
+
+func TestConfigLoadRejectsTrapListenerWithoutAuthenticatedSources(t *testing.T) {
+	path := writeDeviceConfig(t, `
+apiVersion: probectl.io/device-agent/v1
+tenant_id: t
+traps:
+  enabled: true
+`)
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "traps.sources requires at least one authenticated source") {
+		t.Fatalf("unauthenticated trap listener should fail, got %v", err)
+	}
+}
+
 func TestShippedDeviceConfigsLoadStrictly(t *testing.T) {
 	t.Setenv("PROBECTL_DEVICE_TENANT", "t-packaged")
 	for _, path := range []string{

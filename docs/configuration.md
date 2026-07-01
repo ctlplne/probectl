@@ -1168,10 +1168,12 @@ memory modes for a lightweight sovereign/lab install.
 ### Device telemetry agent (`probectl-device-agent`)
 
 This agent reads metrics straight off network gear (routers, switches). It polls
-the old way (**SNMP v2c/v3**) and subscribes the modern streaming way
-(**gNMI/OpenConfig**), normalizes both into one `DeviceMetric` shape, and publishes
-to `probectl.device.metrics` (tenant-keyed); the control plane lands them in the
-TSDB as `probectl_device_*` series. The full device list lives in a YAML config
+the old way (**SNMP v2c/v3**), listens for authenticated **SNMP traps**, and
+subscribes the modern streaming way (**gNMI/OpenConfig**). Polling/subscription
+samples normalize into one `DeviceMetric` shape and publish to
+`probectl.device.metrics` (tenant-keyed); accepted traps become tenant-scoped
+event and alert rows. The full device list and optional trap listener live in a
+YAML config
 (see `deploy/agent/probectl-device-agent.example.yml`); the env vars below override
 it and give a **single-device quick start** for trying one device fast. See
 [`device-telemetry.md`](device-telemetry.md).
@@ -1211,6 +1213,25 @@ startup. `<NAME>` is the upper-cased credential name with `-`/`.` → `_`:
 (USM is SNMPv3's user security model: a named user *authenticates* with the
 `AUTH_*` pair and optionally *encrypts* with the `PRIV_*` pair — leaving a
 passphrase empty steps the security level down, as the table notes.)
+
+SNMP trap ingestion is opt-in YAML, not an unauthenticated open UDP port. A
+trap-only agent is allowed, but `traps.sources` must name at least one sender and
+credential:
+
+```yaml
+traps:
+  enabled: true
+  listen: ":9162" # default; bind 127.0.0.1:9162 or a private interface if preferred
+  sources:
+    - name: core-switches
+      address: 192.0.2.10       # optional source-IP allow-list
+      transport: snmpv2c        # snmpv2c | snmpv3
+      credential: core-traps    # resolves PROBECTL_DEVICE_CRED_CORE_TRAPS_*
+```
+
+For SNMPv3 trap sources, `USERNAME` and `AUTH_PASS` are required; NoAuthNoPriv
+traps are rejected. Accepted rows store the source name / v3 username and never
+store the community or passphrase.
 
 gNMI connections are **TLS with certificate verification** (system roots or a
 per-device `ca_file`); there is no skip-verify option. `plaintext: true` is an
