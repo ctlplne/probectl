@@ -49,6 +49,12 @@ condition = "AND"
 commits = ['''95d313bd9d706c69b513fba2e36b071b4ac3d380''']
 paths = ['''internal/auth/testdata/oidc_test_key\.pem''']
 
+[[rules.allowlists]]
+description = "Committed planted full-history self-test fixture; fake PEM bytes in the scanner wrapper only."
+condition = "AND"
+commits = ['''8b979f278c094f34fb4c52b9475baa111d96e032''']
+paths = ['''scripts/check_secret_scan_history\.sh''']
+
 [[rules]]
 id = "stripe-access-token"
 
