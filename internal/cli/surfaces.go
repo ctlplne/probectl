@@ -59,6 +59,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"list":   {Method: http.MethodGet, Path: "/v1/audit"},
 		"verify": {Method: http.MethodGet, Path: "/v1/audit/verify"},
 	}},
+	"onboarding": {Name: "onboarding", Summary: "first-run setup progress", Ops: map[string]apiOp{
+		"progress": {Method: http.MethodGet, Path: "/v1/onboarding/progress", Description: "show first-run checklist progress"},
+	}},
 	"bgp": {Name: "bgp", Summary: "BGP/routing events", Ops: map[string]apiOp{
 		"events": {Method: http.MethodGet, Path: "/v1/bgp/events", Description: "list tenant BGP/routing events"},
 		"setup":  {Method: http.MethodPost, Path: "/v1/collectors/register", Description: "register a tenant BGP source/collector"},

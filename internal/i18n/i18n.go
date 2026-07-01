@@ -159,6 +159,12 @@ Global flags:
   --param k=v       repeatable
   --disabled        create the test disabled
 
+Examples:
+  probectl --url https://control.example --tenant 00000000-0000-0000-0000-000000000001 test create --name checkout-http --type http --target https://checkout.example/health --interval 60
+  probectl --tenant 00000000-0000-0000-0000-000000000001 agent enroll-token --body '{"name":"edge-canary-1","ttl_seconds":3600}'
+  probectl --tenant 00000000-0000-0000-0000-000000000001 audit verify
+  probectl --tenant 00000000-0000-0000-0000-000000000001 lifecycle subject-erase --subject user:ada@example.com --confirm user:ada@example.com --reason "requested deletion"
+
 Raw resource flags:
   --query k=v       repeatable query parameter for resource/api commands
   --body JSON       JSON request body for create/update/action commands
@@ -214,6 +220,12 @@ Flags de 'test create':
   --timeout <sec>   default 3
   --param k=v       repetible
   --disabled        crea la prueba desactivada
+
+Ejemplos:
+  probectl --url https://control.example --tenant 00000000-0000-0000-0000-000000000001 test create --name checkout-http --type http --target https://checkout.example/health --interval 60
+  probectl --tenant 00000000-0000-0000-0000-000000000001 agent enroll-token --body '{"name":"edge-canary-1","ttl_seconds":3600}'
+  probectl --tenant 00000000-0000-0000-0000-000000000001 audit verify
+  probectl --tenant 00000000-0000-0000-0000-000000000001 lifecycle subject-erase --subject user:ada@example.com --confirm user:ada@example.com --reason "requested deletion"
 
 Flags de recursos raw:
   --query k=v       parametro query repetible para comandos resource/api

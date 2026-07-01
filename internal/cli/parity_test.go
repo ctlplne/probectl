@@ -63,7 +63,20 @@ func TestCLIHelpListsExpandedSurfaceGroups(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
 	}
-	for _, want := range []string{"incident|alert|flow", "provider|tenant|billing", "topology", "slo", "compliance", "rollout create", "api <method> <path>"} {
+	for _, want := range []string{
+		"incident|alert|flow",
+		"provider|tenant|billing",
+		"topology",
+		"slo",
+		"compliance",
+		"rollout create",
+		"api <method> <path>",
+		"Examples:",
+		"probectl --url https://control.example --tenant 00000000-0000-0000-0000-000000000001 test create --name checkout-http --type http --target https://checkout.example/health --interval 60",
+		`probectl --tenant 00000000-0000-0000-0000-000000000001 agent enroll-token --body '{"name":"edge-canary-1","ttl_seconds":3600}'`,
+		"probectl --tenant 00000000-0000-0000-0000-000000000001 audit verify",
+		`probectl --tenant 00000000-0000-0000-0000-000000000001 lifecycle subject-erase --subject user:ada@example.com --confirm user:ada@example.com --reason "requested deletion"`,
+	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("help missing %q:\n%s", want, out.String())
 		}
