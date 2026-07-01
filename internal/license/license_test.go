@@ -270,6 +270,7 @@ func TestInfoRendersLicenseTruth(t *testing.T) {
 		t.Fatal("read-only horizon missing")
 	}
 	var sawLicensed, sawUnlicensed bool
+	var sawHAClarified bool
 	for _, f := range info.Features {
 		if f.Name == FeatureProviderPlane && f.Licensed && f.Mode == ModeEnabled {
 			sawLicensed = true
@@ -277,8 +278,11 @@ func TestInfoRendersLicenseTruth(t *testing.T) {
 		if f.Name == FeatureFIPS && !f.Licensed && f.Mode == ModeOff {
 			sawUnlicensed = true
 		}
+		if f.Name == FeatureHASupport && f.DisplayName == "HA support/SLA" {
+			sawHAClarified = true
+		}
 	}
-	if !sawLicensed || !sawUnlicensed {
+	if !sawLicensed || !sawUnlicensed || !sawHAClarified {
 		t.Fatalf("feature rows wrong: %+v", info.Features)
 	}
 }

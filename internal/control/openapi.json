@@ -3015,6 +3015,10 @@
                           "name": {
                             "type": "string"
                           },
+                          "display_name": {
+                            "type": "string",
+                            "description": "Human-facing feature label. Stable license keys remain in name."
+                          },
                           "tier": {
                             "type": "string"
                           },

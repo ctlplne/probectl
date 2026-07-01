@@ -104,7 +104,7 @@ func TestEditionsEndpoint(t *testing.T) {
 	if info.ExpiresAt == nil || !info.ExpiresAt.Equal(expires) || info.ReadOnlyAt == nil {
 		t.Fatal("expiry horizon missing")
 	}
-	var providerOn, fipsOff bool
+	var providerOn, fipsOff, haClarified bool
 	for _, f := range info.Features {
 		if f.Name == license.FeatureProviderPlane && f.Licensed && f.Mode == license.ModeEnabled {
 			providerOn = true
@@ -112,8 +112,11 @@ func TestEditionsEndpoint(t *testing.T) {
 		if f.Name == license.FeatureFIPS && !f.Licensed {
 			fipsOff = true
 		}
+		if f.Name == license.FeatureHASupport && f.DisplayName == "HA support/SLA" {
+			haClarified = true
+		}
 	}
-	if !providerOn || !fipsOff {
+	if !providerOn || !fipsOff || !haClarified {
 		t.Fatalf("feature rows wrong: %+v", info.Features)
 	}
 }

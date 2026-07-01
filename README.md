@@ -94,8 +94,8 @@ Four choices set it apart:
   network semantic conventions everywhere ([`docs/otlp.md`](docs/otlp.md)).
 - **It does not meter the core by surprise.** The full five-plane core platform
   is free; commercial gates are about tenant-band/provider operations,
-  governance, HA, BYOK, and resale controls, not per-host, per-flow, or per-GB
-  tolls on the signals you already collect.
+  governance, HA support/SLA, BYOK, and resale controls, not per-host, per-flow,
+  or per-GB tolls on the signals you already collect.
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, white-labeled, individually-metered
   platform an MSP resells — one codebase, one security boundary.
@@ -243,11 +243,12 @@ security/threat, topology, cost/SLO, and single-tenant self-hosting — is
 (the fence is the license + trademark, not source secrecy) and is gated at
 runtime by an **offline-verifiable, signed license** that never phones home.
 That boundary is operational rather than volume-taxed: tenant-band/provider
-controls, governance, HA, BYOK, and resale are gated; the core signal plane is
-not priced by per-host, per-flow, or per-GB meters.
+controls, governance, HA support/SLA, BYOK, and resale are gated; the core
+signal plane is not priced by per-host, per-flow, or per-GB meters.
 **Enterprise** adds the validated-module (FIPS) build, BYOK/governance,
-multi-region HA, and guarded remediation; **Provider/MSP** adds the management
-plane, siloed/hybrid physical isolation and residency controls,
+validated HA support/SLA, and guarded remediation; the runtime HA reference
+deployment remains core. **Provider/MSP** adds the management plane,
+siloed/hybrid physical isolation and residency controls,
 metering/billing, and white-label. Hard tenant isolation is a core-platform
 property; Provider/MSP adds stronger placement and operations controls on top.
 Unlicensed commercial features are simply hidden (no lockware). See

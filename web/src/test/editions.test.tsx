@@ -20,6 +20,13 @@ function licensedFixture(): EditionsInfo {
     features: [
       { name: 'fips', tier: 'enterprise', licensed: false, mode: 'off' },
       { name: 'byok', tier: 'enterprise', licensed: false, mode: 'off' },
+      {
+        name: 'ha_support',
+        display_name: 'HA support/SLA',
+        tier: 'enterprise',
+        licensed: false,
+        mode: 'off',
+      },
       { name: 'provider_plane', tier: 'provider', licensed: true, mode: 'enabled' },
       { name: 'white_label', tier: 'provider', licensed: true, mode: 'enabled' },
     ],
@@ -50,6 +57,7 @@ describe('editions card (S-T0)', () => {
     // The full feature map renders (9 commercial features), all "Not licensed".
     expect(within(table).getByText('provider_plane')).toBeInTheDocument()
     expect(within(table).getByText('fips')).toBeInTheDocument()
+    expect(within(table).getByText('HA support/SLA')).toBeInTheDocument()
     expect(within(table).getAllByText('Not licensed')).toHaveLength(9)
     expect(within(table).queryByText('Enabled')).toBeNull()
   })

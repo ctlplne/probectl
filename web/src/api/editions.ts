@@ -14,6 +14,7 @@ export type FeatureMode = 'enabled' | 'read_only' | 'off'
 
 export interface FeatureInfo {
   name: string
+  display_name?: string
   tier: EditionTier
   licensed: boolean
   mode: FeatureMode

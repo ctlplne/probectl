@@ -42,8 +42,12 @@ The public buyer-facing plan summary lives in [`pricing.md`](pricing.md).
 | Tier | Gated features |
 |---|---|
 | `community` | None — everything not listed below is core and free forever. |
-| `enterprise` | `fips` (a build artifact, see below), `byok`, `governance`, `remediation`, `ha_support` |
+| `enterprise` | `fips` (a build artifact, see below), `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA) |
 | `provider` | `provider_plane`, `siloed_isolation`, `metering`, `white_label` |
+
+`ha_support` is a support/SLA and assurance entitlement, not the high-availability
+runtime itself. The control plane can run the documented HA reference deployment
+in core; Enterprise buys the validated support path around that operation.
 
 **Read the tiers as independent feature sets, not a strict superset.** A
 `provider` license grants the four provider features — it does **not**

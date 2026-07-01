@@ -10,7 +10,7 @@ the public plan boundary and the metering units without inventing legal terms.
 | Plan | Price posture | Boundary |
 |---|---|---|
 | Community | **$0** for self-hosted core use | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. |
-| Enterprise | **Quote-based** until fixed public price points are published | Validated-module/FIPS distribution, BYOK, governance controls, guarded remediation, and HA support entitlement. |
+| Enterprise | **Quote-based** until fixed public price points are published | Validated-module/FIPS distribution, BYOK, governance controls, guarded remediation, and HA support/SLA entitlement; the runtime HA reference deployment remains core. |
 | Provider/MSP | **Quote-based** until fixed public price points are published | Provider plane, siloed/hybrid isolation and residency controls, metering/billing export, white-label, and tenant-band licensing for self-hosted resale. |
 
 There is no "SSO tax": OIDC SSO, SCIM, RBAC, and ABAC are core. SAML is not yet
@@ -27,7 +27,7 @@ The commercial features are exactly the ones in the license table:
 
 | Plan | Gated features |
 |---|---|
-| Enterprise | `fips`, `byok`, `governance`, `remediation`, `ha_support` |
+| Enterprise | `fips`, `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA) |
 | Provider/MSP | `provider_plane`, `siloed_isolation`, `metering`, `white_label` |
 
 Provider is not an automatic superset of Enterprise. If a provider deal also

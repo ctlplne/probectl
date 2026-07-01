@@ -302,10 +302,11 @@ func (m *Manager) TenantBand() int {
 
 // FeatureInfo is one row of the Editions view.
 type FeatureInfo struct {
-	Name     Feature `json:"name"`
-	Tier     Tier    `json:"tier"`
-	Licensed bool    `json:"licensed"`
-	Mode     Mode    `json:"mode"`
+	Name        Feature `json:"name"`
+	DisplayName string  `json:"display_name"`
+	Tier        Tier    `json:"tier"`
+	Licensed    bool    `json:"licensed"`
+	Mode        Mode    `json:"mode"`
 }
 
 // Info is the Admin → Editions payload — the one place tiers appear when
@@ -335,8 +336,19 @@ func (m *Manager) Info() Info {
 	}
 	for _, f := range AllFeatures() {
 		info.Features = append(info.Features, FeatureInfo{
-			Name: f, Tier: FeatureTier(f), Licensed: m.granted(f), Mode: m.Mode(f),
+			Name: f, DisplayName: FeatureDisplayName(f), Tier: FeatureTier(f), Licensed: m.granted(f), Mode: m.Mode(f),
 		})
 	}
 	return info
+}
+
+// FeatureDisplayName is presentation-only; signed license files and Build* seams
+// continue to use the stable feature key.
+func FeatureDisplayName(f Feature) string {
+	switch f {
+	case FeatureHASupport:
+		return "HA support/SLA"
+	default:
+		return string(f)
+	}
 }

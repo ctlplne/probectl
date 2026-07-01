@@ -241,8 +241,8 @@ function EraseTenantDialog({
         >
           <p className={styles.editionsLede}>
             This deletes tenant-owned data across wired stores and returns an attestation receipt.
-            Type the tenant slug exactly; the control plane validates it against the tenant
-            registry and records the audit event.
+            Type the tenant slug exactly; the control plane validates it against the tenant registry
+            and records the audit event.
           </p>
           <Field
             label="Tenant slug confirmation"
@@ -357,8 +357,23 @@ export function EditionsCard() {
     }
   }
 
+  const featureLabel = (f: FeatureInfo) => f.display_name || f.name
   const columns: Column<FeatureInfo>[] = [
-    { key: 'feature', header: 'Feature', render: (f) => <code>{f.name}</code> },
+    {
+      key: 'feature',
+      header: 'Feature',
+      render: (f) => (
+        <>
+          <span>{featureLabel(f)}</span>
+          {f.display_name && f.display_name !== f.name ? (
+            <>
+              {' '}
+              · <code>{f.name}</code>
+            </>
+          ) : null}
+        </>
+      ),
+    },
     { key: 'tier', header: 'Tier', render: (f) => f.tier },
     {
       key: 'state',
