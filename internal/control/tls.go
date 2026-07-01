@@ -11,6 +11,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/siem"
 	"github.com/imfeelingtheagi/probectl/internal/threat"
 )
@@ -19,9 +20,15 @@ import (
 // correlation is enabled only when the operator opts in (external fetch — AUP /
 // sovereignty / no-phone-home).
 func BuildTLSAnalyzer(cfg *config.Config) *threat.Analyzer {
+	return BuildTLSAnalyzerWithMetrics(cfg, nil)
+}
+
+// BuildTLSAnalyzerWithMetrics builds the S27 analyzer and, when CT is enabled,
+// exposes aggregate crt.sh cache/backoff health at /metrics.
+func BuildTLSAnalyzerWithMetrics(cfg *config.Config, reg *metrics.Registry) *threat.Analyzer {
 	var ct threat.CTChecker
 	if cfg.CTEnabled {
-		ct = threat.NewCrtSh(cfg.CTEndpoint, 10*time.Second)
+		ct = threat.NewCrtSh(cfg.CTEndpoint, 10*time.Second).WithMetrics(reg)
 	}
 	return threat.NewAnalyzer(threat.Config{
 		ExpiryWarning: cfg.TLSExpiryWarning,

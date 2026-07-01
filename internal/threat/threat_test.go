@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
 )
 
 func cert(t *testing.T, o crypto.TestCertOptions) *x509.Certificate {
@@ -118,6 +119,80 @@ func TestCrtShGraceful(t *testing.T) {
 	// A down / unreachable CT source degrades gracefully (no finding, no error).
 	if _, ok := NewCrtSh("https://127.0.0.1:1", time.Second).Check(context.Background(), leaf); ok {
 		t.Error("an unreachable CT source must degrade gracefully")
+	}
+}
+
+func TestCrtShCachesSerial(t *testing.T) {
+	leaf := cert(t, crypto.TestCertOptions{CommonName: "cached.example"})
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		_, _ = w.Write([]byte("[]"))
+	}))
+	defer srv.Close()
+
+	reg := selfmetrics.New("test", "ct")
+	checker := (&CrtSh{endpoint: srv.URL, client: srv.Client()}).WithMetrics(reg)
+	for i := 0; i < 2; i++ {
+		f, ok := checker.Check(context.Background(), leaf)
+		if !ok || f.Kind != FindingCTNotLogged || f.Severity != SeverityInfo {
+			t.Fatalf("check %d = %v/%v, want info ct_not_logged", i, f, ok)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("crt.sh calls = %d, want 1 cached serial/fingerprint lookup", calls)
+	}
+	stats := checker.Stats()
+	if stats.CacheMisses != 1 || stats.CacheHits != 1 || stats.Requests != 1 {
+		t.Fatalf("stats = %+v, want one miss, one hit, one request", stats)
+	}
+	if got := reg.Counter("probectl_ct_cache_hits_total", "").Value(); got != 1 {
+		t.Fatalf("cache hit metric = %d, want 1", got)
+	}
+}
+
+func TestCrtShBackoffAfterRateLimit(t *testing.T) {
+	leaf1 := cert(t, crypto.TestCertOptions{CommonName: "first.example"})
+	leaf2 := cert(t, crypto.TestCertOptions{CommonName: "second.example"})
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		http.Error(w, "rate limited", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	now := time.Date(2026, 6, 30, 12, 0, 0, 0, time.UTC)
+	checker := &CrtSh{
+		endpoint:    srv.URL,
+		client:      srv.Client(),
+		now:         func() time.Time { return now },
+		baseBackoff: time.Second,
+		maxBackoff:  time.Minute,
+	}
+
+	if _, ok := checker.Check(context.Background(), leaf1); ok {
+		t.Fatal("429 response must degrade to no CT finding")
+	}
+	if calls != 1 {
+		t.Fatalf("calls after first miss = %d, want 1", calls)
+	}
+
+	if _, ok := checker.Check(context.Background(), leaf2); ok {
+		t.Fatal("open CT circuit must degrade to no finding")
+	}
+	if calls != 1 {
+		t.Fatalf("calls during backoff = %d, want still 1", calls)
+	}
+	if stats := checker.Stats(); stats.Degraded != 1 || stats.SkippedBackoff != 1 {
+		t.Fatalf("stats during backoff = %+v, want degraded=1 skipped_backoff=1", stats)
+	}
+
+	now = now.Add(2 * time.Second)
+	if _, ok := checker.Check(context.Background(), leaf2); ok {
+		t.Fatal("second 429 after backoff must still degrade to no finding")
+	}
+	if calls != 2 {
+		t.Fatalf("calls after backoff = %d, want 2", calls)
 	}
 }
 

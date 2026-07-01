@@ -104,7 +104,10 @@ which collides with the no-phone-home / sovereignty stance. When enabled it
 behaves like every external feed in probectl — it respects crt.sh's AUP and rate
 limits, fetches over validated TLS, and **degrades gracefully**: a CT source
 that's down or throttled is a silent no-op, never an error that breaks posture
-analysis.
+analysis. The checker caches bounded serial/fingerprint results, paces requests
+per CT host, opens an exponential-backoff circuit after upstream errors or
+non-200 responses, and exports aggregate `probectl_ct_*` counters for cache
+hits/misses, attempted requests, skipped lookups, and degraded lookups.
 
 ## Coverage caveat — what feeds the inventory, and the Go-server blind spot
 

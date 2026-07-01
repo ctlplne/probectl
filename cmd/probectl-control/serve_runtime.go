@@ -601,7 +601,7 @@ func (rt *serveRuntime) startNDR() error {
 }
 
 func (rt *serveRuntime) startTLSPostureSinks() {
-	tlsAnalyzer := control.BuildTLSAnalyzer(rt.cfg)
+	tlsAnalyzer := control.BuildTLSAnalyzerWithMetrics(rt.cfg, rt.srv.Metrics())
 	if rt.iocStore != nil {
 		tlsAnalyzer.WithIntel(rt.iocStore)
 	}
