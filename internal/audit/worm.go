@@ -10,11 +10,13 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
@@ -55,7 +57,15 @@ type WormExporter struct {
 	pubPEM  []byte
 	log     *slog.Logger
 
-	gaps uint64 // chain-verification failures observed (never silent)
+	gaps            atomic.Uint64 // chain-verification failures observed (never silent)
+	lastSuccessUnix atomic.Int64
+	metrics         wormExporterMetrics
+}
+
+type wormExporterMetrics struct {
+	exportFailures    *selfmetrics.Counter
+	chainFailures     *selfmetrics.Counter
+	signatureFailures *selfmetrics.Counter
 }
 
 // NewWormExporter wires the exporter with an EXPLICIT, persisted signing key.
@@ -96,6 +106,25 @@ func NewWormExporterPG(pool *pgxpool.Pool, objects objectstore.Store, privPEM, p
 	return NewWormExporter(func(ctx context.Context, afterSeq int64, limit int) ([]Event, error) {
 		return ListProvider(ctx, pool, afterSeq, limit)
 	}, objects, privPEM, pubPEM, log)
+}
+
+// WithMetrics exposes aggregate WORM export health at /metrics. These series
+// carry no tenant labels or audit payloads; they only say whether the provider
+// chain exporter is completing its export+verify loop.
+func (w *WormExporter) WithMetrics(reg *selfmetrics.Registry) *WormExporter {
+	if reg == nil {
+		return w
+	}
+	w.metrics.exportFailures = reg.Counter("probectl_audit_worm_export_failures_total",
+		"Audit WORM export attempts that failed before a successful export+verify cycle.")
+	w.metrics.chainFailures = reg.Counter("probectl_audit_worm_chain_failures_total",
+		"Audit WORM verification failures across signed provider-chain segments.")
+	w.metrics.signatureFailures = reg.Counter("probectl_audit_worm_signature_failures_total",
+		"Audit WORM segment signature verification failures.")
+	reg.Gauge("probectl_audit_worm_last_success_unix_seconds",
+		"Unix timestamp of the last successful audit WORM export+verify cycle; 0 until the first success.",
+		func() float64 { return float64(w.lastSuccessUnix.Load()) })
+	return w
 }
 
 // ResolveWormSigningKey resolves the Ed25519 key that signs WORM segments
@@ -142,11 +171,14 @@ func (w *WormExporter) Run(ctx context.Context, interval time.Duration) {
 	defer t.Stop()
 	for {
 		if _, err := w.ExportOnce(ctx); err != nil && ctx.Err() == nil {
+			w.recordExportFailure()
 			w.log.Error("audit worm export failed", "error", err.Error())
 		} else if err := w.VerifyWORMChain(ctx); err != nil && ctx.Err() == nil {
-			w.gaps++
+			failures := w.recordVerifyFailure(err)
 			w.log.Error("AUDIT WORM CHAIN VERIFICATION FAILED — possible purge or tampering",
-				"error", err.Error(), "failures_total", w.gaps)
+				"error", err.Error(), "failures_total", failures)
+		} else if ctx.Err() == nil {
+			w.recordSuccess()
 		}
 		select {
 		case <-ctx.Done():
@@ -154,6 +186,27 @@ func (w *WormExporter) Run(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 		}
 	}
+}
+
+func (w *WormExporter) recordSuccess() {
+	w.lastSuccessUnix.Store(time.Now().Unix())
+}
+
+func (w *WormExporter) recordExportFailure() {
+	if w.metrics.exportFailures != nil {
+		w.metrics.exportFailures.Inc()
+	}
+}
+
+func (w *WormExporter) recordVerifyFailure(err error) uint64 {
+	total := w.gaps.Add(1)
+	if w.metrics.chainFailures != nil {
+		w.metrics.chainFailures.Inc()
+	}
+	if err != nil && strings.Contains(strings.ToLower(err.Error()), "signature") && w.metrics.signatureFailures != nil {
+		w.metrics.signatureFailures.Inc()
+	}
+	return total
 }
 
 // ExportOnce exports every provider-stream event past the last exported seq

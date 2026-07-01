@@ -23,7 +23,7 @@ spec:
           annotations:
             summary: probectl self-metrics are missing
             description: The control plane has not emitted probectl_build_info during the alert window. Check scrape reachability, /metrics, and the control-plane process before trusting dashboards.
-            runbook_url: {{ $rule.runbookBaseURL | quote }}
+            runbook_url: {{ printf "%s#probectlselfmetricsmissing" $rule.runbookBaseURL | quote }}
         - alert: ProbectlHighGoroutines
           expr: max(probectl_self_goroutines) > {{ $thresholds.highGoroutines }}
           for: {{ $thresholds.highGoroutinesFor }}
@@ -33,7 +33,7 @@ spec:
           annotations:
             summary: probectl goroutine count is high
             description: The control-plane goroutine count is above the configured threshold. Inspect recent traffic, stuck outbound integrations, and goroutine profiles.
-            runbook_url: {{ $rule.runbookBaseURL | quote }}
+            runbook_url: {{ printf "%s#probectlhighgoroutines" $rule.runbookBaseURL | quote }}
         - alert: ProbectlHighMemory
           expr: max(probectl_self_mem_sys_bytes) > {{ $thresholds.highMemoryBytes }}
           for: {{ $thresholds.highMemoryFor }}
@@ -43,7 +43,7 @@ spec:
           annotations:
             summary: probectl process memory is high
             description: The control-plane process memory is above the configured threshold. Check heap profiles, recent query load, and ingest backlogs.
-            runbook_url: {{ $rule.runbookBaseURL | quote }}
+            runbook_url: {{ printf "%s#probectlhighmemory" $rule.runbookBaseURL | quote }}
         - alert: ProbectlWritesPaused
           expr: min(probectl_cluster_writes_usable) < 1
           for: {{ $thresholds.writesPausedFor }}
@@ -53,7 +53,7 @@ spec:
           annotations:
             summary: probectl writes are paused
             description: Cluster fencing reports writes_usable=false. Reads may still work, but config writes and mutable workflows are paused until the writer/fence state recovers.
-            runbook_url: {{ $rule.runbookBaseURL | quote }}
+            runbook_url: {{ printf "%s#probectlwritespaused" $rule.runbookBaseURL | quote }}
         - alert: ProbectlReplicaLagHigh
           expr: max(probectl_cluster_replica_lag_seconds) > {{ $thresholds.replicaLagSeconds }}
           for: {{ $thresholds.replicaLagFor }}
@@ -63,5 +63,102 @@ spec:
           annotations:
             summary: probectl replica lag is high
             description: The observed Postgres replica lag is above the configured threshold. This widens metadata RPO for asynchronous failover.
-            runbook_url: {{ $rule.runbookBaseURL | quote }}
+            runbook_url: {{ printf "%s#probectlreplicalaghigh" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlDLQGrowth
+          expr: |
+            sum(increase({__name__=~"probectl_(pipeline|otlp)_.+_dead_lettered_total"}[{{ $thresholds.dlqGrowthWindow }}])) > {{ $thresholds.dlqGrowthEvents }}
+          for: {{ $thresholds.dlqGrowthFor }}
+          labels:
+            severity: critical
+            probectl_component: ingest
+          annotations:
+            summary: probectl dead-letter queue is growing
+            description: One or more ingest/OTLP pipelines are dead-lettering payloads. Treat this as data-loss pressure until replay succeeds and the source error is understood.
+            runbook_url: {{ printf "%s#probectldlqgrowth" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlBusShedOrHandlerErrors
+          expr: |
+            (
+              (sum(increase(probectl_bus_shed[{{ $thresholds.busErrorWindow }}])) or vector(0))
+            + (sum(increase(probectl_bus_handler_errors[{{ $thresholds.busErrorWindow }}])) or vector(0))
+            + (sum(increase(probectl_bus_memory_dropped[{{ $thresholds.busErrorWindow }}])) or vector(0))
+            + (sum(increase(probectl_bus_memory_handler_lost[{{ $thresholds.busErrorWindow }}])) or vector(0))
+            + (sum(increase(probectl_bus_memory_handler_errors[{{ $thresholds.busErrorWindow }}])) or vector(0))
+            ) > {{ $thresholds.busErrorEvents }}
+          for: {{ $thresholds.busErrorFor }}
+          labels:
+            severity: critical
+            probectl_component: bus
+          annotations:
+            summary: probectl bus is shedding records or handlers are failing
+            description: The result bus has shed records, lost in-memory records, or repeatedly errored handlers. Agents should retry, but the operator must stop the loss/backpressure loop.
+            runbook_url: {{ printf "%s#probectlbusshedorhandlererrors" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlClickHouseWriteOrBreakerFailures
+          expr: |
+            (
+              (
+                (sum(increase({__name__=~"probectl_.*store_.*_insert_errors_total"}[{{ $thresholds.clickhouseFailureWindow }}])) or vector(0))
+              + (sum(increase({__name__=~"probectl_clickhouse_.*_breaker_(trips|short_circuits)_total"}[{{ $thresholds.clickhouseFailureWindow }}])) or vector(0))
+              ) > {{ $thresholds.clickhouseFailureEvents }}
+            )
+            or
+            ((max({__name__=~"probectl_clickhouse_.*_breaker_open"}) or vector(0)) > 0)
+          for: {{ $thresholds.clickhouseFailureFor }}
+          labels:
+            severity: critical
+            probectl_component: clickhouse
+          annotations:
+            summary: probectl ClickHouse writes or breakers are failing
+            description: ClickHouse-backed telemetry stores are returning write errors or a circuit breaker is open/short-circuiting. Tenant data must fail closed, but coverage may degrade until storage recovers.
+            runbook_url: {{ printf "%s#probectlclickhousewriteorbreakerfailures" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlAgentDarkFleet
+          expr: |
+            (probectl_agent_registry_expected > 0)
+            and
+            (probectl_agent_registry_dark_fraction > {{ $thresholds.agentDarkFleetFraction }})
+          for: {{ $thresholds.agentDarkFleetFor }}
+          labels:
+            severity: warning
+            probectl_component: agents
+          annotations:
+            summary: a large share of the probectl agent fleet is dark
+            description: The aggregate registry says too many agents have stale heartbeats. This is a coverage blind spot; verify control-plane reachability, staged rollout state, and tenant-scoped agent registry health.
+            runbook_url: {{ printf "%s#probectlagentdarkfleet" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlFairnessShedOrRejected
+          expr: |
+            (
+              (sum(increase(probectl_fairness_shed_units_total[{{ $thresholds.fairnessWindow }}])) or vector(0))
+            + (sum(increase(probectl_fairness_queries_rejected_total[{{ $thresholds.fairnessWindow }}])) or vector(0))
+            ) > {{ $thresholds.fairnessEvents }}
+          for: {{ $thresholds.fairnessFor }}
+          labels:
+            severity: warning
+            probectl_component: fairness
+          annotations:
+            summary: probectl fairness controls are shedding or rejecting work
+            description: The fairness gate is protecting the platform by shedding units or rejecting queries. Confirm noisy-tenant pressure, quiet-tenant health, and whether limits need deliberate tuning.
+            runbook_url: {{ printf "%s#probectlfairnessshedorrejected" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlWORMExportGap
+          expr: (time() - probectl_audit_worm_last_success_unix_seconds) > {{ $thresholds.wormExportGapSeconds }}
+          for: {{ $thresholds.wormExportGapFor }}
+          labels:
+            severity: critical
+            probectl_component: audit
+          annotations:
+            summary: probectl audit WORM export has not completed recently
+            description: The provider audit WORM exporter has not completed a successful export+verify cycle inside the configured gap. This weakens the off-database evidence trail for provider and break-glass actions.
+            runbook_url: {{ printf "%s#probectlwormexportgap" $rule.runbookBaseURL | quote }}
+        - alert: ProbectlWORMSignatureFailures
+          expr: |
+            (
+              (sum(increase(probectl_audit_worm_signature_failures_total[{{ $thresholds.wormVerifyFailureWindow }}])) or vector(0))
+            + (sum(increase(probectl_audit_worm_chain_failures_total[{{ $thresholds.wormVerifyFailureWindow }}])) or vector(0))
+            ) > {{ $thresholds.wormVerifyFailures }}
+          for: {{ $thresholds.wormVerifyFailureFor }}
+          labels:
+            severity: critical
+            probectl_component: audit
+          annotations:
+            summary: probectl audit WORM verification is failing
+            description: Signed WORM segments failed signature or hash-chain verification. Treat this as possible tampering, object-store loss, or wrong signing-key material until proven otherwise.
+            runbook_url: {{ printf "%s#probectlwormsignaturefailures" $rule.runbookBaseURL | quote }}
 {{- end }}

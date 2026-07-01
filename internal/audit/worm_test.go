@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
@@ -124,6 +126,36 @@ func TestWormExportAndChainVerify(t *testing.T) {
 	keys, _ := store.List(ctx, "worm/audit/provider/segment-")
 	if len(keys) != 4 { // 2 segments + 2 signatures
 		t.Fatalf("objects = %v", keys)
+	}
+}
+
+func TestWormExporterMetricsRecordSuccessAndFailures(t *testing.T) {
+	reg := metrics.New("test", "abc")
+	w, err := NewWormExporterEphemeralForTest(sourceOf(chainedEvents(1)), objectstore.NewMemory(), testLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.WithMetrics(reg)
+
+	if got := w.lastSuccessUnix.Load(); got != 0 {
+		t.Fatalf("last success starts at %d, want 0 before the first good cycle", got)
+	}
+	before := time.Now().Unix()
+	w.recordSuccess()
+	if got := w.lastSuccessUnix.Load(); got < before {
+		t.Fatalf("last success = %d, want >= %d", got, before)
+	}
+
+	w.recordExportFailure()
+	if got := reg.Counter("probectl_audit_worm_export_failures_total", "").Value(); got != 1 {
+		t.Fatalf("export failures = %d, want 1", got)
+	}
+	w.recordVerifyFailure(errors.New("segment worm/audit/provider/segment-0001 signature INVALID (tampered?)"))
+	if got := reg.Counter("probectl_audit_worm_chain_failures_total", "").Value(); got != 1 {
+		t.Fatalf("chain failures = %d, want 1", got)
+	}
+	if got := reg.Counter("probectl_audit_worm_signature_failures_total", "").Value(); got != 1 {
+		t.Fatalf("signature failures = %d, want 1", got)
 	}
 }
 

@@ -1,0 +1,161 @@
+# Promtool fixture for the RUNOPS-003 alert pack.
+#
+# Generate the concrete rule file before running:
+#
+#   helm template probectl deploy/helm/probectl \
+#     -f deploy/helm/probectl/values-strict.yaml \
+#     --show-only templates/prometheusrule.yaml \
+#     --set ingress.host=h.example.com \
+#     --set ingress.tlsSecretName=probectl-tls \
+#     --set secrets.envelopeKey=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+#     --set secrets.sessionHMACKey=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f \
+#     --set database.url='postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require' \
+#   | yq '.spec.groups' > /tmp/probectl-runops.rules.yaml
+#
+# Then run:
+#
+#   promtool test rules deploy/helm/probectl/tests/prometheusrule-runops.promtool.yaml
+#
+# This file is intentionally small: each missing RUNOPS mode gets one firing
+# case and one clear case so operators can validate a rendered rule pack.
+
+rule_files:
+  - /tmp/probectl-runops.rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'probectl_pipeline_results_dead_lettered_total'
+        values: '0 1 2 3 4 5 6 7 8 9'
+    alert_rule_test:
+      - alertname: ProbectlDLQGrowth
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlDLQGrowth
+        eval_time: 8m
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              probectl_component: ingest
+            exp_annotations:
+              summary: probectl dead-letter queue is growing
+              description: One or more ingest/OTLP pipelines are dead-lettering payloads. Treat this as data-loss pressure until replay succeeds and the source error is understood.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectldlqgrowth
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_bus_shed'
+        values: '0 1 2 3 4 5 6 7 8 9'
+    alert_rule_test:
+      - alertname: ProbectlBusShedOrHandlerErrors
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlBusShedOrHandlerErrors
+        eval_time: 8m
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              probectl_component: bus
+            exp_annotations:
+              summary: probectl bus is shedding records or handlers are failing
+              description: The result bus has shed records, lost in-memory records, or repeatedly errored handlers. Agents should retry, but the operator must stop the loss/backpressure loop.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlbusshedorhandlererrors
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_clickhouse_flow_breaker_trips_total'
+        values: '0 1 2 3 4 5 6 7 8 9'
+    alert_rule_test:
+      - alertname: ProbectlClickHouseWriteOrBreakerFailures
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlClickHouseWriteOrBreakerFailures
+        eval_time: 8m
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              probectl_component: clickhouse
+            exp_annotations:
+              summary: probectl ClickHouse writes or breakers are failing
+              description: ClickHouse-backed telemetry stores are returning write errors or a circuit breaker is open/short-circuiting. Tenant data must fail closed, but coverage may degrade until storage recovers.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlclickhousewriteorbreakerfailures
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_agent_registry_expected'
+        values: '100 100 100 100 100 100 100 100 100 100 100 100'
+      - series: 'probectl_agent_registry_dark_fraction'
+        values: '0 0.30 0.30 0.30 0.30 0.30 0.30 0.30 0.30 0.30 0.30 0.30'
+    alert_rule_test:
+      - alertname: ProbectlAgentDarkFleet
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlAgentDarkFleet
+        eval_time: 11m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              probectl_component: agents
+            exp_annotations:
+              summary: a large share of the probectl agent fleet is dark
+              description: The aggregate registry says too many agents have stale heartbeats. This is a coverage blind spot; verify control-plane reachability, staged rollout state, and tenant-scoped agent registry health.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlagentdarkfleet
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_fairness_queries_rejected_total'
+        values: '0 1 2 3 4 5 6 7 8 9 10'
+    alert_rule_test:
+      - alertname: ProbectlFairnessShedOrRejected
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlFairnessShedOrRejected
+        eval_time: 10m
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              probectl_component: fairness
+            exp_annotations:
+              summary: probectl fairness controls are shedding or rejecting work
+              description: The fairness gate is protecting the platform by shedding units or rejecting queries. Confirm noisy-tenant pressure, quiet-tenant health, and whether limits need deliberate tuning.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlfairnessshedorrejected
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_audit_worm_last_success_unix_seconds'
+        values: '0+0x150'
+    alert_rule_test:
+      - alertname: ProbectlWORMExportGap
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlWORMExportGap
+        eval_time: 132m
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              probectl_component: audit
+            exp_annotations:
+              summary: probectl audit WORM export has not completed recently
+              description: The provider audit WORM exporter has not completed a successful export+verify cycle inside the configured gap. This weakens the off-database evidence trail for provider and break-glass actions.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlwormexportgap
+
+  - interval: 1m
+    input_series:
+      - series: 'probectl_audit_worm_signature_failures_total'
+        values: '0 1 2 3 4 5 6 7 8 9'
+    alert_rule_test:
+      - alertname: ProbectlWORMSignatureFailures
+        eval_time: 1m
+        exp_alerts: []
+      - alertname: ProbectlWORMSignatureFailures
+        eval_time: 8m
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              probectl_component: audit
+            exp_annotations:
+              summary: probectl audit WORM verification is failing
+              description: Signed WORM segments failed signature or hash-chain verification. Treat this as possible tampering, object-store loss, or wrong signing-key material until proven otherwise.
+              runbook_url: https://github.com/imfeelingtheagi/probectl/blob/main/docs/runbooks/probectl-self-alerts.md#probectlwormsignaturefailures

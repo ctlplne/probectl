@@ -296,6 +296,8 @@ func (rt *serveRuntime) buildAPIServer() error {
 		control.SetInstanceGroupSuffix(hn)
 	}
 	registerLossGauges(rt.srv.Metrics(), rt.resultBus, rt.tsdbWriter)
+	registerAgentRegistryGauges(rt.srv.Metrics(), rt.db.Pool())
+	registerClickHouseBreakerGauges(rt.srv.Metrics(), rt.pathCH, rt.flowStore)
 	rt.g.Go(func() error {
 		fairness.RunMetrics(rt.gctx, rt.tsdbWriter, rt.fairGate, 30*time.Second, rt.log)
 		return nil

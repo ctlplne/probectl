@@ -55,7 +55,26 @@
                 "highMemoryFor": { "type": "string", "minLength": 1 },
                 "writesPausedFor": { "type": "string", "minLength": 1 },
                 "replicaLagSeconds": { "type": "integer", "minimum": 1 },
-                "replicaLagFor": { "type": "string", "minLength": 1 }
+                "replicaLagFor": { "type": "string", "minLength": 1 },
+                "dlqGrowthWindow": { "type": "string", "minLength": 1 },
+                "dlqGrowthEvents": { "type": "integer", "minimum": 0 },
+                "dlqGrowthFor": { "type": "string", "minLength": 1 },
+                "busErrorWindow": { "type": "string", "minLength": 1 },
+                "busErrorEvents": { "type": "integer", "minimum": 0 },
+                "busErrorFor": { "type": "string", "minLength": 1 },
+                "clickhouseFailureWindow": { "type": "string", "minLength": 1 },
+                "clickhouseFailureEvents": { "type": "integer", "minimum": 0 },
+                "clickhouseFailureFor": { "type": "string", "minLength": 1 },
+                "agentDarkFleetFraction": { "type": "number", "minimum": 0, "maximum": 1 },
+                "agentDarkFleetFor": { "type": "string", "minLength": 1 },
+                "fairnessWindow": { "type": "string", "minLength": 1 },
+                "fairnessEvents": { "type": "integer", "minimum": 0 },
+                "fairnessFor": { "type": "string", "minLength": 1 },
+                "wormExportGapSeconds": { "type": "integer", "minimum": 1 },
+                "wormExportGapFor": { "type": "string", "minLength": 1 },
+                "wormVerifyFailureWindow": { "type": "string", "minLength": 1 },
+                "wormVerifyFailures": { "type": "integer", "minimum": 0 },
+                "wormVerifyFailureFor": { "type": "string", "minLength": 1 }
               }
             }
           }

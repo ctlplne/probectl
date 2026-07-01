@@ -15,11 +15,15 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/a2a"
 	"github.com/imfeelingtheagi/probectl/internal/agenttransport"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/breaker"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/cluster"
 	"github.com/imfeelingtheagi/probectl/internal/config"
@@ -715,6 +719,7 @@ func startHAAndTenantLifecycle(
 		if werr != nil {
 			return nil, fmt.Errorf("audit worm exporter: %w", werr)
 		}
+		worm.WithMetrics(srv.Metrics())
 		g.Go(func() error { worm.Run(ctx, cfg.AuditWORMInterval); return nil })
 		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
 	}
@@ -783,4 +788,115 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 		m.Gauge("probectl_tsdb_remote_write_rejected", "Samples permanently rejected by the remote-write upstream with a 4xx (out-of-order/too-old, CORRECT-003).",
 			func() float64 { return float64(p.RejectedPermanent()) })
 	}
+}
+
+const (
+	agentRegistryHeartbeatFreshFor = 5 * time.Minute
+	agentRegistryGaugeCacheFor     = 10 * time.Second
+)
+
+type agentRegistryGaugeSource struct {
+	pool     *pgxpool.Pool
+	freshFor time.Duration
+	cacheFor time.Duration
+
+	mu       sync.Mutex
+	cachedAt time.Time
+	expected float64
+	fresh    float64
+}
+
+func registerAgentRegistryGauges(m *metrics.Registry, pool *pgxpool.Pool) {
+	if m == nil || pool == nil {
+		return
+	}
+	src := &agentRegistryGaugeSource{
+		pool:     pool,
+		freshFor: agentRegistryHeartbeatFreshFor,
+		cacheFor: agentRegistryGaugeCacheFor,
+	}
+	m.Gauge("probectl_agent_registry_expected",
+		"Aggregate registered-agent count used for dark-fleet alerting; no tenant labels or hostnames.",
+		func() float64 {
+			expected, _ := src.sample()
+			return expected
+		})
+	m.Gauge("probectl_agent_registry_heartbeat_fresh",
+		"Aggregate registered agents with a heartbeat fresher than the control-plane dark-fleet window; no tenant labels or hostnames.",
+		func() float64 {
+			_, fresh := src.sample()
+			return fresh
+		})
+	m.Gauge("probectl_agent_registry_dark_fraction",
+		"Fraction of registered agents whose heartbeat is stale across the aggregate fleet; no tenant labels or hostnames.",
+		func() float64 {
+			expected, fresh := src.sample()
+			if expected <= 0 {
+				return 0
+			}
+			dark := expected - fresh
+			if dark < 0 {
+				return 0
+			}
+			return dark / expected
+		})
+}
+
+func (s *agentRegistryGaugeSource) sample() (float64, float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.cachedAt.IsZero() && time.Since(s.cachedAt) < s.cacheFor {
+		return s.expected, s.fresh
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var expected, fresh int64
+	err := tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
+		return q.QueryRow(ctx, `
+			SELECT count(*)::bigint,
+			       count(*) FILTER (
+			         WHERE status = 'online'
+			           AND last_seen_at IS NOT NULL
+			           AND last_seen_at >= now() - ($1::double precision * interval '1 second')
+			       )::bigint
+			  FROM agents`, s.freshFor.Seconds()).Scan(&expected, &fresh)
+	})
+	if err != nil {
+		return s.expected, s.fresh
+	}
+	s.expected = float64(expected)
+	s.fresh = float64(fresh)
+	s.cachedAt = time.Now()
+	return s.expected, s.fresh
+}
+
+type breakerStatsSource interface {
+	BreakerStats() breaker.Stats
+}
+
+func registerClickHouseBreakerGauges(m *metrics.Registry, pathCH *pathstore.ClickHouse, flowStore flowstore.Store) {
+	if m == nil {
+		return
+	}
+	if pathCH != nil {
+		registerClickHouseBreakerGaugeSet(m, "path", pathCH)
+	}
+	if src, ok := flowStore.(breakerStatsSource); ok {
+		registerClickHouseBreakerGaugeSet(m, "flow", src)
+	}
+}
+
+func registerClickHouseBreakerGaugeSet(m *metrics.Registry, plane string, src breakerStatsSource) {
+	prefix := "probectl_clickhouse_" + plane + "_breaker_"
+	m.Gauge(prefix+"open", "Whether the "+plane+" ClickHouse circuit breaker is open or half-open (1) instead of closed (0).",
+		func() float64 {
+			if src.BreakerStats().State == breaker.StateClosed {
+				return 0
+			}
+			return 1
+		})
+	m.Gauge(prefix+"trips_total", "ClickHouse circuit-breaker trips observed by the "+plane+" store.",
+		func() float64 { return float64(src.BreakerStats().Trips) })
+	m.Gauge(prefix+"short_circuits_total", "ClickHouse calls short-circuited by the "+plane+" store breaker.",
+		func() float64 { return float64(src.BreakerStats().ShortCircuits) })
 }

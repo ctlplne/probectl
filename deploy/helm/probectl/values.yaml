@@ -223,6 +223,25 @@ metrics:
       writesPausedFor: 2m
       replicaLagSeconds: 30
       replicaLagFor: 5m
+      dlqGrowthWindow: 5m
+      dlqGrowthEvents: 0
+      dlqGrowthFor: 2m
+      busErrorWindow: 5m
+      busErrorEvents: 0
+      busErrorFor: 2m
+      clickhouseFailureWindow: 5m
+      clickhouseFailureEvents: 0
+      clickhouseFailureFor: 2m
+      agentDarkFleetFraction: 0.25
+      agentDarkFleetFor: 10m
+      fairnessWindow: 5m
+      fairnessEvents: 0
+      fairnessFor: 5m
+      wormExportGapSeconds: 7200 # 2h; default WORM export cadence is 1h
+      wormExportGapFor: 10m
+      wormVerifyFailureWindow: 5m
+      wormVerifyFailures: 0
+      wormVerifyFailureFor: 2m
 
 # OPS-009: chart-managed PG + CH backup CronJobs (folded in from
 # deploy/backup/, U-030). OFF by default — opt in, then supply the
