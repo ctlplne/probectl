@@ -154,6 +154,8 @@ export function defaultFetch(): typeof fetch {
     if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
     if (path === '/v1/incidents/inc-dashboard') return jsonResponse(sampleIncident)
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
+    if (path === '/v1/alerts/maintenance')
+      return jsonResponse({ items: [], evaluator_running: true })
     if (path === '/v1/alerts/active')
       return jsonResponse({
         items: [

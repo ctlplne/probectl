@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useId, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './alerts.module.css'
 import { Page } from './pages'
@@ -24,8 +24,11 @@ import {
   useAckAlert,
   useActiveAlerts,
   useAlertRules,
+  useDeleteMaintenanceWindow,
+  useMaintenanceWindows,
   useDeleteAlertRule,
   useOncallStatus,
+  useSaveMaintenanceWindow,
   useSaveAlertRule,
   useSilenceAlert,
   useTestAlertChannel,
@@ -34,6 +37,9 @@ import {
   type AlertRule,
   type AlertRuleInput,
   type ChannelSpec,
+  type MaintenanceRecurrence,
+  type MaintenanceWindow,
+  type MaintenanceWindowInput,
   type OncallInboundWebhook,
   type OncallOutboundConnector,
 } from '../api/alerts'
@@ -71,6 +77,97 @@ function providerLabel(provider: string): string {
     .split(/[-_]/)
     .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : s))
     .join(' ')
+}
+
+function detectedTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+function dateTimeInputValue(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function dateTimeInputToISO(value: string, timezone: string): string {
+  if (!value) return ''
+  if (timezone === 'UTC') return new Date(`${value}:00Z`).toISOString()
+  return new Date(value).toISOString()
+}
+
+function splitCSV(value: string): string[] {
+  return value
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function formatMatch(match?: Record<string, string>): string {
+  if (!match) return ''
+  return Object.entries(match)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n')
+}
+
+function parseMatch(value: string): Record<string, string> | undefined {
+  const out: Record<string, string> = {}
+  for (const raw of value.split(/[,\n]/)) {
+    const item = raw.trim()
+    if (!item) continue
+    const i = item.indexOf('=')
+    if (i <= 0) continue
+    const key = item.slice(0, i).trim()
+    const val = item.slice(i + 1).trim()
+    if (key && val) out[key] = val
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+function recurrenceLabel(r?: MaintenanceRecurrence): string {
+  if (r === 'daily') return 'daily'
+  if (r === 'weekly') return 'weekly'
+  return 'one-time'
+}
+
+function maintenanceScope(w: MaintenanceWindow): string {
+  const parts = []
+  if (w.rule_ids && w.rule_ids.length > 0) parts.push(`rules ${w.rule_ids.join(', ')}`)
+  if (w.match && Object.keys(w.match).length > 0) parts.push(formatMatch(w.match).replace(/\n/g, ', '))
+  return parts.length > 0 ? parts.join('; ') : 'all alerts'
+}
+
+function activeWindowEnd(w: MaintenanceWindow, at = Date.now()): string | null {
+  const start = new Date(w.starts_at).getTime()
+  const end = new Date(w.ends_at).getTime()
+  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) return null
+  const duration = end - start
+  if (!w.recurrence) return at >= start && at < end ? new Date(end).toISOString() : null
+
+  const period = w.recurrence === 'daily' ? 86_400_000 : w.recurrence === 'weekly' ? 604_800_000 : 0
+  if (period <= 0 || duration >= period || at < start) return null
+  const n = Math.floor((at - start) / period)
+  const occurrenceStart = start + n * period
+  const occurrenceEnd = occurrenceStart + duration
+  return at >= occurrenceStart && at < occurrenceEnd ? new Date(occurrenceEnd).toISOString() : null
+}
+
+function maintenanceMatchesAlert(w: MaintenanceWindow, a: ActiveAlert): boolean {
+  if (w.rule_ids && w.rule_ids.length > 0 && !w.rule_ids.includes(a.rule_id)) return false
+  for (const [key, want] of Object.entries(w.match ?? {})) {
+    if (a.labels?.[key] !== want) return false
+  }
+  return true
+}
+
+function activeMaintenanceForAlert(a: ActiveAlert, windows: MaintenanceWindow[]): MaintenanceWindow[] {
+  const now = Date.now()
+  return windows.filter((w) => maintenanceMatchesAlert(w, a) && activeWindowEnd(w, now))
 }
 
 /** stateTone maps an active alert's display state to a Badge tone. */
@@ -427,6 +524,165 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
   )
 }
 
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  hint,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  hint?: string
+}) {
+  const id = useId()
+  const hintId = `${id}-hint`
+  return (
+    <div className={styles.textareaField}>
+      <label className={styles.textareaLabel} htmlFor={id}>
+        {label}
+      </label>
+      <textarea
+        id={id}
+        className={styles.textarea}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        aria-describedby={hint ? hintId : undefined}
+      />
+      {hint ? (
+        <p id={hintId} className={styles.muted}>
+          {hint}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function MaintenanceWindowForm({
+  window,
+  onClose,
+}: {
+  window?: MaintenanceWindow
+  onClose: () => void
+}) {
+  const { push } = useToast()
+  const save = useSaveMaintenanceWindow()
+  const localZone = detectedTimeZone()
+  const zoneOptions =
+    localZone === 'UTC'
+      ? [{ value: 'UTC', label: 'UTC' }]
+      : [
+          { value: localZone, label: localZone },
+          { value: 'UTC', label: 'UTC' },
+        ]
+  const [name, setName] = useState(window?.name ?? '')
+  const [startsAt, setStartsAt] = useState(dateTimeInputValue(window?.starts_at))
+  const [endsAt, setEndsAt] = useState(dateTimeInputValue(window?.ends_at))
+  const [timezone, setTimezone] = useState(localZone)
+  const [recurrence, setRecurrence] = useState<MaintenanceRecurrence | 'none'>(
+    window?.recurrence || 'none',
+  )
+  const [ruleIDs, setRuleIDs] = useState(window?.rule_ids?.join(', ') ?? '')
+  const [match, setMatch] = useState(formatMatch(window?.match))
+  const [reason, setReason] = useState(window?.reason ?? '')
+
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const input: MaintenanceWindowInput = {
+      id: window?.id,
+      name: name.trim(),
+      starts_at: dateTimeInputToISO(startsAt, timezone),
+      ends_at: dateTimeInputToISO(endsAt, timezone),
+      recurrence: recurrence === 'none' ? undefined : recurrence,
+      rule_ids: splitCSV(ruleIDs),
+      match: parseMatch(match),
+      reason: reason.trim(),
+    }
+    save.mutate(input, {
+      onSuccess: (saved) => {
+        push({
+          tone: 'success',
+          title: window ? 'Window updated' : 'Window scheduled',
+          message: saved.name,
+        })
+        onClose()
+      },
+      onError: (err) => push({ tone: 'danger', title: 'Save failed', message: err.message }),
+    })
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={window ? `Edit window: ${window.name}` : 'Schedule maintenance window'}
+    >
+      <form onSubmit={submit} className={styles.formGrid}>
+        <Field label="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+        <div className={styles.inlineGrid}>
+          <Field
+            label="Starts at"
+            type="datetime-local"
+            value={startsAt}
+            onChange={(e) => setStartsAt(e.target.value)}
+            required
+          />
+          <Field
+            label="Ends at"
+            type="datetime-local"
+            value={endsAt}
+            onChange={(e) => setEndsAt(e.target.value)}
+            required
+          />
+        </div>
+        <div className={styles.inlineGrid}>
+          <Select
+            label="Time zone"
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+            options={zoneOptions}
+          />
+          <Select
+            label="Recurrence"
+            value={recurrence}
+            onChange={(e) => setRecurrence(e.target.value as MaintenanceRecurrence | 'none')}
+            options={[
+              { value: 'none', label: 'One-time' },
+              { value: 'daily', label: 'Daily' },
+              { value: 'weekly', label: 'Weekly' },
+            ]}
+          />
+        </div>
+        <Field
+          label="Rule IDs"
+          value={ruleIDs}
+          onChange={(e) => setRuleIDs(e.target.value)}
+          placeholder="r1, r2"
+        />
+        <TextAreaField
+          label="Match labels"
+          value={match}
+          onChange={setMatch}
+          placeholder="target=db"
+          hint="One key=value per line."
+        />
+        <TextAreaField label="Reason" value={reason} onChange={setReason} />
+        <div className={styles.actionsRow}>
+          <Button type="submit" disabled={save.isPending}>
+            {window ? 'Save window' : 'Schedule window'}
+          </Button>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 type StateFilter = 'all' | 'firing' | 'silenced' | 'acked'
 type SeverityFilter = 'all' | 'info' | 'warning' | 'critical'
 
@@ -435,7 +691,9 @@ type SeverityFilter = 'all' | 'info' | 'warning' | 'critical'
 export function AlertsPage() {
   const active = useActiveAlerts()
   const rules = useAlertRules()
+  const maintenance = useMaintenanceWindows()
   const del = useDeleteAlertRule()
+  const delMaintenance = useDeleteMaintenanceWindow()
   const { push } = useToast()
   const [params, setParams] = useSearchParams()
   const defaults = { alert_q: '', alert_state: 'all', alert_severity: 'all' }
@@ -447,6 +705,9 @@ export function AlertsPage() {
   const [detail, setDetail] = useState<string | null>(null) // fingerprint
   const [editing, setEditing] = useState<AlertRule | null>(null)
   const [creating, setCreating] = useState(false)
+  const [editingWindow, setEditingWindow] = useState<MaintenanceWindow | null>(null)
+  const [creatingWindow, setCreatingWindow] = useState(false)
+  const maintenanceWindows = maintenance.data?.items ?? []
 
   const items = useMemo(() => {
     const all = active.data?.items ?? []
@@ -467,7 +728,15 @@ export function AlertsPage() {
     {
       key: 'state',
       header: 'State',
-      render: (a) => <Badge tone={stateTone(alertStateOf(a))}>{alertStateOf(a)}</Badge>,
+      render: (a) => {
+        const activeWindows = activeMaintenanceForAlert(a, maintenanceWindows)
+        return (
+          <span className={styles.badgeStack}>
+            <Badge tone={stateTone(alertStateOf(a))}>{alertStateOf(a)}</Badge>
+            {activeWindows.length > 0 ? <Badge tone="info">maintenance</Badge> : null}
+          </span>
+        )
+      },
     },
     {
       key: 'severity',
@@ -533,6 +802,67 @@ export function AlertsPage() {
             onClick={() =>
               del.mutate(r.id, {
                 onSuccess: () => push({ tone: 'success', title: 'Rule deleted', message: r.name }),
+                onError: (e) =>
+                  push({ tone: 'danger', title: 'Delete failed', message: e.message }),
+              })
+            }
+          >
+            Delete
+          </Button>
+        </>
+      ),
+    },
+  ]
+
+  const maintenanceColumns: Column<MaintenanceWindow>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (w) => (
+        <span className={styles.badgeStack}>
+          <span>{w.name}</span>
+          <Badge tone={w.recurrence ? 'info' : 'neutral'}>{recurrenceLabel(w.recurrence)}</Badge>
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (w) => {
+        const until = activeWindowEnd(w)
+        return until ? <Badge tone="success">active</Badge> : <Badge tone="neutral">scheduled</Badge>
+      },
+    },
+    {
+      key: 'window',
+      header: 'Window',
+      render: (w) => (
+        <span className={styles.dateRange}>
+          <DateTime value={w.starts_at} />
+          <span>to</span>
+          <DateTime value={w.ends_at} />
+        </span>
+      ),
+    },
+    { key: 'scope', header: 'Scope', render: maintenanceScope },
+    { key: 'reason', header: 'Reason', render: (w) => w.reason || 'none' },
+    {
+      key: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'end',
+      render: (w) => (
+        <>
+          <Button size="sm" variant="ghost" onClick={() => setEditingWindow(w)}>
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={delMaintenance.isPending}
+            onClick={() =>
+              delMaintenance.mutate(w.id, {
+                onSuccess: () =>
+                  push({ tone: 'success', title: 'Window deleted', message: w.name }),
                 onError: (e) =>
                   push({ tone: 'danger', title: 'Delete failed', message: e.message }),
               })
@@ -628,6 +958,41 @@ export function AlertsPage() {
 
         <Card>
           <CardHeader
+            title="Maintenance windows"
+            actions={<Button onClick={() => setCreatingWindow(true)}>Schedule window</Button>}
+          />
+          <CardBody>
+            {maintenance.isLoading ? (
+              <LoadingState label="Loading maintenance windows…" />
+            ) : maintenance.isError ? (
+              <ErrorState description="Could not load maintenance windows." />
+            ) : (
+              <>
+                {maintenance.data && !maintenance.data.evaluator_running ? (
+                  <p role="status" className={styles.notice}>
+                    <Badge tone="warning">evaluator off</Badge> Maintenance windows require the
+                    alert evaluator for this tenant.
+                  </p>
+                ) : null}
+                <Table
+                  caption="Maintenance windows"
+                  columns={maintenanceColumns}
+                  rows={maintenanceWindows}
+                  rowKey={(w) => w.id}
+                  empty={
+                    <EmptyState
+                      title="No maintenance windows"
+                      description="Scheduled suppressions for planned work appear here."
+                    />
+                  }
+                />
+              </>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
             title="Alert rules"
             actions={<Button onClick={() => setCreating(true)}>Create rule</Button>}
           />
@@ -660,6 +1025,10 @@ export function AlertsPage() {
       ) : null}
       {creating ? <RuleForm onClose={() => setCreating(false)} /> : null}
       {editing ? <RuleForm rule={editing} onClose={() => setEditing(null)} /> : null}
+      {creatingWindow ? <MaintenanceWindowForm onClose={() => setCreatingWindow(false)} /> : null}
+      {editingWindow ? (
+        <MaintenanceWindowForm window={editingWindow} onClose={() => setEditingWindow(null)} />
+      ) : null}
     </Page>
   )
 }

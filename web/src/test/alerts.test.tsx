@@ -1,15 +1,16 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
-import type { ActiveAlert, AlertRule } from '../api/alerts'
+import type { ActiveAlert, AlertRule, MaintenanceWindow } from '../api/alerts'
 
 /** A stateful stub standing in for the S16 backend: rules CRUD + an "engine"
  *  whose silence/ack mutations return engine truth (the UI must render what
  *  the engine answered, never its own derived state). */
 function alertsBackend() {
   const since = '2026-06-04T12:00:00Z'
+  const now = Date.now()
   const state = {
     rules: [
       {
@@ -52,6 +53,21 @@ function alertsBackend() {
         since,
         last_seen_at: since,
       } as ActiveAlert,
+    ],
+    maintenance: [
+      {
+        id: 'mw-1',
+        tenant_id: 't',
+        name: 'database patch',
+        starts_at: new Date(now - 60_000).toISOString(),
+        ends_at: new Date(now + 3_600_000).toISOString(),
+        recurrence: '',
+        rule_ids: ['r1'],
+        match: { target: 'db' },
+        reason: 'planned database work',
+        created_at: since,
+        updated_at: since,
+      } as MaintenanceWindow,
     ],
     oncall: {
       id: 'oncall',
@@ -119,6 +135,27 @@ function alertsBackend() {
     if (url.endsWith('/v1/alerts') && method === 'GET') {
       return jsonResponse({ items: state.rules })
     }
+    if (url.endsWith('/v1/alerts/maintenance') && method === 'GET') {
+      return jsonResponse({ items: state.maintenance, evaluator_running: true })
+    }
+    if (url.endsWith('/v1/alerts/maintenance') && method === 'POST') {
+      const win = {
+        ...(body as unknown as MaintenanceWindow),
+        id: String(body.id || `mw-${state.maintenance.length + 1}`),
+        tenant_id: 't',
+        created_at: '2026-06-04T12:10:00Z',
+        updated_at: '2026-06-04T12:10:00Z',
+      }
+      const idx = state.maintenance.findIndex((w) => w.id === win.id)
+      if (idx >= 0) state.maintenance[idx] = win
+      else state.maintenance.push(win)
+      return jsonResponse(win)
+    }
+    const maintenanceMatch = url.match(/\/v1\/alerts\/maintenance\/([^/]+)$/)
+    if (maintenanceMatch && method === 'DELETE') {
+      state.maintenance = state.maintenance.filter((x) => x.id !== maintenanceMatch[1])
+      return new Response(null, { status: 204 })
+    }
     if (url.endsWith('/v1/alerts/test-channel') && method === 'POST') {
       state.channelTests.push(body)
       return jsonResponse({ accepted: true, type: (body.channel as { type?: string })?.type }, 202)
@@ -172,8 +209,8 @@ describe('alerting surface (S-FE1)', () => {
     renderApp('/alerts')
 
     // Both firing series render with severity badges.
-    expect(await screen.findByText(/target=db/)).toBeDefined()
-    const table = screen.getByRole('table', { name: 'Active alerts' })
+    const table = await screen.findByRole('table', { name: 'Active alerts' })
+    expect(within(table).getByText(/target=db/)).toBeDefined()
     expect(within(table).getAllByText('rtt high').length).toBe(2)
     expect(within(table).getByText('critical')).toBeDefined()
 
@@ -196,13 +233,58 @@ describe('alerting surface (S-FE1)', () => {
     ).toBeDefined()
   })
 
+  test('shows active maintenance badges and schedules timezone-aware windows', async () => {
+    const { state, fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts')
+
+    const activeTable = await screen.findByRole('table', { name: 'Active alerts' })
+    await waitFor(() => {
+      expect(within(activeTable).getByText('maintenance')).toBeDefined()
+    })
+    expect(
+      within(screen.getByRole('table', { name: 'Maintenance windows' })).getByText(
+        'database patch',
+      ),
+    ).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Schedule window' }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'kernel patch')
+    fireEvent.change(within(dialog).getByLabelText('Starts at'), {
+      target: { value: '2026-06-05T01:00' },
+    })
+    fireEvent.change(within(dialog).getByLabelText('Ends at'), {
+      target: { value: '2026-06-05T02:30' },
+    })
+    await userEvent.selectOptions(within(dialog).getByLabelText('Time zone'), 'UTC')
+    await userEvent.selectOptions(within(dialog).getByLabelText('Recurrence'), 'weekly')
+    await userEvent.type(within(dialog).getByLabelText('Rule IDs'), 'r1')
+    await userEvent.type(within(dialog).getByLabelText('Match labels'), 'target=db')
+    await userEvent.type(within(dialog).getByLabelText('Reason'), 'kernel upgrade')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Schedule window' }))
+
+    await waitFor(() => expect(state.maintenance.some((w) => w.name === 'kernel patch')).toBe(true))
+    const saved = state.maintenance.find((w) => w.name === 'kernel patch')
+    expect(saved).toMatchObject({
+      starts_at: '2026-06-05T01:00:00.000Z',
+      ends_at: '2026-06-05T02:30:00.000Z',
+      recurrence: 'weekly',
+      rule_ids: ['r1'],
+      match: { target: 'db' },
+      reason: 'kernel upgrade',
+    })
+  })
+
   test('silence + acknowledge act through the API and render the ENGINE state', async () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
     renderApp('/alerts')
 
     // Open the detail for the db series.
-    await screen.findByText(/target=db/)
+    expect(
+      within(await screen.findByRole('table', { name: 'Active alerts' })).getByText(/target=db/),
+    ).toBeDefined()
     await userEvent.click(screen.getAllByRole('button', { name: 'Details' })[0])
     const dialog = await screen.findByRole('dialog')
 
@@ -236,7 +318,9 @@ describe('alerting surface (S-FE1)', () => {
     vi.stubGlobal('fetch', fetcher)
     renderApp('/alerts')
 
-    await screen.findByText(/target=db/)
+    expect(
+      within(await screen.findByRole('table', { name: 'Active alerts' })).getByText(/target=db/),
+    ).toBeDefined()
     await userEvent.click(screen.getByRole('button', { name: 'Create rule' }))
     const dialog = await screen.findByRole('dialog')
     await userEvent.type(within(dialog).getByLabelText('Name'), 'loss high')
@@ -294,7 +378,9 @@ describe('alerting surface (S-FE1)', () => {
     const { state, fetcher } = alertsBackend()
     vi.stubGlobal('fetch', fetcher)
     renderApp('/alerts')
-    await screen.findByText(/target=db/)
+    expect(
+      within(await screen.findByRole('table', { name: 'Active alerts' })).getByText(/target=db/),
+    ).toBeDefined()
 
     // The client never selects a tenant — identity is the session, the server
     // scopes (S8a API contract). No tenant_id ever appears in a request URL.

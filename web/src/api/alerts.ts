@@ -98,8 +98,35 @@ export interface ActiveAlert {
   acked_at?: string
 }
 
+export type MaintenanceRecurrence = '' | 'daily' | 'weekly'
+
+export interface MaintenanceWindow {
+  id: string
+  tenant_id?: string
+  name: string
+  reason?: string
+  starts_at: string
+  ends_at: string
+  recurrence?: MaintenanceRecurrence
+  match?: Record<string, string>
+  rule_ids?: string[]
+  created_by?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export type MaintenanceWindowInput = Omit<
+  MaintenanceWindow,
+  'id' | 'tenant_id' | 'created_by' | 'created_at' | 'updated_at'
+> & { id?: string }
+
 interface ActiveAlertsResponse {
   items: ActiveAlert[]
+  evaluator_running: boolean
+}
+
+interface MaintenanceWindowsResponse {
+  items: MaintenanceWindow[]
   evaluator_running: boolean
 }
 
@@ -109,6 +136,13 @@ export function useActiveAlerts() {
     queryKey: ['alerts', 'active'],
     queryFn: () => apiFetch<ActiveAlertsResponse>('/alerts/active'),
     refetchInterval: 15_000,
+  })
+}
+
+export function useMaintenanceWindows() {
+  return useQuery({
+    queryKey: ['alerts', 'maintenance'],
+    queryFn: () => apiFetch<MaintenanceWindowsResponse>('/alerts/maintenance'),
   })
 }
 
@@ -149,6 +183,30 @@ export function useDeleteAlertRule() {
   return useMutation({
     mutationFn: (id: string) => apiFetch<undefined>(`/alerts/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['alerts', 'rules'] }),
+  })
+}
+
+export function useSaveMaintenanceWindow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: MaintenanceWindowInput) =>
+      apiFetch<MaintenanceWindow>('/alerts/maintenance', jsonInit('POST', input)),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['alerts', 'maintenance'] })
+      void qc.invalidateQueries({ queryKey: ['alerts', 'active'] })
+    },
+  })
+}
+
+export function useDeleteMaintenanceWindow() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<undefined>(`/alerts/maintenance/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['alerts', 'maintenance'] })
+      void qc.invalidateQueries({ queryKey: ['alerts', 'active'] })
+    },
   })
 }
 

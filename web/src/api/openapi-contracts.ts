@@ -76,6 +76,15 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: '/alerts/maintenance',
+    response: 'MaintenanceWindowsResponse',
+    generated: 'ListMaintenanceWindowsResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for maintenance-window lists; MaintenanceWindowsResponse is the explicit view model.',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: '/oncall/status',
     response: 'OncallStatus',
     generated: 'JsonObject',
@@ -98,10 +107,26 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/alerts.ts',
+    method: 'POST',
+    path: '/alerts/maintenance',
+    response: 'MaintenanceWindow',
+    generated: 'UpsertMaintenanceWindowResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for maintenance-window upserts; MaintenanceWindow is the explicit view model.',
+  },
+  {
+    file: 'api/alerts.ts',
     method: 'DELETE',
     path: '`/alerts/${id}`',
     response: 'undefined',
     generated: 'DeleteAlertResponse',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'DELETE',
+    path: '`/alerts/maintenance/${id}`',
+    response: 'undefined',
+    generated: 'DeleteMaintenanceWindowResponse',
   },
   {
     file: 'api/alerts.ts',
