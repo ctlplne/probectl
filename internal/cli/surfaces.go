@@ -27,6 +27,7 @@ type cliCoverage struct {
 var surfaceCommands = map[string]surfaceCommand{
 	"a2a": {Name: "a2a", Summary: "A2A session bridge", Ops: map[string]apiOp{
 		"create-session": {Method: http.MethodPost, Path: "/v1/a2a/sessions", Description: "create an A2A bridge session"},
+		"start-mesh":     {Method: http.MethodPost, Path: "/v1/a2a/mesh", Description: "start a tenant A2A site mesh"},
 	}},
 	"abac": {Name: "abac", Summary: "ABAC policies", Ops: map[string]apiOp{
 		"list":   {Method: http.MethodGet, Path: "/v1/abac/policies"},

@@ -273,6 +273,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/directory/scim-tokens":              auditExplicit(auditFacetMutation, "directory.scim_token_create"),
 	"DELETE /v1/directory/scim-tokens/{id}":       auditExplicit(auditFacetMutation, "directory.scim_token_revoke"),
 	"POST /v1/a2a/sessions":                       auditExplicit(auditFacetOperational, "a2a.session.start"),
+	"POST /v1/a2a/mesh":                           auditExplicit(auditFacetOperational, "a2a.mesh.start"),
 	"GET /v1/rollouts":                            auditWrapped(auditFacetOperational),
 	"POST /v1/rollouts":                           auditExplicit(auditFacetOperational, "rollout.create"),
 	"GET /v1/rollouts/{id}":                       auditWrapped(auditFacetOperational),

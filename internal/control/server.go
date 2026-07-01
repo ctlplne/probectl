@@ -164,8 +164,9 @@ type Server struct {
 	alertingActive bool
 
 	// a2aBroker brokers agent-to-agent measurement sessions (ARCH-009). Set via
-	// WithA2ABroker; nil makes POST /v1/a2a/sessions report 503.
+	// WithA2ABroker; nil makes POST /v1/a2a/sessions and /v1/a2a/mesh report 503.
 	a2aBroker *a2a.Broker
+	a2aMesh   *a2a.MeshScheduler
 
 	// testSyncKey is the Ed25519 private-key PEM used to sign pull-able test
 	// bundles (ARCH-001). Set via WithTestSyncKey; empty leaves

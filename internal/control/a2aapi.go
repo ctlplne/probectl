@@ -18,9 +18,12 @@ import (
 // The broker remains in-process; this only exposes its start path.
 
 // WithA2ABroker attaches the agent-to-agent session broker backing
-// POST /v1/a2a/sessions. nil leaves the endpoint reporting 503.
+// POST /v1/a2a/sessions and /v1/a2a/mesh. nil leaves the endpoints reporting 503.
 func (s *Server) WithA2ABroker(b *a2a.Broker) *Server {
 	s.a2aBroker = b
+	if b != nil {
+		s.a2aMesh = a2a.NewMeshScheduler(b)
+	}
 	return s
 }
 
@@ -29,6 +32,17 @@ type a2aSessionRequest struct {
 	InitiatorAgent string `json:"initiator_agent"`
 	Mode           string `json:"mode"`
 	Count          uint32 `json:"count"`
+}
+
+type a2aMeshRequest struct {
+	Agents []a2a.SiteAgent `json:"agents"`
+	Mode   string          `json:"mode"`
+	Count  uint32          `json:"count"`
+}
+
+type a2aMeshResponse struct {
+	Sessions []a2a.MeshSession  `json:"sessions"`
+	Topology []a2a.TopologyEdge `json:"topology"`
 }
 
 // handleStartA2ASession starts a brokered session between two of the CALLER's
@@ -63,5 +77,38 @@ func (s *Server) handleStartA2ASession(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"session_id": sessionID})
+	return nil
+}
+
+// handleStartA2AMesh starts a directed full mesh across the caller tenant's
+// site-labeled agents. The tenant is still the authenticated tenant, never a
+// request field; site labels only shape the matrix.
+func (s *Server) handleStartA2AMesh(w http.ResponseWriter, r *http.Request) error {
+	if s.a2aMesh == nil {
+		return apierror.Unavailable("agent-to-agent mesh coordination is not enabled")
+	}
+	var req a2aMeshRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	var resp a2aMeshResponse
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		sessions, e := s.a2aMesh.StartMesh(sc.Tenant.String(), req.Agents, req.Mode, req.Count)
+		if e != nil {
+			return apierror.BadRequest(e.Error())
+		}
+		resp = a2aMeshResponse{
+			Sessions: sessions,
+			Topology: s.a2aMesh.TopologyOverlay(sc.Tenant.String()),
+		}
+		return s.recordAudit(ctx, sc, r, "a2a.mesh.start", "", map[string]any{
+			"site_edges":    len(resp.Topology),
+			"session_count": len(resp.Sessions),
+			"mode":          req.Mode,
+		})
+	}); err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusCreated, resp)
 	return nil
 }

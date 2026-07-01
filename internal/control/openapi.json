@@ -5205,6 +5205,162 @@
         }
       }
     },
+    "/v1/a2a/mesh": {
+      "post": {
+        "operationId": "startA2AMesh",
+        "summary": "Start a tenant-scoped agent-to-agent site mesh",
+        "description": "Builds a directed full mesh across the caller tenant's site-labeled agents. The tenant is taken from the authenticated principal, never the request body; requires agent:write.",
+        "tags": [
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "agents"
+                ],
+                "properties": {
+                  "agents": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "agent_id",
+                        "site"
+                      ],
+                      "properties": {
+                        "agent_id": {
+                          "type": "string"
+                        },
+                        "site": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": [
+                      "udp",
+                      "tcp"
+                    ]
+                  },
+                  "count": {
+                    "type": "integer",
+                    "format": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The scheduled directed mesh sessions and initial topology overlay.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tenant_id": {
+                            "type": "string"
+                          },
+                          "session_id": {
+                            "type": "string"
+                          },
+                          "from_site": {
+                            "type": "string"
+                          },
+                          "to_site": {
+                            "type": "string"
+                          },
+                          "initiator_agent": {
+                            "type": "string"
+                          },
+                          "responder_agent": {
+                            "type": "string"
+                          },
+                          "mode": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer",
+                            "format": "int64"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "topology": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tenant_id": {
+                            "type": "string"
+                          },
+                          "from_site": {
+                            "type": "string"
+                          },
+                          "to_site": {
+                            "type": "string"
+                          },
+                          "initiator_agent": {
+                            "type": "string"
+                          },
+                          "responder_agent": {
+                            "type": "string"
+                          },
+                          "session_id": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "healthy",
+                              "degraded"
+                            ]
+                          },
+                          "metrics": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/tests/bundle": {
       "get": {
         "operationId": "getTestBundle",

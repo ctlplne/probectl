@@ -589,8 +589,11 @@ unsigned, tampered, or wrong-session frames and only counts authenticated probes
   synchronized (exact within one host; use **NTP** across hosts). Round-trip is
   clock-independent.
 
-Sessions are brokered in-memory and started through the tenant/RBAC-scoped A2A
-session API.
+Pair sessions and full site meshes are brokered in-memory and started through
+the tenant/RBAC-scoped A2A APIs (`POST /v1/a2a/sessions` and
+`POST /v1/a2a/mesh`). The mesh API accepts site-labeled agents, binds tenant
+identity from the authenticated caller, schedules every directed site pair, and
+contributes a site-to-site topology overlay.
 
 ### Path discovery
 

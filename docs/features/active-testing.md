@@ -207,7 +207,9 @@ probectl test create \
   and it is not an intrusion-prevention system. A canary tells you something is
   wrong; a human decides what to do about it.
 - **A2A is opt-in.** Two-way agent measurement is disabled by default; you must
-  enable it and have agents at both ends.
+  enable it and have agents at both ends. For site-to-site testing, start a
+  tenant-scoped mesh with site-labeled agents so every directed site pair gets a
+  brokered A2A session and topology edge.
 - **Probes fail closed.** A probe with a missing credential, an unverifiable
   target identity, or an unreachable control plane stops or reports failure rather
   than guessing — silence is never reported as success.
