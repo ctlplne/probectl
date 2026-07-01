@@ -352,6 +352,9 @@ func (a *Agent) logFlushStats(msg string, flows, edges, l7calls int) {
 		"drop_l7_active_read_failures_total", st.L7ActiveReadFailures,
 		"l7_scope_sync_failures_total", st.L7ScopeSyncFailures,
 		"drop_other_total", st.Other,
+		"l7_evicted_total", a.L7Evicted(),
+		"service_map_evicted_total", a.agg.ServiceMap().Evicted(),
+		"l7_manager_evicted_total", a.l7man.Evicted(),
 		"l7_attach_failures", st.L7AttachFailures, "filtered_non_ipv4_total", st.FilteredNonIPv4)
 }
 

@@ -269,8 +269,10 @@ chunk. The live sources sum those counters on flush and fold them into
 The flush log carries both the roll-up and the reason labels:
 `drop_decode_failures_total`, `drop_l4_ring_buffer_full_total`,
 `drop_l7_ring_buffer_full_total`, `drop_l7_active_read_failures_total`, and
-`drop_other_total`, plus `observed_total`, `l7_total`, `l7_attach_failures`, and
-the legacy `filtered_non_ipv4_total` unsupported-family counter. If only counters
+`drop_other_total`, plus `observed_total`, `l7_total`,
+`l7_scope_sync_failures_total`, `l7_attach_failures`, `l7_evicted_total`,
+`service_map_evicted_total`, `l7_manager_evicted_total`, and the legacy
+`filtered_non_ipv4_total` unsupported-family counter. If only counters
 changed and there is no flow batch to emit, the agent still logs
 `ebpf counters updated` so an all-dropped window is visible — probectl observes
 probectl.

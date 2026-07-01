@@ -3,8 +3,10 @@
 package ebpf
 
 import (
+	"bytes"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -111,5 +113,77 @@ func TestAgentL7IdleSweep(t *testing.T) {
 	}
 	if a.L7Evicted() < 10 {
 		t.Errorf("after idle sweep: L7Evicted() = %d, want >= 10", a.L7Evicted())
+	}
+}
+
+func TestFlushStatsIncludesEvictions(t *testing.T) {
+	var logs bytes.Buffer
+	cfg := &Config{
+		TenantID:        "t1",
+		Host:            "node-1",
+		FlushInterval:   time.Hour,
+		MaxL7Conns:      1,
+		MaxServiceEdges: 1,
+		L7ConnIdleTTL:   5 * time.Minute,
+	}
+	a := newAgentWith(cfg, slog.New(slog.NewTextHandler(&logs, nil)), &sliceSource{}, NopEnricher{}, &captureEmitter{})
+
+	base := time.Unix(0, 0)
+	req := []byte("GET /x HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+	observeConn := func(connID uint64, port uint32) {
+		ts := base.Add(time.Duration(connID) * time.Millisecond)
+		a.observeL7(L7Event{
+			ConnID:      connID,
+			TenantID:    "t1",
+			Source:      Endpoint{Workload: "client"},
+			Destination: Endpoint{Workload: "svc", Port: port},
+			Transport:   "tcp",
+			Data:        l7.DataEvent{Kind: l7.Request, Time: ts, Payload: req},
+		})
+		a.observe(Flow{
+			TenantID:    "t1",
+			Source:      Endpoint{Workload: "client"},
+			Destination: Endpoint{Workload: "svc", Port: port},
+			Transport:   "tcp",
+			Observed:    ts,
+		})
+	}
+
+	observeConn(1, 10001)
+	observeConn(2, 10002)
+	if a.L7Evicted() == 0 {
+		t.Fatal("setup: agent L7 identity eviction did not fire")
+	}
+	if a.agg.ServiceMap().Evicted() == 0 {
+		t.Fatal("setup: service-map eviction did not fire")
+	}
+
+	// Let the parser manager's own cap fire too. The agent identity cap already
+	// proved its path above; disabling it here avoids pre-closing the manager
+	// tracker before Manager.OnData can enforce its own cap.
+	a.l7connsCap = 0
+	a.l7man.SetBounds(1, 5*time.Minute)
+	observeConn(3, 10003)
+	observeConn(4, 10004)
+	if a.l7man.Evicted() == 0 {
+		t.Fatal("setup: L7 manager eviction did not fire")
+	}
+
+	a.logFlushStats("ebpf flows emitted", 0, 0, 0)
+	logBody := logs.String()
+	for _, want := range []string{
+		"tenant_id=t1",
+		"l7_evicted_total=",
+		"service_map_evicted_total=",
+		"l7_manager_evicted_total=",
+	} {
+		if !strings.Contains(logBody, want) {
+			t.Fatalf("flush stats log missing %q:\n%s", want, logBody)
+		}
+	}
+	if strings.Contains(logBody, "l7_evicted_total=0") ||
+		strings.Contains(logBody, "service_map_evicted_total=0") ||
+		strings.Contains(logBody, "l7_manager_evicted_total=0") {
+		t.Fatalf("flush stats emitted a zero eviction counter after forced pressure:\n%s", logBody)
 	}
 }
