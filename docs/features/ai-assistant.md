@@ -46,6 +46,13 @@ assistant path inside your network; a remote model is explicit opt-in and must
 pass consent, redaction, and audit before tenant evidence can leave
 infrastructure you control.
 
+This is why probectl describes the path as **observability to network
+intelligence to assurance**. Observability is the raw, tenant-scoped evidence;
+network intelligence is the cited cross-plane explanation; assurance is the
+confidence that any next step is bounded, reviewed, and auditable. The assistant
+can support active investigation and propose a human-gated action, but it cannot
+execute a network change or bypass the operator's change process.
+
 ## How it works
 
 **The query layer has no tenant field — this is the load-bearing decision.** Every

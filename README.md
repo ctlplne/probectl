@@ -139,6 +139,12 @@ scoped to exactly what the caller is allowed to see. Local Ollama/vLLM keeps the
 LLM path air-gapped; any remote model requires explicit consent, redaction, and
 audit before tenant evidence can leave your network.
 
+That is the product arc: from sovereign network observability to cited network
+intelligence and operational assurance. probectl can move an incident from
+"something is wrong" into an active investigation with grounded evidence and a
+human-gated proposal; it still observes and advises only, and never executes a
+network change on its own.
+
 ## Who it's for
 
 - **Regulated & sovereignty-conscious orgs** (finance, healthcare, public
