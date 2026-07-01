@@ -271,7 +271,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   {
     id: 'F47',
     name: 'Network chaos',
-    status: 'delivered',
+    status: 'partial',
     source: 'prd-v1.0:3',
   },
   {

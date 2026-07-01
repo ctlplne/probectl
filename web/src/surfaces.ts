@@ -398,8 +398,9 @@ export const SURFACES: SurfaceDecl[] = [
     capability: 'Network chaos experiments and dependency matrix',
     featureIds: ['F47'],
     sprint: 'S53',
-    kind: 'federated',
-    evidence: ['file:docs/chaos.md', 'file:internal/chaos'],
+    kind: 'none-by-design',
+    noneReason:
+      'Library/test-harness only: internal/chaos and the dependency drill can exercise local faults, but no REST, UI, MCP, CLI, or agent-control surface serves chaos until a human-gated and audited operator workflow exists.',
   },
   {
     capability: 'Tenant isolation model operations (pooled, siloed, hybrid)',
