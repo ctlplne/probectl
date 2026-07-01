@@ -564,7 +564,7 @@ func (e *Engine) eraseProviderRows(ctx context.Context, tenantID string) (StoreR
 	var deleted int64
 	verified := true
 	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
-		for _, t := range []string{"usage_records", "tenant_quotas", "tenant_branding", "break_glass_grants", "tenant_retention", "tenant_keys", "tenant_fairness", "tenant_governance"} {
+		for _, t := range tenancy.ProviderOwnedTenantTables() {
 			tag, err := q.Exec(ctx, `DELETE FROM `+pgIdent(t)+` WHERE tenant_id = $1`, tenantID)
 			if err != nil {
 				return fmt.Errorf("delete %s: %w", t, err)

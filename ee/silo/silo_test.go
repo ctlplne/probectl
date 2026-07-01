@@ -48,7 +48,7 @@ func TestParseDataPlanes(t *testing.T) {
 // top of physical separation) + DML grants — and the provider-owned deny
 // list excluded.
 func TestProvisionPlan(t *testing.T) {
-	plan := ProvisionPlan("t_abc", []string{"tests", "agents", "break_glass_grants"})
+	plan := ProvisionPlan("t_abc", []string{"tests", "agents", "break_glass_grants", "tenant_retention"})
 	joined := strings.Join(plan, "\n")
 
 	for _, want := range []string{
@@ -65,8 +65,10 @@ func TestProvisionPlan(t *testing.T) {
 			t.Errorf("plan missing %q", want)
 		}
 	}
-	if strings.Contains(joined, "break_glass_grants") {
-		t.Error("provider-owned tables must never enter a tenant silo")
+	for _, providerOwned := range []string{"break_glass_grants", "tenant_retention"} {
+		if strings.Contains(joined, providerOwned) {
+			t.Errorf("provider-owned table %s must never enter a tenant silo", providerOwned)
+		}
 	}
 	// Order: schema first, grants before any table.
 	if !strings.HasPrefix(plan[0], "CREATE SCHEMA") {
