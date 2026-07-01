@@ -40,6 +40,10 @@
       "description": "eBPF host/L7 service-map read model."
     },
     {
+      "name": "siem",
+      "description": "SIEM export status and delivery posture."
+    },
+    {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
     }
@@ -4010,6 +4014,33 @@
         }
       }
     },
+    "/v1/siem/status": {
+      "get": {
+        "operationId": "getSIEMStatus",
+        "summary": "Get SIEM export status",
+        "tags": [
+          "siem"
+        ],
+        "description": "Read-only posture for the operator-configured SIEM export. The response reports whether export is enabled and configured, which preset/format are active, durable no-drop delivery posture, and sanitized endpoint metadata. It never returns the ingest token or full endpoint path/query.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SIEM export status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SIEMStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/threat/detections": {
       "get": {
         "operationId": "listThreatDetections",
@@ -6498,6 +6529,113 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "SIEMStatus": {
+        "type": "object",
+        "description": "Read-only SIEM export posture. Endpoint path/query and ingest token are intentionally omitted.",
+        "required": [
+          "id",
+          "name",
+          "summary",
+          "siem_running",
+          "enabled",
+          "configured",
+          "preset",
+          "format",
+          "endpoint_configured",
+          "endpoint_tls_configured",
+          "token_configured",
+          "audit_poll_interval",
+          "buffer_size",
+          "redact_key_count",
+          "tls_required",
+          "no_drop_delivery",
+          "streams"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "siem_running": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "disabled",
+              "missing_endpoint",
+              "insecure_endpoint",
+              "invalid_format",
+              "configured"
+            ]
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "generic",
+              "splunk",
+              "sentinel",
+              "elastic",
+              "chronicle"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "description": "Resolved format when valid; raw configured value when reason=invalid_format."
+          },
+          "endpoint_configured": {
+            "type": "boolean"
+          },
+          "endpoint_tls_configured": {
+            "type": "boolean"
+          },
+          "endpoint_host": {
+            "type": "string",
+            "description": "Only scheme-free host:port metadata; path, query, and credentials are never returned."
+          },
+          "token_configured": {
+            "type": "boolean"
+          },
+          "audit_poll_interval": {
+            "type": "string"
+          },
+          "buffer_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "redact_key_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tls_required": {
+            "type": "boolean"
+          },
+          "no_drop_delivery": {
+            "type": "boolean"
+          },
+          "streams": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "audit",
+                "threat"
+              ]
+            }
           }
         }
       },

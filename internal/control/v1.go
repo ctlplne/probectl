@@ -93,6 +93,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/inventory/views", s.handleCreateInventoryView, permAgentWrite},
 		{http.MethodGet, "/v1/inventory/views/{id}", s.handleGetInventoryView, permAgentRead},
 		{http.MethodGet, "/v1/tls/posture", s.handleTLSPosture, permThreatRead},
+		{http.MethodGet, "/v1/siem/status", s.handleSIEMStatus, permThreatRead},
 		{http.MethodGet, "/v1/threat/detections", s.handleThreatDetections, permThreatRead},
 		{http.MethodGet, "/v1/cmdb/lookup", s.handleCMDBLookup, permCMDBRead},
 		{http.MethodGet, "/v1/secrets/health", s.handleSecretsHealth, permDirectoryRead},

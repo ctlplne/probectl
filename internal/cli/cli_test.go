@@ -547,6 +547,42 @@ func TestCLIEBPFServiceMapSurface(t *testing.T) {
 	}
 }
 
+func TestCLISIEMStatusSurface(t *testing.T) {
+	op, ok := surfaceCommands["siem"].Ops["status"]
+	if !ok {
+		t.Fatal("missing probectl siem status surface")
+	}
+	if op.Method != http.MethodGet || op.Path != "/v1/siem/status" {
+		t.Fatalf("siem status op = %+v, want GET /v1/siem/status", op)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/siem/status", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":               "siem",
+			"name":             "SIEM export",
+			"summary":          "SIEM export is configured for splunk/cef at splunk.example:8088",
+			"siem_running":     true,
+			"enabled":          true,
+			"configured":       true,
+			"preset":           "splunk",
+			"format":           "cef",
+			"tls_required":     true,
+			"no_drop_delivery": true,
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "siem", "status")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "SIEM export") || !strings.Contains(out, "configured for splunk/cef") {
+		t.Fatalf("SIEM status output missing expected posture:\n%s", out)
+	}
+}
+
 func TestCLILifecycleExportStreamsTenantBundle(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/lifecycle/export", func(w http.ResponseWriter, r *http.Request) {

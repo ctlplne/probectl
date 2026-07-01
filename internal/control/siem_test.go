@@ -270,6 +270,9 @@ func TestBuildSIEMGating(t *testing.T) {
 	if _, ok := BuildSIEM(&config.Config{SIEMEnabled: true, SIEMEndpoint: ""}, log); ok {
 		t.Fatal("missing endpoint must not build")
 	}
+	if _, ok := BuildSIEM(&config.Config{SIEMEnabled: true, SIEMEndpoint: "http://x"}, log); ok {
+		t.Fatal("non-HTTPS endpoint must not build")
+	}
 	if _, ok := BuildSIEM(&config.Config{SIEMEnabled: true, SIEMEndpoint: "https://x", SIEMFormat: "bogus"}, log); ok {
 		t.Fatal("unknown format must not build")
 	}

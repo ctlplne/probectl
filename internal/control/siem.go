@@ -45,6 +45,10 @@ func BuildSIEM(cfg *config.Config, log *slog.Logger) (*siem.Forwarder, bool) {
 		log.Warn("siem enabled but PROBECTL_SIEM_ENDPOINT is empty; export disabled")
 		return nil, false
 	}
+	if _, ok, _ := siemEndpointPosture(cfg.SIEMEndpoint); !ok {
+		log.Warn("siem enabled but PROBECTL_SIEM_ENDPOINT is not a valid HTTPS URL; export disabled")
+		return nil, false
+	}
 	preset, ok := siem.ParsePreset(cfg.SIEMPreset)
 	if !ok {
 		preset = siem.PresetGeneric

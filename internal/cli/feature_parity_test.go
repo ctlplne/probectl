@@ -52,7 +52,7 @@ var requiredFeatureCLICoverage = map[string]cliFeatureCoverage{
 	"F23":                    {Command: "probectl audit list"},
 	"F24":                    {Reason: "Tenant/org/team/project hierarchy is a storage and authorization model today; no runtime CLI/API surface is intended yet."},
 	"F25":                    {Command: "probectl scim tokens"},
-	"F26":                    {Reason: "SIEM forwarding is configured/deployed as a background integration, not operated through a tenant CLI route."},
+	"F26":                    {Command: "probectl siem status"},
 	"F27":                    {Command: "probectl oncall alerts"},
 	"F28":                    {Command: "probectl rollout list"},
 	"F29":                    {Reason: "IaC and GitOps are external Terraform/Helm/GitOps workflows; probectl does not wrap those tools."},

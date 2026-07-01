@@ -224,6 +224,9 @@ var surfaceCommands = map[string]surfaceCommand{
 	"secret": {Name: "secret", Summary: "secret backend health", Ops: map[string]apiOp{
 		"health": {Method: http.MethodGet, Path: "/v1/secrets/health"},
 	}},
+	"siem": {Name: "siem", Summary: "SIEM export status", Ops: map[string]apiOp{
+		"status": {Method: http.MethodGet, Path: "/v1/siem/status", Description: "show SIEM export posture"},
+	}},
 	"scim": {Name: "scim", Summary: "SCIM identity-provider tokens", Ops: map[string]apiOp{
 		"tokens":       {Method: http.MethodGet, Path: "/v1/directory/scim-tokens"},
 		"create-token": {Method: http.MethodPost, Path: "/v1/directory/scim-tokens"},
