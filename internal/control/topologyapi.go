@@ -13,6 +13,7 @@ package control
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -309,12 +310,15 @@ func (tc *TopologyConsumer) handleEBPFLane(ctx context.Context, msg bus.Message,
 		}
 		tc.ledger.addStored("ebpf", 1)
 	}
-	// ARCH-008: persist the aggregates (best-effort — a store blip must not drop
-	// the in-RAM graph update above; the durable copy backfills on the next batch).
+	// SPINE-001: persist the aggregates before acknowledging the bus message.
+	// The in-RAM graph update above is idempotent enough for redelivery; a
+	// durable-store failure must return an error so Kafka/NATS/direct mode does
+	// not commit an original batch that only exists in a volatile view.
 	if tc.ebpf != nil && len(durable) > 0 {
 		if err := tc.ebpf.Insert(ctx, durable); err != nil {
 			tc.ledger.addPersistFailed("ebpf", uint64(len(durable)))
-			tc.log.Warn("ebpf aggregate persist failed (in-RAM graph unaffected)", "error", err.Error())
+			tc.log.Error("ebpf aggregate persist failed; refusing ack so the bus can redeliver", "error", err.Error())
+			return fmt.Errorf("topology: persist ebpf aggregates: %w", err)
 		}
 	}
 	return nil

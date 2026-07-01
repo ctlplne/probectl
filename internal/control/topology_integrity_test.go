@@ -153,8 +153,8 @@ func TestTopologyIntegrityCountsUnscopedPersistFailedAndStored(t *testing.T) {
 			FirstSeenUnixNano: at.UnixNano(),
 		},
 	}}
-	if err := tc.handleEBPF(ctx, bus.Message{Value: mustTopologyProto(t, ebpfBatch)}); err != nil {
-		t.Fatalf("ebpf unscoped/persist-failed batch: %v", err)
+	if err := tc.handleEBPF(ctx, bus.Message{Value: mustTopologyProto(t, ebpfBatch)}); err == nil {
+		t.Fatal("durable eBPF persist failure must return an error so the bus does not acknowledge the original batch")
 	}
 
 	if err := tc.handleBGP(ctx, bus.Message{Value: mustTopologyProto(t, &bgpv1.BGPEvent{
