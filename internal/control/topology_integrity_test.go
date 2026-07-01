@@ -81,6 +81,31 @@ func TestTopologyIntegrityCountsMalformedInputs(t *testing.T) {
 	}
 }
 
+func TestTopologyRejectsBGPEnvelopePayloadTenantMismatch(t *testing.T) {
+	ctx := context.Background()
+	store := topology.NewMemoryStore()
+	tc := NewTopologyConsumer(nil, store, t6Log())
+	raw := mustTopologyProto(t, &bgpv1.BGPEvent{
+		TenantId:     "tenant-a",
+		Prefix:       "198.51.100.0/24",
+		NewOriginAsn: 64500,
+	})
+
+	if err := tc.handleBGP(ctx, bus.Message{Key: []byte("tenant-b"), Value: raw}); err != nil {
+		t.Fatalf("mismatched bgp event should be dropped without retry: %v", err)
+	}
+	stats := tc.IntegrityStats()
+	if stats.BGP.Received != 1 || stats.BGP.Rejected != 1 || stats.BGP.Stored != 0 {
+		t.Fatalf("bgp stats = %+v, want received=1 rejected=1 stored=0", stats.BGP)
+	}
+	for _, tenant := range []string{"tenant-a", "tenant-b"} {
+		snap := store.Latest(tenant)
+		if len(snap.Nodes) != 0 || len(snap.Edges) != 0 {
+			t.Fatalf("tenant %s topology mutated by mismatched bgp event: nodes=%d edges=%d", tenant, len(snap.Nodes), len(snap.Edges))
+		}
+	}
+}
+
 func TestTopologyIntegrityCountsRejectedInputs(t *testing.T) {
 	ctx := context.Background()
 	reg := metrics.New("test", "abc")
@@ -162,7 +187,7 @@ func TestTopologyIntegrityCountsUnscopedPersistFailedAndStored(t *testing.T) {
 	})}); err != nil {
 		t.Fatalf("unscoped bgp: %v", err)
 	}
-	if err := tc.handleBGP(ctx, bus.Message{Value: mustTopologyProto(t, &bgpv1.BGPEvent{
+	if err := tc.handleBGP(ctx, bus.Message{Key: []byte("tenant-a"), Value: mustTopologyProto(t, &bgpv1.BGPEvent{
 		TenantId: "tenant-a", Prefix: "198.51.100.0/24", NewOriginAsn: 64500,
 	})}); err != nil {
 		t.Fatalf("stored bgp: %v", err)

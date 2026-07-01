@@ -102,6 +102,19 @@ func TestCrossPlaneCorrelationE2E(t *testing.T) {
 
 	now := time.Now().UTC()
 
+	// Poison attempt — key says tenant B, payload claims tenant A. Consumers must
+	// trust the authenticated bus envelope first and reject this without opening
+	// a tenant A BGP-only incident or a tenant B topology/signal.
+	publishProto(ctx, t, b, bus.BGPEventsTopic, tenantB, &bgpv1.BGPEvent{
+		TenantId:           tenantA,
+		EventType:          bgpv1.EventType_EVENT_TYPE_POSSIBLE_HIJACK,
+		Severity:           bgpv1.Severity_SEVERITY_CRITICAL,
+		Prefix:             "198.51.100.0/24",
+		Message:            "poisoned tenant claim",
+		Collector:          "rrc00",
+		DetectedAtUnixNano: now.Add(-time.Minute).UnixNano(),
+	})
+
 	// Plane 1 — routing: a possible hijack of the prefix (tenant A).
 	bgpEvt := &bgpv1.BGPEvent{
 		TenantId:           tenantA,

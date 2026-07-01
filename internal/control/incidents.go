@@ -243,7 +243,11 @@ func (cs *BGPIncidentConsumer) handleLane(ctx context.Context, msg bus.Message, 
 		cs.log.Warn("skipping malformed bgp event", "error", err)
 		return nil
 	}
-	stampBGPEventLaneTenant(&ev, laneTenant)
+	if _, err := bindBGPEventAuthenticatedTenant(&ev, msg, laneTenant); err != nil {
+		cs.log.Error("REJECTED bgp event: tenant envelope rejected (RED-005, fail closed)",
+			"key_tenant", string(msg.Key), "lane_tenant", laneTenant, "payload_tenant", ev.GetTenantId(), "error", err.Error())
+		return nil
+	}
 	if _, err := cs.correlator.Ingest(ctx, signalFromBGPEvent(&ev)); err != nil {
 		cs.log.Warn("correlate bgp event into incident failed", "error", err)
 		return fmt.Errorf("bgp incident correlation: %w", err)

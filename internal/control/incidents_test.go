@@ -101,6 +101,34 @@ func TestBGPIncidentConsumerReturnsCorrelatorError(t *testing.T) {
 	}
 }
 
+func TestBGPIncidentConsumerRejectsEnvelopePayloadTenantMismatch(t *testing.T) {
+	store := &recordingIncidentStore{}
+	c := incident.NewCorrelator(store, time.Minute, intelTestLog())
+	consumer := NewBGPIncidentConsumer(bus.NewMemory(), c, intelTestLog())
+	raw, err := proto.Marshal(&bgpv1.BGPEvent{
+		TenantId:  "tenant-a",
+		EventType: bgpv1.EventType_EVENT_TYPE_POSSIBLE_HIJACK,
+		Severity:  bgpv1.Severity_SEVERITY_CRITICAL,
+		Prefix:    "203.0.113.0/24",
+		Message:   "possible hijack",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = consumer.handleLane(context.Background(), bus.Message{
+		Topic: bus.BGPEventsTopic,
+		Key:   []byte("tenant-b"),
+		Value: raw,
+	}, "")
+	if err != nil {
+		t.Fatalf("mismatched event should be dropped without retry: %v", err)
+	}
+	if store.openCalls != 0 || store.created != 0 || store.appended != 0 {
+		t.Fatalf("mismatched event reached incident store: open=%d created=%d appended=%d", store.openCalls, store.created, store.appended)
+	}
+}
+
 type failingIncidentStore struct {
 	err error
 }
@@ -114,5 +142,26 @@ func (s failingIncidentStore) Create(context.Context, *incident.Incident) (*inci
 }
 
 func (s failingIncidentStore) AppendSignal(context.Context, string, string, incident.Signal) (*incident.Incident, error) {
+	return nil, errors.New("unexpected append")
+}
+
+type recordingIncidentStore struct {
+	openCalls int
+	created   int
+	appended  int
+}
+
+func (s *recordingIncidentStore) OpenIncidents(context.Context, string) ([]*incident.Incident, error) {
+	s.openCalls++
+	return nil, nil
+}
+
+func (s *recordingIncidentStore) Create(_ context.Context, inc *incident.Incident) (*incident.Incident, error) {
+	s.created++
+	return inc, nil
+}
+
+func (s *recordingIncidentStore) AppendSignal(context.Context, string, string, incident.Signal) (*incident.Incident, error) {
+	s.appended++
 	return nil, errors.New("unexpected append")
 }

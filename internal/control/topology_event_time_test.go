@@ -32,7 +32,7 @@ func TestTopologyConsumerUsesEventTimeForBGP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := tc.handleBGP(context.Background(), bus.Message{Value: raw}); err != nil {
+	if err := tc.handleBGP(context.Background(), bus.Message{Key: []byte("t1"), Value: raw}); err != nil {
 		t.Fatal(err)
 	}
 

@@ -3,7 +3,6 @@
 package control
 
 import (
-	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	devicev1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/device/v1"
 	ebpfv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/ebpf/v1"
 	flowv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/flow/v1"
@@ -46,11 +45,5 @@ func stampDeviceBatchLaneTenant(batch *devicev1.DeviceMetricBatch, tenant string
 	}
 	for _, m := range batch.GetMetrics() {
 		m.TenantId = tenant
-	}
-}
-
-func stampBGPEventLaneTenant(ev *bgpv1.BGPEvent, tenant string) {
-	if tenant != "" && ev != nil {
-		ev.TenantId = tenant
 	}
 }
