@@ -202,4 +202,8 @@ view ID.
 gateway IP / public hops) are absent from the results, and the UI renders that
 absence **honestly** — "withheld (privacy)" — never a re-derived or fabricated
 value. The snapshot rebuilds from the stream after a restart; longer history
-lives in the TSDB series the pipeline writes.
+lives in the TSDB series the pipeline writes. The latest-view snapshot is also
+an age-pruned derived cache: `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS` removes
+stale SSIDs, gateway IPs, session targets, and attribution labels from tenant
+query surfaces, with `lifecycle.retention_sweep` receipts when entries are
+deleted.

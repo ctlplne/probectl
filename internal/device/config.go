@@ -91,6 +91,11 @@ type Config struct {
 
 	Bus BusConfig `yaml:"bus"`
 
+	// CorrelationRetention bounds the in-agent device/interface identity cache
+	// used to enrich path/flow signals with sysName and interface labels.
+	// 0 disables age pruning; default is 90 days.
+	CorrelationRetention time.Duration `yaml:"correlation_retention"`
+
 	Devices []Target   `yaml:"devices"`
 	Traps   TrapConfig `yaml:"traps"`
 }
@@ -98,7 +103,7 @@ type Config struct {
 // Default returns the built-in defaults (memory bus, hostname agent id).
 func Default() *Config {
 	host, _ := os.Hostname()
-	return &Config{AgentID: host, Bus: BusConfig{Mode: "memory"}}
+	return &Config{AgentID: host, Bus: BusConfig{Mode: "memory"}, CorrelationRetention: 90 * 24 * time.Hour}
 }
 
 // Load reads the YAML config at path (if non-empty) over the defaults, then
@@ -158,6 +163,11 @@ func (c *Config) applyEnv(getenv func(string) string) {
 			}
 		}
 	}
+	if v := getenv("PROBECTL_DEVICE_CORRELATION_RETENTION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			c.CorrelationRetention = d
+		}
+	}
 	// Single-device quick start: PROBECTL_DEVICE_TARGET=<address>, with
 	// transport/credential/interval companions.
 	if target := getenv("PROBECTL_DEVICE_TARGET"); target != "" {
@@ -188,6 +198,9 @@ func (c *Config) applyEnv(getenv func(string) string) {
 func (c *Config) Validate() error {
 	if c.TenantID == "" {
 		return errors.New("device: tenant_id is required (PROBECTL_DEVICE_TENANT)")
+	}
+	if c.CorrelationRetention < 0 {
+		return errors.New("device: correlation_retention must be >= 0")
 	}
 	if len(c.Devices) == 0 && !c.Traps.Enabled {
 		return errors.New("device: no devices configured")

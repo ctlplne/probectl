@@ -274,6 +274,51 @@ func (g *Graph) Traverse(from, to string, at time.Time) []string {
 func (g *Graph) NodeCount() int { g.mu.RLock(); defer g.mu.RUnlock(); return len(g.nodes) }
 func (g *Graph) EdgeCount() int { g.mu.RLock(); defer g.mu.RUnlock(); return len(g.edges) }
 
+// PruneBefore removes graph elements whose last observation is older than the
+// cutoff. It is the store-owned age-retention clock for derived topology
+// identity labels: after pruning, stale nodes/edges are gone from Latest,
+// SnapshotAt, Neighbors, and Traverse rather than merely hidden by a handler.
+func (g *Graph) PruneBefore(cutoff time.Time) (nodesDeleted, edgesDeleted int) {
+	if cutoff.IsZero() {
+		return 0, 0
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for id, e := range g.edges {
+		if e.LastSeen.Before(cutoff) {
+			delete(g.edges, id)
+			edgesDeleted++
+		}
+	}
+	for id, n := range g.nodes {
+		if n.LastSeen.Before(cutoff) {
+			delete(g.nodes, id)
+			nodesDeleted++
+		}
+	}
+	for id, e := range g.edges {
+		if _, ok := g.nodes[e.From]; !ok {
+			delete(g.edges, id)
+			edgesDeleted++
+			continue
+		}
+		if _, ok := g.nodes[e.To]; !ok {
+			delete(g.edges, id)
+			edgesDeleted++
+		}
+	}
+	if len(g.recent) > 0 {
+		kept := g.recent[:0]
+		for _, e := range g.recent {
+			if _, ok := g.edges[e.ID]; ok {
+				kept = append(kept, e)
+			}
+		}
+		g.recent = kept
+	}
+	return nodesDeleted, edgesDeleted
+}
+
 func validAt(first, last, at time.Time) bool {
 	return !at.Before(first) && !at.After(last)
 }
@@ -304,6 +349,16 @@ func (g *Graph) drainRecentEdges() []Edge {
 	defer g.mu.Unlock()
 	out := g.recent
 	g.recent = nil
+	return out
+}
+
+func (g *Graph) allEdges() []Edge {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	out := make([]Edge, 0, len(g.edges))
+	for _, e := range g.edges {
+		out = append(out, *e)
+	}
 	return out
 }
 

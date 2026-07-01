@@ -693,6 +693,7 @@ func startHAAndTenantLifecycle(
 	if td, ok := topoStore.(tenantlife.TopologyDeleter); ok {
 		lifeEngine.WithTopology(td)
 	}
+	lifeEngine.WithDerivedIdentityRetentionDays(cfg.DerivedIdentityRetentionDays)
 	if od, ok := otelStore.(tenantlife.OtelDeleter); ok {
 		lifeEngine.WithOtel(od)
 	}

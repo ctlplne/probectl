@@ -5,6 +5,7 @@ package device
 import (
 	"net/netip"
 	"sync"
+	"time"
 )
 
 // Ref points a signal from another plane (a path hop, a flow record) at the
@@ -26,28 +27,35 @@ type Ref struct {
 //
 // It is safe for concurrent use (the runtime updates it after every poll).
 type Correlator struct {
-	mu      sync.RWMutex
-	byIP    map[netip.Addr]Ref
-	devices map[string]Inventory // keyed by management address
+	mu       sync.RWMutex
+	byIP     map[netip.Addr]Ref
+	devices  map[string]Inventory // keyed by management address
+	lastSeen map[string]time.Time
 }
 
 // NewCorrelator returns an empty correlator.
 func NewCorrelator() *Correlator {
-	return &Correlator{byIP: map[netip.Addr]Ref{}, devices: map[string]Inventory{}}
+	return &Correlator{byIP: map[netip.Addr]Ref{}, devices: map[string]Inventory{}, lastSeen: map[string]time.Time{}}
 }
 
 // Update replaces a device's inventory (called after each successful poll).
 func (c *Correlator) Update(inv Inventory) {
+	c.UpdateAt(inv, time.Now())
+}
+
+// UpdateAt replaces a device's inventory at a caller-supplied observation time.
+// Tests and retention sweeps use this to make device-label aging deterministic.
+func (c *Correlator) UpdateAt(inv Inventory, at time.Time) {
+	if at.IsZero() {
+		at = time.Now()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	// Drop the device's previous IP index entries, then re-add.
-	for ip, ref := range c.byIP {
-		if ref.Device == inv.Device {
-			delete(c.byIP, ip)
-		}
-	}
+	c.dropDeviceIPsLocked(inv.Device)
 	c.devices[inv.Device] = inv
+	c.lastSeen[inv.Device] = at
 
 	if mgmt, err := netip.ParseAddr(inv.Device); err == nil {
 		c.byIP[mgmt] = Ref{Device: inv.Device, SysName: inv.SysName}
@@ -55,6 +63,34 @@ func (c *Correlator) Update(inv Inventory) {
 	for _, ifc := range inv.Interfaces {
 		for _, a := range ifc.Addrs {
 			c.byIP[a] = Ref{Device: inv.Device, SysName: inv.SysName, IfIndex: ifc.Index, IfName: ifc.Name}
+		}
+	}
+}
+
+// PruneBefore removes inventories last observed before cutoff, including every
+// IP/interface lookup that could expose their sysName or interface labels.
+func (c *Correlator) PruneBefore(cutoff time.Time) int {
+	if cutoff.IsZero() {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	deleted := 0
+	for device, lastSeen := range c.lastSeen {
+		if lastSeen.Before(cutoff) {
+			c.dropDeviceIPsLocked(device)
+			delete(c.devices, device)
+			delete(c.lastSeen, device)
+			deleted++
+		}
+	}
+	return deleted
+}
+
+func (c *Correlator) dropDeviceIPsLocked(device string) {
+	for ip, ref := range c.byIP {
+		if ref.Device == device {
+			delete(c.byIP, ip)
 		}
 	}
 }

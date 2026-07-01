@@ -164,6 +164,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		case <-done:
 			return nil
 		case <-statsTicker.C:
+			r.pruneCorrelator(time.Now())
 			r.log.Info("device collector stats", "stats", r.StatsSnapshot(),
 				"correlated_devices", r.correlator.Devices())
 		}
@@ -224,13 +225,15 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 	}
 	defer conn.Close()
 
-	metrics, inv, err := pollSNMP(conn, dev, r.cfg.TenantID, r.cfg.AgentID, time.Now())
+	observedAt := time.Now()
+	metrics, inv, err := pollSNMP(conn, dev, r.cfg.TenantID, r.cfg.AgentID, observedAt)
 	if err != nil {
 		r.stats.PollErrors.Add(1)
 		r.log.Warn("snmp poll failed", "device", dev.Address, "error", err.Error())
 		return
 	}
-	r.correlator.Update(inv)
+	r.correlator.UpdateAt(inv, observedAt)
+	r.pruneCorrelator(observedAt)
 
 	// CORRECT-001: apply counter-reset detection before emitting. Cumulative
 	// counters (octets, errors, discards) must never decrease between polls —
@@ -248,6 +251,17 @@ func (r *Runtime) pollOnce(ctx context.Context, dev Target, cred Credential) {
 		return
 	}
 	r.stats.Metrics.Add(uint64(len(metrics)))
+}
+
+func (r *Runtime) pruneCorrelator(now time.Time) {
+	if r.cfg.CorrelationRetention <= 0 {
+		return
+	}
+	deleted := r.correlator.PruneBefore(now.Add(-r.cfg.CorrelationRetention))
+	if deleted > 0 {
+		r.log.Info("device correlation retention pruned",
+			"deleted_devices", deleted, "retention", r.cfg.CorrelationRetention.String())
+	}
 }
 
 // filterCounterResets inspects cumulative counter metrics, drops any that show

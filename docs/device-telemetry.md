@@ -74,6 +74,12 @@ few places probectl owns the names. In the TSDB they become `probectl_device_*`
 with labels `tenant_id, agent_id, device, device_name, source, if_index,
 if_name` (`source` is `snmp` or `gnmi`).
 
+The agent also keeps a tiny in-process correlation cache so a path hop or flow
+exporter can be explained as "this device/interface." That cache is not the
+source of metric history; it is a derived identity read model. Stale sysName and
+interface labels age out via `PROBECTL_DEVICE_CORRELATION_RETENTION` (default
+`2160h`, `0` disables) so old labels stop matching after the configured window.
+
 **Why one model matters:** a counter like "interface 7 out-octets" should look
 identical whether a 15-year-old switch coughed it up over SNMP or a modern box
 streamed it over gNMI — two thermometers, one chart column. Unifying at the

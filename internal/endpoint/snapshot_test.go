@@ -109,3 +109,64 @@ func TestSnapshotStoreBounds(t *testing.T) {
 		t.Fatalf("session targets = %d, want cap 10", len(ep5.Sessions))
 	}
 }
+
+func TestSnapshotStorePruneTenantBefore(t *testing.T) {
+	s := NewSnapshotStore(0)
+	base := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	s.Record("t-a", "old-laptop", rv(TypeWiFi, "OldNet", base,
+		map[string]float64{"rssi_dbm": -80}, map[string]string{"wifi.ssid": "OldNet"}))
+	s.Record("t-a", "old-laptop", rv(TypeGateway, "192.168.1.1", base,
+		map[string]float64{"rtt_ms": 5}, map[string]string{"gateway.ip": "192.168.1.1"}))
+	s.Record("t-a", "old-laptop", rv(TypeSession, "old.app.example", base,
+		map[string]float64{"total_ms": 1200}, nil))
+	s.Record("t-a", "fresh-laptop", rv(TypeWiFi, "FreshNet", base.Add(48*time.Hour),
+		map[string]float64{"rssi_dbm": -45}, map[string]string{"wifi.ssid": "FreshNet"}))
+	s.Record("t-b", "other-laptop", rv(TypeWiFi, "OtherNet", base,
+		map[string]float64{"rssi_dbm": -40}, map[string]string{"wifi.ssid": "OtherNet"}))
+
+	deleted := s.PruneTenantBefore("t-a", base.Add(24*time.Hour))
+	if deleted != 3 {
+		t.Fatalf("deleted = %d, want 3 stale observations", deleted)
+	}
+	views := s.List("t-a")
+	if len(views) != 1 || views[0].AgentID != "fresh-laptop" {
+		t.Fatalf("stale endpoint remained or fresh endpoint missing: %+v", views)
+	}
+	if views[0].WiFi == nil || views[0].WiFi.Attributes["wifi.ssid"] != "FreshNet" {
+		t.Fatalf("fresh endpoint label was pruned: %+v", views[0])
+	}
+	for _, v := range views {
+		if v.AgentID == "old-laptop" || endpointViewContains(v, "OldNet") || endpointViewContains(v, "192.168.1.1") {
+			t.Fatalf("stale endpoint identity label survived retention: %+v", v)
+		}
+	}
+	if got := s.List("t-b"); len(got) != 1 || got[0].AgentID != "other-laptop" {
+		t.Fatalf("tenant-b endpoint cache was touched: %+v", got)
+	}
+}
+
+func endpointViewContains(v View, value string) bool {
+	check := func(r *ResultView) bool {
+		if r == nil {
+			return false
+		}
+		if r.Target == value {
+			return true
+		}
+		for _, attr := range r.Attributes {
+			if attr == value {
+				return true
+			}
+		}
+		return false
+	}
+	if check(v.WiFi) || check(v.Gateway) || check(v.LastMile) || check(v.Attribution) {
+		return true
+	}
+	for i := range v.Sessions {
+		if check(&v.Sessions[i]) {
+			return true
+		}
+	}
+	return false
+}

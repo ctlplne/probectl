@@ -259,6 +259,70 @@ func TestRetentionSweepStoreLevel(t *testing.T) {
 	}
 }
 
+type retentionPruner struct {
+	deleted int
+	calls   []retentionPruneCall
+}
+
+type retentionPruneCall struct {
+	tenant string
+	cutoff time.Time
+}
+
+func (p *retentionPruner) PruneTenantBefore(tenant string, cutoff time.Time) int {
+	p.calls = append(p.calls, retentionPruneCall{tenant: tenant, cutoff: cutoff})
+	return p.deleted
+}
+
+type topologyRetentionPruner struct {
+	retentionPruner
+}
+
+func (p *topologyRetentionPruner) DeleteTenant(string) int { return 0 }
+
+func TestRetentionSweepPrunesDerivedIdentityCachesAndReceipts(t *testing.T) {
+	topo := &topologyRetentionPruner{retentionPruner: retentionPruner{deleted: 2}}
+	endpoints := &retentionPruner{deleted: 1}
+	audit := &capturedAudit{}
+	e := New(nil, nil, nil, nil, audit.sink, "", testLog()).
+		WithClock(func() time.Time { return t0 }).
+		WithTopology(topo).
+		WithEndpointRetention(endpoints).
+		WithDerivedIdentityRetentionDays(90)
+
+	err := e.pruneDerivedIdentityCaches(context.Background(), retentionSweepPolicy{
+		tenant:      "tnA",
+		flowDays:    14,
+		hasFlowDays: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCutoff := t0.Add(-14 * 24 * time.Hour)
+	if len(topo.calls) != 1 || topo.calls[0].tenant != "tnA" || !topo.calls[0].cutoff.Equal(wantCutoff) {
+		t.Fatalf("topology prune call = %+v, want tenant tnA cutoff %s", topo.calls, wantCutoff)
+	}
+	if len(endpoints.calls) != 1 || endpoints.calls[0].tenant != "tnA" || !endpoints.calls[0].cutoff.Equal(wantCutoff) {
+		t.Fatalf("endpoint prune call = %+v, want tenant tnA cutoff %s", endpoints.calls, wantCutoff)
+	}
+	if len(audit.events) != 2 || audit.events[0] != "lifecycle.retention_sweep" || audit.events[1] != "lifecycle.retention_sweep" {
+		t.Fatalf("derived retention receipts missing: %v", audit.events)
+	}
+	stores := map[string]int{}
+	for _, data := range audit.data {
+		stores[data["store"].(string)] = data["deleted"].(int)
+		if data["source"] != "derived_identity_cache" || data["retention_days"] != 14 {
+			t.Fatalf("receipt data = %+v", data)
+		}
+		if data["cutoff"] != wantCutoff.UTC().Format(time.RFC3339Nano) {
+			t.Fatalf("receipt cutoff = %v, want %s", data["cutoff"], wantCutoff.UTC().Format(time.RFC3339Nano))
+		}
+	}
+	if stores["topology"] != 2 || stores["endpoint"] != 1 {
+		t.Fatalf("receipt stores = %+v", stores)
+	}
+}
+
 func keysOf(m map[string][]byte) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

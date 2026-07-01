@@ -8,6 +8,7 @@
 apiVersion: probectl.io/device-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every metric is tenant-bound (F50)
 agent_id: "" # default: OS hostname
+correlation_retention: 2160h # 90d; 0 disables agent-local sysName/interface cache aging
 
 bus:
   mode: memory # memory | kafka

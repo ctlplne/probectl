@@ -26,6 +26,7 @@ package tenantlife
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -66,6 +67,17 @@ type TopologyDeleter interface {
 	DeleteTenant(tenant string) int
 }
 
+// TopologyRetentionPruner removes stale derived topology labels for one tenant.
+type TopologyRetentionPruner interface {
+	PruneTenantBefore(tenant string, cutoff time.Time) int
+}
+
+// EndpointRetentionPruner removes stale endpoint latest-view labels for one
+// tenant. The endpoint store is a derived cache; lifecycle owns its age clock.
+type EndpointRetentionPruner interface {
+	PruneTenantBefore(tenant string, cutoff time.Time) int
+}
+
 // OtelDeleter is the OTLP trace/log store erasure seam (otelstore memory +
 // ClickHouse implement it). Externally-ingested traces/logs (ARCH-001) are
 // tenant PII and a whole telemetry plane, so they MUST be erased on
@@ -85,17 +97,19 @@ type EBPFDeleter interface {
 
 // Engine runs exports, erasures, and retention sweeps.
 type Engine struct {
-	pool    *pgxpool.Pool
-	flows   flowstore.Store
-	objects objectstore.Store
-	tsdbW   tsdb.Writer
-	paths   PathDeleter     // optional (WithPaths)
-	topo    TopologyDeleter // optional (WithTopology)
-	otel    OtelDeleter     // optional (WithOtel) — OTLP trace/log store
-	ebpf    EBPFDeleter     // optional (WithEBPF) — eBPF L7 edge store
-	audit   AuditSink
-	log     *slog.Logger
-	now     func() time.Time
+	pool              *pgxpool.Pool
+	flows             flowstore.Store
+	objects           objectstore.Store
+	tsdbW             tsdb.Writer
+	paths             PathDeleter // optional (WithPaths)
+	topo              TopologyDeleter
+	topoRetention     TopologyRetentionPruner
+	endpointRetention EndpointRetentionPruner
+	otel              OtelDeleter // optional (WithOtel) — OTLP trace/log store
+	ebpf              EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
+	audit             AuditSink
+	log               *slog.Logger
+	now               func() time.Time
 
 	// BackupNote is the operator's backup-retention statement, included
 	// verbatim in every attestation (the explicit backup-TTL story).
@@ -105,6 +119,9 @@ type Engine struct {
 	// window inside which every backup containing the tenant ages out, so
 	// erasure provably covers backups. 0 = unquantified (note-only).
 	backupRetentionDays int
+	// derivedIdentityRetentionDays bounds topology/endpoint identity labels
+	// that are rebuilt from higher-volume source stores. 0 disables age pruning.
+	derivedIdentityRetentionDays int
 }
 
 // New wires the engine. flows/objects/tsdb may be nil (that store absent in
@@ -151,8 +168,34 @@ func tenantObjectStores(objects objectstore.Store, tenantID string) ([]objectsto
 // WithPaths attaches the path store for erasure coverage (U-027).
 func (e *Engine) WithPaths(p PathDeleter) *Engine { e.paths = p; return e }
 
-// WithTopology attaches the topology store for erasure coverage (U-027).
-func (e *Engine) WithTopology(t TopologyDeleter) *Engine { e.topo = t; return e }
+// WithTopology attaches the topology store for erasure coverage (U-027) and,
+// when implemented, derived identity-cache retention.
+func (e *Engine) WithTopology(t TopologyDeleter) *Engine {
+	e.topo = t
+	if p, ok := t.(TopologyRetentionPruner); ok {
+		e.topoRetention = p
+	}
+	return e
+}
+
+// WithEndpointRetention attaches the endpoint/DEM latest-view cache to the
+// lifecycle retention sweep. It is not an erasure store because tenant erase
+// rebuilds it from empty process state, but age retention still needs an owner.
+func (e *Engine) WithEndpointRetention(p EndpointRetentionPruner) *Engine {
+	e.endpointRetention = p
+	return e
+}
+
+// WithDerivedIdentityRetentionDays sets the deployment default for derived
+// topology/endpoint identity caches. A tenant's flow_retention_days override
+// can tighten this window, but not loosen it.
+func (e *Engine) WithDerivedIdentityRetentionDays(days int) *Engine {
+	if days < 0 {
+		days = 0
+	}
+	e.derivedIdentityRetentionDays = days
+	return e
+}
 
 // WithOtel attaches the OTLP trace/log store for erasure coverage (TENANT-008).
 func (e *Engine) WithOtel(o OtelDeleter) *Engine { e.otel = o; return e }
@@ -644,30 +687,41 @@ func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy) error {
 	})
 }
 
-// SweepRetention applies every tenant's flow-retention policy once (the
-// deployment-level TTL handles the default; this enforces PER-TENANT
-// tightening). Per-tenant failures are logged and skipped.
+type retentionSweepPolicy struct {
+	tenant      string
+	flowDays    int
+	hasFlowDays bool
+}
+
+// SweepRetention applies every tenant's retention policy once. Store-level
+// TTLs handle high-volume defaults; this enforces per-tenant flow tightening
+// and the deployment-owned age clock for derived topology/endpoint identity
+// caches. Per-tenant failures are logged and skipped.
 func (e *Engine) SweepRetention(ctx context.Context) error {
-	if e.pool == nil || e.flows == nil {
+	if e.pool == nil {
 		return nil
 	}
-	type policy struct {
-		tenant string
-		days   int
-	}
-	var policies []policy
+	var policies []retentionSweepPolicy
 	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
 		rows, err := q.Query(ctx, `
-			SELECT tenant_id::text, flow_retention_days FROM tenant_retention
-			 WHERE flow_retention_days IS NOT NULL`)
+			SELECT t.id::text, tr.flow_retention_days
+			  FROM tenants t
+			  LEFT JOIN tenant_retention tr ON tr.tenant_id = t.id
+			 WHERE t.status <> 'deleted'
+			 ORDER BY t.id`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var p policy
-			if err := rows.Scan(&p.tenant, &p.days); err != nil {
+			var p retentionSweepPolicy
+			var days sql.NullInt64
+			if err := rows.Scan(&p.tenant, &days); err != nil {
 				return err
+			}
+			if days.Valid {
+				p.flowDays = int(days.Int64)
+				p.hasFlowDays = true
 			}
 			policies = append(policies, p)
 		}
@@ -677,12 +731,59 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 		return err
 	}
 	for _, p := range policies {
-		cutoff := e.now().Add(-time.Duration(p.days) * 24 * time.Hour)
-		if err := e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff); err != nil {
+		if e.flows != nil && p.hasFlowDays {
+			cutoff := e.now().Add(-time.Duration(p.flowDays) * 24 * time.Hour)
+			if err := e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff); err != nil {
+				e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "flows", "error", err.Error())
+			}
+		}
+		if err := e.pruneDerivedIdentityCaches(ctx, p); err != nil {
 			e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "error", err.Error())
 		}
 	}
 	return nil
+}
+
+func (e *Engine) derivedIdentityDays(p retentionSweepPolicy) int {
+	days := e.derivedIdentityRetentionDays
+	if days <= 0 {
+		return 0
+	}
+	if p.hasFlowDays && p.flowDays > 0 && p.flowDays < days {
+		return p.flowDays
+	}
+	return days
+}
+
+func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSweepPolicy) error {
+	days := e.derivedIdentityDays(p)
+	if days <= 0 {
+		return nil
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	if e.topoRetention != nil {
+		e.recordRetentionReceipt(ctx, p.tenant, "topology", e.topoRetention.PruneTenantBefore(p.tenant, cutoff), cutoff, days)
+	}
+	if e.endpointRetention != nil {
+		e.recordRetentionReceipt(ctx, p.tenant, "endpoint", e.endpointRetention.PruneTenantBefore(p.tenant, cutoff), cutoff, days)
+	}
+	return nil
+}
+
+func (e *Engine) recordRetentionReceipt(ctx context.Context, tenant, store string, deleted int, cutoff time.Time, days int) {
+	if deleted <= 0 || e.audit == nil {
+		return
+	}
+	data := map[string]any{
+		"store":          store,
+		"deleted":        deleted,
+		"cutoff":         cutoff.UTC().Format(time.RFC3339Nano),
+		"source":         "derived_identity_cache",
+		"retention_days": days,
+	}
+	if err := e.audit(ctx, "probectl-retention", "lifecycle.retention_sweep", tenant, data); err != nil {
+		e.log.Warn("retention receipt append failed", "tenant", tenant, "store", store, "error", err.Error())
+	}
 }
 
 // RunRetention sweeps on the interval until ctx ends.

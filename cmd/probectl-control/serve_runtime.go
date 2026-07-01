@@ -373,6 +373,7 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	if err != nil {
 		return err
 	}
+	rt.lifeEngine.WithEndpointRetention(rt.endpointViews)
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
 		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.lifeEngine,
 		rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore); err != nil {

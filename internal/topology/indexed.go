@@ -47,6 +47,19 @@ func (s *IndexedStore) DeleteTenant(tenant string) int {
 	return 1
 }
 
+// PruneTenantBefore removes stale derived topology identity labels for one
+// tenant and rebuilds the adjacency indexes from the retained edge set.
+func (s *IndexedStore) PruneTenantBefore(tenant string, cutoff time.Time) int {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return 0
+	}
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return 0
+	}
+	return g.pruneBefore(cutoff)
+}
+
 func (s *IndexedStore) graph(tenant string) *indexedGraph {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -221,6 +234,32 @@ func (ig *indexedGraph) observe(fn func(*Graph)) {
 	// first build. To keep observe O(touched), Graph exposes a generation of
 	// recently-upserted edge ids.
 	for _, e := range ig.inner.drainRecentEdges() {
+		if ig.fwd[e.From] == nil {
+			ig.fwd[e.From] = map[string]string{}
+		}
+		ig.fwd[e.From][e.To] = e.ID
+		if ig.rev[e.To] == nil {
+			ig.rev[e.To] = map[string]string{}
+		}
+		ig.rev[e.To][e.From] = e.ID
+	}
+}
+
+func (ig *indexedGraph) pruneBefore(cutoff time.Time) int {
+	nodes, edges := ig.inner.PruneBefore(cutoff)
+	if nodes+edges == 0 {
+		return 0
+	}
+	ig.rebuildIndexes()
+	return nodes + edges
+}
+
+func (ig *indexedGraph) rebuildIndexes() {
+	ig.mu.Lock()
+	defer ig.mu.Unlock()
+	ig.fwd = map[string]map[string]string{}
+	ig.rev = map[string]map[string]string{}
+	for _, e := range ig.inner.allEdges() {
 		if ig.fwd[e.From] == nil {
 			ig.fwd[e.From] = map[string]string{}
 		}

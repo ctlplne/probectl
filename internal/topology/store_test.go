@@ -104,3 +104,49 @@ func TestTenantStoreBoundary(t *testing.T) {
 		})
 	}
 }
+
+func TestTopologyStoresPruneTenantBefore(t *testing.T) {
+	base := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		store interface {
+			Store
+			PruneTenantBefore(string, time.Time) int
+		}
+	}{
+		{name: "memory", store: NewMemoryStore()},
+		{name: "indexed", store: NewIndexedStore()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := tc.store.ForTenant("tenant-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := tc.store.ForTenant("tenant-b")
+			if err != nil {
+				t.Fatal(err)
+			}
+			a.ObserveServiceEdge(ServiceEdgeInput{Source: "old-svc", Destination: "old-db", DestPort: 5432}, base)
+			a.ObserveServiceEdge(ServiceEdgeInput{Source: "fresh-svc", Destination: "fresh-db", DestPort: 5432}, base.Add(48*time.Hour))
+			b.ObserveServiceEdge(ServiceEdgeInput{Source: "b-old-svc", Destination: "b-old-db", DestPort: 5432}, base)
+
+			if deleted := tc.store.PruneTenantBefore("tenant-a", base.Add(24*time.Hour)); deleted == 0 {
+				t.Fatal("tenant-a prune deleted nothing")
+			}
+			aSnap := a.Latest()
+			if snapshotHasID(aSnap, "service:old-svc") || snapshotHasID(aSnap, "service:old-db") {
+				t.Fatalf("tenant-a stale services survived retention: %+v", aSnap.Nodes)
+			}
+			if !snapshotHasID(aSnap, "service:fresh-svc") || !snapshotHasID(aSnap, "service:fresh-db") {
+				t.Fatalf("tenant-a fresh services were pruned: %+v", aSnap.Nodes)
+			}
+			if got := a.Neighbors("service:old-svc", base); len(got) != 0 {
+				t.Fatalf("stale indexed adjacency survived retention: %v", got)
+			}
+			bSnap := b.Latest()
+			if !snapshotHasID(bSnap, "service:b-old-svc") || !snapshotHasID(bSnap, "service:b-old-db") {
+				t.Fatalf("tenant-b graph was touched by tenant-a retention: %+v", bSnap.Nodes)
+			}
+		})
+	}
+}

@@ -269,9 +269,13 @@ type Config struct {
 	EBPFStoreURL      string
 	EBPFRetentionDays int
 	// PathRetentionDays bounds the path/traceroute tables (SCALE-006).
-	PathRetentionDays  int
-	FlowEnrichASN      bool
-	FlowEnrichCacheMax int
+	PathRetentionDays int
+	// DerivedIdentityRetentionDays bounds topology/endpoint identity labels
+	// rebuilt from source stores (hop IP labels, device labels, endpoint SSIDs,
+	// gateway/session targets). 0 disables age pruning.
+	DerivedIdentityRetentionDays int
+	FlowEnrichASN                bool
+	FlowEnrichCacheMax           int
 	// FlowCHTenantScoping (TENANT-102) attaches a per-request tenant custom
 	// setting to ClickHouse reads so a reader row policy can constrain the
 	// query path at the DB. Requires server-side custom_settings_prefixes=SQL_
@@ -724,6 +728,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	// SCALE-016: finite flow retention by default; 0 remains explicit keep-forever.
 	cfg.FlowRetentionDays = l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650)
 	cfg.PathRetentionDays = l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650)
+	cfg.DerivedIdentityRetentionDays = l.intRange("PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS", 90, 0, 3650)
 	cfg.FlowEnrichASN = l.boolean("PROBECTL_FLOW_ENRICH_ASN", false)
 	cfg.FlowEnrichCacheMax = l.intRange("PROBECTL_FLOW_ENRICH_CACHE_MAX", 65536, 1, 10_000_000)
 	// TENANT-004: profile-defaulted DB-level ClickHouse scoping.

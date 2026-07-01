@@ -190,6 +190,59 @@ func (s *SnapshotStore) List(tenant string) []View {
 	return out
 }
 
+// PruneTenantBefore removes stale endpoint identity observations for one
+// tenant. This is the retention path for DEM-derived labels (SSID, gateway IP,
+// session targets, attribution text) that live in the latest-view cache.
+func (s *SnapshotStore) PruneTenantBefore(tenant string, cutoff time.Time) int {
+	if tenant == "" || cutoff.IsZero() {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	part := s.tenants[tenant]
+	if len(part) == 0 {
+		return 0
+	}
+	deleted := 0
+	for agent, st := range part {
+		for typ, rv := range st.byType {
+			if rv.ObservedAt.Before(cutoff) {
+				delete(st.byType, typ)
+				deleted++
+			}
+		}
+		for target, rv := range st.sessions {
+			if rv.ObservedAt.Before(cutoff) {
+				delete(st.sessions, target)
+				deleted++
+			}
+		}
+		st.lastSeen = latestAgentObservation(st)
+		if len(st.byType) == 0 && len(st.sessions) == 0 {
+			delete(part, agent)
+		}
+	}
+	if len(part) == 0 {
+		delete(s.tenants, tenant)
+	}
+	return deleted
+}
+
+func latestAgentObservation(st *agentState) time.Time {
+	var latest time.Time
+	for _, rv := range st.byType {
+		if rv.ObservedAt.After(latest) {
+			latest = rv.ObservedAt
+		}
+	}
+	for _, rv := range st.sessions {
+		if rv.ObservedAt.After(latest) {
+			latest = rv.ObservedAt
+		}
+	}
+	return latest
+}
+
 // Len reports one tenant's endpoint count.
 func (s *SnapshotStore) Len(tenant string) int {
 	s.mu.Lock()

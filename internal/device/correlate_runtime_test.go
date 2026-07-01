@@ -93,6 +93,38 @@ func TestCorrelatorUpdateReplaces(t *testing.T) {
 	}
 }
 
+func TestCorrelatorPruneBeforeDropsStaleInventoryLabels(t *testing.T) {
+	c := NewCorrelator()
+	base := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	oldInv := testInventory()
+	oldInv.Device = "192.0.2.10"
+	oldInv.SysName = "old-core"
+	oldInv.Interfaces[1] = Interface{Index: 1, Name: "old-eth0", Addrs: []netip.Addr{netip.MustParseAddr("10.0.10.1")}}
+	freshInv := testInventory()
+	freshInv.Device = "192.0.2.20"
+	freshInv.SysName = "fresh-core"
+	freshInv.Interfaces[1] = Interface{Index: 1, Name: "fresh-eth0", Addrs: []netip.Addr{netip.MustParseAddr("10.0.20.1")}}
+
+	c.UpdateAt(oldInv, base)
+	c.UpdateAt(freshInv, base.Add(48*time.Hour))
+
+	if deleted := c.PruneBefore(base.Add(24 * time.Hour)); deleted != 1 {
+		t.Fatalf("deleted = %d, want one stale device", deleted)
+	}
+	if ref, ok := c.MatchHopIP("10.0.10.1"); ok {
+		t.Fatalf("stale hop still exposes old labels: %+v", ref)
+	}
+	if ref, ok := c.MatchExporterInterface("192.0.2.10", 1); ok || ref.Device != "" || ref.SysName != "" || ref.IfName != "" {
+		t.Fatalf("stale exporter still exposes old labels: %+v ok=%v", ref, ok)
+	}
+	if ref, ok := c.MatchHopIP("10.0.20.1"); !ok || ref.SysName != "fresh-core" || ref.IfName != "fresh-eth0" {
+		t.Fatalf("fresh hop label missing: %+v ok=%v", ref, ok)
+	}
+	if ref, ok := c.MatchExporterInterface("192.0.2.20", 1); !ok || ref.SysName != "fresh-core" || ref.IfName != "fresh-eth0" {
+		t.Fatalf("fresh exporter label missing: %+v ok=%v", ref, ok)
+	}
+}
+
 // stubConnDialer returns a canned conn for runtime tests.
 func stubConnDialer(conn snmpConn, err error) func(Target, Credential) (snmpConn, error) {
 	return func(Target, Credential) (snmpConn, error) { return conn, err }
@@ -236,14 +268,15 @@ func TestConfigValidate(t *testing.T) {
 // TestConfigEnvQuickStart: the single-device env path builds a valid config.
 func TestConfigEnvQuickStart(t *testing.T) {
 	env := map[string]string{
-		"PROBECTL_DEVICE_TENANT":      "t-env",
-		"PROBECTL_DEVICE_BUS_MODE":    "kafka",
-		"PROBECTL_DEVICE_BUS_BROKERS": "k1:9092, k2:9092",
-		"PROBECTL_DEVICE_TARGET":      "192.0.2.7",
-		"PROBECTL_DEVICE_TRANSPORT":   "SNMPV3",
-		"PROBECTL_DEVICE_CREDENTIAL":  "core",
-		"PROBECTL_DEVICE_PORT":        "1161",
-		"PROBECTL_DEVICE_INTERVAL":    "30s",
+		"PROBECTL_DEVICE_TENANT":                "t-env",
+		"PROBECTL_DEVICE_BUS_MODE":              "kafka",
+		"PROBECTL_DEVICE_BUS_BROKERS":           "k1:9092, k2:9092",
+		"PROBECTL_DEVICE_TARGET":                "192.0.2.7",
+		"PROBECTL_DEVICE_TRANSPORT":             "SNMPV3",
+		"PROBECTL_DEVICE_CREDENTIAL":            "core",
+		"PROBECTL_DEVICE_PORT":                  "1161",
+		"PROBECTL_DEVICE_INTERVAL":              "30s",
+		"PROBECTL_DEVICE_CORRELATION_RETENTION": "72h",
 	}
 	cfg := Default()
 	cfg.applyEnv(func(k string) string { return env[k] })
@@ -252,7 +285,7 @@ func TestConfigEnvQuickStart(t *testing.T) {
 	}
 	d := cfg.Devices[0]
 	if cfg.TenantID != "t-env" || d.Address != "192.0.2.7" || d.Transport != TransportSNMPv3 ||
-		d.Port != 1161 || d.Interval != 30*time.Second || len(cfg.Bus.Brokers) != 2 {
+		d.Port != 1161 || d.Interval != 30*time.Second || cfg.CorrelationRetention != 72*time.Hour || len(cfg.Bus.Brokers) != 2 {
 		t.Fatalf("cfg = %+v dev = %+v", cfg, d)
 	}
 }

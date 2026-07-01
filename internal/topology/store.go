@@ -147,6 +147,20 @@ func (s *MemoryStore) DeleteTenant(tenant string) int {
 	return 1
 }
 
+// PruneTenantBefore removes stale derived topology identity labels for one
+// tenant without touching any other tenant graph.
+func (s *MemoryStore) PruneTenantBefore(tenant string, cutoff time.Time) int {
+	if _, err := normalizeTenant(tenant); err != nil {
+		return 0
+	}
+	g, ok := s.graphIfExists(tenant)
+	if !ok {
+		return 0
+	}
+	nodes, edges := g.PruneBefore(cutoff)
+	return nodes + edges
+}
+
 func (s *MemoryStore) graph(tenant string) *Graph {
 	s.mu.Lock()
 	defer s.mu.Unlock()

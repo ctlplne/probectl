@@ -132,6 +132,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_INGEST_WRITE_QUEUE`       | `0` (= workers × `16`) | bounded queue between decode/verify and TSDB writes. A full queue increments `probectl_pipeline_results_write_queue_saturated_total` and back-pressures the bus consumer instead of growing memory without bound |
 | `PROBECTL_TSDB_MEMORY_RETENTION` | `0` (= built-in window `1h`) | lightweight-mode (in-memory) TSDB retention window, aged by ARRIVAL time (backfilled or clock-skewed sample timestamps are never swept early). `0`/unset keeps the built-in 1h window — the buffer never grows forever |
 | `PROBECTL_TSDB_MEMORY_MAX_BYTES` | `0` (= built-in wall 256 MiB) | byte ceiling for the in-memory TSDB; oldest-first eviction once exceeded, with usage + eviction counters exposed. `0`/unset keeps the built-in 256 MiB wall |
+| `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS` | `90` | age-retention clock for derived topology and endpoint identity labels (hop IP labels, device labels, SSIDs, gateway/session targets). The daily lifecycle sweeper prunes stale labels from tenant query surfaces and appends `lifecycle.retention_sweep` receipts; `0` disables this derived-cache TTL. A tenant's tighter `flow_retention_days` shortens this clock too |
 | `PROBECTL_AUDIT_WORM_DIR` | (none) | enable write-once audit export — the provider audit chain is exported as Ed25519-signed segments into this directory (mount an S3/MinIO **object-lock** bucket for true write-once-read-many) and chain-verified each cycle |
 | `PROBECTL_AUDIT_WORM_INTERVAL` | `1h` | export + chain-verify cadence |
 | `PROBECTL_AUDIT_RETENTION` | `0` (keep forever) | audit-log retention window. `0` keeps audit history indefinitely; a positive duration (e.g. `8760h` for 1 year) starts the hourly audit-retention runner. Tenant rows prune only when older than the window and at or below the durable SIEM cursor; provider rows prune only when older than the window and at or below the signed WORM watermark. The runner deletes only a contiguous eligible prefix, appends `audit.retention_prune` receipts, keeps subject-erasure markers, and fails closed on un-exported or in-window evidence. Set per the org's SOC2 CC7 / ISO 27001 A.12.4 evidence-retention requirement |
@@ -1212,6 +1213,7 @@ it and give a **single-device quick start** for trying one device fast. See
 | `PROBECTL_DEVICE_CREDENTIAL`     | (none)      | quick start: credential NAME for the device (see below)           |
 | `PROBECTL_DEVICE_PORT`           | `161` (SNMP) / `9339` (gNMI) | quick start: port override (defaults to the transport's standard port) |
 | `PROBECTL_DEVICE_INTERVAL`       | `60s`       | quick start: poll/sample interval                                 |
+| `PROBECTL_DEVICE_CORRELATION_RETENTION` | `2160h` | age-retention clock for the device agent's in-process sysName/interface correlation cache; stale device labels are no longer matchable after this window. `0` disables agent-local pruning |
 | `PROBECTL_DEVICE_LOG_LEVEL`      | `info`      | `debug` \| `info` \| `warn` \| `error`                            |
 | `PROBECTL_DEVICE_LOG_FORMAT`     | `json`      | `json` \| `text`                                                  |
 
@@ -1851,8 +1853,11 @@ forever-copy of personal actor/data values.
 | `PROBECTL_ENVELOPE_KEY` / `PROBECTL_ENVELOPE_KEY_FILE` | (none) | the at-rest KEK (see the control-plane table) — also used by `probectl-control backup-seal`/`backup-open` to encrypt/restore backups. The chart's Postgres backup CronJob mounts it to seal dumps in the pipeline |
 
 The daily retention sweeper enforces per-tenant `flow_retention_days`
-(tighter than the deployment TTL). Prometheus-mode TSDB series deletion is a
-documented manual step (the attestation says so honestly).
+(tighter than the deployment TTL) and prunes derived topology/endpoint identity
+labels older than `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS`; when
+`flow_retention_days` is tighter, it tightens those derived caches too.
+Prometheus-mode TSDB series deletion is a documented manual step (the
+attestation says so honestly).
 
 ### Per-tenant metering & quotas (ee/)
 

@@ -54,3 +54,65 @@ func TestGraphStalenessHorizon(t *testing.T) {
 		t.Fatal("historical SnapshotAt must still see the stale node")
 	}
 }
+
+func TestGraphPruneBeforeRemovesStaleIdentityLabels(t *testing.T) {
+	g := NewGraph("t-a")
+	base := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	g.ObservePath(PathInput{
+		AgentID: "agent-old", Target: "old.example", TargetIP: "203.0.113.10",
+		Hops: []string{"192.0.2.10", "192.0.2.11"},
+		Links: []Link{
+			{From: "192.0.2.10", To: "192.0.2.11"},
+		},
+	}, base)
+	g.ObserveDevice(DeviceInput{
+		Address:      "198.51.100.10",
+		Name:         "old-core",
+		InterfaceIPs: []string{"192.0.2.10"},
+	}, base)
+	g.ObservePath(PathInput{
+		AgentID: "agent-fresh", Target: "fresh.example", TargetIP: "203.0.113.20",
+		Hops: []string{"192.0.2.20", "192.0.2.21"},
+		Links: []Link{
+			{From: "192.0.2.20", To: "192.0.2.21"},
+		},
+	}, base.Add(48*time.Hour))
+	g.ObserveDevice(DeviceInput{
+		Address:      "198.51.100.20",
+		Name:         "fresh-core",
+		InterfaceIPs: []string{"192.0.2.20"},
+	}, base.Add(48*time.Hour))
+
+	nodes, edges := g.PruneBefore(base.Add(24 * time.Hour))
+	if nodes == 0 || edges == 0 {
+		t.Fatalf("prune removed nodes=%d edges=%d, want both non-zero", nodes, edges)
+	}
+	s := g.Latest()
+	if snapshotHasLabel(s, "old-core") || snapshotHasID(s, "hop:192.0.2.10") || snapshotHasID(s, "host:203.0.113.10") {
+		t.Fatalf("stale topology labels survived retention: %+v", s.Nodes)
+	}
+	if !snapshotHasLabel(s, "fresh-core") || !snapshotHasID(s, "hop:192.0.2.20") || !snapshotHasID(s, "host:203.0.113.20") {
+		t.Fatalf("fresh topology labels were pruned: %+v", s.Nodes)
+	}
+	if got := g.Traverse("agent:agent-old", "host:203.0.113.10", base); got != nil {
+		t.Fatalf("stale path remained traversable after age retention: %v", got)
+	}
+}
+
+func snapshotHasID(s Snapshot, id string) bool {
+	for _, n := range s.Nodes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func snapshotHasLabel(s Snapshot, label string) bool {
+	for _, n := range s.Nodes {
+		if n.Label == label {
+			return true
+		}
+	}
+	return false
+}
