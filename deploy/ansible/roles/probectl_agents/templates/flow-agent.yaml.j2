@@ -1,0 +1,29 @@
+{# RUNOPS-002: rendered to /etc/probectl/flow-agent.yaml. Bus credentials are
+   supplied by the declared secret source, never by this config file. #}
+apiVersion: probectl.io/flow-agent/v1
+tenant_id: "{{ probectl_tenant_id }}"
+agent_id: "{{ probectl_agent_id }}"
+bus:
+  mode: "{{ probectl_bus_mode }}"
+  brokers: {{ probectl_bus_brokers | to_json }}
+  namespace: "{{ probectl_bus_namespace }}"
+# bus_secret_source: "{{ probectl_bus_secret_source }}"
+netflow:
+  enabled: {{ probectl_flow_netflow_enabled | bool }}
+  listen: "{{ probectl_flow_netflow_listen }}"
+ipfix:
+  enabled: {{ probectl_flow_ipfix_enabled | bool }}
+  listen: "{{ probectl_flow_ipfix_listen }}"
+sflow:
+  enabled: {{ probectl_flow_sflow_enabled | bool }}
+  listen: "{{ probectl_flow_sflow_listen }}"
+cloud_import:
+  provider: "{{ probectl_flow_cloud_import_provider }}"
+  path: "{{ probectl_flow_cloud_import_path }}"
+batch_size: {{ probectl_flow_batch_size }}
+flush_interval: "{{ probectl_flow_flush_interval }}"
+template_ttl: "{{ probectl_flow_template_ttl }}"
+max_templates: {{ probectl_flow_max_templates }}
+read_buffer_bytes: {{ probectl_flow_read_buffer_bytes }}
+queue_size: {{ probectl_flow_queue_size }}
+workers: {{ probectl_flow_workers }}

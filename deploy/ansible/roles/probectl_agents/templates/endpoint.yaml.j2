@@ -1,0 +1,15 @@
+{# RUNOPS-002: rendered to /etc/probectl/endpoint.yaml. Bus credentials are
+   supplied by the declared secret source, never by this config file. #}
+apiVersion: probectl.io/endpoint/v1
+tenant_id: "{{ probectl_tenant_id }}"
+agent_id: "{{ probectl_agent_id }}"
+bus:
+  mode: "{{ probectl_bus_mode }}"
+  brokers: {{ probectl_bus_brokers | to_json }}
+  namespace: "{{ probectl_bus_namespace }}"
+# bus_secret_source: "{{ probectl_bus_secret_source }}"
+interval: "{{ probectl_endpoint_interval }}"
+targets: {{ probectl_endpoint_targets | to_json }}
+max_hops: {{ probectl_endpoint_max_hops }}
+probes: {{ probectl_endpoint_probes }}
+session_timeout: "{{ probectl_endpoint_session_timeout }}"

@@ -1,0 +1,19 @@
+{# RUNOPS-002: rendered to /etc/probectl/ebpf-agent.yaml. Bus credentials are
+   supplied by the declared secret source, never by this config file. #}
+apiVersion: probectl.io/ebpf-agent/v1
+tenant_id: "{{ probectl_tenant_id }}"
+host: "{{ probectl_agent_id }}"
+bus:
+  mode: "{{ probectl_bus_mode }}"
+  brokers: {{ probectl_bus_brokers | to_json }}
+  namespace: "{{ probectl_bus_namespace }}"
+# bus_secret_source: "{{ probectl_bus_secret_source }}"
+fixture_path: "{{ probectl_ebpf_fixture_path }}"
+l7_fixture_path: "{{ probectl_ebpf_l7_fixture_path }}"
+proc_root: "{{ probectl_ebpf_proc_root }}"
+flush_interval: "{{ probectl_ebpf_flush_interval }}"
+ring_buffer_bytes: {{ probectl_ebpf_ring_buffer_bytes }}
+max_service_edges: {{ probectl_ebpf_max_service_edges }}
+max_l7_conns: {{ probectl_ebpf_max_l7_conns }}
+l7_conn_idle_ttl: "{{ probectl_ebpf_l7_conn_idle_ttl }}"
+health_state_dir: "{{ probectl_ebpf_health_state_dir }}"

@@ -1,6 +1,12 @@
 ---
 # OPS-004: defaults for the probectl.agents role. Override per inventory group.
 probectl_agent_type: agent            # agent | ebpf-agent | flow-agent | device-agent | endpoint
+probectl_supported_agent_types:
+  - agent
+  - ebpf-agent
+  - flow-agent
+  - device-agent
+  - endpoint
 # OPS-004: only these agent types ship an `enroll` subcommand (mTLS identity via
 # the control-plane gRPC endpoint, cmd/probectl-agent/enroll.go). Every other
 # type is a bus collector registered ONCE on the control plane with
@@ -8,6 +14,11 @@ probectl_agent_type: agent            # agent | ebpf-agent | flow-agent | device
 # the role must never run `<binary> enroll` for them.
 probectl_mtls_agent_types:
   - agent
+probectl_collector_agent_types:
+  - ebpf-agent
+  - flow-agent
+  - device-agent
+  - endpoint
 probectl_collector_plane: ""          # ebpf|flow|device for the register-collector hint; defaults from the type
 probectl_version: ""                  # required: the release to install (e.g. 0.2.0)
 probectl_control_grpc_addr: ""        # required: https://control-host:8443
@@ -33,3 +44,57 @@ probectl_verify_cosign: true          # SUPPLY-002: cosign-verify the package be
 probectl_cosign_issuer: "https://token.actions.githubusercontent.com"
 probectl_cosign_identity_regexp: "^https://github.com/[^/]+/probectl/\\.github/workflows/release\\.yml@refs/tags/"
 probectl_state_dir: "/var/lib/probectl-{{ probectl_agent_type }}"
+
+# Bus collector identity. These are minted once by
+# `probectl-control register-collector` and must be present before install/start
+# for every non-mTLS collector; otherwise the runtime fails closed.
+probectl_tenant_id: ""
+probectl_agent_id: "{{ inventory_hostname }}"
+probectl_bus_mode: kafka              # memory | kafka
+probectl_bus_brokers: []              # e.g. ["kafka-1:9093", "kafka-2:9093"]
+probectl_bus_namespace: ""            # siloed tenant bus lane; empty = pooled
+probectl_bus_secret_source: env        # env | vault | external-secret; never render secret values into YAML
+
+# flow-agent template knobs.
+probectl_flow_netflow_enabled: true
+probectl_flow_netflow_listen: ":2055"
+probectl_flow_ipfix_enabled: true
+probectl_flow_ipfix_listen: ":4739"
+probectl_flow_sflow_enabled: true
+probectl_flow_sflow_listen: ":6343"
+probectl_flow_batch_size: 1000
+probectl_flow_flush_interval: 2s
+probectl_flow_template_ttl: 30m
+probectl_flow_max_templates: 4096
+probectl_flow_read_buffer_bytes: 4194304
+probectl_flow_queue_size: 65536
+probectl_flow_workers: 2
+probectl_flow_cloud_import_provider: ""
+probectl_flow_cloud_import_path: ""
+
+# device-agent template knobs. The role renders one starter target; larger
+# fleets should override the config after install or group hosts by collector.
+probectl_device_address: ""
+probectl_device_port: 161
+probectl_device_transport: snmpv3      # snmpv2c | snmpv3 | gnmi
+probectl_device_credential: ""         # name of the runtime secret reference, never the secret value
+probectl_device_interval: 60s
+probectl_device_sensors: true
+
+# endpoint template knobs.
+probectl_endpoint_targets: []          # e.g. ["https://portal.example", "https://1.1.1.1"]
+probectl_endpoint_interval: 60s
+probectl_endpoint_max_hops: 20
+probectl_endpoint_probes: 3
+probectl_endpoint_session_timeout: 15s
+
+# ebpf-agent template knobs.
+probectl_ebpf_proc_root: /proc
+probectl_ebpf_flush_interval: 10s
+probectl_ebpf_ring_buffer_bytes: 16777216
+probectl_ebpf_max_service_edges: 50000
+probectl_ebpf_max_l7_conns: 8192
+probectl_ebpf_l7_conn_idle_ttl: 5m
+probectl_ebpf_health_state_dir: "{{ probectl_state_dir }}/health"
+probectl_ebpf_fixture_path: ""
+probectl_ebpf_l7_fixture_path: ""

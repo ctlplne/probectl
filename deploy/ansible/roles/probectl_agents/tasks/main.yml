@@ -6,6 +6,7 @@
 - name: Assert required vars
   ansible.builtin.assert:
     that:
+      - probectl_agent_type in probectl_supported_agent_types
       - probectl_version | length > 0
       - probectl_control_grpc_addr | length > 0
       - not (probectl_verify_registry_heartbeat | bool) or probectl_control_api_url | length > 0
@@ -16,6 +17,51 @@
       probectl_verify_registry_heartbeat=true, probectl_control_api_url,
       probectl_control_api_token, and probectl_registry_agent_id are also
       required so the role can prove the tenant-scoped control-plane heartbeat.
+
+- name: Assert bus collector identity and bus config
+  when: probectl_agent_type in probectl_collector_agent_types
+  ansible.builtin.assert:
+    that:
+      - probectl_tenant_id | length > 0
+      - probectl_agent_id | length > 0
+      - probectl_bus_mode in ['memory', 'kafka']
+      - probectl_bus_mode != 'kafka' or probectl_bus_brokers | length > 0
+      - probectl_bus_secret_source in ['env', 'vault', 'external-secret']
+    fail_msg: >-
+      Bus collectors (ebpf-agent, flow-agent, device-agent, endpoint) require
+      a registered tenant_id, agent_id, bus mode, kafka brokers when
+      probectl_bus_mode=kafka, and an explicit bus secret source before install.
+      Run `probectl-control register-collector` first; do not start an
+      untenant-scoped collector.
+
+- name: Assert flow collector config inputs
+  when: probectl_agent_type == 'flow-agent'
+  ansible.builtin.assert:
+    that:
+      - (probectl_flow_netflow_enabled | bool) or (probectl_flow_ipfix_enabled | bool) or (probectl_flow_sflow_enabled | bool) or probectl_flow_cloud_import_provider | length > 0
+      - probectl_flow_cloud_import_provider | length == 0 or probectl_flow_cloud_import_path | length > 0
+    fail_msg: >-
+      flow-agent requires at least one listener or a complete local cloud-import
+      provider/path. Empty collectors fail closed before install.
+
+- name: Assert device collector config inputs
+  when: probectl_agent_type == 'device-agent'
+  ansible.builtin.assert:
+    that:
+      - probectl_device_address | length > 0
+      - probectl_device_transport in ['snmpv2c', 'snmpv3', 'gnmi']
+      - probectl_device_credential | length > 0
+    fail_msg: >-
+      device-agent requires a target address, supported transport, and the NAME
+      of a runtime credential reference. Never put the credential secret itself
+      in Ansible vars or rendered YAML.
+
+- name: Assert endpoint collector config inputs
+  when: probectl_agent_type == 'endpoint'
+  ansible.builtin.assert:
+    that:
+      - probectl_endpoint_targets | length > 0
+    fail_msg: "endpoint requires at least one target URL before install."
 
 - name: Install from the signed apt repo (Debian/Ubuntu)
   when: probectl_install_method == 'repo' and ansible_os_family == 'Debian'
@@ -177,7 +223,7 @@
 
 - name: Template the agent config
   ansible.builtin.template:
-    src: agent.yaml.j2
+    src: "{{ probectl_agent_type }}.yaml.j2"
     dest: "/etc/probectl/{{ probectl_agent_type }}.yaml"
     owner: probectl
     group: probectl

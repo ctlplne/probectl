@@ -1,0 +1,17 @@
+{# RUNOPS-002: rendered to /etc/probectl/device-agent.yaml. The credential field
+   is a runtime secret reference name, not the credential value. #}
+apiVersion: probectl.io/device-agent/v1
+tenant_id: "{{ probectl_tenant_id }}"
+agent_id: "{{ probectl_agent_id }}"
+bus:
+  mode: "{{ probectl_bus_mode }}"
+  brokers: {{ probectl_bus_brokers | to_json }}
+  namespace: "{{ probectl_bus_namespace }}"
+# bus_secret_source: "{{ probectl_bus_secret_source }}"
+devices:
+  - address: "{{ probectl_device_address }}"
+    port: {{ probectl_device_port }}
+    transport: "{{ probectl_device_transport }}"
+    credential: "{{ probectl_device_credential }}"
+    interval: "{{ probectl_device_interval }}"
+    sensors: {{ probectl_device_sensors | bool }}
