@@ -489,7 +489,11 @@ func (s *Server) routes() http.Handler {
 	// tenant boundary is checked first (the principal carries one tenant), then
 	// the route's required permission.
 	for _, rt := range s.apiRoutes() {
-		h := s.requirePermission(rt.Permission, rt.Handler)
+		h := rt.Handler
+		if p, ok := auditPolicyFor(rt.Method, rt.Pattern); ok && p.Mode == auditModeWrapped {
+			h = s.auditRoute(rt, p, h)
+		}
+		h = s.requirePermission(rt.Permission, h)
 		if lifecycle, ok := apiLifecycleFor(rt.Method, rt.Pattern); ok {
 			h = lifecycle.wrap(h)
 		}
