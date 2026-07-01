@@ -19,6 +19,7 @@ func TestHotPathCatalogCoversAuditedSurfaces(t *testing.T) {
 		"hp-flow-query",
 		"hp-flow-clickhouse-insert",
 		"hp-flow-clickhouse-query",
+		"hp-topology-rebuild",
 		"hp-topology-read",
 		"hp-topology-whatif",
 		"hp-ai-ask",

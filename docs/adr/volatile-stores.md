@@ -104,6 +104,30 @@ the table.
 - The cold-start contract is enforced by tests in `internal/topology` and
   `internal/alert`: a fresh store is empty and correct, and re-derives from its
   inputs.
+- Topology rebuild has an explicit performance receipt in `internal/perf`: a
+  fresh `IndexedStore` replays tier-shaped observations, then checks per-tenant
+  completeness and an empty ghost tenant. S/M/L run in CI; XL/XXL use the same
+  benchmark driver as heavier reference receipts.
+
+## Topology rebuild targets
+
+The rebuild target is the time to replay one tenant's topology observations into
+a fresh store after a control-plane restart. The total ceiling protects the whole
+fixture; the p95 ceilings protect tenants from a few large neighbors hiding a
+bad tail.
+
+| Tier | Fixture | Replay p95 | Snapshot p95 | Total rebuild |
+| --- | --- | ---: | ---: | ---: |
+| S | 1 tenant x 25 agents x 10 edges/agent | 250 ms | 75 ms | 1 s |
+| M | 8 tenants x 40 agents x 10 edges/agent | 500 ms | 100 ms | 3 s |
+| L | 32 tenants x 100 agents x 10 edges/agent | 2 s | 250 ms | 10 s |
+| XL | 64 tenants x 300 agents x 10 edges/agent | 5 s | 500 ms | 30 s |
+| XXL | 100 tenants x 1000 agents x 10 edges/agent | 10 s | 1 s | 2 min |
+
+Receipt: `go test ./internal/perf -run '^TestTopologyRebuildTargets$' -count=1 -v`
+logs the S/M/L rows. For the heavier fixtures, run
+`PROBECTL_SCALE_TIER=XL go test ./internal/perf -bench '^BenchmarkTopologyRebuild$' -run '^$' -benchmem`
+or `PROBECTL_SCALE_TIER=XXL ...` on reference hardware.
 
 ## Tests proving cold start
 

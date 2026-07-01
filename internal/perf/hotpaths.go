@@ -13,6 +13,7 @@ const (
 	SurfaceMCPJSONRPC HotPathSurfaceKind = "mcp-json-rpc"
 	SurfaceAgent      HotPathSurfaceKind = "agent-transport"
 	SurfaceFlowStore  HotPathSurfaceKind = "flow-store"
+	SurfaceTopology   HotPathSurfaceKind = "topology-store"
 )
 
 // MeasurementKind names how a row is measured. Trace-derived rows use
@@ -184,6 +185,7 @@ func HotPathCatalog() []HotPathSLO {
 		},
 		flowClickHouseInsertHotPath(),
 		flowClickHouseQueryHotPath(),
+		topologyRebuildHotPath(),
 		{
 			ID:    "hp-topology-read",
 			Name:  "Topology graph read",
@@ -328,6 +330,33 @@ func flowClickHouseQueryHotPath() HotPathSLO {
 			},
 		},
 		Notes: "Measures the real ClickHouse read path used by the flow surfaces; the control API response budget remains hp-flow-query.",
+	}
+}
+
+func topologyRebuildHotPath() HotPathSLO {
+	return HotPathSLO{
+		ID:    "hp-topology-rebuild",
+		Name:  "Topology cold-start replay/rebuild",
+		Owner: "topology",
+		Surfaces: []HotPathSurface{
+			{Kind: SurfaceTopology, Method: "replay", Pattern: "topology observations -> IndexedStore"},
+		},
+		Targets: HotPathTargets{P50: 500 * time.Millisecond, P95: topologyRebuildTierLReplayP95, P99: topologyRebuildTierLTotal, MinThroughputPerSecond: 3200},
+		Measurements: []HotPathMeasurement{
+			{
+				Kind:    MeasurementBenchmark,
+				Command: "go test ./internal/perf -run '^TestTopologyRebuildTargets$' -count=1 -v",
+				Receipt: "S/M/L topology replay fixture logs per-tenant replay p95, snapshot p95, and completeness",
+				Source:  "internal/perf/topology_rebuild_test.go:TestTopologyRebuildTargets",
+			},
+			{
+				Kind:    MeasurementBenchmark,
+				Command: "go test ./internal/perf -bench '^BenchmarkTopologyRebuild$' -run '^$' -benchmem",
+				Receipt: "tier-sized topology rebuild benchmark; set PROBECTL_SCALE_TIER=XL or XXL for larger fixtures",
+				Source:  "internal/perf/topology_rebuild_test.go:BenchmarkTopologyRebuild",
+			},
+		},
+		Notes: "Defines numeric rebuild ceilings by tier in TopologyRebuildTargets; read-path targets stay in hp-topology-read and hp-topology-whatif.",
 	}
 }
 
