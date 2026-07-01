@@ -152,8 +152,9 @@ awk -v mod="${MODULE}" '
     # (needs Postgres) and skips in this service-free gate, so the floor covers the
     # no-DB drivers (metrics/ingest/baseline).
     floor["internal/perf"]           = 60
-    # Raw-socket tracer paths need CAP_NET_RAW (skipped in CI); CI coverage is lower
-    # than a privileged local run, so this floor reflects the CI-measured value.
+    # Raw-socket tracer paths need CAP_NET_RAW and run in the privileged
+    # path-raw-live CI lane; this service-free coverage gate still measures the
+    # unprivileged parser/merge/config core.
     floor["internal/path"]           = 50
     floor["internal/cli"]            = 55
     floor["internal/store/tsdb"]     = 42

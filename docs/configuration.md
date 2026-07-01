@@ -609,6 +609,9 @@ captures MPLS labels (the tags carriers use to switch packets through
 label-tunnels) where routers expose them. A **full per-hop trace needs raw sockets**:
 grant `CAP_NET_RAW` (`setcap cap_net_raw+ep`, or run privileged) to capture the
 intermediate hops + MPLS labels. Without it, only the destination is discovered.
+CI exercises the full raw-socket path in the `path-raw-live` lane with a
+multi-hop Linux namespace fixture, so this path is not merely documented as a
+privileged local option.
 
 Where the discovered hops/links are stored is a control-plane choice:
 

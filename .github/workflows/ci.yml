@@ -240,6 +240,23 @@ jobs:
           PROBECTL_TEST_SNMP_COMMUNITY: public
         run: bash scripts/device_snmp_live_ci.sh
 
+  path-raw-live:
+    name: path-raw-live (CAP_NET_RAW)
+    # COVER-016: the full traceroute path needs raw ICMP plus a multi-hop
+    # fixture. The job creates Linux namespaces and fails if TestRunRawMultiHop
+    # skips instead of proving the privileged path.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install namespace tools
+        run: sudo apt-get update -y && sudo apt-get install -y iproute2
+      - name: Raw multi-hop path integration (CAP_NET_RAW required)
+        run: bash scripts/path_raw_live_ci.sh
+
   # U-049 → TEST-003 (Sprint 21, FOUNDER DECISION): the RCA quality eval is
   # BLOCKING. "Non-blocking initially" served its purpose — the baseline
   # exists (accuracy 0.91 / citation precision 0.92); the floor below sits
