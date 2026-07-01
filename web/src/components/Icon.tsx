@@ -14,6 +14,7 @@ export type IconName =
   | 'outage'
   | 'admin'
   | 'search'
+  | 'menu'
   | 'sun'
   | 'moon'
   | 'close'
@@ -112,6 +113,13 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <circle cx="11" cy="11" r="6" />
       <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  menu: (
+    <>
+      <path d="M4 7h16" />
+      <path d="M4 12h16" />
+      <path d="M4 17h16" />
     </>
   ),
   sun: (

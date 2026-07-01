@@ -10,7 +10,33 @@
 }
 
 .left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   flex-shrink: 0;
+}
+
+.menuButton {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.menuButton:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.menuButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .command {
@@ -69,4 +95,30 @@
   color: var(--color-accent-contrast);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+
+  .menuButton {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .command {
+    min-width: 42px;
+    max-width: none;
+    flex: 0 1 48px;
+    justify-content: center;
+    padding: 0 var(--space-2);
+    margin: 0;
+  }
+
+  .commandLabel,
+  .kbd {
+    display: none;
+  }
 }

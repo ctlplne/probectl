@@ -1,0 +1,117 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--color-overlay);
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+:global(html[dir='rtl']) .overlay {
+  justify-content: flex-end;
+}
+
+.drawer {
+  width: min(340px, calc(100vw - var(--space-6)));
+  height: 100%;
+  background: var(--color-surface);
+  border-inline-end: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+  outline: none;
+  overflow-y: auto;
+}
+
+:global(html[dir='rtl']) .drawer {
+  border-inline-end: 0;
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3) var(--space-6);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: var(--space-4);
+}
+
+.groupLabel {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-2xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+  color: var(--color-text-subtle);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.link:hover {
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.active {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.active::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  background: var(--gradient-brand);
+}
+
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+}

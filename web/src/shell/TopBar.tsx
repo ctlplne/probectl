@@ -15,13 +15,31 @@ function initials(name: string) {
     .toUpperCase()
 }
 
-export function TopBar({ onOpenPalette }: { onOpenPalette: () => void }) {
+export function TopBar({
+  onOpenPalette,
+  onOpenNavigation,
+  navigationOpen,
+}: {
+  onOpenPalette: () => void
+  onOpenNavigation: () => void
+  navigationOpen: boolean
+}) {
   const { theme, toggleTheme } = useTheme()
   const { user } = useAuth()
 
   return (
     <header className={styles.topbar}>
       <div className={styles.left}>
+        <button
+          type="button"
+          className={styles.menuButton}
+          aria-label="Open navigation"
+          aria-expanded={navigationOpen}
+          aria-controls="mobile-primary-navigation"
+          onClick={onOpenNavigation}
+        >
+          <Icon name="menu" size={18} />
+        </button>
         <TenantIndicator />
       </div>
 
