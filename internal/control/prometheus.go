@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -134,7 +135,7 @@ func (s *Server) handlePromQuery(w http.ResponseWriter, r *http.Request) error {
 		promapi.WriteSuccess(w, promapi.VectorData(res))
 		return nil
 	}
-	return s.promForward(w, r, func() (promapi.Result, error) {
+	return s.promForwardVector(w, tid, func() (promapi.Result, error) {
 		return s.promUpstream.QueryInstant(r.Context(), forced, at)
 	})
 }
@@ -182,7 +183,7 @@ func (s *Server) handlePromQueryRange(w http.ResponseWriter, r *http.Request) er
 		promapi.WriteSuccess(w, promapi.MatrixData(res))
 		return nil
 	}
-	return s.promForward(w, r, func() (promapi.Result, error) {
+	return s.promForwardMatrix(w, tid, func() (promapi.Result, error) {
 		return s.promUpstream.QueryRange(r.Context(), forced, start, end, r.FormValue("step"))
 	})
 }
@@ -220,7 +221,7 @@ func (s *Server) handlePromSeries(w http.ResponseWriter, r *http.Request) error 
 		promapi.WriteSuccess(w, promapi.SeriesData(res))
 		return nil
 	}
-	return s.promForward(w, r, func() (promapi.Result, error) {
+	return s.promForwardSeries(w, tid, func() (promapi.Result, error) {
 		return s.promUpstream.Series(r.Context(), sels, start, end)
 	})
 }
@@ -258,9 +259,7 @@ func (s *Server) handlePromLabels(w http.ResponseWriter, r *http.Request) error 
 		promapi.WriteSuccess(w, names)
 		return nil
 	}
-	return s.promForward(w, r, func() (promapi.Result, error) {
-		return s.promUpstream.LabelNames(r.Context(), sels, start, end)
-	})
+	return s.promForwardLabelNames(w, r, tid, sels, start, end)
 }
 
 // handlePromLabelValues serves GET /v1/grafana/api/v1/label/{name}/values.
@@ -302,9 +301,7 @@ func (s *Server) handlePromLabelValues(w http.ResponseWriter, r *http.Request) e
 		promapi.WriteSuccess(w, vals)
 		return nil
 	}
-	return s.promForward(w, r, func() (promapi.Result, error) {
-		return s.promUpstream.LabelValues(r.Context(), name, sels, start, end)
-	})
+	return s.promForwardLabelValues(w, r, tid, name, sels, start, end)
 }
 
 // handlePromBuildInfo serves GET /v1/grafana/api/v1/status/buildinfo (Grafana
@@ -389,7 +386,7 @@ func (s *Server) handlePromFederate(w http.ResponseWriter, r *http.Request) erro
 				promapi.WriteError(w, http.StatusBadGateway, "upstream", derr.Error())
 				return nil
 			}
-			out = append(out, series...)
+			out = append(out, tenantFilteredSeries(series, tid)...)
 		}
 	} else {
 		promapi.WriteError(w, http.StatusServiceUnavailable, "unavailable", "no local metrics store and no upstream TSDB")
@@ -431,23 +428,144 @@ func (s *Server) handlePromWrite(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// promForward proxies one upstream call, passing the (already canonical,
-// tenant-forced) response straight through.
-func (s *Server) promForward(w http.ResponseWriter, _ *http.Request, call func() (promapi.Result, error)) error {
+func (s *Server) promForwardResult(w http.ResponseWriter, call func() (promapi.Result, error)) (promapi.Result, bool) {
 	if s.promUpstream == nil {
 		promapi.WriteError(w, http.StatusServiceUnavailable, "unavailable",
 			"metrics queries need the in-memory TSDB or PROBECTL_TSDB_MODE=prometheus with PROBECTL_TSDB_URL")
-		return nil
+		return promapi.Result{}, false
 	}
 	res, err := call()
 	if err != nil {
 		promapi.WriteError(w, http.StatusBadGateway, "upstream", err.Error())
+		return promapi.Result{}, false
+	}
+	if res.Status < 200 || res.Status >= 300 {
+		w.Header().Set("Content-Type", res.ContentType)
+		w.WriteHeader(res.Status)
+		_, _ = w.Write(res.Body)
+		return promapi.Result{}, false
+	}
+	return res, true
+}
+
+func (s *Server) promForwardVector(w http.ResponseWriter, tenant string, call func() (promapi.Result, error)) error {
+	res, ok := s.promForwardResult(w, call)
+	if !ok {
 		return nil
 	}
-	w.Header().Set("Content-Type", res.ContentType)
-	w.WriteHeader(res.Status)
-	_, _ = w.Write(res.Body)
+	series, err := decodeUpstreamVector(res.Body)
+	if err != nil {
+		promapi.WriteError(w, http.StatusBadGateway, "upstream", err.Error())
+		return nil
+	}
+	promapi.WriteSuccess(w, promapi.VectorData(tenantFilteredSeries(series, tenant)))
 	return nil
+}
+
+func (s *Server) promForwardMatrix(w http.ResponseWriter, tenant string, call func() (promapi.Result, error)) error {
+	res, ok := s.promForwardResult(w, call)
+	if !ok {
+		return nil
+	}
+	series, err := decodeUpstreamMatrix(res.Body)
+	if err != nil {
+		promapi.WriteError(w, http.StatusBadGateway, "upstream", err.Error())
+		return nil
+	}
+	promapi.WriteSuccess(w, promapi.MatrixData(tenantFilteredSeries(series, tenant)))
+	return nil
+}
+
+func (s *Server) promForwardSeries(w http.ResponseWriter, tenant string, call func() (promapi.Result, error)) error {
+	res, ok := s.promForwardResult(w, call)
+	if !ok {
+		return nil
+	}
+	series, err := decodeUpstreamSeries(res.Body)
+	if err != nil {
+		promapi.WriteError(w, http.StatusBadGateway, "upstream", err.Error())
+		return nil
+	}
+	promapi.WriteSuccess(w, promapi.SeriesData(tenantFilteredSeries(series, tenant)))
+	return nil
+}
+
+func (s *Server) promForwardLabelNames(w http.ResponseWriter, r *http.Request, tenant string, sels []promapi.Selector, start, end time.Time) error {
+	res, ok := s.promForwardResult(w, func() (promapi.Result, error) {
+		return s.promUpstream.Series(r.Context(), sels, start, end)
+	})
+	if !ok {
+		return nil
+	}
+	series, err := decodeUpstreamSeries(res.Body)
+	if err != nil {
+		promapi.WriteError(w, http.StatusBadGateway, "upstream", err.Error())
+		return nil
+	}
+	names := labelNamesFromSeries(tenantFilteredSeries(series, tenant))
+	promapi.WriteSuccess(w, names)
+	return nil
+}
+
+func (s *Server) promForwardLabelValues(w http.ResponseWriter, r *http.Request, tenant, name string, sels []promapi.Selector, start, end time.Time) error {
+	res, ok := s.promForwardResult(w, func() (promapi.Result, error) {
+		return s.promUpstream.Series(r.Context(), sels, start, end)
+	})
+	if !ok {
+		return nil
+	}
+	series, err := decodeUpstreamSeries(res.Body)
+	if err != nil {
+		promapi.WriteError(w, http.StatusBadGateway, "upstream", err.Error())
+		return nil
+	}
+	vals := labelValuesFromSeries(tenantFilteredSeries(series, tenant), name)
+	promapi.WriteSuccess(w, vals)
+	return nil
+}
+
+func tenantFilteredSeries(series []promapi.ResultSeries, tenant string) []promapi.ResultSeries {
+	out := series[:0]
+	for _, rs := range series {
+		if rs.Labels[promapi.TenantLabel] == tenant {
+			out = append(out, rs)
+		}
+	}
+	return out
+}
+
+func labelNamesFromSeries(series []promapi.ResultSeries) []string {
+	set := map[string]bool{"__name__": true}
+	for _, rs := range series {
+		for k := range rs.Labels {
+			set[k] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func labelValuesFromSeries(series []promapi.ResultSeries, name string) []string {
+	set := map[string]bool{}
+	for _, rs := range series {
+		if name == "__name__" {
+			set[rs.Metric] = true
+			continue
+		}
+		if v, ok := rs.Labels[name]; ok {
+			set[v] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for v := range set {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // promWindow reads optional start/end bounds (defaults: last hour).
@@ -500,6 +618,75 @@ func decodeUpstreamVector(body []byte) ([]promapi.ResultSeries, error) {
 			Points: []promapi.Point{{TimeMillis: int64(secs * 1000), Value: val}},
 		}
 		for k, v := range item.Metric {
+			if k != "__name__" {
+				rs.Labels[k] = v
+			}
+		}
+		out = append(out, rs)
+	}
+	return out, nil
+}
+
+func decodeUpstreamMatrix(body []byte) ([]promapi.ResultSeries, error) {
+	var resp struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Metric map[string]string   `json:"metric"`
+				Values [][]json.RawMessage `json:"values"` // [[seconds(float), "value"(string)]]
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("upstream response: %v", err)
+	}
+	if resp.Status != "success" || resp.Data.ResultType != "matrix" {
+		return nil, fmt.Errorf("upstream returned %s/%s", resp.Status, resp.Data.ResultType)
+	}
+	out := make([]promapi.ResultSeries, 0, len(resp.Data.Result))
+	for _, item := range resp.Data.Result {
+		rs := promapi.ResultSeries{
+			Metric: item.Metric["__name__"],
+			Labels: map[string]string{},
+		}
+		for k, v := range item.Metric {
+			if k != "__name__" {
+				rs.Labels[k] = v
+			}
+		}
+		for _, pair := range item.Values {
+			if len(pair) != 2 {
+				continue
+			}
+			var secs float64
+			var valStr string
+			if json.Unmarshal(pair[0], &secs) != nil || json.Unmarshal(pair[1], &valStr) != nil {
+				continue
+			}
+			val, _ := strconv.ParseFloat(valStr, 64)
+			rs.Points = append(rs.Points, promapi.Point{TimeMillis: int64(secs * 1000), Value: val})
+		}
+		out = append(out, rs)
+	}
+	return out, nil
+}
+
+func decodeUpstreamSeries(body []byte) ([]promapi.ResultSeries, error) {
+	var resp struct {
+		Status string              `json:"status"`
+		Data   []map[string]string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, fmt.Errorf("upstream response: %v", err)
+	}
+	if resp.Status != "success" {
+		return nil, fmt.Errorf("upstream returned %s", resp.Status)
+	}
+	out := make([]promapi.ResultSeries, 0, len(resp.Data))
+	for _, labels := range resp.Data {
+		rs := promapi.ResultSeries{Metric: labels["__name__"], Labels: map[string]string{}}
+		for k, v := range labels {
 			if k != "__name__" {
 				rs.Labels[k] = v
 			}

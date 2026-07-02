@@ -21,7 +21,6 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
-	"github.com/imfeelingtheagi/probectl/internal/promapi"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -160,46 +159,40 @@ func TestGrafanaTenantBoundary(t *testing.T) {
 func TestGrafanaUpstreamTenantBoundaryForHostilePrometheusQueries(t *testing.T) {
 	def := tenancy.DefaultTenantID.String()
 	var mu sync.Mutex
-	var gotQuery string
-	var gotMatches []string
-	upstream := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	var gotQueries []string
+	var gotMatches [][]string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rawQuery := r.URL.Query().Get("query")
 		rawMatches := r.URL.Query()["match[]"]
 		mu.Lock()
-		gotQuery = rawQuery
-		gotMatches = append([]string(nil), rawMatches...)
+		if rawQuery != "" {
+			gotQueries = append(gotQueries, rawQuery)
+		}
+		if len(rawMatches) > 0 {
+			gotMatches = append(gotMatches, append([]string(nil), rawMatches...))
+		}
 		mu.Unlock()
 
 		body := ""
 		switch r.URL.Path {
 		case "/api/v1/query":
-			if strings.Contains(rawQuery, otherTenant) {
-				body = `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + otherTenant + `","target":"secret.example"},"value":[1780000000.000,"99"]}]}}`
-			} else {
-				body = `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"},"value":[1780000000.000,"15"]}]}}`
-			}
+			body = hostileVectorPayload(def, otherTenant)
+		case "/api/v1/query_range":
+			body = hostileMatrixPayload(def, otherTenant)
 		case "/api/v1/series":
-			if strings.Contains(strings.Join(rawMatches, "\n"), otherTenant) {
-				body = `{"status":"success","data":[{"__name__":"probectl_result_rtt_ms","tenant_id":"` + otherTenant + `","target":"secret.example"}]}`
-			} else {
-				body = `{"status":"success","data":[{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"}]}`
-			}
+			body = hostileSeriesPayload(def, otherTenant)
 		default:
 			t.Fatalf("unexpected upstream path %s", r.URL.Path)
 		}
-		return &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(body)),
-			Request:    r,
-		}, nil
-	})
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer upstream.Close()
 
 	srv := testServer(fakePinger{})
 	srv.cfg.TSDBMode = "prometheus"
-	srv.cfg.TSDBURL = "https://prometheus.example"
+	srv.cfg.TSDBURL = upstream.URL
 	srv.WithTSDB(tsdb.NewPrometheus(srv.cfg.TSDBURL))
-	srv.promUpstream = promapi.NewUpstreamWithClient(srv.cfg.TSDBURL, &http.Client{Transport: upstream})
 
 	env := decodeEnvelope(t, doForm(srv, http.MethodPost, "/v1/grafana/api/v1/query", url.Values{
 		"query": {`probectl_result_rtt_ms{tenant_id="` + otherTenant + `",target=~".*"}`},
@@ -207,11 +200,25 @@ func TestGrafanaUpstreamTenantBoundaryForHostilePrometheusQueries(t *testing.T) 
 	if strings.Contains(string(env.Data), otherTenant) || strings.Contains(string(env.Data), "secret.example") {
 		t.Fatalf("upstream response leaked hostile tenant data: %s", env.Data)
 	}
+	if !strings.Contains(string(env.Data), "db.acme.example") {
+		t.Fatalf("default tenant data was filtered out unexpectedly: %s", env.Data)
+	}
 	mu.Lock()
-	capturedQuery := gotQuery
+	capturedQueries := append([]string(nil), gotQueries...)
 	mu.Unlock()
-	if !strings.Contains(capturedQuery, `tenant_id="`+def+`"`) || strings.Contains(capturedQuery, otherTenant) {
-		t.Fatalf("upstream instant query was not tenant-forced: %q", capturedQuery)
+	if len(capturedQueries) == 0 || !strings.Contains(capturedQueries[len(capturedQueries)-1], `tenant_id="`+def+`"`) ||
+		strings.Contains(capturedQueries[len(capturedQueries)-1], otherTenant) {
+		t.Fatalf("upstream instant query was not tenant-forced: %q", capturedQueries)
+	}
+
+	rangeStart := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
+	rangeEnd := strconv.FormatInt(time.Now().Add(time.Minute).Unix(), 10)
+	env = decodeEnvelope(t, doForm(srv, http.MethodPost, "/v1/grafana/api/v1/query_range", url.Values{
+		"query": {`probectl_result_rtt_ms{tenant_id="` + otherTenant + `"}`},
+		"start": {rangeStart}, "end": {rangeEnd}, "step": {"15"},
+	}), 200)
+	if strings.Contains(string(env.Data), otherTenant) || strings.Contains(string(env.Data), "secret.example") {
+		t.Fatalf("upstream range response leaked hostile tenant data: %s", env.Data)
 	}
 
 	env = decodeEnvelope(t, do(srv, http.MethodGet,
@@ -220,15 +227,67 @@ func TestGrafanaUpstreamTenantBoundaryForHostilePrometheusQueries(t *testing.T) 
 		t.Fatalf("upstream series response leaked hostile tenant data: %s", env.Data)
 	}
 	mu.Lock()
-	capturedMatches := append([]string(nil), gotMatches...)
+	capturedMatches := append([][]string(nil), gotMatches...)
 	mu.Unlock()
 	if len(capturedMatches) == 0 {
 		t.Fatal("upstream series request had no match[] selector")
 	}
-	if !strings.Contains(capturedMatches[len(capturedMatches)-1], `tenant_id="`+def+`"`) ||
-		strings.Contains(capturedMatches[len(capturedMatches)-1], otherTenant) {
-		t.Fatalf("upstream series match[] was not tenant-forced: %q", capturedMatches[len(capturedMatches)-1])
+	lastMatches := capturedMatches[len(capturedMatches)-1]
+	if len(lastMatches) == 0 || !strings.Contains(lastMatches[len(lastMatches)-1], `tenant_id="`+def+`"`) ||
+		strings.Contains(lastMatches[len(lastMatches)-1], otherTenant) {
+		t.Fatalf("upstream series match[] was not tenant-forced: %q", lastMatches)
 	}
+
+	env = decodeEnvelope(t, do(srv, http.MethodGet, "/v1/grafana/api/v1/labels"), 200)
+	if strings.Contains(string(env.Data), "secret_label") {
+		t.Fatalf("upstream label names leaked hostile-only label: %s", env.Data)
+	}
+
+	env = decodeEnvelope(t, do(srv, http.MethodGet, "/v1/grafana/api/v1/label/target/values"), 200)
+	if strings.Contains(string(env.Data), "secret.example") || !strings.Contains(string(env.Data), "db.acme.example") {
+		t.Fatalf("upstream label values were not tenant-filtered: %s", env.Data)
+	}
+
+	rec := do(srv, http.MethodGet, "/v1/prometheus/federate?match[]="+url.QueryEscape("probectl_result_rtt_ms"))
+	if rec.Code != 200 {
+		t.Fatalf("federate status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), otherTenant) || strings.Contains(rec.Body.String(), "secret.example") {
+		t.Fatalf("upstream federation leaked hostile tenant data: %s", rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/grafana/api/v1/query", strings.NewReader(url.Values{
+		"query": {"probectl_result_rtt_ms"},
+	}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-Probectl-Tenant", otherTenant)
+	rec = httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	env = decodeEnvelope(t, rec, 200)
+	if strings.Contains(string(env.Data), "db.acme.example") || !strings.Contains(string(env.Data), "secret.example") {
+		t.Fatalf("non-default tenant was not isolated to its own upstream rows: %s", env.Data)
+	}
+}
+
+func hostileVectorPayload(def, other string) string {
+	return `{"status":"success","data":{"resultType":"vector","result":[` +
+		`{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"},"value":[1780000000.000,"15"]},` +
+		`{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + other + `","target":"secret.example","secret_label":"x"},"value":[1780000000.000,"99"]}` +
+		`]}}`
+}
+
+func hostileMatrixPayload(def, other string) string {
+	return `{"status":"success","data":{"resultType":"matrix","result":[` +
+		`{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"},"values":[[1780000000.000,"15"]]},` +
+		`{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + other + `","target":"secret.example","secret_label":"x"},"values":[[1780000000.000,"99"]]}` +
+		`]}}`
+}
+
+func hostileSeriesPayload(def, other string) string {
+	return `{"status":"success","data":[` +
+		`{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"},` +
+		`{"__name__":"probectl_result_rtt_ms","tenant_id":"` + other + `","target":"secret.example","secret_label":"x"}` +
+		`]}`
 }
 
 // TestGrafanaRBAC: the datasource routes declare metrics.read / metrics.write
