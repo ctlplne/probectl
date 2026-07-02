@@ -108,8 +108,9 @@ Four choices set it apart:
   control through OTLP export and tenant export paths, so you can take your data
   out without turning a commercial feature on.
 - **It does not meter the core by surprise.** The full five-plane core platform
-  is free; commercial gates are about tenant-band/provider operations,
-  governance, HA support/SLA, BYOK, and resale controls, not per-host, per-flow,
+  is free; paid packaging is fixed-license: Enterprise support/governance bands
+  and Provider/MSP tenant-band licenses. Usage counters exist for showback,
+  fairness, capacity planning, and MSP tenant reporting, not per-host, per-flow,
   or per-GB tolls on the signals you already collect.
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
   tenant for one org, or as a hard-isolated, white-labeled, individually-metered

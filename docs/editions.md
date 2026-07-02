@@ -34,10 +34,13 @@ There is exactly **one** feature→tier table in the whole codebase:
 duplicated anywhere else, so there is a single source of truth.
 
 The buyer-facing pricing boundary follows that table: the full five-plane core
-platform is free, and commercial gating is tenant-band/provider/governance
-oriented. Provider/MSP metering can export usage counters for chargeback, but
-the core product is not a per-host, per-flow, or per-GB toll on telemetry.
-The public buyer-facing plan summary lives in [`pricing.md`](pricing.md).
+platform is free, and paid packaging is fixed-license. Enterprise is banded by
+support/governance posture; Provider/MSP is banded by licensed tenant count
+(`tenant_band` in the offline license claims). Provider/MSP metering can export
+usage counters for showback, tenant reporting, and capacity planning, but those
+counters are not probectl billing units and the core product is not a per-host,
+per-flow, or per-GB toll on telemetry. The public buyer-facing plan summary lives
+in [`pricing.md`](pricing.md).
 
 | Tier | Gated features |
 |---|---|

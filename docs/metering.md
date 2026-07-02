@@ -3,14 +3,16 @@
 ## What this is
 
 When an MSP (managed service provider) self-hosts probectl and serves many
-tenants, it needs to answer "how much did each tenant use this month?" — to
-bill them. **Metering** is that counting: recording each tenant's usage,
-accurately enough to invoice from. This is the plane that produces those
-numbers: per-tenant usage counters and snapshots, a usage/showback API
-(showback — showing each tenant its consumption without probectl doing the
-charging), per-tenant creation quotas (a quota — a cap on how many of a
-resource a tenant may create), and a billing-export feed the MSP feeds into its
-existing professional-services-automation (PSA) or billing system.
+tenants, it needs to answer "how much did each tenant use this month?" — for
+showback, capacity planning, fairness reviews, or the MSP's own customer invoice.
+**Metering** is that counting: per-tenant usage counters and snapshots, a
+usage/showback API (showback — showing each tenant its consumption without
+probectl doing the charging), per-tenant creation quotas (a quota — a cap on how
+many of a resource a tenant may create), and a billing-export feed the MSP feeds
+into its existing professional-services-automation (PSA) or billing system.
+These are not probectl billing units: probectl's Provider/MSP price posture is a
+fixed tenant-band license, not per-host, per-flow, per-GB, per-test, or
+per-result usage billing.
 
 It is a **commercial (Provider/MSP tier)** feature. The implementation lives in
 `ee/billing` and is unlocked by the `metering` license feature; the core
@@ -23,7 +25,9 @@ hidden. (For why the line is drawn here, see
 probectl deliberately does **not** build an invoicing engine — it *exports*. The
 first export target is **generic CSV + JSON Lines**: vendor-neutral, because
 every PSA imports CSV. Vendor-shaped connectors (ConnectWise, Autotask, Stripe)
-are follow-ups, to be built once a design partner names the one they need.
+are follow-ups, to be built once a design partner names the one they need. The
+export supports the MSP's resale motion without making probectl a managed-service
+data custodian or a consumption-billing vendor.
 
 ## The meters
 
