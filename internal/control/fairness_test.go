@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -107,9 +108,10 @@ func devTenantID(s *Server) string {
 	return p.TenantID
 }
 
-// TestPromQueryGuard429: the Grafana-compatible query surface is bounded by
-// the same per-tenant guard.
-func TestPromQueryGuard429(t *testing.T) {
+// TestPrometheusReadSurfacesGuard429: every Prometheus-compatible read surface
+// is bounded by the same per-tenant query-cost guard, including metadata and
+// federation discovery paths that can otherwise fan out to the shared TSDB.
+func TestPrometheusReadSurfacesGuard429(t *testing.T) {
 	srv := testServer(nil)
 	gate := fairness.NewGate(fairness.Policy{QueryConcurrency: 1}, nil)
 	srv.WithFairness(gate)
@@ -118,9 +120,24 @@ func TestPromQueryGuard429(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	rr := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/grafana/api/v1/query?query=up", nil))
-	if rr.Code != http.StatusTooManyRequests {
-		t.Fatalf("prom query must 429 when saturated, got %d: %s", rr.Code, rr.Body.String())
+	endpoints := []string{
+		"/v1/grafana/api/v1/status/buildinfo",
+		"/v1/grafana/api/v1/query?query=up",
+		"/v1/grafana/api/v1/query_range?query=up&start=1780000000&end=1780000060&step=15",
+		"/v1/grafana/api/v1/series?match[]=" + url.QueryEscape("up"),
+		"/v1/grafana/api/v1/labels",
+		"/v1/grafana/api/v1/label/__name__/values",
+		"/v1/grafana/api/v1/metadata",
+		"/v1/prometheus/federate?match[]=" + url.QueryEscape("up"),
+	}
+	for _, endpoint := range endpoints {
+		rr := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, endpoint, nil))
+		if rr.Code != http.StatusTooManyRequests {
+			t.Fatalf("%s must 429 when saturated, got %d: %s", endpoint, rr.Code, rr.Body.String())
+		}
+		if rr.Header().Get("Retry-After") == "" {
+			t.Fatalf("%s 429 must carry Retry-After", endpoint)
+		}
 	}
 }

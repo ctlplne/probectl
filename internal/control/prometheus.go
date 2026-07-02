@@ -189,6 +189,11 @@ func (s *Server) handlePromQueryRange(w http.ResponseWriter, r *http.Request) er
 
 // handlePromSeries serves GET+POST /v1/grafana/api/v1/series.
 func (s *Server) handlePromSeries(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
@@ -222,6 +227,11 @@ func (s *Server) handlePromSeries(w http.ResponseWriter, r *http.Request) error 
 
 // handlePromLabels serves GET+POST /v1/grafana/api/v1/labels.
 func (s *Server) handlePromLabels(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
@@ -255,6 +265,11 @@ func (s *Server) handlePromLabels(w http.ResponseWriter, r *http.Request) error 
 
 // handlePromLabelValues serves GET /v1/grafana/api/v1/label/{name}/values.
 func (s *Server) handlePromLabelValues(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
@@ -295,6 +310,11 @@ func (s *Server) handlePromLabelValues(w http.ResponseWriter, r *http.Request) e
 // handlePromBuildInfo serves GET /v1/grafana/api/v1/status/buildinfo (Grafana
 // probes it to pick a query-editor feature level).
 func (s *Server) handlePromBuildInfo(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if _, err := s.principalTenant(r); err != nil {
 		return err
 	}
@@ -305,6 +325,11 @@ func (s *Server) handlePromBuildInfo(w http.ResponseWriter, r *http.Request) err
 // handlePromMetadata serves GET /v1/grafana/api/v1/metadata (Grafana asks for
 // metric metadata; probectl serves none yet — an empty success keeps it happy).
 func (s *Server) handlePromMetadata(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if _, err := s.principalTenant(r); err != nil {
 		return err
 	}
@@ -316,6 +341,11 @@ func (s *Server) handlePromMetadata(w http.ResponseWriter, r *http.Request) erro
 // scrape: the latest sample of every series matching match[], in the text
 // exposition format, tenant-scoped.
 func (s *Server) handlePromFederate(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r) // per-tenant query-cost guard (S-T7)
+	if err != nil {
+		return err
+	}
+	defer release()
 	tid, err := s.principalTenant(r)
 	if err != nil {
 		return err
