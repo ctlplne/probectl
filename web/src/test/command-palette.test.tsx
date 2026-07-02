@@ -51,6 +51,62 @@ describe('command palette (keyboard-first)', () => {
     )
   })
 
+  test('exposes task commands and deep-links into human-gated workflows', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets')
+    await screen.findByRole('heading', { name: /targets & tests/i })
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: /search commands/i })
+    const listbox = screen.getByRole('listbox')
+
+    for (const label of [
+      'Create test',
+      'Discover path',
+      'Silence alert',
+      'Schedule maintenance',
+      'Export audit',
+      'Open support bundle',
+      'Register collector',
+    ]) {
+      await user.clear(input)
+      await user.type(input, label)
+      expect(within(listbox).getAllByRole('option')[0]).toHaveTextContent(label)
+    }
+
+    await user.clear(input)
+    await user.type(input, 'Create test')
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('dialog', { name: 'Create test' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Meta>}k{/Meta}')
+    await user.type(await screen.findByRole('combobox', { name: /search commands/i }), 'Silence alert')
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('dialog', { name: /checkout latency burn/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Silence' })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Meta>}k{/Meta}')
+    await user.type(
+      await screen.findByRole('combobox', { name: /search commands/i }),
+      'Schedule maintenance',
+    )
+    await user.keyboard('{Enter}')
+    expect(
+      await screen.findByRole('dialog', { name: 'Schedule maintenance window' }),
+    ).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await user.keyboard('{Meta>}k{/Meta}')
+    await user.type(
+      await screen.findByRole('combobox', { name: /search commands/i }),
+      'Register collector',
+    )
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('dialog', { name: 'Register collector' })).toBeInTheDocument()
+  })
+
   test('search input has a tokenized visible focus style', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/shell/CommandPalette.module.css'), 'utf8')
 

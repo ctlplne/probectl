@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './pages.module.css'
 import { NAV } from '../nav/ia'
@@ -209,6 +209,15 @@ export function TargetsPage() {
   const enabled = filterValue(params, 'enabled', 'all')
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
+
+  useEffect(() => {
+    if (params.get('create') !== 'test') return
+    setCreating(true)
+    const next = new URLSearchParams(params)
+    next.delete('create')
+    setParams(next, { replace: true })
+  }, [params, setParams])
+
   const filteredTests = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return (data ?? []).filter((t) => {

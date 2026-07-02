@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './alerts.module.css'
 import { Page } from './pages'
@@ -729,6 +729,22 @@ export function AlertsPage() {
   }, [active.data, query, stateFilter, severityFilter])
 
   const detailAlert = items.find((a) => a.fingerprint === detail) ?? null
+
+  useEffect(() => {
+    if (params.get('task') !== 'schedule-maintenance') return
+    setCreatingWindow(true)
+    const next = new URLSearchParams(params)
+    next.delete('task')
+    setParams(next, { replace: true })
+  }, [params, setParams])
+
+  useEffect(() => {
+    if (params.get('task') !== 'silence-alert' || items.length === 0) return
+    setDetail(items[0].fingerprint)
+    const next = new URLSearchParams(params)
+    next.delete('task')
+    setParams(next, { replace: true })
+  }, [items, params, setParams])
 
   const activeColumns: Column<ActiveAlert>[] = [
     {

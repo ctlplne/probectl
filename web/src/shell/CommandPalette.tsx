@@ -41,6 +41,64 @@ export function CommandPalette({
   const listId = useId()
 
   const commands = useMemo<Command[]>(() => {
+    const task: Command[] = [
+      {
+        id: 'task:create-test',
+        label: t('command.task.createTest'),
+        hint: t('command.task.createTestHint'),
+        icon: 'targets',
+        changesRoute: true,
+        run: () => navigate('/targets?create=test'),
+      },
+      {
+        id: 'task:discover-path',
+        label: t('command.task.discoverPath'),
+        hint: t('command.task.discoverPathHint'),
+        icon: 'path',
+        changesRoute: true,
+        run: () => navigate('/path?task=discover-path'),
+      },
+      {
+        id: 'task:silence-alert',
+        label: t('command.task.silenceAlert'),
+        hint: t('command.task.silenceAlertHint'),
+        icon: 'alert',
+        changesRoute: true,
+        run: () => navigate('/alerts?alert_state=firing&task=silence-alert'),
+      },
+      {
+        id: 'task:schedule-maintenance',
+        label: t('command.task.scheduleMaintenance'),
+        hint: t('command.task.scheduleMaintenanceHint'),
+        icon: 'alert',
+        changesRoute: true,
+        run: () => navigate('/alerts?task=schedule-maintenance'),
+      },
+      {
+        id: 'task:export-audit',
+        label: t('command.task.exportAudit'),
+        hint: t('command.task.exportAuditHint'),
+        icon: 'compliance',
+        changesRoute: true,
+        run: () => navigate('/audit?task=export-audit'),
+      },
+      {
+        id: 'task:open-support-bundle',
+        label: t('command.task.openSupportBundle'),
+        hint: t('command.task.openSupportBundleHint'),
+        icon: 'admin',
+        changesRoute: true,
+        run: () => navigate('/admin#support-bundle'),
+      },
+      {
+        id: 'task:register-collector',
+        label: t('command.task.registerCollector'),
+        hint: t('command.task.registerCollectorHint'),
+        icon: 'admin',
+        changesRoute: true,
+        run: () => navigate('/admin?register_collector=flow'),
+      },
+    ]
     const go = NAV.map<Command>((n) => ({
       id: `go:${n.to}`,
       label: t('command.goTo', { label: t(n.labelKey) }),
@@ -63,7 +121,7 @@ export function CommandPalette({
       icon: 'targets',
       run: () => switchTenant(tenant.id),
     }))
-    return [...go, ...theme, ...tenant]
+    return [...task, ...go, ...theme, ...tenant]
   }, [navigate, setTheme, t, themes, tenants, switchTenant])
 
   const filtered = useMemo(() => {

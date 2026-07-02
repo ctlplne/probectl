@@ -305,7 +305,7 @@ export function SupportCard() {
     s === 'ok' ? 'success' : s === 'degraded' ? 'warning' : 'danger'
 
   return (
-    <Card>
+    <Card id="support-bundle">
       <CardHeader
         title="Support & diagnostics"
         description="Deep health across components, and a one-click support bundle (versions, redacted config, health, self-metrics, anonymized topology) — secret-stripped: never contains credentials or PII."
