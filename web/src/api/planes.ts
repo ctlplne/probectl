@@ -60,6 +60,36 @@ export interface FlowAnomalyResponse {
   items: FlowAnomaly[]
 }
 
+export interface DeviceSyslogEvent {
+  id: string
+  device: string
+  severity_text: string
+  message: string
+  observed_at: string
+}
+
+export interface DeviceSyslogResponse {
+  items: DeviceSyslogEvent[]
+  syslog_running?: boolean
+}
+
+export interface DeviceConfigVersion {
+  id: string
+  device: string
+  source?: string
+  version: number
+  content_hash: string
+  previous_hash?: string
+  drifted: boolean
+  archived_at: string
+}
+
+export interface DeviceConfigResponse {
+  items: DeviceConfigVersion[]
+  archive_running?: boolean
+  redaction_policy?: string
+}
+
 export function useFlowTop(by: FlowGroupBy, window = '1h', limit = 10) {
   return useQuery({
     queryKey: ['flows', 'top', by, window, limit],
@@ -87,5 +117,19 @@ export function useFlowAnomalies(window = '1h', bucket = '5m') {
       apiFetch<FlowAnomalyResponse>(
         `/flows/anomalies?window=${encodeURIComponent(window)}&bucket=${encodeURIComponent(bucket)}`,
       ),
+  })
+}
+
+export function useDeviceSyslog(limit = 5) {
+  return useQuery({
+    queryKey: ['device', 'syslog', limit],
+    queryFn: () => apiFetch<DeviceSyslogResponse>(`/device/syslog?limit=${limit}`),
+  })
+}
+
+export function useDeviceConfigs(limit = 5) {
+  return useQuery({
+    queryKey: ['device', 'configs', limit],
+    queryFn: () => apiFetch<DeviceConfigResponse>(`/device/configs?limit=${limit}`),
   })
 }

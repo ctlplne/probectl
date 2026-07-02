@@ -48,7 +48,7 @@ func TestOTLPServedPathIsolationAllSignals(t *testing.T) {
 	go func() { _ = NewOTLPConsumer(b, metricsStore, log).Run(ctx) }()
 	go func() { _ = NewOTLPTraceConsumer(b, signalsStore, log).Run(ctx) }()
 	go func() { _ = NewOTLPLogConsumer(b, signalsStore, log).Run(ctx) }()
-	waitForOTLPSubscribers(t, ctx, b)
+	waitForOTLPSubscribers(ctx, t, b)
 
 	sinks := otlpIsolationSinks(b)
 	authA := otlp.NewTokenAuthenticator(map[string]string{"tok-a": tenantA})
@@ -111,7 +111,7 @@ func TestOTLPServedPathIsolationAllSignals(t *testing.T) {
 	assertNoOTLPTenantRows(t, metricsStore, signalsStore, tenantB, "forged")
 }
 
-func waitForOTLPSubscribers(t *testing.T, ctx context.Context, b *bus.Memory) {
+func waitForOTLPSubscribers(ctx context.Context, t *testing.T, b *bus.Memory) {
 	t.Helper()
 	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

@@ -304,6 +304,8 @@ export const SURFACES: SurfaceDecl[] = [
     evidence: [
       'openapi:/v1/devices',
       'openapi:/v1/device/metrics',
+      'openapi:/v1/device/syslog',
+      'openapi:/v1/device/configs',
       'cli:probectl device list',
       'cli:probectl device metrics',
       'file:docs/features/telemetry-planes.md',

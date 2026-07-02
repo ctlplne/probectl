@@ -255,6 +255,35 @@ export function defaultFetch(): typeof fetch {
       })
     if (path === '/v1/results/latest')
       return jsonResponse({ items: sampleLatestResults, collector_running: true })
+    if (path === '/v1/device/syslog')
+      return jsonResponse({
+        items: [
+          {
+            id: 'syslog-1',
+            device: 'edge-r1',
+            severity_text: 'warning',
+            message: 'Interface Gi0/1 down',
+            observed_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        syslog_running: true,
+      })
+    if (path === '/v1/device/configs')
+      return jsonResponse({
+        items: [
+          {
+            id: 'config-2',
+            device: 'edge-r1',
+            source: 'running-config',
+            version: 2,
+            content_hash: '0123456789abcdef',
+            previous_hash: 'abcdef0123456789',
+            drifted: true,
+            archived_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        archive_running: true,
+      })
     if (path === '/v1/topology')
       return jsonResponse({
         topology_running: true,

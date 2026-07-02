@@ -17,7 +17,16 @@ import {
   type Column,
 } from '../components'
 import { useEndpoints, type EndpointView } from '../api/endpoints'
-import { useFlowAnomalies, useFlowCapacity, useFlowTop, type FlowGroupBy } from '../api/planes'
+import {
+  useDeviceConfigs,
+  useDeviceSyslog,
+  useFlowAnomalies,
+  useFlowCapacity,
+  useFlowTop,
+  type DeviceConfigVersion,
+  type DeviceSyslogEvent,
+  type FlowGroupBy,
+} from '../api/planes'
 import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
@@ -90,6 +99,8 @@ export function PlanesPage() {
   const topTalkers = useFlowTop(flowBy, '1h', 8)
   const capacity = useFlowCapacity('1h', '5m')
   const anomalies = useFlowAnomalies('1h', '5m')
+  const deviceSyslog = useDeviceSyslog(5)
+  const deviceConfigs = useDeviceConfigs(5)
 
   const nodes = topology.data?.nodes ?? EMPTY_TOPO_NODES
   const edges = topology.data?.edges ?? EMPTY_TOPO_EDGES
@@ -183,6 +194,10 @@ export function PlanesPage() {
           deviceNodes={deviceNodes}
           endpoints={endpointItems}
           collectorRunning={endpoints.data?.collector_running}
+          syslog={deviceSyslog.data?.items ?? []}
+          configs={deviceConfigs.data?.items ?? []}
+          opsLoading={deviceSyslog.isLoading || deviceConfigs.isLoading}
+          opsError={deviceSyslog.isError || deviceConfigs.isError}
         />
       ) : null}
       {active === 'ebpf' ? (
@@ -484,6 +499,10 @@ function DevicePanel({
   deviceNodes,
   endpoints,
   collectorRunning,
+  syslog,
+  configs,
+  opsLoading,
+  opsError,
 }: {
   isLoading: boolean
   isError: boolean
@@ -492,6 +511,10 @@ function DevicePanel({
   deviceNodes: TopoNode[]
   endpoints: EndpointView[]
   collectorRunning?: boolean
+  syslog: DeviceSyslogEvent[]
+  configs: DeviceConfigVersion[]
+  opsLoading: boolean
+  opsError: boolean
 }) {
   const { locale } = useI18n()
   const deviceColumns: Column<TopoNode>[] = [
@@ -509,6 +532,29 @@ function DevicePanel({
     },
     { key: 'cause', header: 'Cause', render: (e) => e.cause ?? 'none' },
     { key: 'seen', header: 'Last seen', render: (e) => <DateTime value={e.last_seen_at} /> },
+  ]
+  const syslogColumns: Column<DeviceSyslogEvent>[] = [
+    { key: 'device', header: 'Device', render: (e) => <strong>{e.device}</strong> },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (e) => <Badge tone={syslogTone(e.severity_text)}>{e.severity_text}</Badge>,
+    },
+    { key: 'message', header: 'Message', render: (e) => e.message },
+    { key: 'seen', header: 'Observed', render: (e) => <DateTime value={e.observed_at} /> },
+  ]
+  const configColumns: Column<DeviceConfigVersion>[] = [
+    { key: 'device', header: 'Device', render: (c) => <strong>{c.device}</strong> },
+    { key: 'version', header: 'Version', render: (c) => String(c.version) },
+    {
+      key: 'drift',
+      header: 'Drift',
+      render: (c) => (
+        <Badge tone={c.drifted ? 'warning' : 'success'}>{c.drifted ? 'changed' : 'baseline'}</Badge>
+      ),
+    },
+    { key: 'hash', header: 'Hash', render: (c) => <code>{c.content_hash.slice(0, 12)}</code> },
+    { key: 'archived', header: 'Archived', render: (c) => <DateTime value={c.archived_at} /> },
   ]
   return (
     <section id="plane-panel-device" role="tabpanel" className={styles.panelGrid}>
@@ -558,6 +604,54 @@ function DevicePanel({
             />
           </CardBody>
         </Card>
+        <Card>
+          <CardHeader title="Device syslog" />
+          <CardBody>
+            {opsLoading ? (
+              <LoadingState label="Loading device operations..." />
+            ) : opsError ? (
+              <ErrorState description="Could not load device operations." />
+            ) : (
+              <Table
+                caption="Device syslog events"
+                columns={syslogColumns}
+                rows={syslog}
+                rowKey={(e) => e.id}
+                empty={
+                  <EmptyState
+                    title="No syslog events"
+                    description="Authenticated device syslog rows appear here."
+                    preview={<PlanesPreview />}
+                  />
+                }
+              />
+            )}
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title="Config archive" />
+          <CardBody>
+            {opsLoading ? (
+              <LoadingState label="Loading config archive..." />
+            ) : opsError ? (
+              <ErrorState description="Could not load config archive." />
+            ) : (
+              <Table
+                caption="Device config versions"
+                columns={configColumns}
+                rows={configs}
+                rowKey={(c) => c.id}
+                empty={
+                  <EmptyState
+                    title="No config versions"
+                    description="Versioned and redacted network configs appear here."
+                    preview={<PlanesPreview />}
+                  />
+                }
+              />
+            )}
+          </CardBody>
+        </Card>
       </div>
       <PlaneSummary
         title="Device coverage"
@@ -573,6 +667,14 @@ function DevicePanel({
       />
     </section>
   )
+}
+
+function syslogTone(severity: string) {
+  return ['emergency', 'alert', 'critical', 'error'].includes(severity)
+    ? 'danger'
+    : severity === 'warning'
+      ? 'warning'
+      : 'neutral'
 }
 
 function EBPFPanel({

@@ -3,13 +3,16 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	devicepkg "github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
@@ -88,4 +91,77 @@ func TestDeviceMetricsAPILatestSummariesAreTenantScoped(t *testing.T) {
 	if strings.Contains(rec.Body.String(), "secret-sw") || strings.Contains(rec.Body.String(), "10.0.0.99") {
 		t.Fatalf("CROSS-TENANT LEAK: %s", rec.Body.String())
 	}
+}
+
+func TestDeviceSyslogAPITenantScoped(t *testing.T) {
+	srv := testServer(fakePinger{})
+	def := tenancy.DefaultTenantID.String()
+	postJSONAsTenant(t, srv, http.MethodPost, "/v1/device/syslog", otherTenant,
+		`{"device":"edge-b","raw":"<131>Jul  2 12:34:56 edge-b SECRET tenant-b"}`)
+	postJSONAsTenant(t, srv, http.MethodPost, "/v1/device/syslog", def,
+		`{"raw":"<134>Jul  2 12:35:00 edge-a Interface Gi0/1 down"}`)
+
+	rec := do(srv, http.MethodGet, "/v1/device/syslog?limit=10")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Items []devicepkg.SyslogEvent `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 1 || resp.Items[0].TenantID != def || resp.Items[0].Device != "edge-a" {
+		t.Fatalf("syslog response = %+v", resp)
+	}
+	if strings.Contains(rec.Body.String(), "tenant-b") || strings.Contains(rec.Body.String(), "edge-b") {
+		t.Fatalf("CROSS-TENANT SYSLOG LEAK: %s", rec.Body.String())
+	}
+}
+
+func TestDeviceConfigArchiveAPIRedactsAndScopesTenant(t *testing.T) {
+	srv := testServer(fakePinger{})
+	def := tenancy.DefaultTenantID.String()
+	postJSONAsTenant(t, srv, http.MethodPost, "/v1/device/configs", otherTenant,
+		`{"device":"edge-b","content":"hostname edge-b\nsecret tenant-b-only\n"}`)
+	first := postJSONAsTenant(t, srv, http.MethodPost, "/v1/device/configs", def,
+		`{"device":"edge-a","source":"startup-config","content":"hostname edge-a\nenable secret raw-password\ninterface Gi0/1\n"}`)
+	if !strings.Contains(first.Body.String(), "[redacted]") || strings.Contains(first.Body.String(), "raw-password") {
+		t.Fatalf("archive response did not redact config secret: %s", first.Body.String())
+	}
+	postJSONAsTenant(t, srv, http.MethodPost, "/v1/device/configs", def,
+		`{"device":"edge-a","source":"running-config","content":"hostname edge-a\ninterface Gi0/2\n"}`)
+
+	rec := do(srv, http.MethodGet, "/v1/device/configs?device=edge-a&limit=10")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Items []devicepkg.ConfigVersion `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 2 {
+		t.Fatalf("config response = %+v", resp)
+	}
+	if !resp.Items[0].Drifted || resp.Items[0].Version != 2 || resp.Items[0].PreviousHash == "" {
+		t.Fatalf("latest config did not report versioned drift: %+v", resp.Items[0])
+	}
+	if strings.Contains(rec.Body.String(), "tenant-b-only") || strings.Contains(rec.Body.String(), "edge-b") {
+		t.Fatalf("CROSS-TENANT CONFIG LEAK: %s", rec.Body.String())
+	}
+}
+
+func postJSONAsTenant(t *testing.T, srv *Server, method, path, tenant, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Probectl-Tenant", tenant)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code < 200 || rec.Code >= 300 {
+		t.Fatalf("%s %s status = %d body=%s", method, path, rec.Code, rec.Body.String())
+	}
+	return rec
 }

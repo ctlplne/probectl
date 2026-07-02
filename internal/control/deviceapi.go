@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/topology"
 )
@@ -40,6 +42,22 @@ type deviceMetricSummary struct {
 	Metric     string    `json:"metric"`
 	Value      float64   `json:"value"`
 	LastSeen   time.Time `json:"last_seen"`
+}
+
+type deviceSyslogRequest struct {
+	Device        string            `json:"device"`
+	SourceAddress string            `json:"source_address,omitempty"`
+	Message       string            `json:"message,omitempty"`
+	Raw           string            `json:"raw,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	ObservedAt    time.Time         `json:"observed_at,omitempty"`
+}
+
+type deviceConfigArchiveRequest struct {
+	Device     string    `json:"device"`
+	Source     string    `json:"source,omitempty"`
+	Content    string    `json:"content"`
+	ObservedAt time.Time `json:"observed_at,omitempty"`
 }
 
 // handleListDevices serves GET /v1/devices — topology-visible managed network
@@ -86,6 +104,129 @@ func (s *Server) handleListDevices(w http.ResponseWriter, r *http.Request) error
 		"effective_limit":  limit,
 	})
 	return nil
+}
+
+func (s *Server) handleIngestDeviceSyslog(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var req deviceSyslogRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return err
+	}
+	raw := strings.TrimSpace(req.Raw)
+	if raw == "" {
+		raw = strings.TrimSpace(req.Message)
+	}
+	if raw == "" {
+		return apierror.BadRequest("device syslog message is required")
+	}
+	ev := device.ParseSyslogLine(raw, req.Device, req.ObservedAt)
+	ev.TenantID = tid
+	ev.SourceAddress = strings.TrimSpace(req.SourceAddress)
+	ev.Labels = copyStringMap(req.Labels)
+	if strings.TrimSpace(req.Message) != "" && req.Raw == "" {
+		ev.Raw = req.Message
+	}
+	row, err := s.deviceOps.RecordSyslog(r.Context(), ev)
+	if err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	writeJSON(w, http.StatusCreated, row)
+	return nil
+}
+
+func (s *Server) handleListDeviceSyslog(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	limit, err := intParam(r, "limit", deviceDefaultLimit)
+	if err != nil {
+		return err
+	}
+	if limit > deviceMaxLimit {
+		limit = deviceMaxLimit
+	}
+	rows, err := s.deviceOps.ListSyslog(r.Context(), tid, device.OpsFilter{
+		Device: strings.TrimSpace(r.URL.Query().Get("device")),
+		Limit:  limit,
+	})
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":           rows,
+		"syslog_running":  true,
+		"effective_limit": limit,
+	})
+	return nil
+}
+
+func (s *Server) handleArchiveDeviceConfig(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	var req deviceConfigArchiveRequest
+	if err := decodeJSONLimit(r, 2<<20, &req); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.Device) == "" || strings.TrimSpace(req.Content) == "" {
+		return apierror.BadRequest("device and content are required")
+	}
+	row, err := s.deviceOps.ArchiveConfig(r.Context(), device.ConfigVersion{
+		TenantID:   tid,
+		Device:     req.Device,
+		Source:     strings.TrimSpace(req.Source),
+		Content:    req.Content,
+		ObservedAt: req.ObservedAt,
+	})
+	if err != nil {
+		return apierror.BadRequest(err.Error())
+	}
+	writeJSON(w, http.StatusCreated, row)
+	return nil
+}
+
+func (s *Server) handleListDeviceConfigs(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	limit, err := intParam(r, "limit", deviceDefaultLimit)
+	if err != nil {
+		return err
+	}
+	if limit > deviceMaxLimit {
+		limit = deviceMaxLimit
+	}
+	rows, err := s.deviceOps.ListConfigs(r.Context(), tid, device.OpsFilter{
+		Device: strings.TrimSpace(r.URL.Query().Get("device")),
+		Limit:  limit,
+	})
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items":            rows,
+		"archive_running":  true,
+		"effective_limit":  limit,
+		"redaction_policy": "common network secrets are redacted before storage",
+	})
+	return nil
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func devicesFromSnapshot(snap topology.Snapshot) []deviceInventoryItem {

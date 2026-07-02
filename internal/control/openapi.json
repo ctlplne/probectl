@@ -1810,6 +1810,180 @@
         }
       }
     },
+    "/v1/device/syslog": {
+      "get": {
+        "operationId": "listDeviceSyslog",
+        "summary": "List tenant-scoped device syslog events",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "required": false,
+            "description": "Optional device filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum syslog events to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant-scoped syslog events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSyslogList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Device syslog is newest-first and bounded to avoid unbounded operational log dumps."
+        }
+      },
+      "post": {
+        "operationId": "ingestDeviceSyslog",
+        "summary": "Ingest one authenticated device syslog line",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceSyslogRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Accepted syslog event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceSyslogEvent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/device/configs": {
+      "get": {
+        "operationId": "listDeviceConfigs",
+        "summary": "List tenant-scoped device config versions",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "device",
+            "in": "query",
+            "required": false,
+            "description": "Optional device filter.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum config versions to return.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant-scoped config archive rows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceConfigList"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "limit_param": "limit",
+          "max_items": 500,
+          "reason": "Device config versions are newest-first and bounded per tenant/device."
+        }
+      },
+      "post": {
+        "operationId": "archiveDeviceConfig",
+        "summary": "Archive a redacted network-device config version",
+        "tags": [
+          "devices"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceConfigArchiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Archived config version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceConfigVersion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/ebpf/service-map": {
       "get": {
         "operationId": "listEBPFServiceMap",
@@ -8630,6 +8804,185 @@
           },
           "effective_limit": {
             "type": "integer"
+          }
+        }
+      },
+      "DeviceSyslogRequest": {
+        "type": "object",
+        "required": [
+          "device"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "source_address": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "raw": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceSyslogEvent": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "source_address": {
+            "type": "string"
+          },
+          "facility": {
+            "type": "integer"
+          },
+          "severity": {
+            "type": "integer"
+          },
+          "severity_text": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "app_name": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "raw": {
+            "type": "string"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceSyslogList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceSyslogEvent"
+            }
+          },
+          "syslog_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer"
+          }
+        }
+      },
+      "DeviceConfigArchiveRequest": {
+        "type": "object",
+        "required": [
+          "device",
+          "content"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "description": "Raw submitted config; stored and returned after common secret redaction."
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceConfigVersion": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenant_id": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "content": {
+            "type": "string",
+            "description": "Redacted config content."
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "previous_hash": {
+            "type": "string"
+          },
+          "drifted": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "archived_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceConfigList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceConfigVersion"
+            }
+          },
+          "archive_running": {
+            "type": "boolean"
+          },
+          "effective_limit": {
+            "type": "integer"
+          },
+          "redaction_policy": {
+            "type": "string"
           }
         }
       },

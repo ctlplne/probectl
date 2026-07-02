@@ -26,6 +26,10 @@ One agent, `probectl-device-agent`, talks to network devices three ways:
   up/down and cold start. Traps are off by default and accepted only from
   configured sources with a matching v2c community or authenticated v3 USM user;
   accepted traps become tenant-scoped event and alert rows.
+- **Syslog and config archive** — authenticated control-plane APIs let an
+  operator or owned collector submit device syslog lines and versioned network
+  configs. Rows are tenant-bound at write/read time; configs are redacted before
+  storage and versioned with a content hash so drift is explicit.
 
 The shape difference is a nurse doing rounds versus a wearable monitor: SNMP
 takes vitals on a schedule; gNMI reports the moment something changes.
@@ -43,6 +47,7 @@ flowchart LR
   D -- "gNMI Subscribe (stream, TLS)" --> A
   A -- "probectl.device.metrics (DeviceMetricBatch, tenant-keyed)" --> B[(bus)]
   A -- "SNMP trap events + alerts (tenant-scoped)" --> E[(trap store)]
+  A -- "syslog + config snapshots (tenant-scoped)" --> O[(device ops store)]
   B --> P[control plane DeviceConsumer]
   P --> T[(TSDB: probectl_device_* series)]
   A -- "interface inventory (ifIndex, ifName, addresses)" --> C[Correlator]
@@ -208,7 +213,7 @@ PROBECTL_DEVICE_CRED_<NAME>_AUTH_PROTO     # sha (default) | sha256 | sha512 | m
 PROBECTL_DEVICE_CRED_<NAME>_AUTH_PASS
 PROBECTL_DEVICE_CRED_<NAME>_PRIV_PROTO     # aes (default) | aes256 | des
 PROBECTL_DEVICE_CRED_<NAME>_PRIV_PASS
-PROBECTL_DEVICE_CRED_<NAME>_PASSWORD       # gNMI metadata auth
+  PROBECTL_DEVICE_CRED_<NAME>_PASSWORD       # gNMI metadata auth
 ```
 
 A credential name that resolves to *nothing* **fails closed at startup** — a
@@ -216,6 +221,27 @@ typo can't silently downgrade you to an unauthenticated poll; the agent refuses
 to start instead. The named-credential seam is also the integration point for a
 real secrets backend (Vault, CyberArk, a cloud KMS) plugging in later without
 touching any device config.
+
+## Syslog and config archive
+
+The device operations surface covers two NMS/NCM table-stakes workflows without
+turning probectl into a vendor-managed collector:
+
+- `POST /v1/device/syslog` accepts one authenticated syslog line for the caller's
+  tenant. The parser extracts PRI facility/severity and common host/app fields
+  when present, but preserves the original line for investigation. `GET
+  /v1/device/syslog` reads only the caller tenant's rows, with optional `device`
+  and bounded `limit` filters.
+- `POST /v1/device/configs` archives one device config version for the caller's
+  tenant. Common secret-bearing lines (`password`, `secret`, `community`,
+  `token`, keys) are redacted before storage; the stored content hash and
+  previous hash produce an explicit drift flag on version 2+. `GET
+  /v1/device/configs` lists the tenant's config versions, newest first.
+
+This is intentionally **customer/MSP-owned**: use a local device agent, collector
+script, or automation runner to submit syslog/config rows over the authenticated
+control-plane API. probectl does not offer managed-device custody and does not
+bill by line, config, byte, or device volume.
 
 A note for **FIPS deployments**: the SNMPv3 USM (User-based Security Model —
 SNMPv3's built-in authentication/encryption layer) algorithms run

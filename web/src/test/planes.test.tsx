@@ -17,8 +17,15 @@ describe('plane workspaces', () => {
     expect(within(topTalkers).getByText('10.0.0.10')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'Device' }))
-    expect(await screen.findByRole('table', { name: /topology device nodes/i })).toBeInTheDocument()
-    expect(screen.getByText('edge-r1')).toBeInTheDocument()
+    const deviceNodes = await screen.findByRole('table', { name: /topology device nodes/i })
+    expect(deviceNodes).toBeInTheDocument()
+    expect(within(deviceNodes).getByText('edge-r1')).toBeInTheDocument()
+    expect(await screen.findByRole('table', { name: /device syslog events/i })).toBeInTheDocument()
+    expect(screen.getByText('Interface Gi0/1 down')).toBeInTheDocument()
+    expect(
+      await screen.findByRole('table', { name: /device config versions/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('changed')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('tab', { name: 'eBPF' }))
     const ebpf = await screen.findByRole('table', { name: /ebpf service edges/i })

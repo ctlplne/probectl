@@ -28,6 +28,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/cost"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/device"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
 	"github.com/imfeelingtheagi/probectl/internal/enroll"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
@@ -104,6 +105,7 @@ type Server struct {
 	// configured store (ClickHouse in production) via WithFlowStore.
 	flowStore flowstore.Store
 	otelStore otelstore.Store
+	deviceOps device.OpsStore
 
 	// Prometheus-compatible surfaces (S40): the metrics writer, queried locally
 	// when it can snapshot (memory mode) or proxied upstream (prometheus mode).
@@ -336,6 +338,14 @@ func (s *Server) WithOTelStore(st otelstore.Store) *Server {
 	return s
 }
 
+// WithDeviceOps attaches the tenant-scoped device syslog/config archive store.
+func (s *Server) WithDeviceOps(st device.OpsStore) *Server {
+	if st != nil {
+		s.deviceOps = st
+	}
+	return s
+}
+
 // WithFlowStore attaches the flow-analytics store (S38) backing /v1/flows/*.
 // nil is a no-op (the in-memory default from New stays). Returns the server
 // for chaining.
@@ -361,7 +371,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 	}
 	v := version.Get()
 	s := &Server{cfg: cfg, log: log, pinger: pinger, pool: pool, pathStore: pathStore, discover: discover,
-		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), inventoryViews: inventory.NewMemoryViewStore(), startedAt: time.Now(),
+		flowStore: flowstore.NewMemory(), otelStore: otelstore.NewMemory(), deviceOps: device.NewMemoryOpsStore(), inventoryViews: inventory.NewMemoryViewStore(), startedAt: time.Now(),
 		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit),
 		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
 		scimMaxGroups: scimDefaultMaxGroupsPerTenant}
