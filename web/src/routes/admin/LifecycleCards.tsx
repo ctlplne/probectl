@@ -21,6 +21,7 @@ import {
   useLifecycle,
   useSaveLifecycleRetention,
   type LifecycleEraseAttestation,
+  type LifecycleRetentionInput,
   type LifecycleStoreResult,
 } from '../../api/lifecycle'
 import { useDiagnostics, type HealthStatus } from '../../api/diagnostics'
@@ -33,7 +34,7 @@ export function LifecycleCard() {
   const { data, isPending, isError } = useLifecycle()
   const saveRetention = useSaveLifecycleRetention()
   const eraseTenant = useEraseTenantLifecycle()
-  const [days, setDays] = useState('')
+  const [retentionDays, setRetentionDays] = useState<Record<string, string>>({})
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [eraseOpen, setEraseOpen] = useState(false)
@@ -47,9 +48,12 @@ export function LifecycleCard() {
     setError('')
     setSaved(false)
     try {
-      await saveRetention.mutateAsync({
-        flow_retention_days: days === '' ? null : Number(days),
-      })
+      const payload = retentionFields.reduce((acc, field) => {
+        const value = retentionDays[field.key] ?? ''
+        acc[field.key] = value === '' ? null : Number(value)
+        return acc
+      }, {} as LifecycleRetentionInput)
+      await saveRetention.mutateAsync(payload)
       setSaved(true)
     } catch (err) {
       setError((err as Error).message)
@@ -80,7 +84,7 @@ export function LifecycleCard() {
     <Card>
       <CardHeader
         title="Data lifecycle"
-        description="Export your tenant's data (portability bundle), tighten flow retention, see where your data lives, and run slug-confirmed verifiable erasure."
+        description="Export your tenant's data (portability bundle), tighten per-plane retention, see where your data lives, and run slug-confirmed verifiable erasure."
       />
       <CardBody>
         {isPending ? (
@@ -120,15 +124,18 @@ export function LifecycleCard() {
                 void save(e)
               }}
             >
-              <Field
-                label="Flow retention days (blank = deployment default)"
-                inputMode="numeric"
-                value={days}
-                onChange={(e) => setDays(e.target.value)}
-                placeholder={
-                  data?.flow_retention_days != null ? String(data.flow_retention_days) : 'default'
-                }
-              />
+              {retentionFields.map((field) => (
+                <Field
+                  key={field.key}
+                  label={`${field.label} days`}
+                  inputMode="numeric"
+                  value={retentionDays[field.key] ?? ''}
+                  onChange={(e) =>
+                    setRetentionDays((prev) => ({ ...prev, [field.key]: e.target.value }))
+                  }
+                  placeholder={data?.[field.key] != null ? String(data[field.key]) : 'default'}
+                />
+              ))}
               <Button type="submit" variant="primary" disabled={saveRetention.isPending}>
                 {saveRetention.isPending ? 'Saving retention' : 'Save retention'}
               </Button>
@@ -162,6 +169,17 @@ export function LifecycleCard() {
     </Card>
   )
 }
+
+const retentionFields: Array<{ key: keyof LifecycleRetentionInput; label: string }> = [
+  { key: 'flow_retention_days', label: 'Flow' },
+  { key: 'otel_retention_days', label: 'OTLP' },
+  { key: 'ebpf_retention_days', label: 'eBPF' },
+  { key: 'path_retention_days', label: 'Path' },
+  { key: 'derived_identity_retention_days', label: 'Derived identity' },
+  { key: 'ai_answer_retention_days', label: 'AI answers' },
+  { key: 'audit_retention_days', label: 'Audit' },
+  { key: 'object_retention_days', label: 'Objects' },
+]
 
 function EraseTenantDialog({
   open,

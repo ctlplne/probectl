@@ -9484,11 +9484,43 @@
             ],
             "minimum": 1,
             "description": "Per-tenant flow retention in days; null uses the deployment default."
+          },
+          "otel_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant OTLP trace/log retention in days; null uses the deployment default."
+          },
+          "ebpf_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant eBPF aggregate retention in days; null uses the deployment default."
+          },
+          "path_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant raw path/traceroute retention in days where the backend supports pruning; null uses the deployment default."
+          },
+          "audit_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant audit retention target in days; pruning still requires durable WORM/SIEM watermarks."
+          },
+          "ai_answer_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant persisted AI-answer retention in days; null uses the deployment default."
+          },
+          "object_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant object-artifact retention target in days; enforcement may be delegated to the object store lifecycle."
+          },
+          "derived_identity_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1,
+            "description": "Per-tenant topology/endpoint derived identity-cache retention in days; null uses the deployment default."
           }
         },
-        "required": [
-          "flow_retention_days"
-        ],
         "additionalProperties": false
       },
       "LifecycleStatus": {
@@ -9504,6 +9536,34 @@
             ],
             "minimum": 1
           },
+          "otel_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "ebpf_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "path_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "audit_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "ai_answer_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "object_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "derived_identity_retention_days": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
           "updated_by": {
             "type": "string"
           },
@@ -9515,7 +9575,6 @@
           }
         },
         "required": [
-          "flow_retention_days",
           "isolation_model"
         ]
       },

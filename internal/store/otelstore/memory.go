@@ -221,6 +221,49 @@ func (m *Memory) EraseTenant(_ context.Context, tenant string) (deleted, remaini
 	return deleted, 0, nil
 }
 
+// PruneTenantBefore removes one tenant's spans/logs older than cutoff. This is
+// the tenant-retention hook for lightweight mode; ClickHouse deployments use
+// their table TTL unless they expose an equivalent per-tenant mutation hook.
+func (m *Memory) PruneTenantBefore(_ context.Context, tenant string, cutoff time.Time) (deleted int, err error) {
+	if tenant == "" {
+		return 0, ErrNoTenant
+	}
+	if cutoff.IsZero() {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	spans := m.spans[tenant][:0]
+	for _, s := range m.spans[tenant] {
+		if s.Start.Before(cutoff) {
+			deleted++
+			continue
+		}
+		spans = append(spans, s)
+	}
+	m.spans[tenant] = spans
+	m.rebuildSpanIndex(tenant)
+	logs := m.logs[tenant][:0]
+	for _, r := range m.logs[tenant] {
+		if r.TS.Before(cutoff) {
+			deleted++
+			continue
+		}
+		logs = append(logs, r)
+	}
+	m.logs[tenant] = logs
+	m.rebuildLogIndex(tenant)
+	if len(m.spans[tenant]) == 0 {
+		delete(m.spans, tenant)
+		delete(m.spanIndex, tenant)
+	}
+	if len(m.logs[tenant]) == 0 {
+		delete(m.logs, tenant)
+		delete(m.logIndex, tenant)
+	}
+	return deleted, nil
+}
+
 // EraseSubject removes one tenant's spans/logs that mention subject in the
 // fields exposed by the OTLP query surfaces. Tenant is checked first; an empty
 // tenant fails closed.

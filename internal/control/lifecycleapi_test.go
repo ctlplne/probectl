@@ -94,19 +94,21 @@ func jsonKeys(m map[string]json.RawMessage) []string {
 func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	tid := tenancy.DefaultTenantID.String()
 	days := 30
+	otelDays := 21
 	fake := &fakeTenantLifecycle{policy: tenantlife.RetentionPolicy{
 		FlowRetentionDays: &days,
+		OtelRetentionDays: &otelDays,
 		UpdatedBy:         "tenant:" + tid,
 	}}
 	srv := testServer(fakePinger{})
 	srv.tenantLife = fake
 
 	var auditedTenant string
-	var auditedDays *int
+	var auditedPolicy tenantlife.RetentionPolicy
 	prev := recordLifecycleRetentionAudit
-	recordLifecycleRetentionAudit = func(_ *Server, _ *http.Request, tid string, days *int) error {
+	recordLifecycleRetentionAudit = func(_ *Server, _ *http.Request, tid string, p tenantlife.RetentionPolicy) error {
 		auditedTenant = tid
-		auditedDays = days
+		auditedPolicy = p
 		return nil
 	}
 	t.Cleanup(func() { recordLifecycleRetentionAudit = prev })
@@ -114,6 +116,8 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	getBody := decodeLifecycleJSON(t, lifecycleReq(t, srv, http.MethodGet, "/v1/lifecycle/retention", nil))
 	putBody := decodeLifecycleJSON(t, lifecycleReq(t, srv, http.MethodPut, "/v1/lifecycle/retention", map[string]any{
 		"flow_retention_days": 14,
+		"otel_retention_days": 7,
+		"ebpf_retention_days": 7,
 	}))
 
 	if !reflect.DeepEqual(jsonKeys(getBody), jsonKeys(putBody)) {
@@ -125,10 +129,13 @@ func TestLifecycleRetentionGetAndPutReturnLifecycleStatus(t *testing.T) {
 	if string(putBody["flow_retention_days"]) != "14" {
 		t.Fatalf("PUT flow_retention_days = %s, want 14", putBody["flow_retention_days"])
 	}
-	if fake.set.TenantID != tid || fake.set.UpdatedBy != "tenant:"+tid {
+	if string(putBody["otel_retention_days"]) != "7" {
+		t.Fatalf("PUT otel_retention_days = %s, want 7", putBody["otel_retention_days"])
+	}
+	if fake.set.TenantID != tid || fake.set.UpdatedBy != "tenant:"+tid || fake.set.EBPFRetentionDays == nil || *fake.set.EBPFRetentionDays != 7 {
 		t.Fatalf("set policy = %+v, want tenant-bound policy", fake.set)
 	}
-	if auditedTenant != tid || auditedDays == nil || *auditedDays != 14 {
-		t.Fatalf("audit capture tenant=%q days=%v, want %q/14", auditedTenant, auditedDays, tid)
+	if auditedTenant != tid || auditedPolicy.FlowRetentionDays == nil || *auditedPolicy.FlowRetentionDays != 14 || auditedPolicy.OtelRetentionDays == nil || *auditedPolicy.OtelRetentionDays != 7 {
+		t.Fatalf("audit capture tenant=%q policy=%+v, want tenant policy", auditedTenant, auditedPolicy)
 	}
 }

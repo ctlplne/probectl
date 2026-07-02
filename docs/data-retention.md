@@ -14,10 +14,12 @@ pruning on write, and tenant/subject erasure. The audit-retention runner wakes h
 to `0` (keep forever); `multi-tenant` and `regulated` default to a finite
 `8760h` (365-day) local audit window and require WORM/SIEM watermark
 configuration before startup.
-`flow_retention_days is the only tenant-scoped age-retention override today; it
-also tightens derived identity-cache retention when stricter than the deployment
-default`; other age clocks are deployment-level settings unless the tenant is
-siloed onto separately configured stores.
+`/v1/lifecycle/retention` lets a tenant set stricter per-plane clocks for
+flow, OTLP, eBPF, path, audit, persisted AI answers, object artifacts, and
+derived identity caches; `NULL` means the deployment default remains in force.
+Where a backing store cannot safely delete one tenant's older rows locally
+(for example a remote aggregate TSDB or object store lifecycle), the sweeper
+emits an honest delegated/not-capable receipt instead of pretending it pruned.
 
 The machine-checkable data inventory lives in `internal/govern.DataInventory()`.
 The privacy gate fails if a row lacks owner, data classes, retention,

@@ -43,7 +43,8 @@ func TestDataRetentionMatrixCoversPrivacyGovernanceRows(t *testing.T) {
 		"subject-erasure markers",
 		"PROBECTL_AI_ANSWER_RETENTION",
 		"PROBECTL_BACKUP_RETENTION_DAYS",
-		"flow_retention_days is the only tenant-scoped age-retention override today; it also tightens derived identity-cache retention",
+		"`/v1/lifecycle/retention` lets a tenant set stricter per-plane clocks",
+		"honest delegated/not-capable receipt",
 		"No object-store age TTL is enforced by FSStore",
 		"SIEM retention is owned by the destination SIEM",
 	}

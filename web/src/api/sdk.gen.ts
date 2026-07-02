@@ -594,12 +594,26 @@ export interface IsolationStatus {
 }
 
 export interface LifecycleRetentionInput {
-  flow_retention_days: number | null
+  ai_answer_retention_days?: number | null
+  audit_retention_days?: number | null
+  derived_identity_retention_days?: number | null
+  ebpf_retention_days?: number | null
+  flow_retention_days?: number | null
+  object_retention_days?: number | null
+  otel_retention_days?: number | null
+  path_retention_days?: number | null
 }
 
 export interface LifecycleStatus {
-  flow_retention_days: number | null
+  ai_answer_retention_days?: number | null
+  audit_retention_days?: number | null
+  derived_identity_retention_days?: number | null
+  ebpf_retention_days?: number | null
+  flow_retention_days?: number | null
   isolation_model: string
+  object_retention_days?: number | null
+  otel_retention_days?: number | null
+  path_retention_days?: number | null
   residency?: string
   tenant_id?: string
   updated_by?: string

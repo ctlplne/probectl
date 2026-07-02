@@ -22,7 +22,9 @@ describe('tenant data lifecycle (S-T5)', () => {
       '/v1/lifecycle/export?redact=true',
     )
     expect(screen.getByText('pooled')).toBeInTheDocument()
-    expect(screen.getByLabelText(/flow retention days/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/flow days/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/otlp days/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/audit days/i)).toBeInTheDocument()
     expect(screen.getByText(/multi-tenant and regulated profiles default to 365 days/i)).toBeInTheDocument()
     expect(screen.getByText(/readyz reports if raw rows are not aging out/i)).toBeInTheDocument()
   })
@@ -59,7 +61,7 @@ describe('tenant data lifecycle (S-T5)', () => {
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', stub)
     renderApp('/admin')
-    await userEvent.type(await screen.findByLabelText(/flow retention days/i), '14')
+    await userEvent.type(await screen.findByLabelText(/flow days/i), '14')
     await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
     expect(await screen.findByText(/retention saved/i)).toBeInTheDocument()
     const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls
@@ -68,7 +70,16 @@ describe('tenant data lifecycle (S-T5)', () => {
         String(c[0]).endsWith('/v1/lifecycle/retention') &&
         (c[1] as RequestInit | undefined)?.method === 'PUT',
     )
-    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({ flow_retention_days: 14 })
+    expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({
+      ai_answer_retention_days: null,
+      audit_retention_days: null,
+      derived_identity_retention_days: null,
+      ebpf_retention_days: null,
+      flow_retention_days: 14,
+      object_retention_days: null,
+      otel_retention_days: null,
+      path_retention_days: null,
+    })
   })
 
   test('saving retention surfaces structured API errors', async () => {
@@ -82,7 +93,7 @@ describe('tenant data lifecycle (S-T5)', () => {
       }),
     )
     renderApp('/admin')
-    await userEvent.type(await screen.findByLabelText(/flow retention days/i), '0')
+    await userEvent.type(await screen.findByLabelText(/flow days/i), '0')
     await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
     expect(await screen.findByRole('alert')).toHaveTextContent(/flow_retention_days must be >= 1/)
   })
@@ -100,7 +111,7 @@ describe('tenant data lifecycle (S-T5)', () => {
       }),
     )
     renderApp('/admin')
-    await userEvent.type(await screen.findByLabelText(/flow retention days/i), '14')
+    await userEvent.type(await screen.findByLabelText(/flow days/i), '14')
     await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/login'))
   })

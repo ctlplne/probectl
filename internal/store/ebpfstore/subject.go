@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"time"
 )
 
 // ExportSubject writes one tenant's subject-matching eBPF service-edge
@@ -58,6 +59,29 @@ func (m *Memory) DeleteSubject(_ context.Context, tenantID, subject string) (del
 		delete(m.tenants, tenantID)
 	}
 	return deleted, remaining, nil
+}
+
+// PruneTenantBefore removes one tenant's eBPF aggregates older than cutoff.
+func (m *Memory) PruneTenantBefore(_ context.Context, tenantID string, cutoff time.Time) (deleted int, err error) {
+	if tenantID == "" {
+		return 0, ErrNoTenant
+	}
+	if cutoff.IsZero() {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	part := m.tenants[tenantID]
+	for key, e := range part {
+		if e.WindowStart.Before(cutoff) {
+			delete(part, key)
+			deleted++
+		}
+	}
+	if len(part) == 0 {
+		delete(m.tenants, tenantID)
+	}
+	return deleted, nil
 }
 
 func edgeMatchesSubject(e Edge, subject string) bool {

@@ -1903,12 +1903,17 @@ forever-copy of personal actor/data values.
 | `PROBECTL_BACKUP_RETENTION_DAYS` | `0` | concrete backup TTL in days. When `> 0`, the tenant-erasure attestation quantifies a bounded backup-coverage window (`backup_erasure_deadline` = erased_at + this many days); `0` = note-only |
 | `PROBECTL_ENVELOPE_KEY` / `PROBECTL_ENVELOPE_KEY_FILE` | (none) | the at-rest KEK (see the control-plane table) — also used by `probectl-control backup-seal`/`backup-open` to encrypt/restore backups. The chart's Postgres backup CronJob mounts it to seal dumps in the pipeline |
 
-The daily retention sweeper enforces per-tenant `flow_retention_days`
-(tighter than the deployment TTL) and prunes derived topology/endpoint identity
-labels older than `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS`; when
-`flow_retention_days` is tighter, it tightens those derived caches too.
-Prometheus-mode TSDB series deletion is a documented manual step (the
-attestation says so honestly).
+The daily retention sweeper enforces the tenant policy from
+`GET/PUT /v1/lifecycle/retention`: `flow_retention_days`,
+`otel_retention_days`, `ebpf_retention_days`, `path_retention_days`,
+`audit_retention_days`, `ai_answer_retention_days`,
+`object_retention_days`, and `derived_identity_retention_days`. `NULL` means
+the deployment default remains in force; a tenant value can only tighten the
+clock. Stores with a safe tenant+cutoff delete hook prune and append a
+`lifecycle.retention_sweep` receipt. Aggregate or externally governed stores
+append delegated/not-capable receipts that name the owning clock (audit WORM/SIEM
+watermarks, object-store lifecycle, or backend TTL) instead of over-claiming.
+Prometheus-mode TSDB series deletion remains a documented manual step.
 
 ### Per-tenant metering & quotas (ee/)
 

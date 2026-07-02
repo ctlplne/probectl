@@ -146,11 +146,12 @@ The governance view **shows these together**; it does not re-enforce them. Each 
 owned by its own subsystem — governance is the dashboard, not a second engine:
 
 - **Retention + cross-store erasure** is core (`internal/tenantlife`): configurable
-  flow retention plus verifiable deletion across Postgres / ClickHouse / TSDB /
-  object storage, with a recomputable attestation (a proof document anyone can
-  re-derive to confirm the deletion happened). **Erasure covers all live
-  stores**; backups are the operator's documented backup-TTL
-  (`PROBECTL_BACKUP_RETENTION_NOTE`) — a governed deletion is not a backup purge.
+  per-plane tenant retention for flow, OTLP, eBPF, path, audit, persisted AI
+  answers, object artifacts, and derived identity caches, plus verifiable
+  deletion across Postgres / ClickHouse / TSDB / object storage with a
+  recomputable attestation. **Erasure covers all live stores**; backups are the
+  operator's documented backup-TTL (`PROBECTL_BACKUP_RETENTION_NOTE`) — a
+  governed deletion is not a backup purge.
   The data-class/purpose matrix is [`data-retention.md`](data-retention.md),
   backed by the code-owned `internal/govern.DataInventory()` inventory;
   the operational procedure is [`runbooks/tenant-offboarding.md`](runbooks/tenant-offboarding.md).

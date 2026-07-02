@@ -45,10 +45,17 @@ func (s *Server) lifecycleEngine() (tenantLifecycleEngine, error) {
 	return s.tenantLife, nil
 }
 
-var recordLifecycleRetentionAudit = func(s *Server, r *http.Request, tid string, days *int) error {
+var recordLifecycleRetentionAudit = func(s *Server, r *http.Request, tid string, p tenantlife.RetentionPolicy) error {
 	return s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
 		return s.recordAudit(ctx, sc, r, "lifecycle.retention_set", tid, map[string]any{
-			"flow_retention_days": days,
+			"flow_retention_days":             p.FlowRetentionDays,
+			"otel_retention_days":             p.OtelRetentionDays,
+			"ebpf_retention_days":             p.EBPFRetentionDays,
+			"path_retention_days":             p.PathRetentionDays,
+			"audit_retention_days":            p.AuditRetentionDays,
+			"ai_answer_retention_days":        p.AIAnswerRetentionDays,
+			"object_retention_days":           p.ObjectRetentionDays,
+			"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
 		})
 	})
 }
@@ -172,19 +179,37 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 		return err
 	}
 	var in struct {
-		FlowRetentionDays *int `json:"flow_retention_days"`
+		FlowRetentionDays            *int `json:"flow_retention_days"`
+		OtelRetentionDays            *int `json:"otel_retention_days"`
+		EBPFRetentionDays            *int `json:"ebpf_retention_days"`
+		PathRetentionDays            *int `json:"path_retention_days"`
+		AuditRetentionDays           *int `json:"audit_retention_days"`
+		AIAnswerRetentionDays        *int `json:"ai_answer_retention_days"`
+		ObjectRetentionDays          *int `json:"object_retention_days"`
+		DerivedIdentityRetentionDays *int `json:"derived_identity_retention_days"`
 	}
 	if err := decodeJSON(r, &in); err != nil {
 		return err
 	}
-	if in.FlowRetentionDays != nil && *in.FlowRetentionDays < 1 {
-		return apierror.Validation("flow_retention_days must be >= 1 (null = deployment default)")
+	policy := tenantlife.RetentionPolicy{
+		TenantID:                     tid,
+		FlowRetentionDays:            in.FlowRetentionDays,
+		OtelRetentionDays:            in.OtelRetentionDays,
+		EBPFRetentionDays:            in.EBPFRetentionDays,
+		PathRetentionDays:            in.PathRetentionDays,
+		AuditRetentionDays:           in.AuditRetentionDays,
+		AIAnswerRetentionDays:        in.AIAnswerRetentionDays,
+		ObjectRetentionDays:          in.ObjectRetentionDays,
+		DerivedIdentityRetentionDays: in.DerivedIdentityRetentionDays,
+		UpdatedBy:                    "tenant:" + tid,
 	}
-	policy := tenantlife.RetentionPolicy{TenantID: tid, FlowRetentionDays: in.FlowRetentionDays, UpdatedBy: "tenant:" + tid}
+	if err := validateLifecycleRetentionPolicy(policy); err != nil {
+		return err
+	}
 	if err := e.SetRetention(r.Context(), policy); err != nil {
 		return apierror.Internal("retention update failed").Wrap(err)
 	}
-	if err := recordLifecycleRetentionAudit(s, r, tid, in.FlowRetentionDays); err != nil {
+	if err := recordLifecycleRetentionAudit(s, r, tid, policy); err != nil {
 		return err
 	}
 	status, err := s.lifecycleStatusForPolicy(r.Context(), tid, policy)
@@ -192,6 +217,25 @@ func (s *Server) handleLifecycleRetentionPut(w http.ResponseWriter, r *http.Requ
 		return err
 	}
 	writeJSON(w, http.StatusOK, status)
+	return nil
+}
+
+func validateLifecycleRetentionPolicy(p tenantlife.RetentionPolicy) error {
+	fields := map[string]*int{
+		"flow_retention_days":             p.FlowRetentionDays,
+		"otel_retention_days":             p.OtelRetentionDays,
+		"ebpf_retention_days":             p.EBPFRetentionDays,
+		"path_retention_days":             p.PathRetentionDays,
+		"audit_retention_days":            p.AuditRetentionDays,
+		"ai_answer_retention_days":        p.AIAnswerRetentionDays,
+		"object_retention_days":           p.ObjectRetentionDays,
+		"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
+	}
+	for name, days := range fields {
+		if days != nil && *days < 1 {
+			return apierror.Validation(name + " must be >= 1 (null = deployment default)")
+		}
+	}
 	return nil
 }
 

@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
@@ -291,9 +293,8 @@ func TestRetentionSweepPrunesDerivedIdentityCachesAndReceipts(t *testing.T) {
 		WithDerivedIdentityRetentionDays(90)
 
 	err := e.pruneDerivedIdentityCaches(context.Background(), retentionSweepPolicy{
-		tenant:      "tnA",
-		flowDays:    14,
-		hasFlowDays: true,
+		tenant: "tnA",
+		days:   map[string]int{"flows": 14},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +311,7 @@ func TestRetentionSweepPrunesDerivedIdentityCachesAndReceipts(t *testing.T) {
 	}
 	stores := map[string]int{}
 	for _, data := range audit.data {
-		stores[data["store"].(string)] = data["deleted"].(int)
+		stores[data["store"].(string)] = int(data["deleted"].(int64))
 		if data["source"] != "derived_identity_cache" || data["retention_days"] != 14 {
 			t.Fatalf("receipt data = %+v", data)
 		}
@@ -320,6 +321,71 @@ func TestRetentionSweepPrunesDerivedIdentityCachesAndReceipts(t *testing.T) {
 	}
 	if stores["topology"] != 2 || stores["endpoint"] != 1 {
 		t.Fatalf("receipt stores = %+v", stores)
+	}
+}
+
+func TestRetentionSweepPerPlanePoliciesPruneAndReceipt(t *testing.T) {
+	ctx := context.Background()
+	otel := otelstore.NewMemory()
+	if err := otel.WriteSpans(ctx, []otelstore.Span{
+		{TenantID: "tnA", TraceID: "old", SpanID: "s1", Service: "api", Start: t0.Add(-48 * time.Hour)},
+		{TenantID: "tnA", TraceID: "new", SpanID: "s2", Service: "api", Start: t0.Add(-1 * time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := otel.WriteLogs(ctx, []otelstore.LogRecord{
+		{TenantID: "tnA", TS: t0.Add(-48 * time.Hour), Service: "api", Body: "old"},
+		{TenantID: "tnA", TS: t0.Add(-1 * time.Hour), Service: "api", Body: "new"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ebpf := ebpfstore.NewMemory()
+	if err := ebpf.Insert(ctx, []ebpfstore.Edge{
+		{TenantID: "tnA", AgentID: "a", SrcWorkload: "old", DstWorkload: "api", WindowStart: t0.Add(-48 * time.Hour)},
+		{TenantID: "tnA", AgentID: "a", SrcWorkload: "new", DstWorkload: "api", WindowStart: t0.Add(-1 * time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	audit := &capturedAudit{}
+	e := New(nil, nil, nil, nil, audit.sink, "", testLog()).
+		WithClock(func() time.Time { return t0 }).
+		WithOtel(otel).
+		WithEBPF(ebpf)
+	p := retentionSweepPolicy{tenant: "tnA", days: map[string]int{
+		"otel":    1,
+		"ebpf":    1,
+		"audit":   30,
+		"objects": 7,
+	}}
+
+	e.sweepOtelRetention(ctx, p)
+	e.sweepEBPFRetention(ctx, p)
+	e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner")
+	e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle")
+
+	if spans, logs := otel.Len("tnA"); spans != 1 || logs != 1 {
+		t.Fatalf("otel retention counts = spans %d logs %d, want 1/1", spans, logs)
+	}
+	edges, err := ebpf.TopEdges(ctx, "tnA", ebpfstore.EdgeQuery{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 || edges[0].SrcWorkload != "new" {
+		t.Fatalf("ebpf retention edges = %+v, want only new", edges)
+	}
+	byStore := map[string]map[string]any{}
+	for _, data := range audit.data {
+		byStore[data["store"].(string)] = data
+	}
+	for store, wantDeleted := range map[string]int64{"otel": 2, "ebpf": 1} {
+		if byStore[store]["status"] != "enforced" || byStore[store]["deleted"] != wantDeleted {
+			t.Fatalf("%s receipt = %+v", store, byStore[store])
+		}
+	}
+	for _, store := range []string{"audit", "objects"} {
+		if byStore[store]["status"] != "delegated" || byStore[store]["retention_days"] == nil {
+			t.Fatalf("%s delegated receipt = %+v", store, byStore[store])
+		}
 	}
 }
 

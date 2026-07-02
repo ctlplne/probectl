@@ -38,6 +38,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -86,6 +87,11 @@ type OtelDeleter interface {
 	EraseTenant(ctx context.Context, tenantID string) (deleted, remaining int, err error)
 }
 
+// OtelRetentionPruner removes one tenant's OTLP rows older than cutoff.
+type OtelRetentionPruner interface {
+	PruneTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) (deleted int, err error)
+}
+
 // EBPFDeleter is the eBPF L7 edge store erasure seam (ebpfstore memory +
 // ClickHouse implement it). The probectl_ebpf_edges plane (workload-to-workload
 // topology, dest ports, L7 protocols, byte/packet/connection counts) is tenant
@@ -93,6 +99,16 @@ type OtelDeleter interface {
 // DeleteTenant returns the count-verified REMAINING rows (0 = clean).
 type EBPFDeleter interface {
 	DeleteTenant(ctx context.Context, tenantID string) (remaining int64, err error)
+}
+
+// EBPFRetentionPruner removes one tenant's eBPF aggregates older than cutoff.
+type EBPFRetentionPruner interface {
+	PruneTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) (deleted int, err error)
+}
+
+// PathRetentionPruner removes one tenant's path snapshots older than cutoff.
+type PathRetentionPruner interface {
+	PruneTenantBefore(ctx context.Context, tenantID string, cutoff time.Time) (deleted int, err error)
 }
 
 // Engine runs exports, erasures, and retention sweeps.
@@ -646,9 +662,16 @@ func pgIdent(s string) string { return `"` + s + `"` }
 // RetentionPolicy is one tenant's erasure control (nil days = deployment
 // default, i.e. the store-level TTL).
 type RetentionPolicy struct {
-	TenantID          string `json:"tenant_id,omitempty"`
-	FlowRetentionDays *int   `json:"flow_retention_days"`
-	UpdatedBy         string `json:"updated_by,omitempty"`
+	TenantID                     string `json:"tenant_id,omitempty"`
+	FlowRetentionDays            *int   `json:"flow_retention_days"`
+	OtelRetentionDays            *int   `json:"otel_retention_days"`
+	EBPFRetentionDays            *int   `json:"ebpf_retention_days"`
+	PathRetentionDays            *int   `json:"path_retention_days"`
+	AuditRetentionDays           *int   `json:"audit_retention_days"`
+	AIAnswerRetentionDays        *int   `json:"ai_answer_retention_days"`
+	ObjectRetentionDays          *int   `json:"object_retention_days"`
+	DerivedIdentityRetentionDays *int   `json:"derived_identity_retention_days"`
+	UpdatedBy                    string `json:"updated_by,omitempty"`
 }
 
 // RetentionFor reads a tenant's policy within its own scope (RLS).
@@ -656,13 +679,19 @@ func (e *Engine) RetentionFor(ctx context.Context, tenantID string) (RetentionPo
 	p := RetentionPolicy{TenantID: tenantID}
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
 	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-		rows, err := sc.Q.Query(ctx, `SELECT flow_retention_days, updated_by FROM tenant_retention WHERE tenant_id = $1`, tenantID)
+		rows, err := sc.Q.Query(ctx, `
+SELECT flow_retention_days, otel_retention_days, ebpf_retention_days,
+       path_retention_days, audit_retention_days, ai_answer_retention_days,
+       object_retention_days, derived_identity_retention_days, updated_by
+  FROM tenant_retention WHERE tenant_id = $1`, tenantID)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		if rows.Next() {
-			return rows.Scan(&p.FlowRetentionDays, &p.UpdatedBy)
+			return rows.Scan(&p.FlowRetentionDays, &p.OtelRetentionDays, &p.EBPFRetentionDays,
+				&p.PathRetentionDays, &p.AuditRetentionDays, &p.AIAnswerRetentionDays,
+				&p.ObjectRetentionDays, &p.DerivedIdentityRetentionDays, &p.UpdatedBy)
 		}
 		return rows.Err()
 	})
@@ -671,26 +700,56 @@ func (e *Engine) RetentionFor(ctx context.Context, tenantID string) (RetentionPo
 
 // SetRetention upserts a tenant's policy within its own scope (RLS).
 func (e *Engine) SetRetention(ctx context.Context, p RetentionPolicy) error {
-	if p.FlowRetentionDays != nil && *p.FlowRetentionDays < 1 {
-		return fmt.Errorf("tenantlife: flow_retention_days must be >= 1 (null = deployment default)")
+	if err := validateRetentionPolicy(p); err != nil {
+		return err
 	}
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(p.TenantID))
 	return tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
 		_, err := sc.Q.Exec(ctx, `
-			INSERT INTO tenant_retention (tenant_id, flow_retention_days, updated_by, updated_at)
-			VALUES ($1, $2, $3, now())
+			INSERT INTO tenant_retention (
+			  tenant_id, flow_retention_days, otel_retention_days, ebpf_retention_days,
+			  path_retention_days, audit_retention_days, ai_answer_retention_days,
+			  object_retention_days, derived_identity_retention_days, updated_by, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
 			ON CONFLICT (tenant_id) DO UPDATE SET
 			  flow_retention_days = EXCLUDED.flow_retention_days,
+			  otel_retention_days = EXCLUDED.otel_retention_days,
+			  ebpf_retention_days = EXCLUDED.ebpf_retention_days,
+			  path_retention_days = EXCLUDED.path_retention_days,
+			  audit_retention_days = EXCLUDED.audit_retention_days,
+			  ai_answer_retention_days = EXCLUDED.ai_answer_retention_days,
+			  object_retention_days = EXCLUDED.object_retention_days,
+			  derived_identity_retention_days = EXCLUDED.derived_identity_retention_days,
 			  updated_by = EXCLUDED.updated_by, updated_at = now()`,
-			p.TenantID, p.FlowRetentionDays, p.UpdatedBy)
+			p.TenantID, p.FlowRetentionDays, p.OtelRetentionDays, p.EBPFRetentionDays,
+			p.PathRetentionDays, p.AuditRetentionDays, p.AIAnswerRetentionDays,
+			p.ObjectRetentionDays, p.DerivedIdentityRetentionDays, p.UpdatedBy)
 		return err
 	})
 }
 
+func validateRetentionPolicy(p RetentionPolicy) error {
+	fields := map[string]*int{
+		"flow_retention_days":             p.FlowRetentionDays,
+		"otel_retention_days":             p.OtelRetentionDays,
+		"ebpf_retention_days":             p.EBPFRetentionDays,
+		"path_retention_days":             p.PathRetentionDays,
+		"audit_retention_days":            p.AuditRetentionDays,
+		"ai_answer_retention_days":        p.AIAnswerRetentionDays,
+		"object_retention_days":           p.ObjectRetentionDays,
+		"derived_identity_retention_days": p.DerivedIdentityRetentionDays,
+	}
+	for name, days := range fields {
+		if days != nil && *days < 1 {
+			return fmt.Errorf("tenantlife: %s must be >= 1 (null = deployment default)", name)
+		}
+	}
+	return nil
+}
+
 type retentionSweepPolicy struct {
-	tenant      string
-	flowDays    int
-	hasFlowDays bool
+	tenant string
+	days   map[string]int
 }
 
 // SweepRetention applies every tenant's retention policy once. Store-level
@@ -704,25 +763,32 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 	var policies []retentionSweepPolicy
 	err := tenancy.InProvider(ctx, e.pool, func(ctx context.Context, q tenancy.Querier) error {
 		rows, err := q.Query(ctx, `
-			SELECT t.id::text, tr.flow_retention_days
-			  FROM tenants t
-			  LEFT JOIN tenant_retention tr ON tr.tenant_id = t.id
-			 WHERE t.status <> 'deleted'
+				SELECT t.id::text, tr.flow_retention_days, tr.otel_retention_days,
+				       tr.ebpf_retention_days, tr.path_retention_days,
+				       tr.audit_retention_days, tr.ai_answer_retention_days,
+				       tr.object_retention_days, tr.derived_identity_retention_days
+				  FROM tenants t
+				  LEFT JOIN tenant_retention tr ON tr.tenant_id = t.id
+				 WHERE t.status <> 'deleted'
 			 ORDER BY t.id`)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var p retentionSweepPolicy
-			var days sql.NullInt64
-			if err := rows.Scan(&p.tenant, &days); err != nil {
+			p := retentionSweepPolicy{days: map[string]int{}}
+			var flow, otel, ebpf, path, auditDays, ai, object, derived sql.NullInt64
+			if err := rows.Scan(&p.tenant, &flow, &otel, &ebpf, &path, &auditDays, &ai, &object, &derived); err != nil {
 				return err
 			}
-			if days.Valid {
-				p.flowDays = int(days.Int64)
-				p.hasFlowDays = true
-			}
+			p.setDays("flows", flow)
+			p.setDays("otel", otel)
+			p.setDays("ebpf", ebpf)
+			p.setDays("path", path)
+			p.setDays("audit", auditDays)
+			p.setDays("ai_answers", ai)
+			p.setDays("objects", object)
+			p.setDays("derived_identity", derived)
 			policies = append(policies, p)
 		}
 		return rows.Err()
@@ -731,12 +797,13 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 		return err
 	}
 	for _, p := range policies {
-		if e.flows != nil && p.hasFlowDays {
-			cutoff := e.now().Add(-time.Duration(p.flowDays) * 24 * time.Hour)
-			if err := e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff); err != nil {
-				e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "flows", "error", err.Error())
-			}
-		}
+		e.sweepFlowRetention(ctx, p)
+		e.sweepOtelRetention(ctx, p)
+		e.sweepEBPFRetention(ctx, p)
+		e.sweepPathRetention(ctx, p)
+		e.sweepAIAnswerRetention(ctx, p)
+		e.receiptDelegatedRetention(ctx, p, "audit", "audit_retention_runner")
+		e.receiptDelegatedRetention(ctx, p, "objects", "object_store_lifecycle")
 		if err := e.pruneDerivedIdentityCaches(ctx, p); err != nil {
 			e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "error", err.Error())
 		}
@@ -744,15 +811,148 @@ func (e *Engine) SweepRetention(ctx context.Context) error {
 	return nil
 }
 
+func (p *retentionSweepPolicy) setDays(name string, days sql.NullInt64) {
+	if days.Valid && days.Int64 > 0 {
+		p.days[name] = int(days.Int64)
+	}
+}
+
+func (p retentionSweepPolicy) has(name string) (int, bool) {
+	days, ok := p.days[name]
+	return days, ok
+}
+
 func (e *Engine) derivedIdentityDays(p retentionSweepPolicy) int {
 	days := e.derivedIdentityRetentionDays
+	if d, ok := p.has("derived_identity"); ok {
+		days = d
+	}
 	if days <= 0 {
 		return 0
 	}
-	if p.hasFlowDays && p.flowDays > 0 && p.flowDays < days {
-		return p.flowDays
+	if flowDays, ok := p.has("flows"); ok && flowDays < days {
+		return flowDays
 	}
 	return days
+}
+
+func (e *Engine) sweepFlowRetention(ctx context.Context, p retentionSweepPolicy) {
+	days, ok := p.has("flows")
+	if !ok {
+		return
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	if e.flows == nil {
+		e.recordRetentionAttempt(ctx, p.tenant, "flows", 0, cutoff, days, "tenant_policy", "not_deployed")
+		return
+	}
+	if err := e.flows.DeleteTenantBefore(ctx, p.tenant, cutoff); err != nil {
+		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "flows", "error", err.Error())
+		return
+	}
+	e.recordRetentionAttempt(ctx, p.tenant, "flows", 0, cutoff, days, "tenant_policy", "enforced")
+}
+
+func (e *Engine) sweepOtelRetention(ctx context.Context, p retentionSweepPolicy) {
+	days, ok := p.has("otel")
+	if !ok {
+		return
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	pruner, capable := e.otel.(OtelRetentionPruner)
+	if e.otel == nil {
+		e.recordRetentionAttempt(ctx, p.tenant, "otel", 0, cutoff, days, "tenant_policy", "not_deployed")
+		return
+	}
+	if !capable {
+		e.recordRetentionAttempt(ctx, p.tenant, "otel", 0, cutoff, days, "tenant_policy", "not_capable")
+		return
+	}
+	deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
+	if err != nil {
+		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "otel", "error", err.Error())
+		return
+	}
+	e.recordRetentionAttempt(ctx, p.tenant, "otel", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+}
+
+func (e *Engine) sweepEBPFRetention(ctx context.Context, p retentionSweepPolicy) {
+	days, ok := p.has("ebpf")
+	if !ok {
+		return
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	pruner, capable := e.ebpf.(EBPFRetentionPruner)
+	if e.ebpf == nil {
+		e.recordRetentionAttempt(ctx, p.tenant, "ebpf", 0, cutoff, days, "tenant_policy", "not_deployed")
+		return
+	}
+	if !capable {
+		e.recordRetentionAttempt(ctx, p.tenant, "ebpf", 0, cutoff, days, "tenant_policy", "not_capable")
+		return
+	}
+	deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
+	if err != nil {
+		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "ebpf", "error", err.Error())
+		return
+	}
+	e.recordRetentionAttempt(ctx, p.tenant, "ebpf", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+}
+
+func (e *Engine) sweepPathRetention(ctx context.Context, p retentionSweepPolicy) {
+	days, ok := p.has("path")
+	if !ok {
+		return
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	pruner, capable := e.paths.(PathRetentionPruner)
+	if e.paths == nil {
+		e.recordRetentionAttempt(ctx, p.tenant, "path", 0, cutoff, days, "tenant_policy", "not_deployed")
+		return
+	}
+	if !capable {
+		e.recordRetentionAttempt(ctx, p.tenant, "path", 0, cutoff, days, "tenant_policy", "not_capable")
+		return
+	}
+	deleted, err := pruner.PruneTenantBefore(ctx, p.tenant, cutoff)
+	if err != nil {
+		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "path", "error", err.Error())
+		return
+	}
+	e.recordRetentionAttempt(ctx, p.tenant, "path", int64(deleted), cutoff, days, "tenant_policy", "enforced")
+}
+
+func (e *Engine) sweepAIAnswerRetention(ctx context.Context, p retentionSweepPolicy) {
+	days, ok := p.has("ai_answers")
+	if !ok {
+		return
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	if e.pool == nil {
+		e.recordRetentionAttempt(ctx, p.tenant, "ai_answers", 0, cutoff, days, "tenant_policy", "not_deployed")
+		return
+	}
+	tctx := tenancy.WithTenant(ctx, tenancy.ID(p.tenant))
+	var deleted int64
+	err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+		var err error
+		deleted, err = (store.AIAnswers{}).PruneOlderThan(ctx, sc, time.Duration(days)*24*time.Hour)
+		return err
+	})
+	if err != nil {
+		e.log.Warn("retention sweep failed for tenant", "tenant", p.tenant, "store", "ai_answers", "error", err.Error())
+		return
+	}
+	e.recordRetentionAttempt(ctx, p.tenant, "ai_answers", deleted, cutoff, days, "tenant_policy", "enforced")
+}
+
+func (e *Engine) receiptDelegatedRetention(ctx context.Context, p retentionSweepPolicy, store, source string) {
+	days, ok := p.has(store)
+	if !ok {
+		return
+	}
+	cutoff := e.now().Add(-time.Duration(days) * 24 * time.Hour)
+	e.recordRetentionAttempt(ctx, p.tenant, store, 0, cutoff, days, source, "delegated")
 }
 
 func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSweepPolicy) error {
@@ -774,11 +974,19 @@ func (e *Engine) recordRetentionReceipt(ctx context.Context, tenant, store strin
 	if deleted <= 0 || e.audit == nil {
 		return
 	}
+	e.recordRetentionAttempt(ctx, tenant, store, int64(deleted), cutoff, days, "derived_identity_cache", "enforced")
+}
+
+func (e *Engine) recordRetentionAttempt(ctx context.Context, tenant, store string, deleted int64, cutoff time.Time, days int, source, status string) {
+	if e.audit == nil {
+		return
+	}
 	data := map[string]any{
 		"store":          store,
 		"deleted":        deleted,
 		"cutoff":         cutoff.UTC().Format(time.RFC3339Nano),
-		"source":         "derived_identity_cache",
+		"source":         source,
+		"status":         status,
 		"retention_days": days,
 	}
 	if err := e.audit(ctx, "probectl-retention", "lifecycle.retention_sweep", tenant, data); err != nil {
