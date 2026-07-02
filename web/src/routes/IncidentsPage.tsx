@@ -35,21 +35,39 @@ import {
 import { DateTime } from '../time/DateTime'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
+import { useI18n } from '../i18n/useI18n'
+import type { MessageKey } from '../i18n/messages'
+
+type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
+
+function incidentStatusLabel(status: string, t: TFn) {
+  if (status === 'open') return t('incidents.status.open')
+  if (status === 'resolved') return t('incidents.status.resolvedLabel')
+  return status
+}
+
+function incidentSeverityLabel(severity: string, t: TFn) {
+  if (severity === 'critical') return t('severity.critical')
+  if (severity === 'warning') return t('severity.warning')
+  if (severity === 'info') return t('severity.info')
+  return severity
+}
 
 /** Timeline overlays every plane's signals for one incident in time order. The
  *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
  *  appears here with no UI change. */
 function Timeline({ incidentId }: { incidentId: string }) {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const incident = useIncident(incidentId)
   const resolve = useResolveIncident(incidentId)
   const remediations = useRemediations()
   const createProposal = useCreateRemediationProposal()
   const { push } = useToast()
 
-  if (incident.isLoading) return <LoadingState label="Loading incident…" />
+  if (incident.isLoading) return <LoadingState label={t('incidents.loadingOne')} />
   if (incident.isError || !incident.data)
-    return <ErrorState description="Could not load the incident." />
+    return <ErrorState description={t('incidents.errorOne')} />
 
   const inc = incident.data
   const signals = inc.signals ?? []
@@ -67,12 +85,16 @@ function Timeline({ incidentId }: { incidentId: string }) {
   function proposeIncidentReview() {
     createProposal.mutate(proposalFromIncident(inc), {
       onSuccess: (p) =>
-        push({ tone: 'success', title: 'Proposal created', message: `${p.id} is proposed` }),
+        push({
+          tone: 'success',
+          title: t('incidents.toast.proposalCreated'),
+          message: t('incidents.toast.proposalCreatedMessage', { id: p.id }),
+        }),
       onError: (err) =>
         push({
           tone: 'danger',
-          title: 'Proposal failed',
-          message: err instanceof Error ? err.message : 'Could not create proposal',
+          title: t('incidents.toast.proposalFailed'),
+          message: err instanceof Error ? err.message : t('incidents.toast.proposalFailedMessage'),
         }),
     })
   }
@@ -80,11 +102,11 @@ function Timeline({ incidentId }: { incidentId: string }) {
   return (
     <Card>
       <CardHeader
-        title={inc.title || inc.target || 'Incident'}
+        title={inc.title || inc.target || t('incidents.fallbackTitle')}
         actions={
           <div className={styles.actionsRow}>
             <Button variant="secondary" onClick={askAboutIncident}>
-              Ask about this incident
+              {t('incidents.action.ask')}
             </Button>
             {canPropose ? (
               <Button
@@ -92,7 +114,9 @@ function Timeline({ incidentId }: { incidentId: string }) {
                 onClick={proposeIncidentReview}
                 disabled={createProposal.isPending}
               >
-                {createProposal.isPending ? 'Proposing...' : 'Propose remediation'}
+                {createProposal.isPending
+                  ? t('incidents.action.proposing')
+                  : t('incidents.action.propose')}
               </Button>
             ) : null}
             {inc.status === 'open' ? (
@@ -101,10 +125,10 @@ function Timeline({ incidentId }: { incidentId: string }) {
                 onClick={() => resolve.mutate()}
                 disabled={resolve.isPending}
               >
-                Resolve
+                {t('incidents.action.resolve')}
               </Button>
             ) : (
-              <Badge tone="neutral">resolved</Badge>
+              <Badge tone="neutral">{t('incidents.status.resolved')}</Badge>
             )}
           </div>
         }
@@ -112,33 +136,38 @@ function Timeline({ incidentId }: { incidentId: string }) {
       <CardBody>
         <dl className={styles.meta}>
           <div>
-            <dt>Severity</dt>
+            <dt>{t('incidents.meta.severity')}</dt>
             <dd>
-              <Badge tone={severityTone(inc.severity)}>{inc.severity}</Badge>
+              <Badge tone={severityTone(inc.severity)}>
+                {incidentSeverityLabel(inc.severity, t)}
+              </Badge>
             </dd>
           </div>
           <div>
-            <dt>Target</dt>
+            <dt>{t('incidents.meta.target')}</dt>
             <dd>{inc.target || inc.prefix || '—'}</dd>
           </div>
           <div>
-            <dt>Signals</dt>
+            <dt>{t('incidents.meta.signals')}</dt>
             <dd>{inc.signal_count}</dd>
           </div>
           <div>
-            <dt>Started</dt>
+            <dt>{t('incidents.meta.started')}</dt>
             <dd>
               <DateTime value={inc.started_at} />
             </dd>
           </div>
         </dl>
 
-        <ol className={styles.timeline} aria-label="Incident timeline">
+        <ol className={styles.timeline} aria-label={t('incidents.timeline.aria')}>
           {signals.map((s: Signal, i) => (
             <li key={`${s.plane}-${i}`} className={styles.event}>
               <DateTime value={s.occurred_at} className={styles.time} />
               <span className={styles.dot}>
-                <StatusDot tone={severityTone(s.severity)} label={s.severity} />
+                <StatusDot
+                  tone={severityTone(s.severity)}
+                  label={incidentSeverityLabel(s.severity, t)}
+                />
               </span>
               <div className={styles.body}>
                 <div className={styles.row}>
@@ -158,6 +187,7 @@ function Timeline({ incidentId }: { incidentId: string }) {
 }
 
 export function IncidentsPage() {
+  const { t } = useI18n()
   const incidents = useIncidents()
   // Deep-link support (?incident=<id>): other surfaces (threat triage S-FE3,
   // alerts) pivot straight into a specific incident's timeline.
@@ -196,62 +226,76 @@ export function IncidentsPage() {
   const columns: Column<Incident>[] = [
     {
       key: 'severity',
-      header: 'Severity',
-      render: (r) => <Badge tone={severityTone(r.severity)}>{r.severity}</Badge>,
+      header: t('incidents.column.severity'),
+      render: (r) => (
+        <Badge tone={severityTone(r.severity)}>{incidentSeverityLabel(r.severity, t)}</Badge>
+      ),
     },
     {
       key: 'title',
-      header: 'Incident',
+      header: t('incidents.column.incident'),
       render: (r) => (
         <Button variant="ghost" onClick={() => setSelected(r.id)} aria-pressed={selected === r.id}>
           {r.title || r.target || r.id}
         </Button>
       ),
     },
-    { key: 'target', header: 'Target', render: (r) => r.target || r.prefix || '—' },
+    {
+      key: 'target',
+      header: t('incidents.column.target'),
+      render: (r) => r.target || r.prefix || '—',
+    },
     {
       key: 'status',
-      header: 'Status',
+      header: t('incidents.column.status'),
       render: (r) => (
-        <StatusDot tone={r.status === 'open' ? 'warning' : 'success'} label={r.status} />
+        <StatusDot
+          tone={r.status === 'open' ? 'warning' : 'success'}
+          label={incidentStatusLabel(r.status, t)}
+        />
       ),
     },
-    { key: 'signals', header: 'Signals', numeric: true, render: (r) => r.signal_count },
+    {
+      key: 'signals',
+      header: t('incidents.column.signals'),
+      numeric: true,
+      render: (r) => r.signal_count,
+    },
     {
       key: 'last_seen',
-      header: 'Last activity',
+      header: t('incidents.column.lastActivity'),
       render: (r) => <DateTime value={r.last_seen_at} />,
     },
   ]
 
   return (
-    <Page title="Incidents" subtitle="Related signals across planes, grouped into one timeline.">
+    <Page title={t('incidents.page.title')} subtitle={t('incidents.page.subtitle')}>
       <FilterBar>
         <Field
-          label="Find"
+          label={t('incidents.filter.find')}
           value={query}
           onChange={(e) => setFilter({ incident_q: e.target.value })}
-          placeholder="target, title, prefix"
+          placeholder={t('incidents.filter.placeholder')}
         />
         <Select
-          label="Status"
+          label={t('incidents.filter.status')}
           value={status}
           onChange={(e) => setFilter({ incident_status: e.target.value })}
           options={[
-            { value: 'all', label: 'All statuses' },
-            { value: 'open', label: 'Open' },
-            { value: 'resolved', label: 'Resolved' },
+            { value: 'all', label: t('incidents.filter.allStatuses') },
+            { value: 'open', label: t('incidents.filter.open') },
+            { value: 'resolved', label: t('incidents.filter.resolved') },
           ]}
         />
         <Select
-          label="Severity"
+          label={t('incidents.filter.severity')}
           value={severity}
           onChange={(e) => setFilter({ incident_severity: e.target.value })}
           options={[
-            { value: 'all', label: 'All severities' },
-            { value: 'critical', label: 'Critical' },
-            { value: 'warning', label: 'Warning' },
-            { value: 'info', label: 'Info' },
+            { value: 'all', label: t('incidents.filter.allSeverities') },
+            { value: 'critical', label: t('incidents.filter.critical') },
+            { value: 'warning', label: t('incidents.filter.warning') },
+            { value: 'info', label: t('incidents.filter.info') },
           ]}
         />
         <SavedViews
@@ -264,24 +308,27 @@ export function IncidentsPage() {
               incident_severity: filters.incident_severity ?? 'all',
             })
           }
-          placeholder="Critical open"
+          placeholder={t('incidents.saved.placeholder')}
         />
       </FilterBar>
       {incidents.isLoading ? (
-        <LoadingState label="Loading incidents…" />
+        <LoadingState label={t('incidents.loading')} />
       ) : incidents.isError ? (
-        <ErrorState description="Could not load incidents." />
+        <ErrorState description={t('incidents.error')} />
       ) : !incidents.data || incidents.data.length === 0 ? (
         <EmptyState
-          title="No incidents"
-          description="Correlated signals will appear here as incidents."
+          title={t('incidents.empty.title')}
+          description={t('incidents.empty.description')}
         />
       ) : filteredIncidents.length === 0 ? (
-        <EmptyState title="No matching incidents" description="No incidents matched." />
+        <EmptyState
+          title={t('incidents.empty.noMatchTitle')}
+          description={t('incidents.empty.noMatchDescription')}
+        />
       ) : (
         <div className={styles.layout}>
           <Table
-            caption="Incidents by severity and recent activity"
+            caption={t('incidents.table.caption')}
             columns={columns}
             rows={filteredIncidents}
             rowKey={(r) => r.id}

@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { jsonResponse } from './fetchStub'
+import { defaultFetch, jsonResponse } from './fetchStub'
 import { LOCALES, messages, type MessageKey } from '../i18n/messages'
 import type { OutagesResponse } from '../api/outages'
 
@@ -89,6 +89,12 @@ function localizedSourceFiles() {
   return roots.flatMap(walk).sort()
 }
 
+function sourceForScan(source: string) {
+  return readFileSync(source, 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/.*$/gm, '')
+}
+
 describe('i18n catalog', () => {
   test('every shipped locale has every user-facing catalog key', () => {
     const keys = Object.keys(messages.en) as MessageKey[]
@@ -154,21 +160,96 @@ describe('i18n catalog', () => {
       'eBPF service edges',
       'The eBPF agent has not reported service-to-service traffic yet.',
     ]
+    const highUseSources = [
+      resolve(process.cwd(), 'src/routes/AskPage.tsx'),
+      resolve(process.cwd(), 'src/routes/OnboardingPage.tsx'),
+      resolve(process.cwd(), 'src/routes/IncidentsPage.tsx'),
+      resolve(process.cwd(), 'src/routes/admin/AdminPage.tsx'),
+      resolve(process.cwd(), '../ee/web/provider/ProviderConsole.tsx'),
+    ]
+    const highUseBanned = [
+      'Ask probectl',
+      'Your question',
+      'Ask a question to begin',
+      'Root cause cited:',
+      'Investigation plan',
+      'Raw signal',
+      'Was this answer helpful?',
+      'First-run setup',
+      'Choose a producer plane',
+      'Enroll an agent',
+      'Create the first test',
+      'Invite teammates',
+      'Related signals across planes',
+      'Ask about this incident',
+      'Incidents by severity and recent activity',
+      'Admin & Settings',
+      'Register collector',
+      'Secret backends',
+      'Registered agents',
+      'Provider plane not enabled',
+      'No provider license',
+      'Operator sign-in',
+      'Authenticator code',
+    ]
 
     for (const source of existingLocalizedSources) {
-      const body = readFileSync(source, 'utf8')
+      const body = sourceForScan(source)
       for (const text of existingLocalizedBanned) {
         expect(body, `${source} must use the i18n catalog for ${text}`).not.toContain(text)
       }
     }
 
     for (const source of localizedSourceFiles()) {
-      const body = readFileSync(source, 'utf8')
+      const body = sourceForScan(source)
       for (const text of planesBanned) {
         expect(body, `${source} must use the i18n catalog for ${text}`).not.toContain(text)
       }
     }
+
+    for (const source of highUseSources) {
+      const body = sourceForScan(source)
+      for (const text of highUseBanned) {
+        expect(body, `${source} must use the i18n catalog for ${text}`).not.toContain(text)
+      }
+    }
   })
+
+  test.each([
+    ['/ask', 'es', 'Preguntar (IA)', 'ltr'],
+    ['/onboarding', 'es', 'Configuracion inicial', 'ltr'],
+    ['/incidents', 'es', 'Incidentes', 'ltr'],
+    ['/admin', 'es', 'Admin y ajustes', 'ltr'],
+    ['/provider', 'es', 'Plano proveedor no habilitado', 'ltr'],
+    ['/ask', 'ar-EG', 'اسأل (الذكاء الاصطناعي)', 'rtl'],
+    ['/onboarding', 'ar-EG', 'إعداد التشغيل الأول', 'rtl'],
+    ['/incidents', 'ar-EG', 'الحوادث', 'rtl'],
+    ['/admin', 'ar-EG', 'الإدارة والإعدادات', 'rtl'],
+    ['/provider', 'ar-EG', 'مستوى المزوّد غير مفعّل', 'rtl'],
+  ])('locale %s renders route %s from the catalog', async (path, locale, heading, dir) => {
+    vi.stubGlobal('fetch', defaultFetch())
+
+    renderApp(path, { locale })
+
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+    expect(document.documentElement.dir).toBe(dir)
+  })
+
+  test.each(['/ask', '/onboarding', '/incidents', '/admin', '/provider', '/planes/bgp'])(
+    'pseudo-locale renders %s without English route chrome',
+    async (path) => {
+      vi.stubGlobal('fetch', defaultFetch())
+
+      renderApp(path, { locale: 'en-XA' })
+
+      const headings = await screen.findAllByRole('heading', {
+        name: (name) => name.startsWith('[!!') && name.endsWith('!!]'),
+      })
+      expect(headings.length).toBeGreaterThan(0)
+      expect(document.documentElement.lang).toBe('en-xa')
+      expect(document.documentElement.dir).toBe('ltr')
+    },
+  )
 
   test('Spanish locale renders the native Planes surface from the catalog', async () => {
     renderApp('/planes/bgp', { locale: 'es' })

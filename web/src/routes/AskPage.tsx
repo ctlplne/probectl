@@ -26,6 +26,7 @@ import { proposalFromAnswer, type ProposalContext } from '../remediation/proposa
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import { formatCount } from '../i18n/number'
+import type { MessageKey } from '../i18n/messages'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -45,11 +46,18 @@ function planTone(status: InvestigationStep['status']): 'success' | 'warning' | 
   return 'neutral'
 }
 
-const EXAMPLES = [
-  'Why is api.example.com slow?',
-  'Did a routing change affect 192.0.2.0/24?',
-  'What caused the latest incident?',
+const EXAMPLES: MessageKey[] = [
+  'ask.example.slow',
+  'ask.example.routingChange',
+  'ask.example.latestIncident',
 ]
+
+function planStatusLabel(status: InvestigationStep['status'], t: (key: MessageKey) => string) {
+  if (status === 'queried') return t('ask.plan.status.queried')
+  if (status === 'blocked') return t('ask.plan.status.blocked')
+  if (status === 'skipped') return t('ask.plan.status.skipped')
+  return t('ask.plan.status.pending')
+}
 
 /** The AI assistant surface (S24, design-led). PR1 established correctness +
  *  citations + trust cues; PR2 iterates the experience: citations jump to and
@@ -58,6 +66,7 @@ const EXAMPLES = [
  *  feedback takes an optional note. Built on the S8a design system. */
 export function AskPage() {
   const [params] = useSearchParams()
+  const { t } = useI18n()
   const prefillQuestion = params.get('question') ?? ''
   const incidentID = params.get('incident_id') ?? params.get('incident') ?? undefined
   const target = params.get('target') ?? undefined
@@ -82,40 +91,40 @@ export function AskPage() {
   }
 
   return (
-    <Page
-      title="Ask (AI)"
-      subtitle="Cross-plane root-cause analysis grounded in your network's signals. Every claim is cited, and answers stay within your tenant and permissions."
-    >
+    <Page title={t('ask.page.title')} subtitle={t('ask.page.subtitle')}>
       <Card>
-        <CardHeader title="Ask probectl" />
+        <CardHeader title={t('ask.card.title')} />
         <CardBody>
           <form className={styles.askForm} onSubmit={onSubmit}>
             <label className={styles.label} htmlFor="ai-question">
-              Your question
+              {t('ask.question.label')}
             </label>
             <textarea
               id="ai-question"
               className={styles.textarea}
               rows={3}
-              placeholder="Why is api.example.com slow?"
+              placeholder={t('ask.question.placeholder')}
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
             />
             <div className={styles.formRow}>
               <div className={styles.examples}>
-                {EXAMPLES.map((ex) => (
-                  <button
-                    key={ex}
-                    type="button"
-                    className={styles.example}
-                    onClick={() => setQuestion(ex)}
-                  >
-                    {ex}
-                  </button>
-                ))}
+                {EXAMPLES.map((ex) => {
+                  const label = t(ex)
+                  return (
+                    <button
+                      key={ex}
+                      type="button"
+                      className={styles.example}
+                      onClick={() => setQuestion(label)}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
               </div>
               <Button type="submit" disabled={ask.isPending || question.trim() === ''}>
-                {ask.isPending ? 'Analyzing…' : 'Ask'}
+                {ask.isPending ? t('ask.submit.pending') : t('ask.submit')}
               </Button>
             </div>
           </form>
@@ -123,16 +132,13 @@ export function AskPage() {
       </Card>
 
       {ask.isPending ? (
-        <LoadingState label="Analyzing signals across planes…" />
+        <LoadingState label={t('ask.loading')} />
       ) : ask.isError ? (
-        <ErrorState description="The assistant is temporarily unavailable. Please try again." />
+        <ErrorState description={t('ask.error')} />
       ) : ask.data ? (
         <AnswerView answer={ask.data} context={context} />
       ) : (
-        <EmptyState
-          title="Ask a question to begin"
-          description="probectl correlates synthetic, path, routing, flow, and change signals into a cited root cause — and says so when the evidence is insufficient."
-        />
+        <EmptyState title={t('ask.empty.title')} description={t('ask.empty.description')} />
       )}
     </Page>
   )
@@ -144,7 +150,7 @@ interface PlaneGroup {
 }
 
 function AnswerView({ answer, context }: { answer: Answer; context?: ProposalContext }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const feedback = useSubmitFeedback()
   const remediations = useRemediations()
   const createProposal = useCreateRemediationProposal()
@@ -194,12 +200,16 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
   function proposeFromAnswer() {
     createProposal.mutate(proposalFromAnswer(answer, context), {
       onSuccess: (p) =>
-        push({ tone: 'success', title: 'Proposal created', message: `${p.id} is proposed` }),
+        push({
+          tone: 'success',
+          title: t('ask.toast.proposalCreated'),
+          message: t('ask.toast.proposalCreatedMessage', { id: p.id }),
+        }),
       onError: (err) =>
         push({
           tone: 'danger',
-          title: 'Proposal failed',
-          message: err instanceof Error ? err.message : 'Could not create proposal',
+          title: t('ask.toast.proposalFailed'),
+          message: err instanceof Error ? err.message : t('ask.toast.proposalFailedMessage'),
         }),
     })
   }
@@ -208,16 +218,16 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
     <div className={styles.answer}>
       <Card>
         <CardHeader
-          title="Root cause"
+          title={t('ask.root.title')}
           actions={
             <div className={styles.actionsRow}>
-              <Badge
-                tone={confidenceTone(answer.confidence)}
-              >{`${answer.confidence} confidence`}</Badge>
-              <Badge tone={rootCauseGrounded ? 'success' : 'warning'}>
-                {rootCauseGrounded ? 'root cause grounded' : 'root cause ungrounded'}
+              <Badge tone={confidenceTone(answer.confidence)}>
+                {t('ask.confidence', { value: answer.confidence })}
               </Badge>
-              {answer.degraded ? <Badge tone="warning">degraded fallback</Badge> : null}
+              <Badge tone={rootCauseGrounded ? 'success' : 'warning'}>
+                {rootCauseGrounded ? t('ask.grounding.grounded') : t('ask.grounding.ungrounded')}
+              </Badge>
+              {answer.degraded ? <Badge tone="warning">{t('ask.grounding.degraded')}</Badge> : null}
               {canPropose ? (
                 <Button
                   variant="secondary"
@@ -225,11 +235,11 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
                   disabled={proposalDisabled}
                   title={
                     answer.insufficient_evidence || answer.evidence.length === 0
-                      ? 'RCA evidence is insufficient for a remediation proposal.'
+                      ? t('ask.propose.disabledTitle')
                       : undefined
                   }
                 >
-                  {createProposal.isPending ? 'Proposing...' : 'Propose remediation'}
+                  {createProposal.isPending ? t('ask.propose.pending') : t('ask.propose.action')}
                 </Button>
               ) : null}
             </div>
@@ -238,25 +248,15 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
         <CardBody>
           <p className={styles.rootCause}>{answer.root_cause}</p>
           {answer.insufficient_evidence ? (
-            <p className={styles.note}>
-              probectl did not find enough evidence to name a confident root cause — it will not
-              guess.
-            </p>
+            <p className={styles.note}>{t('ask.note.insufficient')}</p>
           ) : null}
           {!rootCauseGrounded && !answer.insufficient_evidence ? (
-            <p className={styles.note}>
-              The root-cause claim is not marked as grounded, so treat the cited findings as the
-              source of truth.
-            </p>
+            <p className={styles.note}>{t('ask.note.ungrounded')}</p>
           ) : null}
-          {answer.degraded ? (
-            <p className={styles.note}>
-              The assistant used a degraded fallback path; tenant scope and citations still apply.
-            </p>
-          ) : null}
+          {answer.degraded ? <p className={styles.note}>{t('ask.note.degraded')}</p> : null}
           {rootCauseCitations.length > 0 ? (
             <p className={[styles.cites, styles.rootCites].join(' ')}>
-              <span className={styles.citeLabel}>Root cause cited:</span>
+              <span className={styles.citeLabel}>{t('ask.rootCauseCited')}</span>
               {rootCauseCitations.map((c) => (
                 <a
                   key={c.evidence_id}
@@ -273,40 +273,55 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
             </p>
           ) : null}
           <p className={styles.provenance}>
-            {`Synthesized by ${answer.model}${answer.degraded ? ' (degraded fallback)' : ''} · ${
-              rootCauseGrounded ? 'root cause grounded' : 'root cause ungrounded'
-            } · grounded in ${formatCount(
-              answer.evidence.length,
-              'signal',
-              'signals',
-              locale,
-            )} across ${formatCount(planes.length, 'plane', 'planes', locale)}${
-              planes.length ? ': ' + planes.join(', ') : ''
-            }.`}
+            {t('ask.provenance', {
+              model: answer.model,
+              degraded: answer.degraded ? t('ask.provenance.degraded') : '',
+              grounding: rootCauseGrounded
+                ? t('ask.grounding.grounded')
+                : t('ask.grounding.ungrounded'),
+              signals: formatCount(
+                answer.evidence.length,
+                t('ask.signal.singular'),
+                t('ask.signal.plural'),
+                locale,
+              ),
+              planes: formatCount(
+                planes.length,
+                t('ask.plane.singular'),
+                t('ask.plane.plural'),
+                locale,
+              ),
+              planeList: planes.length ? `: ${planes.join(', ')}` : '',
+            })}
           </p>
         </CardBody>
       </Card>
 
       {investigationPlan.length > 0 ? (
         <Card>
-          <CardHeader title="Investigation plan" />
+          <CardHeader title={t('ask.investigation.title')} />
           <CardBody>
-            <ol className={styles.plan} aria-label="Investigation plan">
+            <ol className={styles.plan} aria-label={t('ask.investigation.aria')}>
               {investigationPlan.map((step) => (
                 <li key={`${step.step}-${step.domain}`} className={styles.planStep}>
                   <div className={styles.planTopline}>
                     <span className={styles.planIndex}>{step.step}</span>
                     <span className={styles.planDomain}>{step.domain}</span>
-                    <Badge tone={planTone(step.status)}>{step.status}</Badge>
-                    {step.read_only ? <Badge tone="neutral">read-only</Badge> : null}
+                    <Badge tone={planTone(step.status)}>{planStatusLabel(step.status, t)}</Badge>
+                    {step.read_only ? <Badge tone="neutral">{t('ask.plan.readOnly')}</Badge> : null}
                   </div>
                   <p className={styles.planGoal}>{step.goal}</p>
                   <p className={styles.planMeta}>
                     {[
-                      formatCount(step.evidence_count ?? 0, 'signal', 'signals', locale),
-                      step.node_id ? `node ${step.node_id}` : '',
+                      formatCount(
+                        step.evidence_count ?? 0,
+                        t('ask.signal.singular'),
+                        t('ask.signal.plural'),
+                        locale,
+                      ),
+                      step.node_id ? t('ask.plan.node', { id: step.node_id }) : '',
                       step.reason ?? '',
-                      step.truncated ? 'truncated' : '',
+                      step.truncated ? t('ask.plan.truncated') : '',
                     ]
                       .filter(Boolean)
                       .join(' · ')}
@@ -320,14 +335,14 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
 
       {answer.findings.length > 0 ? (
         <Card>
-          <CardHeader title="Findings" />
+          <CardHeader title={t('ask.findings.title')} />
           <CardBody>
-            <ol className={styles.findings} aria-label="Findings">
+            <ol className={styles.findings} aria-label={t('ask.findings.aria')}>
               {answer.findings.map((f, i) => (
                 <li key={i} className={styles.finding}>
                   <p className={styles.statement}>{f.statement}</p>
                   <p className={styles.cites}>
-                    <span className={styles.citeLabel}>Cited:</span>
+                    <span className={styles.citeLabel}>{t('ask.cited')}</span>
                     {f.citations.map((c) => (
                       <a
                         key={c.evidence_id}
@@ -351,13 +366,13 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
 
       {answer.evidence.length > 0 ? (
         <Card>
-          <CardHeader title="Evidence" />
+          <CardHeader title={t('ask.evidence.title')} />
           <CardBody>
             {groups.map((g) => (
               <section
                 key={g.plane}
                 className={styles.planeGroup}
-                aria-label={`${g.plane} signals`}
+                aria-label={t('ask.evidence.aria', { plane: g.plane })}
               >
                 <h3 className={styles.planeHeader}>{g.plane}</h3>
                 <ul className={styles.evidence}>
@@ -380,16 +395,16 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
                               <DateTime value={e.occurred_at} className={styles.evTime} />
                             ) : null}
                             {cites ? (
-                              <span
-                                className={styles.citedBy}
-                              >{`Cited in finding ${cites.join(', ')}`}</span>
+                              <span className={styles.citedBy}>
+                                {t('ask.citedBy', { indexes: cites.join(', ') })}
+                              </span>
                             ) : null}
                           </div>
                           <p className={styles.evTitle}>{e.title || e.ref || e.id}</p>
                           {e.summary ? <p className={styles.evSummary}>{e.summary}</p> : null}
                           {e.fields && Object.keys(e.fields).length > 0 ? (
                             <details className={styles.raw}>
-                              <summary className={styles.rawSummary}>Raw signal</summary>
+                              <summary className={styles.rawSummary}>{t('ask.rawSignal')}</summary>
                               <dl className={styles.rawFields}>
                                 {Object.entries(e.fields).map(([k, v]) => (
                                   <div key={k} className={styles.rawRow}>
@@ -412,16 +427,16 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
       ) : null}
 
       <Card>
-        <CardHeader title="Feedback" />
+        <CardHeader title={t('ask.feedback.title')} />
         <CardBody>
           {feedback.isSuccess ? (
             <p className={styles.thanks} role="status">
-              Thanks — your feedback improves future answers.
+              {t('ask.feedback.thanks')}
             </p>
           ) : (
             <div className={styles.feedback}>
               <label className={styles.fbCommentLabel} htmlFor="fb-comment">
-                Was this answer helpful? Add a note (optional).
+                {t('ask.feedback.label')}
               </label>
               <textarea
                 id="fb-comment"
@@ -429,9 +444,9 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
                 rows={2}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="e.g. the real cause was the upstream peer"
+                placeholder={t('ask.feedback.placeholder')}
               />
-              <div className={styles.fbButtons} role="group" aria-label="Rate this answer">
+              <div className={styles.fbButtons} role="group" aria-label={t('ask.feedback.aria')}>
                 <Button
                   variant="secondary"
                   onClick={() =>
@@ -444,7 +459,7 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
                   }
                   disabled={feedback.isPending}
                 >
-                  Yes, helpful
+                  {t('ask.feedback.yes')}
                 </Button>
                 <Button
                   variant="secondary"
@@ -458,7 +473,7 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
                   }
                   disabled={feedback.isPending}
                 >
-                  No, not helpful
+                  {t('ask.feedback.no')}
                 </Button>
               </div>
             </div>

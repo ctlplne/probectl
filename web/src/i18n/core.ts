@@ -30,6 +30,8 @@ export function translate(
 }
 
 export function resolveLocale(raw: string | undefined | null): Locale {
+  const exact = documentLocale(raw)
+  if (LOCALES.includes(exact as Locale)) return exact as Locale
   const normalized = primaryLanguage(raw)
   return LOCALES.includes(normalized as Locale) ? (normalized as Locale) : DEFAULT_LOCALE
 }
@@ -44,7 +46,11 @@ export function directionForLocale(raw: string | undefined | null): 'ltr' | 'rtl
 }
 
 function normalizeLocaleTag(raw: string | undefined | null) {
-  const normalized = raw?.trim().replace(/_/g, '-').split(/[.;\s]/)[0].toLowerCase()
+  const normalized = raw
+    ?.trim()
+    .replace(/_/g, '-')
+    .split(/[.;\s]/)[0]
+    .toLowerCase()
   if (!normalized) return ''
   return /^[a-z]{2,3}(-[a-z0-9]{2,8})*$/.test(normalized) ? normalized : ''
 }

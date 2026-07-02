@@ -36,11 +36,22 @@ import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 import { FilterBar, SavedViews } from '../listControls'
 import { filterValue, filtersForSave, setURLFilters } from '../urlFilters'
+import { useI18n } from '../../i18n/useI18n'
+import type { MessageKey } from '../../i18n/messages'
+
+type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
+
+function agentStatusLabel(status: Agent['status'], t: TFn) {
+  if (status === 'online') return t('admin.filter.online')
+  if (status === 'offline') return t('admin.filter.offline')
+  return t('admin.filter.registered')
+}
 
 // --- Admin & Settings: the agent fleet (live /v1/agents) + secret-backend
 // health (S41, live /v1/secrets/health) ---
 
 function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { t } = useI18n()
   const mint = useMintAgentEnrollToken()
   const [name, setName] = useState('')
   const [agentID, setAgentID] = useState('')
@@ -68,7 +79,7 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
     <Modal
       open={open}
       onClose={onClose}
-      title={created ? 'Agent enrollment token' : 'Enroll agent'}
+      title={created ? t('admin.agentDialog.createdTitle') : t('admin.agentDialog.title')}
       footer={
         created ? (
           <span className={styles.actions}>
@@ -76,10 +87,10 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
               variant="secondary"
               onClick={() => void navigator.clipboard?.writeText(command)}
             >
-              <Icon name="check" /> Copy command
+              <Icon name="check" /> {t('admin.agentDialog.copyCommand')}
             </Button>
             <Button variant="primary" onClick={onClose}>
-              Done
+              {t('admin.agentDialog.done')}
             </Button>
           </span>
         ) : null
@@ -88,26 +99,17 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
       {created ? (
         <div className={styles.form}>
           <p className={styles.editionsLede}>
-            Token <code>{created.id}</code> expires at{' '}
-            <time dateTime={created.expires_at}>{expires}</time>. It is single-use and stored
-            server-side only as a hash.
+            {t('admin.agentDialog.tokenExpires', {
+              id: created.id,
+              expires,
+            })}
           </p>
-          <Field label="Enrollment token" value={created.token} readOnly />
-          <Field label="Enrollment command" value={command} readOnly />
+          <Field label={t('admin.agentDialog.token')} value={created.token} readOnly />
+          <Field label={t('admin.agentDialog.command')} value={command} readOnly />
           <p className={styles.editionsLede}>
-            {created.server_cert_pin ? (
-              <>
-                The command pins the current control-plane serving certificate with{' '}
-                <code>--ca-pin</code>. Use <code>--ca-file</code> instead when agents trust a
-                CA-issued control-plane certificate.
-              </>
-            ) : (
-              <>
-                Add the control-plane CA bundle with <code>--ca-file</code>, or mint from the
-                control host with <code>PROBECTL_TLS_CERT_FILE</code> set to print a{' '}
-                <code>--ca-pin</code> value.
-              </>
-            )}
+            {created.server_cert_pin
+              ? t('admin.agentDialog.pinHint')
+              : t('admin.agentDialog.caHint')}
           </p>
         </div>
       ) : (
@@ -118,32 +120,32 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
           }}
         >
           <Field
-            label="Agent label"
+            label={t('admin.agentDialog.label')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="edge-probe-1"
-            hint="Optional operator label recorded with the one-time token."
+            hint={t('admin.agentDialog.labelHint')}
           />
           <Field
-            label="Pinned agent id"
+            label={t('admin.agentDialog.pinnedID')}
             value={agentID}
             onChange={(e) => setAgentID(e.target.value)}
-            placeholder="blank = assign on enroll"
-            hint="Optional. Leave blank when the control plane should mint the identity."
+            placeholder={t('admin.agentDialog.pinnedPlaceholder')}
+            hint={t('admin.agentDialog.pinnedHint')}
           />
           <Field
-            label="Token TTL minutes"
+            label={t('admin.agentDialog.ttl')}
             type="number"
             min={1}
             value={ttlMinutes}
             onChange={(e) => setTTLMinutes(e.target.value)}
-            hint="Default is 60 minutes; expired or reused tokens fail closed."
+            hint={t('admin.agentDialog.ttlHint')}
           />
           <Field
-            label="Control plane URL"
+            label={t('admin.agentDialog.controlURL')}
             value={server}
             onChange={(e) => setServer(e.target.value)}
-            hint="Use the HTTPS URL reachable from the agent host."
+            hint={t('admin.agentDialog.controlURLHint')}
           />
           {mint.isError ? (
             <p role="alert" className={styles.editionsLede}>
@@ -152,10 +154,11 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
           ) : null}
           <span className={styles.actions}>
             <Button type="submit" variant="primary" disabled={mint.isPending}>
-              <Icon name="admin" /> {mint.isPending ? 'Minting…' : 'Mint token'}
+              <Icon name="admin" />{' '}
+              {mint.isPending ? t('admin.agentDialog.minting') : t('admin.agentDialog.mint')}
             </Button>
             <Button type="button" variant="ghost" onClick={onClose}>
-              Cancel
+              {t('admin.cancel')}
             </Button>
           </span>
         </form>
@@ -164,34 +167,37 @@ function AgentEnrollDialog({ open, onClose }: { open: boolean; onClose: () => vo
   )
 }
 
-const collectorPlanes: { value: CollectorPlane; label: string }[] = [
-  { value: 'bgp', label: 'BGP' },
-  { value: 'flow', label: 'Flow' },
-  { value: 'device', label: 'Device' },
-  { value: 'ebpf', label: 'eBPF' },
-  { value: 'endpoint', label: 'Endpoint' },
+const collectorPlanes: { value: CollectorPlane; labelKey: MessageKey }[] = [
+  { value: 'bgp', labelKey: 'onboarding.producer.bgp.title' },
+  { value: 'flow', labelKey: 'onboarding.producer.flow.title' },
+  { value: 'device', labelKey: 'onboarding.producer.device.title' },
+  { value: 'ebpf', labelKey: 'onboarding.producer.ebpf.title' },
+  { value: 'endpoint', labelKey: 'onboarding.producer.endpoint.title' },
 ]
 
-const collectorPlaneGuidance: Record<CollectorPlane, { prerequisites: string; firstSignal: string }> = {
+const collectorPlaneGuidance: Record<
+  CollectorPlane,
+  { prerequisitesKey: MessageKey; firstSignalKey: MessageKey }
+> = {
   bgp: {
-    prerequisites: 'Router BMP feed reachability, plus Kafka and ClickHouse.',
-    firstSignal: 'Planes > BGP shows peers, prefixes, and routing events.',
+    prerequisitesKey: 'onboarding.producer.bgp.prerequisites',
+    firstSignalKey: 'onboarding.producer.bgp.firstSignal',
   },
   flow: {
-    prerequisites: 'Exporter network reachability for NetFlow/IPFIX/sFlow, plus Kafka and ClickHouse.',
-    firstSignal: 'Planes > Flow shows top talkers, capacity, and anomalies.',
+    prerequisitesKey: 'onboarding.producer.flow.prerequisites',
+    firstSignalKey: 'onboarding.producer.flow.firstSignal',
   },
   device: {
-    prerequisites: 'SNMP or gNMI reachability and operator-managed credential references.',
-    firstSignal: 'Planes > Device shows inventory, syslog, config, and telemetry rows.',
+    prerequisitesKey: 'onboarding.producer.device.prerequisites',
+    firstSignalKey: 'onboarding.producer.device.firstSignal',
   },
   ebpf: {
-    prerequisites: 'Linux host with CAP_BPF, CAP_PERFMON, and BTF-capable kernel, plus Kafka and ClickHouse.',
-    firstSignal: 'Planes > eBPF shows host, service, and L7 edges.',
+    prerequisitesKey: 'onboarding.producer.ebpf.prerequisites',
+    firstSignalKey: 'onboarding.producer.ebpf.firstSignal',
   },
   endpoint: {
-    prerequisites: 'Endpoint package on Linux, macOS, or Windows with local network reachability.',
-    firstSignal: 'Planes > Device/Endpoint shows last-mile DEM results and slow endpoint causes.',
+    prerequisitesKey: 'onboarding.producer.endpoint.prerequisites',
+    firstSignalKey: 'onboarding.producer.endpoint.firstSignal',
   },
 }
 
@@ -214,6 +220,7 @@ function CollectorRegisterDialog({
   onClose: () => void
   initialPlane?: CollectorPlane
 }) {
+  const { t } = useI18n()
   const mint = useMintAgentEnrollToken()
   const register = useRegisterCollector()
   const [plane, setPlane] = useState<CollectorPlane>(initialPlane ?? 'flow')
@@ -246,7 +253,7 @@ function CollectorRegisterDialog({
       })
       setRegistered(out)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Collector registration failed')
+      setError(err instanceof Error ? err.message : t('admin.collectorDialog.failed'))
     }
   }
 
@@ -258,7 +265,9 @@ function CollectorRegisterDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={registered ? 'Collector registered' : 'Register collector'}
+      title={
+        registered ? t('admin.collectorDialog.registeredTitle') : t('admin.collectorDialog.title')
+      }
       footer={
         registered ? (
           <span className={styles.actions}>
@@ -266,10 +275,10 @@ function CollectorRegisterDialog({
               variant="secondary"
               onClick={() => void navigator.clipboard?.writeText(envText)}
             >
-              <Icon name="check" /> Copy env
+              <Icon name="check" /> {t('admin.collectorDialog.copyEnv')}
             </Button>
             <Button variant="primary" onClick={onClose}>
-              Done
+              {t('admin.agentDialog.done')}
             </Button>
           </span>
         ) : null
@@ -277,24 +286,38 @@ function CollectorRegisterDialog({
     >
       {registered ? (
         <div className={styles.form}>
-          <Field label="Collector id" value={registered.agent_id} readOnly />
-          <Field label="Tenant id" value={registered.tenant_id} readOnly />
-          <Field label="Plane" value={registered.plane} readOnly />
+          <Field
+            label={t('admin.collectorDialog.collectorID')}
+            value={registered.agent_id}
+            readOnly
+          />
+          <Field
+            label={t('admin.collectorDialog.tenantID')}
+            value={registered.tenant_id}
+            readOnly
+          />
+          <Field label={t('admin.collectorDialog.plane')} value={registered.plane} readOnly />
           <p className={styles.editionsLede}>
-            Capabilities: <code>{registered.capabilities.join(', ')}</code>
+            {t('admin.collectorDialog.capabilities', {
+              capabilities: registered.capabilities.join(', '),
+            })}
           </p>
           {registered.config.startup_command ? (
-            <Field label="Startup command" value={registered.config.startup_command} readOnly />
+            <Field
+              label={t('admin.collectorDialog.startupCommand')}
+              value={registered.config.startup_command}
+              readOnly
+            />
           ) : null}
-          <p className={styles.editionsLede}>Environment</p>
+          <p className={styles.editionsLede}>{t('admin.collectorDialog.environment')}</p>
           {Object.entries(registered.config.env).map(([key, value]) => (
             <Field key={key} label={key} value={`${key}=${value}`} readOnly />
           ))}
-          <p className={styles.editionsLede}>YAML</p>
+          <p className={styles.editionsLede}>{t('admin.collectorDialog.yaml')}</p>
           {Object.entries(registered.config.yaml).map(([key, value]) => (
             <Field
               key={key}
-              label={`YAML ${key}`}
+              label={t('admin.collectorDialog.yamlKey', { key })}
               value={`${key}: ${JSON.stringify(value)}`}
               readOnly
             />
@@ -308,27 +331,33 @@ function CollectorRegisterDialog({
           }}
         >
           <Select
-            label="Collector plane"
-            options={collectorPlanes}
+            label={t('admin.collectorDialog.collectorPlane')}
+            options={collectorPlanes.map((item) => ({
+              value: item.value,
+              label: t(item.labelKey),
+            }))}
             value={plane}
             onChange={(e) => setPlane(e.target.value as CollectorPlane)}
           />
           <p className={styles.editionsLede}>
-            Prerequisites: {guidance.prerequisites} First signal: {guidance.firstSignal}
+            {t('admin.collectorDialog.guidance', {
+              prerequisites: t(guidance.prerequisitesKey),
+              firstSignal: t(guidance.firstSignalKey),
+            })}
           </p>
           <Field
-            label="Collector label"
+            label={t('admin.collectorDialog.label')}
             value={hostname}
             onChange={(e) => setHostname(e.target.value)}
             placeholder={labelPlaceholder}
-            hint="Optional host or source label recorded in the registry."
+            hint={t('admin.collectorDialog.labelHint')}
           />
           <Field
-            label="Pinned collector id"
+            label={t('admin.collectorDialog.pinnedID')}
             value={agentID}
             onChange={(e) => setAgentID(e.target.value)}
-            placeholder="blank = assign on register"
-            hint="Optional UUID when the collector config already has a stable id."
+            placeholder={t('admin.collectorDialog.pinnedPlaceholder')}
+            hint={t('admin.collectorDialog.pinnedHint')}
           />
           {error ? (
             <p role="alert" className={styles.editionsLede}>
@@ -338,10 +367,12 @@ function CollectorRegisterDialog({
           <span className={styles.actions}>
             <Button type="submit" variant="primary" disabled={mint.isPending || register.isPending}>
               <Icon name="admin" />{' '}
-              {mint.isPending || register.isPending ? 'Registering...' : 'Register collector'}
+              {mint.isPending || register.isPending
+                ? t('admin.collectorDialog.registering')
+                : t('admin.collectorDialog.register')}
             </Button>
             <Button type="button" variant="ghost" onClick={onClose}>
-              Cancel
+              {t('admin.cancel')}
             </Button>
           </span>
         </form>
@@ -355,64 +386,66 @@ function CollectorRegisterDialog({
  * and redacted errors only. resolver_running=false renders as the honest
  * "not wired" empty state, never as a healthy zero. */
 function SecretBackendsCard() {
+  const { t } = useI18n()
   const { data, isPending, isError } = useSecretsHealth()
 
   const columns: Column<SecretBackendHealth>[] = [
-    { key: 'scheme', header: 'Backend', render: (b) => <code>{b.scheme}</code> },
+    {
+      key: 'scheme',
+      header: t('admin.secrets.column.backend'),
+      render: (b) => <code>{b.scheme}</code>,
+    },
     {
       key: 'status',
-      header: 'Status',
+      header: t('admin.secrets.column.status'),
       render: (b) =>
         !b.configured ? (
-          <StatusDot tone="neutral" label="Not configured" />
+          <StatusDot tone="neutral" label={t('admin.secrets.status.notConfigured')} />
         ) : b.failures > 0 && (!b.last_ok || (b.last_error_at && b.last_error_at > b.last_ok)) ? (
-          <StatusDot tone="danger" label="Failing" />
+          <StatusDot tone="danger" label={t('admin.secrets.status.failing')} />
         ) : (
-          <StatusDot tone="success" label="OK" />
+          <StatusDot tone="success" label={t('admin.secrets.status.ok')} />
         ),
     },
-    { key: 'resolves', header: 'Resolves', render: (b) => b.resolves },
-    { key: 'failures', header: 'Failures', render: (b) => b.failures },
+    { key: 'resolves', header: t('admin.secrets.column.resolves'), render: (b) => b.resolves },
+    { key: 'failures', header: t('admin.secrets.column.failures'), render: (b) => b.failures },
     {
       key: 'leases',
-      header: 'Live leases',
+      header: t('admin.secrets.column.leases'),
       render: (b) => (b.cached_leases > 0 ? <Badge tone="info">{b.cached_leases}</Badge> : '0'),
     },
     {
       key: 'last',
-      header: 'Last error',
+      header: t('admin.secrets.column.lastError'),
       render: (b) => (b.last_error ? <code>{b.last_error}</code> : '—'),
     },
   ]
 
   return (
     <Card>
-      <CardHeader
-        title="Secret backends"
-        description="Credential resolution (Vault / CyberArk / cloud KMS). Values are sealed in memory with short-lived leases; failures fail closed."
-      />
+      <CardHeader title={t('admin.secrets.title')} description={t('admin.secrets.description')} />
       <CardBody>
         {isPending ? (
-          <LoadingState label="Loading secret-backend health…" />
+          <LoadingState label={t('admin.secrets.loading')} />
         ) : isError ? (
-          <ErrorState description="Could not load secret-backend health." />
+          <ErrorState description={t('admin.secrets.error')} />
         ) : !data?.resolver_running ? (
           <EmptyState
             icon="admin"
-            title="Secrets resolver not wired"
-            description="The control plane started without a secrets resolver — credential references cannot resolve."
+            title={t('admin.secrets.notWired.title')}
+            description={t('admin.secrets.notWired.description')}
           />
         ) : (
           <Table
-            caption="Secret backend health"
+            caption={t('admin.secrets.table.caption')}
             columns={columns}
             rows={data.backends}
             rowKey={(b) => b.scheme}
             empty={
               <EmptyState
                 icon="admin"
-                title="No backends configured"
-                description="Set PROBECTL_SECRETS_VAULT_ADDR (or CyberArk / cloud credentials) to enable secret references."
+                title={t('admin.secrets.empty.title')}
+                description={t('admin.secrets.empty.description')}
               />
             }
           />
@@ -423,12 +456,15 @@ function SecretBackendsCard() {
 }
 
 export function AdminPage() {
+  const { t } = useI18n()
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useAgents()
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [collectorOpen, setCollectorOpen] = useState(false)
   const [params, setParams] = useSearchParams()
   const collectorPlaneParam = params.get('register_collector')
-  const deepLinkedCollectorPlane = isCollectorPlane(collectorPlaneParam) ? collectorPlaneParam : undefined
+  const deepLinkedCollectorPlane = isCollectorPlane(collectorPlaneParam)
+    ? collectorPlaneParam
+    : undefined
   const defaults = { agent_q: '', agent_status: 'all', agent_capability: 'all' }
   const q = filterValue(params, 'agent_q')
   const status = filterValue(params, 'agent_status', 'all')
@@ -456,7 +492,13 @@ export function AdminPage() {
   const filteredAgents = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return agents.filter((agent) => {
-      const haystack = [agent.name, agent.hostname, agent.agent_version, agent.status, ...agent.capabilities]
+      const haystack = [
+        agent.name,
+        agent.hostname,
+        agent.agent_version,
+        agent.status,
+        ...agent.capabilities,
+      ]
         .join(' ')
         .toLowerCase()
       return (
@@ -468,41 +510,45 @@ export function AdminPage() {
   }, [agents, capability, q, status])
 
   const columns: Column<Agent>[] = [
-    { key: 'name', header: 'Agent', render: (a) => <strong>{a.name}</strong> },
-    { key: 'host', header: 'Hostname', render: (a) => <code>{a.hostname || '—'}</code> },
-    { key: 'version', header: 'Version', render: (a) => a.agent_version || '—' },
+    { key: 'name', header: t('admin.column.agent'), render: (a) => <strong>{a.name}</strong> },
+    {
+      key: 'host',
+      header: t('admin.column.hostname'),
+      render: (a) => <code>{a.hostname || '—'}</code>,
+    },
+    { key: 'version', header: t('admin.column.version'), render: (a) => a.agent_version || '—' },
     {
       key: 'caps',
-      header: 'Capabilities',
+      header: t('admin.column.capabilities'),
       render: (a) => (a.capabilities.length ? a.capabilities.join(', ') : '—'),
     },
     {
       key: 'status',
-      header: 'Status',
+      header: t('admin.column.status'),
       render: (a) =>
         a.status === 'online' ? (
-          <StatusDot tone="success" label="Online" />
+          <StatusDot tone="success" label={agentStatusLabel(a.status, t)} />
         ) : a.status === 'offline' ? (
-          <StatusDot tone="danger" label="Offline" />
+          <StatusDot tone="danger" label={agentStatusLabel(a.status, t)} />
         ) : (
-          <StatusDot tone="neutral" label="Registered" />
+          <StatusDot tone="neutral" label={agentStatusLabel(a.status, t)} />
         ),
     },
   ]
 
   return (
-    <Page title="Admin & Settings" subtitle="The agent fleet registered to this tenant.">
+    <Page title={t('admin.page.title')} subtitle={t('admin.page.subtitle')}>
       <Card>
         <CardHeader
-          title="Agents"
-          description="Agents register over mTLS; identity is certificate-derived."
+          title={t('admin.agents.title')}
+          description={t('admin.agents.description')}
           actions={
             <span className={styles.actions}>
               <Button variant="secondary" onClick={() => setCollectorOpen(true)}>
-                <Icon name="admin" /> Register collector
+                <Icon name="admin" /> {t('admin.action.registerCollector')}
               </Button>
               <Button variant="primary" onClick={() => setEnrollOpen(true)}>
-                <Icon name="admin" /> Enroll agent
+                <Icon name="admin" /> {t('admin.action.enrollAgent')}
               </Button>
             </span>
           }
@@ -510,28 +556,28 @@ export function AdminPage() {
         <CardBody>
           <FilterBar>
             <Field
-              label="Find"
+              label={t('admin.filter.find')}
               value={q}
               onChange={(e) => setFilter({ agent_q: e.target.value })}
-              placeholder="agent, host, version"
+              placeholder={t('admin.filter.placeholder')}
             />
             <Select
-              label="Status"
+              label={t('admin.filter.status')}
               value={status}
               onChange={(e) => setFilter({ agent_status: e.target.value })}
               options={[
-                { value: 'all', label: 'All statuses' },
-                { value: 'online', label: 'Online' },
-                { value: 'offline', label: 'Offline' },
-                { value: 'registered', label: 'Registered' },
+                { value: 'all', label: t('admin.filter.allStatuses') },
+                { value: 'online', label: t('admin.filter.online') },
+                { value: 'offline', label: t('admin.filter.offline') },
+                { value: 'registered', label: t('admin.filter.registered') },
               ]}
             />
             <Select
-              label="Capability"
+              label={t('admin.filter.capability')}
               value={capability}
               onChange={(e) => setFilter({ agent_capability: e.target.value })}
               options={[
-                { value: 'all', label: 'All capabilities' },
+                { value: 'all', label: t('admin.filter.allCapabilities') },
                 ...capabilities.map((c) => ({ value: c, label: c })),
               ]}
             />
@@ -545,25 +591,25 @@ export function AdminPage() {
                   agent_capability: filters.agent_capability ?? 'all',
                 })
               }
-              placeholder="Online eBPF"
+              placeholder={t('admin.saved.placeholder')}
             />
           </FilterBar>
           {isPending ? (
-            <LoadingState label="Loading agents…" />
+            <LoadingState label={t('admin.loadingAgents')} />
           ) : isError ? (
-            <ErrorState description="Could not load agents." />
+            <ErrorState description={t('admin.errorAgents')} />
           ) : (
             <>
               <Table
-                caption="Registered agents"
+                caption={t('admin.table.registeredAgents')}
                 columns={columns}
                 rows={filteredAgents}
                 rowKey={(a) => a.id}
                 empty={
                   <EmptyState
                     icon="admin"
-                    title="No agents registered"
-                    description="Deploy a probectl agent to begin."
+                    title={t('admin.empty.agents.title')}
+                    description={t('admin.empty.agents.description')}
                   />
                 }
               />
@@ -575,7 +621,7 @@ export function AdminPage() {
                   }}
                   disabled={isFetchingNextPage}
                 >
-                  {isFetchingNextPage ? 'Loading…' : 'Load more agents'}
+                  {isFetchingNextPage ? t('admin.loadMore.loading') : t('admin.loadMore')}
                 </button>
               )}
             </>

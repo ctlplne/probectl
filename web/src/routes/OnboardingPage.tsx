@@ -25,66 +25,69 @@ import { useCreateTest, useTests, type Test } from '../api/tests'
 import { Page } from './pages'
 import { agentEnrollCommand, defaultControlPlaneURL } from './enrollment'
 import styles from './onboarding.module.css'
+import { useI18n } from '../i18n/useI18n'
+import { formatCount } from '../i18n/number'
+import type { MessageKey } from '../i18n/messages'
 
 const FIRST_TEST_TYPES = ['http', 'dns', 'icmp', 'tcp']
 
 type ProducerPlane = {
   id: 'synthetic' | CollectorPlane
-  title: string
-  producer: string
-  prerequisites: string
-  firstSignal: string
-  action: string
+  titleKey: MessageKey
+  producerKey: MessageKey
+  prerequisitesKey: MessageKey
+  firstSignalKey: MessageKey
+  actionKey: MessageKey
 }
 
 const PRODUCER_PLANES: ProducerPlane[] = [
   {
     id: 'synthetic',
-    title: 'Synthetic',
-    producer: 'probectl-agent',
-    prerequisites: 'Control-plane gRPC/mTLS reachable from the probe host; no Kafka or ClickHouse required.',
-    firstSignal: 'Targets & Tests shows the first HTTP/DNS/ICMP/TCP result.',
-    action: 'Start synthetic canary',
+    titleKey: 'onboarding.producer.synthetic.title',
+    producerKey: 'onboarding.producer.synthetic.producer',
+    prerequisitesKey: 'onboarding.producer.synthetic.prerequisites',
+    firstSignalKey: 'onboarding.producer.synthetic.firstSignal',
+    actionKey: 'onboarding.producer.synthetic.action',
   },
   {
     id: 'flow',
-    title: 'Flow',
-    producer: 'probectl-flow-agent',
-    prerequisites: 'Exporter network reachability for NetFlow/IPFIX/sFlow, plus Kafka and ClickHouse.',
-    firstSignal: 'Planes > Flow shows top talkers, capacity, and anomalies.',
-    action: 'Register Flow collector',
+    titleKey: 'onboarding.producer.flow.title',
+    producerKey: 'onboarding.producer.flow.producer',
+    prerequisitesKey: 'onboarding.producer.flow.prerequisites',
+    firstSignalKey: 'onboarding.producer.flow.firstSignal',
+    actionKey: 'onboarding.producer.flow.action',
   },
   {
     id: 'bgp',
-    title: 'BGP',
-    producer: 'probectl-bmp-listener',
-    prerequisites: 'Router BMP feed reachability, plus Kafka and ClickHouse.',
-    firstSignal: 'Planes > BGP shows prefixes, peers, and routing events.',
-    action: 'Register BGP collector',
+    titleKey: 'onboarding.producer.bgp.title',
+    producerKey: 'onboarding.producer.bgp.producer',
+    prerequisitesKey: 'onboarding.producer.bgp.prerequisites',
+    firstSignalKey: 'onboarding.producer.bgp.firstSignal',
+    actionKey: 'onboarding.producer.bgp.action',
   },
   {
     id: 'device',
-    title: 'Device',
-    producer: 'probectl-device-agent',
-    prerequisites: 'SNMP or gNMI reachability and operator-managed credential references.',
-    firstSignal: 'Planes > Device shows inventory, syslog, config, and telemetry rows.',
-    action: 'Register Device collector',
+    titleKey: 'onboarding.producer.device.title',
+    producerKey: 'onboarding.producer.device.producer',
+    prerequisitesKey: 'onboarding.producer.device.prerequisites',
+    firstSignalKey: 'onboarding.producer.device.firstSignal',
+    actionKey: 'onboarding.producer.device.action',
   },
   {
     id: 'ebpf',
-    title: 'eBPF',
-    producer: 'probectl-ebpf-agent',
-    prerequisites: 'Linux host with CAP_BPF, CAP_PERFMON, and BTF-capable kernel, plus Kafka and ClickHouse.',
-    firstSignal: 'Planes > eBPF shows host, service, and L7 edges.',
-    action: 'Register eBPF collector',
+    titleKey: 'onboarding.producer.ebpf.title',
+    producerKey: 'onboarding.producer.ebpf.producer',
+    prerequisitesKey: 'onboarding.producer.ebpf.prerequisites',
+    firstSignalKey: 'onboarding.producer.ebpf.firstSignal',
+    actionKey: 'onboarding.producer.ebpf.action',
   },
   {
     id: 'endpoint',
-    title: 'Endpoint',
-    producer: 'probectl-endpoint',
-    prerequisites: 'Endpoint package on Linux, macOS, or Windows with local network reachability.',
-    firstSignal: 'Planes > Device/Endpoint shows last-mile DEM results and slow endpoint causes.',
-    action: 'Register Endpoint collector',
+    titleKey: 'onboarding.producer.endpoint.title',
+    producerKey: 'onboarding.producer.endpoint.producer',
+    prerequisitesKey: 'onboarding.producer.endpoint.prerequisites',
+    firstSignalKey: 'onboarding.producer.endpoint.firstSignal',
+    actionKey: 'onboarding.producer.endpoint.action',
   },
 ]
 
@@ -101,10 +104,20 @@ function firstTestTargetPlaceholder(type: string): string {
   }
 }
 
-function ProgressItem({ label, detail, done }: { label: string; detail: string; done: boolean }) {
+function ProgressItem({
+  label,
+  detail,
+  done,
+  readyLabel,
+}: {
+  label: string
+  detail: string
+  done: boolean
+  readyLabel: string
+}) {
   return (
     <li className={styles.progressItem}>
-      <StatusDot tone={done ? 'success' : 'neutral'} label={done ? `${label} ready` : label} />
+      <StatusDot tone={done ? 'success' : 'neutral'} label={done ? readyLabel : label} />
       <span>{detail}</span>
     </li>
   )
@@ -112,6 +125,7 @@ function ProgressItem({ label, detail, done }: { label: string; detail: string; 
 
 export function OnboardingPage() {
   const navigate = useNavigate()
+  const { locale, t } = useI18n()
   const { tenant, user } = useAuth()
   const agentsQuery = useAgents()
   const testsQuery = useTests()
@@ -143,82 +157,103 @@ export function OnboardingPage() {
     ? agentEnrollCommand(agentToken, controlURL.trim() || defaultControlPlaneURL())
     : ''
 
-  const progress = useMemo(
-    () => {
-      const agentDone =
-        agents.length > 0 ||
-        agentToken !== null ||
-        Boolean(
-          persistedProgress?.agent_registered || persistedProgress?.agent_enroll_token_created,
-        )
-      const testDone =
-        tests.length > 0 || createdTest !== null || Boolean(persistedProgress?.first_test_created)
-      const teammatesDone =
-        scimTokens.length > 0 ||
-        inviteToken !== null ||
-        Boolean(persistedProgress?.scim_token_created)
-      return [
-        {
-          label: 'Session',
-          done: true,
-          detail: `${user.email} in tenant ${tenant.slug || tenant.id}`,
-        },
-        {
-          label: 'Agent',
-          done: agentDone,
-          detail:
-            agents.length > 0
-              ? `${agents.length} agent${agents.length === 1 ? '' : 's'} visible`
-              : agentToken
-                ? 'enrollment token minted'
-                : persistedProgress?.agent_registered
-                  ? 'agent already registered'
-                  : persistedProgress?.agent_enroll_token_created
-                    ? 'enrollment token already minted'
-                    : 'waiting for an enrollment token',
-        },
-        {
-          label: 'First test',
-          done: testDone,
-          detail:
-            tests.length > 0
-              ? `${tests.length} test${tests.length === 1 ? '' : 's'} configured`
-              : createdTest
-                ? `${createdTest.name} created`
-                : persistedProgress?.first_test_created
-                  ? 'first test already configured'
-                  : 'waiting for a synthetic target',
-        },
-        {
-          label: 'Teammates',
-          done: teammatesDone,
-          detail:
-            scimTokens.length > 0
-              ? `${scimTokens.length} SCIM token${scimTokens.length === 1 ? '' : 's'} active`
-              : inviteToken
-                ? `${inviteToken.name} token created`
-                : persistedProgress?.scim_token_created
-                  ? 'SCIM token already created'
-                  : 'waiting for an invite/provisioning token',
-        },
-      ]
-    },
-    [
-      agentToken,
-      agents.length,
-      createdTest,
-      inviteToken,
-      persistedProgress?.agent_enroll_token_created,
-      persistedProgress?.agent_registered,
-      persistedProgress?.first_test_created,
-      persistedProgress?.scim_token_created,
-      scimTokens.length,
-      tenant.id,
-      tenant.slug,
-      tests.length,
-      user.email,
-    ],
-  )
+  const progress = useMemo(() => {
+    const agentDone =
+      agents.length > 0 ||
+      agentToken !== null ||
+      Boolean(persistedProgress?.agent_registered || persistedProgress?.agent_enroll_token_created)
+    const testDone =
+      tests.length > 0 || createdTest !== null || Boolean(persistedProgress?.first_test_created)
+    const teammatesDone =
+      scimTokens.length > 0 ||
+      inviteToken !== null ||
+      Boolean(persistedProgress?.scim_token_created)
+    return [
+      {
+        label: t('onboarding.progress.session'),
+        done: true,
+        detail: t('onboarding.progress.session.detail', {
+          email: user.email,
+          tenant: tenant.slug || tenant.id,
+        }),
+      },
+      {
+        label: t('onboarding.progress.agent'),
+        done: agentDone,
+        detail:
+          agents.length > 0
+            ? t('onboarding.progress.agent.visible', {
+                count: formatCount(
+                  agents.length,
+                  t('onboarding.unit.agent'),
+                  t('onboarding.unit.agents'),
+                  locale,
+                ),
+              })
+            : agentToken
+              ? t('onboarding.progress.agent.tokenMinted')
+              : persistedProgress?.agent_registered
+                ? t('onboarding.progress.agent.registered')
+                : persistedProgress?.agent_enroll_token_created
+                  ? t('onboarding.progress.agent.tokenAlreadyMinted')
+                  : t('onboarding.progress.agent.waiting'),
+      },
+      {
+        label: t('onboarding.progress.firstTest'),
+        done: testDone,
+        detail:
+          tests.length > 0
+            ? t('onboarding.progress.firstTest.configured', {
+                count: formatCount(
+                  tests.length,
+                  t('onboarding.unit.test'),
+                  t('onboarding.unit.tests'),
+                  locale,
+                ),
+              })
+            : createdTest
+              ? t('onboarding.progress.firstTest.created', { name: createdTest.name })
+              : persistedProgress?.first_test_created
+                ? t('onboarding.progress.firstTest.alreadyConfigured')
+                : t('onboarding.progress.firstTest.waiting'),
+      },
+      {
+        label: t('onboarding.progress.teammates'),
+        done: teammatesDone,
+        detail:
+          scimTokens.length > 0
+            ? t('onboarding.progress.teammates.active', {
+                count: formatCount(
+                  scimTokens.length,
+                  t('onboarding.unit.scimToken'),
+                  t('onboarding.unit.scimTokens'),
+                  locale,
+                ),
+              })
+            : inviteToken
+              ? t('onboarding.progress.teammates.created', { name: inviteToken.name })
+              : persistedProgress?.scim_token_created
+                ? t('onboarding.progress.teammates.alreadyCreated')
+                : t('onboarding.progress.teammates.waiting'),
+      },
+    ]
+  }, [
+    agentToken,
+    agents.length,
+    createdTest,
+    inviteToken,
+    locale,
+    persistedProgress?.agent_enroll_token_created,
+    persistedProgress?.agent_registered,
+    persistedProgress?.first_test_created,
+    persistedProgress?.scim_token_created,
+    scimTokens.length,
+    t,
+    tenant.id,
+    tenant.slug,
+    tests.length,
+    user.email,
+  ])
 
   function submitAgent(e: FormEvent) {
     e.preventDefault()
@@ -269,44 +304,56 @@ export function OnboardingPage() {
 
   return (
     <Page
-      title="First-run setup"
-      subtitle="Bring one tenant online from the browser: agent token, first test, and teammate provisioning."
+      title={t('onboarding.page.title')}
+      subtitle={t('onboarding.page.subtitle')}
       actions={
         <Button variant="secondary" onClick={() => navigate('/admin')}>
-          <Icon name="admin" /> Admin
+          <Icon name="admin" /> {t('onboarding.action.admin')}
         </Button>
       }
     >
-      <section className={styles.progress} aria-label="First-run progress">
+      <section className={styles.progress} aria-label={t('onboarding.progress.aria')}>
         <ul className={styles.progressList} role="list">
           {progress.map((item) => (
-            <ProgressItem key={item.label} {...item} />
+            <ProgressItem
+              key={item.label}
+              {...item}
+              readyLabel={t('onboarding.progress.ready', { label: item.label })}
+            />
           ))}
         </ul>
       </section>
 
       <section className={styles.planeChooser} aria-labelledby="plane-chooser-title">
         <div className={styles.sectionIntro}>
-          <h2 id="plane-chooser-title">Choose a producer plane</h2>
-          <p>Pick the first signal you want online; probectl routes you to the matching setup path.</p>
+          <h2 id="plane-chooser-title">{t('onboarding.planeChooser.title')}</h2>
+          <p>{t('onboarding.planeChooser.description')}</p>
         </div>
         <div className={styles.planeGrid}>
           {PRODUCER_PLANES.map((plane) => (
             <Card key={plane.id} className={styles.planeCard}>
               <CardHeader
-                title={plane.title}
-                description={plane.producer}
-                actions={<Badge tone={plane.id === 'synthetic' ? 'info' : 'warning'}>{plane.id === 'synthetic' ? 'gRPC' : 'bus'}</Badge>}
+                title={t(plane.titleKey)}
+                description={t(plane.producerKey)}
+                actions={
+                  <Badge tone={plane.id === 'synthetic' ? 'info' : 'warning'}>
+                    {plane.id === 'synthetic' ? 'gRPC' : 'bus'}
+                  </Badge>
+                }
               />
               <CardBody className={styles.planeBody}>
                 <dl className={styles.planeFacts}>
-                  <dt>Prerequisites</dt>
-                  <dd>{plane.prerequisites}</dd>
-                  <dt>First signal</dt>
-                  <dd>{plane.firstSignal}</dd>
+                  <dt>{t('onboarding.field.prerequisites')}</dt>
+                  <dd>{t(plane.prerequisitesKey)}</dd>
+                  <dt>{t('onboarding.field.firstSignal')}</dt>
+                  <dd>{t(plane.firstSignalKey)}</dd>
                 </dl>
-                <Button variant={plane.id === 'synthetic' ? 'primary' : 'secondary'} onClick={() => choosePlane(plane)}>
-                  <Icon name={plane.id === 'synthetic' ? 'targets' : 'admin'} /> {plane.action}
+                <Button
+                  variant={plane.id === 'synthetic' ? 'primary' : 'secondary'}
+                  onClick={() => choosePlane(plane)}
+                >
+                  <Icon name={plane.id === 'synthetic' ? 'targets' : 'admin'} />{' '}
+                  {t(plane.actionKey)}
                 </Button>
               </CardBody>
             </Card>
@@ -317,32 +364,35 @@ export function OnboardingPage() {
       <div className={styles.grid}>
         <Card id="first-run-agent">
           <CardHeader
-            title="Enroll an agent"
-            description="Mint a tenant-scoped, one-time token and run the command from the agent host."
-            actions={agentToken ? <Badge tone="success">token ready</Badge> : null}
+            title={t('onboarding.agent.title')}
+            description={t('onboarding.agent.description')}
+            actions={
+              agentToken ? <Badge tone="success">{t('onboarding.agent.tokenReady')}</Badge> : null
+            }
           />
           <CardBody>
             <form className={styles.form} onSubmit={submitAgent}>
               <Field
-                label="Agent label"
+                label={t('onboarding.agent.label')}
                 value={agentLabel}
                 onChange={(e) => setAgentLabel(e.target.value)}
                 placeholder="edge-canary-1"
               />
               <Field
-                label="Token TTL minutes"
+                label={t('onboarding.agent.ttl')}
                 type="number"
                 min={1}
                 value={agentTTLMinutes}
                 onChange={(e) => setAgentTTLMinutes(e.target.value)}
               />
               <Field
-                label="Control plane URL"
+                label={t('onboarding.agent.controlURL')}
                 value={controlURL}
                 onChange={(e) => setControlURL(e.target.value)}
               />
               <Button type="submit" variant="primary" disabled={mintAgent.isPending}>
-                <Icon name="admin" /> {mintAgent.isPending ? 'Minting...' : 'Mint enrollment token'}
+                <Icon name="admin" />{' '}
+                {mintAgent.isPending ? t('onboarding.agent.minting') : t('onboarding.agent.mint')}
               </Button>
               {mintAgent.isError ? (
                 <p className={styles.error} role="alert">
@@ -352,13 +402,13 @@ export function OnboardingPage() {
             </form>
             {agentToken ? (
               <div className={styles.receipt}>
-                <Field label="Enrollment token" value={agentToken.token} readOnly />
-                <Field label="Enrollment command" value={command} readOnly />
+                <Field label={t('onboarding.agent.token')} value={agentToken.token} readOnly />
+                <Field label={t('onboarding.agent.command')} value={command} readOnly />
                 <Button
                   variant="secondary"
                   onClick={() => void navigator.clipboard?.writeText(command)}
                 >
-                  <Icon name="check" /> Copy command
+                  <Icon name="check" /> {t('onboarding.agent.copyCommand')}
                 </Button>
               </div>
             ) : null}
@@ -367,19 +417,21 @@ export function OnboardingPage() {
 
         <Card>
           <CardHeader
-            title="Create the first test"
-            description="Start with one synthetic target so the tenant has a live signal to inspect."
-            actions={createdTest ? <Badge tone="success">test created</Badge> : null}
+            title={t('onboarding.test.title')}
+            description={t('onboarding.test.description')}
+            actions={
+              createdTest ? <Badge tone="success">{t('onboarding.test.createdBadge')}</Badge> : null
+            }
           />
           <CardBody>
             <form className={styles.form} onSubmit={submitTest}>
               <Field
-                label="Test name"
+                label={t('onboarding.test.name')}
                 value={testName}
                 onChange={(e) => setTestName(e.target.value)}
               />
               <Select
-                label="Type"
+                label={t('onboarding.test.type')}
                 value={testType}
                 onChange={(e) => {
                   const next = e.target.value
@@ -389,13 +441,13 @@ export function OnboardingPage() {
                 options={FIRST_TEST_TYPES.map((type) => ({ value: type, label: type }))}
               />
               <Field
-                label="Target"
+                label={t('onboarding.test.target')}
                 value={testTarget}
                 onChange={(e) => setTestTarget(e.target.value)}
                 placeholder={firstTestTargetPlaceholder(testType)}
               />
               <Field
-                label="Interval seconds"
+                label={t('onboarding.test.interval')}
                 type="number"
                 min={10}
                 value={testInterval}
@@ -406,7 +458,8 @@ export function OnboardingPage() {
                 variant="primary"
                 disabled={createTest.isPending || !testName.trim() || !testTarget.trim()}
               >
-                <Icon name="targets" /> {createTest.isPending ? 'Creating...' : 'Create first test'}
+                <Icon name="targets" />{' '}
+                {createTest.isPending ? t('onboarding.test.creating') : t('onboarding.test.create')}
               </Button>
               {createTest.isError ? (
                 <p className={styles.error} role="alert">
@@ -416,10 +469,13 @@ export function OnboardingPage() {
             </form>
             {createdTest ? (
               <div className={styles.receipt}>
-                <StatusDot tone="success" label={`${createdTest.name} is enabled`} />
+                <StatusDot
+                  tone="success"
+                  label={t('onboarding.test.enabled', { name: createdTest.name })}
+                />
                 <code>{createdTest.target}</code>
                 <Button variant="secondary" onClick={() => navigate('/targets')}>
-                  <Icon name="targets" /> Open tests
+                  <Icon name="targets" /> {t('onboarding.test.openTests')}
                 </Button>
               </div>
             ) : null}
@@ -428,19 +484,24 @@ export function OnboardingPage() {
 
         <Card>
           <CardHeader
-            title="Invite teammates"
-            description="Create the SCIM provisioning token your IdP uses to add users and groups."
-            actions={inviteToken ? <Badge tone="success">token ready</Badge> : null}
+            title={t('onboarding.invite.title')}
+            description={t('onboarding.invite.description')}
+            actions={
+              inviteToken ? <Badge tone="success">{t('onboarding.agent.tokenReady')}</Badge> : null
+            }
           />
           <CardBody>
             <form className={styles.form} onSubmit={submitInvite}>
               <Field
-                label="Invite token name"
+                label={t('onboarding.invite.name')}
                 value={inviteName}
                 onChange={(e) => setInviteName(e.target.value)}
               />
               <Button type="submit" variant="primary" disabled={createInvite.isPending}>
-                <Icon name="admin" /> {createInvite.isPending ? 'Creating...' : 'Create SCIM token'}
+                <Icon name="admin" />{' '}
+                {createInvite.isPending
+                  ? t('onboarding.invite.creating')
+                  : t('onboarding.invite.create')}
               </Button>
               {createInvite.isError ? (
                 <p className={styles.error} role="alert">
@@ -450,12 +511,12 @@ export function OnboardingPage() {
             </form>
             {inviteToken ? (
               <div className={styles.receipt}>
-                <Field label="SCIM bearer token" value={inviteToken.token} readOnly />
+                <Field label={t('onboarding.invite.token')} value={inviteToken.token} readOnly />
                 <Button
                   variant="secondary"
                   onClick={() => void navigator.clipboard?.writeText(inviteToken.token)}
                 >
-                  <Icon name="check" /> Copy token
+                  <Icon name="check" /> {t('onboarding.invite.copyToken')}
                 </Button>
               </div>
             ) : null}

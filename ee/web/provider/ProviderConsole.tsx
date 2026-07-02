@@ -22,6 +22,7 @@ import {
   Table,
   type Column,
 } from "../../../web/src/components";
+import { useI18n } from "../../../web/src/i18n/useI18n";
 import styles from "./ProviderConsole.module.css";
 import { TenantsCard } from "./TenantsCard";
 
@@ -111,6 +112,7 @@ class APIError extends Error {
 
 /** The console root: not-enabled / login / dashboard. */
 export function ProviderConsole() {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<
     "probe" | "login" | "dashboard" | "disabled"
   >("probe");
@@ -137,8 +139,8 @@ export function ProviderConsole() {
   return (
     <div className={styles.shell}>
       <header className={styles.domainBanner}>
-        <h1 className={styles.domainName}>probectl · PROVIDER PLANE</h1>
-        <Badge tone="warning">operator domain — no tenant context</Badge>
+        <h1 className={styles.domainName}>{t("provider.banner.title")}</h1>
+        <Badge tone="warning">{t("provider.banner.domain")}</Badge>
         {operator ? (
           <Badge tone="info">
             {operator.email} ({operator.role})
@@ -147,16 +149,16 @@ export function ProviderConsole() {
       </header>
       <main className={styles.main}>
         {phase === "probe" ? (
-          <LoadingState label="Checking the provider plane…" />
+          <LoadingState label={t("provider.loading")} />
         ) : null}
         {phase === "disabled" ? (
           <>
             {/* keep the h1→h2→h3 ladder intact for the EmptyState's h3 */}
-            <h2 className={styles.title}>Provider plane not enabled</h2>
+            <h2 className={styles.title}>{t("provider.disabled.title")}</h2>
             <EmptyState
               icon="admin"
-              title="No provider license"
-              description="This deployment has no provider/MSP license, so the operator console is inactive. Tenant observability is unaffected."
+              title={t("provider.disabled.licenseTitle")}
+              description={t("provider.disabled.description")}
             />
           </>
         ) : null}
@@ -177,6 +179,7 @@ export function ProviderConsole() {
 }
 
 function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [totp, setTotp] = useState("");
@@ -199,9 +202,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
       );
       onLoggedIn(r.operator);
     } catch {
-      setError(
-        "Login failed. Check the email, password, and authenticator code.",
-      );
+      setError(t("provider.login.failed"));
     } finally {
       setBusy(false);
     }
@@ -211,13 +212,13 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
     <div className={styles.loginWrap}>
       <Card>
         <CardHeader
-          title="Operator sign-in"
-          description="Provider operators authenticate with a password AND an authenticator code — MFA is mandatory in this domain."
+          title={t("provider.login.title")}
+          description={t("provider.login.description")}
         />
         <CardBody>
           <form className={styles.form} onSubmit={submit}>
             <Field
-              label="Email"
+              label={t("provider.login.email")}
               type="email"
               autoComplete="username"
               value={email}
@@ -225,7 +226,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
               required
             />
             <Field
-              label="Password"
+              label={t("provider.login.password")}
               type="password"
               autoComplete="current-password"
               value={password}
@@ -233,7 +234,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
               required
             />
             <Field
-              label="Authenticator code"
+              label={t("provider.login.authenticator")}
               inputMode="numeric"
               value={totp}
               onChange={(e) => setTotp(e.target.value)}
@@ -245,7 +246,9 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
               </p>
             ) : null}
             <Button type="submit" variant="primary" disabled={busy}>
-              {busy ? "Signing in…" : "Sign in"}
+              {busy
+                ? t("provider.login.signingIn")
+                : t("provider.login.signIn")}
             </Button>
           </form>
         </CardBody>
@@ -255,6 +258,7 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
 }
 
 function Dashboard({ operator }: { operator: Operator }) {
+  const { t } = useI18n();
   const [license, setLicense] = useState<LicenseInfo | null>(null);
   useEffect(() => {
     api<LicenseInfo>("GET", "/provider/v1/license")
@@ -265,19 +269,22 @@ function Dashboard({ operator }: { operator: Operator }) {
 
   return (
     <>
-      <h2 className={styles.title}>Provider console</h2>
+      <h2 className={styles.title}>{t("provider.dashboard.title")}</h2>
       {license ? (
         <p className={styles.note}>
-          License: <strong>{license.tier}</strong> · {license.state}
+          {t("provider.license.prefix")} <strong>{license.tier}</strong> ·{" "}
+          {license.state}
           {license.tenant_band ? (
-            <> · tenant band {license.tenant_band}</>
+            <>
+              {" "}
+              ·{" "}
+              {t("provider.license.tenantBand", { band: license.tenant_band })}
+            </>
           ) : null}
           {license.state === "grace"
-            ? " — renew before the grace period ends; the plane then degrades read-only."
+            ? ` — ${t("provider.license.grace")}`
             : null}
-          {readOnly
-            ? " — READ-ONLY: lifecycle changes are blocked; running telemetry is unaffected."
-            : null}
+          {readOnly ? ` — ${t("provider.license.readOnly")}` : null}
         </p>
       ) : null}
       <TenantsCard readOnly={readOnly} api={api} />
