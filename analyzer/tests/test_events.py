@@ -58,3 +58,13 @@ def test_to_json_uses_snake_case_keys_and_lowercase_enums():
 def test_detected_at_defaults_to_now():
     event = BGPEvent(tenant_id="t1", event_type=EventType.RPKI_INVALID, prefix="192.0.2.0/24")
     assert event.detected_at_unix_nano > 0
+
+
+def test_detected_at_preserves_source_time():
+    event = BGPEvent(
+        tenant_id="t1",
+        event_type=EventType.RPKI_INVALID,
+        prefix="192.0.2.0/24",
+        detected_at_unix_nano=1_777_000_123_000_000_000,
+    )
+    assert event.detected_at_unix_nano == 1_777_000_123_000_000_000

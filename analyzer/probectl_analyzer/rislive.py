@@ -66,6 +66,20 @@ def _string(value: object, field: str) -> str:
     return str(value)
 
 
+def _timestamp_unix_nano(value: object, field: str) -> int:
+    if value in (None, ""):
+        return 0
+    if isinstance(value, bool) or isinstance(value, (dict, list)):
+        raise RISMessageError(f"{field} must be a unix timestamp")
+    try:
+        ts = float(value)
+    except (TypeError, ValueError) as err:
+        raise RISMessageError(f"{field} must be a unix timestamp") from err
+    if ts < 0:
+        raise RISMessageError(f"{field} must be non-negative")
+    return int(ts * 1_000_000_000)
+
+
 def _flatten_path(path: object) -> list[int]:
     """Flatten a RIS Live AS path (which may nest AS_SETs as sub-lists)."""
     hops = _bounded_list(path, "data.path", MAX_RIS_PATH_HOPS)
@@ -103,6 +117,9 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
     as_path = _flatten_path(data.get("path", []))
     peer_addr = _string(data.get("peer", ""), "data.peer")
     peer_asn = _asn(data.get("peer_asn"), "data.peer_asn")
+    event_time_unix_nano = _timestamp_unix_nano(
+        data.get("timestamp", msg.get("timestamp")), "data.timestamp"
+    )
 
     routes: list[BGPRoute] = []
     emitted = 0
@@ -124,6 +141,7 @@ def _parse_ris_message(obj: object) -> list[BGPRoute]:
                     as_path=list(as_path),
                     peer_asn=peer_asn,
                     peer_address=peer_addr,
+                    event_time_unix_nano=event_time_unix_nano,
                 )
             )
     return routes

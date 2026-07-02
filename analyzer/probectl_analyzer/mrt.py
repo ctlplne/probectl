@@ -63,6 +63,7 @@ class BGPRoute:
     peer_asn: int = 0
     peer_address: str = ""
     collector_id: int = 0
+    event_time_unix_nano: int = 0
 
     @property
     def origin_asn(self) -> int:
@@ -133,7 +134,7 @@ class MRTReader:
                 return
             if len(header) < 12:
                 raise MRTError("truncated MRT common header")
-            _ts, mtype, subtype, length = struct.unpack(">IHHI", header)
+            ts, mtype, subtype, length = struct.unpack(">IHHI", header)
             if length > self._max_record_length:
                 if self._skip_oversized(fp, length, mtype, subtype):
                     continue
@@ -142,7 +143,7 @@ class MRTReader:
             if len(body) < length:
                 raise MRTError("truncated MRT record body")
             try:
-                yield from self._dispatch(mtype, subtype, body)
+                yield from self._dispatch(mtype, subtype, body, ts * 1_000_000_000)
             except MRTError as err:
                 # One bad record must not kill a multi-gigabyte dump.
                 _log.warning(
@@ -175,17 +176,23 @@ class MRTReader:
         )
         return True
 
-    def _dispatch(self, mtype: int, subtype: int, body: bytes) -> Iterator[BGPRoute]:
+    def _dispatch(
+        self, mtype: int, subtype: int, body: bytes, event_time_unix_nano: int
+    ) -> Iterator[BGPRoute]:
         if mtype == TYPE_TABLE_DUMP_V2:
             if subtype == SUB_PEER_INDEX_TABLE:
                 self._parse_peer_index(body)
             elif subtype == SUB_RIB_IPV4_UNICAST:
-                yield from self._parse_rib(body, AFI_IPV4)
+                yield from self._parse_rib(body, AFI_IPV4, event_time_unix_nano)
             elif subtype == SUB_RIB_IPV6_UNICAST:
-                yield from self._parse_rib(body, AFI_IPV6)
+                yield from self._parse_rib(body, AFI_IPV6, event_time_unix_nano)
         elif mtype == TYPE_BGP4MP:
             if subtype in (SUB_BGP4MP_MESSAGE, SUB_BGP4MP_MESSAGE_AS4):
-                yield from self._parse_bgp4mp(body, four_byte=subtype == SUB_BGP4MP_MESSAGE_AS4)
+                yield from self._parse_bgp4mp(
+                    body,
+                    four_byte=subtype == SUB_BGP4MP_MESSAGE_AS4,
+                    event_time_unix_nano=event_time_unix_nano,
+                )
 
     def _parse_peer_index(self, body: bytes) -> None:
         r = _Reader(body)
@@ -205,7 +212,7 @@ class MRTReader:
             peers.append((asn, addr))
         self._peers = peers
 
-    def _parse_rib(self, body: bytes, afi: int) -> Iterator[BGPRoute]:
+    def _parse_rib(self, body: bytes, afi: int, event_time_unix_nano: int) -> Iterator[BGPRoute]:
         r = _Reader(body)
         r.u32()  # sequence number
         prefix = r.read_prefix(afi)
@@ -225,9 +232,12 @@ class MRTReader:
                 peer_asn=peer_asn,
                 peer_address=peer_addr,
                 collector_id=self._collector_id,
+                event_time_unix_nano=event_time_unix_nano,
             )
 
-    def _parse_bgp4mp(self, body: bytes, four_byte: bool) -> Iterator[BGPRoute]:
+    def _parse_bgp4mp(
+        self, body: bytes, four_byte: bool, event_time_unix_nano: int
+    ) -> Iterator[BGPRoute]:
         r = _Reader(body)
         peer_as = r.u32() if four_byte else r.u16()
         _local_as = r.u32() if four_byte else r.u16()
@@ -244,10 +254,10 @@ class MRTReader:
         r.u16()  # message length
         if r.u8() != BGP_UPDATE:
             return
-        yield from self._parse_update(r, peer_as, peer_ip, four_byte)
+        yield from self._parse_update(r, peer_as, peer_ip, four_byte, event_time_unix_nano)
 
     def _parse_update(
-        self, r: _Reader, peer_as: int, peer_ip: str, four_byte: bool
+        self, r: _Reader, peer_as: int, peer_ip: str, four_byte: bool, event_time_unix_nano: int
     ) -> Iterator[BGPRoute]:
         withdrawn_len = r.u16()
         r.read(withdrawn_len)  # withdrawals — not monitored here
@@ -267,6 +277,7 @@ class MRTReader:
                 peer_asn=peer_as,
                 peer_address=peer_ip,
                 collector_id=self._collector_id,
+                event_time_unix_nano=event_time_unix_nano,
             )
 
 

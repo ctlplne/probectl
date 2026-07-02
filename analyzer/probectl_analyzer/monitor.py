@@ -169,4 +169,5 @@ class PrefixMonitor:
             peer_asn=route.peer_asn,
             peer_address=route.peer_address,
             message=message,
+            detected_at_unix_nano=route.event_time_unix_nano,
         )

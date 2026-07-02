@@ -34,7 +34,7 @@ def _prefix(cidr: str) -> bytes:
 
 
 def peer_index_table(
-    collector_id: int = 1, peer_as: int = 64511, peer_ip: str = "192.0.2.1"
+    collector_id: int = 1, peer_as: int = 64511, peer_ip: str = "192.0.2.1", ts: int = 0
 ) -> bytes:
     body = struct.pack(">I", collector_id) + struct.pack(">H", 0)  # collector id + empty view name
     body += struct.pack(">H", 1)  # one peer
@@ -42,19 +42,23 @@ def peer_index_table(
     body += struct.pack(">I", 0)  # peer BGP id
     body += ipaddress.IPv4Address(peer_ip).packed
     body += struct.pack(">I", peer_as)
-    return _record(TYPE_TABLE_DUMP_V2, SUB_PEER_INDEX_TABLE, body)
+    return _record(TYPE_TABLE_DUMP_V2, SUB_PEER_INDEX_TABLE, body, ts=ts)
 
 
-def rib_ipv4(prefix: str, asns: list[int], peer_index: int = 0, seq: int = 0) -> bytes:
+def rib_ipv4(prefix: str, asns: list[int], peer_index: int = 0, seq: int = 0, ts: int = 0) -> bytes:
     attrs = _as_path_attr(asns)
     body = struct.pack(">I", seq) + _prefix(prefix) + struct.pack(">H", 1)
     body += struct.pack(">H", peer_index) + struct.pack(">I", 0)
     body += struct.pack(">H", len(attrs)) + attrs
-    return _record(TYPE_TABLE_DUMP_V2, SUB_RIB_IPV4_UNICAST, body)
+    return _record(TYPE_TABLE_DUMP_V2, SUB_RIB_IPV4_UNICAST, body, ts=ts)
 
 
 def bgp4mp_update_as4(
-    prefix: str, asns: list[int], peer_as: int = 64511, peer_ip: str = "192.0.2.1"
+    prefix: str,
+    asns: list[int],
+    peer_as: int = 64511,
+    peer_ip: str = "192.0.2.1",
+    ts: int = 0,
 ) -> bytes:
     attrs = _as_path_attr(asns)
     update = struct.pack(">H", 0)  # no withdrawals
@@ -65,4 +69,4 @@ def bgp4mp_update_as4(
     body += struct.pack(">H", 0) + struct.pack(">H", 1)  # ifindex + AFI=IPv4
     body += ipaddress.IPv4Address(peer_ip).packed + ipaddress.IPv4Address("192.0.2.2").packed
     body += msg
-    return _record(TYPE_BGP4MP, SUB_BGP4MP_MESSAGE_AS4, body)
+    return _record(TYPE_BGP4MP, SUB_BGP4MP_MESSAGE_AS4, body, ts=ts)

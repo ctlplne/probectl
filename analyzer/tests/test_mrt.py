@@ -26,8 +26,9 @@ class CountingReader:
 
 
 def test_parses_table_dump_v2_rib_with_peer_attribution():
+    event_ts = 1_777_000_900
     data = peer_index_table(peer_as=64511, peer_ip="192.0.2.1") + rib_ipv4(
-        "192.0.2.0/24", [64511, 64500, 64496]
+        "192.0.2.0/24", [64511, 64500, 64496], ts=event_ts
     )
     routes = list(stream_mrt(io.BytesIO(data)))
 
@@ -38,10 +39,12 @@ def test_parses_table_dump_v2_rib_with_peer_attribution():
     assert r.origin_asn == 64496
     assert r.peer_asn == 64511
     assert r.peer_address == "192.0.2.1"
+    assert r.event_time_unix_nano == event_ts * 1_000_000_000
 
 
 def test_parses_bgp4mp_as4_update():
-    data = bgp4mp_update_as4("198.51.100.0/24", [64511, 64502], peer_as=64511)
+    event_ts = 1_777_000_901
+    data = bgp4mp_update_as4("198.51.100.0/24", [64511, 64502], peer_as=64511, ts=event_ts)
     routes = list(stream_mrt(io.BytesIO(data)))
 
     assert len(routes) == 1
@@ -50,6 +53,7 @@ def test_parses_bgp4mp_as4_update():
     assert r.as_path == [64511, 64502]
     assert r.origin_asn == 64502
     assert r.peer_asn == 64511
+    assert r.event_time_unix_nano == event_ts * 1_000_000_000
 
 
 def test_streams_multiple_records_without_buffering():

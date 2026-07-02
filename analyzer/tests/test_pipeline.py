@@ -29,12 +29,13 @@ CONFIG = {
 VRP = VRPSet.from_dicts([{"prefix": "192.0.2.0/24", "maxLength": 24, "asn": 64496}])
 
 
-def _ris(path, prefix="192.0.2.0/24"):
+def _ris(path, prefix="192.0.2.0/24", ts=0):
     return json.dumps(
         {
             "type": "ris_message",
             "data": {
                 "type": "UPDATE",
+                "timestamp": ts,
                 "peer": "192.0.2.1",
                 "peer_asn": "64511",
                 "host": "rrc00",
@@ -50,7 +51,8 @@ def test_origin_change_detected_with_paths_and_rpki_via_ris_replay():
     analyzer = Analyzer(AnalyzerConfig.from_dict(CONFIG), sink, VRP)
 
     # Baseline: legitimate origin 64496; then a hijacking origin 64500.
-    replay = [_ris([64511, 64496]), _ris([64511, 64500])]
+    event_ts = 1_777_000_123
+    replay = [_ris([64511, 64496], ts=event_ts - 60), _ris([64511, 64500], ts=event_ts)]
     count = analyzer.process_ris_replay(replay)
 
     assert count >= 1
@@ -63,6 +65,7 @@ def test_origin_change_detected_with_paths_and_rpki_via_ris_replay():
     assert change.old_as_path == [64511, 64496]
     assert change.new_as_path == [64511, 64500]
     assert change.rpki_status == RPKIStatus.INVALID  # the new origin is RPKI-invalid
+    assert change.detected_at_unix_nano == event_ts * 1_000_000_000
 
     # The unexpected origin also raises a hijack signal.
     assert any(e.event_type == EventType.POSSIBLE_HIJACK for e in sink.events)
@@ -72,13 +75,16 @@ def test_pipeline_streams_mrt_dump():
     sink = ListSink()
     analyzer = Analyzer(AnalyzerConfig.from_dict(CONFIG), sink, VRP)
 
+    event_ts = 1_777_000_456
     dump = (
         peer_index_table(peer_as=64511, peer_ip="192.0.2.1")
-        + rib_ipv4("192.0.2.0/24", [64511, 64496])  # baseline (valid)
-        + rib_ipv4("192.0.2.0/24", [64511, 64500])  # origin change (invalid)
+        + rib_ipv4("192.0.2.0/24", [64511, 64496], ts=event_ts - 60)  # baseline
+        + rib_ipv4("192.0.2.0/24", [64511, 64500], ts=event_ts)  # origin change
     )
     analyzer.process_mrt(io.BytesIO(dump))
 
-    assert any(e.event_type == EventType.ORIGIN_CHANGE for e in sink.events)
+    changes = [e for e in sink.events if e.event_type == EventType.ORIGIN_CHANGE]
+    assert changes
+    assert changes[0].detected_at_unix_nano == event_ts * 1_000_000_000
     invalid = [e for e in sink.events if e.event_type == EventType.RPKI_INVALID]
     assert invalid and invalid[0].new_origin_asn == 64500
