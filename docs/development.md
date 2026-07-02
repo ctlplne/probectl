@@ -71,7 +71,8 @@ reach for most:
 | `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                      |
 | `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`)                |
 | `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics |
-| `make interop-offline`             | Hermetic stock-client replay proof for OTLP, Prometheus remote-write, flow, device, and BGP MRT protocols |
+| `make interop-offline`             | Hermetic offline protocol-fixture replay for OTLP, Prometheus remote-write, flow, device, and BGP MRT protocols |
+| `make interop-stock-offline`       | Strict stock-client proof gate; requires pinned stock executables or stock-emitted artifacts for every required protocol family |
 | `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                                |
 | `make lint`                        | `lint-go` + `lint-python`                                                                        |
 | `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                                |

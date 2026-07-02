@@ -16,6 +16,10 @@
         "license": "Apache-2.0",
         "aup": "Operator-owned collector; no managed-service custody and no default outbound telemetry in this replay."
       },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local collector config plus in-process OTLP request replay; useful fixture coverage, not proof from an executed stock otelcol binary."
+      },
       "fixture": {
         "path": "test/interop/fixtures/otel-collector-otlphttp.yaml",
         "sha256": "bee026ab115c3bca44d5fc1e5f751c338ff51c94509a34b4789d34cab6316f17",
@@ -39,6 +43,10 @@
         "source": "https://github.com/prometheus/prometheus",
         "license": "Apache-2.0",
         "aup": "Operator-owned Prometheus-compatible sender; no hosted TSDB custody and no default outbound telemetry in this replay."
+      },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local remote-write descriptor with hostile tenant label; useful fixture coverage, not proof from an executed stock Prometheus sender."
       },
       "fixture": {
         "path": "test/interop/fixtures/prometheus-remote-write.json",
@@ -64,6 +72,10 @@
         "license": "BSD-3-Clause",
         "aup": "Operator-owned flow replay; no external collector fetch and no managed-service custody."
       },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local NetFlow v5 bytes are produced by package test builders; useful parser coverage, not proof from nfdump/nfreplay output."
+      },
       "fixture": {
         "path": "test/interop/fixtures/flow-captures.json",
         "sha256": "0db1ba57dcfff6fd68611678a9a6010054e438b4447ca80a18c80257a5ab3e3f",
@@ -87,6 +99,10 @@
         "source": "https://github.com/phaag/nfdump",
         "license": "BSD-3-Clause",
         "aup": "Operator-owned flow replay; no external collector fetch and no managed-service custody."
+      },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local NetFlow v9 template/data bytes are produced by package test builders; useful parser coverage, not proof from nfdump/nfreplay output."
       },
       "fixture": {
         "path": "test/interop/fixtures/flow-captures.json",
@@ -112,6 +128,10 @@
         "license": "BSD-3-Clause",
         "aup": "Operator-owned IPFIX replay; no external collector fetch and no managed-service custody."
       },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local IPFIX bytes are produced by package test builders; useful parser coverage, not proof from nfdump/nfreplay output."
+      },
       "fixture": {
         "path": "test/interop/fixtures/flow-captures.json",
         "sha256": "0db1ba57dcfff6fd68611678a9a6010054e438b4447ca80a18c80257a5ab3e3f",
@@ -135,6 +155,10 @@
         "source": "https://github.com/sflow/sflowtool",
         "license": "InMon sFlow license / BSD-style distribution terms",
         "aup": "Operator-owned sFlow replay; no external collector fetch and no managed-service custody."
+      },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local sFlow v5 bytes are produced by package test builders; useful parser coverage, not proof from sflowtool output."
       },
       "fixture": {
         "path": "test/interop/fixtures/flow-captures.json",
@@ -160,6 +184,10 @@
         "license": "BSD-2-Clause",
         "aup": "Operator-owned SNMP replay; no external device or collector access."
       },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local SNMP rows exercise snmpsim-style normalization through test doubles; useful fixture coverage, not proof from executed snmpsim output."
+      },
       "fixture": {
         "path": "test/interop/fixtures/device-telemetry.json",
         "sha256": "6f6af67638a81cb9fff0aef77bacc67db0e1bafaceeae480b488089190942be8",
@@ -184,6 +212,10 @@
         "license": "Apache-2.0",
         "aup": "Operator-owned gNMI replay; no external device or collector access."
       },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local OpenConfig notifications exercise gNMIc-style normalization through test doubles; useful fixture coverage, not proof from executed gNMIc output."
+      },
       "fixture": {
         "path": "test/interop/fixtures/device-telemetry.json",
         "sha256": "6f6af67638a81cb9fff0aef77bacc67db0e1bafaceeae480b488089190942be8",
@@ -207,6 +239,10 @@
         "source": "https://github.com/RIPE-NCC/bgpdump",
         "license": "BSD-3-Clause",
         "aup": "Offline MRT replay only; no live RouteViews or RIPE RIS fetch in CI."
+      },
+      "proof": {
+        "kind": "synthetic_fixture",
+        "notes": "Local RFC 6396 MRT bytes are produced by analyzer fixture builders; useful parser coverage, not proof from bgpdump or public collector artifacts."
       },
       "fixture": {
         "path": "test/interop/fixtures/bgp-mrt.json",

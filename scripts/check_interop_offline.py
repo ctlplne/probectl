@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: LicenseRef-probectl-TBD
-"""Validate and run the pinned offline stock-client interop manifest."""
+"""Validate and run the offline protocol-fixture interop manifest."""
 
 from __future__ import annotations
 
@@ -35,6 +35,8 @@ FORBIDDEN_REPLAY_TOKEN = re.compile(
     r"\bdocker\s+(pull|run)\b|\bgo\s+(get|install)\b|\bpip\s+install\b|\bnpm\s+install\b)",
     re.IGNORECASE,
 )
+PROOF_KINDS = {"synthetic_fixture", "stock_emitted_artifact", "stock_executable"}
+STRICT_STOCK_PROOF_KINDS = {"stock_emitted_artifact", "stock_executable"}
 
 
 def repo_root() -> Path:
@@ -83,7 +85,60 @@ def validate_command(row_family: str, command: dict[str, Any], base: Path) -> li
     return errors
 
 
-def validate_manifest(manifest: dict[str, Any], base: Path) -> list[str]:
+def validate_repo_path_sha(row_family: str, proof: dict[str, Any], path_field: str, sha_field: str, base: Path) -> list[str]:
+    errors: list[str] = []
+    path_value = proof.get(path_field)
+    sha = proof.get(sha_field, "")
+    if not nonempty(path_value):
+        errors.append(f"{row_family}: proof.{path_field} is required")
+    if not nonempty(sha):
+        errors.append(f"{row_family}: proof.{sha_field} is required")
+    elif not re.fullmatch(r"[0-9a-f]{64}", sha):
+        errors.append(f"{row_family}: proof.{sha_field} must be 64 lowercase hex chars")
+    if nonempty(path_value):
+        proof_path = (base / path_value).resolve()
+        try:
+            proof_path.relative_to(base.resolve())
+        except ValueError:
+            errors.append(f"{row_family}: proof path escapes repo: {path_value}")
+        if not proof_path.exists():
+            errors.append(f"{row_family}: proof path missing: {path_value}")
+        elif nonempty(sha) and re.fullmatch(r"[0-9a-f]{64}", sha):
+            actual = sha256_file(proof_path)
+            if actual != sha:
+                errors.append(f"{row_family}: proof SHA256 mismatch for {path_value}: got {actual}, want {sha}")
+    return errors
+
+
+def validate_proof(row_family: str, proof: Any, base: Path, require_stock_proof: bool) -> list[str]:
+    if not isinstance(proof, dict):
+        return [f"{row_family}: proof object is required"]
+    errors: list[str] = []
+    kind = proof.get("kind")
+    if kind not in PROOF_KINDS:
+        errors.append(f"{row_family}: proof.kind must be one of {', '.join(sorted(PROOF_KINDS))}")
+    if not nonempty(proof.get("notes")):
+        errors.append(f"{row_family}: proof.notes is required")
+    if require_stock_proof and kind not in STRICT_STOCK_PROOF_KINDS:
+        errors.append(
+            f"{row_family}: strict stock proof requires proof.kind=stock_emitted_artifact or stock_executable"
+        )
+    if kind == "stock_emitted_artifact":
+        for field in ("emitter", "emitter_version", "emitter_sha256", "receipt"):
+            if not nonempty(proof.get(field)):
+                errors.append(f"{row_family}: proof.{field} is required for stock_emitted_artifact")
+        if nonempty(proof.get("emitter_sha256")) and not re.fullmatch(r"[0-9a-f]{64}", proof["emitter_sha256"]):
+            errors.append(f"{row_family}: proof.emitter_sha256 must be 64 lowercase hex chars")
+        errors.extend(validate_repo_path_sha(row_family, proof, "artifact_path", "artifact_sha256", base))
+    if kind == "stock_executable":
+        for field in ("executable_version", "receipt"):
+            if not nonempty(proof.get(field)):
+                errors.append(f"{row_family}: proof.{field} is required for stock_executable")
+        errors.extend(validate_repo_path_sha(row_family, proof, "executable_path", "executable_sha256", base))
+    return errors
+
+
+def validate_manifest(manifest: dict[str, Any], base: Path, require_stock_proof: bool = False) -> list[str]:
     errors: list[str] = []
     if manifest.get("schema_version") != "probectl.interop.offline.v1":
         errors.append("manifest: schema_version must be probectl.interop.offline.v1")
@@ -143,6 +198,8 @@ def validate_manifest(manifest: dict[str, Any], base: Path) -> list[str]:
             if nonempty(name) and FORBIDDEN_STOCK_CLIENT.search(name):
                 errors.append(f"{family}: stock_client.name must be a real stock client, not {name!r}")
 
+        errors.extend(validate_proof(family, row.get("proof"), base, require_stock_proof))
+
         commands = row.get("replay_commands")
         if not isinstance(commands, list) or not commands:
             errors.append(f"{family}: replay_commands must contain at least one command")
@@ -192,7 +249,7 @@ def run_replays(manifest: dict[str, Any], base: Path) -> int:
             if result.returncode != 0:
                 print(f"interop-offline: {family} replay failed with exit {result.returncode}", file=sys.stderr)
                 return result.returncode
-    print("interop-offline: OK (manifest valid; all offline stock-client replays passed)")
+    print("interop-offline: OK (offline protocol-fixture replays passed)")
     return 0
 
 
@@ -218,6 +275,10 @@ def valid_selftest_manifest(tmp: Path) -> dict[str, Any]:
     row = {
         "family": "",
         "stock_client": stock,
+        "proof": {
+            "kind": "synthetic_fixture",
+            "notes": "Self-test fixture is generated locally and intentionally does not claim stock-client proof.",
+        },
         "fixture": {
             "path": "fixture.txt",
             "sha256": sha,
@@ -252,6 +313,15 @@ def run_selftest() -> int:
                 return False
             return True
 
+        def expect_strict_fail(label: str, mutate: Any, needle: str) -> bool:
+            bad = copy.deepcopy(manifest)
+            mutate(bad)
+            got = "\n".join(validate_manifest(bad, base, require_stock_proof=True))
+            if needle not in got:
+                print(f"SELFTEST {label} failed: wanted {needle!r} in {got!r}", file=sys.stderr)
+                return False
+            return True
+
         checks = [
             expect_fail(
                 "missing-sha",
@@ -279,6 +349,16 @@ def run_selftest() -> int:
                 "stock_client.name must be a real stock client",
             ),
             expect_fail(
+                "missing-proof",
+                lambda m: m["families"][0].pop("proof"),
+                "proof object is required",
+            ),
+            expect_strict_fail(
+                "strict-synthetic-proof",
+                lambda m: None,
+                "strict stock proof requires",
+            ),
+            expect_fail(
                 "missing-family",
                 lambda m: m["families"].pop(),
                 "missing required protocol families",
@@ -301,11 +381,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", default="test/interop/manifest.json")
     parser.add_argument("--run-replays", action="store_true")
+    parser.add_argument(
+        "--require-stock-proof",
+        action="store_true",
+        help="require stock executable or stock-emitted artifact provenance for every required family",
+    )
     args = parser.parse_args()
 
     base = repo_root()
     manifest = load_manifest(base / args.manifest)
-    errors = validate_manifest(manifest, base)
+    errors = validate_manifest(manifest, base, require_stock_proof=args.require_stock_proof)
     if errors:
         for err in errors:
             print(f"interop-offline: {err}", file=sys.stderr)
