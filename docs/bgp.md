@@ -133,6 +133,28 @@ probectl agents: `spiffe://probectl/tenant/<tenant>/agent/<router-id>`. The
 listener records a per-tenant peer inventory in memory and emits `BGPEvent`
 records keyed by that tenant.
 
+## Performance and freshness
+
+Live BMP/router events are treated like an alarm bell, not like a nightly
+report. Once a tenant-authenticated route event lands on `probectl.bgp.events`,
+the hot-path target is: p50 <= 250 ms, p95 <= 2 s, and p99 <= 5 s from route
+event consume to tenant-scoped incident evidence. The SLO row is
+`hp-bgp-route-event-to-incident` in [perf-hotpaths.md](perf-hotpaths.md), and
+the runnable receipt is:
+
+```sh
+go test -tags integration ./internal/control \
+  -run '^TestBGPCollectorRegistrationReturnsBMPConfigAndPublishBinding$' \
+  -count=1 -v
+```
+
+Archived MRT and public RouteViews/RIS replay are different: they are a batch
+freshness path, not the live alerting path. Release evidence for batch routing
+feeds records the source event timestamp, replay command, ingest timestamp, and
+maximum staleness. The GA target is max staleness <= 5 minutes for packaged or
+cached replay fixtures, with no live public collector access required in
+default CI.
+
 ## Pitfalls & limits
 
 - **It's a signal, not a shield.** probectl tells you about a hijack; stopping it

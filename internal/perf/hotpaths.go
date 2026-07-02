@@ -12,6 +12,7 @@ const (
 	SurfaceOTLPHTTP   HotPathSurfaceKind = "otlp-http"
 	SurfaceMCPJSONRPC HotPathSurfaceKind = "mcp-json-rpc"
 	SurfaceAgent      HotPathSurfaceKind = "agent-transport"
+	SurfaceCollector  HotPathSurfaceKind = "collector-ingest"
 	SurfaceFlowStore  HotPathSurfaceKind = "flow-store"
 	SurfaceTopology   HotPathSurfaceKind = "topology-store"
 )
@@ -165,6 +166,24 @@ func HotPathCatalog() []HotPathSLO {
 				},
 			},
 			Notes: "Measures the write-side user promise: a tenant-bound probe result that raises a signal is correlated and visible as an incident quickly.",
+		},
+		{
+			ID:    "hp-bgp-route-event-to-incident",
+			Name:  "BGP route event to incident evidence",
+			Owner: "bgp",
+			Surfaces: []HotPathSurface{
+				{Kind: SurfaceCollector, Method: "publish", Pattern: "probectl.bgp.events -> BGPIncidentConsumer -> incident"},
+			},
+			Targets: HotPathTargets{P50: 250 * time.Millisecond, P95: 2 * time.Second, P99: 5 * time.Second, MinThroughputPerSecond: 20},
+			Measurements: []HotPathMeasurement{
+				{
+					Kind:    MeasurementLoadGate,
+					Command: "go test -tags integration ./internal/control -run '^TestBGPCollectorRegistrationReturnsBMPConfigAndPublishBinding$' -count=1 -v",
+					Receipt: "tenant-bound BGP collector registration, BGP route event topology consume, and incident open receipt",
+					Source:  "internal/control/collector_registration_integration_test.go:TestBGPCollectorRegistrationReturnsBMPConfigAndPublishBinding",
+				},
+			},
+			Notes: "Live BMP/route events are the routing hot path. Archived MRT/RIS replay is intentionally tracked by freshness/staleness targets, not by a live-alert latency percentile.",
 		},
 		{
 			ID:    "hp-flow-query",

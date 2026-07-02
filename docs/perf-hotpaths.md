@@ -32,6 +32,7 @@ target and no receipt to measure against.
 | `hp-incident-feed` | Incident feed and detail | `GET /v1/incidents`, `GET /v1/incidents/{id}` | 100 ms | 500 ms | 1.5 s | 25 req/s | `duration_ms` access logs grouped by method and path |
 | `hp-incident-correlation` | Incident cross-plane correlation | `GET /v1/incidents/{id}/cis`, MCP `correlate_incident` | 250 ms | 1.5 s | 3 s | 5 req/s | access-log `duration_ms`; `go test ./internal/ai/mcp -bench BenchmarkHandleToolCallListTests -run '^$' -benchmem` |
 | `hp-probe-result-to-incident` | Probe result to incident write | `probectl.network.results -> incident` | 250 ms | 2 s | 5 s | 20 signals/s | `go test ./internal/perf -run '^TestProbeResultToIncidentLatency$' -count=1 -v` logs ingest-to-incident e2e, correlation-read, and incident-write timings |
+| `hp-bgp-route-event-to-incident` | BGP route event to incident evidence | `probectl.bgp.events -> BGPIncidentConsumer -> incident` | 250 ms | 2 s | 5 s | 20 route events/s | `go test -tags integration ./internal/control -run '^TestBGPCollectorRegistrationReturnsBMPConfigAndPublishBinding$' -count=1 -v` proves tenant-bound BGP registration, topology consume, and incident open |
 | `hp-flow-query` | Flow analytics query | `/v1/flows/*`, MCP `query_flows` | 200 ms | 1 s | 2.5 s | 10 req/s | access-log `duration_ms`; MCP tool-call benchmark |
 | `hp-flow-clickhouse-insert` | ClickHouse flow insert | `probectl.flow.events` -> `FlowConsumer` -> ClickHouse | 500 ms | 2 s | 5 s | 2,000 flows/s | `make load-test-smoke` logs insert p95 and ClickHouse row confirmation; `make load-test TIER=L` records the reference-hardware row |
 | `hp-flow-clickhouse-query` | ClickHouse flow TopTalkers query | `flowstore.Store.TopTalkers` | 500 ms | 2 s | 5 s | 10 queries/s | `make load-test-smoke` logs TopTalkers query p95 and tenant completeness; `make load-test TIER=L` records the reference-hardware row |
@@ -57,6 +58,11 @@ The catalog is code, not just documentation:
 - `go test ./internal/perf -run TestProbeResultToIncidentLatency -count=1 -v`
   drives a probe result through IOC ingest, incident correlation, and incident
   write, logging phase timings.
+- `go test -tags integration ./internal/control -run TestBGPCollectorRegistrationReturnsBMPConfigAndPublishBinding -count=1 -v`
+  proves the BGP collector is tenant-bound, emits a canonical
+  `probectl.bgp.events` payload into topology, and opens a tenant-scoped
+  incident. This is the live BMP/route-event hot path; archived MRT/RIS replay
+  uses the freshness/staleness target in [bgp.md](bgp.md).
 - `make load-test-smoke` runs the real Kafka + ClickHouse flow gate at CI/dev
   scale and logs flow insert p95, TopTalkers query p95, confirmed rows, and
   ClickHouse active-part growth. `make load-test TIER=L|XL|XXL` is the
