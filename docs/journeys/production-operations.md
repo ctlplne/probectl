@@ -95,13 +95,24 @@ observes — you are keeping the observer healthy while it observes.
    stripped, and the encryption key appears only as a boolean
    `envelope_key_configured`, never the key itself. Powered by [running probectl in production](../features/operations.md).
 
-5. **Chaos-test resilience (a self-test).** The chaos injector deliberately
-   injects a known network fault — added delay, packet loss, a full outage — to
-   prove your monitoring and SLO alerts actually fire when the network breaks. Be
-   honest about what it is: a self-test, not an API. It perturbs only traffic
-   addressed to its own listener, cannot be triggered remotely, and never mutates a
-   live cluster. A run has a fixed shape — healthy baseline, inject, observe, heal,
-   observe.
+5. **Chaos-test resilience (a local evidence drill).** The chaos injector
+   deliberately injects known local faults to prove probectl detects the kind of
+   dependency failure it promises to detect. Be exact about the blast radius: this
+   is a local release-evidence drill, not a served production workflow, not a
+   remote chaos API, and not an automated remediation surface. It does not call
+   the control-plane API, is not exposed through REST/UI/MCP/agent control (the
+   served-surface absence is tracked in
+   [limitations](../limitations.md#built-not-yet-served-edges)), and never mutates
+   a live cluster. Run it from the repo checkout and archive the stable result
+   row.
+   ```sh
+   make chaos-dependency-drill | tee /tmp/probectl-chaos-dependency.txt
+   grep '^CHAOS_DEPENDENCY_RESULT ' /tmp/probectl-chaos-dependency.txt
+   ```
+   Expected output is one `CHAOS_DEPENDENCY_RESULT` line containing the disk-full,
+   memory-pressure, pod-kill, dependency-outage, and recovery counters. A UDP
+   fault-injection self-test has the fixed shape — healthy baseline, inject,
+   observe, heal, observe.
    ```text
    healthy baseline   → SLO quiet, probes pass, latency normal
    inject a partition → probes fail for real, the multi-window burn alert fires
@@ -109,8 +120,9 @@ observes — you are keeping the observer healthy while it observes.
    ```
    You observe the burn alert fire under the injected fault and clear after the
    heal. If a known fault does not make the alert fire, that is a failure of the
-   platform's core promise — which is exactly what the self-test catches. Powered
-   by [cost, reliability, chaos and carbon](../features/cost-slo-and-chaos.md).
+   platform's core promise — which is exactly what the self-test catches. Feature
+   F47 remains `none-by-design` until a separately approved, human-gated, audited
+   operator workflow exists. Powered by [cost, reliability, chaos and carbon](../features/cost-slo-and-chaos.md).
 
 ## You're done when
 
@@ -120,7 +132,9 @@ observes — you are keeping the observer healthy while it observes.
   write resumption after, with both recovery points recorded.
 - `GET /v1/editions` reports `self_test_passed: true` under `fips`.
 - A support bundle is produced and confirmed secret-free.
-- A chaos self-test fires the burn alert under fault and clears on heal.
+- `make chaos-dependency-drill` produces an archived `CHAOS_DEPENDENCY_RESULT`
+  row, and any UDP chaos self-test fires the burn alert under fault and clears on
+  heal.
 
 ## Next
 
