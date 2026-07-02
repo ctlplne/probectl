@@ -24,8 +24,9 @@ const MaxFutureSkew = 5 * time.Minute
 var maxFutureSkewMillis = MaxFutureSkew.Milliseconds()
 
 var (
-	futureClamped     atomic.Uint64 // samples clamped because they were too far in the future
-	maxObservedSkewMs atomic.Int64  // largest future skew observed (ms), for the skew gauge
+	futureClamped       atomic.Uint64 // samples clamped because they were too far in the future
+	spanStartNormalized atomic.Uint64 // spans with missing/unusable starts normalized to ingest time
+	maxObservedSkewMs   atomic.Int64  // largest future skew observed (ms), for the skew gauge
 )
 
 // clampFutureSample returns tms unchanged unless it is more than MaxFutureSkew
@@ -96,6 +97,13 @@ func normalizeReceiveTime(receivedAt time.Time) time.Time {
 // FutureClamped reports how many samples have been clamped for being stamped
 // too far in the future (CORRECT-012 observability — exported to /metrics).
 func FutureClamped() uint64 { return futureClamped.Load() }
+
+func noteSpanStartNormalized() { spanStartNormalized.Add(1) }
+
+// SpanStartNormalized reports OTLP spans whose missing or unusable start time
+// was normalized to ingest time, keeping trace rows queryable in current
+// windows instead of silently disappearing at the Unix epoch.
+func SpanStartNormalized() uint64 { return spanStartNormalized.Load() }
 
 // MaxObservedFutureSkewMillis reports the largest future clock skew seen so far
 // (milliseconds); the skew-delta gauge reads this.

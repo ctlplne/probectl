@@ -797,6 +797,9 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 	m.Gauge("probectl_pipeline_future_clamped",
 		"Samples clamped because their timestamp was implausibly far in the future (agent clock skew, CORRECT-012).",
 		func() float64 { return float64(pipeline.FutureClamped()) })
+	m.Gauge("probectl_pipeline_span_start_normalized_total",
+		"OTLP spans whose missing or unusable start timestamp was normalized to ingest time.",
+		func() float64 { return float64(pipeline.SpanStartNormalized()) })
 	m.Gauge("probectl_pipeline_max_future_skew_ms",
 		"Largest future clock skew observed across all samples, in milliseconds.",
 		func() float64 { return float64(pipeline.MaxObservedFutureSkewMillis()) })
