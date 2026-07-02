@@ -68,6 +68,11 @@ grep -q 'cosign verify-blob' "$RELEASE" || { echo "release: chart package self-v
 grep -q 'chart_ref="ghcr.io/${GITHUB_REPOSITORY_OWNER}/charts/probectl@${chart_digest}"' "$RELEASE" || { echo "release: chart OCI digest reference is not immutable"; fail=1; }
 grep -q 'cosign sign --yes "$chart_ref"' "$RELEASE" || { echo "release: chart OCI digest signing is missing"; fail=1; }
 grep -Fq 'probectl-*.chart-digest.txt' "$RELEASE" || { echo "release: chart digest evidence is not attached to the GitHub release"; fail=1; }
+packages_release_section="$(awk '/^  packages:/{in_pkg=1} in_pkg{print}' "$RELEASE")"
+grep -q 'id-token: write' <<<"$packages_release_section" || { echo "release: package job lacks id-token: write for keyless cosign"; fail=1; }
+grep -q 'sigstore/cosign-installer@' <<<"$packages_release_section" || { echo "release: package job signs with cosign but never installs it"; fail=1; }
+grep -q 'cosign sign-blob --yes' <<<"$packages_release_section" || { echo "release: package sign-blob step is missing"; fail=1; }
+grep -q 'all packages verify' <<<"$packages_release_section" || { echo "release: package signature self-verify gate is missing"; fail=1; }
 
 grep -q 'verifyImages:' "$ADMISSION" || { echo "admission: Kyverno verifyImages policy missing"; fail=1; }
 grep -q 'verifyDigest: true' "$ADMISSION" || { echo "admission: digest verification is not enforced"; fail=1; }

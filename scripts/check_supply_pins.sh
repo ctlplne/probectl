@@ -37,6 +37,8 @@ TOML
   if awk '/^[[:space:]]*(dependencies|dev)[[:space:]]*=[[:space:]]*\[/ {in_deps=1; next} in_deps && /^[[:space:]]*\]/ {in_deps=0; next} in_deps && /"/ {spec=$0; sub(/^[^"]*"/, "", spec); sub(/".*$/, "", spec); if (spec !~ /==/) bad=1} END {exit bad ? 0 : 1}' "$tmp/pyproject.toml"; then :; else echo "SELFTEST broken (python manifest range)"; exit 1; fi
   echo 'apt-get install -y clang llvm bpftool' > "$tmp/bad.dockerfile"
   if grep -qE '(^| )clang( |$)' "$tmp/bad.dockerfile"; then :; else echo "SELFTEST broken (clang pin)"; exit 1; fi
+  echo '# syntax=docker/dockerfile:1' > "$tmp/Dockerfile"
+  if grep -Eq '^# syntax=.*docker/dockerfile:[^ @]+($|[[:space:]])' "$tmp/Dockerfile" && ! grep -q '@sha256:' "$tmp/Dockerfile"; then :; else echo "SELFTEST broken (BuildKit frontend pin)"; exit 1; fi
   cat > "$tmp/bad-toolchain.yml" <<'YAML'
 jobs:
   ebpf:
@@ -182,6 +184,16 @@ if [[ -f deploy/docker/Dockerfile.ebpf ]]; then
   done < <(grep -rni 'clang' deploy/docker/Dockerfile.ebpf 2>/dev/null; grep -rni 'llvm' deploy/docker/Dockerfile.ebpf 2>/dev/null || true)
 fi
 
+# 4c) BuildKit frontend pinning. Dockerfile `# syntax=` is itself an external
+#     image pull before any stage starts. Treat it like a build dependency:
+#     tag-only docker/dockerfile frontends are mutable and must be digest-pinned.
+while IFS= read -r line; do
+  echo "$line" | grep -q '@sha256:' && continue
+  echo "TAG-ONLY BuildKit frontend (digest-pin # syntax=docker/dockerfile; SUPPLY-005):"
+  echo "  $line"
+  fail=1
+done < <(grep -rnE '^# syntax=.*docker/dockerfile:[^ @]+($|[[:space:]])' deploy/docker --include='Dockerfile*' || true)
+
 # 4b) Workflow apt installs may still install runner infrastructure such as
 #     qemu, but not clang/llvm/bpftool/linux-tools for the eBPF object build.
 #     Those must run through scripts/run-ebpf-toolchain.sh so release and CI use
@@ -261,4 +273,4 @@ if [[ $fail -ne 0 ]]; then
   echo "supply-pins gate FAILED — pin the inputs above (docs/dependency-policy.md)."
   exit 1
 fi
-echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, no tag-only helm/container image)"
+echo "supply-pins gate: OK (no :latest, no unpinned installs/manifests, no tag-only helm/container/BuildKit frontend image)"

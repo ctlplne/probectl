@@ -315,6 +315,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write
     strategy:
       matrix:
         agent: [agent, ebpf-agent, flow-agent, device-agent, endpoint]
@@ -364,6 +365,7 @@ jobs:
           for pkg in deb rpm; do
             nfpm package -f "$rendered" -p "$pkg" -t dist/
           done
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
       - name: Sign packages (cosign keyless)
         run: |
           set -euo pipefail

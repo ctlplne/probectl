@@ -23,7 +23,7 @@ exactly, verify, upgrade on purpose.
 | Go modules | exact versions in [`go.mod`](../go.mod), checksums in `go.sum` (verified against the Go checksum database on download) | `go build` fails on any checksum mismatch |
 | Dev / codegen tools (buf, protoc-gen-go / -go-grpc, golangci-lint, govulncheck) | exact versions at the top of the [`Makefile`](../Makefile); installed as Go modules (so they're checksum-verified) — never `@latest`, never a curl-pipe install | the `proto` job's generated-code drift check; the supply-pins gate |
 | GitHub Actions | full commit-SHA pins (not `@v3` tags) | `scripts/check_action_pins.sh` (the `action-pins` CI job) |
-| Container images (compose, Helm, CI services) | digest pins (`@sha256:...`) on infrastructure images; release-tag pins on probectl's own | the supply-pins gate (no `:latest` under `deploy/`) + review + the scheduled security scan |
+| Container images and Dockerfile frontends (compose, Helm, CI services, `# syntax=`) | digest pins (`@sha256:...`) on infrastructure images and BuildKit frontends; release-tag pins on probectl's own | the supply-pins gate (no `:latest` under `deploy/`, no tag-only Helm/workflow images, no tag-only `docker/dockerfile` frontend) + review + the scheduled security scan |
 | npm (`web/`, `browser-worker/`) | exact direct versions in `package.json`, resolved integrity records in `package-lock.json`, installed with `npm ci` | the supply-pins gate rejects semver ranges in direct manifests; `npm audit` runs in the `web` and `security-scan` jobs |
 | Go toolchain | the `go` directive in `go.mod` (exact patch), a verified upstream release | see [`build/toolchain.md`](build/toolchain.md) |
 
@@ -43,7 +43,8 @@ job) is the backstop that mechanically fails the build on a floating reference:
 a `:latest` image ref anywhere under `deploy/`, a tag-only (non-digest) `image:`
 or camelCase `<name>Image:` value under `deploy/helm` (e.g. the privileged agent
 `installerImage:`), a tag-only `container:` job image in `.github/workflows`, a
-`go install` in CI or the `Makefile` without an exact `@vX.Y.Z`, or a
+tag-only Dockerfile `# syntax=docker/dockerfile` frontend, a `go install` in CI
+or the `Makefile` without an exact `@vX.Y.Z`, or a
 `pip install` without exact `==` pins, `--require-hashes`, or `--no-deps`. It
 also checks the direct npm manifests and the analyzer `pyproject.toml` for
 range syntax (`^`, `~`, `>=`, and friends), because a lockfile pins resolved
