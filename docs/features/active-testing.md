@@ -57,6 +57,12 @@ it with other planes, and shows it to you — it does not take the target down,
 open a firewall, or reroute anything. Acting on a signal is always a separate,
 human-decided step.
 
+For a full outside-in deployment pattern — owned vantages, site/region labels,
+coverage-map review, probe-pack templates, and MSP resale guidance — use
+[`../outside-in.md`](../outside-in.md). That guide is the replacement motion for
+vendor-owned global probe fleets: the probes are yours, the custody boundary is
+yours, and the coverage map says where you do and do not have eyes.
+
 ## How it works
 
 The control plane never goes out and measures the network itself; it
@@ -228,7 +234,8 @@ probectl test create \
 - **Create a test from the CLI:** `probectl test create --name … --type … --target …`.
 - **Related capabilities (separate pages):** Digital experience (last-mile, voice,
   real-user monitoring); Topology & change (the correlated picture a failing
-  canary feeds into). See also the deployment and getting-started guides for
-  standing up an agent end to end.
+  canary feeds into); Owned outside-in monitoring (self-hosted vantages and
+  probe packs). See also the deployment and getting-started guides for standing
+  up an agent end to end.
 
 **Covers:** F1, F2, F4, F5

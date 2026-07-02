@@ -139,7 +139,9 @@ curl -sS "https://localhost:8443/v1/outages"
 - **Coverage equals your vantage points plus public open data — nothing more.**
   probectl does not run a global probe fleet and never claims to. A region you do
   not test from, and that the public feeds do not cover, is simply not visible.
-  The response says so rather than implying full coverage.
+  The response says so rather than implying full coverage. For the operating
+  model that turns customer/MSP-owned probes into an outside-in coverage map, see
+  [`../outside-in.md`](../outside-in.md).
 - **Confidence and severity are heuristics, not vendor-calibrated probabilities.**
   The scores are documented rules of thumb derived from each source's own signals.
   Treat the outage view as situational awareness, not as a precise measurement.
