@@ -1,0 +1,44 @@
+## Coverage summary (f86b762)
+
+```
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:74:		SnapshotAt			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:79:		Latest				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:82:		Neighbors			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:87:		Traverse			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:103:		newIndexedGraph			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:116:		observe				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:136:		neighbors			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/indexed.go:158:		traverse			90.9%
+github.com/imfeelingtheagi/probectl/internal/topology/model.go:61:		EdgeID				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:35:		NewMemoryStore			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:39:		DeleteTenant			0.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:49:		graph				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:61:		ObservePath			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:66:		ObserveServiceEdge		100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:71:		ObserveRouting			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:76:		ObserveDevice			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:81:		SnapshotAt			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:86:		Latest				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:89:		Neighbors			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/store.go:94:		Traverse			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/viz.go:31:		ToViz				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:74:		Simulate			89.2%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:217:		newSimGraph			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:228:		nodesOfKind			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:241:		adjacency			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:265:		coverage			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:277:		SnapshotCoverage		0.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:286:		count				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:299:		annotate			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:313:		routesFrom			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:325:		bfsRoute			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:334:		bfsParents			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:356:		rebuild				100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:371:		reachableFrom			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:387:		undirect			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:405:		routeUses			100.0%
+github.com/imfeelingtheagi/probectl/internal/topology/whatif.go:421:		sortPathImpacts			75.0%
+github.com/imfeelingtheagi/probectl/internal/version/version.go:39:		Get				100.0%
+github.com/imfeelingtheagi/probectl/internal/version/version.go:51:		String				100.0%
+total:										(statements)			77.4%
+```
