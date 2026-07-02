@@ -4,6 +4,12 @@ A deeply-technical-ELI5 map of what happens **every time you push** — what run
 why each gate exists, and what "green" actually proves. The source of truth is
 `.github/workflows/ci.yml`; this doc explains it.
 
+This page describes the contract of a green pipeline. It is not itself a claim
+that today's branch is green. For buyer-facing or release-facing evidence, use
+the actual workflow artifacts for the exact commit; after the July 1, 2026 audit
+harness run, coverage, integration, isolation, and e2e proof remain current only
+when their named gates have rerun green on that commit.
+
 ## When it runs
 
 `ci.yml` triggers on **push to `main`** and on **every pull request**. A

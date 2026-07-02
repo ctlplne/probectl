@@ -48,11 +48,14 @@ one-tenant case — there is no separate code path, no enterprise fork to drift
 out of sync. **Tenant is the outermost scope and security boundary** on every
 record, agent, query, metric, event, and object.
 
-> **Status:** the platform is built — all five planes plus the intelligence,
-> security, and provider/MSP layers in the tables below are shipped; the work
-> now is hardening toward GA. Compose + Helm are **HTTPS-by-default**. The
-> license is intentionally **`TBD`** — **source-available, not open source
-> (yet)** ([details](#license)).
+> **Status:** the major code paths are built, and the project is in
+> evidence-driven hardening toward GA. Treat the capability tables below as
+> code-backed inventory, not a claim that the current branch has a fresh green
+> `verify-all` receipt. As of the July 1, 2026 audit harness run, coverage,
+> integration, isolation, and e2e receipts are considered current only when the
+> named gates are rerun green on the exact commit. Compose + Helm are
+> **HTTPS-by-default**. The license is intentionally **`TBD`** —
+> **source-available, not open source (yet)** ([details](#license)).
 >
 > **Scale proof:** CI/dev-scale gates are committed, and L/XL/XXL architecture
 > targets are documented, but the buyer-facing verified scale rows remain
