@@ -99,6 +99,64 @@ func TestServiceNowLookupAndCorrelate(t *testing.T) {
 	}
 }
 
+func TestNetBoxLookupIPDeviceAndVM(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Token nb-token" {
+			http.Error(w, "no token", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		base := "http://" + r.Host
+		switch r.URL.Path {
+		case "/api/ipam/ip-addresses/":
+			if r.URL.Query().Get("q") != "10.0.0.1" {
+				t.Errorf("ip query = %q", r.URL.RawQuery)
+			}
+			fmt.Fprint(w, `{"results":[{"id":101,"display":"10.0.0.1/32","address":"10.0.0.1/32","dns_name":"core-sw1.acme.example","url":"`+base+`/api/ipam/ip-addresses/101/","assigned_object":{"device":{"name":"core-sw1","display":"core-sw1"}}}]}`)
+		case "/api/dcim/devices/":
+			if r.URL.Query().Get("name") != "core-sw1.acme.example" {
+				t.Errorf("device query = %q", r.URL.RawQuery)
+			}
+			fmt.Fprint(w, `{"results":[{"id":202,"name":"core-sw1.acme.example","display":"core-sw1","url":"`+base+`/api/dcim/devices/202/","role":{"name":"leaf"},"site":{"name":"iad1"},"device_type":{"model":"7050X"},"primary_ip4":{"address":"10.0.0.1/32"}}]}`)
+		case "/api/virtualization/virtual-machines/":
+			if r.URL.Query().Get("name") != "core-sw1.acme.example" {
+				t.Errorf("vm query = %q", r.URL.RawQuery)
+			}
+			fmt.Fprint(w, `{"results":[{"id":303,"name":"core-sw1.acme.example","display":"core-sw1-vm","url":"`+base+`/api/virtualization/virtual-machines/303/","cluster":{"name":"lab"},"primary_ip4":{"address":"10.0.0.10/32"}}]}`)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	provider := NewNetBox(ts.URL, "nb-token")
+	cis, err := provider.Lookup(context.Background(), "10.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cis) != 1 || cis[0].SysID != "netbox:ipam.ip_address:101" || cis[0].IPAddress != "10.0.0.1" {
+		t.Fatalf("ip cis = %+v", cis)
+	}
+	if !strings.Contains(cis[0].URL, "/ipam/ip-addresses/101/") {
+		t.Fatalf("netbox UI URL not normalized: %+v", cis[0])
+	}
+
+	cis, err = provider.Lookup(context.Background(), "CORE-SW1.ACME.EXAMPLE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cis) != 2 {
+		t.Fatalf("hostname cis = %+v, want device + vm", cis)
+	}
+	if cis[0].Class != "netbox.device" || cis[0].Extra["site"] != "iad1" || cis[0].Extra["model"] != "7050X" {
+		t.Fatalf("device CI = %+v", cis[0])
+	}
+	if cis[1].Class != "netbox.virtual_machine" || cis[1].Extra["cluster"] != "lab" {
+		t.Fatalf("vm CI = %+v", cis[1])
+	}
+}
+
 func TestResolverCacheAndGracefulDegrade(t *testing.T) {
 	var calls atomic.Int64
 	var fail atomic.Bool

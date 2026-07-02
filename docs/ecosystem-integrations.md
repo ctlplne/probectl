@@ -1,4 +1,4 @@
-# Ecosystem integrations — Grafana, Prometheus, ServiceNow CMDB
+# Ecosystem integrations — Grafana, Prometheus, CMDB, cloud metrics
 
 ## What this is
 
@@ -12,13 +12,17 @@ to demand you rip it out and start over. Three integrations make that real:
   out of probectl (**federation** — one metrics system serving selected series
   for another to scrape) or pushes metrics into it (**remote-write** —
   Prometheus's standard push protocol).
-- **ServiceNow CMDB** correlation links probectl incidents and assets to your
-  existing configuration items (a **CMDB** is a configuration management
-  database — the organization's asset inventory; a **CI**, configuration item,
-  is one tracked asset in it).
+- **ServiceNow or NetBox CMDB** correlation links probectl incidents and assets
+  to your existing configuration items (a **CMDB** is a configuration
+  management database — the organization's asset inventory; a **CI**,
+  configuration item, is one tracked asset in it).
+- **Cloud metric import** turns local/exported AWS CloudWatch, Azure Monitor,
+  and Google Cloud Monitoring rows into tenant-scoped probectl metrics without
+  polling cloud APIs.
 
-The metrics surfaces live in `internal/promapi`; the ServiceNow client lives in
-`internal/cmdb`; both are wired into the control plane in `internal/control`.
+The metrics surfaces live in `internal/promapi`; the CMDB clients live in
+`internal/cmdb`; the local cloud metric importer lives in
+`cmd/probectl-cloud-metrics` and `internal/cloudmetrics`.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -26,7 +30,8 @@ flowchart LR
   G[Grafana] -- "Prometheus datasource API\n/v1/grafana/api/v1/*" --> P[probectl control plane]
   Prom[Prometheus] -- "scrape /v1/prometheus/federate" --> P
   Ext[external Prometheus / agents] -- "remote-write /v1/prometheus/write" --> P
-  P -- "read-only Table API lookups (TLS)" --> SN[ServiceNow CMDB]
+  Cloud[local cloud metric exports] -- "probectl-cloud-metrics\nremote-write" --> P
+  P -- "read-only CMDB lookups (TLS)" --> SN[ServiceNow / NetBox CMDB]
   P --- T[(TSDB: probectl_* series)]
 ```
 
@@ -128,17 +133,46 @@ Ingested samples land in probectl's TSDB tenant-tagged (the `tenant_id` is force
 to the caller's tenant on decode) and immediately become queryable and alertable
 just like native series.
 
-## ServiceNow CMDB correlation
+## Cloud metric import
+
+`probectl-cloud-metrics` is the local connector for cloud metric exports. It
+accepts newline-delimited JSON records from the operator's own export pipeline
+and posts snappy-compressed Prometheus remote-write to the self-hosted control
+plane:
+
+```bash
+export PROBECTL_API_URL=https://probectl.example.com
+export PROBECTL_TENANT=00000000-0000-0000-0000-000000000001
+export PROBECTL_API_TOKEN="$TOKEN"
+
+probectl-cloud-metrics \
+  -provider aws_cloudwatch_export \
+  -file /var/lib/probectl/imports/cloudwatch.jsonl
+```
+
+Provider values are `aws_cloudwatch_export`, `azure_monitor_export`, and
+`gcp_cloud_monitoring_export`. The importer never fetches AWS, Azure, or Google
+APIs by itself. Any `tenant_id` field in the input file is ignored; the emitted
+remote-write request is authenticated and tenant-bound by the API header, and
+the control plane forces `tenant_id` again when decoding remote-write.
+
+## CMDB correlation
 
 This links probectl's view of the network to your system of record for assets.
 It is **read-only**: probectl looks up CIs and never writes to the CMDB.
-Configure it via environment variables:
+Configure either provider via environment variables:
 
 ```bash
 export PROBECTL_CMDB_PROVIDER=servicenow
 export PROBECTL_CMDB_URL=https://acme.service-now.com
 export PROBECTL_CMDB_SECRET='integration-user:password'   # env only, never logged
 # optional: PROBECTL_CMDB_TABLE=cmdb_ci  PROBECTL_CMDB_CACHE_TTL=10m
+```
+
+```bash
+export PROBECTL_CMDB_PROVIDER=netbox
+export PROBECTL_CMDB_URL=https://netbox.example.com
+export PROBECTL_CMDB_SECRET="$NETBOX_READ_TOKEN"           # env only, never logged
 ```
 
 Surfaces:
@@ -148,12 +182,13 @@ Surfaces:
   resolved tenant-scoped and correlated to CIs with deep links.
 - `GET /v1/agents/{id}/ci` — asset correlation by agent hostname.
 
-**Behavior:** lookups hit the ServiceNow Table API (ServiceNow's REST interface
-to its tables) with an encoded disjunction
+**Behavior:** ServiceNow lookups hit the Table API with an encoded disjunction
 query (`ip_address=<k>^ORfqdn=<k>^ORname=<k>` — "match the key as an IP, *or* a
-fully-qualified domain name, *or* a name"), capped at 10 CIs per lookup
-(`maxCIsPerLookup`), over verified TLS (the `PROBECTL_CMDB_URL` must be HTTPS;
-plain `http` is allowed only for loopback test instances).
+fully-qualified domain name, *or* a name"). NetBox lookups hit the IPAM,
+device, and VM API endpoints for the same canonical key. Both providers are
+capped at 10 CIs per lookup (`maxCIsPerLookup`) over verified TLS (the
+`PROBECTL_CMDB_URL` must be HTTPS; plain `http` is allowed only for loopback test
+instances).
 Results — including misses — are TTL-cached (each cache entry expires after its
 time-to-live), so **a down CMDB serves stale cache
 and never breaks core function** — the same read-only, cached, degrade-gracefully
@@ -169,11 +204,12 @@ and are not part of this integration today.
 
 ## Testing
 
-`go test ./internal/promapi ./internal/cmdb ./internal/control` covers the
+`go test ./internal/promapi ./internal/cmdb ./internal/cloudmetrics ./internal/control ./cmd/probectl-cloud-metrics` covers the
 strict selector grammar (including injection attempts), tenant forcing,
 instant/range/labels/series evaluation, cardinality caps, federation exposition,
 remote-write decode limits plus tenant forcing, the full Grafana request
 sequence against a seeded TSDB (renders plus cross-tenant leak canaries), the
-RBAC route declarations and their 401s, and the ServiceNow client/resolver
-against an `httptest` Table-API double (cache, stale-serve, negative cache,
-correlation).
+RBAC route declarations and their 401s, the ServiceNow and NetBox
+client/resolver paths against `httptest` doubles (cache, stale-serve, negative
+cache, correlation), and the cloud metric importer through the same
+remote-write decoder served by `/v1/prometheus/write`.

@@ -1368,17 +1368,32 @@ The Grafana datasource API (`/v1/grafana/api/v1/*`), the federation endpoint
 
 A CMDB (configuration management database) is an organization's IT inventory —
 a registry of *configuration items* (CIs: servers, applications, services) and
-who owns them. The ServiceNow CMDB correlation tags probectl incidents and
-agents with the CI they belong to, so an alert arrives already knowing "this is
-the payments edge proxy, owned by team X". It is off unless configured:
+who owns them. The ServiceNow or NetBox CMDB correlation tags probectl incidents
+and agents with the CI they belong to, so an alert arrives already knowing "this
+is the payments edge proxy, owned by team X". It is off unless configured:
 
 | Variable                  | Default   | Meaning                                                            |
 | -------------------------- | --------- | ------------------------------------------------------------------- |
-| `PROBECTL_CMDB_PROVIDER`    | (none)    | `servicenow` enables CI correlation (`/v1/cmdb/*`, incident/agent CIs) |
-| `PROBECTL_CMDB_URL`         | (none)    | instance URL, e.g. `https://acme.service-now.com` (https; http only for loopback test doubles) |
-| `PROBECTL_CMDB_SECRET`      | (none)    | `user:password` for the read-only integration user (env only — never in files/logs) |
-| `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | CI table queried via the Table API                                  |
+| `PROBECTL_CMDB_PROVIDER`    | (none)    | `servicenow` or `netbox` enables CI correlation (`/v1/cmdb/*`, incident/agent CIs) |
+| `PROBECTL_CMDB_URL`         | (none)    | instance URL, e.g. `https://acme.service-now.com` or `https://netbox.example.com` (https; http only for loopback test doubles) |
+| `PROBECTL_CMDB_SECRET`      | (none)    | ServiceNow `user:password` or NetBox token for a read-only integration user (env only — never in files/logs) |
+| `PROBECTL_CMDB_TABLE`       | `cmdb_ci` | ServiceNow CI table queried via the Table API; ignored for NetBox      |
 | `PROBECTL_CMDB_CACHE_TTL`   | `10m`     | CI lookup cache TTL (a down CMDB serves stale entries)              |
+
+### Cloud metric import
+
+`probectl-cloud-metrics` imports already-exported AWS CloudWatch, Azure Monitor,
+or Google Cloud Monitoring JSONL rows into `/v1/prometheus/write`. It never
+polls cloud APIs; the file is local input from the operator's own export
+pipeline. The API URL must be HTTPS except for loopback test instances.
+
+| Variable                              | Default                  | Meaning |
+| ------------------------------------- | ------------------------ | ------- |
+| `PROBECTL_CLOUD_METRICS_PROVIDER`      | (none)                   | `aws_cloudwatch_export`, `azure_monitor_export`, or `gcp_cloud_monitoring_export` |
+| `PROBECTL_CLOUD_METRICS_FILE`          | `-`                      | JSONL export path; `-` reads stdin |
+| `PROBECTL_CLOUD_METRICS_BATCH_SIZE`    | `1000`                   | samples per remote-write request |
+| `PROBECTL_API_URL`                     | `https://localhost:8443` | self-hosted probectl API URL |
+| `PROBECTL_TENANT` / `PROBECTL_API_TOKEN` | (none)                 | tenant header and bearer token for `/v1/prometheus/write` |
 
 ### AI assistant
 

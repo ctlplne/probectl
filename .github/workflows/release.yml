@@ -75,7 +75,7 @@ jobs:
           # with the matrix above — this list is the single assertion point.
           published="$(printf '%s\n' \
             probectl-control probectl-agent probectl-endpoint \
-            probectl-flow-agent probectl-device-agent probectl \
+            probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl \
             probectl-ebpf-agent | sort -u)"
           if ! diff <(echo "$expected") <(echo "$published"); then
             echo "::error::release.yml published components drift from Makefile BINARIES (TEST-011): the < line is in the Makefile but unpublished, the > line is published but not a Makefile binary. Update the images matrix."
@@ -90,7 +90,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        # ALL 7 of the Makefile's BINARIES ship as images + signed downloads —
+        # ALL 8 of the Makefile's BINARIES ship as images + signed downloads —
         # every documented producer is installable without a Go toolchain.
         # (probectl-ebpf-agent rides its special live-build Dockerfile below.)
         component:
@@ -99,6 +99,7 @@ jobs:
           - probectl-endpoint
           - probectl-flow-agent
           - probectl-device-agent
+          - probectl-cloud-metrics
           - probectl
         dockerfile: [deploy/docker/Dockerfile]
         include:

@@ -84,13 +84,16 @@ full how-to live in [`deploying-agents.md`](deploying-agents.md)):
 | `probectl-device-agent` | SNMP (v2c/v3) + gNMI/OpenConfig device telemetry | **publishes to the bus** as `probectl.device.metrics` |
 | `probectl-ebpf-agent` | zero-instrumentation L3/L4 host flows + service map (Linux) | **publishes to the bus** as `probectl.ebpf.flows` |
 | `probectl-endpoint` (DEM) | last-mile experience on a user's device (WiFi, gateway, ISP path, browser timings) | **publishes to the bus** as `probectl.endpoint.results` |
+| `probectl-cloud-metrics` | local AWS/Azure/GCP metric export files | **posts to `/v1/prometheus/write`** as tenant-scoped remote-write |
 
-Note the two shapes of "ships data in." The **canary agent streams** over its
+Note the three shapes of "ships data in." The **canary agent streams** over its
 tenant-bound mTLS gRPC link (`internal/agenttransport`, the
 `probectl.agent.v1.AgentService` service — see [Agent transport](#agent-transport)),
 and the control plane is the thing that puts that result on the bus. The
 **flow/device/eBPF/endpoint collectors publish directly to the bus** themselves
-(`internal/bus`). Either way the rule from the diagram holds: every record is
+(`internal/bus`). The cloud metric importer posts to the authenticated
+remote-write HTTP surface, where the control plane forces the tenant label
+before storage. Either way the rule from the diagram holds: every record is
 stamped with its tenant before a consumer ever sees it.
 
 This is *not* the same thing as the external feeds on the right of the diagram

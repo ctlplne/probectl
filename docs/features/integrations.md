@@ -262,14 +262,18 @@ with stale material.
   `POST /ingest/itsm/{provider}/{id}` with an HMAC signature or shared token.
   Connectors: PagerDuty, Opsgenie, Slack, Teams, ServiceNow, Jira.
 - **IaC & GitOps:** one hardened deployment chart, wrapped by Terraform modules
-  and ArgoCD/Flux manifests. HTTPS-by-default, non-root pods, network policy on,
-  no default credentials. Size overlays (small / medium / large / multitenant)
-  differ only in runtime sizing.
+  and ArgoCD/Flux manifests. `modules/probectl-resources` also lets Terraform
+  drive tenant tests, alert routes, integrations, SLO payloads, and Provider/MSP
+  tenant bootstrap through the self-hosted API. HTTPS-by-default, non-root pods,
+  network policy on, no default credentials. Size overlays (small / medium /
+  large / multitenant) differ only in runtime sizing.
 - **Federation:** Grafana as a Prometheus datasource at `/v1/grafana`; scrape out
   at `GET /v1/prometheus/federate?match[]=<selector>`; push in at `POST
   /v1/prometheus/write`. CMDB lookups: `GET /v1/cmdb/lookup`, `GET
-  /v1/incidents/{id}/cis`, `GET /v1/agents/{id}/ci`. Reads need a metrics-read
-  permission; remote-write needs metrics-write; CMDB needs a cmdb-read permission.
+  /v1/incidents/{id}/cis`, `GET /v1/agents/{id}/ci` against ServiceNow or
+  NetBox. `probectl-cloud-metrics` imports local AWS/Azure/GCP metric exports to
+  `/v1/prometheus/write`. Reads need a metrics-read permission; remote-write
+  needs metrics-write; CMDB needs a cmdb-read permission.
 - **Secrets:** reference schemes `env:`, `vault:`, `cyberark:`, `aws:`, `azure:`,
   `gcp:`, and a `literal:` escape hatch. Health at `GET /v1/secrets/health`
   (redacted). The same machinery loads agent mutual-TLS identities and picks up

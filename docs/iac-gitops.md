@@ -31,9 +31,13 @@ flowchart LR
 | ---- | ----------- | ----- |
 | **Helm** | manual / scripted installs | `deploy/helm/probectl` |
 | **Terraform** | infra-as-code alongside the cluster + DB | `deploy/terraform/` |
+| **Terraform resources** | reviewed API resource changes after install | `deploy/terraform/modules/probectl-resources` |
 | **GitOps** (ArgoCD/Flux) | continuous reconcile from Git | `deploy/gitops/` |
 
-All three deploy the **same** hardened chart — Terraform and GitOps just wrap it.
+All deployment paths deploy the **same** hardened chart — Terraform and GitOps
+just wrap it. The resources module runs after deployment and drives the
+self-hosted `/v1` or `/provider/v1` APIs from Terraform without a native provider
+plugin dependency.
 
 ## Hardened Helm chart
 

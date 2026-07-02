@@ -44,8 +44,8 @@ Pushing a `v*` tag runs `release.yml`, which publishes:
 
 - **Multi-arch container images** (`linux/amd64`, `linux/arm64`) for all seven
   components — `probectl-control`, `probectl-agent`, `probectl-ebpf-agent`,
-  `probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`, and
-  `probectl` (the CLI) — to
+  `probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`,
+  `probectl-cloud-metrics`, and `probectl` (the CLI) — to
   `ghcr.io/imfeelingtheagi/<component>`, tagged with the exact version and
   `latest`. Each image is **cosign-keyless signed by immutable digest** and
   carries **SLSA provenance and an SBOM** attestation (Buildx

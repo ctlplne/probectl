@@ -20,7 +20,7 @@ repo, not `deploy/docker/`.
 
 `COMPONENT` names a directory under `cmd/` (e.g. `probectl-control`,
 `probectl-agent`, `probectl-endpoint`, `probectl-flow-agent`,
-`probectl-device-agent`, `probectl`).
+`probectl-device-agent`, `probectl-cloud-metrics`, `probectl`).
 
 One mold, many castings: the build is **multi-stage** — a full Go-toolchain
 stage compiles `cmd/<COMPONENT>` into one static binary, then only that binary
@@ -68,8 +68,9 @@ docker build -f deploy/docker/Dockerfile.ebpf -t probectl-ebpf-agent:dev .
 ```
 
 The release workflow publishes `probectl-ebpf-agent` from this file, and the
-other six components — `probectl-control`, `probectl-agent`,
-`probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`, and
-`probectl` — from the generic `Dockerfile`. A CI job asserts the shipped eBPF
+other seven components — `probectl-control`, `probectl-agent`,
+`probectl-endpoint`, `probectl-flow-agent`, `probectl-device-agent`,
+`probectl-cloud-metrics`, and `probectl` — from the generic `Dockerfile`. A CI
+job asserts the shipped eBPF
 binary actually records the `ebpf` build tag so a fixture image can't ship by
 mistake.

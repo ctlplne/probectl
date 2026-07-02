@@ -21,8 +21,8 @@ import (
 // caller is RBAC'd for), then handed to the read-only resolver.
 
 // BuildCMDB constructs the CMDB resolver from config, or nil when no provider
-// is configured (the feature stays off). The secret ("user:password") comes
-// from the environment via config — it is never logged.
+// is configured (the feature stays off). Secrets come from the environment via
+// config — they are never logged.
 func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 	switch cfg.CMDBProvider {
 	case "":
@@ -30,6 +30,9 @@ func BuildCMDB(cfg *config.Config, log *slog.Logger) *cmdb.Resolver {
 	case "servicenow":
 		log.Info("cmdb provider configured", "provider", "servicenow", "url", cfg.CMDBURL, "table", cfg.CMDBTable)
 		return cmdb.NewResolver(cmdb.NewServiceNow(cfg.CMDBURL, cfg.CMDBTable, cfg.CMDBSecret), cfg.CMDBCacheTTL)
+	case "netbox":
+		log.Info("cmdb provider configured", "provider", "netbox", "url", cfg.CMDBURL)
+		return cmdb.NewResolver(cmdb.NewNetBox(cfg.CMDBURL, cfg.CMDBSecret), cfg.CMDBCacheTTL)
 	default:
 		// config.Load validates the enum; this is a defensive default.
 		log.Error("unknown CMDB provider ignored", "provider", cfg.CMDBProvider)

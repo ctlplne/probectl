@@ -14,9 +14,11 @@ connection string) in.
 
 ```text
 deploy/terraform/
-├── modules/probectl/       # the reusable module (helm_release + Secret + namespace)
+├── modules/probectl/                 # Helm release + Secret + namespace
 │   └── versions.tf · variables.tf · main.tf · outputs.tf
-└── examples/kubernetes/    # a root you can `terraform apply`
+├── modules/probectl-resources/       # API resources through `probectl api`
+│   └── versions.tf · variables.tf · main.tf · outputs.tf · README.md
+└── examples/kubernetes/              # a root you can `terraform apply`
     └── main.tf · variables.tf · terraform.tfvars.example
 ```
 
@@ -96,3 +98,24 @@ every profile** (with two documented holes you tighten per deployment — the
 PodDisruptionBudget; `large` adds the HPA. See
 [`../helm/README.md`](../helm/README.md) and
 [`../../docs/iac-gitops.md`](../../docs/iac-gitops.md).
+
+## API resources module (`modules/probectl-resources`)
+
+`modules/probectl-resources` lets Terraform manage probectl resources after the
+control plane is deployed. It uses Terraform's built-in `terraform_data`
+resource and the checked-in `probectl api` command, so it adds no Terraform
+provider SDK dependency and talks only to the operator's own `api_url`.
+
+Supported typed maps:
+
+- `tests` -> `POST /v1/tests`
+- `alert_routes` -> `POST /v1/alerts`
+- `slos` -> defaults to `POST /v1/slos` but can override `path`
+- `integrations` -> defaults to `POST /v1/alerts/test-channel` but can override
+  `method` and `path`
+- `provider_tenants` -> `POST /provider/v1/tenants`
+- `resources` -> advanced arbitrary API operations
+
+The native `terraform-provider-probectl` binary remains blocked on a human
+approval to add the HashiCorp provider framework/protocol dependency. The
+module is the no-new-dependency served automation path.

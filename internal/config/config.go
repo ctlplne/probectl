@@ -321,8 +321,8 @@ type Config struct {
 	IngestStrictTenantLanes bool
 
 	// CMDB integration (S40): read-only CI correlation. CMDBProvider "" keeps
-	// the feature off; "servicenow" requires CMDBURL (https, or http loopback
-	// for tests) and CMDBSecret ("user:password" — env only, never logged).
+	// the feature off; "servicenow" and "netbox" require CMDBURL (https, or
+	// http loopback for tests) and CMDBSecret (env only, never logged).
 	CMDBProvider string
 	CMDBURL      string
 	CMDBSecret   string
@@ -742,7 +742,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.PathCHTenantScoping = l.boolean("PROBECTL_PATHSTORE_TENANT_SCOPING", chScopeDefault)
 	cfg.PathCHReaderUser = l.str("PROBECTL_PATHSTORE_READER_USER", "")
 	cfg.IngestStrictTenantLanes = l.boolean("PROBECTL_INGEST_STRICT_TENANT_LANES", chScopeDefault)
-	cfg.CMDBProvider = l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow")
+	cfg.CMDBProvider = l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow", "netbox")
 	cfg.CMDBURL = l.str("PROBECTL_CMDB_URL", "")
 	cfg.CMDBSecret = l.str("PROBECTL_CMDB_SECRET", "")
 	cfg.CMDBTable = l.str("PROBECTL_CMDB_TABLE", "cmdb_ci")
