@@ -29,19 +29,20 @@ The repo's other three workflows do **not** run on a normal push:
 
 ## The shape: fan-out, then one umbrella
 
-A push is like sending the change through a checkpoint with **32 specialist
-inspectors**, each examining one thing, all in parallel. A 33rd job —
-`verify-all` — is the supervisor: it `needs:` 28 of them, runs with
+A push is like sending the change through a checkpoint with **39 specialist
+inspectors**, each examining one thing, all in parallel. A 40th job —
+`verify-all` — is the supervisor: it `needs:` 34 of them, runs with
 `if: always()`, writes a receipt artifact, and **fails loudly listing any
 non-green gate**. It is the one status you actually watch: green `verify-all` =
 the whole pipeline passed.
 
-Four jobs sit outside the roll-up and report as their own checks: `commitlint`
+Five jobs sit outside the roll-up and report as their own checks: `commitlint`
 and `dco` run only on pull requests (on a push to `main` they'd register as
-"skipped" and falsely redden the umbrella), and `image-scan` and `sbom` are the
-image-vulnerability and bill-of-materials jobs. If you turn on branch
-protection, [`docs/ops/branch-protection.md`](ops/branch-protection.md)
-recommends requiring `verify-all` plus those four explicitly.
+"skipped" and falsely redden the umbrella), while `device-live`,
+`path-raw-live`, and `web-rendered-a11y` are live/specialized environment gates
+kept as explicit checks. If you turn on branch protection,
+[`docs/ops/branch-protection.md`](ops/branch-protection.md) recommends requiring
+`verify-all` plus those five explicitly.
 
 The guiding principle, visible throughout the repo: **every rule in the
 [Non-negotiables](../CONTRIBUTING.md#non-negotiables) has a matching CI gate,

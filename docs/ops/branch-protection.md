@@ -75,15 +75,16 @@ A few jobs run _outside_ the `verify-all` umbrella (they are not in its
 | Required check | Gate it enforces                                                 |
 | -------------- | ---------------------------------------------------------------- |
 | `verify-all`   | umbrella — fails unless every gate in its `needs:` list is green |
-| `image-scan`   | Trivy image vulnerability scan                                   |
 | `commitlint`   | Conventional Commits on PR commits                               |
 | `dco`          | Developer Certificate of Origin sign-off                         |
-| `sbom`         | release SBOM (SPDX) generates cleanly                            |
+| `device-live`  | live SNMP/device telemetry smoke                                 |
+| `path-raw-live` | live raw-socket path probe smoke                                |
+| `web-rendered-a11y` | rendered Chromium accessibility gate                       |
 
 If your organization's policy instead requires listing every job by name (some
 auditors prefer the explicit list), the **complete** set of top-level `ci.yml`
-jobs is below — 32 of them, which with the `verify-all` umbrella itself makes
-33 top-level jobs in the workflow. Keep the list in sync with the workflow —
+jobs is below — 39 specialist jobs plus the `verify-all` umbrella, for
+40 top-level jobs in the workflow. Keep the list in sync with the workflow —
 **a job you forget to list is advisory again**, so prefer the `verify-all`
 approach unless you have a reason not to.
 
@@ -95,13 +96,17 @@ approach unless you have a reason not to.
 | `lint-go`                | gofmt + go vet + golangci-lint                                                                                                                     |
 | `lint-python`            | ruff + black (the BGP analyzer)                                                                                                                    |
 | `editions-gate`          | core never imports `ee/`; the core-only build stays green (see [editions.md](../editions.md))                                                      |
+| `packaging-smoke`        | install/package smoke checks                                                                                                                       |
 | `fips-gate`              | the FIPS artifact builds; the validated crypto module is active (see [hardening.md](../hardening.md))                                              |
 | `test-go`                | unit tests, fuzz smoke, cross-compile, endpoint cross-OS                                                                                           |
+| `device-live`            | live SNMP/device telemetry smoke                                                                                                                   |
+| `path-raw-live`          | live raw-socket path probe smoke                                                                                                                   |
 | `rca-eval`               | AI root-cause-analysis quality eval                                                                                                                |
 | `coverage`               | per-package coverage floor                                                                                                                         |
 | `test-python`            | BGP analyzer tests                                                                                                                                 |
 | `browser-worker`         | Playwright worker real-browser smoke                                                                                                               |
 | `openapi-gate`           | no undocumented `/v1` routes                                                                                                                       |
+| `sdk-gate`               | generated REST SDKs are in sync with OpenAPI                                                                                                       |
 | `migration-gate`         | expand/contract (zero-downtime) migrations                                                                                                         |
 | `helm-gate`              | Helm chart lints + hardening invariants; GitOps manifests + compose config valid                                                                   |
 | `terraform-gate`         | `terraform fmt` + `validate`                                                                                                                       |
@@ -112,6 +117,7 @@ approach unless you have a reason not to.
 | `perf-smoke`             | ingest-path performance floor                                                                                                                      |
 | `backup-drill`           | backup → restore drill survives (see [backup-restore.md](backup-restore.md))                                                                       |
 | `failover-drill`         | timed Postgres failover drill (see [dr.md](dr.md))                                                                                                 |
+| `chaos-dependency-drill` | dependency chaos recovery drill                                                                                                                    |
 | `load-smoke`             | load/soak smoke                                                                                                                                    |
 | `proto`                  | buf lint + breaking-change check                                                                                                                   |
 | `web`                    | typecheck, eslint, npm audit, surface-coverage + jsdom a11y + tests                                                                                |
@@ -122,6 +128,8 @@ approach unless you have a reason not to.
 | `commitlint`             | Conventional Commits                                                                                                                               |
 | `dco`                    | Developer Certificate of Origin sign-off                                                                                                           |
 | `sbom`                   | release SBOM (SPDX) generates                                                                                                                      |
+| `compose-render`         | all shipped compose files render                                                                                                                   |
+| `verify-all`             | executed-verification umbrella                                                                                                                     |
 
 If you require `verify-all`, you do **not** also need to list the jobs it
 already covers — listing them is redundant (though harmless).

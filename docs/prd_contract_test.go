@@ -4,6 +4,7 @@ package docs
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -68,6 +69,22 @@ func TestPRDRCAEvalContractMatchesBlockingCI(t *testing.T) {
 		if !strings.Contains(ci, want) {
 			t.Fatalf("ci.yml missing blocking RCA eval receipt %q", want)
 		}
+	}
+}
+
+func TestPRDWorkflowJobCountMatchesWorkflows(t *testing.T) {
+	prd := readPRDv1(t)
+	out, err := exec.Command("python3", filepath.Join("..", "scripts", "count_workflow_jobs.py"), "--total").Output()
+	if err != nil {
+		t.Fatalf("count workflow jobs: %v", err)
+	}
+	count := strings.TrimSpace(string(out))
+	if strings.Contains(prd, "~30 CI jobs") {
+		t.Fatal("probectl-PRD-v1.0.md still understates the verification net as ~30 CI jobs")
+	}
+	want := "The repo's claims are enforced by **" + count + " workflow jobs**"
+	if !strings.Contains(prd, want) {
+		t.Fatalf("probectl-PRD-v1.0.md missing script-produced workflow job count %q", want)
 	}
 }
 
