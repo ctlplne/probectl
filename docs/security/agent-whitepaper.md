@@ -45,7 +45,7 @@ calls outright.
 
 | Surface | Posture | Enforced by |
 |---|---|---|
-| Capabilities | **drop ALL; add `CAP_BPF` + `CAP_PERFMON`** (kernels ≥ 5.8). `CAP_SYS_ADMIN` only as the documented 5.4–5.7 fallback. Never `CAP_NET_ADMIN`, never `CAP_SYS_PTRACE`, never unrestricted root | systemd unit (`deploy/agent/probectl-ebpf-agent.service`: non-root user + ambient caps); Helm chart (`deploy/helm/probectl-agent`) — both CI-gated (`scripts/check_helm_hardening.sh` asserts the pair, and that `SYS_ADMIN` appears only in legacy mode) |
+| Capabilities | **drop ALL; add `CAP_BPF` + `CAP_PERFMON`** on supported kernels. Generic kernels older than 5.8 are unsupported by default; `CAP_SYS_ADMIN` is only an explicit legacy break-glass when the runtime probe confirms BTF plus BPF ring-buffer support but split caps cannot be granted. Never `CAP_NET_ADMIN`, never `CAP_SYS_PTRACE`, never unrestricted root | systemd unit (`deploy/agent/probectl-ebpf-agent.service`: non-root user + ambient caps); Helm chart (`deploy/helm/probectl-agent`) — both CI-gated (`scripts/check_helm_hardening.sh` asserts the pair, and that `SYS_ADMIN` appears only in legacy mode) |
 | Seccomp | default-deny (`EPERM`) syscall allowlist: Go runtime + `bpf` + `perf_event_open` + socket I/O. No mount, no module load, no ptrace, no reboot/kexec | `deploy/agent/seccomp.json`; the unit ships an equivalent `SystemCallFilter` |
 | Filesystem | read-only root; only `/var/lib/probectl` writable; BTF mounted read-only | unit `ProtectSystem=strict`; chart `readOnlyRootFilesystem: true` (CI-asserted) |
 | Kubernetes nuance | the container runs uid 0 *with everything dropped except the pair* — Kubernetes grants added capabilities to the root user only; the VM unit is fully non-root via ambient capabilities | documented in `deploy/agent/README.md`; chart render CI-asserted |
@@ -105,7 +105,7 @@ scope for GA (`docs/ebpf-feasibility.md` §7).
 |---|---|---|
 | ≥ 5.8 with BTF (`/sys/kernel/btf/vmlinux`) | **Supported** — `CAP_BPF`+`CAP_PERFMON` | all mainstream LTS distros; CO-RE relocates against the running kernel |
 | 5.15 / 6.6 LTS | **CI-proven every pass** | loaded + attached under QEMU (`ebpf-kernel-matrix`) |
-| 5.4–5.7 | best-effort | `CAP_SYS_ADMIN` fallback (`capabilityMode: legacy`) |
+| Generic < 5.8 | unsupported by default | Legacy `CAP_SYS_ADMIN` mode is break-glass only after the runtime probe confirms BTF plus BPF ring-buffer support and the operator records the acknowledgement |
 | < 5.4 / no BTF | unsupported for live capture | fixture/replay mode still works (no kernel programs) |
 
 BTF — BPF Type Format — is the kernel's machine-readable description of its own

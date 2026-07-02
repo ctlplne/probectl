@@ -300,12 +300,14 @@ enforcing program and blocks no packet, a guarantee enforced by a build-failing
 test. It is **not** a CNI and **not** an inline IPS.
 
 **Where it runs.** **Linux only**, on each host you want to see. It needs
-**`CAP_BPF` + `CAP_PERFMON`** (kernels ≥ 5.8; `CAP_SYS_ADMIN` on 5.4–5.7) —
-the two Linux capabilities that permit loading BPF programs and attaching to
-perf events, granted without root — and a
+**`CAP_BPF` + `CAP_PERFMON`** on supported kernels — the two Linux
+capabilities that permit loading BPF programs and attaching to perf events,
+granted without root — and a
 **BTF-exposing kernel** (`/sys/kernel/btf/vmlinux`, mainstream from 5.8 — BTF
 is the kernel's embedded type catalog, which lets one compiled agent adapt to
-any kernel). On
+any kernel). Generic kernels older than 5.8 are unsupported by default;
+`CAP_SYS_ADMIN` is only an explicit legacy break-glass when the runtime probe
+confirms BTF plus BPF ring-buffer support but split caps cannot be granted. On
 macOS/Windows, run it inside a Linux VM. The shipped image is the live build;
 fixture-replay mode exists only for CI / no-kernel boxes.
 

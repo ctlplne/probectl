@@ -141,11 +141,17 @@ func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 		"deploy/agent/install.sh",
 		"docs/ebpf-agent.md",
 		"docs/ebpf-feasibility.md",
+		"docs/security/agent-whitepaper.md",
+		"docs/deploying-agents.md",
 	} {
 		body := readDeployContractFile(t, rel)
 		for _, banned := range []string{
 			"5.4–5.7: CAP_SYS_ADMIN",
 			"5.4-5.7: CAP_SYS_ADMIN",
+			"5.4–5.7 fallback",
+			"5.4-5.7 fallback",
+			"CAP_SYS_ADMIN on 5.4–5.7",
+			"CAP_SYS_ADMIN on 5.4-5.7",
 			"kernels 5.4–5.7: CAP_SYS_ADMIN",
 			"kernels 5.4-5.7: CAP_SYS_ADMIN",
 			"use SYS_ADMIN on older kernels",
