@@ -55,12 +55,18 @@ func (a *topologyAdapter) QueryTopology(_ context.Context, tenant string, q Quer
 		}
 		return rows, nil
 	case q.NodeID != "":
-		if at.IsZero() {
-			at = time.Now()
+		snap := graph.Latest()
+		if !at.IsZero() {
+			snap = graph.SnapshotAt(at)
 		}
-		var rows []Row
-		for _, id := range graph.Neighbors(q.NodeID, at) {
-			rows = append(rows, Row{"node": q.NodeID, "neighbor": id, "title": "topology neighbor " + id})
+		rows := topologyNodeRows(snap, q.NodeID)
+		if len(rows) == 0 {
+			if at.IsZero() {
+				at = time.Now()
+			}
+			for _, id := range graph.Neighbors(q.NodeID, at) {
+				rows = append(rows, Row{"node": q.NodeID, "neighbor": id, "plane": "topology", "title": "topology neighbor " + id})
+			}
 		}
 		return rows, nil
 	default:
@@ -70,8 +76,44 @@ func (a *topologyAdapter) QueryTopology(_ context.Context, tenant string, q Quer
 		}
 		var rows []Row
 		for _, n := range snap.Nodes {
-			rows = append(rows, Row{"node": n.ID, "kind": string(n.Kind), "label": n.Label})
+			rows = append(rows, Row{"node": n.ID, "kind": string(n.Kind), "label": n.Label, "plane": "topology", "title": "topology node " + n.ID})
 		}
 		return rows, nil
 	}
+}
+
+func topologyNodeRows(snap topology.Snapshot, nodeID string) []Row {
+	var rows []Row
+	for _, n := range snap.Nodes {
+		if n.ID != nodeID {
+			continue
+		}
+		title := "topology node " + n.ID
+		if n.Label != "" {
+			title = "topology node " + n.Label
+		}
+		rows = append(rows, Row{"node": n.ID, "kind": string(n.Kind), "label": n.Label, "plane": "topology", "title": title})
+		break
+	}
+	seen := map[string]bool{}
+	for _, e := range snap.Edges {
+		if e.From != nodeID && e.To != nodeID {
+			continue
+		}
+		neighbor := e.To
+		if e.To == nodeID {
+			neighbor = e.From
+		}
+		key := string(e.Kind) + "|" + neighbor
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		title := "topology " + string(e.Kind) + " " + e.From + " -> " + e.To
+		if e.Label != "" {
+			title = "topology " + string(e.Kind) + " " + e.Label
+		}
+		rows = append(rows, Row{"node": nodeID, "neighbor": neighbor, "kind": string(e.Kind), "label": e.Label, "plane": "topology", "title": title})
+	}
+	return rows
 }

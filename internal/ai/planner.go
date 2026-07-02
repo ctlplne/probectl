@@ -94,13 +94,11 @@ func extractSubject(q Question) map[string]string {
 	return subj
 }
 
-// planRange defaults to the last hour ending now, with the topology snapshot at
-// "now", unless the caller bounded the window explicitly.
+// planRange defaults to the last hour ending now. It does not invent a topology
+// snapshot timestamp: zero At means "latest graph", while an explicit At keeps
+// historical/as-of topology queries precise.
 func planRange(r TimeRange) TimeRange {
 	now := time.Now()
-	if r.At.IsZero() {
-		r.At = now
-	}
 	if r.Start.IsZero() && r.End.IsZero() {
 		r.End = now
 		r.Start = now.Add(-time.Hour)

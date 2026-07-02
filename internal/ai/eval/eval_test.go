@@ -6,7 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/ai"
 )
 
 // TestRCAEval runs the U-049 eval set through the real pipeline and reports
@@ -76,4 +80,94 @@ func TestRCAEval(t *testing.T) {
 		}
 		t.Logf("report written to %s", path)
 	}
+}
+
+func TestRCAEvalAdversarialDuplicateEventTimeFixture(t *testing.T) {
+	sc, ok := scenarioByName("adversarial-bgp-near-duplicate-event-time")
+	if !ok {
+		t.Fatal("missing RED-003 adversarial RCA scenario")
+	}
+
+	ans, err := analyzeScenario(context.Background(), sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !answerMatches(ans.RootCause, sc.ExpectLabels) {
+		t.Fatalf("root cause = %q, want labels %v", ans.RootCause, sc.ExpectLabels)
+	}
+	if len(ans.RootCauseCitations) != 1 {
+		t.Fatalf("root cause citations = %+v, want one primary citation", ans.RootCauseCitations)
+	}
+
+	byID := map[string]ai.Evidence{}
+	for _, e := range ans.Evidence {
+		byID[e.ID] = e
+	}
+	primary := byID[ans.RootCauseCitations[0].EvidenceID]
+	wantAt := time.Date(2026, 7, 1, 10, 5, 0, 0, time.UTC)
+	if primary.Title != "Current BGP origin change for 192.0.2.0/24" {
+		t.Fatalf("primary evidence = %+v, want current BGP event", primary)
+	}
+	if !primary.OccurredAt.Equal(wantAt) {
+		t.Fatalf("primary occurred_at = %s, want collector event time %s", primary.OccurredAt, wantAt)
+	}
+	if primary.Fields["prefix"] != "192.0.2.0/24" || primary.Fields["source"] != "ris-live:rrc00" {
+		t.Fatalf("primary source attributes lost: %+v", primary.Fields)
+	}
+	if detail, _ := primary.Fields["detail"].(string); !strings.Contains(detail, "origin_asn=64500") || !strings.Contains(detail, "peer_asn=64496") {
+		t.Fatalf("primary detail does not carry original attributes: %+v", primary.Fields)
+	}
+
+	var stale *ai.Evidence
+	for i := range ans.Evidence {
+		if ans.Evidence[i].Title == "Recovered BGP origin change for 192.0.2.0/24" {
+			stale = &ans.Evidence[i]
+			break
+		}
+	}
+	if stale == nil {
+		t.Fatal("stale near-duplicate event was collapsed out of the evidence set")
+	}
+	if stale.ID == primary.ID {
+		t.Fatalf("distinct near-duplicate events share evidence id %s", stale.ID)
+	}
+	if !stale.OccurredAt.Before(primary.OccurredAt) {
+		t.Fatalf("stale duplicate event time = %s, current = %s", stale.OccurredAt, primary.OccurredAt)
+	}
+
+	rep := Run(context.Background(), []Scenario{sc}, nil)
+	if len(rep.Results) != 1 {
+		t.Fatalf("adversarial scenario produced %d results, want 1", len(rep.Results))
+	}
+	res := rep.Results[0]
+	if !res.AnswerCorrect {
+		t.Fatalf("eval scorer rejected adversarial scenario: %+v", res)
+	}
+}
+
+func scenarioByName(name string) (Scenario, bool) {
+	for _, sc := range Scenarios() {
+		if sc.Name == name {
+			return sc, true
+		}
+	}
+	return Scenario{}, false
+}
+
+func analyzeScenario(ctx context.Context, sc Scenario) (ai.Answer, error) {
+	opts := []ai.Option{}
+	if len(sc.Metrics) > 0 {
+		opts = append(opts, ai.WithMetrics(staticSource{rows: sc.Metrics}))
+	}
+	if len(sc.Events) > 0 {
+		opts = append(opts, ai.WithEvents(staticSource{rows: sc.Events}))
+	}
+	if len(sc.Entities) > 0 {
+		opts = append(opts, ai.WithEntities(staticSource{rows: sc.Entities}))
+	}
+	if len(sc.Topology) > 0 {
+		opts = append(opts, ai.WithTopology(staticSource{rows: sc.Topology}))
+	}
+	analyzer := ai.NewAnalyzer(ai.NewEngine(opts...))
+	return analyzer.Analyze(ctx, evalPrincipal(), ai.Question{Text: sc.Text, Subject: sc.Subject})
 }

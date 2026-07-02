@@ -22,16 +22,35 @@ func TestTopologySourceNeighborsAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(nbr.Rows) != 1 {
-		t.Errorf("neighbors(service:a) = %v, want 1 (service:b)", nbr.Rows)
+	if len(nbr.Rows) < 2 {
+		t.Errorf("neighbors(service:a) = %v, want node plus service:b edge", nbr.Rows)
+	}
+	for _, row := range nbr.Rows {
+		if row["plane"] != "topology" {
+			t.Fatalf("topology row missing plane marker: %+v", row)
+		}
+	}
+
+	store.ObserveRouting("t", topology.RoutingInput{Prefix: "192.0.2.0/24", OriginASN: 64500}, at)
+	prefix, err := e.Query(context.Background(), p, Query{Domain: DomainTopology, NodeID: "prefix:192.0.2.0/24", Range: TimeRange{At: at}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prefix.Rows) < 2 {
+		t.Fatalf("topology prefix evidence = %v, want node plus incoming routing edge", prefix.Rows)
+	}
+	for _, row := range prefix.Rows {
+		if row["plane"] != "topology" {
+			t.Fatalf("topology row missing plane marker: %+v", row)
+		}
 	}
 
 	snap, err := e.Query(context.Background(), p, Query{Domain: DomainTopology, Range: TimeRange{At: at}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.Rows) != 2 {
-		t.Errorf("snapshot@at = %d nodes, want 2", len(snap.Rows))
+	if len(snap.Rows) != 4 {
+		t.Errorf("snapshot@at = %d nodes, want 4", len(snap.Rows))
 	}
 }
 

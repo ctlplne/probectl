@@ -2,7 +2,10 @@
 
 package ai
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func domainsOf(qs []Query) map[Domain]bool {
 	m := map[Domain]bool{}
@@ -63,5 +66,38 @@ func TestPlannerHonorsExplicitSubject(t *testing.T) {
 	qs := HeuristicPlanner{}.Plan(Question{Text: "why slow?", Subject: map[string]string{"target": "db-1"}})
 	if qs[0].Selector["target"] != "db-1" {
 		t.Errorf("explicit subject ignored: %+v", qs[0].Selector)
+	}
+}
+
+func TestPlannerLeavesTopologyAtAsLatestUnlessExplicit(t *testing.T) {
+	qs := HeuristicPlanner{}.Plan(Question{Text: "why is 192.0.2.0/24 slow?"})
+	var topo *Query
+	for i := range qs {
+		if qs[i].Domain == DomainTopology {
+			topo = &qs[i]
+			break
+		}
+	}
+	if topo == nil {
+		t.Fatal("expected a topology query")
+	}
+	if !topo.Range.At.IsZero() {
+		t.Fatalf("ordinary RCA should query latest topology, got At=%s", topo.Range.At)
+	}
+
+	at := time.Unix(123, 0)
+	qs = HeuristicPlanner{}.Plan(Question{
+		Text:  "why is 192.0.2.0/24 slow?",
+		Range: TimeRange{At: at},
+	})
+	topo = nil
+	for i := range qs {
+		if qs[i].Domain == DomainTopology {
+			topo = &qs[i]
+			break
+		}
+	}
+	if topo == nil || !topo.Range.At.Equal(at) {
+		t.Fatalf("explicit topology At was not preserved: %+v", topo)
 	}
 }

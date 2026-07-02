@@ -2,11 +2,24 @@
 
 package eval
 
-import "github.com/imfeelingtheagi/probectl/internal/ai"
+import (
+	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/ai"
+)
 
 // row builds a planted evidence row.
 func row(plane, severity, title, summary string) ai.Row {
 	return ai.Row{"plane": plane, "severity": severity, "title": title, "summary": summary}
+}
+
+func timedRow(plane, severity, title, summary string, at time.Time, fields ai.Row) ai.Row {
+	r := row(plane, severity, title, summary)
+	r["occurred_at"] = at
+	for k, v := range fields {
+		r[k] = v
+	}
+	return r
 }
 
 // distractor is an irrelevant-but-present signal (the noise every real
@@ -20,6 +33,14 @@ func distractor() ai.Row {
 // (mis-ranking traps marked HARD) so the score discriminates — a perfect 1.0
 // would mean the set is too easy to catch regressions.
 func Scenarios() []Scenario {
+	scenarios := make([]Scenario, 0, 25)
+	scenarios = append(scenarios, baselineScenarios()...)
+	scenarios = append(scenarios, operationsScenarios()...)
+	scenarios = append(scenarios, adversarialScenarios()...)
+	return scenarios
+}
+
+func baselineScenarios() []Scenario {
 	return []Scenario{
 		{
 			Name: "deploy-caused-latency", Planes: []string{"change", "metrics"},
@@ -134,6 +155,11 @@ func Scenarios() []Scenario {
 			ExpectLabels:   []string{"Origin unreachable via POP fra-1"},
 			RelevantTitles: []string{"Origin unreachable via POP fra-1", "origin-cluster dependency"},
 		},
+	}
+}
+
+func operationsScenarios() []Scenario {
+	return []Scenario{
 		{
 			Name: "db-failover-change", Planes: []string{"change", "metrics"},
 			Text:           "Queries started timing out at 03:12 — was there a config change or failover?",
@@ -202,6 +228,11 @@ func Scenarios() []Scenario {
 			ExpectLabels:   []string{"IX maintenance"},
 			RelevantTitles: []string{"IX maintenance: paths shifted to backup transit", "Latency +22ms via backup transit"},
 		},
+	}
+}
+
+func adversarialScenarios() []Scenario {
+	return []Scenario{
 		{
 			// HARD: cause-plane trap — an unrelated info-severity change event
 			// outranks the true BGP cause for any plane-weight-only ranking.
@@ -214,6 +245,73 @@ func Scenarios() []Scenario {
 			Metrics:        []ai.Row{row("metrics", "critical", "Reachability 0% for 192.0.2.0/24", "all vantage points fail")},
 			ExpectLabels:   []string{"RPKI-invalid announcement"},
 			RelevantTitles: []string{"RPKI-invalid announcement for 192.0.2.0/24", "Reachability 0% for 192.0.2.0/24"},
+		},
+		{
+			// RED-003: adversarial near-duplicate truth-chain fixture. Both BGP
+			// rows describe the same prefix with the same plane/severity, so the
+			// RCA path must preserve collector event time and source attributes
+			// instead of collapsing them or citing the stale recovered event.
+			Name:    "adversarial-bgp-near-duplicate-event-time",
+			Planes:  []string{"bgp", "metrics", "topology"},
+			Text:    "Prefix 192.0.2.0/24 is unreachable after the current BGP origin change. Do not confuse it with the earlier recovered flap.",
+			Subject: map[string]string{"prefix": "192.0.2.0/24"},
+			Events: []ai.Row{
+				timedRow(
+					"bgp",
+					"critical",
+					"Current BGP origin change for 192.0.2.0/24",
+					"collector event time 2026-07-01T10:05:00Z; origin AS64500 via peer AS64496; attributes prefix=192.0.2.0/24 origin_asn=64500 peer_asn=64496",
+					time.Date(2026, 7, 1, 10, 5, 0, 0, time.UTC),
+					ai.Row{
+						"id":     "bgp-current-origin-change",
+						"kind":   "bgp.origin_change",
+						"prefix": "192.0.2.0/24",
+						"source": "ris-live:rrc00",
+						"detail": "origin_asn=64500 peer_asn=64496 collector=rrc00",
+					},
+				),
+				timedRow(
+					"bgp",
+					"critical",
+					"Recovered BGP origin change for 192.0.2.0/24",
+					"collector event time 2026-07-01T09:05:00Z; recovered origin AS64496 via peer AS64497 before the outage",
+					time.Date(2026, 7, 1, 9, 5, 0, 0, time.UTC),
+					ai.Row{
+						"id":     "bgp-recovered-origin-change",
+						"kind":   "bgp.origin_change",
+						"prefix": "192.0.2.0/24",
+						"source": "ris-live:rrc01",
+						"detail": "origin_asn=64496 peer_asn=64497 recovered=true collector=rrc01",
+					},
+				),
+			},
+			Metrics: []ai.Row{
+				timedRow(
+					"metrics",
+					"critical",
+					"Reachability 0% for 192.0.2.0/24 after 10:05Z",
+					"all vantage points fail after the current AS64500 origin appears",
+					time.Date(2026, 7, 1, 10, 6, 0, 0, time.UTC),
+					ai.Row{"metric": "probe_success", "prefix": "192.0.2.0/24", "value": 0},
+				),
+			},
+			Topology: []ai.Row{{
+				"node":     "prefix:192.0.2.0/24",
+				"neighbor": "asn:64500",
+				"kind":     "originates",
+				"label":    "origin AS64500",
+				"plane":    "topology",
+				"title":    "topology origin AS64500 for 192.0.2.0/24",
+			}},
+			ExpectLabels: []string{
+				"Current BGP origin change for 192.0.2.0/24",
+				"AS64500",
+			},
+			RelevantTitles: []string{
+				"Current BGP origin change for 192.0.2.0/24",
+				"Reachability 0% for 192.0.2.0/24 after 10:05Z",
+				"topology origin AS64500 for 192.0.2.0/24",
+			},
 		},
 		{
 			// HARD: two same-plane candidates; only severity+summary disambiguate.
