@@ -73,7 +73,10 @@ describe('native audit route', () => {
 
     renderApp('/audit', { me: { permissions: ['audit.read'] } })
 
-    expect(await screen.findByText('Auditor read-only')).toBeDefined()
+    expect(
+      await screen.findByRole('status', { name: 'Authority posture: Auditor read-only' }),
+    ).toBeDefined()
+    expect((await screen.findAllByText('Auditor read-only')).length).toBeGreaterThanOrEqual(2)
     const table = await screen.findByRole('table', { name: 'Audit events' })
     expect(within(table).getAllByText('alice@example.com').length).toBeGreaterThan(0)
     expect(within(table).getByText('alert.create')).toBeDefined()

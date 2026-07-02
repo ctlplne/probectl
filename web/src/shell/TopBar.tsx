@@ -1,5 +1,6 @@
 import styles from './TopBar.module.css'
 import { TenantIndicator } from './TenantIndicator'
+import { AuthorityBadge } from './AuthorityBadge'
 import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../auth/useAuth'
 import { Button } from '../components/Button'
@@ -41,6 +42,7 @@ export function TopBar({
           <Icon name="menu" size={18} />
         </button>
         <TenantIndicator />
+        <AuthorityBadge />
       </div>
 
       <button

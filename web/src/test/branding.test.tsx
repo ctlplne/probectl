@@ -60,6 +60,21 @@ describe('white-label branding (S-T4)', () => {
     expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('')
   })
 
+  test.each([
+    [[], 'Auditor read-only'],
+    [['audit.read', 'test.read'], 'Read-only'],
+    [['test.read', 'test.write'], 'Operator'],
+    [['provider.tenant.provision'], 'Provider plane'],
+    [['provider.breakglass.results'], 'Break-glass active'],
+    [['license.read_only'], 'Degraded read-only'],
+  ])('shell renders authority posture %s from /v1/me permissions', async (permissions, label) => {
+    vi.stubGlobal('fetch', brandStub({ product_name: 'probectl' }))
+    renderApp('/targets', { me: { permissions } })
+    expect(
+      await screen.findByRole('status', { name: `Authority posture: ${label}` }),
+    ).toBeInTheDocument()
+  })
+
   test('no-bleed on the client: switching brands replaces overrides with NO residue', async () => {
     applyBrand({
       product_name: 'AcmeWatch',
