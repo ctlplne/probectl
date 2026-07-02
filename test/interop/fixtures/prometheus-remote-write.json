@@ -1,0 +1,23 @@
+{
+  "spdx": "LicenseRef-probectl-TBD",
+  "kind": "prometheus_remote_write_v1",
+  "source": "Synthetic fixture shaped like a Prometheus remote-write WriteRequest.",
+  "license": "Synthetic local fixture; no third-party payload license.",
+  "aup": "No external source or network replay; safe for self-hosted CI.",
+  "tenant_under_test": "tenant-a",
+  "series": [
+    {
+      "metric": "external_metric",
+      "labels": {
+        "job": "node",
+        "tenant_id": "EVIL-OTHER-TENANT"
+      },
+      "samples": [
+        {
+          "value": 7,
+          "timestamp_ms": 1700000000000
+        }
+      ]
+    }
+  ]
+}

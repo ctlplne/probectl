@@ -1,0 +1,9 @@
+{
+  "spdx": "LicenseRef-probectl-TBD",
+  "kind": "device_telemetry_replay",
+  "source": "Synthetic snmpsim-style SNMP PDU rows and gNMIc-style OpenConfig Subscribe notifications.",
+  "license": "Synthetic local fixture; no third-party device capture license.",
+  "aup": "No external source or network replay; safe for self-hosted CI.",
+  "families": ["snmp", "gnmi"],
+  "device": "192.0.2.50"
+}

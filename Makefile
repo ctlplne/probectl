@@ -274,6 +274,11 @@ perf-smoke: ## Load/perf smoke (S18a): ingest baseline (no DB) + pooled multi-te
 fuzz-smoke: ## Run each fuzz target briefly to catch crashers (CI smoke; crasher-artifact-aware).
 	GO=$(GO) bash scripts/fuzz_smoke.sh
 
+.PHONY: interop-offline
+interop-offline: ## Hermetic stock-client replay interop gate for OTLP, remote-write, flow, device, and BGP protocols.
+	python3 scripts/check_interop_offline.py SELFTEST
+	GO=$(GO) python3 scripts/check_interop_offline.py --manifest test/interop/manifest.json --run-replays
+
 .PHONY: fuzz-policy
 fuzz-policy: ## Verify fuzz target discovery, PR smoke coverage, and nightly budget math.
 	bash scripts/check_fuzz_policy.sh

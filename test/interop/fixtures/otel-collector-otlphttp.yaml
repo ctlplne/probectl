@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: LicenseRef-probectl-TBD
+#
+# Synthetic offline OpenTelemetry Collector fixture.
+# Source shape: OpenTelemetry Collector otlphttp exporter configuration.
+# License/AUP: Apache-2.0 upstream shape; synthetic local data, no external AUP.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 127.0.0.1:4317
+      http:
+        endpoint: 127.0.0.1:4318
+processors:
+  batch: {}
+exporters:
+  otlphttp/probectl:
+    endpoint: https://probectl.local:4318
+    headers:
+      Authorization: Bearer ${env:PROBECTL_OTLP_TOKEN}
+    compression: gzip
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/probectl]
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/probectl]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/probectl]

@@ -71,6 +71,7 @@ reach for most:
 | `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                      |
 | `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`)                |
 | `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics |
+| `make interop-offline`             | Hermetic stock-client replay proof for OTLP, Prometheus remote-write, flow, device, and BGP MRT protocols |
 | `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                                |
 | `make lint`                        | `lint-go` + `lint-python`                                                                        |
 | `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                                |
@@ -90,7 +91,7 @@ reach for most:
 > coverage, and supply-chain gates run in GitHub Actions (next section). Most
 > per-surface gates have an identically-named `make` target you can run
 > yourself: `editions-gate`, `fips-gate`, `openapi-gate`, `sdk-gate`, `migration-gate`,
-> `helm-gate`, `gitops-gate`, `terraform-gate`, `cover-gate`, `perf-smoke`,
+> `helm-gate`, `gitops-gate`, `terraform-gate`, `cover-gate`, `interop-offline`, `perf-smoke`,
 > `e2e`.
 
 ## CI jobs (`.github/workflows/ci.yml`)

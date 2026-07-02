@@ -1,0 +1,9 @@
+{
+  "spdx": "LicenseRef-probectl-TBD",
+  "kind": "flow_capture_family",
+  "source": "Synthetic RFC-shaped NetFlow v5, NetFlow v9, IPFIX, and sFlow captures emitted by package test builders.",
+  "license": "Synthetic local fixture; no third-party packet capture license.",
+  "aup": "No external source or network replay; safe for self-hosted CI.",
+  "families": ["netflow_v5", "netflow_v9", "ipfix", "sflow"],
+  "exporter": "203.0.113.10"
+}

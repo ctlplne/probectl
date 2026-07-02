@@ -1,0 +1,230 @@
+{
+  "schema_version": "probectl.interop.offline.v1",
+  "network_policy": {
+    "default": "deny",
+    "allow_loopback": true,
+    "notes": "Replay commands are argv-only, no shell, and the checker rejects fetch/network-shaped commands. Runtime env points HTTP(S) proxy variables at a closed loopback port so accidental outbound HTTP fails closed."
+  },
+  "families": [
+    {
+      "family": "otlp_http",
+      "description": "OpenTelemetry Collector OTLP/HTTP exporter shape pushes metrics, traces, and logs to probectl's HTTPS OTLP paths.",
+      "stock_client": {
+        "name": "OpenTelemetry Collector otlphttp exporter",
+        "version": "v0.114.0",
+        "source": "https://github.com/open-telemetry/opentelemetry-collector",
+        "license": "Apache-2.0",
+        "aup": "Operator-owned collector; no managed-service custody and no default outbound telemetry in this replay."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/otel-collector-otlphttp.yaml",
+        "sha256": "bee026ab115c3bca44d5fc1e5f751c338ff51c94509a34b4789d34cab6316f17",
+        "source": "Synthetic local collector config shaped like the stock otlphttp exporter.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external payload; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/otel/otlp", "-run", "^TestOfflineInteropOTelCollectorMetricsTracesLogs$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "prometheus_remote_write",
+      "description": "Prometheus remote-write v1 payload decodes and probectl overwrites any caller-supplied tenant label.",
+      "stock_client": {
+        "name": "Prometheus remote_write client",
+        "version": "v2.55.1",
+        "source": "https://github.com/prometheus/prometheus",
+        "license": "Apache-2.0",
+        "aup": "Operator-owned Prometheus-compatible sender; no hosted TSDB custody and no default outbound telemetry in this replay."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/prometheus-remote-write.json",
+        "sha256": "741579d3537868fcfd95920cbe4de85377b1a61b589d3a547db6cf769dcaf14f",
+        "source": "Synthetic local WriteRequest descriptor with a hostile tenant_id label.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external payload; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/promapi", "-run", "^TestOfflineInteropPrometheusRemoteWriteFixtureForcesTenant$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "netflow_v5",
+      "description": "NetFlow v5 capture bytes decode to normalized, tenant-stamped flow records.",
+      "stock_client": {
+        "name": "nfdump nfreplay",
+        "version": "v1.7.4",
+        "source": "https://github.com/phaag/nfdump",
+        "license": "BSD-3-Clause",
+        "aup": "Operator-owned flow replay; no external collector fetch and no managed-service custody."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/flow-captures.json",
+        "sha256": "0db1ba57dcfff6fd68611678a9a6010054e438b4447ca80a18c80257a5ab3e3f",
+        "source": "Synthetic RFC-shaped flow fixture family covering NetFlow v5/v9, IPFIX, and sFlow.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external packet capture; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/flow", "-run", "^TestOfflineInteropFlowCapturesDecodeAndNormalize$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "netflow_v9",
+      "description": "NetFlow v9 template/data capture bytes decode after stock-style template replay.",
+      "stock_client": {
+        "name": "nfdump nfreplay",
+        "version": "v1.7.4",
+        "source": "https://github.com/phaag/nfdump",
+        "license": "BSD-3-Clause",
+        "aup": "Operator-owned flow replay; no external collector fetch and no managed-service custody."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/flow-captures.json",
+        "sha256": "0db1ba57dcfff6fd68611678a9a6010054e438b4447ca80a18c80257a5ab3e3f",
+        "source": "Synthetic RFC-shaped flow fixture family covering NetFlow v5/v9, IPFIX, and sFlow.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external packet capture; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/flow", "-run", "^TestOfflineInteropFlowCapturesDecodeAndNormalize$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "ipfix",
+      "description": "IPFIX capture bytes decode and normalize counters, tuple fields, and tenant stamp.",
+      "stock_client": {
+        "name": "nfdump nfreplay",
+        "version": "v1.7.4",
+        "source": "https://github.com/phaag/nfdump",
+        "license": "BSD-3-Clause",
+        "aup": "Operator-owned IPFIX replay; no external collector fetch and no managed-service custody."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/flow-captures.json",
+        "sha256": "0db1ba57dcfff6fd68611678a9a6010054e438b4447ca80a18c80257a5ab3e3f",
+        "source": "Synthetic RFC-shaped flow fixture family covering NetFlow v5/v9, IPFIX, and sFlow.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external packet capture; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/flow", "-run", "^TestOfflineInteropFlowCapturesDecodeAndNormalize$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "sflow",
+      "description": "sFlow v5 raw packet-header samples decode and normalize sampled volume.",
+      "stock_client": {
+        "name": "sflowtool",
+        "version": "v6.03",
+        "source": "https://github.com/sflow/sflowtool",
+        "license": "InMon sFlow license / BSD-style distribution terms",
+        "aup": "Operator-owned sFlow replay; no external collector fetch and no managed-service custody."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/flow-captures.json",
+        "sha256": "0db1ba57dcfff6fd68611678a9a6010054e438b4447ca80a18c80257a5ab3e3f",
+        "source": "Synthetic RFC-shaped flow fixture family covering NetFlow v5/v9, IPFIX, and sFlow.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external packet capture; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/flow", "-run", "^TestOfflineInteropFlowCapturesDecodeAndNormalize$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "snmp",
+      "description": "snmpsim-style fixture rows normalize device inventory and IF-MIB/HOST-RESOURCES metrics.",
+      "stock_client": {
+        "name": "snmpsim",
+        "version": "v1.1.9",
+        "source": "https://github.com/etingof/snmpsim",
+        "license": "BSD-2-Clause",
+        "aup": "Operator-owned SNMP replay; no external device or collector access."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/device-telemetry.json",
+        "sha256": "6f6af67638a81cb9fff0aef77bacc67db0e1bafaceeae480b488089190942be8",
+        "source": "Synthetic local SNMP PDU rows and gNMI OpenConfig notifications.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external device capture; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/device", "-run", "^TestOfflineInteropSNMPSimReplayNormalizesMetrics$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "gnmi",
+      "description": "gNMIc-style OpenConfig Subscribe replay normalizes interface counters and oper-status metrics.",
+      "stock_client": {
+        "name": "gNMIc",
+        "version": "v0.39.1",
+        "source": "https://github.com/openconfig/gnmic",
+        "license": "Apache-2.0",
+        "aup": "Operator-owned gNMI replay; no external device or collector access."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/device-telemetry.json",
+        "sha256": "6f6af67638a81cb9fff0aef77bacc67db0e1bafaceeae480b488089190942be8",
+        "source": "Synthetic local SNMP PDU rows and gNMI OpenConfig notifications.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No external device capture; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/device", "-run", "^TestOfflineInteropGNMIcReplayNormalizesMetrics$", "-count=1"]
+        }
+      ]
+    },
+    {
+      "family": "bgp_mrt",
+      "description": "RouteViews/RIS-shaped MRT bytes parse through the Python analyzer and tenant-scoped Go bridge.",
+      "stock_client": {
+        "name": "bgpdump",
+        "version": "v1.6.2",
+        "source": "https://github.com/RIPE-NCC/bgpdump",
+        "license": "BSD-3-Clause",
+        "aup": "Offline MRT replay only; no live RouteViews or RIPE RIS fetch in CI."
+      },
+      "fixture": {
+        "path": "test/interop/fixtures/bgp-mrt.json",
+        "sha256": "9bbbe4d9a67160efa53285760ce7a1c912f9fd7afc76119801dd16bce111bc3a",
+        "source": "Synthetic RFC 6396 MRT bytes generated by analyzer/tests/mrt_fixtures.py.",
+        "license": "LicenseRef-probectl-TBD",
+        "aup": "No live public collector access; offline replay only."
+      },
+      "replay_commands": [
+        {
+          "workdir": "analyzer",
+          "argv": ["python3", "tests/interop_offline_runner.py"]
+        },
+        {
+          "workdir": ".",
+          "argv": ["go", "test", "./internal/bgp", "-run", "^TestOfflineInteropBGPAnalyzerBridgeTenantScoped$", "-count=1"]
+        }
+      ]
+    }
+  ]
+}
