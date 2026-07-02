@@ -107,6 +107,7 @@ elif [ ! -f /etc/probectl/ebpf-agent.yaml ]; then
 # probectl eBPF agent — minimal config (docs/ebpf-agent.md, docs/configuration.md).
 # The agent refuses to start until tenant_id and the bus are set, and refuses
 # plaintext kafka without the explicit dev-only override (U-010).
+apiVersion: probectl.io/ebpf-agent/v1
 tenant_id: ""           # REQUIRED: the tenant these flows belong to
 bus:
   mode: kafka

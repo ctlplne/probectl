@@ -6,6 +6,7 @@
 set -euo pipefail
 
 CHART="${CHART:-deploy/helm/probectl}"
+AGENT_CHART="${AGENT_CHART:-deploy/helm/probectl-agent}"
 CI_WORKFLOW=".github/workflows/ci.yml"
 ANSIBLE_AGENT_TASKS="deploy/ansible/roles/probectl_agents/tasks/main.yml"
 ANSIBLE_AGENT_DEFAULTS="deploy/ansible/roles/probectl_agents/defaults/main.yml"
@@ -26,6 +27,13 @@ render() {
     --set secrets.envelopeKey="$KEY" \
     --set secrets.sessionHMACKey="$SESSION_KEY" \
     --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require"
+}
+
+render_agent() {
+  helm template probectl-agent "$AGENT_CHART" "$@" \
+    --set-string tenantID=t-hardening \
+    --set-string image.tag="0.0.0@sha256:0000000000000000000000000000000000000000000000000000000000000000" \
+    --set-json 'bus.brokers=["kafka.probectl.svc:9093"]'
 }
 
 need() { grep -q -- "$1" <<<"$2" || fail "$3"; }
@@ -64,6 +72,16 @@ need_file "secrets.sessionHMACKey" "$CI_WORKFLOW" "CI kubeconform render must pa
 need_file "database.url" "$CI_WORKFLOW" "CI kubeconform render must pass database.url to helm template (OPS-003)"
 
 bash scripts/check_clickhouse_restore_contract.sh
+
+# EBPF-001: every shipped eBPF config generator must include the schema version
+# accepted by the strict agent loader. The agent should keep failing closed on
+# missing/unknown config, while Helm/install/e2e never generate an old headerless
+# file that dies before startup.
+agent_base="$(render_agent)"
+agent_config="$(awk '/ebpf-agent.yaml: \|/,/^---/' <<<"$agent_base")"
+need_fixed "apiVersion: probectl.io/ebpf-agent/v1" "$agent_config" "probectl-agent Helm ConfigMap omitted eBPF apiVersion (EBPF-001)"
+need_file "apiVersion: probectl.io/ebpf-agent/v1" "deploy/agent/install.sh" "install.sh generated eBPF config omitted apiVersion (EBPF-001)"
+need_file "apiVersion: probectl.io/ebpf-agent/v1" "test/e2e/e2e_test.go" "e2e fixture generated eBPF config omitted apiVersion (EBPF-001)"
 
 # 1. No default credentials: rendering without required secret material (and no
 #    existingSecret) must FAIL closed.

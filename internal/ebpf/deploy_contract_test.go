@@ -80,6 +80,26 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 	}
 }
 
+func TestGeneratedEBPFConfigsDeclareSchemaVersion(t *testing.T) {
+	configmap := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/configmap.yaml")
+	installer := readDeployContractFile(t, "deploy/agent/install.sh")
+	e2e := readDeployContractFile(t, "test/e2e/e2e_test.go")
+
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "helm ConfigMap", body: configmap},
+		{name: "systemd installer sample", body: installer},
+		{name: "e2e fixture config", body: e2e},
+	} {
+		if !strings.Contains(tt.body, "apiVersion: "+ConfigAPIVersion) &&
+			!strings.Contains(tt.body, "schema_version: 1") {
+			t.Fatalf("%s must emit apiVersion %q or schema_version: 1", tt.name, ConfigAPIVersion)
+		}
+	}
+}
+
 func TestAgentLegacyCapabilityModeIsFenced(t *testing.T) {
 	values := readDeployContractFile(t, "deploy/helm/probectl-agent/values.yaml")
 	daemonset := readDeployContractFile(t, "deploy/helm/probectl-agent/templates/daemonset.yaml")

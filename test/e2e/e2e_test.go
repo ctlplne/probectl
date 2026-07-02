@@ -17,6 +17,7 @@
 package e2e
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,6 +34,10 @@ const (
 	apiAddr  = "127.0.0.1:18080"
 	tenantA  = "00000000-0000-0000-0000-000000000001" // the seeded default tenant
 	tenantB  = "00000000-0000-0000-0000-00000000e2e2"
+	agentAID = "a7000000-0000-4000-8000-000000000001"
+	agentBID = "a7000000-0000-4000-8000-000000000002"
+	laneA    = "t-e2e-a"
+	laneB    = "t-e2e-b"
 	ipOnlyA  = "10.77.1.9"  // appears only in tenant A's traffic
 	ipOnlyB  = "10.88.2.10" // appears only in tenant B's traffic
 	composeF = "deploy/compose/dev.yml"
@@ -50,22 +55,65 @@ func TestE2E(t *testing.T) {
 	t.Cleanup(func() {
 		_ = exec.Command("docker", "compose", "-f", filepath.Join(root, composeF), "down", "-v").Run()
 	})
+	createKafkaTopics(t, root,
+		"probectl."+laneA+".ebpf.flows",
+		"probectl."+laneB+".ebpf.flows",
+	)
 
 	// ── build the real binaries from this tree ──────────────────────────
 	control := filepath.Join(work, "probectl-control")
 	agent := filepath.Join(work, "probectl-ebpf-agent")
-	runCmd(t, root, nil, "go", "build", "-o", control, "./cmd/probectl-control")
+	licenseTool := filepath.Join(work, "probectl-license")
+	licensePriv := filepath.Join(work, "license-signing.key")
+	licensePub := filepath.Join(work, "license-signing.pub")
+	licenseFile := filepath.Join(work, "probectl-license.json")
+
+	runCmd(t, root, nil, "go", "build", "-o", licenseTool, "./cmd/probectl-license")
+	runCmd(t, root, nil, licenseTool, "gen-key", "-out-priv", licensePriv, "-out-pub", licensePub)
+	runCmd(t, root, nil, licenseTool, "sign",
+		"-key", licensePriv,
+		"-customer", "probectl e2e",
+		"-tier", "provider",
+		"-tenant-band", "4",
+		"-expires", time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02"),
+		"-out", licenseFile)
+	pubPEM, err := os.ReadFile(licensePub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	licenseLDFlags := "-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=" +
+		base64.StdEncoding.EncodeToString(pubPEM)
+
+	runCmd(t, root, nil, "go", "build", "-tags", "devauth", "-ldflags", licenseLDFlags, "-o", control, "./cmd/probectl-control")
 	runCmd(t, root, nil, "go", "build", "-o", agent, "./cmd/probectl-ebpf-agent")
 
-	// ── control plane: public configuration surface only ────────────────
-	controlLog := startProc(t, work, "control", control, nil, []string{
+	controlEnv := []string{
 		"PROBECTL_DATABASE_URL=postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable",
 		"PROBECTL_HTTP_ADDR=" + apiAddr,
 		"PROBECTL_AUTH_MODE=dev",
+		"PROBECTL_DEV_AUTH_ACK=i-understand",
+		"PROBECTL_ENVELOPE_KEY_ID=e2e",
+		"PROBECTL_ENVELOPE_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=", // test-only 32-byte KEK
+		"PROBECTL_LICENSE_FILE=" + licenseFile,
+		"PROBECTL_PATHSTORE_TENANT_SCOPING=true",
+		"PROBECTL_FLOWSTORE_TENANT_SCOPING=true",
+		"PROBECTL_OTELSTORE_TENANT_SCOPING=true",
+		"PROBECTL_EBPFSTORE_TENANT_SCOPING=true",
+		"PROBECTL_INGEST_STRICT_TENANT_LANES=true",
 		"PROBECTL_BUS_MODE=kafka",
 		"PROBECTL_BUS_BROKERS=localhost:9092",
 		"PROBECTL_BUS_ALLOW_PLAINTEXT=true", // dev compose kafka is plaintext (U-010 dev override)
-	})
+	}
+
+	// ── schema: the serve path checks DB-level tenant isolation before listen ─
+	runCmd(t, root, controlEnv, control, "migrate")
+	seedE2ETenants(t, root)
+	runCmd(t, root, controlEnv, control, "agent-ca", "init")
+	registerCollector(t, root, control, controlEnv, tenantA, agentAID, "agent-a")
+	registerCollector(t, root, control, controlEnv, tenantB, agentBID, "agent-b")
+
+	// ── control plane: public configuration surface only ────────────────
+	controlLog := startProc(t, work, "control", control, nil, controlEnv)
 	waitFor(t, "control plane /readyz", 90*time.Second, func() bool {
 		resp, err := http.Get("http://" + apiAddr + "/readyz")
 		if err != nil {
@@ -74,21 +122,29 @@ func TestE2E(t *testing.T) {
 		defer resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	})
+	if body := isolationJSON(t, tenantA); !strings.Contains(body, `"mode":"tenant_namespaced"`) || !strings.Contains(body, laneA) {
+		t.Fatalf("tenant A isolation status did not report the expected namespaced lane %s:\n%s", laneA, body)
+	}
 
 	// ── two fixture-mode agents, one per tenant, disjoint traffic ───────
-	for _, a := range []struct{ tenant, ip, name string }{
-		{tenantA, ipOnlyA, "agent-a"},
-		{tenantB, ipOnlyB, "agent-b"},
+	for _, a := range []struct{ tenant, ip, name, agentID, lane string }{
+		{tenantA, ipOnlyA, "agent-a", agentAID, laneA},
+		{tenantB, ipOnlyB, "agent-b", agentBID, laneB},
 	} {
-		fixture := writeFixture(t, work, a.name, a.tenant, a.ip)
+		fixture := writeFixture(t, work, a.name, a.tenant, a.agentID, a.ip)
 		cfg := filepath.Join(work, a.name+".yaml")
 		writeFile(t, cfg, fmt.Sprintf(
-			"tenant_id: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [\"localhost:9092\"]\n",
-			a.tenant, fixture))
+			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [\"localhost:9092\"]\n  namespace: %q\n",
+			a.tenant, a.agentID, fixture, a.lane))
 		startProc(t, work, a.name, agent, []string{"--config", cfg}, []string{
 			"PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT=true",
 		})
 	}
+	t.Cleanup(func() {
+		if t.Failed() {
+			dumpKafkaDiagnostics(t, root)
+		}
+	})
 
 	// ── ingest lands: each tenant's edge appears via the PUBLIC API ─────
 	waitFor(t, "tenant A's edge in /v1/topology", 90*time.Second, func() bool {
@@ -139,12 +195,93 @@ func repoRoot(t *testing.T) string {
 
 func runCmd(t *testing.T, dir string, env []string, name string, args ...string) {
 	t.Helper()
+	_ = runCmdOutput(t, dir, env, name, args...)
+}
+
+func runCmdOutput(t *testing.T, dir string, env []string, name string, args ...string) string {
+	t.Helper()
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), env...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("%s %s: %v\n%s", name, strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}
+
+func seedE2ETenants(t *testing.T, root string) {
+	t.Helper()
+	sql := fmt.Sprintf(`INSERT INTO tenants (id, slug, name, status, isolation_model)
+VALUES
+  ('%s', 'e2e-a', 'E2E Tenant A', 'active', 'hybrid'),
+  ('%s', 'e2e-b', 'E2E Tenant B', 'active', 'hybrid')
+ON CONFLICT (id) DO UPDATE
+SET slug = EXCLUDED.slug,
+    name = EXCLUDED.name,
+    status = EXCLUDED.status,
+    isolation_model = EXCLUDED.isolation_model,
+    updated_at = now()`, tenantA, tenantB)
+	runCmd(t, root, nil, "docker", "compose", "-f", composeF, "exec", "-T",
+		"postgres", "psql", "-U", "probectl", "-d", "probectl",
+		"-v", "ON_ERROR_STOP=1", "-c", sql)
+}
+
+func registerCollector(t *testing.T, root, control string, env []string, tenant, agentID, name string) {
+	t.Helper()
+	tokenOut := runCmdOutput(t, root, env, control,
+		"enroll-token", "-tenant", tenant, "-agent", agentID, "-name", name, "-ttl", "10m")
+	token := ""
+	for _, line := range strings.Split(tokenOut, "\n") {
+		if candidate := strings.TrimSpace(line); strings.HasPrefix(candidate, "pjt_") {
+			token = candidate
+			break
+		}
+	}
+	if token == "" {
+		t.Fatalf("enroll-token did not print a display token:\n%s", tokenOut)
+	}
+	regOut := runCmdOutput(t, root, env, control,
+		"register-collector", "-token", token, "-plane", "ebpf", "-hostname", name)
+	if !strings.Contains(regOut, agentID) || !strings.Contains(regOut, tenant) {
+		t.Fatalf("collector registration did not bind expected tenant/agent (%s/%s):\n%s", tenant, agentID, regOut)
+	}
+}
+
+func createKafkaTopics(t *testing.T, root string, topics ...string) {
+	t.Helper()
+	for _, topic := range topics {
+		runCmd(t, root, nil, "docker", "compose", "-f", composeF, "exec", "-T", "kafka",
+			"/opt/kafka/bin/kafka-topics.sh",
+			"--bootstrap-server", "localhost:9092",
+			"--create",
+			"--if-not-exists",
+			"--topic", topic,
+			"--partitions", "3",
+			"--replication-factor", "1")
+	}
+}
+
+func dumpKafkaDiagnostics(t *testing.T, root string) {
+	t.Helper()
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{name: "topics", args: []string{"/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"}},
+		{name: "consumer-groups", args: []string{"/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "localhost:9092", "--all-groups", "--describe"}},
+		{name: "tenant-a-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneA + ".ebpf.flows"}},
+		{name: "tenant-b-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneB + ".ebpf.flows"}},
+	} {
+		args := append([]string{"compose", "-f", composeF, "exec", "-T", "kafka"}, tc.args...)
+		cmd := exec.Command("docker", args...)
+		cmd.Dir = root
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Logf("---- kafka %s failed ----\n%v\n%s", tc.name, err, out)
+			continue
+		}
+		t.Logf("---- kafka %s ----\n%s", tc.name, out)
 	}
 }
 
@@ -169,9 +306,19 @@ func startProc(t *testing.T, work, name, bin string, args, env []string) string 
 		_ = logf.Close()
 		if t.Failed() {
 			if b, err := os.ReadFile(logPath); err == nil {
-				tail := b
-				if len(tail) > 4096 {
-					tail = tail[len(tail)-4096:]
+				logText := string(b)
+				if name == "control" {
+					var kept []string
+					for _, line := range strings.Split(logText, "\n") {
+						if !strings.Contains(line, `"msg":"request"`) {
+							kept = append(kept, line)
+						}
+					}
+					logText = strings.Join(kept, "\n")
+				}
+				tail := []byte(logText)
+				if len(tail) > 32768 {
+					tail = tail[len(tail)-32768:]
 				}
 				t.Logf("---- %s log tail ----\n%s", name, tail)
 			}
@@ -196,26 +343,36 @@ func waitFor(t *testing.T, what string, timeout time.Duration, ok func() bool) {
 // and returns the raw body (valid JSON asserted).
 func topologyJSON(t *testing.T, tenant string) string {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, "http://"+apiAddr+"/v1/topology", nil)
+	return getTenantJSON(t, tenant, "/v1/topology")
+}
+
+func isolationJSON(t *testing.T, tenant string) string {
+	t.Helper()
+	return getTenantJSON(t, tenant, "/v1/isolation/status")
+}
+
+func getTenantJSON(t *testing.T, tenant, path string) string {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, "http://"+apiAddr+path, nil)
 	req.Header.Set("X-Probectl-Tenant", tenant)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("topology query: %v", err)
+		t.Fatalf("%s query: %v", path, err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("topology query for %s: %d: %s", tenant, resp.StatusCode, body)
+		t.Fatalf("%s query for %s: %d: %s", path, tenant, resp.StatusCode, body)
 	}
 	if !json.Valid(body) {
-		t.Fatalf("topology response is not JSON: %s", body)
+		t.Fatalf("%s response is not JSON: %s", path, body)
 	}
 	return string(body)
 }
 
 // writeFixture emits a small recorded-flow file whose endpoints are unique
 // to the tenant — the basis of the isolation assertion.
-func writeFixture(t *testing.T, work, name, tenant, ip string) string {
+func writeFixture(t *testing.T, work, name, tenant, agentID, ip string) string {
 	t.Helper()
 	type row struct {
 		TenantID  string `json:"tenant_id"`
@@ -236,7 +393,7 @@ func writeFixture(t *testing.T, work, name, tenant, ip string) string {
 	rows := make([]row, 0, 6)
 	for i := 0; i < 6; i++ {
 		rows = append(rows, row{
-			TenantID: tenant, AgentID: name, Host: name + "-host",
+			TenantID: tenant, AgentID: agentID, Host: name + "-host",
 			SrcAddr: "10.50.0.5", SrcPort: 40000 + i, SrcPID: 4242,
 			DstAddr: ip, DstPort: 443,
 			Transport: "tcp", NetType: "ipv4",
