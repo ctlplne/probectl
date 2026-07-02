@@ -6,6 +6,7 @@ import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from './fetc
 
 function onboardingFetch(capture: {
   enroll?: Record<string, unknown>
+  register?: Record<string, unknown>
   test?: Record<string, unknown>
   invite?: Record<string, unknown>
 }) {
@@ -36,6 +37,24 @@ function onboardingFetch(capture: {
           tenant_id: '00000000-0000-0000-0000-000000000001',
           expires_at: '2026-06-21T20:00:00Z',
           server_cert_pin: 'abc123pin',
+        },
+        201,
+      )
+    }
+    if (path === '/v1/collectors/register' && method === 'POST') {
+      capture.register = JSON.parse(String(init!.body)) as Record<string, unknown>
+      const plane = String(capture.register.plane ?? 'flow')
+      return jsonResponse(
+        {
+          tenant_id: '00000000-0000-0000-0000-000000000001',
+          agent_id: '11111111-1111-4111-8111-111111111111',
+          plane,
+          hostname: capture.register.hostname ?? 'edge-flow-1',
+          capabilities: ['collector', plane],
+          config: {
+            env: { PROBECTL_FLOW_AGENT_ID: '11111111-1111-4111-8111-111111111111' },
+            yaml: { agent_id: '11111111-1111-4111-8111-111111111111' },
+          },
         },
         201,
       )
@@ -83,6 +102,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     const user = userEvent.setup()
     const capture: {
       enroll?: Record<string, unknown>
+      register?: Record<string, unknown>
       test?: Record<string, unknown>
       invite?: Record<string, unknown>
     } = {}
@@ -141,6 +161,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     const user = userEvent.setup()
     const capture: {
       enroll?: Record<string, unknown>
+      register?: Record<string, unknown>
       test?: Record<string, unknown>
       invite?: Record<string, unknown>
     } = {}
@@ -163,5 +184,42 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     expect(await screen.findByText(/enrollment token already minted/i)).toBeInTheDocument()
     expect(screen.queryByDisplayValue('pjt_onboarding_agent')).not.toBeInTheDocument()
     expect(capture.enroll).toMatchObject({ name: 'edge-canary-1', ttl_seconds: 3600 })
+  })
+
+  test('guides every producer plane and routes flow through tenant-scoped collector registration', async () => {
+    const user = userEvent.setup()
+    const capture: {
+      enroll?: Record<string, unknown>
+      register?: Record<string, unknown>
+      test?: Record<string, unknown>
+      invite?: Record<string, unknown>
+    } = {}
+    vi.stubGlobal('fetch', onboardingFetch(capture))
+
+    renderApp('/')
+
+    expect(await screen.findByRole('heading', { name: /choose a producer plane/i })).toBeInTheDocument()
+    for (const plane of ['Synthetic', 'Flow', 'BGP', 'Device', 'eBPF', 'Endpoint']) {
+      expect(screen.getByRole('heading', { name: plane })).toBeInTheDocument()
+    }
+    expect(screen.getByText(/CAP_BPF/)).toBeInTheDocument()
+    expect(screen.getByText(/Planes > Flow shows top talkers/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /register flow collector/i }))
+    const dialog = await screen.findByRole('dialog', { name: /register collector/i })
+    expect(within(dialog).getByLabelText(/collector plane/i)).toHaveValue('flow')
+    expect(within(dialog).getByText(/NetFlow\/IPFIX\/sFlow/i)).toBeInTheDocument()
+    await user.type(within(dialog).getByLabelText(/collector label/i), 'edge-flow-first')
+    await user.click(within(dialog).getByRole('button', { name: /register collector/i }))
+
+    expect(await screen.findByDisplayValue('flow')).toBeInTheDocument()
+    expect(capture.enroll).toEqual({ name: 'edge-flow-first', ttl_seconds: 300 })
+    expect(capture.register).toEqual({
+      token: 'pjt_onboarding_agent',
+      plane: 'flow',
+      hostname: 'edge-flow-first',
+    })
+    expect(capture.enroll).not.toHaveProperty('tenant_id')
+    expect(capture.register).not.toHaveProperty('tenant_id')
   })
 })

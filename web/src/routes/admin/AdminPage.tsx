@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Badge,
@@ -172,20 +172,62 @@ const collectorPlanes: { value: CollectorPlane; label: string }[] = [
   { value: 'endpoint', label: 'Endpoint' },
 ]
 
+const collectorPlaneGuidance: Record<CollectorPlane, { prerequisites: string; firstSignal: string }> = {
+  bgp: {
+    prerequisites: 'Router BMP feed reachability, plus Kafka and ClickHouse.',
+    firstSignal: 'Planes > BGP shows peers, prefixes, and routing events.',
+  },
+  flow: {
+    prerequisites: 'Exporter network reachability for NetFlow/IPFIX/sFlow, plus Kafka and ClickHouse.',
+    firstSignal: 'Planes > Flow shows top talkers, capacity, and anomalies.',
+  },
+  device: {
+    prerequisites: 'SNMP or gNMI reachability and operator-managed credential references.',
+    firstSignal: 'Planes > Device shows inventory, syslog, config, and telemetry rows.',
+  },
+  ebpf: {
+    prerequisites: 'Linux host with CAP_BPF, CAP_PERFMON, and BTF-capable kernel, plus Kafka and ClickHouse.',
+    firstSignal: 'Planes > eBPF shows host, service, and L7 edges.',
+  },
+  endpoint: {
+    prerequisites: 'Endpoint package on Linux, macOS, or Windows with local network reachability.',
+    firstSignal: 'Planes > Device/Endpoint shows last-mile DEM results and slow endpoint causes.',
+  },
+}
+
+function isCollectorPlane(value: string | null): value is CollectorPlane {
+  return collectorPlanes.some((plane) => plane.value === value)
+}
+
 function formatKeyValues(values: Record<string, string>): string {
   return Object.entries(values)
     .map(([key, value]) => `${key}=${value}`)
     .join('\n')
 }
 
-function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+function CollectorRegisterDialog({
+  open,
+  onClose,
+  initialPlane,
+}: {
+  open: boolean
+  onClose: () => void
+  initialPlane?: CollectorPlane
+}) {
   const mint = useMintAgentEnrollToken()
   const register = useRegisterCollector()
-  const [plane, setPlane] = useState<CollectorPlane>('flow')
+  const [plane, setPlane] = useState<CollectorPlane>(initialPlane ?? 'flow')
   const [hostname, setHostname] = useState('')
   const [agentID, setAgentID] = useState('')
   const [registered, setRegistered] = useState<CollectorRegistration | null>(null)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    setPlane(initialPlane ?? 'flow')
+    setRegistered(null)
+    setError('')
+  }, [initialPlane, open])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -210,6 +252,7 @@ function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: ()
 
   const envText = registered ? formatKeyValues(registered.config.env) : ''
   const labelPlaceholder = plane === 'bgp' ? 'rrc00' : 'edge-flow-1'
+  const guidance = collectorPlaneGuidance[plane]
 
   return (
     <Modal
@@ -270,6 +313,9 @@ function CollectorRegisterDialog({ open, onClose }: { open: boolean; onClose: ()
             value={plane}
             onChange={(e) => setPlane(e.target.value as CollectorPlane)}
           />
+          <p className={styles.editionsLede}>
+            Prerequisites: {guidance.prerequisites} First signal: {guidance.firstSignal}
+          </p>
           <Field
             label="Collector label"
             value={hostname}
@@ -381,12 +427,26 @@ export function AdminPage() {
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [collectorOpen, setCollectorOpen] = useState(false)
   const [params, setParams] = useSearchParams()
+  const collectorPlaneParam = params.get('register_collector')
+  const deepLinkedCollectorPlane = isCollectorPlane(collectorPlaneParam) ? collectorPlaneParam : undefined
   const defaults = { agent_q: '', agent_status: 'all', agent_capability: 'all' }
   const q = filterValue(params, 'agent_q')
   const status = filterValue(params, 'agent_status', 'all')
   const capability = filterValue(params, 'agent_capability', 'all')
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
+
+  useEffect(() => {
+    if (deepLinkedCollectorPlane) setCollectorOpen(true)
+  }, [deepLinkedCollectorPlane])
+
+  function closeCollectorDialog() {
+    setCollectorOpen(false)
+    if (!params.has('register_collector')) return
+    const next = new URLSearchParams(params)
+    next.delete('register_collector')
+    setParams(next, { replace: true })
+  }
   // UX-004: flatten the cursor-paged result into the rows fetched so far.
   const agents = flattenAgents(data?.pages)
   const capabilities = useMemo(
@@ -523,7 +583,11 @@ export function AdminPage() {
         </CardBody>
       </Card>
       <AgentEnrollDialog open={enrollOpen} onClose={() => setEnrollOpen(false)} />
-      <CollectorRegisterDialog open={collectorOpen} onClose={() => setCollectorOpen(false)} />
+      <CollectorRegisterDialog
+        open={collectorOpen}
+        onClose={closeCollectorDialog}
+        initialPlane={deepLinkedCollectorPlane}
+      />
       <SecretBackendsCard />
       <IdentityCard />
       <KeysCard />

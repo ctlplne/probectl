@@ -18,6 +18,7 @@ import {
   useMintAgentEnrollToken,
   useOnboardingProgress,
   type AgentEnrollToken,
+  type CollectorPlane,
 } from '../api/agents'
 import { useCreateScimToken, type CreatedScimToken, useScimTokens } from '../api/identity'
 import { useCreateTest, useTests, type Test } from '../api/tests'
@@ -26,6 +27,66 @@ import { agentEnrollCommand, defaultControlPlaneURL } from './enrollment'
 import styles from './onboarding.module.css'
 
 const FIRST_TEST_TYPES = ['http', 'dns', 'icmp', 'tcp']
+
+type ProducerPlane = {
+  id: 'synthetic' | CollectorPlane
+  title: string
+  producer: string
+  prerequisites: string
+  firstSignal: string
+  action: string
+}
+
+const PRODUCER_PLANES: ProducerPlane[] = [
+  {
+    id: 'synthetic',
+    title: 'Synthetic',
+    producer: 'probectl-agent',
+    prerequisites: 'Control-plane gRPC/mTLS reachable from the probe host; no Kafka or ClickHouse required.',
+    firstSignal: 'Targets & Tests shows the first HTTP/DNS/ICMP/TCP result.',
+    action: 'Start synthetic canary',
+  },
+  {
+    id: 'flow',
+    title: 'Flow',
+    producer: 'probectl-flow-agent',
+    prerequisites: 'Exporter network reachability for NetFlow/IPFIX/sFlow, plus Kafka and ClickHouse.',
+    firstSignal: 'Planes > Flow shows top talkers, capacity, and anomalies.',
+    action: 'Register Flow collector',
+  },
+  {
+    id: 'bgp',
+    title: 'BGP',
+    producer: 'probectl-bmp-listener',
+    prerequisites: 'Router BMP feed reachability, plus Kafka and ClickHouse.',
+    firstSignal: 'Planes > BGP shows prefixes, peers, and routing events.',
+    action: 'Register BGP collector',
+  },
+  {
+    id: 'device',
+    title: 'Device',
+    producer: 'probectl-device-agent',
+    prerequisites: 'SNMP or gNMI reachability and operator-managed credential references.',
+    firstSignal: 'Planes > Device shows inventory, syslog, config, and telemetry rows.',
+    action: 'Register Device collector',
+  },
+  {
+    id: 'ebpf',
+    title: 'eBPF',
+    producer: 'probectl-ebpf-agent',
+    prerequisites: 'Linux host with CAP_BPF, CAP_PERFMON, and BTF-capable kernel, plus Kafka and ClickHouse.',
+    firstSignal: 'Planes > eBPF shows host, service, and L7 edges.',
+    action: 'Register eBPF collector',
+  },
+  {
+    id: 'endpoint',
+    title: 'Endpoint',
+    producer: 'probectl-endpoint',
+    prerequisites: 'Endpoint package on Linux, macOS, or Windows with local network reachability.',
+    firstSignal: 'Planes > Device/Endpoint shows last-mile DEM results and slow endpoint causes.',
+    action: 'Register Endpoint collector',
+  },
+]
 
 function firstTestTargetPlaceholder(type: string): string {
   switch (type) {
@@ -196,6 +257,16 @@ export function OnboardingPage() {
     )
   }
 
+  function choosePlane(plane: ProducerPlane) {
+    if (plane.id === 'synthetic') {
+      const target = document.getElementById('first-run-agent')
+      target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      target?.querySelector<HTMLButtonElement | HTMLInputElement>('input, button')?.focus()
+      return
+    }
+    navigate(`/admin?register_collector=${plane.id}`)
+  }
+
   return (
     <Page
       title="First-run setup"
@@ -214,8 +285,37 @@ export function OnboardingPage() {
         </ul>
       </section>
 
+      <section className={styles.planeChooser} aria-labelledby="plane-chooser-title">
+        <div className={styles.sectionIntro}>
+          <h2 id="plane-chooser-title">Choose a producer plane</h2>
+          <p>Pick the first signal you want online; probectl routes you to the matching setup path.</p>
+        </div>
+        <div className={styles.planeGrid}>
+          {PRODUCER_PLANES.map((plane) => (
+            <Card key={plane.id} className={styles.planeCard}>
+              <CardHeader
+                title={plane.title}
+                description={plane.producer}
+                actions={<Badge tone={plane.id === 'synthetic' ? 'info' : 'warning'}>{plane.id === 'synthetic' ? 'gRPC' : 'bus'}</Badge>}
+              />
+              <CardBody className={styles.planeBody}>
+                <dl className={styles.planeFacts}>
+                  <dt>Prerequisites</dt>
+                  <dd>{plane.prerequisites}</dd>
+                  <dt>First signal</dt>
+                  <dd>{plane.firstSignal}</dd>
+                </dl>
+                <Button variant={plane.id === 'synthetic' ? 'primary' : 'secondary'} onClick={() => choosePlane(plane)}>
+                  <Icon name={plane.id === 'synthetic' ? 'targets' : 'admin'} /> {plane.action}
+                </Button>
+              </CardBody>
+            </Card>
+          ))}
+        </div>
+      </section>
+
       <div className={styles.grid}>
-        <Card>
+        <Card id="first-run-agent">
           <CardHeader
             title="Enroll an agent"
             description="Mint a tenant-scoped, one-time token and run the command from the agent host."

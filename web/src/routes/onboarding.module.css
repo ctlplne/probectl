@@ -26,6 +26,66 @@
   color: var(--color-text-subtle);
 }
 
+.planeChooser {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-end: var(--space-4);
+}
+
+.sectionIntro {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 72ch;
+}
+
+.sectionIntro h2,
+.sectionIntro p {
+  margin: 0;
+}
+
+.sectionIntro h2 {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sectionIntro p {
+  color: var(--color-text-muted);
+}
+
+.planeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--space-4);
+}
+
+.planeCard {
+  min-width: 0;
+}
+
+.planeBody {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.planeFacts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.planeFacts dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+}
+
+.planeFacts dd {
+  margin: 0;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));

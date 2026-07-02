@@ -68,6 +68,18 @@ function collectorFetch(capture: {
 }
 
 describe('Admin collector registration journey (JOURNEY-003)', () => {
+  test('deep-links to eBPF registration with Linux capability prerequisites before token minting', async () => {
+    const capture: { mint?: Record<string, unknown>; register?: Record<string, unknown> } = {}
+    vi.stubGlobal('fetch', collectorFetch(capture))
+    renderApp('/admin?register_collector=ebpf')
+
+    const dialog = await screen.findByRole('dialog', { name: /register collector/i })
+    expect(within(dialog).getByLabelText(/collector plane/i)).toHaveValue('ebpf')
+    expect(within(dialog).getByText(/Linux host with CAP_BPF, CAP_PERFMON, and BTF/i)).toBeInTheDocument()
+    expect(capture.mint).toBeUndefined()
+    expect(capture.register).toBeUndefined()
+  })
+
   test('mints and consumes a tenant token without sending tenant_id from the browser', async () => {
     const capture: { mint?: Record<string, unknown>; register?: Record<string, unknown> } = {}
     vi.stubGlobal('fetch', collectorFetch(capture))
