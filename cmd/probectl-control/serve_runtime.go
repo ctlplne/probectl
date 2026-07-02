@@ -318,10 +318,10 @@ func (rt *serveRuntime) buildAPIServer() error {
 
 func (rt *serveRuntime) startTopologyConsumer() {
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "topology-consumer", rt.log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(rt.gctx, "topology-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return control.NewTopologyConsumer(rt.resultBus, rt.topoStore, rt.log).
 				WithTenantBinding(rt.tenantBinding).
-				WithNamespaceTenants(rt.nsTenants).
+				WithNamespaceTenants(snap.tenants).
 				WithEBPFStore(rt.ebpfStore).
 				WithMetrics(rt.srv.Metrics()).
 				Run(ctx)
@@ -403,28 +403,25 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 }
 
 func (rt *serveRuntime) startIngestConsumers() {
-	busNamespaces, nsErr := tenancy.CurrentRouter().BusNamespaces(rt.gctx)
-	if nsErr != nil {
-		rt.log.Warn("isolation: bus namespaces unavailable; consuming shared lanes only", "error", nsErr.Error())
-	} else if len(busNamespaces) > 0 {
-		rt.log.Info("isolation: consuming namespaced result lanes", "namespaces", busNamespaces)
+	if snap, err := loadBusLaneSnapshot(rt.gctx); err == nil {
+		rt.nsTenants = snap.tenants
+		if len(snap.namespaces) > 0 {
+			rt.log.Info("isolation: consuming namespaced result lanes", "namespaces", snap.namespaces)
+		}
+	} else {
+		rt.log.Warn("isolation: bus namespaces unavailable; consuming shared lanes only", "error", err.Error())
 	}
-	nsTenants, ntErr := tenancy.CurrentRouter().BusNamespaceTenants(rt.gctx)
-	if ntErr != nil {
-		rt.log.Warn("isolation: namespace-tenant map unavailable", "error", ntErr.Error())
-	}
-	rt.nsTenants = nsTenants
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "result-pipeline", rt.log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(rt.gctx, "result-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return buildResultPipelineConsumer(rt.cfg, rt.resultBus, rt.ingestWriter, rt.log,
-				busNamespaces, nsTenants, rt.tenantBinding, rt.fairGate, rt.srv.Metrics()).Run(ctx)
+				snap.namespaces, snap.tenants, rt.tenantBinding, rt.fairGate, rt.srv.Metrics()).Run(ctx)
 		})
 	})
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "flow-pipeline", rt.log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(rt.gctx, "flow-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewFlowConsumer(rt.resultBus, rt.flowStore, rt.flowEnricher, rt.log).
 				WithTenantBinding(rt.tenantBinding).
-				WithNamespaceTenants(nsTenants).
+				WithNamespaceTenants(snap.tenants).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				WithFairness(rt.fairGate).
 				WithMetrics(rt.srv.Metrics()).
@@ -432,20 +429,20 @@ func (rt *serveRuntime) startIngestConsumers() {
 		})
 	})
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "device-pipeline", rt.log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(rt.gctx, "device-pipeline", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewDeviceConsumer(rt.resultBus, rt.ingestWriter, rt.log).
 				WithFairness(rt.fairGate).
 				WithMetrics(rt.srv.Metrics()).
 				WithTenantBinding(rt.tenantBinding).
-				WithNamespaceTenants(nsTenants).
+				WithNamespaceTenants(snap.tenants).
 				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				Run(ctx)
 		})
 	})
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "endpoint-view", rt.log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(rt.gctx, "endpoint-view", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return control.NewEndpointViewConsumer(rt.resultBus, rt.endpointViews, rt.log).
-				WithNamespaceTenants(nsTenants).
+				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})
 	})
@@ -453,23 +450,23 @@ func (rt *serveRuntime) startIngestConsumers() {
 		Name: "result-view", Fn: control.NewResultViewConsumer(rt.resultBus, rt.latestResults, rt.log).SinkResult})
 }
 
-func (rt *serveRuntime) startSLOAndComplianceConsumers(nsTenants map[string]string) {
+func (rt *serveRuntime) startSLOAndComplianceConsumers() {
 	if rt.sloEngine != nil {
 		rt.g.Go(func() error {
-			return superviseRestart(rt.gctx, "slo-consumer", rt.log, func(ctx context.Context) error {
+			return superviseBusLaneRestart(rt.gctx, "slo-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 				return control.NewSLOConsumer(rt.resultBus, rt.sloEngine, rt.correlator, rt.log).
-					WithNamespaceTenants(nsTenants).
+					WithNamespaceTenants(snap.tenants).
 					Run(ctx)
 			})
 		})
 	}
 	if rt.complianceEngine != nil {
 		rt.g.Go(func() error {
-			return superviseRestart(rt.gctx, "compliance-consumer", rt.log, func(ctx context.Context) error {
+			return superviseBusLaneRestart(rt.gctx, "compliance-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 				return control.NewComplianceConsumer(rt.resultBus, rt.complianceEngine, rt.correlator, rt.log).
 					WithSIEM(rt.siemFwd).
 					WithTenantBinding(rt.tenantBinding).
-					WithNamespaceTenants(nsTenants).
+					WithNamespaceTenants(snap.tenants).
 					Run(ctx)
 			})
 		})
@@ -479,19 +476,19 @@ func (rt *serveRuntime) startSLOAndComplianceConsumers(nsTenants map[string]stri
 func (rt *serveRuntime) startCostCarbonConsumers() {
 	if rt.costEngine != nil {
 		rt.g.Go(func() error {
-			return superviseRestart(rt.gctx, "cost-consumer", rt.log, func(ctx context.Context) error {
+			return superviseBusLaneRestart(rt.gctx, "cost-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 				return control.NewCostConsumer(rt.resultBus, rt.costEngine, rt.correlator, rt.log).
 					WithTenantBinding(rt.tenantBinding).
-					WithNamespaceTenants(rt.nsTenants).
+					WithNamespaceTenants(snap.tenants).
 					Run(ctx)
 			})
 		})
 	}
 	if rt.carbonEngine != nil {
 		rt.g.Go(func() error {
-			return superviseRestart(rt.gctx, "carbon-consumer", rt.log, func(ctx context.Context) error {
+			return superviseBusLaneRestart(rt.gctx, "carbon-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 				return control.NewCarbonConsumer(rt.resultBus, rt.carbonEngine, rt.log).
-					WithNamespaceTenants(rt.nsTenants).
+					WithNamespaceTenants(snap.tenants).
 					Run(ctx)
 			})
 		})
@@ -505,12 +502,13 @@ func (rt *serveRuntime) startOutageRUMConsumers() {
 		rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "outage-vantage", Fn: oc.SinkResult})
 	}
 	if rt.rumOn {
-		rc := control.NewRUMConsumer(rt.resultBus, rt.rumEngine, rt.correlator, rt.log).
-			WithNamespaceTenants(rt.nsTenants)
+		rc := control.NewRUMConsumer(rt.resultBus, rt.rumEngine, rt.correlator, rt.log)
 		rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "rum-synthetic", Fn: rc.SinkResult})
 		rt.g.Go(func() error {
-			return superviseRestart(rt.gctx, "rum-views", rt.log, func(ctx context.Context) error {
-				return rc.RunViews(ctx)
+			return superviseBusLaneRestart(rt.gctx, "rum-views", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+				return control.NewRUMConsumer(rt.resultBus, rt.rumEngine, rt.correlator, rt.log).
+					WithNamespaceTenants(snap.tenants).
+					RunViews(ctx)
 			})
 		})
 	}
@@ -518,9 +516,9 @@ func (rt *serveRuntime) startOutageRUMConsumers() {
 
 func (rt *serveRuntime) startBGPIncidentConsumer() {
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "bgp-incident-consumer", rt.log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(rt.gctx, "bgp-incident-consumer", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return control.NewBGPIncidentConsumer(rt.resultBus, rt.correlator, rt.log).
-				WithNamespaceTenants(rt.nsTenants).
+				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})
 	})
@@ -533,24 +531,24 @@ func (rt *serveRuntime) startSignalConsumers() error {
 	rt.startCostCarbonConsumers()
 	rt.startOutageRUMConsumers()
 	rt.startBGPIncidentConsumer()
-	rt.startSLOAndComplianceConsumers(rt.nsTenants)
+	rt.startSLOAndComplianceConsumers()
 	if err := rt.startNDR(); err != nil {
 		return err
 	}
 	rt.startTLSPostureSinks()
-	resultFan := control.NewResultFan(rt.resultBus, rt.log, rt.resultSinks...).
-		WithNamespaceTenants(rt.nsTenants)
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "result-fan", rt.log, func(ctx context.Context) error {
-			return resultFan.Run(ctx)
+		return superviseBusLaneRestart(rt.gctx, "result-fan", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return control.NewResultFan(rt.resultBus, rt.log, rt.resultSinks...).
+				WithNamespaceTenants(snap.tenants).
+				Run(ctx)
 		})
 	})
-	resultViewFan := control.NewResultFan(rt.resultBus, rt.log, rt.resultViewSinks...).
-		WithViewGroup("result-read-views").
-		WithNamespaceTenants(rt.nsTenants)
 	rt.g.Go(func() error {
-		return superviseRestart(rt.gctx, "result-read-views", rt.log, func(ctx context.Context) error {
-			return resultViewFan.Run(ctx)
+		return superviseBusLaneRestart(rt.gctx, "result-read-views", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return control.NewResultFan(rt.resultBus, rt.log, rt.resultViewSinks...).
+				WithViewGroup("result-read-views").
+				WithNamespaceTenants(snap.tenants).
+				Run(ctx)
 		})
 	})
 	return nil
@@ -598,7 +596,11 @@ func (rt *serveRuntime) startNDR() error {
 		WithFairness(rt.fairGate).
 		WithSIEM(rt.siemFwd)
 	rt.resultSinks = append(rt.resultSinks, control.ResultSink{Name: "ndr-dns", Fn: ndrc.SinkResult})
-	rt.g.Go(func() error { return ndrc.RunFlowLanes(rt.gctx) })
+	rt.g.Go(func() error {
+		return superviseBusLaneRestart(rt.gctx, "ndr-flow-lanes", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return ndrc.WithNamespaceTenants(snap.tenants).RunFlowLanes(ctx)
+		})
+	})
 	return nil
 }
 

@@ -89,10 +89,10 @@ a transient routing blip delays the data instead of mis-routing it.
   other three planes have been brought up to the same contract.)
 - **Bus:** topics gain a namespace segment, e.g.
   `probectl.t-<slug>.network.results`. The control plane publishes a siloed
-  tenant's results/RUM onto its own lane and subscribes to every siloed lane known
-  at startup. (A tenant siloed *after* boot is picked up from its lane after the
-  next restart; the shared lanes stay subscribed throughout, so nothing is
-  dropped.)
+  tenant's results/RUM onto its own lane. The runtime lane supervisor polls the
+  tenant registry and restarts only the bus subscribers when that namespace set
+  changes, so a tenant siloed *after* boot is picked up without a process restart;
+  the shared lanes stay subscribed throughout, so pooled tenants keep flowing.
 - **Object store:** tenant-owned artifact callers use a bound object-store
   handle, so they pass relative paths like `browser/shot.png` and the storage
   adapter prepends the namespace. Siloed/hybrid keys move under
@@ -169,12 +169,12 @@ missing tables (the same `LIKE` + RLS recipe), and adds any missing columns (an
 **expand-only** changes (see [`lifecycle.md`](lifecycle.md)): create-missing +
 add-missing-columns covers every migration the gate allows. The rarer
 destructive "contract" phases (drops/renames) are run by the operator across
-silos. Catch-up runs **automatically at startup for every siloed tenant** and is
-idempotent, and per-tenant **drift** — the gap between a silo's schema and the
-current `public` shape — is computable (`DriftFor`) so the lag is always
-*visible*, never silent. The window between a freshly-deployed replica writing a
-new `public` table and an old silo catching up is bounded by the deploy itself —
-roll the control plane, then let catch-up converge.
+silos. Catch-up runs **automatically at startup for every siloed tenant**, is
+idempotent, and must **succeed before the silo router is published**. If any
+tenant's catch-up fails, the control plane fails closed instead of routing that
+tenant to a stale schema. Per-tenant **drift** — the gap between a silo's schema
+and the current `public` shape — is computable (`DriftFor`) so the lag is always
+*visible*, never silent.
 
 ## Configuration
 

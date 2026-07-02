@@ -171,11 +171,10 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 	}
 }
 
-// WithNamespaces adds siloed tenants' namespaced result lanes (S-T2). The set
-// is resolved at startup; a tenant siloed after boot publishes to its lane as
-// soon as it exists, and the consumer attaches on the next restart (the
-// shared lane remains subscribed throughout, so nothing is ever unconsumed
-// for pooled tenants).
+// WithNamespaces adds siloed tenants' namespaced result lanes (S-T2). The
+// control-plane lane supervisor rebuilds this consumer when the registry's
+// namespace set changes, so a tenant siloed after boot is picked up without a
+// process restart while the shared lane remains subscribed for pooled tenants.
 func (c *Consumer) WithNamespaces(ns []string) *Consumer {
 	c.namespaces = append(c.namespaces, ns...)
 	return c
