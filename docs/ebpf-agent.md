@@ -396,6 +396,14 @@ the matrix when adopting a new LTS.
 | Default (any OS) | `make build` | FixtureSource / stub | nothing extra |
 | Live eBPF (Linux) | `make ebpf-agent` | CO-RE loader | clang + bpftool + a BTF kernel (libbpf BPF headers are vendored in-repo under `internal/ebpf/bpf/headers/` — no `libbpf-dev` needed) |
 
+Release builds do not rely on the GitHub runner's live apt repository state for
+the compiler path. `deploy/docker/Dockerfile.ebpf` exposes a named
+`ebpf-toolchain` stage with a digest-pinned Go/Debian base, Debian snapshot
+`20260702T000000Z`, and exact `clang-14`, `llvm-14`, and `bpftool` package
+versions. CI and release run BPF generation through
+`scripts/run-ebpf-toolchain.sh`, and downloadable releases include a signed
+`probectl_<version>_ebpf-toolchain.txt` receipt beside the binaries and SBOM.
+
 **The shipped artifacts are live builds.** Fixture mode is dev/test-only. The
 shipped agent image is the live `-tags ebpf` build: `deploy/docker/Dockerfile.ebpf`
 runs the same `bpf2go` + digest-generation path (`bpf2go` is the `cilium/ebpf`

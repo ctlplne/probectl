@@ -518,10 +518,10 @@ func TestArm64EBPFKernelMatrixRequiresLiveKVM(t *testing.T) {
 func TestReleaseEBPFDownloadablesAreLiveBuilds(t *testing.T) {
 	rel := readWorkflow(t, "release.yml")
 	for _, want := range []string{
-		"bash scripts/build-release-binaries.sh",
-		"eBPF release toolchain",
-		"clang-14",
-		"linux-tools-generic",
+		"bash scripts/run-ebpf-toolchain.sh bash scripts/build-release-binaries.sh",
+		"pinned eBPF toolchain",
+		"clang/llvm/bpftool",
+		"ebpf-toolchain.txt",
 		"Assert packaged eBPF binary is live",
 		"matrix.agent == 'ebpf-agent'",
 		"go version -m \"$bin\"",
@@ -544,6 +544,8 @@ func TestReleaseEBPFDownloadablesAreLiveBuilds(t *testing.T) {
 		"\"$GO\" version -m \"$bin\"",
 		"fixture-only eBPF agent",
 		"probectl-ebpf-agent",
+		"TOOLCHAIN_RECEIPT",
+		"ebpf-toolchain.txt",
 		`if [ "$component" = "probectl-ebpf-agent" ]; then`,
 		`build_ebpf_binary "$arch" "$out"`,
 	} {

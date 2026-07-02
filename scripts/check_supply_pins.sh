@@ -37,6 +37,13 @@ TOML
   if awk '/^[[:space:]]*(dependencies|dev)[[:space:]]*=[[:space:]]*\[/ {in_deps=1; next} in_deps && /^[[:space:]]*\]/ {in_deps=0; next} in_deps && /"/ {spec=$0; sub(/^[^"]*"/, "", spec); sub(/".*$/, "", spec); if (spec !~ /==/) bad=1} END {exit bad ? 0 : 1}' "$tmp/pyproject.toml"; then :; else echo "SELFTEST broken (python manifest range)"; exit 1; fi
   echo 'apt-get install -y clang llvm bpftool' > "$tmp/bad.dockerfile"
   if grep -qE '(^| )clang( |$)' "$tmp/bad.dockerfile"; then :; else echo "SELFTEST broken (clang pin)"; exit 1; fi
+  cat > "$tmp/bad-toolchain.yml" <<'YAML'
+jobs:
+  ebpf:
+    steps:
+      - run: sudo apt-get install -y clang llvm linux-tools-generic
+YAML
+  if grep -Eq 'apt-get install .* (clang|llvm|bpftool|linux-tools-generic)' "$tmp/bad-toolchain.yml"; then :; else echo "SELFTEST broken (workflow ebpf toolchain pin)"; exit 1; fi
   # SUPPLY-003: camelCase *Image: keys (e.g. installerImage:) must be reachable
   # by the digest scan — the case-sensitive `image:` scan in (5) misses them.
   line='installerImage: busybox:1.36'; val="${line#*[Ii]mage:}"; val="$(echo "$val" | tr -d '[:space:]')"
@@ -139,12 +146,27 @@ if [[ -f analyzer/pyproject.toml ]]; then
     }' analyzer/pyproject.toml)
 fi
 
-# 4) bare clang/llvm install on the eBPF build path (SUPPLY-001): the BPF
-#    compiler must be a PINNED versioned package (clang-NN / llvm-NN), never the
-#    floating meta-package, or the BPF objects + U-014 digests drift. The
-#    install spans a line-continuation, so tokenize each matching line and flag
-#    a BARE clang/llvm token (pinned forms clang-14 / llvm-14 carry a -NN/=ver).
+# 4) eBPF toolchain pinning (SUPPLY-003): the BPF compiler and bpftool produce
+#    kernel-loadable bytes, so they must not come from mutable runner apt state.
+#    Dockerfile.ebpf owns the exact toolchain stage: digest-pinned base, signed
+#    Debian snapshot, and exact clang/llvm/bpftool package versions.
 if [[ -f deploy/docker/Dockerfile.ebpf ]]; then
+  for want in \
+    'AS ebpf-toolchain' \
+    'ARG DEBIAN_SNAPSHOT=20260702T000000Z' \
+    'ARG CLANG_14_VERSION=1:14.0.6-12' \
+    'ARG LLVM_14_VERSION=1:14.0.6-12' \
+    'ARG BPFTOOL_VERSION=7.1.0+6.1.174-1' \
+    'snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}' \
+    'snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}' \
+    '"clang-14=${CLANG_14_VERSION}"' \
+    '"llvm-14=${LLVM_14_VERSION}"' \
+    '"bpftool=${BPFTOOL_VERSION}"'; do
+    if ! grep -Fq "$want" deploy/docker/Dockerfile.ebpf; then
+      echo "eBPF Dockerfile missing pinned toolchain contract piece (SUPPLY-003): $want"
+      fail=1
+    fi
+  done
   while IFS= read -r raw; do
     code="${raw#*:}"; code="${code%%#*}"   # strip file:line prefix + trailing comment
     stripped="${code#"${code%%[![:space:]]*}"}"
@@ -159,6 +181,26 @@ if [[ -f deploy/docker/Dockerfile.ebpf ]]; then
     done
   done < <(grep -rni 'clang' deploy/docker/Dockerfile.ebpf 2>/dev/null; grep -rni 'llvm' deploy/docker/Dockerfile.ebpf 2>/dev/null || true)
 fi
+
+# 4b) Workflow apt installs may still install runner infrastructure such as
+#     qemu, but not clang/llvm/bpftool/linux-tools for the eBPF object build.
+#     Those must run through scripts/run-ebpf-toolchain.sh so release and CI use
+#     the same pinned toolchain stage.
+while IFS= read -r raw; do
+  code="${raw#*:}"; code="${code%%#*}"
+  stripped="${code#"${code%%[![:space:]]*}"}"
+  [[ "$stripped" == \#* ]] && continue
+  echo "$code" | grep -q 'apt-get install' || continue
+  for tok in $code; do
+    case "$tok" in
+      clang|llvm|bpftool|linux-tools-common|linux-tools-generic)
+        echo "UNPINNED eBPF toolchain install in workflow (run scripts/run-ebpf-toolchain.sh instead; SUPPLY-003):"
+        echo "  $raw"
+        fail=1
+        ;;
+    esac
+  done
+done < <(grep -rnE 'apt-get install.*(clang|llvm|bpftool|linux-tools)' .github/workflows --include='*.yml' --include='*.yaml' || true)
 
 # 5) SUPPLY-006: tag-only (non-digest) image refs under deploy/helm. A `:tag`
 #    with no `@sha256:` is mutable — the restore Job once fell back to a bare

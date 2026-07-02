@@ -19,6 +19,7 @@ ARCHES="${ARCHES:-amd64 arm64}"
 BINARIES="${BINARIES:-probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl}"
 BTF_PATH="${BTF_PATH:-/sys/kernel/btf/vmlinux}"
 CLANG="${CLANG:-clang-14}"
+TOOLCHAIN_RECEIPT="${TOOLCHAIN_RECEIPT:-/usr/local/share/probectl/ebpf-toolchain.txt}"
 
 ldflags="-s -w -X github.com/imfeelingtheagi/probectl/internal/version.Version=${VERSION} -X github.com/imfeelingtheagi/probectl/internal/version.Commit=${COMMIT} -X github.com/imfeelingtheagi/probectl/internal/version.Date=${DATE}"
 
@@ -86,6 +87,9 @@ build_ebpf_binary() {
 
 mkdir -p "$DIST_DIR"
 rm -f "$DIST_DIR/checksums.txt"
+if [ -f "$TOOLCHAIN_RECEIPT" ]; then
+	cp "$TOOLCHAIN_RECEIPT" "$DIST_DIR/probectl_${VERSION}_ebpf-toolchain.txt"
+fi
 
 for arch in $ARCHES; do
 	for component in $BINARIES; do

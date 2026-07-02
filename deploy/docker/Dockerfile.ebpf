@@ -21,27 +21,52 @@ ARG GO_VERSION=1.26
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
 # auto-update bot). Tag kept for humans.
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d AS build
-ARG TARGETOS
-ARG TARGETARCH
-ARG VERSION=0.0.0-dev
-ARG COMMIT=unknown
-ARG DATE=unknown
-WORKDIR /src
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d AS ebpf-toolchain
+ARG GO_VERSION=1.26
 
 # clang compiles the BPF objects; bpftool dumps the build host's BTF → vmlinux.h.
 # The libbpf BPF headers are vendored (internal/ebpf/bpf/headers, -I'd into bpf2go
 # below), so NO libbpf-dev: the compile is independent of the distro's libbpf
 # version. (bookworm's libbpf 1.1 lacked BPF_UPROBE — the exact break this fixes;
 # see internal/ebpf/bpf/headers/VENDOR.md.)
-# SUPPLY-001: pin the clang/llvm MAJOR version (clang-14 = Debian bookworm's
-# versioned package) instead of the floating `clang` meta-package, so the BPF
-# objects (and their U-014 SHA-256 digests) are reproducible across rebuilds.
-# gen_bpf.sh defaults CLANG=clang-14 to match. (The exact patch version still
-# tracks the pinned bookworm base image's apt snapshot, which the digest-pinned
-# golang:${GO_VERSION}-bookworm@sha256 freezes.)
-RUN apt-get update -q && apt-get install -y -q --no-install-recommends \
-      clang-14 llvm-14 bpftool && rm -rf /var/lib/apt/lists/*
+# SUPPLY-003: the compiler path is pinned at three layers:
+#   1. digest-pinned Go/Debian base image,
+#   2. immutable signed Debian snapshot timestamp,
+#   3. exact clang/llvm/bpftool package versions.
+ARG DEBIAN_SNAPSHOT=20260702T000000Z
+ARG CLANG_14_VERSION=1:14.0.6-12
+ARG LLVM_14_VERSION=1:14.0.6-12
+ARG BPFTOOL_VERSION=7.1.0+6.1.174-1
+RUN set -eux; \
+    printf '%s\n' \
+      "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT} bookworm main" \
+      "deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT} bookworm-security main" \
+      > /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/*; \
+    apt-get -o Acquire::Check-Valid-Until=false update -q; \
+    apt-get install -y -q --no-install-recommends \
+      "clang-14=${CLANG_14_VERSION}" \
+      "llvm-14=${LLVM_14_VERSION}" \
+      "bpftool=${BPFTOOL_VERSION}"; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /usr/local/share/probectl; \
+    { \
+      echo "base=golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d"; \
+      echo "debian_snapshot=${DEBIAN_SNAPSHOT}"; \
+      echo "clang-14=${CLANG_14_VERSION}"; \
+      echo "llvm-14=${LLVM_14_VERSION}"; \
+      echo "bpftool=${BPFTOOL_VERSION}"; \
+    } > /usr/local/share/probectl/ebpf-toolchain.txt
+ENV CLANG=clang-14 \
+    BPFTOOL=bpftool
+
+FROM ebpf-toolchain AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=0.0.0-dev
+ARG COMMIT=unknown
+ARG DATE=unknown
+WORKDIR /src
 
 # Cache dependencies first for faster rebuilds.
 COPY go.mod go.sum ./

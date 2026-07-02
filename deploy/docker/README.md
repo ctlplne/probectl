@@ -56,7 +56,10 @@ runs the same toolchain operators use (`make ebpf-agent`): `bpf2go` (clang)
 compiles the BPF objects for both arches, then the Go build embeds them under
 `-tags ebpf`. (`bpf2go` is the cilium/ebpf code generator — it drives `clang`
 over the C BPF source and embeds the compiled objects into the Go binary, so
-the final image still has no compiler in it.) The build host needs a readable
+the final image still has no compiler in it.) SUPPLY-003 pins that compiler
+path through the named `ebpf-toolchain` stage: digest-pinned Go/Debian base,
+Debian snapshot `20260702T000000Z`, and exact `clang-14`,
+`llvm-14`, and `bpftool` package versions. The build host needs a readable
 `/sys/kernel/btf/vmlinux`; the deployment kernel is relocated at load time by
 CO-RE. **BTF** is the kernel's embedded type catalog, and **CO-RE** — *compile
 once, run everywhere* — means the embedded objects carry relocation info and
@@ -74,4 +77,6 @@ other eight components — `probectl-control`, `probectl-agent`,
 `probectl-cloud-metrics`, `terraform-provider-probectl`, and `probectl` — from
 the generic `Dockerfile`. A CI job asserts the shipped eBPF
 binary actually records the `ebpf` build tag so a fixture image can't ship by
-mistake.
+mistake. Downloadable release binaries are built through
+`scripts/run-ebpf-toolchain.sh` as well, and the signed release assets include
+`probectl_<version>_ebpf-toolchain.txt` with the pinned toolchain receipt.
