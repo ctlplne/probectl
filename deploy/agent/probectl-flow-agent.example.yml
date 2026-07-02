@@ -1,8 +1,9 @@
 # probectl-flow-agent example configuration (S38, F17).
 # Every key has a PROBECTL_FLOW_* environment override — see docs/configuration.md.
 # Deploy the collector adjacent to its exporters: flow export protocols are
-# plaintext UDP by design, so the datagrams should never cross untrusted
-# segments (docs/flow.md, "Security posture").
+# plaintext UDP by design, so datagrams should never cross untrusted segments.
+# Every enabled wildcard/non-loopback listener must name exporter source CIDRs;
+# replace the example RFC1918 ranges with the exact device/exporter subnets.
 
 apiVersion: probectl.io/flow-agent/v1
 tenant_id: "00000000-0000-0000-0000-000000000001" # REQUIRED — every record is tenant-bound (F50)
@@ -16,12 +17,15 @@ bus:
 netflow:
   enabled: true
   listen: ":2055"
+  allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 ipfix:
   enabled: true
   listen: ":4739"
+  allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 sflow:
   enabled: true
   listen: ":6343"
+  allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 
 # Batching: a flush goes out at batch_size records or flush_interval, whichever
 # comes first.

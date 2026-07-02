@@ -11,12 +11,15 @@ bus:
 netflow:
   enabled: {{ probectl_flow_netflow_enabled | bool }}
   listen: "{{ probectl_flow_netflow_listen }}"
+  allowed_sources: {{ probectl_flow_netflow_allowed_sources | to_json }}
 ipfix:
   enabled: {{ probectl_flow_ipfix_enabled | bool }}
   listen: "{{ probectl_flow_ipfix_listen }}"
+  allowed_sources: {{ probectl_flow_ipfix_allowed_sources | to_json }}
 sflow:
   enabled: {{ probectl_flow_sflow_enabled | bool }}
   listen: "{{ probectl_flow_sflow_listen }}"
+  allowed_sources: {{ probectl_flow_sflow_allowed_sources | to_json }}
 cloud_import:
   provider: "{{ probectl_flow_cloud_import_provider }}"
   path: "{{ probectl_flow_cloud_import_path }}"

@@ -142,8 +142,12 @@ untrusted ingestion surface (see
 [`security/threat-model.md`](security/threat-model.md)):
 
 - every datagram or cloud-log line is **untrusted input**: decoders are pure and
-  bounds-checked, record counts, line size, and template state are capped, and
-  malformed input is counted and dropped — never a panic in a production path;
+	  bounds-checked, record counts, line size, and template state are capped, and
+	  malformed input is counted and dropped — never a panic in a production path;
+- every enabled UDP listener has an **exporter source ACL** (`allowed_sources` in
+  YAML or `PROBECTL_FLOW_*_ALLOWED_SOURCES` in env). Non-loopback listeners
+  without an ACL refuse startup, and packets from unlisted source IPs are dropped
+  before decode and counted as `source_drops`;
 - the tenant on every record comes from the **collector's own tenant binding**
   (its config, the SPIFFE workload identity on its client certificate, or the
   authenticated local import context), never from anything the datagram or cloud

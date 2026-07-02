@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net"
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,6 +29,7 @@ type Stats struct {
 	TemplateMisses atomic.Uint64
 	QueueDrops     atomic.Uint64
 	EmitErrors     atomic.Uint64
+	SourceDrops    atomic.Uint64
 	// DroppedRecords counts records LOST after emit retries were exhausted
 	// (CORRECT-001) — distinct from EmitErrors (failed flush attempts). Telemetry
 	// loss is never silent: it rides the stats snapshot + the periodic stats log.
@@ -36,7 +38,7 @@ type Stats struct {
 
 // StatsSnapshot is a point-in-time copy for logging/tests.
 type StatsSnapshot struct {
-	Packets, Records, DecodeErrors, TemplateMisses, QueueDrops, EmitErrors, DroppedRecords uint64
+	Packets, Records, DecodeErrors, TemplateMisses, QueueDrops, EmitErrors, SourceDrops, DroppedRecords uint64
 }
 
 // Collector binds the configured UDP listeners, decodes datagrams into
@@ -44,10 +46,10 @@ type StatsSnapshot struct {
 //
 // Security posture (CLAUDE.md §7 guardrail 12): NetFlow/IPFIX/sFlow are UDP
 // export protocols with no transport security of their own, so every datagram
-// is treated as untrusted input — decoders are bounds-checked and template
-// state is TTL'd and size-capped. Deploy the collector adjacent to exporters
-// (management network); records become trusted only by the agent's own tenant
-// binding, never by anything the datagram claims.
+// is treated as untrusted input. The listener-level source ACL rejects
+// unlisted exporters before decode, decoders are bounds-checked, and template
+// state is TTL'd and size-capped. Records become trusted only by the agent's
+// own tenant binding, never by anything the datagram claims.
 type Collector struct {
 	cfg  *Config
 	emit Emitter
@@ -71,9 +73,10 @@ type Collector struct {
 	// survives a hostile/corrupt datagram.
 	decodeFn func(pkt []byte, exporter string, now time.Time) ([]Record, int, error)
 
-	mu    sync.Mutex
-	conns map[string]net.PacketConn // protocol name -> bound socket
-	done  chan struct{}
+	mu         sync.Mutex
+	conns      map[string]net.PacketConn // protocol name -> bound socket
+	sourceACLs map[string][]netip.Prefix // protocol name -> allowed exporter CIDRs
+	done       chan struct{}
 }
 
 // New validates cfg and builds a collector.
@@ -87,6 +90,10 @@ func New(cfg *Config, em Emitter, log *slog.Logger) (*Collector, error) {
 	if log == nil {
 		log = slog.Default()
 	}
+	sourceACLs, err := compileSourceACLs(cfg)
+	if err != nil {
+		return nil, err
+	}
 	c := &Collector{
 		cfg:            cfg,
 		emit:           em,
@@ -96,6 +103,7 @@ func New(cfg *Config, em Emitter, log *slog.Logger) (*Collector, error) {
 		emitMaxRetries: 2,
 		emitRetryBase:  50 * time.Millisecond,
 		conns:          make(map[string]net.PacketConn),
+		sourceACLs:     sourceACLs,
 		done:           make(chan struct{}),
 	}
 	c.sleep = c.defaultSleep
@@ -194,6 +202,7 @@ func (c *Collector) StatsSnapshot() StatsSnapshot {
 		TemplateMisses: c.stats.TemplateMisses.Load(),
 		QueueDrops:     c.stats.QueueDrops.Load(),
 		EmitErrors:     c.stats.EmitErrors.Load(),
+		SourceDrops:    c.stats.SourceDrops.Load(),
 		DroppedRecords: c.stats.DroppedRecords.Load(),
 	}
 }
@@ -221,6 +230,11 @@ func (c *Collector) readLoop(ctx context.Context, name string, conn net.PacketCo
 		}
 		c.stats.Packets.Add(1)
 		exporter := exporterHost(addr)
+		if !c.sourceAllowed(name, addr) {
+			c.stats.SourceDrops.Add(1)
+			c.log.Debug("flow: datagram rejected by source ACL", "listener", name, "exporter", exporter)
+			continue
+		}
 		// FUZZ-006: a malformed/hostile datagram must never panic the read loop
 		// (which would silently stop flow ingestion). decodeSafely recovers
 		// per-packet, counts it as a decode error, drops the packet, and the
@@ -303,7 +317,7 @@ func (c *Collector) flushLoop(ctx context.Context) {
 			c.log.Info("flow: collector stats",
 				"packets", s.Packets, "records", s.Records, "decode_errors", s.DecodeErrors,
 				"template_misses", s.TemplateMisses, "queue_drops", s.QueueDrops,
-				"emit_errors", s.EmitErrors, "dropped_records", s.DroppedRecords,
+				"emit_errors", s.EmitErrors, "source_drops", s.SourceDrops, "dropped_records", s.DroppedRecords,
 				"templates", c.dec.TemplateCount())
 		}
 	}
@@ -360,4 +374,54 @@ func exporterHost(addr net.Addr) string {
 		return addr.String()
 	}
 	return host
+}
+
+func compileSourceACLs(cfg *Config) (map[string][]netip.Prefix, error) {
+	out := map[string][]netip.Prefix{}
+	for name, listener := range map[string]ListenerConfig{
+		"netflow": cfg.NetFlow,
+		"ipfix":   cfg.IPFIX,
+		"sflow":   cfg.SFlow,
+	} {
+		prefixes, err := parseSourcePrefixes(listener.AllowedSources)
+		if err != nil {
+			return nil, fmt.Errorf("%s allowed_sources: %w", name, err)
+		}
+		out[name] = prefixes
+	}
+	return out, nil
+}
+
+func (c *Collector) sourceAllowed(listener string, addr net.Addr) bool {
+	prefixes := c.sourceACLs[listener]
+	if len(prefixes) == 0 {
+		return true
+	}
+	ip, ok := addrIP(addr)
+	if !ok {
+		return false
+	}
+	for _, prefix := range prefixes {
+		if prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func addrIP(addr net.Addr) (netip.Addr, bool) {
+	if udp, ok := addr.(*net.UDPAddr); ok {
+		if ip, ok := netip.AddrFromSlice(udp.IP); ok {
+			return ip.Unmap(), true
+		}
+	}
+	host, _, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	ip, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return ip.Unmap(), true
 }

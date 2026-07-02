@@ -179,6 +179,13 @@ strict="$(render -f "$CHART/values-strict.yaml")"
 need "kind: NetworkPolicy"          "$strict" "strict profile missing NetworkPolicy"
 need "ingress-nginx"                "$strict" "strict profile: ingress selector hole not closed (HOLE 1)"
 need "port: 5432"                   "$strict" "strict profile: datastore egress allow-list missing (HOLE 2)"
+need "port: 8443"                   "$strict" "strict profile: ClickHouse HTTPS egress missing (WIRE-010)"
+need "port: 9440"                   "$strict" "strict profile: ClickHouse native TLS egress missing (WIRE-010)"
+need "port: 9093"                   "$strict" "strict profile: Kafka TLS egress missing (WIRE-010)"
+for plain_port in 8123 9000 9092 9009; do
+  grep -qE "port: ${plain_port}([[:space:]]|$)" <<<"$strict" \
+    && fail "strict profile still permits plaintext datastore/broker egress port ${plain_port} (WIRE-010)"
+done
 # The default profile's allow-all egress rule ("- {}") must NOT survive in strict.
 strict_np="$(awk '/kind: NetworkPolicy/,/^---/' <<<"$strict")"
 grep -qE '^[[:space:]]*-[[:space:]]*\{\}[[:space:]]*$' <<<"$strict_np" \

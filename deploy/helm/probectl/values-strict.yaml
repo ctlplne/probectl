@@ -37,11 +37,11 @@ networkPolicy:
     - to:
         - ipBlock: { cidr: 10.0.0.0/8 } # in-cluster / private datastore range
       ports:
-        - { protocol: TCP, port: 5432 } # PostgreSQL
-        - { protocol: TCP, port: 8123 } # ClickHouse HTTP
-        - { protocol: TCP, port: 9000 } # ClickHouse native
-        - { protocol: TCP, port: 9092 } # Kafka
-        - { protocol: TCP, port: 9009 } # Prometheus/VictoriaMetrics remote-write
+        - { protocol: TCP, port: 5432 } # PostgreSQL with sslmode=require/verify-* on the same port
+        - { protocol: TCP, port: 8443 } # ClickHouse HTTPS
+        - { protocol: TCP, port: 9440 } # ClickHouse native TLS
+        - { protocol: TCP, port: 9093 } # Kafka TLS
+        - { protocol: TCP, port: 443 }  # Prometheus/VictoriaMetrics HTTPS remote-write
     - to:
         - ipBlock: { cidr: 0.0.0.0/0 } # IdP / OIDC + open-data/threat feeds
       ports:

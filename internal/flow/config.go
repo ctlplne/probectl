@@ -5,6 +5,8 @@ package flow
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -19,6 +21,9 @@ const ConfigAPIVersion = "probectl.io/flow-agent/v1"
 type ListenerConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Listen  string `yaml:"listen"`
+	// AllowedSources is the exporter source ACL. CIDR prefixes and literal IPs
+	// are accepted. Empty is allowed only for loopback-only listeners.
+	AllowedSources []string `yaml:"allowed_sources"`
 }
 
 // BusConfig selects the bus backend for emission (memory | kafka).
@@ -168,10 +173,19 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	}
 	setBool("PROBECTL_FLOW_NETFLOW_ENABLED", &c.NetFlow.Enabled)
 	set("PROBECTL_FLOW_NETFLOW_LISTEN", &c.NetFlow.Listen)
+	if v := getenv("PROBECTL_FLOW_NETFLOW_ALLOWED_SOURCES"); v != "" {
+		c.NetFlow.AllowedSources = splitCSV(v)
+	}
 	setBool("PROBECTL_FLOW_IPFIX_ENABLED", &c.IPFIX.Enabled)
 	set("PROBECTL_FLOW_IPFIX_LISTEN", &c.IPFIX.Listen)
+	if v := getenv("PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES"); v != "" {
+		c.IPFIX.AllowedSources = splitCSV(v)
+	}
 	setBool("PROBECTL_FLOW_SFLOW_ENABLED", &c.SFlow.Enabled)
 	set("PROBECTL_FLOW_SFLOW_LISTEN", &c.SFlow.Listen)
+	if v := getenv("PROBECTL_FLOW_SFLOW_ALLOWED_SOURCES"); v != "" {
+		c.SFlow.AllowedSources = splitCSV(v)
+	}
 	set("PROBECTL_FLOW_CLOUD_PROVIDER", &c.CloudImport.Provider)
 	set("PROBECTL_FLOW_CLOUD_FILE", &c.CloudImport.Path)
 	setInt("PROBECTL_FLOW_BATCH_SIZE", &c.BatchSize)
@@ -192,6 +206,15 @@ func (c *Config) Validate() error {
 	if !c.NetFlow.Enabled && !c.IPFIX.Enabled && !c.SFlow.Enabled && !cloud {
 		return errors.New("flow: no listener or cloud import enabled")
 	}
+	for name, listener := range map[string]ListenerConfig{
+		"netflow": c.NetFlow,
+		"ipfix":   c.IPFIX,
+		"sflow":   c.SFlow,
+	} {
+		if err := validateListener(name, listener); err != nil {
+			return err
+		}
+	}
 	if cloud {
 		if c.CloudImport.Provider == "" {
 			return errors.New("flow: cloud_import.provider is required when cloud import is enabled")
@@ -209,6 +232,61 @@ func (c *Config) Validate() error {
 		return errors.New("flow: batch_size, queue_size and flush_interval must be positive")
 	}
 	return nil
+}
+
+func validateListener(name string, l ListenerConfig) error {
+	if !l.Enabled {
+		return nil
+	}
+	if l.Listen == "" {
+		return fmt.Errorf("flow: %s.listen is required", name)
+	}
+	host, _, err := net.SplitHostPort(l.Listen)
+	if err != nil {
+		return fmt.Errorf("flow: %s.listen %q must be host:port: %w", name, l.Listen, err)
+	}
+	if _, err := parseSourcePrefixes(l.AllowedSources); err != nil {
+		return fmt.Errorf("flow: %s.allowed_sources: %w", name, err)
+	}
+	if len(l.AllowedSources) == 0 && !isLoopbackListenHost(host) {
+		return fmt.Errorf("flow: %s.allowed_sources is required for non-loopback UDP listener %q", name, l.Listen)
+	}
+	return nil
+}
+
+func isLoopbackListenHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	if host == "" {
+		return false
+	}
+	addr, err := netip.ParseAddr(host)
+	return err == nil && addr.IsLoopback()
+}
+
+func parseSourcePrefixes(raw []string) ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(raw))
+	for _, item := range raw {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if p, err := netip.ParsePrefix(item); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(item)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not a CIDR prefix or IP address", item)
+		}
+		bits := 32
+		if addr.Is6() {
+			bits = 128
+		}
+		out = append(out, netip.PrefixFrom(addr, bits))
+	}
+	return out, nil
 }
 
 func (c *Config) cloudImportEnabled() bool {

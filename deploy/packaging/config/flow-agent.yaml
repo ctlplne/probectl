@@ -11,13 +11,17 @@ bus:
   brokers: ["BROKER-HOST:9093"]
   namespace: ""               # siloed bus lane for this tenant; empty = pooled
 # Exporter listeners — enable the protocols your network devices send. Bind
-# addresses use their IANA defaults; ensure the host firewall allows them.
+# addresses use their IANA defaults; ensure the host firewall allows them and
+# narrow allowed_sources to the exact exporter/source subnets.
 netflow:
   enabled: true
   listen: ":2055"
+  allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 ipfix:
   enabled: true
   listen: ":4739"
+  allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 sflow:
   enabled: true
   listen: ":6343"
+  allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]

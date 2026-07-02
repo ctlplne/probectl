@@ -71,20 +71,21 @@ func TestBusEmitterTenantTaggedBatch(t *testing.T) {
 func TestConfigEnvOverrides(t *testing.T) {
 	cfg := Default()
 	env := map[string]string{
-		"PROBECTL_FLOW_TENANT":            "t-env",
-		"PROBECTL_FLOW_BUS_MODE":          "kafka",
-		"PROBECTL_FLOW_BUS_BROKERS":       "k1:9092, k2:9092",
-		"PROBECTL_FLOW_SFLOW_ENABLED":     "false",
-		"PROBECTL_FLOW_NETFLOW_LISTEN":    "127.0.0.1:9555",
-		"PROBECTL_FLOW_BATCH_SIZE":        "42",
-		"PROBECTL_FLOW_FLUSH_INTERVAL":    "5s",
-		"PROBECTL_FLOW_TEMPLATE_TTL":      "1h",
-		"PROBECTL_FLOW_QUEUE_SIZE":        "100",
-		"PROBECTL_FLOW_WORKERS":           "4",
-		"PROBECTL_FLOW_MAX_TEMPLATES":     "9",
-		"PROBECTL_FLOW_READ_BUFFER_BYTES": "1024",
-		"PROBECTL_FLOW_CLOUD_PROVIDER":    ProtoAWSVPCFlowLogs,
-		"PROBECTL_FLOW_CLOUD_FILE":        "/var/lib/probectl/aws-vpc-flow.log",
+		"PROBECTL_FLOW_TENANT":                "t-env",
+		"PROBECTL_FLOW_BUS_MODE":              "kafka",
+		"PROBECTL_FLOW_BUS_BROKERS":           "k1:9092, k2:9092",
+		"PROBECTL_FLOW_SFLOW_ENABLED":         "false",
+		"PROBECTL_FLOW_NETFLOW_LISTEN":        "127.0.0.1:9555",
+		"PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES": "10.0.0.0/8,192.0.2.10",
+		"PROBECTL_FLOW_BATCH_SIZE":            "42",
+		"PROBECTL_FLOW_FLUSH_INTERVAL":        "5s",
+		"PROBECTL_FLOW_TEMPLATE_TTL":          "1h",
+		"PROBECTL_FLOW_QUEUE_SIZE":            "100",
+		"PROBECTL_FLOW_WORKERS":               "4",
+		"PROBECTL_FLOW_MAX_TEMPLATES":         "9",
+		"PROBECTL_FLOW_READ_BUFFER_BYTES":     "1024",
+		"PROBECTL_FLOW_CLOUD_PROVIDER":        ProtoAWSVPCFlowLogs,
+		"PROBECTL_FLOW_CLOUD_FILE":            "/var/lib/probectl/aws-vpc-flow.log",
 	}
 	cfg.applyEnv(func(k string) string { return env[k] })
 
@@ -94,7 +95,8 @@ func TestConfigEnvOverrides(t *testing.T) {
 	if len(cfg.Bus.Brokers) != 2 || cfg.Bus.Brokers[1] != "k2:9092" {
 		t.Errorf("brokers = %v", cfg.Bus.Brokers)
 	}
-	if cfg.SFlow.Enabled || !cfg.NetFlow.Enabled || cfg.NetFlow.Listen != "127.0.0.1:9555" {
+	if cfg.SFlow.Enabled || !cfg.NetFlow.Enabled || cfg.NetFlow.Listen != "127.0.0.1:9555" ||
+		len(cfg.IPFIX.AllowedSources) != 2 {
 		t.Errorf("listeners = %+v / %+v", cfg.NetFlow, cfg.SFlow)
 	}
 	if cfg.BatchSize != 42 || cfg.FlushInterval != 5*time.Second || cfg.TemplateTTL != time.Hour {

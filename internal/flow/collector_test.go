@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -76,6 +77,18 @@ func TestDecodeSafelyRecoversFromPanic(t *testing.T) {
 	}
 }
 
+func sendUDP(t *testing.T, addr string, pkt []byte) {
+	t.Helper()
+	conn, err := net.Dial("udp", addr)
+	if err != nil {
+		t.Fatalf("dial %s: %v", addr, err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write(pkt); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}
+
 // TestCollectorEndToEnd sends real datagrams (v5 + v9 template/data + sFlow)
 // over UDP and asserts tenant-bound records reach the emitter.
 func TestCollectorEndToEnd(t *testing.T) {
@@ -99,20 +112,9 @@ func TestCollectorEndToEnd(t *testing.T) {
 		t.Fatal("ipfix listener bound although disabled")
 	}
 
-	send := func(addr string, pkt []byte) {
-		conn, err := net.Dial("udp", addr)
-		if err != nil {
-			t.Fatalf("dial %s: %v", addr, err)
-		}
-		defer conn.Close()
-		if _, err := conn.Write(pkt); err != nil {
-			t.Fatalf("write: %v", err)
-		}
-	}
-
 	unix := uint32(time.Now().Unix())
 	// v5 + v9 share the netflow socket (version-sniffed).
-	send(nfAddr, buildNF5(1000, unix, 0, []nf5rec{{
+	sendUDP(t, nfAddr, buildNF5(1000, unix, 0, []nf5rec{{
 		src: [4]byte{10, 0, 0, 1}, dst: [4]byte{10, 0, 0, 2}, pkts: 1, bytes: 64, proto: 6, sport: 1, dport: 2,
 	}}))
 	// NetFlow v9 data can only decode once its template is registered. The
@@ -123,14 +125,14 @@ func TestCollectorEndToEnd(t *testing.T) {
 	// record lands — making the test independent of worker scheduling and of
 	// kernel UDP-buffer drops under -race load.
 	sendV9 := func() {
-		send(nfAddr, buildNF9Template(1000, unix, 7, 260, nf9V4Fields))
-		send(nfAddr, buildNF9Data(1000, unix, 7, 260, [][]byte{
+		sendUDP(t, nfAddr, buildNF9Template(1000, unix, 7, 260, nf9V4Fields))
+		sendUDP(t, nfAddr, buildNF9Data(1000, unix, 7, 260, [][]byte{
 			nf9V4Row([4]byte{10, 0, 0, 3}, [4]byte{10, 0, 0, 4}, 5, 6, 17, 128, 2, 0, 0),
 		}))
 	}
 	sendV9()
 	hdr := buildEthIPv4TCP(0, [4]byte{10, 0, 0, 5}, [4]byte{10, 0, 0, 6}, 80, 1024, 0x10, 6)
-	send(sfAddr, buildSFlowRaw(64, 1, 2, hdr, false, false))
+	sendUDP(t, sfAddr, buildSFlowRaw(64, 1, 2, hdr, false, false))
 
 	deadline := time.Now().Add(3 * time.Second)
 	for {
@@ -163,13 +165,80 @@ func TestCollectorEndToEnd(t *testing.T) {
 		t.Errorf("stats = %+v", s)
 	}
 	// Garbage must be counted, not crash anything.
-	send(nfAddr, []byte{0xDE, 0xAD})
+	sendUDP(t, nfAddr, []byte{0xDE, 0xAD})
 	deadline = time.Now().Add(2 * time.Second)
 	for c.StatsSnapshot().DecodeErrors == 0 {
 		if time.Now().After(deadline) {
 			t.Fatal("decode error not counted for garbage datagram")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestCollectorAllowsListedSource(t *testing.T) {
+	cfg := testConfig()
+	cfg.NetFlow.AllowedSources = []string{"127.0.0.1/32"}
+	cfg.SFlow.Enabled = false
+	cfg.BatchSize = 1
+	cfg.FlushInterval = 10 * time.Millisecond
+	em := &captureEmitter{}
+	c, err := New(cfg, em, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	c.decodeFn = func(_ []byte, _ string, _ time.Time) ([]Record, int, error) {
+		return []Record{{Protocol: ProtoNetFlow5}}, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer c.Close()
+	sendUDP(t, c.LocalAddr("netflow"), []byte{0x01})
+	deadline := time.Now().Add(time.Second)
+	for len(em.snapshot()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("listed source did not emit; stats %+v", c.StatsSnapshot())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := c.StatsSnapshot().SourceDrops; got != 0 {
+		t.Fatalf("listed source was dropped: %+v", c.StatsSnapshot())
+	}
+}
+
+func TestCollectorRejectsUnlistedSource(t *testing.T) {
+	cfg := testConfig()
+	cfg.NetFlow.AllowedSources = []string{"192.0.2.0/24"}
+	cfg.SFlow.Enabled = false
+	cfg.BatchSize = 1
+	cfg.FlushInterval = 10 * time.Millisecond
+	em := &captureEmitter{}
+	c, err := New(cfg, em, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	c.decodeFn = func(_ []byte, _ string, _ time.Time) ([]Record, int, error) {
+		t.Fatal("unlisted source must be dropped before decode")
+		return nil, 0, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := c.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer c.Close()
+	sendUDP(t, c.LocalAddr("netflow"), []byte{0x01})
+	deadline := time.Now().Add(time.Second)
+	for c.StatsSnapshot().SourceDrops == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("unlisted source was not counted as dropped; stats %+v", c.StatsSnapshot())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := em.snapshot(); len(got) != 0 {
+		t.Fatalf("unlisted source emitted records: %+v", got)
 	}
 }
 
@@ -187,5 +256,14 @@ func TestCollectorValidation(t *testing.T) {
 	cfg.NetFlow.Enabled, cfg.IPFIX.Enabled, cfg.SFlow.Enabled = false, false, false
 	if _, err := New(cfg, &captureEmitter{}, nil); err == nil {
 		t.Error("no listeners accepted")
+	}
+	cfg = testConfig()
+	cfg.NetFlow.Listen = ":2055"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "netflow.allowed_sources") {
+		t.Fatalf("wildcard listener without source ACL must fail, got %v", err)
+	}
+	cfg.NetFlow.AllowedSources = []string{"10.0.0.0/8", "192.0.2.10"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("wildcard listener with source ACL must pass: %v", err)
 	}
 }

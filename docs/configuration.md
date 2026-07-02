@@ -1134,10 +1134,13 @@ design, so every datagram is treated as untrusted and the collector should sit
 | `PROBECTL_FLOW_BUS_BROKERS`        | (none)      | comma-separated Kafka brokers (kafka mode)                      |
 | `PROBECTL_FLOW_NETFLOW_ENABLED`    | `true`      | serve NetFlow v5 **and** v9 (version-sniffed) on one socket     |
 | `PROBECTL_FLOW_NETFLOW_LISTEN`     | `:2055`     | NetFlow UDP listen address                                      |
+| `PROBECTL_FLOW_NETFLOW_ALLOWED_SOURCES` | (required for non-loopback) | comma-separated exporter CIDRs/IPs admitted before decode |
 | `PROBECTL_FLOW_IPFIX_ENABLED`      | `true`      | serve IPFIX                                                     |
 | `PROBECTL_FLOW_IPFIX_LISTEN`       | `:4739`     | IPFIX UDP listen address                                        |
+| `PROBECTL_FLOW_IPFIX_ALLOWED_SOURCES` | (required for non-loopback) | comma-separated exporter CIDRs/IPs admitted before decode |
 | `PROBECTL_FLOW_SFLOW_ENABLED`      | `true`      | serve sFlow v5                                                  |
 | `PROBECTL_FLOW_SFLOW_LISTEN`       | `:6343`     | sFlow UDP listen address                                        |
+| `PROBECTL_FLOW_SFLOW_ALLOWED_SOURCES` | (required for non-loopback) | comma-separated exporter CIDRs/IPs admitted before decode |
 | `PROBECTL_FLOW_CLOUD_PROVIDER`     | (none)      | one-shot local cloud-flow import provider: `aws_vpc_flow_logs`, `azure_nsg_flow_logs`, or `gcp_vpc_flow_logs`; when set, the agent imports and exits |
 | `PROBECTL_FLOW_CLOUD_FILE`         | (none)      | local file path for cloud-flow import, or `-` for stdin; required when `PROBECTL_FLOW_CLOUD_PROVIDER` is set |
 | `PROBECTL_FLOW_BATCH_SIZE`         | `1000`      | records per emitted batch                                       |

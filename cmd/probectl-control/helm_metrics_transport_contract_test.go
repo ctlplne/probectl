@@ -149,6 +149,7 @@ func TestHelmMetricsTransportMatchesRenderedControlListener(t *testing.T) {
 func TestHelmDatastoreTLSContracts(t *testing.T) {
 	configMap := readArtifact(t, "deploy/helm/probectl/templates/configmap.yaml")
 	hardening := readArtifact(t, "scripts/check_helm_hardening.sh")
+	strictValues := readArtifact(t, "deploy/helm/probectl/values-strict.yaml")
 
 	cases := []struct {
 		name string
@@ -180,6 +181,18 @@ func TestHelmDatastoreTLSContracts(t *testing.T) {
 				"plaintext multi-tenant PROBECTL_DATABASE_READ_URL",
 				"plaintext multi-tenant PROBECTL_FLOWSTORE_URL",
 				"plaintext multi-tenant PROBECTL_DATAPLANES",
+				"strict profile still permits plaintext datastore/broker egress port",
+			},
+		},
+		{
+			name: "strict profile TLS egress ports",
+			body: strictValues,
+			want: []string{
+				"port: 5432",
+				"port: 8443",
+				"port: 9440",
+				"port: 9093",
+				"Prometheus/VictoriaMetrics HTTPS remote-write",
 			},
 		},
 	}
@@ -189,6 +202,13 @@ func TestHelmDatastoreTLSContracts(t *testing.T) {
 			for _, want := range tc.want {
 				if !strings.Contains(tc.body, want) {
 					t.Errorf("%s missing %q", tc.name, want)
+				}
+			}
+			if tc.name == "strict profile TLS egress ports" {
+				for _, banned := range []string{"port: 8123", "port: 9000", "port: 9092", "port: 9009"} {
+					if strings.Contains(tc.body, banned) {
+						t.Errorf("%s still includes plaintext egress %q", tc.name, banned)
+					}
 				}
 			}
 		})

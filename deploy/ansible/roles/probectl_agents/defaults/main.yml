@@ -58,10 +58,13 @@ probectl_bus_secret_source: env        # env | vault | external-secret; never re
 # flow-agent template knobs.
 probectl_flow_netflow_enabled: true
 probectl_flow_netflow_listen: ":2055"
+probectl_flow_netflow_allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 probectl_flow_ipfix_enabled: true
 probectl_flow_ipfix_listen: ":4739"
+probectl_flow_ipfix_allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 probectl_flow_sflow_enabled: true
 probectl_flow_sflow_listen: ":6343"
+probectl_flow_sflow_allowed_sources: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 probectl_flow_batch_size: 1000
 probectl_flow_flush_interval: 2s
 probectl_flow_template_ttl: 30m
