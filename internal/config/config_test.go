@@ -39,6 +39,10 @@ func durableTenantProfileEnv(profile string) map[string]string {
 		"PROBECTL_EBPFSTORE_MODE":        "clickhouse",
 		"PROBECTL_EBPFSTORE_URL":         "https://clickhouse.example:8443",
 		"PROBECTL_EBPFSTORE_READER_USER": "probectl_ebpf_reader",
+		"PROBECTL_AUDIT_WORM_DIR":        "/var/lib/probectl/audit-worm",
+		"PROBECTL_WORM_SIGNING_KEY_FILE": "/var/lib/probectl/keys/audit-worm-ed25519.pem",
+		"PROBECTL_SIEM_ENABLED":          "true",
+		"PROBECTL_SIEM_ENDPOINT":         "https://siem.example/ingest",
 	}
 }
 
@@ -615,6 +619,47 @@ func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
 	}
 	if cfg.IngestStrictTenantLanes {
 		t.Error("single profile should still allow strict tenant lanes to stay off")
+	}
+}
+
+func TestAuditRetentionProfileDefaultsAndWatermarkRequirements(t *testing.T) {
+	cfg, err := Load(envFunc(nil))
+	if err != nil {
+		t.Fatalf("single load: %v", err)
+	}
+	if cfg.AuditRetention != 0 {
+		t.Fatalf("single profile AuditRetention = %v, want keep-forever 0", cfg.AuditRetention)
+	}
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile+" default is finite and export-watermarked", func(t *testing.T) {
+			cfg, err := Load(envFunc(durableTenantProfileEnv(profile)))
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if cfg.AuditRetention != productionAuditRetentionDefault {
+				t.Fatalf("AuditRetention = %v, want %v", cfg.AuditRetention, productionAuditRetentionDefault)
+			}
+			if cfg.AuditWORMDir == "" || cfg.WormSigningKeyFile == "" || !cfg.SIEMEnabled || cfg.SIEMEndpoint == "" {
+				t.Fatalf("production audit retention must be backed by WORM+SIEM watermark config: %+v", cfg)
+			}
+		})
+		t.Run(profile+" rejects disabled retention", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_AUDIT_RETENTION"] = "0"
+			if _, err := Load(envFunc(env)); err == nil || !strings.Contains(err.Error(), "finite PROBECTL_AUDIT_RETENTION") {
+				t.Fatalf("disabled audit retention should fail closed, got %v", err)
+			}
+		})
+		t.Run(profile+" rejects missing export watermarks", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			delete(env, "PROBECTL_AUDIT_WORM_DIR")
+			delete(env, "PROBECTL_SIEM_ENDPOINT")
+			if _, err := Load(envFunc(env)); err == nil ||
+				!strings.Contains(err.Error(), "PROBECTL_AUDIT_WORM_DIR") ||
+				!strings.Contains(err.Error(), "PROBECTL_SIEM_ENABLED=true and PROBECTL_SIEM_ENDPOINT") {
+				t.Fatalf("missing WORM/SIEM watermark config should fail closed, got %v", err)
+			}
+		})
 	}
 }
 

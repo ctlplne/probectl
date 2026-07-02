@@ -68,12 +68,18 @@ helm install probectl deploy/helm/probectl \
   --set ingress.host=probectl.msp.example.com \
   --set ingress.tlsSecretName=probectl-msp-tls \
   --set database.url=... --set secrets.envelopeKey="$(openssl rand -base64 32)" \
-  --set oidc.issuer=... --set oidc.clientId=... --set oidc.clientSecret=...
+  --set oidc.issuer=... --set oidc.clientId=... --set oidc.clientSecret=... \
+  --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR=/var/lib/probectl/audit-worm \
+  --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE=/var/lib/probectl/audit-worm/worm-ed25519.pem \
+  --set-string control.extraEnv.PROBECTL_SIEM_ENABLED=true \
+  --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT=https://siem.example/ingest
 ```
 
 Tenant isolation is enforced by the control plane (pooled RLS scoping) regardless
 of deployment shape; the multi-tenant values only size the runtime and spread
-replicas.
+replicas. Provider profiles also need audit-retention watermarks at install time:
+tenant audit rows prune only below the SIEM cursor, and provider/break-glass rows
+prune only below the signed WORM segment watermark.
 
 ## The agent chart (`probectl-agent/`)
 

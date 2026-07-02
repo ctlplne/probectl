@@ -25,6 +25,21 @@
 {{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_DATAPLANES entries to use https:// ClickHouse endpoints (WIRE-001)" $profile) -}}
 {{- end -}}
 {{- end -}}
+{{- if eq (printf "%v" (get $extraEnv "PROBECTL_AUDIT_RETENTION")) "0" -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires finite PROBECTL_AUDIT_RETENTION; omit it for the 8760h default or set a positive duration (PRIVACY-001)" $profile) -}}
+{{- end -}}
+{{- if not (get $extraEnv "PROBECTL_AUDIT_WORM_DIR") -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_AUDIT_WORM_DIR so provider audit retention has a WORM export watermark (PRIVACY-001)" $profile) -}}
+{{- end -}}
+{{- if and (not (get $extraEnv "PROBECTL_WORM_SIGNING_KEY_FILE")) (not .Values.secrets.existingSecret) -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_WORM_SIGNING_KEY_FILE or a secrets.existingSecret containing PROBECTL_WORM_SIGNING_KEY for stable WORM watermarks (PRIVACY-001)" $profile) -}}
+{{- end -}}
+{{- if ne (printf "%v" (get $extraEnv "PROBECTL_SIEM_ENABLED")) "true" -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_SIEM_ENABLED=true so tenant audit retention has SIEM delivery watermarks (PRIVACY-001)" $profile) -}}
+{{- end -}}
+{{- if not (get $extraEnv "PROBECTL_SIEM_ENDPOINT") -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_SIEM_ENDPOINT so tenant audit retention has SIEM delivery watermarks (PRIVACY-001)" $profile) -}}
+{{- end -}}
 {{- end -}}
 apiVersion: v1
 kind: ConfigMap

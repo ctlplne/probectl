@@ -419,6 +419,18 @@ export interface FlowTopRow {
 }
 
 export interface Health {
+  audit_retention?: {
+    enabled?: boolean
+    notes?: string[]
+    provider_rows_aging_out?: boolean
+    provider_worm_watermark_configured?: boolean
+    raw_rows_aging_out?: boolean
+    status?: 'disabled' | 'blocked' | 'partial' | 'armed'
+    tenant_rows_aging_out?: boolean
+    tenant_siem_watermark_configured?: boolean
+    window?: string
+    window_seconds?: number
+  }
   status: string
 }
 

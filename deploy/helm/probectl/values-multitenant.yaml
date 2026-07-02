@@ -25,6 +25,13 @@ control:
     # RED-001: enable ClickHouse row-policies + bus strict-lane for multi-tenant.
     # Without this the single-profile default leaves them OFF and boot fails closed.
     PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"
+    # PRIVACY-001: provider profiles default audit retention to 8760h and fail
+    # closed unless raw in-DB audit rows have durable export watermarks before
+    # pruning. Set these at install time to your object-lock/WORM mount and SIEM:
+    # PROBECTL_AUDIT_WORM_DIR: "/var/lib/probectl/audit-worm"
+    # PROBECTL_WORM_SIGNING_KEY_FILE: "/var/lib/probectl/audit-worm/worm-ed25519.pem"
+    # PROBECTL_SIEM_ENABLED: "true"
+    # PROBECTL_SIEM_ENDPOINT: "https://siem.example/ingest"
     # RED-001: every ClickHouse-backed lane needs the scoped reader user whose
     # setting-scoped row policy is installed at boot. Operators may split these
     # by plane; the reference profile uses one SELECT-only reader account.

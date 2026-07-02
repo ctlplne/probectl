@@ -109,9 +109,10 @@ export function LifecycleCard() {
               </a>
             </p>
             <p className={styles.editionsLede}>
-              Audit retention is deployment-level: PROBECTL_AUDIT_RETENTION defaults to keep
-              forever. When enabled, local audit rows prune only after WORM/SIEM export
-              receipts; unexported evidence stays.
+              Audit retention is deployment-level: single deployments can keep local rows
+              forever; multi-tenant and regulated profiles default to 365 days and require
+              WORM/SIEM export receipts before pruning. /readyz reports if raw rows are not
+              aging out.
             </p>
             <form
               className={styles.actions}

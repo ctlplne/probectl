@@ -137,7 +137,10 @@ helm install probectl deploy/helm/probectl \
 
 Provide the TLS secret via cert-manager (add the issuer to `ingress.annotations`)
 or pre-create the secret named by `ingress.tlsSecretName`. For the MSP / provider
-reference sizing, add `-f deploy/helm/probectl/values-multitenant.yaml`. Then
+reference sizing, add `-f deploy/helm/probectl/values-multitenant.yaml` plus
+the audit WORM/SIEM watermark env vars shown in
+[`deploy/helm/README.md`](../deploy/helm/README.md); provider profiles fail
+closed without them so raw audit rows cannot silently keep forever. Then
 verify:
 
 ```sh

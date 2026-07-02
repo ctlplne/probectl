@@ -23,6 +23,8 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
+const productionAuditRetentionDefault = 365 * 24 * time.Hour
+
 // Config is the fully resolved, validated control-plane configuration.
 type Config struct {
 	// HTTP server.
@@ -172,11 +174,13 @@ type Config struct {
 	AuditWORMDir      string
 	AuditWORMInterval time.Duration
 	// AuditRetention (EXC-ORG-01) is how long audit events are kept before the
-	// retention pruner is eligible to remove them. 0 (the default) keeps audit
-	// history forever — pruning never runs. A positive window prunes only events
-	// that are BOTH older than it AND already durably WORM/SIEM-exported (fail
-	// closed; the in-DB hash chain a verifier walks is never gapped). Set per the
-	// org's SOC2 CC7 / ISO A.12.4 evidence-retention requirement.
+	// retention pruner is eligible to remove them. single defaults to 0 (keep
+	// local history forever); multi-tenant/regulated default to a finite 365d
+	// window and require WORM + SIEM watermark configuration. A positive window
+	// prunes only events that are BOTH older than it AND already durably
+	// WORM/SIEM-exported (fail closed; the in-DB hash chain a verifier walks is
+	// never gapped). Set per the org's SOC2 CC7 / ISO A.12.4 evidence-retention
+	// requirement.
 	AuditRetention time.Duration
 	// WORM signing key (KEYS-002 / D2): the Ed25519 key that signs WORM
 	// segments. WormSigningKey is a base64-encoded PKCS#8 PEM private key
@@ -704,7 +708,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.TSDBMemoryMaxBytes = l.intRange("PROBECTL_TSDB_MEMORY_MAX_BYTES", 0, 0, 1<<31-1)
 	cfg.AuditWORMDir = l.str("PROBECTL_AUDIT_WORM_DIR", "")
 	cfg.AuditWORMInterval = l.dur("PROBECTL_AUDIT_WORM_INTERVAL", time.Hour)
-	cfg.AuditRetention = l.dur("PROBECTL_AUDIT_RETENTION", 0)
+	cfg.AuditRetention = l.dur("PROBECTL_AUDIT_RETENTION", auditRetentionDefault(cfg.DeploymentProfile))
 	cfg.WormSigningKey = l.str("PROBECTL_WORM_SIGNING_KEY", "")
 	cfg.WormSigningKeyFile = l.str("PROBECTL_WORM_SIGNING_KEY_FILE", "")
 	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
@@ -866,6 +870,13 @@ func applyDerivedConfigDefaults(l *loader, cfg *Config) {
 	}
 }
 
+func auditRetentionDefault(profile string) time.Duration {
+	if profile == "multi-tenant" || profile == "regulated" {
+		return productionAuditRetentionDefault
+	}
+	return 0
+}
+
 func validateConfig(l *loader, cfg *Config) {
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
@@ -915,6 +926,7 @@ func validateConfig(l *loader, cfg *Config) {
 	if volatile := volatileProductionModes(cfg); len(volatile) > 0 {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires durable bus/store modes; volatile lightweight modes are not allowed: %s", cfg.DeploymentProfile, strings.Join(volatile, ", "))
 	}
+	validateAuditRetentionProfile(l, cfg)
 	validateExternalEndpoints(l, cfg)
 	if cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
 		l.errf("PROBECTL_DATABASE_MIN_CONNS (%d) must be <= PROBECTL_DATABASE_MAX_CONNS (%d)",
@@ -922,6 +934,24 @@ func validateConfig(l *loader, cfg *Config) {
 	}
 	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
 		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
+	}
+}
+
+func validateAuditRetentionProfile(l *loader, cfg *Config) {
+	if cfg.DeploymentProfile != "multi-tenant" && cfg.DeploymentProfile != "regulated" {
+		return
+	}
+	if cfg.AuditRetention <= 0 {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires a finite PROBECTL_AUDIT_RETENTION; use the default 8760h or set an explicit positive window", cfg.DeploymentProfile)
+	}
+	if cfg.AuditWORMDir == "" {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_AUDIT_WORM_DIR so provider/break-glass audit rows have a signed WORM export watermark before pruning", cfg.DeploymentProfile)
+	}
+	if cfg.WormSigningKey == "" && cfg.WormSigningKeyFile == "" {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_WORM_SIGNING_KEY_FILE or PROBECTL_WORM_SIGNING_KEY for stable audit WORM watermarks", cfg.DeploymentProfile)
+	}
+	if !cfg.SIEMEnabled || cfg.SIEMEndpoint == "" {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_SIEM_ENABLED=true and PROBECTL_SIEM_ENDPOINT so tenant audit rows have durable export watermarks before pruning", cfg.DeploymentProfile)
 	}
 }
 

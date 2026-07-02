@@ -23,8 +23,8 @@ describe('tenant data lifecycle (S-T5)', () => {
     )
     expect(screen.getByText('pooled')).toBeInTheDocument()
     expect(screen.getByLabelText(/flow retention days/i)).toBeInTheDocument()
-    expect(screen.getByText(/PROBECTL_AUDIT_RETENTION defaults to keep forever/i)).toBeInTheDocument()
-    expect(screen.getByText(/unexported evidence stays/i)).toBeInTheDocument()
+    expect(screen.getByText(/multi-tenant and regulated profiles default to 365 days/i)).toBeInTheDocument()
+    expect(screen.getByText(/readyz reports if raw rows are not aging out/i)).toBeInTheDocument()
   })
 
   test('residency + isolation render for a siloed tenant', async () => {

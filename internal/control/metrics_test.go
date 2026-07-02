@@ -40,3 +40,33 @@ func TestMetricsEndpointPreAuthAndPrometheus(t *testing.T) {
 		t.Fatalf("/metrics must not expose per-tenant series:\n%s", body)
 	}
 }
+
+func TestMetricsExposeAuditRetentionHealth(t *testing.T) {
+	cfg := &config.Config{
+		HTTPAddr:       ":0",
+		AuthMode:       "session",
+		HSTSEnabled:    true,
+		HSTSMaxAge:     time.Hour,
+		AuditRetention: 365 * 24 * time.Hour,
+		AuditWORMDir:   "/var/lib/probectl/audit-worm",
+		SIEMEnabled:    true,
+		SIEMEndpoint:   "https://siem.example/ingest",
+	}
+	s := New(cfg, logging.New(io.Discard, "error", "json"), nil, nil, nil, nil)
+
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+
+	body := rec.Body.String()
+	for _, want := range []string{
+		"probectl_audit_retention_window_seconds",
+		"probectl_audit_retention_raw_rows_aging_out 1",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("/metrics missing audit-retention health %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "tenant_id=") {
+		t.Fatalf("audit retention metrics must not expose tenant labels:\n%s", body)
+	}
+}

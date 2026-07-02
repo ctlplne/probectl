@@ -6840,6 +6840,52 @@
               "ok",
               "ready"
             ]
+          },
+          "audit_retention": {
+            "type": "object",
+            "description": "Aggregate audit-retention posture. Carries no tenant data or audit payloads; reports whether raw in-DB audit rows can age out behind WORM/SIEM export watermarks.",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "disabled",
+                  "blocked",
+                  "partial",
+                  "armed"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "raw_rows_aging_out": {
+                "type": "boolean"
+              },
+              "tenant_rows_aging_out": {
+                "type": "boolean"
+              },
+              "provider_rows_aging_out": {
+                "type": "boolean"
+              },
+              "window": {
+                "type": "string"
+              },
+              "window_seconds": {
+                "type": "integer",
+                "format": "int64"
+              },
+              "tenant_siem_watermark_configured": {
+                "type": "boolean"
+              },
+              "provider_worm_watermark_configured": {
+                "type": "boolean"
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
           }
         },
         "required": [

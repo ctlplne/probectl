@@ -173,7 +173,7 @@ var dataInventory = []DataInventoryEntry{
 		Home:           "Postgres hash chains plus optional signed WORM object segments and SIEM cursor state",
 		Categories:     []Category{CatSubjectID, CatFreeText, CatCredential, CatObjectKey},
 		DataClasses:    []Class{ClassConfidential, ClassRestricted, ClassPII},
-		Retention:      "PROBECTL_AUDIT_RETENTION can prune only older events that were durably exported; 0 keeps forever",
+		Retention:      "PROBECTL_AUDIT_RETENTION is 0 keep-forever only in single; multi-tenant/regulated default to 8760h and require WORM/SIEM watermarks before pruning older exported events",
 		RetentionOwner: "internal/audit",
 		Processors: []string{
 			"tamper-evident hash chaining",

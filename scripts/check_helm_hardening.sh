@@ -26,7 +26,11 @@ render() {
     --set ingress.tlsSecretName=probectl-tls \
     --set secrets.envelopeKey="$KEY" \
     --set secrets.sessionHMACKey="$SESSION_KEY" \
-    --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require"
+    --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=require" \
+    --set-string control.extraEnv.PROBECTL_AUDIT_WORM_DIR="/var/lib/probectl/audit-worm" \
+    --set-string control.extraEnv.PROBECTL_WORM_SIGNING_KEY_FILE="/var/lib/probectl/audit-worm/worm-ed25519.pem" \
+    --set-string control.extraEnv.PROBECTL_SIEM_ENABLED="true" \
+    --set-string control.extraEnv.PROBECTL_SIEM_ENDPOINT="https://siem.example/ingest"
 }
 
 render_agent() {
@@ -271,6 +275,9 @@ multitenant="$(render -f "$CHART/values-multitenant.yaml")"
 need_fixed 'PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"' "$multitenant" "multi-tenant profile did not render PROBECTL_DEPLOYMENT_PROFILE=multi-tenant (TENANT-002)"
 for env in PROBECTL_PATHSTORE_READER_USER PROBECTL_FLOWSTORE_READER_USER PROBECTL_OTELSTORE_READER_USER PROBECTL_EBPFSTORE_READER_USER; do
   need_fixed "$env: \"probectl_reader\"" "$multitenant" "multi-tenant profile did not render $env scoped reader user (TENANT-002)"
+done
+for env in PROBECTL_AUDIT_WORM_DIR PROBECTL_WORM_SIGNING_KEY_FILE PROBECTL_SIEM_ENABLED PROBECTL_SIEM_ENDPOINT; do
+  need_fixed "$env:" "$multitenant" "multi-tenant profile did not render $env audit-retention watermark config (PRIVACY-001)"
 done
 
 # 4b. WIRE-001: production-like profiles fail closed on plaintext datastore

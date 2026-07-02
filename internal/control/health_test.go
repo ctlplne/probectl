@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func do(srv *Server, method, path string) *httptest.ResponseRecorder {
@@ -36,6 +37,53 @@ func TestReadyzReady(t *testing.T) {
 	rec := do(testServer(fakePinger{}), http.MethodGet, "/readyz")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestReadyzReportsAuditRetentionHealth(t *testing.T) {
+	srv := testServer(fakePinger{})
+	srv.cfg.AuditRetention = 365 * 24 * time.Hour
+	srv.cfg.AuditWORMDir = "/var/lib/probectl/audit-worm"
+	srv.cfg.SIEMEnabled = true
+	srv.cfg.SIEMEndpoint = "https://siem.example/ingest"
+
+	rec := do(srv, http.MethodGet, "/readyz")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		AuditRetention auditRetentionHealth `json:"audit_retention"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.AuditRetention.Status != "armed" || !body.AuditRetention.RawRowsAgingOut {
+		t.Fatalf("audit retention health = %+v, want armed aging-out posture", body.AuditRetention)
+	}
+	if !body.AuditRetention.TenantSIEMWatermarkConfigured || !body.AuditRetention.ProviderWORMWatermarkConfigured {
+		t.Fatalf("audit retention watermarks not visible: %+v", body.AuditRetention)
+	}
+}
+
+func TestReadyzReportsBlockedAuditRetention(t *testing.T) {
+	srv := testServer(fakePinger{})
+	srv.cfg.AuditRetention = 365 * 24 * time.Hour
+
+	rec := do(srv, http.MethodGet, "/readyz")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		AuditRetention auditRetentionHealth `json:"audit_retention"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.AuditRetention.Status != "blocked" || body.AuditRetention.RawRowsAgingOut {
+		t.Fatalf("audit retention health = %+v, want blocked/non-aging posture", body.AuditRetention)
+	}
+	if len(body.AuditRetention.Notes) == 0 {
+		t.Fatal("blocked audit retention must explain which watermark is missing")
 	}
 }
 

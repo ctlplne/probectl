@@ -80,11 +80,15 @@ than silently continuing — that's the signal to investigate.
 
 - **It records, it does not prevent.** The audit log proves what happened; stopping a
   bad action is the job of access control (see [scim-abac.md](scim-abac.md)), not the log.
-- **Retention is a setting with consequences.** The default is keep-forever.
-  When `PROBECTL_AUDIT_RETENTION` is positive, the hourly pruner removes only
-  old rows already covered by durable WORM/SIEM watermarks and appends prune
-  receipts. WORM retention can't be shortened after the fact, so size it
-  deliberately (see [data-retention.md](data-retention.md)).
+- **Retention is a setting with consequences.** The `single` profile defaults
+  to keep-forever; `multi-tenant` and `regulated` default to a finite `8760h`
+  window and fail closed without WORM/SIEM export-watermark configuration. When
+  `PROBECTL_AUDIT_RETENTION` is positive, the hourly pruner removes only old
+  rows already covered by durable WORM/SIEM watermarks and appends prune
+  receipts. `/readyz.audit_retention` and the `probectl_audit_retention_*`
+  metrics show whether raw in-DB rows are actually aging out. WORM retention
+  can't be shortened after the fact, so size it deliberately (see
+  [data-retention.md](data-retention.md)).
 - **It is not your SIEM.** For long-term search, alerting, and cross-system correlation,
   export to your SIEM ([siem.md](siem.md)); the in-product view is for recent,
   tenant-scoped review.

@@ -375,6 +375,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 		requireMFA: cfg.RequireMFA, metrics: metrics.New(v.Version, v.Commit),
 		scimLimiter: newKeyLimiter(scimDefaultRatePerMin), scimMaxUsers: scimDefaultMaxUsersPerTenant,
 		scimMaxGroups: scimDefaultMaxGroupsPerTenant}
+	s.registerAuditRetentionMetrics()
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).
