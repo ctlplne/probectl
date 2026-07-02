@@ -59,34 +59,30 @@ tag in the first place.)
 
 ## Which checks to require
 
-The simplest, lowest-maintenance choice is to require the **`verify-all`** job
-and nothing else. `verify-all` is an **umbrella job** in `ci.yml` — it runs no
-tests itself; it `needs:` (declares a dependency on) the whole verification
-suite and fails red if any of them is red **or skipped** — so requiring it is
-equivalent to requiring all of them, but you never have to edit the
-branch-protection rule again when a job is added or renamed. Treating
+The lowest-maintenance required-check set is **`verify-all` + the two PR-only
+commit-policy jobs**. `verify-all` is an **umbrella job** in `ci.yml` — it runs
+no tests itself; it `needs:` (declares a dependency on) the always-running
+verification suite and fails red if any of them is red **or skipped**. Treating
 _skipped_ as failure is deliberate fail-closed behavior: a gate that quietly
 didn't run looks exactly like a gate that passed unless something forces the
 distinction.
 
-A few jobs run _outside_ the `verify-all` umbrella (they are not in its
-`needs:` list). If you want belt-and-suspenders, add them explicitly:
+Two jobs intentionally run outside the `verify-all` umbrella because they are
+PR-only: they are skipped on direct pushes to `main`, and `verify-all` would
+correctly treat that skip as red. Require them explicitly in branch protection:
 
 | Required check | Gate it enforces                                                 |
 | -------------- | ---------------------------------------------------------------- |
 | `verify-all`   | umbrella — fails unless every gate in its `needs:` list is green |
 | `commitlint`   | Conventional Commits on PR commits                               |
 | `dco`          | Developer Certificate of Origin sign-off                         |
-| `device-live`  | live SNMP/device telemetry smoke                                 |
-| `path-raw-live` | live raw-socket path probe smoke                                |
-| `web-rendered-a11y` | rendered Chromium accessibility gate                       |
 
 If your organization's policy instead requires listing every job by name (some
 auditors prefer the explicit list), the **complete** set of top-level `ci.yml`
 jobs is below — 39 specialist jobs plus the `verify-all` umbrella, for
 40 top-level jobs in the workflow. Keep the list in sync with the workflow —
-**a job you forget to list is advisory again**, so prefer the `verify-all`
-approach unless you have a reason not to.
+**a job you forget to list is advisory again**, so prefer the `verify-all` plus
+`commitlint`/`dco` approach unless you have a reason not to.
 
 | Required check           | Gate it enforces                                                                                                                                   |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -132,7 +128,9 @@ approach unless you have a reason not to.
 | `verify-all`             | executed-verification umbrella                                                                                                                     |
 
 If you require `verify-all`, you do **not** also need to list the jobs it
-already covers — listing them is redundant (though harmless).
+already covers — listing them is redundant (though harmless). You **do** still
+need `commitlint` and `dco` because they are PR-only and intentionally outside
+the umbrella.
 
 ## How the release gate works (`release.yml`)
 

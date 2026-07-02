@@ -56,6 +56,17 @@ func readRepoFile(t *testing.T, elems ...string) string {
 	return string(b)
 }
 
+func jobNames(t *testing.T, wf string) []string {
+	t.Helper()
+	namesByJob := jobNeeds(t, wf)
+	out := make([]string, 0, len(namesByJob))
+	for name := range namesByJob {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // TestReleaseRequiresGreenCI is the EXC-GATE-04 backstop: a v* tag must not
 // publish anything unless the full ci workflow was green on the tagged SHA. This
 // holds even for a tag cut off a side branch or by an admin who bypassed branch
@@ -90,9 +101,17 @@ func jobNeeds(t *testing.T, wf string) map[string][]string {
 	out := map[string][]string{}
 	lines := strings.Split(wf, "\n")
 	jobRe := regexp.MustCompile(`^  ([a-zA-Z0-9_-]+):\s*$`)
+	inJobs := false
 	var cur string
 	for i := 0; i < len(lines); i++ {
 		ln := lines[i]
+		if strings.TrimSpace(ln) == "jobs:" {
+			inJobs = true
+			continue
+		}
+		if !inJobs {
+			continue
+		}
 		if m := jobRe.FindStringSubmatch(ln); m != nil {
 			cur = m[1]
 			out[cur] = nil
@@ -150,10 +169,13 @@ func TestBranchProtectionDocExists(t *testing.T) {
 }
 
 // TestVerifyAllIsTheUmbrella asserts verify-all requires the full set of
-// verification gates — including the ebpf-kernel-matrix live-load job
-// (EXC-GATE-02) and the integration job that carries the cross-plane e2e
-// (EXC-GATE-05). A gate that exists but is not in verify-all's needs is
-// advisory; this test makes that omission RED.
+// always-running verification gates — including the ebpf-kernel-matrix
+// live-load job (EXC-GATE-02), the integration job that carries the cross-plane
+// e2e (EXC-GATE-05), live device/path probes, and rendered-browser a11y. A
+// gate that exists but is not in verify-all's needs is advisory; this test
+// makes that omission RED. PR-only commit-policy jobs stay outside the umbrella
+// because verify-all treats skipped needs as failure on push events; branch
+// protection and receipt export must require those explicitly.
 func TestVerifyAllIsTheUmbrella(t *testing.T) {
 	ci := readWorkflow(t, "ci.yml")
 
@@ -166,6 +188,9 @@ func TestVerifyAllIsTheUmbrella(t *testing.T) {
 	// The umbrella MUST include these load-bearing verification gates.
 	required := []string{
 		"lint-go", "editions-gate", "fips-gate", "test-go", "coverage",
+		"device-live",        // live SNMP/device telemetry smoke
+		"path-raw-live",      // live raw-socket path probe smoke
+		"web-rendered-a11y",  // rendered Chromium accessibility gate
 		"ebpf-kernel-matrix", // EXC-GATE-02: live load+attach on real kernels
 		"cross-tenant-isolation",
 		"integration", // EXC-GATE-05: cross-plane correlation e2e rides here
@@ -180,9 +205,47 @@ func TestVerifyAllIsTheUmbrella(t *testing.T) {
 		}
 	}
 
-	// Every job declared in ci.yml that is itself a verification gate should be
-	// in the umbrella. We assert the umbrella is not trivially small (above) and
-	// that the assertion step exists.
+	jobs := jobNames(t, ci)
+	allowedOutsideUmbrella := map[string]string{
+		"commitlint": "PR-only; required explicitly by branch protection and receipt export",
+		"dco":        "PR-only; required explicitly by branch protection and receipt export",
+	}
+	var missing []string
+	for _, job := range jobs {
+		if job == "verify-all" {
+			continue
+		}
+		if _, ok := allowedOutsideUmbrella[job]; ok {
+			continue
+		}
+		if !have[job] {
+			missing = append(missing, job)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("ci.yml jobs outside verify-all without an explicit PR-only exception: %s", strings.Join(missing, ", "))
+	}
+
+	for _, explicit := range []string{"commitlint", "dco"} {
+		if !strings.Contains(ci, explicit+":") {
+			t.Errorf("explicit branch-protection job %q is missing from ci.yml", explicit)
+		}
+	}
+	doc := readRepoFile(t, "docs", "ops", "branch-protection.md")
+	for _, want := range []string{"`verify-all`", "`commitlint`", "`dco`"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("branch-protection doc must tell operators to require %s", want)
+		}
+	}
+	exporter := readRepoFile(t, "scripts", "export-receipts.sh")
+	for _, want := range []string{`"verify-all"`, `"commitlint"`, `"dco"`} {
+		if !strings.Contains(exporter, want) {
+			t.Errorf("receipt exporter must validate required branch-protection check %s", want)
+		}
+	}
+
+	// We assert the umbrella is not trivially small (above) and that the
+	// assertion step exists.
 	if !strings.Contains(ci, "verify-all is RED") {
 		t.Error("verify-all is missing its fail-closed assertion (the 'verify-all is RED' guard)")
 	}

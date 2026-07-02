@@ -1172,6 +1172,8 @@ jobs:
       - packaging-smoke
       - fips-gate
       - test-go
+      - device-live
+      - path-raw-live
       - rca-eval
       - coverage
       - test-python
@@ -1192,6 +1194,7 @@ jobs:
       - load-smoke
       - proto
       - web
+      - web-rendered-a11y
       - dependency-scan
       - build-images
       # TEST-006/009: the image vulnerability scan and SBOM generation are

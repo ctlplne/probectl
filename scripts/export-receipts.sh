@@ -40,13 +40,15 @@ path = sys.argv[1]
 with open(path, encoding="utf-8") as f:
     data = json.load(f)
 
+required = {"verify-all", "commitlint", "dco"}
 checks = set(data.get("required_status_checks", {}).get("contexts") or [])
 for check in data.get("required_status_checks", {}).get("checks") or []:
     ctx = check.get("context") or check.get("name")
     if ctx:
         checks.add(ctx)
-if "verify-all" not in checks:
-    raise SystemExit("branch protection must require verify-all")
+missing = sorted(required - checks)
+if missing:
+    raise SystemExit("branch protection must require: " + ", ".join(missing))
 
 enforce_admins = data.get("enforce_admins")
 if isinstance(enforce_admins, dict):
@@ -119,7 +121,7 @@ if [ "$1" = "api" ]; then
   if [ "${GH_BAD_BRANCH_PROTECTION:-}" = "1" ]; then
     printf '{"required_status_checks":{"checks":[{"context":"unit"}]},"enforce_admins":{"enabled":false}}\n'
   else
-    printf '{"required_status_checks":{"checks":[{"context":"verify-all"}]},"enforce_admins":{"enabled":true}}\n'
+    printf '{"required_status_checks":{"checks":[{"context":"verify-all"},{"context":"commitlint"},{"context":"dco"}]},"enforce_admins":{"enabled":true}}\n'
   fi
   exit 0
 fi
