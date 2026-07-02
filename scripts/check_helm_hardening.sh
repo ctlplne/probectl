@@ -236,6 +236,8 @@ need "kind: CronJob" "$backup_render" "backup.enabled=true must render the backu
 need ".dump.pbk" "$backup_render" "default Postgres backup must render sealed .dump.pbk artifact (RUNOPS-002)"
 need "backup-seal" "$backup_render" "default Postgres backup must stream through backup-seal (RUNOPS-002)"
 need "backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" "$backup_render" "ClickHouse backup render must carry exact encrypted-target ack (RED-004)"
+need 'name}.pbk' "$backup_render" "default ClickHouse backup must render sealed .zip.pbk artifact (CRYPTO-001)"
+need "rm -f.*server_backup_path.*name" "$backup_render" "ClickHouse backup must remove raw staging zip after sealing (CRYPTO-001)"
 if render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.encryption.enabled=false >/dev/null 2>&1; then
   fail "chart rendered plaintext Postgres backup without backup.plaintextAck (RUNOPS-002)"
 fi

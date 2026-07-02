@@ -30,7 +30,11 @@ one day be running under pressure.
 **Backups contain tenant data**, so they are **encrypted at rest by default.**
 The Postgres backup paths pipe the dump through `probectl-control backup-seal`,
 so plaintext never touches the backups volume — the artifact is a `.dump.pbk`
-envelope-encrypted container, sealed with the deployment's at-rest key (the
+envelope-encrypted container. The ClickHouse script, compose overlay, and chart
+CronJob first create the native server-side `.zip` in the encrypted ClickHouse
+backup staging path, then stream that zip through the same `backup-seal` filter,
+delete the raw staging zip, and keep only `.zip.pbk` plus its checksum for
+off-box custody. Both are sealed with the deployment's at-rest key (the
 **same** `PROBECTL_ENVELOPE_KEY` as live storage).
 **Envelope encryption** means the data is encrypted under a one-off data key,
 and that data key is itself wrapped by the deployment's master key (the KEK,
@@ -51,18 +55,19 @@ PROBECTL_ENVELOPE_OPENER_KEYS=old-id=<old base64 KEK> \
 The old container is opened through the opener ring and the new container is
 sealed under the active key; no plaintext dump is written between those steps.
 
-ClickHouse's `BACKUP TO File` runs *inside* the ClickHouse server, so it can't
-be piped through that filter; it is encrypted by the **backups volume** instead
-(the encrypted-volume operator duty in [hardening.md](../hardening.md) §0c, which
-`probectl-control preflight --strict` checks). Because the native artifact is a
-raw `.zip` containing tenant telemetry, both the script and Helm CronJob fail
-closed unless you explicitly acknowledge that the server backup path and any
-off-box copy target are encrypted operator-controlled storage:
+ClickHouse's `BACKUP TO File` still runs *inside* the ClickHouse server, so the
+server-visible staging path must be an encrypted operator-controlled volume (the
+encrypted-volume operator duty in [hardening.md](../hardening.md) §0c, which
+`probectl-control preflight --strict` checks). Because the staging zip contains
+tenant telemetry before it is sealed, the script and Helm CronJob fail closed
+unless either a KEK is available for `.zip.pbk` output or you explicitly
+acknowledge a raw encrypted-target fallback:
 `PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target` for the
-script, or `backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target`
-for Helm. Either way, restrict access to the backups and keep them inside the
-operator's network — telemetry never leaves it (one of the project's
-[non-negotiables](../../CONTRIBUTING.md#non-negotiables)).
+script/compose paths, or
+`backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target` for
+Helm. The fallback is for operator-owned encrypted backup targets only. Keep all
+backup paths inside the operator's network — telemetry never leaves it (one of
+the project's [non-negotiables](../../CONTRIBUTING.md#non-negotiables)).
 
 ## Taking backups
 
@@ -70,6 +75,10 @@ One-shot (any time — e.g. right before an upgrade):
 
 ```sh
 ./scripts/backup_postgres.sh   /srv/probectl-backups   # → postgres-<db>-<ts>.dump.pbk + .sha256
+PROBECTL_ENVELOPE_KEY=<base64 KEK> \
+  ./scripts/backup_clickhouse.sh /srv/probectl-backups # → clickhouse-<db>-<ts>.zip.pbk + .sha256
+
+# Raw fallback only when both the ClickHouse staging path and off-box target are encrypted:
 PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target \
   ./scripts/backup_clickhouse.sh /srv/probectl-backups # → clickhouse-<db>-<ts>.zip + .sha256
 ```
@@ -118,8 +127,8 @@ plain:
 | Property | Baseline value |
 |---|---|
 | Scope | ClickHouse telemetry database (`flow`, `path`, `eBPF`, `OTLP`, `threat`, `change`, `cost`, and the migration ledger) |
-| Backup mechanism | `BACKUP DATABASE ... TO File()` via `scripts/backup_clickhouse.sh` / the Helm `backup.clickhouse` CronJob |
-| Off-region copy | Required: copy the `.zip` plus `.sha256` out of the failed region to encrypted object storage or an equivalent operator-controlled backup vault |
+| Backup mechanism | `BACKUP DATABASE ... TO File()` via `scripts/backup_clickhouse.sh` / the Helm `backup.clickhouse` CronJob, then `backup-seal` to `.zip.pbk` |
+| Off-region copy | Required: copy the `.zip.pbk` plus `.sha256` out of the failed region to encrypted object storage or an equivalent operator-controlled backup vault |
 | Default RPO | **≤ 24 h** with the shipped nightly `backup.clickhouse.schedule: "30 2 * * *"` plus your off-region copy lag |
 | How to tighten RPO | Run the CronJob more often, or move to ClickHouse incremental `BACKUP ... SETTINGS base_backup = ...` in the same off-region vault |
 | Restore proof | `make backup-restore-drill` writes tenant-scoped telemetry markers, destroys the local database, restores from the off-box artifact, and verifies `tenant_id`-scoped rows return with the same nonce |
@@ -168,8 +177,9 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 # 2b. Verify + restore Postgres (drops + recreates, pg_restore from stdin):
 ./scripts/restore_postgres.sh   /srv/probectl-backups/postgres-probectl-<ts>.dump
 
-# 3. Verify + restore ClickHouse (copies the artifact back into the server, drops, RESTORE):
-./scripts/restore_clickhouse.sh /srv/probectl-backups/clickhouse-probectl-<ts>.zip
+# 3. Verify + restore ClickHouse (opens .zip.pbk, copies the zip back into the server, drops, RESTORE):
+PROBECTL_ENVELOPE_KEY=<base64 KEK> \
+  ./scripts/restore_clickhouse.sh /srv/probectl-backups/clickhouse-probectl-<ts>.zip.pbk
 
 # 4. Start probectl-control. On boot it re-runs the Postgres migrations
 #    idempotently; the restored probectl_ch_migrations ledger keeps the
@@ -180,15 +190,15 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 #    exported provider chain against object storage).
 ```
 
-The `backup-open` step is the normal Postgres restore path because shipped
-backups are `.dump.pbk` by default. A plain `.dump` should exist only from the
-explicit plaintext break-glass acknowledgement; if you have one, it can go
-straight to `restore_postgres.sh` only with its adjacent `.dump.sha256`, but
-treat it as exposed tenant data. Checksum sidecars are required restore inputs:
-the encrypted path verifies `.dump.pbk.sha256` before `backup-open`, then writes
-an ephemeral `.dump.sha256` for the destructive `restore_postgres.sh` handoff.
-Both restore scripts abort before touching the database when a checksum sidecar
-is missing or mismatched.
+The `backup-open` step is the normal restore path because shipped Postgres and
+ClickHouse backups are `.pbk` by default. Checksum sidecars are required restore inputs:
+the artifact and its `.sha256` file travel together, and restore refuses to
+decrypt, copy, drop, or restore until the checksum passes. `restore_clickhouse.sh`
+accepts a sealed `.zip.pbk`, verifies its checksum sidecar, opens it into an
+ephemeral `.zip`, copies that zip back to the ClickHouse server backup path, and
+then runs the destructive restore. Plain `.dump` or `.zip` artifacts should
+exist only from explicit raw-backup acknowledgements; treat them as exposed
+tenant data.
 
 ### Restoring on Kubernetes (chart-managed restore Jobs)
 
@@ -207,12 +217,11 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
   --set restore.enabled=true \
   --set restore.backupFile=postgres-probectl-<ts>.dump.pbk
 
-# ClickHouse — server-side RESTORE DATABASE ... FROM File(...) (mirrors the
-# CH backup CronJob; the server-visible CH backups volume is encrypted at rest,
-# §0c):
+# ClickHouse — sealed .zip.pbk is opened into the same server-visible CH backup
+# path, then RESTORE DATABASE ... FROM File(...) runs server-side:
 helm upgrade probectl deploy/helm/probectl --reuse-values \
   --set restore.clickhouse.enabled=true \
-  --set restore.clickhouse.backupFile=clickhouse-probectl-<ts>.zip \
+  --set restore.clickhouse.backupFile=clickhouse-probectl-<ts>.zip.pbk \
   --set restore.clickhouse.serverBackupPath=/backups
 
 # Each is a Job with backoffLimit 0 (fail loud, never silently retry-and-clobber).

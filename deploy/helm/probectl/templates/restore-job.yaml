@@ -92,10 +92,9 @@ spec:
 ---
 # OPS-007 / RESIL-001: chart-managed ClickHouse restore Job, mirroring the CH
 # backup CronJob. RESTORE runs SERVER-SIDE: the path below is read by the
-# ClickHouse server, not by this Kubernetes Job pod. That is why this pod does
-# not mount the backups PVC; mounting it here would verify the wrong
-# filesystem. The CH server backups volume is encrypted at rest,
-# docs/hardening.md §0c.
+# ClickHouse server. For sealed .zip.pbk artifacts, this Job mounts the SAME
+# server-visible backup PVC path, opens the .pbk into a temporary .zip on that
+# path, then asks ClickHouse to restore that server-visible .zip.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -112,6 +111,14 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 101 # the clickhouse image's clickhouse uid
+      {{- if .Values.backup.encryption.enabled }}
+      initContainers:
+        - name: stage-probectl
+          image: {{ include "probectl.image" . }}
+          command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+          volumeMounts:
+            - { name: tools, mountPath: /tools }
+      {{- end }}
       containers:
         - name: ch-restore
           image: {{ .Values.restore.clickhouse.image | default .Values.backup.clickhouse.image | quote }}
@@ -121,17 +128,53 @@ spec:
               server_backup_path="{{ required "restore.clickhouse.serverBackupPath is required" .Values.restore.clickhouse.serverBackupPath }}"
               backup_file="{{ required "restore.clickhouse.backupFile is required" .Values.restore.clickhouse.backupFile }}"
               echo "ch-restore: ClickHouse server {{ .Values.restore.clickhouse.host }} must already see ${server_backup_path}/${backup_file}"
+              backup="${server_backup_path}/${backup_file}"
+              sha="${backup}.sha256"
+              test -s "${backup}"
+              test -s "${sha}"
+              (cd "${server_backup_path}" && sha256sum -c "${backup_file}.sha256" >/dev/null)
+              restore_file="${backup_file}"
+              case "${backup_file}" in
+                *.pbk)
+                  restore_file="${backup_file%.pbk}.restore-open"
+                  /tools/probectl-control backup-open --key-file=/keys/envelope.key < "${backup}" > "${server_backup_path}/${restore_file}"
+                  test -s "${server_backup_path}/${restore_file}"
+                  ;;
+              esac
               echo "ch-restore: dropping + restoring {{ .Values.restore.clickhouse.database }} (DESTRUCTIVE)…"
               clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
                 --user "$CH_USER" --password "$CH_PASSWORD" \
                 --query "DROP DATABASE IF EXISTS {{ .Values.restore.clickhouse.database }} SYNC"
               clickhouse-client --host "{{ .Values.restore.clickhouse.host }}" \
                 --user "$CH_USER" --password "$CH_PASSWORD" \
-                --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('${server_backup_path}/${backup_file}')"
+                --query "RESTORE DATABASE {{ .Values.restore.clickhouse.database }} FROM File('${server_backup_path}/${restore_file}')"
+              case "${restore_file}" in
+                *.restore-open) rm -f "${server_backup_path}/${restore_file}" ;;
+              esac
               echo "ch-restore: done. Verify /readyz on the control plane before resuming traffic."
           env:
             - name: CH_USER
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-username } }
             - name: CH_PASSWORD
               valueFrom: { secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-password } }
+          volumeMounts:
+            - name: backups
+              mountPath: {{ required "restore.clickhouse.serverBackupPath is required" .Values.restore.clickhouse.serverBackupPath | quote }}
+            {{- if .Values.backup.encryption.enabled }}
+            - { name: tools, mountPath: /tools, readOnly: true }
+            - { name: envelope-key, mountPath: /keys, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: backups
+          persistentVolumeClaim:
+            claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
+        {{- if .Values.backup.encryption.enabled }}
+        - name: tools
+          emptyDir: {}
+        - name: envelope-key
+          secret:
+            secretName: {{ .Values.backup.encryption.keySecret }}
+            items:
+              - { key: {{ .Values.backup.encryption.keySecretKey }}, path: envelope.key }
+        {{- end }}
 {{- end }}

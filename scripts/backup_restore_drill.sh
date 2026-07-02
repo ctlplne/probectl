@@ -85,13 +85,15 @@ PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target ./scripts/back
 backup_secs=$(( $(date +%s) - t0 ))
 ls -l "${OUT}"
 PBK="$(find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump.pbk' -print -quit)"
-CH_ZIP="$(find "${OUT}" -maxdepth 1 -name 'clickhouse-probectl-*.zip' -print -quit)"
+CH_PBK="$(find "${OUT}" -maxdepth 1 -name 'clickhouse-probectl-*.zip.pbk' -print -quit)"
 test -n "${PBK}" && test -s "${PBK}" || { echo "drill: backup_postgres did not produce a sealed .dump.pbk" >&2; exit 1; }
-test -n "${CH_ZIP}" && test -s "${CH_ZIP}" || { echo "drill: backup_clickhouse did not produce a .zip artifact" >&2; exit 1; }
+test -n "${CH_PBK}" && test -s "${CH_PBK}" || { echo "drill: backup_clickhouse did not produce a sealed .zip.pbk artifact" >&2; exit 1; }
 test -s "${PBK}.sha256" || { echo "drill: missing Postgres sealed checksum ${PBK}.sha256" >&2; exit 1; }
+test -s "${CH_PBK}.sha256" || { echo "drill: missing ClickHouse sealed checksum ${CH_PBK}.sha256" >&2; exit 1; }
 (cd "$(dirname "${PBK}")" && sha256sum -c "$(basename "${PBK}").sha256" >/dev/null)
+(cd "$(dirname "${CH_PBK}")" && sha256sum -c "$(basename "${CH_PBK}").sha256" >/dev/null)
 pbk_bytes="$(file_size "${PBK}")"
-ch_bytes="$(file_size "${CH_ZIP}")"
+ch_bytes="$(file_size "${CH_PBK}")"
 artifact_bytes=$(( pbk_bytes + ch_bytes ))
 if [ "${MIN_ARTIFACT_BYTES}" -gt 0 ] && [ "${artifact_bytes}" -lt "${MIN_ARTIFACT_BYTES}" ]; then
   echo "drill: artifact bytes ${artifact_bytes} below PROBECTL_DRILL_MIN_ARTIFACT_BYTES=${MIN_ARTIFACT_BYTES}; refusing to call this production-shaped evidence" >&2
@@ -99,6 +101,10 @@ if [ "${MIN_ARTIFACT_BYTES}" -gt 0 ] && [ "${artifact_bytes}" -lt "${MIN_ARTIFAC
 fi
 if find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump' -print -quit | grep -q .; then
   echo "drill: backup_postgres left a plaintext .dump despite sealed default" >&2
+  exit 1
+fi
+if find "${OUT}" -maxdepth 1 -name 'clickhouse-probectl-*.zip' ! -name '*.pbk' -print -quit | grep -q .; then
+  echo "drill: backup_clickhouse left a raw .zip despite sealed default" >&2
   exit 1
 fi
 
@@ -125,7 +131,7 @@ DECRYPTED="${OUT}/postgres-probectl.decrypted.dump"
 test -s "${DECRYPTED}" || { echo "drill: backup-open produced an empty dump (flag/contract break?)" >&2; exit 1; }
 (cd "$(dirname "${DECRYPTED}")" && sha256sum "$(basename "${DECRYPTED}")" > "$(basename "${DECRYPTED}").sha256")
 ./scripts/restore_postgres.sh "${DECRYPTED}"
-./scripts/restore_clickhouse.sh "${CH_ZIP}"
+./scripts/restore_clickhouse.sh "${CH_PBK}"
 restore_secs=$(( $(date +%s) - t1 ))
 
 step "verify marker survival"

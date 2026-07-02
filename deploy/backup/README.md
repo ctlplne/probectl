@@ -37,22 +37,28 @@ command (`0 2 * * *` = minute 0, hour 2, every day):
 ```cron
 # Nightly at 02:00/02:15 — keep PG and CH staggered.
 0 2 * * *  cd /opt/probectl && make build && PROBECTL_CONTROL_BIN=./bin/probectl-control PROBECTL_BACKUP_KEY_FILE=/secure/probectl/envelope.key docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm pg-backup
-15 2 * * * cd /opt/probectl && docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm ch-backup
+15 2 * * * cd /opt/probectl && make build && PROBECTL_CONTROL_BIN=./bin/probectl-control PROBECTL_BACKUP_KEY_FILE=/secure/probectl/envelope.key docker compose -f deploy/compose/dev.yml -f deploy/backup/compose-backup.yml run --rm ch-backup
 ```
 
 Postgres sealed dumps (`.dump.pbk`, plus a `.sha256` integrity fingerprint)
-land in the `backups` volume. The compose overlay deliberately fails closed
-unless it can run `probectl-control backup-seal` with either
+land in the `backups` volume. ClickHouse sealed backups (`.zip.pbk`, plus
+`.sha256`) land there too: the overlay lets ClickHouse create the native zip on
+the server's encrypted staging volume, streams that zip through
+`probectl-control backup-seal`, then removes the raw staging file. The compose
+overlay deliberately fails closed unless it can run `backup-seal` with either
 `PROBECTL_ENVELOPE_KEY` or the mounted key file
 (`PROBECTL_ENVELOPE_KEY_FILE`/`PROBECTL_BACKUP_KEY_FILE`). ClickHouse's
 `BACKUP` statement runs **server-side** — the SQL statement executes inside
-the ClickHouse server process, so its archives land on the ClickHouse
+the ClickHouse server process, so its first archive lands on the ClickHouse
 container's own backups disk — the `chbackups` volume configured by
 [`clickhouse-backups.xml`](../compose/clickhouse-backups.xml). It's like
 asking the chef to box up your leftovers: the box exists, but it's in *their*
-kitchen until you carry it home. Copy artifacts
+kitchen until you carry it home. The `.zip.pbk` is the artifact to copy
 off-box (the restore scripts take the off-box file) and prune to your
-retention.
+retention. Raw `.zip` output exists only behind
+`PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target` when both
+the staging volume and the off-box target are encrypted operator-controlled
+storage.
 
 **ClickHouse backups disk must be writable by the clickhouse user (uid
 101).** A freshly created volume mounts root-owned: the dev/compose scripts
@@ -71,8 +77,9 @@ object that runs a pod on a schedule. Two supported paths:
 
 - **Helm-managed** — set `backup.enabled=true` on the `probectl` chart. It
   renders Postgres + ClickHouse CronJobs from the same digest-pinned images,
-  envelope-encrypts the Postgres dump in-pipe — encrypted while streaming, so
-  plaintext never touches the backups volume — and is wired by
+  envelope-encrypts the Postgres dump in-pipe and the ClickHouse native zip
+  after server-side staging, so only `.dump.pbk` and `.zip.pbk` artifacts are
+  retained by default, and is wired by
   `backup.credentialsSecret` plus a backups
   PVC (`backup.persistence.*`; a PersistentVolumeClaim is the cluster's
   request slip for durable disk). Off by default; the strict profile enables it.

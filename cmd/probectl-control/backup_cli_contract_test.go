@@ -252,6 +252,71 @@ func TestRestorePostgresRequiresChecksumBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestRestoreClickHouseRequiresChecksumBeforeMutation(t *testing.T) {
+	body := readArtifact(t, "scripts/restore_clickhouse.sh")
+	stripped := stripComments(body)
+
+	idxMissing := strings.Index(stripped, "missing checksum sidecar")
+	idxChecksum := strings.Index(stripped, "sha256sum -c")
+	idxOpen := strings.Index(stripped, "backup-open")
+	idxCopy := strings.Index(stripped, "docker compose -f \"${COMPOSE_FILE}\" cp")
+	idxDrop := strings.Index(stripped, "DROP DATABASE")
+	idxRestore := strings.Index(stripped, "RESTORE DATABASE")
+	for name, idx := range map[string]int{
+		"missing checksum sidecar": idxMissing,
+		"sha256sum -c":             idxChecksum,
+		"backup-open":              idxOpen,
+		"docker compose cp":        idxCopy,
+		"DROP DATABASE":            idxDrop,
+		"RESTORE DATABASE":         idxRestore,
+	} {
+		if idx < 0 {
+			t.Fatalf("restore_clickhouse.sh missing %s in executable restore path", name)
+		}
+	}
+	if idxMissing >= idxChecksum || idxChecksum >= idxOpen || idxOpen >= idxCopy || idxCopy >= idxDrop || idxDrop >= idxRestore {
+		t.Fatalf("restore_clickhouse.sh order must be require sidecar -> verify checksum -> backup-open -> copy -> drop -> restore; indexes missing=%d checksum=%d open=%d copy=%d drop=%d restore=%d",
+			idxMissing, idxChecksum, idxOpen, idxCopy, idxDrop, idxRestore)
+	}
+	if strings.Contains(stripped, "if [ -f \"${ZIP}.sha256\" ]") {
+		t.Fatal("restore_clickhouse.sh must require the checksum sidecar, not treat it as optional")
+	}
+}
+
+func TestRestoreJobVerifiesChecksumBeforeMutatingClickHouse(t *testing.T) {
+	body := readArtifact(t, "deploy/helm/probectl/templates/restore-job.yaml")
+	stripped := stripComments(body)
+	idxStart := strings.Index(stripped, "name: ch-restore")
+	if idxStart < 0 {
+		t.Fatal("restore-job.yaml missing ClickHouse restore container")
+	}
+	ch := stripped[idxStart:]
+
+	idxSidecar := strings.Index(ch, "test -s \"${sha}\"")
+	idxChecksum := strings.Index(ch, "sha256sum -c")
+	idxOpen := strings.Index(ch, "backup-open")
+	idxDrop := strings.Index(ch, "DROP DATABASE")
+	idxRestore := strings.Index(ch, "RESTORE DATABASE")
+	for name, idx := range map[string]int{
+		"test -s \"${sha}\"": idxSidecar,
+		"sha256sum -c":       idxChecksum,
+		"backup-open":        idxOpen,
+		"DROP DATABASE":      idxDrop,
+		"RESTORE DATABASE":   idxRestore,
+	} {
+		if idx < 0 {
+			t.Fatalf("restore-job.yaml ClickHouse restore path missing %s", name)
+		}
+	}
+	if idxSidecar >= idxChecksum || idxChecksum >= idxOpen || idxOpen >= idxDrop || idxDrop >= idxRestore {
+		t.Fatalf("ClickHouse restore Job order must be require sidecar -> verify checksum -> backup-open -> drop -> restore; indexes sidecar=%d checksum=%d open=%d drop=%d restore=%d",
+			idxSidecar, idxChecksum, idxOpen, idxDrop, idxRestore)
+	}
+	if strings.Contains(ch, "if [ -f \"${backup}.sha256\" ]") {
+		t.Fatal("ClickHouse restore Job must require the checksum sidecar, not treat it as optional")
+	}
+}
+
 // OPS-005 / RESIL-003: the CI backup-drill must exercise the SEALED .pbk path
 // end-to-end — the path the shipped restore Job actually carries — not the
 // plaintext pg_dump. The Postgres backup script now seals at write time, so the
@@ -272,6 +337,8 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 		{"sha256sum -c \"$(basename \"${PBK}\").sha256\"", "the drill must verify the sealed .pbk sidecar before backup-open"},
 		{"sha256sum \"$(basename \"${DECRYPTED}\")\" > \"$(basename \"${DECRYPTED}\").sha256\"", "the drill must create the decrypted dump sidecar before destructive restore"},
 		{"tenant_id", "the ClickHouse regional-loss proof must query restored telemetry by tenant"},
+		{"clickhouse-probectl-*.zip.pbk", "the ClickHouse drill must require the sealed telemetry backup artifact"},
+		{"backup_clickhouse left a raw .zip", "the drill must fail if ClickHouse leaves a raw off-box zip"},
 		{"PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target", "the ClickHouse drill must explicitly acknowledge the encrypted backup target"},
 		{"clickhouse regional-loss drill: PASS", "the drill must print an explicit telemetry DR receipt"},
 		{"default shipped telemetry RPO <= 24h", "the drill receipt must name the numeric shipped telemetry RPO"},
@@ -300,6 +367,55 @@ func TestClickHouseBackupsRequireEncryptedTargetAck(t *testing.T) {
 		}
 		if !strings.Contains(body, "tenant telemetry") {
 			t.Fatalf("%s must state that the raw ClickHouse artifact contains tenant telemetry", tc.rel)
+		}
+	}
+}
+
+func TestStandaloneClickHouseBackupsAreSealedOrEncryptedTargetAck(t *testing.T) {
+	for _, tc := range []struct {
+		rel         string
+		rawFallback bool
+		ack         string
+	}{
+		{
+			rel:         "scripts/backup_clickhouse.sh",
+			rawFallback: true,
+			ack:         "PROBECTL_CLICKHOUSE_BACKUP_ACK",
+		},
+		{
+			rel:         "deploy/backup/compose-backup.yml",
+			rawFallback: true,
+			ack:         "PROBECTL_CLICKHOUSE_BACKUP_ACK",
+		},
+		{rel: "deploy/backup/k8s-cronjob-clickhouse.yaml"},
+		{
+			rel:         "deploy/helm/probectl/templates/backup-cronjobs.yaml",
+			rawFallback: true,
+			ack:         "backup.clickhouse.encryptedTargetAck",
+		},
+	} {
+		body := readArtifact(t, tc.rel)
+		assertNoBadBackupFlags(t, tc.rel, body)
+		stripped := stripComments(body)
+		for _, want := range []struct{ substr, why string }{
+			{"backup-seal", "the default ClickHouse backup path must stream through the envelope sealer"},
+			{".zip", "the default ClickHouse backup must start from a native ClickHouse zip"},
+			{".pbk", "the default ClickHouse artifact must be sealed, not a raw telemetry zip"},
+		} {
+			if !strings.Contains(stripped, want.substr) {
+				t.Errorf("%s: missing %q — %s (CRYPTO-001)", tc.rel, want.substr, want.why)
+			}
+		}
+		if tc.rawFallback {
+			for _, want := range []struct{ substr, why string }{
+				{tc.ack, "raw zip output must require an explicit encrypted-target acknowledgement"},
+				{"encrypted-clickhouse-backup-target", "the acknowledgement value must be exact and searchable"},
+				{"tenant telemetry", "operators must be told the raw staging zip contains tenant telemetry"},
+			} {
+				if !strings.Contains(stripped, want.substr) {
+					t.Errorf("%s: missing %q — %s (CRYPTO-001)", tc.rel, want.substr, want.why)
+				}
+			}
 		}
 	}
 }

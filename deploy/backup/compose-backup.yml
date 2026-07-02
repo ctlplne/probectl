@@ -55,7 +55,11 @@ services:
   ch-backup:
     image: clickhouse/clickhouse-server:24.8@sha256:1ffa82edee000a42c09313bd9f1293d94c570aee74babc1b3ca9983a35fa597b # digest-pinned (U-061)
     profiles: [backup]
-    entrypoint: ["/bin/sh", "-ec"]
+    environment:
+      PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
+      PROBECTL_ENVELOPE_KEY_ID: ${PROBECTL_ENVELOPE_KEY_ID:-file}
+      PROBECTL_CLICKHOUSE_BACKUP_ACK: ${PROBECTL_CLICKHOUSE_BACKUP_ACK:-}
+    entrypoint: ["/bin/bash", "-euo", "pipefail", "-c"]
     command:
       - |
         name="clickhouse-probectl-$$(date -u +%Y%m%dT%H%M%SZ).zip"
@@ -63,8 +67,39 @@ services:
         # disk (the chbackups volume; allowed_path from clickhouse-backups.xml).
         clickhouse-client --host clickhouse --user probectl --password probectl \
           --query "BACKUP DATABASE probectl TO File('/backups/$$name')"
-        echo "ch-backup: wrote chbackups:/backups/$$name"
+        if [ -n "$${PROBECTL_ENVELOPE_KEY:-}" ] || [ -s /tmp/probectl-envelope.key ]; then
+          test -f /usr/local/bin/probectl-control && test -x /usr/local/bin/probectl-control || {
+            echo "ch-backup: mount a built probectl-control with PROBECTL_CONTROL_BIN=./bin/probectl-control" >&2
+            exit 1
+          }
+          key_args=()
+          if [ -s /tmp/probectl-envelope.key ]; then
+            key_args=(--key-file=/tmp/probectl-envelope.key)
+          fi
+          out="/backups/$$name.pbk"
+          tmp="$$out.tmp"
+          cat "/clickhouse-backups/$$name" \
+            | /usr/local/bin/probectl-control backup-seal "$${key_args[@]}" > "$$tmp"
+          test -s "$$tmp" || { echo "ch-backup: empty sealed backup $$out" >&2; exit 1; }
+          mv "$$tmp" "$$out"
+          rm -f "/clickhouse-backups/$$name"
+          sha256sum "$$out" > "$$out.sha256"
+          echo "ch-backup: wrote sealed $$out"
+        elif [ "$${PROBECTL_CLICKHOUSE_BACKUP_ACK:-}" = "encrypted-clickhouse-backup-target" ]; then
+          cp "/clickhouse-backups/$$name" "/backups/$$name"
+          sha256sum "/backups/$$name" > "/backups/$$name.sha256"
+          echo "ch-backup: wrote raw /backups/$$name under encrypted-target acknowledgement; artifact contains tenant telemetry" >&2
+        else
+          echo "ch-backup: refusing raw ClickHouse backup; set PROBECTL_ENVELOPE_KEY/PROBECTL_BACKUP_KEY_FILE or PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target" >&2
+          exit 1
+        fi
     networks: [probectl]
+    volumes:
+      - backups:/backups
+      - chbackups:/clickhouse-backups
+      - ${PROBECTL_CONTROL_BIN:-/dev/null}:/usr/local/bin/probectl-control:ro
+      - ${PROBECTL_BACKUP_KEY_FILE:-/dev/null}:/tmp/probectl-envelope.key:ro
 
 volumes:
   backups:
+  chbackups:

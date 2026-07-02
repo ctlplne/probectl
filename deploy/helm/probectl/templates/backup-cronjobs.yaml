@@ -125,24 +125,46 @@ spec:
           securityContext:
             runAsNonRoot: true
             runAsUser: 101 # the clickhouse image's clickhouse uid
+          {{- if .Values.backup.encryption.enabled }}
+          initContainers:
+            - name: stage-probectl
+              image: {{ include "probectl.image" . }}
+              command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+              volumeMounts:
+                - { name: tools, mountPath: /tools }
+          {{- end }}
           containers:
             - name: ch-backup
               image: {{ .Values.backup.clickhouse.image | quote }}
               command: ["/bin/sh", "-ec"]
               args:
                 - |
-                  # OPS-002: ClickHouse BACKUP TO File runs SERVER-SIDE, so it
-                  # cannot be piped through the envelope filter like the PG
-                  # dump. Its at-rest encryption is the encrypted-backups-
-                  # volume operator duty (docs/hardening.md §0c; preflight
-                  # --strict checks it). The bulk telemetry lands encrypted by
-                  # the volume, not by this job.
+                  # OPS-002/CRYPTO-001: ClickHouse BACKUP TO File runs
+                  # SERVER-SIDE first. This job mounts the same encrypted
+                  # server-visible backup PVC path, streams the resulting .zip
+                  # through probectl-control backup-seal, and removes the raw
+                  # staging .zip. The encrypted-target ack below is still
+                  # required because that staging path briefly contains tenant
+                  # telemetry.
                   name="clickhouse-probectl-$(date -u +%Y%m%dT%H%M%SZ).zip"
+                  server_backup_path="{{ required "backup.clickhouse.serverBackupPath is required" .Values.backup.clickhouse.serverBackupPath }}"
                   echo "ACK encrypted ClickHouse backup target backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target; artifact contains tenant telemetry" >&2
                   clickhouse-client --host {{ .Values.backup.clickhouse.host }} \
                     --user "$CH_USER" --password "$CH_PASSWORD" \
-                    --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('{{ required "backup.clickhouse.serverBackupPath is required" .Values.backup.clickhouse.serverBackupPath }}/$name')"
-                  echo "wrote {{ .Values.backup.clickhouse.serverBackupPath }}/$name on the ClickHouse server (encrypt that server backups volume — §0c)"
+                    --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('${server_backup_path}/$name')"
+                  {{- if .Values.backup.encryption.enabled }}
+                  out="${server_backup_path}/${name}.pbk"
+                  cat "${server_backup_path}/${name}" \
+                    | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "${out}.tmp"
+                  test -s "${out}.tmp"
+                  mv "${out}.tmp" "${out}"
+                  rm -f "${server_backup_path}/${name}"
+                  sha256sum "${out}" > "${out}.sha256"
+                  echo "wrote sealed ${out}"
+                  {{- else }}
+                  sha256sum "${server_backup_path}/${name}" > "${server_backup_path}/${name}.sha256"
+                  echo "wrote raw ${server_backup_path}/${name} under encrypted-target acknowledgement"
+                  {{- end }}
               env:
                 - name: CH_USER
                   valueFrom:
@@ -152,5 +174,25 @@ spec:
                     secretKeyRef: { name: {{ .Values.backup.credentialsSecret }}, key: ch-password }
               resources:
                 {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: backups
+                  mountPath: {{ required "backup.clickhouse.serverBackupPath is required" .Values.backup.clickhouse.serverBackupPath | quote }}
+                {{- if .Values.backup.encryption.enabled }}
+                - { name: tools, mountPath: /tools, readOnly: true }
+                - { name: envelope-key, mountPath: /keys, readOnly: true }
+                {{- end }}
+          volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
+            {{- if .Values.backup.encryption.enabled }}
+            - name: tools
+              emptyDir: {}
+            - name: envelope-key
+              secret:
+                secretName: {{ .Values.backup.encryption.keySecret }}
+                items:
+                  - { key: {{ .Values.backup.encryption.keySecretKey }}, path: envelope.key }
+            {{- end }}
 {{- end }}
 {{- end }}

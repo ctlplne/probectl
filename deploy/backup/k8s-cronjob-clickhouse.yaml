@@ -4,6 +4,9 @@
 # deploy/compose/clickhouse-backups.xml drop-in shows the shape), and make
 # that volume writable by the clickhouse user — set the ClickHouse server
 # pod's securityContext.fsGroup: 101 (or pre-chown the PVC).
+# The backup pod mounts that same encrypted server-visible PVC so it can stream
+# the raw server-side .zip through probectl-control backup-seal, write only a
+# .zip.pbk off-box artifact, and remove the raw staging zip.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -34,7 +37,13 @@ spec:
                   clickhouse-client --host probectl-clickhouse \
                     --user "$CH_USER" --password "$CH_PASSWORD" \
                     --query "BACKUP DATABASE probectl TO File('/backups/$name')"
-                  echo "wrote /backups/$name (on the clickhouse server's backups volume)"
+                  cat "/backups/$name" \
+                    | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "/backups/$name.pbk.tmp"
+                  test -s "/backups/$name.pbk.tmp"
+                  mv "/backups/$name.pbk.tmp" "/backups/$name.pbk"
+                  rm -f "/backups/$name"
+                  sha256sum "/backups/$name.pbk" > "/backups/$name.pbk.sha256"
+                  echo "wrote sealed /backups/$name.pbk"
               env:
                 - name: CH_USER
                   valueFrom:
@@ -45,3 +54,17 @@ spec:
               resources:
                 requests: { cpu: 100m, memory: 128Mi }
                 limits: { cpu: "1", memory: 512Mi }
+              volumeMounts:
+                - { name: backups, mountPath: /backups }
+                - { name: tools, mountPath: /tools, readOnly: true }
+                - { name: envelope-key, mountPath: /keys, readOnly: true }
+          volumes:
+            - name: backups
+              persistentVolumeClaim: { claimName: probectl-backups }
+            - name: tools
+              persistentVolumeClaim: { claimName: probectl-backup-tools }
+            - name: envelope-key
+              secret:
+                secretName: probectl-envelope-key
+                items:
+                  - { key: PROBECTL_ENVELOPE_KEY, path: envelope.key }
