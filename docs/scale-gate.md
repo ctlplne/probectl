@@ -18,6 +18,22 @@ Why a separate, bigger gate? Because the cheap CI smoke proves the *mechanics*
 work; this proves the *platform* does, at the tenant counts and throughputs a real
 deployment sees.
 
+## Reference target split
+
+The audit reference denominator names **`PERF-REF-M1MAX`** as the official
+single-host performance reference target: an Apple M1 Max MacBook Pro with
+64 GB RAM on macOS. Use that target for control-plane hot paths, S/M-tier local
+full-stack synthetic load, short stability windows, and release-claim checks that
+fit on one local reference host. In other words: `PERF-REF-M1MAX` proves the
+measuring stick is stable and comparable for local evidence.
+
+L/XL/XXL provider-capacity claims use the same software harness, but they do
+**not** use `PERF-REF-M1MAX` as the official platform-capacity target. Their
+hardware floor is the cluster-shaped reference below, recorded as
+`PERF-REF-CLUSTER-L`, `PERF-REF-CLUSTER-XL`, or `PERF-REF-CLUSTER-XXL` in the
+result tables. An M1 Max run can exercise the mechanics and catch regressions; it
+cannot promote L/XL/XXL SLOs or 100k-agent provider fan-out claims.
+
 ## The numeric SLOs are provisional — not yet validated at full scale
 
 The numeric SLO targets below are engineering estimates, recorded so the gate is
@@ -205,9 +221,10 @@ harnesses above at full scale, back to back, with the absolute SLOs armed
 fleet-envelope fan-out pass, and the noisy-neighbor fairness assertion at the
 material 5 ms floor), then the full-stack result load gate end to end through
 real Kafka + Prometheus, then the full-stack flow load gate end to end through
-real Kafka + ClickHouse. It is **not run in CI** and is **not runnable on a
-laptop** — it needs reference hardware (below) because the absolute
-throughput/latency SLOs only mean anything on the sizing a real deployment uses.
+real Kafka + ClickHouse. It is **not run in CI** and the L/XL/XXL promotion run
+is **not runnable on a single M1 Max/laptop** — it needs the cluster reference
+hardware below because the absolute throughput/latency SLOs only mean anything
+on the sizing a real deployment uses.
 
 > **Until rows are recorded in the burst and fleet-envelope tables above, the
 > SLOs remain UNVERIFIED / PROVISIONAL** (see the status note near the top).
@@ -215,7 +232,11 @@ throughput/latency SLOs only mean anything on the sizing a real deployment uses.
 > committed here — is what flips them to committed. Do not edit the SLO numbers
 > to "pass"; ratchet only from a recorded run.
 
-### Required reference hardware
+### Required L/XL/XXL cluster reference hardware
+
+Record the `Hardware` cell as `PERF-REF-CLUSTER-L`,
+`PERF-REF-CLUSTER-XL`, or `PERF-REF-CLUSTER-XXL`, plus the concrete CPU/RAM/disk
+and datastore versions used for that run.
 
 The L/XL/XXL profiles are sized for, at minimum:
 
