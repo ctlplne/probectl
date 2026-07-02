@@ -81,7 +81,7 @@ test "$(ch "SELECT count() FROM probectl.probectl_drill_marker WHERE tenant_id =
 step "backup both stores"
 t0=$(date +%s)
 ./scripts/backup_postgres.sh "${OUT}"
-./scripts/backup_clickhouse.sh "${OUT}"
+PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target ./scripts/backup_clickhouse.sh "${OUT}"
 backup_secs=$(( $(date +%s) - t0 ))
 ls -l "${OUT}"
 PBK="$(find "${OUT}" -maxdepth 1 -name 'postgres-probectl-*.dump.pbk' -print -quit)"

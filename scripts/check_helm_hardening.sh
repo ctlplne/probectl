@@ -228,7 +228,24 @@ need "kind: CronJob"                "$strict" "strict profile missing backup Cro
 grep -q "kind: ServiceMonitor" <<<"$base" && fail "ServiceMonitor must be OFF by default (Prometheus-Operator CRD gate)"
 grep -q "kind: PrometheusRule" <<<"$base" && fail "PrometheusRule must be OFF by default (Prometheus-Operator CRD gate)"
 grep -q "kind: CronJob" <<<"$base" && fail "backup CronJobs must be OFF by default (backup.enabled)"
-need "kind: CronJob" "$(render --set backup.enabled=true)" "backup.enabled=true must render the backup CronJobs (OPS-009)"
+if render --set backup.enabled=true >/dev/null 2>&1; then
+  fail "chart rendered ClickHouse backup without backup.clickhouse.encryptedTargetAck (RED-004)"
+fi
+backup_render="$(render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target)"
+need "kind: CronJob" "$backup_render" "backup.enabled=true must render the backup CronJobs (OPS-009)"
+need ".dump.pbk" "$backup_render" "default Postgres backup must render sealed .dump.pbk artifact (RUNOPS-002)"
+need "backup-seal" "$backup_render" "default Postgres backup must stream through backup-seal (RUNOPS-002)"
+need "backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" "$backup_render" "ClickHouse backup render must carry exact encrypted-target ack (RED-004)"
+if render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.encryption.enabled=false >/dev/null 2>&1; then
+  fail "chart rendered plaintext Postgres backup without backup.plaintextAck (RUNOPS-002)"
+fi
+if render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.encryption.enabled=false --set backup.plaintextAck=allow-plain >/dev/null 2>&1; then
+  fail "chart rendered plaintext Postgres backup with misspelled backup.plaintextAck (RUNOPS-002)"
+fi
+plaintext_backup="$(render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.encryption.enabled=false --set backup.plaintextAck=allow-plaintext-tenant-backup)"
+need ".dump" "$plaintext_backup" "plaintext break-glass render must write .dump artifact (RUNOPS-002)"
+need "WARNING writing PLAINTEXT tenant backup" "$plaintext_backup" "plaintext break-glass render must emit warning (RUNOPS-002)"
+need "backup.plaintextAck=allow-plaintext-tenant-backup" "$plaintext_backup" "plaintext break-glass render must be searchable by exact ack (RUNOPS-002)"
 default_sm="$(render --set metrics.serviceMonitor.enabled=true)"
 need "kind: ServiceMonitor" "$default_sm" "metrics.serviceMonitor.enabled=true must render the ServiceMonitor (OPS-005)"
 need "port: http" "$default_sm" "default ServiceMonitor must target the default http Service port (RUNOPS-004)"
@@ -253,6 +270,38 @@ need_fixed 'PROBECTL_DEPLOYMENT_PROFILE: "multi-tenant"' "$multitenant" "multi-t
 for env in PROBECTL_PATHSTORE_READER_USER PROBECTL_FLOWSTORE_READER_USER PROBECTL_OTELSTORE_READER_USER PROBECTL_EBPFSTORE_READER_USER; do
   need_fixed "$env: \"probectl_reader\"" "$multitenant" "multi-tenant profile did not render $env scoped reader user (TENANT-002)"
 done
+
+# 4b. WIRE-001: production-like profiles fail closed on plaintext datastore
+#     transport. The config loader enforces this at boot; the chart catches the
+#     same operator mistakes while rendering so a bad Secret/ConfigMap is never
+#     applied.
+if helm template probectl "$CHART" -f "$CHART/values-multitenant.yaml" \
+  --set ingress.host=h.example.com \
+  --set ingress.tlsSecretName=probectl-tls \
+  --set secrets.envelopeKey="$KEY" \
+  --set secrets.sessionHMACKey="$SESSION_KEY" \
+  --set database.url="postgres://probectl:s3cret-not-default@db:5432/probectl?sslmode=disable" >/dev/null 2>&1; then
+  fail "chart rendered plaintext multi-tenant database.url (WIRE-001)"
+fi
+if render -f "$CHART/values-multitenant.yaml" \
+     --set-string control.extraEnv.PROBECTL_DATABASE_READ_URL="postgres://probectl_reader:s3cret-not-default@db-ro:5432/probectl?sslmode=prefer" >/dev/null 2>&1; then
+  fail "chart rendered plaintext multi-tenant PROBECTL_DATABASE_READ_URL (WIRE-001)"
+fi
+if render -f "$CHART/values-multitenant.yaml" \
+     --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL="http://clickhouse:8123" >/dev/null 2>&1; then
+  fail "chart rendered plaintext multi-tenant PROBECTL_FLOWSTORE_URL (WIRE-001)"
+fi
+if render -f "$CHART/values-multitenant.yaml" \
+     --set-string control.extraEnv.PROBECTL_DATAPLANES="us=http://clickhouse-us:8123" >/dev/null 2>&1; then
+  fail "chart rendered plaintext multi-tenant PROBECTL_DATAPLANES (WIRE-001)"
+fi
+multitenant_tls="$(render -f "$CHART/values-multitenant.yaml" \
+  --set-string control.extraEnv.PROBECTL_DATABASE_READ_URL="postgres://probectl_reader:s3cret-not-default@db-ro:5432/probectl?sslmode=verify-full" \
+  --set-string control.extraEnv.PROBECTL_FLOWSTORE_URL="https://clickhouse:8443" \
+  --set-string control.extraEnv.PROBECTL_DATAPLANES="us=https://clickhouse-us:8443")"
+need_fixed 'PROBECTL_DATABASE_READ_URL: "postgres://probectl_reader:s3cret-not-default@db-ro:5432/probectl?sslmode=verify-full"' "$multitenant_tls" "multi-tenant profile rejected/rendered wrong TLS read-replica DSN (WIRE-001)"
+need_fixed 'PROBECTL_FLOWSTORE_URL: "https://clickhouse:8443"' "$multitenant_tls" "multi-tenant profile rejected/rendered wrong TLS ClickHouse URL (WIRE-001)"
+need_fixed 'PROBECTL_DATAPLANES: "us=https://clickhouse-us:8443"' "$multitenant_tls" "multi-tenant profile rejected/rendered wrong TLS dataplane URL (WIRE-001)"
 
 # 5. Every profile lints clean — EVERY values-*.yaml in the chart, so a new
 # profile can never ship un-linted by being forgotten here (the strict and

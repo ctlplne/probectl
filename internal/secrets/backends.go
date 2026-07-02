@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -91,19 +92,23 @@ type VaultSource struct {
 
 // NewVaultSource builds the Vault backend from the environment; returns nil
 // when PROBECTL_SECRETS_VAULT_ADDR is unset.
-func NewVaultSource(getenv Getenv) *VaultSource {
+func NewVaultSource(getenv Getenv) (*VaultSource, error) {
 	addr := getenv("PROBECTL_SECRETS_VAULT_ADDR")
 	if addr == "" {
-		return nil
+		return nil, nil
+	}
+	addr, err := validateSecretBackendBaseURL(addr, "PROBECTL_SECRETS_VAULT_ADDR")
+	if err != nil {
+		return nil, err
 	}
 	return &VaultSource{
-		addr:      strings.TrimRight(addr, "/"),
+		addr:      addr,
 		token:     getenv("PROBECTL_SECRETS_VAULT_TOKEN"),
 		roleID:    getenv("PROBECTL_SECRETS_VAULT_ROLE_ID"),
 		secretID:  getenv("PROBECTL_SECRETS_VAULT_SECRET_ID"),
 		namespace: getenv("PROBECTL_SECRETS_VAULT_NAMESPACE"),
 		client:    crypto.HardenedHTTPClient(15 * time.Second),
-	}
+	}, nil
 }
 
 // Scheme implements Source.
@@ -231,6 +236,10 @@ func NewCyberArkSource(getenv Getenv) (*CyberArkSource, error) {
 	if base == "" || appID == "" {
 		return nil, nil
 	}
+	base, err := validateSecretBackendBaseURL(base, "PROBECTL_SECRETS_CYBERARK_URL")
+	if err != nil {
+		return nil, err
+	}
 	client := crypto.HardenedHTTPClient(15 * time.Second)
 	if cert, key := getenv("PROBECTL_SECRETS_CYBERARK_CERT_FILE"), getenv("PROBECTL_SECRETS_CYBERARK_KEY_FILE"); cert != "" && key != "" {
 		tlsCfg, err := crypto.ClientMTLSConfig(cert, key, getenv("PROBECTL_SECRETS_CYBERARK_CA_FILE"))
@@ -239,7 +248,7 @@ func NewCyberArkSource(getenv Getenv) (*CyberArkSource, error) {
 		}
 		client.Transport = &http.Transport{TLSClientConfig: tlsCfg}
 	}
-	return &CyberArkSource{base: strings.TrimRight(base, "/"), appID: appID, client: client}, nil
+	return &CyberArkSource{base: base, appID: appID, client: client}, nil
 }
 
 // Scheme implements Source.
@@ -273,4 +282,28 @@ func (s *CyberArkSource) Fetch(ctx context.Context, ref Ref) (string, error) {
 		return resp.UserName, nil
 	}
 	return resp.Content, nil
+}
+
+func validateSecretBackendBaseURL(raw, name string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("secrets: %s must be a valid absolute URL", name)
+	}
+	switch u.Scheme {
+	case "https":
+		return strings.TrimRight(raw, "/"), nil
+	case "http":
+		if isLoopbackHost(u.Hostname()) {
+			return strings.TrimRight(raw, "/"), nil
+		}
+	}
+	return "", fmt.Errorf("secrets: %s must use https:// for remote endpoints (plain http is allowed only for loopback test/dev instances)", name)
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

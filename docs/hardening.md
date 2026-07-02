@@ -383,8 +383,10 @@ where noted "operator action".
       only `CAP_BPF`/`CAP_PERFMON` where used).
 - [ ] **Operator action:** apply NetworkPolicies (default-deny egress; allow only
       the datastores, bus, and explicitly-configured feeds).
-- [ ] **Operator action:** enable TLS in transit to Postgres / ClickHouse / Kafka
-      (default-on in the multi-tenant/regulated deploy profiles).
+- [ ] **Operator action:** enable TLS in transit to Postgres / ClickHouse / Kafka.
+      The `multi-tenant`/`regulated` profiles fail closed unless Postgres DSNs
+      use `sslmode=require`/`verify-ca`/`verify-full`, ClickHouse URLs are
+      `https://`, and Kafka TLS is enabled.
 - [ ] **Operator action:** pin image digests; scan with your supply-chain tooling.
 
 ---

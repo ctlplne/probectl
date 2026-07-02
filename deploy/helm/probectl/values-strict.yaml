@@ -76,6 +76,8 @@ metrics:
 # secret out-of-band; let the chart create the backups PVC.
 backup:
   enabled: true
+  clickhouse:
+    encryptedTargetAck: encrypted-clickhouse-backup-target
   persistence:
     create: true
     size: 100Gi

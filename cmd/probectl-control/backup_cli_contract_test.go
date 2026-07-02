@@ -272,6 +272,7 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 		{"sha256sum -c \"$(basename \"${PBK}\").sha256\"", "the drill must verify the sealed .pbk sidecar before backup-open"},
 		{"sha256sum \"$(basename \"${DECRYPTED}\")\" > \"$(basename \"${DECRYPTED}\").sha256\"", "the drill must create the decrypted dump sidecar before destructive restore"},
 		{"tenant_id", "the ClickHouse regional-loss proof must query restored telemetry by tenant"},
+		{"PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target", "the ClickHouse drill must explicitly acknowledge the encrypted backup target"},
 		{"clickhouse regional-loss drill: PASS", "the drill must print an explicit telemetry DR receipt"},
 		{"default shipped telemetry RPO <= 24h", "the drill receipt must name the numeric shipped telemetry RPO"},
 	} {
@@ -285,6 +286,24 @@ func TestBackupDrillExercisesSealedPBKPath(t *testing.T) {
 	}
 }
 
+func TestClickHouseBackupsRequireEncryptedTargetAck(t *testing.T) {
+	for _, tc := range []struct {
+		rel  string
+		want string
+	}{
+		{rel: "scripts/backup_clickhouse.sh", want: "PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target"},
+		{rel: "deploy/helm/probectl/templates/backup-cronjobs.yaml", want: "backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target"},
+	} {
+		body := stripComments(readArtifact(t, tc.rel))
+		if !strings.Contains(body, tc.want) {
+			t.Fatalf("%s must require exact ClickHouse encrypted-target custody ack %q", tc.rel, tc.want)
+		}
+		if !strings.Contains(body, "tenant telemetry") {
+			t.Fatalf("%s must state that the raw ClickHouse artifact contains tenant telemetry", tc.rel)
+		}
+	}
+}
+
 // RESIL-003: standalone backup examples used to write the tenant Postgres dump
 // directly to disk, then rely on later docs/drills to seal a copy. That leaves a
 // raw multi-tenant database artifact on the backups volume. Pin the literal
@@ -295,6 +314,7 @@ func TestStandalonePostgresBackupsAreSealedOrBreakGlass(t *testing.T) {
 		"scripts/backup_postgres.sh",
 		"deploy/backup/compose-backup.yml",
 		"deploy/backup/k8s-cronjob-postgres.yaml",
+		"deploy/helm/probectl/templates/backup-cronjobs.yaml",
 	} {
 		body := readArtifact(t, rel)
 		assertNoBadBackupFlags(t, rel, body)

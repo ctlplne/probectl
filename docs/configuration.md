@@ -86,7 +86,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_HTTP_WRITE_TIMEOUT`       | `15s`                                                              | HTTP write timeout                           |
 | `PROBECTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
 | `PROBECTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
-| `PROBECTL_DATABASE_URL`             | `postgres://probectl:probectl@localhost:5432/probectl?sslmode=require`    | PostgreSQL DSN; `sslmode=require` is the default (TLS to the DB out of the box). Dev-only: a local source-dev stack without TLS may explicitly append `sslmode=disable` to its own DSN |
+| `PROBECTL_DATABASE_URL`             | `postgres://probectl:probectl@localhost:5432/probectl?sslmode=require`    | PostgreSQL DSN; `sslmode=require` is the default (TLS to the DB out of the box). `multi-tenant`/`regulated` profiles require `sslmode=require`, `verify-ca`, or `verify-full` on writer and read-replica DSNs; dev-only `sslmode=disable` is accepted only under the `single` profile |
 | `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (1–1000). Per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
 | `PROBECTL_DATABASE_MIN_CONNS`       | `2`                                                                | min (warm) pool connections — keeps a couple of conns open so the first request after idle skips the connect+TLS cold start. Production profiles may raise this |
 | `PROBECTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
@@ -104,7 +104,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_ENVELOPE_KEY_FILE`        | (none)                                                            | path to the KEK file — loaded, or GENERATED+persisted (0600) on first boot if absent; an explicit `PROBECTL_ENVELOPE_KEY` wins over it. Shipped compose mounts it on the `controldata` volume |
 | `PROBECTL_ENVELOPE_KEY_ID`          | `dev`                                                             | identifier recorded alongside each sealed value and backup container header |
 | `PROBECTL_ENVELOPE_OPENER_KEYS`     | (none)                                                            | comma-separated `oldKeyID=base64KEK` opener keyring for envelope-key rotation overlap. New values use only `PROBECTL_ENVELOPE_KEY`; old `dv1` values and `.pbk` backups can still open by their stored key ID. Treat this like key material; remove a retired entry only after `probectl-control envelope-rewrap --verify-retired-key-id=<oldKeyID>` and backup rewrap/expiry prove it is no longer needed |
-| `PROBECTL_SESSION_HMAC_KEY`         | (none)                                                            | hex-encoded 32-byte session-token HMAC key (`openssl rand -hex 32`). Browser/operator session tokens are random, but this server-side pepper means a DB snapshot cannot verify guesses without the app secret. Required by shipped Helm/Compose production paths and by `session` auth under `multi-tenant` / `regulated` profiles |
+| `PROBECTL_SESSION_HMAC_KEY`         | (none)                                                            | hex-encoded 32-byte session-token HMAC key (`openssl rand -hex 32`). Browser/operator session tokens are random, but this server-side pepper means a DB snapshot cannot verify guesses without the app secret. Required by shipped Helm/Compose production paths, by `session` auth under `multi-tenant` / `regulated` profiles, and by single-profile `session` auth once `PROBECTL_OIDC_*` is configured |
 | `PROBECTL_REQUIRE_AT_REST_ENCRYPTION` | `true`                                                         | records the desired at-rest posture. The serve path refuses to start without an envelope key by default; setting this `false` alone does **not** allow plaintext |
 | `PROBECTL_ALLOW_KEYLESS_DEV`        | `false`                                                           | explicit local-dev-only escape hatch for no envelope key. When `true`, sensitive-value sealing falls back to plaintext passthrough; never set it in production/provider profiles |
 | `PROBECTL_STORAGE_ENCRYPTION_ATTESTED` | `false`                                                       | operator attestation that the bulk-store volumes are encrypted *below* the host (e.g. encrypted cloud volumes the startup preflight can't see); logged, and downgrades the preflight warning |
@@ -619,7 +619,7 @@ Where the discovered hops/links are stored is a control-plane choice:
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `PROBECTL_PATHSTORE_MODE` | `memory` | `memory` (in-process, for the lightweight/single-binary case and tests) \| `clickhouse` (durable hop/link rows) |
-| `PROBECTL_PATHSTORE_URL` | (none) | ClickHouse HTTP(S) endpoint (e.g. `http://localhost:8123`), partitioned by tenant; **required** when mode is `clickhouse` |
+| `PROBECTL_PATHSTORE_URL` | (none) | ClickHouse HTTP(S) endpoint (e.g. `http://localhost:8123` for single-profile dev, `https://clickhouse.example:8443` for production), partitioned by tenant; **required** when mode is `clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_PATH_RETENTION_DAYS` | `90` | delete-after-N-days TTL on the path/traceroute ClickHouse tables (applied at boot); `0` disables the TTL |
 
 ### BGP routing intelligence
@@ -852,10 +852,14 @@ gets **no roles** — a secure default; an admin grants access), mints a server-
 session, and sets the session cookie. `POST /auth/logout` revokes the session.
 `GET /v1/me` returns the caller's tenant, identity, and effective permissions.
 
-**Sessions.** A session is a random, high-entropy opaque token. Only its **hash**
-is stored (table `sessions`), so a database read cannot mint a session. The
-session cookie is **HttpOnly + SameSite=Lax**, and **Secure** whenever the
-API serves HTTPS. `PROBECTL_SESSION_TTL` (default `12h`) bounds its lifetime.
+**Sessions.** A session is a random, high-entropy opaque token. Only its
+server-keyed **HMAC hash** is stored (table `sessions`), so a database read
+cannot mint or cheaply test a session without `PROBECTL_SESSION_HMAC_KEY`.
+Production session-cookie deployments fail closed without that key: all
+`multi-tenant` / `regulated` session auth, and `single` profile session auth once
+OIDC is configured. The cookie is **HttpOnly + SameSite=Lax**, and **Secure**
+whenever the API serves HTTPS. `PROBECTL_SESSION_TTL` (default `12h`) bounds its
+lifetime.
 
 **Per-tenant IdP.** Providers are resolved per tenant through a provider factory —
 the seam for a tenant bringing its own SSO. The shipped default is the
@@ -1171,10 +1175,10 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | Variable                        | Default  | Meaning                                                             |
 | -------------------------------- | -------- | -------------------------------------------------------------------- |
 | `PROBECTL_FLOWSTORE_MODE`         | `memory` | where flow records live: `memory` (lightweight/single-binary) \| `clickhouse` (durable, high-cardinality) |
-| `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode         |
+| `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode. `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_EBPFSTORE_MODE`         | `memory` | where eBPF flow/L7 service-edge aggregates live: `memory` (lightweight/single-binary) \| `clickhouse` (durable history) |
-| `PROBECTL_EBPFSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_EBPFSTORE_MODE=clickhouse` |
-| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path) — defense-in-depth above app code (guardrail 7.1). In `multi-tenant`/`regulated`, ClickHouse-backed lanes may not downgrade this: startup requires each `*_TENANT_SCOPING=true` and its matching `*_READER_USER` |
+| `PROBECTL_EBPFSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_EBPFSTORE_MODE=clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
+| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path), strict tenant bus lanes, durable stores, and TLS datastore URLs — defense-in-depth above app code (guardrails 7.1/7.12). In `multi-tenant`/`regulated`, ClickHouse-backed lanes may not downgrade this: startup requires each `*_TENANT_SCOPING=true` and its matching `*_READER_USER` |
 | `PROBECTL_FLOWSTORE_TENANT_SCOPING` | profile | defense-in-depth: also constrain flow reads at the **database** by attaching a per-request tenant setting that a ClickHouse row policy enforces (needs server-side `custom_settings_prefixes=SQL_` + a reader user). Defaults ON under `multi-tenant`/`regulated`, off under `single` |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | the ClickHouse reader user the setting-scoped row policy is installed on at boot (pairs with the toggle above) |
 | `PROBECTL_OTELSTORE_TENANT_SCOPING` | profile | TENANT-003/004: DB-level reader scoping on the OTLP traces+logs plane (the PII-heaviest). Same mechanism as flow; defaults ON under `multi-tenant`/`regulated` |
@@ -1198,8 +1202,9 @@ deletion removes them.
 profiles, so startup refuses volatile raw-ingest/serving defaults. Set
 `PROBECTL_BUS_MODE=kafka`, `PROBECTL_TSDB_MODE=prometheus`, and
 `PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`, `PROBECTL_OTELSTORE_MODE`,
-and `PROBECTL_EBPFSTORE_MODE` to `clickhouse` with their required URLs before
-using those profiles. Each ClickHouse lane also needs the corresponding scoped
+and `PROBECTL_EBPFSTORE_MODE` to `clickhouse` with their required `https://`
+URLs before using those profiles. Postgres writer/read-replica URLs must carry
+`sslmode=require`, `verify-ca`, or `verify-full`. Each ClickHouse lane also needs the corresponding scoped
 reader user (`PROBECTL_PATHSTORE_READER_USER`, `PROBECTL_FLOWSTORE_READER_USER`,
 `PROBECTL_OTELSTORE_READER_USER`, and `PROBECTL_EBPFSTORE_READER_USER`) so boot
 can install the database row policy. The default `single` profile may still use
@@ -1319,7 +1324,7 @@ tokens can be DB-backed and hot-revoked through `/v1/otlp-tokens`; static
 | `PROBECTL_OTLP_GRPC_ADDR`     | (none)  | OTLP/gRPC listen address (e.g. `:4317`)                      |
 | `PROBECTL_OTLP_HTTP_ADDR`     | (none)  | OTLP/HTTP listen address (e.g. `:4318`); accepts all three signals — `POST /v1/metrics`, `/v1/traces`, `/v1/logs` |
 | `PROBECTL_OTELSTORE_MODE`     | `memory` | where ingested OTLP traces+logs live: `memory` (lightweight) \| `clickhouse` (production; `(tenant_id, day)` partition) |
-| `PROBECTL_OTELSTORE_URL`      | (none)  | ClickHouse HTTP URL for `clickhouse` mode (https = TLS in transit) |
+| `PROBECTL_OTELSTORE_URL`      | (none)  | ClickHouse HTTP(S) URL for `clickhouse` mode; `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_OTEL_RETENTION_DAYS` | `30`   | delete-TTL for stored OTLP traces+logs (0 disables) |
 | `PROBECTL_OTLP_TLS_CERT_FILE` | (none)  | PEM server certificate (required to enable)                  |
 | `PROBECTL_OTLP_TLS_KEY_FILE`  | (none)  | PEM server private key (required to enable)                  |
@@ -1804,7 +1809,7 @@ namespace / object key namespace) require a license granting
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PROBECTL_DATAPLANES` | (none) | named residency data planes — `name=clickhouseURL[;name=clickhouseURL...]` (e.g. `eu=https://ch-eu:8123;us=https://ch-us:8123`). A tenant's `residency` pins its ClickHouse database to that plane |
+| `PROBECTL_DATAPLANES` | (none) | named residency data planes — `name=clickhouseURL[;name=clickhouseURL...]` (e.g. `eu=https://ch-eu:8443;us=https://ch-us:8443`). `multi-tenant`/`regulated` profiles require `https://` ClickHouse endpoints. A tenant's `residency` pins its ClickHouse database to that plane |
 
 Residency pins the tenant's **ClickHouse flow data** in this release;
 Postgres control state, the TSDB, object storage, and bus brokers are NOT
@@ -1951,7 +1956,7 @@ runbook: `docs/multi-region.md`,
 | `PROBECTL_REGION` | (empty) | this replica's region; empty = single-region (fence inert) |
 | `PROBECTL_REGIONS` | (empty) | comma list of all regions in the deployment |
 | `PROBECTL_DATABASE_URL` | … | the WRITER endpoint (DNS/proxy that resolves to the current primary) |
-| `PROBECTL_DATABASE_READ_URL` | (empty) | optional local read-replica endpoint; empty = reads use the writer |
+| `PROBECTL_DATABASE_READ_URL` | (empty) | optional local read-replica endpoint; empty = reads use the writer. `multi-tenant`/`regulated` profiles require PostgreSQL TLS (`sslmode=require`, `verify-ca`, or `verify-full`) |
 | `PROBECTL_REPLICATION_MODE` | `async` | `sync` (RPO 0) or `async` (RPO ≈ lag) — descriptive; configure Postgres to match |
 | `PROBECTL_RESIDENCY` | (empty) | default data-residency region (governance) |
 | `PROBECTL_RPO_SECONDS` | `0` | provisional RPO target (human sign-off) |
@@ -2032,18 +2037,21 @@ parts of `PROBECTL_CHANGE_WEBHOOKS` / `PROBECTL_NOTIFY_CONNECTORS` /
 every `PROBECTL_DEVICE_CRED_<NAME>_*` value per poll cycle. Resolved values are
 cached only encrypted, for a short lease (5 m). See `docs/secrets.md`.
 
-Backend access settings (environment only; all over verified TLS). Two Vault
-terms used below: **AppRole** is Vault's login method for machines — a role id +
-secret id pair playing username/password for a service — and a **lease** is the
-expiry Vault stamps on what it issues, which probectl renews before it runs out:
+Backend access settings (environment only; all remote endpoints over verified
+TLS). Vault and CyberArk base URLs must use `https://`; plaintext `http://` is
+accepted only for explicit loopback dev/test endpoints such as `127.0.0.1`,
+`::1`, or `localhost`. Two Vault terms used below: **AppRole** is Vault's login
+method for machines — a role id + secret id pair playing username/password for a
+service — and a **lease** is the expiry Vault stamps on what it issues, which
+probectl renews before it runs out:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `PROBECTL_SECRETS_VAULT_ADDR`      | (none) | Vault base URL; enables `vault:` references |
+| `PROBECTL_SECRETS_VAULT_ADDR`      | (none) | Vault base URL; enables `vault:` references; remote URLs must be `https://` |
 | `PROBECTL_SECRETS_VAULT_TOKEN`     | (none) | static Vault token (alternative to AppRole) |
 | `PROBECTL_SECRETS_VAULT_ROLE_ID` / `_SECRET_ID` | (none) | AppRole login; the lease-aware client token is renewed at ⅔ TTL |
 | `PROBECTL_SECRETS_VAULT_NAMESPACE` | (none) | `X-Vault-Namespace` (Vault Enterprise) |
-| `PROBECTL_SECRETS_CYBERARK_URL`    | (none) | CyberArk CCP base URL; enables `cyberark:` |
+| `PROBECTL_SECRETS_CYBERARK_URL`    | (none) | CyberArk CCP base URL; enables `cyberark:`; remote URLs must be `https://` |
 | `PROBECTL_SECRETS_CYBERARK_APP_ID` | (none) | CCP AppID |
 | `PROBECTL_SECRETS_CYBERARK_CERT_FILE` / `_KEY_FILE` / `_CA_FILE` | (none) | optional CCP client-certificate auth |
 | `AWS_REGION` (or `AWS_DEFAULT_REGION`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | (none) | enables `aws:` (Secrets Manager, SigV4) |

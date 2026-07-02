@@ -109,6 +109,10 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
+        "plaintextAck": {
+          "type": "string",
+          "enum": ["", "allow-plaintext-tenant-backup"]
+        },
         "credentialsSecret": { "type": "string" },
         "encryption": {
           "type": "object",
@@ -146,6 +150,10 @@
           "additionalProperties": false,
           "properties": {
             "enabled": { "type": "boolean" },
+            "encryptedTargetAck": {
+              "type": "string",
+              "enum": ["", "encrypted-clickhouse-backup-target"]
+            },
             "schedule": { "type": "string" },
             "host": { "type": "string" },
             "database": { "type": "string" },

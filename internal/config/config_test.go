@@ -42,6 +42,17 @@ func durableTenantProfileEnv(profile string) map[string]string {
 	}
 }
 
+func singleOIDCSessionEnv() map[string]string {
+	return map[string]string{
+		"PROBECTL_DEPLOYMENT_PROFILE": "single",
+		"PROBECTL_AUTH_MODE":          "session",
+		"PROBECTL_OIDC_ISSUER":        "https://idp.example.test",
+		"PROBECTL_OIDC_CLIENT_ID":     "probectl",
+		"PROBECTL_OIDC_CLIENT_SECRET": "client-secret",
+		"PROBECTL_OIDC_REDIRECT_URL":  "https://probectl.example.test/auth/callback",
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	cfg, err := Load(envFunc(nil))
 	if err != nil {
@@ -200,7 +211,113 @@ func TestTenantProfilesRejectVolatileStores(t *testing.T) {
 	}
 }
 
+func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
+	for _, profile := range []string{"multi-tenant", "regulated"} {
+		t.Run(profile+" accepts TLS datastores", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_DATABASE_READ_URL"] = "postgres://probectl_reader:secret@pg-ro.example:5432/probectl?sslmode=verify-full"
+			env["PROBECTL_DATAPLANES"] = "us=https://clickhouse-us.example:8443;eu=https://clickhouse-eu.example:8443"
+			if _, err := Load(envFunc(env)); err != nil {
+				t.Fatalf("secure datastore URLs should load: %v", err)
+			}
+		})
+
+		t.Run(profile+" rejects plaintext postgres writer", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_DATABASE_URL"] = "postgres://probectl:secret@pg.example:5432/probectl?sslmode=disable"
+			_, err := Load(envFunc(env))
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATABASE_URL") || !strings.Contains(err.Error(), "sslmode=require") {
+				t.Fatalf("plaintext writer DSN should fail closed with sslmode guidance, got %v", err)
+			}
+		})
+
+		t.Run(profile+" rejects plaintext postgres read replica", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_DATABASE_READ_URL"] = "postgres://probectl_reader:secret@pg-ro.example:5432/probectl"
+			_, err := Load(envFunc(env))
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATABASE_READ_URL") || !strings.Contains(err.Error(), "sslmode=require") {
+				t.Fatalf("plaintext read-replica DSN should fail closed with sslmode guidance, got %v", err)
+			}
+		})
+
+		for _, tc := range []struct {
+			name   string
+			urlEnv string
+		}{
+			{name: "path", urlEnv: "PROBECTL_PATHSTORE_URL"},
+			{name: "flow", urlEnv: "PROBECTL_FLOWSTORE_URL"},
+			{name: "otel", urlEnv: "PROBECTL_OTELSTORE_URL"},
+			{name: "ebpf", urlEnv: "PROBECTL_EBPFSTORE_URL"},
+		} {
+			t.Run(profile+" rejects plaintext "+tc.name+" clickhouse", func(t *testing.T) {
+				env := durableTenantProfileEnv(profile)
+				env[tc.urlEnv] = "http://clickhouse.example:8123"
+				_, err := Load(envFunc(env))
+				if err == nil || !strings.Contains(err.Error(), tc.urlEnv) || !strings.Contains(err.Error(), "https://") {
+					t.Fatalf("plaintext %s should fail closed with https guidance, got %v", tc.urlEnv, err)
+				}
+			})
+		}
+
+		t.Run(profile+" rejects plaintext residency dataplane", func(t *testing.T) {
+			env := durableTenantProfileEnv(profile)
+			env["PROBECTL_DATAPLANES"] = "us=http://clickhouse-us.example:8123"
+			_, err := Load(envFunc(env))
+			if err == nil || !strings.Contains(err.Error(), "PROBECTL_DATAPLANES") || !strings.Contains(err.Error(), "https://") {
+				t.Fatalf("plaintext dataplane should fail closed with https guidance, got %v", err)
+			}
+		})
+	}
+}
+
+func TestDatastoreTLSAllowsSingleProfileDevLoopback(t *testing.T) {
+	cfg, err := Load(envFunc(map[string]string{
+		"PROBECTL_DEPLOYMENT_PROFILE": "single",
+		"PROBECTL_DATABASE_URL":       "postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable",
+		"PROBECTL_PATHSTORE_MODE":     "clickhouse",
+		"PROBECTL_PATHSTORE_URL":      "http://localhost:8123",
+	}))
+	if err != nil {
+		t.Fatalf("single-profile dev loopback datastore URLs should remain loadable: %v", err)
+	}
+	if cfg.DatabaseURL == "" || cfg.PathStoreURL == "" {
+		t.Fatalf("expected dev datastore URLs to load, got database=%q path=%q", cfg.DatabaseURL, cfg.PathStoreURL)
+	}
+}
+
 func TestSessionHMACKeyRequiredForTenantProfiles(t *testing.T) {
+	t.Run("single oidc session requires session hmac key", func(t *testing.T) {
+		_, err := Load(envFunc(singleOIDCSessionEnv()))
+		if err == nil || !strings.Contains(err.Error(), "PROBECTL_SESSION_HMAC_KEY is required") {
+			t.Fatalf("single-profile OIDC session auth without session HMAC key should fail closed; got %v", err)
+		}
+	})
+
+	t.Run("single local session without oidc may omit session hmac key", func(t *testing.T) {
+		cfg, err := Load(envFunc(map[string]string{
+			"PROBECTL_DEPLOYMENT_PROFILE": "single",
+			"PROBECTL_AUTH_MODE":          "session",
+		}))
+		if err != nil {
+			t.Fatalf("single-profile local session config without OIDC should remain loadable: %v", err)
+		}
+		if len(cfg.SessionHMACKey) != 0 {
+			t.Fatalf("SessionHMACKey length = %d, want omitted local/dev key", len(cfg.SessionHMACKey))
+		}
+	})
+
+	t.Run("single oidc session accepts valid session hmac key", func(t *testing.T) {
+		env := singleOIDCSessionEnv()
+		env["PROBECTL_SESSION_HMAC_KEY"] = testSessionHMACKeyHex
+		cfg, err := Load(envFunc(env))
+		if err != nil {
+			t.Fatalf("single-profile OIDC session auth with HMAC key should load: %v", err)
+		}
+		if len(cfg.SessionHMACKey) != crypto.KeySize {
+			t.Fatalf("SessionHMACKey length = %d, want %d", len(cfg.SessionHMACKey), crypto.KeySize)
+		}
+	})
+
 	for _, profile := range []string{"multi-tenant", "regulated"} {
 		t.Run(profile+" requires session hmac key", func(t *testing.T) {
 			_, err := Load(envFunc(map[string]string{
@@ -479,15 +596,25 @@ func TestIngestStrictTenantLanesProfileDefault(t *testing.T) {
 			t.Errorf("%s profile: strict tenant lanes should default ON (WIRE-001)", p)
 		}
 	}
-	// Explicit override wins.
+	// Production-like profiles may not reopen the shared-lane forgery surface.
 	env := durableTenantProfileEnv("regulated")
 	env["PROBECTL_INGEST_STRICT_TENANT_LANES"] = "false"
+	if _, err = Load(envFunc(env)); err == nil || !strings.Contains(err.Error(), "PROBECTL_INGEST_STRICT_TENANT_LANES=true") {
+		t.Fatalf("regulated profile must reject strict-lane disablement, got %v", err)
+	}
+	env = durableTenantProfileEnv("multi-tenant")
+	env["PROBECTL_INGEST_STRICT_TENANT_LANES"] = "false"
+	if _, err = Load(envFunc(env)); err == nil || !strings.Contains(err.Error(), "PROBECTL_INGEST_STRICT_TENANT_LANES=true") {
+		t.Fatalf("multi-tenant profile must reject strict-lane disablement, got %v", err)
+	}
+	// Single-tenant keeps the development/lightweight escape hatch.
+	env = map[string]string{"PROBECTL_INGEST_STRICT_TENANT_LANES": "false"}
 	cfg, err = Load(envFunc(env))
 	if err != nil {
-		t.Fatalf("load: %v", err)
+		t.Fatalf("single profile strict-lane false should load: %v", err)
 	}
 	if cfg.IngestStrictTenantLanes {
-		t.Error("explicit PROBECTL_INGEST_STRICT_TENANT_LANES=false must override the profile default")
+		t.Error("single profile should still allow strict tenant lanes to stay off")
 	}
 }
 

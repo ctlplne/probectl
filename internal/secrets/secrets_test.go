@@ -24,6 +24,48 @@ func ctxT(t *testing.T) context.Context {
 	return ctx
 }
 
+func TestRemoteSecretBackendHTTPURLsFailClosed(t *testing.T) {
+	if v, err := NewVaultSource(func(k string) string {
+		return map[string]string{
+			"PROBECTL_SECRETS_VAULT_ADDR":  "http://vault.example",
+			"PROBECTL_SECRETS_VAULT_TOKEN": "tok",
+		}[k]
+	}); err == nil || v != nil || !strings.Contains(err.Error(), "https://") {
+		t.Fatalf("remote plaintext Vault URL must fail closed before construction: source=%v err=%v", v, err)
+	}
+
+	if ca, err := NewCyberArkSource(func(k string) string {
+		return map[string]string{
+			"PROBECTL_SECRETS_CYBERARK_URL":    "http://cyberark.example",
+			"PROBECTL_SECRETS_CYBERARK_APP_ID": "probectl",
+		}[k]
+	}); err == nil || ca != nil || !strings.Contains(err.Error(), "https://") {
+		t.Fatalf("remote plaintext CyberArk URL must fail closed before construction: source=%v err=%v", ca, err)
+	}
+}
+
+func TestLoopbackSecretBackendHTTPURLsAllowedForTests(t *testing.T) {
+	v, err := NewVaultSource(func(k string) string {
+		return map[string]string{
+			"PROBECTL_SECRETS_VAULT_ADDR":  "http://127.0.0.1:8200",
+			"PROBECTL_SECRETS_VAULT_TOKEN": "tok",
+		}[k]
+	})
+	if err != nil || v == nil {
+		t.Fatalf("loopback Vault HTTP URL should be allowed for dev/test: source=%v err=%v", v, err)
+	}
+
+	ca, err := NewCyberArkSource(func(k string) string {
+		return map[string]string{
+			"PROBECTL_SECRETS_CYBERARK_URL":    "http://localhost:8080",
+			"PROBECTL_SECRETS_CYBERARK_APP_ID": "probectl",
+		}[k]
+	})
+	if err != nil || ca == nil {
+		t.Fatalf("loopback CyberArk HTTP URL should be allowed for dev/test: source=%v err=%v", ca, err)
+	}
+}
+
 func TestRefParsingAndLiterals(t *testing.T) {
 	cases := map[string]Ref{
 		"vault:kv/netops/snmp#community": {Scheme: "vault", Path: "kv/netops/snmp", Field: "community"},
@@ -343,9 +385,9 @@ func TestVaultKV2AndAppRole(t *testing.T) {
 		"PROBECTL_SECRETS_VAULT_SECRET_ID": "sid",
 		"PROBECTL_SECRETS_VAULT_NAMESPACE": "team-a",
 	}
-	v := NewVaultSource(func(k string) string { return env[k] })
-	if v == nil {
-		t.Fatal("vault source not built")
+	v, err := NewVaultSource(func(k string) string { return env[k] })
+	if err != nil || v == nil {
+		t.Fatalf("vault source: %v", err)
 	}
 	got, err := v.Fetch(ctxT(t), Ref{Scheme: "vault", Path: "kv/netops/snmp", Field: "community"})
 	if err != nil || got != "v4ult-c0mm" {
@@ -381,15 +423,15 @@ func TestVaultAppRoleConcurrentNoRace(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	v := NewVaultSource(func(k string) string {
+	v, err := NewVaultSource(func(k string) string {
 		return map[string]string{
 			"PROBECTL_SECRETS_VAULT_ADDR":      ts.URL,
 			"PROBECTL_SECRETS_VAULT_ROLE_ID":   "rid",
 			"PROBECTL_SECRETS_VAULT_SECRET_ID": "sid",
 		}[k]
 	})
-	if v == nil {
-		t.Fatal("vault source not built")
+	if err != nil || v == nil {
+		t.Fatalf("vault source: %v", err)
 	}
 
 	var wg sync.WaitGroup

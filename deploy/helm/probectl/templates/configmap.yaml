@@ -1,3 +1,31 @@
+{{- $extraEnv := .Values.control.extraEnv | default dict -}}
+{{- $profile := default "single" (get $extraEnv "PROBECTL_DEPLOYMENT_PROFILE") -}}
+{{- if or (eq $profile "multi-tenant") (eq $profile "regulated") -}}
+{{- $databaseURL := default "" .Values.database.url -}}
+{{- if not (regexMatch "[?&]sslmode=(require|verify-ca|verify-full)(&|$)" $databaseURL) -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires database.url with PostgreSQL TLS sslmode=require, verify-ca, or verify-full (WIRE-001)" $profile) -}}
+{{- end -}}
+{{- with (get $extraEnv "PROBECTL_DATABASE_READ_URL") -}}
+{{- $readURL := printf "%v" . -}}
+{{- if and $readURL (not (regexMatch "[?&]sslmode=(require|verify-ca|verify-full)(&|$)" $readURL)) -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_DATABASE_READ_URL with PostgreSQL TLS sslmode=require, verify-ca, or verify-full (WIRE-001)" $profile) -}}
+{{- end -}}
+{{- end -}}
+{{- range $envName := list "PROBECTL_PATHSTORE_URL" "PROBECTL_FLOWSTORE_URL" "PROBECTL_OTELSTORE_URL" "PROBECTL_EBPFSTORE_URL" -}}
+{{- with (get $extraEnv $envName) -}}
+{{- $chURL := printf "%v" . -}}
+{{- if and $chURL (not (regexMatch "^https://" $chURL)) -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be an https:// ClickHouse endpoint (WIRE-001)" $profile $envName) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- with (get $extraEnv "PROBECTL_DATAPLANES") -}}
+{{- $dataPlanes := printf "%v" . -}}
+{{- if regexMatch "(^|[=;])http://" $dataPlanes -}}
+{{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_DATAPLANES entries to use https:// ClickHouse endpoints (WIRE-001)" $profile) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

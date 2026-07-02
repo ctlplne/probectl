@@ -54,9 +54,14 @@ sealed under the active key; no plaintext dump is written between those steps.
 ClickHouse's `BACKUP TO File` runs *inside* the ClickHouse server, so it can't
 be piped through that filter; it is encrypted by the **backups volume** instead
 (the encrypted-volume operator duty in [hardening.md](../hardening.md) §0c, which
-`probectl-control preflight --strict` checks). Either way, restrict access to
-the backups and keep them inside the operator's network — telemetry never
-leaves it (one of the project's
+`probectl-control preflight --strict` checks). Because the native artifact is a
+raw `.zip` containing tenant telemetry, both the script and Helm CronJob fail
+closed unless you explicitly acknowledge that the server backup path and any
+off-box copy target are encrypted operator-controlled storage:
+`PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target` for the
+script, or `backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target`
+for Helm. Either way, restrict access to the backups and keep them inside the
+operator's network — telemetry never leaves it (one of the project's
 [non-negotiables](../../CONTRIBUTING.md#non-negotiables)).
 
 ## Taking backups
@@ -65,7 +70,8 @@ One-shot (any time — e.g. right before an upgrade):
 
 ```sh
 ./scripts/backup_postgres.sh   /srv/probectl-backups   # → postgres-<db>-<ts>.dump.pbk + .sha256
-./scripts/backup_clickhouse.sh /srv/probectl-backups   # → clickhouse-<db>-<ts>.zip  + .sha256
+PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target \
+  ./scripts/backup_clickhouse.sh /srv/probectl-backups # → clickhouse-<db>-<ts>.zip + .sha256
 ```
 
 Both scripts run the dump *inside* the running compose container (so you need
@@ -87,8 +93,11 @@ For a non-dev deployment, override the env vars the scripts read:
 Plaintext Postgres dumps are break-glass only. The backup script and shipped
 cron examples refuse to write `.dump` unless
 `PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup` is set exactly.
-That path exists for disaster debugging, not normal operation; handle the file
-as raw tenant data and seal or destroy it immediately.
+The Helm chart uses the same exact acknowledgement:
+`backup.plaintextAck=allow-plaintext-tenant-backup` when
+`backup.encryption.enabled=false`. That path exists for disaster debugging, not
+normal operation; handle the file as raw tenant data and seal or destroy it
+immediately.
 
 Scheduled backups: `deploy/backup/` has a compose overlay for host cron and k8s
 CronJob examples (digest-pinned images, credentials sourced from a secret).

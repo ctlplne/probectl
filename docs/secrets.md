@@ -62,9 +62,11 @@ unchanged — so existing plaintext configurations keep working while you migrat
 
 How probectl *reaches* each backend is configured through the **environment
 only** — never probectl config files, so the access credentials themselves never
-sit in a file probectl reads. Every backend call rides TLS with certificate
-verification — never disabled. No cloud SDKs are linked in: it is stdlib HTTP plus
-SigV4 / OAuth2 / JWT signing through `internal/crypto` (SigV4 is AWS's
+sit in a file probectl reads. Every remote backend call rides TLS with
+certificate verification — never disabled. Vault and CyberArk base URLs must use
+`https://`; plaintext `http://` is allowed only for loopback dev/test endpoints
+(`127.0.0.1`, `::1`, or `localhost`). No cloud SDKs are linked in: it is stdlib
+HTTP plus SigV4 / OAuth2 / JWT signing through `internal/crypto` (SigV4 is AWS's
 request-signing scheme; OAuth2 client-credentials is the machine-to-machine
 login grant; the GCP path signs a JWT — a self-contained signed token — to
 obtain its access token).
@@ -77,10 +79,10 @@ obtain its access token).
 | Azure | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` (client-credentials grant) |
 | GCP | `GOOGLE_APPLICATION_CREDENTIALS` (service-account key file; RS256 JWT-bearer grant) |
 
-A *misconfigured* backend (a CyberArk client cert that will not load, an
-unreadable GCP key file) **fails startup** — fail closed, not a silent skip. A
-backend you simply did not configure leaves its scheme unavailable, which is
-fine.
+A *misconfigured* backend (remote plaintext Vault/CyberArk URL, a CyberArk client
+cert that will not load, an unreadable GCP key file) **fails startup** — fail
+closed, not a silent skip. A backend you simply did not configure leaves its
+scheme unavailable, which is fine.
 
 ## What resolves where
 

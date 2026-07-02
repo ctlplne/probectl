@@ -225,9 +225,10 @@ type Config struct {
 	SessionTTL time.Duration
 	// SessionHMACKey is the 32-byte key used to HMAC session tokens before
 	// storing their digest in the DB (PROBECTL_SESSION_HMAC_KEY, hex-encoded
-	// 64-char string). Session auth in multi-tenant/regulated profiles refuses
-	// to start without it; single-profile dev/test may omit it only when the
-	// served path is not production session auth (KEYS-002/OPS-006/SEC-003).
+	// 64-char string). Production session-cookie deployments refuse to start
+	// without it: all multi-tenant/regulated session auth, plus single-profile
+	// session auth once an OIDC IdP is configured. Single-profile dev/test may
+	// omit it only when no real browser SSO path can mint sessions.
 	SessionHMACKey []byte
 	// Auth brute-force guard (U-024): failures per window before a lockout,
 	// the window, and the base lockout (doubles per consecutive lockout,
@@ -869,8 +870,8 @@ func validateConfig(l *loader, cfg *Config) {
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
 	}
-	if cfg.AuthMode == "session" && cfg.DeploymentProfile != "single" && len(cfg.SessionHMACKey) != crypto.KeySize {
-		l.errf("PROBECTL_SESSION_HMAC_KEY is required and must be exactly %d bytes (%d hex chars) when PROBECTL_AUTH_MODE=session under the %s deployment profile", crypto.KeySize, crypto.KeySize*2, cfg.DeploymentProfile)
+	if productionSessionCookiesEnabled(cfg) && len(cfg.SessionHMACKey) != crypto.KeySize {
+		l.errf("PROBECTL_SESSION_HMAC_KEY is required and must be exactly %d bytes (%d hex chars) for production session-cookie deployments (%s)", crypto.KeySize, crypto.KeySize*2, sessionHMACRequirementReason(cfg))
 	}
 	for _, part := range strings.Split(cfg.AIRedactCustom, ";;") {
 		if part = strings.TrimSpace(part); part == "" {
@@ -906,7 +907,11 @@ func validateConfig(l *loader, cfg *Config) {
 	if cfg.EBPFStoreMode == "clickhouse" && cfg.EBPFStoreURL == "" {
 		l.errf("PROBECTL_EBPFSTORE_MODE=clickhouse requires PROBECTL_EBPFSTORE_URL")
 	}
+	validateDatastoreTLS(l, cfg)
 	validateClickHouseTenantReaders(l, cfg)
+	if cfg.DeploymentProfile != "single" && !cfg.IngestStrictTenantLanes {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_INGEST_STRICT_TENANT_LANES=true; production-like profiles must refuse shared pooled collector lanes (WIRE-001, guardrail 7.1)", cfg.DeploymentProfile)
+	}
 	if volatile := volatileProductionModes(cfg); len(volatile) > 0 {
 		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires durable bus/store modes; volatile lightweight modes are not allowed: %s", cfg.DeploymentProfile, strings.Join(volatile, ", "))
 	}
@@ -917,6 +922,74 @@ func validateConfig(l *loader, cfg *Config) {
 	}
 	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
 		l.errf("PROBECTL_DATABASE_URL: invalid URL: %v", err)
+	}
+}
+
+func validateDatastoreTLS(l *loader, c *Config) {
+	if c.DeploymentProfile == "single" {
+		return
+	}
+	validatePostgresURLTLS(l, c.DeploymentProfile, "PROBECTL_DATABASE_URL", c.DatabaseURL)
+	validatePostgresURLTLS(l, c.DeploymentProfile, "PROBECTL_DATABASE_READ_URL", c.DatabaseReadURL)
+	for _, lane := range []struct {
+		modeEnv string
+		mode    string
+		urlEnv  string
+		rawURL  string
+	}{
+		{modeEnv: "PROBECTL_PATHSTORE_MODE", mode: c.PathStoreMode, urlEnv: "PROBECTL_PATHSTORE_URL", rawURL: c.PathStoreURL},
+		{modeEnv: "PROBECTL_FLOWSTORE_MODE", mode: c.FlowStoreMode, urlEnv: "PROBECTL_FLOWSTORE_URL", rawURL: c.FlowStoreURL},
+		{modeEnv: "PROBECTL_OTELSTORE_MODE", mode: c.OTelStoreMode, urlEnv: "PROBECTL_OTELSTORE_URL", rawURL: c.OTelStoreURL},
+		{modeEnv: "PROBECTL_EBPFSTORE_MODE", mode: c.EBPFStoreMode, urlEnv: "PROBECTL_EBPFSTORE_URL", rawURL: c.EBPFStoreURL},
+	} {
+		if lane.mode != "clickhouse" || strings.TrimSpace(lane.rawURL) == "" {
+			continue
+		}
+		validateClickHouseURLTLS(l, c.DeploymentProfile, lane.urlEnv, lane.rawURL)
+	}
+	validateDataPlaneURLTLS(l, c)
+}
+
+func validatePostgresURLTLS(l *loader, profile, name, raw string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be a postgres:// or postgresql:// URL with sslmode=require, verify-ca, or verify-full", profile, name)
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(u.Query().Get("sslmode"))) {
+	case "require", "verify-ca", "verify-full":
+	default:
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to use PostgreSQL TLS: set sslmode=require, verify-ca, or verify-full; plaintext/degrade modes (disable, allow, prefer, or omitted) are single-profile dev only", profile, name)
+	}
+}
+
+func validateClickHouseURLTLS(l *loader, profile, name, raw string) {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || u.Scheme != "https" {
+		l.errf("PROBECTL_DEPLOYMENT_PROFILE=%s requires %s to be an https:// ClickHouse endpoint; plaintext http:// ClickHouse is single-profile dev only", profile, name)
+	}
+}
+
+func validateDataPlaneURLTLS(l *loader, c *Config) {
+	if strings.TrimSpace(c.DataPlanes) == "" {
+		return
+	}
+	for _, item := range strings.Split(c.DataPlanes, ";") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		parts := strings.SplitN(item, "=", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			l.errf("PROBECTL_DATAPLANES entries must be name=https://clickhouse-url in PROBECTL_DEPLOYMENT_PROFILE=%s", c.DeploymentProfile)
+			continue
+		}
+		validateClickHouseURLTLS(l, c.DeploymentProfile, "PROBECTL_DATAPLANES", parts[1])
 	}
 }
 
@@ -1054,6 +1127,26 @@ func volatileProductionModes(c *Config) []string {
 		volatile = append(volatile, "PROBECTL_EBPFSTORE_MODE=memory")
 	}
 	return volatile
+}
+
+func productionSessionCookiesEnabled(c *Config) bool {
+	if c.AuthMode != "session" {
+		return false
+	}
+	if c.DeploymentProfile != "single" {
+		return true
+	}
+	return strings.TrimSpace(c.OIDCIssuer) != "" ||
+		strings.TrimSpace(c.OIDCClientID) != "" ||
+		strings.TrimSpace(c.OIDCClientSecret) != "" ||
+		strings.TrimSpace(c.OIDCRedirectURL) != ""
+}
+
+func sessionHMACRequirementReason(c *Config) string {
+	if c.DeploymentProfile == "single" {
+		return "PROBECTL_AUTH_MODE=session under the single deployment profile with OIDC configured"
+	}
+	return fmt.Sprintf("PROBECTL_AUTH_MODE=session under the %s deployment profile", c.DeploymentProfile)
 }
 
 func validateClickHouseTenantReaders(l *loader, c *Config) {

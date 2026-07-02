@@ -1,4 +1,10 @@
 {{- if .Values.backup.enabled }}
+{{- if and .Values.backup.postgres.enabled (not .Values.backup.encryption.enabled) (ne .Values.backup.plaintextAck "allow-plaintext-tenant-backup") }}
+{{- fail "backup.postgres plaintext dumps require backup.plaintextAck=allow-plaintext-tenant-backup when backup.encryption.enabled=false" }}
+{{- end }}
+{{- if and .Values.backup.clickhouse.enabled (ne .Values.backup.clickhouse.encryptedTargetAck "encrypted-clickhouse-backup-target") }}
+{{- fail "backup.clickhouse writes server-side .zip artifacts and requires backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" }}
+{{- end }}
 # OPS-009: chart-managed PG + CH backup CronJobs (folded in from
 # deploy/backup/, U-030). Behind backup.enabled — off by default; an operator
 # opts in and supplies the backups PVC + db-credentials secret (or lets the
@@ -63,6 +69,7 @@ spec:
                   pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner                     | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "$out"
                   {{- else }}
                   out="/backups/postgres-probectl-$(date -u +%Y%m%dT%H%M%SZ).dump"
+                  echo "WARNING writing PLAINTEXT tenant backup under explicit break-glass ack backup.plaintextAck=allow-plaintext-tenant-backup / PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup" >&2
                   pg_dump -h {{ .Values.backup.postgres.host }} -U "$PGUSER" -d {{ .Values.backup.postgres.database }} --format=custom --no-owner > "$out"
                   {{- end }}
                   sha256sum "$out" > "$out.sha256"
@@ -131,6 +138,7 @@ spec:
                   # --strict checks it). The bulk telemetry lands encrypted by
                   # the volume, not by this job.
                   name="clickhouse-probectl-$(date -u +%Y%m%dT%H%M%SZ).zip"
+                  echo "ACK encrypted ClickHouse backup target backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target; artifact contains tenant telemetry" >&2
                   clickhouse-client --host {{ .Values.backup.clickhouse.host }} \
                     --user "$CH_USER" --password "$CH_PASSWORD" \
                     --query "BACKUP DATABASE {{ .Values.backup.clickhouse.database }} TO File('{{ required "backup.clickhouse.serverBackupPath is required" .Values.backup.clickhouse.serverBackupPath }}/$name')"

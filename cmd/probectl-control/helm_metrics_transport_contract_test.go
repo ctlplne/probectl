@@ -145,3 +145,52 @@ func TestHelmMetricsTransportMatchesRenderedControlListener(t *testing.T) {
 		})
 	}
 }
+
+func TestHelmDatastoreTLSContracts(t *testing.T) {
+	configMap := readArtifact(t, "deploy/helm/probectl/templates/configmap.yaml")
+	hardening := readArtifact(t, "scripts/check_helm_hardening.sh")
+
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{
+			name: "ConfigMap datastore TLS validators",
+			body: configMap,
+			want: []string{
+				"WIRE-001",
+				`PROBECTL_DEPLOYMENT_PROFILE`,
+				`sslmode=(require|verify-ca|verify-full)`,
+				`PROBECTL_DATABASE_READ_URL`,
+				`PROBECTL_PATHSTORE_URL`,
+				`PROBECTL_FLOWSTORE_URL`,
+				`PROBECTL_OTELSTORE_URL`,
+				`PROBECTL_EBPFSTORE_URL`,
+				`PROBECTL_DATAPLANES`,
+				`https:// ClickHouse endpoint`,
+			},
+		},
+		{
+			name: "helm hardening datastore TLS coverage",
+			body: hardening,
+			want: []string{
+				"WIRE-001",
+				"plaintext multi-tenant database.url",
+				"plaintext multi-tenant PROBECTL_DATABASE_READ_URL",
+				"plaintext multi-tenant PROBECTL_FLOWSTORE_URL",
+				"plaintext multi-tenant PROBECTL_DATAPLANES",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, want := range tc.want {
+				if !strings.Contains(tc.body, want) {
+					t.Errorf("%s missing %q", tc.name, want)
+				}
+			}
+		})
+	}
+}

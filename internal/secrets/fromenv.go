@@ -14,7 +14,11 @@ import (
 func FromEnv(lease time.Duration) (*Resolver, error) {
 	getenv := os.Getenv
 	backends := []Source{NewEnvSource(getenv)}
-	if v := NewVaultSource(getenv); v != nil {
+	v, err := NewVaultSource(getenv)
+	if err != nil {
+		return nil, err
+	}
+	if v != nil {
 		backends = append(backends, v)
 	}
 	ca, err := NewCyberArkSource(getenv)
