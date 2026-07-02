@@ -30,7 +30,6 @@ import (
 // dlqSource maps each dead-letter topic to the source topic its records replay
 // into. A DLQ topic with no mapping is a programming error (fail closed).
 var dlqSource = map[string]string{
-	bus.DeadLetterBGPTopic:         bus.BGPEventsTopic,
 	bus.DeadLetterResultsTopic:     bus.NetworkResultsTopic,
 	bus.DeadLetterDeviceTopic:      bus.DeviceMetricsTopic,
 	bus.DeadLetterFlowTopic:        bus.FlowEventsTopic,
@@ -160,6 +159,15 @@ func (r *DeadLetterReplayer) Replay(ctx context.Context, cfg ReplayConfig) (Repl
 		if err := r.bus.Publish(hctx, src, msg.Key, msg.Value); err != nil {
 			// Leave uncommitted → redelivered; never silently lose a record.
 			return fmt.Errorf("replay: re-publish to %s: %w", src, err)
+		}
+		if _, inProcess := r.bus.(*bus.Memory); !inProcess {
+			if flusher, ok := r.bus.(bus.Flusher); ok {
+				if err := flusher.Flush(hctx); err != nil {
+					// Leave the DLQ offset uncommitted until the replayed source
+					// record is broker-durable/processed. Kafka Publish is async.
+					return fmt.Errorf("replay: flush re-published record to %s: %w", src, err)
+				}
+			}
 		}
 		n := replayed.Add(1)
 		if cfg.MaxRecords > 0 && int(n) >= cfg.MaxRecords {

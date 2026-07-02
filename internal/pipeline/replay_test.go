@@ -4,11 +4,14 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/twmb/franz-go/pkg/kfake"
 )
 
 // TestDeadLetterReplayReingests is the ARCH-001 acceptance test: a record
@@ -85,6 +88,101 @@ func TestDeadLetterReplayReingests(t *testing.T) {
 	}
 }
 
+func TestDeadLetterReplayFlushFailurePreventsCommit(t *testing.T) {
+	flushErr := errors.New("broker flush failed")
+	b := &flushFailReplayBus{
+		msg:      bus.Message{Topic: bus.DeadLetterResultsTopic, Key: []byte("tenant-a"), Value: []byte("payload")},
+		flushErr: flushErr,
+	}
+
+	r := NewDeadLetterReplayer(b, testLogger())
+	res, err := r.Replay(context.Background(), ReplayConfig{
+		DLQTopic:    bus.DeadLetterResultsTopic,
+		IdleTimeout: time.Second,
+	})
+	if !errors.Is(err, flushErr) {
+		t.Fatalf("Replay error = %v, want flush failure", err)
+	}
+	if res.Replayed != 0 {
+		t.Fatalf("replayed count after flush failure = %d, want 0", res.Replayed)
+	}
+	if !b.published {
+		t.Fatal("test setup failed: replay did not publish to source before flush")
+	}
+	if b.committed {
+		t.Fatal("DLQ record was committed even though source publish was not durable")
+	}
+}
+
+func TestDeadLetterReplayKafkaFlushFailureLeavesDLQRedeliverable(t *testing.T) {
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, bus.DeadLetterResultsTopic, bus.NetworkResultsTopic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cluster.Close()
+
+	seed, err := bus.NewKafka(cluster.ListenAddrs(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer seed.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := seed.Publish(ctx, bus.DeadLetterResultsTopic, []byte("tenant-a"), []byte("payload")); err != nil {
+		t.Fatalf("seed DLQ record: %v", err)
+	}
+	if err := seed.Flush(ctx); err != nil {
+		t.Fatalf("flush seeded DLQ record: %v", err)
+	}
+
+	k1, err := bus.NewKafka(cluster.ListenAddrs(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failing := &flushFailKafkaBus{Kafka: k1, err: errors.New("forced source flush failure")}
+	r1 := NewDeadLetterReplayer(failing, testLogger())
+	res, err := r1.Replay(ctx, ReplayConfig{
+		DLQTopic:    bus.DeadLetterResultsTopic,
+		Group:       "spine-002-redelivery",
+		IdleTimeout: 500 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("first replay with failing flush: %v", err)
+	}
+	if failing.flushes.Load() == 0 {
+		t.Fatal("test setup failed: replay did not reach the source flush barrier")
+	}
+	if res.Replayed != 0 {
+		t.Fatalf("replayed count after failed Kafka flush = %d, want 0", res.Replayed)
+	}
+	if got := failing.Stats().HandlerErrors; got == 0 {
+		t.Fatal("Kafka handler error counter stayed zero; DLQ offset may have been marked despite flush failure")
+	}
+	if err := failing.Close(); err != nil {
+		t.Fatalf("close failing bus: %v", err)
+	}
+
+	k2, err := bus.NewKafka(cluster.ListenAddrs(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k2.Close()
+	r2 := NewDeadLetterReplayer(k2, testLogger())
+	res, err = r2.Replay(ctx, ReplayConfig{
+		DLQTopic:    bus.DeadLetterResultsTopic,
+		Group:       "spine-002-redelivery",
+		MaxRecords:  1,
+		IdleTimeout: 2 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("second replay after failed flush: %v", err)
+	}
+	if res.Replayed != 1 {
+		t.Fatalf("redelivered replay count = %d, want 1", res.Replayed)
+	}
+}
+
 // TestDeadLetterReplayRejectsUnknownTopic: a non-DLQ topic fails closed.
 func TestDeadLetterReplayRejectsUnknownTopic(t *testing.T) {
 	r := NewDeadLetterReplayer(bus.NewMemory(), testLogger())
@@ -93,10 +191,44 @@ func TestDeadLetterReplayRejectsUnknownTopic(t *testing.T) {
 	}
 }
 
+type flushFailReplayBus struct {
+	msg       bus.Message
+	flushErr  error
+	published bool
+	committed bool
+}
+
+func (b *flushFailReplayBus) Publish(_ context.Context, topic string, key, value []byte) error {
+	b.published = topic == bus.NetworkResultsTopic && string(key) == "tenant-a" && string(value) == "payload"
+	return nil
+}
+
+func (b *flushFailReplayBus) Subscribe(ctx context.Context, _ string, _ string, handler bus.Handler) error {
+	err := handler(ctx, b.msg)
+	if err == nil {
+		b.committed = true
+	}
+	return err
+}
+
+func (b *flushFailReplayBus) Flush(context.Context) error { return b.flushErr }
+
+func (b *flushFailReplayBus) Close() error { return nil }
+
+type flushFailKafkaBus struct {
+	*bus.Kafka
+	err     error
+	flushes atomic.Uint64
+}
+
+func (b *flushFailKafkaBus) Flush(context.Context) error {
+	b.flushes.Add(1)
+	return b.err
+}
+
 // TestReplaySourceMapping pins every DLQ topic to its source.
 func TestReplaySourceMapping(t *testing.T) {
 	cases := map[string]string{
-		bus.DeadLetterBGPTopic:         bus.BGPEventsTopic,
 		bus.DeadLetterResultsTopic:     bus.NetworkResultsTopic,
 		bus.DeadLetterDeviceTopic:      bus.DeviceMetricsTopic,
 		bus.DeadLetterFlowTopic:        bus.FlowEventsTopic,
@@ -112,11 +244,17 @@ func TestReplaySourceMapping(t *testing.T) {
 	}
 }
 
-func TestReplayableTopicsIncludesBGP(t *testing.T) {
+func TestReplayRejectsBGPTopicUntilProducerExists(t *testing.T) {
+	if src, ok := SourceTopicFor(bus.DeadLetterBGPTopic); ok {
+		t.Fatalf("BGP DLQ mapped to %q, but BGP has no DLQ producer yet", src)
+	}
 	for _, topic := range ReplayableTopics() {
 		if topic == bus.DeadLetterBGPTopic {
-			return
+			t.Fatalf("ReplayableTopics() includes %q without a BGP DLQ producer", bus.DeadLetterBGPTopic)
 		}
 	}
-	t.Fatalf("ReplayableTopics() missing %q", bus.DeadLetterBGPTopic)
+	r := NewDeadLetterReplayer(bus.NewMemory(), testLogger())
+	if _, err := r.Replay(context.Background(), ReplayConfig{DLQTopic: bus.DeadLetterBGPTopic}); err == nil {
+		t.Fatalf("Replay(%q) must fail closed until BGP publishes a real DLQ", bus.DeadLetterBGPTopic)
+	}
 }

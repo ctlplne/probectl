@@ -26,6 +26,11 @@ underlying store has recovered (ARCH-001).
 | `probectl.deadletter.otlp.traces`     | `probectl.otlp.traces`    |
 | `probectl.deadletter.otlp.logs`       | `probectl.otlp.logs`      |
 
+`probectl.deadletter.bgp` is intentionally not listed: the BGP incident
+consumer currently leaves failed source messages uncommitted instead of
+publishing a bounded-retry DLQ. `replay-deadletter` rejects that topic until a
+real BGP DLQ producer exists.
+
 ## Procedure
 
 1. **Confirm the store is healthy** — replaying into a still-broken store just
@@ -65,5 +70,5 @@ safe.
 
 - The replay runs tenant-scoped end to end (the key is the tenant), like every
   other ingest path — no cross-tenant mixing.
-- A failed re-publish leaves the record on the dead-letter topic (uncommitted),
-  so a transient bus error during replay never loses a record.
+- A failed re-publish or broker flush leaves the record on the dead-letter topic
+  (uncommitted), so a transient bus error during replay never loses a record.

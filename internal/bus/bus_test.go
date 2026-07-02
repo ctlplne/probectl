@@ -17,6 +17,42 @@ func TestMemoryPublishSubscribe(t *testing.T) {
 	testPubSub(t, b)
 }
 
+func TestMemorySubscribeWorkersFlushAllAcceptedMessages(t *testing.T) {
+	b := NewMemory(WithBuffer(256), WithSubscribeWorkers(8))
+	defer b.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	got := make(chan byte, 256)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = b.Subscribe(ctx, NetworkResultsTopic, "workers", func(_ context.Context, m Message) error {
+			if len(m.Value) > 0 {
+				got <- m.Value[0]
+			}
+			return nil
+		})
+	}()
+	if !b.WaitForSubscribers(ctx, NetworkResultsTopic, 1) {
+		t.Fatal("subscriber did not register")
+	}
+	for i := 0; i < 200; i++ {
+		if err := b.Publish(ctx, NetworkResultsTopic, []byte("tenant-1"), []byte{byte(i)}); err != nil {
+			t.Fatalf("publish %d: %v", i, err)
+		}
+	}
+	if err := b.Flush(ctx); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if gotLen := len(got); gotLen != 200 {
+		t.Fatalf("worker subscriber delivered %d messages after flush, want 200", gotLen)
+	}
+	cancel()
+	wg.Wait()
+}
+
 // TestKafkaPublishSubscribe exercises the real Kafka client path against an
 // in-process kfake broker (Kafka protocol, no JVM/Docker needed).
 func TestKafkaPublishSubscribe(t *testing.T) {
@@ -32,6 +68,69 @@ func TestKafkaPublishSubscribe(t *testing.T) {
 	}
 	defer b.Close()
 	testPubSub(t, b)
+}
+
+func TestKafkaSubscribeFromEndSkipsExistingRecords(t *testing.T) {
+	cluster, err := kfake.NewCluster(kfake.SeedTopics(1, NetworkResultsTopic))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cluster.Close()
+
+	b, err := NewKafka(cluster.ListenAddrs(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, v := range []byte{0, 1} {
+		if err := b.Publish(ctx, NetworkResultsTopic, []byte("tenant-1"), []byte{v}); err != nil {
+			t.Fatalf("publish old %d: %v", v, err)
+		}
+	}
+	if err := b.Flush(ctx); err != nil {
+		t.Fatalf("flush old records: %v", err)
+	}
+
+	b.WithSubscribeFromEnd()
+	got := make(chan byte, 16)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = b.Subscribe(ctx, NetworkResultsTopic, "from-end-test", func(_ context.Context, m Message) error {
+			if len(m.Value) > 0 {
+				got <- m.Value[0]
+			}
+			return nil
+		})
+	}()
+
+	time.Sleep(500 * time.Millisecond)
+	if err := b.Publish(ctx, NetworkResultsTopic, []byte("tenant-1"), []byte{9}); err != nil {
+		t.Fatalf("publish new record: %v", err)
+	}
+	if err := b.Flush(ctx); err != nil {
+		t.Fatalf("flush new record: %v", err)
+	}
+
+	select {
+	case v := <-got:
+		if v != 9 {
+			t.Fatalf("from-end subscriber saw old record %d", v)
+		}
+	case <-time.After(25 * time.Second):
+		t.Fatal("from-end subscriber did not see the new record")
+	}
+	select {
+	case v := <-got:
+		t.Fatalf("from-end subscriber consumed stale record %d", v)
+	case <-time.After(500 * time.Millisecond):
+	}
+	cancel()
+	wg.Wait()
 }
 
 // testPubSub publishes three messages and asserts the subscriber receives them.

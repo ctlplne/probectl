@@ -18,10 +18,10 @@ const NetworkResultsTopic = "probectl.network.results"
 // (S14), tenant-tagged via the message key.
 const BGPEventsTopic = "probectl.bgp.events"
 
-// DeadLetterBGPTopic receives BGP events that a future durable BGP handler
-// explicitly parks after accounting for the original event. The incident
-// consumer currently returns correlation errors so Kafka leaves the source
-// offset uncommitted, but the replay registry still names the BGP recovery lane.
+// DeadLetterBGPTopic is reserved for a future BGP bounded-retry producer. The
+// current incident consumer returns correlation errors so Kafka leaves the
+// source offset uncommitted; until a real producer publishes this topic, the
+// replay registry must reject it.
 const DeadLetterBGPTopic = "probectl.deadletter.bgp"
 
 // EBPFFlowsTopic carries L3/L4 flow + service-edge batches from the eBPF host

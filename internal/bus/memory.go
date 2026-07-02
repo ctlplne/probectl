@@ -36,6 +36,7 @@ type Memory struct {
 	dropped     atomic.Uint64 // messages dropped under the drop policy
 	handlerErr  atomic.Uint64 // handler errors observed (CORRECT-007 — never silent)
 	handlerLost atomic.Uint64 // records dropped after redelivery attempts exhausted
+	workers     int           // opt-in parallel handler workers; default preserves serial delivery
 
 	flushMu   sync.Mutex
 	inFlight  int
@@ -70,6 +71,16 @@ func WithBuffer(n int) MemoryOption {
 // deleting a frame that never reached storage.
 func WithOverflowDrop() MemoryOption {
 	return func(m *Memory) { m.dropOn = true }
+}
+
+// WithSubscribeWorkers parallelizes each in-memory subscription's handler path.
+// The default remains one worker, preserving lightweight-mode serial delivery.
+func WithSubscribeWorkers(n int) MemoryOption {
+	return func(m *Memory) {
+		if n > 1 {
+			m.workers = n
+		}
+	}
 }
 
 // NewMemory returns an in-memory bus with the given options (defaults: 1024
@@ -194,6 +205,28 @@ func (m *Memory) Subscribe(ctx context.Context, topic, _ string, handler Handler
 			}
 		}
 	}()
+
+	if m.workers > 1 {
+		var wg sync.WaitGroup
+		for i := 0; i < m.workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case msg := <-ch:
+						m.deliver(ctx, handler, msg)
+						m.doneInFlight()
+					}
+				}
+			}()
+		}
+		<-ctx.Done()
+		wg.Wait()
+		return nil
+	}
 
 	for {
 		select {

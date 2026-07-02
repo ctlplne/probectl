@@ -42,10 +42,20 @@ type Kafka struct {
 	// again, so commit-after-process (at-least-once) semantics are unchanged.
 	// 0/1 = the previous serial behavior.
 	workers int
+
+	// consumeFromEnd is a test/harness-only mode for consumers that publish and
+	// measure a fresh namespace on a shared topic. Production defaults to
+	// AtStart so a brand-new group never skips buffered telemetry.
+	consumeFromEnd bool
 }
 
 // WithSubscribeWorkers sets the per-subscription parallelism (PROBECTL_BUS_WORKERS).
 func (k *Kafka) WithSubscribeWorkers(n int) *Kafka { k.workers = n; return k }
+
+// WithSubscribeFromEnd makes newly-created consumer groups start at the latest
+// topic offset. Use only for harnesses that intentionally ignore old topic
+// contents; production pipelines should keep the default AtStart behavior.
+func (k *Kafka) WithSubscribeFromEnd() *Kafka { k.consumeFromEnd = true; return k }
 
 // DefaultMaxBuffered bounds the async in-flight buffer (records) when no
 // explicit tuning is supplied.
@@ -143,6 +153,10 @@ func (k *Kafka) Flush(ctx context.Context) error {
 // poll/rebalance redelivers it instead of skipping it (CODE-007: the handler's
 // error return is no longer silently discarded — it gates the commit).
 func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Handler) error {
+	resetOffset := kgo.NewOffset().AtStart()
+	if k.consumeFromEnd {
+		resetOffset = kgo.NewOffset().AtEnd()
+	}
 	opts := append([]kgo.Opt{
 		kgo.SeedBrokers(k.brokers...),
 		kgo.ConsumerGroup(group),
@@ -153,7 +167,7 @@ func (k *Kafka) Subscribe(ctx context.Context, topic, group string, handler Hand
 		kgo.AutoCommitMarks(),
 		// A brand-new group reads from the start so no buffered results are lost;
 		// an established group resumes from its committed offset.
-		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.ConsumeResetOffset(resetOffset),
 	}, k.extra...)
 	cl, err := kgo.NewClient(opts...)
 	if err != nil {
