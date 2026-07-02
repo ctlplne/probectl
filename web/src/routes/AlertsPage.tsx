@@ -47,6 +47,8 @@ import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
+import { CodeExportPanel } from './CodeExportPanel'
+import { alertRuleAsCode, maintenanceWindowAsCode } from './codeExport'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -713,6 +715,7 @@ export function AlertsPage() {
   const [creating, setCreating] = useState(false)
   const [editingWindow, setEditingWindow] = useState<MaintenanceWindow | null>(null)
   const [creatingWindow, setCreatingWindow] = useState(false)
+  const [codeExport, setCodeExport] = useState<{ title: string; code: string } | null>(null)
   const maintenanceWindows = maintenance.data?.items ?? []
 
   const items = useMemo(() => {
@@ -822,6 +825,15 @@ export function AlertsPage() {
             size="sm"
             variant="ghost"
             onClick={() =>
+              setCodeExport({ title: `Export as code: ${r.name}`, code: alertRuleAsCode(r) })
+            }
+          >
+            View as YAML
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
               del.mutate(r.id, {
                 onSuccess: () => push({ tone: 'success', title: 'Rule deleted', message: r.name }),
                 onError: (e) =>
@@ -876,6 +888,18 @@ export function AlertsPage() {
         <>
           <Button size="sm" variant="ghost" onClick={() => setEditingWindow(w)}>
             Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              setCodeExport({
+                title: `Export as code: ${w.name}`,
+                code: maintenanceWindowAsCode(w),
+              })
+            }
+          >
+            View as YAML
           </Button>
           <Button
             size="sm"
@@ -1050,6 +1074,11 @@ export function AlertsPage() {
       {creatingWindow ? <MaintenanceWindowForm onClose={() => setCreatingWindow(false)} /> : null}
       {editingWindow ? (
         <MaintenanceWindowForm window={editingWindow} onClose={() => setEditingWindow(null)} />
+      ) : null}
+      {codeExport ? (
+        <Modal open onClose={() => setCodeExport(null)} title={codeExport.title}>
+          <CodeExportPanel title="View as YAML" code={codeExport.code} />
+        </Modal>
       ) : null}
     </Page>
   )

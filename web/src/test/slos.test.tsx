@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import axe from 'axe-core'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
@@ -68,6 +69,24 @@ describe('SLO dashboard (S45)', () => {
     // Firing burn windows render as danger badges with the multiplier.
     expect(within(table).getByText(/fast 96.8x/)).toBeInTheDocument()
     expect(within(table).getByText(/slow 1.5x/)).toBeInTheDocument()
+  })
+
+  test('exports SLO rows as OpenSLO YAML', async () => {
+    vi.stubGlobal('fetch', stubWith(fixture()))
+    renderApp('/slos')
+
+    const table = await screen.findByRole('table', { name: /slo statuses/i })
+    const checkoutRow = within(table).getByText('Checkout availability').closest('tr')
+    expect(checkoutRow).not.toBeNull()
+    await userEvent.click(within(checkoutRow as HTMLElement).getByRole('button', { name: 'View as YAML' }))
+
+    const dialog = await screen.findByRole('dialog', {
+      name: /export as code: checkout-availability/i,
+    })
+    expect(dialog).toHaveTextContent('apiVersion: openslo/v1')
+    expect(dialog).toHaveTextContent('kind: SLO')
+    expect(dialog).toHaveTextContent('target: 0.99')
+    expect(dialog).toHaveTextContent('timeWindow: 30d')
   })
 
   test('cold start renders honestly, not as healthy', async () => {

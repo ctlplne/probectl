@@ -20,6 +20,8 @@ import {
   type TestSpec,
 } from '../api/authoring'
 import { useCreateTest } from '../api/tests'
+import { CodeExportPanel } from './CodeExportPanel'
+import { testAsCode } from './codeExport'
 
 function SpecSummary({ spec }: { spec: TestSpec }) {
   return (
@@ -64,6 +66,7 @@ function ProposalCard({
       <SpecSummary spec={proposal.spec} />
       {proposal.rationale ? <p className={styles.rationale}>{proposal.rationale}</p> : null}
       <p className={styles.provenance}>Proposed by {proposal.source} — review before creating.</p>
+      <CodeExportPanel title="View as YAML" code={testAsCode(proposal.spec)} />
       <div className={styles.actions}>
         <Button variant="primary" onClick={() => onApply(proposal.spec)} disabled={creating}>
           Create test

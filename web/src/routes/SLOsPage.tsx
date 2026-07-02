@@ -1,19 +1,24 @@
+import { useState } from 'react'
 import styles from './slos.module.css'
 import { Page } from './pages'
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
   EmptyState,
   ErrorState,
   LoadingState,
+  Modal,
   Table,
   type Column,
 } from '../components'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
 import { useI18n } from '../i18n/useI18n'
 import { formatInteger, formatMultiplier } from '../i18n/number'
+import { CodeExportPanel } from './CodeExportPanel'
+import { sloAsCode } from './codeExport'
 
 /** SLOsPage (S45): the exec-grade reliability view — attainment vs objective,
  * error budgets, and multi-window burn rates per service/team. Definitions
@@ -21,6 +26,7 @@ import { formatInteger, formatMultiplier } from '../i18n/number'
 export function SLOsPage() {
   const { locale, t } = useI18n()
   const { data, isPending, isError } = useSLOs()
+  const [codeExport, setCodeExport] = useState<{ title: string; code: string } | null>(null)
 
   const columns: Column<SLOStatus>[] = [
     {
@@ -79,6 +85,22 @@ export function SLOsPage() {
       ),
     },
     { key: 'events', header: t('slo.column.events'), render: (s) => formatInteger(s.total_events, locale) },
+    {
+      key: 'code',
+      header: <span className="sr-only">Code</span>,
+      align: 'end',
+      render: (s) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() =>
+            setCodeExport({ title: `Export as code: ${s.name}`, code: sloAsCode(s) })
+          }
+        >
+          View as YAML
+        </Button>
+      ),
+    },
   ]
 
   return (
@@ -119,6 +141,11 @@ export function SLOsPage() {
           )}
         </CardBody>
       </Card>
+      {codeExport ? (
+        <Modal open onClose={() => setCodeExport(null)} title={codeExport.title}>
+          <CodeExportPanel title="OpenSLO YAML" code={codeExport.code} />
+        </Modal>
+      ) : null}
     </Page>
   )
 }

@@ -73,6 +73,9 @@ describe('AI test authoring', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: /propose a test/i }))
     await screen.findByText('9.9.9.9 (ICMP)')
+    const code = screen.getByLabelText('View as YAML')
+    expect(code).toHaveTextContent('kind: Test')
+    expect(code).toHaveTextContent('target: 9.9.9.9')
     expect(posts.some((p) => p.url.endsWith('/v1/tests'))).toBe(false) // not created on propose
 
     // Confirm → the test is created.

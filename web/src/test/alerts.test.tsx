@@ -24,6 +24,7 @@ function alertsBackend() {
         threshold: 100,
         for_n: 1,
         severity: 'critical',
+        channels: [{ type: 'webhook', url: 'https://hooks.example/alerts', secret: 'top-secret' }],
         created_at: since,
         updated_at: since,
       } as AlertRule,
@@ -274,6 +275,29 @@ describe('alerting surface (S-FE1)', () => {
       match: { target: 'db' },
       reason: 'kernel upgrade',
     })
+  })
+
+  test('exports alert rules and maintenance windows as redacted YAML', async () => {
+    const { fetcher } = alertsBackend()
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/alerts')
+
+    const rulesTable = await screen.findByRole('table', { name: 'Alert rules' })
+    await userEvent.click(within(rulesTable).getByRole('button', { name: 'View as YAML' }))
+    let dialog = await screen.findByRole('dialog', { name: /export as code: rtt high/i })
+    expect(dialog).toHaveTextContent('kind: AlertRule')
+    expect(dialog).toHaveTextContent('url: https://hooks.example/alerts')
+    expect(dialog).toHaveTextContent('secret: <redacted-by-probectl>')
+    expect(dialog).not.toHaveTextContent('top-secret')
+
+    await userEvent.click(within(dialog).getByRole('button', { name: /close/i }))
+
+    const maintenanceTable = screen.getByRole('table', { name: 'Maintenance windows' })
+    await userEvent.click(within(maintenanceTable).getByRole('button', { name: 'View as YAML' }))
+    dialog = await screen.findByRole('dialog', { name: /export as code: database patch/i })
+    expect(dialog).toHaveTextContent('kind: MaintenanceWindow')
+    expect(dialog).toHaveTextContent('rule_ids:')
+    expect(dialog).toHaveTextContent('target: db')
   })
 
   test('silence + acknowledge act through the API and render the ENGINE state', async () => {

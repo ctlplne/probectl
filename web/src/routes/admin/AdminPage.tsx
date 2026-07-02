@@ -38,6 +38,8 @@ import { FilterBar, SavedViews } from '../listControls'
 import { filterValue, filtersForSave, setURLFilters } from '../urlFilters'
 import { useI18n } from '../../i18n/useI18n'
 import type { MessageKey } from '../../i18n/messages'
+import { CodeExportPanel } from '../CodeExportPanel'
+import { collectorRegistrationAsCode } from '../codeExport'
 
 type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -309,6 +311,10 @@ function CollectorRegisterDialog({
               readOnly
             />
           ) : null}
+          <CodeExportPanel
+            title={t('admin.collectorDialog.exportCode')}
+            code={collectorRegistrationAsCode(registered)}
+          />
           <p className={styles.editionsLede}>{t('admin.collectorDialog.environment')}</p>
           {Object.entries(registered.config.env).map(([key, value]) => (
             <Field key={key} label={key} value={`${key}=${value}`} readOnly />

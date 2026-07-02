@@ -29,6 +29,8 @@ import { ResultDetail } from './ResultDetail'
 import { useI18n } from '../i18n/useI18n'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
+import { CodeExportPanel } from './CodeExportPanel'
+import { testAsCode } from './codeExport'
 
 export function Page({
   title,
@@ -202,6 +204,7 @@ export function TargetsPage() {
   const { push } = useToast()
   const [creating, setCreating] = useState(false)
   const [resultsFor, setResultsFor] = useState<Test | null>(null)
+  const [codeFor, setCodeFor] = useState<Test | null>(null)
   const [params, setParams] = useSearchParams()
   const defaults = { q: '', type: 'all', enabled: 'all' }
   const q = filterValue(params, 'q')
@@ -265,6 +268,14 @@ export function TargetsPage() {
             aria-label={`Results for ${t.name}`}
           >
             Results
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCodeFor(t)}
+            aria-label={`View YAML for ${t.name}`}
+          >
+            View as YAML
           </Button>
           <Button
             variant="ghost"
@@ -406,6 +417,11 @@ export function TargetsPage() {
       </Card>
 
       <CreateTestModal open={creating} onClose={() => setCreating(false)} />
+      {codeFor ? (
+        <Modal open onClose={() => setCodeFor(null)} title={`Export as code: ${codeFor.name}`}>
+          <CodeExportPanel title="Test YAML" code={testAsCode(codeFor)} />
+        </Modal>
+      ) : null}
       {resultsFor ? <ResultDetail test={resultsFor} onClose={() => setResultsFor(null)} /> : null}
     </Page>
   )
