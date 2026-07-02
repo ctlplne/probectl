@@ -48,6 +48,8 @@ type OTLPTraceConsumer struct {
 	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
 	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
 	ledger   *integrityLedger
+
+	nsTenants map[string]string
 }
 
 // NewOTLPTraceConsumer builds the consumer.
@@ -74,10 +76,17 @@ func (c *OTLPTraceConsumer) WithFairness(g *fairness.Gate) *OTLPTraceConsumer {
 	return c
 }
 
+// WithNamespaceTenants subscribes the consumer to each siloed tenant's OTLP
+// trace lane and treats that lane as the authoritative tenant source.
+func (c *OTLPTraceConsumer) WithNamespaceTenants(ns map[string]string) *OTLPTraceConsumer {
+	c.nsTenants = ns
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPTraceConsumer) Run(ctx context.Context) error {
-	c.log.Info("otlp traces consumer starting", "topic", bus.OTLPTracesTopic)
-	return c.bus.Subscribe(ctx, bus.OTLPTracesTopic, "otlp-traces", c.handle)
+	c.log.Info("otlp traces consumer starting", "topic", bus.OTLPTracesTopic, "lanes", len(c.nsTenants)+1)
+	return RunLanes(ctx, c.bus, bus.OTLPTracesTopic, "otlp-traces", c.nsTenants, c.handleLane)
 }
 
 // Consumed reports stored spans (the round-trip test's hook).
@@ -94,6 +103,10 @@ func (c *OTLPTraceConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
 func (c *OTLPTraceConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 
 func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+func (c *OTLPTraceConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	c.ledger.addReceived(1)
 	var req coltracepb.ExportTraceServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
@@ -101,7 +114,7 @@ func (c *OTLPTraceConsumer) handle(ctx context.Context, msg bus.Message) error {
 		c.log.Warn("dropping malformed OTLP traces payload", "error", err.Error())
 		return nil
 	}
-	tenant := string(tenantFromKey(msg.Key))
+	tenant := otlpTenantFromLaneOrKey(msg, laneTenant)
 	if err := scopeOTLPTracesToBusTenant(&req, tenant); err != nil {
 		c.rejected.Add(1)
 		c.ledger.addTenantRejected(1)
@@ -214,6 +227,8 @@ type OTLPLogConsumer struct {
 	dlq      *otlpDLQ       // retry + dead-letter on store-write failure (SCALE-003)
 	gate     *fairness.Gate // SCALE-003: per-tenant admission bound
 	ledger   *integrityLedger
+
+	nsTenants map[string]string
 }
 
 // NewOTLPLogConsumer builds the consumer.
@@ -240,10 +255,17 @@ func (c *OTLPLogConsumer) WithFairness(g *fairness.Gate) *OTLPLogConsumer {
 	return c
 }
 
+// WithNamespaceTenants subscribes the consumer to each siloed tenant's OTLP log
+// lane and treats that lane as the authoritative tenant source.
+func (c *OTLPLogConsumer) WithNamespaceTenants(ns map[string]string) *OTLPLogConsumer {
+	c.nsTenants = ns
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPLogConsumer) Run(ctx context.Context) error {
-	c.log.Info("otlp logs consumer starting", "topic", bus.OTLPLogsTopic)
-	return c.bus.Subscribe(ctx, bus.OTLPLogsTopic, "otlp-logs", c.handle)
+	c.log.Info("otlp logs consumer starting", "topic", bus.OTLPLogsTopic, "lanes", len(c.nsTenants)+1)
+	return RunLanes(ctx, c.bus, bus.OTLPLogsTopic, "otlp-logs", c.nsTenants, c.handleLane)
 }
 
 // Consumed reports stored records (the round-trip test's hook).
@@ -260,6 +282,10 @@ func (c *OTLPLogConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
 func (c *OTLPLogConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 
 func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+func (c *OTLPLogConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	c.ledger.addReceived(1)
 	var req collogspb.ExportLogsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
@@ -267,7 +293,7 @@ func (c *OTLPLogConsumer) handle(ctx context.Context, msg bus.Message) error {
 		c.log.Warn("dropping malformed OTLP logs payload", "error", err.Error())
 		return nil
 	}
-	tenant := string(tenantFromKey(msg.Key))
+	tenant := otlpTenantFromLaneOrKey(msg, laneTenant)
 	if err := scopeOTLPLogsToBusTenant(&req, tenant); err != nil {
 		c.rejected.Add(1)
 		c.ledger.addTenantRejected(1)

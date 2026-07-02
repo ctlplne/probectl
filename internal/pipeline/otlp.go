@@ -61,6 +61,8 @@ type OTLPConsumer struct {
 	// so cardinality is keyed by tenant alone (agent="").
 	gate *fairness.Gate
 	card *CardinalityLimiter
+
+	nsTenants map[string]string
 }
 
 // otlpMaxLabels bounds per-series labels (cardinality stance, U-017).
@@ -105,17 +107,31 @@ func (c *OTLPConsumer) WithFairness(g *fairness.Gate) *OTLPConsumer {
 // (SCALE-003). OTLP carries no agent id, so the per-agent cap is unused and the
 // per-tenant cap is the wall against a unique-attribute flood.
 func (c *OTLPConsumer) WithCardinalityCaps(perTenant int) *OTLPConsumer {
-	c.card = NewCardinalityLimiter(0, perTenant)
+	if perTenant <= 0 {
+		perTenant = DefaultMaxSeriesPerTenant
+	}
+	c.card = NewCardinalityLimiter(perTenant, perTenant)
+	return c
+}
+
+// WithNamespaceTenants subscribes the consumer to each siloed tenant's OTLP
+// metrics lane and treats that lane as the authoritative tenant source.
+func (c *OTLPConsumer) WithNamespaceTenants(ns map[string]string) *OTLPConsumer {
+	c.nsTenants = ns
 	return c
 }
 
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPConsumer) Run(ctx context.Context) error {
-	c.log.Info("otlp metrics consumer starting", "topic", bus.OTLPMetricsTopic)
-	return c.bus.Subscribe(ctx, bus.OTLPMetricsTopic, "otlp-metrics", c.handle)
+	c.log.Info("otlp metrics consumer starting", "topic", bus.OTLPMetricsTopic, "lanes", len(c.nsTenants)+1)
+	return RunLanes(ctx, c.bus, bus.OTLPMetricsTopic, "otlp-metrics", c.nsTenants, c.handleLane)
 }
 
 func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+func (c *OTLPConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	c.ledger.addReceived(1)
 	var req colmetricspb.ExportMetricsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
@@ -127,7 +143,7 @@ func (c *OTLPConsumer) handle(ctx context.Context, msg bus.Message) error {
 	// After ingress, the bus key is authoritative: a compromised internal
 	// producer or DLQ replay cannot move telemetry into another tenant by
 	// editing probectl.tenant.id inside the protobuf.
-	tenant := string(tenantFromKey(msg.Key))
+	tenant := otlpTenantFromLaneOrKey(msg, laneTenant)
 	if err := scopeOTLPMetricsToBusTenant(&req, tenant); err != nil {
 		c.rejected.Add(1)
 		c.ledger.addTenantRejected(1)
@@ -205,6 +221,13 @@ func tenantFromKey(key []byte) []byte {
 		}
 	}
 	return key
+}
+
+func otlpTenantFromLaneOrKey(msg bus.Message, laneTenant string) string {
+	if laneTenant != "" {
+		return laneTenant
+	}
+	return string(tenantFromKey(msg.Key))
 }
 
 // convert flattens gauge/sum number points into tenant-labeled series.

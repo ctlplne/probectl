@@ -36,16 +36,19 @@ func TestOTLPSubsystemsSuperviseHotIngestionPaths(t *testing.T) {
 	src := buildersSource(t)
 	for name, needle := range map[string]string{
 		"receiver":                `superviseRestart(ctx, "otlp-receiver"`,
-		"metrics ingest consumer": `superviseRestart(ctx, "otlp-metrics-consumer"`,
-		"traces ingest consumer":  `superviseRestart(ctx, "otlp-traces-consumer"`,
-		"logs ingest consumer":    `superviseRestart(ctx, "otlp-logs-consumer"`,
-		"metrics export consumer": `superviseRestart(ctx, "otlp-export"`,
-		"traces export consumer":  `superviseRestart(ctx, "otlp-trace-export"`,
-		"logs export consumer":    `superviseRestart(ctx, "otlp-log-export"`,
+		"metrics ingest consumer": `superviseBusLaneRestart(ctx, "otlp-metrics-consumer"`,
+		"traces ingest consumer":  `superviseBusLaneRestart(ctx, "otlp-traces-consumer"`,
+		"logs ingest consumer":    `superviseBusLaneRestart(ctx, "otlp-logs-consumer"`,
+		"metrics export consumer": `superviseBusLaneRestart(ctx, "otlp-export"`,
+		"traces export consumer":  `superviseBusLaneRestart(ctx, "otlp-trace-export"`,
+		"logs export consumer":    `superviseBusLaneRestart(ctx, "otlp-log-export"`,
 	} {
 		if !strings.Contains(src, needle) {
 			t.Fatalf("startOTLPSubsystems must supervise %s with marker %q", name, needle)
 		}
+	}
+	if got := strings.Count(src, "WithNamespaceTenants(snap.tenants)"); got < 6 {
+		t.Fatalf("all six OTLP consumers/exporters must subscribe namespaced lanes; got %d WithNamespaceTenants markers", got)
 	}
 }
 

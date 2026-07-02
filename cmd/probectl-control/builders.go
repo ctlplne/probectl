@@ -606,11 +606,12 @@ func startOTLPSubsystems(
 		})
 	})
 	g.Go(func() error {
-		return superviseRestart(ctx, "otlp-metrics-consumer", log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(ctx, "otlp-metrics-consumer", log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewOTLPConsumer(resultBus, ingestWriter, log).
 				WithMetrics(srv.Metrics()).
 				WithFairness(fairGate).
 				WithCardinalityCaps(cfg.IngestMaxSeriesPerTenant).
+				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})
 	})
@@ -621,35 +622,43 @@ func startOTLPSubsystems(
 			return fmt.Errorf("otlp export: %w", eerr)
 		}
 		g.Go(func() error {
-			return superviseRestart(ctx, "otlp-export", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPExportConsumer(resultBus, exp, log).Run(ctx)
+			return superviseBusLaneRestart(ctx, "otlp-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
+				return pipeline.NewOTLPExportConsumer(resultBus, exp, log).
+					WithNamespaceTenants(snap.tenants).
+					Run(ctx)
 			})
 		})
 		g.Go(func() error {
-			return superviseRestart(ctx, "otlp-trace-export", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPTraceExportConsumer(resultBus, exp, log).Run(ctx)
+			return superviseBusLaneRestart(ctx, "otlp-trace-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
+				return pipeline.NewOTLPTraceExportConsumer(resultBus, exp, log).
+					WithNamespaceTenants(snap.tenants).
+					Run(ctx)
 			})
 		})
 		g.Go(func() error {
-			return superviseRestart(ctx, "otlp-log-export", log, func(ctx context.Context) error {
-				return pipeline.NewOTLPLogExportConsumer(resultBus, exp, log).Run(ctx)
+			return superviseBusLaneRestart(ctx, "otlp-log-export", log, func(ctx context.Context, snap busLaneSnapshot) error {
+				return pipeline.NewOTLPLogExportConsumer(resultBus, exp, log).
+					WithNamespaceTenants(snap.tenants).
+					Run(ctx)
 			})
 		})
 		log.Info("otlp export enabled (metrics+traces+logs)", "endpoint", cfg.OTLPExportEndpoint, "protocol", cfg.OTLPExportProtocol)
 	}
 	g.Go(func() error {
-		return superviseRestart(ctx, "otlp-traces-consumer", log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(ctx, "otlp-traces-consumer", log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewOTLPTraceConsumer(resultBus, otelStore, log).
 				WithMetrics(srv.Metrics()).
 				WithFairness(fairGate).
+				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})
 	})
 	g.Go(func() error {
-		return superviseRestart(ctx, "otlp-logs-consumer", log, func(ctx context.Context) error {
+		return superviseBusLaneRestart(ctx, "otlp-logs-consumer", log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return pipeline.NewOTLPLogConsumer(resultBus, otelStore, log).
 				WithMetrics(srv.Metrics()).
 				WithFairness(fairGate).
+				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})
 	})

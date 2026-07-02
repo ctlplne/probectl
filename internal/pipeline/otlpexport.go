@@ -46,6 +46,8 @@ type OTLPExportConsumer struct {
 	log      *slog.Logger
 	exported atomic.Uint64
 	failed   atomic.Uint64
+
+	nsTenants map[string]string
 }
 
 // NewOTLPExportConsumer builds the consumer over a non-nil exporter.
@@ -60,17 +62,34 @@ func NewOTLPExportConsumer(b bus.Bus, exp MetricsExporter, log *slog.Logger) *OT
 func (c *OTLPExportConsumer) Exported() uint64 { return c.exported.Load() }
 func (c *OTLPExportConsumer) Failed() uint64   { return c.failed.Load() }
 
+// WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP
+// metrics lane and verifies/restamps resource tenants before forwarding.
+func (c *OTLPExportConsumer) WithNamespaceTenants(ns map[string]string) *OTLPExportConsumer {
+	c.nsTenants = ns
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPExportConsumer) Run(ctx context.Context) error {
-	c.log.Info("otlp export consumer starting", "topic", bus.OTLPMetricsTopic, "group", c.group)
-	return c.bus.Subscribe(ctx, bus.OTLPMetricsTopic, c.group, c.handle)
+	c.log.Info("otlp export consumer starting", "topic", bus.OTLPMetricsTopic, "group", c.group, "lanes", len(c.nsTenants)+1)
+	return RunLanes(ctx, c.bus, bus.OTLPMetricsTopic, c.group, c.nsTenants, c.handleLane)
 }
 
 func (c *OTLPExportConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+func (c *OTLPExportConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var req colmetricspb.ExportMetricsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
 		c.log.Warn("otlp-export: skipping malformed metrics payload", "error", err)
 		return nil // poison message: drop (counted as handled), never wedge
+	}
+	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" {
+		if err := scopeOTLPMetricsToBusTenant(&req, tenant); err != nil {
+			c.log.Warn("otlp-export: skipping metrics payload outside lane tenant", "tenant_id", tenant, "error", err.Error())
+			return nil
+		}
 	}
 	if err := c.exporter.ExportMetrics(ctx, &req); err != nil {
 		c.failed.Add(1)
@@ -91,6 +110,8 @@ type OTLPTraceExportConsumer struct {
 	log      *slog.Logger
 	exported atomic.Uint64
 	failed   atomic.Uint64
+
+	nsTenants map[string]string
 }
 
 // NewOTLPTraceExportConsumer builds the consumer over a non-nil exporter.
@@ -104,17 +125,34 @@ func NewOTLPTraceExportConsumer(b bus.Bus, exp TracesExporter, log *slog.Logger)
 func (c *OTLPTraceExportConsumer) Exported() uint64 { return c.exported.Load() }
 func (c *OTLPTraceExportConsumer) Failed() uint64   { return c.failed.Load() }
 
+// WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP
+// trace lane and verifies/restamps resource tenants before forwarding.
+func (c *OTLPTraceExportConsumer) WithNamespaceTenants(ns map[string]string) *OTLPTraceExportConsumer {
+	c.nsTenants = ns
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPTraceExportConsumer) Run(ctx context.Context) error {
-	c.log.Info("otlp trace export consumer starting", "topic", bus.OTLPTracesTopic, "group", c.group)
-	return c.bus.Subscribe(ctx, bus.OTLPTracesTopic, c.group, c.handle)
+	c.log.Info("otlp trace export consumer starting", "topic", bus.OTLPTracesTopic, "group", c.group, "lanes", len(c.nsTenants)+1)
+	return RunLanes(ctx, c.bus, bus.OTLPTracesTopic, c.group, c.nsTenants, c.handleLane)
 }
 
 func (c *OTLPTraceExportConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+func (c *OTLPTraceExportConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var req coltracepb.ExportTraceServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
 		c.log.Warn("otlp-export: skipping malformed traces payload", "error", err)
 		return nil
+	}
+	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" {
+		if err := scopeOTLPTracesToBusTenant(&req, tenant); err != nil {
+			c.log.Warn("otlp-export: skipping traces payload outside lane tenant", "tenant_id", tenant, "error", err.Error())
+			return nil
+		}
 	}
 	if err := c.exporter.ExportTraces(ctx, &req); err != nil {
 		c.failed.Add(1)
@@ -134,6 +172,8 @@ type OTLPLogExportConsumer struct {
 	log      *slog.Logger
 	exported atomic.Uint64
 	failed   atomic.Uint64
+
+	nsTenants map[string]string
 }
 
 // NewOTLPLogExportConsumer builds the consumer over a non-nil exporter.
@@ -147,17 +187,34 @@ func NewOTLPLogExportConsumer(b bus.Bus, exp LogsExporter, log *slog.Logger) *OT
 func (c *OTLPLogExportConsumer) Exported() uint64 { return c.exported.Load() }
 func (c *OTLPLogExportConsumer) Failed() uint64   { return c.failed.Load() }
 
+// WithNamespaceTenants subscribes the exporter to each siloed tenant's OTLP log
+// lane and verifies/restamps resource tenants before forwarding.
+func (c *OTLPLogExportConsumer) WithNamespaceTenants(ns map[string]string) *OTLPLogExportConsumer {
+	c.nsTenants = ns
+	return c
+}
+
 // Run subscribes until ctx is canceled. It blocks.
 func (c *OTLPLogExportConsumer) Run(ctx context.Context) error {
-	c.log.Info("otlp log export consumer starting", "topic", bus.OTLPLogsTopic, "group", c.group)
-	return c.bus.Subscribe(ctx, bus.OTLPLogsTopic, c.group, c.handle)
+	c.log.Info("otlp log export consumer starting", "topic", bus.OTLPLogsTopic, "group", c.group, "lanes", len(c.nsTenants)+1)
+	return RunLanes(ctx, c.bus, bus.OTLPLogsTopic, c.group, c.nsTenants, c.handleLane)
 }
 
 func (c *OTLPLogExportConsumer) handle(ctx context.Context, msg bus.Message) error {
+	return c.handleLane(ctx, msg, "")
+}
+
+func (c *OTLPLogExportConsumer) handleLane(ctx context.Context, msg bus.Message, laneTenant string) error {
 	var req collogspb.ExportLogsServiceRequest
 	if err := proto.Unmarshal(msg.Value, &req); err != nil {
 		c.log.Warn("otlp-export: skipping malformed logs payload", "error", err)
 		return nil
+	}
+	if tenant := otlpTenantFromLaneOrKey(msg, laneTenant); tenant != "" {
+		if err := scopeOTLPLogsToBusTenant(&req, tenant); err != nil {
+			c.log.Warn("otlp-export: skipping logs payload outside lane tenant", "tenant_id", tenant, "error", err.Error())
+			return nil
+		}
 	}
 	if err := c.exporter.ExportLogs(ctx, &req); err != nil {
 		c.failed.Add(1)

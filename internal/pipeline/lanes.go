@@ -88,3 +88,21 @@ func (*FlowConsumer) LaneFanoutEnabled() bool { return true }
 
 // LaneFanoutEnabled satisfies LaneFanout for the device consumer.
 func (*DeviceConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the OTLP metrics consumer.
+func (*OTLPConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the OTLP traces consumer.
+func (*OTLPTraceConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the OTLP logs consumer.
+func (*OTLPLogConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the OTLP metrics exporter.
+func (*OTLPExportConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the OTLP traces exporter.
+func (*OTLPTraceExportConsumer) LaneFanoutEnabled() bool { return true }
+
+// LaneFanoutEnabled satisfies LaneFanout for the OTLP logs exporter.
+func (*OTLPLogExportConsumer) LaneFanoutEnabled() bool { return true }

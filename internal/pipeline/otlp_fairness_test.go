@@ -91,3 +91,18 @@ func TestOTLPCardinalityCapAndFairness(t *testing.T) {
 		t.Fatalf("quiet tenant stored %d/10 series — starved by the noisy neighbor (isolation broken)", quietStored)
 	}
 }
+
+func TestOTLPCardinalityTenantCapAboveDefaultAgentCap(t *testing.T) {
+	mem := tsdb.NewMemory()
+	c := NewOTLPConsumer(nil, mem, testLogger()).WithCardinalityCaps(2000)
+	if err := c.handle(context.Background(), floodReq("tenant-wide", 1500)); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	stored := len(mem.Query("probectl_otlp_flood", map[string]string{"tenant_id": "tenant-wide"}))
+	if stored != 1500 {
+		t.Fatalf("stored %d series, want 1500; OTLP must honor the tenant cap above the native per-agent default", stored)
+	}
+	if c.card.Stats().Dropped != 0 {
+		t.Fatalf("unexpected cardinality drops before tenant cap: %+v", c.card.Stats())
+	}
+}

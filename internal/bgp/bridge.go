@@ -6,9 +6,10 @@
 // probectl.bgp.events as JSON Lines. The BMP listener accepts direct router BMP
 // sessions over tenant-bound mTLS. Both paths validate each event's tenant (the
 // outermost scope — F50), and publish the canonical probectl.bgp.v1.BGPEvent
-// protobuf keyed by tenant so routing events stay co-located (pooled
-// tenant-tagging). Detections are signals, not actions (CLAUDE.md §7 guardrail
-// 9): this package transports them, it does not act on routing.
+// protobuf keyed by tenant plus collector/peer entropy so large tenant route
+// storms spread across tenant-preserving bus buckets. Detections are signals,
+// not actions (CLAUDE.md §7 guardrail 9): this package transports them, it does
+// not act on routing.
 package bgp
 
 import (
@@ -18,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 
@@ -73,10 +76,27 @@ func PublishEvent(ctx context.Context, pub Publisher, ev Event) error {
 	if err != nil {
 		return fmt.Errorf("bgp: route topic for tenant %s: %w", ev.TenantID, err)
 	}
-	if err := pub.Publish(ctx, topic, []byte(ev.TenantID), value); err != nil {
+	if err := pub.Publish(ctx, topic, bus.TenantKey(ev.TenantID, bgpPartitionEntropy(ev)), value); err != nil {
 		return fmt.Errorf("bgp: publish event: %w", err)
 	}
 	return nil
+}
+
+func bgpPartitionEntropy(ev Event) string {
+	parts := make([]string, 0, 4)
+	if ev.Collector != "" {
+		parts = append(parts, "collector:"+ev.Collector)
+	}
+	if ev.PeerASN != 0 {
+		parts = append(parts, "peer_asn:"+strconv.FormatUint(uint64(ev.PeerASN), 10))
+	}
+	if ev.PeerAddress != "" {
+		parts = append(parts, "peer_address:"+ev.PeerAddress)
+	}
+	if len(parts) == 0 {
+		parts = append(parts, "prefix:"+ev.Prefix)
+	}
+	return strings.Join(parts, "|")
 }
 
 // Ingest reads JSON-Lines events from r until EOF, publishing each valid event

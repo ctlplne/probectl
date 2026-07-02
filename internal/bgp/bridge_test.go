@@ -93,8 +93,12 @@ func TestBridgePublishesTenantKeyedEvent(t *testing.T) {
 	if msg.topic != bus.BGPEventsTopic {
 		t.Errorf("topic = %q, want %q", msg.topic, bus.BGPEventsTopic)
 	}
-	if string(msg.key) != "t1" {
-		t.Errorf("key = %q, want tenant t1", msg.key)
+	wantKey := string(bus.TenantKey("t1", "collector:rrc00|peer_asn:64511|peer_address:192.0.2.1"))
+	if string(msg.key) != wantKey {
+		t.Errorf("key = %q, want tenant-bucketed key %q", msg.key, wantKey)
+	}
+	if tenantFromBGPKey(msg.key) != "t1" || !strings.Contains(string(msg.key), "|b") {
+		t.Errorf("key = %q, want parseable tenant prefix plus bucket", msg.key)
 	}
 
 	var ev bgpv1.BGPEvent
@@ -138,9 +142,17 @@ func TestBridgePublishesThroughTenantBusNamespace(t *testing.T) {
 	if want := "probectl.tenant-one.bgp.events"; pub.msgs[0].topic != want {
 		t.Fatalf("topic = %q, want %q", pub.msgs[0].topic, want)
 	}
-	if string(pub.msgs[0].key) != "t1" {
-		t.Fatalf("key = %q, want tenant t1", pub.msgs[0].key)
+	if tenantFromBGPKey(pub.msgs[0].key) != "t1" || !strings.Contains(string(pub.msgs[0].key), "|b") {
+		t.Fatalf("key = %q, want tenant-bucketed key for tenant t1", pub.msgs[0].key)
 	}
+}
+
+func tenantFromBGPKey(key []byte) string {
+	s := string(key)
+	if i := strings.IndexByte(s, '|'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 func TestBridgeFailsClosedOnInvalidTenantBusNamespace(t *testing.T) {

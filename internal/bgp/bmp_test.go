@@ -67,8 +67,11 @@ func TestBMPListenerPartitionsTenantScopedPeers(t *testing.T) {
 		if err := proto.Unmarshal(msg.value, &ev); err != nil {
 			t.Fatalf("unmarshal bgp event: %v", err)
 		}
-		if string(msg.key) != ev.GetTenantId() {
-			t.Fatalf("bus key %q does not match tenant_id %q", msg.key, ev.GetTenantId())
+		if tenantFromBGPKey(msg.key) != ev.GetTenantId() {
+			t.Fatalf("bus key %q does not preserve tenant prefix %q", msg.key, ev.GetTenantId())
+		}
+		if string(msg.key) == ev.GetTenantId() {
+			t.Fatalf("bus key %q is raw tenant id; want tenant-bucketed key", msg.key)
 		}
 		byTenant[ev.GetTenantId()] = &ev
 	}

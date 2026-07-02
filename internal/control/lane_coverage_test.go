@@ -10,6 +10,8 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
+	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 // CORRECT-005 lane-coverage gate: every consumer that subscribes to a
@@ -22,6 +24,12 @@ func TestConsumersFanOutAcrossLanes(t *testing.T) {
 		(*pipeline.Consumer)(nil),
 		(*pipeline.FlowConsumer)(nil),
 		(*pipeline.DeviceConsumer)(nil),
+		(*pipeline.OTLPConsumer)(nil),
+		(*pipeline.OTLPTraceConsumer)(nil),
+		(*pipeline.OTLPLogConsumer)(nil),
+		(*pipeline.OTLPExportConsumer)(nil),
+		(*pipeline.OTLPTraceExportConsumer)(nil),
+		(*pipeline.OTLPLogExportConsumer)(nil),
 		(*ResultFan)(nil),
 		(*ResultViewConsumer)(nil),
 		(*TLSPostureConsumer)(nil),
@@ -182,6 +190,48 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			topics: []string{bus.BGPEventsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
 				return NewBGPIncidentConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "otlp-metrics-consumer",
+			topics: []string{bus.OTLPMetricsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewOTLPConsumer(b, tsdb.NewMemory(), log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "otlp-traces-consumer",
+			topics: []string{bus.OTLPTracesTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewOTLPTraceConsumer(b, otelstore.NewMemory(), log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "otlp-logs-consumer",
+			topics: []string{bus.OTLPLogsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewOTLPLogConsumer(b, otelstore.NewMemory(), log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "otlp-metrics-export",
+			topics: []string{bus.OTLPMetricsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewOTLPExportConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "otlp-trace-export",
+			topics: []string{bus.OTLPTracesTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewOTLPTraceExportConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "otlp-log-export",
+			topics: []string{bus.OTLPLogsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return pipeline.NewOTLPLogExportConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
 			},
 		},
 	}
