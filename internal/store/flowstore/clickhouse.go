@@ -183,6 +183,32 @@ FROM ` + source + `
 WHERE row_id != ''`
 }
 
+func createFlowRollupsMVWithLegacyDDL(view, source, dest string) string {
+	return `CREATE MATERIALIZED VIEW IF NOT EXISTS ` + view + ` TO ` + dest + ` AS
+SELECT tenant_id,
+  toStartOfHour(ts) AS bucket,
+  protocol,
+  exporter,
+  src_addr,
+  dst_addr,
+  transport,
+  ` + flowRollupRowIDExpr() + ` AS row_id,
+  bytes_scaled,
+  packets_scaled,
+  toUInt64(1) AS flow_count
+FROM ` + source
+}
+
+func flowRollupRowIDExpr() string {
+	return `if(row_id != '', row_id, concat('legacy:', toString(cityHash64(
+  tenant_id, agent_id, exporter, toString(obs_domain), protocol, toString(ts), toString(start_ts),
+  src_addr, dst_addr, toString(src_port), toString(dst_port), transport, net_type,
+  toString(in_if), toString(out_if), toString(vlan), toString(tos), toString(tcp_flags), next_hop,
+  toString(bytes), toString(packets), toString(sampling), toString(bytes_scaled), toString(packets_scaled),
+  toString(src_asn), src_as_name, src_country, toString(dst_asn), dst_as_name, dst_country
+))))`
+}
+
 // maxInsertChunk bounds the rows encoded into one INSERT request body
 // (SCALE-008). The FlowBatch is agent-controlled, so a 1M-row batch is chunked
 // into ~10k-row POSTs instead of one giant body.
@@ -286,6 +312,13 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 			createFlowRollupsDDL(rollupTable),
 			createFlowRollupsMVDDL(rollupView, table, rollupTable),
 		}},
+		{Version: 4, Name: "legacy_flow_rollup_row_ids", Statements: []string{
+			"DROP TABLE IF EXISTS " + rollupView,
+			createFlowRollupsMVWithLegacyDDL(rollupView, table, rollupTable),
+		},
+			Destructive:   true,
+			Justification: "recreate materialized view only; rollup destination data is preserved and legacy empty-row_id source rows are no longer skipped",
+		},
 	}
 }
 
@@ -575,9 +608,9 @@ func (c *ClickHouse) TopTalkers(ctx context.Context, q TopQuery) ([]TopRow, erro
 		out = append(out, TopRow{
 			Key:     chToString(r["k"]),
 			Detail:  chToString(r["d"]),
-			Bytes:   uint64(chToFloat(r["b"])),
-			Packets: uint64(chToFloat(r["p"])),
-			Flows:   uint64(chToFloat(r["f"])),
+			Bytes:   chToUint64(r["b"]),
+			Packets: chToUint64(r["p"]),
+			Flows:   chToUint64(r["f"]),
 		})
 	}
 	return out, nil
@@ -625,6 +658,8 @@ func (c *ClickHouse) BackfillRollups(ctx context.Context, tenantID string, from,
 }
 
 func flowRollupBackfillSQL(table, rollup string) string {
+	// Do not SELECT ... FINAL here: migrated v2 legacy rows share empty row_id, so
+	// FINAL can collapse them before the legacy row id below preserves identity.
 	return `INSERT INTO ` + rollup + `
 SELECT tenant_id,
   toStartOfHour(ts) AS bucket,
@@ -633,13 +668,12 @@ SELECT tenant_id,
   src_addr,
   dst_addr,
   transport,
-  row_id,
+  ` + flowRollupRowIDExpr() + ` AS row_id,
   bytes_scaled,
   packets_scaled,
   toUInt64(1) AS flow_count
-FROM ` + table + ` FINAL
-WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)}
-AND row_id != ''`
+FROM ` + table + `
+WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)}`
 }
 
 // HourlyRollups reads tenant-scoped long-retention flow summaries.
@@ -678,9 +712,9 @@ ORDER BY bucket, protocol, exporter, transport`,
 			Protocol:  chToString(r["protocol"]),
 			Exporter:  chToString(r["exporter"]),
 			Transport: chToString(r["transport"]),
-			Bytes:     uint64(chToFloat(r["bytes_scaled"])),
-			Packets:   uint64(chToFloat(r["packets_scaled"])),
-			Flows:     uint64(chToFloat(r["flow_count"])),
+			Bytes:     chToUint64(r["bytes_scaled"]),
+			Packets:   chToUint64(r["packets_scaled"]),
+			Flows:     chToUint64(r["flow_count"]),
 		})
 	}
 	return out, nil
@@ -712,9 +746,9 @@ func (c *ClickHouse) PartPressure(ctx context.Context) (PartPressure, error) {
 	r := rows[0]
 	return PartPressure{
 		ActiveParts: int(chToFloat(r["active_parts"])),
-		Rows:        uint64(chToFloat(r["total_rows"])),
-		BytesOnDisk: uint64(chToFloat(r["bytes_on_disk"])),
-		MaxLevel:    uint64(chToFloat(r["max_level"])),
+		Rows:        chToUint64(r["total_rows"]),
+		BytesOnDisk: chToUint64(r["bytes_on_disk"]),
+		MaxLevel:    chToUint64(r["max_level"]),
 	}, nil
 }
 
@@ -815,7 +849,7 @@ func (c *ClickHouse) DeleteTenant(ctx context.Context, tenantID string) (int64, 
 			return -1, err
 		}
 		if len(rows) > 0 {
-			remaining += int64(chToFloat(rows[0]["n"]))
+			remaining += int64(chToUint64(rows[0]["n"]))
 		}
 	}
 	return remaining, nil
@@ -925,7 +959,7 @@ func (c *ClickHouse) ExportTenant(ctx context.Context, tenantID string, w io.Wri
 	if qerr != nil || len(rows) == 0 {
 		return -1, nil // streamed fine; count unavailable
 	}
-	return int64(chToFloat(rows[0]["n"])), nil
+	return int64(chToUint64(rows[0]["n"])), nil
 }
 
 func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table string, p chParams) (int64, error) {
@@ -937,7 +971,7 @@ func (c *ClickHouse) countSubject(ctx context.Context, baseURL, tenantID, table 
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	return int64(chToFloat(rows[0]["n"])), nil
+	return int64(chToUint64(rows[0]["n"])), nil
 }
 
 func flowSubjectPredicate() string {
@@ -1085,6 +1119,7 @@ func chParseTime(s string) time.Time {
 	return time.Time{}
 }
 
-// chToString / chToFloat coerce JSONEachRow cells (shared via chclient, CODE-006).
+// chToString / chToFloat / chToUint64 coerce JSONEachRow cells (shared via chclient, CODE-006).
 func chToString(v any) string { return chclient.String(v) }
 func chToFloat(v any) float64 { return chclient.Float(v) }
+func chToUint64(v any) uint64 { return chclient.Uint64(v) }

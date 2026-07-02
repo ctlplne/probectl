@@ -4,6 +4,7 @@ package flowstore
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,16 +36,55 @@ func TestFlowRollupDDLAndBackfillAreTenantScoped(t *testing.T) {
 			t.Fatalf("rollup MV missing %q:\n%s", want, mv)
 		}
 	}
+	legacyMV := createFlowRollupsMVWithLegacyDDL(sharedFlowRollupsMV, sharedFlowsTable, sharedFlowRollupsTable)
+	for _, want := range []string{
+		"CREATE MATERIALIZED VIEW IF NOT EXISTS probectl_flow_rollups_hour_mv",
+		"TO probectl_flow_rollups_hour",
+		"FROM probectl_flows",
+		"if(row_id != '', row_id,",
+		"concat('legacy:', toString(cityHash64(",
+	} {
+		if !strings.Contains(legacyMV, want) {
+			t.Fatalf("legacy rollup MV missing %q:\n%s", want, legacyMV)
+		}
+	}
+	if strings.Contains(legacyMV, "WHERE row_id") {
+		t.Fatalf("legacy rollup MV must not skip migrated empty-row_id rows:\n%s", legacyMV)
+	}
 	backfill := flowRollupBackfillSQL(sharedFlowsTable, sharedFlowRollupsTable)
 	for _, want := range []string{
 		"INSERT INTO probectl_flow_rollups_hour",
-		"FROM probectl_flows FINAL",
+		"FROM probectl_flows",
 		"WHERE tenant_id={tenant:String}",
-		"AND row_id != ''",
+		"if(row_id != '', row_id,",
+		"concat('legacy:', toString(cityHash64(",
 	} {
 		if !strings.Contains(backfill, want) {
 			t.Fatalf("rollup backfill SQL missing %q:\n%s", want, backfill)
 		}
+	}
+	if strings.Contains(backfill, "FROM probectl_flows FINAL") ||
+		strings.Contains(backfill, "WHERE row_id") ||
+		strings.Contains(backfill, "AND row_id") {
+		t.Fatalf("rollup backfill must preserve legacy rows before destination dedup:\n%s", backfill)
+	}
+	foundV4 := false
+	for _, m := range CHMigrations() {
+		if m.Version != 4 {
+			continue
+		}
+		foundV4 = true
+		if !m.Destructive || !strings.Contains(m.Justification, "materialized view") {
+			t.Fatalf("v4 legacy MV migration must annotate its MV drop/recreate: %+v", m)
+		}
+		if len(m.Statements) != 2 ||
+			!strings.Contains(m.Statements[0], "DROP TABLE IF EXISTS probectl_flow_rollups_hour_mv") ||
+			!strings.Contains(m.Statements[1], "concat('legacy:', toString(cityHash64(") {
+			t.Fatalf("v4 legacy MV migration statements are incomplete: %+v", m.Statements)
+		}
+	}
+	if !foundV4 {
+		t.Fatal("missing flowstore v4 migration for legacy flow rollup row ids")
 	}
 }
 
@@ -135,12 +175,72 @@ func TestFlowRollupBackfillControlIsRoutedAndBound(t *testing.T) {
 	for _, want := range []string{
 		"DELETE FROM probectl_t_roll.probectl_flow_rollups_hour WHERE tenant_id={tenant:String}",
 		"INSERT INTO probectl_t_roll.probectl_flow_rollups_hour",
-		"FROM probectl_t_roll.probectl_flows FINAL",
+		"FROM probectl_t_roll.probectl_flows",
 		"WHERE tenant_id={tenant:String}",
 		"param_tenant=siloed",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("backfill SQL missing %q:\n%s", want, joined)
 		}
+	}
+}
+
+func TestFlowClickHouseCountersPreserveUInt64Precision(t *testing.T) {
+	now := time.Date(2026, 6, 30, 14, 0, 0, 0, time.UTC)
+	const (
+		bytes   = uint64(9007199254740993)
+		packets = uint64(9007199254740995)
+		flows   = uint64(9007199254740997)
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q, _ := url.QueryUnescape(r.URL.RawQuery)
+		switch {
+		case strings.Contains(q, "FROM probectl_flow_rollups_hour") && strings.Contains(q, "sum(bytes_scaled) AS bytes_scaled"):
+			_, _ = w.Write([]byte(`{"bucket":"2026-06-30 13:00:00","protocol":"netflow9","exporter":"r1","transport":"tcp","bytes_scaled":9007199254740993,"packets_scaled":"9007199254740995","flow_count":9007199254740997}` + "\n"))
+		case strings.Contains(q, "sum(bytes_scaled) AS b,"):
+			_, _ = w.Write([]byte(`{"k":"10.0.0.1","d":"","b":9007199254740993,"p":"9007199254740995","f":9007199254740997}` + "\n"))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	c, err := NewClickHouse(srv.URL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	top, err := c.TopTalkers(context.Background(), TopQuery{
+		TenantID: "tenant-a",
+		By:       BySrc,
+		Window:   time.Hour,
+		Limit:    1,
+		Now:      now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(top) != 1 || top[0].Bytes != bytes || top[0].Packets != packets || top[0].Flows != flows {
+		t.Fatalf("top-talkers counters lost precision: %+v", top)
+	}
+	encoded, err := json.Marshal(top[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"bytes_str":"9007199254740993"`,
+		`"packets_str":"9007199254740995"`,
+		`"flows_str":"9007199254740997"`,
+	} {
+		if !strings.Contains(string(encoded), want) {
+			t.Fatalf("top-talkers JSON missing exact string counter %s: %s", want, encoded)
+		}
+	}
+
+	rollups, err := c.HourlyRollups(context.Background(), "tenant-a", now.Add(-time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rollups) != 1 || rollups[0].Bytes != bytes || rollups[0].Packets != packets || rollups[0].Flows != flows {
+		t.Fatalf("hourly rollup counters lost precision: %+v", rollups)
 	}
 }

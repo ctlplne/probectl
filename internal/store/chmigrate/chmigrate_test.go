@@ -4,6 +4,7 @@ package chmigrate
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -119,6 +120,24 @@ func TestApplyIsIdempotentAcrossRestarts(t *testing.T) {
 	done, err = Apply(context.Background(), db, "teststore", ms, nil)
 	if err != nil || len(done) != 1 || done[0] != 3 {
 		t.Fatalf("incremental apply = %v, %v", done, err)
+	}
+}
+
+func TestApplyAcceptsJSONNumberLedgerVersions(t *testing.T) {
+	ms := twoMigrations()
+	db := &fakeExec{ledger: []map[string]any{
+		{"component": "teststore", "version": json.Number("1"), "checksum": Checksum(ms[0])},
+		{"component": "teststore", "version": json.Number("2"), "checksum": Checksum(ms[1])},
+	}}
+	done, err := Apply(context.Background(), db, "teststore", ms, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(done) != 0 {
+		t.Fatalf("json.Number ledger versions must not rerun migrations: %v", done)
+	}
+	if got := db.execed; len(got) != 1 || !strings.HasPrefix(got[0], "CREATE TABLE IF NOT EXISTS "+Ledger) {
+		t.Fatalf("unexpected statements for already-applied json.Number ledger: %v", got)
 	}
 }
 

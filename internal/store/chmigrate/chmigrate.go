@@ -28,6 +28,7 @@ package chmigrate
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -172,6 +173,9 @@ func anyToInt(v any) int {
 	switch n := v.(type) {
 	case float64:
 		return int(n)
+	case json.Number:
+		i, _ := strconv.Atoi(n.String())
+		return i
 	case string:
 		i, _ := strconv.Atoi(n)
 		return i
