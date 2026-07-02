@@ -112,6 +112,8 @@ tenant_id: ""           # REQUIRED: the tenant these flows belong to
 bus:
   mode: kafka
   brokers: []           # e.g. ["kafka.internal:9093"]
+ring_buffer_bytes: 16777216     # L4 flow ring; rounded/capped by the agent
+l7_ring_buffer_bytes: 16777216  # TLS/plaintext L7 chunk ring; separate from L4
 # Bus TLS via env in the unit: PROBECTL_EBPF_BUS_TLS_ENABLED=true,
 # PROBECTL_EBPF_BUS_TLS_CA_FILE=/etc/probectl/bus-ca.crt
 EOF

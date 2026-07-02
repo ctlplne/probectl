@@ -184,7 +184,7 @@ func TestLiveLoadAttachSslsniff(t *testing.T) {
 	// EBPF-001: attach now requires the third gate — an explicit workload
 	// allowlist (here: this test process).
 	cfg.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
-	src, err := newLiveL7Source(cfg)
+	src, err := newLiveL7Source(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Skipf("sslsniff attach unavailable (no supported TLS library on this rootfs?): %v", err)
 	}
@@ -219,7 +219,7 @@ func TestLiveGnuTLSAttach(t *testing.T) {
 	cfg.L7CaptureEnabled = true
 	cfg.L7CaptureConsentTenant = "kernel-matrix"
 	cfg.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
-	src, err := newLiveL7Source(cfg)
+	src, err := newLiveL7Source(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("GnuTLS-capable sslsniff attach failed: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestLiveScopeAllowlistAttach(t *testing.T) {
 	cfg.L7CaptureEnabled = true
 	cfg.L7CaptureConsentTenant = "kernel-matrix"
 	cfg.L7CaptureScope = []string{"pid:1"}
-	src, err := newLiveL7Source(cfg)
+	src, err := newLiveL7Source(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Skipf("sslsniff attach unavailable (no supported TLS library on this rootfs?): %v", err)
 	}
@@ -337,7 +337,7 @@ func TestLiveScopeAllowlistAttach(t *testing.T) {
 	cfg2.L7CaptureEnabled = true
 	cfg2.L7CaptureConsentTenant = "kernel-matrix"
 	cfg2.L7CaptureScope = []string{"exe:" + openssl}
-	src2, err := newLiveL7Source(cfg2)
+	src2, err := newLiveL7Source(cfg2, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("attach with exe: scope: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestLiveHardenedLockdownIntegrity(t *testing.T) {
 	cfg2.L7CaptureEnabled = true
 	cfg2.L7CaptureConsentTenant = "hardened"
 	cfg2.L7CaptureScope = []string{"pid:" + strconv.Itoa(os.Getpid())}
-	l7src, err := newLiveL7Source(cfg2)
+	l7src, err := newLiveL7Source(cfg2, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Logf("sslsniff under lockdown skipped (no supported TLS library on this rootfs?): %v", err)
 		return

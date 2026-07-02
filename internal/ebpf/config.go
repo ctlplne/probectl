@@ -62,10 +62,16 @@ type Config struct {
 	// plaintext listener in Kubernetes. Empty disables file health.
 	HealthStateDir string `yaml:"health_state_dir"`
 
-	// RingBufferBytes sizes the kernel ring buffer (live source only); it is
+	// RingBufferBytes sizes the L4 kernel ring buffer (live source only); it is
 	// rounded to a valid power-of-two page multiple at load (U-050) and must
 	// not exceed maxRingBufferBytes (EBPF-005). 0 = the 16 MiB default.
 	RingBufferBytes int `yaml:"ring_buffer_bytes"`
+
+	// L7RingBufferBytes sizes the TLS/plaintext L7 kernel ring buffer
+	// (tls_chunks). It has the same rounding and 256 MiB cap as the L4 ring,
+	// but is a separate bucket because L7 chunks have different burst behavior.
+	// 0 = the 16 MiB default.
+	L7RingBufferBytes int `yaml:"l7_ring_buffer_bytes"`
 
 	// TLS-plaintext capture policy (U-003 + EBPF-001/002): live sslsniff
 	// capture is OFF by default and requires THREE explicit statements — the
@@ -119,6 +125,7 @@ func Default() *Config {
 		ProcRoot:           "/proc",
 		FlushInterval:      10 * time.Second,
 		RingBufferBytes:    1 << 24,
+		L7RingBufferBytes:  1 << 24,
 		L7CaptureRedaction: RedactHeaders, // U-003: capture off by default; bodies zeroed when on
 		// EBPF-001/SCALE-003/FUZZ-001: bound the live maps by default so the
 		// shipped production agent enforces the cap (not just tests).
@@ -188,6 +195,11 @@ func (c *Config) applyEnv(getenv func(string) string) {
 	if v := getenv("PROBECTL_EBPF_RING_BUFFER_BYTES"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			c.RingBufferBytes = n
+		}
+	}
+	if v := getenv("PROBECTL_EBPF_L7_RING_BUFFER_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.L7RingBufferBytes = n
 		}
 	}
 	if v := getenv("PROBECTL_EBPF_FLUSH_INTERVAL"); v != "" {
@@ -271,12 +283,15 @@ func (c *Config) validate() error {
 	if w := c.L7CaptureKernelWindow; w != 0 && (w < minKernelWindow || w > maxKernelWindow) {
 		return fmt.Errorf("ebpf: l7_capture_kernel_window %d out of bounds (%d..%d, 0 = default %d)", w, minKernelWindow, maxKernelWindow, defaultKernelWindow)
 	}
-	// EBPF-005: cap the ring buffer. ringBufferBytes() rounds UP to the next
+	// EBPF-005: cap the ring buffers. ringBufferBytes() rounds UP to the next
 	// power of two, so an over-large request would silently pin hundreds of MiB
-	// (or more) of unswappable kernel memory per agent. Refuse it at config
-	// time with a clear bounds error rather than rounding it up at Load().
+	// (or more) of unswappable kernel memory per agent. Refuse them at config
+	// time with clear bounds errors rather than rounding them up at Load().
 	if c.RingBufferBytes > maxRingBufferBytes {
 		return fmt.Errorf("ebpf: ring_buffer_bytes %d exceeds the maximum %d (256 MiB); pick a smaller size (0 = default %d)", c.RingBufferBytes, maxRingBufferBytes, 1<<24)
+	}
+	if c.L7RingBufferBytes > maxRingBufferBytes {
+		return fmt.Errorf("ebpf: l7_ring_buffer_bytes %d exceeds the maximum %d (256 MiB); pick a smaller size (0 = default %d)", c.L7RingBufferBytes, maxRingBufferBytes, 1<<24)
 	}
 	return nil
 }

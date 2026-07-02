@@ -16,6 +16,7 @@ func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 
 	t.Setenv("PROBECTL_EBPF_TENANT_ID", "t-env")
 	t.Setenv("PROBECTL_EBPF_FLUSH_INTERVAL", "2s")
+	t.Setenv("PROBECTL_EBPF_L7_RING_BUFFER_BYTES", "33554432")
 	t.Setenv("PROBECTL_EBPF_L7_IDENTITY_HEADER_FRAGMENTS", "member, viewer ")
 	t.Setenv("PROBECTL_EBPF_L7_HASH_ALL_HEADER_VALUES", "true")
 
@@ -28,6 +29,9 @@ func TestConfigLoadYAMLAndEnvOverride(t *testing.T) {
 	}
 	if cfg.FlushInterval != 2*time.Second {
 		t.Errorf("flush = %v, want 2s", cfg.FlushInterval)
+	}
+	if cfg.L7RingBufferBytes != 33_554_432 {
+		t.Errorf("l7 ring = %d, want 33554432", cfg.L7RingBufferBytes)
 	}
 	if got := strings.Join(cfg.L7CaptureIdentityHeaderFragments, ","); got != "member,viewer" {
 		t.Errorf("identity header fragments = %q, want member,viewer", got)
@@ -111,5 +115,15 @@ func TestConfigValidate(t *testing.T) {
 	overMax.RingBufferBytes = maxRingBufferBytes + 1
 	if err := overMax.validate(); err == nil {
 		t.Errorf("ring_buffer_bytes over the max (%d) should fail validation", overMax.RingBufferBytes)
+	}
+	l7AtMax := base()
+	l7AtMax.L7RingBufferBytes = maxRingBufferBytes
+	if err := l7AtMax.validate(); err != nil {
+		t.Errorf("l7_ring_buffer_bytes at the max (%d) should be accepted: %v", maxRingBufferBytes, err)
+	}
+	l7OverMax := base()
+	l7OverMax.L7RingBufferBytes = maxRingBufferBytes + 1
+	if err := l7OverMax.validate(); err == nil {
+		t.Errorf("l7_ring_buffer_bytes over the max (%d) should fail validation", l7OverMax.L7RingBufferBytes)
 	}
 }

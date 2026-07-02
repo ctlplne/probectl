@@ -29,7 +29,8 @@ bus:
 
 proc_root: /proc # procfs root for process/cgroup enrichment
 flush_interval: 10s # how often flows + the service map are emitted
-ring_buffer_bytes: 16777216 # 16 MiB kernel ring buffer (live source only)
+ring_buffer_bytes: 16777216 # 16 MiB L4 kernel ring buffer (live source only)
+l7_ring_buffer_bytes: 16777216 # 16 MiB TLS/plaintext L7 chunk ring (live source only)
 
 # --- TLS-plaintext (L7) capture: OFF by default, TRIPLE-gated (U-003 + EBPF-001).
 # Capture reads application plaintext on this host via OpenSSL-compatible and

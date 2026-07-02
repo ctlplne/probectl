@@ -19,6 +19,8 @@ data:
       brokers:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    ring_buffer_bytes: {{ .Values.ringBufferBytes }}
+    l7_ring_buffer_bytes: {{ .Values.l7Capture.ringBufferBytes }}
     {{- if .Values.l7Capture.enabled }}
     {{- if not .Values.l7Capture.scope }}
     {{- fail "l7Capture.scope is required when l7Capture.enabled=true; host-wide TLS plaintext capture is not expressible" }}

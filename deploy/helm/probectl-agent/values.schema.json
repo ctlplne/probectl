@@ -133,6 +133,11 @@
             }
           ]
         },
+        "ringBufferBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 268435456
+        },
         "identityHeaderFragments": {
           "type": "array",
           "items": {
@@ -151,6 +156,11 @@
     },
     "legacyKernelRingBufferAck": {
       "type": "string"
+    },
+    "ringBufferBytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 268435456
     },
     "health": {
       "type": "object",

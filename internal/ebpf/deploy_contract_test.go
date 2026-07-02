@@ -45,6 +45,7 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 		"scope: []",
 		"redaction: headers",
 		"kernelWindow: 1024",
+		"ringBufferBytes: 16777216",
 		"identityHeaderFragments: []",
 		"hashAllHeaderValues: false",
 	} {
@@ -55,9 +56,11 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 	for _, want := range []string{
 		"l7Capture.scope is required when l7Capture.enabled=true",
 		"l7Capture.consentTenant is required when l7Capture.enabled=true",
+		"ring_buffer_bytes:",
 		"l7_capture_scope:",
 		"l7_capture_redaction:",
 		"l7_capture_kernel_window:",
+		"l7_ring_buffer_bytes:",
 		"l7_capture_identity_header_fragments:",
 		"l7_capture_hash_all_header_values:",
 	} {
@@ -71,6 +74,7 @@ func TestAgentHelmL7CaptureRendersRequiredScope(t *testing.T) {
 		"pid:[0-9]+|exe:/.*|cgroup:/.*",
 		"\"redaction\"",
 		"\"kernelWindow\"",
+		"\"ringBufferBytes\"",
 		"\"identityHeaderFragments\"",
 		"\"hashAllHeaderValues\"",
 	} {

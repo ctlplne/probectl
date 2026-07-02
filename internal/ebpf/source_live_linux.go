@@ -52,9 +52,7 @@ func newLiveSource(cfg *Config) (Source, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ebpf: load collection spec: %w", err)
 	}
-	if m, ok := spec.Maps["events"]; ok {
-		m.MaxEntries = ringBufferBytes(cfg.RingBufferBytes)
-	}
+	applyL4RingBufferSpec(spec, cfg)
 	if err := spec.LoadAndAssign(&s.objs, nil); err != nil {
 		// U-075: a kernel-lockdown confidentiality failure is explained, not
 		// surfaced as a bare EPERM.

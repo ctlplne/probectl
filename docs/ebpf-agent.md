@@ -315,9 +315,17 @@ probectl.
 ## Tuning and kernel lockdown
 
 `ring_buffer_bytes` (config, or `PROBECTL_EBPF_RING_BUFFER_BYTES`) sizes the
-kernel ring buffer for the live source; it's rounded at load to a valid power-of-
-two page multiple (default 16 MiB). Raise it on high-flow hosts to reduce ring-
-buffer-full drops (which `dropped_total` will show you).
+**L4 flow** kernel ring buffer for the live source; it's rounded at load to a
+valid power-of-two page multiple (default 16 MiB). Raise it on high-flow hosts
+to reduce `drop_l4_ring_buffer_full_total`.
+
+`l7_ring_buffer_bytes` (config, or `PROBECTL_EBPF_L7_RING_BUFFER_BYTES`) sizes
+the separate **TLS/plaintext L7 chunk** ring (`tls_chunks`) used by live L7
+uprobes. It has the same rounding behavior and 256 MiB validation cap as the L4
+ring, but it is tuned independently because a host can have small flow churn and
+large HTTP/TLS bursts, or the reverse. Raise it when
+`drop_l7_ring_buffer_full_total` climbs after confirming L7 scope and redaction
+are intentional.
 
 **Kernel lockdown** is a hardening mode (commonly enabled alongside Secure Boot)
 that restricts what even a privileged process may do to the running kernel: if

@@ -152,6 +152,7 @@ func TestAnsibleRoleRendersTypedAgentConfigs(t *testing.T) {
 		"probectl_ebpf_proc_root":              "/proc",
 		"probectl_ebpf_flush_interval":         "10s",
 		"probectl_ebpf_ring_buffer_bytes":      "16777216",
+		"probectl_ebpf_l7_ring_buffer_bytes":   "16777216",
 		"probectl_ebpf_max_service_edges":      "50000",
 		"probectl_ebpf_max_l7_conns":           "8192",
 		"probectl_ebpf_l7_conn_idle_ttl":       "5m",

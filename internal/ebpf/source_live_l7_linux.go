@@ -94,7 +94,15 @@ func newLiveL7Source(cfg *Config, log *slog.Logger) (L7Source, error) {
 	if err := VerifyObjectDigest(objName, _SslsniffBytes, bpfObjectDigests[objName]); err != nil {
 		return nil, err
 	}
-	if err := loadSslsniffObjects(&s.objs, nil); err != nil {
+	// EBPF-002: size the L7 TLS chunk ring from its own config knob before
+	// handing the collection to the kernel. L7 bursts are independent from L4
+	// flow bursts, so ring_buffer_bytes must not silently be the only knob.
+	spec, err := loadSslsniff()
+	if err != nil {
+		return nil, fmt.Errorf("ebpf: load sslsniff collection spec: %w", err)
+	}
+	applyL7RingBufferSpec(spec, cfg)
+	if err := spec.LoadAndAssign(&s.objs, nil); err != nil {
 		return nil, fmt.Errorf("ebpf: load sslsniff objects (need a BTF kernel + CAP_BPF): %w", err)
 	}
 
