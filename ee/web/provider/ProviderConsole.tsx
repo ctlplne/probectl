@@ -890,6 +890,8 @@ function FairnessCard({
   const [tenant, setTenant] = useState("");
   const [resultsSec, setResultsSec] = useState("");
   const [flowsSec, setFlowsSec] = useState("");
+  const [deviceSec, setDeviceSec] = useState("");
+  const [otlpSec, setOtlpSec] = useState("");
   const [queriesMin, setQueriesMin] = useState("");
   const [queryConc, setQueryConc] = useState("");
   const [error, setError] = useState("");
@@ -943,6 +945,9 @@ function FairnessCard({
         if (p.results_per_sec) parts.push(`${p.results_per_sec}/s results`);
         if (p.flow_events_per_sec)
           parts.push(`${p.flow_events_per_sec}/s flows`);
+        if (p.device_metrics_per_sec)
+          parts.push(`${p.device_metrics_per_sec}/s device`);
+        if (p.otlp_series_per_sec) parts.push(`${p.otlp_series_per_sec}/s OTLP`);
         if (p.queries_per_min) parts.push(`${p.queries_per_min}/min queries`);
         if (p.query_concurrency)
           parts.push(`${p.query_concurrency} concurrent`);
@@ -959,6 +964,8 @@ function FairnessCard({
       await api("PUT", `/provider/v1/tenants/${tenant}/fairness`, {
         results_per_sec: resultsSec === "" ? 0 : Number(resultsSec),
         flow_events_per_sec: flowsSec === "" ? 0 : Number(flowsSec),
+        device_metrics_per_sec: deviceSec === "" ? 0 : Number(deviceSec),
+        otlp_series_per_sec: otlpSec === "" ? 0 : Number(otlpSec),
         queries_per_min: queriesMin === "" ? 0 : Number(queriesMin),
         query_concurrency: queryConc === "" ? 0 : Number(queryConc),
       });
@@ -1015,6 +1022,20 @@ function FairnessCard({
               inputMode="numeric"
               value={flowsSec}
               onChange={(e) => setFlowsSec(e.target.value)}
+              disabled={readOnly}
+            />
+            <Field
+              label="Device metrics/sec"
+              inputMode="numeric"
+              value={deviceSec}
+              onChange={(e) => setDeviceSec(e.target.value)}
+              disabled={readOnly}
+            />
+            <Field
+              label="OTLP series/sec"
+              inputMode="numeric"
+              value={otlpSec}
+              onChange={(e) => setOtlpSec(e.target.value)}
               disabled={readOnly}
             />
             <Field

@@ -127,13 +127,15 @@ func (s *Service) RecordGovernanceChange(ctx context.Context, actor, tenantID, r
 // RecordFairnessChange audits a fairness-policy update on the provider stream.
 func (s *Service) RecordFairnessChange(ctx context.Context, actor, tenantID string, p fairness.Policy) error {
 	return s.audit.Append(ctx, actor, "provider.fairness_set", tenantID, map[string]any{
-		"results_per_sec":      p.ResultsPerSec,
-		"flow_events_per_sec":  p.FlowEventsPerSec,
-		"ingest_bytes_per_sec": p.IngestBytesPerSec,
-		"burst_seconds":        p.BurstSeconds,
-		"query_concurrency":    p.QueryConcurrency,
-		"queries_per_min":      p.QueriesPerMin,
-		"weight":               p.Weight,
+		"results_per_sec":        p.ResultsPerSec,
+		"flow_events_per_sec":    p.FlowEventsPerSec,
+		"ingest_bytes_per_sec":   p.IngestBytesPerSec,
+		"device_metrics_per_sec": p.DeviceMetricsPerSec,
+		"otlp_series_per_sec":    p.OTLPSeriesPerSec,
+		"burst_seconds":          p.BurstSeconds,
+		"query_concurrency":      p.QueryConcurrency,
+		"queries_per_min":        p.QueriesPerMin,
+		"weight":                 p.Weight,
 	})
 }
 

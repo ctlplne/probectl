@@ -67,21 +67,30 @@ func TestPolicyStorePG(t *testing.T) {
 		t.Fatalf("missing row: ok=%v err=%v", ok, err)
 	}
 	// Upsert with some fields unset (0 -> NULL -> deployment default).
-	in := Policy{ResultsPerSec: 250, QueriesPerMin: 120}
+	in := Policy{
+		ResultsPerSec:       250,
+		DeviceMetricsPerSec: 25,
+		OTLPSeriesPerSec:    30,
+		QueriesPerMin:       120,
+	}
 	if err := store.Upsert(ctx, tnA, in, "op@msp.example"); err != nil {
 		t.Fatal(err)
 	}
 	got, ok, err := store.PolicyFor(ctx, tnA)
-	if err != nil || !ok || got.ResultsPerSec != 250 || got.QueriesPerMin != 120 || got.FlowEventsPerSec != 0 {
+	if err != nil || !ok || got.ResultsPerSec != 250 || got.DeviceMetricsPerSec != 25 ||
+		got.OTLPSeriesPerSec != 30 || got.QueriesPerMin != 120 || got.FlowEventsPerSec != 0 {
 		t.Fatalf("round-trip: %+v ok=%v err=%v", got, ok, err)
 	}
 	// Update narrows the bound; All() lists it.
 	in.ResultsPerSec = 100
+	in.DeviceMetricsPerSec = 10
+	in.OTLPSeriesPerSec = 12
 	if err := store.Upsert(ctx, tnA, in, "op@msp.example"); err != nil {
 		t.Fatal(err)
 	}
 	all, err := store.All(ctx)
-	if err != nil || all[tnA].ResultsPerSec != 100 {
+	if err != nil || all[tnA].ResultsPerSec != 100 || all[tnA].DeviceMetricsPerSec != 10 ||
+		all[tnA].OTLPSeriesPerSec != 12 {
 		t.Fatalf("all: %+v err=%v", all, err)
 	}
 
@@ -93,8 +102,25 @@ func TestPolicyStorePG(t *testing.T) {
 	for g.EffectivePolicy(ctx, tnA).ResultsPerSec != 100 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := g.EffectivePolicy(ctx, tnA); got.ResultsPerSec != 100 {
+	if got := g.EffectivePolicy(ctx, tnA); got.ResultsPerSec != 100 ||
+		got.DeviceMetricsPerSec != 10 || got.OTLPSeriesPerSec != 12 {
 		t.Fatalf("gate must see the stored override: %+v", got)
+	}
+	for range 10 {
+		if !g.AdmitN(ctx, tnA, MeterDeviceMetrics, 1) {
+			t.Fatal("stored device fairness override shed inside the tenant's capacity")
+		}
+	}
+	if g.AdmitN(ctx, tnA, MeterDeviceMetrics, 1) {
+		t.Fatal("stored device fairness override must shed above capacity")
+	}
+	for range 12 {
+		if !g.AdmitN(ctx, tnA, MeterOTLPSeries, 1) {
+			t.Fatal("stored OTLP fairness override shed inside the tenant's capacity")
+		}
+	}
+	if g.AdmitN(ctx, tnA, MeterOTLPSeries, 1) {
+		t.Fatal("stored OTLP fairness override must shed above capacity")
 	}
 
 	// Tenant-side RLS: tenant B reads its OWN policy view — A's row is

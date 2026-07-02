@@ -23,6 +23,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/fairness"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 )
 
@@ -56,6 +57,37 @@ func (a *memAudit) count(action string) int {
 		}
 	}
 	return n
+}
+
+// memFairnessStore is a DB-less provider/fairness seam: it behaves like the
+// PGStore methods the handler uses and like the PolicySource the gate uses.
+type memFairnessStore struct {
+	mu       sync.Mutex
+	policies map[string]fairness.Policy
+}
+
+func (m *memFairnessStore) PolicyFor(_ context.Context, tenantID string) (fairness.Policy, bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.policies[tenantID]
+	return p, ok, nil
+}
+
+func (m *memFairnessStore) All(_ context.Context) (map[string]fairness.Policy, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]fairness.Policy, len(m.policies))
+	for k, v := range m.policies {
+		out[k] = v
+	}
+	return out, nil
+}
+
+func (m *memFairnessStore) Upsert(_ context.Context, tenantID string, p fairness.Policy, _ string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.policies[tenantID] = p
+	return nil
 }
 
 // fakeTelemetry stands in for the latest-results read model, tenant-keyed so
@@ -478,6 +510,81 @@ func TestFleetAggregation(t *testing.T) {
 	// The fleet payload carries NO telemetry-shaped fields.
 	if s := rec.Body.String(); strings.Contains(s, "latency") || strings.Contains(s, "result") {
 		t.Fatalf("fleet view must carry operational metadata only: %s", s)
+	}
+}
+
+func TestFairnessProviderRoundTripDeviceAndOTLPOverrides(t *testing.T) {
+	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	token := f.bootstrapAndLoginFast(t)
+	store := &memFairnessStore{policies: map[string]fairness.Policy{}}
+	now := time.Now()
+	gate := fairness.NewGate(fairness.Policy{
+		DeviceMetricsPerSec: 1000,
+		OTLPSeriesPerSec:    1000,
+		BurstSeconds:        1,
+	}, store).WithPolicyTTL(time.Hour).WithNow(func() time.Time { return now })
+	f.h.WithFairness(&Fairness{Gate: gate, Store: store})
+
+	const tenantID = "tn-device-otlp"
+	rec := f.doAuthed(t, token, http.MethodPut, "/provider/v1/tenants/"+tenantID+"/fairness", map[string]any{
+		"device_metrics_per_sec": 2,
+		"otlp_series_per_sec":    3,
+		"burst_seconds":          1,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("fairness PUT: %d %s", rec.Code, rec.Body.String())
+	}
+	var body fairness.Policy
+	mustDecode(t, rec, &body)
+	if body.DeviceMetricsPerSec != 2 || body.OTLPSeriesPerSec != 3 || body.BurstSeconds != 1 {
+		t.Fatalf("fairness response omitted device/OTLP overrides: %+v", body)
+	}
+	if f.audit.count("provider.fairness_set") != 1 {
+		t.Fatal("provider fairness update must be audited")
+	}
+	f.audit.mu.Lock()
+	auditData := f.audit.events[len(f.audit.events)-1].Data
+	f.audit.mu.Unlock()
+	if auditData["device_metrics_per_sec"] != float64(2) || auditData["otlp_series_per_sec"] != float64(3) {
+		t.Fatalf("audit data omitted device/OTLP overrides: %+v", auditData)
+	}
+
+	gate.EffectivePolicy(t.Context(), tenantID)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		p := gate.EffectivePolicy(t.Context(), tenantID)
+		if p.DeviceMetricsPerSec == 2 && p.OTLPSeriesPerSec == 3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("gate did not refresh provider override: %+v", p)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for range 2 {
+		if !gate.AdmitN(t.Context(), tenantID, fairness.MeterDeviceMetrics, 1) {
+			t.Fatal("device override must admit within capacity")
+		}
+	}
+	if gate.AdmitN(t.Context(), tenantID, fairness.MeterDeviceMetrics, 1) {
+		t.Fatal("device override must shed above capacity")
+	}
+	for range 3 {
+		if !gate.AdmitN(t.Context(), tenantID, fairness.MeterOTLPSeries, 1) {
+			t.Fatal("OTLP override must admit within capacity")
+		}
+	}
+	if gate.AdmitN(t.Context(), tenantID, fairness.MeterOTLPSeries, 1) {
+		t.Fatal("OTLP override must shed above capacity")
+	}
+
+	rec = f.doAuthed(t, token, http.MethodGet, "/provider/v1/fairness", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("fairness GET: %d %s", rec.Code, rec.Body.String())
+	}
+	if s := rec.Body.String(); !strings.Contains(s, `"device_metrics_per_sec":2`) ||
+		!strings.Contains(s, `"otlp_series_per_sec":3`) {
+		t.Fatalf("provider fairness view omitted device/OTLP fields: %s", s)
 	}
 }
 

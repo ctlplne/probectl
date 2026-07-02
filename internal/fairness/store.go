@@ -24,13 +24,15 @@ type PGStore struct{ pool *pgxpool.Pool }
 func NewPGStore(pool *pgxpool.Pool) *PGStore { return &PGStore{pool: pool} }
 
 const policyCols = `coalesce(results_per_sec, 0), coalesce(flow_events_per_sec, 0),
-	coalesce(ingest_bytes_per_sec, 0), coalesce(burst_seconds, 0),
+	coalesce(ingest_bytes_per_sec, 0), coalesce(device_metrics_per_sec, 0),
+	coalesce(otlp_series_per_sec, 0), coalesce(burst_seconds, 0),
 	coalesce(query_concurrency, 0), coalesce(queries_per_min, 0), coalesce(weight, 0)`
 
 func scanPolicy(row pgx.Row) (Policy, error) {
 	var p Policy
 	err := row.Scan(&p.ResultsPerSec, &p.FlowEventsPerSec, &p.IngestBytesPerSec,
-		&p.BurstSeconds, &p.QueryConcurrency, &p.QueriesPerMin, &p.Weight)
+		&p.DeviceMetricsPerSec, &p.OTLPSeriesPerSec, &p.BurstSeconds,
+		&p.QueryConcurrency, &p.QueriesPerMin, &p.Weight)
 	return p, err
 }
 
@@ -58,14 +60,16 @@ func (s *PGStore) Upsert(ctx context.Context, tenantID string, p Policy, by stri
 	return tenancy.InProvider(ctx, s.pool, func(ctx context.Context, q tenancy.Querier) error {
 		_, err := q.Exec(ctx, `
 			INSERT INTO tenant_fairness (tenant_id, results_per_sec, flow_events_per_sec,
-				ingest_bytes_per_sec, burst_seconds, query_concurrency, queries_per_min,
-				weight, updated_at, updated_by)
+				ingest_bytes_per_sec, device_metrics_per_sec, otlp_series_per_sec,
+				burst_seconds, query_concurrency, queries_per_min, weight, updated_at, updated_by)
 			VALUES ($1, nullif($2, 0), nullif($3, 0), nullif($4, 0), nullif($5, 0),
-				nullif($6, 0), nullif($7, 0), nullif($8, 0), $9, $10)
+				nullif($6, 0), nullif($7, 0), nullif($8, 0), nullif($9, 0), $10, $11)
 			ON CONFLICT (tenant_id) DO UPDATE SET
 				results_per_sec = excluded.results_per_sec,
 				flow_events_per_sec = excluded.flow_events_per_sec,
 				ingest_bytes_per_sec = excluded.ingest_bytes_per_sec,
+				device_metrics_per_sec = excluded.device_metrics_per_sec,
+				otlp_series_per_sec = excluded.otlp_series_per_sec,
 				burst_seconds = excluded.burst_seconds,
 				query_concurrency = excluded.query_concurrency,
 				queries_per_min = excluded.queries_per_min,
@@ -73,8 +77,8 @@ func (s *PGStore) Upsert(ctx context.Context, tenantID string, p Policy, by stri
 				updated_at = excluded.updated_at,
 				updated_by = excluded.updated_by`,
 			tenantID, p.ResultsPerSec, p.FlowEventsPerSec, p.IngestBytesPerSec,
-			p.BurstSeconds, p.QueryConcurrency, p.QueriesPerMin, p.Weight,
-			time.Now().UTC(), by)
+			p.DeviceMetricsPerSec, p.OTLPSeriesPerSec, p.BurstSeconds,
+			p.QueryConcurrency, p.QueriesPerMin, p.Weight, time.Now().UTC(), by)
 		return err
 	})
 }
@@ -92,7 +96,8 @@ func (s *PGStore) All(ctx context.Context) (map[string]Policy, error) {
 			var id string
 			var p Policy
 			if err := rows.Scan(&id, &p.ResultsPerSec, &p.FlowEventsPerSec, &p.IngestBytesPerSec,
-				&p.BurstSeconds, &p.QueryConcurrency, &p.QueriesPerMin, &p.Weight); err != nil {
+				&p.DeviceMetricsPerSec, &p.OTLPSeriesPerSec, &p.BurstSeconds,
+				&p.QueryConcurrency, &p.QueriesPerMin, &p.Weight); err != nil {
 				return err
 			}
 			out[id] = p

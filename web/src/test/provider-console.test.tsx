@@ -161,7 +161,13 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
         items: [
           {
             tenant_id: 'tn_1',
-            policy: { results_per_sec: 100, queries_per_min: 60, burst_seconds: 10 },
+            policy: {
+              results_per_sec: 100,
+              device_metrics_per_sec: 25,
+              otlp_series_per_sec: 30,
+              queries_per_min: 60,
+              burst_seconds: 10,
+            },
             ingest: {
               results_ingested: {
                 admitted_calls: 900,
@@ -185,6 +191,8 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       return jsonResponse({
         results_per_sec: 250,
         flow_events_per_sec: 0,
+        device_metrics_per_sec: 25,
+        otlp_series_per_sec: 30,
         queries_per_min: 0,
         query_concurrency: 4,
       })
@@ -315,11 +323,13 @@ describe('provider console (S-T1)', () => {
     // tn_1 shows shed units + query rejections; tn_2 is unbounded.
     expect(await screen.findByText('40')).toBeInTheDocument()
     expect(screen.getByText('13')).toBeInTheDocument()
-    expect(screen.getByText(/100\/s results · 60\/min queries/)).toBeInTheDocument()
+    expect(screen.getByText(/100\/s results · 25\/s device · 30\/s OTLP · 60\/min queries/)).toBeInTheDocument()
     expect(screen.getByText('unbounded')).toBeInTheDocument()
     // The admin policy editor PUTs the numeric payload.
     await userEvent.type(screen.getByLabelText(/tenant id \(fairness\)/i), 'tn_1')
     await userEvent.type(screen.getByLabelText(/results\/sec/i), '250')
+    await userEvent.type(screen.getByLabelText(/device metrics\/sec/i), '25')
+    await userEvent.type(screen.getByLabelText(/OTLP series\/sec/i), '30')
     await userEvent.type(screen.getByLabelText(/query concurrency/i), '4')
     await userEvent.click(screen.getByRole('button', { name: /save policy/i }))
     expect(await screen.findByText(/fairness policy saved/i)).toBeInTheDocument()
@@ -331,6 +341,8 @@ describe('provider console (S-T1)', () => {
     expect(JSON.parse(String((put![1] as RequestInit).body))).toEqual({
       results_per_sec: 250,
       flow_events_per_sec: 0,
+      device_metrics_per_sec: 25,
+      otlp_series_per_sec: 30,
       queries_per_min: 0,
       query_concurrency: 4,
     })

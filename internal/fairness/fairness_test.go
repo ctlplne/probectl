@@ -285,6 +285,41 @@ func TestBatchLargerThanBurstIsNotStarved(t *testing.T) {
 	}
 }
 
+func TestDeviceAndOTLPOverridesGateServedMeters(t *testing.T) {
+	clk := newFakeClock()
+	src := &memSource{policies: map[string]Policy{
+		"tnA": {DeviceMetricsPerSec: 2, OTLPSeriesPerSec: 3, BurstSeconds: 1},
+	}}
+	g := NewGate(Policy{}, src).WithNow(clk.now)
+	ctx := context.Background()
+	g.EffectivePolicy(ctx, "tnA")
+	eventually(t, func() bool {
+		p := g.EffectivePolicy(ctx, "tnA")
+		return p.DeviceMetricsPerSec == 2 && p.OTLPSeriesPerSec == 3
+	})
+
+	for range 2 {
+		if !g.AdmitN(ctx, "tnA", MeterDeviceMetrics, 1) {
+			t.Fatal("device metrics inside the per-tenant override must admit")
+		}
+	}
+	if g.AdmitN(ctx, "tnA", MeterDeviceMetrics, 1) {
+		t.Fatal("device metrics over the per-tenant override must shed")
+	}
+	for range 3 {
+		if !g.AdmitN(ctx, "tnA", MeterOTLPSeries, 1) {
+			t.Fatal("OTLP series inside the per-tenant override must admit")
+		}
+	}
+	if g.AdmitN(ctx, "tnA", MeterOTLPSeries, 1) {
+		t.Fatal("OTLP series over the per-tenant override must shed")
+	}
+	if snap := g.SnapshotTenant(ctx, "tnA"); snap.Ingest[MeterDeviceMetrics].ShedUnits != 1 ||
+		snap.Ingest[MeterOTLPSeries].ShedUnits != 1 {
+		t.Fatalf("device/OTLP shed accounting missing: %+v", snap.Ingest)
+	}
+}
+
 // TestPolicyLifecycle: overrides apply after the async fetch; a store outage
 // degrades to the deployment defaults (still enforced); Invalidate picks up
 // a provider change without waiting for the TTL.

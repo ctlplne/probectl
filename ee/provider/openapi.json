@@ -319,7 +319,14 @@
         "summary": "Cross-tenant fairness view (S-T7): live per-tenant admitted/shed/rejected accounting + effective policies + stored overrides",
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FairnessView"
+                }
+              }
+            }
           }
         }
       }
@@ -327,9 +334,26 @@
     "/provider/v1/tenants/{id}/fairness": {
       "put": {
         "summary": "Set a tenant's fairness policy override (0 = unlimited / deployment default; enforced on the next admission; audited provider.fairness_set; admin role; blocked by read-only license degrade)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FairnessPolicy"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FairnessPolicy"
+                }
+              }
+            }
           }
         }
       }
@@ -348,6 +372,69 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "FairnessCounters": {
+        "type": "object",
+        "properties": {
+          "admitted_calls": { "type": "integer" },
+          "admitted_units": { "type": "integer" },
+          "shed_calls": { "type": "integer" },
+          "shed_units": { "type": "integer" }
+        }
+      },
+      "FairnessPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Per-tenant fairness override. A missing or 0 field inherits the deployment default; persisted override values must be positive.",
+        "properties": {
+          "results_per_sec": { "type": "number", "minimum": 0 },
+          "flow_events_per_sec": { "type": "number", "minimum": 0 },
+          "ingest_bytes_per_sec": { "type": "number", "minimum": 0 },
+          "device_metrics_per_sec": { "type": "number", "minimum": 0 },
+          "otlp_series_per_sec": { "type": "number", "minimum": 0 },
+          "burst_seconds": { "type": "number", "minimum": 0 },
+          "query_concurrency": { "type": "integer", "minimum": 0 },
+          "queries_per_min": { "type": "number", "minimum": 0 },
+          "weight": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "FairnessQueryCounters": {
+        "type": "object",
+        "properties": {
+          "allowed": { "type": "integer" },
+          "rejected_concurrency": { "type": "integer" },
+          "rejected_budget": { "type": "integer" },
+          "in_flight": { "type": "integer" }
+        }
+      },
+      "FairnessSnapshot": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "policy": { "$ref": "#/components/schemas/FairnessPolicy" },
+          "ingest": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/components/schemas/FairnessCounters" }
+          },
+          "queries": { "$ref": "#/components/schemas/FairnessQueryCounters" }
+        }
+      },
+      "FairnessView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/FairnessSnapshot" }
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/components/schemas/FairnessPolicy" }
           }
         }
       }

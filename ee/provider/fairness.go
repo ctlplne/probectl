@@ -5,6 +5,7 @@
 package provider
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
@@ -15,11 +16,18 @@ import (
 // policy. ENFORCEMENT is core — it protects the pooled platform in every
 // edition; only these operator views/controls ride the provider plane.
 
-// FairnessOps bundles the core fairness capability for the handler. Gate and
+// FairnessStore persists the stored per-tenant policy overrides the provider
+// surface can list and update.
+type FairnessStore interface {
+	All(ctx context.Context) (map[string]fairness.Policy, error)
+	Upsert(ctx context.Context, tenantID string, p fairness.Policy, by string) error
+}
+
+// Fairness bundles the core fairness capability for the handler. Gate and
 // Store are both CORE types (the one-way import rule).
 type Fairness struct {
-	Gate  *fairness.Gate    // live accounting + cache invalidation
-	Store *fairness.PGStore // stored per-tenant policy overrides
+	Gate  *fairness.Gate // live accounting + cache invalidation
+	Store FairnessStore  // stored per-tenant policy overrides
 }
 
 func (h *Handler) handleFairnessView(w http.ResponseWriter, r *http.Request, _ Operator) error {
@@ -51,7 +59,8 @@ func (h *Handler) handlePutFairness(w http.ResponseWriter, r *http.Request, op O
 		return err
 	}
 	if in.ResultsPerSec < 0 || in.FlowEventsPerSec < 0 || in.IngestBytesPerSec < 0 ||
-		in.BurstSeconds < 0 || in.QueryConcurrency < 0 || in.QueriesPerMin < 0 || in.Weight < 0 {
+		in.DeviceMetricsPerSec < 0 || in.OTLPSeriesPerSec < 0 || in.BurstSeconds < 0 ||
+		in.QueryConcurrency < 0 || in.QueriesPerMin < 0 || in.Weight < 0 {
 		return errBadJSON{strErr("fairness bounds must be >= 0 (0 = unlimited / deployment default)")}
 	}
 	tenantID := r.PathValue("id")

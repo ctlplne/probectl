@@ -64,6 +64,7 @@ unlimited.
 | `flow_events_per_sec` | flow records admitted per second |
 | `ingest_bytes_per_sec` | result payload bytes admitted per second |
 | `device_metrics_per_sec` | device (SNMP/gNMI) samples admitted per second |
+| `otlp_series_per_sec` | OTLP metric, trace-span, and log-record series admitted per second |
 | `burst_seconds` | bucket capacity = rate × burst (default 10) |
 | `query_concurrency` | max in-flight queries (0 = unlimited) |
 | `queries_per_min` | per-minute query budget; 0 = unlimited (the bucket holds one full minute) |
@@ -78,15 +79,13 @@ per-minute budget so a single heavy reader cannot starve neighbors.
 
 **How values resolve.** Deployment-wide defaults come from the
 `PROBECTL_FAIRNESS_*` keys. Per-tenant overrides live in the `tenant_fairness`
-table (migration `0031_fairness.sql`) and are set from the provider console
-(`PUT /provider/v1/tenants/{id}/fairness`, audited `provider.fairness_set`,
-blocked under read-only license degrade). An override field that is left unset
-(or sent as `0`) **inherits the deployment default** for that bound — so an
-override only changes the bounds you explicitly name. (Stored override values
-must be positive; the table enforces it.) One bound is deployment-wide only:
-the `tenant_fairness` row has no `device_metrics_per_sec` column, so the
-device-metrics rate is always the deployment default and cannot be overridden
-per tenant today.
+table (migration `0031_fairness.sql`, expanded by
+`0053_fairness_device_otlp_overrides.sql`) and are set from the provider
+console (`PUT /provider/v1/tenants/{id}/fairness`, audited
+`provider.fairness_set`, blocked under read-only license degrade). An override
+field that is left unset (or sent as `0`) **inherits the deployment default**
+for that bound — so an override only changes the bounds you explicitly name.
+Stored override values must be positive; the table enforces it.
 
 **The hot path never blocks on Postgres.** The first time the gate sees a
 tenant it enforces the deployment defaults immediately, then fetches that
