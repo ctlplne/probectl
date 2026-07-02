@@ -13,13 +13,13 @@ function diamond(): TopologyResponse {
     topology_running: true,
     at: '2026-06-04T12:00:00Z',
     nodes: [
-      { id: 'agent:probe-1', kind: 'agent', label: 'probe-1' },
-      { id: 'hop:10.0.0.1', kind: 'hop', label: '10.0.0.1' },
-      { id: 'hop:10.0.0.2', kind: 'hop', label: '10.0.0.2' },
-      { id: 'hop:10.0.0.3', kind: 'hop', label: '10.0.0.3' },
-      { id: 'host:203.0.113.10', kind: 'host', label: 'web' },
-      { id: 'service:api', kind: 'service', label: 'api' },
-      { id: 'service:db', kind: 'service', label: 'db' },
+      { id: 'agent:probe-1', kind: 'agent', label: 'probe-1', site: 'edge', tags: ['synthetic'] },
+      { id: 'hop:10.0.0.1', kind: 'hop', label: '10.0.0.1', site: 'edge', tags: ['path'] },
+      { id: 'hop:10.0.0.2', kind: 'hop', label: '10.0.0.2', site: 'edge', tags: ['path'] },
+      { id: 'hop:10.0.0.3', kind: 'hop', label: '10.0.0.3', site: 'edge', tags: ['path'] },
+      { id: 'host:203.0.113.10', kind: 'host', label: 'web', site: 'core', tags: ['frontend'] },
+      { id: 'service:api', kind: 'service', label: 'api', site: 'core', tags: ['api', 'prod'] },
+      { id: 'service:db', kind: 'service', label: 'db', site: 'core', tags: ['db', 'prod'] },
     ],
     edges: [
       { from: 'agent:probe-1', to: 'hop:10.0.0.1', kind: 'path' },
@@ -94,7 +94,9 @@ describe('topology + what-if (S43)', () => {
 
     // Drill down: click the hop, inspector shows it.
     await userEvent.click(within(graph).getByRole('button', { name: 'hop 10.0.0.2' }))
-    expect(await screen.findByText('hop:10.0.0.2')).toBeInTheDocument()
+    const inspector = screen.getByRole('heading', { name: /inspector/i }).closest('section')
+    if (!inspector) throw new Error('missing inspector card')
+    expect(within(inspector).getByText('hop:10.0.0.2')).toBeInTheDocument()
 
     // Simulate: the impact panel reports the reroute with the alternate route.
     await userEvent.click(screen.getByRole('button', { name: /simulate failure/i }))
@@ -113,7 +115,32 @@ describe('topology + what-if (S43)', () => {
     const node = await screen.findByRole('button', { name: 'agent probe-1' })
     node.focus()
     await userEvent.keyboard('{Enter}')
-    expect(await screen.findByText('agent:probe-1')).toBeInTheDocument()
+    const inspector = screen.getByRole('heading', { name: /inspector/i }).closest('section')
+    if (!inspector) throw new Error('missing inspector card')
+    expect(within(inspector).getByText('agent:probe-1')).toBeInTheDocument()
+  })
+
+  test('search, kind, site, and tag filters update graph and complete list together', async () => {
+    vi.stubGlobal('fetch', stub())
+    renderApp('/topology')
+
+    await screen.findByRole('group', { name: /topology graph/i })
+    await userEvent.selectOptions(screen.getByLabelText('Kind'), 'service')
+    await userEvent.selectOptions(screen.getByLabelText('Site'), 'core')
+    await userEvent.selectOptions(screen.getByLabelText('Tag'), 'api')
+
+    const graph = screen.getByRole('group', { name: /topology graph/i })
+    const table = screen.getByRole('table', { name: /topology nodes/i })
+    expect(within(graph).getByRole('button', { name: 'service api' })).toBeInTheDocument()
+    expect(within(table).getByRole('button', { name: 'api' })).toBeInTheDocument()
+    expect(within(table).queryByRole('button', { name: 'db' })).toBeNull()
+
+    await userEvent.clear(screen.getByLabelText(/search topology/i))
+    await userEvent.type(screen.getByLabelText(/search topology/i), 'probe-1')
+    await waitFor(() => {
+      const updatedTable = screen.getByRole('table', { name: /topology nodes/i })
+      expect(within(updatedTable).queryByRole('button', { name: 'api' })).toBeNull()
+    })
   })
 
   test('honesty: unwired topology renders as not wired', async () => {
@@ -135,12 +162,14 @@ describe('topology + what-if (S43)', () => {
     expect(results.violations).toEqual([])
   })
 
-  test('dense graphs are capped with an honest count', async () => {
+  test('dense graphs are capped but hidden nodes stay reachable through list and search', async () => {
     const big = diamond()
-    big.nodes = Array.from({ length: 450 }, (_, i) => ({
-      id: `hop:10.1.${Math.floor(i / 250)}.${i % 250}`,
-      kind: 'hop',
-      label: `10.1.${Math.floor(i / 250)}.${i % 250}`,
+    big.nodes = Array.from({ length: 500 }, (_, i) => ({
+      id: i === 499 ? 'service:hidden-target' : `hop:10.1.${Math.floor(i / 250)}.${i % 250}`,
+      kind: i === 499 ? 'service' : 'hop',
+      label: i === 499 ? 'zz-hidden-target' : `node-${String(i).padStart(3, '0')}`,
+      site: i === 499 ? 'core' : 'edge',
+      tags: i === 499 ? ['critical', 'prod'] : ['bulk'],
     }))
     big.edges = []
     vi.stubGlobal(
@@ -148,8 +177,17 @@ describe('topology + what-if (S43)', () => {
       vi.fn(async () => jsonResponse(big)),
     )
     renderApp('/topology')
-    expect(await screen.findByText(/showing 400 of 450 nodes/i)).toBeInTheDocument()
-  })
+    expect(await screen.findByText(/showing 400 of 500 nodes/i)).toBeInTheDocument()
+
+    const graph = screen.getByRole('group', { name: /topology graph/i })
+    expect(within(graph).queryByRole('button', { name: 'service zz-hidden-target' })).toBeNull()
+
+    const table = screen.getByRole('table', { name: /topology nodes/i })
+    expect(within(table).getByRole('button', { name: 'zz-hidden-target' })).toBeInTheDocument()
+
+    await userEvent.type(screen.getByLabelText(/search topology/i), 'zz-hidden-target')
+    expect(await within(graph).findByRole('button', { name: 'service zz-hidden-target' })).toBeInTheDocument()
+  }, 10_000)
 
   test('time travel: picking a time refetches with ?at=', async () => {
     const fetcher = stub()

@@ -13,6 +13,8 @@ export interface TopoNode {
   id: string
   kind: string
   label: string
+  site?: string
+  tags?: string[]
 }
 
 export interface TopoEdge {

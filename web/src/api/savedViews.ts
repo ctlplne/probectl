@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
-export type SavedViewSurface = 'endpoints' | 'targets' | 'agents' | 'incidents' | 'alerts'
+export type SavedViewSurface = 'endpoints' | 'targets' | 'agents' | 'incidents' | 'alerts' | 'topology'
 
 export interface SavedInventoryView {
   id: string

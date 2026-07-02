@@ -47,6 +47,16 @@ export function layoutTopology(nodes: TopoNode[], edges: TopoEdge[]): TopoLayout
   const total = nodes.length
   const sorted = [...nodes].sort((a, b) => a.label.localeCompare(b.label))
   const capped = sorted.slice(0, MAX_NODES)
+  if (capped.length === 0) {
+    return {
+      nodes: [],
+      edges: [],
+      width: T_MARGIN * 2 + T_NODE_W,
+      height: T_MARGIN * 2 + T_NODE_H,
+      total,
+      truncated: false,
+    }
+  }
   const keep = new Set(capped.map((n) => n.id))
 
   const columns: PlacedNode[][] = KIND_ORDER.map(() => [])

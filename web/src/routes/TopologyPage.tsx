@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import styles from './topology.module.css'
 import { Page } from './pages'
 import {
@@ -11,10 +12,22 @@ import {
   ErrorState,
   Field,
   LoadingState,
+  Select,
+  Table,
   TopologyPreview,
+  type Column,
 } from '../components'
 import { useTopology, useWhatIf, type TopoNode, type WhatIfImpact } from '../api/topology'
 import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
+import { FilterBar, SavedViews } from './listControls'
+import { filterValue, setURLFilters } from './urlFilters'
+
+const TOPOLOGY_FILTER_DEFAULTS = {
+  topo_q: '',
+  topo_kind: 'all',
+  topo_site: 'all',
+  topo_tag: 'all',
+}
 
 /** TopologyPage (S43, PR1): the tenant's dependency graph — agents, hops,
  * devices, hosts, services, prefixes — with temporal time travel (?at) and
@@ -22,22 +35,72 @@ import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topo
  * drill-down/change-overlay polish (design-led, multi-PR). */
 export function TopologyPage() {
   const [at, setAt] = useState('') // '' = live
+  const [timeInput, setTimeInput] = useState('')
+  const [params, setParams] = useSearchParams()
   const { data, isPending, isError } = useTopology(at || undefined)
   const whatIf = useWhatIf()
   const [selected, setSelected] = useState<TopoNode | null>(null)
+  const urlQuery = filterValue(params, 'topo_q')
+  const [query, setQuery] = useState(urlQuery)
+  const kind = filterValue(params, 'topo_kind', 'all')
+  const site = filterValue(params, 'topo_site', 'all')
+  const tag = filterValue(params, 'topo_tag', 'all')
 
-  const layout = useMemo(() => layoutTopology(data?.nodes ?? [], data?.edges ?? []), [data])
+  const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes])
+  const edges = useMemo(() => data?.edges ?? [], [data?.edges])
+  const kindOptions = useMemo(() => unique(nodes.map((node) => node.kind)), [nodes])
+  const siteOptions = useMemo(() => unique(nodes.map((node) => node.site ?? '')), [nodes])
+  const tagOptions = useMemo(() => unique(nodes.flatMap((node) => node.tags ?? [])), [nodes])
+  const filteredNodes = useMemo(
+    () => nodes.filter((node) => nodeMatches(node, { query, kind, site, tag })),
+    [kind, nodes, query, site, tag],
+  )
+  const filteredNodeIDs = useMemo(() => new Set(filteredNodes.map((node) => node.id)), [filteredNodes])
+  const filteredEdges = useMemo(
+    () => edges.filter((edge) => filteredNodeIDs.has(edge.from) && filteredNodeIDs.has(edge.to)),
+    [edges, filteredNodeIDs],
+  )
+  const layout = useMemo(() => layoutTopology(filteredNodes, filteredEdges), [filteredEdges, filteredNodes])
   const impact = whatIf.data ?? null
   const impacted = useMemo(() => impactedNodeIDs(impact), [impact])
+  const currentFilters = useMemo(
+    () => ({ topo_q: query, topo_kind: kind, topo_site: site, topo_tag: tag }),
+    [kind, query, site, tag],
+  )
+  const setFilter = (patch: Record<string, string>) =>
+    setURLFilters(params, setParams, TOPOLOGY_FILTER_DEFAULTS, { ...currentFilters, ...patch })
+  const savedFilters = activeFiltersForSave(currentFilters, TOPOLOGY_FILTER_DEFAULTS)
+
+  useEffect(() => {
+    if (selected && !filteredNodeIDs.has(selected.id)) setSelected(null)
+  }, [filteredNodeIDs, selected])
+
+  useEffect(() => {
+    setQuery(urlQuery)
+  }, [urlQuery])
+
+  useEffect(() => {
+    if (query === urlQuery) return undefined
+    const handle = window.setTimeout(() => {
+      setURLFilters(params, setParams, TOPOLOGY_FILTER_DEFAULTS, currentFilters)
+    }, 250)
+    return () => window.clearTimeout(handle)
+  }, [currentFilters, params, query, setParams, urlQuery])
 
   const simulate = (target: string) => {
     whatIf.mutate({ target, at: at || undefined })
   }
 
   const updateTime = (value: string) => {
+    setTimeInput(value)
     setSelected(null)
     whatIf.reset()
-    setAt(value ? new Date(value).toISOString() : '')
+    if (!value) {
+      setAt('')
+      return
+    }
+    const next = new Date(value)
+    if (!Number.isNaN(next.getTime())) setAt(next.toISOString())
   }
 
   return (
@@ -45,9 +108,34 @@ export function TopologyPage() {
       title="Topology"
       subtitle="The dependency graph across planes — and what breaks if an element fails."
     >
-      <TopologyToolbar at={at} onTimeChange={updateTime} onLive={() => updateTime('')} />
+      <TopologyToolbar
+        at={at}
+        timeInput={timeInput}
+        onTimeChange={updateTime}
+        onLive={() => updateTime('')}
+      />
+      <TopologyFilters
+        query={query}
+        kind={kind}
+        site={site}
+        tag={tag}
+        kindOptions={kindOptions}
+        siteOptions={siteOptions}
+        tagOptions={tagOptions}
+        filters={savedFilters}
+        onQueryChange={setQuery}
+        onChange={setFilter}
+        onApply={(filters) =>
+          setURLFilters(params, setParams, TOPOLOGY_FILTER_DEFAULTS, {
+            topo_q: filters.topo_q ?? '',
+            topo_kind: filters.topo_kind ?? 'all',
+            topo_site: filters.topo_site ?? 'all',
+            topo_tag: filters.topo_tag ?? 'all',
+          })
+        }
+      />
 
-      {isPending || isError || !data?.topology_running || layout.nodes.length === 0 ? (
+      {isPending || isError || !data?.topology_running || nodes.length === 0 ? (
         <TopologyFallbackCard
           isPending={isPending}
           isError={isError}
@@ -55,14 +143,22 @@ export function TopologyPage() {
         />
       ) : (
         <div className={styles.grid}>
-          <TopologyGraphCard
-            layout={layout}
-            coverageNotes={data.coverage?.notes ?? []}
-            selected={selected}
-            impact={impact}
-            impacted={impacted}
-            onSelect={setSelected}
-          />
+          <div className={styles.mainColumn}>
+            <TopologyGraphCard
+              layout={layout}
+              coverageNotes={data.coverage?.notes ?? []}
+              selected={selected}
+              impact={impact}
+              impacted={impacted}
+              onSelect={setSelected}
+            />
+            <TopologyListCard
+              nodes={filteredNodes}
+              renderedCount={layout.nodes.length}
+              selected={selected}
+              onSelect={setSelected}
+            />
+          </div>
           <TopologySidePanel
             selected={selected}
             impact={impact}
@@ -78,10 +174,12 @@ export function TopologyPage() {
 
 function TopologyToolbar({
   at,
+  timeInput,
   onTimeChange,
   onLive,
 }: {
   at: string
+  timeInput: string
   onTimeChange: (value: string) => void
   onLive: () => void
 }) {
@@ -91,7 +189,7 @@ function TopologyToolbar({
         label="As of"
         hint="Empty = live; pick a time to view the graph as it was."
         type="datetime-local"
-        value={at ? at.slice(0, 16) : ''}
+        value={timeInput}
         onChange={(e) => onTimeChange(e.target.value)}
       />
       {at !== '' && (
@@ -101,6 +199,94 @@ function TopologyToolbar({
       )}
     </div>
   )
+}
+
+function TopologyFilters({
+  query,
+  kind,
+  site,
+  tag,
+  kindOptions,
+  siteOptions,
+  tagOptions,
+  filters,
+  onQueryChange,
+  onChange,
+  onApply,
+}: {
+  query: string
+  kind: string
+  site: string
+  tag: string
+  kindOptions: string[]
+  siteOptions: string[]
+  tagOptions: string[]
+  filters: Record<string, string>
+  onQueryChange: (query: string) => void
+  onChange: (patch: Record<string, string>) => void
+  onApply: (filters: Record<string, string>) => void
+}) {
+  return (
+    <FilterBar>
+      <Field
+        label="Search topology"
+        value={query}
+        onChange={(e) => onQueryChange(e.target.value)}
+        placeholder="device, service, prefix, tag"
+      />
+      <Select
+        label="Kind"
+        value={kind}
+        onChange={(e) => onChange({ topo_kind: e.target.value })}
+        options={[{ value: 'all', label: 'All kinds' }, ...kindOptions.map((value) => ({ value, label: value }))]}
+      />
+      <Select
+        label="Site"
+        value={site}
+        onChange={(e) => onChange({ topo_site: e.target.value })}
+        options={[{ value: 'all', label: 'All sites' }, ...siteOptions.map((value) => ({ value, label: value }))]}
+      />
+      <Select
+        label="Tag"
+        value={tag}
+        onChange={(e) => onChange({ topo_tag: e.target.value })}
+        options={[{ value: 'all', label: 'All tags' }, ...tagOptions.map((value) => ({ value, label: value }))]}
+      />
+      <SavedViews surface="topology" filters={filters} onApply={onApply} placeholder="Core graph" />
+    </FilterBar>
+  )
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b))
+}
+
+function activeFiltersForSave(
+  filters: Record<string, string>,
+  defaults: Record<string, string>,
+): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(filters)) {
+    const v = value.trim()
+    if (v && v !== defaults[key]) out[key] = v
+  }
+  return out
+}
+
+function nodeMatches(
+  node: TopoNode,
+  filters: { query: string; kind: string; site: string; tag: string },
+): boolean {
+  const tags = node.tags ?? []
+  if (filters.kind !== 'all' && node.kind !== filters.kind) return false
+  if (filters.site !== 'all' && node.site !== filters.site) return false
+  if (filters.tag !== 'all' && !tags.includes(filters.tag)) return false
+  const q = filters.query.trim().toLowerCase()
+  if (!q) return true
+  return [node.id, node.kind, node.label, node.site ?? '', ...tags]
+    .join(' ')
+    .toLowerCase()
+    .includes(q)
 }
 
 function TopologyFallbackCard({
@@ -178,44 +364,99 @@ function TopologyGraphCard({
             legibility).
           </p>
         )}
-        <div className={styles.graphWrap}>
-          <svg
-            role="group"
-            aria-label="Topology graph"
-            width={layout.width}
-            height={layout.height}
-            viewBox={`0 0 ${layout.width} ${layout.height}`}
-          >
-            {layout.edges.map((e) => (
-              <line
-                key={e.id}
-                className={[
-                  styles.edge,
-                  e.kind === 'flow' ? styles.edgeFlow : '',
-                  e.kind === 'routing' ? styles.edgeRouting : '',
-                  e.kind === 'device' ? styles.edgeDevice : '',
-                  impacted.edges.has(e.id) ? styles.edgeImpacted : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-                x1={e.x1}
-                y1={e.y1}
-                x2={e.x2}
-                y2={e.y2}
-              />
-            ))}
-            {layout.nodes.map((n) => (
-              <TopologyNode
-                key={n.id}
-                node={n}
-                selected={selected?.id === n.id}
-                failed={impact?.target === n.id}
-                impacted={impacted.nodes.has(n.id)}
-                onSelect={onSelect}
-              />
-            ))}
-          </svg>
-        </div>
+        {layout.nodes.length === 0 ? (
+          <EmptyState title="No matching nodes" description="Adjust search or filters." />
+        ) : (
+          <div className={styles.graphWrap}>
+            <svg
+              role="group"
+              aria-label="Topology graph"
+              width={layout.width}
+              height={layout.height}
+              viewBox={`0 0 ${layout.width} ${layout.height}`}
+            >
+              {layout.edges.map((e) => (
+                <line
+                  key={e.id}
+                  className={[
+                    styles.edge,
+                    e.kind === 'flow' ? styles.edgeFlow : '',
+                    e.kind === 'routing' ? styles.edgeRouting : '',
+                    e.kind === 'device' ? styles.edgeDevice : '',
+                    impacted.edges.has(e.id) ? styles.edgeImpacted : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  x1={e.x1}
+                  y1={e.y1}
+                  x2={e.x2}
+                  y2={e.y2}
+                />
+              ))}
+              {layout.nodes.map((n) => (
+                <TopologyNode
+                  key={n.id}
+                  node={n}
+                  selected={selected?.id === n.id}
+                  failed={impact?.target === n.id}
+                  impacted={impacted.nodes.has(n.id)}
+                  onSelect={onSelect}
+                />
+              ))}
+            </svg>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function TopologyListCard({
+  nodes,
+  renderedCount,
+  selected,
+  onSelect,
+}: {
+  nodes: TopoNode[]
+  renderedCount: number
+  selected: TopoNode | null
+  onSelect: (node: TopoNode) => void
+}) {
+  const columns: Column<TopoNode>[] = [
+    {
+      key: 'kind',
+      header: 'Kind',
+      render: (node) => <Badge tone="info">{node.kind}</Badge>,
+    },
+    {
+      key: 'label',
+      header: 'Node',
+      render: (node) => (
+        <Button size="sm" variant={selected?.id === node.id ? 'primary' : 'ghost'} onClick={() => onSelect(node)}>
+          {node.label}
+        </Button>
+      ),
+    },
+    { key: 'id', header: 'ID', render: (node) => <code>{node.id}</code> },
+    { key: 'site', header: 'Site', render: (node) => node.site || 'none' },
+    { key: 'tags', header: 'Tags', render: (node) => node.tags?.join(', ') || 'none' },
+  ]
+
+  return (
+    <Card>
+      <CardHeader
+        title="Topology list"
+        description={`${nodes.length} matching node${nodes.length === 1 ? '' : 's'}; graph renders ${renderedCount}.`}
+      />
+      <CardBody>
+        <Table
+          caption="Topology nodes"
+          columns={columns}
+          rows={nodes}
+          rowKey={(node) => node.id}
+          maxRows={nodes.length}
+          empty={<EmptyState title="No matching nodes" description="Adjust search or filters." />}
+        />
       </CardBody>
     </Card>
   )
@@ -305,6 +546,10 @@ function TopologySidePanel({
                 </dd>
                 <dt>Label</dt>
                 <dd>{selected.label}</dd>
+                <dt>Site</dt>
+                <dd>{selected.site || 'none'}</dd>
+                <dt>Tags</dt>
+                <dd>{selected.tags?.join(', ') || 'none'}</dd>
               </dl>
               <p>
                 <Button onClick={() => onSimulate(selected.id)} disabled={isSimulating}>
