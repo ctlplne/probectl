@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/browser"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
@@ -34,6 +35,24 @@ func (c *capturedAudit) sink(_ context.Context, _, action, _ string, data map[st
 	c.events = append(c.events, action)
 	c.data = append(c.data, data)
 	return nil
+}
+
+type artifactDriver struct{}
+
+func (artifactDriver) Name() string { return "artifact" }
+
+func (artifactDriver) Run(context.Context, browser.Script) (browser.RunOutput, error) {
+	return browser.RunOutput{
+		Result: browser.Result{
+			Script:    "login",
+			Success:   false,
+			Error:     "assertion failed",
+			StartedAt: t0,
+			TotalMs:   25,
+		},
+		Screenshot:     []byte("PNGBYTES"),
+		ScreenshotType: "image/png",
+	}, nil
 }
 
 func seedStores(t *testing.T) (flowstore.Store, *objectstore.MemStore, *tsdb.Memory) {
@@ -237,6 +256,56 @@ func TestExportRoundTrip(t *testing.T) {
 	}
 	if len(audit.events) != 1 || audit.events[0] != "lifecycle.export" {
 		t.Fatalf("export must be audited: %v", audit.events)
+	}
+}
+
+func TestBrowserArtifactsAreLifecycleVisibleAndErasable(t *testing.T) {
+	ctx := context.Background()
+	objects := objectstore.NewMemory()
+	fleet := browser.NewFleet(browser.Config{MaxConcurrency: 1}, func() browser.Driver {
+		return artifactDriver{}
+	}, objects, testLog())
+	defer fleet.Close()
+
+	res, err := fleet.Run(ctx, "tnA", browser.Script{
+		Name:     "login",
+		StartURL: "https://app.example/login",
+		Steps:    []browser.Step{{Name: "shot", Action: browser.Screenshot}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Screenshot == nil || !strings.HasPrefix(res.Screenshot.Key, "tenant/tnA/browser/") {
+		t.Fatalf("browser artifact must be tenant-prefixed: %+v", res.Screenshot)
+	}
+	if err := objects.Put(ctx, objectstore.TenantKey("tnB", "browser", "keep.png"), "image/png", []byte("neighbor")); err != nil {
+		t.Fatal(err)
+	}
+
+	audit := &capturedAudit{}
+	e := New(nil, nil, objects, nil, audit.sink, "", testLog()).
+		WithClock(func() time.Time { return t0 })
+	var buf bytes.Buffer
+	man, err := e.Export(ctx, "tnA", &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(man.Objects) != 1 || man.Objects[0].Key != res.Screenshot.Key {
+		t.Fatalf("tenant export must inventory the browser artifact only: %+v", man.Objects)
+	}
+
+	att, err := e.Erase(ctx, "tnA", "acme", "op")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !att.Complete {
+		t.Fatalf("attestation should be complete: %+v", att.Stores)
+	}
+	if keys, _ := objects.List(ctx, "tenant/tnA/"); len(keys) != 0 {
+		t.Fatalf("tenant browser artifact remained after erase: %v", keys)
+	}
+	if keys, _ := objects.List(ctx, "tenant/tnB/"); len(keys) != 1 {
+		t.Fatalf("neighbor tenant artifact was damaged: %v", keys)
 	}
 }
 

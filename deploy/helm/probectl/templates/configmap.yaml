@@ -75,6 +75,9 @@ data:
   PROBECTL_LOG_LEVEL: {{ .Values.control.logLevel | quote }}
   PROBECTL_AUTH_MODE: {{ .Values.control.authMode | quote }}
   PROBECTL_SECURITY_CONTACT: {{ .Values.control.securityContact | quote }}
+  {{- if .Values.objectStore.enabled }}
+  PROBECTL_OBJECTSTORE_DIR: {{ .Values.objectStore.mountPath | quote }}
+  {{- end }}
   {{- if .Values.oidc.issuer }}
   PROBECTL_OIDC_ISSUER: {{ .Values.oidc.issuer | quote }}
   PROBECTL_OIDC_CLIENT_ID: {{ .Values.oidc.clientId | quote }}

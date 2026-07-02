@@ -22,6 +22,15 @@
     "migrateOnBoot": { "type": "boolean" },
     "publicTLS": { "type": "boolean" },
     "allowPlaintextHTTP": { "type": "boolean" },
+    "objectStore": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mountPath": { "type": "string", "minLength": 1 },
+        "existingClaim": { "type": "string" }
+      }
+    },
     "metrics": {
       "type": "object",
       "additionalProperties": false,

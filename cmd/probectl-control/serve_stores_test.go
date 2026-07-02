@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -67,4 +68,38 @@ func TestBuildServeStoresBuildsAndClosesCleanly(t *testing.T) {
 	// The aggregate closer must run all teardowns without panicking, and be
 	// idempotent enough to call once (it's invoked via defer in run()).
 	closeStores()
+}
+
+func TestBuildServeStoresWiresTenantObjectStore(t *testing.T) {
+	objectDir := t.TempDir()
+	cfg, err := config.Load(func(k string) string {
+		return map[string]string{
+			"PROBECTL_BUS_MODE":        "memory",
+			"PROBECTL_TSDB_MODE":       "memory",
+			"PROBECTL_PATHSTORE_MODE":  "memory",
+			"PROBECTL_OTELSTORE_MODE":  "memory",
+			"PROBECTL_FLOWSTORE_MODE":  "memory",
+			"PROBECTL_EBPFSTORE_MODE":  "memory",
+			"PROBECTL_OBJECTSTORE_DIR": objectDir,
+		}[k]
+	})
+	if err != nil {
+		t.Fatalf("config load: %v", err)
+	}
+	log := logging.New(io.Discard, "error", "json")
+
+	st, closeStores, err := buildServeStores(cfg, log)
+	if err != nil {
+		t.Fatalf("buildServeStores with object store: %v", err)
+	}
+	defer closeStores()
+	if st.objectStore == nil {
+		t.Fatal("PROBECTL_OBJECTSTORE_DIR must wire a tenant object store")
+	}
+	if err := st.objectStore.Put(context.Background(), "tenant/tnA/browser/proof.png", "image/png", []byte("png")); err != nil {
+		t.Fatalf("object store put: %v", err)
+	}
+	if _, exists, err := st.objectStore.Stat(context.Background(), "tenant/tnA/browser/proof.png"); err != nil || !exists {
+		t.Fatalf("object store stat: exists=%v err=%v", exists, err)
+	}
 }

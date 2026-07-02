@@ -65,6 +65,7 @@ type serveStores struct {
 	otelStore    otelstore.Store
 	flowStore    flowstore.Store
 	ebpfStore    ebpfstore.Store
+	objectStore  objectstore.Store
 }
 
 var devAuthAvailable = control.DevModeAvailable
@@ -299,6 +300,15 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 			return ch.EnsureReaderRowPolicy, true
 		}); err != nil {
 		return fail(err)
+	}
+
+	if cfg.ObjectStoreDir != "" {
+		objectStore, err := objectstore.NewFS(cfg.ObjectStoreDir)
+		if err != nil {
+			return fail(fmt.Errorf("object store: %w", err))
+		}
+		s.objectStore = objectStore
+		log.Info("tenant object store enabled", "dir", cfg.ObjectStoreDir)
 	}
 
 	return s, closeAll, nil
@@ -678,6 +688,7 @@ func startHAAndTenantLifecycle(
 	topoStore topology.Store,
 	otelStore otelstore.Store,
 	ebpfStore ebpfstore.Store,
+	objectStore objectstore.Store,
 ) (*tenantlife.Engine, error) {
 	if cfg.Region != "" {
 		topo := cluster.Topology{
@@ -697,7 +708,7 @@ func startHAAndTenantLifecycle(
 			"regions", cfg.Regions, "replication", cfg.ReplicationMode, "read_replica", readProbe != nil)
 	}
 
-	lifeEngine := tenantlife.NewWithBackupRetention(db.Pool(), flowStore, nil, tsdbWriter,
+	lifeEngine := tenantlife.NewWithBackupRetention(db.Pool(), flowStore, objectStore, tsdbWriter,
 		func(ctx context.Context, actor, action, target string, data map[string]any) error {
 			_, err := audit.ProviderAppend(ctx, db.Pool(), actor, action, target, data)
 			return err

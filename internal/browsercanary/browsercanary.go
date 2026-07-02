@@ -10,11 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 
 	"github.com/imfeelingtheagi/probectl/internal/browser"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
 const (
@@ -27,6 +29,7 @@ const (
 // Browser is the schedulable browser/transaction synthetic canary.
 type Browser struct {
 	target string
+	tenant string
 	script browser.Script
 	fleet  *browser.Fleet
 }
@@ -36,9 +39,27 @@ type Browser struct {
 // present, it is the browser.Script JSON; target is still the server_address
 // join key used by result views.
 func New(cfg canary.Config) (canary.Canary, error) {
+	return newBrowser(cfg, nil, nil)
+}
+
+// NewWithObjectStore builds a browser canary factory that stores failure
+// artifacts under tenant-scoped object keys. A configured store requires the
+// agent runtime to pass TenantID so artifact writes fail closed instead of
+// falling back to an unscoped path.
+func NewWithObjectStore(store objectstore.Store, log *slog.Logger) canary.Factory {
+	return func(cfg canary.Config) (canary.Canary, error) {
+		return newBrowser(cfg, store, log)
+	}
+}
+
+func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger) (canary.Canary, error) {
 	target := strings.TrimSpace(cfg.Target)
 	if target == "" {
 		return nil, errors.New("browser: target URL is required")
+	}
+	tenant := strings.TrimSpace(cfg.TenantID)
+	if store != nil && tenant == "" {
+		return nil, errors.New("browser: tenant id is required when artifact store is configured")
 	}
 	s, err := scriptFromConfig(target, cfg.Params)
 	if err != nil {
@@ -52,10 +73,10 @@ func New(cfg canary.Config) (canary.Canary, error) {
 	fleet := browser.NewFleet(
 		browser.Config{MaxConcurrency: 1, RunTimeout: runTimeout},
 		func() browser.Driver { return browser.NewHTTPDriver(browser.WithTargetGuard(guard)) },
-		nil,
-		nil,
+		store,
+		log,
 	)
-	return &Browser{target: target, script: s, fleet: fleet}, nil
+	return &Browser{target: target, tenant: tenant, script: s, fleet: fleet}, nil
 }
 
 func scriptFromConfig(target string, params map[string]string) (browser.Script, error) {
@@ -117,7 +138,7 @@ func (b *Browser) Describe() canary.Spec {
 
 // Run executes one browser transaction and maps it onto the canonical result.
 func (b *Browser) Run(ctx context.Context) (canary.Result, error) {
-	res, err := b.fleet.Run(ctx, "", b.script)
+	res, err := b.fleet.Run(ctx, b.tenant, b.script)
 	if err != nil {
 		return canary.Result{}, err
 	}

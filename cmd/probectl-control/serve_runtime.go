@@ -31,6 +31,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/incident"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/notify"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
@@ -65,6 +66,7 @@ type serveRuntime struct {
 	otelStore    otelstore.Store
 	flowStore    flowstore.Store
 	ebpfStore    ebpfstore.Store
+	objectStore  objectstore.Store
 
 	ctx  context.Context
 	stop context.CancelFunc
@@ -146,7 +148,7 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
 		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
 		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: st.otelStore,
-		flowStore: st.flowStore, ebpfStore: st.ebpfStore,
+		flowStore: st.flowStore, ebpfStore: st.ebpfStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
 	}
@@ -373,7 +375,7 @@ func (rt *serveRuntime) configureTestSync() error {
 func (rt *serveRuntime) startLifecycleAndServe() error {
 	var err error
 	rt.lifeEngine, err = startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
-		rt.srv, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.ebpfStore)
+		rt.srv, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.ebpfStore, rt.objectStore)
 	if err != nil {
 		return err
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
@@ -105,6 +106,16 @@ func run() error {
 	// ("" = the parameter is refused — fail closed).
 	canary.SetCAFileDir(cfg.TLS.CanaryCADir)
 
+	var artifactStore objectstore.Store
+	if cfg.ArtifactStore.Dir != "" {
+		store, err := objectstore.NewFS(cfg.ArtifactStore.Dir)
+		if err != nil {
+			return err
+		}
+		artifactStore = store
+		log.Info("agent tenant artifact store enabled", "dir", cfg.ArtifactStore.Dir)
+	}
+
 	// Compiled-in canary plugins.
 	reg := canary.NewRegistry()
 	reg.Register("noop", canary.NewNoop)
@@ -114,7 +125,11 @@ func run() error {
 	reg.Register("dns", canary.NewDNS)
 	reg.Register("http", canary.NewHTTP)
 	reg.Register("voice", canary.NewVoice) // RTP MOS/jitter/loss (S47c)
-	reg.Register(browsercanary.Type, browsercanary.New)
+	browserFactory := browsercanary.New
+	if artifactStore != nil {
+		browserFactory = browsercanary.NewWithObjectStore(artifactStore, log)
+	}
+	reg.Register(browsercanary.Type, browserFactory)
 
 	a, err := agent.New(cfg, reg, log)
 	if err != nil {

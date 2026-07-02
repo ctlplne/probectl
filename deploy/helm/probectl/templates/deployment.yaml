@@ -78,14 +78,21 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          {{- if .Values.control.tls.enabled }}
+          {{- if or .Values.control.tls.enabled .Values.objectStore.enabled }}
           volumeMounts:
+            {{- if .Values.control.tls.enabled }}
             - name: control-tls
               mountPath: {{ .Values.control.tls.mountPath | quote }}
               readOnly: true
+            {{- end }}
+            {{- if .Values.objectStore.enabled }}
+            - name: tenant-objects
+              mountPath: {{ .Values.objectStore.mountPath | quote }}
+            {{- end }}
           {{- end }}
-      {{- if .Values.control.tls.enabled }}
+      {{- if or .Values.control.tls.enabled .Values.objectStore.enabled }}
       volumes:
+        {{- if .Values.control.tls.enabled }}
         - name: control-tls
           secret:
             secretName: {{ required "control.tls.existingSecret is required when control.tls.enabled=true" .Values.control.tls.existingSecret | quote }}
@@ -94,6 +101,16 @@ spec:
                 path: tls.crt
               - key: {{ .Values.control.tls.keyKey | quote }}
                 path: tls.key
+        {{- end }}
+        {{- if .Values.objectStore.enabled }}
+        - name: tenant-objects
+          {{- if .Values.objectStore.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.objectStore.existingClaim | quote }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
       {{- end }}
       {{- with .Values.topologySpreadConstraints }}
       topologySpreadConstraints:

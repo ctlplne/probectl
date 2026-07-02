@@ -37,6 +37,10 @@ type Config struct {
 	Interval time.Duration     `json:"interval"`
 	Timeout  time.Duration     `json:"timeout"`
 	Params   map[string]string `json:"params,omitempty"`
+	// TenantID is supplied by the agent runtime for tenant-scoped side effects
+	// such as object-store artifact prefixes. Result identity is still stamped
+	// by the runtime when records are buffered/emitted.
+	TenantID string `json:"tenant_id,omitempty"`
 	// AllowInsecureSkipVerify is the agent-level opt-in that lets a probe set
 	// the http insecure_skip_verify=true parameter (WIRE-004). Default false:
 	// NewHTTP REFUSES an insecure probe unless this is set.

@@ -4,7 +4,8 @@
 #
 # The agent's tenant and id are derived from its client certificate's SPIFFE
 # identity (spiffe://probectl/tenant/<t>/agent/<a>) — they are NOT configured here.
-# PROBECTL_AGENT_* env vars override grpc_addr, the TLS files, and buffer.dir.
+# PROBECTL_AGENT_* env vars override grpc_addr, the TLS files, buffer.dir, and
+# artifact_store.dir.
 
 apiVersion: probectl.io/agent/v1
 
@@ -34,6 +35,13 @@ buffer:
   drain_max_records: 500
   drain_max_bytes: 8388608
   drain_pace: 150ms
+
+artifact_store:
+  # Optional. Browser canary failure artifacts are written under
+  # tenant/<tenant-id>/browser/... when this is configured. Mount the same
+  # operator-owned object-store path/backing volume used by the control plane
+  # PROBECTL_OBJECTSTORE_DIR when tenant export/erase must cover artifacts.
+  dir: /var/lib/probectl/objects
 
 canaries:
   - type: noop

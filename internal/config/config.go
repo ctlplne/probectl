@@ -192,6 +192,11 @@ type Config struct {
 	// breaks cross-restart chain verification). Back it up like the envelope key.
 	WormSigningKey     string
 	WormSigningKeyFile string
+	// ObjectStoreDir is the operator-owned filesystem object store for tenant
+	// artifacts such as browser synthetic screenshots/waterfalls. Empty leaves
+	// tenant object artifacts unserved; when set, the same store handle is used
+	// by artifact writers and tenant lifecycle export/erase.
+	ObjectStoreDir string
 	// TestSyncSigningKeyFile (ARCH-001) is the Ed25519 PKCS#8 PEM the control
 	// plane signs pull-able test bundles with (generated + persisted on first
 	// boot, like the WORM key). Empty = central test distribution is off
@@ -711,6 +716,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.AuditRetention = l.dur("PROBECTL_AUDIT_RETENTION", auditRetentionDefault(cfg.DeploymentProfile))
 	cfg.WormSigningKey = l.str("PROBECTL_WORM_SIGNING_KEY", "")
 	cfg.WormSigningKeyFile = l.str("PROBECTL_WORM_SIGNING_KEY_FILE", "")
+	cfg.ObjectStoreDir = l.str("PROBECTL_OBJECTSTORE_DIR", "")
 	cfg.TestSyncSigningKeyFile = l.str("PROBECTL_TESTSYNC_SIGNING_KEY_FILE", "")
 	cfg.TSDBMode = l.enum("PROBECTL_TSDB_MODE", "memory", "memory", "prometheus")
 	cfg.TSDBURL = l.str("PROBECTL_TSDB_URL", "")

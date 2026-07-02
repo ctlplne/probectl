@@ -44,17 +44,18 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 // Config is the probectl-agent configuration (a YAML file plus PROBECTL_AGENT_* env
 // overrides). It is the agent config-file schema contract.
 type Config struct {
-	APIVersion    string             `yaml:"apiVersion"`
-	SchemaVersion int                `yaml:"schema_version,omitempty"`
-	ControlPlane  ControlPlaneConfig `yaml:"control_plane"`
-	TLS           TLSConfig          `yaml:"tls"`
-	Identity      IdentityConfig     `yaml:"identity"`
-	Enroll        EnrollConfig       `yaml:"enroll"`
-	Agent         Meta               `yaml:"agent"`
-	Buffer        BufferConfig       `yaml:"buffer"`
-	Canaries      []CanaryConfig     `yaml:"canaries"`
-	A2A           A2AConfig          `yaml:"a2a"`
-	Security      SecurityConfig     `yaml:"security"`
+	APIVersion    string              `yaml:"apiVersion"`
+	SchemaVersion int                 `yaml:"schema_version,omitempty"`
+	ControlPlane  ControlPlaneConfig  `yaml:"control_plane"`
+	TLS           TLSConfig           `yaml:"tls"`
+	Identity      IdentityConfig      `yaml:"identity"`
+	Enroll        EnrollConfig        `yaml:"enroll"`
+	Agent         Meta                `yaml:"agent"`
+	Buffer        BufferConfig        `yaml:"buffer"`
+	ArtifactStore ArtifactStoreConfig `yaml:"artifact_store"`
+	Canaries      []CanaryConfig      `yaml:"canaries"`
+	A2A           A2AConfig           `yaml:"a2a"`
+	Security      SecurityConfig      `yaml:"security"`
 }
 
 // SecurityConfig holds agent-level safety toggles. They default to the secure
@@ -149,6 +150,13 @@ type BufferConfig struct {
 	DrainPace       Duration `yaml:"drain_pace"`
 }
 
+// ArtifactStoreConfig is the optional tenant artifact store used by browser
+// canaries. Operators mount this to the same self-hosted object-store backend
+// the control plane lifecycle engine inventories and erases.
+type ArtifactStoreConfig struct {
+	Dir string `yaml:"dir"`
+}
+
 // CanaryConfig configures one scheduled canary.
 type CanaryConfig struct {
 	Type     string            `yaml:"type"`
@@ -219,6 +227,7 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_TLS_KEY_FILE", &c.TLS.KeyFile)
 	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
 	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
+	override("PROBECTL_AGENT_OBJECTSTORE_DIR", &c.ArtifactStore.Dir)
 	override("PROBECTL_AGENT_ENROLL_TOKEN_FILE", &c.Enroll.TokenFile)
 	override("PROBECTL_AGENT_ENROLL_SERVER", &c.Enroll.Server)
 	override("PROBECTL_AGENT_ENROLL_CA_PIN", &c.Enroll.CAPin)

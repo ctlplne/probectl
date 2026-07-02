@@ -91,6 +91,10 @@ services:
       # (e.g. from a KMS/secret manager) to override — it always wins.
       PROBECTL_ENVELOPE_KEY: ${PROBECTL_ENVELOPE_KEY:-}
       PROBECTL_ENVELOPE_KEY_FILE: ${PROBECTL_ENVELOPE_KEY_FILE:-/var/lib/probectl/envelope.key}
+      # Tenant artifacts (browser screenshots/waterfalls, future object blobs)
+      # live under the same operator-owned persistent volume. Lifecycle
+      # export/erase inventories and deletes this exact tenant-prefixed store.
+      PROBECTL_OBJECTSTORE_DIR: ${PROBECTL_OBJECTSTORE_DIR:-/var/lib/probectl/objects}
       # Fail closed (TENANT-106): refuse to start rather than silently write
       # plaintext if no key resolves.
       PROBECTL_REQUIRE_AT_REST_ENCRYPTION: ${PROBECTL_REQUIRE_AT_REST_ENCRYPTION:-true}

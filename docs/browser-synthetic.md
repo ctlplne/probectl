@@ -135,9 +135,14 @@ the store itself.
 
 No extra process is required for the shipped scheduled path: `probectl-agent`
 registers `browser`, builds a one-slot browser `Fleet`, and runs the HTTPDriver
-with the shared canary target guard. To create one from the CLI, either omit
-`script` and let the agent create a default `goto target + assert HTTP 200`
-transaction, or pass the script JSON explicitly:
+with the shared canary target guard. When `artifact_store.dir` (or
+`PROBECTL_AGENT_OBJECTSTORE_DIR`) is set, the agent opens that self-hosted store
+and passes its mTLS tenant into the browser fleet, so failed transaction
+artifacts are written under `tenant/<id>/browser/...`. Point it at the same
+mounted backend as the control plane's `PROBECTL_OBJECTSTORE_DIR` when tenant
+lifecycle export/erase must inventory and delete those artifacts. To create one
+from the CLI, either omit `script` and let the agent create a default
+`goto target + assert HTTP 200` transaction, or pass the script JSON explicitly:
 
 ```sh
 probectl test create \

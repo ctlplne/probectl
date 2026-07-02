@@ -69,6 +69,15 @@ secrets:
 # see docs/hardening.md and `probectl-control preflight --strict`.
 requireAtRestEncryption: true
 
+# Tenant object artifacts (browser screenshots/waterfalls, future blobs). Enable
+# only with operator-owned encrypted storage. When enabled, the same mounted path
+# is wired to PROBECTL_OBJECTSTORE_DIR and tenant lifecycle export/erase covers
+# the tenant-prefixed object namespace.
+objectStore:
+  enabled: false
+  mountPath: /var/lib/probectl/objects
+  existingClaim: "" # recommended for production; empty uses ephemeral emptyDir
+
 # SEC-009/WIRE-002: the deployment edge (ingress) serves TLS, so session/OAuth
 # cookies carry the Secure attribute even though the in-cluster listener is
 # plaintext behind it. NetworkPolicy restricts that plaintext pod hop to the

@@ -165,6 +165,25 @@ tls:
 	}
 }
 
+func TestConfigLoadsAgentObjectStoreEnvOverride(t *testing.T) {
+	t.Setenv("PROBECTL_AGENT_OBJECTSTORE_DIR", "/var/lib/probectl/objects")
+	path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ArtifactStore.Dir != "/var/lib/probectl/objects" {
+		t.Fatalf("artifact_store.dir = %q", cfg.ArtifactStore.Dir)
+	}
+}
+
 func writeAgentConfig(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "agent.yml")

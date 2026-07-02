@@ -12,6 +12,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/browser"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
+	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 )
 
 func TestBrowserCanaryRunsTransactionAndEmitsStepTimings(t *testing.T) {
@@ -62,6 +63,72 @@ func TestBrowserCanaryRunsTransactionAndEmitsStepTimings(t *testing.T) {
 		res.Attributes["browser.step.1.action"] != "assert_text" ||
 		res.Attributes["browser.step.1.success"] != "true" {
 		t.Fatalf("missing per-step attributes: %v", res.Attributes)
+	}
+}
+
+func TestBrowserCanaryStoresFailureArtifactWithTenantObjectStore(t *testing.T) {
+	app := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/login" {
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte("Welcome"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer app.Close()
+
+	script, err := MarshalScript(browser.Script{
+		Name:     "login",
+		StartURL: app.URL + "/login",
+		Steps: []browser.Step{
+			{Name: "open", Action: browser.Goto},
+			{Name: "missing", Action: browser.AssertText, Value: "never-here"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := objectstore.NewMemory()
+	c, err := NewWithObjectStore(store, nil)(canary.Config{
+		Type:     Type,
+		Target:   app.URL + "/login",
+		Timeout:  time.Second,
+		TenantID: "tnA",
+		Params: map[string]string{
+			canary.AllowPrivateParam: "true",
+			ScriptParam:              script,
+		},
+	})
+	if err != nil {
+		t.Fatalf("new browser canary: %v", err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("result should fail to trigger artifact storage: %+v", res)
+	}
+	key := res.Attributes["browser.screenshot.key"]
+	if !strings.HasPrefix(key, "tenant/tnA/browser/") {
+		t.Fatalf("screenshot key = %q, want tenant/tnA/browser/ prefix", key)
+	}
+	obj, err := store.Get(context.Background(), key)
+	if err != nil {
+		t.Fatalf("stored artifact %q: %v", key, err)
+	}
+	if string(obj.Data) != "Welcome" || obj.ContentType != "text/html" {
+		t.Fatalf("stored artifact = %q / %q", obj.Data, obj.ContentType)
+	}
+}
+
+func TestBrowserCanaryArtifactStoreRequiresTenant(t *testing.T) {
+	_, err := NewWithObjectStore(objectstore.NewMemory(), nil)(canary.Config{
+		Type:   Type,
+		Target: "https://example.com/login",
+	})
+	if err == nil || !strings.Contains(err.Error(), "tenant id is required") {
+		t.Fatalf("configured artifact store without tenant should fail closed, got %v", err)
 	}
 }
 
