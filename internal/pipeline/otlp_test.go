@@ -14,11 +14,36 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
 func kv(k, v string) *commonpb.KeyValue {
 	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v}}}
+}
+
+func kvInt(k string, v int64) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: v}}}
+}
+
+func kvDouble(k string, v float64) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: v}}}
+}
+
+func kvBool(k string, v bool) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_BoolValue{BoolValue: v}}}
+}
+
+func kvArray(k string) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: &commonpb.ArrayValue{
+		Values: []*commonpb.AnyValue{{Value: &commonpb.AnyValue_StringValue{StringValue: "one"}}},
+	}}}}
+}
+
+func kvMap(k string) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_KvlistValue{KvlistValue: &commonpb.KeyValueList{
+		Values: []*commonpb.KeyValue{kv("nested", "value")},
+	}}}}
 }
 
 // SCALE-010 round trip: a pushed OTLP metrics request is CONSUMED and
@@ -86,6 +111,133 @@ func TestOTLPPushIsConsumedAndQueryable(t *testing.T) {
 	// Malformed payloads drop without failing the stream.
 	if err := c.handle(context.Background(), bus.Message{Value: []byte("garbage")}); err != nil {
 		t.Fatalf("malformed payload must not error the stream: %v", err)
+	}
+}
+
+func TestOTLPMetricScalarAttrsPreserveSeriesIdentity(t *testing.T) {
+	mem := tsdb.NewMemory()
+	c := NewOTLPConsumer(nil, mem, testLogger())
+
+	now := uint64(time.Now().UnixNano())
+	req := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+				kv("probectl.tenant.id", "t-otlp"),
+				kv("service.name", "checkout"),
+				kvInt("service.version.major", 7),
+				kvDouble("sample.rate", 0.5),
+			}},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{
+				Metrics: []*metricspb.Metric{{
+					Name: "http.server.requests",
+					Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{
+						DataPoints: []*metricspb.NumberDataPoint{
+							{
+								TimeUnixNano: now,
+								Attributes: []*commonpb.KeyValue{
+									kvInt("http.status_code", 200),
+									kvBool("error", false),
+								},
+								Value: &metricspb.NumberDataPoint_AsInt{AsInt: 1},
+							},
+							{
+								TimeUnixNano: now,
+								Attributes: []*commonpb.KeyValue{
+									kvInt("http.status_code", 500),
+									kvBool("error", true),
+								},
+								Value: &metricspb.NumberDataPoint_AsInt{AsInt: 2},
+							},
+						},
+					}},
+				}},
+			}},
+		}},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.handle(context.Background(), bus.Message{Key: bus.TenantKey("t-otlp", "x"), Value: payload}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+
+	got := mem.Query("probectl_otlp_http_server_requests", map[string]string{"tenant_id": "t-otlp"})
+	if len(got) != 2 {
+		t.Fatalf("scalar OTLP attrs must keep distinct same-timestamp series: %+v", got)
+	}
+	byStatus := map[string]tsdb.Series{}
+	for _, s := range got {
+		byStatus[s.Labels["http_status_code"]] = s
+		if s.Labels["service_version_major"] != "7" || s.Labels["sample_rate"] != "0.5" {
+			t.Fatalf("non-string resource attrs lost: %+v", s.Labels)
+		}
+	}
+	if byStatus["200"].Labels["error"] != "false" || byStatus["200"].Value != 1 {
+		t.Fatalf("200 series not preserved with false bool label: %+v", byStatus["200"])
+	}
+	if byStatus["500"].Labels["error"] != "true" || byStatus["500"].Value != 2 {
+		t.Fatalf("500 series not preserved with true bool label: %+v", byStatus["500"])
+	}
+}
+
+func TestOTLPMetricCompositeAttrsAreSkippedAndCounted(t *testing.T) {
+	reg := selfmetrics.New("test", "abc")
+	mem := tsdb.NewMemory()
+	c := NewOTLPConsumer(nil, mem, testLogger()).WithMetrics(reg)
+
+	req := &colmetricspb.ExportMetricsServiceRequest{
+		ResourceMetrics: []*metricspb.ResourceMetrics{{
+			Resource: &resourcepb.Resource{Attributes: []*commonpb.KeyValue{
+				kv("probectl.tenant.id", "t-otlp"),
+				kv("service.name", "checkout"),
+				kvArray("host.tags"),
+				kvMap("k8s.labels"),
+			}},
+			ScopeMetrics: []*metricspb.ScopeMetrics{{
+				Metrics: []*metricspb.Metric{{
+					Name: "queue.depth",
+					Data: &metricspb.Metric_Gauge{Gauge: &metricspb.Gauge{
+						DataPoints: []*metricspb.NumberDataPoint{{
+							TimeUnixNano: uint64(time.Now().UnixNano()),
+							Attributes: []*commonpb.KeyValue{
+								kvBool("healthy", true),
+								kvArray("route.params"),
+								kvMap("span.attrs"),
+							},
+							Value: &metricspb.NumberDataPoint_AsInt{AsInt: 9},
+						}},
+					}},
+				}},
+			}},
+		}},
+	}
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.handle(context.Background(), bus.Message{Key: bus.TenantKey("t-otlp", "x"), Value: payload}); err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+
+	got := mem.Query("probectl_otlp_queue_depth", map[string]string{"tenant_id": "t-otlp"})
+	if len(got) != 1 {
+		t.Fatalf("metric should remain queryable while composites are skipped: %+v", got)
+	}
+	labels := got[0].Labels
+	if labels["healthy"] != "true" || labels["service_name"] != "checkout" {
+		t.Fatalf("scalar labels lost while skipping composites: %+v", labels)
+	}
+	for _, k := range []string{"host_tags", "k8s_labels", "route_params", "span_attrs"} {
+		if _, ok := labels[k]; ok {
+			t.Fatalf("composite attr %s must not be flattened into labels: %+v", k, labels)
+		}
+	}
+	if c.SkippedCompositeAttrs() != 4 {
+		t.Fatalf("skipped composite attrs = %d, want 4", c.SkippedCompositeAttrs())
+	}
+	if reg.Counter("probectl_otlp_metrics_composite_attrs_skipped_total", "").Value() != 4 {
+		t.Fatal("composite attr skip counter must be surfaced")
 	}
 }
 

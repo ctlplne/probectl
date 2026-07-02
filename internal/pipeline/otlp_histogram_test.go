@@ -7,6 +7,7 @@ import (
 	"time"
 
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 
 	selfmetrics "github.com/imfeelingtheagi/probectl/internal/metrics"
@@ -52,6 +53,36 @@ func TestHistogramConversion(t *testing.T) {
 	for k, v := range want {
 		if byKey[k] != v {
 			t.Errorf("%s = %v, want %v", k, byKey[k], v)
+		}
+	}
+}
+
+func TestHistogramScalarAttrsArePreserved(t *testing.T) {
+	c := NewOTLPConsumer(nil, tsdb.NewMemory(), testLogger())
+	now := uint64(time.Now().UnixNano())
+	dp := &metricspb.HistogramDataPoint{
+		TimeUnixNano: now,
+		Attributes: []*commonpb.KeyValue{
+			kvInt("http.status_code", 503),
+			kvBool("cold.start", false),
+		},
+		Count:          3,
+		Sum:            proto64(9),
+		ExplicitBounds: []float64{5},
+		BucketCounts:   []uint64{1, 2},
+	}
+	series := c.histogramSeries("request.latency", []*metricspb.HistogramDataPoint{dp}, "t-a", map[string]string{
+		"service.version.major": "7",
+	}, false)
+	if len(series) == 0 {
+		t.Fatal("histogram produced no series")
+	}
+	for _, s := range series {
+		if s.Labels["http_status_code"] != "503" || s.Labels["cold_start"] != "false" {
+			t.Fatalf("histogram point scalar attrs lost: %+v", s.Labels)
+		}
+		if s.Labels["service_version_major"] != "7" {
+			t.Fatalf("histogram resource attrs lost: %+v", s.Labels)
 		}
 	}
 }

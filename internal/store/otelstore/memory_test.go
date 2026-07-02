@@ -105,7 +105,11 @@ func TestMemoryDedupsRedeliveredSpansAndLogs(t *testing.T) {
 	ctx := context.Background()
 	base := time.Now().UTC()
 	span := Span{TenantID: "t1", TraceID: "aa", SpanID: "01", Service: "checkout", Name: "GET /pay", Start: base}
-	log := LogRecord{TenantID: "t1", TS: base, SeverityNum: 9, Service: "checkout", Body: "paid", TraceID: "aa", SpanID: "01"}
+	log := LogRecord{
+		TenantID: "t1", TS: base, SeverityNum: 9, Service: "checkout",
+		Body: "paid", TraceID: "aa", SpanID: "01",
+		Attrs: map[string]string{"request_id": "req-a"},
+	}
 
 	if err := m.WriteSpans(ctx, []Span{span, span}); err != nil {
 		t.Fatal(err)
@@ -124,6 +128,43 @@ func TestMemoryDedupsRedeliveredSpansAndLogs(t *testing.T) {
 	}
 	if _, logs := m.Len("t1"); logs != 2 {
 		t.Fatalf("distinct log body must remain a distinct fact, got logs=%d", logs)
+	}
+
+	log3 := log
+	log3.Attrs = map[string]string{"request_id": "req-b"}
+	if err := m.WriteLogs(ctx, []LogRecord{log3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, logs := m.Len("t1"); logs != 3 {
+		t.Fatalf("distinct log attrs must remain a distinct fact, got logs=%d", logs)
+	}
+}
+
+func TestOTLPNormalizedSpanMemoryQueryWindow(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	receivedAt := time.Date(2026, 7, 1, 18, 45, 0, 0, time.UTC)
+
+	if err := m.WriteSpans(ctx, []Span{{
+		TenantID: "t1",
+		TraceID:  "aa",
+		SpanID:   "01",
+		Service:  "checkout",
+		Name:     "partial span",
+		Start:    receivedAt,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := m.QuerySpans(ctx, "t1", SpanQuery{
+		Since: receivedAt.Add(-time.Second),
+		Until: receivedAt.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "partial span" {
+		t.Fatalf("normalized OTLP span must stay queryable in ingest window: %+v", got)
 	}
 }
 

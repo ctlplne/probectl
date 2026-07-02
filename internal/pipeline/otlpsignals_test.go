@@ -164,6 +164,73 @@ func TestOTLPThreeSignalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestOTLPZeroStartSpanUsesIngestTime(t *testing.T) {
+	receivedAt := time.Date(2026, 7, 1, 18, 45, 0, 0, time.UTC)
+	req := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+			TraceId:           bytes.Repeat([]byte{0xAA}, 16),
+			SpanId:            bytes.Repeat([]byte{0xBB}, 8),
+			Name:              "partial span",
+			StartTimeUnixNano: 0,
+			EndTimeUnixNano:   uint64(receivedAt.Add(time.Second).UnixNano()),
+		}}}},
+	}}}
+
+	before := SpanStartNormalized()
+	spans := convertSpansWithContextAt(context.Background(), req, "t-zero-span", receivedAt)
+	if len(spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(spans))
+	}
+	if !spans[0].Start.Equal(receivedAt) {
+		t.Fatalf("zero-start span start = %s, want ingest time %s", spans[0].Start, receivedAt)
+	}
+	if spans[0].Duration != 0 {
+		t.Fatalf("zero-start span duration = %s, want 0", spans[0].Duration)
+	}
+	if SpanStartNormalized() <= before {
+		t.Fatal("zero-start span normalization was not counted")
+	}
+
+	store := otelstore.NewMemory()
+	if err := store.WriteSpans(context.Background(), spans); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.QuerySpans(context.Background(), "t-zero-span", otelstore.SpanQuery{
+		Since: receivedAt.Add(-time.Second),
+		Until: receivedAt.Add(time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "partial span" {
+		t.Fatalf("normalized span must stay queryable in ingest window: %+v", got)
+	}
+}
+
+func TestOTLPValidSpanDurationStillUsesRawStartAndEnd(t *testing.T) {
+	start := time.Date(2026, 7, 1, 18, 45, 0, 0, time.UTC)
+	req := &coltracepb.ExportTraceServiceRequest{ResourceSpans: []*tracepb.ResourceSpans{{
+		ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+			TraceId:           bytes.Repeat([]byte{0xCC}, 16),
+			SpanId:            bytes.Repeat([]byte{0xDD}, 8),
+			Name:              "valid span",
+			StartTimeUnixNano: uint64(start.UnixNano()),
+			EndTimeUnixNano:   uint64(start.Add(250 * time.Millisecond).UnixNano()),
+		}}}},
+	}}}
+
+	spans := convertSpansWithContextAt(context.Background(), req, "t-valid-span", start.Add(time.Second))
+	if len(spans) != 1 {
+		t.Fatalf("spans = %d, want 1", len(spans))
+	}
+	if !spans[0].Start.Equal(start) {
+		t.Fatalf("valid span start = %s, want %s", spans[0].Start, start)
+	}
+	if spans[0].Duration != 250*time.Millisecond {
+		t.Fatalf("valid span duration = %s, want 250ms", spans[0].Duration)
+	}
+}
+
 // PRIVACY-003: traces/logs are stored as bounded correlation receipts, not raw
 // APM/log warehouse rows. The conversion layer must redact PII and secrets
 // before memory/ClickHouse stores ever see the row.

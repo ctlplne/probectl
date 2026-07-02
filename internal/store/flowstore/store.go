@@ -178,6 +178,15 @@ type Store interface {
 	Close() error
 }
 
+func validateInsertRows(rows []Row) error {
+	for i := range rows {
+		if rows[i].TenantID == "" {
+			return ErrNoTenant
+		}
+	}
+	return nil
+}
+
 // New builds a Store. "memory" (or empty) is in-process; "clickhouse" persists
 // to the ClickHouse HTTP endpoint at url. retentionDays > 0 adds a delete-TTL
 // to the ClickHouse table (high-volume retention, S38).

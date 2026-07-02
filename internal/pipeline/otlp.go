@@ -11,6 +11,7 @@ import (
 	"time"
 
 	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	"google.golang.org/protobuf/proto"
 
@@ -44,12 +45,14 @@ type OTLPConsumer struct {
 	skippedSummary              atomic.Uint64
 	skippedExponentialHistogram atomic.Uint64
 	skippedUnknown              atomic.Uint64
+	skippedCompositeAttrs       atomic.Uint64
 	shed                        atomic.Uint64 // series shed by the per-tenant fairness gate (SCALE-003)
 	rejected                    atomic.Uint64 // resource tenant mismatches dropped fail-closed (TENANT-001)
 	dlq                         *otlpDLQ      // retry + dead-letter on store-write failure (SCALE-003)
 	summarySkippedMetric        *metrics.Counter
 	expHistogramSkippedMetric   *metrics.Counter
 	unknownSkippedMetric        *metrics.Counter
+	compositeAttrsSkippedMetric *metrics.Counter
 	ledger                      *integrityLedger
 
 	// SCALE-003: the OTLP plane gets the same per-tenant bounds as the native
@@ -85,6 +88,8 @@ func (c *OTLPConsumer) WithMetrics(reg *metrics.Registry) *OTLPConsumer {
 		"OTLP exponential histogram points accepted but not converted to TSDB series.")
 	c.unknownSkippedMetric = reg.Counter("probectl_otlp_metrics_unknown_skipped_total",
 		"OTLP metric points with unknown data kind accepted but not converted to TSDB series.")
+	c.compositeAttrsSkippedMetric = reg.Counter("probectl_otlp_metrics_composite_attrs_skipped_total",
+		"Composite OTLP metric attributes intentionally skipped instead of flattened into labels.")
 	return c
 }
 
@@ -185,6 +190,10 @@ func (c *OTLPConsumer) Shed() uint64 { return c.shed.Load() }
 // verification (TENANT-001 / RED-001).
 func (c *OTLPConsumer) RejectedTenant() uint64 { return c.rejected.Load() }
 
+// SkippedCompositeAttrs reports composite OTLP metric attributes intentionally
+// not flattened into TSDB labels.
+func (c *OTLPConsumer) SkippedCompositeAttrs() uint64 { return c.skippedCompositeAttrs.Load() }
+
 // IntegrityStats returns the aggregate receipt ledger for this consumer.
 func (c *OTLPConsumer) IntegrityStats() IntegrityStats { return c.ledger.stats() }
 
@@ -203,12 +212,7 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 	var out []tsdb.Series
 	for _, rm := range req.GetResourceMetrics() {
 		// Resource attributes apply to every point underneath (bounded later).
-		resAttrs := map[string]string{}
-		for _, kv := range rm.GetResource().GetAttributes() {
-			if v := kv.GetValue().GetStringValue(); v != "" {
-				resAttrs[kv.GetKey()] = v
-			}
-		}
+		resAttrs := c.metricAttrs(rm.GetResource().GetAttributes())
 		delete(resAttrs, otel.AttrTenantID)
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
@@ -259,13 +263,7 @@ func (c *OTLPConsumer) convert(req *colmetricspb.ExportMetricsServiceRequest, te
 						labels["otel_temporality"] = "delta" // CORRECT-011
 					}
 					addBounded(labels, resAttrs)
-					pointAttrs := map[string]string{}
-					for _, kv := range p.GetAttributes() {
-						if v := kv.GetValue().GetStringValue(); v != "" {
-							pointAttrs[kv.GetKey()] = v
-						}
-					}
-					addBounded(labels, pointAttrs)
+					addBounded(labels, c.metricAttrs(p.GetAttributes()))
 					var v float64
 					switch nv := p.GetValue().(type) {
 					case *metricspb.NumberDataPoint_AsDouble:
@@ -330,13 +328,7 @@ func (c *OTLPConsumer) histogramSeries(metricName string, points []*metricspb.Hi
 			labels["otel_temporality"] = "delta" // CORRECT-008: not cumulative-over-time
 		}
 		addBounded(labels, resAttrs)
-		pointAttrs := map[string]string{}
-		for _, kv := range p.GetAttributes() {
-			if v := kv.GetValue().GetStringValue(); v != "" {
-				pointAttrs[kv.GetKey()] = v
-			}
-		}
-		addBounded(labels, pointAttrs)
+		addBounded(labels, c.metricAttrs(p.GetAttributes()))
 
 		tms := int64(p.GetTimeUnixNano() / 1e6)
 		now := time.Now().UnixMilli()
@@ -370,6 +362,54 @@ func (c *OTLPConsumer) histogramSeries(metricName string, points []*metricspb.Hi
 		}
 	}
 	return out
+}
+
+func (c *OTLPConsumer) metricAttrs(kvs []*commonpb.KeyValue) map[string]string {
+	attrs := map[string]string{}
+	for _, kv := range kvs {
+		if kv == nil {
+			continue
+		}
+		v, ok, composite := metricAttrValue(kv.GetValue())
+		if composite {
+			c.skipCompositeAttrs(1)
+			continue
+		}
+		if ok {
+			attrs[kv.GetKey()] = v
+		}
+	}
+	return attrs
+}
+
+func metricAttrValue(v *commonpb.AnyValue) (string, bool, bool) {
+	if v == nil {
+		return "", false, false
+	}
+	switch v.GetValue().(type) {
+	case *commonpb.AnyValue_StringValue:
+		value := anyValueString(v)
+		if value == "" {
+			return "", false, false
+		}
+		return value, true, false
+	case *commonpb.AnyValue_IntValue, *commonpb.AnyValue_DoubleValue, *commonpb.AnyValue_BoolValue:
+		return anyValueString(v), true, false
+	case *commonpb.AnyValue_ArrayValue, *commonpb.AnyValue_KvlistValue:
+		return "", false, true
+	default:
+		return "", false, false
+	}
+}
+
+func (c *OTLPConsumer) skipCompositeAttrs(n uint64) {
+	if n == 0 {
+		return
+	}
+	c.skippedCompositeAttrs.Add(n)
+	if c.compositeAttrsSkippedMetric != nil {
+		c.compositeAttrsSkippedMetric.Add(n)
+	}
 }
 
 // addBounded merges attrs into labels (sanitized keys) up to otlpMaxLabels,

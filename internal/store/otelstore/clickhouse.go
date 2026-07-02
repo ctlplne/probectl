@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -426,16 +427,56 @@ type chLog struct {
 	DedupID      string `json:"dedup_id"` // CORRECT-004: deterministic per-record dedup key
 }
 
-// logDedupID derives the deterministic dedup key for a log record (CORRECT-004):
+type logAttrID struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+func canonicalLogAttrs(attrs map[string]string) []logAttrID {
+	if len(attrs) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]logAttrID, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, logAttrID{Key: k, Value: attrs[k]})
+	}
+	return out
+}
+
+// logDedupID derives the deterministic dedup key for a log record (CORRECT-003/004):
 // a hash over every field that distinguishes one log line from another. A
 // redelivered identical record hashes identically (collapsed by the
 // ReplacingMergeTree); any genuine difference yields a different id. Logs carry
 // no native unique id, so this stands in for the spans' (trace_id, span_id).
 func logDedupID(r LogRecord) string {
-	seed := r.TenantID + "|" + timeOrNow(r.TS).UTC().Format(time.RFC3339Nano) + "|" +
-		strconv.Itoa(int(r.SeverityNum)) + "|" + r.SeverityText + "|" + r.Service + "|" +
-		r.TraceID + "|" + r.SpanID + "|" + r.Body
-	h := crypto.Hash([]byte(seed))
+	identity := struct {
+		TenantID     string      `json:"tenant_id"`
+		TSUnixNano   int64       `json:"ts_unix_nano"`
+		SeverityNum  int32       `json:"severity_num"`
+		SeverityText string      `json:"severity_text"`
+		Service      string      `json:"service"`
+		Body         string      `json:"body"`
+		TraceID      string      `json:"trace_id"`
+		SpanID       string      `json:"span_id"`
+		Attrs        []logAttrID `json:"attrs,omitempty"`
+	}{
+		TenantID:     r.TenantID,
+		TSUnixNano:   timeOrNow(r.TS).UTC().UnixNano(),
+		SeverityNum:  r.SeverityNum,
+		SeverityText: r.SeverityText,
+		Service:      r.Service,
+		Body:         r.Body,
+		TraceID:      r.TraceID,
+		SpanID:       r.SpanID,
+		Attrs:        canonicalLogAttrs(r.Attrs),
+	}
+	payload, _ := json.Marshal(identity)
+	h := crypto.Hash(payload)
 	return fmt.Sprintf("%x", h[:16])
 }
 

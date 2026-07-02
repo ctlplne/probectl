@@ -71,11 +71,71 @@ ORDER BY (tenant_id, ts, exporter, src_addr, dst_addr, src_port, dst_port, proto
 // A redelivered identical row hashes identically (collapsed by the
 // ReplacingMergeTree); any genuine difference yields a different id.
 func flowRowID(r Row) string {
-	seed := fmt.Sprintf("%s|%s|%s|%d|%d|%s|%s|%d|%d|%s|%d|%d|%d|%d",
-		r.TenantID, r.AgentID, r.Exporter, r.ObsDomain, r.TS.UnixNano(),
-		r.SrcAddr, r.DstAddr, r.SrcPort, r.DstPort, r.Protocol,
-		r.Bytes, r.Packets, r.InIf, r.OutIf)
-	h := crypto.Hash([]byte(seed))
+	identity := struct {
+		TenantID      string `json:"tenant_id"`
+		AgentID       string `json:"agent_id"`
+		Exporter      string `json:"exporter"`
+		ObsDomain     uint32 `json:"obs_domain"`
+		Protocol      string `json:"protocol"`
+		TSUnixNano    int64  `json:"ts_unix_nano"`
+		StartUnixNano int64  `json:"start_unix_nano"`
+		SrcAddr       string `json:"src_addr"`
+		DstAddr       string `json:"dst_addr"`
+		SrcPort       uint16 `json:"src_port"`
+		DstPort       uint16 `json:"dst_port"`
+		Transport     string `json:"transport"`
+		NetType       string `json:"net_type"`
+		InIf          uint32 `json:"in_if"`
+		OutIf         uint32 `json:"out_if"`
+		VLAN          uint16 `json:"vlan"`
+		ToS           uint8  `json:"tos"`
+		TCPFlags      uint8  `json:"tcp_flags"`
+		NextHop       string `json:"next_hop"`
+		Bytes         uint64 `json:"bytes"`
+		Packets       uint64 `json:"packets"`
+		Sampling      uint64 `json:"sampling"`
+		BytesScaled   uint64 `json:"bytes_scaled"`
+		PacketsScaled uint64 `json:"packets_scaled"`
+		SrcASN        uint32 `json:"src_asn"`
+		SrcASName     string `json:"src_as_name"`
+		SrcCountry    string `json:"src_country"`
+		DstASN        uint32 `json:"dst_asn"`
+		DstASName     string `json:"dst_as_name"`
+		DstCountry    string `json:"dst_country"`
+	}{
+		TenantID:      r.TenantID,
+		AgentID:       r.AgentID,
+		Exporter:      r.Exporter,
+		ObsDomain:     r.ObsDomain,
+		Protocol:      r.Protocol,
+		TSUnixNano:    r.TS.UnixNano(),
+		StartUnixNano: r.StartTS.UnixNano(),
+		SrcAddr:       r.SrcAddr,
+		DstAddr:       r.DstAddr,
+		SrcPort:       r.SrcPort,
+		DstPort:       r.DstPort,
+		Transport:     r.Transport,
+		NetType:       r.NetType,
+		InIf:          r.InIf,
+		OutIf:         r.OutIf,
+		VLAN:          r.VLAN,
+		ToS:           r.ToS,
+		TCPFlags:      r.TCPFlags,
+		NextHop:       r.NextHop,
+		Bytes:         r.Bytes,
+		Packets:       r.Packets,
+		Sampling:      r.Sampling,
+		BytesScaled:   r.BytesScaled,
+		PacketsScaled: r.PacketsScaled,
+		SrcASN:        r.SrcASN,
+		SrcASName:     r.SrcASName,
+		SrcCountry:    r.SrcCountry,
+		DstASN:        r.DstASN,
+		DstASName:     r.DstASName,
+		DstCountry:    r.DstCountry,
+	}
+	payload, _ := json.Marshal(identity)
+	h := crypto.Hash(payload)
 	return fmt.Sprintf("%x", h[:16])
 }
 
@@ -334,6 +394,9 @@ type chRow struct {
 func (c *ClickHouse) Insert(ctx context.Context, rows []Row) error {
 	if len(rows) == 0 {
 		return nil
+	}
+	if err := validateInsertRows(rows); err != nil {
+		return err
 	}
 	groups := map[Target][]Row{}
 	for i := range rows {

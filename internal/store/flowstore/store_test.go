@@ -5,6 +5,7 @@ package flowstore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -174,6 +175,33 @@ func TestMemoryFlowDedupRedelivery(t *testing.T) {
 	}
 	if exported != 2 || strings.Count(buf.String(), "\n") != 2 {
 		t.Fatalf("exported %d rows (%q), want two unique rows", exported, buf.String())
+	}
+}
+
+func TestInsertRejectsTenantlessRowsBeforeWriteOrRoute(t *testing.T) {
+	ctx := context.Background()
+
+	m := NewMemory()
+	if err := m.Insert(ctx, []Row{
+		{TenantID: "t-a", Exporter: "r1", TS: now, SrcAddr: "10.0.0.1", DstAddr: "10.0.0.2"},
+		{Exporter: "r2", TS: now, SrcAddr: "192.0.2.1", DstAddr: "192.0.2.2"},
+	}); !errors.Is(err, ErrNoTenant) {
+		t.Fatalf("memory tenantless insert error = %v, want ErrNoTenant", err)
+	}
+	if got := m.Len(); got != 0 {
+		t.Fatalf("memory insert wrote %d rows from a mixed tenantless batch; want fail-closed zero writes", got)
+	}
+
+	routed := false
+	c := (&ClickHouse{}).WithRouter(func(string) (Target, error) {
+		routed = true
+		return Target{}, nil
+	})
+	if err := c.Insert(ctx, []Row{{Exporter: "r1", TS: now}}); !errors.Is(err, ErrNoTenant) {
+		t.Fatalf("clickhouse tenantless insert error = %v, want ErrNoTenant", err)
+	}
+	if routed {
+		t.Fatal("clickhouse insert routed a tenantless row; want reject before routing")
 	}
 }
 

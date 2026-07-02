@@ -144,21 +144,17 @@ func convertSpans(req *coltracepb.ExportTraceServiceRequest, tenant string) []ot
 }
 
 func convertSpansWithContext(ctx context.Context, req *coltracepb.ExportTraceServiceRequest, tenant string) []otelstore.Span {
+	return convertSpansWithContextAt(ctx, req, tenant, time.Now().UTC())
+}
+
+func convertSpansWithContextAt(ctx context.Context, req *coltracepb.ExportTraceServiceRequest, tenant string, receivedAt time.Time) []otelstore.Span {
 	var out []otelstore.Span
 	pol := govern.TelemetryPIIPolicy(ctx, tenant)
 	for _, rs := range req.GetResourceSpans() {
 		resAttrs, service, _ := resourceInfo(rs.GetResource().GetAttributes(), pol)
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
-				start := time.Unix(0, int64(sp.GetStartTimeUnixNano())).UTC()
-				dur := time.Duration(int64(sp.GetEndTimeUnixNano()) - int64(sp.GetStartTimeUnixNano()))
-				if dur < 0 {
-					dur = 0
-				}
-				// CORRECT-006: clamp a far-future span start so it cannot poison
-				// time-window queries / "latest" trace views; duration is preserved
-				// (computed from the raw end-start above).
-				start = clampFutureTime(start, time.Now())
+				start, dur := spanTimeAndDuration(sp, receivedAt)
 				attrs := boundedAttrs(resAttrs, sp.GetAttributes(), pol)
 				out = append(out, otelstore.Span{
 					TenantID:     tenant,
@@ -177,6 +173,34 @@ func convertSpansWithContext(ctx context.Context, req *coltracepb.ExportTraceSer
 		}
 	}
 	return out
+}
+
+func spanTimeAndDuration(sp *tracepb.Span, receivedAt time.Time) (time.Time, time.Duration) {
+	receivedAt = normalizeReceiveTime(receivedAt)
+	startUnix := sp.GetStartTimeUnixNano()
+	endUnix := sp.GetEndTimeUnixNano()
+	const maxUnixNanoInt64 = uint64(1<<63 - 1)
+
+	start := receivedAt
+	switch {
+	case startUnix > maxUnixNanoInt64:
+		noteSpanStartNormalized()
+	case startUnix > 0:
+		// CORRECT-006: clamp a far-future span start so it cannot poison
+		// time-window queries / "latest" trace views.
+		start = clampFutureTime(time.Unix(0, int64(startUnix)).UTC(), receivedAt)
+	default:
+		noteSpanStartNormalized()
+	}
+
+	var dur time.Duration
+	if startUnix > 0 && endUnix > 0 && startUnix <= maxUnixNanoInt64 && endUnix <= maxUnixNanoInt64 {
+		delta := int64(endUnix) - int64(startUnix)
+		if delta > 0 {
+			dur = time.Duration(delta)
+		}
+	}
+	return start, dur
 }
 
 // OTLPLogConsumer drains probectl.otlp.logs into the otelstore.

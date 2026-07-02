@@ -37,6 +37,9 @@ func NewMemory() *Memory {
 // Insert stores new rows, deduplicating at-least-once redeliveries by the same
 // deterministic identity ClickHouse writes into row_id.
 func (m *Memory) Insert(_ context.Context, rows []Row) error {
+	if err := validateInsertRows(rows); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.ensureSeenLocked()

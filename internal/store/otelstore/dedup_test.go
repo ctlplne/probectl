@@ -42,15 +42,49 @@ func TestDedupSchemaAndKey(t *testing.T) {
 	// dedup_id determinism: a redelivered identical log hashes identically;
 	// a genuine difference yields a different id.
 	base := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
-	a := LogRecord{TenantID: "t1", TS: base, SeverityNum: 9, Service: "checkout", Body: "info", TraceID: "aa", SpanID: "01"}
+	a := LogRecord{
+		TenantID: "t1", TS: base, SeverityNum: 9, SeverityText: "info",
+		Service: "checkout", Body: "info", TraceID: "aa", SpanID: "01",
+		Attrs: map[string]string{"request_id": "req-a", "http.route": "/checkout"},
+	}
 	a2 := a // identical redelivery
 	if logDedupID(a) != logDedupID(a2) {
 		t.Error("identical redelivered log produced a different dedup_id (would not collapse)")
+	}
+	a3 := a
+	a3.Attrs = map[string]string{"http.route": "/checkout", "request_id": "req-a"}
+	if logDedupID(a) != logDedupID(a3) {
+		t.Error("same log attrs in different map order produced a different dedup_id")
 	}
 	b := a
 	b.Body = "different"
 	if logDedupID(a) == logDedupID(b) {
 		t.Error("two distinct log lines collapsed to the same dedup_id (would lose a real log)")
+	}
+	c := a
+	c.Attrs = map[string]string{"request_id": "req-b", "http.route": "/checkout"}
+	if logDedupID(a) == logDedupID(c) {
+		t.Error("two logs that differ only by attrs collapsed to the same dedup_id (would lose a real log)")
+	}
+}
+
+func TestLogAttrsAffectDedupID(t *testing.T) {
+	base := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
+	a := LogRecord{
+		TenantID: "t1", TS: base, SeverityNum: 9, SeverityText: "info",
+		Service: "checkout", Body: "paid", TraceID: "aa", SpanID: "01",
+		Attrs: map[string]string{"request_id": "req-a", "http.route": "/checkout"},
+	}
+	orderedDifferently := a
+	orderedDifferently.Attrs = map[string]string{"http.route": "/checkout", "request_id": "req-a"}
+	if logDedupID(a) != logDedupID(orderedDifferently) {
+		t.Fatal("same log attrs in different map order must keep the same dedup_id")
+	}
+
+	changedAttr := a
+	changedAttr.Attrs = map[string]string{"request_id": "req-b", "http.route": "/checkout"}
+	if logDedupID(a) == logDedupID(changedAttr) {
+		t.Fatal("changing only log attrs must produce a different dedup_id")
 	}
 }
 
