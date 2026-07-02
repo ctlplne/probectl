@@ -45,9 +45,20 @@ type Upstream struct {
 // NewUpstream returns a proxy to the TSDB base URL (e.g. http://victoria:8428).
 // TLS certificates are validated when the URL is https (guardrail 12).
 func NewUpstream(baseURL string) *Upstream {
+	return NewUpstreamWithClient(baseURL, crypto.HardenedHTTPClient(30*time.Second))
+}
+
+// NewUpstreamWithClient is the test seam for the upstream proxy: production
+// callers use NewUpstream so HTTPS still gets the hardened, certificate-
+// verifying client, while tests can inject a socket-free RoundTripper and
+// inspect the exact canonical query that would leave probectl.
+func NewUpstreamWithClient(baseURL string, client *http.Client) *Upstream {
+	if client == nil {
+		client = crypto.HardenedHTTPClient(30 * time.Second)
+	}
 	return &Upstream{
 		base:   strings.TrimRight(baseURL, "/"),
-		client: crypto.HardenedHTTPClient(30 * time.Second),
+		client: client,
 	}
 }
 

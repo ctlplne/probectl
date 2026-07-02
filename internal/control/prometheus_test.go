@@ -3,13 +3,16 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +21,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	prompb "github.com/imfeelingtheagi/probectl/internal/gen/prometheus/v1"
+	"github.com/imfeelingtheagi/probectl/internal/promapi"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
@@ -56,6 +60,10 @@ type promEnvelope struct {
 	Data   json.RawMessage `json:"data"`
 	Error  string          `json:"error"`
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func decodeEnvelope(t *testing.T, rec *httptest.ResponseRecorder, wantStatus int) promEnvelope {
 	t.Helper()
@@ -146,6 +154,80 @@ func TestGrafanaTenantBoundary(t *testing.T) {
 	rec = doForm(srv, http.MethodPost, "/v1/grafana/api/v1/query", url.Values{"query": {"rate(probectl_result_rtt_ms[5m])"}})
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("PromQL function accepted: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGrafanaUpstreamTenantBoundaryForHostilePrometheusQueries(t *testing.T) {
+	def := tenancy.DefaultTenantID.String()
+	var mu sync.Mutex
+	var gotQuery string
+	var gotMatches []string
+	upstream := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		rawQuery := r.URL.Query().Get("query")
+		rawMatches := r.URL.Query()["match[]"]
+		mu.Lock()
+		gotQuery = rawQuery
+		gotMatches = append([]string(nil), rawMatches...)
+		mu.Unlock()
+
+		body := ""
+		switch r.URL.Path {
+		case "/api/v1/query":
+			if strings.Contains(rawQuery, otherTenant) {
+				body = `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + otherTenant + `","target":"secret.example"},"value":[1780000000.000,"99"]}]}}`
+			} else {
+				body = `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"},"value":[1780000000.000,"15"]}]}}`
+			}
+		case "/api/v1/series":
+			if strings.Contains(strings.Join(rawMatches, "\n"), otherTenant) {
+				body = `{"status":"success","data":[{"__name__":"probectl_result_rtt_ms","tenant_id":"` + otherTenant + `","target":"secret.example"}]}`
+			} else {
+				body = `{"status":"success","data":[{"__name__":"probectl_result_rtt_ms","tenant_id":"` + def + `","target":"db.acme.example"}]}`
+			}
+		default:
+			t.Fatalf("unexpected upstream path %s", r.URL.Path)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    r,
+		}, nil
+	})
+
+	srv := testServer(fakePinger{})
+	srv.cfg.TSDBMode = "prometheus"
+	srv.cfg.TSDBURL = "https://prometheus.example"
+	srv.WithTSDB(tsdb.NewPrometheus(srv.cfg.TSDBURL))
+	srv.promUpstream = promapi.NewUpstreamWithClient(srv.cfg.TSDBURL, &http.Client{Transport: upstream})
+
+	env := decodeEnvelope(t, doForm(srv, http.MethodPost, "/v1/grafana/api/v1/query", url.Values{
+		"query": {`probectl_result_rtt_ms{tenant_id="` + otherTenant + `",target=~".*"}`},
+	}), 200)
+	if strings.Contains(string(env.Data), otherTenant) || strings.Contains(string(env.Data), "secret.example") {
+		t.Fatalf("upstream response leaked hostile tenant data: %s", env.Data)
+	}
+	mu.Lock()
+	capturedQuery := gotQuery
+	mu.Unlock()
+	if !strings.Contains(capturedQuery, `tenant_id="`+def+`"`) || strings.Contains(capturedQuery, otherTenant) {
+		t.Fatalf("upstream instant query was not tenant-forced: %q", capturedQuery)
+	}
+
+	env = decodeEnvelope(t, do(srv, http.MethodGet,
+		"/v1/grafana/api/v1/series?match[]="+url.QueryEscape(`probectl_result_rtt_ms{tenant_id="`+otherTenant+`"}`)), 200)
+	if strings.Contains(string(env.Data), otherTenant) || strings.Contains(string(env.Data), "secret.example") {
+		t.Fatalf("upstream series response leaked hostile tenant data: %s", env.Data)
+	}
+	mu.Lock()
+	capturedMatches := append([]string(nil), gotMatches...)
+	mu.Unlock()
+	if len(capturedMatches) == 0 {
+		t.Fatal("upstream series request had no match[] selector")
+	}
+	if !strings.Contains(capturedMatches[len(capturedMatches)-1], `tenant_id="`+def+`"`) ||
+		strings.Contains(capturedMatches[len(capturedMatches)-1], otherTenant) {
+		t.Fatalf("upstream series match[] was not tenant-forced: %q", capturedMatches[len(capturedMatches)-1])
 	}
 }
 
@@ -254,4 +336,88 @@ func TestRemoteWriteIngest(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("garbage = %d", rec.Code)
 	}
+}
+
+func TestRemoteWritePrometheusModeOverwritesHostileTenantLabels(t *testing.T) {
+	def := tenancy.DefaultTenantID.String()
+	var mu sync.Mutex
+	var gotLabels map[string]string
+	upstream := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/api/v1/write" {
+			t.Fatalf("unexpected remote-write path %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Content-Encoding"); got != "snappy" {
+			t.Fatalf("content-encoding = %q, want snappy", got)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read remote-write body: %v", err)
+		}
+		raw, err := snappy.Decode(nil, body)
+		if err != nil {
+			t.Fatalf("decode remote-write body: %v", err)
+		}
+		var wr prompb.WriteRequest
+		if err := proto.Unmarshal(raw, &wr); err != nil {
+			t.Fatalf("unmarshal remote-write: %v", err)
+		}
+		if len(wr.Timeseries) != 1 {
+			t.Fatalf("remote-write series = %d, want 1", len(wr.Timeseries))
+		}
+		mu.Lock()
+		gotLabels = labelsByName(wr.Timeseries[0].Labels)
+		mu.Unlock()
+		return &http.Response{
+			StatusCode: http.StatusNoContent,
+			Body:       io.NopCloser(strings.NewReader("")),
+			Request:    r,
+		}, nil
+	})
+
+	srv := testServer(fakePinger{})
+	srv.cfg.TSDBMode = "prometheus"
+	srv.cfg.TSDBURL = "https://prometheus.example"
+	srv.WithTSDB(tsdb.NewPrometheusWithClient(srv.cfg.TSDBURL, &http.Client{Transport: upstream}))
+
+	hostile := &prompb.WriteRequest{Timeseries: []*prompb.TimeSeries{{
+		Labels: []*prompb.Label{
+			{Name: "__name__", Value: "node_load1"},
+			{Name: "instance", Value: "host1:9100"},
+			{Name: "tenant_id", Value: otherTenant},
+		},
+		Samples: []*prompb.Sample{{Value: 0.7, Timestamp: time.Now().UnixMilli()}},
+	}}}
+	raw, err := proto.Marshal(hostile)
+	if err != nil {
+		t.Fatalf("marshal hostile write: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/prometheus/write", bytes.NewReader(snappy.Encode(nil, raw)))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req.Header.Set("Content-Encoding", "snappy")
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("write status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	mu.Lock()
+	labels := make(map[string]string, len(gotLabels))
+	for k, v := range gotLabels {
+		labels[k] = v
+	}
+	mu.Unlock()
+	if labels["tenant_id"] != def {
+		t.Fatalf("remote-write tenant_id = %q, want caller tenant %q; labels=%v", labels["tenant_id"], def, labels)
+	}
+	if strings.Contains(labels["tenant_id"], otherTenant) || labels["instance"] != "host1:9100" || labels["__name__"] != "node_load1" {
+		t.Fatalf("unexpected remote-write labels: %v", labels)
+	}
+}
+
+func labelsByName(labels []*prompb.Label) map[string]string {
+	out := make(map[string]string, len(labels))
+	for _, label := range labels {
+		out[label.GetName()] = label.GetValue()
+	}
+	return out
 }

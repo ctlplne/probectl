@@ -5,8 +5,8 @@ package promapi
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -61,12 +61,10 @@ func TestTenantScopedShape(t *testing.T) {
 // forgets ForceTenant gets an error before anything reaches the wire.
 func TestUpstreamRefusesUnscopedForwards(t *testing.T) {
 	dialed := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	u := NewUpstreamWithClient("https://prometheus.example", &http.Client{Transport: promRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		dialed = true
-		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
-	}))
-	defer srv.Close()
-	u := NewUpstream(srv.URL)
+		return promJSONResponse(r, `{"status":"success","data":{"resultType":"vector","result":[]}}`), nil
+	})})
 	ctx := context.Background()
 	unscoped := Selector{Metric: "up"}
 
@@ -91,16 +89,27 @@ func TestUpstreamRefusesUnscopedForwards(t *testing.T) {
 
 	// A forced selector passes and the wire query carries the pin.
 	var wireQuery string
-	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	u2 := NewUpstreamWithClient("https://prometheus.example", &http.Client{Transport: promRoundTripFunc(func(r *http.Request) (*http.Response, error) {
 		wireQuery = r.URL.Query().Get("query")
-		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
-	}))
-	defer srv2.Close()
-	u2 := NewUpstream(srv2.URL)
+		return promJSONResponse(r, `{"status":"success","data":{"resultType":"vector","result":[]}}`), nil
+	})})
 	if _, err := u2.QueryInstant(ctx, ForceTenant(unscoped, "t1"), time.Now()); err != nil {
 		t.Fatalf("scoped forward: %v", err)
 	}
 	if !strings.Contains(wireQuery, `tenant_id="t1"`) {
 		t.Fatalf("wire query lost the tenant pin: %q", wireQuery)
+	}
+}
+
+type promRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f promRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func promJSONResponse(r *http.Request, body string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    r,
 	}
 }

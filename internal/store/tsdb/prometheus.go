@@ -61,9 +61,20 @@ func (p *Prometheus) RejectedPermanent() uint64 { return p.rejectedPermanent.Loa
 // internal/crypto; a plain-http loopback dev endpoint is unaffected. A circuit
 // breaker (U-078) short-circuits when the upstream is down.
 func NewPrometheus(url string) *Prometheus {
+	return NewPrometheusWithClient(url, crypto.HardenedHTTPClient(30*time.Second))
+}
+
+// NewPrometheusWithClient is the test seam for the remote-write writer:
+// production callers use NewPrometheus so HTTPS still gets the hardened,
+// certificate-verifying client, while tests can inject a socket-free
+// RoundTripper and inspect the exact snappy/protobuf request.
+func NewPrometheusWithClient(url string, client *http.Client) *Prometheus {
+	if client == nil {
+		client = crypto.HardenedHTTPClient(30 * time.Second)
+	}
 	return &Prometheus{
 		url:     strings.TrimRight(url, "/") + "/api/v1/write",
-		client:  crypto.HardenedHTTPClient(30 * time.Second),
+		client:  client,
 		breaker: breaker.New(0, 0),
 	}
 }
