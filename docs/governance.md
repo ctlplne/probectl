@@ -157,10 +157,14 @@ owned by its own subsystem — governance is the dashboard, not a second engine:
 - **Subject lifecycle** is also core (`internal/tenantlife`): `POST
   /v1/lifecycle/subjects/export` and `POST /v1/lifecycle/subjects/erase`
   handle a person or identifier inside the caller's tenant. Identity rows,
-  persisted AI answers, flow rows, and OTLP spans/logs are filtered by subject
-  after tenant scoping. Audit uses an append-only `privacy.subject_erase` marker
-  and projects future reads, so the evidence chain stays sealed while the
-  person's visible fields are taped over.
+  persisted AI answers, flow rows, OTLP spans/logs, TSDB metric labels,
+  topology/device labels, eBPF workload aggregates, and endpoint latest views
+  are filtered by subject after tenant scoping when the wired backend supports
+  that operation. RUM is covered by the TSDB metric-label receipt, and
+  aggregate-only remote backends report their retention/delete-series basis
+  instead of silently disappearing. Audit uses an append-only
+  `privacy.subject_erase` marker and projects future reads, so the evidence
+  chain stays sealed while the person's visible fields are taped over.
 - **Residency** is siloed stores pinned to a region, plus the region topology.
   Strict tenants run **siloed** (their own schemas/databases rather than shared
   ones) so their stores stay in the permitted region rather

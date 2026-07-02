@@ -5450,7 +5450,7 @@
     },
     "/v1/lifecycle/subjects/export": {
       "post": {
-        "summary": "Download a subject-scoped portability bundle across identity, telemetry, AI, and audit evidence; subject travels in the JSON body, never the URL",
+        "summary": "Download a subject-scoped portability bundle across identity, flow, OTLP, TSDB/RUM labels, topology/device labels, eBPF, endpoint, AI, and audit evidence; subject travels in the JSON body, never the URL",
         "requestBody": {
           "required": true,
           "content": {
@@ -5482,7 +5482,7 @@
     },
     "/v1/lifecycle/subjects/erase": {
       "post": {
-        "summary": "Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, and append an audit projection marker; requires confirm equal to subject",
+        "summary": "Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, TSDB/RUM labels, topology/device labels, eBPF aggregates, endpoint latest views, and append an audit projection marker; requires confirm equal to subject",
         "requestBody": {
           "required": true,
           "content": {

@@ -4,6 +4,8 @@ package tsdb
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -243,6 +245,30 @@ func (m *Memory) Snapshot() []Series {
 	return out
 }
 
+// ExportSubject writes one tenant's subject-matching metric samples as JSONL.
+// Matching is bounded by the memory TSDB's retention/window caps and checks
+// metric names plus label values; sample values alone are not identifiers.
+func (m *Memory) ExportSubject(_ context.Context, tenantID, subject string, w io.Writer) (int64, error) {
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	if tenantID == "" || subject == "" {
+		return 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	enc := json.NewEncoder(w)
+	var rows int64
+	for _, e := range m.entries {
+		if !seriesMatchesSubject(e.s, tenantID, subject) {
+			continue
+		}
+		if err := enc.Encode(e.s); err != nil {
+			return rows, err
+		}
+		rows++
+	}
+	return rows, nil
+}
+
 // DeleteTenant removes every retained series labeled with the tenant and
 // returns how many points were removed (S-T5 verifiable deletion). The
 // prometheus-mode Writer does not implement this — series deletion there is
@@ -261,7 +287,40 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int, error) {
 		kept = append(kept, e)
 	}
 	m.entries = kept
-	// Scattered removal invalidates positions: rebuild the index (erasure is
+	m.rebuildIndexesLocked()
+	return removed, nil
+}
+
+// DeleteSubject removes one tenant's subject-matching metric samples and
+// reports the matching count that remains after deletion.
+func (m *Memory) DeleteSubject(_ context.Context, tenantID, subject string) (deleted, remaining int64, err error) {
+	subject = strings.ToLower(strings.TrimSpace(subject))
+	if tenantID == "" || subject == "" {
+		return 0, 0, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	kept := m.entries[:0]
+	for _, e := range m.entries {
+		if seriesMatchesSubject(e.s, tenantID, subject) {
+			deleted++
+			m.bytes -= sampleSize(e.s)
+			continue
+		}
+		kept = append(kept, e)
+	}
+	m.entries = kept
+	for _, e := range m.entries {
+		if seriesMatchesSubject(e.s, tenantID, subject) {
+			remaining++
+		}
+	}
+	m.rebuildIndexesLocked()
+	return deleted, remaining, nil
+}
+
+func (m *Memory) rebuildIndexesLocked() {
+	// Scattered removal invalidates positions: rebuild the indexes (erasure is
 	// rare and already O(n); queries stay sub-linear).
 	m.base = 0
 	m.byMetric = map[string][]int64{}
@@ -269,7 +328,23 @@ func (m *Memory) DeleteTenant(_ context.Context, tenantID string) (int, error) {
 	for i := range m.entries {
 		s := m.entries[i].s
 		m.byMetric[s.Metric] = append(m.byMetric[s.Metric], int64(i))
-		m.bySample[sampleKey(s)] = int64(i)
+		if key := sampleKey(s); key != "" {
+			m.bySample[key] = int64(i)
+		}
 	}
-	return removed, nil
+}
+
+func seriesMatchesSubject(s Series, tenantID, subject string) bool {
+	if s.Labels[TenantLabel] != tenantID {
+		return false
+	}
+	if strings.Contains(strings.ToLower(s.Metric), subject) {
+		return true
+	}
+	for _, v := range s.Labels {
+		if strings.Contains(strings.ToLower(v), subject) {
+			return true
+		}
+	}
+	return false
 }

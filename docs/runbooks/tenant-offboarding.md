@@ -56,9 +56,12 @@ Export uses `POST /v1/lifecycle/subjects/export` (permission
 The response is `probectl-subject-export.tar.gz`. It contains `manifest.json`
 with only a tenant-scoped subject hash, plus matching JSONL files such as
 `postgres/users.jsonl`, `flows.jsonl`, `otel_spans.jsonl`, and
-`otel_logs.jsonl` when those planes contain matching rows. The raw subject is
-in the exported data because this is the tenant's portability bundle; it is not
-stored in the manifest or provider audit receipt.
+`otel_logs.jsonl`, `tsdb_metrics.jsonl`, `topology_subject.jsonl`,
+`ebpf_edges.jsonl`, and `endpoint_subject.jsonl` when those planes contain
+matching rows. RUM host/path labels are covered by `tsdb_metrics`; device labels
+are counted from topology device nodes. The raw subject is in the exported data
+because this is the tenant's portability bundle; it is not stored in the
+manifest or provider audit receipt.
 
 CLI equivalent:
 
@@ -74,12 +77,16 @@ Erasure uses `POST /v1/lifecycle/subjects/erase` (permission
 ```
 
 The exact confirmation is deliberate friction for an irreversible action. The
-engine removes matching identity rows, persisted AI answers, flow rows, and OTLP
-trace/log rows for the caller's tenant only. Audit rows are append-only, so the
+engine removes matching identity rows, persisted AI answers, flow rows, OTLP
+trace/log rows, in-memory TSDB metric labels, topology/device graph labels,
+eBPF workload aggregates, and endpoint latest-view labels for the caller's
+tenant only when those stores are wired. Audit rows are append-only, so the
 engine records a `privacy.subject_erase` marker instead of rewriting history;
 future audit reads/exports project matching structured actor/target/data values
-as `[erased-subject]` while the hash chain stays verifiable. The returned report
-lists each plane's deleted and remaining counts and includes `report_sha256`.
+as `[erased-subject]` while the hash chain stays verifiable. Aggregate backends
+that cannot locally delete a single subject are not hidden: the returned report
+lists each plane's deleted and remaining counts, `not_capable`/age-out basis
+where needed, and includes `report_sha256`.
 
 CLI equivalent:
 

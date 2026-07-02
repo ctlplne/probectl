@@ -34,6 +34,7 @@ type SubjectPlaneResult struct {
 const (
 	SubjectStatusExported       = "exported"
 	SubjectStatusDeleted        = "deleted"
+	SubjectStatusCoveredByPlane = "covered_by_parent"
 	SubjectStatusProjected      = "projected"
 	SubjectStatusFailed         = "failed"
 	SubjectStatusNotDeployed    = "not_deployed"
@@ -81,6 +82,38 @@ type otelSubjectExporter interface {
 	ExportSubject(ctx context.Context, tenantID, subject string, spansW, logsW io.Writer) (spans, logs int64, err error)
 }
 
+type tsdbSubjectExporter interface {
+	ExportSubject(ctx context.Context, tenantID, subject string, w io.Writer) (rows int64, err error)
+}
+
+type tsdbSubjectDeleter interface {
+	DeleteSubject(ctx context.Context, tenantID, subject string) (deleted, remaining int64, err error)
+}
+
+type topologySubjectExporter interface {
+	ExportSubject(tenantID, subject string, w io.Writer) (nodes, edges, deviceNodes int64, err error)
+}
+
+type topologySubjectDeleter interface {
+	DeleteSubject(tenantID, subject string) (deleted, remaining, deviceDeleted, deviceRemaining int64)
+}
+
+type ebpfSubjectExporter interface {
+	ExportSubject(ctx context.Context, tenantID, subject string, w io.Writer) (rows int64, err error)
+}
+
+type ebpfSubjectDeleter interface {
+	DeleteSubject(ctx context.Context, tenantID, subject string) (deleted, remaining int64, err error)
+}
+
+type endpointSubjectExporter interface {
+	ExportSubject(tenantID, subject string, w io.Writer) (rows int64, err error)
+}
+
+type endpointSubjectDeleter interface {
+	DeleteSubject(tenantID, subject string) (deleted, remaining int64)
+}
+
 // ExportSubject writes a subject-scoped portability bundle. Reads are tenant
 // scoped first; the subject filter is applied only inside the caller's tenant.
 func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w io.Writer, redact bool) (SubjectManifest, error) {
@@ -111,105 +144,20 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 	gz := gzip.NewWriter(w)
 	tw := tar.NewWriter(gz)
 
-	if e.pool != nil {
-		tables, err := e.tenantOwnedTables(ctx)
-		if err != nil {
+	x := subjectExportContext{ctx: ctx, tenantID: tenantID, subject: subject, tw: tw, man: &man, pol: pol, redact: redact}
+	for _, step := range []func(*subjectExportContext) error{
+		e.exportSubjectPostgres,
+		e.exportSubjectFlows,
+		e.exportSubjectOtel,
+		e.exportSubjectTSDB,
+		e.exportSubjectTopology,
+		e.exportSubjectEBPF,
+		e.exportSubjectEndpoint,
+	} {
+		if err := step(&x); err != nil {
 			return man, err
 		}
-		tctx := tenancy.WithTenant(ctx, tenancy.ID(tenantID))
-		for _, table := range tables {
-			var buf bytes.Buffer
-			var count int64
-			err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
-				rows, err := sc.Q.Query(ctx, `SELECT row_to_json(t) FROM `+pgIdent(table)+` t`)
-				if err != nil {
-					return err
-				}
-				defer rows.Close()
-				for rows.Next() {
-					var raw []byte
-					if err := rows.Scan(&raw); err != nil {
-						return err
-					}
-					if !bytes.Contains(bytes.ToLower(raw), []byte(strings.ToLower(subject))) {
-						continue
-					}
-					buf.Write(raw)
-					buf.WriteByte('\n')
-					count++
-				}
-				return rows.Err()
-			})
-			if err != nil {
-				return man, fmt.Errorf("tenantlife: subject export %s: %w", table, err)
-			}
-			if count == 0 {
-				continue
-			}
-			out := buf.Bytes()
-			if redact {
-				out = govern.RedactJSONL(pol, out)
-			}
-			if err := writeTarFile(tw, "postgres/"+table+".jsonl", out, man.ExportedAt); err != nil {
-				return man, err
-			}
-			man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "postgres:" + table, Status: SubjectStatusExported, Rows: count})
-		}
 	}
-
-	if e.flows != nil {
-		var all, filtered bytes.Buffer
-		if _, err := e.flows.ExportTenant(ctx, tenantID, &all); err != nil {
-			return man, fmt.Errorf("tenantlife: subject export flows: %w", err)
-		}
-		n := filterJSONLLines(&filtered, all.Bytes(), subject)
-		out := filtered.Bytes()
-		if redact {
-			out = govern.RedactJSONL(pol, out)
-		}
-		if n > 0 {
-			if err := writeTarFile(tw, "flows.jsonl", out, man.ExportedAt); err != nil {
-				return man, err
-			}
-		}
-		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusExported, Rows: n})
-	} else {
-		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
-	}
-
-	if ox, ok := e.otel.(otelSubjectExporter); ok {
-		var spans, logs bytes.Buffer
-		sn, ln, err := ox.ExportSubject(ctx, tenantID, subject, &spans, &logs)
-		if err != nil {
-			return man, fmt.Errorf("tenantlife: subject export otel: %w", err)
-		}
-		if sn > 0 {
-			out := spans.Bytes()
-			if redact {
-				out = govern.RedactJSONL(pol, out)
-			}
-			if err := writeTarFile(tw, "otel_spans.jsonl", out, man.ExportedAt); err != nil {
-				return man, err
-			}
-		}
-		if ln > 0 {
-			out := logs.Bytes()
-			if redact {
-				out = govern.RedactJSONL(pol, out)
-			}
-			if err := writeTarFile(tw, "otel_logs.jsonl", out, man.ExportedAt); err != nil {
-				return man, err
-			}
-		}
-		man.Planes = append(man.Planes,
-			SubjectPlaneResult{Plane: "otel_spans", Status: SubjectStatusExported, Rows: sn},
-			SubjectPlaneResult{Plane: "otel_logs", Status: SubjectStatusExported, Rows: ln})
-	} else if e.otel == nil {
-		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
-	} else {
-		man.Planes = append(man.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotCapable, Notes: "store is deployed but not subject-export capable"})
-	}
-	man.Planes = append(man.Planes, e.subjectNonAddressablePlanes()...)
 
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
@@ -236,6 +184,223 @@ func (e *Engine) ExportSubject(ctx context.Context, tenantID, subject string, w 
 		}
 	}
 	return man, nil
+}
+
+type subjectExportContext struct {
+	ctx      context.Context
+	tenantID string
+	subject  string
+	tw       *tar.Writer
+	man      *SubjectManifest
+	pol      govern.Policy
+	redact   bool
+}
+
+func (x *subjectExportContext) writeJSONL(path string, buf *bytes.Buffer, rows int64) error {
+	if rows == 0 {
+		return nil
+	}
+	out := buf.Bytes()
+	if x.redact {
+		out = govern.RedactJSONL(x.pol, out)
+	}
+	return writeTarFile(x.tw, path, out, x.man.ExportedAt)
+}
+
+func (e *Engine) exportSubjectPostgres(x *subjectExportContext) error {
+	if e.pool == nil {
+		return nil
+	}
+	tables, err := e.tenantOwnedTables(x.ctx)
+	if err != nil {
+		return err
+	}
+	tctx := tenancy.WithTenant(x.ctx, tenancy.ID(x.tenantID))
+	subject := []byte(strings.ToLower(x.subject))
+	for _, table := range tables {
+		var buf bytes.Buffer
+		var count int64
+		err := tenancy.InTenant(tctx, e.pool, func(ctx context.Context, sc tenancy.Scope) error {
+			rows, err := sc.Q.Query(ctx, `SELECT row_to_json(t) FROM `+pgIdent(table)+` t`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var raw []byte
+				if err := rows.Scan(&raw); err != nil {
+					return err
+				}
+				if !bytes.Contains(bytes.ToLower(raw), subject) {
+					continue
+				}
+				buf.Write(raw)
+				buf.WriteByte('\n')
+				count++
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			return fmt.Errorf("tenantlife: subject export %s: %w", table, err)
+		}
+		if err := x.writeJSONL("postgres/"+table+".jsonl", &buf, count); err != nil {
+			return err
+		}
+		if count > 0 {
+			x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "postgres:" + table, Status: SubjectStatusExported, Rows: count})
+		}
+	}
+	return nil
+}
+
+func (e *Engine) exportSubjectFlows(x *subjectExportContext) error {
+	if e.flows == nil {
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+		return nil
+	}
+	var all, filtered bytes.Buffer
+	if _, err := e.flows.ExportTenant(x.ctx, x.tenantID, &all); err != nil {
+		return fmt.Errorf("tenantlife: subject export flows: %w", err)
+	}
+	n := filterJSONLLines(&filtered, all.Bytes(), x.subject)
+	if err := x.writeJSONL("flows.jsonl", &filtered, n); err != nil {
+		return err
+	}
+	x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "flows", Status: SubjectStatusExported, Rows: n})
+	return nil
+}
+
+func (e *Engine) exportSubjectOtel(x *subjectExportContext) error {
+	ox, ok := e.otel.(otelSubjectExporter)
+	if e.otel == nil {
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+		return nil
+	}
+	if !ok {
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "otel", Status: SubjectStatusNotCapable, Notes: "store is deployed but not subject-export capable"})
+		return nil
+	}
+	var spans, logs bytes.Buffer
+	sn, ln, err := ox.ExportSubject(x.ctx, x.tenantID, x.subject, &spans, &logs)
+	if err != nil {
+		return fmt.Errorf("tenantlife: subject export otel: %w", err)
+	}
+	if err := x.writeJSONL("otel_spans.jsonl", &spans, sn); err != nil {
+		return err
+	}
+	if err := x.writeJSONL("otel_logs.jsonl", &logs, ln); err != nil {
+		return err
+	}
+	x.man.Planes = append(x.man.Planes,
+		SubjectPlaneResult{Plane: "otel_spans", Status: SubjectStatusExported, Rows: sn},
+		SubjectPlaneResult{Plane: "otel_logs", Status: SubjectStatusExported, Rows: ln})
+	return nil
+}
+
+func (e *Engine) exportSubjectTSDB(x *subjectExportContext) error {
+	tx, ok := e.tsdbW.(tsdbSubjectExporter)
+	switch {
+	case e.tsdbW == nil:
+		x.man.Planes = append(x.man.Planes,
+			SubjectPlaneResult{Plane: "tsdb_metrics", Status: SubjectStatusNotDeployed, Notes: "store not deployed"},
+			SubjectPlaneResult{Plane: "rum", Status: SubjectStatusNotDeployed, Notes: "RUM metrics store not deployed"},
+		)
+		return nil
+	case !ok:
+		x.man.Planes = append(x.man.Planes,
+			SubjectPlaneResult{Plane: "tsdb_metrics", Status: SubjectStatusNotCapable, Notes: "remote TSDB exports are aggregate label-set/federation owned; age-out follows the external TSDB retention clock"},
+			SubjectPlaneResult{Plane: "rum", Status: SubjectStatusNotCapable, Notes: "RUM is stored as TSDB aggregates; remote TSDB subject export requires operator Prometheus/VictoriaMetrics federation"},
+		)
+		return nil
+	}
+	var tsdb bytes.Buffer
+	n, err := tx.ExportSubject(x.ctx, x.tenantID, x.subject, &tsdb)
+	if err != nil {
+		return fmt.Errorf("tenantlife: subject export tsdb: %w", err)
+	}
+	if err := x.writeJSONL("tsdb_metrics.jsonl", &tsdb, n); err != nil {
+		return err
+	}
+	x.man.Planes = append(x.man.Planes,
+		SubjectPlaneResult{Plane: "tsdb_metrics", Status: SubjectStatusExported, Rows: n, Notes: "metric names and label values are subject-filtered inside the tenant"},
+		SubjectPlaneResult{Plane: "rum", Status: SubjectStatusCoveredByPlane, Rows: n, Notes: "RUM host/path metrics are covered by tsdb_metrics when their labels match; client IP and user-agent are never stored"},
+	)
+	return nil
+}
+
+func (e *Engine) exportSubjectTopology(x *subjectExportContext) error {
+	tx, ok := e.topo.(topologySubjectExporter)
+	switch {
+	case e.topo == nil:
+		x.man.Planes = append(x.man.Planes,
+			SubjectPlaneResult{Plane: "topology", Status: SubjectStatusNotDeployed, Notes: "store not deployed"},
+			SubjectPlaneResult{Plane: "device", Status: SubjectStatusNotDeployed, Notes: "topology/device graph not deployed"},
+		)
+		return nil
+	case !ok:
+		x.man.Planes = append(x.man.Planes,
+			SubjectPlaneResult{Plane: "topology", Status: SubjectStatusNotCapable, Notes: "topology store is deployed but not subject-export capable; derived labels age out by retention"},
+			SubjectPlaneResult{Plane: "device", Status: SubjectStatusNotCapable, Notes: "device-derived labels are in a topology backend without subject export; age out by retention"},
+		)
+		return nil
+	}
+	var topo bytes.Buffer
+	nodes, edges, deviceNodes, err := tx.ExportSubject(x.tenantID, x.subject, &topo)
+	if err != nil {
+		return fmt.Errorf("tenantlife: subject export topology: %w", err)
+	}
+	if err := x.writeJSONL("topology_subject.jsonl", &topo, nodes+edges); err != nil {
+		return err
+	}
+	x.man.Planes = append(x.man.Planes,
+		SubjectPlaneResult{Plane: "topology", Status: SubjectStatusExported, Rows: nodes + edges, Notes: "bounded derived graph labels are subject-filtered inside the tenant"},
+		SubjectPlaneResult{Plane: "device", Status: SubjectStatusExported, Rows: deviceNodes, Notes: "device-derived identity labels live in topology device nodes and are counted separately"},
+	)
+	return nil
+}
+
+func (e *Engine) exportSubjectEBPF(x *subjectExportContext) error {
+	ex, ok := e.ebpf.(ebpfSubjectExporter)
+	switch {
+	case e.ebpf == nil:
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "ebpf", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+		return nil
+	case !ok:
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "ebpf", Status: SubjectStatusNotCapable, Notes: "eBPF aggregate backend is deployed but not subject-export capable; age-out follows eBPF retention"})
+		return nil
+	}
+	var ebpf bytes.Buffer
+	n, err := ex.ExportSubject(x.ctx, x.tenantID, x.subject, &ebpf)
+	if err != nil {
+		return fmt.Errorf("tenantlife: subject export ebpf: %w", err)
+	}
+	if err := x.writeJSONL("ebpf_edges.jsonl", &ebpf, n); err != nil {
+		return err
+	}
+	x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "ebpf", Status: SubjectStatusExported, Rows: n, Notes: "workload aggregate labels are subject-filtered inside the tenant"})
+	return nil
+}
+
+func (e *Engine) exportSubjectEndpoint(x *subjectExportContext) error {
+	ex, ok := e.endpointRetention.(endpointSubjectExporter)
+	switch {
+	case e.endpointRetention == nil:
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+		return nil
+	case !ok:
+		x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusNotCapable, Notes: "endpoint latest-view backend is deployed but not subject-export capable; age-out follows derived identity retention"})
+		return nil
+	}
+	var endpoints bytes.Buffer
+	n, err := ex.ExportSubject(x.tenantID, x.subject, &endpoints)
+	if err != nil {
+		return fmt.Errorf("tenantlife: subject export endpoint: %w", err)
+	}
+	if err := x.writeJSONL("endpoint_subject.jsonl", &endpoints, n); err != nil {
+		return err
+	}
+	x.man.Planes = append(x.man.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusExported, Rows: n, Notes: "bounded endpoint latest-view labels are subject-filtered inside the tenant"})
+	return nil
 }
 
 // EraseSubject runs the subject erasure workflow across identity, persisted AI,
@@ -315,7 +480,76 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 	} else {
 		fail("otel", "store is deployed but not subject-erase capable")
 	}
-	rep.Planes = append(rep.Planes, e.subjectNonAddressablePlanes()...)
+	if td, ok := e.tsdbW.(tsdbSubjectDeleter); ok {
+		deleted, remaining, err := td.DeleteSubject(ctx, tenantID, subject)
+		if err != nil {
+			fail("tsdb_metrics", err.Error())
+		} else {
+			rep.Planes = append(rep.Planes,
+				SubjectPlaneResult{Plane: "tsdb_metrics", Status: SubjectStatusDeleted, Deleted: deleted, Remaining: remaining, Notes: "metric names and label values are subject-filtered inside the tenant"},
+				SubjectPlaneResult{Plane: "rum", Status: SubjectStatusCoveredByPlane, Deleted: deleted, Remaining: remaining, Notes: "RUM host/path metrics are covered by tsdb_metrics; raw browser IP and user-agent are never stored"},
+			)
+			if remaining != 0 {
+				rep.Complete = false
+			}
+		}
+	} else if e.tsdbW == nil {
+		rep.Planes = append(rep.Planes,
+			SubjectPlaneResult{Plane: "tsdb_metrics", Status: SubjectStatusNotDeployed, Notes: "store not deployed"},
+			SubjectPlaneResult{Plane: "rum", Status: SubjectStatusNotDeployed, Notes: "RUM metrics store not deployed"},
+		)
+	} else {
+		rep.Planes = append(rep.Planes,
+			SubjectPlaneResult{Plane: "tsdb_metrics", Status: SubjectStatusNotCapable, Notes: "remote TSDB subject deletion requires operator delete_series by exported label-set or retention age-out"},
+			SubjectPlaneResult{Plane: "rum", Status: SubjectStatusNotCapable, Notes: "RUM is stored as TSDB aggregates; remote TSDB deletion follows TSDB delete_series/retention"},
+		)
+	}
+	if td, ok := e.topo.(topologySubjectDeleter); ok {
+		deleted, remaining, deviceDeleted, deviceRemaining := td.DeleteSubject(tenantID, subject)
+		rep.Planes = append(rep.Planes,
+			SubjectPlaneResult{Plane: "topology", Status: SubjectStatusDeleted, Deleted: deleted, Remaining: remaining, Notes: "bounded derived graph labels are subject-filtered inside the tenant"},
+			SubjectPlaneResult{Plane: "device", Status: SubjectStatusDeleted, Deleted: deviceDeleted, Remaining: deviceRemaining, Notes: "device-derived identity labels live in topology device nodes and are counted separately"},
+		)
+		if remaining != 0 || deviceRemaining != 0 {
+			rep.Complete = false
+		}
+	} else if e.topo == nil {
+		rep.Planes = append(rep.Planes,
+			SubjectPlaneResult{Plane: "topology", Status: SubjectStatusNotDeployed, Notes: "store not deployed"},
+			SubjectPlaneResult{Plane: "device", Status: SubjectStatusNotDeployed, Notes: "topology/device graph not deployed"},
+		)
+	} else {
+		rep.Planes = append(rep.Planes,
+			SubjectPlaneResult{Plane: "topology", Status: SubjectStatusNotCapable, Notes: "topology store is deployed but not subject-erase capable; derived labels age out by retention"},
+			SubjectPlaneResult{Plane: "device", Status: SubjectStatusNotCapable, Notes: "device-derived labels are in a topology backend without subject erase; age out by retention"},
+		)
+	}
+	if ed, ok := e.ebpf.(ebpfSubjectDeleter); ok {
+		deleted, remaining, err := ed.DeleteSubject(ctx, tenantID, subject)
+		if err != nil {
+			fail("ebpf", err.Error())
+		} else {
+			rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "ebpf", Status: SubjectStatusDeleted, Deleted: deleted, Remaining: remaining, Notes: "workload aggregate labels are subject-filtered inside the tenant"})
+			if remaining != 0 {
+				rep.Complete = false
+			}
+		}
+	} else if e.ebpf == nil {
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "ebpf", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+	} else {
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "ebpf", Status: SubjectStatusNotCapable, Notes: "eBPF aggregate backend is deployed but not subject-erase capable; age-out follows eBPF retention"})
+	}
+	if ed, ok := e.endpointRetention.(endpointSubjectDeleter); ok {
+		deleted, remaining := ed.DeleteSubject(tenantID, subject)
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusDeleted, Deleted: deleted, Remaining: remaining, Notes: "bounded endpoint latest-view labels are subject-filtered inside the tenant"})
+		if remaining != 0 {
+			rep.Complete = false
+		}
+	} else if e.endpointRetention == nil {
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusNotDeployed, Notes: "store not deployed"})
+	} else {
+		rep.Planes = append(rep.Planes, SubjectPlaneResult{Plane: "endpoint", Status: SubjectStatusNotCapable, Notes: "endpoint latest-view backend is deployed but not subject-erase capable; age-out follows derived identity retention"})
+	}
 
 	rep.FinishedAt = e.now().UTC()
 	rep.ReportSHA256 = rep.hash()
@@ -328,28 +562,6 @@ func (e *Engine) EraseSubject(ctx context.Context, tenantID, subject, actor, rea
 		}
 	}
 	return rep, nil
-}
-
-func (e *Engine) subjectNonAddressablePlanes() []SubjectPlaneResult {
-	return []SubjectPlaneResult{
-		e.subjectDerivedPlane("topology", e.topo != nil,
-			"derived graph labels are not a subject-indexed store; source telemetry and tenant erasure own deletion"),
-		e.subjectDerivedPlane("ebpf", e.ebpf != nil,
-			"eBPF service-edge aggregates are workload aggregates, not subject-indexed personal records"),
-		{Plane: "rum", Status: SubjectStatusNotAddressable,
-			Notes: "RUM host/path samples are privacy-redacted result signals and are not subject-indexed by lifecycle"},
-		{Plane: "device", Status: SubjectStatusNotAddressable,
-			Notes: "device sysName/interface labels are operational inventory labels and are not subject-indexed by lifecycle"},
-		e.subjectDerivedPlane("endpoint", e.endpointRetention != nil,
-			"endpoint latest-view labels are derived DEM cache entries and are not subject-indexed by lifecycle"),
-	}
-}
-
-func (e *Engine) subjectDerivedPlane(plane string, deployed bool, notes string) SubjectPlaneResult {
-	if !deployed {
-		return SubjectPlaneResult{Plane: plane, Status: SubjectStatusNotDeployed, Notes: "store not deployed"}
-	}
-	return SubjectPlaneResult{Plane: plane, Status: SubjectStatusNotAddressable, Notes: notes}
 }
 
 func (e *Engine) eraseSubjectPostgres(ctx context.Context, tenantID, subject string) ([]SubjectPlaneResult, error) {

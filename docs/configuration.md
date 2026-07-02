@@ -1882,9 +1882,13 @@ the subject never appears in URLs, proxy logs, or browser history. The receipt
 stores only a tenant-scoped subject hash, deleted/remaining counts per plane,
 and the report hash. The subject manifest is complete across privacy-relevant
 surfaces: flow and OTLP planes report exported/deleted row counts; immutable
-audit reports `projected`; aggregate or derived surfaces such as topology,
-eBPF, RUM, device labels, and endpoint latest views report
-`not_subject_addressable` instead of disappearing from the receipt.
+audit reports `projected`; TSDB metrics, topology labels, eBPF workload
+aggregates, endpoint latest views, and topology device nodes report their own
+export/delete receipts when the wired backend is subject-capable. RUM reports
+`covered_by_parent` because its host/path samples live in `tsdb_metrics`.
+Aggregate backends that cannot locally delete one subject report `not_capable`
+with the delete-series or retention age-out basis instead of disappearing from
+the receipt.
 
 Audit subject erasure is layered on the append-only audit chain. A
 `privacy.subject_erase` marker stores only a tenant-scoped subject hash; later

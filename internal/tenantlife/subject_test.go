@@ -94,22 +94,37 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 		t.Fatal("subject export must store only a tenant-scoped subject hash in the manifest")
 	}
 	files := readTarGz(t, bundle.Bytes())
-	for _, name := range []string{"flows.jsonl", "otel_spans.jsonl", "otel_logs.jsonl", "manifest.json"} {
+	for _, name := range []string{
+		"flows.jsonl",
+		"otel_spans.jsonl",
+		"otel_logs.jsonl",
+		"tsdb_metrics.jsonl",
+		"topology_subject.jsonl",
+		"ebpf_edges.jsonl",
+		"endpoint_subject.jsonl",
+		"manifest.json",
+	} {
 		if files[name] == "" {
 			t.Fatalf("missing %s in subject bundle; files=%v", name, files)
 		}
 	}
-	if strings.Contains(files["flows.jsonl"], "router-b") || strings.Contains(files["otel_spans.jsonl"], `"tenant_id":"tenant-b"`) {
-		t.Fatalf("subject export leaked another tenant:\nflows=%s\nspans=%s", files["flows.jsonl"], files["otel_spans.jsonl"])
+	if strings.Contains(files["flows.jsonl"], "router-b") ||
+		strings.Contains(files["otel_spans.jsonl"], `"tenant_id":"tenant-b"`) ||
+		strings.Contains(files["tsdb_metrics.jsonl"], `"tenant_id":"tenant-b"`) {
+		t.Fatalf("subject export leaked another tenant:\nflows=%s\nspans=%s\ntsdb=%s",
+			files["flows.jsonl"], files["otel_spans.jsonl"], files["tsdb_metrics.jsonl"])
 	}
 	exportPlanes := subjectPlanesByName(man.Planes)
 	if exportPlanes["flows"].Rows != 1 || exportPlanes["otel_spans"].Rows != 1 || exportPlanes["otel_logs"].Rows != 1 {
 		t.Fatalf("export counts missing subject-addressable planes: %+v", exportPlanes)
 	}
-	for _, plane := range []string{"topology", "ebpf", "rum", "device", "endpoint"} {
-		if exportPlanes[plane].Status != SubjectStatusNotAddressable {
-			t.Fatalf("export plane %s status = %+v, want not-addressable", plane, exportPlanes[plane])
+	for _, plane := range []string{"tsdb_metrics", "topology", "ebpf", "device", "endpoint"} {
+		if exportPlanes[plane].Status != SubjectStatusExported || exportPlanes[plane].Rows == 0 {
+			t.Fatalf("export plane %s status = %+v, want exported rows", plane, exportPlanes[plane])
 		}
+	}
+	if exportPlanes["rum"].Status != SubjectStatusCoveredByPlane || exportPlanes["rum"].Rows == 0 {
+		t.Fatalf("rum export receipt = %+v, want covered by tsdb_metrics", exportPlanes["rum"])
 	}
 
 	report, err := e.EraseSubject(ctx, "tenant-a", subject, "privacy-admin", "dsar")
@@ -126,10 +141,13 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	if erasePlanes["otel"].Deleted != 2 || erasePlanes["otel"].Remaining != 0 {
 		t.Fatalf("otel erasure receipt = %+v", erasePlanes["otel"])
 	}
-	for _, plane := range []string{"topology", "ebpf", "rum", "device", "endpoint"} {
-		if erasePlanes[plane].Status != SubjectStatusNotAddressable {
-			t.Fatalf("erase plane %s status = %+v, want not-addressable", plane, erasePlanes[plane])
+	for _, plane := range []string{"tsdb_metrics", "topology", "ebpf", "device", "endpoint"} {
+		if erasePlanes[plane].Status != SubjectStatusDeleted || erasePlanes[plane].Remaining != 0 {
+			t.Fatalf("erase plane %s receipt = %+v, want deleted/remaining=0", plane, erasePlanes[plane])
 		}
+	}
+	if erasePlanes["rum"].Status != SubjectStatusCoveredByPlane || erasePlanes["rum"].Remaining != 0 {
+		t.Fatalf("rum erase receipt = %+v, want covered by tsdb_metrics", erasePlanes["rum"])
 	}
 	var afterA bytes.Buffer
 	if _, err := flows.ExportTenant(ctx, "tenant-a", &afterA); err != nil {
@@ -154,6 +172,44 @@ func TestSubjectLifecycleMemoryTelemetryExportErase(t *testing.T) {
 	logsB, _ := otel.QueryLogs(ctx, "tenant-b", otelstore.LogQuery{})
 	if len(spansB) != 1 || len(logsB) != 1 {
 		t.Fatalf("tenant-b otel rows must be untouched: spans=%v logs=%v", spansB, logsB)
+	}
+	for _, s := range mem.Snapshot() {
+		if s.Labels["tenant_id"] != "tenant-a" {
+			continue
+		}
+		for _, v := range s.Labels {
+			if strings.Contains(v, subject) {
+				t.Fatalf("tenant-a tsdb subject survived erase: %+v", s)
+			}
+		}
+	}
+	snap := topo.Latest("tenant-a")
+	for _, n := range snap.Nodes {
+		if strings.Contains(n.ID+n.Label, subject) {
+			t.Fatalf("tenant-a topology node subject survived erase: %+v", n)
+		}
+		for _, v := range n.Attributes {
+			if strings.Contains(v, subject) {
+				t.Fatalf("tenant-a topology node attr subject survived erase: %+v", n)
+			}
+		}
+	}
+	for _, e := range snap.Edges {
+		if strings.Contains(e.ID+e.From+e.To+e.Label, subject) {
+			t.Fatalf("tenant-a topology edge subject survived erase: %+v", e)
+		}
+	}
+	top, err := edges.TopEdges(ctx, "tenant-a", ebpfstore.EdgeQuery{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range top {
+		if strings.Contains(e.SrcWorkload+e.DstWorkload+e.AgentID, subject) {
+			t.Fatalf("tenant-a ebpf subject survived erase: %+v", e)
+		}
+	}
+	if got := endpoints.List("tenant-a"); len(got) != 0 {
+		t.Fatalf("tenant-a endpoint subject survived erase: %+v", got)
 	}
 }
 
