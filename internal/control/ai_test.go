@@ -92,6 +92,25 @@ func TestAIAskRemoteEgressDeniedReturnsForbidden(t *testing.T) {
 	}
 }
 
+func TestAIRemoteEgressAuditDataIncludesSurface(t *testing.T) {
+	for _, surface := range []string{"rca", "author", "mcp"} {
+		data := aiRemoteEgressAuditData(ai.EgressEvent{
+			TenantID:      "tenant-a",
+			Endpoint:      "https://ai.example.test/v1/chat",
+			Model:         "test-remote",
+			Surface:       surface,
+			EvidenceCount: 2,
+			Planes:        []string{"bgp", "flow"},
+		})
+		if data["surface"] != surface {
+			t.Fatalf("ai.remote_egress audit payload for %s missing surface: %#v", surface, data)
+		}
+		if data["model"] != "test-remote" || data["evidence_count"] != 2 {
+			t.Fatalf("ai.remote_egress audit payload lost model/evidence context: %#v", data)
+		}
+	}
+}
+
 func TestHandleAIFeedbackValidationAndPersistenceGuard(t *testing.T) {
 	h := testServer(nil).Handler()
 

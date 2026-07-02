@@ -69,6 +69,30 @@ func TestMCPEgressConsentDeniedAndAudited(t *testing.T) {
 	}
 }
 
+func TestMCPEgressEmitsSurfaceForTenantAudit(t *testing.T) {
+	fb := &fakeBackend{}
+	var egress []ai.EgressEvent
+	gate := ai.NewEgressGate(func(_ context.Context, tenant string) (bool, error) {
+		return tenant == "t1", nil
+	}, func(_ context.Context, ev ai.EgressEvent) {
+		egress = append(egress, ev)
+	}, ai.RedactionPolicy{})
+	s := New(fb, gate)
+
+	p := &auth.Principal{TenantID: "t1", UserID: "u1", Permissions: map[string]bool{"test.read": true}}
+	res := callRPC(t, s, p, "list_tests")
+	if res["isError"] == true {
+		t.Fatalf("consented MCP call must pass: %v", res)
+	}
+	if len(egress) != 1 {
+		t.Fatalf("want one tenant egress event, got %+v", egress)
+	}
+	ev := egress[0]
+	if ev.TenantID != "t1" || ev.Surface != "mcp" || ev.Endpoint != "mcp-client" || ev.Model != "mcp" {
+		t.Fatalf("MCP egress event lost tenant/surface context: %+v", ev)
+	}
+}
+
 // Every OUTCOME audits — permission and rate denials included (AIRCA-003).
 func TestMCPAuditCoversEveryOutcome(t *testing.T) {
 	fb := &fakeBackend{}
