@@ -28,10 +28,12 @@ Two honesty notes on delivery. The **webhook** channel is the fully-wired path
 **email** channel type exists end to end (a plain-text message via an SMTP
 sender), but the shipped control plane does not yet wire a mail sender or
 expose SMTP configuration — a rule with an email channel is skipped with a
-logged warning until one is wired. And per-rule channels are only half the
-notification story: incident-level paging, chat, and ticketing connectors
-(PagerDuty, Opsgenie, Slack, Teams, ServiceNow, Jira) ride the *incident*
-pipeline, not alert rules — see [`docs/oncall-itsm.md`](oncall-itsm.md).
+logged warning until one is wired. This is tracked as a built-not-yet-served
+edge in the canonical [limitations table](limitations.md#built-not-yet-served-edges).
+And per-rule channels are only half the notification story: incident-level
+paging, chat, and ticketing connectors (PagerDuty, Opsgenie, Slack, Teams,
+ServiceNow, Jira) ride the *incident* pipeline, not alert rules — see
+[`docs/oncall-itsm.md`](oncall-itsm.md).
 
 Why split it this way? Rules are operator intent and must survive restarts, so
 they live in the database. "What is firing" is a live computation over the latest
@@ -59,14 +61,15 @@ flowchart LR
 ```
 
 The evaluator ticks every `PROBECTL_ALERT_EVAL_INTERVAL` (default `30s`),
-re-reading the tenant's enabled rules through the row-level-security choke
-point (RLS — the database itself filters every query to one tenant's rows) on
-each pass. Two scope limits worth knowing, both surfaced honestly as
-`evaluator_running: false` rather than hidden: the default deployment wires the
-evaluator for the default tenant (per-tenant fan-out across many tenants is a
-noted follow-up), and the evaluator needs an in-process TSDB to query — in
-`PROBECTL_TSDB_MODE=prometheus` (remote-write-out) mode there is no in-process
-query backend, so the loop is skipped.
+syncs the active tenant set, and keeps one evaluator engine per active tenant.
+Each engine re-reads that tenant's enabled rules through the row-level-security
+choke point (RLS — the database itself filters every query to one tenant's rows)
+on each pass. The metric read path is tenant-scoped in both supported modes:
+lightweight deployments query the in-process TSDB, while
+`PROBECTL_TSDB_MODE=prometheus` deployments query the Prometheus/VictoriaMetrics
+instant-query backend with a forced `tenant_id` matcher. If neither metric query
+backend is wired, APIs surface `evaluator_running: false` rather than showing a
+falsely empty "all clear".
 
 ## Active-alert API
 

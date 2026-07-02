@@ -53,7 +53,7 @@ Everything in this section is backed by code in the repo and a named evidence pa
 - ✅ **Topology graph.** Telemetry-fed, versioned, tenant-keyed; rebuild-on-restart by design (ADR `docs/adr/volatile-stores.md`, U-047) with cold-start tests. `internal/topology`.
 - ✅ **Change intelligence.** Git/CI/deploy webhook ingestion (HMAC-verified, treated as untrusted), change timeline, change-to-incident candidates, feeds RCA. `internal/change`, `docs/change-intel.md`.
 - ✅ **AI RCA + NL query.** Deterministic planner → tenant-first-then-RBAC semantic query engine → synthesis → **citation-integrity grounding** (a finding citing nonexistent evidence is dropped). Air-gapped builtin model is the default; Ollama/OpenAI/Anthropic adapters are gated on per-tenant recorded egress consent + audit + PII redaction (U-013/C7/C8); prompt-injection hardening with non-guessable evidence IDs (U-037/D9); process-wide concurrency backstop (U-048); per-domain evidence field allow-list (U-092); optional persisted answer artifacts with retention for disputes (U-093). `internal/ai` · *test-go, rca-eval*.
-- ✅ **RCA quality eval.** 24 labeled scenarios across planes, scoring answer accuracy / citation precision / honesty (negative control must yield "insufficient evidence"); builtin baseline 0.91/0.92/pass; non-blocking CI job uploads the score artifact (U-049). `internal/ai/eval` · *rca-eval*.
+- ✅ **RCA quality eval.** 24 labeled scenarios across planes, scoring answer accuracy / citation precision / honesty (negative control must yield "insufficient evidence"); builtin baseline 0.91/0.92/pass; the blocking CI job enforces 0.85/0.85 floors and uploads the score artifact (U-049). `internal/ai/eval` · *rca-eval*.
 - ✅ **MCP server.** Tenant- + RBAC-scoped tools over the same query boundary; hashed tokens with RLS-backed storage (U-091). `internal/ai/mcp`, `internal/store/mcptokens.go`.
 - ✅ **AI test authoring + auto-discovery.** NL → canary config; heuristic by default, model-backed when configured. `internal/ai/author`, `docs/ai-authoring.md`.
 
@@ -114,7 +114,7 @@ The repo's claims are enforced by **~30 CI jobs**; the notable standing gates:
 | *helm-gate* | secure-by-default rendering: no default creds, hardened pods, HTTPS, NetworkPolicy default-on |
 | *backup-drill / failover-drill* | restore and failover paths cannot silently rot — executed on every pass |
 | *scale-gate floor + load-smoke* | ingest pipeline materiality floor; S-tier full-stack smoke |
-| *rca-eval* (non-blocking) | RCA answer accuracy / citation precision tracked as an artifact |
+| *rca-eval* (blocking) | RCA answer accuracy / citation precision enforced at 0.85 / 0.85 and published as an artifact |
 | *coverage floors* | per-package Go floors; analyzer 85% floor; web a11y + surface-coverage |
 | *action-pins, proto (buf breaking + codegen diff), openapi-gate, migration-gate* | supply-chain pins; additive-only wire contract; spec-code parity; idempotent migrations |
 

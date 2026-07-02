@@ -599,13 +599,15 @@ secret can produce it; via `internal/crypto`) in an `X-Probectl-Signature` heade
 the receiver can verify the sender. The **email** channel sends via SMTP behind an
 injectable sender. Webhook secrets are **redacted (`***`) from API responses**.
 
-**Wiring and current limits.** The control plane runs a background `Evaluator`
-that ticks every `PROBECTL_ALERT_EVAL_INTERVAL`, loading each tenant's enabled
-rules through the RLS choke point and querying the TSDB *scoped to that tenant*
-(so it can never read another tenant's metrics). Today's wiring evaluates the
-default tenant over the in-process TSDB; a full multi-tenant fan-out and a
-Prometheus query backend are follow-ups, and the loop disables itself gracefully
-when no in-process query backend is available. Alerts are signals — probectl
+**Wiring and current limits.** The control plane runs an
+`AlertEvaluatorSupervisor` that ticks every `PROBECTL_ALERT_EVAL_INTERVAL`,
+syncs the active tenant set, and keeps one evaluator engine per active tenant
+with a bounded worker pool. Each engine loads its tenant's enabled rules through
+the RLS choke point and queries the TSDB *scoped to that tenant* (so it can never
+read another tenant's metrics). Lightweight mode queries the in-process TSDB;
+remote-write mode queries the Prometheus/VictoriaMetrics instant-query backend
+with a forced `tenant_id` matcher. The loop disables itself gracefully only when
+no supported metric query backend is wired. Alerts are signals — probectl
 notifies, it does not act on the network.
 
 ## Incident timeline and correlation
