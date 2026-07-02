@@ -99,4 +99,8 @@ control:
     enabled: true
     existingSecret: probectl-metrics-tls
   extraEnv:
+    # RUNOPS-003: this profile is the regulated reference profile, so the
+    # control plane must boot with the production-like tenant, datastore, audit,
+    # and strict-lane validators instead of silently defaulting to "single".
+    PROBECTL_DEPLOYMENT_PROFILE: "regulated"
     PROBECTL_AI_REDACT_HOSTNAMES: "true"

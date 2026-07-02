@@ -303,7 +303,7 @@ lint-go: ## gofmt + vet + golangci-lint + crypto-import/editions/no-stringbuilt-
 	./scripts/check_crypto_imports.sh
 	./scripts/check_repo_hygiene.sh SELFTEST && ./scripts/check_repo_hygiene.sh
 	./scripts/check_docs_claims.sh SELFTEST && ./scripts/check_docs_claims.sh
-	bash scripts/check_drill_evidence.sh
+	PROBECTL_DRILL_ALLOW_HISTORICAL=1 bash scripts/check_drill_evidence.sh
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	./scripts/check_swallowed_errors.sh
 	./scripts/check_http_clients.sh

@@ -39,3 +39,21 @@ func TestMultitenantHelmValuesShipClickHouseReaderUsers(t *testing.T) {
 		}
 	}
 }
+
+func TestStrictHelmValuesShipRegulatedDeploymentProfile(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "deploy", "helm", "probectl", "values-strict.yaml"))
+	if err != nil {
+		t.Fatalf("read values-strict.yaml: %v", err)
+	}
+	var values struct {
+		Control struct {
+			ExtraEnv map[string]string `yaml:"extraEnv"`
+		} `yaml:"control"`
+	}
+	if err := yaml.Unmarshal(raw, &values); err != nil {
+		t.Fatalf("parse values-strict.yaml: %v", err)
+	}
+	if got := values.Control.ExtraEnv["PROBECTL_DEPLOYMENT_PROFILE"]; got != "regulated" {
+		t.Fatalf("values-strict.yaml must set PROBECTL_DEPLOYMENT_PROFILE=regulated, got %q", got)
+	}
+}

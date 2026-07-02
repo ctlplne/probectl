@@ -757,12 +757,22 @@ jobs:
         env:
           PROBECTL_DRILL_RESULT_FILE: artifacts/backup-restore-results.csv
         run: |
+          set -o pipefail
           mkdir -p artifacts
-          make backup-restore-drill
+          make backup-restore-drill 2>&1 | tee artifacts/backup-restore-large.log
+          PROBECTL_DRILL_SCOPE=backup \
+            PROBECTL_DRILL_CHECK_DOCS=0 \
+            PROBECTL_DRILL_EXPECTED_SHA="$(git rev-parse --short=12 HEAD)" \
+            PROBECTL_DRILL_BACKUP_CSV=artifacts/backup-restore-results.csv \
+            PROBECTL_DRILL_BACKUP_LOG_GLOB=artifacts/backup-restore-large.log \
+            PROBECTL_DRILL_BACKUP_PROFILES=ci-marker \
+            bash scripts/check_drill_evidence.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backup-restore-results
-          path: artifacts/backup-restore-results.csv
+          path: |
+            artifacts/backup-restore-results.csv
+            artifacts/backup-restore-large.log
 
   failover-drill:
     name: failover-drill
@@ -784,12 +794,22 @@ jobs:
           POSTGRES_PASSWORD: probectl
           PROBECTL_FAILOVER_RESULT_FILE: artifacts/failover-results.csv
         run: |
+          set -o pipefail
           mkdir -p artifacts
-          make failover-drill
+          make failover-drill 2>&1 | tee artifacts/failover-representative.log
+          PROBECTL_DRILL_SCOPE=failover \
+            PROBECTL_DRILL_CHECK_DOCS=0 \
+            PROBECTL_DRILL_EXPECTED_SHA="$(git rev-parse --short=12 HEAD)" \
+            PROBECTL_DRILL_FAILOVER_CSV=artifacts/failover-results.csv \
+            PROBECTL_DRILL_FAILOVER_LOG_GLOB=artifacts/failover-representative.log \
+            PROBECTL_DRILL_FAILOVER_PROFILES=ci-dev-compose \
+            bash scripts/check_drill_evidence.sh
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: failover-results
-          path: artifacts/failover-results.csv
+          path: |
+            artifacts/failover-results.csv
+            artifacts/failover-representative.log
 
   chaos-dependency-drill:
     name: chaos-dependency-drill
