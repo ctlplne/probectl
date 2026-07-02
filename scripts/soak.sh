@@ -12,7 +12,7 @@
 # the control plane running; intended for reference hardware / the nightly soak
 # job, not a laptop or this CI sandbox. See docs/scale-gate.md.
 #
-#   DURATION=24h INTERVAL=300 TARGET=http://localhost:8080 ./scripts/soak.sh
+#   DURATION=24h INTERVAL=300 TARGET=https://localhost:8443 ./scripts/soak.sh
 #
 # Optional inputs for richer rows:
 #   CONTROL_PID=<pid>                      # true process RSS + fd count
@@ -22,7 +22,7 @@ set -euo pipefail
 
 DURATION="${DURATION:-24h}"
 INTERVAL="${INTERVAL:-300}"          # sample period, seconds
-TARGET="${TARGET:-http://localhost:8080}"
+TARGET="${TARGET:-https://localhost:8443}"
 OUT="${OUT:-soak-$(date -u +%Y%m%dT%H%M%SZ).csv}"
 TIER="${PROBECTL_SCALE_TIER:-reduced-L}"
 CONTROL_PID="${CONTROL_PID:-}"

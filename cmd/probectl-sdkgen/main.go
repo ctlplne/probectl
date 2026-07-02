@@ -459,7 +459,7 @@ func (g generator) goSDK(ops []operation) ([]byte, error) {
 	b.WriteString("func WithTenant(tenant string) Option { return func(c *Client) { c.Tenant = tenant } }\n")
 	b.WriteString("func WithHTTPClient(hc *http.Client) Option { return func(c *Client) { if hc != nil { c.HTTPClient = hc } } }\n")
 	b.WriteString("func WithUserAgent(userAgent string) Option { return func(c *Client) { c.UserAgent = userAgent } }\n\n")
-	b.WriteString("func NewClient(baseURL string, opts ...Option) *Client {\n\tif strings.TrimSpace(baseURL) == \"\" { baseURL = \"http://localhost:8080\" }\n\tc := &Client{BaseURL: strings.TrimRight(baseURL, \"/\"), HTTPClient: crypto.HardenedHTTPClient(15 * time.Second), UserAgent: \"probectl-go-sdk\"}\n\tfor _, opt := range opts { opt(c) }\n\treturn c\n}\n\n")
+	b.WriteString("func NewClient(baseURL string, opts ...Option) *Client {\n\tif strings.TrimSpace(baseURL) == \"\" { baseURL = \"https://localhost:8443\" }\n\tc := &Client{BaseURL: strings.TrimRight(baseURL, \"/\"), HTTPClient: crypto.HardenedHTTPClient(15 * time.Second), UserAgent: \"probectl-go-sdk\"}\n\tfor _, opt := range opts { opt(c) }\n\treturn c\n}\n\n")
 	b.WriteString("func String(v string) *string { return &v }\nfunc Int(v int) *int { return &v }\nfunc Bool(v bool) *bool { return &v }\nfunc Float64(v float64) *float64 { return &v }\n\n")
 
 	g.writeGoModels(&b)

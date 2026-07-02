@@ -145,7 +145,7 @@ Commands:
   version                        print the CLI version
 
 Global flags:
-  --url <url>       API base URL (env PROBECTL_API_URL, default http://localhost:8080)
+  --url <url>       API base URL (env PROBECTL_API_URL, default https://localhost:8443)
   --token <token>   Bearer auth token (env PROBECTL_API_TOKEN)
   --tenant <uuid>   tenant scope (env PROBECTL_TENANT)
   --json            output JSON instead of a table
@@ -207,7 +207,7 @@ Comandos:
   version                        imprime la version de la CLI
 
 Flags globales:
-  --url <url>       URL base de API (env PROBECTL_API_URL, default http://localhost:8080)
+  --url <url>       URL base de API (env PROBECTL_API_URL, default https://localhost:8443)
   --token <token>   token Bearer de API (env PROBECTL_API_TOKEN)
   --tenant <uuid>   alcance de tenant (env PROBECTL_TENANT)
   --json            salida JSON en vez de tabla

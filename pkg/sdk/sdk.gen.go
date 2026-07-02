@@ -58,7 +58,7 @@ func WithUserAgent(userAgent string) Option { return func(c *Client) { c.UserAge
 
 func NewClient(baseURL string, opts ...Option) *Client {
 	if strings.TrimSpace(baseURL) == "" {
-		baseURL = "http://localhost:8080"
+		baseURL = "https://localhost:8443"
 	}
 	c := &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: crypto.HardenedHTTPClient(15 * time.Second), UserAgent: "probectl-go-sdk"}
 	for _, opt := range opts {

@@ -951,7 +951,7 @@ undocumented routes" rule is enforced by a test that matches the route table
 against `openapi.json`.
 
 The **`probectl` CLI** is the web-parity client. Configure it with flags or
-environment: `PROBECTL_API_URL` (default `http://localhost:8080`),
+environment: `PROBECTL_API_URL` (default `https://localhost:8443`),
 `PROBECTL_API_TOKEN` (sent as Bearer), `PROBECTL_TENANT` (sent as
 `X-Probectl-Tenant`), and `PROBECTL_LOCALE` (default `en`; accepts shipped
 language tags such as `es`/`es-MX` for CLI help and API error messages). API

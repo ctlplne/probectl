@@ -93,6 +93,21 @@ func TestCLIUnknownCommandLocalizes(t *testing.T) { //nolint:misspell // Spanish
 	}
 }
 
+func TestCLIDefaultAPIURLIsHTTPS(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := Run([]string{"test", "list"}, func(string) string { return "" }, &out, &errb)
+	if code != 1 {
+		t.Fatalf("exit = %d, stdout=%s stderr=%s", code, out.String(), errb.String())
+	}
+	stderr := errb.String()
+	if !strings.Contains(stderr, "https://localhost:8443/v1/tests") {
+		t.Fatalf("default API URL was not HTTPS :8443, stderr=%s", stderr)
+	}
+	if strings.Contains(stderr, "http://localhost:8080") {
+		t.Fatalf("default API URL regressed to plaintext :8080, stderr=%s", stderr)
+	}
+}
+
 func TestCLIAPIErrorLocalizesByStableCode(t *testing.T) {
 	srv := fakeAPI(t)
 	_, errs, code := runWithEnv(t, srv, map[string]string{"PROBECTL_LOCALE": "es"}, "test", "get", "missing")

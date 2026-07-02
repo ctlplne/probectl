@@ -31,7 +31,7 @@ type Config struct {
 // straightforward to test.
 func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	cfg := Config{
-		BaseURL: envOr(getenv, "PROBECTL_API_URL", "http://localhost:8080"),
+		BaseURL: envOr(getenv, "PROBECTL_API_URL", "https://localhost:8443"),
 		Token:   getenv("PROBECTL_API_TOKEN"),
 		Tenant:  getenv("PROBECTL_TENANT"),
 		Locale:  i18n.Resolve(getenv("PROBECTL_LOCALE")),
