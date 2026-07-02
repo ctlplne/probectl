@@ -30,6 +30,34 @@ require_file() {
   [ -s "$path" ] || die "required receipt file is missing or empty: ${path}"
 }
 
+validate_branch_protection() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+
+checks = set(data.get("required_status_checks", {}).get("contexts") or [])
+for check in data.get("required_status_checks", {}).get("checks") or []:
+    ctx = check.get("context") or check.get("name")
+    if ctx:
+        checks.add(ctx)
+if "verify-all" not in checks:
+    raise SystemExit("branch protection must require verify-all")
+
+enforce_admins = data.get("enforce_admins")
+if isinstance(enforce_admins, dict):
+    admins_included = bool(enforce_admins.get("enabled"))
+else:
+    admins_included = bool(enforce_admins)
+if not admins_included:
+    raise SystemExit("branch protection must include admins / disallow bypass")
+PY
+}
+
 export_receipts() {
   REPO="${REPO:-imfeelingtheagi/probectl}"
   OUT="${OUT:-dataroom-receipts-$(date -u +%Y%m%d)}"
@@ -41,6 +69,7 @@ export_receipts() {
   #    require-PR, include-admins are actually enforced on main.
   gh api "repos/${REPO}/branches/main/protection" > "$OUT/branch-protection.json"
   require_file "$OUT/branch-protection.json"
+  validate_branch_protection "$OUT/branch-protection.json"
 
   # 2. Latest green ci.yml run on main. A missing successful run is a missing
   #    receipt, not a warning: the data room must never look green by omission.
@@ -87,7 +116,11 @@ selftest() {
 set -euo pipefail
 printf '%s\n' "$*" >> "${GH_LOG:?}"
 if [ "$1" = "api" ]; then
-  printf '{"required_status_checks":{"strict":true}}\n'
+  if [ "${GH_BAD_BRANCH_PROTECTION:-}" = "1" ]; then
+    printf '{"required_status_checks":{"checks":[{"context":"unit"}]},"enforce_admins":{"enabled":false}}\n'
+  else
+    printf '{"required_status_checks":{"checks":[{"context":"verify-all"}]},"enforce_admins":{"enabled":true}}\n'
+  fi
   exit 0
 fi
 if [ "$1" = "run" ] && [ "$2" = "list" ]; then
@@ -148,6 +181,10 @@ EOF
   if GH_LOG="$tmp/fail.log" PATH="$bin:$PATH" REPO=example/probectl OUT="$tmp/fail" \
     GH_FAIL_ARTIFACT=coverage-receipt SELFTEST= "$0" >/dev/null 2>&1; then
     die "selftest expected missing coverage-receipt download to fail"
+  fi
+  if GH_LOG="$tmp/branch-fail.log" PATH="$bin:$PATH" REPO=example/probectl OUT="$tmp/branch-fail" \
+    GH_BAD_BRANCH_PROTECTION=1 SELFTEST= "$0" >/dev/null 2>&1; then
+    die "selftest expected invalid branch protection to fail"
   fi
   echo "export-receipts selftest: OK" >&2
 }
