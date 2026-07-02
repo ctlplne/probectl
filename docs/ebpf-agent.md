@@ -70,8 +70,10 @@ flowchart LR
    ring buffer.
 3. **Aggregate.** The `Aggregator` folds raw connection events into directed
    **service edges** ("host A → host B:443, N connections").
-4. **Enrich.** Each flow is tagged with its process, cgroup, and container — the
-   read-only `/proc` lookups that turn a bare PID into "the `nginx` container".
+4. **Enrich.** Each flow is tagged with its process, cgroup, container, and local
+   Kubernetes pod identity when the cgroup path carries a pod UID — the read-only
+   `/proc` lookups that turn a bare PID into "the `nginx` container in pod
+   `12345678-1234-…`".
 5. **Emit.** The `BusEmitter` marshals a batch to protobuf and publishes it to
    **`probectl.ebpf.flows`**, keyed by tenant.
 
@@ -102,8 +104,8 @@ live build (see [Building](#building)).
 ## L7 visibility — application calls, including over TLS
 
 Beyond raw connections, the agent can parse **application-protocol calls** —
-HTTP/1.1, HTTP/2, gRPC, DNS, and Kafka — and roll **per-call method / resource /
-status / latency** onto each service edge. (**L7** is layer 7 of the network
+HTTP/1.1, HTTP/2, gRPC, DNS, Kafka, PostgreSQL, and MySQL — and roll **per-call
+method / resource / status / latency** onto each service edge. (**L7** is layer 7 of the network
 stack, the application layer: not "host A talked to host B" but *what they said*
 — the HTTP request, the DNS query, the Kafka produce.) Each call is emitted as an `L7Call`
 plus an `l7_*` rollup on the `ServiceEdge`. Parsing is pure Go and kernel-
@@ -127,8 +129,30 @@ probectl gets the plaintext two ways:
   only filled when the call returns.
 
 The OTel mapping (`internal/otel.L7CallAttributes`) emits `http.*` / `rpc.*` /
-`dns.*` / `messaging.*` attributes per protocol. Calls are attributed to the
-connection's **client→server** edge regardless of which direction completed them.
+`dns.*` / `messaging.*` / `db.*` attributes per protocol. SQL query text is
+normalized before emission: string literals, quoted identifiers, and numeric
+literals become `?`, so the default L7 path carries operation shape (`SELECT`,
+`INSERT`, table/query skeleton, status, latency) rather than raw customer data.
+Calls are attributed to the connection's **client→server** edge regardless of
+which direction completed them.
+
+### Kubernetes identity without API custody
+
+The default Kubernetes chart deliberately sets
+`automountServiceAccountToken: false`; the eBPF agent does **not** watch the
+Kubernetes API by default and does not need cluster-reader credentials to build a
+service map. Instead, the proc enricher reads `/proc/<pid>/cgroup` and extracts:
+
+- the CRI container id (`docker-`, `cri-containerd-`, `crio-`, `libpod-` shapes);
+- the Kubernetes pod UID from common `kubepods...pod<uid>...` cgroup paths; and
+- the process name from `/proc/<pid>/comm`.
+
+The emitted `workload` identity is therefore stable and local, for example
+`k8s-pod:123456781234/checkout@cccccccccccc`. That is enough to correlate flows
+to pod-level Kubernetes identity without adding a new control-plane data source.
+Namespace, workload owner, and label enrichment require an explicit future
+Kubernetes metadata source or operator-supplied mapping; they are not claimed by
+the default chart today.
 
 ### Reading TLS plaintext is off by default and triple-gated
 
@@ -316,6 +340,13 @@ pre-generated BTF files for older kernels that didn't ship their own — as a
 manual avenue; no automatic external-BTF fallback ships today). The full matrix and distro coverage live in
 [`ebpf-feasibility.md`](ebpf-feasibility.md). eBPF is **Linux-only**; on
 macOS/Windows, run the agent inside a Linux VM.
+
+**Windows replacement path.** There is no Windows eBPF agent in the delivered
+product, and Windows kernel telemetry must not be counted as served eBPF
+coverage. The supported replacement is to run the normal endpoint/DEM agent and
+OTLP/Windows-native telemetry collectors, then correlate those signals in the
+control plane beside Linux eBPF flows. A native Windows host/L7 agent would be a
+separate roadmap item, not a minor port of this Linux CO-RE implementation.
 
 On startup the agent logs a **capability probe** (BTF / ring buffer / CAP_BPF /
 compiled-in) and the mode it chose, so an unsupported host is a *decided, visible*

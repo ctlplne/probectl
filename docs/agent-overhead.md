@@ -93,6 +93,11 @@ on real hardware with live traffic and paste the row. That's also the only way t
 populate the **live ring-buffer** column the synthetic table marks `n/a` — which
 brings us to the live test.
 
+**Audit status:** until a supported Linux host with BTF plus `CAP_BPF` and
+`CAP_PERFMON` produces an `OVERHEAD ROW`, the live ring-buffer reference result
+is **blocked**, not estimated. Do not convert the synthetic userspace row, a
+Docker Desktop run, or a skipped kernel test into a live-overhead claim.
+
 ## Measuring the live ring-buffer path
 
 `TestLiveOverheadReport` (`internal/ebpf/live_smoke_ebpf_test.go`, built with the

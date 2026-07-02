@@ -19,6 +19,10 @@ const (
 	AttrMessagingSystem        = "messaging.system"
 	AttrMessagingOperation     = "messaging.operation.name"
 	AttrMessagingDestination   = "messaging.destination.name"
+	AttrDBSystemName           = "db.system.name"
+	AttrDBOperationName        = "db.operation.name"
+	AttrDBQueryText            = "db.query.text"
+	AttrDBResponseStatusCode   = "db.response.status_code"
 	AttrL7Encrypted            = "probectl.l7.encrypted"
 )
 
@@ -28,6 +32,7 @@ func init() {
 		AttrRPCSystem, AttrRPCMethod, AttrRPCGRPCStatusCode,
 		AttrDNSQuestionName, AttrDNSResponseCode,
 		AttrMessagingSystem, AttrMessagingOperation, AttrMessagingDestination,
+		AttrDBSystemName, AttrDBOperationName, AttrDBQueryText, AttrDBResponseStatusCode,
 		AttrL7Encrypted,
 	} {
 		KnownAttributes[k] = true
@@ -66,6 +71,11 @@ func L7CallAttributes(c *ebpfv1.L7Call) map[string]string {
 		attrs[AttrMessagingSystem] = "kafka"
 		put(AttrMessagingOperation, c.GetMethod())
 		put(AttrMessagingDestination, c.GetResource())
+	case "postgresql", "mysql":
+		attrs[AttrDBSystemName] = c.GetProtocol()
+		put(AttrDBOperationName, c.GetMethod())
+		put(AttrDBQueryText, c.GetResource())
+		put(AttrDBResponseStatusCode, c.GetStatus())
 	}
 	return attrs
 }

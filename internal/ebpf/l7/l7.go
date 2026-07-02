@@ -6,12 +6,14 @@ import "time"
 
 // Protocol identifiers (the on-the-wire value emitted as L7Call.protocol).
 const (
-	ProtoUnknown = ""
-	ProtoHTTP1   = "http1"
-	ProtoHTTP2   = "http2"
-	ProtoGRPC    = "grpc"
-	ProtoDNS     = "dns"
-	ProtoKafka   = "kafka"
+	ProtoUnknown  = ""
+	ProtoHTTP1    = "http1"
+	ProtoHTTP2    = "http2"
+	ProtoGRPC     = "grpc"
+	ProtoDNS      = "dns"
+	ProtoKafka    = "kafka"
+	ProtoPostgres = "postgresql"
+	ProtoMySQL    = "mysql"
 )
 
 // Kind labels a captured plaintext chunk's direction relative to the local app:
@@ -40,9 +42,9 @@ type DataEvent struct {
 // service edges and emits as an L7Call.
 type Call struct {
 	Protocol  string
-	Method    string        // HTTP method | gRPC full-method | DNS qtype | Kafka API name
-	Resource  string        // HTTP path | gRPC service/method | DNS qname | Kafka topic
-	Status    string        // HTTP status | grpc-status | DNS rcode | Kafka error code
+	Method    string        // HTTP method | gRPC full-method | DNS qtype | Kafka API name | SQL operation
+	Resource  string        // HTTP path | gRPC service/method | DNS qname | Kafka topic | redacted SQL
+	Status    string        // HTTP status | grpc-status | DNS rcode | Kafka error code | SQL response
 	Error     bool          // status denotes an error
 	Start     time.Time     // when the request was observed
 	Latency   time.Duration // request -> matching response

@@ -49,20 +49,37 @@ func (p *ProcEnricher) Enrich(f *Flow) {
 			f.Source.Process = strings.TrimSpace(string(comm))
 		}
 	}
+	var cgroup string
+	if cg, err := os.ReadFile(filepath.Join(p.ProcRoot, pid, "cgroup")); err == nil {
+		cgroup = string(cg)
+	}
 	if f.Source.Container == "" {
-		if cg, err := os.ReadFile(filepath.Join(p.ProcRoot, pid, "cgroup")); err == nil {
-			f.Source.Container = containerIDFromCgroup(string(cg))
-		}
+		f.Source.Container = containerIDFromCgroup(cgroup)
 	}
 	if f.Source.Workload == "" {
-		f.Source.Workload = resolveWorkload(f.Source)
+		f.Source.Workload = resolveWorkloadFromCgroup(f.Source, cgroup)
 	}
 }
 
 // resolveWorkload picks the best available identity for an endpoint: a short
 // container id (qualified by process when known), else the process name, else
 // empty (ID() then falls back to the address).
-func resolveWorkload(e Endpoint) string {
+func resolveWorkloadFromCgroup(e Endpoint, cgroup string) string {
+	base := resolveProcessWorkload(e)
+	if podUID := podUIDFromCgroup(cgroup); podUID != "" {
+		shortPod := strings.ReplaceAll(podUID, "-", "")
+		if len(shortPod) > 12 {
+			shortPod = shortPod[:12]
+		}
+		if base != "" {
+			return "k8s-pod:" + shortPod + "/" + base
+		}
+		return "k8s-pod:" + shortPod
+	}
+	return base
+}
+
+func resolveProcessWorkload(e Endpoint) string {
 	if e.Container != "" {
 		short := e.Container
 		if len(short) > 12 {
@@ -106,6 +123,57 @@ func containerIDFromPath(path string) string {
 		return seg
 	}
 	return ""
+}
+
+func podUIDFromCgroup(cgroup string) string {
+	for _, line := range strings.Split(cgroup, "\n") {
+		idx := strings.LastIndex(line, ":")
+		if idx < 0 {
+			continue
+		}
+		for _, seg := range strings.Split(line[idx+1:], "/") {
+			if uid := podUIDFromSegment(seg); uid != "" {
+				return uid
+			}
+		}
+	}
+	return ""
+}
+
+func podUIDFromSegment(seg string) string {
+	i := strings.LastIndex(seg, "pod")
+	if i < 0 {
+		return ""
+	}
+	uid := strings.TrimSuffix(seg[i+len("pod"):], ".slice")
+	uid = strings.ReplaceAll(uid, "_", "-")
+	if isKubernetesPodUID(uid) {
+		return uid
+	}
+	return ""
+}
+
+func isKubernetesPodUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !isHexDigit(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isHexDigit(r rune) bool {
+	return (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
 }
 
 func isHex64(s string) bool {

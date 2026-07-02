@@ -28,6 +28,10 @@ func Detect(reqHead []byte, dstPort uint32) string {
 	switch dstPort {
 	case 53, 5353:
 		return ProtoDNS
+	case 3306:
+		return ProtoMySQL
+	case 5432:
+		return ProtoPostgres
 	case 9092, 9093:
 		return ProtoKafka
 	case 80, 8080:

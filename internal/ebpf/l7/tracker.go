@@ -55,6 +55,10 @@ func parserFor(proto string) Parser {
 		return newDNSParser()
 	case ProtoKafka:
 		return newKafkaParser()
+	case ProtoPostgres:
+		return newPostgresParser()
+	case ProtoMySQL:
+		return newMySQLParser()
 	default:
 		return nil
 	}

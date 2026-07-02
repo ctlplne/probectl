@@ -54,6 +54,32 @@ func TestContainerIDFromCgroup(t *testing.T) {
 	}
 }
 
+func TestProcEnricherAddsKubernetesPodWorkloadFromCgroup(t *testing.T) {
+	root := t.TempDir()
+	pidDir := filepath.Join(root, "5150")
+	if err := os.MkdirAll(pidDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	podUID := "12345678-1234-1234-1234-123456789abc"
+	containerID := hex64('c')
+	writeFile(t, filepath.Join(pidDir, "comm"), "checkout\n")
+	writeFile(t, filepath.Join(pidDir, "cgroup"),
+		"0::/kubepods.slice/kubepods-burstable.slice/kubepods-burstable-pod12345678_1234_1234_1234_123456789abc.slice/cri-containerd-"+containerID+".scope\n")
+
+	f := &Flow{Source: Endpoint{Address: "10.42.0.9", PID: 5150}}
+	NewProcEnricher(root).Enrich(f)
+
+	if f.Source.Container != containerID {
+		t.Fatalf("container = %q, want %q", f.Source.Container, containerID)
+	}
+	if want := "k8s-pod:123456781234/checkout@" + containerID[:12]; f.Source.Workload != want {
+		t.Fatalf("workload = %q, want %q", f.Source.Workload, want)
+	}
+	if got := podUIDFromCgroup("0::/kubepods/burstable/pod" + podUID + "/cri-containerd-" + containerID + ".scope"); got != podUID {
+		t.Fatalf("pod uid = %q, want %q", got, podUID)
+	}
+}
+
 func TestNopEnricherDoesNothing(t *testing.T) {
 	f := &Flow{Source: Endpoint{PID: 1}}
 	NopEnricher{}.Enrich(f)

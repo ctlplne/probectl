@@ -15,6 +15,8 @@ func TestL7CallAttributesConformToConventions(t *testing.T) {
 		{Protocol: "grpc", Method: "pkg.Svc/M", Status: "0", TenantId: "t", AgentId: "a", Encrypted: true},
 		{Protocol: "dns", Method: "A", Resource: "x.com.", Status: "NOERROR", TenantId: "t", AgentId: "a"},
 		{Protocol: "kafka", Method: "Fetch", TenantId: "t", AgentId: "a"},
+		{Protocol: "postgresql", Method: "SELECT", Resource: "SELECT * FROM users WHERE id = ?", Status: "SELECT 1", TenantId: "t", AgentId: "a"},
+		{Protocol: "mysql", Method: "INSERT", Resource: "insert into orders values (?, ?)", Status: "OK", TenantId: "t", AgentId: "a"},
 	}
 	for _, c := range calls {
 		attrs := L7CallAttributes(c)
@@ -34,5 +36,12 @@ func TestL7CallAttributesHTTPAndGRPC(t *testing.T) {
 	grpc := L7CallAttributes(&ebpfv1.L7Call{Protocol: "grpc", Method: "pkg.Svc/M", Status: "13", Encrypted: true})
 	if grpc[AttrRPCSystem] != "grpc" || grpc[AttrRPCMethod] != "pkg.Svc/M" || grpc[AttrRPCGRPCStatusCode] != "13" || grpc[AttrL7Encrypted] != "true" {
 		t.Errorf("grpc attrs = %v", grpc)
+	}
+}
+
+func TestL7CallAttributesSQL(t *testing.T) {
+	sql := L7CallAttributes(&ebpfv1.L7Call{Protocol: "postgresql", Method: "SELECT", Resource: "SELECT * FROM users WHERE id = ?", Status: "SELECT 1"})
+	if sql[AttrDBSystemName] != "postgresql" || sql[AttrDBOperationName] != "SELECT" || sql[AttrDBQueryText] != "SELECT * FROM users WHERE id = ?" || sql[AttrDBResponseStatusCode] != "SELECT 1" {
+		t.Errorf("sql attrs = %v", sql)
 	}
 }
