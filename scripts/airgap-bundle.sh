@@ -76,7 +76,7 @@ verify_image() {
     "$ref" >/dev/null
 }
 
-rm -rf "$OUT" && mkdir -p "$OUT/images" "$OUT/charts" "$OUT/bin" "$OUT/packages"
+rm -rf "$OUT" && mkdir -p "$OUT/images" "$OUT/charts" "$OUT/bin" "$OUT/packages" "$OUT/evidence"
 echo "airgap: bundling probectl ${VERSION} -> ${OUT}/" >&2
 
 # 1. Images - pull the release tag, resolve its immutable digest, verify that
@@ -139,11 +139,18 @@ if [ -f "${DIST}/checksums.txt" ]; then
   (cd "$DIST" && sha256sum --ignore-missing -c checksums.txt >/dev/null)
 fi
 
-# 5. Signatures + the offline procedure.
+# 5. Human-readable third-party license inventory. This travels with the
+#    air-gap bundle beside the signed artifacts so an offline operator can
+#    inspect attribution without reaching back to GitHub or npm/PyPI.
+./scripts/gen_third_party.sh >/dev/null
+cp NOTICE "$OUT/evidence/NOTICE"
+cp docs/third-party-licenses.md "$OUT/evidence/third-party-licenses.md"
+
+# 6. Signatures + the offline procedure.
 cp -r deploy/packaging "$OUT/packaging" 2>/dev/null || true
 cp docs/ops/air-gap.md "$OUT/INSTALL.md"
 
-# 6. Manifest with digests so the far side can verify nothing was swapped.
+# 7. Manifest with digests so the far side can verify nothing was swapped.
 {
   echo "probectl air-gap bundle ${VERSION}"
   echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -155,6 +162,8 @@ cp docs/ops/air-gap.md "$OUT/INSTALL.md"
   (cd "$OUT/bin" && sha256sum probectl-* 2>/dev/null || true) | sed 's/^/  /'
   echo "packages:"
   (cd "$OUT/packages" && sha256sum *.deb *.rpm 2>/dev/null || true) | sed 's/^/  /'
+  echo "evidence:"
+  (cd "$OUT/evidence" && sha256sum NOTICE third-party-licenses.md 2>/dev/null || true) | sed 's/^/  /'
 } > "$OUT/MANIFEST.txt"
 
 tar -czf "${OUT}.tar.gz" "$OUT"
