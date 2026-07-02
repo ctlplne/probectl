@@ -31,7 +31,17 @@ type memoryRow struct {
 
 // NewMemory builds a Memory store bounded to ~1M rows.
 func NewMemory() *Memory {
-	return &Memory{max: 1 << 20, seen: make(map[string]int)}
+	return NewMemoryWithLimit(1 << 20)
+}
+
+// NewMemoryWithLimit builds a Memory store with an explicit row cap. It is used
+// by reference-scale harnesses that need to retain the whole measurement
+// receipt while the product default remains bounded for lightweight mode.
+func NewMemoryWithLimit(maxRows int) *Memory {
+	if maxRows <= 0 {
+		maxRows = 1 << 20
+	}
+	return &Memory{max: maxRows, seen: make(map[string]int)}
 }
 
 // Insert stores new rows, deduplicating at-least-once redeliveries by the same

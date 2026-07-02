@@ -73,6 +73,62 @@ func TestSyslogEscapesStructuredData(t *testing.T) {
 	}
 }
 
+func TestSeverityMappingsCoverAllLevels(t *testing.T) {
+	cases := []struct {
+		severity Severity
+		cef      int
+		syslog   int
+		otlp     int
+	}{
+		{SeverityCritical, 9, 2, 21},
+		{SeverityWarning, 6, 4, 13},
+		{SeverityInfo, 3, 6, 9},
+		{"unknown", 3, 6, 9},
+	}
+	for _, tt := range cases {
+		if got := tt.severity.cef(); got != tt.cef {
+			t.Fatalf("%s cef = %d, want %d", tt.severity, got, tt.cef)
+		}
+		if got := tt.severity.syslog(); got != tt.syslog {
+			t.Fatalf("%s syslog = %d, want %d", tt.severity, got, tt.syslog)
+		}
+		if got := tt.severity.otlpNumber(); got != tt.otlp {
+			t.Fatalf("%s otlp = %d, want %d", tt.severity, got, tt.otlp)
+		}
+	}
+}
+
+func TestFormatterMetadataAndEmptyBranches(t *testing.T) {
+	formatters := []Formatter{
+		syslogFormatter{},
+		cefFormatter{},
+		ecsFormatter{},
+		otlpFormatter{},
+	}
+	for _, formatter := range formatters {
+		if formatter.Name() == "" || formatter.ContentType() == "" {
+			t.Fatalf("%T missing name/content-type", formatter)
+		}
+	}
+	if got := sanitizeSDName(`bad name="x"]`); strings.ContainsAny(got, ` ="[]`) {
+		t.Fatalf("sanitizeSDName left structured-data special chars: %q", got)
+	}
+	if got := sanitizeSDName(""); got != "k" {
+		t.Fatalf("empty SD name = %q, want k", got)
+	}
+	if got := cefExtKey("bad key=value"); got != "bad_key_value" {
+		t.Fatalf("cef ext key = %q", got)
+	}
+	var b strings.Builder
+	writeCEF(&b, "empty", "")
+	if b.Len() != 0 {
+		t.Fatalf("empty CEF extension value should not emit, got %q", b.String())
+	}
+	if got := string(cefFormatter{}.Format(Event{})); !strings.Contains(got, "|-|") {
+		t.Fatalf("empty CEF event should use dash defaults: %q", got)
+	}
+}
+
 func TestCEFFormat(t *testing.T) {
 	out := string(cefFormatter{}.Format(sampleEvent()))
 	if !strings.HasPrefix(out, "CEF:0|probectl|probectl|1.0|ioc.botnet_c2|C2 beacon to known botnet|9|") {
@@ -187,6 +243,20 @@ func TestPreset(t *testing.T) {
 	}
 	if PresetElastic.DefaultFormat() != "ecs" || PresetChronicle.DefaultFormat() != "otlp" || PresetSplunk.DefaultFormat() != "cef" {
 		t.Fatal("preset default formats wrong")
+	}
+	for preset, want := range map[Preset]string{
+		PresetGeneric:   "Bearer tok",
+		PresetSentinel:  "Bearer tok",
+		PresetChronicle: "Bearer tok",
+	} {
+		name, got := preset.authHeader("tok")
+		if name != "Authorization" || got != want {
+			t.Fatalf("%s auth = %q/%q, want Authorization/%q", preset, name, got, want)
+		}
+	}
+	name, value := PresetGeneric.authHeader("")
+	if name != "" || value != "" {
+		t.Fatalf("empty token should not set auth header, got %q/%q", name, value)
 	}
 }
 
@@ -358,6 +428,38 @@ func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
 		Sources:  []SyslogSource{{Name: "plain-source"}},
 	}, NewMemorySyslogStore(1)); err == nil {
 		t.Fatal("source without signature or TLS client subject should fail closed")
+	}
+}
+
+func TestSyslogParserEdgeCasesAndMemoryStoreBounds(t *testing.T) {
+	now := time.Date(2026, 6, 30, 13, 0, 0, 0, time.UTC)
+	for _, line := range [][]byte{
+		[]byte(`<14>1 not-a-time host app proc msgid - bad timestamp`),
+		[]byte(`<14>1 2026-06-30T13:00:00Z host app proc msgid [bad`),
+		[]byte(`<14>Jun 30 13:00:00    `),
+		[]byte(`<14>bad`),
+	} {
+		if _, err := parseSyslog(line, now); err == nil {
+			t.Fatalf("parseSyslog(%q) unexpectedly succeeded", line)
+		}
+	}
+
+	store := NewMemorySyslogStore(1)
+	first, err := store.RecordSyslog(context.Background(), SyslogEvent{TenantID: "tenant-a", Message: "first", Fingerprint: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.RecordSyslog(context.Background(), SyslogEvent{TenantID: "tenant-a", Message: "second", Fingerprint: "second", Provenance: map[string]string{"k": "v"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := store.ListSyslogEvents("tenant-a")
+	if len(rows) != 1 || rows[0].ID != second.ID || rows[0].ID == first.ID {
+		t.Fatalf("bounded store should retain only newest row: %+v", rows)
+	}
+	rows[0].Provenance["k"] = "mutated"
+	if got := store.ListSyslogEvents("tenant-a")[0].Provenance["k"]; got == "mutated" {
+		t.Fatal("ListSyslogEvents must return defensive provenance copies")
 	}
 }
 

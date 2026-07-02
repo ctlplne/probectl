@@ -8,7 +8,9 @@ package governance
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -54,8 +56,9 @@ func TestGovernancePolicyRoundTripPG(t *testing.T) {
 	pool := itPool(t)
 	defer pool.Close()
 	ctx := context.Background()
-	tnA := itTenant(t, pool, "it-gov-a")
-	tnB := itTenant(t, pool, "it-gov-b")
+	suffix := time.Now().UnixNano()
+	tnA := itTenant(t, pool, fmt.Sprintf("it-gov-a-%d", suffix))
+	tnB := itTenant(t, pool, fmt.Sprintf("it-gov-b-%d", suffix))
 	store := NewStore(pool)
 
 	// No row → defaults.

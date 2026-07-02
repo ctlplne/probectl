@@ -33,7 +33,7 @@ func TestClickHouseRealRoundTrip(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	q := fmt.Sprintf("SELECT count() FROM probectl_path_hops WHERE tenant_id = '%s'", tenant)
+	q := fmt.Sprintf("SELECT count() FROM %s WHERE tenant_id = '%s'", hopsTable, tenant)
 	u := strings.TrimRight(base, "/") + "/?query=" + url.QueryEscape(q)
 	resp, err := http.Get(u) //nolint:gosec // localhost test query
 	if err != nil {

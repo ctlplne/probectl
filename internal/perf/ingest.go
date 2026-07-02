@@ -95,7 +95,9 @@ func DriveIngest(ctx context.Context, b bus.Bus, w tsdb.Writer, confirmed func()
 	expectedSeries := total * seriesPerResult
 
 	// Start the consumer (agents → bus → consumer → TSDB).
-	consumer := pipeline.NewConsumer(b, w, "perf", logging.New(io.Discard, "error", "json"))
+	consumer := pipeline.NewConsumer(b, w, "perf", logging.New(io.Discard, "error", "json")).
+		WithWriteWorkers(ingestHarnessWriteWorkers(cfg)).
+		WithWriteQueueDepth(ingestHarnessWriteQueueDepth(cfg))
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	consumerDone := make(chan struct{})
@@ -120,7 +122,7 @@ func DriveIngest(ctx context.Context, b bus.Bus, w tsdb.Writer, confirmed func()
 
 	var pubLat Latencies
 	start := time.Now()
-	published, pubErr := publishIdentities(cctx, b, ids, cfg.Producers, &pubLat)
+	published, pubErr := publishIdentities(cctx, b, ids, cfg.Producers, cfg.ResultsPerTest, &pubLat)
 
 	// Wait for the consumer to drain the bus into the store. This is a settle
 	// POLL on a monotonic completion signal (confirmed() rises to
@@ -161,17 +163,21 @@ func DriveIngest(ctx context.Context, b bus.Bus, w tsdb.Writer, confirmed func()
 // publishIdentities marshals and publishes one result per identity across
 // `producers` concurrent workers, recording per-publish latency. It returns
 // the count published and the first error encountered (workers stop on it).
-func publishIdentities(ctx context.Context, b bus.Bus, ids []identity, producers int, lat *Latencies) (int, error) {
+func publishIdentities(ctx context.Context, b bus.Bus, ids []identity, producers, resultsPerSeries int, lat *Latencies) (int, error) {
 	var (
 		published atomic.Int64
 		firstErr  atomic.Value
 		wg        sync.WaitGroup
 	)
+	if resultsPerSeries < 1 {
+		resultsPerSeries = 1
+	}
 	for p := 0; p < producers; p++ {
-		lo, hi := chunk(len(ids), producers, p)
+		lo, hi := chunkSeries(len(ids), resultsPerSeries, producers, p)
 		wg.Add(1)
 		go func(ids []identity) {
 			defer wg.Done()
+			var localLat Latencies
 			for _, id := range ids {
 				payload, err := proto.Marshal(buildResult(id))
 				if err != nil {
@@ -179,13 +185,14 @@ func publishIdentities(ctx context.Context, b bus.Bus, ids []identity, producers
 					return
 				}
 				t0 := time.Now()
-				if err := b.Publish(ctx, bus.NetworkResultsTopic, []byte(id.tenant), payload); err != nil {
+				if err := b.Publish(ctx, bus.NetworkResultsTopic, bus.TenantKey(id.tenant, id.agent), payload); err != nil {
 					firstErr.CompareAndSwap(nil, err)
 					return
 				}
-				lat.Record(time.Since(t0))
+				localLat.Record(time.Since(t0))
 				published.Add(1)
 			}
+			lat.Add(&localLat)
 		}(ids[lo:hi])
 	}
 	wg.Wait()
@@ -193,6 +200,40 @@ func publishIdentities(ctx context.Context, b bus.Bus, ids []identity, producers
 		return int(published.Load()), e.(error)
 	}
 	return int(published.Load()), nil
+}
+
+func chunkSeries(n, groupSize, producers, worker int) (int, int) {
+	if groupSize <= 1 {
+		return chunk(n, producers, worker)
+	}
+	groups := n / groupSize
+	if n%groupSize != 0 {
+		return chunk(n, producers, worker)
+	}
+	glo, ghi := chunk(groups, producers, worker)
+	return glo * groupSize, ghi * groupSize
+}
+
+func ingestHarnessWriteWorkers(cfg IngestConfig) int {
+	if cfg.TotalResults() < 100_000 {
+		return 0
+	}
+	workers := cfg.Producers * 16
+	if workers < 64 {
+		workers = 64
+	}
+	if workers > 512 {
+		workers = 512
+	}
+	return workers
+}
+
+func ingestHarnessWriteQueueDepth(cfg IngestConfig) int {
+	workers := ingestHarnessWriteWorkers(cfg)
+	if workers == 0 {
+		return 0
+	}
+	return workers * 32
 }
 
 // buildIdentities expands the scenario into one identity per result. The
@@ -204,8 +245,7 @@ func buildIdentities(c IngestConfig) []identity {
 	if c.Namespace != "" {
 		prefix = c.Namespace + "-"
 	}
-	baseUnixNano := time.Now().Add(-time.Duration(c.TotalResults()+1) * time.Millisecond).UnixNano()
-	var seq int64
+	baseUnixNano := time.Now().Add(-ingestTimestampSpan(c)).UnixNano()
 	for t := 0; t < c.Tenants; t++ {
 		tenant := fmt.Sprintf("%stenant-%04d", prefix, t)
 		for a := 0; a < c.AgentsPerTenant; a++ {
@@ -217,14 +257,21 @@ func buildIdentities(c IngestConfig) []identity {
 						tenant:        tenant,
 						agent:         agent,
 						server:        server,
-						eventUnixNano: baseUnixNano + seq*int64(time.Millisecond),
+						eventUnixNano: baseUnixNano + int64(r)*int64(time.Second),
 					})
-					seq++
 				}
 			}
 		}
 	}
 	return ids
+}
+
+func ingestTimestampSpan(c IngestConfig) time.Duration {
+	points := c.ResultsPerTest
+	if points < 1 {
+		points = 1
+	}
+	return time.Duration(points+2) * time.Second
 }
 
 // buildResult constructs a representative successful probe result.

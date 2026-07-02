@@ -15,6 +15,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -71,7 +72,6 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		// TENANT-001: ALL FOUR planes (flow/path/eBPF/otel) get the silo router
 		// and a per-tenant database, not flow alone.
 		router := silo.NewRouter(pool, planes, 0)
-		tenancy.SetRouter(router) // Postgres search_path + bus lanes + object prefixes
 
 		var ch silo.CHPlanes
 		var flowCH *flowstore.ClickHouse
@@ -118,14 +118,14 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 			})
 		}
 		prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log)
-		// Startup catch-up: bring every siloed tenant's schema up to the
-		// current public shape (new tables/columns from later migrations) —
-		// the S-T2 migration-multiplication answer (docs/isolation.md).
-		go func() {
-			if err := siloCatchUpAll(context.Background(), pool, prov, log); err != nil {
-				log.Warn("silo catch-up failed", "error", err.Error())
-			}
-		}()
+		// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
+		// must not become routable until its storage/query-layer schema is at the
+		// current public shape. Idempotent DDL keeps retries safe; failures keep
+		// the control plane from serving a stale silo.
+		if err := siloCatchUpAll(ctx, pool, prov, log); err != nil {
+			return fmt.Errorf("silo catch-up before routing: %w", err)
+		}
+		tenancy.SetRouter(router) // Postgres search_path + bus lanes + object prefixes
 		siloOps, routerInvalidate = prov, router.Invalidate
 		log.Info("siloed/hybrid isolation attached (S-T2; TENANT-001 all planes)",
 			"data_planes", silo.PlaneNames(planes),
@@ -261,8 +261,12 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 	return nil
 }
 
+type siloCatchUpper interface {
+	CatchUp(ctx context.Context, tenantID string) error
+}
+
 // siloCatchUpAll runs the schema catch-up for every siloed tenant.
-func siloCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov *silo.Provisioner, log *slog.Logger) error {
+func siloCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov siloCatchUpper, log *slog.Logger) error {
 	var ids []string
 	err := tenancy.InProvider(ctx, pool, func(ctx context.Context, q tenancy.Querier) error {
 		rows, err := q.Query(ctx,
@@ -283,10 +287,16 @@ func siloCatchUpAll(ctx context.Context, pool *pgxpool.Pool, prov *silo.Provisio
 	if err != nil {
 		return err
 	}
+	return siloCatchUpTenants(ctx, ids, prov, log)
+}
+
+func siloCatchUpTenants(ctx context.Context, ids []string, prov siloCatchUpper, log *slog.Logger) error {
+	var errs []error
 	for _, id := range ids {
 		if err := prov.CatchUp(ctx, id); err != nil {
 			log.Warn("silo catch-up failed for tenant", "tenant", id, "error", err.Error())
+			errs = append(errs, fmt.Errorf("tenant %s: %w", id, err))
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }

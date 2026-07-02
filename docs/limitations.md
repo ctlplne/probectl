@@ -47,6 +47,7 @@ canonical list to check before a rollout.
 | Edge | What exists | What is not served yet | Live-safe behavior |
 |---|---|---|---|
 | Chaos injector API/control-plane surface | `internal/chaos.UDPProxy` and the dependency-chaos drill exercise controlled local faults. | No REST, UI, MCP, or agent control-plane action can trigger chaos against a live network. | Chaos stays an explicit local/test harness; production control-plane surfaces cannot mutate the network. |
+| Alert email delivery | Alert rules accept an `email` channel type, validate recipients, and `internal/alert` has an injectable SMTP-backed `MailSender`. | The shipped control plane does not wire a mail sender or expose SMTP configuration. | Webhook alert delivery is the served rule-level channel; email channels are skipped with a logged warning until SMTP is explicitly wired. |
 | eBPF TLS posture ingest | The eBPF L7 design can observe C-library TLS read/write calls when plaintext capture is explicitly enabled, tenant-consented, and allowlisted. | eBPF TLS observations are not wired into the TLS posture inventory, and Go `crypto/tls` plaintext capture is post-GA / out of scope for GA. | HTTP synthetic checks are the served inventory source; the eBPF path is not relied on for posture. |
 | Raw eBPF flow retention | The eBPF agent publishes live flow records to the tenant-tagged bus for topology, segmentation, and NDR consumers. | Flow-by-flow ClickHouse retention and queryable per-flow history are not wired. | Derived consumers work from the live stream; there is no raw per-flow history surface to depend on. |
 | Browser artifact S3 / MinIO backend | Browser synthetic artifacts write through a tenant-bound object-store interface. | An S3 / MinIO adapter is not shipped. | Filesystem and in-memory stores are the served options; tenant prefixes still enforce artifact isolation. |
@@ -99,5 +100,5 @@ how. That absence is by design, not a misconfiguration.
 [NDR-lite](ndr.md) · [Guarded remediation](remediation.md) ·
 [Provider plane](provider-plane.md) · [glossary](glossary.md) (IPS, SIEM, NDR)
 
-**Covers:** F47, F49, and the built-not-yet-served eBPF TLS posture, raw flow
-retention, and browser artifact backend edges.
+**Covers:** F47, F49, and the built-not-yet-served alert email delivery, eBPF
+TLS posture, raw flow retention, and browser artifact backend edges.

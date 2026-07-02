@@ -14,8 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/imfeelingtheagi/probectl/internal/testsupport"
-
 	"github.com/gosnmp/gosnmp"
 )
 
@@ -435,12 +433,17 @@ func TestCounterResetWiredInPollOnce(t *testing.T) {
 
 // TestSNMPIntegration drives the REAL gosnmp client against a live target
 // (net-snmp snmpd, snmpsim, or lab gear): PROBECTL_TEST_SNMP_TARGET=host[:port] with
-// PROBECTL_TEST_SNMP_COMMUNITY. Skipped locally when unset, but fatal under
-// PROBECTL_TEST_REQUIRE_SERVICES=1 so CI cannot pass by silently skipping it.
+// PROBECTL_TEST_SNMP_COMMUNITY. The generic integration stack does not ship an
+// SNMP daemon; the dedicated device-live CI job starts loopback snmpd and sets
+// PROBECTL_TEST_SNMP_TARGET. Set PROBECTL_TEST_SNMP_REQUIRED=1 to make a missing
+// target fatal in an environment that promises live SNMP gear.
 func TestSNMPIntegration(t *testing.T) {
 	target := getenvDefault("PROBECTL_TEST_SNMP_TARGET", "")
 	if target == "" {
-		testsupport.SkipOrFatal(t, "PROBECTL_TEST_SNMP_TARGET not set")
+		if getenvDefault("PROBECTL_TEST_SNMP_REQUIRED", "") == "1" {
+			t.Fatal("PROBECTL_TEST_SNMP_REQUIRED=1 but PROBECTL_TEST_SNMP_TARGET is not set")
+		}
+		t.Skip("set PROBECTL_TEST_SNMP_TARGET to run the live SNMP integration test")
 	}
 	host, port, err := snmpIntegrationTarget(target)
 	if err != nil {

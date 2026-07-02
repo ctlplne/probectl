@@ -138,10 +138,8 @@ Commands:
   lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]
                                 erase a subject inside the current tenant
   collector register --body JSON register a bus collector identity
-  incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
-                                resource groups for served product surfaces
-  provider|tenant|billing|branding|isolation|governance|oncall ...
-                                provider/operator and operating-model groups
+  Resource groups (generated from the served API surface):
+{surface_commands}
   version                        print the CLI version
 
 Global flags:
@@ -200,10 +198,8 @@ Comandos:
   lifecycle subject-erase --subject ID --confirm ID [--reason TEXT]
                                 borra un sujeto dentro del tenant actual
   collector register --body JSON registra una identidad de colector de bus
-  incident|alert|flow|topology|slo|compliance|cost|outage|rum|carbon ...
-                                grupos de recursos para superficies servidas
-  provider|tenant|billing|branding|isolation|governance|oncall ...
-                                grupos de proveedor/operador y modelo operativo
+  Grupos de recursos (generados desde la superficie API servida):
+{surface_commands}
   version                        imprime la version de la CLI
 
 Flags globales:

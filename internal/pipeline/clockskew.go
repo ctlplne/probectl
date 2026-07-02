@@ -25,7 +25,7 @@ var maxFutureSkewMillis = MaxFutureSkew.Milliseconds()
 
 var (
 	futureClamped       atomic.Uint64 // samples clamped because they were too far in the future
-	spanStartNormalized atomic.Uint64 // spans with missing/unusable starts normalized to ingest time
+	spanStartNormalized atomic.Uint64 // OTLP spans missing usable start time and stamped at ingest
 	maxObservedSkewMs   atomic.Int64  // largest future skew observed (ms), for the skew gauge
 )
 

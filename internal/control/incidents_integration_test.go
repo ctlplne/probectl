@@ -31,7 +31,7 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 	h, db := setupAPI(t)
 	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
 	ctx := context.Background()
-	tenant := tenancy.DefaultTenantID.String()
+	tenant := freshTenant(t, db, "incmain")
 	now := time.Now().UTC().Truncate(time.Second)
 
 	i1, err := c.Ingest(ctx, incident.Signal{
@@ -54,7 +54,7 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 	}
 
 	// List shows the incident with the correlated aggregates.
-	rec := apiReq(t, h, http.MethodGet, "/v1/incidents", "", nil)
+	rec := apiReq(t, h, http.MethodGet, "/v1/incidents", tenant, nil)
 	var listed struct{ Items []incident.Incident }
 	mustJSON(t, rec, &listed)
 	var found *incident.Incident
@@ -71,7 +71,7 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 	}
 
 	// Get returns the unified, time-ordered timeline overlaying both planes.
-	rec = apiReq(t, h, http.MethodGet, "/v1/incidents/"+i1.ID, "", nil)
+	rec = apiReq(t, h, http.MethodGet, "/v1/incidents/"+i1.ID, tenant, nil)
 	var got incident.Incident
 	mustJSON(t, rec, &got)
 	if len(got.Signals) != 2 || got.Signals[0].Plane != "network" || got.Signals[1].Plane != "bgp" {
@@ -79,7 +79,7 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 	}
 
 	// Resolve.
-	rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, "", map[string]any{"status": "resolved"})
+	rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, tenant, map[string]any{"status": "resolved"})
 	if rec.Code != http.StatusOK {
 		t.Fatalf("resolve = %d: %s", rec.Code, rec.Body)
 	}
@@ -90,7 +90,7 @@ func TestIncidentCorrelationAndAPI(t *testing.T) {
 	}
 
 	// A bad PATCH status → 422.
-	if rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, "", map[string]any{"status": "open"}); rec.Code != http.StatusUnprocessableEntity {
+	if rec = apiReq(t, h, http.MethodPatch, "/v1/incidents/"+i1.ID, tenant, map[string]any{"status": "open"}); rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("invalid status = %d, want 422", rec.Code)
 	}
 }
@@ -201,6 +201,7 @@ func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
 	h, db := setupAPI(t)
 	ctx := context.Background()
 	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	tnA := freshTenant(t, db, "detmain")
 	tn, err := store.NewTenants(db.Pool()).Create(ctx,
 		fmt.Sprintf("detiso-%d", time.Now().UnixNano()), "Detection Isolation")
 	if err != nil {
@@ -209,7 +210,7 @@ func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	inc, err := c.Ingest(ctx, incident.Signal{
-		TenantID: tenancy.DefaultTenantID.String(),
+		TenantID: tnA,
 		Plane:    "threat", Kind: "ioc.botnet_c2", Severity: incident.SeverityCritical,
 		Title: "203.0.113.66 matches threat-intel indicator", Target: "203.0.113.66",
 		OccurredAt: now,
@@ -234,7 +235,7 @@ func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := apiReq(t, h, http.MethodGet, "/v1/threat/detections", "", nil)
+	rec := apiReq(t, h, http.MethodGet, "/v1/threat/detections", tnA, nil)
 	var resp struct {
 		DetectionsRunning bool               `json:"detections_running"`
 		Items             []threat.Detection `json:"items"`
@@ -244,7 +245,7 @@ func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
 		t.Fatalf("resp = %+v", resp)
 	}
 	if got := resp.Items[0]; got.IncidentID != inc.ID || got.Source != "feodo" || got.Indicator != "203.0.113.66" {
-		t.Fatalf("detection = %+v, want incident %s / default tenant IOC", got, inc.ID)
+		t.Fatalf("detection = %+v, want incident %s / primary tenant IOC", got, inc.ID)
 	}
 	if strings.Contains(rec.Body.String(), "secret.other") {
 		t.Fatalf("CROSS-TENANT LEAK: %s", rec.Body.String())
@@ -260,6 +261,7 @@ func TestBGPEventsAPIReadsTenantScopedDurableSignals(t *testing.T) {
 	h, db := setupAPI(t)
 	ctx := context.Background()
 	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	tnA := freshTenant(t, db, "bgpmain")
 	tn, err := store.NewTenants(db.Pool()).Create(ctx,
 		fmt.Sprintf("bgpiso-%d", time.Now().UnixNano()), "BGP Isolation")
 	if err != nil {
@@ -268,7 +270,7 @@ func TestBGPEventsAPIReadsTenantScopedDurableSignals(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	match, err := c.Ingest(ctx, incident.Signal{
-		TenantID: tenancy.DefaultTenantID.String(),
+		TenantID: tnA,
 		Plane:    "bgp", Kind: "bgp.possible_hijack", Severity: incident.SeverityCritical,
 		Title: "possible hijack 192.0.2.0/24", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24",
 		OccurredAt: now,
@@ -280,7 +282,7 @@ func TestBGPEventsAPIReadsTenantScopedDurableSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := c.Ingest(ctx, incident.Signal{
-		TenantID: tenancy.DefaultTenantID.String(),
+		TenantID: tnA,
 		Plane:    "bgp", Kind: "bgp.origin_change", Severity: incident.SeverityWarning,
 		Title: "origin change 198.51.100.0/24", Target: "198.51.100.0/24", Prefix: "198.51.100.0/24",
 		OccurredAt: now.Add(time.Second),
@@ -298,7 +300,7 @@ func TestBGPEventsAPIReadsTenantScopedDurableSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := apiReq(t, h, http.MethodGet, "/v1/bgp/events?prefix=192.0.2.0/24&asn=AS64500&limit=10", "", nil)
+	rec := apiReq(t, h, http.MethodGet, "/v1/bgp/events?prefix=192.0.2.0/24&asn=AS64500&limit=10", tnA, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("list bgp events = %d: %s", rec.Code, rec.Body)
 	}
@@ -312,7 +314,7 @@ func TestBGPEventsAPIReadsTenantScopedDurableSignals(t *testing.T) {
 		t.Fatalf("resp = %+v", resp)
 	}
 	if got := resp.Items[0]; got.IncidentID != match.ID || got.ID != match.ID || got.Prefix != "192.0.2.0/24" || got.Attributes["new_origin_asn"] != "64500" {
-		t.Fatalf("BGP event = %+v, want default tenant matching signal", got)
+		t.Fatalf("BGP event = %+v, want primary tenant matching signal", got)
 	}
 	if strings.Contains(rec.Body.String(), "tenant B hijack") || strings.Contains(rec.Body.String(), "198.51.100.0/24") {
 		t.Fatalf("BGP event view leaked wrong rows: %s", rec.Body)

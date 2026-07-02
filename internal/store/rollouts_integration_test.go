@@ -6,7 +6,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -51,7 +53,7 @@ func TestRolloutsTenantIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatalf("get tenant A rollout: %v", err)
 		}
-		if string(got.Plan) != string(applying) {
+		if !jsonEqual(t, got.Plan, applying) {
 			t.Fatalf("tenant A plan = %s, want %s", got.Plan, applying)
 		}
 		return nil
@@ -74,4 +76,16 @@ func TestRolloutsTenantIsolation(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func jsonEqual(t *testing.T, got, want []byte) bool {
+	t.Helper()
+	var gv, wv any
+	if err := json.Unmarshal(got, &gv); err != nil {
+		t.Fatalf("got invalid JSON: %v", err)
+	}
+	if err := json.Unmarshal(want, &wv); err != nil {
+		t.Fatalf("want invalid JSON: %v", err)
+	}
+	return reflect.DeepEqual(gv, wv)
 }

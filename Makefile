@@ -129,10 +129,10 @@ test-isolation: ## Run the cross-tenant isolation gate (CLAUDE.md §7 guardrail 
 
 .PHONY: test-integration
 test-integration: ## Run integration tests across modules (needs a database / dev stack).
-	@for d in $(GO_MODULE_DIRS); do \
+	@./scripts/with_integration_stack_lock.sh test-integration bash -c 'set -euo pipefail; for d in $(GO_MODULE_DIRS); do \
 		echo ">> integration tests ($$d)"; \
-		( cd $$d && $(GO) test -tags=integration -count=1 ./... ) || exit 1; \
-	done
+		( cd $$d && $(GO) test -p=1 -tags=integration -count=1 ./... ) || exit 1; \
+	done'
 
 .PHONY: test-python
 test-python: ## Run the Python analyzer test suite with the coverage floor (U-094).
@@ -405,7 +405,7 @@ images: ## Build multi-arch images for all components (Buildx).
 
 .PHONY: e2e
 e2e: ## U-054 black-box full-stack e2e (test/e2e): compose deps + real binaries + public API + tenancy boundary. Nightly CI.
-	PROBECTL_E2E=1 $(GO) test -count=1 -v -timeout 15m -run '^TestE2E$$' ./test/...
+	@./scripts/with_integration_stack_lock.sh e2e env PROBECTL_E2E=1 $(GO) test -count=1 -v -timeout 15m -run '^TestE2E$$' ./test/...
 
 .PHONY: backup-restore-drill
 backup-restore-drill: ## U-030 restore drill vs dev compose: seed -> backup -> wipe -> restore -> verify (runs in CI).

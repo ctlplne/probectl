@@ -64,11 +64,18 @@ func TestCLIHelpListsExpandedSurfaceGroups(t *testing.T) {
 		t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
 	}
 	for _, want := range []string{
-		"incident|alert|flow",
-		"provider|tenant|billing",
-		"topology",
-		"slo",
-		"compliance",
+		"Resource groups (generated from the served API surface):",
+		"  bgp",
+		"  device",
+		"  ebpf",
+		"  hierarchy",
+		"  key",
+		"  scim",
+		"  secret",
+		"  siem",
+		"  tenant",
+		"  threat",
+		"  topology",
 		"rollout create",
 		"api <method> <path>",
 		"Examples:",
@@ -81,6 +88,67 @@ func TestCLIHelpListsExpandedSurfaceGroups(t *testing.T) {
 			t.Fatalf("help missing %q:\n%s", want, out.String())
 		}
 	}
+}
+
+func TestCLIHelpInventoryMatchesSurfaceCommands(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		locale string
+	}{
+		{name: "english", locale: "en"},
+		{name: "spanish", locale: "es-MX"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out, errs bytes.Buffer
+			env := func(k string) string {
+				if k == "PROBECTL_LOCALE" {
+					return tc.locale
+				}
+				return ""
+			}
+			code := Run([]string{"help"}, env, &out, &errs)
+			if code != 0 {
+				t.Fatalf("help exit = %d, stderr=%s", code, errs.String())
+			}
+			listed := topLevelHelpGroups(out.String())
+			var missing []string
+			for name := range surfaceCommands {
+				if !listed[name] {
+					missing = append(missing, name)
+				}
+			}
+			sort.Strings(missing)
+			if len(missing) > 0 {
+				t.Fatalf("%s help is missing surface groups:\n%s\n\nhelp:\n%s", tc.name, strings.Join(missing, "\n"), out.String())
+			}
+		})
+	}
+}
+
+func topLevelHelpGroups(help string) map[string]bool {
+	groups := map[string]bool{}
+	inInventory := false
+	for _, line := range strings.Split(help, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "Resource groups") || strings.HasPrefix(trimmed, "Grupos de recursos") {
+			inInventory = true
+			continue
+		}
+		if inInventory && strings.HasPrefix(trimmed, "version ") {
+			break
+		}
+		if !inInventory {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		if _, ok := surfaceCommands[fields[0]]; ok {
+			groups[fields[0]] = true
+		}
+	}
+	return groups
 }
 
 func opKey(method, path string) string { return strings.ToUpper(method) + " " + path }

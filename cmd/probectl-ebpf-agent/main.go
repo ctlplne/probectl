@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -95,7 +96,15 @@ func run() error {
 	if err := ebpf.StartHealthFileWriter(ctx, cfg.HealthStateDir, agent); err != nil {
 		return err
 	}
-	return agent.Run(ctx)
+	runErr := agent.Run(ctx)
+	if f, ok := b.(bus.Flusher); ok {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := f.Flush(flushCtx); err != nil && runErr == nil {
+			return fmt.Errorf("flush bus: %w", err)
+		}
+	}
+	return runErr
 }
 
 func runHealthcheck(args []string) error {

@@ -236,6 +236,105 @@ func TestClassRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCategoriesAndInventoryDenominatorsAreSortedCopies(t *testing.T) {
+	cats := Categories()
+	if len(cats) == 0 {
+		t.Fatal("categories must not be empty")
+	}
+	for i := 1; i < len(cats); i++ {
+		if cats[i-1] > cats[i] {
+			t.Fatalf("categories must be sorted: %v before %v", cats[i-1], cats[i])
+		}
+	}
+	seen := map[Category]bool{}
+	for _, cat := range cats {
+		seen[cat] = true
+	}
+	for _, want := range []Category{CatIPAddress, CatCredential, CatAttributeMap, CatASN} {
+		if !seen[want] {
+			t.Fatalf("categories missing %q", want)
+		}
+	}
+
+	ids := RequiredDataInventoryIDs()
+	inv := DataInventory()
+	if len(ids) != len(inv) {
+		t.Fatalf("required ids = %d, inventory rows = %d", len(ids), len(inv))
+	}
+	for i := 1; i < len(ids); i++ {
+		if ids[i-1] > ids[i] {
+			t.Fatalf("required inventory ids must be sorted: %q before %q", ids[i-1], ids[i])
+		}
+	}
+}
+
+func TestValidateDataInventoryRejectsBrokenRows(t *testing.T) {
+	errs := ValidateDataInventory(nil)
+	if len(errs) != 1 || !strings.Contains(errs[0].Error(), "empty") {
+		t.Fatalf("empty inventory errors = %v", errs)
+	}
+
+	bad := []DataInventoryEntry{
+		{
+			ID:             "dup",
+			Store:          "postgres",
+			Plane:          "control",
+			Owner:          "govern",
+			Home:           "self-hosted",
+			Categories:     []Category{CatIPAddress},
+			DataClasses:    []Class{ClassPII},
+			Retention:      "30d",
+			RetentionOwner: "tenant",
+			Processors:     []string{"control"},
+			ExportBehavior: "redacted",
+			TenantDelete:   "erase",
+			SubjectDelete:  "erase",
+		},
+		{
+			ID:          "dup",
+			Categories:  []Category{"unknown"},
+			DataClasses: []Class{ClassRestricted + 1},
+			Processors:  []string{""},
+		},
+	}
+	errs = ValidateDataInventory(bad)
+	for _, want := range []string{"duplicate", "missing store", "unknown category", "invalid data class", "empty processor", "missing retention", "missing subject deletion"} {
+		found := false
+		for _, err := range errs {
+			if strings.Contains(err.Error(), want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("ValidateDataInventory did not report %q in %v", want, errs)
+		}
+	}
+}
+
+func TestTelemetryPIIPolicyKeepsFailClosedFloor(t *testing.T) {
+	defer Reset()
+	SetSource(&fakeSource{
+		pol: Policy{
+			RedactFrom: ClassRestricted,
+			Strategies: map[Class]Strategy{
+				ClassPII: StrategyNone,
+			},
+		},
+		ok: true,
+	})
+	pol := TelemetryPIIPolicy(context.Background(), "tenant-a")
+	if pol.RedactFrom != ClassPII {
+		t.Fatalf("telemetry policy must not redact below the PII floor, got %s", pol.RedactFrom)
+	}
+	if got := pol.Strategies[ClassPII]; got != StrategyPartial {
+		t.Fatalf("PII StrategyNone must be upgraded to partial, got %s", got)
+	}
+	if got := RedactTelemetryAttribute(pol, "client.ip", "203.0.113.42"); got != "203.0.113.0/24" {
+		t.Fatalf("client.ip telemetry attr = %q", got)
+	}
+}
+
 // TestColumnCategory locks GOVERN-001: mac_addr must classify as MAC (not IP via
 // the _addr net), and api_key / *_key columns as credentials (not left
 // unclassified and leaked in cleartext through a "redacted" export). Table-driven

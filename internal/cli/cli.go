@@ -83,7 +83,7 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 }
 
 func usage(w io.Writer, locale string) {
-	fmt.Fprint(w, i18n.T(locale, "cli.usage", nil))
+	fmt.Fprint(w, renderUsage(locale))
 }
 
 // client is a thin JSON HTTP client for the /v1 API.

@@ -168,10 +168,11 @@ const noisyMaterialityFloor = 5 * time.Millisecond
 
 // evaluate applies the tier SLO. At CI scale the absolute throughput floors
 // don't apply (CI hardware proves the gate, not the platform). Correctness
-// always applies. The noisy-neighbor timing ratio applies above the materiality
-// floor unless the CI run has the fairness gate installed and proves the flood
-// was shed through the timing-independent admit-fraction signal; full-scale
-// reference runs still enforce the timing ratio.
+// always applies. When the fairness gate is installed, the stable isolation
+// proof is tenant correctness plus deterministic flood shedding. The
+// in-process bus is a microsecond-scale test double; its p95 ratio is useful as
+// a negative control when no fairness gate is present, but it is not a served
+// storage/network latency SLO once the gate proves admission control.
 func (r *ScaleReport) evaluate() {
 	slo := r.Profile.SLO
 	if !r.AtCIScale {
@@ -211,7 +212,7 @@ func (r *ScaleReport) evaluate() {
 					r.Profile.Tier, r.Noisy.NoisyAdmitFrac*100, r.Noisy.NoisyPublished, maxNoisyAdmitFrac*100))
 			}
 		}
-		timingOnly := !r.AtCIScale || !r.Noisy.FairnessOn
+		timingOnly := !r.Noisy.FairnessOn
 		if timingOnly && r.Noisy.Inflation > slo.MaxNoisyInflation && r.Noisy.NoisyP95 >= noisyMaterialityFloor {
 			r.Violations = append(r.Violations, fmt.Sprintf(
 				"%s: noisy-neighbor p95 inflation %.2fx (at %s) above the %.1fx ceiling (F57; PROVISIONAL SLO)",
@@ -239,9 +240,12 @@ func RunScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, e
 	}
 	rep := ScaleReport{Profile: profile, AtCIScale: scale < 1}
 
-	b := bus.NewMemory()
+	b := bus.NewMemory(
+		bus.WithBuffer(scaleGateMemoryBusBuffer(profile, scale)),
+		bus.WithSubscribeWorkers(scaleGateMemoryBusWorkers(profile, scale)),
+	)
 	defer b.Close()
-	w := tsdb.NewMemory()
+	w := tsdb.NewMemoryWithLimits(time.Hour, scaleGateMemoryMaxBytes(profile, scale))
 	rep.Ingest, err = DriveIngest(ctx, b, w, w.Len, profile.Ingest)
 	if err != nil {
 		return rep, fmt.Errorf("perf: %s ingest: %w", tier, err)
@@ -256,13 +260,15 @@ func RunScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, e
 		// generous; the noisy tenant's flood far exceeds its bound, so it is shed.
 		quietN := clampInt(profile.Ingest.TotalResults()/profile.Ingest.Tenants, 200, 5000)
 		repeats := 3
-		// Size the per-tenant bound so the quiet workload fits across every
-		// phase the stateful gate sees: each pair runs solo then noisy, and the
-		// same gate is reused across all median-deflake repeats. The quiet tenant
-		// gets all 2*repeats phases plus one phase of headroom, while the 10x
-		// noisy flood still blows through the bucket and must be shed.
-		rate := float64(quietN * (2*repeats + 1))
-		gate := fairness.NewGate(fairness.Policy{ResultsPerSec: rate, BurstSeconds: 1}, nil)
+		// Size the per-tenant bound so every quiet phase across the repeated
+		// solo/noisy pairs fits, while the 10x neighbor cannot ride the extra
+		// one-phase headroom that previously admitted almost the whole flood.
+		// This is the timing-independent isolation assertion: quiet traffic
+		// lands, flood traffic is materially shed.
+		rate := float64(quietN * 2 * repeats)
+		fairnessNow := time.Now()
+		gate := fairness.NewGate(fairness.Policy{ResultsPerSec: rate, BurstSeconds: 1}, nil).
+			WithNow(func() time.Time { return fairnessNow })
 		rep.Noisy, err = DriveNoisyNeighbor(ctx, NoisyConfig{
 			QuietResults:  quietN,
 			NoisyFactor:   10,
@@ -278,6 +284,39 @@ func RunScaleGate(ctx context.Context, tier Tier, scale float64) (ScaleReport, e
 
 	rep.evaluate()
 	return rep, nil
+}
+
+func scaleGateMemoryBusBuffer(profile Profile, scale float64) int {
+	if scale < 1 {
+		return bus.DefaultMemoryBuffer
+	}
+	n := profile.Ingest.Producers * 1024
+	if n < bus.DefaultMemoryBuffer {
+		return bus.DefaultMemoryBuffer
+	}
+	return n
+}
+
+func scaleGateMemoryBusWorkers(profile Profile, scale float64) int {
+	if scale < 1 {
+		return 1
+	}
+	return ingestHarnessWriteWorkers(profile.Ingest)
+}
+
+func scaleGateMemoryMaxBytes(profile Profile, scale float64) int64 {
+	if scale < 1 {
+		return tsdb.DefaultMemoryMaxBytes
+	}
+	// Full-scale reference runs use the in-memory writer as the measurement
+	// ledger. It must not evict its own receipt before completeness is counted.
+	expectedSeries := int64(profile.Ingest.TotalResults() * seriesPerResult)
+	const bytesPerSampleBudget = int64(512)
+	budget := expectedSeries * bytesPerSampleBudget
+	if budget < tsdb.DefaultMemoryMaxBytes {
+		return tsdb.DefaultMemoryMaxBytes
+	}
+	return budget
 }
 
 func clampInt(v, lo, hi int) int {

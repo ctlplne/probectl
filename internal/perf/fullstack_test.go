@@ -84,6 +84,61 @@ func TestDriveFullStackOnMemoryStack(t *testing.T) {
 	}
 }
 
+func TestFullStackKafkaBufferScalesWithReferenceBurst(t *testing.T) {
+	profile, err := ProfileFor(TierL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fullStackKafkaMaxBuffered(profile, 1); got < profile.Ingest.TotalResults() {
+		t.Fatalf("full-scale Kafka buffer = %d, want at least %d", got, profile.Ingest.TotalResults())
+	}
+	if got := fullStackKafkaMaxBuffered(profile, 0.05); got != bus.DefaultMaxBuffered {
+		t.Fatalf("CI Kafka buffer drifted: %d", got)
+	}
+	if got := fullStackSubscribeWorkers(profile, 1); got < 64 {
+		t.Fatalf("full-scale subscribe workers = %d, want reference-scale fan-out", got)
+	}
+	if got := fullStackSubscribeWorkers(profile, 0.05); got != 1 {
+		t.Fatalf("CI subscribe workers drifted: %d", got)
+	}
+	if got := fullStackWriteWorkers(profile, false); got != fullStackSubscribeWorkers(profile, 1) {
+		t.Fatalf("full-scale write workers = %d, want subscribe worker parity", got)
+	}
+	if got := fullStackBatchSeries(profile, 1); got < 5000 {
+		t.Fatalf("full-scale batch series = %d, want reference-scale batches", got)
+	}
+	if got := fullStackBatchWait(1); got >= 50*time.Millisecond {
+		t.Fatalf("full-scale batch wait = %s, want lower than CI/default", got)
+	}
+}
+
+func TestFullStackConfirmationRangeCoversGeneratedTimestamps(t *testing.T) {
+	profile, err := ProfileFor(TierL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	span := ingestTimestampSpan(profile.Ingest)
+	if got := fullStackConfirmationRange(profile.Ingest); got <= span {
+		t.Fatalf("confirmation range %s must exceed generated timestamp span %s", got, span)
+	}
+	xxl, err := ProfileFor(TierXXL, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ingestTimestampSpan(xxl.Ingest); got > time.Minute {
+		t.Fatalf("XXL generated timestamp span = %s, want compressed recent samples", got)
+	}
+	if got := promDuration(1500 * time.Millisecond); got != "2s" {
+		t.Fatalf("prom duration rounding = %q", got)
+	}
+	expr := fullStackTotalSeriesExpr("lsx", "10m")
+	for _, metric := range []string{"probectl_probe_success", "probectl_probe_duration_seconds", "probectl_probe_rtt_avg_ms"} {
+		if !strings.Contains(expr, metric) {
+			t.Fatalf("confirmation expr missing %s: %s", metric, expr)
+		}
+	}
+}
+
 // A store that never confirms (count stays 0) must surface INGEST INCOMPLETE
 // — the gate fails loudly instead of reporting throughput over lost data.
 func TestDriveFullStackIncompleteIngestFails(t *testing.T) {
@@ -95,7 +150,12 @@ func TestDriveFullStackIncompleteIngestFails(t *testing.T) {
 	b := bus.NewMemory()
 	defer b.Close()
 	w := tsdb.NewMemory()
-	blind := func(context.Context, string) (float64, error) { return 0, nil }
+	blind := func(_ context.Context, promql string) (float64, error) {
+		if strings.Contains(promql, `tenant_id="lsgone-ready"`) {
+			return 1, nil
+		}
+		return 0, nil
+	}
 
 	rep, err := DriveFullStack(context.Background(), b, w, blind, profile, true, "lsgone")
 	if err != nil {

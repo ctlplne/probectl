@@ -24,11 +24,13 @@ package perf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -66,18 +68,21 @@ type FullStackReport struct {
 	Produced     uint64
 	ProduceFail  uint64
 	ProduceShed  uint64
+	Received     uint64
+	Stored       uint64
 	Retried      uint64
 	DeadLettered uint64
 	Dropped      uint64
+	WriteQueued  uint64
 	SeriesCapped uint64
 }
 
 // Diagnostics renders the pipeline counters for the CI log.
 func (r FullStackReport) Diagnostics() string {
 	return fmt.Sprintf(
-		"pipeline: published=%d produced=%d produce_fail=%d produce_shed=%d → confirmed=%d/%d series; consumer retried=%d dead_lettered=%d dropped=%d series_capped=%d",
-		r.Published, r.Produced, r.ProduceFail, r.ProduceShed, r.Confirmed, r.UniqueSeries,
-		r.Retried, r.DeadLettered, r.Dropped, r.SeriesCapped)
+		"pipeline: published=%d produced=%d produce_fail=%d produce_shed=%d → received=%d stored=%d confirmed=%d/%d series; consumer retried=%d dead_lettered=%d dropped=%d write_queue_saturated=%d series_capped=%d",
+		r.Published, r.Produced, r.ProduceFail, r.ProduceShed, r.Received, r.Stored, r.Confirmed, r.UniqueSeries,
+		r.Retried, r.DeadLettered, r.Dropped, r.WriteQueued, r.SeriesCapped)
 }
 
 // String renders the row the operator copies into docs/scale-gate.md.
@@ -119,26 +124,41 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	// Consumer errors (store-write failures incl. the verbatim Prometheus
 	// remote-write status/body) go to stderr so a failed gate is diagnosable
 	// from the CI log — not swallowed.
-	consumer := pipeline.NewConsumer(b, w, "loadgate-"+ns, logging.New(os.Stderr, "error", "json"))
+	consumer := pipeline.NewConsumer(b, w, "loadgate-"+ns, logging.New(os.Stderr, "error", "json")).
+		WithWriteWorkers(fullStackWriteWorkers(profile, atCIScale)).
+		WithWriteQueueDepth(fullStackWriteQueueDepth(profile, atCIScale))
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	consumerDone := make(chan struct{})
-	go func() { _ = consumer.Run(cctx); close(consumerDone) }()
+	consumerErr := make(chan error, 1)
+	go func() { consumerErr <- consumer.Run(cctx) }()
 	time.Sleep(150 * time.Millisecond)
+	select {
+	case err := <-consumerErr:
+		if err != nil {
+			return rep, fmt.Errorf("perf: full-stack consumer exited before publish: %w", err)
+		}
+		return rep, errors.New("perf: full-stack consumer exited before publish")
+	default:
+	}
+	if err := waitFullStackReady(cctx, b, count, ns, consumerErr); err != nil {
+		cancel()
+		return rep, err
+	}
 
 	// Publish the tier's load (the "agents").
 	var pubLat Latencies
 	start := time.Now()
-	published, pubErr := publishIdentities(cctx, b, buildIdentities(cfg), cfg.Producers, &pubLat)
+	published, pubErr := publishIdentities(cctx, b, buildIdentities(cfg), cfg.Producers, cfg.ResultsPerTest, &pubLat)
 	rep.Published = published
 	if pubErr != nil {
 		cancel()
-		<-consumerDone
+		<-consumerErr
 		return rep, fmt.Errorf("perf: full-stack publish: %w", pubErr)
 	}
 
 	// Settle: every distinct series of THIS run visible via the query path.
-	selector := fmt.Sprintf(`count({tenant_id=~"%s-tenant-.*"})`, ns)
+	confirmRange := promDuration(fullStackConfirmationRange(cfg))
+	selector := fullStackTotalSeriesExpr(ns, confirmRange)
 	deadline := time.Now().Add(cfg.SettleTimeout)
 	confirmed := 0.0
 	for time.Now().Before(deadline) {
@@ -153,7 +173,9 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	}
 	elapsed := time.Since(start)
 	cancel()
-	<-consumerDone
+	if err := <-consumerErr; err != nil {
+		return rep, fmt.Errorf("perf: full-stack consumer: %w", err)
+	}
 
 	rep.Confirmed = int(confirmed)
 	// Localize a break: bus produce outcomes (real Kafka only) + consumer
@@ -163,7 +185,9 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 		rep.Produced, rep.ProduceFail, rep.ProduceShed = st.Produced, st.Failed, st.Shed
 	}
 	cs := consumer.Stats()
-	rep.Retried, rep.DeadLettered, rep.Dropped = cs.Retried, cs.DeadLettered, cs.Dropped
+	is := consumer.IntegrityStats()
+	rep.Received, rep.Stored = is.Received, is.Stored
+	rep.Retried, rep.DeadLettered, rep.Dropped, rep.WriteQueued = cs.Retried, cs.DeadLettered, cs.Dropped, cs.WriteQueueSaturated
 	rep.SeriesCapped = consumer.CardinalityStats().Dropped
 
 	ing := IngestReport{
@@ -192,7 +216,7 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	perTenant := cfg.AgentsPerTenant * cfg.TestsPerAgent
 	var qLat Latencies
 	for t := 0; t < cfg.Tenants; t++ {
-		expr := fmt.Sprintf(`count(%s{tenant_id="%s-tenant-%04d"})`, successMetric, ns, t)
+		expr := fmt.Sprintf(`count(count_over_time(%s{tenant_id="%s-tenant-%04d"}[%s]))`, successMetric, ns, t, confirmRange)
 		t0 := time.Now()
 		v, err := count(ctx, expr)
 		if err != nil {
@@ -210,6 +234,78 @@ func DriveFullStack(ctx context.Context, b bus.Bus, w tsdb.Writer, count QueryCo
 	rep.TenantsQueried = cfg.Tenants
 	rep.QueryP95 = qLat.Summary().P95
 	return rep, nil
+}
+
+func fullStackConfirmationRange(cfg IngestConfig) time.Duration {
+	span := ingestTimestampSpan(cfg) + 2*time.Minute
+	if span < 10*time.Minute {
+		return 10 * time.Minute
+	}
+	return span
+}
+
+func promDuration(d time.Duration) string {
+	if d <= 0 {
+		return "1s"
+	}
+	sec := int64((d + time.Second - 1) / time.Second)
+	if sec < 1 {
+		sec = 1
+	}
+	return fmt.Sprintf("%ds", sec)
+}
+
+func fullStackTotalSeriesExpr(ns, rng string) string {
+	return fmt.Sprintf(
+		`count(count_over_time(probectl_probe_success{tenant_id=~"%[1]s-tenant-.*"}[%[2]s])) + count(count_over_time(probectl_probe_duration_seconds{tenant_id=~"%[1]s-tenant-.*"}[%[2]s])) + count(count_over_time(probectl_probe_rtt_avg_ms{tenant_id=~"%[1]s-tenant-.*"}[%[2]s]))`,
+		ns, rng)
+}
+
+func waitFullStackReady(ctx context.Context, b bus.Bus, count QueryCounter, ns string, consumerErr <-chan error) error {
+	tenant := ns + "-ready"
+	payload, err := proto.Marshal(buildResult(identity{
+		tenant:        tenant,
+		agent:         "ready-agent",
+		server:        "ready.example:443",
+		eventUnixNano: time.Now().UnixNano(),
+	}))
+	if err != nil {
+		return fmt.Errorf("perf: readiness result: %w", err)
+	}
+	if err := b.Publish(ctx, bus.NetworkResultsTopic, []byte(tenant), payload); err != nil {
+		return fmt.Errorf("perf: readiness publish: %w", err)
+	}
+	if f, ok := b.(bus.Flusher); ok {
+		if err := f.Flush(ctx); err != nil {
+			return fmt.Errorf("perf: readiness flush: %w", err)
+		}
+	}
+
+	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	query := fmt.Sprintf(`count(%s{tenant_id="%s"})`, successMetric, tenant)
+	for {
+		select {
+		case err := <-consumerErr:
+			if err != nil {
+				return fmt.Errorf("perf: full-stack consumer exited during readiness: %w", err)
+			}
+			return errors.New("perf: full-stack consumer exited during readiness")
+		default:
+		}
+		v, err := count(readyCtx, query)
+		if err == nil && v >= 1 {
+			return nil
+		}
+		select {
+		case <-readyCtx.Done():
+			if err != nil {
+				return fmt.Errorf("perf: readiness query: %w", err)
+			}
+			return fmt.Errorf("perf: readiness result not visible in Prometheus within %s", 30*time.Second)
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
 }
 
 // RunFullStackGate wires the REAL stack — Kafka producer/consumer and the
@@ -230,17 +326,102 @@ func RunFullStackGate(ctx context.Context, tier Tier, scale float64, targets Ful
 	// load-smoke run: published=8 produced=0 produce_fail=8). Production
 	// topics are operator-provisioned; the harness provisions its own via
 	// the broker's auto-create on first produce.
-	b, err := bus.NewKafka(targets.Brokers, 0, kgo.AllowAutoTopicCreation())
+	b, err := bus.NewKafka(targets.Brokers, fullStackKafkaMaxBuffered(profile, scale), kgo.AllowAutoTopicCreation())
 	if err != nil {
 		return FullStackReport{}, fmt.Errorf("perf: full-stack kafka: %w", err)
 	}
+	b.WithSubscribeWorkers(fullStackSubscribeWorkers(profile, scale))
+	b.WithSubscribeFromEnd()
 	defer b.Close()
-	w := tsdb.NewPrometheus(targets.PromURL)
+	if err := warmKafkaTopic(ctx, b); err != nil {
+		return FullStackReport{}, err
+	}
+	prom := tsdb.NewPrometheus(targets.PromURL)
+	w := tsdb.NewBatchingWriter(prom, fullStackBatchSeries(profile, scale), fullStackBatchWait(scale))
+	defer w.Close()
 
 	nonce, err := crypto.Random(4)
 	if err != nil {
 		return FullStackReport{}, err
 	}
 	ns := fmt.Sprintf("ls%x", nonce)
-	return DriveFullStack(ctx, b, w, w.Count, profile, scale < 1, ns)
+	return DriveFullStack(ctx, b, w, prom.Count, profile, scale < 1, ns)
+}
+
+func warmKafkaTopic(ctx context.Context, b bus.Bus) error {
+	payload, err := proto.Marshal(buildResult(identity{
+		tenant:        "perf-warmup",
+		agent:         "perf-warmup-agent",
+		server:        "perf-warmup.example:443",
+		eventUnixNano: time.Now().UnixNano(),
+	}))
+	if err != nil {
+		return fmt.Errorf("perf: warmup result: %w", err)
+	}
+	if err := b.Publish(ctx, bus.NetworkResultsTopic, []byte("perf-warmup"), payload); err != nil {
+		return fmt.Errorf("perf: warmup publish: %w", err)
+	}
+	if f, ok := b.(bus.Flusher); ok {
+		if err := f.Flush(ctx); err != nil {
+			return fmt.Errorf("perf: warmup flush: %w", err)
+		}
+	}
+	return nil
+}
+
+func fullStackKafkaMaxBuffered(profile Profile, scale float64) int {
+	if scale < 1 {
+		return bus.DefaultMaxBuffered
+	}
+	n := profile.Ingest.TotalResults()
+	if n < bus.DefaultMaxBuffered {
+		return bus.DefaultMaxBuffered
+	}
+	return n
+}
+
+func fullStackSubscribeWorkers(profile Profile, scale float64) int {
+	if scale < 1 {
+		return 1
+	}
+	return fullStackWorkerCount(profile)
+}
+
+func fullStackWriteWorkers(profile Profile, atCIScale bool) int {
+	if atCIScale {
+		return 0
+	}
+	return fullStackWorkerCount(profile)
+}
+
+func fullStackWriteQueueDepth(profile Profile, atCIScale bool) int {
+	if atCIScale {
+		return 0
+	}
+	return fullStackWorkerCount(profile) * 32
+}
+
+func fullStackWorkerCount(profile Profile) int {
+	workers := profile.Ingest.Producers * 16
+	if workers < 64 {
+		workers = 64
+	}
+	if workers > 512 {
+		workers = 512
+	}
+	return workers
+}
+
+func fullStackBatchSeries(_ Profile, scale float64) int {
+	if scale < 1 {
+		return 500
+	}
+	return 5000
+}
+
+func fullStackBatchWait(scale float64) time.Duration {
+	if scale < 1 {
+		return 50 * time.Millisecond
+	}
+	return time.Millisecond
 }

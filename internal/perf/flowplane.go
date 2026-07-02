@@ -58,11 +58,11 @@ func DriveFlowPlane(ctx context.Context, tier Tier, scale float64) (FlowPlaneRep
 	if records < 200 {
 		records = 200 // materiality floor (D12): never a vacuous drive
 	}
-	batchSize := 50
+	batchSize := flowPlaneBatchSize(scale)
 	rep := FlowPlaneReport{Tier: tier, AtCIScale: scale < 1, Records: records}
 
 	b := bus.NewMemory()
-	st := flowstore.NewMemory()
+	st := flowstore.NewMemoryWithLimit(flowPlaneStoreLimit(records, scale))
 	consumer := pipeline.NewFlowConsumer(b, st, nil, logging.New(os.Stderr, "error", "json"))
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -75,6 +75,7 @@ func DriveFlowPlane(ctx context.Context, tier Tier, scale float64) (FlowPlaneRep
 	if tenants < 1 {
 		tenants = 1
 	}
+	base := time.Now().Add(-time.Duration(records+1) * time.Millisecond)
 	for sent := 0; sent < records; {
 		n := batchSize
 		if records-sent < n {
@@ -83,11 +84,23 @@ func DriveFlowPlane(ctx context.Context, tier Tier, scale float64) (FlowPlaneRep
 		tenant := fmt.Sprintf("fp-tenant-%03d", sent%tenants)
 		batch := &flowv1.FlowBatch{Flows: make([]*flowv1.FlowRecord, n)}
 		for i := 0; i < n; i++ {
+			seq := sent + i
+			end := base.Add(time.Duration(seq) * time.Millisecond)
+			bytes := uint64(1500 + seq%900)
+			packets := uint64(3 + seq%7)
 			batch.Flows[i] = &flowv1.FlowRecord{
 				TenantId: tenant, AgentId: "fp-agent",
-				SourceAddress:      fmt.Sprintf("10.%d.%d.%d", (sent+i)/65536%256, (sent+i)/256%256, (sent+i)%256),
+				ExporterAddress:    fmt.Sprintf("192.0.2.%d", 1+seq%250),
+				ObservationDomain:  uint32(1 + seq%4096),
+				FlowProtocol:       "netflow9",
+				ObservedAtUnixNano: end.Add(time.Millisecond).UnixNano(),
+				StartUnixNano:      end.Add(-time.Second).UnixNano(),
+				EndUnixNano:        end.UnixNano(),
+				SourceAddress:      fmt.Sprintf("10.%d.%d.%d", seq/65536%256, seq/256%256, seq%256),
 				DestinationAddress: "203.0.113.9", SourcePort: 40000, DestinationPort: 443,
-				NetworkTransport: "tcp", Bytes: 1500, Packets: 3,
+				NetworkTransport: "tcp", NetworkType: "ipv4",
+				InputInterface: uint32(10 + seq%64), OutputInterface: uint32(20 + seq%64),
+				Bytes: bytes, Packets: packets, SamplingRate: 1, BytesScaled: bytes, PacketsScaled: packets,
 			}
 		}
 		payload, merr := proto.Marshal(batch)
@@ -122,4 +135,18 @@ func DriveFlowPlane(ctx context.Context, tier Tier, scale float64) (FlowPlaneRep
 			rep.Stored, records, rep.Rejected)
 	}
 	return rep, nil
+}
+
+func flowPlaneBatchSize(scale float64) int {
+	if scale < 1 {
+		return 50
+	}
+	return 1000
+}
+
+func flowPlaneStoreLimit(records int, scale float64) int {
+	if scale < 1 {
+		return 1 << 20
+	}
+	return records
 }

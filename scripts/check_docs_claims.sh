@@ -149,6 +149,7 @@ run_checks() { # run_checks <root>
   local limits="$r/docs/limitations.md"
   if ! grep -q '## Built, not yet served edges' "$limits" 2>/dev/null \
      || ! grep -q 'Chaos injector API/control-plane surface' "$limits" 2>/dev/null \
+     || ! grep -q 'Alert email delivery' "$limits" 2>/dev/null \
      || ! grep -q 'eBPF TLS posture ingest' "$limits" 2>/dev/null \
      || ! grep -q 'Raw eBPF flow retention' "$limits" 2>/dev/null \
      || ! grep -q 'Browser artifact S3 / MinIO backend' "$limits" 2>/dev/null; then
@@ -157,7 +158,9 @@ run_checks() { # run_checks <root>
   if ! grep -q '../limitations.md#built-not-yet-served-edges' "$r/docs/features/cost-slo-and-chaos.md" 2>/dev/null \
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/tls-observability.md" 2>/dev/null \
      || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/deploying-agents.md" 2>/dev/null \
-     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/browser-synthetic.md" 2>/dev/null; then
+     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/browser-synthetic.md" 2>/dev/null \
+     || ! grep -q 'limitations.md#built-not-yet-served-edges' "$r/docs/alerting.md" 2>/dev/null \
+     || ! grep -q '../limitations.md#built-not-yet-served-edges' "$r/docs/features/alerting-and-incidents.md" 2>/dev/null; then
     echo "DOCS-S15: built-not-yet-served feature caveats must link to docs/limitations.md" >&2; f=1
   fi
   local disclosure_hits hit file
@@ -174,7 +177,7 @@ run_checks() { # run_checks <root>
         continue
         ;;
       # Config/hardening caveats: not buyer-relevant served-vs-library claims.
-      "$r/docs/configuration.md"|"$r/docs/features/alerting-and-incidents.md")
+      "$r/docs/configuration.md")
         continue
         ;;
     esac
@@ -259,6 +262,7 @@ EOF
   cat > "$d/docs/limitations.md" <<'EOF'
 ## Built, not yet served edges
 Chaos injector API/control-plane surface
+Alert email delivery
 eBPF TLS posture ingest
 Raw eBPF flow retention
 Browser artifact S3 / MinIO backend
@@ -303,6 +307,12 @@ TBD
 EOF
   cat > "$d/docs/features/cost-slo-and-chaos.md" <<'EOF'
 ../limitations.md#built-not-yet-served-edges
+EOF
+  cat > "$d/docs/features/alerting-and-incidents.md" <<'EOF'
+Email channel not wired; see ../limitations.md#built-not-yet-served-edges
+EOF
+  cat > "$d/docs/alerting.md" <<'EOF'
+Email channel not wired; see limitations.md#built-not-yet-served-edges
 EOF
   cat > "$d/docs/tls-observability.md" <<'EOF'
 limitations.md#built-not-yet-served-edges
@@ -382,8 +392,19 @@ cited evidence stays scoped to what the caller is allowed to see.
 EOF
       ;;
     DOCS-S15)
-      cat > "$d/docs/unlisted-edge.md" <<'EOF'
-The packet mirror is not wired yet.
+      cat > "$d/docs/limitations.md" <<'EOF'
+## Built, not yet served edges
+Chaos injector API/control-plane surface
+eBPF TLS posture ingest
+Raw eBPF flow retention
+Browser artifact S3 / MinIO backend
+The plugin/detection marketplace is a non-goal.
+inline IPS/firewall
+autonomous remediation
+vendor-hosted public SaaS
+EOF
+      cat > "$d/docs/alerting.md" <<'EOF'
+Email channel not wired.
 EOF
       ;;
     SEC-004)

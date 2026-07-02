@@ -803,6 +803,9 @@ func registerLossGauges(m *metrics.Registry, resultBus bus.Bus, tsdbWriter tsdb.
 	m.Gauge("probectl_pipeline_max_future_skew_ms",
 		"Largest future clock skew observed across all samples, in milliseconds.",
 		func() float64 { return float64(pipeline.MaxObservedFutureSkewMillis()) })
+	m.Gauge("probectl_pipeline_span_start_normalized_total",
+		"OTLP spans missing a usable start timestamp and normalized to ingest time.",
+		func() float64 { return float64(pipeline.SpanStartNormalized()) })
 	// WIRE-001: cross-tenant injection attempts dropped fail-closed by tenant
 	// verification across every bus-published plane — surfaced so the
 	// tenant-isolation dashboard can alert on it instead of it hiding in logs.
