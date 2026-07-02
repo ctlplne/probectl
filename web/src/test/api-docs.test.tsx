@@ -1,5 +1,5 @@
 import { describe, expect, test, vi, beforeEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { jsonResponse } from './fetchStub'
@@ -27,6 +27,17 @@ const openapiDoc = {
           },
         },
         responses: { '201': { description: 'created' }, '422': { description: 'invalid' } },
+      },
+    },
+  },
+  components: {
+    schemas: {
+      AlertRequest: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', example: 'edge latency burn' },
+          severity: { type: 'string', enum: ['warning', 'critical'] },
+        },
       },
     },
   },
@@ -68,5 +79,68 @@ describe('native API docs route', () => {
 
     expect(requests).toContain('/openapi.json')
     expect(requests.every((path) => ['/branding', '/v1/me', '/openapi.json'].includes(path))).toBe(true)
+  })
+
+  test('/docs/api executes a GET with the same-origin session only', async () => {
+    const calls: { path: string; init?: RequestInit }[] = []
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathnameOf(input)
+      calls.push({ path, init })
+      if (path === '/openapi.json') return jsonResponse(openapiDoc)
+      if (path === '/v1/tests') return jsonResponse({ items: [{ id: 'test-1', name: 'edge-dns' }] })
+      return jsonResponse({ ok: true })
+    }) as unknown as typeof fetch
+    vi.stubGlobal('fetch', fetcher)
+
+    renderApp('/docs/api')
+
+    await screen.findByRole('table', { name: 'API operations' })
+    await userEvent.click(screen.getByRole('button', { name: 'Open GET /v1/tests' }))
+    await waitFor(() => expect(screen.getByDisplayValue('/v1/tests')).toBeDefined())
+    await userEvent.click(screen.getByRole('button', { name: 'Run request' }))
+
+    expect(await screen.findByText(/"edge-dns"/)).toBeDefined()
+    const apiCall = calls.find((call) => call.path === '/v1/tests')
+    expect(apiCall?.init).toMatchObject({ method: 'GET', credentials: 'same-origin' })
+    expect(JSON.stringify(apiCall?.init?.headers ?? {})).not.toMatch(/cookie|authorization|bearer/i)
+  })
+
+  test('/docs/api generates secret-free POST examples and blocks mutation without confirmation', async () => {
+    const calls: { path: string; init?: RequestInit }[] = []
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = pathnameOf(input)
+      calls.push({ path, init })
+      if (path === '/openapi.json') return jsonResponse(openapiDoc)
+      if (path === '/v1/alerts') return jsonResponse({ id: 'alert-1', name: 'edge latency burn' }, 201)
+      return jsonResponse({ ok: true })
+    }) as unknown as typeof fetch
+    vi.stubGlobal('fetch', fetcher)
+
+    renderApp('/docs/api')
+
+    const curl = await screen.findByText(/curl -X POST/)
+    expect(curl.textContent).toContain('/v1/alerts')
+    expect(curl.textContent).toContain("Content-Type: application/json")
+    expect(curl.textContent).not.toMatch(/cookie|authorization|bearer|session/i)
+    expect(screen.getByText(/credentials: 'same-origin'/)).toBeDefined()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Run request' }))
+    expect(await screen.findByRole('alert')).toBeDefined()
+    expect(calls.some((call) => call.path === '/v1/alerts')).toBe(false)
+
+    fireEvent.change(screen.getByLabelText('Request body'), {
+      target: { value: '{"name":"edge latency burn","severity":"warning"}' },
+    })
+    await userEvent.type(screen.getByLabelText('Mutation confirmation'), 'RUN')
+    await userEvent.click(screen.getByRole('button', { name: 'Run request' }))
+
+    await screen.findByText('201')
+    const apiCall = calls.find((call) => call.path === '/v1/alerts')
+    expect(apiCall?.init).toMatchObject({
+      method: 'POST',
+      credentials: 'same-origin',
+      body: '{"name":"edge latency burn","severity":"warning"}',
+    })
+    expect(JSON.stringify(apiCall?.init?.headers ?? {})).not.toMatch(/cookie|authorization|bearer/i)
   })
 })
