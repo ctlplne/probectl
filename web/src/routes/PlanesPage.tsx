@@ -30,6 +30,7 @@ import {
 import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
+import type { MessageKey } from '../i18n/messages'
 import {
   formatDecimal,
   formatInteger,
@@ -42,15 +43,14 @@ type PlaneID = 'bgp' | 'flow' | 'device' | 'ebpf'
 
 interface Plane {
   id: PlaneID
-  label: string
-  feature: string
+  labelKey: MessageKey
 }
 
 const PLANES: Plane[] = [
-  { id: 'bgp', label: 'BGP', feature: 'F6 / P2' },
-  { id: 'flow', label: 'Flow', feature: 'F17 / P3' },
-  { id: 'device', label: 'Device', feature: 'F18 / P4' },
-  { id: 'ebpf', label: 'eBPF', feature: 'F11 / P5' },
+  { id: 'bgp', labelKey: 'planes.tab.bgp' },
+  { id: 'flow', labelKey: 'planes.tab.flow' },
+  { id: 'device', labelKey: 'planes.tab.device' },
+  { id: 'ebpf', labelKey: 'planes.tab.ebpf' },
 ]
 
 function isPlaneID(value: string | undefined): value is PlaneID {
@@ -91,7 +91,7 @@ function toneForCount(n: number) {
 export function PlanesPage() {
   const { plane } = useParams()
   const navigate = useNavigate()
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const active: PlaneID = isPlaneID(plane) ? plane : 'bgp'
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
   const topology = useTopology()
@@ -125,42 +125,46 @@ export function PlanesPage() {
 
   return (
     <Page
-      title="Planes"
-      subtitle="First-class workspaces for routing, flow, device, and host/L7 telemetry."
+      title={t('planes.page.title')}
+      subtitle={t('planes.page.subtitle')}
       actions={<PlaneTabs active={active} onChange={setActive} />}
     >
       <div className={styles.overview}>
         <PlaneStat
-          title="BGP routing"
+          title={t('planes.stat.bgp.title')}
           value={routingEdges.length}
-          detail={`${compact(prefixNodes.length, locale)} prefixes, ${compact(
-            asNodes.length,
-            locale,
-          )} AS nodes`}
+          detail={t('planes.stat.bgp.detail', {
+            prefixes: compact(prefixNodes.length, locale),
+            ases: compact(asNodes.length, locale),
+          })}
           tone={toneForCount(routingEdges.length)}
           onOpen={() => setActive('bgp')}
           locale={locale}
         />
         <PlaneStat
-          title="Flow analytics"
+          title={t('planes.stat.flow.title')}
           value={topTalkers.data?.items.length ?? 0}
-          detail={`${bytes(flowBytes, locale)} in top talkers`}
+          detail={t('planes.stat.flow.detail', { bytes: bytes(flowBytes, locale) })}
           tone={toneForCount(topTalkers.data?.items.length ?? 0)}
           onOpen={() => setActive('flow')}
           locale={locale}
         />
         <PlaneStat
-          title="Device telemetry"
+          title={t('planes.stat.device.title')}
           value={deviceNodes.length + endpointItems.length}
-          detail={`${compact(impairedEndpoints, locale)} endpoint impairments`}
+          detail={t('planes.stat.device.detail', {
+            count: compact(impairedEndpoints, locale),
+          })}
           tone={toneForCount(deviceNodes.length + endpointItems.length)}
           onOpen={() => setActive('device')}
           locale={locale}
         />
         <PlaneStat
-          title="eBPF host/L7"
+          title={t('planes.stat.ebpf.title')}
           value={flowEdges.length}
-          detail={`${compact(serviceNodes.length, locale)} services in topology`}
+          detail={t('planes.stat.ebpf.detail', {
+            count: compact(serviceNodes.length, locale),
+          })}
           tone={toneForCount(flowEdges.length)}
           onOpen={() => setActive('ebpf')}
           locale={locale}
@@ -214,8 +218,9 @@ export function PlanesPage() {
 }
 
 function PlaneTabs({ active, onChange }: { active: PlaneID; onChange: (plane: PlaneID) => void }) {
+  const { t } = useI18n()
   return (
-    <div className={styles.tabs} role="tablist" aria-label="Telemetry planes">
+    <div className={styles.tabs} role="tablist" aria-label={t('planes.tabs.aria')}>
       {PLANES.map((plane) => (
         <Button
           key={plane.id}
@@ -225,7 +230,7 @@ function PlaneTabs({ active, onChange }: { active: PlaneID; onChange: (plane: Pl
           variant={active === plane.id ? 'primary' : 'secondary'}
           onClick={() => onChange(plane.id)}
         >
-          {plane.label}
+          {t(plane.labelKey)}
         </Button>
       ))}
     </div>
@@ -247,20 +252,23 @@ function PlaneStat({
   onOpen: () => void
   locale: string
 }) {
+  const { t } = useI18n()
   return (
     <Card>
       <CardHeader
         title={title}
         actions={
           <Button size="sm" variant="ghost" onClick={onOpen}>
-            Open
+            {t('planes.stat.open')}
           </Button>
         }
       />
       <CardBody className={styles.statBody}>
         <span className={styles.statValue}>{compact(value, locale)}</span>
         <span className={styles.muted}>{detail}</span>
-        <Badge tone={tone}>{value > 0 ? 'observed' : 'waiting for telemetry'}</Badge>
+        <Badge tone={tone}>
+          {value > 0 ? t('planes.stat.observed') : t('planes.stat.waiting')}
+        </Badge>
       </CardBody>
     </Card>
   )
@@ -279,33 +287,41 @@ function BGPPanel({
   routingEdges: TopoEdge[]
   coverage: number
 }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const rows = routingEdges.map((edge, index) => ({
     ...edge,
     id: `${edge.from}-${edge.to}-${index}`,
   }))
   const columns: Column<(typeof rows)[number]>[] = [
-    { key: 'origin', header: 'Origin AS', render: (e) => labelFor(nodes, e.from) },
-    { key: 'prefix', header: 'Prefix', render: (e) => labelFor(nodes, e.to) },
-    { key: 'kind', header: 'Source', render: () => <Badge tone="info">routing</Badge> },
+    {
+      key: 'origin',
+      header: t('planes.bgp.column.origin'),
+      render: (e) => labelFor(nodes, e.from),
+    },
+    { key: 'prefix', header: t('planes.bgp.column.prefix'), render: (e) => labelFor(nodes, e.to) },
+    {
+      key: 'kind',
+      header: t('planes.column.source'),
+      render: () => <Badge tone="info">{t('planes.badge.routing')}</Badge>,
+    },
   ]
   return (
     <section id="plane-panel-bgp" role="tabpanel" className={styles.panelGrid}>
       <Card>
         <CardHeader
-          title="BGP routing events"
-          description="Origin AS to prefix evidence folded into the tenant graph."
+          title={t('planes.bgp.card.title')}
+          description={t('planes.bgp.card.description')}
         />
         <CardBody>
           {isLoading ? (
-            <LoadingState label="Loading BGP plane..." />
+            <LoadingState label={t('planes.bgp.loading')} />
           ) : isError ? (
-            <ErrorState description="Could not load topology routing evidence." />
+            <ErrorState description={t('planes.bgp.error')} />
           ) : rows.length > 0 ? (
             <div className={styles.visualStack}>
               <BgpAsPathView nodes={nodes} routingEdges={routingEdges} />
               <Table
-                caption="BGP routing edges"
+                caption={t('planes.bgp.table.caption')}
                 columns={columns}
                 rows={rows}
                 rowKey={(r) => r.id}
@@ -313,14 +329,14 @@ function BGPPanel({
             </div>
           ) : (
             <Table
-              caption="BGP routing edges"
+              caption={t('planes.bgp.table.caption')}
               columns={columns}
               rows={rows}
               rowKey={(r) => r.id}
               empty={
                 <EmptyState
-                  title="No BGP routing evidence"
-                  description="BGP events appear here after the analyzer publishes tenant-scoped routing events."
+                  title={t('planes.bgp.empty.title')}
+                  description={t('planes.bgp.empty.description')}
                   preview={<PlanesPreview />}
                 />
               }
@@ -329,11 +345,11 @@ function BGPPanel({
         </CardBody>
       </Card>
       <PlaneSummary
-        title="Routing coverage"
+        title={t('planes.bgp.summary.title')}
         items={[
-          ['Routing edges', compact(coverage, locale)],
-          ['Prefixes', compact(nodesOf(nodes, 'prefix').length, locale)],
-          ['Autonomous systems', compact(nodesOf(nodes, 'as').length, locale)],
+          [t('planes.bgp.summary.edges'), compact(coverage, locale)],
+          [t('planes.bgp.summary.prefixes'), compact(nodesOf(nodes, 'prefix').length, locale)],
+          [t('planes.bgp.summary.systems'), compact(nodesOf(nodes, 'as').length, locale)],
         ]}
       />
     </section>
@@ -353,12 +369,12 @@ function FlowPanel({
   anomalies: ReturnType<typeof useFlowAnomalies>
   latestCapacity?: { bps: number; pps: number; exporter: string; iface: number; ts: string }
 }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const topRows = topTalkers.data?.items ?? []
   const topColumns: Column<NonNullable<typeof topTalkers.data>['items'][number]>[] = [
     {
       key: 'key',
-      header: 'Contributor',
+      header: t('planes.flow.column.contributor'),
       render: (r) => (
         <div>
           <strong>{r.key}</strong>
@@ -366,65 +382,88 @@ function FlowPanel({
         </div>
       ),
     },
-    { key: 'bytes', header: 'Bytes', numeric: true, render: (r) => bytes(r.bytes, locale) },
-    { key: 'packets', header: 'Packets', numeric: true, render: (r) => compact(r.packets, locale) },
-    { key: 'flows', header: 'Flows', numeric: true, render: (r) => compact(r.flows, locale) },
+    {
+      key: 'bytes',
+      header: t('planes.flow.column.bytes'),
+      numeric: true,
+      render: (r) => bytes(r.bytes, locale),
+    },
+    {
+      key: 'packets',
+      header: t('planes.flow.column.packets'),
+      numeric: true,
+      render: (r) => compact(r.packets, locale),
+    },
+    {
+      key: 'flows',
+      header: t('planes.flow.column.flows'),
+      numeric: true,
+      render: (r) => compact(r.flows, locale),
+    },
   ]
   const anomalyColumns: Column<NonNullable<typeof anomalies.data>['items'][number]>[] = [
-    { key: 'exporter', header: 'Exporter', render: (a) => a.exporter || 'any' },
-    { key: 'iface', header: 'Iface', numeric: true, render: (a) => a.iface },
+    {
+      key: 'exporter',
+      header: t('planes.flow.column.exporter'),
+      render: (a) => a.exporter || t('planes.value.any'),
+    },
+    { key: 'iface', header: t('planes.flow.column.iface'), numeric: true, render: (a) => a.iface },
     {
       key: 'current',
-      header: 'Current',
+      header: t('planes.flow.column.current'),
       numeric: true,
       render: (a) => rate(a.current_bps, locale),
     },
     {
       key: 'baseline',
-      header: 'Baseline',
+      header: t('planes.flow.column.baseline'),
       numeric: true,
       render: (a) => rate(a.baseline_bps, locale),
     },
     {
       key: 'sigma',
-      header: 'Sigma',
+      header: t('planes.flow.column.sigma'),
       numeric: true,
       render: (a) => formatDecimal(a.sigma, locale, { maximumFractionDigits: 1 }),
     },
-    { key: 'model', header: 'Model', render: (a) => a.model || 'local' },
+    {
+      key: 'model',
+      header: t('planes.flow.column.model'),
+      render: (a) => a.model || t('planes.value.local'),
+    },
   ]
   return (
     <section id="plane-panel-flow" role="tabpanel" className={styles.panelGrid}>
       <div className={styles.stack}>
         <Card>
           <CardHeader
-            title="Top talkers"
-            description="Sampling-corrected flow contributors from the tenant flow store."
+            title={t('planes.flow.top.title')}
+            description={t('planes.flow.top.description')}
             actions={
               <Select
-                label="Group"
+                label={t('planes.flow.group.label')}
                 value={flowBy}
                 onChange={(e) => onFlowBy(e.target.value as FlowGroupBy)}
                 options={[
-                  { value: 'src', label: 'Source' },
-                  { value: 'dst', label: 'Destination' },
-                  { value: 'pair', label: 'Pair' },
-                  { value: 'src_asn', label: 'Source ASN' },
-                  { value: 'dst_asn', label: 'Destination ASN' },
+                  { value: 'src', label: t('planes.flow.group.src') },
+                  { value: 'dst', label: t('planes.flow.group.dst') },
+                  { value: 'pair', label: t('planes.flow.group.pair') },
+                  { value: 'src_asn', label: t('planes.flow.group.srcAsn') },
+                  { value: 'dst_asn', label: t('planes.flow.group.dstAsn') },
                 ]}
               />
             }
           />
           <CardBody>
             {topTalkers.isLoading ? (
-              <LoadingState label="Loading flow analytics..." />
+              <LoadingState label={t('planes.flow.top.loading')} />
             ) : topTalkers.isError ? (
-              <ErrorState description="Could not load flow top talkers." />
+              <ErrorState description={t('planes.flow.top.error')} />
             ) : topRows.length > 0 ? (
               <div className={styles.visualStack}>
                 <FlowSankeyView rows={topRows} />
                 <Table
-                  caption="Flow top talkers"
+                  caption={t('planes.flow.top.caption')}
                   columns={topColumns}
                   rows={topRows}
                   rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
@@ -432,14 +471,14 @@ function FlowPanel({
               </div>
             ) : (
               <Table
-                caption="Flow top talkers"
+                caption={t('planes.flow.top.caption')}
                 columns={topColumns}
                 rows={topRows}
                 rowKey={(r) => `${r.key}-${r.detail ?? ''}`}
                 empty={
                   <EmptyState
-                    title="No flow rows"
-                    description="Flow collectors have not reported in this window."
+                    title={t('planes.flow.top.empty.title')}
+                    description={t('planes.flow.top.empty.description')}
                     preview={<PlanesPreview />}
                   />
                 }
@@ -448,22 +487,22 @@ function FlowPanel({
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="Capacity anomalies" />
+          <CardHeader title={t('planes.flow.anomalies.title')} />
           <CardBody>
             {anomalies.isLoading ? (
-              <LoadingState label="Loading anomalies..." />
+              <LoadingState label={t('planes.flow.anomalies.loading')} />
             ) : anomalies.isError ? (
-              <ErrorState description="Could not load flow anomalies." />
+              <ErrorState description={t('planes.flow.anomalies.error')} />
             ) : (
               <Table
-                caption="Flow capacity anomalies"
+                caption={t('planes.flow.anomalies.caption')}
                 columns={anomalyColumns}
                 rows={anomalies.data?.items ?? []}
                 rowKey={(a) => `${a.exporter}-${a.iface}-${a.ts}`}
                 empty={
                   <EmptyState
-                    title="No anomalies"
-                    description="No interface departed from baseline in the current window."
+                    title={t('planes.flow.anomalies.empty.title')}
+                    description={t('planes.flow.anomalies.empty.description')}
                     preview={<PlanesPreview />}
                   />
                 }
@@ -473,17 +512,20 @@ function FlowPanel({
         </Card>
       </div>
       <PlaneSummary
-        title="Capacity"
+        title={t('planes.flow.summary.title')}
         items={[
-          ['Latest throughput', rate(latestCapacity?.bps, locale)],
+          [t('planes.flow.summary.throughput'), rate(latestCapacity?.bps, locale)],
           [
-            'Latest packets/s',
+            t('planes.flow.summary.packets'),
             latestCapacity
               ? formatDecimal(latestCapacity.pps, locale, { maximumFractionDigits: 1 })
               : formatInteger(0, locale),
           ],
-          ['Exporter', latestCapacity?.exporter || 'none'],
-          ['Interface', latestCapacity ? String(latestCapacity.iface) : 'none'],
+          [t('planes.flow.column.exporter'), latestCapacity?.exporter || t('planes.value.none')],
+          [
+            t('planes.flow.summary.interface'),
+            latestCapacity ? String(latestCapacity.iface) : t('planes.value.none'),
+          ],
         ]}
         footer={latestCapacity ? <DateTime value={latestCapacity.ts} /> : undefined}
       />
@@ -516,69 +558,105 @@ function DevicePanel({
   opsLoading: boolean
   opsError: boolean
 }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const deviceColumns: Column<TopoNode>[] = [
-    { key: 'device', header: 'Device', render: (n) => <strong>{n.label}</strong> },
-    { key: 'id', header: 'Graph ID', render: (n) => <code>{n.id}</code> },
+    {
+      key: 'device',
+      header: t('planes.device.column.device'),
+      render: (n) => <strong>{n.label}</strong>,
+    },
+    { key: 'id', header: t('planes.device.column.graphId'), render: (n) => <code>{n.id}</code> },
   ]
   const endpointColumns: Column<EndpointView>[] = [
-    { key: 'agent', header: 'Endpoint agent', render: (e) => e.agent_id },
+    { key: 'agent', header: t('planes.device.column.endpointAgent'), render: (e) => e.agent_id },
     {
       key: 'status',
-      header: 'State',
+      header: t('planes.device.column.state'),
       render: (e) => (
-        <Badge tone={e.slow ? 'warning' : 'success'}>{e.slow ? 'impaired' : 'healthy'}</Badge>
+        <Badge tone={e.slow ? 'warning' : 'success'}>
+          {e.slow ? t('planes.device.badge.impaired') : t('planes.device.badge.healthy')}
+        </Badge>
       ),
     },
-    { key: 'cause', header: 'Cause', render: (e) => e.cause ?? 'none' },
-    { key: 'seen', header: 'Last seen', render: (e) => <DateTime value={e.last_seen_at} /> },
+    {
+      key: 'cause',
+      header: t('planes.device.column.cause'),
+      render: (e) => e.cause ?? t('planes.value.none'),
+    },
+    {
+      key: 'seen',
+      header: t('planes.device.column.lastSeen'),
+      render: (e) => <DateTime value={e.last_seen_at} />,
+    },
   ]
   const syslogColumns: Column<DeviceSyslogEvent>[] = [
-    { key: 'device', header: 'Device', render: (e) => <strong>{e.device}</strong> },
+    {
+      key: 'device',
+      header: t('planes.device.column.device'),
+      render: (e) => <strong>{e.device}</strong>,
+    },
     {
       key: 'severity',
-      header: 'Severity',
+      header: t('planes.device.column.severity'),
       render: (e) => <Badge tone={syslogTone(e.severity_text)}>{e.severity_text}</Badge>,
     },
-    { key: 'message', header: 'Message', render: (e) => e.message },
-    { key: 'seen', header: 'Observed', render: (e) => <DateTime value={e.observed_at} /> },
+    { key: 'message', header: t('planes.device.column.message'), render: (e) => e.message },
+    {
+      key: 'seen',
+      header: t('planes.device.column.observed'),
+      render: (e) => <DateTime value={e.observed_at} />,
+    },
   ]
   const configColumns: Column<DeviceConfigVersion>[] = [
-    { key: 'device', header: 'Device', render: (c) => <strong>{c.device}</strong> },
-    { key: 'version', header: 'Version', render: (c) => String(c.version) },
+    {
+      key: 'device',
+      header: t('planes.device.column.device'),
+      render: (c) => <strong>{c.device}</strong>,
+    },
+    { key: 'version', header: t('planes.device.column.version'), render: (c) => String(c.version) },
     {
       key: 'drift',
-      header: 'Drift',
+      header: t('planes.device.column.drift'),
       render: (c) => (
-        <Badge tone={c.drifted ? 'warning' : 'success'}>{c.drifted ? 'changed' : 'baseline'}</Badge>
+        <Badge tone={c.drifted ? 'warning' : 'success'}>
+          {c.drifted ? t('planes.device.badge.changed') : t('planes.device.badge.baseline')}
+        </Badge>
       ),
     },
-    { key: 'hash', header: 'Hash', render: (c) => <code>{c.content_hash.slice(0, 12)}</code> },
-    { key: 'archived', header: 'Archived', render: (c) => <DateTime value={c.archived_at} /> },
+    {
+      key: 'hash',
+      header: t('planes.device.column.hash'),
+      render: (c) => <code>{c.content_hash.slice(0, 12)}</code>,
+    },
+    {
+      key: 'archived',
+      header: t('planes.device.column.archived'),
+      render: (c) => <DateTime value={c.archived_at} />,
+    },
   ]
   return (
     <section id="plane-panel-device" role="tabpanel" className={styles.panelGrid}>
       <div className={styles.stack}>
         <Card>
           <CardHeader
-            title="Network devices"
-            description="Managed device nodes and device-to-hop links in the topology graph."
+            title={t('planes.device.devices.title')}
+            description={t('planes.device.devices.description')}
           />
           <CardBody>
             {isLoading ? (
-              <LoadingState label="Loading device plane..." />
+              <LoadingState label={t('planes.device.devices.loading')} />
             ) : isError ? (
-              <ErrorState description="Could not load device telemetry." />
+              <ErrorState description={t('planes.device.devices.error')} />
             ) : (
               <Table
-                caption="Topology device nodes"
+                caption={t('planes.device.devices.caption')}
                 columns={deviceColumns}
                 rows={deviceNodes}
                 rowKey={(n) => n.id}
                 empty={
                   <EmptyState
-                    title="No devices"
-                    description="Device collectors have not reported topology-visible devices yet."
+                    title={t('planes.device.devices.empty.title')}
+                    description={t('planes.device.devices.empty.description')}
                     preview={<PlanesPreview />}
                   />
                 }
@@ -587,17 +665,17 @@ function DevicePanel({
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="Endpoint telemetry" />
+          <CardHeader title={t('planes.device.endpoints.title')} />
           <CardBody>
             <Table
-              caption="Endpoint telemetry"
+              caption={t('planes.device.endpoints.caption')}
               columns={endpointColumns}
               rows={endpoints}
               rowKey={(e) => e.agent_id}
               empty={
                 <EmptyState
-                  title="No endpoint telemetry"
-                  description="Endpoint agents publish last-mile and WiFi evidence here."
+                  title={t('planes.device.endpoints.empty.title')}
+                  description={t('planes.device.endpoints.empty.description')}
                   preview={<PlanesPreview />}
                 />
               }
@@ -605,22 +683,22 @@ function DevicePanel({
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="Device syslog" />
+          <CardHeader title={t('planes.device.syslog.title')} />
           <CardBody>
             {opsLoading ? (
-              <LoadingState label="Loading device operations..." />
+              <LoadingState label={t('planes.device.ops.loading')} />
             ) : opsError ? (
-              <ErrorState description="Could not load device operations." />
+              <ErrorState description={t('planes.device.ops.error')} />
             ) : (
               <Table
-                caption="Device syslog events"
+                caption={t('planes.device.syslog.caption')}
                 columns={syslogColumns}
                 rows={syslog}
                 rowKey={(e) => e.id}
                 empty={
                   <EmptyState
-                    title="No syslog events"
-                    description="Authenticated device syslog rows appear here."
+                    title={t('planes.device.syslog.empty.title')}
+                    description={t('planes.device.syslog.empty.description')}
                     preview={<PlanesPreview />}
                   />
                 }
@@ -629,22 +707,22 @@ function DevicePanel({
           </CardBody>
         </Card>
         <Card>
-          <CardHeader title="Config archive" />
+          <CardHeader title={t('planes.device.config.title')} />
           <CardBody>
             {opsLoading ? (
-              <LoadingState label="Loading config archive..." />
+              <LoadingState label={t('planes.device.config.loading')} />
             ) : opsError ? (
-              <ErrorState description="Could not load config archive." />
+              <ErrorState description={t('planes.device.config.error')} />
             ) : (
               <Table
-                caption="Device config versions"
+                caption={t('planes.device.config.caption')}
                 columns={configColumns}
                 rows={configs}
                 rowKey={(c) => c.id}
                 empty={
                   <EmptyState
-                    title="No config versions"
-                    description="Versioned and redacted network configs appear here."
+                    title={t('planes.device.config.empty.title')}
+                    description={t('planes.device.config.empty.description')}
                     preview={<PlanesPreview />}
                   />
                 }
@@ -654,15 +732,20 @@ function DevicePanel({
         </Card>
       </div>
       <PlaneSummary
-        title="Device coverage"
+        title={t('planes.device.summary.title')}
         items={[
-          ['Device nodes', compact(deviceNodes.length, locale)],
-          ['Device links', compact(deviceEdges.length, locale)],
-          ['Endpoint agents', compact(endpoints.length, locale)],
-          ['Collector', collectorRunning === false ? 'off' : 'on'],
+          [t('planes.device.summary.nodes'), compact(deviceNodes.length, locale)],
+          [t('planes.device.summary.links'), compact(deviceEdges.length, locale)],
+          [t('planes.device.summary.endpointAgents'), compact(endpoints.length, locale)],
+          [
+            t('planes.device.summary.collector'),
+            collectorRunning === false ? t('planes.value.off') : t('planes.value.on'),
+          ],
         ]}
         footer={
-          deviceEdges.length > 0 ? `${labelFor(nodes, deviceEdges[0].from)} linked` : undefined
+          deviceEdges.length > 0
+            ? t('planes.device.summary.linked', { label: labelFor(nodes, deviceEdges[0].from) })
+            : undefined
         }
       />
     </section>
@@ -690,36 +773,44 @@ function EBPFPanel({
   flowEdges: TopoEdge[]
   serviceNodes: TopoNode[]
 }) {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const rows = flowEdges.map((edge, index) => ({ ...edge, id: `${edge.from}-${edge.to}-${index}` }))
   const columns: Column<(typeof rows)[number]>[] = [
-    { key: 'src', header: 'Source workload', render: (e) => labelFor(nodes, e.from) },
-    { key: 'dst', header: 'Destination workload', render: (e) => labelFor(nodes, e.to) },
-    { key: 'l7', header: 'L7', render: (e) => e.label || 'L4' },
+    { key: 'src', header: t('planes.ebpf.column.source'), render: (e) => labelFor(nodes, e.from) },
+    {
+      key: 'dst',
+      header: t('planes.ebpf.column.destination'),
+      render: (e) => labelFor(nodes, e.to),
+    },
+    {
+      key: 'l7',
+      header: t('planes.ebpf.column.l7'),
+      render: (e) => e.label || t('planes.ebpf.value.l4'),
+    },
   ]
   const protocols = new Set(flowEdges.map((e) => e.label).filter(Boolean))
   return (
     <section id="plane-panel-ebpf" role="tabpanel" className={styles.panelGrid}>
       <Card>
         <CardHeader
-          title="Host/L7 service edges"
-          description="eBPF-derived workload-to-workload evidence folded into the topology graph."
+          title={t('planes.ebpf.card.title')}
+          description={t('planes.ebpf.card.description')}
         />
         <CardBody>
           {isLoading ? (
-            <LoadingState label="Loading eBPF plane..." />
+            <LoadingState label={t('planes.ebpf.loading')} />
           ) : isError ? (
-            <ErrorState description="Could not load eBPF service edges." />
+            <ErrorState description={t('planes.ebpf.error')} />
           ) : (
             <Table
-              caption="eBPF service edges"
+              caption={t('planes.ebpf.table.caption')}
               columns={columns}
               rows={rows}
               rowKey={(r) => r.id}
               empty={
                 <EmptyState
-                  title="No service edges"
-                  description="The eBPF agent has not reported service-to-service traffic yet."
+                  title={t('planes.ebpf.empty.title')}
+                  description={t('planes.ebpf.empty.description')}
                   preview={<PlanesPreview />}
                 />
               }
@@ -728,11 +819,11 @@ function EBPFPanel({
         </CardBody>
       </Card>
       <PlaneSummary
-        title="Host/L7 coverage"
+        title={t('planes.ebpf.summary.title')}
         items={[
-          ['Service nodes', compact(serviceNodes.length, locale)],
-          ['Service edges', compact(flowEdges.length, locale)],
-          ['Protocols', compact(protocols.size, locale)],
+          [t('planes.ebpf.summary.nodes'), compact(serviceNodes.length, locale)],
+          [t('planes.ebpf.summary.edges'), compact(flowEdges.length, locale)],
+          [t('planes.ebpf.summary.protocols'), compact(protocols.size, locale)],
         ]}
       />
     </section>

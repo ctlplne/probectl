@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readFileSync, readdirSync } from 'node:fs'
+import { extname, join, resolve } from 'node:path'
 import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -66,6 +66,29 @@ function requestURL(input: RequestInfo | URL) {
   return input.url
 }
 
+function localizedSourceFiles() {
+  const roots = [
+    resolve(process.cwd(), 'src/nav'),
+    resolve(process.cwd(), 'src/shell'),
+    resolve(process.cwd(), 'src/routes'),
+    resolve(process.cwd(), 'src/components'),
+  ]
+
+  function walk(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) return walk(full)
+      if (!entry.isFile()) return []
+      if (!['.ts', '.tsx'].includes(extname(entry.name))) return []
+      if (entry.name.endsWith('.test.ts') || entry.name.endsWith('.test.tsx')) return []
+      if (entry.name.endsWith('.d.ts')) return []
+      return [full]
+    })
+  }
+
+  return roots.flatMap(walk).sort()
+}
+
 describe('i18n catalog', () => {
   test('every shipped locale has every user-facing catalog key', () => {
     const keys = Object.keys(messages.en) as MessageKey[]
@@ -76,8 +99,8 @@ describe('i18n catalog', () => {
     }
   })
 
-  test('localized surfaces do not reintroduce the cited raw English labels', () => {
-    const sources = [
+  test('localized route and shared UI sources do not reintroduce cited raw English labels', () => {
+    const existingLocalizedSources = [
       resolve(process.cwd(), 'src/nav/ia.ts'),
       resolve(process.cwd(), 'src/shell/CommandPalette.tsx'),
       resolve(process.cwd(), 'src/routes/OutagesPage.tsx'),
@@ -85,7 +108,7 @@ describe('i18n catalog', () => {
       resolve(process.cwd(), 'src/routes/SLOsPage.tsx'),
       resolve(process.cwd(), 'src/routes/admin/AdminCards.tsx'),
     ]
-    const banned = [
+    const existingLocalizedBanned = [
       'Targets & Tests',
       'Internet outages',
       'Collective outage view',
@@ -107,13 +130,70 @@ describe('i18n catalog', () => {
       'Approvals are disabled',
       'Approved (not executed)',
     ]
+    const planesBanned = [
+      'First-class workspaces for routing, flow, device, and host/L7 telemetry.',
+      'Telemetry planes',
+      'BGP routing events',
+      'BGP routing edges',
+      'Origin AS to prefix evidence folded into the tenant graph.',
+      'BGP events appear here after the analyzer publishes tenant-scoped routing events.',
+      'Top talkers',
+      'Sampling-corrected flow contributors from the tenant flow store.',
+      'Flow top talkers',
+      'Flow capacity anomalies',
+      'No interface departed from baseline in the current window.',
+      'Network devices',
+      'Managed device nodes and device-to-hop links in the topology graph.',
+      'Topology device nodes',
+      'Endpoint telemetry',
+      'Device syslog events',
+      'Authenticated device syslog rows appear here.',
+      'Device config versions',
+      'Versioned and redacted network configs appear here.',
+      'Host/L7 service edges',
+      'eBPF service edges',
+      'The eBPF agent has not reported service-to-service traffic yet.',
+    ]
 
-    for (const source of sources) {
+    for (const source of existingLocalizedSources) {
       const body = readFileSync(source, 'utf8')
-      for (const text of banned) {
+      for (const text of existingLocalizedBanned) {
         expect(body, `${source} must use the i18n catalog for ${text}`).not.toContain(text)
       }
     }
+
+    for (const source of localizedSourceFiles()) {
+      const body = readFileSync(source, 'utf8')
+      for (const text of planesBanned) {
+        expect(body, `${source} must use the i18n catalog for ${text}`).not.toContain(text)
+      }
+    }
+  })
+
+  test('Spanish locale renders the native Planes surface from the catalog', async () => {
+    renderApp('/planes/bgp', { locale: 'es' })
+
+    expect(await screen.findByRole('heading', { name: 'Planos' })).toBeInTheDocument()
+    expect(document.documentElement.lang).toBe('es')
+    expect(document.documentElement.dir).toBe('ltr')
+    expect(screen.getByRole('tablist', { name: 'Planos de telemetria' })).toBeInTheDocument()
+
+    const routing = await screen.findByRole('table', { name: 'Aristas de enrutamiento BGP' })
+    expect(within(routing).getByText('AS64500')).toBeInTheDocument()
+    expect(screen.getByText('Cobertura de enrutamiento')).toBeInTheDocument()
+  })
+
+  test('Arabic locale renders the native Planes surface in RTL from the catalog', async () => {
+    renderApp('/planes/bgp', { locale: 'ar-EG' })
+
+    expect(await screen.findByRole('heading', { name: 'المستويات' })).toBeInTheDocument()
+    expect(document.documentElement.lang).toBe('ar-eg')
+    expect(document.documentElement.dir).toBe('rtl')
+    expect(screen.getByRole('tablist', { name: 'مستويات القياس' })).toBeInTheDocument()
+
+    const routing = await screen.findByRole('table', { name: 'حواف توجيه BGP' })
+    expect(within(routing).getByText('AS64500')).toBeInTheDocument()
+    expect(screen.getByText('تغطية التوجيه')).toBeInTheDocument()
   })
 
   test('Spanish locale renders nav, command search, outage tables, and statuses', async () => {
