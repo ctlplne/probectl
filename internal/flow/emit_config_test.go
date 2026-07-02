@@ -154,7 +154,7 @@ func TestConfigLoadRequiresVersionAndRejectsUnknownKeys(t *testing.T) {
 }
 
 func TestConfigLoadAcceptsSchemaVersionAlias(t *testing.T) {
-	path := writeFlowConfig(t, "schema_version: 1\ntenant_id: t\nbus:\n  mode: memory\n")
+	path := writeFlowConfig(t, "schema_version: 1\ntenant_id: t\nbus:\n  mode: memory\nnetflow:\n  enabled: true\n  listen: \"127.0.0.1:2055\"\nipfix:\n  enabled: false\nsflow:\n  enabled: false\n")
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("schema_version alias should load: %v", err)
