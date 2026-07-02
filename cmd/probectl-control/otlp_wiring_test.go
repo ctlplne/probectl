@@ -61,7 +61,9 @@ func TestOTLPSubsystemsUseTenantBucketKeys(t *testing.T) {
 		}
 	}
 	if got := strings.Count(src, "bus.TenantKey(tenant, entropy)"); got < 3 {
-		t.Fatalf("OTLP publish paths must bucket all three signals with bus.TenantKey; found %d uses", got)
+		if got != 1 || strings.Count(src, "publishOTLPBus(ctx, resultBus") < 3 {
+			t.Fatalf("OTLP publish paths must route all three signals through publishOTLPBus and bucket with bus.TenantKey; TenantKey uses=%d", got)
+		}
 	}
 }
 

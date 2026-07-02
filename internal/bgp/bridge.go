@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // maxEventLine bounds a single JSONL record (defensive: collector-derived input
@@ -64,7 +65,15 @@ func PublishEvent(ctx context.Context, pub Publisher, ev Event) error {
 	if err != nil {
 		return fmt.Errorf("bgp: marshal event: %w", err)
 	}
-	if err := pub.Publish(ctx, bus.BGPEventsTopic, []byte(ev.TenantID), value); err != nil {
+	targets, err := tenancy.CurrentRouter().TargetsFor(ctx, ev.TenantID)
+	if err != nil {
+		return fmt.Errorf("bgp: resolve isolation targets for tenant %s: %w", ev.TenantID, err)
+	}
+	topic, err := bus.TopicFor(targets.BusNamespace, bus.BGPEventsTopic)
+	if err != nil {
+		return fmt.Errorf("bgp: route topic for tenant %s: %w", ev.TenantID, err)
+	}
+	if err := pub.Publish(ctx, topic, []byte(ev.TenantID), value); err != nil {
 		return fmt.Errorf("bgp: publish event: %w", err)
 	}
 	return nil

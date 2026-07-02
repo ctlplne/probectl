@@ -16,6 +16,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
 // An origin-change event as the Python analyzer emits it (JSON Lines).
@@ -47,6 +48,31 @@ func (c *capturePublisher) Publish(_ context.Context, topic string, key, value [
 	defer c.mu.Unlock()
 	c.msgs = append(c.msgs, capturedMsg{topic, append([]byte(nil), key...), append([]byte(nil), value...)})
 	return nil
+}
+
+type testIsolationRouter struct {
+	targets map[string]tenancy.Targets
+	err     error
+}
+
+func (r testIsolationRouter) TargetsFor(_ context.Context, tenantID string) (tenancy.Targets, error) {
+	if r.err != nil {
+		return tenancy.Targets{}, r.err
+	}
+	return r.targets[tenantID], nil
+}
+
+func (r testIsolationRouter) BusNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+func (r testIsolationRouter) BusNamespaceTenants(context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func withTestRouter(t *testing.T, r tenancy.Router) {
+	t.Helper()
+	prev := tenancy.CurrentRouter()
+	tenancy.SetRouter(r)
+	t.Cleanup(func() { tenancy.SetRouter(prev) })
 }
 
 func TestBridgePublishesTenantKeyedEvent(t *testing.T) {
@@ -92,6 +118,45 @@ func TestBridgePublishesTenantKeyedEvent(t *testing.T) {
 	}
 	if ev.GetSeverity() != bgpv1.Severity_SEVERITY_WARNING {
 		t.Errorf("severity = %v", ev.GetSeverity())
+	}
+}
+
+func TestBridgePublishesThroughTenantBusNamespace(t *testing.T) {
+	withTestRouter(t, testIsolationRouter{targets: map[string]tenancy.Targets{
+		"t1": {Model: tenancy.IsolationHybrid, BusNamespace: "tenant-one"},
+	}})
+	pub := &capturePublisher{}
+
+	if err := PublishEvent(context.Background(), pub, Event{
+		TenantID: "t1", EventType: "origin_change", Prefix: "192.0.2.0/24",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(pub.msgs) != 1 {
+		t.Fatalf("published %d messages, want 1", len(pub.msgs))
+	}
+	if want := "probectl.tenant-one.bgp.events"; pub.msgs[0].topic != want {
+		t.Fatalf("topic = %q, want %q", pub.msgs[0].topic, want)
+	}
+	if string(pub.msgs[0].key) != "t1" {
+		t.Fatalf("key = %q, want tenant t1", pub.msgs[0].key)
+	}
+}
+
+func TestBridgeFailsClosedOnInvalidTenantBusNamespace(t *testing.T) {
+	withTestRouter(t, testIsolationRouter{targets: map[string]tenancy.Targets{
+		"t1": {Model: tenancy.IsolationHybrid, BusNamespace: "bad.namespace"},
+	}})
+	pub := &capturePublisher{}
+
+	err := PublishEvent(context.Background(), pub, Event{
+		TenantID: "t1", EventType: "origin_change", Prefix: "192.0.2.0/24",
+	})
+	if err == nil || !strings.Contains(err.Error(), "route topic") {
+		t.Fatalf("invalid namespace error = %v, want route-topic failure", err)
+	}
+	if len(pub.msgs) != 0 {
+		t.Fatalf("published %d messages with an invalid tenant namespace; want fail-closed zero", len(pub.msgs))
 	}
 }
 

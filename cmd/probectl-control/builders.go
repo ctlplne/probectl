@@ -571,13 +571,13 @@ func startOTLPSubsystems(
 
 	sinks := otlp.Sinks{
 		Metrics: otlp.NewBusSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPMetricsTopic, bus.TenantKey(tenant, entropy), payload)
+			return publishOTLPBus(ctx, resultBus, bus.OTLPMetricsTopic, tenant, entropy, payload)
 		}),
 		Traces: otlp.NewBusTraceSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPTracesTopic, bus.TenantKey(tenant, entropy), payload)
+			return publishOTLPBus(ctx, resultBus, bus.OTLPTracesTopic, tenant, entropy, payload)
 		}),
 		Logs: otlp.NewBusLogSink(func(ctx context.Context, tenant, entropy string, payload []byte) error {
-			return resultBus.Publish(ctx, bus.OTLPLogsTopic, bus.TenantKey(tenant, entropy), payload)
+			return publishOTLPBus(ctx, resultBus, bus.OTLPLogsTopic, tenant, entropy, payload)
 		}),
 	}
 	otlpSrv, err := otlp.NewServer(
@@ -644,6 +644,21 @@ func startOTLPSubsystems(
 		})
 	})
 	return nil
+}
+
+func publishOTLPBus(ctx context.Context, resultBus bus.Bus, baseTopic, tenant, entropy string, payload []byte) error {
+	if tenant == "" {
+		return tenancy.ErrNoTenant
+	}
+	targets, err := tenancy.CurrentRouter().TargetsFor(ctx, tenant)
+	if err != nil {
+		return fmt.Errorf("otlp: resolve isolation targets for tenant %s: %w", tenant, err)
+	}
+	topic, err := bus.TopicFor(targets.BusNamespace, baseTopic)
+	if err != nil {
+		return fmt.Errorf("otlp: route topic for tenant %s: %w", tenant, err)
+	}
+	return resultBus.Publish(ctx, topic, bus.TenantKey(tenant, entropy), payload)
 }
 
 // startHAAndTenantLifecycle wires the optional multi-region fence plus the core
