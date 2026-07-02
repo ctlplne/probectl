@@ -38,10 +38,12 @@ for an immediate quickstart — production replaces it with a CA-issued cert.
 
 ```sh
 cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD + envelope/session-HMAC keys
-# If GHCR returns 401 for the pinned release image, run `docker login ghcr.io`
-# with a token that has read:packages, or set PROBECTL_IMAGE in .env to a
-# locally built / mirrored image. The preflight fails before Compose starts and
-# prints exact login, mirror, or local-build commands.
+# Set PROBECTL_IMAGE in .env to a digest-pinned release image, for example:
+# ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>
+# If GHCR returns 401, run `docker login ghcr.io` with a token that has
+# read:packages, or point PROBECTL_IMAGE at an internal mirror. Tag-only local
+# or mirror refs require PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable.
+# The preflight fails before Compose starts and prints exact repair commands.
 bash scripts/compose_image_preflight.sh
 make compose-prod-up
 docker compose -f deploy/compose/probectl.yml cp control:/certs/ca.crt ./ca.crt

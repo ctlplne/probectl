@@ -480,6 +480,8 @@ jobs:
         # mirroring the dummy envelopeKey the helm renders above pass.
         env:
           POSTGRES_PASSWORD: ci-validate-only
+          PROBECTL_SESSION_HMAC_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+          PROBECTL_IMAGE: ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         run: docker compose -f deploy/compose/probectl.yml config >/dev/null
 
   terraform-gate:

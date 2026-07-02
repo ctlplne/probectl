@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # check_compose_image_contract.sh — OPS-001 guard for the shipped Compose image.
 #
-# The shipped all-in-one compose file points certgen + control at one exact
-# release image. This gate keeps three things true:
-#   1. both services use the same pinned image,
+# The shipped all-in-one compose file points certgen + control at one immutable
+# release image, or fails closed until the operator supplies one. This gate keeps
+# three things true:
+#   1. both services use the same digest-pinned image contract,
 #   2. install docs wire the hard preflight before compose up,
 #   3. install docs explain GHCR auth / PROBECTL_IMAGE override when anonymous
 #      pull is unavailable,
@@ -20,20 +21,25 @@ err() {
 
 extract_default_images() {
   local root="$1"
-  grep -oE '\$\{PROBECTL_IMAGE:-[^}]+' "$root/deploy/compose/probectl.yml" \
+  (grep -oE '\$\{PROBECTL_IMAGE:-[^}]+' "$root/deploy/compose/probectl.yml" || true) \
     | sed 's/.*:-//' \
     | sort -u
 }
 
 run_checks() {
   local root="$1"
-  local images image_count
+  local images image_count required_refs
 
   local image=""
   images="$(extract_default_images "$root")"
   image_count="$(printf '%s\n' "$images" | sed '/^$/d' | wc -l | tr -d ' ')"
-  if [ "$image_count" -ne 1 ]; then
-    err "deploy/compose/probectl.yml must have exactly one PROBECTL_IMAGE default; found $image_count"
+  required_refs="$(grep -c '\${PROBECTL_IMAGE:?' "$root/deploy/compose/probectl.yml" || true)"
+  if [ "$image_count" -eq 0 ]; then
+    if [ "$required_refs" -ne 2 ]; then
+      err "deploy/compose/probectl.yml must either use one digest default twice or require PROBECTL_IMAGE for both certgen/control; found $required_refs required refs"
+    fi
+  elif [ "$image_count" -ne 1 ]; then
+    err "deploy/compose/probectl.yml must have exactly one PROBECTL_IMAGE default when a default exists; found $image_count"
   else
     image="$(printf '%s\n' "$images" | sed -n '1p')"
   fi
@@ -46,25 +52,21 @@ run_checks() {
     fi
 
     case "$image" in
-      ghcr.io/imfeelingtheagi/probectl-control:v[0-9]*.[0-9]*.[0-9]*) ;;
-      *) err "compose default must be a pinned probectl-control release tag, got: $image" ;;
+      ghcr.io/imfeelingtheagi/probectl-control:v[0-9]*.[0-9]*.[0-9]*@sha256:*) ;;
+      *) err "compose default must be a digest-pinned probectl-control release, got: $image" ;;
     esac
-    case "$image" in
-      *:latest*) err "compose default must never be :latest" ;;
-    esac
-
-    local version truth
-    version="${image##*:}"
-    version="${version#v}"
-    truth="$(tr -d '[:space:]' < "$root/VERSION")"
-    if [ "$version" != "$truth" ]; then
-      err "compose image version ($version) must match VERSION ($truth)"
-    fi
 
     grep -Fq "$image" "$root/docs/install.md" \
       || err "docs/install.md must name the exact compose image ($image)"
     grep -Fq "$image" "$root/deploy/compose/.env.example" \
       || err "deploy/compose/.env.example must show the exact compose image override ($image)"
+  else
+    grep -Fq 'no mutable image default' "$root/docs/install.md" \
+      || err "docs/install.md must say production Compose has no mutable image default"
+    grep -Fq 'PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>' "$root/deploy/compose/.env.example" \
+      || err "deploy/compose/.env.example must show a digest-pinned PROBECTL_IMAGE placeholder"
+    grep -Fq 'PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable' "$root/deploy/compose/.env.example" \
+      || err "deploy/compose/.env.example must document the explicit tag-only acknowledgement"
   fi
 
   grep -Fq 'docker login ghcr.io' "$root/docs/install.md" \
@@ -88,7 +90,7 @@ run_checks() {
 
   if [ "${PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL:-0}" = "1" ]; then
     if [ -z "$image" ]; then
-      err "anonymous pull smoke cannot run because the compose image was not parsed"
+      err "anonymous pull smoke requested, but production Compose has no default image; set PROBECTL_COMPOSE_IMAGE_ANONYMOUS_PULL only for digest-default releases"
     elif ! command -v docker >/dev/null 2>&1; then
       err "anonymous pull smoke requested, but docker is not on PATH"
     else
@@ -131,8 +133,15 @@ YAML
   fi
 
   fail=0
+  cat > "$tmp/deploy/compose/probectl.yml" <<'YAML'
+services:
+  certgen:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+  control:
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE}"
+YAML
   cat > "$tmp/docs/install.md" <<'MD'
-Use `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0`.
+The shipped compose stack has no mutable image default.
 If GHCR returns 401, run `docker login ghcr.io` with read:packages.
 Set `PROBECTL_IMAGE` to use a mirror.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
@@ -142,7 +151,8 @@ Use `docker login ghcr.io` if the release package is not anonymous.
 Run `bash scripts/compose_image_preflight.sh` before compose up.
 MD
   cat > "$tmp/deploy/compose/.env.example" <<'ENV'
-# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0
+# PROBECTL_IMAGE=ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>
+# PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
 ENV
   cat > "$tmp/Makefile" <<'MAKE'
 compose-prod-up: compose-prod-preflight

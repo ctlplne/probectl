@@ -22,22 +22,25 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
 
 ## Prerequisites
 
-- A released image. The shipped compose stack pins
-  `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0` for both `certgen` and
-  `control`. If that GHCR package is public in your environment, Docker pulls it
-  anonymously. If GHCR returns `401 Unauthorized`, log in first with a token that
-  has `read:packages`, or set `PROBECTL_IMAGE` in `deploy/compose/.env` to a
-  locally built / mirrored / digest-pinned image. The compose preflight below
-  checks this before the stack starts, so a private registry fails with exact
-  repair commands instead of halfway through first boot:
+- A released image. Production Compose has no mutable image default. Set
+  `PROBECTL_IMAGE` in `deploy/compose/.env` to a
+  digest-pinned control-plane image such as
+  `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>` for
+  both `certgen` and `control`. If GHCR returns `401 Unauthorized`, log in first
+  with a token that has `read:packages`, or point `PROBECTL_IMAGE` at an
+  internally mirrored digest. A tag-only local/mirror ref is allowed only with
+  `PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable`. The compose preflight
+  below checks this before the stack starts, so a mutable or private registry
+  failure stops with exact repair commands instead of halfway through first boot:
 
   ```sh
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
   # or:
-  PROBECTL_IMAGE=registry.internal/probectl-control:v0.4.0
+  PROBECTL_IMAGE=registry.internal/probectl-control:v0.4.0@sha256:<release-digest>
   # or build from this checkout:
   docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:local .
   PROBECTL_IMAGE=probectl-control:local
+  PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable
   ```
 - **Compose path:** Docker with Compose v2.
 - **Helm path:** a Kubernetes cluster with an ingress controller (the cluster's

@@ -53,11 +53,11 @@ services:
   # One-shot: generate a self-signed TLS cert into the shared `certs` volume if
   # one is not already present. Idempotent — re-running leaves an existing cert.
   certgen:
-    # SUPPLY-001: the shipped default is a PINNED release, never :latest.
-    # Bump the pin manually; operators should digest-pin on install — see
-    # docs/dependency-policy.md:
-    #   docker inspect --format='{{index .RepoDigests 0}}' <image>
-    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0}
+    # SUPPLY-001: production Compose fails closed unless the operator supplies
+    # an immutable digest ref, e.g.
+    # ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>.
+    # Tag-only local/mirror refs require PROBECTL_ALLOW_TAG_IMAGE.
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - 'test -f /certs/tls.crt || /usr/local/bin/app gen-cert /certs'
@@ -69,7 +69,7 @@ services:
     restart: "no"
 
   control:
-    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0} # SUPPLY-001: pinned, never :latest
+    image: "${PROBECTL_IMAGE:?set PROBECTL_IMAGE to a digest-pinned probectl-control image ref}" # SUPPLY-001: digest required, never a mutable default
     depends_on:
       postgres:
         condition: service_healthy

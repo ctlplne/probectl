@@ -46,6 +46,14 @@ TOML
   line='container: mcr.microsoft.com/playwright:v1.55.1-noble'; val="${line#*container:}"; val="$(echo "$val" | tr -d '[:space:]')"
   if echo "$val" | grep -q '@sha256:'; then echo "SELFTEST broken (container extract)"; exit 1; fi
   echo "$val" | grep -q ':' || { echo "SELFTEST broken (container tag)"; exit 1; }
+  # SUPPLY-001: a production Compose PROBECTL_IMAGE default that is tag-only is
+  # still mutable even when it is not :latest.
+  cat > "$tmp/probectl.yml" <<'YAML'
+services:
+  control:
+    image: ${PROBECTL_IMAGE:-ghcr.io/imfeelingtheagi/probectl-control:v0.4.0}
+YAML
+  if grep -oE '\$\{PROBECTL_IMAGE:-[^}]+' "$tmp/probectl.yml" | sed 's/.*:-//' | awk 'index($0,"@sha256:")==0 { bad=1 } END { exit bad ? 0 : 1 }'; then :; else echo "SELFTEST broken (compose tag default)"; exit 1; fi
   echo "supply-pins SELFTEST: OK"
   exit 0
 fi
@@ -60,6 +68,19 @@ while IFS= read -r line; do
   echo "  $line"
   fail=1
 done < <(grep -rn ':latest' deploy/ --include='*.yml' --include='*.yaml' || true)
+
+# 1b) Production Compose must not ship a tag-only PROBECTL_IMAGE default. It may
+#     either require PROBECTL_IMAGE (fail-closed) or provide a digest-pinned
+#     default. A version tag like :v0.4.0 is still mutable registry state.
+while IFS= read -r line; do
+  val="${line#*:-}"
+  val="${val%%\}*}"
+  val="$(echo "$val" | tr -d '[:space:]"'\''')"
+  echo "$val" | grep -q '@sha256:' && continue
+  echo "TAG-ONLY production Compose PROBECTL_IMAGE default (require PROBECTL_IMAGE or digest-pin it; SUPPLY-001):"
+  echo "  $line"
+  fail=1
+done < <(grep -rn '\${PROBECTL_IMAGE:-' deploy/compose/probectl.yml || true)
 
 # 2) go install without an exact version in workflows/Makefile.
 while IFS= read -r line; do
