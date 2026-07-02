@@ -20,6 +20,10 @@ func TestLocalModelFindsMultiPlaneAnomalyWithCitations(t *testing.T) {
 			bps = 120_000
 			latency = 95
 		}
+		l7Errors := 1.0
+		if i == 0 {
+			l7Errors = 37
+		}
 		features = append(features,
 			Feature{
 				TenantID: "tenant-a", Plane: "flow", Source: "edge-r1", Subject: "checkout",
@@ -28,6 +32,10 @@ func TestLocalModelFindsMultiPlaneAnomalyWithCitations(t *testing.T) {
 			Feature{
 				TenantID: "tenant-a", Plane: "metrics", Source: "synthetic", Subject: "checkout",
 				Metric: "latency_ms", TS: ts, Value: latency, Citation: "fixtures/anomaly/tenant-a-metrics.jsonl:7",
+			},
+			Feature{
+				TenantID: "tenant-a", Plane: "ebpf", Source: "host-agent", Subject: "checkout",
+				Metric: "l7_errors", TS: ts, Value: l7Errors, Citation: "fixtures/anomaly/tenant-a-ebpf.jsonl:7",
 			},
 		)
 	}
@@ -49,7 +57,7 @@ func TestLocalModelFindsMultiPlaneAnomalyWithCitations(t *testing.T) {
 	if len(got.Citations) == 0 {
 		t.Fatalf("missing citations: %+v", got)
 	}
-	if got.Features["flow.bps"] != 120_000 || got.Features["metrics.latency_ms"] != 95 {
+	if got.Features["flow.bps"] != 120_000 || got.Features["metrics.latency_ms"] != 95 || got.Features["ebpf.l7_errors"] != 37 {
 		t.Fatalf("multi-plane features = %+v", got.Features)
 	}
 }

@@ -27,6 +27,24 @@ export interface Evidence {
   fields?: Record<string, unknown>
 }
 
+export type InvestigationStatus = 'planned' | 'queried' | 'skipped' | 'blocked'
+
+export interface InvestigationStep {
+  step: number
+  domain: string
+  goal: string
+  selector?: Record<string, string>
+  node_id?: string
+  window_start?: string
+  window_end?: string
+  limit: number
+  read_only: boolean
+  status: InvestigationStatus
+  reason?: string
+  evidence_count?: number
+  truncated?: boolean
+}
+
 export interface Answer {
   id: string
   tenant: string
@@ -36,6 +54,7 @@ export interface Answer {
   root_cause_grounded?: boolean
   degraded?: boolean
   confidence: Confidence
+  investigation_plan?: InvestigationStep[]
   findings: Finding[]
   evidence: Evidence[]
   model: string

@@ -101,3 +101,33 @@ func TestPlannerLeavesTopologyAtAsLatestUnlessExplicit(t *testing.T) {
 		t.Fatalf("explicit topology At was not preserved: %+v", topo)
 	}
 }
+
+func TestInvestigationPlanIsBoundedAndReadOnly(t *testing.T) {
+	queries := []Query{
+		{Domain: DomainEntities, Selector: map[string]string{"target": "checkout"}, Limit: 50},
+		{Domain: DomainMetrics, Selector: map[string]string{"target": "checkout"}, Limit: 50},
+		{Domain: DomainEvents, Selector: map[string]string{"target": "checkout"}, Limit: 50},
+		{Domain: DomainTopology, NodeID: "service:checkout", Limit: 50},
+		{Domain: DomainMetrics, Selector: map[string]string{"target": "db"}, Limit: 50},
+		{Domain: DomainEvents, Selector: map[string]string{"target": "db"}, Limit: 50},
+	}
+	steps := HeuristicPlanner{}.InvestigationPlan(Question{}, queries)
+	if len(steps) != MaxInvestigationSteps {
+		t.Fatalf("steps = %d, want cap %d", len(steps), MaxInvestigationSteps)
+	}
+	for i, step := range steps {
+		if step.Step != i+1 || !step.ReadOnly || step.Status != InvestigationPlanned {
+			t.Fatalf("step %d = %+v", i, step)
+		}
+		if step.Goal == "" {
+			t.Fatalf("step %d has empty goal", i)
+		}
+	}
+	if steps[0].Selector["target"] != "checkout" {
+		t.Fatalf("selector was not copied: %+v", steps[0].Selector)
+	}
+	queries[0].Selector["target"] = "mutated"
+	if steps[0].Selector["target"] != "checkout" {
+		t.Fatalf("plan selector aliases query map: %+v", steps[0].Selector)
+	}
+}

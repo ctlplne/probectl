@@ -428,6 +428,24 @@ export const API_CALL_CONTRACTS = [
     generated: 'FlowAnomaliesResponse',
   },
   {
+    file: 'api/planes.ts',
+    method: 'GET',
+    path: '`/device/syslog?limit=${limit}`',
+    response: 'DeviceSyslogResponse',
+    generated: 'JsonObject',
+    reason:
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; DeviceSyslogResponse is the explicit view model for the bounded syslog list.',
+  },
+  {
+    file: 'api/planes.ts',
+    method: 'GET',
+    path: '`/device/configs?limit=${limit}`',
+    response: 'DeviceConfigResponse',
+    generated: 'JsonObject',
+    reason:
+      'OpenAPI SDK generation is intentionally not run in the frontend gate; DeviceConfigResponse is the explicit view model for the bounded config archive list.',
+  },
+  {
     file: 'api/remediation.ts',
     method: 'GET',
     path: '/remediation/proposals',

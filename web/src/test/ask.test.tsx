@@ -17,6 +17,36 @@ const answer = {
   confidence: 'high',
   model: 'builtin',
   insufficient_evidence: false,
+  investigation_plan: [
+    {
+      step: 1,
+      domain: 'entities',
+      goal: 'Check correlated incidents and their already-stitched cross-plane signals.',
+      limit: 50,
+      read_only: true,
+      status: 'queried',
+      evidence_count: 1,
+    },
+    {
+      step: 2,
+      domain: 'events',
+      goal: 'Check change, routing, flow, threat, and event-plane records near the question window.',
+      limit: 50,
+      read_only: true,
+      status: 'blocked',
+      reason: 'RBAC denied this read',
+    },
+    {
+      step: 3,
+      domain: 'topology',
+      goal: 'Check anchored topology or path context without dumping the whole graph.',
+      node_id: 'prefix:192.0.2.0/24',
+      limit: 50,
+      read_only: true,
+      status: 'skipped',
+      reason: 'source is not configured in this deployment',
+    },
+  ],
   findings: [
     {
       statement: 'The highest cause-likelihood signal is the routing event.',
@@ -87,6 +117,10 @@ describe('AI assistant surface', () => {
     expect(screen.getByText(/high confidence/i)).toBeTruthy()
     expect(screen.getAllByText(/root cause grounded/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/root cause cited:/i)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: /investigation plan/i })).toBeTruthy()
+    expect(screen.getByText(/check correlated incidents/i)).toBeTruthy()
+    expect(screen.getByText(/RBAC denied this read/i)).toBeTruthy()
+    expect(screen.getByText(/source is not configured/i)).toBeTruthy()
     // Trust summary spells out the grounding breadth.
     expect(screen.getByText(/grounded in 2 signals across 2 planes: bgp, metrics/i)).toBeTruthy()
 

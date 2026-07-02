@@ -4,10 +4,12 @@
 /* eslint-disable */
 
 export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[]
-export interface JsonObject { [key: string]: JsonValue }
+export interface JsonObject {
+  [key: string]: JsonValue
+}
 
 export interface ABACPolicy {
-  effect: "allow" | "deny"
+  effect: 'allow' | 'deny'
   enabled?: boolean
   id?: string
   name?: string
@@ -22,11 +24,12 @@ export interface ABACPolicyList {
 }
 
 export interface AIAnswer {
-  confidence?: "low" | "medium" | "high"
+  confidence?: 'low' | 'medium' | 'high'
   degraded?: boolean
   evidence?: AIEvidence[]
   findings?: AIFinding[]
   id?: string
+  investigation_plan?: AIInvestigationStep[]
   insufficient_evidence?: boolean
   model?: string
   question?: string
@@ -60,12 +63,28 @@ export interface AIFeedbackRequest {
   answer_id: string
   comment?: string
   question?: string
-  rating: "up" | "down"
+  rating: 'up' | 'down'
 }
 
 export interface AIFinding {
   citations?: AICitation[]
   statement?: string
+}
+
+export interface AIInvestigationStep {
+  domain?: 'metrics' | 'events' | 'entities' | 'topology'
+  evidence_count?: number
+  goal?: string
+  limit?: number
+  node_id?: string
+  read_only?: boolean
+  reason?: string
+  selector?: { [key: string]: string }
+  status?: 'planned' | 'queried' | 'skipped' | 'blocked'
+  step?: number
+  truncated?: boolean
+  window_end?: string
+  window_start?: string
 }
 
 export interface Agent {
@@ -78,7 +97,7 @@ export interface Agent {
   name: string
   registered_at?: string
   spiffe_id?: string
-  status: "registered" | "online" | "offline"
+  status: 'registered' | 'online' | 'offline'
   tenant_id: string
 }
 
@@ -99,7 +118,7 @@ export interface AlertChannelTestRequest {
 
 export interface AlertChannelTestResponse {
   accepted: boolean
-  type: "webhook" | "email"
+  type: 'webhook' | 'email'
 }
 
 export interface AlertList {
@@ -108,7 +127,7 @@ export interface AlertList {
 
 export interface AlertRequest {
   channels?: ChannelSpec[]
-  comparison?: "gt" | "lt" | "gte" | "lte" | "eq" | "neq"
+  comparison?: 'gt' | 'lt' | 'gte' | 'lte' | 'eq' | 'neq'
   enabled?: boolean
   for_n?: number
   match?: { [key: string]: string }
@@ -116,9 +135,9 @@ export interface AlertRequest {
   name: string
   renotify_seconds?: number
   sensitivity?: number
-  severity?: "info" | "warning" | "critical"
+  severity?: 'info' | 'warning' | 'critical'
   threshold?: number
-  type: "threshold" | "baseline"
+  type: 'threshold' | 'baseline'
   window?: number
 }
 
@@ -137,7 +156,7 @@ export interface AlertRule {
   severity?: string
   tenant_id?: string
   threshold?: number
-  type?: "threshold" | "baseline"
+  type?: 'threshold' | 'baseline'
   updated_at?: string
   window?: number
 }
@@ -230,7 +249,7 @@ export interface ChangeEventList {
 export interface ChannelSpec {
   recipients?: string[]
   secret?: string
-  type: "webhook" | "email"
+  type: 'webhook' | 'email'
   url?: string
 }
 
@@ -242,7 +261,7 @@ export interface CollectorConfigHint {
 
 export interface CollectorRegisterRequest {
   hostname?: string
-  plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
+  plane: 'bgp' | 'flow' | 'device' | 'ebpf' | 'endpoint'
   token: string
 }
 
@@ -251,7 +270,7 @@ export interface CollectorRegistration {
   capabilities: string[]
   config: CollectorConfigHint
   hostname?: string
-  plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
+  plane: 'bgp' | 'flow' | 'device' | 'ebpf' | 'endpoint'
   tenant_id: string
 }
 
@@ -329,7 +348,25 @@ export interface Error {
   error: ErrorDetail
 }
 
-export type ErrorCode = "internal" | "bad_request" | "validation" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unavailable" | "rate_limited" | "too_large" | "writer_unavailable" | "quota_exceeded" | "tenant_suspended" | "tenant_offboarded" | "approvals_disabled" | "blast_radius_exceeded" | "blast_radius_unknown" | "not_proposed"
+export type ErrorCode =
+  | 'internal'
+  | 'bad_request'
+  | 'validation'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'unavailable'
+  | 'rate_limited'
+  | 'too_large'
+  | 'writer_unavailable'
+  | 'quota_exceeded'
+  | 'tenant_suspended'
+  | 'tenant_offboarded'
+  | 'approvals_disabled'
+  | 'blast_radius_exceeded'
+  | 'blast_radius_unknown'
+  | 'not_proposed'
 
 export interface ErrorDetail {
   code: ErrorCode
@@ -465,11 +502,11 @@ export interface Incident {
   last_seen_at?: string
   prefix?: string
   resolved_at?: string
-  severity?: "info" | "warning" | "critical"
+  severity?: 'info' | 'warning' | 'critical'
   signal_count?: number
   signals?: Signal[]
   started_at?: string
-  status?: "open" | "resolved"
+  status?: 'open' | 'resolved'
   target?: string
   tenant_id?: string
   title?: string
@@ -480,7 +517,7 @@ export interface IncidentList {
 }
 
 export interface IncidentPatch {
-  status: "resolved"
+  status: 'resolved'
 }
 
 export interface InventorySavedView {
@@ -489,7 +526,7 @@ export interface InventorySavedView {
   id: string
   name: string
   owner_id: string
-  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
+  surface: 'endpoints' | 'targets' | 'agents' | 'incidents' | 'alerts'
   tenant_id: string
   updated_at: string
 }
@@ -497,7 +534,7 @@ export interface InventorySavedView {
 export interface InventorySavedViewInput {
   filters?: { [key: string]: string }
   name: string
-  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
+  surface: 'endpoints' | 'targets' | 'agents' | 'incidents' | 'alerts'
 }
 
 export interface InventorySavedViewList {
@@ -505,7 +542,7 @@ export interface InventorySavedViewList {
 }
 
 export interface IsolationLaneStatus {
-  mode: "shared_tenant_tagged" | "tenant_namespaced" | "invalid"
+  mode: 'shared_tenant_tagged' | 'tenant_namespaced' | 'invalid'
   namespace?: string
   strict: boolean
   tenant_tagged: boolean
@@ -531,7 +568,7 @@ export interface IsolationRoutingStatus {
 }
 
 export interface IsolationStatus {
-  effective_model: "pooled" | "siloed" | "hybrid"
+  effective_model: 'pooled' | 'siloed' | 'hybrid'
   id: string
   lane_namespace: IsolationLaneStatus
   name: string
@@ -539,7 +576,7 @@ export interface IsolationStatus {
   residency?: string
   rls: IsolationRLSStatus
   silo_routing: IsolationRoutingStatus
-  status: "healthy" | "degraded" | "unknown"
+  status: 'healthy' | 'degraded' | 'unknown'
   summary: string
   tenant_id: string
 }
@@ -603,7 +640,7 @@ export interface OncallStatus {
   providers: JsonObject[]
   secrets_redacted: boolean
   summary: string
-  supported_providers: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira"[]
+  supported_providers: 'pagerduty' | 'opsgenie' | 'slack' | 'teams' | 'servicenow' | 'jira'[]
   tls_required: boolean
 }
 
@@ -665,11 +702,11 @@ export interface SIEMStatus {
   id: string
   name: string
   no_drop_delivery: boolean
-  preset: "generic" | "splunk" | "sentinel" | "elastic" | "chronicle"
-  reason?: "disabled" | "missing_endpoint" | "insecure_endpoint" | "invalid_format" | "configured"
+  preset: 'generic' | 'splunk' | 'sentinel' | 'elastic' | 'chronicle'
+  reason?: 'disabled' | 'missing_endpoint' | 'insecure_endpoint' | 'invalid_format' | 'configured'
   redact_key_count: number
   siem_running: boolean
-  streams: "audit" | "threat"[]
+  streams: 'audit' | 'threat'[]
   summary: string
   tls_required: boolean
   token_configured: boolean
@@ -681,7 +718,7 @@ export interface Signal {
   occurred_at?: string
   plane?: string
   prefix?: string
-  severity?: "info" | "warning" | "critical"
+  severity?: 'info' | 'warning' | 'critical'
   summary?: string
   target?: string
   title?: string
@@ -697,7 +734,7 @@ export interface Test {
   target?: string
   tenant_id: string
   timeout_seconds?: number
-  type: "icmp" | "tcp" | "udp" | "dns" | "http" | "browser" | "a2a" | "noop" | "voice"
+  type: 'icmp' | 'tcp' | 'udp' | 'dns' | 'http' | 'browser' | 'a2a' | 'noop' | 'voice'
   updated_at: string
 }
 
@@ -719,7 +756,7 @@ export interface TestRequest {
   params?: { [key: string]: string }
   target?: string
   timeout_seconds?: number
-  type: "icmp" | "tcp" | "udp" | "dns" | "http" | "browser" | "a2a" | "noop" | "voice"
+  type: 'icmp' | 'tcp' | 'udp' | 'dns' | 'http' | 'browser' | 'a2a' | 'noop' | 'voice'
 }
 
 export interface TestSpec {
@@ -729,7 +766,7 @@ export interface TestSpec {
   params?: { [key: string]: string }
   target?: string
   timeout_seconds?: number
-  type?: "icmp" | "tcp" | "udp" | "dns" | "http" | "browser" | "a2a" | "noop" | "voice"
+  type?: 'icmp' | 'tcp' | 'udp' | 'dns' | 'http' | 'browser' | 'a2a' | 'noop' | 'voice'
 }
 
 export interface Version {
@@ -754,8 +791,7 @@ export interface SsoLoginRequest {
 
 export type SsoLoginResponse = void
 
-export interface SsoLogoutRequest {
-}
+export interface SsoLogoutRequest {}
 
 export type SsoLogoutResponse = void
 
@@ -771,8 +807,7 @@ export interface AgentRotateRequest {
 
 export type AgentRotateResponse = void
 
-export interface GetHealthzRequest {
-}
+export interface GetHealthzRequest {}
 
 export type GetHealthzResponse = Health
 
@@ -782,13 +817,11 @@ export interface IngestRumBeaconRequest {
 
 export type IngestRumBeaconResponse = JsonObject
 
-export interface GetOpenApiRequest {
-}
+export interface GetOpenApiRequest {}
 
 export type GetOpenApiResponse = void
 
-export interface GetReadyzRequest {
-}
+export interface GetReadyzRequest {}
 
 export type GetReadyzResponse = Health
 
@@ -804,8 +837,7 @@ export interface StartA2aSessionRequest {
 
 export type StartA2aSessionResponse = JsonObject
 
-export interface ListPoliciesRequest {
-}
+export interface ListPoliciesRequest {}
 
 export type ListPoliciesResponse = ABACPolicyList
 
@@ -815,8 +847,7 @@ export interface CreatePolicyRequest {
 
 export type CreatePolicyResponse = ABACPolicy
 
-export interface DeletePolicyRequest {
-}
+export interface DeletePolicyRequest {}
 
 export type DeletePolicyResponse = void
 
@@ -833,8 +864,7 @@ export interface MintAgentEnrollTokenRequest {
 
 export type MintAgentEnrollTokenResponse = JsonObject
 
-export interface GetAgentRequest {
-}
+export interface GetAgentRequest {}
 
 export type GetAgentResponse = Agent
 
@@ -844,8 +874,7 @@ export interface PatchAgentRequest {
 
 export type PatchAgentResponse = Agent
 
-export interface DeleteAgentRequest {
-}
+export interface DeleteAgentRequest {}
 
 export type DeleteAgentResponse = void
 
@@ -873,8 +902,7 @@ export interface AiAuthorRequest {
 
 export type AiAuthorResponse = TestProposal
 
-export interface AiDiscoverRequest {
-}
+export interface AiDiscoverRequest {}
 
 export type AiDiscoverResponse = DiscoverProposalList
 
@@ -884,8 +912,7 @@ export interface AiFeedbackRequest {
 
 export type AiFeedbackResponse = void
 
-export interface ListAlertsRequest {
-}
+export interface ListAlertsRequest {}
 
 export type ListAlertsResponse = AlertList
 
@@ -895,8 +922,7 @@ export interface CreateAlertRequest {
 
 export type CreateAlertResponse = AlertRule
 
-export interface ListActiveAlertsRequest {
-}
+export interface ListActiveAlertsRequest {}
 
 export type ListActiveAlertsResponse = JsonObject
 
@@ -912,8 +938,7 @@ export interface SilenceAlertRequest {
 
 export type SilenceAlertResponse = JsonObject
 
-export interface ListMaintenanceWindowsRequest {
-}
+export interface ListMaintenanceWindowsRequest {}
 
 export type ListMaintenanceWindowsResponse = JsonObject
 
@@ -941,8 +966,7 @@ export interface TestAlertChannelRequest {
 
 export type TestAlertChannelResponse = AlertChannelTestResponse
 
-export interface GetAlertRequest {
-}
+export interface GetAlertRequest {}
 
 export type GetAlertResponse = AlertRule
 
@@ -952,8 +976,7 @@ export interface UpdateAlertRequest {
 
 export type UpdateAlertResponse = AlertRule
 
-export interface DeleteAlertRequest {
-}
+export interface DeleteAlertRequest {}
 
 export type DeleteAlertResponse = void
 
@@ -967,8 +990,7 @@ export interface ListAuditRequest {
 
 export type ListAuditResponse = AuditList
 
-export interface VerifyAuditRequest {
-}
+export interface VerifyAuditRequest {}
 
 export type VerifyAuditResponse = AuditVerify
 
@@ -980,13 +1002,11 @@ export interface ListBgpEventsRequest {
 
 export type ListBgpEventsResponse = BGPEventList
 
-export interface GetCarbonRequest {
-}
+export interface GetCarbonRequest {}
 
 export type GetCarbonResponse = JsonObject
 
-export interface ListChangesRequest {
-}
+export interface ListChangesRequest {}
 
 export type ListChangesResponse = ChangeEventList
 
@@ -1002,18 +1022,15 @@ export interface RegisterCollectorRequest {
 
 export type RegisterCollectorResponse = CollectorRegistration
 
-export interface ListComplianceResultsRequest {
-}
+export interface ListComplianceResultsRequest {}
 
 export type ListComplianceResultsResponse = JsonObject
 
-export interface ExportComplianceEvidenceRequest {
-}
+export interface ExportComplianceEvidenceRequest {}
 
 export type ExportComplianceEvidenceResponse = JsonObject
 
-export interface GetCostSummaryRequest {
-}
+export interface GetCostSummaryRequest {}
 
 export type GetCostSummaryResponse = JsonObject
 
@@ -1031,18 +1048,15 @@ export interface ListDevicesRequest {
 
 export type ListDevicesResponse = DeviceInventoryList
 
-export interface GetV1DiagnosticsRequest {
-}
+export interface GetV1DiagnosticsRequest {}
 
 export type GetV1DiagnosticsResponse = void
 
-export interface GetV1DiagnosticsBundleRequest {
-}
+export interface GetV1DiagnosticsBundleRequest {}
 
 export type GetV1DiagnosticsBundleResponse = void
 
-export interface ListScimTokensRequest {
-}
+export interface ListScimTokensRequest {}
 
 export type ListScimTokensResponse = SCIMTokenList
 
@@ -1052,8 +1066,7 @@ export interface CreateScimTokenRequest {
 
 export type CreateScimTokenResponse = SCIMTokenCreated
 
-export interface RevokeScimTokenRequest {
-}
+export interface RevokeScimTokenRequest {}
 
 export type RevokeScimTokenResponse = void
 
@@ -1066,24 +1079,21 @@ export interface ListEbpfServiceMapRequest {
 
 export type ListEbpfServiceMapResponse = EBPFServiceMap
 
-export interface GetEditionsRequest {
-}
+export interface GetEditionsRequest {}
 
 export type GetEditionsResponse = JsonObject
 
-export interface ListEndpointsRequest {
-}
+export interface ListEndpointsRequest {}
 
 export type ListEndpointsResponse = JsonObject
 
-export interface GetV1FairnessRequest {
-}
+export interface GetV1FairnessRequest {}
 
 export type GetV1FairnessResponse = void
 
 export interface FlowAnomaliesRequest {
   exporter?: string
-  direction?: "in" | "out"
+  direction?: 'in' | 'out'
   window?: string
   bucket?: string
   k?: number
@@ -1094,7 +1104,7 @@ export type FlowAnomaliesResponse = FlowAnomalyList
 
 export interface FlowCapacityRequest {
   exporter?: string
-  direction?: "in" | "out"
+  direction?: 'in' | 'out'
   window?: string
   bucket?: string
 }
@@ -1102,7 +1112,7 @@ export interface FlowCapacityRequest {
 export type FlowCapacityResponse = FlowCapacityList
 
 export interface FlowTopTalkersRequest {
-  by?: "src" | "dst" | "pair" | "src_asn" | "dst_asn"
+  by?: 'src' | 'dst' | 'pair' | 'src_asn' | 'dst_asn'
   window?: string
   limit?: number
 }
@@ -1126,13 +1136,11 @@ export interface PromLabelsRequest {
 
 export type PromLabelsResponse = JsonObject
 
-export interface PromLabelsFormRequest {
-}
+export interface PromLabelsFormRequest {}
 
 export type PromLabelsFormResponse = JsonObject
 
-export interface PromMetadataRequest {
-}
+export interface PromMetadataRequest {}
 
 export type PromMetadataResponse = JsonObject
 
@@ -1143,8 +1151,7 @@ export interface PromQueryRequest {
 
 export type PromQueryResponse = JsonObject
 
-export interface PromQueryFormRequest {
-}
+export interface PromQueryFormRequest {}
 
 export type PromQueryFormResponse = JsonObject
 
@@ -1157,8 +1164,7 @@ export interface PromQueryRangeRequest {
 
 export type PromQueryRangeResponse = JsonObject
 
-export interface PromQueryRangeFormRequest {
-}
+export interface PromQueryRangeFormRequest {}
 
 export type PromQueryRangeFormResponse = JsonObject
 
@@ -1170,18 +1176,15 @@ export interface PromSeriesRequest {
 
 export type PromSeriesResponse = JsonObject
 
-export interface PromSeriesFormRequest {
-}
+export interface PromSeriesFormRequest {}
 
 export type PromSeriesFormResponse = JsonObject
 
-export interface PromBuildInfoRequest {
-}
+export interface PromBuildInfoRequest {}
 
 export type PromBuildInfoResponse = JsonObject
 
-export interface GetHierarchyRequest {
-}
+export interface GetHierarchyRequest {}
 
 export type GetHierarchyResponse = Hierarchy
 
@@ -1205,13 +1208,11 @@ export interface CreateHierarchyProjectRequest {
 
 export type CreateHierarchyProjectResponse = HierarchyProject
 
-export interface ListIncidentsRequest {
-}
+export interface ListIncidentsRequest {}
 
 export type ListIncidentsResponse = IncidentList
 
-export interface GetIncidentRequest {
-}
+export interface GetIncidentRequest {}
 
 export type GetIncidentResponse = Incident
 
@@ -1221,8 +1222,7 @@ export interface PatchIncidentRequest {
 
 export type PatchIncidentResponse = Incident
 
-export interface ListIncidentChangesRequest {
-}
+export interface ListIncidentChangesRequest {}
 
 export type ListIncidentChangesResponse = ChangeCandidateList
 
@@ -1233,7 +1233,7 @@ export interface IncidentCIsRequest {
 export type IncidentCIsResponse = JsonObject
 
 export interface ListInventoryViewsRequest {
-  surface?: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
+  surface?: 'endpoints' | 'targets' | 'agents' | 'incidents' | 'alerts'
 }
 
 export type ListInventoryViewsResponse = InventorySavedViewList
@@ -1250,23 +1250,19 @@ export interface GetInventoryViewRequest {
 
 export type GetInventoryViewResponse = InventorySavedView
 
-export interface GetIsolationStatusRequest {
-}
+export interface GetIsolationStatusRequest {}
 
 export type GetIsolationStatusResponse = IsolationStatus
 
-export interface PostV1LifecycleEraseRequest {
-}
+export interface PostV1LifecycleEraseRequest {}
 
 export type PostV1LifecycleEraseResponse = void
 
-export interface GetV1LifecycleExportRequest {
-}
+export interface GetV1LifecycleExportRequest {}
 
 export type GetV1LifecycleExportResponse = void
 
-export interface GetV1LifecycleRetentionRequest {
-}
+export interface GetV1LifecycleRetentionRequest {}
 
 export type GetV1LifecycleRetentionResponse = LifecycleStatus
 
@@ -1288,18 +1284,15 @@ export interface PostV1LifecycleSubjectsExportRequest {
 
 export type PostV1LifecycleSubjectsExportResponse = void
 
-export interface GetMeRequest {
-}
+export interface GetMeRequest {}
 
 export type GetMeResponse = Me
 
-export interface GetOnboardingProgressRequest {
-}
+export interface GetOnboardingProgressRequest {}
 
 export type GetOnboardingProgressResponse = OnboardingProgress
 
-export interface GetOncallStatusRequest {
-}
+export interface GetOncallStatusRequest {}
 
 export type GetOncallStatusResponse = OncallStatus
 
@@ -1309,8 +1302,7 @@ export interface TestOncallConnectorRequest {
 
 export type TestOncallConnectorResponse = OncallTestResponse
 
-export interface ListOtlpTokensRequest {
-}
+export interface ListOtlpTokensRequest {}
 
 export type ListOtlpTokensResponse = JsonObject
 
@@ -1347,8 +1339,7 @@ export interface OtlpTracesRequest {
 
 export type OtlpTracesResponse = JsonObject
 
-export interface GetOutagesRequest {
-}
+export interface GetOutagesRequest {}
 
 export type GetOutagesResponse = JsonObject
 
@@ -1358,43 +1349,35 @@ export interface PromFederateRequest {
 
 export type PromFederateResponse = Response
 
-export interface PromRemoteWriteRequest {
-}
+export interface PromRemoteWriteRequest {}
 
 export type PromRemoteWriteResponse = void
 
-export interface GetV1RemediationProposalsRequest {
-}
+export interface GetV1RemediationProposalsRequest {}
 
 export type GetV1RemediationProposalsResponse = void
 
-export interface PostV1RemediationProposalsRequest {
-}
+export interface PostV1RemediationProposalsRequest {}
 
 export type PostV1RemediationProposalsResponse = void
 
-export interface GetV1RemediationProposalsIdRequest {
-}
+export interface GetV1RemediationProposalsIdRequest {}
 
 export type GetV1RemediationProposalsIdResponse = void
 
-export interface PostV1RemediationProposalsIdApproveRequest {
-}
+export interface PostV1RemediationProposalsIdApproveRequest {}
 
 export type PostV1RemediationProposalsIdApproveResponse = void
 
-export interface PostV1RemediationProposalsIdRejectRequest {
-}
+export interface PostV1RemediationProposalsIdRejectRequest {}
 
 export type PostV1RemediationProposalsIdRejectResponse = void
 
-export interface ListLatestResultsRequest {
-}
+export interface ListLatestResultsRequest {}
 
 export type ListLatestResultsResponse = JsonObject
 
-export interface ListRolloutsRequest {
-}
+export interface ListRolloutsRequest {}
 
 export type ListRolloutsResponse = JsonObject
 
@@ -1436,38 +1419,31 @@ export interface VerifyRolloutRequest {
 
 export type VerifyRolloutResponse = JsonObject
 
-export interface GetRumRequest {
-}
+export interface GetRumRequest {}
 
 export type GetRumResponse = JsonObject
 
-export interface GetSecretsHealthRequest {
-}
+export interface GetSecretsHealthRequest {}
 
 export type GetSecretsHealthResponse = JsonObject
 
-export interface GetV1SecurityKeysRequest {
-}
+export interface GetV1SecurityKeysRequest {}
 
 export type GetV1SecurityKeysResponse = void
 
-export interface PostV1SecurityKeysRotateRequest {
-}
+export interface PostV1SecurityKeysRotateRequest {}
 
 export type PostV1SecurityKeysRotateResponse = void
 
-export interface GetSiemStatusRequest {
-}
+export interface GetSiemStatusRequest {}
 
 export type GetSiemStatusResponse = SIEMStatus
 
-export interface ListSlOsRequest {
-}
+export interface ListSlOsRequest {}
 
 export type ListSlOsResponse = JsonObject
 
-export interface ExportOpenSloRequest {
-}
+export interface ExportOpenSloRequest {}
 
 export type ExportOpenSloResponse = Response
 
@@ -1480,19 +1456,17 @@ export type ListTestsResponse = TestList
 
 export interface CreateTestRequest {
   q?: string
-  cause?: "all" | "impaired" | "wifi" | "local" | "isp" | "network" | "none"
+  cause?: 'all' | 'impaired' | 'wifi' | 'local' | 'isp' | 'network' | 'none'
   body: TestRequest
 }
 
 export type CreateTestResponse = Test
 
-export interface GetTestBundleRequest {
-}
+export interface GetTestBundleRequest {}
 
 export type GetTestBundleResponse = JsonObject
 
-export interface GetTestRequest {
-}
+export interface GetTestRequest {}
 
 export type GetTestResponse = Test
 
@@ -1502,33 +1476,27 @@ export interface UpdateTestRequest {
 
 export type UpdateTestResponse = Test
 
-export interface DeleteTestRequest {
-}
+export interface DeleteTestRequest {}
 
 export type DeleteTestResponse = void
 
-export interface GetTestPathRequest {
-}
+export interface GetTestPathRequest {}
 
 export type GetTestPathResponse = Path
 
-export interface DiscoverTestPathRequest {
-}
+export interface DiscoverTestPathRequest {}
 
 export type DiscoverTestPathResponse = Path
 
-export interface ListThreatDetectionsRequest {
-}
+export interface ListThreatDetectionsRequest {}
 
 export type ListThreatDetectionsResponse = JsonObject
 
-export interface GetThreatIntelStatusRequest {
-}
+export interface GetThreatIntelStatusRequest {}
 
 export type GetThreatIntelStatusResponse = JsonObject
 
-export interface ListTlsPostureRequest {
-}
+export interface ListTlsPostureRequest {}
 
 export type ListTlsPostureResponse = JsonObject
 
@@ -1544,8 +1512,7 @@ export interface SimulateWhatIfRequest {
 
 export type SimulateWhatIfResponse = JsonObject
 
-export interface GetVersionRequest {
-}
+export interface GetVersionRequest {}
 
 export type GetVersionResponse = Version
 
@@ -1567,922 +1534,962 @@ export class ProbectlSDKClient {
   }
 
   async ssoCallback(request: SsoCallbackRequest = {}): Promise<SsoCallbackResponse> {
-    let path = "/auth/callback"
+    let path = '/auth/callback'
     const query = new URLSearchParams()
-    if (request.code !== undefined) query.set("code", String(request.code))
-    if (request.state !== undefined) query.set("state", String(request.state))
-    await this.request("GET", path, query, undefined)
+    if (request.code !== undefined) query.set('code', String(request.code))
+    if (request.state !== undefined) query.set('state', String(request.state))
+    await this.request('GET', path, query, undefined)
   }
 
   async ssoLogin(request: SsoLoginRequest = {}): Promise<SsoLoginResponse> {
-    let path = "/auth/login"
+    let path = '/auth/login'
     const query = new URLSearchParams()
-    if (request.tenant !== undefined) query.set("tenant", String(request.tenant))
-    await this.request("GET", path, query, undefined)
+    if (request.tenant !== undefined) query.set('tenant', String(request.tenant))
+    await this.request('GET', path, query, undefined)
   }
 
   async ssoLogout(): Promise<SsoLogoutResponse> {
-    let path = "/auth/logout"
+    let path = '/auth/logout'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async agentEnroll(request: AgentEnrollRequest): Promise<AgentEnrollResponse> {
-    let path = "/enroll/agent"
+    let path = '/enroll/agent'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, request.body)
+    await this.request('POST', path, query, request.body)
   }
 
   async agentRotate(request: AgentRotateRequest): Promise<AgentRotateResponse> {
-    let path = "/enroll/agent/rotate"
+    let path = '/enroll/agent/rotate'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, request.body)
+    await this.request('POST', path, query, request.body)
   }
 
   async getHealthz(): Promise<GetHealthzResponse> {
-    let path = "/healthz"
+    let path = '/healthz'
     const query = new URLSearchParams()
-    return this.requestJSON<GetHealthzResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetHealthzResponse>('GET', path, query, undefined)
   }
 
   async ingestRumBeacon(request: IngestRumBeaconRequest): Promise<IngestRumBeaconResponse> {
-    let path = "/ingest/rum"
+    let path = '/ingest/rum'
     const query = new URLSearchParams()
-    return this.requestJSON<IngestRumBeaconResponse>("POST", path, query, request.body)
+    return this.requestJSON<IngestRumBeaconResponse>('POST', path, query, request.body)
   }
 
   async getOpenApi(): Promise<GetOpenApiResponse> {
-    let path = "/openapi.json"
+    let path = '/openapi.json'
     const query = new URLSearchParams()
-    return this.requestJSON<GetOpenApiResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetOpenApiResponse>('GET', path, query, undefined)
   }
 
   async getReadyz(): Promise<GetReadyzResponse> {
-    let path = "/readyz"
+    let path = '/readyz'
     const query = new URLSearchParams()
-    return this.requestJSON<GetReadyzResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetReadyzResponse>('GET', path, query, undefined)
   }
 
   async startA2aMesh(request: StartA2aMeshRequest): Promise<StartA2aMeshResponse> {
-    let path = "/v1/a2a/mesh"
+    let path = '/v1/a2a/mesh'
     const query = new URLSearchParams()
-    return this.requestJSON<StartA2aMeshResponse>("POST", path, query, request.body)
+    return this.requestJSON<StartA2aMeshResponse>('POST', path, query, request.body)
   }
 
   async startA2aSession(request: StartA2aSessionRequest): Promise<StartA2aSessionResponse> {
-    let path = "/v1/a2a/sessions"
+    let path = '/v1/a2a/sessions'
     const query = new URLSearchParams()
-    return this.requestJSON<StartA2aSessionResponse>("POST", path, query, request.body)
+    return this.requestJSON<StartA2aSessionResponse>('POST', path, query, request.body)
   }
 
   async listPolicies(): Promise<ListPoliciesResponse> {
-    let path = "/v1/abac/policies"
+    let path = '/v1/abac/policies'
     const query = new URLSearchParams()
-    return this.requestJSON<ListPoliciesResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListPoliciesResponse>('GET', path, query, undefined)
   }
 
   async createPolicy(request: CreatePolicyRequest): Promise<CreatePolicyResponse> {
-    let path = "/v1/abac/policies"
+    let path = '/v1/abac/policies'
     const query = new URLSearchParams()
-    return this.requestJSON<CreatePolicyResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreatePolicyResponse>('POST', path, query, request.body)
   }
 
   async deletePolicy(): Promise<DeletePolicyResponse> {
-    let path = "/v1/abac/policies/{id}"
+    let path = '/v1/abac/policies/{id}'
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
   async listAgents(request: ListAgentsRequest = {}): Promise<ListAgentsResponse> {
-    let path = "/v1/agents"
+    let path = '/v1/agents'
     const query = new URLSearchParams()
-    if (request.after !== undefined) query.set("after", String(request.after))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<ListAgentsResponse>("GET", path, query, undefined)
+    if (request.after !== undefined) query.set('after', String(request.after))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<ListAgentsResponse>('GET', path, query, undefined)
   }
 
-  async mintAgentEnrollToken(request: MintAgentEnrollTokenRequest = {}): Promise<MintAgentEnrollTokenResponse> {
-    let path = "/v1/agents/enroll-tokens"
+  async mintAgentEnrollToken(
+    request: MintAgentEnrollTokenRequest = {},
+  ): Promise<MintAgentEnrollTokenResponse> {
+    let path = '/v1/agents/enroll-tokens'
     const query = new URLSearchParams()
-    return this.requestJSON<MintAgentEnrollTokenResponse>("POST", path, query, request.body)
+    return this.requestJSON<MintAgentEnrollTokenResponse>('POST', path, query, request.body)
   }
 
   async getAgent(): Promise<GetAgentResponse> {
-    let path = "/v1/agents/{id}"
+    let path = '/v1/agents/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<GetAgentResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetAgentResponse>('GET', path, query, undefined)
   }
 
   async patchAgent(request: PatchAgentRequest): Promise<PatchAgentResponse> {
-    let path = "/v1/agents/{id}"
+    let path = '/v1/agents/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<PatchAgentResponse>("PATCH", path, query, request.body)
+    return this.requestJSON<PatchAgentResponse>('PATCH', path, query, request.body)
   }
 
   async deleteAgent(): Promise<DeleteAgentResponse> {
-    let path = "/v1/agents/{id}"
+    let path = '/v1/agents/{id}'
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
   async agentCi(request: AgentCiRequest): Promise<AgentCiResponse> {
-    let path = "/v1/agents/{id}/ci"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/agents/{id}/ci'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<AgentCiResponse>("GET", path, query, undefined)
+    return this.requestJSON<AgentCiResponse>('GET', path, query, undefined)
   }
 
   async revokeAgent(request: RevokeAgentRequest): Promise<RevokeAgentResponse> {
-    let path = "/v1/agents/{id}/revoke"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/agents/{id}/revoke'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async aiAsk(request: AiAskRequest): Promise<AiAskResponse> {
-    let path = "/v1/ai/ask"
+    let path = '/v1/ai/ask'
     const query = new URLSearchParams()
-    return this.requestJSON<AiAskResponse>("POST", path, query, request.body)
+    return this.requestJSON<AiAskResponse>('POST', path, query, request.body)
   }
 
   async aiAuthor(request: AiAuthorRequest): Promise<AiAuthorResponse> {
-    let path = "/v1/ai/author"
+    let path = '/v1/ai/author'
     const query = new URLSearchParams()
-    return this.requestJSON<AiAuthorResponse>("POST", path, query, request.body)
+    return this.requestJSON<AiAuthorResponse>('POST', path, query, request.body)
   }
 
   async aiDiscover(): Promise<AiDiscoverResponse> {
-    let path = "/v1/ai/discover"
+    let path = '/v1/ai/discover'
     const query = new URLSearchParams()
-    return this.requestJSON<AiDiscoverResponse>("POST", path, query, undefined)
+    return this.requestJSON<AiDiscoverResponse>('POST', path, query, undefined)
   }
 
   async aiFeedback(request: AiFeedbackRequest): Promise<AiFeedbackResponse> {
-    let path = "/v1/ai/feedback"
+    let path = '/v1/ai/feedback'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, request.body)
+    await this.request('POST', path, query, request.body)
   }
 
   async listAlerts(): Promise<ListAlertsResponse> {
-    let path = "/v1/alerts"
+    let path = '/v1/alerts'
     const query = new URLSearchParams()
-    return this.requestJSON<ListAlertsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListAlertsResponse>('GET', path, query, undefined)
   }
 
   async createAlert(request: CreateAlertRequest): Promise<CreateAlertResponse> {
-    let path = "/v1/alerts"
+    let path = '/v1/alerts'
     const query = new URLSearchParams()
-    return this.requestJSON<CreateAlertResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateAlertResponse>('POST', path, query, request.body)
   }
 
   async listActiveAlerts(): Promise<ListActiveAlertsResponse> {
-    let path = "/v1/alerts/active"
+    let path = '/v1/alerts/active'
     const query = new URLSearchParams()
-    return this.requestJSON<ListActiveAlertsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListActiveAlertsResponse>('GET', path, query, undefined)
   }
 
   async acknowledgeAlert(request: AcknowledgeAlertRequest): Promise<AcknowledgeAlertResponse> {
-    let path = "/v1/alerts/active/ack"
+    let path = '/v1/alerts/active/ack'
     const query = new URLSearchParams()
-    return this.requestJSON<AcknowledgeAlertResponse>("POST", path, query, request.body)
+    return this.requestJSON<AcknowledgeAlertResponse>('POST', path, query, request.body)
   }
 
   async silenceAlert(request: SilenceAlertRequest): Promise<SilenceAlertResponse> {
-    let path = "/v1/alerts/active/silence"
+    let path = '/v1/alerts/active/silence'
     const query = new URLSearchParams()
-    return this.requestJSON<SilenceAlertResponse>("POST", path, query, request.body)
+    return this.requestJSON<SilenceAlertResponse>('POST', path, query, request.body)
   }
 
   async listMaintenanceWindows(): Promise<ListMaintenanceWindowsResponse> {
-    let path = "/v1/alerts/maintenance"
+    let path = '/v1/alerts/maintenance'
     const query = new URLSearchParams()
-    return this.requestJSON<ListMaintenanceWindowsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListMaintenanceWindowsResponse>('GET', path, query, undefined)
   }
 
-  async upsertMaintenanceWindow(request: UpsertMaintenanceWindowRequest): Promise<UpsertMaintenanceWindowResponse> {
-    let path = "/v1/alerts/maintenance"
+  async upsertMaintenanceWindow(
+    request: UpsertMaintenanceWindowRequest,
+  ): Promise<UpsertMaintenanceWindowResponse> {
+    let path = '/v1/alerts/maintenance'
     const query = new URLSearchParams()
-    return this.requestJSON<UpsertMaintenanceWindowResponse>("POST", path, query, request.body)
+    return this.requestJSON<UpsertMaintenanceWindowResponse>('POST', path, query, request.body)
   }
 
-  async previewMaintenanceWindows(request: PreviewMaintenanceWindowsRequest): Promise<PreviewMaintenanceWindowsResponse> {
-    let path = "/v1/alerts/maintenance/preview"
+  async previewMaintenanceWindows(
+    request: PreviewMaintenanceWindowsRequest,
+  ): Promise<PreviewMaintenanceWindowsResponse> {
+    let path = '/v1/alerts/maintenance/preview'
     const query = new URLSearchParams()
-    return this.requestJSON<PreviewMaintenanceWindowsResponse>("POST", path, query, request.body)
+    return this.requestJSON<PreviewMaintenanceWindowsResponse>('POST', path, query, request.body)
   }
 
-  async deleteMaintenanceWindow(request: DeleteMaintenanceWindowRequest): Promise<DeleteMaintenanceWindowResponse> {
-    let path = "/v1/alerts/maintenance/{id}"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+  async deleteMaintenanceWindow(
+    request: DeleteMaintenanceWindowRequest,
+  ): Promise<DeleteMaintenanceWindowResponse> {
+    let path = '/v1/alerts/maintenance/{id}'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
   async testAlertChannel(request: TestAlertChannelRequest): Promise<TestAlertChannelResponse> {
-    let path = "/v1/alerts/test-channel"
+    let path = '/v1/alerts/test-channel'
     const query = new URLSearchParams()
-    return this.requestJSON<TestAlertChannelResponse>("POST", path, query, request.body)
+    return this.requestJSON<TestAlertChannelResponse>('POST', path, query, request.body)
   }
 
   async getAlert(): Promise<GetAlertResponse> {
-    let path = "/v1/alerts/{id}"
+    let path = '/v1/alerts/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<GetAlertResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetAlertResponse>('GET', path, query, undefined)
   }
 
   async updateAlert(request: UpdateAlertRequest): Promise<UpdateAlertResponse> {
-    let path = "/v1/alerts/{id}"
+    let path = '/v1/alerts/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<UpdateAlertResponse>("PUT", path, query, request.body)
+    return this.requestJSON<UpdateAlertResponse>('PUT', path, query, request.body)
   }
 
   async deleteAlert(): Promise<DeleteAlertResponse> {
-    let path = "/v1/alerts/{id}"
+    let path = '/v1/alerts/{id}'
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
   async listAudit(request: ListAuditRequest = {}): Promise<ListAuditResponse> {
-    let path = "/v1/audit"
+    let path = '/v1/audit'
     const query = new URLSearchParams()
-    if (request.after !== undefined) query.set("after", String(request.after))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    if (request.actor !== undefined) query.set("actor", String(request.actor))
-    if (request.action !== undefined) query.set("action", String(request.action))
-    if (request.target !== undefined) query.set("target", String(request.target))
-    return this.requestJSON<ListAuditResponse>("GET", path, query, undefined)
+    if (request.after !== undefined) query.set('after', String(request.after))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    if (request.actor !== undefined) query.set('actor', String(request.actor))
+    if (request.action !== undefined) query.set('action', String(request.action))
+    if (request.target !== undefined) query.set('target', String(request.target))
+    return this.requestJSON<ListAuditResponse>('GET', path, query, undefined)
   }
 
   async verifyAudit(): Promise<VerifyAuditResponse> {
-    let path = "/v1/audit/verify"
+    let path = '/v1/audit/verify'
     const query = new URLSearchParams()
-    return this.requestJSON<VerifyAuditResponse>("GET", path, query, undefined)
+    return this.requestJSON<VerifyAuditResponse>('GET', path, query, undefined)
   }
 
   async listBgpEvents(request: ListBgpEventsRequest = {}): Promise<ListBgpEventsResponse> {
-    let path = "/v1/bgp/events"
+    let path = '/v1/bgp/events'
     const query = new URLSearchParams()
-    if (request.prefix !== undefined) query.set("prefix", String(request.prefix))
-    if (request.asn !== undefined) query.set("asn", String(request.asn))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<ListBgpEventsResponse>("GET", path, query, undefined)
+    if (request.prefix !== undefined) query.set('prefix', String(request.prefix))
+    if (request.asn !== undefined) query.set('asn', String(request.asn))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<ListBgpEventsResponse>('GET', path, query, undefined)
   }
 
   async getCarbon(): Promise<GetCarbonResponse> {
-    let path = "/v1/carbon"
+    let path = '/v1/carbon'
     const query = new URLSearchParams()
-    return this.requestJSON<GetCarbonResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetCarbonResponse>('GET', path, query, undefined)
   }
 
   async listChanges(): Promise<ListChangesResponse> {
-    let path = "/v1/changes"
+    let path = '/v1/changes'
     const query = new URLSearchParams()
-    return this.requestJSON<ListChangesResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListChangesResponse>('GET', path, query, undefined)
   }
 
   async cmdbLookup(request: CmdbLookupRequest): Promise<CmdbLookupResponse> {
-    let path = "/v1/cmdb/lookup"
+    let path = '/v1/cmdb/lookup'
     const query = new URLSearchParams()
-    if (request.key !== undefined) query.set("key", String(request.key))
-    return this.requestJSON<CmdbLookupResponse>("GET", path, query, undefined)
+    if (request.key !== undefined) query.set('key', String(request.key))
+    return this.requestJSON<CmdbLookupResponse>('GET', path, query, undefined)
   }
 
   async registerCollector(request: RegisterCollectorRequest): Promise<RegisterCollectorResponse> {
-    let path = "/v1/collectors/register"
+    let path = '/v1/collectors/register'
     const query = new URLSearchParams()
-    return this.requestJSON<RegisterCollectorResponse>("POST", path, query, request.body)
+    return this.requestJSON<RegisterCollectorResponse>('POST', path, query, request.body)
   }
 
   async listComplianceResults(): Promise<ListComplianceResultsResponse> {
-    let path = "/v1/compliance"
+    let path = '/v1/compliance'
     const query = new URLSearchParams()
-    return this.requestJSON<ListComplianceResultsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListComplianceResultsResponse>('GET', path, query, undefined)
   }
 
   async exportComplianceEvidence(): Promise<ExportComplianceEvidenceResponse> {
-    let path = "/v1/compliance/evidence"
+    let path = '/v1/compliance/evidence'
     const query = new URLSearchParams()
-    return this.requestJSON<ExportComplianceEvidenceResponse>("GET", path, query, undefined)
+    return this.requestJSON<ExportComplianceEvidenceResponse>('GET', path, query, undefined)
   }
 
   async getCostSummary(): Promise<GetCostSummaryResponse> {
-    let path = "/v1/cost/summary"
+    let path = '/v1/cost/summary'
     const query = new URLSearchParams()
-    return this.requestJSON<GetCostSummaryResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetCostSummaryResponse>('GET', path, query, undefined)
   }
 
-  async listDeviceMetricSummaries(request: ListDeviceMetricSummariesRequest = {}): Promise<ListDeviceMetricSummariesResponse> {
-    let path = "/v1/device/metrics"
+  async listDeviceMetricSummaries(
+    request: ListDeviceMetricSummariesRequest = {},
+  ): Promise<ListDeviceMetricSummariesResponse> {
+    let path = '/v1/device/metrics'
     const query = new URLSearchParams()
-    if (request.device !== undefined) query.set("device", String(request.device))
-    if (request.metric !== undefined) query.set("metric", String(request.metric))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<ListDeviceMetricSummariesResponse>("GET", path, query, undefined)
+    if (request.device !== undefined) query.set('device', String(request.device))
+    if (request.metric !== undefined) query.set('metric', String(request.metric))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<ListDeviceMetricSummariesResponse>('GET', path, query, undefined)
   }
 
   async listDevices(request: ListDevicesRequest = {}): Promise<ListDevicesResponse> {
-    let path = "/v1/devices"
+    let path = '/v1/devices'
     const query = new URLSearchParams()
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<ListDevicesResponse>("GET", path, query, undefined)
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<ListDevicesResponse>('GET', path, query, undefined)
   }
 
   async getV1Diagnostics(): Promise<GetV1DiagnosticsResponse> {
-    let path = "/v1/diagnostics"
+    let path = '/v1/diagnostics'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async getV1DiagnosticsBundle(): Promise<GetV1DiagnosticsBundleResponse> {
-    let path = "/v1/diagnostics/bundle"
+    let path = '/v1/diagnostics/bundle'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async listScimTokens(): Promise<ListScimTokensResponse> {
-    let path = "/v1/directory/scim-tokens"
+    let path = '/v1/directory/scim-tokens'
     const query = new URLSearchParams()
-    return this.requestJSON<ListScimTokensResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListScimTokensResponse>('GET', path, query, undefined)
   }
 
   async createScimToken(request: CreateScimTokenRequest): Promise<CreateScimTokenResponse> {
-    let path = "/v1/directory/scim-tokens"
+    let path = '/v1/directory/scim-tokens'
     const query = new URLSearchParams()
-    return this.requestJSON<CreateScimTokenResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateScimTokenResponse>('POST', path, query, request.body)
   }
 
   async revokeScimToken(): Promise<RevokeScimTokenResponse> {
-    let path = "/v1/directory/scim-tokens/{id}"
+    let path = '/v1/directory/scim-tokens/{id}'
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
-  async listEbpfServiceMap(request: ListEbpfServiceMapRequest = {}): Promise<ListEbpfServiceMapResponse> {
-    let path = "/v1/ebpf/service-map"
+  async listEbpfServiceMap(
+    request: ListEbpfServiceMapRequest = {},
+  ): Promise<ListEbpfServiceMapResponse> {
+    let path = '/v1/ebpf/service-map'
     const query = new URLSearchParams()
-    if (request.source !== undefined) query.set("source", String(request.source))
-    if (request.since !== undefined) query.set("since", String(request.since))
-    if (request.until !== undefined) query.set("until", String(request.until))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<ListEbpfServiceMapResponse>("GET", path, query, undefined)
+    if (request.source !== undefined) query.set('source', String(request.source))
+    if (request.since !== undefined) query.set('since', String(request.since))
+    if (request.until !== undefined) query.set('until', String(request.until))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<ListEbpfServiceMapResponse>('GET', path, query, undefined)
   }
 
   async getEditions(): Promise<GetEditionsResponse> {
-    let path = "/v1/editions"
+    let path = '/v1/editions'
     const query = new URLSearchParams()
-    return this.requestJSON<GetEditionsResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetEditionsResponse>('GET', path, query, undefined)
   }
 
   async listEndpoints(): Promise<ListEndpointsResponse> {
-    let path = "/v1/endpoints"
+    let path = '/v1/endpoints'
     const query = new URLSearchParams()
-    return this.requestJSON<ListEndpointsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListEndpointsResponse>('GET', path, query, undefined)
   }
 
   async getV1Fairness(): Promise<GetV1FairnessResponse> {
-    let path = "/v1/fairness"
+    let path = '/v1/fairness'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async flowAnomalies(request: FlowAnomaliesRequest = {}): Promise<FlowAnomaliesResponse> {
-    let path = "/v1/flows/anomalies"
+    let path = '/v1/flows/anomalies'
     const query = new URLSearchParams()
-    if (request.exporter !== undefined) query.set("exporter", String(request.exporter))
-    if (request.direction !== undefined) query.set("direction", String(request.direction))
-    if (request.window !== undefined) query.set("window", String(request.window))
-    if (request.bucket !== undefined) query.set("bucket", String(request.bucket))
-    if (request.k !== undefined) query.set("k", String(request.k))
-    if (request.minBps !== undefined) query.set("min_bps", String(request.minBps))
-    return this.requestJSON<FlowAnomaliesResponse>("GET", path, query, undefined)
+    if (request.exporter !== undefined) query.set('exporter', String(request.exporter))
+    if (request.direction !== undefined) query.set('direction', String(request.direction))
+    if (request.window !== undefined) query.set('window', String(request.window))
+    if (request.bucket !== undefined) query.set('bucket', String(request.bucket))
+    if (request.k !== undefined) query.set('k', String(request.k))
+    if (request.minBps !== undefined) query.set('min_bps', String(request.minBps))
+    return this.requestJSON<FlowAnomaliesResponse>('GET', path, query, undefined)
   }
 
   async flowCapacity(request: FlowCapacityRequest = {}): Promise<FlowCapacityResponse> {
-    let path = "/v1/flows/capacity"
+    let path = '/v1/flows/capacity'
     const query = new URLSearchParams()
-    if (request.exporter !== undefined) query.set("exporter", String(request.exporter))
-    if (request.direction !== undefined) query.set("direction", String(request.direction))
-    if (request.window !== undefined) query.set("window", String(request.window))
-    if (request.bucket !== undefined) query.set("bucket", String(request.bucket))
-    return this.requestJSON<FlowCapacityResponse>("GET", path, query, undefined)
+    if (request.exporter !== undefined) query.set('exporter', String(request.exporter))
+    if (request.direction !== undefined) query.set('direction', String(request.direction))
+    if (request.window !== undefined) query.set('window', String(request.window))
+    if (request.bucket !== undefined) query.set('bucket', String(request.bucket))
+    return this.requestJSON<FlowCapacityResponse>('GET', path, query, undefined)
   }
 
   async flowTopTalkers(request: FlowTopTalkersRequest = {}): Promise<FlowTopTalkersResponse> {
-    let path = "/v1/flows/top"
+    let path = '/v1/flows/top'
     const query = new URLSearchParams()
-    if (request.by !== undefined) query.set("by", String(request.by))
-    if (request.window !== undefined) query.set("window", String(request.window))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<FlowTopTalkersResponse>("GET", path, query, undefined)
+    if (request.by !== undefined) query.set('by', String(request.by))
+    if (request.window !== undefined) query.set('window', String(request.window))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<FlowTopTalkersResponse>('GET', path, query, undefined)
   }
 
   async promLabelValues(request: PromLabelValuesRequest): Promise<PromLabelValuesResponse> {
-    let path = "/v1/grafana/api/v1/label/{name}/values"
-    path = path.replace("{name}", encodeURIComponent(String(request.name)))
+    let path = '/v1/grafana/api/v1/label/{name}/values'
+    path = path.replace('{name}', encodeURIComponent(String(request.name)))
     const query = new URLSearchParams()
-    if (request.match !== undefined) query.set("match[]", String(request.match))
-    if (request.start !== undefined) query.set("start", String(request.start))
-    if (request.end !== undefined) query.set("end", String(request.end))
-    return this.requestJSON<PromLabelValuesResponse>("GET", path, query, undefined)
+    if (request.match !== undefined) query.set('match[]', String(request.match))
+    if (request.start !== undefined) query.set('start', String(request.start))
+    if (request.end !== undefined) query.set('end', String(request.end))
+    return this.requestJSON<PromLabelValuesResponse>('GET', path, query, undefined)
   }
 
   async promLabels(request: PromLabelsRequest = {}): Promise<PromLabelsResponse> {
-    let path = "/v1/grafana/api/v1/labels"
+    let path = '/v1/grafana/api/v1/labels'
     const query = new URLSearchParams()
-    if (request.match !== undefined) query.set("match[]", String(request.match))
-    if (request.start !== undefined) query.set("start", String(request.start))
-    if (request.end !== undefined) query.set("end", String(request.end))
-    return this.requestJSON<PromLabelsResponse>("GET", path, query, undefined)
+    if (request.match !== undefined) query.set('match[]', String(request.match))
+    if (request.start !== undefined) query.set('start', String(request.start))
+    if (request.end !== undefined) query.set('end', String(request.end))
+    return this.requestJSON<PromLabelsResponse>('GET', path, query, undefined)
   }
 
   async promLabelsForm(): Promise<PromLabelsFormResponse> {
-    let path = "/v1/grafana/api/v1/labels"
+    let path = '/v1/grafana/api/v1/labels'
     const query = new URLSearchParams()
-    return this.requestJSON<PromLabelsFormResponse>("POST", path, query, undefined)
+    return this.requestJSON<PromLabelsFormResponse>('POST', path, query, undefined)
   }
 
   async promMetadata(): Promise<PromMetadataResponse> {
-    let path = "/v1/grafana/api/v1/metadata"
+    let path = '/v1/grafana/api/v1/metadata'
     const query = new URLSearchParams()
-    return this.requestJSON<PromMetadataResponse>("GET", path, query, undefined)
+    return this.requestJSON<PromMetadataResponse>('GET', path, query, undefined)
   }
 
   async promQuery(request: PromQueryRequest = {}): Promise<PromQueryResponse> {
-    let path = "/v1/grafana/api/v1/query"
+    let path = '/v1/grafana/api/v1/query'
     const query = new URLSearchParams()
-    if (request.query !== undefined) query.set("query", String(request.query))
-    if (request.time !== undefined) query.set("time", String(request.time))
-    return this.requestJSON<PromQueryResponse>("GET", path, query, undefined)
+    if (request.query !== undefined) query.set('query', String(request.query))
+    if (request.time !== undefined) query.set('time', String(request.time))
+    return this.requestJSON<PromQueryResponse>('GET', path, query, undefined)
   }
 
   async promQueryForm(): Promise<PromQueryFormResponse> {
-    let path = "/v1/grafana/api/v1/query"
+    let path = '/v1/grafana/api/v1/query'
     const query = new URLSearchParams()
-    return this.requestJSON<PromQueryFormResponse>("POST", path, query, undefined)
+    return this.requestJSON<PromQueryFormResponse>('POST', path, query, undefined)
   }
 
   async promQueryRange(request: PromQueryRangeRequest = {}): Promise<PromQueryRangeResponse> {
-    let path = "/v1/grafana/api/v1/query_range"
+    let path = '/v1/grafana/api/v1/query_range'
     const query = new URLSearchParams()
-    if (request.query !== undefined) query.set("query", String(request.query))
-    if (request.start !== undefined) query.set("start", String(request.start))
-    if (request.end !== undefined) query.set("end", String(request.end))
-    if (request.step !== undefined) query.set("step", String(request.step))
-    return this.requestJSON<PromQueryRangeResponse>("GET", path, query, undefined)
+    if (request.query !== undefined) query.set('query', String(request.query))
+    if (request.start !== undefined) query.set('start', String(request.start))
+    if (request.end !== undefined) query.set('end', String(request.end))
+    if (request.step !== undefined) query.set('step', String(request.step))
+    return this.requestJSON<PromQueryRangeResponse>('GET', path, query, undefined)
   }
 
   async promQueryRangeForm(): Promise<PromQueryRangeFormResponse> {
-    let path = "/v1/grafana/api/v1/query_range"
+    let path = '/v1/grafana/api/v1/query_range'
     const query = new URLSearchParams()
-    return this.requestJSON<PromQueryRangeFormResponse>("POST", path, query, undefined)
+    return this.requestJSON<PromQueryRangeFormResponse>('POST', path, query, undefined)
   }
 
   async promSeries(request: PromSeriesRequest = {}): Promise<PromSeriesResponse> {
-    let path = "/v1/grafana/api/v1/series"
+    let path = '/v1/grafana/api/v1/series'
     const query = new URLSearchParams()
-    if (request.match !== undefined) query.set("match[]", String(request.match))
-    if (request.start !== undefined) query.set("start", String(request.start))
-    if (request.end !== undefined) query.set("end", String(request.end))
-    return this.requestJSON<PromSeriesResponse>("GET", path, query, undefined)
+    if (request.match !== undefined) query.set('match[]', String(request.match))
+    if (request.start !== undefined) query.set('start', String(request.start))
+    if (request.end !== undefined) query.set('end', String(request.end))
+    return this.requestJSON<PromSeriesResponse>('GET', path, query, undefined)
   }
 
   async promSeriesForm(): Promise<PromSeriesFormResponse> {
-    let path = "/v1/grafana/api/v1/series"
+    let path = '/v1/grafana/api/v1/series'
     const query = new URLSearchParams()
-    return this.requestJSON<PromSeriesFormResponse>("POST", path, query, undefined)
+    return this.requestJSON<PromSeriesFormResponse>('POST', path, query, undefined)
   }
 
   async promBuildInfo(): Promise<PromBuildInfoResponse> {
-    let path = "/v1/grafana/api/v1/status/buildinfo"
+    let path = '/v1/grafana/api/v1/status/buildinfo'
     const query = new URLSearchParams()
-    return this.requestJSON<PromBuildInfoResponse>("GET", path, query, undefined)
+    return this.requestJSON<PromBuildInfoResponse>('GET', path, query, undefined)
   }
 
   async getHierarchy(): Promise<GetHierarchyResponse> {
-    let path = "/v1/hierarchy"
+    let path = '/v1/hierarchy'
     const query = new URLSearchParams()
-    return this.requestJSON<GetHierarchyResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetHierarchyResponse>('GET', path, query, undefined)
   }
 
-  async createHierarchyOrganization(request: CreateHierarchyOrganizationRequest): Promise<CreateHierarchyOrganizationResponse> {
-    let path = "/v1/hierarchy/orgs"
+  async createHierarchyOrganization(
+    request: CreateHierarchyOrganizationRequest,
+  ): Promise<CreateHierarchyOrganizationResponse> {
+    let path = '/v1/hierarchy/orgs'
     const query = new URLSearchParams()
-    return this.requestJSON<CreateHierarchyOrganizationResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateHierarchyOrganizationResponse>('POST', path, query, request.body)
   }
 
-  async createHierarchyTeam(request: CreateHierarchyTeamRequest): Promise<CreateHierarchyTeamResponse> {
-    let path = "/v1/hierarchy/orgs/{id}/teams"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+  async createHierarchyTeam(
+    request: CreateHierarchyTeamRequest,
+  ): Promise<CreateHierarchyTeamResponse> {
+    let path = '/v1/hierarchy/orgs/{id}/teams'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<CreateHierarchyTeamResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateHierarchyTeamResponse>('POST', path, query, request.body)
   }
 
-  async createHierarchyProject(request: CreateHierarchyProjectRequest): Promise<CreateHierarchyProjectResponse> {
-    let path = "/v1/hierarchy/teams/{id}/projects"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+  async createHierarchyProject(
+    request: CreateHierarchyProjectRequest,
+  ): Promise<CreateHierarchyProjectResponse> {
+    let path = '/v1/hierarchy/teams/{id}/projects'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<CreateHierarchyProjectResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateHierarchyProjectResponse>('POST', path, query, request.body)
   }
 
   async listIncidents(): Promise<ListIncidentsResponse> {
-    let path = "/v1/incidents"
+    let path = '/v1/incidents'
     const query = new URLSearchParams()
-    return this.requestJSON<ListIncidentsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListIncidentsResponse>('GET', path, query, undefined)
   }
 
   async getIncident(): Promise<GetIncidentResponse> {
-    let path = "/v1/incidents/{id}"
+    let path = '/v1/incidents/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<GetIncidentResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetIncidentResponse>('GET', path, query, undefined)
   }
 
   async patchIncident(request: PatchIncidentRequest): Promise<PatchIncidentResponse> {
-    let path = "/v1/incidents/{id}"
+    let path = '/v1/incidents/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<PatchIncidentResponse>("PATCH", path, query, request.body)
+    return this.requestJSON<PatchIncidentResponse>('PATCH', path, query, request.body)
   }
 
   async listIncidentChanges(): Promise<ListIncidentChangesResponse> {
-    let path = "/v1/incidents/{id}/changes"
+    let path = '/v1/incidents/{id}/changes'
     const query = new URLSearchParams()
-    return this.requestJSON<ListIncidentChangesResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListIncidentChangesResponse>('GET', path, query, undefined)
   }
 
   async incidentCIs(request: IncidentCIsRequest): Promise<IncidentCIsResponse> {
-    let path = "/v1/incidents/{id}/cis"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/incidents/{id}/cis'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<IncidentCIsResponse>("GET", path, query, undefined)
+    return this.requestJSON<IncidentCIsResponse>('GET', path, query, undefined)
   }
 
-  async listInventoryViews(request: ListInventoryViewsRequest = {}): Promise<ListInventoryViewsResponse> {
-    let path = "/v1/inventory/views"
+  async listInventoryViews(
+    request: ListInventoryViewsRequest = {},
+  ): Promise<ListInventoryViewsResponse> {
+    let path = '/v1/inventory/views'
     const query = new URLSearchParams()
-    if (request.surface !== undefined) query.set("surface", String(request.surface))
-    return this.requestJSON<ListInventoryViewsResponse>("GET", path, query, undefined)
+    if (request.surface !== undefined) query.set('surface', String(request.surface))
+    return this.requestJSON<ListInventoryViewsResponse>('GET', path, query, undefined)
   }
 
-  async createInventoryView(request: CreateInventoryViewRequest): Promise<CreateInventoryViewResponse> {
-    let path = "/v1/inventory/views"
+  async createInventoryView(
+    request: CreateInventoryViewRequest,
+  ): Promise<CreateInventoryViewResponse> {
+    let path = '/v1/inventory/views'
     const query = new URLSearchParams()
-    return this.requestJSON<CreateInventoryViewResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateInventoryViewResponse>('POST', path, query, request.body)
   }
 
   async getInventoryView(request: GetInventoryViewRequest): Promise<GetInventoryViewResponse> {
-    let path = "/v1/inventory/views/{id}"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/inventory/views/{id}'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<GetInventoryViewResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetInventoryViewResponse>('GET', path, query, undefined)
   }
 
   async getIsolationStatus(): Promise<GetIsolationStatusResponse> {
-    let path = "/v1/isolation/status"
+    let path = '/v1/isolation/status'
     const query = new URLSearchParams()
-    return this.requestJSON<GetIsolationStatusResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetIsolationStatusResponse>('GET', path, query, undefined)
   }
 
   async postV1LifecycleErase(): Promise<PostV1LifecycleEraseResponse> {
-    let path = "/v1/lifecycle/erase"
+    let path = '/v1/lifecycle/erase'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async getV1LifecycleExport(): Promise<GetV1LifecycleExportResponse> {
-    let path = "/v1/lifecycle/export"
+    let path = '/v1/lifecycle/export'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async getV1LifecycleRetention(): Promise<GetV1LifecycleRetentionResponse> {
-    let path = "/v1/lifecycle/retention"
+    let path = '/v1/lifecycle/retention'
     const query = new URLSearchParams()
-    return this.requestJSON<GetV1LifecycleRetentionResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetV1LifecycleRetentionResponse>('GET', path, query, undefined)
   }
 
-  async putV1LifecycleRetention(request: PutV1LifecycleRetentionRequest): Promise<PutV1LifecycleRetentionResponse> {
-    let path = "/v1/lifecycle/retention"
+  async putV1LifecycleRetention(
+    request: PutV1LifecycleRetentionRequest,
+  ): Promise<PutV1LifecycleRetentionResponse> {
+    let path = '/v1/lifecycle/retention'
     const query = new URLSearchParams()
-    return this.requestJSON<PutV1LifecycleRetentionResponse>("PUT", path, query, request.body)
+    return this.requestJSON<PutV1LifecycleRetentionResponse>('PUT', path, query, request.body)
   }
 
-  async postV1LifecycleSubjectsErase(request: PostV1LifecycleSubjectsEraseRequest): Promise<PostV1LifecycleSubjectsEraseResponse> {
-    let path = "/v1/lifecycle/subjects/erase"
+  async postV1LifecycleSubjectsErase(
+    request: PostV1LifecycleSubjectsEraseRequest,
+  ): Promise<PostV1LifecycleSubjectsEraseResponse> {
+    let path = '/v1/lifecycle/subjects/erase'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, request.body)
+    await this.request('POST', path, query, request.body)
   }
 
-  async postV1LifecycleSubjectsExport(request: PostV1LifecycleSubjectsExportRequest): Promise<PostV1LifecycleSubjectsExportResponse> {
-    let path = "/v1/lifecycle/subjects/export"
+  async postV1LifecycleSubjectsExport(
+    request: PostV1LifecycleSubjectsExportRequest,
+  ): Promise<PostV1LifecycleSubjectsExportResponse> {
+    let path = '/v1/lifecycle/subjects/export'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, request.body)
+    await this.request('POST', path, query, request.body)
   }
 
   async getMe(): Promise<GetMeResponse> {
-    let path = "/v1/me"
+    let path = '/v1/me'
     const query = new URLSearchParams()
-    return this.requestJSON<GetMeResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetMeResponse>('GET', path, query, undefined)
   }
 
   async getOnboardingProgress(): Promise<GetOnboardingProgressResponse> {
-    let path = "/v1/onboarding/progress"
+    let path = '/v1/onboarding/progress'
     const query = new URLSearchParams()
-    return this.requestJSON<GetOnboardingProgressResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetOnboardingProgressResponse>('GET', path, query, undefined)
   }
 
   async getOncallStatus(): Promise<GetOncallStatusResponse> {
-    let path = "/v1/oncall/status"
+    let path = '/v1/oncall/status'
     const query = new URLSearchParams()
-    return this.requestJSON<GetOncallStatusResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetOncallStatusResponse>('GET', path, query, undefined)
   }
 
-  async testOncallConnector(request: TestOncallConnectorRequest): Promise<TestOncallConnectorResponse> {
-    let path = "/v1/oncall/test"
+  async testOncallConnector(
+    request: TestOncallConnectorRequest,
+  ): Promise<TestOncallConnectorResponse> {
+    let path = '/v1/oncall/test'
     const query = new URLSearchParams()
-    return this.requestJSON<TestOncallConnectorResponse>("POST", path, query, request.body)
+    return this.requestJSON<TestOncallConnectorResponse>('POST', path, query, request.body)
   }
 
   async listOtlpTokens(): Promise<ListOtlpTokensResponse> {
-    let path = "/v1/otlp-tokens"
+    let path = '/v1/otlp-tokens'
     const query = new URLSearchParams()
-    return this.requestJSON<ListOtlpTokensResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListOtlpTokensResponse>('GET', path, query, undefined)
   }
 
   async createOtlpToken(request: CreateOtlpTokenRequest = {}): Promise<CreateOtlpTokenResponse> {
-    let path = "/v1/otlp-tokens"
+    let path = '/v1/otlp-tokens'
     const query = new URLSearchParams()
-    return this.requestJSON<CreateOtlpTokenResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateOtlpTokenResponse>('POST', path, query, request.body)
   }
 
   async revokeOtlpToken(request: RevokeOtlpTokenRequest): Promise<RevokeOtlpTokenResponse> {
-    let path = "/v1/otlp-tokens/{id}"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/otlp-tokens/{id}'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
   async otlpLogs(request: OtlpLogsRequest = {}): Promise<OtlpLogsResponse> {
-    let path = "/v1/otlp/logs"
+    let path = '/v1/otlp/logs'
     const query = new URLSearchParams()
-    if (request.service !== undefined) query.set("service", String(request.service))
-    if (request.traceId !== undefined) query.set("trace_id", String(request.traceId))
-    if (request.since !== undefined) query.set("since", String(request.since))
-    if (request.until !== undefined) query.set("until", String(request.until))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    if (request.minSeverity !== undefined) query.set("min_severity", String(request.minSeverity))
-    return this.requestJSON<OtlpLogsResponse>("GET", path, query, undefined)
+    if (request.service !== undefined) query.set('service', String(request.service))
+    if (request.traceId !== undefined) query.set('trace_id', String(request.traceId))
+    if (request.since !== undefined) query.set('since', String(request.since))
+    if (request.until !== undefined) query.set('until', String(request.until))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    if (request.minSeverity !== undefined) query.set('min_severity', String(request.minSeverity))
+    return this.requestJSON<OtlpLogsResponse>('GET', path, query, undefined)
   }
 
   async otlpTraces(request: OtlpTracesRequest = {}): Promise<OtlpTracesResponse> {
-    let path = "/v1/otlp/traces"
+    let path = '/v1/otlp/traces'
     const query = new URLSearchParams()
-    if (request.service !== undefined) query.set("service", String(request.service))
-    if (request.traceId !== undefined) query.set("trace_id", String(request.traceId))
-    if (request.since !== undefined) query.set("since", String(request.since))
-    if (request.until !== undefined) query.set("until", String(request.until))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<OtlpTracesResponse>("GET", path, query, undefined)
+    if (request.service !== undefined) query.set('service', String(request.service))
+    if (request.traceId !== undefined) query.set('trace_id', String(request.traceId))
+    if (request.since !== undefined) query.set('since', String(request.since))
+    if (request.until !== undefined) query.set('until', String(request.until))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<OtlpTracesResponse>('GET', path, query, undefined)
   }
 
   async getOutages(): Promise<GetOutagesResponse> {
-    let path = "/v1/outages"
+    let path = '/v1/outages'
     const query = new URLSearchParams()
-    return this.requestJSON<GetOutagesResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetOutagesResponse>('GET', path, query, undefined)
   }
 
   async promFederate(request: PromFederateRequest = {}): Promise<PromFederateResponse> {
-    let path = "/v1/prometheus/federate"
+    let path = '/v1/prometheus/federate'
     const query = new URLSearchParams()
-    if (request.match !== undefined) query.set("match[]", String(request.match))
-    return this.request("GET", path, query, undefined)
+    if (request.match !== undefined) query.set('match[]', String(request.match))
+    return this.request('GET', path, query, undefined)
   }
 
   async promRemoteWrite(): Promise<PromRemoteWriteResponse> {
-    let path = "/v1/prometheus/write"
+    let path = '/v1/prometheus/write'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async getV1RemediationProposals(): Promise<GetV1RemediationProposalsResponse> {
-    let path = "/v1/remediation/proposals"
+    let path = '/v1/remediation/proposals'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async postV1RemediationProposals(): Promise<PostV1RemediationProposalsResponse> {
-    let path = "/v1/remediation/proposals"
+    let path = '/v1/remediation/proposals'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async getV1RemediationProposalsId(): Promise<GetV1RemediationProposalsIdResponse> {
-    let path = "/v1/remediation/proposals/{id}"
+    let path = '/v1/remediation/proposals/{id}'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async postV1RemediationProposalsIdApprove(): Promise<PostV1RemediationProposalsIdApproveResponse> {
-    let path = "/v1/remediation/proposals/{id}/approve"
+    let path = '/v1/remediation/proposals/{id}/approve'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async postV1RemediationProposalsIdReject(): Promise<PostV1RemediationProposalsIdRejectResponse> {
-    let path = "/v1/remediation/proposals/{id}/reject"
+    let path = '/v1/remediation/proposals/{id}/reject'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async listLatestResults(): Promise<ListLatestResultsResponse> {
-    let path = "/v1/results/latest"
+    let path = '/v1/results/latest'
     const query = new URLSearchParams()
-    return this.requestJSON<ListLatestResultsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListLatestResultsResponse>('GET', path, query, undefined)
   }
 
   async listRollouts(): Promise<ListRolloutsResponse> {
-    let path = "/v1/rollouts"
+    let path = '/v1/rollouts'
     const query = new URLSearchParams()
-    return this.requestJSON<ListRolloutsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListRolloutsResponse>('GET', path, query, undefined)
   }
 
   async createRollout(request: CreateRolloutRequest): Promise<CreateRolloutResponse> {
-    let path = "/v1/rollouts"
+    let path = '/v1/rollouts'
     const query = new URLSearchParams()
-    return this.requestJSON<CreateRolloutResponse>("POST", path, query, request.body)
+    return this.requestJSON<CreateRolloutResponse>('POST', path, query, request.body)
   }
 
   async getRollout(request: GetRolloutRequest): Promise<GetRolloutResponse> {
-    let path = "/v1/rollouts/{id}"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/rollouts/{id}'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<GetRolloutResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetRolloutResponse>('GET', path, query, undefined)
   }
 
   async advanceRollout(request: AdvanceRolloutRequest): Promise<AdvanceRolloutResponse> {
-    let path = "/v1/rollouts/{id}/advance"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/rollouts/{id}/advance'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<AdvanceRolloutResponse>("POST", path, query, undefined)
+    return this.requestJSON<AdvanceRolloutResponse>('POST', path, query, undefined)
   }
 
   async haltRollout(request: HaltRolloutRequest): Promise<HaltRolloutResponse> {
-    let path = "/v1/rollouts/{id}/halt"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/rollouts/{id}/halt'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<HaltRolloutResponse>("POST", path, query, request.body)
+    return this.requestJSON<HaltRolloutResponse>('POST', path, query, request.body)
   }
 
   async resumeRollout(request: ResumeRolloutRequest): Promise<ResumeRolloutResponse> {
-    let path = "/v1/rollouts/{id}/resume"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/rollouts/{id}/resume'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<ResumeRolloutResponse>("POST", path, query, request.body)
+    return this.requestJSON<ResumeRolloutResponse>('POST', path, query, request.body)
   }
 
   async verifyRollout(request: VerifyRolloutRequest): Promise<VerifyRolloutResponse> {
-    let path = "/v1/rollouts/{id}/verify"
-    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    let path = '/v1/rollouts/{id}/verify'
+    path = path.replace('{id}', encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
-    return this.requestJSON<VerifyRolloutResponse>("POST", path, query, undefined)
+    return this.requestJSON<VerifyRolloutResponse>('POST', path, query, undefined)
   }
 
   async getRum(): Promise<GetRumResponse> {
-    let path = "/v1/rum"
+    let path = '/v1/rum'
     const query = new URLSearchParams()
-    return this.requestJSON<GetRumResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetRumResponse>('GET', path, query, undefined)
   }
 
   async getSecretsHealth(): Promise<GetSecretsHealthResponse> {
-    let path = "/v1/secrets/health"
+    let path = '/v1/secrets/health'
     const query = new URLSearchParams()
-    return this.requestJSON<GetSecretsHealthResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetSecretsHealthResponse>('GET', path, query, undefined)
   }
 
   async getV1SecurityKeys(): Promise<GetV1SecurityKeysResponse> {
-    let path = "/v1/security/keys"
+    let path = '/v1/security/keys'
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    await this.request('GET', path, query, undefined)
   }
 
   async postV1SecurityKeysRotate(): Promise<PostV1SecurityKeysRotateResponse> {
-    let path = "/v1/security/keys/rotate"
+    let path = '/v1/security/keys/rotate'
     const query = new URLSearchParams()
-    await this.request("POST", path, query, undefined)
+    await this.request('POST', path, query, undefined)
   }
 
   async getSiemStatus(): Promise<GetSiemStatusResponse> {
-    let path = "/v1/siem/status"
+    let path = '/v1/siem/status'
     const query = new URLSearchParams()
-    return this.requestJSON<GetSiemStatusResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetSiemStatusResponse>('GET', path, query, undefined)
   }
 
   async listSlOs(): Promise<ListSlOsResponse> {
-    let path = "/v1/slos"
+    let path = '/v1/slos'
     const query = new URLSearchParams()
-    return this.requestJSON<ListSlOsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListSlOsResponse>('GET', path, query, undefined)
   }
 
   async exportOpenSlo(): Promise<ExportOpenSloResponse> {
-    let path = "/v1/slos/openslo"
+    let path = '/v1/slos/openslo'
     const query = new URLSearchParams()
-    return this.request("GET", path, query, undefined)
+    return this.request('GET', path, query, undefined)
   }
 
   async listTests(request: ListTestsRequest = {}): Promise<ListTestsResponse> {
-    let path = "/v1/tests"
+    let path = '/v1/tests'
     const query = new URLSearchParams()
-    if (request.after !== undefined) query.set("after", String(request.after))
-    if (request.limit !== undefined) query.set("limit", String(request.limit))
-    return this.requestJSON<ListTestsResponse>("GET", path, query, undefined)
+    if (request.after !== undefined) query.set('after', String(request.after))
+    if (request.limit !== undefined) query.set('limit', String(request.limit))
+    return this.requestJSON<ListTestsResponse>('GET', path, query, undefined)
   }
 
   async createTest(request: CreateTestRequest): Promise<CreateTestResponse> {
-    let path = "/v1/tests"
+    let path = '/v1/tests'
     const query = new URLSearchParams()
-    if (request.q !== undefined) query.set("q", String(request.q))
-    if (request.cause !== undefined) query.set("cause", String(request.cause))
-    return this.requestJSON<CreateTestResponse>("POST", path, query, request.body)
+    if (request.q !== undefined) query.set('q', String(request.q))
+    if (request.cause !== undefined) query.set('cause', String(request.cause))
+    return this.requestJSON<CreateTestResponse>('POST', path, query, request.body)
   }
 
   async getTestBundle(): Promise<GetTestBundleResponse> {
-    let path = "/v1/tests/bundle"
+    let path = '/v1/tests/bundle'
     const query = new URLSearchParams()
-    return this.requestJSON<GetTestBundleResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetTestBundleResponse>('GET', path, query, undefined)
   }
 
   async getTest(): Promise<GetTestResponse> {
-    let path = "/v1/tests/{id}"
+    let path = '/v1/tests/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<GetTestResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetTestResponse>('GET', path, query, undefined)
   }
 
   async updateTest(request: UpdateTestRequest): Promise<UpdateTestResponse> {
-    let path = "/v1/tests/{id}"
+    let path = '/v1/tests/{id}'
     const query = new URLSearchParams()
-    return this.requestJSON<UpdateTestResponse>("PUT", path, query, request.body)
+    return this.requestJSON<UpdateTestResponse>('PUT', path, query, request.body)
   }
 
   async deleteTest(): Promise<DeleteTestResponse> {
-    let path = "/v1/tests/{id}"
+    let path = '/v1/tests/{id}'
     const query = new URLSearchParams()
-    await this.request("DELETE", path, query, undefined)
+    await this.request('DELETE', path, query, undefined)
   }
 
   async getTestPath(): Promise<GetTestPathResponse> {
-    let path = "/v1/tests/{id}/path"
+    let path = '/v1/tests/{id}/path'
     const query = new URLSearchParams()
-    return this.requestJSON<GetTestPathResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetTestPathResponse>('GET', path, query, undefined)
   }
 
   async discoverTestPath(): Promise<DiscoverTestPathResponse> {
-    let path = "/v1/tests/{id}/path"
+    let path = '/v1/tests/{id}/path'
     const query = new URLSearchParams()
-    return this.requestJSON<DiscoverTestPathResponse>("POST", path, query, undefined)
+    return this.requestJSON<DiscoverTestPathResponse>('POST', path, query, undefined)
   }
 
   async listThreatDetections(): Promise<ListThreatDetectionsResponse> {
-    let path = "/v1/threat/detections"
+    let path = '/v1/threat/detections'
     const query = new URLSearchParams()
-    return this.requestJSON<ListThreatDetectionsResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListThreatDetectionsResponse>('GET', path, query, undefined)
   }
 
   async getThreatIntelStatus(): Promise<GetThreatIntelStatusResponse> {
-    let path = "/v1/threat/intel/status"
+    let path = '/v1/threat/intel/status'
     const query = new URLSearchParams()
-    return this.requestJSON<GetThreatIntelStatusResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetThreatIntelStatusResponse>('GET', path, query, undefined)
   }
 
   async listTlsPosture(): Promise<ListTlsPostureResponse> {
-    let path = "/v1/tls/posture"
+    let path = '/v1/tls/posture'
     const query = new URLSearchParams()
-    return this.requestJSON<ListTlsPostureResponse>("GET", path, query, undefined)
+    return this.requestJSON<ListTlsPostureResponse>('GET', path, query, undefined)
   }
 
   async getTopology(request: GetTopologyRequest = {}): Promise<GetTopologyResponse> {
-    let path = "/v1/topology"
+    let path = '/v1/topology'
     const query = new URLSearchParams()
-    if (request.at !== undefined) query.set("at", String(request.at))
-    return this.requestJSON<GetTopologyResponse>("GET", path, query, undefined)
+    if (request.at !== undefined) query.set('at', String(request.at))
+    return this.requestJSON<GetTopologyResponse>('GET', path, query, undefined)
   }
 
   async simulateWhatIf(request: SimulateWhatIfRequest): Promise<SimulateWhatIfResponse> {
-    let path = "/v1/topology/whatif"
+    let path = '/v1/topology/whatif'
     const query = new URLSearchParams()
-    return this.requestJSON<SimulateWhatIfResponse>("POST", path, query, request.body)
+    return this.requestJSON<SimulateWhatIfResponse>('POST', path, query, request.body)
   }
 
   async getVersion(): Promise<GetVersionResponse> {
-    let path = "/version"
+    let path = '/version'
     const query = new URLSearchParams()
-    return this.requestJSON<GetVersionResponse>("GET", path, query, undefined)
+    return this.requestJSON<GetVersionResponse>('GET', path, query, undefined)
   }
 
-  private async requestJSON<T>(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<T> {
+  private async requestJSON<T>(
+    method: string,
+    path: string,
+    query: URLSearchParams,
+    body: unknown | undefined,
+  ): Promise<T> {
     const response = await this.request(method, path, query, body)
     if (response.status === 204) return undefined as T
     return (await response.json()) as T
   }
 
-  private async request(method: string, path: string, query: URLSearchParams, body: unknown | undefined): Promise<Response> {
+  private async request(
+    method: string,
+    path: string,
+    query: URLSearchParams,
+    body: unknown | undefined,
+  ): Promise<Response> {
     const qs = query.toString()
     const headers: Record<string, string> = { Accept: 'application/json' }
     if (body !== undefined) headers['Content-Type'] = 'application/json'

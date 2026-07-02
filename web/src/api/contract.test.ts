@@ -158,7 +158,12 @@ describe('API wire and OpenAPI shape contracts', () => {
   it('exposes RCA grounding and degraded-state fields on AIAnswer', () => {
     const members = generatedInterfaceMembers('AIAnswer')
     expect([...members]).toEqual(
-      expect.arrayContaining(['root_cause_citations', 'root_cause_grounded', 'degraded']),
+      expect.arrayContaining([
+        'root_cause_citations',
+        'root_cause_grounded',
+        'degraded',
+        'investigation_plan',
+      ]),
     )
   })
 })

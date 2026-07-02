@@ -13,7 +13,14 @@ import {
   LoadingState,
   useToast,
 } from '../components'
-import { confidenceTone, useAsk, useSubmitFeedback, type Answer, type Evidence } from '../api/ai'
+import {
+  confidenceTone,
+  useAsk,
+  useSubmitFeedback,
+  type Answer,
+  type Evidence,
+  type InvestigationStep,
+} from '../api/ai'
 import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
 import { proposalFromAnswer, type ProposalContext } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
@@ -30,6 +37,12 @@ function fmtVal(v: unknown): string {
   }
   if (typeof v === 'symbol') return v.description ?? ''
   return ''
+}
+
+function planTone(status: InvestigationStep['status']): 'success' | 'warning' | 'neutral' {
+  if (status === 'queried') return 'success'
+  if (status === 'blocked' || status === 'skipped') return 'warning'
+  return 'neutral'
 }
 
 const EXAMPLES = [
@@ -143,6 +156,7 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
     createProposal.isPending || answer.insufficient_evidence || answer.evidence.length === 0
   const rootCauseGrounded = answer.root_cause_grounded === true
   const rootCauseCitations = answer.root_cause_citations ?? []
+  const investigationPlan = answer.investigation_plan ?? []
 
   // Bidirectional grounding: which findings cite each piece of evidence.
   const citedBy = new Map<string, number[]>()
@@ -272,6 +286,37 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
           </p>
         </CardBody>
       </Card>
+
+      {investigationPlan.length > 0 ? (
+        <Card>
+          <CardHeader title="Investigation plan" />
+          <CardBody>
+            <ol className={styles.plan} aria-label="Investigation plan">
+              {investigationPlan.map((step) => (
+                <li key={`${step.step}-${step.domain}`} className={styles.planStep}>
+                  <div className={styles.planTopline}>
+                    <span className={styles.planIndex}>{step.step}</span>
+                    <span className={styles.planDomain}>{step.domain}</span>
+                    <Badge tone={planTone(step.status)}>{step.status}</Badge>
+                    {step.read_only ? <Badge tone="neutral">read-only</Badge> : null}
+                  </div>
+                  <p className={styles.planGoal}>{step.goal}</p>
+                  <p className={styles.planMeta}>
+                    {[
+                      formatCount(step.evidence_count ?? 0, 'signal', 'signals', locale),
+                      step.node_id ? `node ${step.node_id}` : '',
+                      step.reason ?? '',
+                      step.truncated ? 'truncated' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </CardBody>
+        </Card>
+      ) : null}
 
       {answer.findings.length > 0 ? (
         <Card>

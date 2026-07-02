@@ -8411,6 +8411,67 @@
           }
         }
       },
+      "AIInvestigationStep": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer"
+          },
+          "domain": {
+            "type": "string",
+            "enum": [
+              "metrics",
+              "events",
+              "entities",
+              "topology"
+            ]
+          },
+          "goal": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned",
+              "queried",
+              "skipped",
+              "blocked"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "evidence_count": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "AIAnswer": {
         "type": "object",
         "properties": {
@@ -8445,6 +8506,12 @@
               "medium",
               "high"
             ]
+          },
+          "investigation_plan": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AIInvestigationStep"
+            }
           },
           "findings": {
             "type": "array",

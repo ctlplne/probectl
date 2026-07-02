@@ -35,13 +35,14 @@ type Answer struct {
 	RootCauseGrounded  bool       `json:"root_cause_grounded"`
 	// Degraded: the remote model was unavailable and the air-gapped builtin
 	// answered (AIRCA-004) — the root cause carries the banner.
-	Degraded             bool          `json:"degraded,omitempty"`
-	Confidence           Confidence    `json:"confidence"`
-	Findings             []Finding     `json:"findings"`
-	Evidence             []Evidence    `json:"evidence"`
-	Model                string        `json:"model"`
-	InsufficientEvidence bool          `json:"insufficient_evidence"`
-	Elapsed              time.Duration `json:"-"`
+	Degraded             bool                `json:"degraded,omitempty"`
+	Confidence           Confidence          `json:"confidence"`
+	InvestigationPlan    []InvestigationStep `json:"investigation_plan,omitempty"`
+	Findings             []Finding           `json:"findings"`
+	Evidence             []Evidence          `json:"evidence"`
+	Model                string              `json:"model"`
+	InsufficientEvidence bool                `json:"insufficient_evidence"`
+	Elapsed              time.Duration       `json:"-"`
 }
 
 // Analyzer runs the RCA pipeline: plan (deterministic) → gather (via the S23
@@ -113,6 +114,38 @@ func NewAnalyzer(engine *Engine, opts ...AnalyzerOption) *Analyzer {
 	return a
 }
 
+func (a *Analyzer) investigationPlan(q Question, queries []Query) []InvestigationStep {
+	if p, ok := a.planner.(investigationPlanner); ok {
+		return p.InvestigationPlan(q, queries)
+	}
+	return defaultInvestigationPlan(queries)
+}
+
+func markInvestigationQueried(plan []InvestigationStep, idx, evidenceCount int, truncated bool) {
+	if idx < 0 || idx >= len(plan) {
+		return
+	}
+	plan[idx].Status = InvestigationQueried
+	plan[idx].EvidenceCount = evidenceCount
+	plan[idx].Truncated = truncated
+}
+
+func markInvestigationSkipped(plan []InvestigationStep, idx int, reason string) {
+	if idx < 0 || idx >= len(plan) {
+		return
+	}
+	plan[idx].Status = InvestigationSkipped
+	plan[idx].Reason = reason
+}
+
+func markInvestigationBlocked(plan []InvestigationStep, idx int, reason string) {
+	if idx < 0 || idx >= len(plan) {
+		return
+	}
+	plan[idx].Status = InvestigationBlocked
+	plan[idx].Reason = reason
+}
+
 // Analyze answers a natural-language question with a cited, RBAC-scoped root
 // cause. The tenant boundary is enforced first (fail closed on a tenantless
 // principal); every plane is gathered through the S23 engine, so a caller only
@@ -132,6 +165,7 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 
 	// 1. Plan deterministically (probectl code, never the model).
 	queries := a.planner.Plan(q)
+	investigationPlan := a.investigationPlan(q, queries)
 
 	// 2. Gather evidence via the engine. Domains the caller cannot read
 	// (ErrForbidden) or that aren't configured (ErrNoSource) are skipped — the
@@ -141,21 +175,31 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 	idPrefix := sessionIDPrefix()
 	var evidence []Evidence
 	n := 0
-	for _, query := range queries {
+	for i, query := range queries {
 		if len(evidence) >= a.maxEvidence {
-			break
+			markInvestigationSkipped(investigationPlan, i, "evidence cap reached before this read")
+			continue
 		}
 		res, err := a.engine.Query(ctx, p, query)
 		if err != nil {
-			if errors.Is(err, ErrForbidden) || errors.Is(err, ErrNoSource) || errors.Is(err, ErrUnknownDomain) {
+			if errors.Is(err, ErrForbidden) {
+				markInvestigationBlocked(investigationPlan, i, "RBAC denied this read")
+				continue
+			}
+			if errors.Is(err, ErrNoSource) || errors.Is(err, ErrUnknownDomain) {
+				markInvestigationSkipped(investigationPlan, i, "source is not configured in this deployment")
 				continue
 			}
 			return Answer{}, err
 		}
-		evidence = append(evidence, collectEvidence(query.Domain, res.Rows, idPrefix, &n)...)
-	}
-	if len(evidence) > a.maxEvidence {
-		evidence = evidence[:a.maxEvidence]
+		collected := collectEvidence(query.Domain, res.Rows, idPrefix, &n)
+		truncated := res.Truncated
+		if remaining := a.maxEvidence - len(evidence); len(collected) > remaining {
+			collected = collected[:remaining]
+			truncated = true
+		}
+		evidence = append(evidence, collected...)
+		markInvestigationQueried(investigationPlan, i, len(collected), truncated)
 	}
 
 	// 3. Synthesize over the gathered evidence (the model has no tools). A
@@ -211,6 +255,7 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		RootCauseGrounded:    rootCauseGrounded && !insufficient,
 		Degraded:             syn.Degraded,
 		Confidence:           syn.Confidence,
+		InvestigationPlan:    investigationPlan,
 		Findings:             syn.Findings,
 		Evidence:             evidence,
 		Model:                a.model.Name(),

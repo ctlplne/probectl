@@ -87,6 +87,13 @@ The four steps, and the guardrail each one buys you:
    across planes; a question with no anchor won't dump the whole topology graph
    (the live map of what connects to what).
 
+   The response also returns an **investigation plan**: up to five read-only
+   steps, each mapping to one typed query, with the execution outcome
+   (`queried`, `skipped`, or `blocked`). If RBAC denies a domain or a source is
+   not configured, the plan says that explicitly. This is the bounded
+   "agentic" layer: probectl can sequence reads and explain gaps, but the model
+   still cannot fetch extra data, mutate config, or call tools.
+
 2. **Gather (tenant first, then RBAC).** Each planned query runs through the
    semantic query engine (`docs/ai-query.md`) — the platform's single shared read
    layer — which enforces the **tenant boundary first, then per-domain RBAC**. A
@@ -303,7 +310,9 @@ Two routes carry the whole feature, and both require the same permission:
 - `POST /v1/ai/ask` — body `{question, subject?}` → a cited `Answer`. Requires the
   `ai.query` permission; the evidence is then *further* scoped per plane by the
   caller's read permissions, so two users with different RBAC can ask the same
-  question and correctly get differently-grounded answers.
+  question and correctly get differently-grounded answers. The answer includes
+  `investigation_plan`, a bounded read-only receipt of the steps probectl tried
+  and why any step was skipped or blocked.
 - `POST /v1/ai/feedback` — body `{answer_id, rating: up|down, comment?}` → `204`.
   Also requires `ai.query`. Stored tenant-scoped (row-level security — the
   database itself filters every row by tenant) and audited.
@@ -326,10 +335,11 @@ blocks or alters the answer.
 
 ## What it deliberately does not do
 
-- **It does not let the model touch the network or take actions.** No tools, no
-  agentic loop (the pattern where a model acts, observes the result, and acts
-  again). Remediation is a separate, human-gated, proposal-only path
-  (`docs/remediation.md`).
+- **It does not let the model touch the network or take actions.** No model
+  tools, no autonomous remediation, and no unbounded agent loop. The
+  deterministic investigation plan sequences only read-only, typed queries
+  through the tenant/RBAC query layer. Remediation is a separate, human-gated,
+  proposal-only path (`docs/remediation.md`).
 - **It does not trust the model for isolation or truth.** Tenant + RBAC are
   enforced before the model sees anything; citation integrity is checked after.
   Swapping models cannot weaken either guarantee.

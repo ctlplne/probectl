@@ -179,6 +179,62 @@ func TestAnalyzeRBACScopesEvidence(t *testing.T) {
 	}
 }
 
+func TestAnalyzeReturnsReadOnlyInvestigationPlanWithRBACOutcomes(t *testing.T) {
+	fs := fixtureSource{
+		entities: []Row{{"id": "inc-1", "kind": "incident", "plane": "network", "severity": "warning", "title": "checkout incident"}},
+		events:   []Row{{"id": "ev-1", "kind": "change", "plane": "change", "title": "checkout deploy"}},
+		metrics:  []Row{{"metric": "latency", "plane": "metrics", "title": "checkout latency"}},
+		topology: []Row{{"node": "service:checkout", "plane": "topology", "title": "checkout neighbor"}},
+	}
+	a := NewAnalyzer(engineWith(fs))
+	ans, err := a.Analyze(context.Background(), principal("tenant-a", PermEntitiesRead), Question{
+		Text:    "why is checkout slow after the deploy?",
+		Subject: map[string]string{"target": "checkout"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ans.InvestigationPlan) == 0 || len(ans.InvestigationPlan) > MaxInvestigationSteps {
+		t.Fatalf("plan length = %d", len(ans.InvestigationPlan))
+	}
+	statusByDomain := map[Domain]string{}
+	for _, step := range ans.InvestigationPlan {
+		if !step.ReadOnly {
+			t.Fatalf("plan step is not read-only: %+v", step)
+		}
+		statusByDomain[step.Domain] = step.Status
+	}
+	if statusByDomain[DomainEntities] != InvestigationQueried {
+		t.Fatalf("entities step status = %q, want queried; plan=%+v", statusByDomain[DomainEntities], ans.InvestigationPlan)
+	}
+	for _, d := range []Domain{DomainMetrics, DomainEvents, DomainTopology} {
+		if statusByDomain[d] != InvestigationBlocked {
+			t.Fatalf("%s step status = %q, want blocked by RBAC; plan=%+v", d, statusByDomain[d], ans.InvestigationPlan)
+		}
+	}
+}
+
+func TestAnalyzeInvestigationPlanShowsMissingSource(t *testing.T) {
+	src := fixtureSource{entities: []Row{{"id": "inc-1", "kind": "incident", "plane": "network", "title": "checkout incident"}}}
+	a := NewAnalyzer(NewEngine(WithEntities(src)))
+	ans, err := a.Analyze(context.Background(), principal("tenant-a", allReadPerms()...), Question{
+		Text:    "why is checkout slow after a route change?",
+		Subject: map[string]string{"target": "checkout"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawMissing bool
+	for _, step := range ans.InvestigationPlan {
+		if step.Domain == DomainEvents && step.Status == InvestigationSkipped && strings.Contains(step.Reason, "source") {
+			sawMissing = true
+		}
+	}
+	if !sawMissing {
+		t.Fatalf("missing events source was not surfaced in plan: %+v", ans.InvestigationPlan)
+	}
+}
+
 // No evidence → an honest "insufficient evidence" answer, never a fabricated
 // cause; and a tenantless principal fails closed.
 func TestAnalyzeInsufficientAndNoTenant(t *testing.T) {

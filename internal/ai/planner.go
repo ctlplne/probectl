@@ -17,6 +17,39 @@ type Planner interface {
 	Plan(q Question) []Query
 }
 
+const MaxInvestigationSteps = 5
+
+const (
+	InvestigationPlanned = "planned"
+	InvestigationQueried = "queried"
+	InvestigationSkipped = "skipped"
+	InvestigationBlocked = "blocked"
+)
+
+// InvestigationStep is one bounded, read-only step the assistant will take (or
+// explain why it could not take) during RCA. It is a plan receipt, not a model
+// tool call: every step maps to a typed Query that still runs through tenant
+// first, then RBAC.
+type InvestigationStep struct {
+	Step          int               `json:"step"`
+	Domain        Domain            `json:"domain"`
+	Goal          string            `json:"goal"`
+	Selector      map[string]string `json:"selector,omitempty"`
+	NodeID        string            `json:"node_id,omitempty"`
+	WindowStart   time.Time         `json:"window_start,omitempty"`
+	WindowEnd     time.Time         `json:"window_end,omitempty"`
+	Limit         int               `json:"limit"`
+	ReadOnly      bool              `json:"read_only"`
+	Status        string            `json:"status"`
+	Reason        string            `json:"reason,omitempty"`
+	EvidenceCount int               `json:"evidence_count,omitempty"`
+	Truncated     bool              `json:"truncated,omitempty"`
+}
+
+type investigationPlanner interface {
+	InvestigationPlan(q Question, queries []Query) []InvestigationStep
+}
+
 // Question is a natural-language RCA request. Subject optionally pins the entity
 // (target host/IP/URL, prefix, node); when empty the planner extracts one from
 // the text. Range bounds the evidence window (default: the last hour).
@@ -67,6 +100,63 @@ func (HeuristicPlanner) Plan(q Question) []Query {
 		queries = append(queries, query)
 	}
 	return queries
+}
+
+// InvestigationPlan explains the deterministic plan in operator-readable steps.
+// It is capped even if a future planner emits more queries: this is an advisor,
+// not an unbounded agent loop.
+func (HeuristicPlanner) InvestigationPlan(_ Question, queries []Query) []InvestigationStep {
+	limit := len(queries)
+	if limit > MaxInvestigationSteps {
+		limit = MaxInvestigationSteps
+	}
+	steps := make([]InvestigationStep, 0, limit)
+	for i := 0; i < limit; i++ {
+		q := queries[i]
+		steps = append(steps, InvestigationStep{
+			Step:        i + 1,
+			Domain:      q.Domain,
+			Goal:        investigationGoal(q),
+			Selector:    copySelector(q.Selector),
+			NodeID:      q.NodeID,
+			WindowStart: q.Range.Start,
+			WindowEnd:   q.Range.End,
+			Limit:       q.Limit,
+			ReadOnly:    true,
+			Status:      InvestigationPlanned,
+		})
+	}
+	return steps
+}
+
+func defaultInvestigationPlan(queries []Query) []InvestigationStep {
+	return HeuristicPlanner{}.InvestigationPlan(Question{}, queries)
+}
+
+func investigationGoal(q Query) string {
+	switch q.Domain {
+	case DomainEntities:
+		return "Check correlated incidents and their already-stitched cross-plane signals."
+	case DomainEvents:
+		return "Check change, routing, flow, threat, and event-plane records near the question window."
+	case DomainMetrics:
+		return "Check tenant-scoped metrics for symptoms, baselines, and SLO pressure."
+	case DomainTopology:
+		return "Check anchored topology or path context without dumping the whole graph."
+	default:
+		return "Check tenant-scoped evidence for this domain."
+	}
+}
+
+func copySelector(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // extractSubject prefers an explicit subject, else pulls the first URL / CIDR /
