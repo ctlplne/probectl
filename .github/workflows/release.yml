@@ -55,9 +55,8 @@ jobs:
           echo "::error::timed out waiting for ci to complete on ${GITHUB_SHA}."
           exit 1
 
-  # TEST-011: the docs-vs-CI contradiction (docs/releasing.md says "all seven"
-  # while release.yml shipped five) recurs the moment the Makefile grows a
-  # binary that nobody adds here. This gate makes the published set and the
+  # TEST-011: the docs-vs-CI contradiction recurs the moment the Makefile grows
+  # a binary that nobody adds here. This gate makes the published set and the
   # Makefile's BINARIES list prove each other equal — drift fails the release
   # instead of silently shipping an incomplete set.
   components-match-makefile:
@@ -75,7 +74,7 @@ jobs:
           # with the matrix above — this list is the single assertion point.
           published="$(printf '%s\n' \
             probectl-control probectl-agent probectl-endpoint \
-            probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl \
+            probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl \
             probectl-ebpf-agent | sort -u)"
           if ! diff <(echo "$expected") <(echo "$published"); then
             echo "::error::release.yml published components drift from Makefile BINARIES (TEST-011): the < line is in the Makefile but unpublished, the > line is published but not a Makefile binary. Update the images matrix."
@@ -90,7 +89,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        # ALL 8 of the Makefile's BINARIES ship as images + signed downloads —
+        # ALL 9 of the Makefile's BINARIES ship as images + signed downloads —
         # every documented producer is installable without a Go toolchain.
         # (probectl-ebpf-agent rides its special live-build Dockerfile below.)
         component:
@@ -100,6 +99,7 @@ jobs:
           - probectl-flow-agent
           - probectl-device-agent
           - probectl-cloud-metrics
+          - terraform-provider-probectl
           - probectl
         dockerfile: [deploy/docker/Dockerfile]
         include:

@@ -605,6 +605,18 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["metrics"]; got.Method != http.MethodGet || got.Path != "/v1/device/metrics" {
 		t.Fatalf("device metrics op = %+v, want GET /v1/device/metrics", got)
 	}
+	if got := surfaceCommands["device"].Ops["syslog"]; got.Method != http.MethodGet || got.Path != "/v1/device/syslog" {
+		t.Fatalf("device syslog op = %+v, want GET /v1/device/syslog", got)
+	}
+	if got := surfaceCommands["device"].Ops["ingest-syslog"]; got.Method != http.MethodPost || got.Path != "/v1/device/syslog" {
+		t.Fatalf("device ingest-syslog op = %+v, want POST /v1/device/syslog", got)
+	}
+	if got := surfaceCommands["device"].Ops["configs"]; got.Method != http.MethodGet || got.Path != "/v1/device/configs" {
+		t.Fatalf("device configs op = %+v, want GET /v1/device/configs", got)
+	}
+	if got := surfaceCommands["device"].Ops["archive-config"]; got.Method != http.MethodPost || got.Path != "/v1/device/configs" {
+		t.Fatalf("device archive-config op = %+v, want POST /v1/device/configs", got)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/devices", func(w http.ResponseWriter, _ *http.Request) {
@@ -626,6 +638,50 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 			{"id": "collector-1|10.0.0.1|||probectl_device_cpu_utilization", "device": "10.0.0.1", "name": "probectl_device_cpu_utilization", "summary": "10.0.0.1", "metric": "probectl_device_cpu_utilization", "value": 42, "last_seen": "2026-06-30T12:00:00Z"},
 		}})
 	})
+	mux.HandleFunc("GET /v1/device/syslog", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("device"); got != "edge-r1" {
+			t.Fatalf("syslog device query = %q, want edge-r1", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "2" {
+			t.Fatalf("syslog limit query = %q, want 2", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "syslog-1", "name": "edge-r1", "severity": "warning", "summary": "interface Gi0/1 down"},
+		}})
+	})
+	mux.HandleFunc("POST /v1/device/syslog", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode syslog body: %v", err)
+		}
+		if body["device"] != "edge-r1" || body["message"] != "interface Gi0/1 down" {
+			t.Fatalf("syslog body = %#v", body)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "syslog-2", "device": "edge-r1", "severity": "warning", "summary": "interface Gi0/1 down"})
+	})
+	mux.HandleFunc("GET /v1/device/configs", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("device"); got != "edge-r1" {
+			t.Fatalf("configs device query = %q, want edge-r1", got)
+		}
+		if got := r.URL.Query().Get("limit"); got != "1" {
+			t.Fatalf("configs limit query = %q, want 1", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"items": []map[string]any{
+			{"id": "config-1", "name": "edge-r1", "summary": "sha256:abc123", "source": "gnmi"},
+		}})
+	})
+	mux.HandleFunc("POST /v1/device/configs", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode config body: %v", err)
+		}
+		if body["device"] != "edge-r1" || body["content"] != "hostname edge-r1" {
+			t.Fatalf("config body = %#v", body)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "config-2", "device": "edge-r1", "summary": "sha256:def456"})
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
@@ -646,6 +702,44 @@ func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	}
 	if !strings.Contains(out, "10.0.0.1") || !strings.Contains(out, "probectl_device_cpu_utilization") {
 		t.Fatalf("device metrics output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "syslog",
+		"--query", "device=edge-r1",
+		"--query", "limit=2")
+	if code != 0 {
+		t.Fatalf("syslog exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "syslog-1") || !strings.Contains(out, "interface Gi0/1 down") {
+		t.Fatalf("device syslog output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "ingest-syslog",
+		"--body", `{"device":"edge-r1","message":"interface Gi0/1 down"}`)
+	if code != 0 {
+		t.Fatalf("ingest-syslog exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, `"id": "syslog-2"`) || !strings.Contains(out, `"device": "edge-r1"`) {
+		t.Fatalf("device ingest-syslog output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "configs",
+		"--query", "device=edge-r1",
+		"--query", "limit=1")
+	if code != 0 {
+		t.Fatalf("configs exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, "config-1") || !strings.Contains(out, "sha256:abc123") {
+		t.Fatalf("device configs output missing expected row:\n%s", out)
+	}
+
+	out, errs, code = run(t, srv, "device", "archive-config",
+		"--body", `{"device":"edge-r1","source":"gnmi","content":"hostname edge-r1"}`)
+	if code != 0 {
+		t.Fatalf("archive-config exit = %d, stderr=%s", code, errs)
+	}
+	if !strings.Contains(out, `"id": "config-2"`) || !strings.Contains(out, `"device": "edge-r1"`) {
+		t.Fatalf("device archive-config output missing expected row:\n%s", out)
 	}
 }
 

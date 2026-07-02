@@ -82,8 +82,12 @@ var surfaceCommands = map[string]surfaceCommand{
 		"set-tenant":   {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/branding", ArgName: "id"},
 	}},
 	"device": {Name: "device", Summary: "device inventory and telemetry", Ops: map[string]apiOp{
-		"list":    {Method: http.MethodGet, Path: "/v1/devices"},
-		"metrics": {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
+		"list":           {Method: http.MethodGet, Path: "/v1/devices"},
+		"metrics":        {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},
+		"syslog":         {Method: http.MethodGet, Path: "/v1/device/syslog", Description: "list bounded tenant device syslog events"},
+		"ingest-syslog":  {Method: http.MethodPost, Path: "/v1/device/syslog", Description: "ingest one authenticated device syslog event"},
+		"configs":        {Method: http.MethodGet, Path: "/v1/device/configs", Description: "list bounded tenant device config versions"},
+		"archive-config": {Method: http.MethodPost, Path: "/v1/device/configs", Description: "archive one redacted device config version"},
 	}},
 	"ebpf": {Name: "ebpf", Summary: "eBPF host/L7 service map", Ops: map[string]apiOp{
 		"service-map": {Method: http.MethodGet, Path: "/v1/ebpf/service-map", Description: "list tenant eBPF service edges"},

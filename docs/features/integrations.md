@@ -262,11 +262,12 @@ with stale material.
   `POST /ingest/itsm/{provider}/{id}` with an HMAC signature or shared token.
   Connectors: PagerDuty, Opsgenie, Slack, Teams, ServiceNow, Jira.
 - **IaC & GitOps:** one hardened deployment chart, wrapped by Terraform modules
-  and ArgoCD/Flux manifests. `modules/probectl-resources` also lets Terraform
-  drive tenant tests, alert routes, integrations, SLO payloads, and Provider/MSP
-  tenant bootstrap through the self-hosted API. HTTPS-by-default, non-root pods,
-  network policy on, no default credentials. Size overlays (small / medium /
-  large / multitenant) differ only in runtime sizing.
+  and ArgoCD/Flux manifests. The native `terraform-provider-probectl` manages
+  tenant tests, alert routes, Provider/MSP tenants, and advanced API resources
+  through the self-hosted API; `modules/probectl-resources` remains the
+  no-plugin module path for bootstrap or restricted runners. HTTPS-by-default,
+  non-root pods, network policy on, no default credentials. Size overlays (small
+  / medium / large / multitenant) differ only in runtime sizing.
 - **Federation:** Grafana as a Prometheus datasource at `/v1/grafana`; scrape out
   at `GET /v1/prometheus/federate?match[]=<selector>`; push in at `POST
   /v1/prometheus/write`. CMDB lookups: `GET /v1/cmdb/lookup`, `GET

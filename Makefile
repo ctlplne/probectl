@@ -8,7 +8,7 @@ SHELL := /usr/bin/env bash
 MODULE   := github.com/imfeelingtheagi/probectl
 GO       ?= go
 BIN_DIR  := bin
-BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl
+BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl
 # FIPS artifacts cover every customer-shipped binary plus security-sensitive
 # local/router tools that use probectl crypto but are not customer images.
 FIPS_BINARIES := $(BINARIES) probectl-license probectl-bmp-listener

@@ -99,6 +99,78 @@ PodDisruptionBudget; `large` adds the HPA. See
 [`../helm/README.md`](../helm/README.md) and
 [`../../docs/iac-gitops.md`](../../docs/iac-gitops.md).
 
+## Native probectl provider
+
+`terraform-provider-probectl` is the native provider binary for managing served
+probectl resources after the control plane is reachable. It speaks only to the
+operator's self-hosted `api_url`; it does not call a probectl-managed SaaS
+endpoint. Remote API URLs must be HTTPS. Plain `http` is accepted only for
+loopback development and tests.
+
+Configuration is env-friendly:
+
+```hcl
+terraform {
+  required_providers {
+    probectl = {
+      source  = "imfeelingtheagi/probectl"
+      version = "~> 0.1"
+    }
+  }
+}
+
+provider "probectl" {
+  api_url = "https://probectl.example.com"
+  tenant  = var.tenant_id
+  token   = var.probectl_token
+}
+```
+
+`PROBECTL_API_URL`, `PROBECTL_TENANT`, and `PROBECTL_API_TOKEN` are supported
+for CI systems. The provider sends `X-Probectl-Tenant` on tenant-scoped `/v1`
+resources, uses bearer auth when a token is configured, and keeps all outbound
+TLS policy inside `internal/crypto`.
+
+Air-gapped and pre-registry installs use Terraform's normal filesystem mirror or
+`dev_overrides` flow: place the signed release binary as
+`terraform-provider-probectl_v<version>` under the provider mirror path for
+`registry.terraform.io/imfeelingtheagi/probectl/<version>/<os>_<arch>/`, or point
+development overrides at a local `bin/` directory.
+
+Resources:
+
+- `probectl_test` -> `/v1/tests`
+- `probectl_alert_route` -> `/v1/alerts`
+- `probectl_provider_tenant` -> `/provider/v1/tenants`
+- `probectl_api_resource` -> advanced arbitrary served API operations, such as
+  early SLO or integration endpoints before a typed Terraform resource exists
+
+```hcl
+resource "probectl_test" "edge_dns" {
+  name             = "edge dns"
+  type             = "dns"
+  target           = "1.1.1.1"
+  interval_seconds = 30
+  timeout_seconds  = 3
+  enabled          = true
+  params = {
+    qtype = "A"
+  }
+}
+
+resource "probectl_alert_route" "loss" {
+  name       = "packet loss"
+  metric     = "probectl_probe_loss_ratio"
+  comparison = "gt"
+  threshold  = 0.05
+  severity   = "warning"
+  channel {
+    type = "webhook"
+    url  = "https://hooks.internal.example/probectl"
+  }
+}
+```
+
 ## API resources module (`modules/probectl-resources`)
 
 `modules/probectl-resources` lets Terraform manage probectl resources after the
@@ -116,6 +188,6 @@ Supported typed maps:
 - `provider_tenants` -> `POST /provider/v1/tenants`
 - `resources` -> advanced arbitrary API operations
 
-The native `terraform-provider-probectl` binary remains blocked on a human
-approval to add the HashiCorp provider framework/protocol dependency. The
-module is the no-new-dependency served automation path.
+The checked-in module remains useful for bootstrap and no-plugin environments;
+the native provider is the first-class managed-resource path when operators want
+Terraform state to understand probectl resources directly.

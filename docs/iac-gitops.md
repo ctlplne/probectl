@@ -31,13 +31,14 @@ flowchart LR
 | ---- | ----------- | ----- |
 | **Helm** | manual / scripted installs | `deploy/helm/probectl` |
 | **Terraform** | infra-as-code alongside the cluster + DB | `deploy/terraform/` |
-| **Terraform resources** | reviewed API resource changes after install | `deploy/terraform/modules/probectl-resources` |
+| **Terraform resources** | reviewed API resource changes after install | `terraform-provider-probectl` or `deploy/terraform/modules/probectl-resources` |
 | **GitOps** (ArgoCD/Flux) | continuous reconcile from Git | `deploy/gitops/` |
 
 All deployment paths deploy the **same** hardened chart — Terraform and GitOps
-just wrap it. The resources module runs after deployment and drives the
-self-hosted `/v1` or `/provider/v1` APIs from Terraform without a native provider
-plugin dependency.
+just wrap it. After deployment, the native `terraform-provider-probectl` manages
+served `/v1` and `/provider/v1` resources directly; the
+`modules/probectl-resources` module is the no-plugin fallback that shells out to
+the checked-in `probectl api` command.
 
 ## Hardened Helm chart
 
@@ -108,9 +109,11 @@ your overlay, point Terraform or Argo/Flux at it, and the cluster converges to i
 Secret for the sensitive config — so credentials never land in the ConfigMap or
 release values. It's cloud-agnostic: point the providers at any kubeconfig. The
 module interface (inputs / outputs / secret handling) is documented in
-[deploy/terraform/README.md](../deploy/terraform/README.md). `make terraform-gate`
-runs `terraform fmt -check` and `terraform validate` against the example root in
-`deploy/terraform/examples/kubernetes`.
+[deploy/terraform/README.md](../deploy/terraform/README.md). The native
+`terraform-provider-probectl` then manages tests, alert routes, Provider/MSP
+tenants, and advanced API resources against the self-hosted control plane. `make
+terraform-gate` runs `terraform fmt -check` and `terraform validate` against the
+example root in `deploy/terraform/examples/kubernetes`.
 
 ## GitOps
 

@@ -16,7 +16,7 @@ COMMIT="${COMMIT:-${GITHUB_SHA:-$(git rev-parse --short=12 HEAD)}}"
 DATE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 DIST_DIR="${DIST_DIR:-dist}"
 ARCHES="${ARCHES:-amd64 arm64}"
-BINARIES="${BINARIES:-probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl}"
+BINARIES="${BINARIES:-probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl}"
 BTF_PATH="${BTF_PATH:-/sys/kernel/btf/vmlinux}"
 CLANG="${CLANG:-clang-14}"
 

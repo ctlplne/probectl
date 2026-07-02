@@ -26,6 +26,10 @@ import (
 )
 
 func main() {
+	if err := crypto.RunPowerOnSelfTest(nil); err != nil {
+		fmt.Fprintln(os.Stderr, "probectl-cloud-metrics:", err)
+		os.Exit(1)
+	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "-version", "--version":

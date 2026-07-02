@@ -22,7 +22,9 @@ to demand you rip it out and start over. Three integrations make that real:
 
 The metrics surfaces live in `internal/promapi`; the CMDB clients live in
 `internal/cmdb`; the local cloud metric importer lives in
-`cmd/probectl-cloud-metrics` and `internal/cloudmetrics`.
+`cmd/probectl-cloud-metrics` and `internal/cloudmetrics`. The native Terraform
+provider lives in `cmd/terraform-provider-probectl` and
+`internal/terraformprovider`.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -204,12 +206,13 @@ and are not part of this integration today.
 
 ## Testing
 
-`go test ./internal/promapi ./internal/cmdb ./internal/cloudmetrics ./internal/control ./cmd/probectl-cloud-metrics` covers the
+`go test ./internal/promapi ./internal/cmdb ./internal/cloudmetrics ./internal/terraformprovider ./internal/control ./cmd/probectl-cloud-metrics ./cmd/terraform-provider-probectl` covers the
 strict selector grammar (including injection attempts), tenant forcing,
 instant/range/labels/series evaluation, cardinality caps, federation exposition,
 remote-write decode limits plus tenant forcing, the full Grafana request
 sequence against a seeded TSDB (renders plus cross-tenant leak canaries), the
 RBAC route declarations and their 401s, the ServiceNow and NetBox
 client/resolver paths against `httptest` doubles (cache, stale-serve, negative
-cache, correlation), and the cloud metric importer through the same
-remote-write decoder served by `/v1/prometheus/write`.
+cache, correlation), the cloud metric importer through the same remote-write
+decoder served by `/v1/prometheus/write`, and the Terraform provider's
+tenant-scoped CRUD/header behavior against `httptest` doubles.

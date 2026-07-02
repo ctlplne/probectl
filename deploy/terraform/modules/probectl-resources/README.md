@@ -1,10 +1,10 @@
 # probectl resources Terraform module
 
 This module lets Terraform drive probectl's served API resources through the
-`probectl api` command without a native provider plugin dependency. It is a
-source-available, self-hosted replacement path for teams that want reviewed
-Terraform plans for tests, alert routes, SLO definitions, integrations, and
-Provider/MSP tenant bootstrap.
+`probectl api` command. It is a source-available, self-hosted replacement path
+for teams that want reviewed Terraform plans for tests, alert routes, SLO
+definitions, integrations, and Provider/MSP tenant bootstrap without installing
+the native provider plugin.
 
 It does **not** call a probectl-managed SaaS endpoint. `api_url` must point at
 the operator's own control plane. Secrets are passed to the local `probectl`
@@ -65,9 +65,11 @@ module "probectl_resources" {
 }
 ```
 
-## Native provider status
+## Native provider
 
-A native `terraform-provider-probectl` binary requires HashiCorp provider
-framework/protocol dependencies that are not in this repository today. The
-dependency addition is intentionally blocked until a human approves the stack
-change; this module is the no-new-dependency automation path.
+The native `terraform-provider-probectl` binary is also shipped. Use it when you
+want Terraform state to track typed probectl resources directly:
+`probectl_test`, `probectl_alert_route`, `probectl_provider_tenant`, and
+`probectl_api_resource`. This module remains the no-plugin path for bootstrap,
+restricted CI runners, and environments that deliberately avoid provider
+installation.
