@@ -23,7 +23,7 @@ be referenced from others.
 | F7 — Open-data enrichment | [features/open-data-and-outage.md](features/open-data-and-outage.md) |
 | F8 — Alerting | [features/alerting-and-incidents.md](features/alerting-and-incidents.md) |
 | F9 — Dashboards & incident timeline | [features/alerting-and-incidents.md](features/alerting-and-incidents.md) |
-| F10 — Control plane (REST/gRPC + CLI/TUI) | [features/control-plane.md](features/control-plane.md) |
+| F10 — Control plane (REST/gRPC + CLI) | [features/control-plane.md](features/control-plane.md) |
 | F11 — eBPF host & L7 agent | [features/telemetry-planes.md](features/telemetry-planes.md) |
 | F12 — OTel data model + OTLP | [features/telemetry-planes.md](features/telemetry-planes.md) |
 | F13 — AI RCA & NL query | [features/ai-assistant.md](features/ai-assistant.md) |

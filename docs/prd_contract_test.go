@@ -100,6 +100,36 @@ func TestAlertEvaluatorDocsMatchSupervisorAndPromQuery(t *testing.T) {
 	}
 }
 
+func TestPRDAndDocsAdvertiseCLIOnlyUntilTUIExists(t *testing.T) {
+	prd := readPRDv1(t)
+	features := readDoc(t, "features.md")
+	controlPlane := readDoc(t, filepath.Join("features", "control-plane.md"))
+	configuration := readDoc(t, "configuration.md")
+	all := strings.Join([]string{prd, features, controlPlane, configuration}, "\n")
+
+	for _, stale := range []string{
+		"CLI" + "/" + "TUI",
+		"command-line interface and terminal " + "UI",
+		"The terminal " + "UI is the keyboard-first companion",
+		"`probectl` CLI / terminal " + "UI",
+	} {
+		if strings.Contains(all, stale) {
+			t.Fatalf("terminal surface docs still contain stale TUI promise %q", stale)
+		}
+	}
+	for _, want := range []string{
+		"Control plane + REST/gRPC + CLI",
+		"F10 — Control plane (REST/gRPC + CLI)",
+		"a **command-line interface** (`probectl`)",
+		"The terminal-native product surface is the CLI",
+		"There is no separate committed TUI " + "mode today",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("terminal surface docs missing CLI-only wording %q", want)
+		}
+	}
+}
+
 // TestPRDOTLPContractMatchesAllSignalImplementation keeps the product contract
 // aligned with the shipped OTLP receiver/exporter. The implementation accepts
 // and forwards metrics, traces, and logs; the PRD must not keep describing

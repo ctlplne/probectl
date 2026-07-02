@@ -19,8 +19,8 @@ exposes two ways in and one way to script it:
   validate requests);
 - a **gRPC** interface used by agents to stream their observations (gRPC is the
   HTTP/2-based remote-procedure-call protocol agents connect over); and
-- a **command-line interface and terminal UI** (`probectl`) that wraps the same
-  API so you can do from a shell whatever the web interface does.
+- a **command-line interface** (`probectl`) that wraps the same API so you can
+  do from a shell whatever the web interface does.
 
 Everything is scoped to one [tenant](../glossary.md) — one isolated customer or
 organization — which is the outermost boundary on every record, query, and API
@@ -80,8 +80,8 @@ written to the tamper-evident audit log along the way.
 The `probectl` CLI is a thin client over the same `/v1` API — it is not a second
 code path with its own logic. Whatever you can do with `curl` against the API,
 you can do with the CLI, and it presents results as readable tables (or JSON
-when you ask). The terminal UI is the keyboard-first companion for browsing the
-same data interactively in a shell.
+when you ask). There is no separate committed TUI mode today; if one is added
+later, it must be declared in the surface catalog and backed by parity tests.
 
 ## Use it
 
@@ -164,7 +164,7 @@ policy.
 |---|---|---|---|
 | REST API (`/v1/...`) | HTTPS, OpenAPI 3.1 | OIDC session or bearer + RBAC/ABAC | Drive every capability programmatically |
 | Agent channel | gRPC over mTLS | tenant-bound agent identity | Agents stream observations in |
-| `probectl` CLI / terminal UI | HTTPS to `/v1` | bearer credential | Shell- and CI-friendly client over the same API |
+| `probectl` CLI | HTTPS to `/v1` | bearer credential | Shell- and CI-friendly client over the same API |
 | Health | `GET /readyz` | none (TLS only) | Liveness/readiness checks |
 
 Properties you can rely on: every listener serves TLS and there is no production

@@ -135,7 +135,7 @@ Strict standard; one line each. Evidence = package / doc / gate / U-ID.
 | F6 | BGP monitoring | ✅ | `analyzer/`, `internal/bgp` |
 | F7 | Open-data enrichment | ✅ | `internal/opendata` (shared-once, per-tenant scoping) |
 | F8/F9 | Alerting / dashboards + incident timeline | ✅ | `internal/alert`, `internal/incident`, `web/`; silences/acks persist through `migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go` |
-| F10 | Control plane + REST/gRPC + CLI/TUI | ✅ | `internal/control`, `proto/`, `cmd/probectl` · *openapi-gate* |
+| F10 | Control plane + REST/gRPC + CLI | ✅ | `internal/control`, `proto/`, `cmd/probectl` · *openapi-gate* |
 | F11 | eBPF host/L7 agent | ✅ | `internal/ebpf` · *kernel-matrix* |
 | F12 | OTel-aligned data model + OTLP | ✅ | `internal/otel`, `internal/otel/otlp`, `internal/pipeline/otlpexport.go` (metrics/traces/logs ingest/export; three-signal claim pinned by docslint — ARCH-002/003) |
 | F13 | AI RCA + NL query | ✅ | `internal/ai` · *rca-eval* |
