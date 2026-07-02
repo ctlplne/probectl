@@ -71,6 +71,7 @@ func TestPolicyStorePG(t *testing.T) {
 		ResultsPerSec:       250,
 		DeviceMetricsPerSec: 25,
 		OTLPSeriesPerSec:    30,
+		BurstSeconds:        1,
 		QueriesPerMin:       120,
 	}
 	if err := store.Upsert(ctx, tnA, in, "op@msp.example"); err != nil {
@@ -78,7 +79,8 @@ func TestPolicyStorePG(t *testing.T) {
 	}
 	got, ok, err := store.PolicyFor(ctx, tnA)
 	if err != nil || !ok || got.ResultsPerSec != 250 || got.DeviceMetricsPerSec != 25 ||
-		got.OTLPSeriesPerSec != 30 || got.QueriesPerMin != 120 || got.FlowEventsPerSec != 0 {
+		got.OTLPSeriesPerSec != 30 || got.BurstSeconds != 1 || got.QueriesPerMin != 120 ||
+		got.FlowEventsPerSec != 0 {
 		t.Fatalf("round-trip: %+v ok=%v err=%v", got, ok, err)
 	}
 	// Update narrows the bound; All() lists it.
@@ -106,21 +108,17 @@ func TestPolicyStorePG(t *testing.T) {
 		got.DeviceMetricsPerSec != 10 || got.OTLPSeriesPerSec != 12 {
 		t.Fatalf("gate must see the stored override: %+v", got)
 	}
-	for range 10 {
-		if !g.AdmitN(ctx, tnA, MeterDeviceMetrics, 1) {
-			t.Fatal("stored device fairness override shed inside the tenant's capacity")
-		}
+	if !g.AdmitN(ctx, tnA, MeterDeviceMetrics, 11) {
+		t.Fatal("stored device fairness override must admit a batch while tokens remain")
 	}
 	if g.AdmitN(ctx, tnA, MeterDeviceMetrics, 1) {
-		t.Fatal("stored device fairness override must shed above capacity")
+		t.Fatal("stored device fairness override must shed while the deficit is unpaid")
 	}
-	for range 12 {
-		if !g.AdmitN(ctx, tnA, MeterOTLPSeries, 1) {
-			t.Fatal("stored OTLP fairness override shed inside the tenant's capacity")
-		}
+	if !g.AdmitN(ctx, tnA, MeterOTLPSeries, 13) {
+		t.Fatal("stored OTLP fairness override must admit a batch while tokens remain")
 	}
 	if g.AdmitN(ctx, tnA, MeterOTLPSeries, 1) {
-		t.Fatal("stored OTLP fairness override must shed above capacity")
+		t.Fatal("stored OTLP fairness override must shed while the deficit is unpaid")
 	}
 
 	// Tenant-side RLS: tenant B reads its OWN policy view — A's row is

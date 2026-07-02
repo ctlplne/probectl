@@ -21,6 +21,84 @@
  */
 
 export type SurfaceKind = 'native' | 'federated' | 'none-by-design'
+export type SurfaceLiveReceiptStatus = 'live-green' | 'static-only' | 'non-live'
+
+export interface SurfaceLiveReceipt {
+  status: SurfaceLiveReceiptStatus
+  /**
+   * Live receipt proof uses the same repo-relative discipline as normal
+   * surface evidence, plus:
+   *
+   *  - "ci:<repo-relative workflow>:<literal needle>"
+   *  - "test:<repo-relative test file>:<literal test/function needle>"
+   */
+  evidence: string[]
+  /** Why this row is not live-green yet, or what the live receipt proves. */
+  note: string
+}
+
+const STATIC_NATIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'static-only',
+  evidence: [
+    'ci:.github/workflows/ci.yml:npm run coverage-gate',
+    'test:web/src/test/surface-coverage.test.tsx:every native surface renders a real screen',
+  ],
+  note: 'Native route renders and passes the frontend coverage/a11y gate, but no live e2e or integration receipt is currently bound to this row.',
+}
+
+const FEDERATED_NON_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'non-live',
+  evidence: [
+    'ci:.github/workflows/ci.yml:npm run coverage-gate',
+    'test:web/src/test/surface-coverage.test.tsx:every declared file, OpenAPI, and CLI evidence exists',
+  ],
+  note: 'Federated/API/CLI surface is verified by static contract evidence; it is not a native served-screen e2e row.',
+}
+
+const NONE_BY_DESIGN_RECEIPT: SurfaceLiveReceipt = {
+  status: 'non-live',
+  evidence: [
+    'ci:.github/workflows/ci.yml:npm run coverage-gate',
+    'test:web/src/test/surface-coverage.test.tsx:future/non-GA PRD features stay explicit none-by-design declarations',
+  ],
+  note: 'Deliberately no served surface in the current GA denominator; the gate preserves the explicit product exclusion.',
+}
+
+const FULL_STACK_TOPOLOGY_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/nightly.yml:make e2e',
+    'test:test/e2e/e2e_test.go:TestE2E',
+  ],
+  note: 'Black-box e2e boots compose plus real binaries, ingests tenant-separated eBPF fixture flows through Kafka, and reads the tenant-scoped /v1/topology API.',
+}
+
+const CROSS_PLANE_INCIDENT_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/ci.yml:make test-integration',
+    'test:internal/control/crossplane_e2e_integration_test.go:TestCrossPlaneCorrelationE2E',
+  ],
+  note: 'Integration CI drives real Kafka and Postgres/RLS; BGP plus threat signals coalesce into exactly one tenant-scoped incident with cross-plane evidence.',
+}
+
+const DEVICE_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/ci.yml:device-live',
+    'test:internal/device/snmp_test.go:TestSNMPIntegration',
+  ],
+  note: 'The device-live CI job starts loopback snmpd and requires the real gosnmp wire path to return live metrics and inventory.',
+}
+
+const EBPF_LIVE_RECEIPT: SurfaceLiveReceipt = {
+  status: 'live-green',
+  evidence: [
+    'ci:.github/workflows/ci.yml:ebpf-kernel-matrix',
+    'test:internal/ebpf/live_smoke_ebpf_test.go:TestLiveLoadAttachL4Flow',
+  ],
+  note: 'The eBPF kernel matrix compiles the BPF objects with the pinned toolchain and loads/attaches the live programs on real LTS kernels.',
+}
 
 export interface SurfaceDecl {
   /** The user-facing capability, in product language. */
@@ -48,6 +126,8 @@ export interface SurfaceDecl {
    * waived.
    */
   offNav?: boolean
+  /** Latest served-path receipt state for the declared operator surface. */
+  liveReceipt: SurfaceLiveReceipt
 }
 
 export const SURFACES: SurfaceDecl[] = [
@@ -58,6 +138,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S9/S-FE5',
     kind: 'native',
     route: '/targets',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'First-run tenant onboarding: enroll agent, create test, invite teammates',
@@ -65,6 +146,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'JOURNEY-001',
     kind: 'native',
     route: '/onboarding',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'AI test authoring + auto-discovery',
@@ -72,6 +154,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S26',
     kind: 'native',
     route: '/targets',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Path / topology visualization',
@@ -79,6 +162,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S11',
     kind: 'native',
     route: '/path',
+    liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {
     capability: 'Incidents list + cross-plane timeline',
@@ -86,6 +170,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S17',
     kind: 'native',
     route: '/incidents',
+    liveReceipt: CROSS_PLANE_INCIDENT_RECEIPT,
   },
   {
     capability: 'Alerting: active alerts, silence/ack, rule config',
@@ -93,6 +178,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-FE1',
     kind: 'native',
     route: '/alerts',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'TLS/cert posture inventory + trustctl handoff',
@@ -100,6 +186,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-FE2',
     kind: 'native',
     route: '/security',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Threat-intel / IOC + NDR detection triage',
@@ -107,6 +194,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-FE3/S42',
     kind: 'native',
     route: '/security',
+    liveReceipt: CROSS_PLANE_INCIDENT_RECEIPT,
   },
   {
     capability: 'Endpoint / last-mile / WiFi DEM fleet + attribution',
@@ -114,6 +202,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-FE4',
     kind: 'native',
     route: '/endpoints',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'AI assistant (NL query + RCA with citations)',
@@ -121,6 +210,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S24',
     kind: 'native',
     route: '/ask',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Curated in-app dashboards',
@@ -128,6 +218,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S45',
     kind: 'native',
     route: '/dashboards',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Agent fleet admin',
@@ -135,6 +226,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S9',
     kind: 'native',
     route: '/admin',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Topology dependency graph + what-if impact simulation',
@@ -142,6 +234,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S43',
     kind: 'native',
     route: '/topology',
+    liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {
     capability: 'Network egress cost summary + budgets (FinOps showback)',
@@ -149,6 +242,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S44',
     kind: 'native',
     route: '/cost',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'SLOs, error budgets + multi-window burn rates (OpenSLO)',
@@ -156,6 +250,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S45',
     kind: 'native',
     route: '/slos',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Segmentation validation + audit evidence (PCI/NIST/zero-trust)',
@@ -163,6 +258,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S46',
     kind: 'native',
     route: '/compliance',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Collective internet-outage view (open data + your vantages)',
@@ -170,6 +266,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S47a',
     kind: 'native',
     route: '/outages',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'RUM convergence: real-user impact joined with synthetic coverage',
@@ -177,6 +274,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S47b',
     kind: 'native',
     route: '/endpoints',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Voice/RTP quality tests: MOS (E-model), jitter, loss',
@@ -184,6 +282,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S47c',
     kind: 'native',
     route: '/targets',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Carbon/energy estimate (ESG view of network traffic)',
@@ -191,6 +290,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S48',
     kind: 'native',
     route: '/cost',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Secret-backend config + credential health',
@@ -198,6 +298,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S41',
     kind: 'native',
     route: '/admin',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Editions / license state (Admin → Editions)',
@@ -205,6 +306,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-T0',
     kind: 'native',
     route: '/admin',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Tenant data lifecycle: export, retention, residency visibility',
@@ -212,6 +314,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-T5',
     kind: 'native',
     route: '/admin',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   // The provider/operator console (ee/) is deliberately OFF the tenant nav: a
   // separate privilege domain, hidden when unlicensed (the API 404s).
@@ -222,6 +325,7 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'native',
     route: '/provider',
     offNav: true,
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
 
   // --- federated surfaces (by design) ---
@@ -231,6 +335,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S44',
     kind: 'federated',
     evidence: ['openapi:/v1/cost/summary', 'openapi:/v1/grafana/api/v1/query'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Metrics exploration + dashboards (Grafana datasource)',
@@ -241,6 +346,7 @@ export const SURFACES: SurfaceDecl[] = [
       'file:deploy/grafana/provisioning/datasources/probectl.yml',
       'openapi:/v1/grafana/api/v1/query',
     ],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Prometheus federation + remote-write interop',
@@ -248,6 +354,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S40',
     kind: 'federated',
     evidence: ['openapi:/v1/prometheus/federate', 'openapi:/v1/prometheus/write'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'OTLP ingest/export (OpenTelemetry interop)',
@@ -255,6 +362,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S22',
     kind: 'federated',
     evidence: ['file:docs/otlp.md'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'CMDB CI correlation (incidents/agents → ServiceNow)',
@@ -262,6 +370,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S40',
     kind: 'federated',
     evidence: ['openapi:/v1/cmdb/lookup', 'openapi:/v1/incidents/{id}/cis'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Staged fleet rollout controls (CLI + API + operator runbook)',
@@ -274,6 +383,7 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/rollouts',
       'openapi:/v1/rollouts/{id}/verify',
     ],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'BGP/routing monitoring events and analyzer output',
@@ -287,6 +397,7 @@ export const SURFACES: SurfaceDecl[] = [
       'cli:probectl bgp setup',
       'file:docs/bgp.md',
     ],
+    liveReceipt: CROSS_PLANE_INCIDENT_RECEIPT,
   },
   {
     capability: 'Flow analytics APIs and ClickHouse-backed views',
@@ -294,6 +405,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S32',
     kind: 'native',
     route: '/planes/flow',
+    liveReceipt: FULL_STACK_TOPOLOGY_RECEIPT,
   },
   {
     capability: 'Device telemetry collectors and topology attribution',
@@ -310,6 +422,7 @@ export const SURFACES: SurfaceDecl[] = [
       'cli:probectl device metrics',
       'file:docs/features/telemetry-planes.md',
     ],
+    liveReceipt: DEVICE_LIVE_RECEIPT,
   },
   {
     capability: 'eBPF host/L7 visibility and service map',
@@ -322,6 +435,7 @@ export const SURFACES: SurfaceDecl[] = [
       'cli:probectl ebpf service-map',
       'file:docs/features/telemetry-planes.md',
     ],
+    liveReceipt: EBPF_LIVE_RECEIPT,
   },
   {
     capability: 'REST/gRPC API and CLI/TUI command surface',
@@ -330,6 +444,7 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'native',
     route: '/docs/api',
     evidence: ['openapi:/openapi.json', 'file:cmd/probectl', 'file:proto'],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'MCP server tools and transport',
@@ -337,6 +452,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S25',
     kind: 'federated',
     evidence: ['file:docs/mcp.md', 'file:internal/ai/mcp'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Identity, SCIM, ABAC, and delegated administration',
@@ -350,6 +466,7 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/abac/policies',
       'openapi:/v1/directory/scim-tokens',
     ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Audit log and tamper-evident verification',
@@ -358,6 +475,7 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'native',
     route: '/audit',
     evidence: ['openapi:/v1/audit', 'openapi:/v1/audit/verify'],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
     capability: 'Tenant / org / team / project hierarchy',
@@ -365,6 +483,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-T3',
     kind: 'federated',
     evidence: ['openapi:/v1/hierarchy', 'file:internal/cli/surfaces.go'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'SIEM export and tenant-routed forwarding',
@@ -377,6 +496,7 @@ export const SURFACES: SurfaceDecl[] = [
       'file:docs/siem.md',
       'file:internal/siem',
     ],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'IaC and GitOps deployment surfaces',
@@ -384,6 +504,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S39',
     kind: 'federated',
     evidence: ['file:deploy/terraform/README.md', 'file:deploy/gitops/README.md'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Multi-region / HA runbooks and reference deployment',
@@ -391,6 +512,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S50',
     kind: 'federated',
     evidence: ['file:docs/ha.md', 'file:cmd/probectl-control/ha_reference_coherence_test.go'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Advanced governance: retention, erasure, redaction, policy',
@@ -398,6 +520,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-T6',
     kind: 'federated',
     evidence: ['file:docs/governance.md', 'file:internal/govern'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Supportability: diagnostics, bundles, health evidence',
@@ -405,6 +528,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S51',
     kind: 'federated',
     evidence: ['file:docs/supportability.md', 'openapi:/v1/diagnostics/bundle'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Change intelligence ingestion and incident correlation',
@@ -412,6 +536,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S42',
     kind: 'federated',
     evidence: ['file:docs/change-intel.md', 'openapi:/v1/changes'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Guarded remediation proposals and approvals',
@@ -423,6 +548,7 @@ export const SURFACES: SurfaceDecl[] = [
       'openapi:/v1/remediation/proposals',
       'openapi:/v1/remediation/proposals/{id}/approve',
     ],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Network chaos experiments and dependency matrix',
@@ -431,6 +557,7 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'none-by-design',
     noneReason:
       'Library/test-harness only: internal/chaos and cmd/probectl-chaos-dependency-drill can exercise local faults, but no REST, UI, MCP, probectl operator CLI, or agent-control surface serves chaos until a human-gated and audited operator workflow exists.',
+    liveReceipt: NONE_BY_DESIGN_RECEIPT,
   },
   {
     capability: 'Tenant isolation model operations (pooled, siloed, hybrid)',
@@ -442,6 +569,7 @@ export const SURFACES: SurfaceDecl[] = [
       'file:docs/security/tenant-isolation.md',
       'file:ee/silo',
     ],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Per-tenant keys and BYOK administration',
@@ -449,6 +577,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-T8',
     kind: 'federated',
     evidence: ['openapi:/v1/security/keys', 'file:ee/tenantkeys'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
     capability: 'Tenant fairness self-view and enforcement',
@@ -456,6 +585,7 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S-T9',
     kind: 'federated',
     evidence: ['file:docs/fairness.md', 'openapi:/v1/fairness'],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
 
   // --- declared none-by-design surfaces (deliberate product exclusions) ---
@@ -467,6 +597,7 @@ export const SURFACES: SurfaceDecl[] = [
     kind: 'none-by-design',
     noneReason:
       'PRD v1.0 marks F49 as outside the GA completeness denominator and a deliberate Phase-4 future bet; the detection-as-code substrate exists, but no current GA surface is promised.',
+    liveReceipt: NONE_BY_DESIGN_RECEIPT,
   },
 ]
 

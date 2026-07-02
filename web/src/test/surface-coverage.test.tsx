@@ -9,7 +9,12 @@ import {
   type RequiredFeatureStatus,
 } from '../featureCatalog'
 import { NAV } from '../nav/ia'
-import { SURFACES, checkRegistryShape, type SurfaceDecl } from '../surfaces'
+import {
+  SURFACES,
+  checkRegistryShape,
+  type SurfaceDecl,
+  type SurfaceLiveReceipt,
+} from '../surfaces'
 
 /**
  * The frontend-coverage gate (S-FE6). Backend↔frontend coverage is a verified,
@@ -29,6 +34,12 @@ const cliSurfaceSource = readFileSync(join(REPO_ROOT, 'internal/cli/surfaces.go'
 const cliCommands = cliCommandsFromSurfaceSource(cliSurfaceSource)
 const prd = readPRDv1()
 const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>(['native', 'federated', 'none-by-design'])
+const allowedLiveReceiptStatuses = new Set<SurfaceLiveReceipt['status']>([
+  'live-green',
+  'static-only',
+  'non-live',
+])
+const TEST_SURFACE_RECEIPT = SURFACES[0].liveReceipt
 const TELEMETRY_PLANE_ROUTES = [
   { route: '/planes/bgp', tab: /BGP/i },
   { route: '/planes/flow', tab: /Flow/i },
@@ -212,6 +223,85 @@ function evidenceViolations(surfaces: SurfaceDecl[]): string[] {
   return violations
 }
 
+function liveReceiptViolations(surfaces: SurfaceDecl[]): string[] {
+  const violations: string[] = []
+  for (const s of surfaces) {
+    const receipt = s.liveReceipt
+    if (!receipt) {
+      violations.push(`${s.capability}: missing live receipt status`)
+      continue
+    }
+    if (!allowedLiveReceiptStatuses.has(receipt.status)) {
+      violations.push(`${s.capability}: unknown live receipt status ${receipt.status}`)
+      continue
+    }
+    if (!receipt.note.trim()) {
+      violations.push(`${s.capability}: live receipt note is required`)
+    }
+    if (receipt.evidence.length === 0) {
+      violations.push(`${s.capability}: live receipt evidence is required`)
+    }
+    if (s.kind === 'native' && receipt.status === 'non-live') {
+      violations.push(`${s.capability}: native surface must be live-green or static-only`)
+    }
+    if (s.kind !== 'native' && receipt.status === 'static-only') {
+      violations.push(`${s.capability}: only native surfaces may use static-only receipt status`)
+    }
+    const hasCI = receipt.evidence.some((ev) => ev.startsWith('ci:'))
+    const hasTest = receipt.evidence.some((ev) => ev.startsWith('test:'))
+    if (receipt.status === 'live-green' && (!hasCI || !hasTest)) {
+      violations.push(`${s.capability}: live-green receipt requires ci: and test: evidence`)
+    }
+    if (
+      receipt.status === 'live-green' &&
+      receipt.evidence.some((ev) => ev.includes('surface-coverage.test.tsx'))
+    ) {
+      violations.push(
+        `${s.capability}: live-green receipt must cite a live e2e/integration test, not the static frontend gate`,
+      )
+    }
+    for (const ev of receipt.evidence) {
+      const evidenceViolation = liveReceiptEvidenceViolation(s.capability, ev)
+      if (evidenceViolation) {
+        violations.push(evidenceViolation)
+      }
+    }
+  }
+  return violations
+}
+
+function liveReceiptEvidenceViolation(capability: string, ev: string): string | undefined {
+  const parsed = parseLiveReceiptEvidence(ev)
+  if (!parsed) {
+    return `${capability}: unknown live receipt evidence kind ${ev}`
+  }
+  const [kind, relPath, needle] = parsed
+  const path = join(REPO_ROOT, relPath)
+  if (!existsSync(path)) {
+    return `${capability}: missing ${kind} evidence file ${relPath}`
+  }
+  if (!needle.trim()) {
+    return `${capability}: ${ev} has an empty evidence needle`
+  }
+  if (!readFileSync(path, 'utf8').includes(needle)) {
+    return `${capability}: ${kind} evidence ${relPath} does not contain ${needle}`
+  }
+  return undefined
+}
+
+function parseLiveReceiptEvidence(ev: string): ['ci' | 'test', string, string] | undefined {
+  const first = ev.indexOf(':')
+  const second = ev.indexOf(':', first + 1)
+  if (first <= 0 || second <= first + 1) {
+    return undefined
+  }
+  const kind = ev.slice(0, first)
+  if (kind !== 'ci' && kind !== 'test') {
+    return undefined
+  }
+  return [kind, ev.slice(first + 1, second), ev.slice(second + 1)]
+}
+
 function prdCellsFor(id: string): string[] | undefined {
   for (const row of prd.split('\n')) {
     const cells = row
@@ -341,18 +431,37 @@ describe('frontend-coverage gate (S-FE6)', () => {
     ).toBe(true)
     // A federated claim without evidence → violation.
     const bad: SurfaceDecl[] = [
-      { capability: 'x', featureIds: ['F1'], sprint: 'Sx', kind: 'federated' },
+      {
+        capability: 'x',
+        featureIds: ['F1'],
+        sprint: 'Sx',
+        kind: 'federated',
+        liveReceipt: TEST_SURFACE_RECEIPT,
+      },
     ]
     expect(checkRegistryShape([], bad)[0].problem).toMatch(/no evidence/)
     // A deliberate no-surface declaration must say why; otherwise "no UI"
     // can hide an accidental omission.
     const noReason: SurfaceDecl[] = [
-      { capability: 'future x', featureIds: ['F49'], sprint: 'Sy', kind: 'none-by-design' },
+      {
+        capability: 'future x',
+        featureIds: ['F49'],
+        sprint: 'Sy',
+        kind: 'none-by-design',
+        liveReceipt: TEST_SURFACE_RECEIPT,
+      },
     ]
     expect(checkRegistryShape([], noReason)[0].problem).toMatch(/no reason/)
     // A routed declaration outside the nav → violation.
     const offNav: SurfaceDecl[] = [
-      { capability: 'y', featureIds: ['F1'], sprint: 'Sy', kind: 'native', route: '/nowhere' },
+      {
+        capability: 'y',
+        featureIds: ['F1'],
+        sprint: 'Sy',
+        kind: 'native',
+        route: '/nowhere',
+        liveReceipt: TEST_SURFACE_RECEIPT,
+      },
     ]
     expect(checkRegistryShape([], offNav)[0].problem).toMatch(/not a nav destination/)
     // …unless it is EXPLICITLY declared offNav (S-T1: the provider console —
@@ -365,6 +474,7 @@ describe('frontend-coverage gate (S-FE6)', () => {
         kind: 'native',
         route: '/nowhere',
         offNav: true,
+        liveReceipt: TEST_SURFACE_RECEIPT,
       },
     ]
     expect(checkRegistryShape([], declared)).toEqual([])
@@ -376,6 +486,7 @@ describe('frontend-coverage gate (S-FE6)', () => {
         sprint: 'Sz',
         kind: 'native',
         route: '/planes/flow',
+        liveReceipt: TEST_SURFACE_RECEIPT,
       },
     ]
     expect(checkRegistryShape(['/planes'], childRoute)).toEqual([])
@@ -459,6 +570,47 @@ describe('frontend-coverage gate (S-FE6)', () => {
         0,
       )
     }
+  })
+
+  test('live served-path receipt status is explicit and live-green claims cite live proof', () => {
+    expect(liveReceiptViolations(SURFACES)).toEqual([])
+
+    const staticAsLive: SurfaceDecl[] = SURFACES.map((s): SurfaceDecl => {
+      if (s.capability !== 'Topology dependency graph + what-if impact simulation') {
+        return s
+      }
+      return {
+        ...s,
+        liveReceipt: {
+          status: 'live-green',
+          evidence: [
+            'ci:.github/workflows/ci.yml:npm run coverage-gate',
+            'test:web/src/test/surface-coverage.test.tsx:every native surface renders a real screen',
+          ],
+          note: 'bad fixture',
+        },
+      }
+    })
+    expect(liveReceiptViolations(staticAsLive)).toContain(
+      'Topology dependency graph + what-if impact simulation: live-green receipt must cite a live e2e/integration test, not the static frontend gate',
+    )
+
+    const noWorkflow: SurfaceDecl[] = SURFACES.map((s): SurfaceDecl => {
+      if (s.capability !== 'Path / topology visualization') {
+        return s
+      }
+      return {
+        ...s,
+        liveReceipt: {
+          status: 'live-green',
+          evidence: ['test:test/e2e/e2e_test.go:TestE2E'],
+          note: 'bad fixture',
+        },
+      }
+    })
+    expect(liveReceiptViolations(noWorkflow)).toContain(
+      'Path / topology visualization: live-green receipt requires ci: and test: evidence',
+    )
   })
 
   test('consistency: no orphaned route styles (every routes/*.module.css is imported)', () => {

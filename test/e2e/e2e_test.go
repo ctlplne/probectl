@@ -51,6 +51,10 @@ func TestE2E(t *testing.T) {
 	work := t.TempDir()
 
 	// ── stack up ────────────────────────────────────────────────────────
+	// The black-box receipt must be repeatable on a developer workstation where
+	// the shared dev stack may already have data. Start from an empty compose
+	// volume so one run's agent CA cannot poison the next run.
+	runCmd(t, root, nil, "docker", "compose", "-f", composeF, "down", "-v", "--remove-orphans")
 	runCmd(t, root, nil, "docker", "compose", "-f", composeF, "up", "-d", "--wait", "postgres", "kafka")
 	t.Cleanup(func() {
 		_ = exec.Command("docker", "compose", "-f", filepath.Join(root, composeF), "down", "-v").Run()

@@ -63,7 +63,7 @@ func (s *PGStore) Upsert(ctx context.Context, tenantID string, p Policy, by stri
 				ingest_bytes_per_sec, device_metrics_per_sec, otlp_series_per_sec,
 				burst_seconds, query_concurrency, queries_per_min, weight, updated_at, updated_by)
 			VALUES ($1, nullif($2, 0), nullif($3, 0), nullif($4, 0), nullif($5, 0),
-				nullif($6, 0), nullif($7, 0), nullif($8, 0), nullif($9, 0), $10, $11)
+				nullif($6, 0), nullif($7, 0), nullif($8, 0), nullif($9, 0), nullif($10, 0), $11, $12)
 			ON CONFLICT (tenant_id) DO UPDATE SET
 				results_per_sec = excluded.results_per_sec,
 				flow_events_per_sec = excluded.flow_events_per_sec,
