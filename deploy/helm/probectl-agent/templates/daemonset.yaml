@@ -15,6 +15,9 @@
 {{- if and .Values.health.enabled (eq .Values.health.mode "http") (not .Values.health.allowPlaintextHTTP) -}}
 {{- fail "health.mode=http opens a plaintext pod listener; keep health.mode=exec or set health.allowPlaintextHTTP=true as an explicit compatibility acknowledgement" -}}
 {{- end -}}
+{{- if and .Values.metrics.enabled (not .Values.metrics.tls.existingSecret) -}}
+{{- fail "metrics.enabled exposes the agent listener on the pod network and requires metrics.tls.existingSecret (keys tls.crt and tls.key)" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -33,6 +36,12 @@ spec:
         {{- include "probectl-agent.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.metrics.enabled }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/scheme: "https"
+        {{- end }}
     spec:
       serviceAccountName: {{ include "probectl-agent.fullname" . }}
       automountServiceAccountToken: false
@@ -89,10 +98,18 @@ spec:
           image: "{{ .Values.image.repository }}:{{ $imageTag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--config", "/etc/probectl/ebpf-agent.yaml"]
-          {{- if and .Values.health.enabled (eq .Values.health.mode "http") }}
+          {{- if or (and .Values.health.enabled (eq .Values.health.mode "http")) .Values.metrics.enabled }}
           ports:
+            {{- if and .Values.health.enabled (eq .Values.health.mode "http") }}
             - name: health
               containerPort: {{ .Values.health.port }}
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+            {{- end }}
+          {{- end }}
+          {{- if and .Values.health.enabled (eq .Values.health.mode "http") }}
           # OPS-001 compatibility mode: liveness restarts a dead agent; readiness depools a
           # not-yet-attached one (stuck CAP_PERFMON / kernel lockdown shows
           # up instead of a silently-dead pod). WIRE-004 keeps this off by default.
@@ -157,6 +174,14 @@ spec:
               value: {{ .Values.logLevel | quote }}
             - name: PROBECTL_EBPF_LOG_FORMAT
               value: {{ .Values.logFormat | quote }}
+            {{- if .Values.metrics.enabled }}
+            - name: PROBECTL_EBPF_METRICS_ADDR
+              value: {{ printf "%s:%v" .Values.metrics.bindAddress .Values.metrics.port | quote }}
+            - name: PROBECTL_EBPF_METRICS_TLS_CERT_FILE
+              value: /etc/probectl/metrics-tls/tls.crt
+            - name: PROBECTL_EBPF_METRICS_TLS_KEY_FILE
+              value: /etc/probectl/metrics-tls/tls.key
+            {{- end }}
             {{- if .Values.bus.tls.enabled }}
             - name: PROBECTL_EBPF_BUS_TLS_ENABLED
               value: "true"
@@ -186,6 +211,11 @@ spec:
             {{- if and .Values.health.enabled (eq .Values.health.mode "exec") }}
             - name: health-state
               mountPath: {{ required "health.stateDir is required when health.mode=exec" .Values.health.stateDir | quote }}
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - name: metrics-tls
+              mountPath: /etc/probectl/metrics-tls
+              readOnly: true
             {{- end }}
       volumes:
         - name: config
@@ -217,4 +247,9 @@ spec:
         - name: bus-tls
           secret:
             secretName: {{ .Values.bus.tls.existingSecret }}
+        {{- end }}
+        {{- if .Values.metrics.enabled }}
+        - name: metrics-tls
+          secret:
+            secretName: {{ required "metrics.tls.existingSecret is required when metrics.enabled=true" .Values.metrics.tls.existingSecret }}
         {{- end }}

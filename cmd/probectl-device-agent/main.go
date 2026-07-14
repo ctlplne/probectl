@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/device"
@@ -74,11 +75,18 @@ func run() error {
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
 	}
-
-	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_DEVICE_BUS"))
+	build := version.Get()
+	metricsRuntime, err := agentmetrics.New("probectl-device-agent", build.Version, build.Commit,
+		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_DEVICE", agentmetrics.DefaultDeviceAddr))
 	if err != nil {
 		return err
 	}
+
+	rawBus, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_DEVICE_BUS"))
+	if err != nil {
+		return err
+	}
+	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 
 	// S41: device credentials resolve through the secret backends configured in
@@ -106,7 +114,7 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	return rt.Run(ctx)
+	return metricsRuntime.RunTogether(ctx, rt.Run)
 }
 
 func runDiscover(args []string) error {

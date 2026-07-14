@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/ebpf"
@@ -67,11 +68,18 @@ func run() error {
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
 	}
-
-	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_EBPF_BUS"))
+	build := version.Get()
+	metricsRuntime, err := agentmetrics.New("probectl-ebpf-agent", build.Version, build.Commit,
+		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_EBPF", agentmetrics.DefaultEBPFAddr))
 	if err != nil {
 		return err
 	}
+
+	rawBus, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_EBPF_BUS"))
+	if err != nil {
+		return err
+	}
+	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 
 	agent, err := ebpf.New(cfg, b, log)
@@ -96,7 +104,7 @@ func run() error {
 	if err := ebpf.StartHealthFileWriter(ctx, cfg.HealthStateDir, agent); err != nil {
 		return err
 	}
-	runErr := agent.Run(ctx)
+	runErr := metricsRuntime.RunTogether(ctx, agent.Run)
 	if f, ok := b.(bus.Flusher); ok {
 		flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

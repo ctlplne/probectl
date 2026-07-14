@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
@@ -56,6 +57,7 @@ type Host struct {
 	tenantID  string
 	agentID   string
 	log       *slog.Logger
+	metrics   *agentmetrics.Runtime
 }
 
 // Run runs each canary on its interval until ctx is canceled.
@@ -81,11 +83,17 @@ func (h *Host) Run(ctx context.Context) {
 }
 
 func (h *Host) probe(ctx context.Context, c canary.Canary) {
+	if h.metrics != nil {
+		h.metrics.Collection(1)
+	}
 	res, err := c.Run(ctx)
 	if err != nil {
 		// A plugin/internal fault — distinct from a probe failure, which is a
 		// Result with Success=false.
 		h.log.Error("canary fault", "type", c.Describe().Type, "error", err.Error())
+		if h.metrics != nil {
+			h.metrics.Error()
+		}
 		return
 	}
 	payload, err := json.Marshal(resultEnvelope{
@@ -97,11 +105,21 @@ func (h *Host) probe(ctx context.Context, c canary.Canary) {
 	})
 	if err != nil {
 		h.log.Error("marshal result", "error", err.Error())
+		if h.metrics != nil {
+			h.metrics.Error()
+		}
 		return
 	}
 	if err := h.buffer.Enqueue(payload); err != nil {
 		h.log.Warn("dropping result (buffer full)", "type", res.Type, "error", err.Error())
+		if h.metrics != nil {
+			h.metrics.Error()
+			h.metrics.SetBufferDepth(h.buffer.Len())
+		}
 		return
+	}
+	if h.metrics != nil {
+		h.metrics.SetBufferDepth(h.buffer.Len())
 	}
 	// RESIL-009: warn early when the store-and-forward buffer is approaching
 	// either bound (records or on-disk bytes) — a control-plane outage is filling

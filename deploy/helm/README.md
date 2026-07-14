@@ -169,6 +169,14 @@ DaemonSet from opening a plaintext health port. The old HTTP probe listener is
 compatibility-only and renders only with both `health.mode=http` and
 `health.allowPlaintextHTTP=true`.
 
+The eBPF agent also owns a loopback-only `/metrics` listener by default. Set
+`metrics.enabled=true` to make that listener scrapeable on the pod network. The
+chart then requires `metrics.tls.existingSecret` (keys `tls.crt` and `tls.key`),
+configures the agent's TLS 1.3 listener, opens the named `metrics` container
+port, and adds `prometheus.io/{scrape,path,port,scheme}` pod annotations with
+`scheme=https`. In other words, enabling fleet scraping cannot accidentally
+turn a local HTTP endpoint into a cluster-wide plaintext endpoint.
+
 The chart renders two Kyverno ClusterPolicies by default. The image-integrity
 policy enforces digest + keyless signature admission, and
 `probectl-agent-capability-posture` (EBPF-007) runs in background Audit mode so

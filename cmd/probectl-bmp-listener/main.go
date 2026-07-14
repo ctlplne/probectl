@@ -15,6 +15,7 @@ import (
 	"strings"
 	"syscall"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/bgp"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	probectlc "github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -59,6 +60,12 @@ func run() error {
 	if err := probectlc.RunPowerOnSelfTest(log); err != nil {
 		return err
 	}
+	build := version.Get()
+	metricsRuntime, err := agentmetrics.New("probectl-bmp-listener", build.Version, build.Commit,
+		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_BMP", agentmetrics.DefaultBMPAddr))
+	if err != nil {
+		return err
+	}
 
 	tlsCfg, err := probectlc.ServerMTLSConfig(*certFile, *keyFile, *caFile)
 	if err != nil {
@@ -70,16 +77,19 @@ func run() error {
 	}
 	defer func() { _ = ln.Close() }()
 
-	b, err := bus.New(*busMode, splitCSV(*busBrokers), bus.SecurityFromEnv(os.Getenv, "PROBECTL_BMP_BUS"))
+	rawBus, err := bus.New(*busMode, splitCSV(*busBrokers), bus.SecurityFromEnv(os.Getenv, "PROBECTL_BMP_BUS"))
 	if err != nil {
 		return err
 	}
+	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	log.Info("bmp listener starting", "addr", ln.Addr().String(), "collector", *collector, "bus_mode", *busMode)
-	return bgp.NewBMPListener(ln, b, *collector, log).Serve(ctx)
+	return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
+		return bgp.NewBMPListener(ln, b, *collector, log).Serve(ctx)
+	})
 }
 
 func envOr(key, def string) string {

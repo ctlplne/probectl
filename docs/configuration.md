@@ -270,6 +270,33 @@ agent. See [`lifecycle.md`](lifecycle.md).
 A rejected agent gets a gRPC `FailedPrecondition` ("upgrade required"); a dev/unpinned
 build (`0.0.0-dev`) on either side skips the check.
 
+### Agent self-metrics
+
+Every shipped collector process exposes Prometheus text at `GET /metrics`:
+`probectl-agent`, `probectl-flow-agent`, `probectl-device-agent`,
+`probectl-ebpf-agent`, `probectl-endpoint`, and `probectl-bmp-listener`. These are
+process-wide RED/USE signals only—counts, errors, bounded queue depth, and
+publish time. They never contain tenant ids, probe targets, device addresses,
+or telemetry payload fields.
+
+Each process uses a distinct loopback-only default so the collectors can share
+one host. Replace `<PREFIX>` below with `PROBECTL_AGENT`, `PROBECTL_FLOW`,
+`PROBECTL_DEVICE`, `PROBECTL_EBPF`, `PROBECTL_ENDPOINT`, or `PROBECTL_BMP`:
+
+| Variable | Default | Meaning |
+| -------- | ------- | ------- |
+| `<PREFIX>_METRICS_ADDR` | `127.0.0.1:9464` through `127.0.0.1:9469`, in the binary order above | metrics listen address. Plain HTTP is accepted only for a loopback address; a wildcard or remote bind fails startup unless both TLS files are configured |
+| `<PREFIX>_METRICS_TLS_CERT_FILE` | (none) | HTTPS server certificate. Set together with the key; probectl's TLS 1.3 listener policy is applied through `internal/crypto` |
+| `<PREFIX>_METRICS_TLS_KEY_FILE` | (none) | HTTPS server private key. A one-sided certificate/key configuration fails startup |
+
+Core series are `probectl_agent_collections_total` (probe or collector batches),
+`probectl_agent_published_total` (results/batches accepted by the output transport),
+`probectl_agent_errors_total`, `probectl_agent_buffer_depth`, and
+`probectl_agent_publish_latency_seconds`. Build, uptime, Go-runtime, and process
+series come from the same dependency-free registry. Prometheus's `job` and
+`instance` target labels identify the binary/host; tenant identity is
+intentionally absent.
+
 ### probectl-agent
 
 The canary agent is the worker that actually runs the probes (ping, TCP, DNS,

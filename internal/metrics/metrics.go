@@ -2,10 +2,10 @@
 
 // Package metrics is probectl's self-observability surface (OPS-005): a
 // tiny, dependency-FREE Prometheus text-exposition registry (CLAUDE.md §9 —
-// no new dependency for this). "probectl observes probectl" (§8): the
-// control plane scrapes its OWN operational health here, never tenant data —
-// every series is a process/aggregate counter or gauge, so /metrics carries
-// no per-tenant values and needs no tenant scoping.
+// no new dependency for this). "probectl observes probectl" (§8): the control
+// plane and collector binaries expose their OWN operational health here, never
+// tenant data. Every series is a process/aggregate counter or gauge, so
+// /metrics carries no per-tenant values and needs no tenant scoping.
 //
 // The format is the Prometheus text exposition format (v0.0.4): each metric
 // gets a # HELP and # TYPE line then samples. Counters and gauges register

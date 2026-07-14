@@ -449,6 +449,23 @@ fi
 http_agent="$(arender --set health.mode=http --set health.allowPlaintextHTTP=true)"
 need "path: /healthz"                   "$http_agent" "agent: acknowledged HTTP health mode missing /healthz"
 need "path: /readyz"                    "$http_agent" "agent: acknowledged HTTP health mode missing /readyz"
+# H6: /metrics stays loopback-only unless an operator explicitly enables pod
+# scraping with a TLS Secret. A remote plaintext metrics port must never render.
+if grep -q "prometheus.io/scrape" <<<"$agent"; then
+  fail "agent: default chart advertises a pod-network metrics scrape without TLS opt-in (H6/WIRE-004)"
+fi
+if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \
+     --set-string image.tag="$AGENT_IMAGE_TAG" --set metrics.enabled=true >/dev/null 2>&1; then
+  fail "agent chart rendered pod-network metrics without metrics.tls.existingSecret (H6/WIRE-004)"
+fi
+metrics_agent="$(arender --set metrics.enabled=true --set metrics.tls.existingSecret=agent-metrics-tls)"
+need 'prometheus.io/scrape: "true"'      "$metrics_agent" "agent: metrics scrape annotation missing (H6)"
+need 'prometheus.io/scheme: "https"'     "$metrics_agent" "agent: metrics scrape is not HTTPS (H6/WIRE-004)"
+need 'containerPort: 9467'                "$metrics_agent" "agent: metrics port missing (H6)"
+need 'PROBECTL_EBPF_METRICS_ADDR'         "$metrics_agent" "agent: metrics bind configuration missing (H6)"
+need 'PROBECTL_EBPF_METRICS_TLS_CERT_FILE' "$metrics_agent" "agent: metrics TLS certificate not wired (H6)"
+need 'PROBECTL_EBPF_METRICS_TLS_KEY_FILE' "$metrics_agent" "agent: metrics TLS key not wired (H6)"
+need 'secretName: agent-metrics-tls'      "$metrics_agent" "agent: metrics TLS Secret not mounted (H6)"
 # EBPF-002: L7 capture must render the full runtime contract, and enabled
 # capture without scope must fail at template time.
 if helm template agent "$AGENT" --set tenantID=gate --set 'bus.brokers={kafka:9093}' \

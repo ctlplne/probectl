@@ -151,3 +151,14 @@ health:
   stateDir: /var/run/probectl-ebpf-agent
   port: 9090
   allowPlaintextHTTP: false
+
+# H6: tenant-agnostic agent RED/USE metrics. The process always has a
+# loopback-only listener; enabling chart scraping moves it onto the pod network
+# and therefore requires TLS. The secret must contain tls.crt and tls.key.
+metrics:
+  enabled: false
+  bindAddress: "0.0.0.0"
+  port: 9467
+  path: /metrics
+  tls:
+    existingSecret: ""

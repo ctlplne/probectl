@@ -78,6 +78,27 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 20 },
       "targets": [{ "expr": "rate(probectl_fairness_queries_rejected_total[5m])", "legendFormat": "{{tenant_id}}" }]
+    },
+    {
+      "id": 9,
+      "title": "Agent fleet — collect / publish / error rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "targets": [
+        { "expr": "sum by (job, instance) (rate(probectl_agent_collections_total[5m]))", "legendFormat": "{{job}} {{instance}} collect" },
+        { "expr": "sum by (job, instance) (rate(probectl_agent_published_total[5m]))", "legendFormat": "{{job}} {{instance}} publish" },
+        { "expr": "sum by (job, instance) (rate(probectl_agent_errors_total[5m]))", "legendFormat": "{{job}} {{instance}} errors" }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Agent fleet — buffer depth / latest publish latency",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+      "targets": [
+        { "expr": "probectl_agent_buffer_depth", "legendFormat": "{{job}} {{instance}} buffer" },
+        { "expr": "probectl_agent_publish_latency_seconds", "legendFormat": "{{job}} {{instance}} publish seconds" }
+      ]
     }
   ]
 }

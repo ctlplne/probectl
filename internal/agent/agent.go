@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
@@ -40,6 +41,7 @@ type Agent struct {
 	buffer      *Buffer
 	host        *Host
 	coordinator *Coordinator
+	metrics     *agentmetrics.Runtime
 	tenantID    string
 	agentID     string
 }
@@ -77,6 +79,20 @@ func New(cfg *Config, reg *canary.Registry, log *slog.Logger) (*Agent, error) {
 	return a, nil
 }
 
+// WithMetrics connects the shared tenant-agnostic agent metrics surface. The
+// store-and-forward depth is sampled after every enqueue/drain operation.
+func (a *Agent) WithMetrics(m *agentmetrics.Runtime) *Agent {
+	if a == nil {
+		return a
+	}
+	a.metrics = m
+	a.host.metrics = m
+	if m != nil {
+		m.SetBufferDepth(a.buffer.Len())
+	}
+	return a
+}
+
 // Run starts probing and forwarding until ctx is canceled.
 func (a *Agent) Run(ctx context.Context) error {
 	a.log.Info("agent starting", "tenant", a.tenantID, "agent", a.agentID,
@@ -98,12 +114,18 @@ func (a *Agent) forward(ctx context.Context) error {
 		client, err := Dial(a.cfg.ControlPlane.GRPCAddr,
 			a.cfg.TLS.CertFile, a.cfg.TLS.KeyFile, a.cfg.TLS.CAFile, a.cfg.TLS.ServerName)
 		if err != nil {
+			if a.metrics != nil {
+				a.metrics.Error()
+			}
 			a.log.Warn("connect failed; buffering results", "error", err.Error())
 		} else {
 			err = a.session(ctx, client)
 			_ = client.Close()
 			if err == nil {
 				return nil // ctx canceled, clean exit
+			}
+			if a.metrics != nil {
+				a.metrics.Error()
 			}
 			a.log.Warn("control-plane session ended; will reconnect", "error", err.Error())
 		}
@@ -178,7 +200,7 @@ func (a *Agent) session(ctx context.Context, client *Client) error {
 // handles dedup" claim was false — there is no dedup layer; the idempotent TSDB
 // write is what makes redelivery safe here. Per-record-ID dedup for the
 // append-only row stores is tracked in CORRECT-002.)
-func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) error {
+func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) (retErr error) {
 	maxRecords, maxBytes, pace := a.drainSettings()
 	backlogRecords := a.buffer.Len()
 	backlogBytes := a.buffer.Bytes()
@@ -199,6 +221,15 @@ func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) error {
 	if len(requests) == 0 {
 		return nil
 	}
+	attempted := true
+	started := time.Now()
+	published := uint64(0)
+	defer func() {
+		if a.metrics != nil && attempted {
+			a.metrics.Publish(published, time.Since(started), retErr)
+			a.metrics.SetBufferDepth(a.buffer.Len())
+		}
+	}()
 	stream, err := client.StreamResults(ctx)
 	if err != nil {
 		return err
@@ -220,6 +251,7 @@ func (a *Agent) drainOnce(ctx context.Context, client resultStreamer) error {
 	if err := a.buffer.Remove(acked); err != nil {
 		return err
 	}
+	published = uint64(acked)
 	remainingRecords := a.buffer.Len()
 	remainingBytes := a.buffer.Bytes()
 	a.log.Debug("drained results",

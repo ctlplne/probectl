@@ -24,6 +24,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/endpoint"
@@ -63,11 +64,18 @@ func run() error {
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
 	}
-
-	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_ENDPOINT_BUS"))
+	build := version.Get()
+	metricsRuntime, err := agentmetrics.New("probectl-endpoint", build.Version, build.Commit,
+		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_ENDPOINT", agentmetrics.DefaultEndpointAddr))
 	if err != nil {
 		return err
 	}
+
+	rawBus, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_ENDPOINT_BUS"))
+	if err != nil {
+		return err
+	}
+	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 
 	rt, err := endpoint.New(cfg, b, log)
@@ -77,7 +85,7 @@ func run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	return rt.Run(ctx)
+	return metricsRuntime.RunTogether(ctx, rt.Run)
 }
 
 func envOr(key, def string) string {

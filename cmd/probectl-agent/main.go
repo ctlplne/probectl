@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/imfeelingtheagi/probectl/internal/agent"
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/browsercanary"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -71,6 +72,12 @@ func run() error {
 	// S-EE1/guardrail 3: prove the shared crypto provider before first-boot
 	// enrollment, mTLS identity loading, or probe runtime setup.
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
+		return err
+	}
+	build := version.Get()
+	metricsRuntime, err := agentmetrics.New("probectl-agent", build.Version, build.Commit,
+		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_AGENT", agentmetrics.DefaultCanaryAddr))
+	if err != nil {
 		return err
 	}
 
@@ -141,6 +148,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	a.WithMetrics(metricsRuntime)
 
 	// Automatic SVID rotation (Sprint 11): rotate the on-disk identity at
 	// ~2/3 of its lifetime; the mTLS client hot-reloads the swap.
@@ -149,7 +157,7 @@ func run() error {
 			cfg.TLS.CertFile, cfg.TLS.KeyFile, cfg.TLS.CAFile, 0)
 		log.Info("automatic SVID rotation enabled", "server", cfg.Identity.Server)
 	}
-	return a.Run(ctx)
+	return metricsRuntime.RunTogether(ctx, a.Run)
 }
 
 func envOr(key, def string) string {

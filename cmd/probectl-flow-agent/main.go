@@ -23,6 +23,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	agentmetrics "github.com/imfeelingtheagi/probectl/internal/agent/metrics"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/flow"
@@ -63,11 +64,18 @@ func run() error {
 	if err := crypto.RunPowerOnSelfTest(log); err != nil {
 		return err
 	}
-
-	b, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_FLOW_BUS"))
+	build := version.Get()
+	metricsRuntime, err := agentmetrics.New("probectl-flow-agent", build.Version, build.Commit,
+		agentmetrics.ConfigFromEnv(os.Getenv, "PROBECTL_FLOW", agentmetrics.DefaultFlowAddr))
 	if err != nil {
 		return err
 	}
+
+	rawBus, err := bus.New(cfg.Bus.Mode, cfg.Bus.Brokers, bus.SecurityFromEnv(os.Getenv, "PROBECTL_FLOW_BUS"))
+	if err != nil {
+		return err
+	}
+	b := agentmetrics.ObserveBus(rawBus, metricsRuntime)
 	defer func() { _ = b.Close() }()
 
 	emitter, err := flow.NewNamespacedBusEmitter(b, cfg.TenantID, cfg.Bus.Namespace)
@@ -78,14 +86,16 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if cfg.CloudImport.Provider != "" {
-		return runCloudImport(ctx, cfg, emitter, log)
+		return metricsRuntime.RunTogether(ctx, func(ctx context.Context) error {
+			return runCloudImport(ctx, cfg, emitter, log)
+		})
 	}
 
 	collector, err := flow.New(cfg, emitter, log)
 	if err != nil {
 		return err
 	}
-	return collector.Run(ctx)
+	return metricsRuntime.RunTogether(ctx, collector.Run)
 }
 
 func runCloudImport(ctx context.Context, cfg *flow.Config, emitter flow.Emitter, log *slog.Logger) error {
