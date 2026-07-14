@@ -512,6 +512,27 @@ func TestCLIJourneyCriticalSurfaceCommands(t *testing.T) {
 	}
 }
 
+func TestCLIAlertGroupPrintsInactiveWarning(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/alerts", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":           []any{},
+			"alerting_active": false,
+			"warning":         "ALERTING INACTIVE: no query backend; see docs/alerting.md#evaluation-loop",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "alert", "list")
+	if code != 0 || !strings.Contains(out, "No items.") {
+		t.Fatalf("alert list failed: code=%d stdout=%q stderr=%q", code, out, errs)
+	}
+	if !strings.Contains(errs, "WARNING: ALERTING INACTIVE") || !strings.Contains(errs, "docs/alerting.md") {
+		t.Fatalf("inactive evaluator warning missing from stderr: %q", errs)
+	}
+}
+
 func TestCLIBGPSurfaceEvents(t *testing.T) {
 	op, ok := surfaceCommands["bgp"].Ops["events"]
 	if !ok {

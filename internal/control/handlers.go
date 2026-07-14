@@ -38,7 +38,11 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) error {
 	// stays READY (200) for reads even when writes are fenced (a failover in
 	// progress is not unreadiness — the region still serves traffic); the
 	// writes_usable flag tells operators/automation when writes paused.
-	body := map[string]any{"status": "ready", "audit_retention": s.auditRetentionHealth()}
+	body := map[string]any{
+		"status":          "ready",
+		"audit_retention": s.auditRetentionHealth(),
+		"alerting":        s.alertingHealth(),
+	}
 	if cs := s.clusterStatus(); cs != nil {
 		body["cluster"] = cs
 	}

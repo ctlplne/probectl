@@ -60,6 +60,8 @@ flowchart LR
   A --> W[web: Alerts page]
 ```
 
+<a id="evaluation-loop"></a>
+
 The evaluator ticks every `PROBECTL_ALERT_EVAL_INTERVAL` (default `30s`),
 syncs the active tenant set, and keeps one evaluator engine per active tenant.
 Each engine re-reads that tenant's enabled rules through the row-level-security
@@ -70,6 +72,14 @@ lightweight deployments query the in-process TSDB, while
 instant-query backend with a forced `tenant_id` matcher. If neither metric query
 backend is wired, APIs surface `evaluator_running: false` rather than showing a
 falsely empty "all clear".
+
+When evaluation is inactive, the condition is deliberately persistent and
+machine-readable: `/alerts` shows a page-level warning with setup guidance,
+every `probectl alert ...` command warns on stderr, `/readyz` reports
+`alerting.status=degraded` with `evaluator_running=false`, and
+`/v1/diagnostics` includes a degraded `alert_evaluator` check. Readiness remains
+HTTP 200 because the API can still serve and preserve rule configuration; the
+explicit degraded field is the automation signal.
 
 ## Active-alert API
 

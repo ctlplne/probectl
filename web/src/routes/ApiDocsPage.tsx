@@ -39,7 +39,10 @@ interface OpenAPIParameter {
 }
 
 interface OpenAPIRequestBody {
-  content?: Record<string, { schema?: unknown; example?: unknown; examples?: Record<string, { value?: unknown }> }>
+  content?: Record<
+    string,
+    { schema?: unknown; example?: unknown; examples?: Record<string, { value?: unknown }> }
+  >
 }
 
 interface OpenAPIDoc {
@@ -116,7 +119,11 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
 }
 
-function derefSchema(doc: OpenAPIDoc | undefined, schema: unknown, seen = new Set<string>()): unknown {
+function derefSchema(
+  doc: OpenAPIDoc | undefined,
+  schema: unknown,
+  seen = new Set<string>(),
+): unknown {
   const rec = asRecord(schema)
   const ref = rec?.$ref
   if (!doc || typeof ref !== 'string' || seen.has(ref)) return schema
@@ -134,11 +141,14 @@ function sampleForSchema(doc: OpenAPIDoc | undefined, schema: unknown, name = 'v
   if ('default' in rec) return rec.default
   const enumValues = Array.isArray(rec.enum) ? rec.enum : []
   if (enumValues.length > 0) return enumValues[0]
-  const type = typeof rec.type === 'string' ? rec.type : asRecord(rec.properties) ? 'object' : 'string'
+  const type =
+    typeof rec.type === 'string' ? rec.type : asRecord(rec.properties) ? 'object' : 'string'
   if (type === 'object') {
     const props = asRecord(rec.properties)
     if (!props) return {}
-    return Object.fromEntries(Object.entries(props).map(([key, child]) => [key, sampleForSchema(doc, child, key)]))
+    return Object.fromEntries(
+      Object.entries(props).map(([key, child]) => [key, sampleForSchema(doc, child, key)]),
+    )
   }
   if (type === 'array') return [sampleForSchema(doc, rec.items, name)]
   if (type === 'integer' || type === 'number') return 0
@@ -195,7 +205,11 @@ function pathWithParams(path: string, pathParams: Record<string, string>): strin
   )
 }
 
-function requestURL(row: OperationRow, pathParams: Record<string, string>, queryParams: Record<string, string>) {
+function requestURL(
+  row: OperationRow,
+  pathParams: Record<string, string>,
+  queryParams: Record<string, string>,
+) {
   const path = pathWithParams(row.path, pathParams)
   const query = new URLSearchParams()
   Object.entries(queryParams).forEach(([key, value]) => {
@@ -220,7 +234,10 @@ function generatedCurl(row: OperationRow, url: string, bodyText: string): string
     "  -H 'Accept: application/json'",
   ]
   if (operationNeedsBody(row)) {
-    lines.push("  -H 'Content-Type: application/json'", `  --data ${curlQuote(bodyText.trim() || '{}')}`)
+    lines.push(
+      "  -H 'Content-Type: application/json'",
+      `  --data ${curlQuote(bodyText.trim() || '{}')}`,
+    )
   }
   return lines.join(' \\\n')
 }
@@ -229,7 +246,9 @@ function generatedFetch(row: OperationRow, url: string, bodyText: string): strin
   const headers = operationNeedsBody(row)
     ? `\n    Accept: 'application/json',\n    'Content-Type': 'application/json',\n  `
     : `\n    Accept: 'application/json',\n  `
-  const body = operationNeedsBody(row) ? `,\n  body: ${JSON.stringify(bodyText.trim() || '{}')}` : ''
+  const body = operationNeedsBody(row)
+    ? `,\n  body: ${JSON.stringify(bodyText.trim() || '{}')}`
+    : ''
   return `await fetch('${url}', {
   method: '${row.method.toUpperCase()}',
   credentials: 'same-origin',
@@ -311,7 +330,12 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
         body,
       })
       const text = await res.text()
-      setResult({ ok: res.ok, status: res.status, statusText: res.statusText, body: formatBody(text) })
+      setResult({
+        ok: res.ok,
+        status: res.status,
+        statusText: res.statusText,
+        body: formatBody(text),
+      })
     } catch (err) {
       setRunError(err instanceof Error ? err.message : 'Request failed.')
     } finally {
@@ -352,7 +376,9 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
                 key={`path-${param.name}`}
                 label={`Path: ${param.name}`}
                 value={pathParams[param.name ?? ''] ?? ''}
-                onChange={(e) => setPathParams((prev) => ({ ...prev, [param.name ?? '']: e.target.value }))}
+                onChange={(e) =>
+                  setPathParams((prev) => ({ ...prev, [param.name ?? '']: e.target.value }))
+                }
               />
             ))}
             {queryParameters.map((param) => (
@@ -360,7 +386,9 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
                 key={`query-${param.name}`}
                 label={`Query: ${param.name}`}
                 value={queryParams[param.name ?? ''] ?? ''}
-                onChange={(e) => setQueryParams((prev) => ({ ...prev, [param.name ?? '']: e.target.value }))}
+                onChange={(e) =>
+                  setQueryParams((prev) => ({ ...prev, [param.name ?? '']: e.target.value }))
+                }
               />
             ))}
             {needsBody ? (
@@ -396,7 +424,11 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
                 {isRunning ? 'Running…' : 'Run request'}
               </Button>
             </div>
-            {runError ? <p className={styles.error} role="alert">{runError}</p> : null}
+            {runError ? (
+              <p className={styles.error} role="alert">
+                {runError}
+              </p>
+            ) : null}
             {result ? (
               <div className={styles.response} data-ok={result.ok}>
                 <div className={styles.responseHeader}>
@@ -435,7 +467,13 @@ export function ApiDocsPage() {
     const q = query.trim().toLowerCase()
     if (!q) return operations
     return operations.filter((op) =>
-      [op.method, op.path, op.operation.summary, op.operation.operationId, ...(op.operation.tags ?? [])]
+      [
+        op.method,
+        op.path,
+        op.operation.summary,
+        op.operation.operationId,
+        ...(op.operation.tags ?? []),
+      ]
         .filter(Boolean)
         .join(' ')
         .toLowerCase()
@@ -443,7 +481,10 @@ export function ApiDocsPage() {
     )
   }, [operations, query])
   const selectedRow =
-    filtered.find((op) => op.id === selected) ?? filtered[0] ?? operations.find((op) => op.id === selected) ?? null
+    filtered.find((op) => op.id === selected) ??
+    filtered[0] ??
+    operations.find((op) => op.id === selected) ??
+    null
 
   const columns: Column<OperationRow>[] = [
     {
@@ -452,14 +493,23 @@ export function ApiDocsPage() {
       render: (op) => <Badge tone={methodTone(op.method)}>{op.method.toUpperCase()}</Badge>,
     },
     { key: 'path', header: 'Path', render: (op) => <code>{op.path}</code> },
-    { key: 'summary', header: 'Summary', render: (op) => op.operation.summary ?? op.operation.operationId ?? '' },
+    {
+      key: 'summary',
+      header: 'Summary',
+      render: (op) => op.operation.summary ?? op.operation.operationId ?? '',
+    },
     { key: 'responses', header: 'Responses', render: (op) => responseCodes(op.operation) },
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
       align: 'end',
       render: (op) => (
-        <Button size="sm" variant="ghost" aria-label={`Open ${op.id}`} onClick={() => setSelected(op.id)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label={`Open ${op.id}`}
+          onClick={() => setSelected(op.id)}
+        >
           Open
         </Button>
       ),
@@ -469,6 +519,22 @@ export function ApiDocsPage() {
   return (
     <Page title="API docs" subtitle="OpenAPI served by this control plane.">
       <div className={styles.stack}>
+        <Card>
+          <CardHeader
+            title="Alert evaluator setup"
+            description="How to turn stored alert rules into live evaluations."
+          />
+          <CardBody>
+            <div id="alerting-setup" className={styles.stack}>
+              <p>
+                Alerting needs a query-capable metric store. Use the built-in memory TSDB for a
+                lightweight deployment, or configure <code>PROBECTL_TSDB_MODE=prometheus</code> with
+                a reachable <code>PROBECTL_TSDB_URL</code>. Then confirm that <code>/readyz</code>{' '}
+                reports <code>alerting.evaluator_running=true</code>.
+              </p>
+            </div>
+          </CardBody>
+        </Card>
         <Card>
           <CardHeader
             title={spec.data?.info?.title ?? 'OpenAPI'}

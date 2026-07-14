@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,9 +35,37 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestReadyzReady(t *testing.T) {
-	rec := do(testServer(fakePinger{}), http.MethodGet, "/readyz")
+	rec := do(testServer(fakePinger{}).WithAlertingActive(true), http.MethodGet, "/readyz")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Alerting alertingRuntimeHealth `json:"alerting"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !body.Alerting.EvaluatorRunning || body.Alerting.Status != "ok" {
+		t.Fatalf("alerting health = %+v, want running/ok", body.Alerting)
+	}
+}
+
+func TestReadyzReportsAlertingInactive(t *testing.T) {
+	rec := do(testServer(fakePinger{}), http.MethodGet, "/readyz")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("inactive alert evaluator must degrade visibly without making the API unready: %d", rec.Code)
+	}
+	var body struct {
+		Alerting alertingRuntimeHealth `json:"alerting"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Alerting.EvaluatorRunning || body.Alerting.Status != "degraded" {
+		t.Fatalf("alerting health = %+v, want inactive/degraded", body.Alerting)
+	}
+	if !strings.Contains(body.Alerting.Detail, "not evaluated") || body.Alerting.Setup == "" {
+		t.Fatalf("inactive alerting health lacks cause/setup: %+v", body.Alerting)
 	}
 }
 

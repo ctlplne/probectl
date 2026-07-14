@@ -31,6 +31,16 @@ func (s *Server) deepHealth(ctx context.Context) support.Health {
 			defer cancel()
 			return s.pinger.Ping(c)
 		}),
+		"alert_evaluator": func(context.Context) support.Check {
+			health := s.alertingHealth()
+			if health.EvaluatorRunning {
+				return support.Check{Status: support.StatusOK, Detail: health.Detail}
+			}
+			return support.Check{
+				Status: support.StatusDegraded,
+				Detail: health.Detail + "; setup: " + health.Setup,
+			}
+		},
 	}
 	// Secrets resolver (S41): degraded if any backend is failing.
 	if s.secretsHealth != nil {

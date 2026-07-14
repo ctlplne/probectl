@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import styles from './alerts.module.css'
 import { Page } from './pages'
 import {
@@ -141,7 +141,8 @@ function recurrenceLabel(r?: MaintenanceRecurrence): string {
 function maintenanceScope(w: MaintenanceWindow): string {
   const parts = []
   if (w.rule_ids && w.rule_ids.length > 0) parts.push(`rules ${w.rule_ids.join(', ')}`)
-  if (w.match && Object.keys(w.match).length > 0) parts.push(formatMatch(w.match).replace(/\n/g, ', '))
+  if (w.match && Object.keys(w.match).length > 0)
+    parts.push(formatMatch(w.match).replace(/\n/g, ', '))
   return parts.length > 0 ? parts.join('; ') : 'all alerts'
 }
 
@@ -168,7 +169,10 @@ function maintenanceMatchesAlert(w: MaintenanceWindow, a: ActiveAlert): boolean 
   return true
 }
 
-function activeMaintenanceForAlert(a: ActiveAlert, windows: MaintenanceWindow[]): MaintenanceWindow[] {
+function activeMaintenanceForAlert(
+  a: ActiveAlert,
+  windows: MaintenanceWindow[],
+): MaintenanceWindow[] {
   const now = Date.now()
   return windows.filter((w) => maintenanceMatchesAlert(w, a) && activeWindowEnd(w, now))
 }
@@ -332,7 +336,11 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
     const channel = currentChannel()
     if (!channel) return
     testChannel.mutate(
-      { ruleName: name || 'probectl test alert', metric: metric || 'probectl_test_delivery', channel },
+      {
+        ruleName: name || 'probectl test alert',
+        metric: metric || 'probectl_test_delivery',
+        channel,
+      },
       {
         onSuccess: () =>
           push({ tone: 'success', title: 'Test delivery sent', message: channel.type }),
@@ -369,7 +377,8 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
           })
           onClose()
         },
-        onError: (err) => push({ tone: 'danger', title: t('alerts.rule.saveFailed'), message: err.message }),
+        onError: (err) =>
+          push({ tone: 'danger', title: t('alerts.rule.saveFailed'), message: err.message }),
       },
     )
   }
@@ -381,7 +390,12 @@ function RuleForm({ rule, onClose }: { rule?: AlertRule; onClose: () => void }) 
       title={rule ? t('alerts.rule.editTitle', { name: rule.name }) : t('alerts.rule.createTitle')}
     >
       <form onSubmit={submit} className={styles.formGrid}>
-        <Field label={t('alerts.rule.name')} value={name} onChange={(e) => setName(e.target.value)} required />
+        <Field
+          label={t('alerts.rule.name')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
         <Field
           label={t('alerts.rule.metric')}
           value={metric}
@@ -717,12 +731,16 @@ export function AlertsPage() {
   const [creatingWindow, setCreatingWindow] = useState(false)
   const [codeExport, setCodeExport] = useState<{ title: string; code: string } | null>(null)
   const maintenanceWindows = maintenance.data?.items ?? []
+  const evaluatorInactive =
+    active.data?.evaluator_running === false || maintenance.data?.evaluator_running === false
 
   const items = useMemo(() => {
     const all = active.data?.items ?? []
     const needle = query.trim().toLowerCase()
     return all.filter((a) => {
-      const haystack = [a.rule_name, a.metric, labelText(a.labels), a.reason].join(' ').toLowerCase()
+      const haystack = [a.rule_name, a.metric, labelText(a.labels), a.reason]
+        .join(' ')
+        .toLowerCase()
       return (
         (!needle || haystack.includes(needle)) &&
         (stateFilter === 'all' || alertStateOf(a) === stateFilter) &&
@@ -864,7 +882,11 @@ export function AlertsPage() {
       header: 'Status',
       render: (w) => {
         const until = activeWindowEnd(w)
-        return until ? <Badge tone="success">active</Badge> : <Badge tone="neutral">scheduled</Badge>
+        return until ? (
+          <Badge tone="success">active</Badge>
+        ) : (
+          <Badge tone="neutral">scheduled</Badge>
+        )
       },
     },
     {
@@ -924,6 +946,23 @@ export function AlertsPage() {
   return (
     <Page title="Alerts" subtitle="Firing alerts (engine truth) and the rules that drive them.">
       <div className={styles.stack}>
+        {evaluatorInactive ? (
+          <section
+            role="alert"
+            aria-labelledby="alerting-inactive-title"
+            className={styles.inactiveBanner}
+          >
+            <div className={styles.inactiveHeading}>
+              <Badge tone="warning">alerting inactive</Badge>
+              <strong id="alerting-inactive-title">Stored rules will not fire</strong>
+            </div>
+            <p>
+              This control plane has no query-capable TSDB backend wired. Rules remain editable, but
+              they are not evaluated and cannot create firing alerts or notifications.
+            </p>
+            <Link to="/docs/api#alerting-setup">Open alerting setup docs</Link>
+          </section>
+        ) : null}
         <Card>
           <CardHeader
             title="Active alerts"
@@ -978,26 +1017,18 @@ export function AlertsPage() {
             ) : active.isError ? (
               <ErrorState description="Could not load active alerts." />
             ) : (
-              <>
-                {active.data && !active.data.evaluator_running ? (
-                  <p role="status" className={styles.notice}>
-                    <Badge tone="warning">evaluator off</Badge> The alert evaluator is not running
-                    for this tenant — firing state is unavailable (rules below remain editable).
-                  </p>
-                ) : null}
-                <Table
-                  caption="Active alerts"
-                  columns={activeColumns}
-                  rows={items}
-                  rowKey={(a) => a.fingerprint}
-                  empty={
-                    <EmptyState
-                      title="No active alerts"
-                      description="Nothing is firing for this tenant."
-                    />
-                  }
-                />
-              </>
+              <Table
+                caption="Active alerts"
+                columns={activeColumns}
+                rows={items}
+                rowKey={(a) => a.fingerprint}
+                empty={
+                  <EmptyState
+                    title="No active alerts"
+                    description="Nothing is firing for this tenant."
+                  />
+                }
+              />
             )}
           </CardBody>
         </Card>
@@ -1013,26 +1044,18 @@ export function AlertsPage() {
             ) : maintenance.isError ? (
               <ErrorState description="Could not load maintenance windows." />
             ) : (
-              <>
-                {maintenance.data && !maintenance.data.evaluator_running ? (
-                  <p role="status" className={styles.notice}>
-                    <Badge tone="warning">evaluator off</Badge> Maintenance windows require the
-                    alert evaluator for this tenant.
-                  </p>
-                ) : null}
-                <Table
-                  caption="Maintenance windows"
-                  columns={maintenanceColumns}
-                  rows={maintenanceWindows}
-                  rowKey={(w) => w.id}
-                  empty={
-                    <EmptyState
-                      title="No maintenance windows"
-                      description="Scheduled suppressions for planned work appear here."
-                    />
-                  }
-                />
-              </>
+              <Table
+                caption="Maintenance windows"
+                columns={maintenanceColumns}
+                rows={maintenanceWindows}
+                rowKey={(w) => w.id}
+                empty={
+                  <EmptyState
+                    title="No maintenance windows"
+                    description="Scheduled suppressions for planned work appear here."
+                  />
+                }
+              />
             )}
           </CardBody>
         </Card>
@@ -1183,7 +1206,8 @@ function OncallRoutingCard() {
               {status.data?.summary}
             </p>
             <p className={styles.muted}>
-              Provider choices: {(status.data?.supported_providers ?? []).map(providerLabel).join(', ')}
+              Provider choices:{' '}
+              {(status.data?.supported_providers ?? []).map(providerLabel).join(', ')}
             </p>
             <Table
               caption="Incident connectors"

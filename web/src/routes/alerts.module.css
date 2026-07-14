@@ -72,6 +72,28 @@
   font-size: var(--font-size-sm);
 }
 
+.inactiveBanner {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--color-warning);
+  border-inline-start-width: var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+}
+
+.inactiveBanner p {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.inactiveHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .muted {
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);

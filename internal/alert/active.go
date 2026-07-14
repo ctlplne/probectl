@@ -19,11 +19,11 @@ import (
 //   - Acknowledge records who has seen/owns a firing alert; it changes nothing
 //     about evaluation or delivery and clears on resolve.
 //
-// Current firing state lives in the engine (in-memory, per evaluator = per
-// tenant) and is re-derived on the next evaluation after restart. Operator
-// silences/acks are different: the control plane persists them through
-// store.AlertOps and seeds them back through RestoreOps, so those actions
-// survive evaluator restarts.
+// Only firing/pending evaluation state is volatile: it lives in the in-memory,
+// per-tenant evaluator and is re-derived on the first tick after restart.
+// Silences/acks are NOT memory-only. The control handlers write them through
+// store.AlertOps, and evaluator startup seeds them through RestoreOps, so those
+// operator decisions survive process and evaluator restarts.
 
 // MaxSilence bounds a single silence request (fail closed on absurd inputs).
 const MaxSilence = 7 * 24 * time.Hour

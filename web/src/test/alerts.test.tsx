@@ -73,7 +73,8 @@ function alertsBackend() {
     oncall: {
       id: 'oncall',
       name: 'On-call + ITSM',
-      summary: 'On-call and ITSM integration is configured with 1 outbound connector(s) and 1 inbound webhook(s)',
+      summary:
+        'On-call and ITSM integration is configured with 1 outbound connector(s) and 1 inbound webhook(s)',
       configured: true,
       dispatcher_running: true,
       outbound_configured: true,
@@ -166,7 +167,15 @@ function alertsBackend() {
     }
     if (url.endsWith('/v1/oncall/test') && method === 'POST') {
       state.connectorTests.push(String(body.connector_id))
-      return jsonResponse({ accepted: true, connector_id: body.connector_id, provider: 'pagerduty', status: 'triggered' }, 202)
+      return jsonResponse(
+        {
+          accepted: true,
+          connector_id: body.connector_id,
+          provider: 'pagerduty',
+          status: 'triggered',
+        },
+        202,
+      )
     }
     if (url.endsWith('/v1/alerts') && method === 'POST') {
       const rule = {
@@ -383,7 +392,10 @@ describe('alerting surface (S-FE1)', () => {
     await userEvent.type(within(dialog).getByLabelText('Name'), 'webhook delivery')
     await userEvent.type(within(dialog).getByLabelText('Metric'), 'probectl_result_loss_pct')
     await userEvent.selectOptions(within(dialog).getByLabelText('Delivery channel'), 'webhook')
-    await userEvent.type(within(dialog).getByLabelText('Webhook URL'), 'https://hooks.example/alerts')
+    await userEvent.type(
+      within(dialog).getByLabelText('Webhook URL'),
+      'https://hooks.example/alerts',
+    )
     await userEvent.type(within(dialog).getByLabelText('Webhook secret'), 'super-secret')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Test channel' }))
     await waitFor(() => expect(state.channelTests.length).toBe(1))
@@ -415,7 +427,7 @@ describe('alerting surface (S-FE1)', () => {
     expect(rows.length).toBe(1 + state.active.length)
   })
 
-  test('evaluator-off is stated, not guessed', async () => {
+  test('alerting inactive is a persistent page warning with setup docs', async () => {
     const { fetcher } = alertsBackend()
     const offFetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
@@ -426,6 +438,12 @@ describe('alerting surface (S-FE1)', () => {
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', offFetcher)
     renderApp('/alerts')
-    expect(await screen.findByText(/evaluator is not running/)).toBeDefined()
+    const warning = await screen.findByRole('alert', { name: /stored rules will not fire/i })
+    expect(warning).toHaveTextContent(/no query-capable TSDB backend/i)
+    expect(warning).toHaveTextContent(/not evaluated/i)
+    expect(
+      within(warning).getByRole('link', { name: /open alerting setup docs/i }),
+    ).toHaveAttribute('href', '/docs/api#alerting-setup')
+    expect(screen.getByRole('table', { name: 'Alert rules' })).toBeDefined()
   })
 })

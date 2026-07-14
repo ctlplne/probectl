@@ -35,7 +35,29 @@ func cmdSurface(cfg Config, spec surfaceCommand, args []string, stdout, stderr i
 		printSurfaceUsage(stderr, spec)
 		return 2
 	}
+	if spec.Name == "alert" {
+		warnIfAlertingInactive(cfg, stderr)
+	}
 	return runRawOperation(cfg, op, args[1:], stdout, stderr)
+}
+
+// warnIfAlertingInactive makes every alert-group command honest about an inert
+// evaluator. The status probe is read-only and tenant-scoped. Failure to read
+// status does not block the requested operation, and warnings stay on stderr so
+// --json stdout remains machine-parseable.
+func warnIfAlertingInactive(cfg Config, stderr io.Writer) {
+	var status struct {
+		AlertingActive *bool  `json:"alerting_active"`
+		Warning        string `json:"warning"`
+	}
+	if err := newClient(cfg).do(http.MethodGet, "/v1/alerts", nil, &status); err != nil || status.AlertingActive == nil || *status.AlertingActive {
+		return
+	}
+	message := strings.TrimSpace(status.Warning)
+	if message == "" {
+		message = "ALERTING INACTIVE: stored rules are not evaluated; configure a query-capable TSDB backend (see docs/alerting.md#evaluation-loop)"
+	}
+	fmt.Fprintln(stderr, "WARNING: "+message)
 }
 
 func runRawOperation(cfg Config, op apiOp, args []string, stdout, stderr io.Writer) int {

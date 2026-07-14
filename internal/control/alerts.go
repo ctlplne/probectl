@@ -15,6 +15,34 @@ import (
 // alertRequest is the create/update body for an alert rule.
 const redactedAlertSecret = "***"
 
+const (
+	alertingInactiveDetail = "no query-capable TSDB backend is wired; stored alert rules are not evaluated"
+	alertingSetupDoc       = "docs/alerting.md#evaluation-loop"
+)
+
+type alertingRuntimeHealth struct {
+	Status           string `json:"status"`
+	EvaluatorRunning bool   `json:"evaluator_running"`
+	Detail           string `json:"detail"`
+	Setup            string `json:"setup,omitempty"`
+}
+
+func (s *Server) alertingHealth() alertingRuntimeHealth {
+	if s.alertingActive {
+		return alertingRuntimeHealth{
+			Status:           "ok",
+			EvaluatorRunning: true,
+			Detail:           "alert evaluator is running",
+		}
+	}
+	return alertingRuntimeHealth{
+		Status:           "degraded",
+		EvaluatorRunning: false,
+		Detail:           alertingInactiveDetail,
+		Setup:            alertingSetupDoc,
+	}
+}
+
 type alertRequest struct {
 	Name            string              `json:"name"`
 	Enabled         *bool               `json:"enabled"`
@@ -94,7 +122,7 @@ func (s *Server) handleListAlerts(w http.ResponseWriter, r *http.Request) error 
 	resp := map[string]any{"items": items, "alerting_active": s.alertingActive}
 	if !s.alertingActive {
 		// ARCH-002/CORRECT-006: don't let the UI imply these rules fire. Say so.
-		resp["warning"] = "alerting is INACTIVE in this deployment profile — these rules are stored but NOT evaluated (no query backend wired); see docs/alerting.md"
+		resp["warning"] = "ALERTING INACTIVE: " + alertingInactiveDetail + "; see " + alertingSetupDoc
 	}
 	writeJSON(w, http.StatusOK, resp)
 	return nil
@@ -136,7 +164,7 @@ func (s *Server) handleCreateAlert(w http.ResponseWriter, r *http.Request) error
 		// stay a consistent bare alert.Rule — the web client (web/src/api/alerts.ts
 		// expects AlertRule) and the API contract depend on it. This keeps the
 		// "never silently store a dead rule" guarantee without breaking the shape.
-		w.Header().Set("Warning", `199 - "alert rule stored but NOT evaluated: alerting is inactive in this deployment profile (no query backend); see docs/alerting.md"`)
+		w.Header().Set("Warning", `199 - "alert rule stored but NOT evaluated: alerting is inactive (no query-capable TSDB backend); see docs/alerting.md#evaluation-loop"`)
 		w.Header().Set("X-Probectl-Alerting-Active", "false")
 	}
 	writeJSON(w, http.StatusCreated, &out)

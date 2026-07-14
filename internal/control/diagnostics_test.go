@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -33,7 +34,7 @@ func (d downPinger) Ping(context.Context) error { return d.err }
 // TestDeepHealthEndpoint: /v1/diagnostics aggregates component health (the
 // database check follows the pinger).
 func TestDeepHealthEndpoint(t *testing.T) {
-	srv := testServer(okPinger{})
+	srv := testServer(okPinger{}).WithAlertingActive(true)
 	rr := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics", nil))
 	if rr.Code != http.StatusOK {
@@ -48,7 +49,7 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	}
 
 	// A down database drives the aggregate down.
-	srv = testServer(downPinger{err: context.DeadlineExceeded})
+	srv = testServer(downPinger{err: context.DeadlineExceeded}).WithAlertingActive(true)
 	rr = httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics", nil))
 	_ = json.Unmarshal(rr.Body.Bytes(), &h)
@@ -64,6 +65,31 @@ func TestDeepHealthEndpoint(t *testing.T) {
 	if !dbDown {
 		t.Fatalf("the database check must report down: %+v", h.Checks)
 	}
+}
+
+func TestDeepHealthReportsAlertingInactive(t *testing.T) {
+	srv := testServer(okPinger{})
+	rr := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/diagnostics", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var h support.Health
+	if err := json.Unmarshal(rr.Body.Bytes(), &h); err != nil {
+		t.Fatal(err)
+	}
+	if h.Status != support.StatusDegraded {
+		t.Fatalf("inactive evaluator must degrade diagnostics: %+v", h)
+	}
+	for _, check := range h.Checks {
+		if check.Name == "alert_evaluator" {
+			if check.Status != support.StatusDegraded || !strings.Contains(check.Detail, "not evaluated") || !strings.Contains(check.Detail, "docs/alerting.md") {
+				t.Fatalf("alert evaluator check lacks actionable detail: %+v", check)
+			}
+			return
+		}
+	}
+	t.Fatalf("diagnostics omitted alert_evaluator check: %+v", h.Checks)
 }
 
 // TestSupportBundleEndpointNoSecrets: the bundle endpoint streams a tar.gz of
