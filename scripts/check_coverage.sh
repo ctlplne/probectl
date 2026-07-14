@@ -111,10 +111,6 @@ awk -v mod="${MODULE}" '
     # the named accuracy/format/enforcement suites on the memory store; the
     # pgx store runs in the integration job.
     floor["ee/billing"]              = 55
-    # White-label (S-T4, ee/): resolver/merge/email/validation run the named
-    # application/no-bleed/domain/email suites on the memory store; the pgx
-    # store runs in the integration job.
-    floor["ee/whitelabel"]           = 55
     floor["ee/tenantkeys"]           = 65
     # Guarded remediation (S-EE5, ee/): the propose→approve→reject workflow,
     # the advisory-only master switch, and the blast-radius/fail-closed guards

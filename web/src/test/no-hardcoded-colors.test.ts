@@ -2,10 +2,10 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 
-// Enforces the design-system contract (F54-foundation): component styling carries
+// Enforces the design-system contract: component styling carries
 // NO hardcoded colors — every color must come from a design token (var(--...)).
-// This is what makes per-tenant white-label a runtime token override rather than
-// a per-screen rewrite. tokens.css is the one place color literals may live.
+// This makes deployment theming a token override rather than a per-screen
+// rewrite. tokens.css is the one place color literals may live.
 const COLOR_LITERAL = /#[0-9a-fA-F]{3,8}\b|\b(?:rgb|rgba|hsl|hsla)\(/
 
 function moduleCssFiles(dir: string): string[] {
@@ -23,8 +23,8 @@ function moduleCssFiles(dir: string): string[] {
 
 describe('design tokens', () => {
   test('no .module.css uses a hardcoded color literal', () => {
-    // Core UI + the ee/web tree (S-T1): the white-label token contract is one
-    // contract — commercial surfaces obey it identically.
+    // Core UI + the ee/web tree share one token contract; commercial surfaces
+    // obey it identically.
     const dirs = [join(process.cwd(), 'src'), join(process.cwd(), '../ee/web')]
     const offenders: string[] = []
     for (const dir of dirs) {

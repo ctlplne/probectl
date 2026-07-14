@@ -451,10 +451,9 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /openapi.json", apiHandler(s.handleOpenAPI))
 	mux.Handle("GET /.well-known/security.txt", apiHandler(s.handleSecurityTxt))
 
-	// White-label brand (S-T4) — public + pre-auth BY DESIGN: the login
-	// surface renders the tenant's brand before any session exists. Resolved
-	// by Host (custom domains) or the caller's session tenant; community/
-	// unlicensed deployments answer the default probectl brand.
+	// Deployment theme — public + pre-auth so the login shell uses the same
+	// allowlisted token overrides. Product identity is always probectl and the
+	// response is identical for every host and tenant.
 	mux.Handle("GET /branding", apiHandler(s.handleBranding))
 
 	// ARCH-004: serve the embedded web UI behind the same CSP + security headers

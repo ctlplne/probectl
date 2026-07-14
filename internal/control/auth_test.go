@@ -14,7 +14,6 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
-	"github.com/imfeelingtheagi/probectl/internal/branding"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
@@ -279,7 +278,7 @@ func TestLoginWithoutProviderConfigured(t *testing.T) {
 	}
 }
 
-func TestTenantIdPLoginUsesTenantHintAndHostMap(t *testing.T) {
+func TestTenantIdPLoginUsesTenantHintAndIgnoresHost(t *testing.T) {
 	srv := testServer(nil)
 	factory := &capturingOIDCFactory{}
 	srv.SetSSOProviderFactory(factory)
@@ -292,18 +291,13 @@ func TestTenantIdPLoginUsesTenantHintAndHostMap(t *testing.T) {
 		t.Fatalf("tenant-hinted login: status=%d resolved=%v", hintedRec.Code, factory.tenantIDs)
 	}
 
-	hostTenant := "11111111-1111-1111-1111-111111111111"
-	branding.SetSource(hostBrandSource{byHost: map[string]branding.Branding{
-		"status.acme.example": branding.Default(),
-	}})
-	t.Cleanup(func() { branding.SetSource(nil) })
 	factory.tenantIDs = nil
 	hosted := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
 	hosted.Host = "status.acme.example:443"
 	hostedRec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(hostedRec, hosted)
-	if hostedRec.Code != http.StatusFound || len(factory.tenantIDs) != 1 || factory.tenantIDs[0] != hostTenant {
-		t.Fatalf("host-mapped login: status=%d resolved=%v", hostedRec.Code, factory.tenantIDs)
+	if hostedRec.Code != http.StatusFound || len(factory.tenantIDs) != 1 || factory.tenantIDs[0] != tenancy.DefaultTenantID.String() {
+		t.Fatalf("host-neutral login: status=%d resolved=%v", hostedRec.Code, factory.tenantIDs)
 	}
 }
 

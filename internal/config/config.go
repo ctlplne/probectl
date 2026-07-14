@@ -8,6 +8,7 @@ package config
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/branding"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
@@ -60,6 +62,11 @@ type Config struct {
 	// Logging.
 	LogLevel  string
 	LogFormat string
+
+	// ThemeOverrides is one deployment-wide, allowlisted design-token map.
+	// Product identity remains probectl and the same values apply to every
+	// tenant; there is no tenant- or host-selected branding state.
+	ThemeOverrides map[string]string
 
 	// Security posture / TLS. When TLSCertFile and TLSKeyFile are both set, the
 	// API serves HTTPS directly; otherwise TLS terminates at the ingress. HSTS is
@@ -685,6 +692,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.MigrateOnBoot = l.boolean("PROBECTL_MIGRATE_ON_BOOT", false)
 	cfg.LogLevel = l.enum("PROBECTL_LOG_LEVEL", "info", "debug", "info", "warn", "error")
 	cfg.LogFormat = l.enum("PROBECTL_LOG_FORMAT", "json", "json", "text")
+	cfg.ThemeOverrides = l.stringMapJSON("PROBECTL_THEME_OVERRIDES")
 	cfg.RequireMFA = l.boolean("PROBECTL_REQUIRE_MFA", false)
 	cfg.HSTSEnabled = l.boolean("PROBECTL_HSTS_ENABLED", true)
 	cfg.HSTSMaxAge = l.dur("PROBECTL_HSTS_MAX_AGE", 365*24*time.Hour)
@@ -902,6 +910,9 @@ func auditRetentionDefault(profile string) time.Duration {
 }
 
 func validateConfig(l *loader, cfg *Config) {
+	if err := branding.ValidateOverrides(cfg.ThemeOverrides); err != nil {
+		l.errf("PROBECTL_THEME_OVERRIDES: %v", err)
+	}
 	if cfg.SingletonLeaseInterval < 250*time.Millisecond {
 		l.errf("PROBECTL_SINGLETON_LEASE_INTERVAL must be at least 250ms")
 	}
@@ -1320,6 +1331,7 @@ func (c *Config) Redacted() map[string]any {
 		"migrate_on_boot":             c.MigrateOnBoot,
 		"log_level":                   c.LogLevel,
 		"log_format":                  c.LogFormat,
+		"theme_overrides_configured":  len(c.ThemeOverrides) > 0,
 		"auth_mode":                   c.AuthMode,
 		"hsts_enabled":                c.HSTSEnabled,
 		"tls_enabled":                 c.TLSEnabled(),
@@ -1501,6 +1513,25 @@ func (l *loader) tokenMap(key string) map[string]string {
 			continue
 		}
 		out[token] = tenant
+	}
+	return out
+}
+
+// stringMapJSON parses a JSON object whose keys and values are strings. JSON
+// keeps CSS values containing commas intact; the owning subsystem validates
+// the allowed key/value grammar after parsing.
+func (l *loader) stringMapJSON(key string) map[string]string {
+	raw := strings.TrimSpace(l.getenv(key))
+	if raw == "" {
+		return nil
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		l.errf("%s: must be a JSON object with string values: %v", key, err)
+		return nil
+	}
+	if out == nil {
+		return map[string]string{}
 	}
 	return out
 }

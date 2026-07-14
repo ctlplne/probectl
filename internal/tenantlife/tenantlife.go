@@ -18,8 +18,8 @@
 //   - The tenant-owned table set derives LIVE from information_schema minus
 //     the shared provider-owned deny list (internal/tenancy) — the same
 //     vocabulary the silo provisioner uses, so the two can never disagree.
-//   - Provider-plane rows ABOUT the tenant (usage, quotas, branding,
-//     break-glass) are erased through the provider role.
+//   - Provider-plane rows ABOUT the tenant (usage, quotas, break-glass, and
+//     compatibility-window rows) are erased through the provider role.
 //   - "Deleted" is verified by counting AFTER deleting: the attestation
 //     records per-store remaining==0, not a promise.
 package tenantlife

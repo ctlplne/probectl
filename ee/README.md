@@ -1,7 +1,7 @@
 # `ee/` — the probectl commercial tree
 
 Everything under `ee/` is commercial code: the provider/MSP plane, siloed
-isolation, metering/billing export, white-label, BYOK/governance, and guarded
+isolation, metering/billing export, BYOK/governance, and guarded
 (human-gated) remediation. The directory name is the "enterprise edition"
 convention GitLab and CockroachDB use — one repository, with the paid features
 fenced into a single *readable* subtree (the fence is the license, not source
@@ -14,7 +14,6 @@ ee/
 ├── provider/      # provider / management plane (tenant lifecycle, fleet, break-glass)
 ├── silo/          # siloed / hybrid per-tenant isolation
 ├── billing/       # per-tenant metering + usage/billing export
-├── whitelabel/    # per-tenant white-label
 ├── tenantkeys/    # per-tenant keys / BYOK (builds on internal/crypto)
 ├── governance/    # governance controls (e.g. AI egress policy)
 ├── remediation/   # guarded, human-gated remediation

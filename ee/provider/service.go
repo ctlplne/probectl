@@ -151,15 +151,6 @@ func (s *Service) RecordQuotaChange(ctx context.Context, actor, tenantID string,
 	return s.audit.Append(ctx, actor, "provider.quota_set", tenantID, data)
 }
 
-// RecordBrandingChange audits a white-label update on the provider stream.
-func (s *Service) RecordBrandingChange(ctx context.Context, actor, target, customDomain string) error {
-	data := map[string]any{}
-	if customDomain != "" {
-		data["custom_domain"] = customDomain
-	}
-	return s.audit.Append(ctx, actor, "provider.branding_set", target, data)
-}
-
 // RecordTenantErase audits a provider-triggered erasure on the provider stream.
 func (s *Service) RecordTenantErase(ctx context.Context, actor, tenantID string, complete bool, reportSHA string) error {
 	return s.audit.Append(ctx, actor, "provider.tenant_erase", tenantID, map[string]any{

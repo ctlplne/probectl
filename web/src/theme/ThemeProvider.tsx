@@ -31,8 +31,8 @@ function readInitial(fallback: ThemeName): ThemeName {
 
 /**
  * ThemeProvider applies the active theme to <html data-theme>, which selects the
- * token set. Per-tenant white-label swaps this attribute (or supplies a tenant
- * token override) — no component changes. The single intentional use of
+ * token set. Deployment-level operator overrides layer onto these tokens with
+ * no component changes. The single intentional use of
  * localStorage is the operator's theme preference (CLAUDE.md §7 guardrail 11).
  */
 export function ThemeProvider({

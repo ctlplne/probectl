@@ -298,6 +298,6 @@ survive.
   `probectl-control support-bundle` (offline); the bundle is structurally
   secret-free.
 - **Related capabilities (separate pages):** Tenancy & isolation; the Provider /
-  MSP plane (break-glass, metering, white-label, residency, per-tenant keys).
+  MSP plane (break-glass, metering, probectl-banner resale, residency, per-tenant keys).
 
 **Covers:** F28, F32, F33, F34, F35

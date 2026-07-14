@@ -638,6 +638,10 @@ func ciBuildImageComponents(t *testing.T, ci string) []string {
 	t.Helper()
 	lines := strings.Split(ci, "\n")
 	jobRe := regexp.MustCompile(`^  ([a-zA-Z0-9_-]+):\s*$`)
+	// The image matrix may use either the compact include-map form or the
+	// older component-axis list. buildComponent is the Makefile binary placed
+	// in the image; multiple image products may intentionally share it.
+	inlineBuildComponentRe := regexp.MustCompile(`\bbuildComponent:\s*([a-zA-Z0-9_-]+)\b`)
 	inJob := false
 	inComponent := false
 	var out []string
@@ -654,6 +658,10 @@ func ciBuildImageComponents(t *testing.T, ci string) []string {
 			continue
 		}
 		trimmed := strings.TrimSpace(ln)
+		if m := inlineBuildComponentRe.FindStringSubmatch(trimmed); m != nil {
+			out = append(out, m[1])
+			continue
+		}
 		if trimmed == "component:" {
 			inComponent = true
 			continue

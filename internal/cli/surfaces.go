@@ -75,12 +75,6 @@ var surfaceCommands = map[string]surfaceCommand{
 		"quotas":     {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/quotas", ArgName: "id"},
 		"set-quotas": {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/quotas", ArgName: "id"},
 	}},
-	"branding": {Name: "branding", Summary: "provider and tenant white-label branding", Ops: map[string]apiOp{
-		"provider":     {Method: http.MethodGet, Path: "/provider/v1/branding"},
-		"set-provider": {Method: http.MethodPut, Path: "/provider/v1/branding"},
-		"tenant":       {Method: http.MethodGet, Path: "/provider/v1/tenants/{id}/branding", ArgName: "id"},
-		"set-tenant":   {Method: http.MethodPut, Path: "/provider/v1/tenants/{id}/branding", ArgName: "id"},
-	}},
 	"device": {Name: "device", Summary: "device inventory and telemetry", Ops: map[string]apiOp{
 		"list":           {Method: http.MethodGet, Path: "/v1/devices"},
 		"metrics":        {Method: http.MethodGet, Path: "/v1/device/metrics", Description: "latest tenant device metric summaries"},

@@ -1,7 +1,7 @@
-import { describe, expect, test, vi, afterEach } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { renderApp } from './renderApp'
-import { jsonResponse, defaultFetch } from './fetchStub'
+import { defaultFetch, jsonResponse } from './fetchStub'
 import {
   applyBrand,
   DEFAULT_BRAND,
@@ -9,30 +9,24 @@ import {
   tokenOverridesPassContrast,
 } from '../api/brand'
 
-/** S-T4: white-label branding applied purely through the S8a token contract —
- *  the brand arrives pre-auth from /branding and lands as token overrides on
- *  <html>, the wordmark, and document.title. Zero per-screen knowledge. */
-
-function brandStub(brand: unknown) {
+function brandingStub(response: unknown) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input)
-    if (url.endsWith('/branding')) return jsonResponse(brand)
+    if (String(input).endsWith('/branding')) return jsonResponse(response)
     return defaultFetch()(input, init)
   }) as unknown as typeof fetch
 }
 
 afterEach(() => {
-  applyBrand(DEFAULT_BRAND) // clear overrides between tests
+  applyBrand(DEFAULT_BRAND)
   document.title = ''
 })
 
-describe('white-label branding (S-T4)', () => {
-  test("tenant A sees A's brand: tokens override on <html>, wordmark + title swap, logo renders", async () => {
+describe('deployment-level probectl theming', () => {
+  test('applies deployment tokens while keeping the probectl banner and title', async () => {
     vi.stubGlobal(
       'fetch',
-      brandStub({
-        product_name: 'AcmeWatch',
-        logo_data_uri: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+      brandingStub({
+        product_name: 'probectl',
         token_overrides: {
           '--color-accent': '#6a4cf0',
           '--color-accent-hover': '#7054f6',
@@ -42,22 +36,33 @@ describe('white-label branding (S-T4)', () => {
       }),
     )
     renderApp('/targets')
-    expect(await screen.findByText('AcmeWatch')).toBeInTheDocument()
+    expect(await screen.findByText('probectl')).toBeInTheDocument()
     await waitFor(() => {
       expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#6a4cf0')
-      expect(document.documentElement.style.getPropertyValue('--color-accent-contrast')).toBe(
-        '#ffffff',
-      )
     })
-    expect(document.title).toBe('AcmeWatch')
-    expect(screen.queryByText('probectl')).toBeNull() // the wordmark is replaced
+    expect(document.title).toBe('probectl')
   })
 
-  test('community/unlicensed: the probectl default brand (a failed or default fetch never breaks the app)', async () => {
-    vi.stubGlobal('fetch', brandStub({ product_name: 'probectl' }))
+  test('rejects a response that attempts to replace the product identity', async () => {
+    vi.stubGlobal(
+      'fetch',
+      brandingStub({
+        product_name: 'OtherProduct',
+        token_overrides: {
+          '--color-accent': '#6a4cf0',
+          '--color-accent-hover': '#7054f6',
+          '--color-accent-strong': '#684af0',
+          '--color-accent-contrast': '#ffffff',
+        },
+      }),
+    )
     renderApp('/targets')
     expect(await screen.findByText('probectl')).toBeInTheDocument()
-    expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('')
+    await waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe(''),
+    )
+    expect(screen.queryByText('OtherProduct')).not.toBeInTheDocument()
+    expect(document.title).toBe('probectl')
   })
 
   test.each([
@@ -68,16 +73,16 @@ describe('white-label branding (S-T4)', () => {
     [['provider.breakglass.results'], 'Break-glass active'],
     [['license.read_only'], 'Degraded read-only'],
   ])('shell renders authority posture %s from /v1/me permissions', async (permissions, label) => {
-    vi.stubGlobal('fetch', brandStub({ product_name: 'probectl' }))
+    vi.stubGlobal('fetch', brandingStub(DEFAULT_BRAND))
     renderApp('/targets', { me: { permissions } })
     expect(
       await screen.findByRole('status', { name: `Authority posture: ${label}` }),
     ).toBeInTheDocument()
   })
 
-  test('no-bleed on the client: switching brands replaces overrides with NO residue', async () => {
+  test('reapplying deployment config removes tokens omitted by the next config', () => {
     applyBrand({
-      product_name: 'AcmeWatch',
+      product_name: 'probectl',
       token_overrides: {
         '--color-accent': '#6a4cf0',
         '--color-accent-hover': '#7054f6',
@@ -86,11 +91,8 @@ describe('white-label branding (S-T4)', () => {
         '--color-focus': '#6a4cf0',
       },
     })
-    expect(document.documentElement.style.getPropertyValue('--color-focus')).toBe('#6a4cf0')
-
-    // Brand B sets only the accent: A's focus override must VANISH.
     applyBrand({
-      product_name: 'GlobexNet',
+      product_name: 'probectl',
       token_overrides: {
         '--color-accent': '#684af0',
         '--color-accent-hover': '#6a4cf0',
@@ -100,35 +102,24 @@ describe('white-label branding (S-T4)', () => {
     })
     expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#684af0')
     expect(document.documentElement.style.getPropertyValue('--color-focus')).toBe('')
-    expect(document.title).toBe('GlobexNet')
+    expect(document.title).toBe('probectl')
   })
 
-  test('client-side defense in depth: non-allowlisted or unsafe tokens are ignored', () => {
+  test('client defense ignores unsafe tokens and unreadable sets', () => {
     applyBrand({
-      product_name: 'X',
+      product_name: 'probectl',
       token_overrides: {
-        '--space-4': '999px', // layout token: not brandable
-        '--color-accent': 'url(https://evil.example)', // unsafe value
-        '--color-info': '24px', // color token must be a color, not any valid token shape
-        '--color-ok': '#00aa55', // fine
+        '--space-4': '999px',
+        '--color-accent': 'url(https://evil.example)',
+        '--color-info': '24px',
+        '--color-ok': '#00aa55',
       },
     })
     expect(document.documentElement.style.getPropertyValue('--space-4')).toBe('')
     expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('')
     expect(document.documentElement.style.getPropertyValue('--color-info')).toBe('')
     expect(document.documentElement.style.getPropertyValue('--color-ok')).toBe('#00aa55')
-  })
 
-  test('contrast defense in depth: unreadable token sets are ignored atomically', () => {
-    expect(
-      tokenOverridesPassContrast({
-        '--color-accent': '#6a4cf0',
-        '--color-accent-hover': '#7054f6',
-        '--color-accent-strong': '#684af0',
-        '--color-accent-contrast': '#ffffff',
-        '--color-focus': '#6a4cf0',
-      }),
-    ).toBe(true)
     expect(tokenOverridesPassContrast({ '--color-text': '#ffffff' })).toBe(false)
     expect(tokenOverridesPassContrast({ '--color-accent': '#ff3300' })).toBe(false)
     expect(tokenOverridesPassContrast({ '--color-chart-1': '#ffffff' })).toBe(false)
@@ -141,18 +132,5 @@ describe('white-label branding (S-T4)', () => {
         '--color-text': '#ffffff',
       }),
     ).toEqual({})
-
-    applyBrand({
-      product_name: 'BadBrand',
-      token_overrides: {
-        '--color-accent': '#6a4cf0',
-        '--color-accent-hover': '#7054f6',
-        '--color-accent-strong': '#684af0',
-        '--color-accent-contrast': '#ffffff',
-        '--color-text': '#ffffff',
-      },
-    })
-    expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('')
-    expect(document.documentElement.style.getPropertyValue('--color-text')).toBe('')
   })
 })

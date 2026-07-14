@@ -336,7 +336,7 @@ export const SURFACES: SurfaceDecl[] = [
   // separate privilege domain, hidden when unlicensed (the API 404s).
   {
     capability: 'Provider console: tenant lifecycle, fleet, break-glass (operators)',
-    featureIds: ['F51', 'F53', 'F54'],
+    featureIds: ['F51', 'F53'],
     sprint: 'S-T1',
     kind: 'native',
     route: '/provider',
@@ -605,6 +605,16 @@ export const SURFACES: SurfaceDecl[] = [
   },
 
   // --- declared none-by-design surfaces (deliberate product exclusions) ---
+
+  {
+    capability: 'Per-tenant or provider-master product rebranding',
+    featureIds: ['F54'],
+    sprint: 'W11 owner decision',
+    kind: 'none-by-design',
+    noneReason:
+      'Removed by design: MSPs resell under the probectl banner. Operators may set one deployment-wide allowlisted token theme, but no tenant can replace product identity, logos, domains, or email identity.',
+    liveReceipt: NONE_BY_DESIGN_RECEIPT,
+  },
 
   {
     capability: 'Plugin/detection marketplace',

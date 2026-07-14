@@ -67,7 +67,7 @@ be referenced from others.
 | F51 — Provider / MSP plane | [features/commercial-plane.md](features/commercial-plane.md) |
 | F52 — Pooled / siloed / hybrid isolation | [features/tenancy.md](features/tenancy.md) |
 | F53 — Metering & billing export | [features/commercial-plane.md](features/commercial-plane.md) |
-| F54 — White-label branding | [features/commercial-plane.md](features/commercial-plane.md) |
+| F54 — White-label branding (removed by design) | [white-label.md](white-label.md) |
 | F55 — Export, residency & verifiable deletion | [features/commercial-plane.md](features/commercial-plane.md) |
 | F56 — Per-tenant keys / BYOK | [features/commercial-plane.md](features/commercial-plane.md) |
 | F57 — Tenant fairness | [features/tenancy.md](features/tenancy.md) |

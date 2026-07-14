@@ -584,7 +584,6 @@ function apiPayload(path, method, pagePath = "") {
       retention_days: 30,
       byok: "byok",
     });
-  if (path === "/provider/v1/branding") return json({ product_name: "" });
   return json({ error: { code: "not_found", message: "not found" } }, 404);
 }
 

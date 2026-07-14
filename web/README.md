@@ -12,7 +12,7 @@ the AI **Ask** panel, the provider console, and more) are routes on top of it.
 | Concern         | Choice                                  | Why                                                                                                                                                                                                                                                     |
 | --------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Framework       | **React 18 + TypeScript + Vite**        | Richest ecosystem for data-dense observability UIs (tables, charts, the path/topology hero visuals); strong typing and tooling.                                                                                                                         |
-| Styling/theming | **CSS custom properties + CSS Modules** | Tokens are read live, so per-tenant **white-label** is a _runtime token override_, not a per-screen rewrite. No utility-class lock-in; no external / "phone-home" fonts (the sovereignty rule — [Non-negotiables](../CONTRIBUTING.md#non-negotiables)). |
+| Styling/theming | **CSS custom properties + CSS Modules** | Tokens are read live, so one deployment-wide theme can be applied without rewriting screens. Product identity remains probectl. No utility-class lock-in; no external / "phone-home" fonts (the sovereignty rule — [Non-negotiables](../CONTRIBUTING.md#non-negotiables)). |
 | Server state    | **TanStack Query**                      | Caching/retries/loading-error states for the `/v1` API; UI state stays in React.                                                                                                                                                                        |
 | Routing         | **React Router**                        | Mature nested routing for the app-shell + outlet model.                                                                                                                                                                                                 |
 | Tests           | **Vitest + Testing Library + jest-axe** | Component, keyboard/focus, theme-swap, and an automated a11y gate — all runnable in CI without a browser.                                                                                                                                               |
@@ -25,15 +25,16 @@ the AI **Ask** panel, the provider console, and more) are routes on top of it.
   value. **No component hardcodes a color/space/type/radius/motion value** —
   which is why re-theming is a variable swap rather than a screen-by-screen
   hunt. A second theme (`[data-theme="aurora"]`) proves a full re-skin via
-  token swap; per-tenant branding overrides the same set.
+  token swap; an operator-configured deployment theme overrides the same safe
+  set for every tenant.
 - **Component library** (`components/`) — Button, Card, Badge, Input, Select,
   Table, Modal, Toast, Icon, ChartShell + Sparkline, and Empty/Error/Loading
   states (`States`). Browse them live at `/gallery`.
 - **App shell** (`shell/`, `nav/`) — sidebar IA, ⌘K command palette,
   always-visible tenant indicator, top bar.
-- **Theming / branding** (`theme/`, `brand/`) — `ThemeProvider` (light/dark +
-  the aurora demo theme) and `BrandProvider` (per-tenant white-label token
-  overrides).
+- **Theming** (`theme/`, `brand/`) — `ThemeProvider` (light/dark + the aurora
+  demo theme) and `BrandProvider` (one deployment-level token override set;
+  the product name is always probectl).
 - **Auth** (`auth/`) — `AuthProvider` resolves the **real** signed-in identity
   from the session (`GET /v1/me`; the server resolves the tenant from the
   session cookie, never the browser) and exposes it through `useAuth`. There is
@@ -50,8 +51,8 @@ the AI **Ask** panel, the provider console, and more) are routes on top of it.
 
 - **No hardcoded design values** — enforced by a test
   (`test/no-hardcoded-colors.test.ts`).
-- **White-label ready** — a token swap re-themes the whole UI
-  (`test/theme.test.tsx`).
+- **Deployment-theme ready** — a token swap re-themes the whole UI while the
+  probectl banner stays fixed (`test/theme.test.tsx`).
 - **WCAG 2.2 AA baseline** (the Web Content Accessibility Guidelines' mid
   conformance level — the usual legal/procurement bar) — semantic landmarks,
   skip link, focus management, reduced-motion, keyboard-first; an **axe gate**

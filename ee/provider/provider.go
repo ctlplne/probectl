@@ -58,8 +58,6 @@ type Deps struct {
 	// S-T3: the metering capability (nil unless the metering feature is
 	// licensed — then the usage/quota surfaces stay hidden).
 	Metering *Metering
-	// S-T4: the white-label capability (nil unless white_label is licensed).
-	WhiteLabel *WhiteLabel
 	// S-T5: the CORE tenant-lifecycle engine (export/erasure is a compliance
 	// right; the provider plane only adds the operator-facing erase view).
 	Lifecycle Lifecycle
@@ -115,7 +113,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	}
 	return NewHandler(svc, NewSessions(cfg.SessionHMACKey), tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
-		WithMetering(d.Metering).WithWhiteLabel(d.WhiteLabel).WithLifecycle(d.Lifecycle).
+		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
 }
 

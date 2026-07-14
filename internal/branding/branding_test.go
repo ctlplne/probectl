@@ -3,7 +3,6 @@
 package branding
 
 import (
-	"context"
 	"math"
 	"strings"
 	"testing"
@@ -23,21 +22,21 @@ func TestValidateOverrides(t *testing.T) {
 		t.Fatalf("valid overrides rejected: %v", err)
 	}
 	bad := []map[string]string{
-		{"--space-4": "40px"}, // layout tokens are not brand
-		{"--color-accent": "url(https://evil.example/x.png)"}, // no urls
-		{"--color-accent": "#fff; background: url(x)"},        // no injection
-		{"--color-accent": "var(--other)"},                    // no var()
-		{"color-accent": "#fff"},                              // must be a custom property
-		{"--radius-md": "calc(1px + 1px)"},                    // no expressions
-		{"--font-sans": "Inter; }"},                           // no structure chars
-		{"--color-bg": "expression(alert(1))"},                // no expressions
-		{"--color-text": "#ffffff"},                           // unreadable on light theme
-		{"--color-accent": "#ff3300"},                         // inherited accent text fails contrast
-		{"--color-chart-1": "#ffffff"},                        // chart/non-text indicator vanishes
+		{"--space-4": "40px"},
+		{"--color-accent": "url(https://evil.example/x.png)"},
+		{"--color-accent": "#fff; background: url(x)"},
+		{"--color-accent": "var(--other)"},
+		{"color-accent": "#fff"},
+		{"--radius-md": "calc(1px + 1px)"},
+		{"--font-sans": "Inter; }"},
+		{"--color-bg": "expression(alert(1))"},
+		{"--color-text": "#ffffff"},
+		{"--color-accent": "#ff3300"},
+		{"--color-chart-1": "#ffffff"},
 	}
-	for i, m := range bad {
-		if err := ValidateOverrides(m); err == nil {
-			t.Errorf("bad override set %d accepted: %v", i, m)
+	for i, overrides := range bad {
+		if err := ValidateOverrides(overrides); err == nil {
+			t.Errorf("bad override set %d accepted: %v", i, overrides)
 		}
 	}
 	big := map[string]string{}
@@ -51,80 +50,18 @@ func TestValidateOverrides(t *testing.T) {
 	}
 }
 
-func TestValidateLogoAndDomain(t *testing.T) {
-	if err := ValidateLogo("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="); err != nil {
-		t.Fatalf("valid logo rejected: %v", err)
+func TestDeploymentAlwaysUsesProbectlAndCopiesOverrides(t *testing.T) {
+	overrides := map[string]string{"--radius-md": " 10px "}
+	got := Deployment(overrides)
+	if got.ProductName != "probectl" || got.TokenOverrides["--radius-md"] != "10px" {
+		t.Fatalf("deployment branding = %+v", got)
 	}
-	if err := ValidateLogo(""); err != nil {
-		t.Fatal("empty logo must be allowed")
+	overrides["--radius-md"] = "99px"
+	if got.TokenOverrides["--radius-md"] != "10px" {
+		t.Fatal("deployment response aliases mutable config")
 	}
-	for _, bad := range []string{
-		"https://cdn.example/logo.png",                               // external fetch (sovereignty)
-		"data:text/html;base64,PGI+",                                 // not an image
-		"data:image/svg+xml;base64,<script>",                         // not base64
-		"data:image/png;base64," + strings.Repeat("A", MaxLogoBytes), // too big
-	} {
-		if err := ValidateLogo(bad); err == nil {
-			t.Errorf("bad logo accepted: %.40s", bad)
-		}
-	}
-
-	if err := ValidateDomain("status.msp-customer.example"); err != nil {
-		t.Fatalf("valid domain rejected: %v", err)
-	}
-	if err := ValidateDomain(""); err != nil {
-		t.Fatal("empty domain must be allowed")
-	}
-	for _, bad := range []string{"https://x.example", "x.example/path", "UPPER.example", "localhost", "x..example", "-x.example"} {
-		if err := ValidateDomain(bad); err == nil {
-			t.Errorf("bad domain accepted: %q", bad)
-		}
-	}
-}
-
-func TestNormalizeHost(t *testing.T) {
-	for in, want := range map[string]string{
-		"Status.Acme.Example:443": "status.acme.example",
-		"status.acme.example.":    "status.acme.example",
-		"status.acme.example":     "status.acme.example",
-	} {
-		if got := NormalizeHost(in); got != want {
-			t.Errorf("NormalizeHost(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-type fakeSource struct{ byHost map[string]string }
-
-func (f fakeSource) For(_ context.Context, host, tenantID string) Branding {
-	if tenantID == "tnA" || f.byHost[host] == "tnA" {
-		return Branding{ProductName: "AcmeWatch"}
-	}
-	return Default()
-}
-
-func (f fakeSource) TenantForHost(_ context.Context, host string) string { return f.byHost[host] }
-
-func TestSeamDefaultAndInstall(t *testing.T) {
-	SetSource(nil)
-	if b := Resolve(context.Background(), "any.example", "tnA"); b.ProductName != "probectl" {
-		t.Fatalf("default brand: %+v", b)
-	}
-	if tid := TenantForHost(context.Background(), "any.example"); tid != "" {
-		t.Fatalf("default host mapping must be empty: %q", tid)
-	}
-
-	SetSource(fakeSource{byHost: map[string]string{"status.acme.example": "tnA"}})
-	defer SetSource(nil)
-	if b := Resolve(context.Background(), "", "tnA"); b.ProductName != "AcmeWatch" {
-		t.Fatalf("installed source not used: %+v", b)
-	}
-	if tid := TenantForHost(context.Background(), "status.acme.example"); tid != "tnA" {
-		t.Fatalf("host mapping: %q", tid)
-	}
-	// Another tenant on another host stays default — no bleed at the seam.
-	if b := Resolve(context.Background(), "other.example", "tnB"); b.ProductName != "probectl" {
-		t.Fatalf("bleed at the seam: %+v", b)
+	if got := Default(); got.ProductName != "probectl" || len(got.TokenOverrides) != 0 {
+		t.Fatalf("default branding = %+v", got)
 	}
 }
 
@@ -153,15 +90,8 @@ func TestParseContrastColorVariants(t *testing.T) {
 
 func TestParseContrastColorRejectsInvalidInput(t *testing.T) {
 	for _, in := range []string{
-		"#12",
-		"#zzzzzz",
-		"rgb(1 2)",
-		"rgb(300 0 0)",
-		"rgba(0 0 0 2)",
-		"hsl(0 101% 50%)",
-		"hsl(nope 50% 50%)",
-		"rgb(",
-		"var(--color-text)",
+		"#12", "#zzzzzz", "rgb(1 2)", "rgb(300 0 0)", "rgba(0 0 0 2)",
+		"hsl(0 101% 50%)", "hsl(nope 50% 50%)", "rgb(", "var(--color-text)",
 	} {
 		if _, err := parseContrastColor(in); err == nil {
 			t.Fatalf("parseContrastColor(%q) succeeded, want error", in)
@@ -172,10 +102,8 @@ func TestParseContrastColorRejectsInvalidInput(t *testing.T) {
 func assertContrastColor(t *testing.T, name string, got, want contrastColor) {
 	t.Helper()
 	const epsilon = 1e-9
-	if math.Abs(got.r-want.r) > epsilon ||
-		math.Abs(got.g-want.g) > epsilon ||
-		math.Abs(got.b-want.b) > epsilon ||
-		math.Abs(got.a-want.a) > epsilon {
+	if math.Abs(got.r-want.r) > epsilon || math.Abs(got.g-want.g) > epsilon ||
+		math.Abs(got.b-want.b) > epsilon || math.Abs(got.a-want.a) > epsilon {
 		t.Fatalf("%s = %+v, want %+v", name, got, want)
 	}
 }

@@ -231,6 +231,11 @@ export interface BGPEventList {
   items?: BGPEvent[]
 }
 
+export interface Branding {
+  product_name: "probectl"
+  token_overrides?: { [key: string]: string }
+}
+
 export interface ChangeCandidate {
   event?: ChangeEvent
   reason?: string
@@ -996,6 +1001,11 @@ export interface SsoLogoutRequest {
 }
 
 export type SsoLogoutResponse = void
+
+export interface GetBrandingRequest {
+}
+
+export type GetBrandingResponse = Branding
 
 export interface AgentEnrollRequest {
   body: JsonObject
@@ -1889,6 +1899,12 @@ export class ProbectlSDKClient {
     let path = "/auth/logout"
     const query = new URLSearchParams()
     await this.request("POST", path, query, undefined)
+  }
+
+  async getBranding(): Promise<GetBrandingResponse> {
+    let path = "/branding"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetBrandingResponse>("GET", path, query, undefined)
   }
 
   async agentEnroll(request: AgentEnrollRequest): Promise<AgentEnrollResponse> {

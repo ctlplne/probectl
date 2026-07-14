@@ -7,7 +7,7 @@
  * invisible omission from SURFACES.
  */
 
-export type RequiredFeatureStatus = 'delivered' | 'partial' | 'future'
+export type RequiredFeatureStatus = 'delivered' | 'partial' | 'future' | 'removed'
 
 export interface RequiredFeature {
   id: string
@@ -310,7 +310,12 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
     status: 'delivered',
     source: 'prd-v1.0:3',
   },
-  { id: 'F54', name: 'White-label', status: 'delivered', source: 'prd-v1.0:3' },
+  {
+    id: 'F54',
+    name: 'Per-tenant rebranding (removed by design)',
+    status: 'removed',
+    source: 'prd-v1.0:3',
+  },
   {
     id: 'F55',
     name: 'Export/residency/verifiable deletion',

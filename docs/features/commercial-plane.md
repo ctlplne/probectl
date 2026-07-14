@@ -6,7 +6,7 @@ The provider plane is the operator surface a **managed service provider (MSP)** 
 an organization that self-hosts probectl once and serves many customer tenants —
 or an internal platform team uses to *run* a multi-tenant deployment: provisioning
 and suspending tenants, watching fleet-wide health across all of them, metering
-each tenant's usage for billing, applying each customer's own branding, honouring
+each tenant's usage for billing, preserving the probectl product identity, honouring
 export and residency obligations, and — under tight controls — reaching into a
 single tenant's telemetry.
 
@@ -17,13 +17,12 @@ operator is the landlord — the master key opens the boiler room and the breake
 panel, never the tenants' filing cabinets. Everything on this page enforces that
 line.
 
-Five capabilities live here:
+Four capabilities live here:
 
 - **The provider plane and its privilege model** — operators with no implicit read
   access to tenant telemetry.
 - **Metering & billing export** — count each tenant's usage; export a feed your
   billing system imports.
-- **White-label branding** — show each customer its own brand.
 - **Export / residency / verifiable deletion** — portability and a recomputable
   deletion proof.
 - **Per-tenant keys / BYOK (Bring Your Own Key)** — each tenant's data sealed under
@@ -36,8 +35,8 @@ KEK are defined there.
 
 If one company is going to operate probectl on behalf of many others, two things
 must be true at once, and they pull in opposite directions. The operator needs
-enough power to *run* the platform — provision tenants, see fleet health, bill
-correctly, brand each customer. And the operator must have *none* of the power to
+enough power to *run* the platform — provision tenants, see fleet health, and bill
+correctly. And the operator must have *none* of the power to
 quietly read a customer's network telemetry. A naive "admin can do anything" model
 fails the second test instantly.
 
@@ -48,8 +47,8 @@ wall in front of tenant data:
   separately-audited consent. There is *no* standing read access.
 - **"How do we bill each tenant accurately?"** Metering counts usage from the
   streams already flowing and exports a vendor-neutral feed.
-- **"Can each of our customers see their own brand?"** Yes — branding is a runtime
-  override of design values, per tenant.
+- **"Can each customer replace the product identity?"** No — MSPs resell under
+  the probectl banner. One optional design-token theme applies deployment-wide.
 - **"Can we honour a customer's deletion or data-residency demand, and prove it?"**
   Yes — export and a recomputable deletion attestation, plus regional pinning for
   strict tenants.
@@ -138,28 +137,19 @@ may *create* (denied with a clear error), but they **never** drop telemetry —
 observability must not silently lose data, and a database blip degrades a quota
 check *open* because a quota is a billing control, not a security boundary.
 
-### White-label branding
+### Product identity and deployment theme
 
-White-labeling is a *runtime override of design values*. Every screen styles
-itself from named design values rather than hardcoded colors, so re-branding is
-just overriding those values at runtime — zero per-screen work, like sliding a few
-faders on a theater lighting board to re-light the whole show. A brand carries a
-product name, an inline logo, a login message, a strict allowlist of color and
-typography overrides, email branding, and a custom-domain mapping.
+MSPs resell under the probectl banner. Per-tenant/provider-master product,
+logo, custom-domain, login, email, and token overrides were removed by design
+(historical F54). The tenant indicator still makes scope explicit, and the
+provider console remains visually separate from the tenant shell.
 
-Two safety properties matter:
-
-- **No bleed between tenants.** One tenant's brand must never leak into another's
-  resolution. Resolution caches under a strictly-scoped key, an authenticated
-  tenant resolves by tenant only (a signed-in tenant-B user on tenant-A's domain
-  gets B's brand), and the responses are marked so a shared cache cannot serve the
-  wrong brand on the wrong domain. A resolution *failure* degrades to the default
-  brand — never an error page, and never another tenant's brand.
-- **Override values are injection-safe by construction.** Only narrow shapes are
-  accepted — a color, a simple length, a plain font list — and never a fetchable
-  URL or an arbitrary expression, so a brand value cannot become a foothold that
-  makes every visitor's browser call an attacker's server. Color choices are also
-  checked against a contrast bar so a tenant cannot brand its own UI unreadable.
+Dark and aurora remain shipped operator themes. A deployment may layer one
+allowlisted token map across every tenant through `PROBECTL_THEME_OVERRIDES`.
+The control plane rejects unsafe syntax and token sets that fail WCAG contrast;
+public `GET /branding` returns the same fixed-probectl response for every host
+and tenant. See [`../white-label.md`](../white-label.md) for the decision and
+expand/contract storage compatibility window.
 
 ### Export, residency & verifiable deletion
 
@@ -260,10 +250,6 @@ before returning data.
   on infrastructure failure because it is a billing control, not a security
   boundary. Throttling shared ingest is the fairness layer's job (see the tenancy
   page).
-- **Custom-domain certificates are yours to issue.** probectl does not auto-issue
-  TLS certificates in this release. Each white-label custom domain needs an alias
-  DNS record and a certificate at your TLS-terminating front door (managed by your
-  own certificate tooling or the sibling certificate-lifecycle product).
 - **BYOK means you own the lock.** A dead key reference is rejected *before*
   activation, so you cannot rotate into a key probectl can't reach. But if you
   later revoke probectl's access to the key, your sealed data becomes unreadable
@@ -279,7 +265,7 @@ before returning data.
 - **A licensed feature degrades read-only after expiry, never dark.** Past the
   grace window, provider mutations are refused (no new tenants, operators, or
   grants) while reads keep working and running telemetry pipelines are never
-  touched. Branding persists read-only.
+  touched.
 
 ## Reference
 
@@ -297,9 +283,8 @@ before returning data.
   summed; gauges (agents, tests) peaked; export at
   `GET /provider/v1/usage/export?format=csv|jsonl` with a stable additive column
   contract; quotas gate creation only, never drop telemetry.
-- **White-label:** runtime override of design values; per-tenant and
-  provider-master brands; strict injection-safe override allowlist; no cross-tenant
-  bleed; failure degrades to the default brand.
+- **Product identity:** probectl banner for every tenant; optional validated
+  design-token overrides apply once per deployment, never per tenant.
 - **Export / deletion:** suspend is reversible; offboarding plus a separate
   verifiable-deletion flow produces a recomputable attestation; residency via
   siloed region-pinned stores.
@@ -309,4 +294,4 @@ before returning data.
 - **Related capabilities (separate pages):** Tenancy & hard isolation; Running
   probectl in production (governance, residency in multi-region, supportability).
 
-**Covers:** F51, F53, F54, F55, F56
+**Covers:** F51, F53, F55, F56. Historical F54 is explicitly removed by design.

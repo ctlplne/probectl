@@ -90,7 +90,7 @@ func TestAPIRouteTableEntriesAreUniqueAndPermissioned(t *testing.T) {
 }
 
 // ARCH-013: the NON-/v1 mounted surfaces (auth, enroll, ingest, SCIM, metrics,
-// branding, security.txt, ...) must each be either documented in the spec or in
+// deployment theming, security.txt, ...) must each be either documented in the spec or in
 // this explicit exclusion list. Scanning the router source means a NEW mounted
 // surface that is neither documented nor excluded fails the test — no silent
 // undocumented route.
@@ -102,7 +102,6 @@ func TestNonV1SurfacesDocumentedOrExcluded(t *testing.T) {
 	excludedExact := map[string]bool{
 		"/metrics":                  true, // Prometheus exposition, not REST
 		"/version":                  true, // build metadata
-		"/branding":                 true, // white-label asset endpoint
 		"/.well-known/security.txt": true, // RFC 9116
 		"/openapi.json":             true, // the spec itself
 		"/ui/":                      true, // ARCH-004 embedded SPA (not a REST surface)

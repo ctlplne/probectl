@@ -2,9 +2,10 @@
 
 You run probectl for many customers as a managed service provider
 ([glossary](../glossary.md)) — an **MSP**. This journey walks you from an empty
-provider plane to a single tenant that is isolated, branded, metered, and wired to
+provider plane to a single tenant that is isolated, metered, and wired to
 its own users. By the end the tenant's people can log in and see only their own
-data — and you, the operator, still cannot read their telemetry.
+data under the probectl banner — and you, the operator, still cannot read their
+telemetry.
 
 That last point is the spine of this journey. A provider operator lives in a
 *separate* privilege domain from a tenant's users. Provisioning a tenant gives you
@@ -18,8 +19,8 @@ provider plane page, deliberately not part of standing setup.
   customers.
 - An operator authenticated to the provider plane with multi-factor login (the
   plane requires it; there is no password-only sign-in).
-- Anyone standing up a new customer tenant end to end: isolation, branding,
-  identity, and billing.
+- Anyone standing up a new customer tenant end to end: isolation, identity,
+  and billing.
 
 ## Before you start
 
@@ -88,14 +89,14 @@ provider plane page, deliberately not part of standing setup.
    lifetime totals, and never drops telemetry. Powered by
    [tenancy and hard isolation](../features/tenancy.md).
 
-4. **Apply white-label branding.** Re-brand the tenant by overriding named design
-   values at runtime — product name, inline logo, login message, a narrow
-   injection-safe allowlist of colors and typography, and a custom-domain mapping.
-   There is no per-screen work, and one tenant's brand never bleeds into another's.
+4. **Confirm product identity and deployment theme.** Every tenant sees the
+   probectl banner. If the deployment operator configured an allowlisted token
+   theme, the same colors/radii/fonts apply across the whole deployment; there
+   is no tenant-specific product, logo, hostname, login, or email identity.
 
-   You observe the tenant's people seeing their own brand; a resolution failure
-   degrades to the default brand, never another tenant's. Powered by
-   [the provider / MSP plane](../features/commercial-plane.md).
+   You observe the always-visible tenant indicator distinguishing tenant
+   context while the provider console remains a visually separate operator
+   surface. See the [removed F54 decision](../white-label.md).
 
 5. **Connect single sign-on and SCIM provisioning.** Point the tenant at its own
    OIDC identity provider, then mint a per-tenant System for Cross-domain Identity

@@ -14,8 +14,8 @@ const (
 // Tenant-owned-table vocabulary (S-T2/S-T5): the set of tables that hold
 // tenant data is derived LIVE from information_schema (any public table with
 // a tenant_id column) MINUS this provider-owned deny list. Most entries carry
-// tenant_id but belong to the provider plane (billing/branding/break-glass/
-// lifecycle records ABOUT tenants); global entries are included so callers
+// tenant_id but belong to the provider plane (billing/break-glass/lifecycle
+// records ABOUT tenants); global entries are included so callers
 // have one vocabulary for tables that must never enter tenant silos. Shared by
 // the silo provisioner (ee) and the core
 // tenant-lifecycle engine so the two can never disagree about what counts as
@@ -24,12 +24,15 @@ var providerOwnedTables = map[string]providerOwnedKind{
 	"break_glass_grants": providerTenantTable,
 	"usage_records":      providerTenantTable,
 	"tenant_quotas":      providerTenantTable,
-	"tenant_branding":    providerTenantTable,
-	"tenant_retention":   providerTenantTable,
-	"tenant_keys":        providerTenantTable,
-	"tenant_fairness":    providerTenantTable,
-	"tenant_governance":  providerTenantTable,
-	"cluster_state":      providerGlobalTable,
+	// Retained only during the 0057 expand/contract compatibility window. It
+	// must remain provider-owned so a rolling deployment cannot copy this
+	// legacy table into tenant silos. No product-identity path reads it.
+	"tenant_branding":   providerTenantTable,
+	"tenant_retention":  providerTenantTable,
+	"tenant_keys":       providerTenantTable,
+	"tenant_fairness":   providerTenantTable,
+	"tenant_governance": providerTenantTable,
+	"cluster_state":     providerGlobalTable,
 }
 
 // ProviderOwnedTable reports whether a tenant_id-bearing table is

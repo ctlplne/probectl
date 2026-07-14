@@ -23,7 +23,7 @@ function colorTokensFor(css: string, selector: string): Set<string> {
   return new Set(names)
 }
 
-describe('theming (white-label proof)', () => {
+describe('deployment theming', () => {
   test('toggling theme swaps the active token set on <html>', async () => {
     const user = userEvent.setup()
     render(

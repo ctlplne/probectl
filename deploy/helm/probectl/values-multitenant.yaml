@@ -68,7 +68,7 @@ affinity:
 ingress:
   enabled: true
   className: nginx
-  # Per-tenant white-label hostnames are layered on by the provider plane (S-T4);
+  # Additional deployment hostnames terminate at the same probectl-branded UI;
   # this is the provider/admin entry host.
   host: probectl.msp.example.com
   tlsSecretName: probectl-msp-tls

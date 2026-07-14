@@ -97,6 +97,7 @@ const PRD_ROW_SURFACE_PARITY: Array<{
 
 function readPRDv1(): string {
   const candidates = [
+    join(REPO_ROOT, 'probectl-PRD-v1.0.md'),
     join(REPO_ROOT, '../probectl-PRD-v1.0.md'),
     join(REPO_ROOT, '../../probectl-PRD-v1.0.md'),
   ]
@@ -337,6 +338,9 @@ function prdStatusFor(id: string): RequiredFeatureStatus | undefined {
   if (statusCell.includes('✅')) {
     return 'delivered'
   }
+  if (statusCell.includes('🚫')) {
+    return 'removed'
+  }
   if (statusCell.includes('⛔')) {
     return 'future'
   }
@@ -425,6 +429,15 @@ describe('frontend-coverage gate (S-FE6)', () => {
     expect(futureFeatureViolations(REQUIRED_FEATURES, bad)).toContain(
       'F49 Plugin/detection marketplace: future feature must be none-by-design, got native',
     )
+  })
+
+  test('removed features remain explicit none-by-design decisions', () => {
+    const removed = REQUIRED_FEATURES.filter((feature) => feature.status === 'removed')
+    expect(removed.map((feature) => feature.id)).toEqual(['F54'])
+    const declaration = SURFACES.find((surface) => surface.featureIds?.includes('F54'))
+    expect(declaration?.kind).toBe('none-by-design')
+    expect(declaration?.noneReason).toMatch(/removed by design/i)
+    expect(declaration?.noneReason).toMatch(/probectl banner/i)
   })
 
   test('the gate itself fails on a capability with no surface', () => {

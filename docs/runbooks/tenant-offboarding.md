@@ -117,7 +117,7 @@ the same row-level security (RLS) scope as live queries — the eraser is
 | Store | Mechanism | Verification |
 |---|---|---|
 | Postgres (pooled or silo-routed) | per-table `DELETE` **under the tenant's own scope** (RLS + silo routing — it cannot touch another tenant), multi-pass to satisfy intra-tenant foreign-key ordering | per-table `count(*) == 0` in-scope |
-| Provider rows about the tenant (usage, quotas, branding, break-glass, retention) | provider-role-scoped deletes | per-table count == 0 |
+| Provider rows about the tenant (usage, quotas, break-glass, retention, and compatibility-window rows) | provider-role-scoped deletes | per-table count == 0 |
 | ClickHouse flows | pooled: synchronous lightweight delete (`SETTINGS mutations_sync=2`); siloed: `DROP DATABASE` | post-delete count == 0 |
 | ClickHouse endpoint/DEM events | pooled: tenant-predicate mutation; siloed: `DROP DATABASE` | post-delete count == 0 (`endpoint_events` in the attestation) |
 | Object store (`PROBECTL_OBJECTSTORE_DIR`, when configured) | `DeletePrefix` on `tenant/<id>/` and `silo/<id>/`; browser synthetic artifacts use the same tenant-prefixed namespace | post-delete list is empty |

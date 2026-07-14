@@ -1,8 +1,8 @@
 /**
- * The white-label brand (S-T4). Fetched PRE-AUTH from the public /branding
- * endpoint (Host-resolved: a custom domain answers its tenant's brand;
- * community/unlicensed deployments answer the probectl default). Branding is
- * a runtime override of the S8a design tokens — no screen knows about it.
+ * Deployment-level probectl theming. Fetched PRE-AUTH from /branding so the
+ * login shell and tenant app use the same operator-configured token overrides.
+ * The response is identical for every tenant and host; product identity is
+ * always probectl.
  *
  * /branding lives OUTSIDE the /v1 API base, so it goes through publicFetch
  * (the single off-/v1 convention, UX-006) rather than a bare fetch().
@@ -11,11 +11,7 @@ import { publicFetch } from './client'
 
 export interface Brand {
   product_name: string
-  logo_data_uri?: string
-  login_message?: string
   token_overrides?: Record<string, string>
-  email_from_name?: string
-  email_footer?: string
 }
 
 export const DEFAULT_BRAND: Brand = { product_name: 'probectl' }
@@ -108,15 +104,14 @@ export async function fetchBrand(): Promise<Brand> {
     const res = await publicFetch('/branding')
     if (!res.ok) return DEFAULT_BRAND
     const b = (await res.json()) as Brand
-    if (!b || typeof b.product_name !== 'string' || b.product_name === '') return DEFAULT_BRAND
+    if (!b || b.product_name !== 'probectl') return DEFAULT_BRAND
     return b
   } catch {
-    return DEFAULT_BRAND // branding must never take the app down
+    return DEFAULT_BRAND // theming must never take the app down
   }
 }
 
-/** Tracks which tokens we overrode so a brand change replaces CLEANLY —
- *  no residue from a previous brand (the client-side no-bleed property). */
+/** Tracks which tokens we overrode so a deployment-config refresh is clean. */
 let appliedTokens: string[] = []
 
 export function applyBrand(b: Brand) {
@@ -127,7 +122,7 @@ export function applyBrand(b: Brand) {
     root.style.setProperty(name, value)
     appliedTokens.push(name)
   }
-  document.title = b.product_name
+  document.title = 'probectl'
 }
 
 export function sanitizeTokenOverrides(overrides: Record<string, string> | undefined) {

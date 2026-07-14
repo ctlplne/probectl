@@ -10,75 +10,47 @@ import (
 	"testing"
 
 	"github.com/imfeelingtheagi/probectl/internal/branding"
+	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
-type hostBrandSource struct{ byHost map[string]branding.Branding }
-
-func (s hostBrandSource) For(_ context.Context, host, _ string) branding.Branding {
-	if b, ok := s.byHost[host]; ok {
-		return b
-	}
-	return branding.Default()
-}
-
-func (s hostBrandSource) TenantForHost(_ context.Context, host string) string {
-	if _, ok := s.byHost[host]; ok {
-		return "11111111-1111-1111-1111-111111111111"
-	}
-	return ""
-}
-
-// The PUBLIC core branding endpoint (S-T4): pre-auth, Host-resolved, default
-// probectl brand when no white-label source is installed (community), and
-// host-keyed caching headers so a shared cache can never cross brands.
-func TestBrandingEndpoint(t *testing.T) {
+func TestBrandingEndpointIsDeploymentScopedAndProbectlBranded(t *testing.T) {
 	srv := testServer(fakePinger{})
-
-	// Community/unlicensed: the default brand, never an error.
-	rec := do(srv, http.MethodGet, "/branding")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("branding: %d", rec.Code)
-	}
-	var b branding.Branding
-	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
-		t.Fatal(err)
-	}
-	if b.ProductName != "probectl" {
-		t.Fatalf("default brand: %+v", b)
+	srv.cfg.ThemeOverrides = map[string]string{
+		"--color-accent":          "#6a4cf0",
+		"--color-accent-hover":    "#7054f6",
+		"--color-accent-strong":   "#684af0",
+		"--color-accent-contrast": "#ffffff",
 	}
 
-	// Installed source: the brand follows the serving HOST (pre-auth).
-	branding.SetSource(hostBrandSource{byHost: map[string]branding.Branding{
-		"status.acme.example": {ProductName: "AcmeWatch", TokenOverrides: map[string]string{
-			"--color-accent":          "#6a4cf0",
-			"--color-accent-hover":    "#7054f6",
-			"--color-accent-strong":   "#684af0",
-			"--color-accent-contrast": "#ffffff",
-		}},
-	}})
-	defer branding.SetSource(nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/branding", nil)
-	req.Host = "status.acme.example:443"
-	rr := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rr, req)
-	if err := json.Unmarshal(rr.Body.Bytes(), &b); err != nil {
-		t.Fatal(err)
-	}
-	if b.ProductName != "AcmeWatch" || b.TokenOverrides["--color-accent"] != "#6a4cf0" {
-		t.Fatalf("host brand: %+v", b)
-	}
-	if vary := rr.Header().Get("Vary"); vary != "Host" {
-		t.Fatalf("brand responses must vary by Host: %q", vary)
+	read := func(host, tenant string) (branding.Branding, http.Header) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/branding", nil)
+		req.Host = host
+		req = req.WithContext(tenancy.WithTenant(context.Background(), tenancy.ID(tenant)))
+		rr := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("branding %s: %d", host, rr.Code)
+		}
+		var got branding.Branding
+		if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		return got, rr.Header()
 	}
 
-	// Another host: the default — A's brand never bleeds across hosts.
-	req2 := httptest.NewRequest(http.MethodGet, "/branding", nil)
-	req2.Host = "other.example"
-	rr2 := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rr2, req2)
-	_ = json.Unmarshal(rr2.Body.Bytes(), &b)
-	if b.ProductName != "probectl" {
-		t.Fatalf("cross-host bleed: %+v", b)
+	a, headers := read("tenant-a.example", "tenant-a")
+	b, _ := read("tenant-b.example", "tenant-b")
+	if a.ProductName != "probectl" || b.ProductName != "probectl" {
+		t.Fatalf("product identity changed: A=%+v B=%+v", a, b)
+	}
+	if a.TokenOverrides["--color-accent"] != "#6a4cf0" || b.TokenOverrides["--color-accent"] != "#6a4cf0" {
+		t.Fatalf("deployment overrides differ by host: A=%+v B=%+v", a, b)
+	}
+	if vary := headers.Get("Vary"); vary != "" {
+		t.Fatalf("deployment response must not vary by host: %q", vary)
+	}
+	if cache := headers.Get("Cache-Control"); cache != "public, max-age=60" {
+		t.Fatalf("cache control = %q", cache)
 	}
 }

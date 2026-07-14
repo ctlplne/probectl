@@ -1,10 +1,10 @@
 /*
- * probectl design tokens (S8a · F54-foundation · "Refined Slate" v2).
+ * probectl design tokens (S8a · "Refined Slate" v2).
  *
  * The single source of truth for every design value. Components reference ONLY
- * these CSS custom properties — never raw colors/sizes — so per-tenant
- * white-label (S-T4) is a runtime override of this set, not a per-screen
- * retrofit. A second theme ([data-theme="aurora"]) exists to prove the swap.
+ * these CSS custom properties — never raw colors/sizes — so a deployment-level
+ * operator theme is a runtime override of this set, not a per-screen retrofit.
+ * A second theme ([data-theme="aurora"]) proves the swap.
  *
  * CONTRACT (enforced by tests):
  *   - no-hardcoded-colors.test.ts → color literals live ONLY in this file.
@@ -38,7 +38,7 @@
   --color-border: #1c2230;
   --color-border-strong: #2a3140;
 
-  /* Brand / accent — the primary white-label hook. */
+  /* Product accent — the primary deployment-theme hook. */
   --color-accent: #2fb6a8;
   --color-accent-hover: #3acabb;
   --color-accent-strong: #23a394; /* pressed / gradient terminus */
@@ -70,9 +70,8 @@
 }
 
 /*
- * "aurora" — a sample white-label theme (a lighter, violet-accented brand). It
- * overrides ONLY this token set; the entire UI re-skins with no component
- * changes. This is the F54 proof and the basis for per-tenant branding.
+ * "aurora" — the shipped lighter, violet-accented operator theme. It overrides
+ * ONLY this token set; the entire UI re-skins with no component changes.
  * It defines the SAME --color-* names as the dark theme (theme.test.tsx).
  */
 [data-theme='aurora'] {

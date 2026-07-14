@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/ee/whitelabel"
 	"github.com/imfeelingtheagi/probectl/internal/fairness"
 )
 
@@ -61,8 +60,6 @@ func providerDecodeTarget(family string) any {
 		return &providerGovernanceInput{}
 	case "quota":
 		return &providerQuotaInput{}
-	case "branding":
-		return &whitelabel.Record{}
 	case "fairness":
 		return &fairness.Policy{}
 	default:
@@ -86,7 +83,6 @@ func providerDecodeFamilies() []string {
 		"erase",
 		"governance",
 		"quota",
-		"branding",
 		"fairness",
 	}
 }
@@ -112,7 +108,6 @@ func providerDecodeSeeds() []struct {
 		{"erase", []byte(`{"confirm":"tenant-a"}`)},
 		{"governance", []byte(`{"classifications":{"email":"pii"},"redact_from":"pii","redact_export":true,"ai_remote_egress":false}`)},
 		{"quota", []byte(`{"max_agents":10,"max_tests":50}`)},
-		{"branding", []byte(`{"product_name":"probectl","token_overrides":{"color.bg":"#000000"},"email_from_name":"probectl"}`)},
 		{"fairness", []byte(`{"results_per_sec":100,"flow_events_per_sec":200,"query_concurrency":4,"weight":1}`)},
 		{"login", []byte(`{"email":"ops@example.com","extra":true}`)},
 		{"quota", []byte(`not json`)},

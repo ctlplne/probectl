@@ -302,6 +302,11 @@ type BGPEventList struct {
 	Items          []BGPEvent `json:"items,omitempty"`
 }
 
+type Branding struct {
+	ProductName    string            `json:"product_name"`
+	TokenOverrides map[string]string `json:"token_overrides,omitempty"`
+}
+
 // A change scored as a candidate cause of an incident.
 type ChangeCandidate struct {
 	Event  ChangeEvent `json:"event,omitempty"`
@@ -1110,6 +1115,20 @@ func (c *Client) SsoLogout(ctx context.Context, req SsoLogoutRequest) error {
 	path := "/auth/logout"
 	query := url.Values{}
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
+}
+
+// Deployment-wide probectl product theme
+type GetBrandingRequest struct {
+}
+
+func (c *Client) GetBranding(ctx context.Context, req GetBrandingRequest) (*Branding, error) {
+	path := "/branding"
+	query := url.Values{}
+	var out Branding
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Agent bootstrap: redeem a single-use join token for a tenant-bound SVID (pre-identity; token-authenticated; per-IP throttled)

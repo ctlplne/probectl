@@ -16,6 +16,6 @@
 
 // Package ee is the root of probectl's commercial tree. It is intentionally
 // empty at S-T0: the provider plane (S-T1), siloed isolation (S-T2),
-// metering (S-T3), white-label (S-T4), BYOK (S-T6), governance (S-EE3), and
+// metering (S-T3), BYOK (S-T6), governance (S-EE3), and
 // guarded remediation (S-EE5) land here, each gated by its license feature.
 package ee

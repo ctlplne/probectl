@@ -94,6 +94,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
 | `PROBECTL_LOG_LEVEL`                | `info`                                                             | `debug` \| `info` \| `warn` \| `error`       |
 | `PROBECTL_LOG_FORMAT`               | `json`                                                             | `json` \| `text`                             |
+| `PROBECTL_THEME_OVERRIDES`          | (none)                                                             | JSON object of deployment-wide design-token overrides, for example `{"--radius-md":"10px"}`. Only allowlisted color/radius/font tokens are accepted; unsafe values or any set that breaks WCAG contrast fails startup. Applies to every tenant while product identity remains probectl |
 | `PROBECTL_HSTS_ENABLED`             | `true`                                                             | send `Strict-Transport-Security`             |
 | `PROBECTL_HSTS_MAX_AGE`             | `8760h`                                                            | HSTS `max-age`                               |
 | `PROBECTL_TLS_CERT_FILE`            | (none)                                                            | PEM server certificate; the process serves HTTPS directly when set together with the key |
@@ -1928,16 +1929,22 @@ region-pinned yet — `docs/isolation.md` states the exact contract, the
 catch-up/migration story for silo schemas, and the offboard-teardown
 semantics.
 
-### White-label branding (ee/)
+### Deployment theme and product identity
 
-No configuration keys: branding activates with a license granting
-`white_label` and is configured per tenant (or as the provider master) from
-the provider console. The public `GET /branding` endpoint serves the resolved
-brand pre-auth (Host-resolved for custom domains; the probectl default when
-unlicensed); custom-domain login resolves the tenant from the serving host.
-Custom domains need a certificate at the TLS-terminating ingress (or via
-trustctl) — see `docs/white-label.md` for the token-override contract, the
-no-bleed rules, and the email-template contract.
+`PROBECTL_THEME_OVERRIDES` configures one token map for the whole deployment.
+It is a JSON object because CSS color functions and font lists can contain
+commas. Startup validates token names, value grammar, the 64-entry size bound,
+and WCAG contrast against both shipped themes; malformed or unsafe config fails
+closed. The dark and aurora operator themes remain built in.
+
+Public `GET /branding` is intentionally available before authentication so the
+login shell and signed-in UI receive the same theme. It always returns
+`product_name: "probectl"`, never varies by host/session/tenant, and may include
+the validated deployment `token_overrides`. It is cacheable for 60 seconds.
+There are no provider-plane or per-tenant branding APIs, custom-domain tenant
+mapping, logo override, login-message override, or notification-email identity
+override. The product decision and schema compatibility window are recorded in
+[`white-label.md`](white-label.md).
 
 ### Advanced data governance (`governance`, ee/)
 

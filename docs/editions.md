@@ -80,6 +80,17 @@ commercial:**
 And "Starter/Pro" pricing tiers need **no code gating at all**: they are
 entitlement (support/SLA) tiers riding the same core binary.
 
+## Product identity and deployment theming
+
+MSPs resell under the **probectl banner**. Per-tenant and provider-master
+rebranding (historical F54) is removed by design and is not an edition feature:
+there is no license entitlement, provider-console card, mutable API, custom
+domain mapping, logo replacement, or email identity override. The native dark
+and aurora themes remain, and every deployment may set one validated,
+deployment-wide design-token override through `PROBECTL_THEME_OVERRIDES`.
+That theming mechanism is core and changes presentation tokens only; it cannot
+replace the probectl product name or create tenant-specific presentation.
+
 **`fips` is the one exception to runtime gating.** The FIPS 140-3 build is gated by
 the **artifact**, not by a `lic.Has(fips)` check — there is *no* runtime license
 gate for FIPS anywhere in the binary. The validated distribution is what you build

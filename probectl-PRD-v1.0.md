@@ -92,7 +92,7 @@ Everything in this section is backed by code in the repo and a named evidence pa
 
 ### 2.7 Operations, frontend, packaging
 
-- ✅ **Frontend foundation.** Design tokens (no hardcoded values — white-label is a token override), component library, app shell + command palette, WCAG 2.2 AA CI gate, dark-native; tenant indicator always visible; provider console visually separate; a **surface-coverage CI gate** requires every capability to declare native/federated/none-by-design. `web/` · *web (a11y + frontend-coverage)*.
+- ✅ **Frontend foundation.** Design tokens (no hardcoded values; one optional deployment-wide operator override), component library, app shell + command palette, WCAG 2.2 AA CI gate, dark-native; the probectl banner and tenant indicator are always visible; provider console visually separate; a **surface-coverage CI gate** requires every capability to declare native/federated/none-by-design. `web/` · *web (a11y + frontend-coverage)*.
 - ✅ **Packaging.** Multi-arch images; Helm for control plane (hardening-gated: non-root, read-only FS, drop-ALL, **NetworkPolicy default-on with documented holes** — U-086) + the agent DaemonSet chart (explicit BPF/PERFMON contract, seccomp — U-016/D10); compose profiles; VM installer; air-gapped bundle; Terraform + GitOps validation. `deploy/` · *helm-gate, terraform-gate, kubeconform*.
 - ✅ **Reliability tooling.** Backup/restore scripts + runbook + **a CI drill that drops and restores both databases on every pass** (U-030); failover drill + DR runbook (U-053 — sign-off pending, §5.2); staged fleet rollout engine with health gates + rollback (U-031 — console wiring pending, §5.1); bounded retry + DLQ on store writes; circuit breakers on Prom/CH clients (U-078); async batched bus publish + backpressure (U-023); in-memory TSDB retention/eviction (U-029). · *backup-drill, failover-drill*.
 - ✅ **Self-observability.** probectl observes probectl (metrics/logs per subsystem); load harness for S–XL tiers with an S-tier smoke + scale-gate floor in CI (U-005/U-055 — L/XL evidence runs pending, §5.2); agent overhead bench suite with a throughput tripwire (U-051 — reference row pending). `internal/perf`, `scripts/bench/` · *load-smoke, perf-smoke*.
@@ -179,7 +179,7 @@ Strict standard; one line each. Evidence = package / doc / gate / U-ID.
 | F51 | Provider/MSP plane | ✅ | `ee/provider` (consumption-priced self-hosted resale under the probectl banner; break-glass audited; no implicit access) |
 | F52 | Pooled/siloed/hybrid | ✅ | `ee/silo` (per-tenant ClickHouse provisioning/routing delivered across flow, path, eBPF, and OTLP; see `docs/isolation.md`; pinned by `TestProvisionDrivesEveryCHPlane`) |
 | F53 | Metering/billing export | ✅ | `ee/billing`, `internal/usage` (operator-run export; never phone-home; MSP consumption basis) |
-| F54 | White-label | ✅ | tokens-first design system + `ee/whitelabel` |
+| F54 | White-label | 🚫 Removed by design | MSPs resell under the probectl banner; one deployment-wide, allowlisted token theme remains, with no per-tenant/provider-master product, logo, domain, login, or email identity override |
 | F55 | Export/residency/verifiable deletion | ✅ | `internal/lifecycle` (attested erasure — U-027) |
 | F56 | Per-tenant keys/BYOK | ✅ | `ee/tenantkeys`, `internal/tenantcrypto` |
 | F57 | Tenant fairness | ✅ | `internal/fairness` (deliberately core, incl. tenant self-view) |

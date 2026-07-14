@@ -253,7 +253,7 @@ router/RLS errors that could reveal another tenant's identifiers.
   regional data plane; control-plane state, metrics, object store, and bus are not
   pinned today.
 - **Related capabilities (separate pages):** the Provider / MSP plane (operator
-  privilege model, break-glass, white-label, per-tenant keys); Running probectl in
+  privilege model, break-glass, probectl-banner resale, per-tenant keys); Running probectl in
   production (governance, erasure, residency in multi-region).
 
 **Covers:** F50, F52, F57

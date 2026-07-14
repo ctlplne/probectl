@@ -148,6 +148,28 @@
         }
       }
     },
+    "/branding": {
+      "get": {
+        "operationId": "getBranding",
+        "summary": "Deployment-wide probectl product theme",
+        "description": "Public pre-auth theme metadata used by the login shell and tenant app. product_name is always probectl; token_overrides are operator-configured once per deployment, validated against an allowlist and WCAG contrast, and never vary by host, tenant, or session.",
+        "tags": [
+          "operational"
+        ],
+        "responses": {
+          "200": {
+            "description": "The deployment-wide probectl identity and optional design-token overrides.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Branding"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tests": {
       "get": {
         "operationId": "listTests",
@@ -7176,6 +7198,27 @@
       }
     },
     "schemas": {
+      "Branding": {
+        "type": "object",
+        "required": [
+          "product_name"
+        ],
+        "properties": {
+          "product_name": {
+            "type": "string",
+            "enum": [
+              "probectl"
+            ]
+          },
+          "token_overrides": {
+            "type": "object",
+            "description": "Deployment-wide allowlisted CSS design-token values. Absent means the shipped dark/aurora themes are unmodified.",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "properties": {

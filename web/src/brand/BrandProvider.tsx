@@ -2,11 +2,9 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from '
 import { applyBrand, fetchBrand, DEFAULT_BRAND, type Brand } from '../api/brand'
 
 /**
- * BrandProvider (S-T4): fetches the deployment/tenant brand pre-auth and
- * applies it — token overrides land on <html> (the S8a token contract does
- * the rest: zero per-screen work), the product name reaches the shell and
- * document.title. Failures fall back to the probectl default: branding can
- * never take the app down.
+ * BrandProvider fetches the deployment-wide probectl theme pre-auth and
+ * applies its validated token overrides to <html>. Product identity stays
+ * probectl and failures fall back to the shipped dark/aurora tokens.
  */
 // eslint-disable-next-line react-refresh/only-export-components
 export const BrandContext = createContext<Brand>(DEFAULT_BRAND)

@@ -99,9 +99,3 @@
   display: inline-flex;
   flex-shrink: 0;
 }
-
-.logo {
-  height: 28px;
-  width: auto;
-  display: block;
-}
