@@ -52,7 +52,16 @@ export default defineConfig({
       // 86.75, lines 89.53 → floor = measured − 2, rounded down). Ratchet up as
       // the suite grows; never lower these to make a regression pass.
       thresholds: { lines: 87, functions: 84, statements: 85, branches: 71 },
-      exclude: ['**/*.test.{ts,tsx}', 'src/test/**', 'dist/**', '**/*.config.*'],
+      // Generated API code is contract-checked by make sdk-gate. Counting its
+      // thousands of machine-written branches as untested UI code would hide
+      // the coverage signal for files engineers actually maintain.
+      exclude: [
+        '**/*.test.{ts,tsx}',
+        'src/test/**',
+        'src/api/sdk.gen.ts',
+        'dist/**',
+        '**/*.config.*',
+      ],
     },
   },
 })
