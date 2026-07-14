@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -40,16 +42,57 @@ type Token struct {
 	Epoch    int64
 }
 
+type leasePool interface {
+	Acquire(context.Context) (leaseConn, error)
+}
+
+type leaseConn interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Release()
+	CloseTainted(context.Context) error
+}
+
+type pooledLeasePool struct {
+	pool *pgxpool.Pool
+}
+
+func (p pooledLeasePool) Acquire(ctx context.Context) (leaseConn, error) {
+	conn, err := p.pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return pooledLeaseConn{conn: conn}, nil
+}
+
+type pooledLeaseConn struct {
+	conn *pgxpool.Conn
+}
+
+func (c pooledLeaseConn) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return c.conn.QueryRow(ctx, sql, args...)
+}
+
+func (c pooledLeaseConn) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return c.conn.Exec(ctx, sql, args...)
+}
+
+func (c pooledLeaseConn) Release() { c.conn.Release() }
+
+func (c pooledLeaseConn) CloseTainted(ctx context.Context) error {
+	return c.conn.Hijack().Close(ctx)
+}
+
 // Lease holds a session advisory lock on a dedicated pool connection. It never
 // returns a still-locked connection to pgxpool: if unlock fails, the connection
 // is hijacked and closed so a future borrower cannot inherit the lock.
 type Lease struct {
-	pool     *pgxpool.Pool
+	pool     leasePool
 	name     string
 	holderID string
 
 	mu      sync.Mutex
-	conn    *pgxpool.Conn
+	conn    leaseConn
 	current Token
 }
 
@@ -69,7 +112,7 @@ func New(pool *pgxpool.Pool, name, holderID string) (*Lease, error) {
 			return nil, err
 		}
 	}
-	return &Lease{pool: pool, name: name, holderID: holderID}, nil
+	return &Lease{pool: pooledLeasePool{pool: pool}, name: name, holderID: holderID}, nil
 }
 
 func newHolderID() (string, error) {
@@ -190,7 +233,7 @@ WHERE lease_name = $1 AND epoch = $2 AND holder_id = $3 AND released_at IS NULL`
 		}
 		closeCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		if err := conn.Hijack().Close(closeCtx); err != nil {
+		if err := conn.CloseTainted(closeCtx); err != nil {
 			result = errors.Join(result, fmt.Errorf("cluster: close tainted lease connection: %w", err))
 		}
 		return result
@@ -199,7 +242,7 @@ WHERE lease_name = $1 AND epoch = $2 AND holder_id = $3 AND released_at IS NULL`
 	return result
 }
 
-func (l *Lease) discardLockedConn(conn *pgxpool.Conn) {
+func (l *Lease) discardLockedConn(conn leaseConn) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	var unlocked bool
@@ -210,5 +253,5 @@ func (l *Lease) discardLockedConn(conn *pgxpool.Conn) {
 		conn.Release()
 		return
 	}
-	_ = conn.Hijack().Close(ctx)
+	_ = conn.CloseTainted(ctx)
 }
