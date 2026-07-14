@@ -50,7 +50,8 @@ presented in the `Authorization` header; whoever holds it bears the access);
 deprovisioning a user revokes their access.
 
 Tenant admins manage that identity wiring in **Admin & Settings → Identity
-administration**. The page shows the SSO/SCIM endpoints, mints/revokes
+administration**. The page configures the tenant's OIDC provider, shows the
+SSO/SCIM endpoints, mints/revokes
 per-tenant SCIM bearer tokens (plaintext shown once; only the hash is stored),
 and manages ABAC policies through `/v1/abac/policies`.
 
@@ -117,17 +118,28 @@ the erased subject.
 
 ## SSO (OIDC)
 
-Configure a single IdP per deployment with `PROBECTL_OIDC_ISSUER`,
+Configure the deployment fallback IdP with `PROBECTL_OIDC_ISSUER`,
 `PROBECTL_OIDC_CLIENT_ID`, `PROBECTL_OIDC_CLIENT_SECRET`, and
-`PROBECTL_OIDC_REDIRECT_URL` (`https://HOST/auth/callback`). Register that
-callback with your IdP. Login begins at `GET /auth/login`; the session cookie is
+`PROBECTL_OIDC_REDIRECT_URL` (`https://HOST/auth/callback`). A tenant admin can
+override it at **Admin & Settings → Identity administration** or with `PUT
+/v1/identity/settings`. The write accepts `issuer`, `client_id`, a write-only
+`client_secret`, `redirect_url`, `scopes`, `enabled`, and optional boolean
+`flags`; `GET /v1/identity/settings` never returns the secret or its sealed
+ciphertext. Register the callback with each IdP. Login begins at `GET
+/auth/login`; the session cookie is
 `Secure + HttpOnly + SameSite=Lax` — sent only over HTTPS, unreadable to page
 scripts, and not attached to cross-site requests — with lifetime
 `PROBECTL_SESSION_TTL`
-(default 12 h). Per-tenant IdPs (a tenant bringing its own SSO) resolve through a
-provider factory; the factory exists today, but DB-backed per-tenant IdP
-configuration is still to come — until it lands, the single env-configured IdP is
-shared across tenants.
+(default 12 h).
+
+The database stores one IdP row per tenant behind forced Postgres RLS. The
+client secret is envelope-encrypted through `internal/crypto`, with tenant-bound
+authenticated data: copying another tenant's ciphertext does not make it
+decryptable. An enabled tenant row wins over the environment fallback; an
+absent or disabled row uses that fallback. A present enabled row that is invalid
+or cannot be decrypted fails login closed instead of silently crossing over to
+the shared IdP. Saving settings and its `identity.idp_update` audit event happens
+in one tenant-scoped transaction.
 
 ## Operating the agent fleet (day-2)
 

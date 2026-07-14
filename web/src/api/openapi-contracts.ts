@@ -283,6 +283,20 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/identity.ts',
     method: 'GET',
+    path: '/identity/settings',
+    response: 'TenantIdPSettings',
+    generated: 'GetTenantIdentitySettingsResponse',
+  },
+  {
+    file: 'api/identity.ts',
+    method: 'PUT',
+    path: '/identity/settings',
+    response: 'TenantIdPSettings',
+    generated: 'PutTenantIdentitySettingsResponse',
+  },
+  {
+    file: 'api/identity.ts',
+    method: 'GET',
     path: '/directory/scim-tokens',
     response: '{ items: ScimToken[] }',
     generated: 'ListScimTokensResponse',
@@ -603,6 +617,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   scimToken: true,
   scimTokenCreated: true,
   abacPolicy: true,
+  tenantIdPSettings: true,
   incident: true,
   signal: true,
   lifecycleStatus: true,
@@ -639,6 +654,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   scimToken: GeneratedHasViewKeys<SDK.SCIMToken, Identity.ScimToken>
   scimTokenCreated: GeneratedHasViewKeys<SDK.SCIMTokenCreated, Identity.CreatedScimToken>
   abacPolicy: GeneratedHasViewKeys<SDK.ABACPolicy, Identity.ABACPolicy>
+  tenantIdPSettings: GeneratedHasViewKeys<SDK.TenantIdPSettings, Identity.TenantIdPSettings>
   incident: GeneratedHasViewKeys<SDK.Incident, Incidents.Incident>
   signal: GeneratedHasViewKeys<SDK.Signal, Incidents.Signal>
   lifecycleStatus: GeneratedHasViewKeys<SDK.LifecycleStatus, Lifecycle.LifecycleStatus>

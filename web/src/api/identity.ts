@@ -27,8 +27,47 @@ export interface ABACPolicy {
   enabled?: boolean
 }
 
+export interface TenantIdPSettings {
+  source: 'tenant' | 'environment' | 'none'
+  configured: boolean
+  valid: boolean
+  issuer: string
+  client_id: string
+  client_secret_configured: boolean
+  redirect_url: string
+  scopes: string[]
+  enabled: boolean
+  flags: Record<string, boolean>
+}
+
+export interface TenantIdPSettingsInput {
+  issuer: string
+  client_id: string
+  client_secret?: string
+  redirect_url: string
+  scopes: string[]
+  enabled: boolean
+  flags: Record<string, boolean>
+}
+
 function jsonInit(method: string, body: unknown): RequestInit {
   return { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+}
+
+export function useTenantIdPSettings() {
+  return useQuery({
+    queryKey: ['identity', 'idp-settings'],
+    queryFn: () => apiFetch<TenantIdPSettings>('/identity/settings'),
+  })
+}
+
+export function useUpdateTenantIdPSettings() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (input: TenantIdPSettingsInput) =>
+      apiFetch<TenantIdPSettings>('/identity/settings', jsonInit('PUT', input)),
+    onSuccess: (settings) => qc.setQueryData(['identity', 'idp-settings'], settings),
+  })
 }
 
 export function useScimTokens() {
@@ -50,7 +89,8 @@ export function useCreateScimToken() {
 export function useRevokeScimToken() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => apiFetch<void>(`/directory/scim-tokens/${id}`, { method: 'DELETE' }),
+    mutationFn: (id: string) =>
+      apiFetch<void>(`/directory/scim-tokens/${id}`, { method: 'DELETE' }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['identity', 'scim-tokens'] }),
   })
 }
@@ -65,7 +105,8 @@ export function useABACPolicies() {
 export function useCreateABACPolicy() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: ABACPolicy) => apiFetch<ABACPolicy>('/abac/policies', jsonInit('POST', input)),
+    mutationFn: (input: ABACPolicy) =>
+      apiFetch<ABACPolicy>('/abac/policies', jsonInit('POST', input)),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['identity', 'abac-policies'] }),
   })
 }

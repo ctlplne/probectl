@@ -379,7 +379,7 @@ func New(cfg *config.Config, log *slog.Logger, pinger store.Pinger, pool *pgxpoo
 
 	// Identity & access (S18). The SSO provider factory is always present; the
 	// session manager + authenticator need a DB (nil in operational-only tests).
-	s.providers = newOIDCFactory(cfg)
+	s.providers = newOIDCFactory(cfg, pool)
 	s.authLimiter = s.newAuthLimiter(cfg)
 	if pool != nil {
 		s.sessions = auth.NewManager(store.NewSessions(pool), cfg.SessionTTL, cfg.CookieSecure(), cfg.SessionHMACKey)

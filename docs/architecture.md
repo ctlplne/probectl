@@ -704,8 +704,13 @@ lives inside the go-oidc / go-jose libraries.
 
 **Per-tenant IdP.** (An **IdP** — identity provider — is the system that owns
 logins: Okta, Entra, Keycloak, …) A `ProviderFactory.For(tenant)` resolves the OIDC provider for
-a given tenant — the seam that lets a tenant bring its own SSO. The shipped
-default is env-configured, and a login always resolves to exactly one tenant.
+a given tenant. An enabled `tenant_idp` row overrides the env-configured fallback;
+the row is selected inside a forced-RLS tenant transaction before provider
+discovery. Its client secret is envelope-encrypted through `internal/crypto`
+with the tenant id in the authenticated data, so ciphertext is neither plaintext
+at rest nor portable across tenants. Missing and disabled rows use the fallback;
+an invalid or undecryptable enabled row fails closed. Settings changes and their
+audit record share one transaction. A login always resolves to exactly one tenant.
 Provider/MSP operators authenticate into the *provider domain* instead, never into
 tenant data here.
 

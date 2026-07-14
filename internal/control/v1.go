@@ -153,6 +153,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/abac/policies", s.handleListPolicies, permDirectoryRead},
 		{http.MethodPost, "/v1/abac/policies", s.handleCreatePolicy, permDirectoryWrite},
 		{http.MethodDelete, "/v1/abac/policies/{id}", s.handleDeletePolicy, permDirectoryWrite},
+		{http.MethodGet, "/v1/identity/settings", s.handleTenantIDPGet, permDirectoryRead},
+		{http.MethodPut, "/v1/identity/settings", s.handleTenantIDPPut, permDirectoryWrite},
 		{http.MethodGet, "/v1/directory/scim-tokens", s.handleSCIMTokenList, permDirectoryRead},
 		{http.MethodPost, "/v1/directory/scim-tokens", s.handleSCIMTokenCreate, permDirectoryWrite},
 		{http.MethodDelete, "/v1/directory/scim-tokens/{id}", s.handleSCIMTokenRevoke, permDirectoryWrite},

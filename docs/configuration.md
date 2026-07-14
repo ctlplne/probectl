@@ -920,12 +920,25 @@ OIDC is configured. The cookie is **HttpOnly + SameSite=Lax**, and **Secure**
 whenever the API serves HTTPS. `PROBECTL_SESSION_TTL` (default `12h`) bounds its
 lifetime.
 
-**Per-tenant IdP.** Providers are resolved per tenant through a provider factory —
-the seam for a tenant bringing its own SSO. The shipped default is the
-env-configured one (`PROBECTL_OIDC_*`); database-backed per-tenant IdP config is a
-later addition. A login always resolves to a single tenant. Provider/MSP operators
-authenticate into the **provider domain** (the management plane), not into tenant
-data.
+**Per-tenant IdP.** Providers are resolved per tenant through a provider factory.
+The environment configuration (`PROBECTL_OIDC_*`) is the deployment fallback;
+an enabled row saved through **Admin & Settings → Identity administration** or
+`PUT /v1/identity/settings` overrides it for that tenant. `GET
+/v1/identity/settings` returns public metadata plus
+`client_secret_configured`, never plaintext or ciphertext. Sending an empty
+`client_secret` on an update preserves the existing secret.
+
+The `tenant_idp` row is protected by forced Postgres RLS from its first
+migration. Its client secret is envelope-encrypted through `internal/crypto`
+using tenant-bound authenticated data, so even copied ciphertext cannot be
+opened under another tenant. This requires `PROBECTL_ENVELOPE_KEY` (or the
+configured enterprise key provider); writes fail closed if encryption is not
+available. Missing or disabled tenant settings use the environment fallback,
+but a present enabled configuration that is malformed, cannot be read, or
+cannot be decrypted fails login closed instead of falling through. A login
+always resolves to one tenant before provider selection. Provider/MSP operators
+authenticate into the **provider domain** (the management plane), not into
+tenant data.
 
 **RBAC.** Every `/v1` route declares a required **permission key**; the wrapped
 handler returns **401** when unauthenticated and **403** when the principal lacks

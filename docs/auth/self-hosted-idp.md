@@ -8,7 +8,13 @@ instead of keeping its own passwords. The IdP's identity on the network is its
 
 probectl authenticates operators via **OIDC**: set `PROBECTL_AUTH_MODE=session`
 and point it at an issuer with `PROBECTL_OIDC_ISSUER` plus a client id/secret
-and redirect URL. Nothing in probectl requires a *cloud* IdP — any
+and redirect URL. Those values are the deployment fallback. A tenant admin may
+configure a tenant-specific IdP in **Admin & Settings → Identity
+administration** or through `PUT /v1/identity/settings`; an enabled tenant
+configuration wins for that tenant. The secret is write-only at the API and
+envelope-encrypted at rest with tenant-bound authenticated data. An absent or
+disabled row uses the fallback, while a malformed or undecryptable enabled row
+fails login closed. Nothing in probectl requires a *cloud* IdP — any
 standards-compliant OIDC provider works, including one you run **inside the
 air-gap.** That removes the last external dependency from a sovereign
 deployment: telemetry never leaves the network — probectl's no-phone-home rule

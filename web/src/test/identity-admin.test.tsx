@@ -5,7 +5,13 @@ import { axe } from 'jest-axe'
 import { renderApp } from './renderApp'
 import { assertNoDoublePrefix, defaultFetch, jsonResponse, pathOf } from './fetchStub'
 
-function identityFetch(capture: { tokenBody?: unknown; policyBody?: unknown; revoked?: string; deleted?: string }) {
+function identityFetch(capture: {
+  idpBody?: unknown
+  tokenBody?: unknown
+  policyBody?: unknown
+  revoked?: string
+  deleted?: string
+}) {
   const base = defaultFetch()
   let tokens: Record<string, unknown>[] = [
     {
@@ -26,12 +32,38 @@ function identityFetch(capture: { tokenBody?: unknown; policyBody?: unknown; rev
       enabled: true,
     },
   ]
+  let idpSettings = {
+    source: 'environment',
+    configured: true,
+    valid: true,
+    issuer: 'https://env-idp.example',
+    client_id: 'probectl-env',
+    client_secret_configured: true,
+    redirect_url: 'https://probectl.example/auth/callback',
+    scopes: ['openid', 'email', 'profile'],
+    enabled: true,
+    flags: {},
+  }
 
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
     const path = pathOf(input)
     const method = init?.method ?? 'GET'
-    if (path === '/v1/directory/scim-tokens' && method === 'GET') return jsonResponse({ items: tokens })
+    if (path === '/v1/identity/settings' && method === 'GET') return jsonResponse(idpSettings)
+    if (path === '/v1/identity/settings' && method === 'PUT') {
+      capture.idpBody = JSON.parse(String(init!.body))
+      idpSettings = {
+        ...idpSettings,
+        ...(capture.idpBody as typeof idpSettings),
+        source: 'tenant',
+        configured: true,
+        valid: true,
+        client_secret_configured: true,
+      }
+      return jsonResponse(idpSettings)
+    }
+    if (path === '/v1/directory/scim-tokens' && method === 'GET')
+      return jsonResponse({ items: tokens })
     if (path === '/v1/directory/scim-tokens' && method === 'POST') {
       capture.tokenBody = JSON.parse(String(init!.body))
       tokens = [
@@ -69,7 +101,13 @@ function identityFetch(capture: { tokenBody?: unknown; policyBody?: unknown; rev
 
 describe('Admin identity surface', () => {
   test('manages SCIM tokens and ABAC policies through session-backed APIs', async () => {
-    const capture: { tokenBody?: unknown; policyBody?: unknown; revoked?: string; deleted?: string } = {}
+    const capture: {
+      idpBody?: unknown
+      tokenBody?: unknown
+      policyBody?: unknown
+      revoked?: string
+      deleted?: string
+    } = {}
     vi.stubGlobal('fetch', identityFetch(capture))
     renderApp('/admin')
 
@@ -77,6 +115,20 @@ describe('Admin identity surface', () => {
     const surfaces = screen.getByRole('table', { name: /identity surfaces/i })
     expect(within(surfaces).getByText('/scim/v2/Users')).toBeInTheDocument()
     expect(within(surfaces).getByText('/scim/v2/Groups')).toBeInTheDocument()
+
+    await userEvent.clear(await screen.findByLabelText(/oidc issuer/i))
+    await userEvent.type(screen.getByLabelText(/oidc issuer/i), 'https://tenant-idp.example')
+    await userEvent.type(screen.getByLabelText(/oidc client secret/i), 'tenant-secret')
+    await userEvent.click(screen.getByRole('button', { name: /save oidc settings/i }))
+    expect(await screen.findByText(/tenant oidc settings saved/i)).toBeInTheDocument()
+    expect(capture.idpBody).toMatchObject({
+      issuer: 'https://tenant-idp.example',
+      client_id: 'probectl-env',
+      client_secret: 'tenant-secret',
+      redirect_url: 'https://probectl.example/auth/callback',
+      scopes: ['openid', 'email', 'profile'],
+      enabled: true,
+    })
 
     await userEvent.clear(screen.getByLabelText(/scim token name/i))
     await userEvent.type(screen.getByLabelText(/scim token name/i), 'entra')

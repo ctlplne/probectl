@@ -4,7 +4,11 @@ package control
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -105,47 +109,146 @@ func (l permLoader) ForUser(ctx context.Context, tenantID, userID string) ([]str
 	return keys, err
 }
 
-// oidcFactory is the default ProviderFactory: a single env-configured OIDC IdP,
-// shared across tenants until DB-backed per-tenant IdP config lands (the For()
-// seam keeps that future change local). Providers are built lazily — OIDC
-// discovery hits the network — and cached. build is injectable so tests can
-// supply a provider without real discovery.
-type oidcFactory struct {
-	cfg   *config.Config
-	build func(context.Context, auth.OIDCConfig) (auth.Provider, error)
-	mu    sync.Mutex
-	cache map[string]auth.Provider
+type tenantIDPSource interface {
+	Get(context.Context, string) (*store.TenantIDP, error)
 }
 
-func newOIDCFactory(cfg *config.Config) *oidcFactory {
-	return &oidcFactory{cfg: cfg, build: auth.NewOIDCProvider, cache: map[string]auth.Provider{}}
+type cachedOIDCProvider struct {
+	version  string
+	provider auth.Provider
+}
+
+// oidcFactory resolves a tenant-scoped database override first and falls back
+// to the deployment environment IdP only when the override is absent or
+// explicitly disabled. A malformed/unreadable PRESENT override fails closed:
+// it never silently authenticates the tenant against a different IdP.
+type oidcFactory struct {
+	cfg   *config.Config
+	idps  tenantIDPSource
+	build func(context.Context, auth.OIDCConfig) (auth.Provider, error)
+	mu    sync.Mutex
+	cache map[string]cachedOIDCProvider
+}
+
+func newOIDCFactory(cfg *config.Config, pool *pgxpool.Pool) *oidcFactory {
+	f := &oidcFactory{cfg: cfg, build: auth.NewOIDCProvider, cache: map[string]cachedOIDCProvider{}}
+	if pool != nil {
+		f.idps = store.NewTenantIDPs(pool)
+	}
+	return f
 }
 
 func (f *oidcFactory) For(ctx context.Context, tenantID string) (auth.Provider, error) {
-	if f.cfg.OIDCIssuer == "" {
-		return nil, apierror.Unavailable("SSO is not configured")
+	cfg, source, err := f.resolveConfig(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	version := oidcConfigFingerprint(source, cfg)
+	f.mu.Lock()
+	if cached, ok := f.cache[tenantID]; ok && cached.version == version {
+		f.mu.Unlock()
+		return cached.provider, nil
+	}
+	f.mu.Unlock()
+
+	// Discovery performs verified outbound HTTPS and can be slow. Do not hold
+	// the cache mutex across it; a concurrent duplicate build is harmless.
+	p, err := f.build(ctx, cfg)
+	if err != nil {
+		return nil, apierror.Unavailable("tenant SSO provider is unavailable").Wrap(err)
 	}
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if p, ok := f.cache[tenantID]; ok {
-		return p, nil
+	if cached, ok := f.cache[tenantID]; ok && cached.version == version {
+		f.mu.Unlock()
+		return cached.provider, nil
 	}
-	p, err := f.build(ctx, auth.OIDCConfig{
+	f.cache[tenantID] = cachedOIDCProvider{version: version, provider: p}
+	f.mu.Unlock()
+	return p, nil
+}
+
+func (f *oidcFactory) resolveConfig(ctx context.Context, tenantID string) (auth.OIDCConfig, string, error) {
+	if f.idps != nil {
+		settings, err := f.idps.Get(ctx, tenantID)
+		switch {
+		case err == nil && settings.Enabled:
+			cfg := auth.OIDCConfig{
+				Issuer: settings.Issuer, ClientID: settings.ClientID,
+				ClientSecret: settings.ClientSecret, RedirectURL: settings.RedirectURL,
+				Scopes: append([]string(nil), settings.Scopes...),
+			}
+			if err := validateOIDCConfig(cfg); err != nil {
+				return auth.OIDCConfig{}, "", apierror.Unavailable("tenant SSO configuration is invalid").Wrap(err)
+			}
+			return cfg, "tenant", nil
+		case err == nil: // an explicitly disabled override deliberately uses env fallback
+		case errors.Is(err, store.ErrTenantIDPNotFound):
+		default:
+			return auth.OIDCConfig{}, "", apierror.Unavailable("tenant SSO configuration is unavailable").Wrap(err)
+		}
+	}
+
+	cfg := auth.OIDCConfig{
 		Issuer:       f.cfg.OIDCIssuer,
 		ClientID:     f.cfg.OIDCClientID,
 		ClientSecret: f.cfg.OIDCClientSecret,
 		RedirectURL:  f.cfg.OIDCRedirectURL,
-	})
-	if err != nil {
-		return nil, err
 	}
-	f.cache[tenantID] = p
-	return p, nil
+	if cfg.Issuer == "" && cfg.ClientID == "" && cfg.ClientSecret == "" && cfg.RedirectURL == "" {
+		return auth.OIDCConfig{}, "", apierror.Unavailable("SSO is not configured")
+	}
+	if err := validateOIDCConfig(cfg); err != nil {
+		return auth.OIDCConfig{}, "", apierror.Unavailable("deployment SSO configuration is invalid").Wrap(err)
+	}
+	return cfg, "environment", nil
 }
 
-// SetSSOProviderFactory overrides the SSO provider factory. It is the seam for
-// future DB-backed per-tenant IdP configuration, and lets tests drive login with
-// a mock IdP without real OIDC discovery.
+func oidcConfigFingerprint(source string, cfg auth.OIDCConfig) string {
+	material := strings.Join([]string{source, cfg.Issuer, cfg.ClientID, cfg.ClientSecret,
+		cfg.RedirectURL, strings.Join(cfg.Scopes, "\x00")}, "\x01")
+	return hex.EncodeToString(crypto.Hash([]byte(material)))
+}
+
+func validateOIDCConfig(cfg auth.OIDCConfig) error {
+	if strings.TrimSpace(cfg.ClientID) == "" {
+		return errors.New("OIDC client_id is required")
+	}
+	if strings.TrimSpace(cfg.ClientSecret) == "" {
+		return errors.New("OIDC client_secret is required")
+	}
+	if err := validateOIDCHTTPSURL("issuer", cfg.Issuer); err != nil {
+		return err
+	}
+	if err := validateOIDCHTTPSURL("redirect_url", cfg.RedirectURL); err != nil {
+		return err
+	}
+	if len(cfg.Scopes) > 16 {
+		return errors.New("OIDC scopes cannot contain more than 16 values")
+	}
+	seen := map[string]bool{}
+	for _, scope := range cfg.Scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			return errors.New("OIDC scopes cannot contain an empty value")
+		}
+		seen[scope] = true
+	}
+	if len(cfg.Scopes) > 0 && !seen["openid"] {
+		return errors.New("OIDC scopes must include openid")
+	}
+	return nil
+}
+
+func validateOIDCHTTPSURL(name, raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return fmt.Errorf("OIDC %s must be an absolute HTTPS URL without credentials or fragment", name)
+	}
+	return nil
+}
+
+// SetSSOProviderFactory overrides the SSO provider factory so tests can drive
+// login with a mock IdP without real OIDC discovery.
 func (s *Server) SetSSOProviderFactory(f auth.ProviderFactory) { s.providers = f }
 
 // devModeHook is the ONLY entry point to dev-auth behavior. It is nil unless

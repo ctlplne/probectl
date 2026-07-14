@@ -144,6 +144,14 @@ Register that redirect URL with your IdP. Login begins at `GET /auth/login`; the
 session cookie is set Secure, HttpOnly, and SameSite=Lax — sent only over HTTPS,
 unreadable to page scripts, and not attached to cross-site requests.
 
+Those variables are the deployment fallback. A tenant admin can bring a
+different IdP in **Admin & Settings → Identity administration**, or call `PUT
+/v1/identity/settings` with the issuer, client id, write-only client secret,
+redirect URL, scopes, and enabled state. The row and its audit event commit
+together inside that tenant's RLS transaction. The client secret is
+envelope-encrypted with tenant-bound authenticated data and is never returned by
+`GET /v1/identity/settings`.
+
 What you should observe on a first login: the user is created with **no roles**
 and is denied scoped resources. Inspect your own effective access:
 
@@ -206,9 +214,10 @@ give. Among matching policies the highest priority wins, and a deny wins ties.
   trust store*. probectl never skips verification — "trust my private authority"
   extends who may vouch; "skip verification" would accept anyone, and login is
   the worst place to accept anyone.
-- **One IdP per deployment, today.** A per-tenant-IdP factory exists, but
-  database-backed per-tenant IdP configuration is still to come — until it lands,
-  the single configured IdP is shared across tenants.
+- **A broken tenant override fails closed.** An absent or disabled tenant IdP
+  uses the deployment's `PROBECTL_OIDC_*` fallback. An enabled row that is
+  malformed, unreadable, or undecryptable does *not* fall through to a different
+  IdP; login is refused so identity cannot silently cross a tenant boundary.
 - **The unauthenticated dev mode is for local evaluation only.** It grants every
   request full access with no login; release binaries do not even contain it, and
   setting it makes the control plane refuse to start.
@@ -223,6 +232,9 @@ give. Among matching policies the highest priority wins, and a deny wins ties.
   `PROBECTL_OIDC_CLIENT_ID`, `PROBECTL_OIDC_CLIENT_SECRET`,
   `PROBECTL_OIDC_REDIRECT_URL`, `PROBECTL_SESSION_TTL` (default 12h). Login at
   `GET /auth/login` → IdP → `GET /auth/callback`.
+- **Tenant IdP API:** `GET /v1/identity/settings` reads public metadata; `PUT
+  /v1/identity/settings` persists the tenant override and accepts the client
+  secret only as a write-only field. Both require tenant directory permissions.
 - **IdP contract:** expose the discovery document at
   `${issuer}/.well-known/openid-configuration`, issue ID tokens for the `openid`
   scope including an `email` claim, honor the nonce, and redirect back over HTTPS.

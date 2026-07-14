@@ -2187,6 +2187,74 @@
         }
       }
     },
+    "/v1/identity/settings": {
+      "get": {
+        "operationId": "getTenantIdentitySettings",
+        "summary": "Get the caller tenant's OIDC identity-provider settings",
+        "description": "Returns public metadata only. Client-secret plaintext and ciphertext are never returned.",
+        "tags": [
+          "identity"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tenant override metadata, or the effective deployment fallback metadata when no override exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantIdPSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putTenantIdentitySettings",
+        "summary": "Create or replace the caller tenant's OIDC identity-provider override",
+        "description": "The client secret is write-only and envelope-encrypted. Omitting it preserves an existing tenant secret; the first override must provide it.",
+        "tags": [
+          "identity"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantIdPSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated public metadata. No secret material is returned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantIdPSettings"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/directory/scim-tokens": {
       "get": {
         "operationId": "listSCIMTokens",
@@ -9242,6 +9310,110 @@
             }
           }
         }
+      },
+      "TenantIdPSettings": {
+        "type": "object",
+        "description": "Public metadata for the caller tenant's OIDC provider. Secret material is represented only by client_secret_configured.",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "environment",
+              "none"
+            ]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "valid": {
+            "type": "boolean"
+          },
+          "issuer": {
+            "type": "string",
+            "description": "HTTPS issuer URL, or an empty string when no IdP is configured."
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret_configured": {
+            "type": "boolean"
+          },
+          "redirect_url": {
+            "type": "string",
+            "description": "HTTPS callback URL, or an empty string when no IdP is configured."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "flags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          }
+        },
+        "required": [
+          "source",
+          "configured",
+          "valid",
+          "issuer",
+          "client_id",
+          "client_secret_configured",
+          "redirect_url",
+          "scopes",
+          "enabled",
+          "flags"
+        ]
+      },
+      "TenantIdPSettingsInput": {
+        "type": "object",
+        "description": "Tenant OIDC override. client_secret is write-only; omit it to preserve an existing encrypted secret.",
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true
+          },
+          "redirect_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          },
+          "flags": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          }
+        },
+        "required": [
+          "issuer",
+          "client_id",
+          "redirect_url"
+        ]
       },
       "SCIMToken": {
         "type": "object",

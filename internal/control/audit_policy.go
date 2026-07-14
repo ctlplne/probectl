@@ -288,6 +288,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/abac/policies":                       auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/abac/policies":                      auditExplicit(auditFacetMutation, "abac.policy_create"),
 	"DELETE /v1/abac/policies/{id}":               auditExplicit(auditFacetMutation, "abac.policy_delete"),
+	"GET /v1/identity/settings":                   auditWrapped(auditFacetSensitiveRead),
+	"PUT /v1/identity/settings":                   auditExplicit(auditFacetMutation, "identity.idp_update"),
 	"GET /v1/directory/scim-tokens":               auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/directory/scim-tokens":              auditExplicit(auditFacetMutation, "directory.scim_token_create"),
 	"DELETE /v1/directory/scim-tokens/{id}":       auditExplicit(auditFacetMutation, "directory.scim_token_revoke"),

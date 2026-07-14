@@ -3,7 +3,9 @@
 package control
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,10 +14,44 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
+	"github.com/imfeelingtheagi/probectl/internal/branding"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
+
+type unitTenantIDPSource struct {
+	items map[string]*store.TenantIDP
+	err   error
+}
+
+func (s *unitTenantIDPSource) Get(_ context.Context, tenantID string) (*store.TenantIDP, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	item, ok := s.items[tenantID]
+	if !ok {
+		return nil, store.ErrTenantIDPNotFound
+	}
+	cloned := *item
+	cloned.Scopes = append([]string(nil), item.Scopes...)
+	return &cloned, nil
+}
+
+type unitOIDCProvider struct{ issuer string }
+
+func (p unitOIDCProvider) AuthCodeURL(string, string) string { return p.issuer }
+func (unitOIDCProvider) Exchange(context.Context, string) (*auth.Identity, error) {
+	return &auth.Identity{}, nil
+}
+
+type capturingOIDCFactory struct{ tenantIDs []string }
+
+func (f *capturingOIDCFactory) For(_ context.Context, tenantID string) (auth.Provider, error) {
+	f.tenantIDs = append(f.tenantIDs, tenantID)
+	return unitOIDCProvider{issuer: "https://idp.example/authorize"}, nil
+}
 
 func errKind(t *testing.T, err error) apierror.Kind {
 	t.Helper()
@@ -240,5 +276,126 @@ func TestLoginWithoutProviderConfigured(t *testing.T) {
 	testServer(nil).Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("want 503, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+func TestTenantIdPLoginUsesTenantHintAndHostMap(t *testing.T) {
+	srv := testServer(nil)
+	factory := &capturingOIDCFactory{}
+	srv.SetSSOProviderFactory(factory)
+
+	hintedTenant := "22222222-2222-2222-2222-222222222222"
+	hinted := httptest.NewRequest(http.MethodGet, "/auth/login?tenant="+hintedTenant, nil)
+	hintedRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(hintedRec, hinted)
+	if hintedRec.Code != http.StatusFound || len(factory.tenantIDs) != 1 || factory.tenantIDs[0] != hintedTenant {
+		t.Fatalf("tenant-hinted login: status=%d resolved=%v", hintedRec.Code, factory.tenantIDs)
+	}
+
+	hostTenant := "11111111-1111-1111-1111-111111111111"
+	branding.SetSource(hostBrandSource{byHost: map[string]branding.Branding{
+		"status.acme.example": branding.Default(),
+	}})
+	t.Cleanup(func() { branding.SetSource(nil) })
+	factory.tenantIDs = nil
+	hosted := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	hosted.Host = "status.acme.example:443"
+	hostedRec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(hostedRec, hosted)
+	if hostedRec.Code != http.StatusFound || len(factory.tenantIDs) != 1 || factory.tenantIDs[0] != hostTenant {
+		t.Fatalf("host-mapped login: status=%d resolved=%v", hostedRec.Code, factory.tenantIDs)
+	}
+}
+
+func TestTenantIdPPerTenantResolutionAndEnvironmentFallback(t *testing.T) {
+	env := &config.Config{
+		OIDCIssuer: "https://env-idp.example", OIDCClientID: "env-client",
+		OIDCClientSecret: "env-secret", OIDCRedirectURL: "https://probectl.example/auth/callback",
+	}
+	source := &unitTenantIDPSource{items: map[string]*store.TenantIDP{
+		"tenant-a": {
+			Issuer: "https://tenant-a-idp.example", ClientID: "tenant-a-client",
+			ClientSecret: "tenant-a-secret", RedirectURL: "https://a.example/auth/callback",
+			Scopes: []string{"openid", "email"}, Enabled: true,
+		},
+		"tenant-disabled": {Enabled: false},
+	}}
+	var built []auth.OIDCConfig
+	factory := newOIDCFactory(env, nil)
+	factory.idps = source
+	factory.build = func(_ context.Context, cfg auth.OIDCConfig) (auth.Provider, error) {
+		built = append(built, cfg)
+		return unitOIDCProvider{issuer: cfg.Issuer}, nil
+	}
+
+	providerA, err := factory.For(context.Background(), "tenant-a")
+	if err != nil || providerA.AuthCodeURL("", "") != "https://tenant-a-idp.example" {
+		t.Fatalf("tenant A provider = %v, err=%v", providerA, err)
+	}
+	providerB, err := factory.For(context.Background(), "tenant-b")
+	if err != nil || providerB.AuthCodeURL("", "") != env.OIDCIssuer {
+		t.Fatalf("tenant B environment fallback = %v, err=%v", providerB, err)
+	}
+	disabled, err := factory.For(context.Background(), "tenant-disabled")
+	if err != nil || disabled.AuthCodeURL("", "") != env.OIDCIssuer {
+		t.Fatalf("disabled override environment fallback = %v, err=%v", disabled, err)
+	}
+	if len(built) != 3 {
+		t.Fatalf("provider builds = %d, want one isolated config per requested tenant", len(built))
+	}
+	if built[0].ClientSecret != "tenant-a-secret" || built[1].ClientSecret != "env-secret" {
+		t.Fatalf("tenant configuration crossed boundaries: %+v", built)
+	}
+
+	// Same configuration is cached, but changing this tenant's configuration
+	// changes its secret-bearing fingerprint and forces a rebuild.
+	if _, err := factory.For(context.Background(), "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(built) != 3 {
+		t.Fatalf("unchanged tenant provider was rebuilt: %d", len(built))
+	}
+	source.items["tenant-a"].Issuer = "https://tenant-a-new.example"
+	if _, err := factory.For(context.Background(), "tenant-a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(built) != 4 || built[3].Issuer != "https://tenant-a-new.example" {
+		t.Fatalf("updated tenant provider was not rebuilt: %+v", built)
+	}
+}
+
+func TestTenantIdPMisconfigurationFailsClosedWithoutEnvironmentFallback(t *testing.T) {
+	env := &config.Config{
+		OIDCIssuer: "https://env-idp.example", OIDCClientID: "env-client",
+		OIDCClientSecret: "env-secret", OIDCRedirectURL: "https://probectl.example/auth/callback",
+	}
+	source := &unitTenantIDPSource{items: map[string]*store.TenantIDP{
+		"tenant-a": {
+			Issuer: "http://unverified-idp.example", ClientID: "broken",
+			ClientSecret: "broken-secret", RedirectURL: "https://a.example/auth/callback",
+			Scopes: []string{"openid"}, Enabled: true,
+		},
+	}}
+	factory := newOIDCFactory(env, nil)
+	factory.idps = source
+	builds := 0
+	factory.build = func(context.Context, auth.OIDCConfig) (auth.Provider, error) {
+		builds++
+		return unitOIDCProvider{}, nil
+	}
+	if _, err := factory.For(context.Background(), "tenant-a"); err == nil {
+		t.Fatal("present malformed tenant IdP must fail closed")
+	}
+	if builds != 0 {
+		t.Fatal("malformed tenant IdP silently fell back to the environment provider")
+	}
+
+	source.items = map[string]*store.TenantIDP{}
+	source.err = errors.New("decrypt failed")
+	if _, err := factory.For(context.Background(), "tenant-a"); err == nil {
+		t.Fatal("unreadable tenant IdP secret must fail closed")
+	}
+	if builds != 0 {
+		t.Fatal("unreadable tenant IdP silently fell back to the environment provider")
 	}
 }

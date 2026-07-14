@@ -83,6 +83,36 @@ type ScimToken struct {
 	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
 }
 
+// TenantIDP is one tenant's OIDC relying-party configuration. ClientSecret is
+// populated only on the pre-login resolver path and is never JSON-serialized.
+// ClientSecretConfigured lets admin surfaces report presence without exposing
+// either plaintext or ciphertext.
+type TenantIDP struct {
+	TenantID               string          `json:"tenant_id"`
+	Issuer                 string          `json:"issuer"`
+	ClientID               string          `json:"client_id"`
+	ClientSecret           string          `json:"-"`
+	ClientSecretConfigured bool            `json:"client_secret_configured"`
+	RedirectURL            string          `json:"redirect_url"`
+	Scopes                 []string        `json:"scopes"`
+	Enabled                bool            `json:"enabled"`
+	Flags                  map[string]bool `json:"flags"`
+	CreatedAt              time.Time       `json:"created_at"`
+	UpdatedAt              time.Time       `json:"updated_at"`
+}
+
+// TenantIDPInput is the admin mutation shape. An empty ClientSecret preserves
+// an existing secret; creating a tenant override requires a non-empty secret.
+type TenantIDPInput struct {
+	Issuer       string
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       []string
+	Enabled      bool
+	Flags        map[string]bool
+}
+
 // RoleBinding assigns a role to a subject within a scope (tenant/org/team/project)
 // — the delegated-admin grant.
 type RoleBinding struct {

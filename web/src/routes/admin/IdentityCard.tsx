@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import styles from '../pages.module.css'
 import {
   Badge,
@@ -22,6 +22,8 @@ import {
   useDeleteABACPolicy,
   useRevokeScimToken,
   useScimTokens,
+  useTenantIdPSettings,
+  useUpdateTenantIdPSettings,
   type ABACPolicy,
   type ScimToken,
 } from '../../api/identity'
@@ -77,6 +79,8 @@ function formatAttrs(attrs?: Record<string, string>) {
 }
 
 export function IdentityCard() {
+  const idpSettings = useTenantIdPSettings()
+  const updateIdP = useUpdateTenantIdPSettings()
   const scimTokens = useScimTokens()
   const createToken = useCreateScimToken()
   const revokeToken = useRevokeScimToken()
@@ -95,6 +99,24 @@ export function IdentityCard() {
   const [priority, setPriority] = useState('10')
   const [enabled, setEnabled] = useState(true)
   const [policyError, setPolicyError] = useState('')
+  const [idpIssuer, setIdpIssuer] = useState('')
+  const [idpClientID, setIdpClientID] = useState('')
+  const [idpClientSecret, setIdpClientSecret] = useState('')
+  const [idpRedirectURL, setIdpRedirectURL] = useState('')
+  const [idpScopes, setIdpScopes] = useState('openid, email, profile')
+  const [idpEnabled, setIdpEnabled] = useState(true)
+  const [idpError, setIdpError] = useState('')
+  const [idpSaved, setIdpSaved] = useState(false)
+
+  useEffect(() => {
+    const settings = idpSettings.data
+    if (!settings) return
+    setIdpIssuer(settings.issuer ?? '')
+    setIdpClientID(settings.client_id ?? '')
+    setIdpRedirectURL(settings.redirect_url ?? '')
+    setIdpScopes((settings.scopes ?? ['openid', 'email', 'profile']).join(', '))
+    setIdpEnabled(settings.enabled ?? true)
+  }, [idpSettings.data])
 
   const tokenColumns: Column<ScimToken>[] = [
     { key: 'name', header: 'Token', render: (t) => <strong>{t.name}</strong> },
@@ -196,6 +218,30 @@ export function IdentityCard() {
     }
   }
 
+  const submitIdP = async (e: FormEvent) => {
+    e.preventDefault()
+    setIdpError('')
+    setIdpSaved(false)
+    try {
+      await updateIdP.mutateAsync({
+        issuer: idpIssuer,
+        client_id: idpClientID,
+        ...(idpClientSecret ? { client_secret: idpClientSecret } : {}),
+        redirect_url: idpRedirectURL,
+        scopes: idpScopes
+          .split(',')
+          .map((scope) => scope.trim())
+          .filter(Boolean),
+        enabled: idpEnabled,
+        flags: idpSettings.data?.flags ?? {},
+      })
+      setIdpClientSecret('')
+      setIdpSaved(true)
+    } catch (err) {
+      setIdpError((err as Error).message)
+    }
+  }
+
   const submitPolicy = async (e: FormEvent) => {
     e.preventDefault()
     setPolicyError('')
@@ -221,6 +267,75 @@ export function IdentityCard() {
         description="SSO status, IdP-provisioned users/groups, SCIM bearer tokens, and tenant ABAC policies. Tokens are shown once; group membership maps to tenant roles."
       />
       <CardBody>
+        {idpSettings.isPending ? (
+          <LoadingState label="Loading tenant OIDC settings…" />
+        ) : idpSettings.isError ? (
+          <ErrorState description="Could not load tenant OIDC settings." />
+        ) : (
+          <form
+            className={styles.actions}
+            onSubmit={(e) => {
+              void submitIdP(e)
+            }}
+          >
+            <Field
+              label="OIDC issuer"
+              type="url"
+              required
+              value={idpIssuer}
+              onChange={(e) => setIdpIssuer(e.target.value)}
+              placeholder="https://idp.example/realms/network"
+              hint={`Current source: ${idpSettings.data?.source ?? 'none'}`}
+            />
+            <Field
+              label="OIDC client ID"
+              required
+              value={idpClientID}
+              onChange={(e) => setIdpClientID(e.target.value)}
+              placeholder="probectl"
+            />
+            <Field
+              label="OIDC client secret"
+              type="password"
+              autoComplete="new-password"
+              value={idpClientSecret}
+              onChange={(e) => setIdpClientSecret(e.target.value)}
+              placeholder={
+                idpSettings.data?.client_secret_configured ? 'Leave blank to preserve' : 'Required'
+              }
+              hint="Write-only: the API envelope-encrypts this value and never returns it."
+            />
+            <Field
+              label="OIDC redirect URL"
+              type="url"
+              required
+              value={idpRedirectURL}
+              onChange={(e) => setIdpRedirectURL(e.target.value)}
+              placeholder="https://probectl.example/auth/callback"
+            />
+            <Field
+              label="OIDC scopes"
+              required
+              value={idpScopes}
+              onChange={(e) => setIdpScopes(e.target.value)}
+              hint="Comma-separated; openid is required."
+            />
+            <label>
+              <input
+                type="checkbox"
+                checked={idpEnabled}
+                onChange={(e) => setIdpEnabled(e.target.checked)}
+              />{' '}
+              Use tenant IdP override
+            </label>
+            <Button type="submit" variant="primary" disabled={updateIdP.isPending}>
+              Save OIDC settings
+            </Button>
+          </form>
+        )}
+        {idpSaved ? <p role="status">Tenant OIDC settings saved.</p> : null}
+        {idpError ? <p role="alert">{idpError}</p> : null}
+
         <Table
           caption="Identity surfaces"
           columns={surfaceColumns}

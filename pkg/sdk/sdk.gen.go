@@ -89,18 +89,19 @@ type ABACPolicyList struct {
 }
 
 type AIAnswer struct {
-	Confidence           string       `json:"confidence,omitempty"`
-	Degraded             bool         `json:"degraded,omitempty"`
-	Evidence             []AIEvidence `json:"evidence,omitempty"`
-	Findings             []AIFinding  `json:"findings,omitempty"`
-	Id                   string       `json:"id,omitempty"`
-	InsufficientEvidence bool         `json:"insufficient_evidence,omitempty"`
-	Model                string       `json:"model,omitempty"`
-	Question             string       `json:"question,omitempty"`
-	RootCause            string       `json:"root_cause,omitempty"`
-	RootCauseCitations   []AICitation `json:"root_cause_citations,omitempty"`
-	RootCauseGrounded    bool         `json:"root_cause_grounded,omitempty"`
-	Tenant               string       `json:"tenant,omitempty"`
+	Confidence           string                `json:"confidence,omitempty"`
+	Degraded             bool                  `json:"degraded,omitempty"`
+	Evidence             []AIEvidence          `json:"evidence,omitempty"`
+	Findings             []AIFinding           `json:"findings,omitempty"`
+	Id                   string                `json:"id,omitempty"`
+	InsufficientEvidence bool                  `json:"insufficient_evidence,omitempty"`
+	InvestigationPlan    []AIInvestigationStep `json:"investigation_plan,omitempty"`
+	Model                string                `json:"model,omitempty"`
+	Question             string                `json:"question,omitempty"`
+	RootCause            string                `json:"root_cause,omitempty"`
+	RootCauseCitations   []AICitation          `json:"root_cause_citations,omitempty"`
+	RootCauseGrounded    bool                  `json:"root_cause_grounded,omitempty"`
+	Tenant               string                `json:"tenant,omitempty"`
 }
 
 type AIAskRequest struct {
@@ -133,6 +134,22 @@ type AIFeedbackRequest struct {
 type AIFinding struct {
 	Citations []AICitation `json:"citations,omitempty"`
 	Statement string       `json:"statement,omitempty"`
+}
+
+type AIInvestigationStep struct {
+	Domain        string            `json:"domain,omitempty"`
+	EvidenceCount int               `json:"evidence_count,omitempty"`
+	Goal          string            `json:"goal,omitempty"`
+	Limit         int               `json:"limit,omitempty"`
+	NodeId        string            `json:"node_id,omitempty"`
+	ReadOnly      bool              `json:"read_only,omitempty"`
+	Reason        string            `json:"reason,omitempty"`
+	Selector      map[string]string `json:"selector,omitempty"`
+	Status        string            `json:"status,omitempty"`
+	Step          int               `json:"step,omitempty"`
+	Truncated     bool              `json:"truncated,omitempty"`
+	WindowEnd     string            `json:"window_end,omitempty"`
+	WindowStart   string            `json:"window_start,omitempty"`
 }
 
 type Agent struct {
@@ -326,6 +343,34 @@ type CollectorRegistration struct {
 	TenantId     string              `json:"tenant_id"`
 }
 
+type DeviceConfigArchiveRequest struct {
+	Content    string `json:"content"`
+	Device     string `json:"device"`
+	ObservedAt string `json:"observed_at,omitempty"`
+	Source     string `json:"source,omitempty"`
+}
+
+type DeviceConfigList struct {
+	ArchiveRunning  bool                  `json:"archive_running,omitempty"`
+	EffectiveLimit  int                   `json:"effective_limit,omitempty"`
+	Items           []DeviceConfigVersion `json:"items,omitempty"`
+	RedactionPolicy string                `json:"redaction_policy,omitempty"`
+}
+
+type DeviceConfigVersion struct {
+	ArchivedAt   string `json:"archived_at,omitempty"`
+	Content      string `json:"content,omitempty"`
+	ContentHash  string `json:"content_hash,omitempty"`
+	Device       string `json:"device,omitempty"`
+	Drifted      bool   `json:"drifted,omitempty"`
+	Id           string `json:"id,omitempty"`
+	ObservedAt   string `json:"observed_at,omitempty"`
+	PreviousHash string `json:"previous_hash,omitempty"`
+	Source       string `json:"source,omitempty"`
+	TenantId     string `json:"tenant_id,omitempty"`
+	Version      int    `json:"version,omitempty"`
+}
+
 // One managed network device visible in the tenant topology graph.
 type DeviceInventory struct {
 	Address   string            `json:"address,omitempty"`
@@ -363,6 +408,37 @@ type DeviceMetricSummaryList struct {
 	EffectiveLimit int                   `json:"effective_limit,omitempty"`
 	Items          []DeviceMetricSummary `json:"items,omitempty"`
 	MetricsRunning bool                  `json:"metrics_running,omitempty"`
+}
+
+type DeviceSyslogEvent struct {
+	AppName       string            `json:"app_name,omitempty"`
+	Device        string            `json:"device,omitempty"`
+	Facility      int               `json:"facility,omitempty"`
+	Hostname      string            `json:"hostname,omitempty"`
+	Id            string            `json:"id,omitempty"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Message       string            `json:"message,omitempty"`
+	ObservedAt    string            `json:"observed_at,omitempty"`
+	Raw           string            `json:"raw,omitempty"`
+	Severity      int               `json:"severity,omitempty"`
+	SeverityText  string            `json:"severity_text,omitempty"`
+	SourceAddress string            `json:"source_address,omitempty"`
+	TenantId      string            `json:"tenant_id,omitempty"`
+}
+
+type DeviceSyslogList struct {
+	EffectiveLimit int                 `json:"effective_limit,omitempty"`
+	Items          []DeviceSyslogEvent `json:"items,omitempty"`
+	SyslogRunning  bool                `json:"syslog_running,omitempty"`
+}
+
+type DeviceSyslogRequest struct {
+	Device        string            `json:"device"`
+	Labels        map[string]string `json:"labels,omitempty"`
+	Message       string            `json:"message,omitempty"`
+	ObservedAt    string            `json:"observed_at,omitempty"`
+	Raw           string            `json:"raw,omitempty"`
+	SourceAddress string            `json:"source_address,omitempty"`
 }
 
 type DiscoverProposal struct {
@@ -459,7 +535,8 @@ type FlowTopRow struct {
 }
 
 type Health struct {
-	Status string `json:"status"`
+	AuditRetention map[string]any `json:"audit_retention,omitempty"`
+	Status         string         `json:"status"`
 }
 
 type Hierarchy struct {
@@ -623,15 +700,29 @@ type IsolationStatus struct {
 }
 
 type LifecycleRetentionInput struct {
-	FlowRetentionDays *int `json:"flow_retention_days"`
+	AiAnswerRetentionDays        *int `json:"ai_answer_retention_days,omitempty"`
+	AuditRetentionDays           *int `json:"audit_retention_days,omitempty"`
+	DerivedIdentityRetentionDays *int `json:"derived_identity_retention_days,omitempty"`
+	EbpfRetentionDays            *int `json:"ebpf_retention_days,omitempty"`
+	FlowRetentionDays            *int `json:"flow_retention_days,omitempty"`
+	ObjectRetentionDays          *int `json:"object_retention_days,omitempty"`
+	OtelRetentionDays            *int `json:"otel_retention_days,omitempty"`
+	PathRetentionDays            *int `json:"path_retention_days,omitempty"`
 }
 
 type LifecycleStatus struct {
-	FlowRetentionDays *int   `json:"flow_retention_days"`
-	IsolationModel    string `json:"isolation_model"`
-	Residency         string `json:"residency,omitempty"`
-	TenantId          string `json:"tenant_id,omitempty"`
-	UpdatedBy         string `json:"updated_by,omitempty"`
+	AiAnswerRetentionDays        *int   `json:"ai_answer_retention_days,omitempty"`
+	AuditRetentionDays           *int   `json:"audit_retention_days,omitempty"`
+	DerivedIdentityRetentionDays *int   `json:"derived_identity_retention_days,omitempty"`
+	EbpfRetentionDays            *int   `json:"ebpf_retention_days,omitempty"`
+	FlowRetentionDays            *int   `json:"flow_retention_days,omitempty"`
+	IsolationModel               string `json:"isolation_model"`
+	ObjectRetentionDays          *int   `json:"object_retention_days,omitempty"`
+	OtelRetentionDays            *int   `json:"otel_retention_days,omitempty"`
+	PathRetentionDays            *int   `json:"path_retention_days,omitempty"`
+	Residency                    string `json:"residency,omitempty"`
+	TenantId                     string `json:"tenant_id,omitempty"`
+	UpdatedBy                    string `json:"updated_by,omitempty"`
 }
 
 type Link struct {
@@ -770,6 +861,31 @@ type Signal struct {
 	Summary    string            `json:"summary,omitempty"`
 	Target     string            `json:"target,omitempty"`
 	Title      string            `json:"title,omitempty"`
+}
+
+// Public metadata for the caller tenant's OIDC provider. Secret material is represented only by client_secret_configured.
+type TenantIdPSettings struct {
+	ClientId               string          `json:"client_id"`
+	ClientSecretConfigured bool            `json:"client_secret_configured"`
+	Configured             bool            `json:"configured"`
+	Enabled                bool            `json:"enabled"`
+	Flags                  map[string]bool `json:"flags"`
+	Issuer                 string          `json:"issuer"`
+	RedirectUrl            string          `json:"redirect_url"`
+	Scopes                 []string        `json:"scopes"`
+	Source                 string          `json:"source"`
+	Valid                  bool            `json:"valid"`
+}
+
+// Tenant OIDC override. client_secret is write-only; omit it to preserve an existing encrypted secret.
+type TenantIdPSettingsInput struct {
+	ClientId     string          `json:"client_id"`
+	ClientSecret string          `json:"client_secret,omitempty"`
+	Enabled      bool            `json:"enabled,omitempty"`
+	Flags        map[string]bool `json:"flags,omitempty"`
+	Issuer       string          `json:"issuer"`
+	RedirectUrl  string          `json:"redirect_url"`
+	Scopes       []string        `json:"scopes,omitempty"`
 }
 
 type Test struct {
@@ -1541,6 +1657,43 @@ func (c *Client) GetCostSummary(ctx context.Context, req GetCostSummaryRequest) 
 	return out, nil
 }
 
+// List tenant-scoped device config versions
+type ListDeviceConfigsRequest struct {
+	Device *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceConfigs(ctx context.Context, req ListDeviceConfigsRequest) (*DeviceConfigList, error) {
+	path := "/v1/device/configs"
+	query := url.Values{}
+	if req.Device != nil {
+		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceConfigList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Archive a redacted network-device config version
+type ArchiveDeviceConfigRequest struct {
+	Body *DeviceConfigArchiveRequest `json:"-"`
+}
+
+func (c *Client) ArchiveDeviceConfig(ctx context.Context, req ArchiveDeviceConfigRequest) (*DeviceConfigVersion, error) {
+	path := "/v1/device/configs"
+	query := url.Values{}
+	var out DeviceConfigVersion
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List latest device metric summaries
 type ListDeviceMetricSummariesRequest struct {
 	Device *string `json:"-"`
@@ -1562,6 +1715,43 @@ func (c *Client) ListDeviceMetricSummaries(ctx context.Context, req ListDeviceMe
 	}
 	var out DeviceMetricSummaryList
 	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List tenant-scoped device syslog events
+type ListDeviceSyslogRequest struct {
+	Device *string `json:"-"`
+	Limit  *int    `json:"-"`
+}
+
+func (c *Client) ListDeviceSyslog(ctx context.Context, req ListDeviceSyslogRequest) (*DeviceSyslogList, error) {
+	path := "/v1/device/syslog"
+	query := url.Values{}
+	if req.Device != nil {
+		query.Set("device", formatQueryValue(*req.Device))
+	}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out DeviceSyslogList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Ingest one authenticated device syslog line
+type IngestDeviceSyslogRequest struct {
+	Body *DeviceSyslogRequest `json:"-"`
+}
+
+func (c *Client) IngestDeviceSyslog(ctx context.Context, req IngestDeviceSyslogRequest) (*DeviceSyslogEvent, error) {
+	path := "/v1/device/syslog"
+	query := url.Values{}
+	var out DeviceSyslogEvent
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -2094,6 +2284,35 @@ func (c *Client) CreateHierarchyProject(ctx context.Context, req CreateHierarchy
 	return &out, nil
 }
 
+// Get the caller tenant's OIDC identity-provider settings
+type GetTenantIdentitySettingsRequest struct {
+}
+
+func (c *Client) GetTenantIdentitySettings(ctx context.Context, req GetTenantIdentitySettingsRequest) (*TenantIdPSettings, error) {
+	path := "/v1/identity/settings"
+	query := url.Values{}
+	var out TenantIdPSettings
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Create or replace the caller tenant's OIDC identity-provider override
+type PutTenantIdentitySettingsRequest struct {
+	Body *TenantIdPSettingsInput `json:"-"`
+}
+
+func (c *Client) PutTenantIdentitySettings(ctx context.Context, req PutTenantIdentitySettingsRequest) (*TenantIdPSettings, error) {
+	path := "/v1/identity/settings"
+	query := url.Values{}
+	var out TenantIdPSettings
+	if err := c.doJSON(ctx, http.MethodPut, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List incidents
 type ListIncidentsRequest struct {
 }
@@ -2285,7 +2504,7 @@ func (c *Client) PutV1LifecycleRetention(ctx context.Context, req PutV1Lifecycle
 	return &out, nil
 }
 
-// Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, and append an audit projection marker; requires confirm equal to subject
+// Erase one data subject across identity, persisted AI answers, flow telemetry, OTLP telemetry, TSDB/RUM labels, topology/device labels, eBPF aggregates, endpoint latest views, and append an audit projection marker; requires confirm equal to subject
 type PostV1LifecycleSubjectsEraseRequest struct {
 	Body *map[string]any `json:"-"`
 }
@@ -2296,7 +2515,7 @@ func (c *Client) PostV1LifecycleSubjectsErase(ctx context.Context, req PostV1Lif
 	return c.doJSON(ctx, http.MethodPost, path, query, req.Body, nil)
 }
 
-// Download a subject-scoped portability bundle across identity, telemetry, AI, and audit evidence; subject travels in the JSON body, never the URL
+// Download a subject-scoped portability bundle across identity, flow, OTLP, TSDB/RUM labels, topology/device labels, eBPF, endpoint, AI, and audit evidence; subject travels in the JSON body, never the URL
 type PostV1LifecycleSubjectsExportRequest struct {
 	Body *map[string]any `json:"-"`
 }
