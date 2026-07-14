@@ -926,6 +926,102 @@
         }
       }
     },
+    "/v1/incidents/{id}/shares": {
+      "post": {
+        "operationId": "createIncidentShare",
+        "summary": "Create an expiring redacted cited-incident snapshot",
+        "description": "Creates a stable same-tenant share artifact after re-authorizing the incident and gathering a fresh cited RCA. The artifact is privacy-redacted, audited, and expires no later than the tenant object-retention policy. It is not a public bearer link.",
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Incident id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentShareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The redacted share artifact.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentShareArtifact"
+                }
+              }
+            }
+          },
+          "403": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
+    "/v1/incident-shares/{id}": {
+      "get": {
+        "operationId": "getIncidentShare",
+        "summary": "Read a live redacted incident share in the caller's tenant",
+        "description": "Missing, expired, revoked, and cross-tenant artifact IDs all return the same not-found response. Authentication and incident.read are required on every read.",
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Opaque incident-share artifact id.",
+            "schema": {
+              "type": "string",
+              "pattern": "^share_[a-f0-9]{32}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The redacted cited-incident snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentShareArtifact"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/oncall/status": {
       "get": {
         "operationId": "getOncallStatus",
@@ -7963,6 +8059,96 @@
           }
         }
       },
+      "IncidentShareSelection": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "evidence",
+              "entity"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "IncidentShareContext": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "filters"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "filters": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "selection": {
+            "$ref": "#/components/schemas/IncidentShareSelection"
+          }
+        }
+      },
+      "IncidentShareRequest": {
+        "type": "object",
+        "required": [
+          "context"
+        ],
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/IncidentShareContext"
+          }
+        }
+      },
+      "IncidentShareArtifact": {
+        "type": "object",
+        "required": [
+          "id",
+          "incident",
+          "context",
+          "answer",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "incident": {
+            "$ref": "#/components/schemas/Incident"
+          },
+          "context": {
+            "$ref": "#/components/schemas/IncidentShareContext"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/AIAnswer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "IncidentPatch": {
         "type": "object",
         "required": [
@@ -8682,6 +8868,11 @@
           "occurred_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Allow-listed source fields used to resolve a citation back to its authorized source object."
           }
         }
       },

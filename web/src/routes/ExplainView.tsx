@@ -13,6 +13,7 @@ export interface ExplainViewProps {
   pivotContext: PivotContext
   onEvidenceSelect?: (evidence: Evidence) => void
   onAnswer?: (answer: Answer) => void
+  initialAnswer?: Answer
 }
 
 function requestSubject(
@@ -62,9 +63,11 @@ export function ExplainView({
   pivotContext,
   onEvidenceSelect,
   onAnswer,
+  initialAnswer,
 }: ExplainViewProps) {
   const ask = useAsk()
   const inspector = useRef<HTMLElement>(null)
+  const displayedAnswer = ask.data ?? initialAnswer
 
   function explain() {
     const range =
@@ -88,16 +91,18 @@ export function ExplainView({
 
   return (
     <div className={styles.explain}>
-      <Button variant="secondary" onClick={explain} disabled={ask.isPending}>
-        {ask.isPending ? 'Explaining…' : 'Explain this view'}
-      </Button>
+      {!initialAnswer ? (
+        <Button variant="secondary" onClick={explain} disabled={ask.isPending}>
+          {ask.isPending ? 'Explaining…' : 'Explain this view'}
+        </Button>
+      ) : null}
       {ask.isError ? (
         <ErrorState description="This view could not be explained within your authorized scope." />
       ) : null}
-      {ask.data ? (
+      {displayedAnswer ? (
         <ExplanationInspector
           ref={inspector}
-          answer={ask.data}
+          answer={displayedAnswer}
           onEvidenceSelect={onEvidenceSelect}
         />
       ) : null}

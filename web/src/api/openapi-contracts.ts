@@ -365,6 +365,20 @@ export const API_CALL_CONTRACTS = [
     generated: 'PatchIncidentResponse',
   },
   {
+    file: 'api/incidents.ts',
+    method: 'POST',
+    path: '`/incidents/${id}/shares`',
+    response: 'IncidentShareArtifact',
+    generated: 'CreateIncidentShareResponse',
+  },
+  {
+    file: 'api/incidents.ts',
+    method: 'GET',
+    path: '`/incident-shares/${id}`',
+    response: 'IncidentShareArtifact',
+    generated: 'GetIncidentShareResponse',
+  },
+  {
     file: 'api/keys.ts',
     method: 'GET',
     path: '/security/keys',
@@ -627,6 +641,8 @@ export const OPENAPI_TYPE_CONTRACTS = {
   tenantIdPSettings: true,
   incident: true,
   signal: true,
+  incidentShareArtifact: true,
+  incidentShareContext: true,
   lifecycleStatus: true,
   lifecycleRetentionInput: true,
   path: true,
@@ -664,6 +680,14 @@ export const OPENAPI_TYPE_CONTRACTS = {
   tenantIdPSettings: GeneratedHasViewKeys<SDK.TenantIdPSettings, Identity.TenantIdPSettings>
   incident: GeneratedHasViewKeys<SDK.Incident, Incidents.Incident>
   signal: GeneratedHasViewKeys<SDK.Signal, Incidents.Signal>
+  incidentShareArtifact: GeneratedHasViewKeys<
+    SDK.IncidentShareArtifact,
+    Incidents.IncidentShareArtifact
+  >
+  incidentShareContext: GeneratedHasViewKeys<
+    SDK.IncidentShareContext,
+    Incidents.IncidentShareContext
+  >
   lifecycleStatus: GeneratedHasViewKeys<SDK.LifecycleStatus, Lifecycle.LifecycleStatus>
   lifecycleRetentionInput: GeneratedHasViewKeys<
     SDK.LifecycleRetentionInput,

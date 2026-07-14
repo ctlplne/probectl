@@ -44,9 +44,10 @@ export interface CreateProposalInput {
   incident_id?: string
 }
 
-export function useRemediations() {
+export function useRemediations(enabled = true) {
   return useQuery({
     queryKey: ['remediation-proposals'],
+    enabled,
     queryFn: () => apiFetch<RemediationList>('/remediation/proposals'),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   })

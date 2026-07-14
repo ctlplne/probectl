@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './incidentRoom.module.css'
 import {
@@ -17,6 +17,7 @@ import {
 } from '../components'
 import {
   severityTone,
+  useCreateIncidentShare,
   useIncident,
   useIncidentChanges,
   useResolveIncident,
@@ -117,21 +118,33 @@ function entityValues(incident: Incident): string[] {
 export function IncidentRoom({
   incidentId,
   pivotContext,
+  incidentSnapshot,
+  sharedAnswer,
+  sharedArtifactID,
+  sharedExpiresAt,
 }: {
   incidentId: string
   pivotContext: PivotContext
+  incidentSnapshot?: Incident
+  sharedAnswer?: Answer
+  sharedArtifactID?: string
+  sharedExpiresAt?: string
 }) {
   const { t } = useI18n()
   const [params, setParams] = useSearchParams()
-  const incident = useIncident(incidentId)
-  const changes = useIncidentChanges(incidentId)
+  const incident = useIncident(incidentSnapshot ? undefined : incidentId)
+  const changes = useIncidentChanges(incidentSnapshot ? undefined : incidentId)
   const resolve = useResolveIncident(incidentId)
-  const remediations = useRemediations()
+  const remediations = useRemediations(!sharedArtifactID)
   const createProposal = useCreateRemediationProposal()
+  const createShare = useCreateIncidentShare(incidentId)
   const { push } = useToast()
-  const [explanation, setExplanation] = useState<Answer>()
+  const [explanation, setExplanation] = useState<Answer | undefined>(sharedAnswer)
+  const [shareLink, setShareLink] = useState<string>()
 
-  const inc = incident.data
+  useEffect(() => setExplanation(sharedAnswer), [sharedAnswer])
+
+  const inc = incidentSnapshot ?? incident.data
   const signalRows = useMemo<SignalRow[]>(
     () =>
       (inc?.signals ?? []).map((signal, index) => ({
@@ -162,8 +175,10 @@ export function IncidentRoom({
     return items.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
   }, [changes.data, signalRows])
 
-  if (incident.isLoading) return <LoadingState label={t('incidents.loadingOne')} />
-  if (incident.isError || !inc) return <ErrorState description={t('incidents.errorOne')} />
+  if (!incidentSnapshot && incident.isLoading)
+    return <LoadingState label={t('incidents.loadingOne')} />
+  if ((!incidentSnapshot && incident.isError) || !inc)
+    return <ErrorState description={t('incidents.errorOne')} />
   const roomIncident = inc
 
   const canPropose = Boolean(remediations.data)
@@ -212,6 +227,39 @@ export function IncidentRoom({
             error instanceof Error ? error.message : t('incidents.toast.proposalFailedMessage'),
         }),
     })
+  }
+
+  function copyCitedShareLink() {
+    createShare.mutate(
+      {
+        context: {
+          from: pivotContext.from ?? roomIncident.started_at,
+          to: pivotContext.to ?? roomIncident.last_seen_at,
+          filters: pivotContext.filters,
+          ...(pivotContext.selection ? { selection: pivotContext.selection } : {}),
+        },
+      },
+      {
+        onSuccess: (artifact) => {
+          const url = new URL('/incidents', window.location.origin)
+          url.searchParams.set('share', artifact.id)
+          const stableLink = url.toString()
+          setShareLink(stableLink)
+          void navigator.clipboard?.writeText(stableLink).catch(() => undefined)
+          push({
+            tone: 'success',
+            title: t('incidents.share.copied'),
+            message: t('incidents.share.expires', { expires: artifact.expires_at }),
+          })
+        },
+        onError: () =>
+          push({
+            tone: 'danger',
+            title: t('incidents.share.failed'),
+            message: t('incidents.share.failedDescription'),
+          }),
+      },
+    )
   }
 
   return (
@@ -285,7 +333,60 @@ export function IncidentRoom({
         }}
         onEvidenceSelect={selectExplanationEvidence}
         onAnswer={setExplanation}
+        initialAnswer={sharedAnswer}
       />
+
+      {sharedArtifactID ? (
+        <Card>
+          <CardHeader title={t('incidents.share.snapshot')} />
+          <CardBody>
+            <p className={styles.nextStep}>
+              {t('incidents.share.snapshotDescription', { expires: sharedExpiresAt ?? '' })}
+            </p>
+            <dl className={styles.summaryGrid}>
+              <div>
+                <dt>{t('incidents.share.from')}</dt>
+                <dd>{pivotContext.from ? <DateTime value={pivotContext.from} /> : '—'}</dd>
+              </div>
+              <div>
+                <dt>{t('incidents.share.to')}</dt>
+                <dd>{pivotContext.to ? <DateTime value={pivotContext.to} /> : '—'}</dd>
+              </div>
+              <div>
+                <dt>{t('incidents.share.filters')}</dt>
+                <dd>
+                  {Object.entries(pivotContext.filters).length > 0
+                    ? Object.entries(pivotContext.filters)
+                        .sort(([left], [right]) => left.localeCompare(right))
+                        .map(([key, value]) => <code key={key}>{`${key}=${value}`}</code>)
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>{t('incidents.share.selection')}</dt>
+                <dd>{pivotContext.selection ? <code>{pivotContext.selection.id}</code> : '—'}</dd>
+              </div>
+            </dl>
+          </CardBody>
+        </Card>
+      ) : explanation ? (
+        <Card>
+          <CardHeader title={t('incidents.share.title')} />
+          <CardBody>
+            <p className={styles.nextStep}>{t('incidents.share.description')}</p>
+            <div className={styles.actions}>
+              <Button
+                variant="secondary"
+                onClick={copyCitedShareLink}
+                disabled={createShare.isPending}
+              >
+                {createShare.isPending ? t('incidents.share.creating') : t('incidents.share.copy')}
+              </Button>
+              {shareLink ? <a href={shareLink}>{t('incidents.share.open')}</a> : null}
+            </div>
+          </CardBody>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader
@@ -348,14 +449,16 @@ export function IncidentRoom({
             </CardBody>
           </Card>
 
-          <ChangeEvidence
-            candidates={changes.data}
-            isLoading={changes.isLoading}
-            isError={changes.isError}
-            selectedID={selectedSourceID}
-            onSelect={selectEvidence}
-            t={t}
-          />
+          {!sharedArtifactID ? (
+            <ChangeEvidence
+              candidates={changes.data}
+              isLoading={changes.isLoading}
+              isError={changes.isError}
+              selectedID={selectedSourceID}
+              onSelect={selectEvidence}
+              t={t}
+            />
+          ) : null}
         </div>
 
         <div className={styles.inspectorColumn} aria-label={t('incidents.room.inspector.aria')}>
@@ -378,35 +481,37 @@ export function IncidentRoom({
 
           <EvidenceInspector signal={selectedSignal?.signal} change={selectedChange} t={t} />
 
-          <Card>
-            <CardHeader title={t('incidents.room.next.title')} />
-            <CardBody>
-              <p className={styles.nextStep}>{t('incidents.room.next.description')}</p>
-              <p className={styles.safety}>{t('incidents.room.next.safety')}</p>
-              <div className={styles.actions}>
-                {canPropose ? (
-                  <Button
-                    variant="secondary"
-                    onClick={proposeIncidentReview}
-                    disabled={createProposal.isPending}
-                  >
-                    {createProposal.isPending
-                      ? t('incidents.action.proposing')
-                      : t('incidents.action.propose')}
-                  </Button>
-                ) : null}
-                {inc.status === 'open' ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => resolve.mutate()}
-                    disabled={resolve.isPending}
-                  >
-                    {t('incidents.action.resolve')}
-                  </Button>
-                ) : null}
-              </div>
-            </CardBody>
-          </Card>
+          {!sharedArtifactID ? (
+            <Card>
+              <CardHeader title={t('incidents.room.next.title')} />
+              <CardBody>
+                <p className={styles.nextStep}>{t('incidents.room.next.description')}</p>
+                <p className={styles.safety}>{t('incidents.room.next.safety')}</p>
+                <div className={styles.actions}>
+                  {canPropose ? (
+                    <Button
+                      variant="secondary"
+                      onClick={proposeIncidentReview}
+                      disabled={createProposal.isPending}
+                    >
+                      {createProposal.isPending
+                        ? t('incidents.action.proposing')
+                        : t('incidents.action.propose')}
+                    </Button>
+                  ) : null}
+                  {inc.status === 'open' ? (
+                    <Button
+                      variant="secondary"
+                      onClick={() => resolve.mutate()}
+                      disabled={resolve.isPending}
+                    >
+                      {t('incidents.action.resolve')}
+                    </Button>
+                  ) : null}
+                </div>
+              </CardBody>
+            </Card>
+          ) : null}
         </div>
       </div>
     </section>

@@ -50,6 +50,7 @@ export interface AICitation {
 
 export interface AIEvidence {
   domain?: string
+  fields?: JsonObject
   id?: string
   occurred_at?: string
   plane?: string
@@ -574,6 +575,31 @@ export interface IncidentList {
 
 export interface IncidentPatch {
   status: "resolved"
+}
+
+export interface IncidentShareArtifact {
+  answer: AIAnswer
+  context: IncidentShareContext
+  created_at: string
+  expires_at: string
+  id: string
+  incident: Incident
+}
+
+export interface IncidentShareContext {
+  filters: { [key: string]: string }
+  from: string
+  selection?: IncidentShareSelection
+  to: string
+}
+
+export interface IncidentShareRequest {
+  context: IncidentShareContext
+}
+
+export interface IncidentShareSelection {
+  id: string
+  kind: "evidence" | "entity"
 }
 
 export interface InventorySavedView {
@@ -1397,6 +1423,12 @@ export interface PutTenantIdentitySettingsRequest {
 
 export type PutTenantIdentitySettingsResponse = TenantIdPSettings
 
+export interface GetIncidentShareRequest {
+  id: string
+}
+
+export type GetIncidentShareResponse = IncidentShareArtifact
+
 export interface ListIncidentsRequest {
 }
 
@@ -1423,6 +1455,13 @@ export interface IncidentCIsRequest {
 }
 
 export type IncidentCIsResponse = JsonObject
+
+export interface CreateIncidentShareRequest {
+  id: string
+  body: IncidentShareRequest
+}
+
+export type CreateIncidentShareResponse = IncidentShareArtifact
 
 export interface ListInventoryViewsRequest {
   surface?: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
@@ -2316,6 +2355,13 @@ export class ProbectlSDKClient {
     return this.requestJSON<PutTenantIdentitySettingsResponse>("PUT", path, query, request.body)
   }
 
+  async getIncidentShare(request: GetIncidentShareRequest): Promise<GetIncidentShareResponse> {
+    let path = "/v1/incident-shares/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetIncidentShareResponse>("GET", path, query, undefined)
+  }
+
   async listIncidents(): Promise<ListIncidentsResponse> {
     let path = "/v1/incidents"
     const query = new URLSearchParams()
@@ -2345,6 +2391,13 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<IncidentCIsResponse>("GET", path, query, undefined)
+  }
+
+  async createIncidentShare(request: CreateIncidentShareRequest): Promise<CreateIncidentShareResponse> {
+    let path = "/v1/incidents/{id}/shares"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateIncidentShareResponse>("POST", path, query, request.body)
   }
 
   async listInventoryViews(request: ListInventoryViewsRequest = {}): Promise<ListInventoryViewsResponse> {

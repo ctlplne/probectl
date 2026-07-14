@@ -146,6 +146,7 @@ var auditExportRoutes = map[string]bool{
 	"GET /v1/lifecycle/export":           true,
 	"POST /v1/lifecycle/subjects/export": true,
 	"GET /v1/diagnostics/bundle":         true,
+	"POST /v1/incidents/{id}/shares":     true,
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
@@ -203,6 +204,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/incidents":                           auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/changes":              auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/incidents/{id}/shares":              auditExplicit(auditFacetExport, "incident.share_create"),
+	"GET /v1/incident-shares/{id}":                auditExplicit(auditFacetSensitiveRead, "incident.share_read"),
 	"PATCH /v1/incidents/{id}":                    auditExplicit(auditFacetMutation, "incident.resolve"),
 	"GET /v1/oncall/status":                       auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/oncall/test":                        auditExplicit(auditFacetMutation, "notify.test_delivery"),

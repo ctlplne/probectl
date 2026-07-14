@@ -116,14 +116,15 @@ type AICitation struct {
 }
 
 type AIEvidence struct {
-	Domain     string `json:"domain,omitempty"`
-	Id         string `json:"id,omitempty"`
-	OccurredAt string `json:"occurred_at,omitempty"`
-	Plane      string `json:"plane,omitempty"`
-	Ref        string `json:"ref,omitempty"`
-	Severity   string `json:"severity,omitempty"`
-	Summary    string `json:"summary,omitempty"`
-	Title      string `json:"title,omitempty"`
+	Domain     string         `json:"domain,omitempty"`
+	Fields     map[string]any `json:"fields,omitempty"`
+	Id         string         `json:"id,omitempty"`
+	OccurredAt string         `json:"occurred_at,omitempty"`
+	Plane      string         `json:"plane,omitempty"`
+	Ref        string         `json:"ref,omitempty"`
+	Severity   string         `json:"severity,omitempty"`
+	Summary    string         `json:"summary,omitempty"`
+	Title      string         `json:"title,omitempty"`
 }
 
 type AIFeedbackRequest struct {
@@ -654,6 +655,31 @@ type IncidentList struct {
 
 type IncidentPatch struct {
 	Status string `json:"status"`
+}
+
+type IncidentShareArtifact struct {
+	Answer    AIAnswer             `json:"answer"`
+	Context   IncidentShareContext `json:"context"`
+	CreatedAt string               `json:"created_at"`
+	ExpiresAt string               `json:"expires_at"`
+	Id        string               `json:"id"`
+	Incident  Incident             `json:"incident"`
+}
+
+type IncidentShareContext struct {
+	Filters   map[string]string      `json:"filters"`
+	From      string                 `json:"from"`
+	Selection IncidentShareSelection `json:"selection,omitempty"`
+	To        string                 `json:"to"`
+}
+
+type IncidentShareRequest struct {
+	Context IncidentShareContext `json:"context"`
+}
+
+type IncidentShareSelection struct {
+	Id   string `json:"id"`
+	Kind string `json:"kind"`
 }
 
 type InventorySavedView struct {
@@ -2356,6 +2382,25 @@ func (c *Client) PutTenantIdentitySettings(ctx context.Context, req PutTenantIde
 	return &out, nil
 }
 
+// Read a live redacted incident share in the caller's tenant
+type GetIncidentShareRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetIncidentShare(ctx context.Context, req GetIncidentShareRequest) (*IncidentShareArtifact, error) {
+	path := "/v1/incident-shares/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentShareArtifact
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 // List incidents
 type ListIncidentsRequest struct {
 }
@@ -2430,6 +2475,26 @@ func (c *Client) IncidentCIs(ctx context.Context, req IncidentCIsRequest) (map[s
 		return nil, err
 	}
 	return out, nil
+}
+
+// Create an expiring redacted cited-incident snapshot
+type CreateIncidentShareRequest struct {
+	Id   string                `json:"-"`
+	Body *IncidentShareRequest `json:"-"`
+}
+
+func (c *Client) CreateIncidentShare(ctx context.Context, req CreateIncidentShareRequest) (*IncidentShareArtifact, error) {
+	path := "/v1/incidents/{id}/shares"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentShareArtifact
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // List per-user saved inventory views

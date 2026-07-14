@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch, isApiStatus } from './client'
+import type { Answer } from './ai'
 
 export type Severity = 'info' | 'warning' | 'critical'
 export type IncidentStatus = 'open' | 'resolved'
@@ -55,10 +56,36 @@ export interface ChangeCandidate {
   reason: string
 }
 
+export interface IncidentShareSelection {
+  kind: 'evidence' | 'entity'
+  id: string
+}
+
+export interface IncidentShareContext {
+  from: string
+  to: string
+  filters: Record<string, string>
+  selection?: IncidentShareSelection
+}
+
+export interface IncidentShareArtifact {
+  id: string
+  incident: Incident
+  context: IncidentShareContext
+  answer: Answer
+  created_at: string
+  expires_at: string
+}
+
+export interface CreateIncidentShareRequest {
+  context: IncidentShareContext
+}
+
 /** useIncidents lists the tenant's incidents, most-recently-active first. */
-export function useIncidents() {
+export function useIncidents(enabled = true) {
   return useQuery({
     queryKey: ['incidents'],
+    enabled,
     queryFn: () => apiFetch<{ items: Incident[] }>('/incidents').then((r) => r.items),
   })
 }
@@ -85,6 +112,30 @@ export function useIncidentChanges(id: string | undefined) {
       apiFetch<{ items: ChangeCandidate[] }>(`/incidents/${id}/changes`).then((r) => r.items),
     retry: (failureCount, error) =>
       !isApiStatus(error, 404) && !isApiStatus(error, 503) && failureCount < 1,
+  })
+}
+
+/** Creates a redacted, expiring incident snapshot. The server derives the
+ * tenant from the session and performs a fresh, cited RCA before persisting. */
+export function useCreateIncidentShare(id: string | undefined) {
+  return useMutation({
+    mutationFn: (request: CreateIncidentShareRequest) =>
+      apiFetch<IncidentShareArtifact>(`/incidents/${id}/shares`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      }),
+  })
+}
+
+/** Reads an authenticated same-tenant share. Missing, expired, revoked, and
+ * foreign-tenant IDs intentionally have the same 404 behavior. */
+export function useIncidentShare(id: string | undefined) {
+  return useQuery({
+    queryKey: ['incident-share', id],
+    enabled: !!id,
+    queryFn: () => apiFetch<IncidentShareArtifact>(`/incident-shares/${id}`),
+    retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
   })
 }
 

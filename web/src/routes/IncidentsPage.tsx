@@ -14,7 +14,7 @@ import {
   Table,
   type Column,
 } from '../components'
-import { type Incident, severityTone, useIncidents } from '../api/incidents'
+import { type Incident, severityTone, useIncidents, useIncidentShare } from '../api/incidents'
 import { DateTime } from '../time/DateTime'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
@@ -40,10 +40,12 @@ function incidentSeverityLabel(severity: string, t: TFn) {
 
 export function IncidentsPage() {
   const { t } = useI18n()
-  const incidents = useIncidents()
   // Deep-link support (?incident=<id>): other surfaces (threat triage S-FE3,
   // alerts) pivot straight into a specific incident's timeline.
   const [params, setParams] = useSearchParams()
+  const shareID = params.get('share') ?? undefined
+  const incidents = useIncidents(!shareID)
+  const shared = useIncidentShare(shareID)
   const defaults = { incident_q: '', incident_status: 'all', incident_severity: 'all' }
   const query = filterValue(params, 'incident_q')
   const status = filterValue(params, 'incident_status', 'all')
@@ -92,6 +94,45 @@ export function IncidentsPage() {
       setParams(replacePivotContext(params, parsedPivot.context), { replace: true })
     }
   }, [incidents.data, params, parsedPivot, setParams])
+
+  if (shareID) {
+    if (shared.isLoading) {
+      return (
+        <Page title={t('incidents.share.pageTitle')} subtitle={t('incidents.share.pageSubtitle')}>
+          <LoadingState label={t('incidents.share.loading')} />
+        </Page>
+      )
+    }
+    if (shared.isError || !shared.data) {
+      return (
+        <Page title={t('incidents.share.pageTitle')} subtitle={t('incidents.share.pageSubtitle')}>
+          <ErrorState description={t('incidents.share.unavailable')} />
+        </Page>
+      )
+    }
+    const artifact = shared.data
+    const sharedContext: PivotContext = {
+      incidentId: artifact.incident.id,
+      from: artifact.context.from,
+      to: artifact.context.to,
+      filters: artifact.context.filters,
+      selection: artifact.context.selection,
+      returnTo: `/incidents?share=${encodeURIComponent(artifact.id)}`,
+      expiresAt: artifact.expires_at,
+    }
+    return (
+      <Page title={t('incidents.share.pageTitle')} subtitle={t('incidents.share.pageSubtitle')}>
+        <IncidentRoom
+          incidentId={artifact.incident.id}
+          pivotContext={sharedContext}
+          incidentSnapshot={artifact.incident}
+          sharedAnswer={artifact.answer}
+          sharedArtifactID={artifact.id}
+          sharedExpiresAt={artifact.expires_at}
+        />
+      </Page>
+    )
+  }
 
   function selectIncident(incident: Incident) {
     const next = new URLSearchParams(

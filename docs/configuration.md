@@ -877,6 +877,12 @@ It runs in the control plane, fed by the alert engine (network plane) and a
 - `GET /v1/incidents` — the tenant's incidents, most-recently-active first.
 - `GET /v1/incidents/{id}` — an incident with its time-ordered signal timeline.
 - `PATCH /v1/incidents/{id}` with `{"status":"resolved"}` — resolve an incident.
+- `POST /v1/incidents/{id}/shares` — create an audited, redacted cited snapshot
+  (also requires `ai.query`). The default seven-day expiry is capped by the
+  tenant's `object_retention_days` policy.
+- `GET /v1/incident-shares/{id}` — replay a live snapshot through the current
+  authenticated tenant's RLS scope. Missing, expired, revoked, and foreign IDs
+  deliberately return the same not-found response.
 
 Signals correlate into one incident when they are **close in time**
 (within `PROBECTL_INCIDENT_WINDOW`, default `10m`) **and related in target** — the
@@ -954,7 +960,7 @@ role grant or revoke takes effect immediately. The permission catalog:
 | `agent.write`     | admin                       | `PATCH/DELETE /v1/agents/{id}` |
 | `alert.read`      | viewer, editor, admin       | `GET /v1/alerts*` |
 | `alert.write`     | editor, admin               | `POST/PUT/DELETE /v1/alerts*` |
-| `incident.read`   | viewer, editor, admin       | `GET /v1/incidents*` |
+| `incident.read`   | viewer, editor, admin       | `GET /v1/incidents*`, `GET /v1/incident-shares/*`, `POST /v1/incidents/*/shares` |
 | `incident.write`  | editor, admin               | `PATCH /v1/incidents/{id}` |
 
 The seeded system roles for the default tenant are **admin** (all permissions),
@@ -1039,13 +1045,14 @@ Journey-critical parity is currently served by the CLI:
 
 | Operator journey | CLI command family | Primary API path |
 | ---------------- | ------------------ | ---------------- |
-| Incident triage and drill-down | `probectl incident list|get|changes|cis` | `/v1/incidents*` |
+| Incident triage, cited share creation, and replay | `probectl incident list|get|changes|cis|share|shared` | `/v1/incidents*`, `/v1/incident-shares/*` |
 | Alert review and response | `probectl alert active|ack|silence` | `/v1/alerts*` |
 | Topology and path investigation | `probectl topology show|whatif` plus `probectl test path <id>` | `/v1/topology*`, `/v1/tests/{id}/path` |
 | Ask/RCA handoff | `probectl ai ask --body JSON` | `/v1/ai/ask` |
 | Human-gated remediation review | `probectl remediation list|get|create|approve|reject` | `/v1/remediation/proposals*` |
 | SLO and cost posture | `probectl slo list|export`, `probectl cost summary` | `/v1/slos*`, `/v1/cost/summary` |
 | Tenant lifecycle portability and erasure | `probectl lifecycle export --redact`, `probectl lifecycle erase --body JSON` | `/v1/lifecycle*` |
+| Tenant identity-provider settings | `probectl identity settings|set-settings` | `/v1/identity/settings` |
 
 ```bash
 probectl test list

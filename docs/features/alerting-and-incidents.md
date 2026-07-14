@@ -102,6 +102,22 @@ row in the inspector. The URL carries only bounded investigation context; it
 never carries a tenant identifier because the authenticated server session owns
 tenant scope.
 
+After a cited answer exists, **Copy cited share link** creates one fixed,
+redacted evidence snapshot. The snapshot preserves the absolute time window,
+filters, selected source row, exact citations, and the reasoning-provenance
+receipt; its URL contains only a random `share_...` artifact ID. It is not a
+public bearer link. Every replay requires an authenticated session with
+`incident.read`, then reads through the caller tenant's forced Postgres RLS
+scope. Missing, expired, revoked, and other-tenant IDs all return the same
+not-found result, so the ID cannot be used to discover another tenant's data.
+Creation also requires `ai.query`, runs a fresh authoritative RCA, strips
+tenant fields and secrets, applies the configured privacy redaction before
+persistence, and records `incident.share_create` in
+the tamper-evident audit log; successful replay records
+`incident.share_read`. A snapshot expires after seven days or sooner when the
+tenant's `object_retention_days` policy is tighter. Live resolve/remediation
+actions are disabled when viewing the fixed snapshot.
+
 The room is deliberately honest about coverage. All five plane groups remain
 visible even when a producer returned no evidence, and an empty group says
 **coverage gap**, never “zero” or “healthy.” An incident detail read returns at
@@ -225,6 +241,8 @@ row, citation, and plane inspector without a route change.
 | List correlated incidents | `GET /v1/incidents` | `incident.read` |
 | One incident's bounded cross-plane evidence | `GET /v1/incidents/<id>` | `incident.read` |
 | Ranked candidate changes | `GET /v1/incidents/<id>/changes` | `incident.read` |
+| Create a redacted cited snapshot | `POST /v1/incidents/<id>/shares` | `incident.read` + `ai.query` |
+| Replay an authenticated snapshot | `GET /v1/incident-shares/<share-id>` | `incident.read` |
 
 Properties you can rely on: the displayed firing state is always the engine's
 current truth (never computed in the browser); silences and acknowledgements

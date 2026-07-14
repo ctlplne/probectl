@@ -136,12 +136,26 @@ var surfaceCommands = map[string]surfaceCommand{
 		"create-team":    {Method: http.MethodPost, Path: "/v1/hierarchy/orgs/{id}/teams", ArgName: "id"},
 		"create-project": {Method: http.MethodPost, Path: "/v1/hierarchy/teams/{id}/projects", ArgName: "id"},
 	}},
+	"identity": {Name: "identity", Summary: "tenant identity-provider settings", Ops: map[string]apiOp{
+		"settings":     {Method: http.MethodGet, Path: "/v1/identity/settings"},
+		"set-settings": {Method: http.MethodPut, Path: "/v1/identity/settings"},
+	}},
 	"incident": {Name: "incident", Summary: "incidents and correlations", Ops: map[string]apiOp{
-		"list":    {Method: http.MethodGet, Path: "/v1/incidents"},
-		"get":     {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
-		"update":  {Method: http.MethodPatch, Path: "/v1/incidents/{id}", ArgName: "id"},
-		"changes": {Method: http.MethodGet, Path: "/v1/incidents/{id}/changes", ArgName: "id"},
-		"cis":     {Method: http.MethodGet, Path: "/v1/incidents/{id}/cis", ArgName: "id"},
+		"list":   {Method: http.MethodGet, Path: "/v1/incidents"},
+		"get":    {Method: http.MethodGet, Path: "/v1/incidents/{id}", ArgName: "id"},
+		"update": {Method: http.MethodPatch, Path: "/v1/incidents/{id}", ArgName: "id"},
+		"changes": {
+			Method: http.MethodGet, Path: "/v1/incidents/{id}/changes", ArgName: "id",
+		},
+		"cis": {Method: http.MethodGet, Path: "/v1/incidents/{id}/cis", ArgName: "id"},
+		"share": {
+			Method: http.MethodPost, Path: "/v1/incidents/{id}/shares", ArgName: "id",
+			Description: "create an expiring redacted cited-evidence snapshot",
+		},
+		"shared": {
+			Method: http.MethodGet, Path: "/v1/incident-shares/{id}", ArgName: "id",
+			Description: "read an authenticated same-tenant incident snapshot",
+		},
 	}},
 	"inventory-view": {Name: "inventory-view", Summary: "saved inventory list views", Ops: map[string]apiOp{
 		"list":   {Method: http.MethodGet, Path: "/v1/inventory/views"},
