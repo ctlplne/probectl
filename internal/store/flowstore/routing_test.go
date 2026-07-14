@@ -239,6 +239,8 @@ func TestEnsureAndDropTenantDatabase(t *testing.T) {
 		"CREATE DATABASE IF NOT EXISTS probectl_t_y",
 		"CREATE TABLE IF NOT EXISTS probectl_ch_migrations",
 		"CREATE TABLE IF NOT EXISTS probectl_t_y.probectl_flows",
+		"ALTER TABLE probectl_t_y.probectl_flow_rollups_hour ADD COLUMN IF NOT EXISTS subject_keys Array(String)",
+		"CREATE MATERIALIZED VIEW IF NOT EXISTS probectl_t_y.probectl_flow_rollups_hour_mv TO probectl_t_y.probectl_flow_rollups_hour",
 		"INSERT INTO probectl_ch_migrations",
 		"ALTER TABLE probectl_t_y.probectl_flows MODIFY TTL",
 		"DROP DATABASE IF EXISTS probectl_t_y",

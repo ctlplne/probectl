@@ -55,13 +55,27 @@ func TestFlowRollupDDLAndBackfillAreTenantScoped(t *testing.T) {
 	if strings.Contains(legacyMV, "WHERE row_id") {
 		t.Fatalf("legacy rollup MV must not skip migrated empty-row_id rows:\n%s", legacyMV)
 	}
+	subjectMV := createFlowRollupsSubjectMVDDL(sharedFlowRollupsMV, sharedFlowsTable, sharedFlowRollupsTable)
+	for _, want := range []string{
+		"CREATE MATERIALIZED VIEW IF NOT EXISTS probectl_flow_rollups_hour_mv",
+		"TO probectl_flow_rollups_hour",
+		"FROM probectl_flows",
+		"[agent_id, exporter, src_addr, dst_addr, next_hop,",
+		"toString(src_asn), toString(dst_asn)] AS subject_keys",
+	} {
+		if !strings.Contains(subjectMV, want) {
+			t.Fatalf("subject-aware rollup MV missing %q:\n%s", want, subjectMV)
+		}
+	}
 	backfill := flowRollupBackfillSQL(sharedFlowsTable, sharedFlowRollupsTable)
 	for _, want := range []string{
 		"INSERT INTO probectl_flow_rollups_hour",
+		"flow_count, subject_keys",
 		"FROM probectl_flows",
 		"WHERE tenant_id={tenant:String}",
 		"if(row_id != '', row_id,",
 		"concat('legacy:', toString(cityHash64(",
+		"toString(src_asn), toString(dst_asn)] AS subject_keys",
 	} {
 		if !strings.Contains(backfill, want) {
 			t.Fatalf("rollup backfill SQL missing %q:\n%s", want, backfill)
@@ -73,22 +87,45 @@ func TestFlowRollupDDLAndBackfillAreTenantScoped(t *testing.T) {
 		t.Fatalf("rollup backfill must preserve legacy rows before destination dedup:\n%s", backfill)
 	}
 	foundV4 := false
+	foundV5 := false
 	for _, m := range CHMigrations() {
-		if m.Version != 4 {
-			continue
-		}
-		foundV4 = true
-		if !m.Destructive || !strings.Contains(m.Justification, "materialized view") {
-			t.Fatalf("v4 legacy MV migration must annotate its MV drop/recreate: %+v", m)
-		}
-		if len(m.Statements) != 2 ||
-			!strings.Contains(m.Statements[0], "DROP TABLE IF EXISTS probectl_flow_rollups_hour_mv") ||
-			!strings.Contains(m.Statements[1], "concat('legacy:', toString(cityHash64(") {
-			t.Fatalf("v4 legacy MV migration statements are incomplete: %+v", m.Statements)
+		switch m.Version {
+		case 4:
+			foundV4 = true
+			if !m.Destructive || !strings.Contains(m.Justification, "materialized view") {
+				t.Fatalf("v4 legacy MV migration must annotate its MV drop/recreate: %+v", m)
+			}
+			if len(m.Statements) != 2 ||
+				!strings.Contains(m.Statements[0], "DROP TABLE IF EXISTS probectl_flow_rollups_hour_mv") ||
+				!strings.Contains(m.Statements[1], "concat('legacy:', toString(cityHash64(") {
+				t.Fatalf("v4 legacy MV migration statements are incomplete: %+v", m.Statements)
+			}
+		case 5:
+			foundV5 = true
+			joined := strings.Join(m.Statements, "\n")
+			for _, want := range []string{
+				"DROP TABLE IF EXISTS probectl_flow_rollups_hour_mv",
+				"ADD COLUMN IF NOT EXISTS subject_keys Array(String) DEFAULT []",
+				"DELETE FROM probectl_flow_rollups_hour",
+				"SELECT tenant_id, if(row_id != ''",
+				"INSERT INTO probectl_flow_rollups_hour",
+				"AS subject_keys",
+				"CREATE MATERIALIZED VIEW IF NOT EXISTS probectl_flow_rollups_hour_mv",
+			} {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("v5 subject-key migration missing %q:\n%s", want, joined)
+				}
+			}
+			if len(m.Statements) != 5 || !m.Destructive || !strings.Contains(m.Justification, "preserving aged-out history") {
+				t.Fatalf("v5 subject-key migration must document its exact replacement safety: %+v", m)
+			}
 		}
 	}
 	if !foundV4 {
 		t.Fatal("missing flowstore v4 migration for legacy flow rollup row ids")
+	}
+	if !foundV5 {
+		t.Fatal("missing flowstore v5 migration for subject-aware long-retention rollups")
 	}
 }
 

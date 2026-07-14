@@ -109,6 +109,28 @@ func TestClickHouseSubjectEraseIsTenantScoped(t *testing.T) {
 	if deleted != 1 || remaining != 0 {
 		t.Fatalf("subject delete counts = deleted %d remaining %d, want 1/0", deleted, remaining)
 	}
+	rollupSubjectCount := func(tenant, value string) int64 {
+		t.Helper()
+		rows, err := c.queryScoped(ctx, "", tenant,
+			"SELECT count() AS n FROM "+sharedFlowRollupsTable+" FINAL WHERE "+flowRollupSubjectPredicate(),
+			chParams{"tenant": tenant, "subject": value})
+		if err != nil {
+			t.Fatalf("count rollup subject %q/%q: %v", tenant, value, err)
+		}
+		if len(rows) == 0 {
+			return 0
+		}
+		return int64(chToUint64(rows[0]["n"]))
+	}
+	if n := rollupSubjectCount(ta, subject); n != 0 {
+		t.Fatalf("tenant A subject remained in %d long-retention rollups", n)
+	}
+	if n := rollupSubjectCount(ta, "bob@example.com"); n != 1 {
+		t.Fatalf("tenant A non-subject rollup count = %d, want 1", n)
+	}
+	if n := rollupSubjectCount(tb, subject); n != 1 {
+		t.Fatalf("tenant B matching-subject rollup count = %d, want 1 (cross-tenant damage if 0)", n)
+	}
 
 	rows, err := c.TopTalkers(ctx, TopQuery{TenantID: ta, By: BySrc, Window: time.Hour, Now: now.Add(time.Minute), Limit: 10})
 	if err != nil {

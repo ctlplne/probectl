@@ -203,6 +203,34 @@ SELECT tenant_id,
 FROM ` + source
 }
 
+// createFlowRollupsSubjectMVDDL is the v5 materialized-view shape. The raw
+// table is allowed to age out before the long-retention rollup, so the rollup
+// must carry the exact identity values used by subject erasure. Keeping them in
+// one Array(String) avoids widening every aggregate query while retaining the
+// same case-insensitive matching semantics as raw rows.
+func createFlowRollupsSubjectMVDDL(view, source, dest string) string {
+	return `CREATE MATERIALIZED VIEW IF NOT EXISTS ` + view + ` TO ` + dest + ` AS
+SELECT tenant_id,
+  toStartOfHour(ts) AS bucket,
+  protocol,
+  exporter,
+  src_addr,
+  dst_addr,
+  transport,
+  ` + flowRollupRowIDExpr() + ` AS row_id,
+  bytes_scaled,
+  packets_scaled,
+  toUInt64(1) AS flow_count,
+  ` + flowSubjectValuesExpr() + ` AS subject_keys
+FROM ` + source
+}
+
+func flowSubjectValuesExpr() string {
+	return `[agent_id, exporter, src_addr, dst_addr, next_hop,
+  src_as_name, dst_as_name, src_country, dst_country,
+  toString(src_asn), toString(dst_asn)]`
+}
+
 func flowRollupRowIDExpr() string {
 	return `if(row_id != '', row_id, concat('legacy:', toString(cityHash64(
   tenant_id, agent_id, exporter, toString(obs_domain), protocol, toString(ts), toString(start_ts),
@@ -322,6 +350,16 @@ func chMigrationsFor(table string) []chmigrate.Migration {
 		},
 			Destructive:   true,
 			Justification: "recreate materialized view only; rollup destination data is preserved and legacy empty-row_id source rows are no longer skipped",
+		},
+		{Version: 5, Name: "flow_rollup_subject_keys", Statements: []string{
+			"DROP TABLE IF EXISTS " + rollupView,
+			"ALTER TABLE " + rollupTable + " ADD COLUMN IF NOT EXISTS subject_keys Array(String) DEFAULT []",
+			flowRollupSubjectReplacementDeleteSQL(table, rollupTable),
+			flowRollupSubjectBackfillSQL(table, rollupTable, ""),
+			createFlowRollupsSubjectMVDDL(rollupView, table, rollupTable),
+		},
+			Destructive:   true,
+			Justification: "replace only rollup rows whose raw source still exists, preserving aged-out history while backfilling subject keys; then recreate the materialized view",
 		},
 	}
 }
@@ -662,9 +700,17 @@ func (c *ClickHouse) BackfillRollups(ctx context.Context, tenantID string, from,
 }
 
 func flowRollupBackfillSQL(table, rollup string) string {
+	return flowRollupSubjectBackfillSQL(table, rollup,
+		"WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)}")
+}
+
+func flowRollupSubjectBackfillSQL(table, rollup, where string) string {
 	// Do not SELECT ... FINAL here: migrated v2 legacy rows share empty row_id, so
 	// FINAL can collapse them before the legacy row id below preserves identity.
-	return `INSERT INTO ` + rollup + `
+	return `INSERT INTO ` + rollup + ` (
+  tenant_id, bucket, protocol, exporter, src_addr, dst_addr, transport,
+  row_id, bytes_scaled, packets_scaled, flow_count, subject_keys
+)
 SELECT tenant_id,
   toStartOfHour(ts) AS bucket,
   protocol,
@@ -675,9 +721,17 @@ SELECT tenant_id,
   ` + flowRollupRowIDExpr() + ` AS row_id,
   bytes_scaled,
   packets_scaled,
-  toUInt64(1) AS flow_count
+  toUInt64(1) AS flow_count,
+  ` + flowSubjectValuesExpr() + ` AS subject_keys
 FROM ` + table + `
-WHERE tenant_id={tenant:String} AND ts >= {from:DateTime64(3)} AND ts < {to:DateTime64(3)}`
+` + where
+}
+
+func flowRollupSubjectReplacementDeleteSQL(table, rollup string) string {
+	return `DELETE FROM ` + rollup + `
+WHERE (tenant_id, row_id) IN (
+  SELECT tenant_id, ` + flowRollupRowIDExpr() + ` AS row_id FROM ` + table + `
+) SETTINGS mutations_sync=2`
 }
 
 // HourlyRollups reads tenant-scoped long-retention flow summaries.
@@ -891,7 +945,7 @@ func (c *ClickHouse) DeleteSubject(ctx context.Context, tenantID, subject string
 	if rollup, rerr := rollupTableFor(t); rerr != nil {
 		return 0, -1, rerr
 	} else if err := c.exec(ctx, t.BaseURL,
-		"DELETE FROM "+rollup+" WHERE "+flowSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
+		"DELETE FROM "+rollup+" WHERE "+flowRollupSubjectPredicate()+" SETTINGS mutations_sync=2", p, nil); err != nil {
 		return 0, -1, fmt.Errorf("flowstore: delete subject rollups: %w", err)
 	}
 	remaining, err = c.countSubject(ctx, t.BaseURL, tenantID, table, p)
@@ -991,6 +1045,13 @@ positionCaseInsensitive(src_country, {subject:String}) > 0 OR
 positionCaseInsensitive(dst_country, {subject:String}) > 0 OR
 positionCaseInsensitive(toString(src_asn), {subject:String}) > 0 OR
 positionCaseInsensitive(toString(dst_asn), {subject:String}) > 0)`
+}
+
+func flowRollupSubjectPredicate() string {
+	return `tenant_id={tenant:String} AND arrayExists(
+  value -> positionCaseInsensitive(value, {subject:String}) > 0,
+  subject_keys
+)`
 }
 
 // lineCounter passes bytes through (kept simple; counting via the follow-up
