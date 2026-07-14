@@ -2227,6 +2227,12 @@ TLS/HTTPS-by-default — TLS on every listener.
 | ClickHouse   | `clickhouse` | `8123` (HTTP), `9000` (native) | High-cardinality events/flows  | user/pass/db = `probectl`         |
 | Prometheus   | `prometheus` | `9090`              | Metrics TSDB (remote-write enabled)       | none                            |
 
+The disposable ClickHouse `probectl` user has access management enabled so
+`make test-isolation` can create and remove temporary tenant reader users and
+row policies. That is a local test/admin convenience, not the production
+credential model: production uses a separate bootstrap administrator to install
+policies and a least-privilege runtime service credential afterward.
+
 Kafka listeners: host clients use `localhost:9092`; in-network containers use
 `kafka:19092`; the KRaft controller uses `9093` (internal — KRaft is Kafka's
 built-in consensus mode, so there is no separate ZooKeeper to run). Prometheus runs with

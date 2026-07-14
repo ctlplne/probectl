@@ -79,6 +79,12 @@ services:
       CLICKHOUSE_USER: probectl
       CLICKHOUSE_PASSWORD: probectl
       CLICKHOUSE_DB: probectl
+      # DEV/TEST ONLY: the isolation suite creates temporary reader users and
+      # row policies to prove database-level tenant enforcement. Production
+      # uses a separate bootstrap/admin credential and a least-privilege
+      # runtime service credential; this compose account deliberately combines
+      # those roles only inside the disposable local stack.
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ulimits:
       nofile:
         soft: 262144
