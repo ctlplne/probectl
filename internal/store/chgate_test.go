@@ -63,6 +63,7 @@ var goldenCHChecksums = map[string]string{
 	"flowstore|2":     "026b57e815a6cbcd0ee70cd6b000f339846573305cd75dc57de7735db2ea4855",
 	"flowstore|3":     "8d57cd291e20bfb21ef07200fb5cbc71c7f6d92ba290d64a3d659158c3c62e76",
 	"flowstore|4":     "87a0cdfcdbf2d0ac089cd2c16d3e8c13927460fb1c2c3c681b22a2862aaa56bc",
+	"flowstore|5":     "4aedbcb820bf01d118d48006e6beb328506afbf183a1a77f1a7acc2d237a435c",
 	"otelstore|1":     "386721d17bf79ac6ddd91eb798f920fdf28ce4d0c80919a44055a3922569acd0",
 	"otelstore|2":     "c7eddbb7f304453dfe47a5f53398d2346da81d190cf892732780ece08ff28a67",
 	"pathstore|1":     "487d228b1b871ef223a377bb47e8621a61e56e8f2f9ef3469490c66061ff8b42",
