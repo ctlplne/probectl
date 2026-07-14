@@ -65,7 +65,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # Minimal, non-root runtime. distroless/static keeps the image tiny and
 # vulnerability-free for static Go binaries.
-FROM gcr.io/distroless/static-debian12:nonroot@sha256:d093aa3e30dbadd3efe1310db061a14da60299baff8450a17fe0ccc514a16639
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:aef9602f8710ec12bde19d593fed1f76c708531bb7aba205110f1029786ead7b
 ARG COMPONENT
 LABEL org.opencontainers.image.source="https://github.com/imfeelingtheagi/probectl" \
       org.opencontainers.image.title="${COMPONENT}" \
