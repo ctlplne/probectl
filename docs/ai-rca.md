@@ -22,6 +22,11 @@ resolution start from one tenant-scoped evidence bundle instead of five
 separate dashboards.
 
 It's a primary product surface (the **Ask (AI)** page in the UI), not just an API.
+The same pipeline is also available as **Explain this view** inside Incidents,
+Path, Topology, and every Plane tab. That action sends the view's X3 context
+(absolute time range, filters, and authorized entity selection) and renders the
+answer in an inline inspector; it does not navigate away or reset the operator's
+view.
 Two properties make it unusual:
 
 - **It is sovereign-capable: the default "engine" is not an LLM.** An **LLM**
@@ -293,7 +298,7 @@ PROBECTL_AI_EGRESS_ACK=yes-send-tenant-data-to-the-remote-model \
 
 **Azure OpenAI** rides the `openai` recipe with your deployment's base URL.
 
-## The surface: the Ask (AI) page
+## The surfaces: Ask (AI) and Explain this view
 
 The **Ask (AI)** page is an ask box plus a trust-cued answer — "trust-cued"
 meaning built so you can judge *how much* to believe at a glance: the root cause
@@ -303,11 +308,30 @@ many signals it used — provenance is "where this answer came from"),
 **evidence**, and a thumbs-up/down **feedback** control. When the evidence
 doesn't support a conclusion, it says so plainly instead of inventing one.
 
+Every answer also contains a server-authored `reasoning` receipt. Its
+`execution` is one of `builtin_local`, `local_adapter`, `external_adapter`, or
+`builtin_fallback`; it names the adapter and says whether egress consent was
+not required or granted. The UI renders the sovereignty badge from this
+structured receipt only. It never guesses that a model is local by parsing a
+free-form model name or deployment configuration text.
+
+The inline **Explain this view** inspector applies citation integrity again at
+the display boundary. A causal headline or finding is rendered only when all
+of its citations resolve to evidence in that exact response. An unresolved
+claim is omitted and replaced by an insufficient-evidence explanation. This is
+defense in depth: the server is the authority, while the browser remains safe
+if it receives a stale cached response or malformed intermediary payload.
+
 ## API
 
 Two routes carry the whole feature, and both require the same permission:
 
-- `POST /v1/ai/ask` — body `{question, subject?}` → a cited `Answer`. Requires the
+- `POST /v1/ai/ask` — body `{question, subject?, range?}` → a cited `Answer`.
+  `range` carries RFC 3339 `start` and `end` timestamps from the current X3
+  view. Subject values may pin targets, prefixes, nodes, incidents, or view
+  filters, but may not supply `tenant`, `tenant_id`, or `evidence_id`; tenant
+  scope comes only from the authenticated principal and evidence IDs are
+  produced only by authorized queries. Requires the
   `ai.query` permission; the evidence is then *further* scoped per plane by the
   caller's read permissions, so two users with different RBAC can ask the same
   question and correctly get differently-grounded answers. The answer includes

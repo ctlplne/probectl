@@ -21,6 +21,11 @@ Test: an answer fixture containing one valid and one invalid citation renders on
 claim; activating its evidence link focuses the matching row; tenant A can never resolve a
 tenant B evidence ID.
 
+Implementation receipt: Incidents, Path, Topology, and all Plane tabs expose one reusable
+`Explain this view` action. It carries the X3 time/filter/entity context into `/v1/ai/ask`,
+keeps the explanation in the current inspector, and re-checks every citation against the
+authorized evidence array before rendering causal prose.
+
 ## 2. One incident, five planes, one clock
 
 Network, routing, flow, device, and eBPF signals are lenses on one event—not five products.
@@ -47,6 +52,10 @@ remain useful without third-party fonts, scripts, analytics, or model calls.
 Test: built-in mode renders an accessible local/air-gapped badge and makes zero model-egress
 requests; an external adapter without consent fails closed and explains the next authorized
 step.
+
+Implementation receipt: `AIAnswer.reasoning` is server-authored structured state; the browser
+does not parse `model` or configuration text. Denied remote RCA attempts are recorded as
+`ai.remote_egress_denied` before the external adapter can be called.
 
 ## 4. The tenant boundary is visible and structural
 

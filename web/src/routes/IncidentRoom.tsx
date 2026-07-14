@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './incidentRoom.module.css'
 import {
@@ -24,18 +24,19 @@ import {
   type Incident,
   type Signal,
 } from '../api/incidents'
-import { useAsk, type Answer } from '../api/ai'
 import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
 import {
   incidentTarget,
+  proposalFromAnswer,
   proposalFromIncident,
   questionForIncident,
 } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
-import { AnswerView } from './AskPage'
 import { replacePivotContext, type PivotContext } from './pivotContext'
+import { ExplainView } from './ExplainView'
+import type { Answer, Evidence } from '../api/ai'
 
 interface PlaneGroup {
   id: string
@@ -90,12 +91,9 @@ function signalID(incidentID: string, index: number): string {
   return `${incidentID}:${index}`
 }
 
-function sourceIDForSelection(context: PivotContext, answer?: Answer): string | undefined {
+function sourceIDForSelection(context: PivotContext): string | undefined {
   if (context.selection?.kind !== 'evidence') return undefined
-  const selected = context.selection.id
-  const evidence = answer?.evidence.find((item) => item.id === selected)
-  const sourceID = evidence?.fields?.id
-  return typeof sourceID === 'string' && sourceID ? sourceID : selected
+  return context.selection.id
 }
 
 function entityValues(incident: Incident): string[] {
@@ -130,8 +128,8 @@ export function IncidentRoom({
   const resolve = useResolveIncident(incidentId)
   const remediations = useRemediations()
   const createProposal = useCreateRemediationProposal()
-  const ask = useAsk()
   const { push } = useToast()
+  const [explanation, setExplanation] = useState<Answer>()
 
   const inc = incident.data
   const signalRows = useMemo<SignalRow[]>(
@@ -143,7 +141,7 @@ export function IncidentRoom({
       })),
     [inc?.signals, incidentId],
   )
-  const selectedSourceID = sourceIDForSelection(pivotContext, ask.data)
+  const selectedSourceID = sourceIDForSelection(pivotContext)
   const selectedSignal = signalRows.find((row) => row.id === selectedSourceID)
   const selectedChange = changes.data?.find((candidate) => candidate.event.id === selectedSourceID)
   const clockItems = useMemo<ClockItem[]>(() => {
@@ -187,26 +185,19 @@ export function IncidentRoom({
     )
   }
 
-  function findLikelyCause() {
-    setParams(
-      replacePivotContext(params, {
-        ...pivotContext,
-        incidentId: roomIncident.id,
-        from: roomIncident.started_at,
-        to: roomIncident.last_seen_at,
-        selection: undefined,
-      }),
-    )
-    const subject: Record<string, string> = {
-      incident_id: roomIncident.id,
-      target: incidentTarget(roomIncident),
-    }
-    if (roomIncident.prefix) subject.prefix = roomIncident.prefix
-    ask.mutate({ question: questionForIncident(roomIncident), subject })
+  function selectExplanationEvidence(evidence: Evidence) {
+    const sourceID = evidence.fields?.id
+    if (typeof sourceID === 'string' && sourceID) selectEvidence(sourceID)
   }
 
   function proposeIncidentReview() {
-    createProposal.mutate(proposalFromIncident(roomIncident), {
+    const proposal = explanation
+      ? proposalFromAnswer(explanation, {
+          incidentID: roomIncident.id,
+          target: incidentTarget(roomIncident),
+        })
+      : proposalFromIncident(roomIncident)
+    createProposal.mutate(proposal, {
       onSuccess: (proposal) =>
         push({
           tone: 'success',
@@ -230,11 +221,6 @@ export function IncidentRoom({
           title={inc.title || inc.target || t('incidents.fallbackTitle')}
           actions={
             <div className={styles.actions}>
-              <Button variant="primary" onClick={findLikelyCause} disabled={ask.isPending}>
-                {ask.isPending
-                  ? t('incidents.action.findingCause')
-                  : t('incidents.action.findCause')}
-              </Button>
               {inc.status === 'open' ? (
                 <Badge tone="warning">{t('incidents.status.open')}</Badge>
               ) : (
@@ -282,6 +268,24 @@ export function IncidentRoom({
           ) : null}
         </CardBody>
       </Card>
+
+      <ExplainView
+        surface="incident"
+        question={questionForIncident(roomIncident)}
+        subject={{
+          incident_id: roomIncident.id,
+          target: incidentTarget(roomIncident),
+          prefix: roomIncident.prefix,
+        }}
+        pivotContext={{
+          ...pivotContext,
+          incidentId: roomIncident.id,
+          from: roomIncident.started_at,
+          to: roomIncident.last_seen_at,
+        }}
+        onEvidenceSelect={selectExplanationEvidence}
+        onAnswer={setExplanation}
+      />
 
       <Card>
         <CardHeader
@@ -405,20 +409,6 @@ export function IncidentRoom({
           </Card>
         </div>
       </div>
-
-      {ask.isError ? (
-        <ErrorState description={t('incidents.room.rca.error')} />
-      ) : ask.data ? (
-        <section aria-label={t('incidents.room.rca.aria')}>
-          <AnswerView
-            answer={ask.data}
-            proposalContext={{ incidentID: inc.id, target: incidentTarget(inc) }}
-            pivotContext={pivotContext}
-            params={params}
-            setParams={setParams}
-          />
-        </section>
-      ) : null}
     </section>
   )
 }

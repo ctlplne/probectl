@@ -8608,9 +8608,30 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Optional explicit subject pins (target, prefix, node)."
+            "description": "Optional explicit subject pins (target, prefix, node, incident_id). Tenant and evidence scope are rejected because they come only from authentication and authorized queries."
+          },
+          "range": {
+            "$ref": "#/components/schemas/AIQueryRange"
           }
         }
+      },
+      "AIQueryRange": {
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "The current investigation time window. Both bounds are server-validated; start must not be after end."
       },
       "AICitation": {
         "type": "object",
@@ -8781,10 +8802,48 @@
           "model": {
             "type": "string"
           },
+          "reasoning": {
+            "$ref": "#/components/schemas/AIReasoningProvenance"
+          },
           "insufficient_evidence": {
             "type": "boolean"
           }
         }
+      },
+      "AIReasoningProvenance": {
+        "type": "object",
+        "required": [
+          "adapter",
+          "execution",
+          "egress_consent"
+        ],
+        "properties": {
+          "adapter": {
+            "type": "string",
+            "description": "Server-reported adapter that produced the rendered answer."
+          },
+          "execution": {
+            "type": "string",
+            "enum": [
+              "builtin_local",
+              "local_adapter",
+              "external_adapter",
+              "builtin_fallback"
+            ]
+          },
+          "egress_consent": {
+            "type": "string",
+            "enum": [
+              "not_required",
+              "granted"
+            ]
+          },
+          "attempted_adapter": {
+            "type": "string",
+            "description": "Present only when the built-in synthesizer answered after a configured adapter failed."
+          }
+        },
+        "description": "Server-authored sovereignty state. Clients must not infer locality from model names or configuration text."
       },
       "AIFeedbackRequest": {
         "type": "object",

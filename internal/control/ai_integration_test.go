@@ -152,10 +152,11 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	tenant := tnA.ID
 	now := time.Now().UTC().Truncate(time.Second)
 
-	if _, err := c.Ingest(ctx, incident.Signal{
+	incA, err := c.Ingest(ctx, incident.Signal{
 		TenantID: tenant, Plane: "bgp", Kind: "bgp.possible_hijack", Severity: incident.SeverityCritical,
 		Title: "possible hijack 192.0.2.0/24", Target: "192.0.2.0/24", Prefix: "192.0.2.0/24", OccurredAt: now,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -209,5 +210,20 @@ func TestAIAskGroundedCitedAndTenantScoped(t *testing.T) {
 	mustJSON(t, rec, &bAns)
 	if !bAns.InsufficientEvidence || len(bAns.Evidence) != 0 {
 		t.Errorf("tenant B must not see tenant A's incident; got %+v", bAns)
+	}
+
+	// A copied tenant-A incident ID is also a dead end in tenant B. The
+	// incident-only subject does not broaden into unrelated metrics/events.
+	rec = apiReq(t, h, http.MethodPost, "/v1/ai/ask", tn.ID, map[string]any{
+		"question": "explain this copied incident",
+		"subject":  map[string]string{"incident_id": incA.ID},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("tenant B copied-ID ask: status %d body %s", rec.Code, rec.Body)
+	}
+	var copiedIDAnswer aiAnswer
+	mustJSON(t, rec, &copiedIDAnswer)
+	if !copiedIDAnswer.InsufficientEvidence || len(copiedIDAnswer.Evidence) != 0 {
+		t.Errorf("cross-tenant incident subject must return no evidence, got %+v", copiedIDAnswer)
 	}
 }

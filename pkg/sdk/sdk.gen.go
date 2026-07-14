@@ -98,6 +98,7 @@ type AIAnswer struct {
 	InvestigationPlan    []AIInvestigationStep `json:"investigation_plan,omitempty"`
 	Model                string                `json:"model,omitempty"`
 	Question             string                `json:"question,omitempty"`
+	Reasoning            AIReasoningProvenance `json:"reasoning,omitempty"`
 	RootCause            string                `json:"root_cause,omitempty"`
 	RootCauseCitations   []AICitation          `json:"root_cause_citations,omitempty"`
 	RootCauseGrounded    bool                  `json:"root_cause_grounded,omitempty"`
@@ -106,6 +107,7 @@ type AIAnswer struct {
 
 type AIAskRequest struct {
 	Question string            `json:"question"`
+	Range    AIQueryRange      `json:"range,omitempty"`
 	Subject  map[string]string `json:"subject,omitempty"`
 }
 
@@ -150,6 +152,20 @@ type AIInvestigationStep struct {
 	Truncated     bool              `json:"truncated,omitempty"`
 	WindowEnd     string            `json:"window_end,omitempty"`
 	WindowStart   string            `json:"window_start,omitempty"`
+}
+
+// The current investigation time window. Both bounds are server-validated; start must not be after end.
+type AIQueryRange struct {
+	End   string `json:"end"`
+	Start string `json:"start"`
+}
+
+// Server-authored sovereignty state. Clients must not infer locality from model names or configuration text.
+type AIReasoningProvenance struct {
+	Adapter          string `json:"adapter"`
+	AttemptedAdapter string `json:"attempted_adapter,omitempty"`
+	EgressConsent    string `json:"egress_consent"`
+	Execution        string `json:"execution"`
 }
 
 type Agent struct {

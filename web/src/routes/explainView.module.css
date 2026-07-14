@@ -1,0 +1,88 @@
+.explain,
+.inspector,
+.evidenceBlock {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.explain > button {
+  justify-self: start;
+}
+
+.inspector:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
+.badges,
+.citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.claim {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.claim p,
+.insufficient,
+.suppressed {
+  margin: 0;
+}
+
+.citations a {
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.citations a:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
+.findings,
+.evidence {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-4) 0 0;
+}
+
+.insufficient,
+.suppressed {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+}
+
+.evidenceBlock h3 {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-md);
+}
+
+.evidence {
+  padding: 0;
+  list-style: none;
+}
+
+.evidence li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.evidence li:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: var(--space-1);
+}

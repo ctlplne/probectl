@@ -31,6 +31,7 @@ export interface AIAnswer {
   investigation_plan?: AIInvestigationStep[]
   model?: string
   question?: string
+  reasoning?: AIReasoningProvenance
   root_cause?: string
   root_cause_citations?: AICitation[]
   root_cause_grounded?: boolean
@@ -39,6 +40,7 @@ export interface AIAnswer {
 
 export interface AIAskRequest {
   question: string
+  range?: AIQueryRange
   subject?: { [key: string]: string }
 }
 
@@ -83,6 +85,18 @@ export interface AIInvestigationStep {
   truncated?: boolean
   window_end?: string
   window_start?: string
+}
+
+export interface AIQueryRange {
+  end: string
+  start: string
+}
+
+export interface AIReasoningProvenance {
+  adapter: string
+  attempted_adapter?: string
+  egress_consent: "not_required" | "granted"
+  execution: "builtin_local" | "local_adapter" | "external_adapter" | "builtin_fallback"
 }
 
 export interface Agent {

@@ -29,6 +29,8 @@ import { formatCount } from '../i18n/number'
 import type { MessageKey } from '../i18n/messages'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
 import { useIncident } from '../api/incidents'
+import { ReasoningBadge } from './ExplainView'
+import { resolveClaims } from './explanationGrounding'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -123,7 +125,14 @@ export function AskPage() {
     const subject: Record<string, string> = {}
     if (incidentID) subject.incident_id = incidentID
     if (target) subject.target = target
-    if (q) ask.mutate(Object.keys(subject).length > 0 ? { question: q, subject } : { question: q })
+    if (q) {
+      const range = pivot.from && pivot.to ? { start: pivot.from, end: pivot.to } : undefined
+      ask.mutate({
+        question: q,
+        ...(Object.keys(subject).length > 0 ? { subject } : {}),
+        ...(range ? { range } : {}),
+      })
+    }
   }
 
   return (
@@ -230,15 +239,20 @@ export function AnswerView({
       : undefined
   const selectedEvidenceID = selectedEvidence?.id ?? null
   const canPropose = Boolean(remediations.data)
+  const resolvedClaims = resolveClaims(answer)
   const proposalDisabled =
-    createProposal.isPending || answer.insufficient_evidence || answer.evidence.length === 0
-  const rootCauseGrounded = answer.root_cause_grounded === true
-  const rootCauseCitations = answer.root_cause_citations ?? []
+    createProposal.isPending ||
+    answer.insufficient_evidence ||
+    !resolvedClaims.rootResolved ||
+    answer.evidence.length === 0
+  const rootCauseGrounded = resolvedClaims.rootResolved
+  const rootCauseCitations = resolvedClaims.rootResolved ? resolvedClaims.rootCitations : []
+  const groundedFindings = resolvedClaims.findings
   const investigationPlan = answer.investigation_plan ?? []
 
   // Bidirectional grounding: which findings cite each piece of evidence.
   const citedBy = new Map<string, number[]>()
-  answer.findings.forEach((f, i) => {
+  groundedFindings.forEach((f, i) => {
     f.citations.forEach((c) => {
       const arr = citedBy.get(c.evidence_id) ?? []
       arr.push(i + 1)
@@ -318,6 +332,7 @@ export function AnswerView({
                 {rootCauseGrounded ? t('ask.grounding.grounded') : t('ask.grounding.ungrounded')}
               </Badge>
               {answer.degraded ? <Badge tone="warning">{t('ask.grounding.degraded')}</Badge> : null}
+              <ReasoningBadge answer={answer} />
               {canPropose ? (
                 <Button
                   variant="secondary"
@@ -336,12 +351,21 @@ export function AnswerView({
           }
         />
         <CardBody>
-          <p className={styles.rootCause}>{answer.root_cause}</p>
+          {rootCauseGrounded ? <p className={styles.rootCause}>{answer.root_cause}</p> : null}
           {answer.insufficient_evidence ? (
             <p className={styles.note}>{t('ask.note.insufficient')}</p>
           ) : null}
-          {!rootCauseGrounded && !answer.insufficient_evidence ? (
-            <p className={styles.note}>{t('ask.note.ungrounded')}</p>
+          {!rootCauseGrounded ? (
+            <p className={styles.note} role="status">
+              {t('ask.note.ungrounded')}
+            </p>
+          ) : null}
+          {resolvedClaims.suppressedClaims > 0 ? (
+            <p className={styles.note}>
+              {resolvedClaims.suppressedClaims} unresolved causal claim
+              {resolvedClaims.suppressedClaims === 1 ? '' : 's'} suppressed because the exact
+              evidence citation did not resolve.
+            </p>
           ) : null}
           {answer.degraded ? <p className={styles.note}>{t('ask.note.degraded')}</p> : null}
           {rootCauseCitations.length > 0 ? (
@@ -423,12 +447,12 @@ export function AnswerView({
         </Card>
       ) : null}
 
-      {answer.findings.length > 0 ? (
+      {groundedFindings.length > 0 ? (
         <Card>
           <CardHeader title={t('ask.findings.title')} />
           <CardBody>
             <ol className={styles.findings} aria-label={t('ask.findings.aria')}>
-              {answer.findings.map((f, i) => (
+              {groundedFindings.map((f, i) => (
                 <li key={i} className={styles.finding}>
                   <p className={styles.statement}>{f.statement}</p>
                   <p className={styles.cites}>

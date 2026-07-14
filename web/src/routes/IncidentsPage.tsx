@@ -93,11 +93,13 @@ export function IncidentsPage() {
     }
   }, [incidents.data, params, parsedPivot, setParams])
 
-  function selectIncident(incidentID: string) {
+  function selectIncident(incident: Incident) {
     const next = new URLSearchParams(
       replacePivotContext(params, {
         ...pivotContext,
-        incidentId: incidentID,
+        incidentId: incident.id,
+        from: incident.started_at,
+        to: incident.last_seen_at,
         selection: undefined,
       }),
     )
@@ -117,11 +119,7 @@ export function IncidentsPage() {
       key: 'title',
       header: t('incidents.column.incident'),
       render: (r) => (
-        <Button
-          variant="ghost"
-          onClick={() => selectIncident(r.id)}
-          aria-pressed={selected === r.id}
-        >
+        <Button variant="ghost" onClick={() => selectIncident(r)} aria-pressed={selected === r.id}>
           {r.title || r.target || r.id}
         </Button>
       ),

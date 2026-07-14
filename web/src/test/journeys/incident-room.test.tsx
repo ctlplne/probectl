@@ -133,6 +133,11 @@ describe('J2 unified incident room', () => {
             root_cause_grounded: true,
             confidence: 'high',
             model: 'builtin',
+            reasoning: {
+              adapter: 'builtin',
+              execution: 'builtin_local',
+              egress_consent: 'not_required',
+            },
             insufficient_evidence: false,
             findings: [
               {
@@ -183,9 +188,9 @@ describe('J2 unified incident room', () => {
     const inspector = within(room).getByLabelText(/incident evidence inspector/i)
     expect(within(inspector).getByText(/egress traffic shifted/i)).toBeInTheDocument()
 
-    await user.click(within(room).getByRole('button', { name: /find likely cause/i }))
+    await user.click(within(room).getByRole('button', { name: /explain this view/i }))
     const inlineRCA = await within(room).findByRole('region', {
-      name: /inline cited root-cause analysis/i,
+      name: /explanation inspector/i,
     })
     expect(within(inlineRCA).getByText(/export-policy change likely/i)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /ask \(ai\)/i })).not.toBeInTheDocument()

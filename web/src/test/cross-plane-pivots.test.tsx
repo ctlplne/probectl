@@ -39,6 +39,11 @@ const answer = {
   degraded: false,
   confidence: 'high',
   model: 'builtin',
+  reasoning: {
+    adapter: 'builtin',
+    execution: 'builtin_local',
+    egress_consent: 'not_required',
+  },
   insufficient_evidence: false,
   findings: [
     {
@@ -115,7 +120,7 @@ describe('native cross-plane pivots', () => {
       incident_status: 'open',
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /find likely cause/i }))
+    await userEvent.click(screen.getByRole('button', { name: /explain this view/i }))
     url = currentURL()
     const roomContext = parsePivotContext(url.searchParams).context
     expect(url.pathname).toBe('/incidents')
@@ -132,7 +137,7 @@ describe('native cross-plane pivots', () => {
     await userEvent.click(screen.getAllByRole('link', { name: 'E-BGP-1' })[0])
     expect(parsePivotContext(currentURL().searchParams).context.selection).toEqual({
       kind: 'evidence',
-      id: 'E-BGP-1',
+      id: 'inc-context:0',
     })
 
     await userEvent.click(screen.getByRole('button', { name: 'Test back' }))
@@ -143,7 +148,9 @@ describe('native cross-plane pivots', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Test forward' }))
     await waitFor(() =>
-      expect(parsePivotContext(currentURL().searchParams).context.selection?.id).toBe('E-BGP-1'),
+      expect(parsePivotContext(currentURL().searchParams).context.selection?.id).toBe(
+        'inc-context:0',
+      ),
     )
   })
 

@@ -16,6 +16,12 @@ const answer = {
   degraded: false,
   confidence: 'high',
   model: 'builtin',
+  reasoning: {
+    adapter: 'builtin',
+    execution: 'builtin_local',
+    egress_consent: 'not_required',
+    attempted_adapter: undefined as string | undefined,
+  },
   insufficient_evidence: false,
   investigation_plan: [
     {
@@ -116,6 +122,7 @@ describe('AI assistant surface', () => {
     )
     expect(screen.getByText(/high confidence/i)).toBeTruthy()
     expect(screen.getAllByText(/root cause grounded/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText(/built-in · local\/air-gapped/i)).toBeTruthy()
     expect(screen.getByText(/root cause cited:/i)).toBeTruthy()
     expect(screen.getByRole('heading', { name: /investigation plan/i })).toBeTruthy()
     expect(screen.getByText(/check correlated incidents/i)).toBeTruthy()
@@ -164,17 +171,35 @@ describe('AI assistant surface', () => {
   })
 
   test('renders degraded and ungrounded RCA trust state', async () => {
-    await askAndRender({
+    const malformedRoot = 'This unresolved causal sentence must never render.'
+    stubAI({
       ...answer,
+      root_cause: malformedRoot,
       root_cause_citations: [],
       root_cause_grounded: false,
       degraded: true,
+      reasoning: {
+        adapter: 'builtin',
+        execution: 'builtin_fallback',
+        egress_consent: 'granted',
+        attempted_adapter: 'openai:gpt-test',
+      },
     })
+    renderApp('/ask')
+    await screen.findByRole('heading', { name: /ask \(ai\)/i })
+    fireEvent.change(screen.getByLabelText(/your question/i), {
+      target: { value: 'what broke?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^ask$/i }))
+    await screen.findByText(/treat the cited findings as the source of truth/i)
 
     expect(screen.getAllByText(/root cause ungrounded/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText(/degraded fallback/i).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/treat the cited findings as the source of truth/i)).toBeTruthy()
     expect(screen.getByText(/used a degraded fallback path/i)).toBeTruthy()
+    expect(screen.queryByText(malformedRoot)).not.toBeInTheDocument()
+    expect(screen.getByText(/unresolved causal claim.*suppressed/i)).toBeInTheDocument()
+    expect(screen.getByText(/built-in fallback · local\/air-gapped/i)).toBeInTheDocument()
   })
 
   test('the answered surface has no a11y violations', async () => {

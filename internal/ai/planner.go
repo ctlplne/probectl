@@ -78,6 +78,13 @@ func (HeuristicPlanner) Plan(q Question) []Query {
 	subject := extractSubject(q)
 	r := planRange(q.Range)
 	want := selectDomains(strings.ToLower(q.Text))
+	// A copied incident reference is an authorization-sensitive anchor. When it
+	// is the only anchor, resolve it solely through the tenant-scoped incident
+	// source; broad metrics/events reads could otherwise return unrelated
+	// same-tenant evidence for a stale or foreign incident ID.
+	if subject["incident_id"] != "" && subject["target"] == "" && subject["prefix"] == "" && subject["node"] == "" {
+		want = map[Domain]bool{DomainEntities: true}
+	}
 
 	queries := make([]Query, 0, len(want))
 	for _, d := range allDomains {

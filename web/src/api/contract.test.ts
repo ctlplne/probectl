@@ -163,6 +163,7 @@ describe('API wire and OpenAPI shape contracts', () => {
         'root_cause_grounded',
         'degraded',
         'investigation_plan',
+        'reasoning',
       ]),
     )
   })

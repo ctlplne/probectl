@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -151,13 +152,20 @@ func tenantEgressPolicy(pool *pgxpool.Pool) ai.EgressPolicy {
 // stream: endpoint, model, and the DATA CATEGORIES that left (never content).
 func egressAuditor(pool *pgxpool.Pool, log *slog.Logger) ai.EgressAudit {
 	return func(ctx context.Context, ev ai.EgressEvent) {
-		log.Info("ai remote egress", "tenant_id", ev.TenantID, "endpoint", ev.Endpoint,
-			"model", ev.Model, "surface", ev.Surface, "evidence", ev.EvidenceCount, "planes", ev.Planes)
+		action := "ai.remote_egress"
+		message := "ai remote egress"
+		if ev.Denied {
+			action = "ai.remote_egress_denied"
+			message = "ai remote egress denied"
+		}
+		log.Info(message, "tenant_id", ev.TenantID, "endpoint", ev.Endpoint,
+			"model", ev.Model, "surface", ev.Surface, "evidence", ev.EvidenceCount,
+			"planes", ev.Planes, "denied", ev.Denied, "denial_reason", ev.DenialReason)
 		if pool == nil {
 			return
 		}
 		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(ev.TenantID)), pool, func(ctx context.Context, sc tenancy.Scope) error {
-			_, err := audit.TenantAppend(ctx, sc, "system", "ai.remote_egress", ev.Endpoint, aiRemoteEgressAuditData(ev))
+			_, err := audit.TenantAppend(ctx, sc, "system", action, ev.Endpoint, aiRemoteEgressAuditData(ev))
 			return err
 		}); err != nil {
 			// CODE-002: never silently drop the egress audit record on a transient
@@ -173,6 +181,8 @@ func aiRemoteEgressAuditData(ev ai.EgressEvent) map[string]any {
 		"surface":        ev.Surface,
 		"evidence_count": ev.EvidenceCount,
 		"planes":         ev.Planes,
+		"allowed":        !ev.Denied,
+		"denial_reason":  ev.DenialReason,
 	}
 }
 
@@ -221,12 +231,15 @@ func (s incidentEntitiesSource) QueryEntities(ctx context.Context, tenant string
 		if err != nil {
 			return err
 		}
-		target, prefix := sel["target"], sel["prefix"]
+		target, prefix, incidentID := sel["target"], sel["prefix"], sel["incident_id"]
 		for i := range incs {
 			if len(rows) >= limit {
 				break
 			}
 			inc := incs[i]
+			if incidentID != "" && inc.ID != incidentID {
+				continue
+			}
 			if !incidentMatches(inc, target, prefix) {
 				continue
 			}
@@ -275,6 +288,10 @@ func incidentMatches(inc incident.Incident, target, prefix string) bool {
 type askRequest struct {
 	Question string            `json:"question"`
 	Subject  map[string]string `json:"subject,omitempty"`
+	Range    *struct {
+		Start time.Time `json:"start"`
+		End   time.Time `json:"end"`
+	} `json:"range,omitempty"`
 }
 
 // handleAIAsk answers a natural-language question with a cited, RBAC-scoped root
@@ -292,18 +309,29 @@ func (s *Server) handleAIAsk(w http.ResponseWriter, r *http.Request) error {
 	if err := decodeJSON(r, &req); err != nil {
 		return err
 	}
-	if p := auth.PrincipalFrom(r.Context()); p != nil {
-		usage.Record(p.TenantID, usage.MeterAICalls, 1) // metering seam (S-T3)
+	p := auth.PrincipalFrom(r.Context())
+	if p == nil || p.TenantID == "" {
+		return apierror.Unauthorized("authentication required")
 	}
+	usage.Record(p.TenantID, usage.MeterAICalls, 1) // metering seam (S-T3)
 	q := strings.TrimSpace(req.Question)
 	if q == "" || len(q) > 2000 {
 		return apierror.Validation("question is required (1–2000 characters)")
 	}
-	p := auth.PrincipalFrom(r.Context())
-	if p == nil {
-		return apierror.Unauthorized("authentication required")
+	for key := range req.Subject {
+		normalized := strings.ToLower(strings.ReplaceAll(key, "-", "_"))
+		if normalized == "tenant" || normalized == "tenant_id" || normalized == "evidence_id" {
+			return apierror.Validation("subject may not select tenant or evidence scope; scope comes from authentication")
+		}
 	}
-	ans, err := s.analyzer.Analyze(r.Context(), p, ai.Question{Text: q, Subject: req.Subject})
+	var queryRange ai.TimeRange
+	if req.Range != nil {
+		if req.Range.Start.IsZero() || req.Range.End.IsZero() || req.Range.Start.After(req.Range.End) {
+			return apierror.Validation("range requires start <= end as RFC 3339 timestamps")
+		}
+		queryRange = ai.TimeRange{Start: req.Range.Start, End: req.Range.End}
+	}
+	ans, err := s.analyzer.Analyze(r.Context(), p, ai.Question{Text: q, Subject: req.Subject, Range: queryRange})
 	if err != nil {
 		if errors.Is(err, ai.ErrNoTenant) {
 			return apierror.Unauthorized("authentication required")

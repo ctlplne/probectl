@@ -41,9 +41,29 @@ type Answer struct {
 	Findings             []Finding           `json:"findings"`
 	Evidence             []Evidence          `json:"evidence"`
 	Model                string              `json:"model"`
+	Reasoning            ReasoningProvenance `json:"reasoning"`
 	InsufficientEvidence bool                `json:"insufficient_evidence"`
 	Elapsed              time.Duration       `json:"-"`
 }
+
+// ReasoningProvenance is a server-authored sovereignty receipt. The browser
+// renders this structured state verbatim; it never guesses whether an adapter
+// is local by parsing a model name or deployment configuration string.
+type ReasoningProvenance struct {
+	Adapter          string `json:"adapter"`
+	Execution        string `json:"execution"`
+	EgressConsent    string `json:"egress_consent"`
+	AttemptedAdapter string `json:"attempted_adapter,omitempty"`
+}
+
+const (
+	ReasoningBuiltin         = "builtin_local"
+	ReasoningLocalAdapter    = "local_adapter"
+	ReasoningExternalAdapter = "external_adapter"
+	ReasoningBuiltinFallback = "builtin_fallback"
+	ConsentNotRequired       = "not_required"
+	ConsentGranted           = "granted"
+)
 
 // Analyzer runs the RCA pipeline: plan (deterministic) → gather (via the S23
 // engine, tenant-first then RBAC) → synthesize (a model with no tools) →
@@ -259,6 +279,7 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		Findings:             syn.Findings,
 		Evidence:             evidence,
 		Model:                a.model.Name(),
+		Reasoning:            a.reasoningProvenance(syn, egress),
 		InsufficientEvidence: insufficient,
 		Elapsed:              time.Since(start),
 	}
@@ -273,6 +294,40 @@ func (a *Analyzer) Analyze(ctx context.Context, p *auth.Principal, q Question) (
 		}
 	}
 	return ans, nil
+}
+
+func (a *Analyzer) reasoningProvenance(syn Synthesis, egress *EgressEvent) ReasoningProvenance {
+	consent := ConsentNotRequired
+	if egress != nil {
+		consent = ConsentGranted
+	}
+	if syn.Degraded {
+		return ReasoningProvenance{
+			Adapter:          "builtin",
+			Execution:        ReasoningBuiltinFallback,
+			EgressConsent:    consent,
+			AttemptedAdapter: a.model.Name(),
+		}
+	}
+	if egress != nil {
+		return ReasoningProvenance{
+			Adapter:       a.model.Name(),
+			Execution:     ReasoningExternalAdapter,
+			EgressConsent: ConsentGranted,
+		}
+	}
+	if a.model.Name() == "builtin" {
+		return ReasoningProvenance{
+			Adapter:       "builtin",
+			Execution:     ReasoningBuiltin,
+			EgressConsent: ConsentNotRequired,
+		}
+	}
+	return ReasoningProvenance{
+		Adapter:       a.model.Name(),
+		Execution:     ReasoningLocalAdapter,
+		EgressConsent: ConsentNotRequired,
+	}
 }
 
 // groundCitations keeps only citations that resolve to real gathered

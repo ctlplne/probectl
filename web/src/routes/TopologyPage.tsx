@@ -22,6 +22,7 @@ import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topo
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue } from './urlFilters'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
+import { ExplainView } from './ExplainView'
 
 const TOPOLOGY_FILTER_DEFAULTS = {
   topo_q: '',
@@ -232,6 +233,13 @@ export function TopologyPage() {
           />
         </div>
       )}
+
+      <ExplainView
+        surface="topology"
+        question="Explain the currently displayed topology and identify only evidence-backed dependency, routing, or change signals that matter in this view."
+        subject={{ node: selected?.id }}
+        pivotContext={pivotContext}
+      />
     </Page>
   )
 }

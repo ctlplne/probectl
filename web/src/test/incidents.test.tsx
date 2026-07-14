@@ -106,8 +106,15 @@ describe('unified incident room', () => {
             tenant: 't',
             question: body.question,
             root_cause: 'Most likely root cause: possible hijack of 192.0.2.0/24.',
+            root_cause_citations: [{ evidence_id: 'E1' }],
+            root_cause_grounded: true,
             confidence: 'high',
             model: 'builtin',
+            reasoning: {
+              adapter: 'builtin',
+              execution: 'builtin_local',
+              egress_consent: 'not_required',
+            },
             insufficient_evidence: false,
             findings: [
               {
@@ -157,20 +164,20 @@ describe('unified incident room', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /high loss to 192\.0\.2\.10/i }),
     )
-    await userEvent.click(await screen.findByRole('button', { name: /find likely cause/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /explain this view/i }))
 
     const inlineRCA = await screen.findByRole('region', {
-      name: /inline cited root-cause analysis/i,
+      name: /explanation inspector/i,
     })
     expect(within(inlineRCA).getByText(/most likely root cause/i)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /ask \(ai\)/i })).not.toBeInTheDocument()
     expect(askCalls[0]).toMatchObject({
       question: expect.stringContaining('incident inc-1'),
-      subject: { incident_id: 'inc-1', target: '192.0.2.10' },
+      subject: { surface: 'incident', incident_id: 'inc-1', target: '192.0.2.10' },
     })
     expect(JSON.stringify(askCalls[0])).not.toContain('tenant_id')
 
-    await userEvent.click(within(inlineRCA).getByRole('button', { name: /propose remediation/i }))
+    await userEvent.click(screen.getByRole('button', { name: /propose remediation/i }))
     expect(proposalCalls).toHaveLength(1)
     expect(proposalCalls[0]).toMatchObject({
       kind: 'open_ticket',

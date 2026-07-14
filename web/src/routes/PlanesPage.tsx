@@ -44,6 +44,7 @@ import {
   replacePivotContext,
   type PlaneID,
 } from './pivotContext'
+import { ExplainView } from './ExplainView'
 
 interface Plane {
   id: PlaneID
@@ -242,6 +243,17 @@ export function PlanesPage() {
           serviceNodes={serviceNodes}
         />
       ) : null}
+
+      <ExplainView
+        surface={`plane:${active}`}
+        question={`Explain the currently displayed ${active} plane using only exact evidence from the current entity, filters, and time window.`}
+        subject={{
+          plane: active,
+          node: pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined,
+          type: active === 'bgp' ? 'routing' : active,
+        }}
+        pivotContext={pivotContext}
+      />
     </Page>
   )
 }

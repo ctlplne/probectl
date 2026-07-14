@@ -147,7 +147,7 @@ closed** — on any error, doubt, or missing piece the result is "deny", never
    is nothing to consent *to* — gating it would only punish the sovereign
    path this whole system exists to protect.
 
-3. **Audit (every call).** An **audit log** is an append-only,
+3. **Audit (every allowed or denied attempt).** An **audit log** is an append-only,
    tamper-evident record — entries can be added, never silently altered or
    removed. Each allowed remote call appends `ai.remote_egress` to the
    tenant's tamper-evident audit stream: the endpoint, the model, the
@@ -156,7 +156,11 @@ closed** — on any error, doubt, or missing piece the result is "deny", never
    copied the payload would *be* a second copy of the sensitive data — the
    customs manifest lists the crates, not the serial numbers. (On the MCP
    surface there's also an `mcp.tool_call` audit line per call, recording
-   allow/deny and the reason.)
+   allow/deny and the reason.) A remote RCA attempt refused before egress
+   appends `ai.remote_egress_denied` with `allowed=false` and one bounded reason
+   (`policy_unavailable`, `policy_error`, or `consent_missing`). The attempted
+   model receives zero calls and the audit never copies the policy error or
+   telemetry content.
 
 ## Turning it on
 

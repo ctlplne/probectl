@@ -25,6 +25,7 @@ import { LossByHop } from '../viz/LossByHop'
 import { NodeDetailModal } from '../viz/NodeDetailModal'
 import { layoutPath, type VizNode } from '../viz/layout'
 import { parsePivotContext, replacePivotContext } from './pivotContext'
+import { ExplainView } from './ExplainView'
 
 function Legend() {
   return (
@@ -244,6 +245,17 @@ export function PathPage() {
           </div>
         </div>
       )}
+
+      <ExplainView
+        surface="path"
+        question={`Explain the currently displayed path${test?.target ? ` to ${test.target}` : ''}, including the strongest evidence for loss, routing, or topology changes.`}
+        subject={{
+          test_id: testId,
+          target: test?.target,
+          node: selected?.id,
+        }}
+        pivotContext={pivotContext}
+      />
 
       <NodeDetailModal node={selected} onClose={closeNode} />
     </Page>

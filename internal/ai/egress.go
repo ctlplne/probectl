@@ -37,6 +37,11 @@ type EgressEvent struct {
 	// (test-authoring model), or "mcp" (tool results to an external AI
 	// client). One gate, three doors — the audit says which (AIRCA-001).
 	Surface string
+	// Denied is true when the gate refused the attempted external call before
+	// any tenant evidence left the deployment. DenialReason is a bounded
+	// machine-readable category; it never contains policy errors or telemetry.
+	Denied       bool
+	DenialReason string
 }
 
 // EgressPolicy reports whether tenantID's data may be sent to a remote
@@ -71,16 +76,6 @@ func (a *Analyzer) checkEgress(ctx context.Context, tenantID string, in Synthesi
 	if !ok || !rm.RemoteEgress() {
 		return nil, nil // air-gapped builtin or loopback local model: no egress
 	}
-	if a.egressPolicy == nil {
-		return nil, ErrEgressDenied
-	}
-	allowed, err := a.egressPolicy(ctx, tenantID)
-	if err != nil {
-		return nil, err
-	}
-	if !allowed {
-		return nil, ErrEgressDenied
-	}
 	planeSet := map[string]bool{}
 	for _, e := range in.Evidence {
 		planeSet[planeLabel(e)] = true
@@ -90,12 +85,33 @@ func (a *Analyzer) checkEgress(ctx context.Context, tenantID string, in Synthesi
 		planes = append(planes, p)
 	}
 	sort.Strings(planes)
-	return &EgressEvent{
+	event := &EgressEvent{
 		TenantID:      tenantID,
 		Endpoint:      rm.Endpoint(),
 		Model:         a.model.Name(),
 		EvidenceCount: len(in.Evidence),
 		Planes:        planes,
 		Surface:       "rca",
-	}, nil
+	}
+	deny := func(reason string) (*EgressEvent, error) {
+		event.Denied = true
+		event.DenialReason = reason
+		if a.egressAudit != nil {
+			a.egressAudit(ctx, *event)
+		}
+		return nil, ErrEgressDenied
+	}
+	if a.egressPolicy == nil {
+		return deny("policy_unavailable")
+	}
+	allowed, err := a.egressPolicy(ctx, tenantID)
+	if err != nil {
+		// Policy lookup failures are indistinguishable from no consent. Fail
+		// closed and keep the internal datastore error out of the response.
+		return deny("policy_error")
+	}
+	if !allowed {
+		return deny("consent_missing")
+	}
+	return event, nil
 }

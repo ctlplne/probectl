@@ -69,6 +69,19 @@ func TestPlannerHonorsExplicitSubject(t *testing.T) {
 	}
 }
 
+func TestPlannerIncidentSubjectDoesNotBroaden(t *testing.T) {
+	queries := (HeuristicPlanner{}).Plan(Question{
+		Text:    "explain this copied incident",
+		Subject: map[string]string{"incident_id": "inc-foreign-or-stale"},
+	})
+	if len(queries) != 1 || queries[0].Domain != DomainEntities {
+		t.Fatalf("incident-only subject must resolve only through tenant-scoped entities, got %+v", queries)
+	}
+	if queries[0].Selector["incident_id"] != "inc-foreign-or-stale" {
+		t.Fatalf("incident selector lost: %+v", queries[0].Selector)
+	}
+}
+
 func TestPlannerLeavesTopologyAtAsLatestUnlessExplicit(t *testing.T) {
 	qs := HeuristicPlanner{}.Plan(Question{Text: "why is 192.0.2.0/24 slow?"})
 	var topo *Query

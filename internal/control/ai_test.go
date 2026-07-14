@@ -40,15 +40,19 @@ func TestHandleAIAskValidationAndAirGappedDefault(t *testing.T) {
 		t.Fatalf("ask: status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	var ans struct {
-		Model                string `json:"model"`
-		InsufficientEvidence bool   `json:"insufficient_evidence"`
-		ID                   string `json:"id"`
+		Model                string                 `json:"model"`
+		InsufficientEvidence bool                   `json:"insufficient_evidence"`
+		ID                   string                 `json:"id"`
+		Reasoning            ai.ReasoningProvenance `json:"reasoning"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &ans); err != nil {
 		t.Fatal(err)
 	}
 	if ans.Model != "builtin" {
 		t.Errorf("default model = %q, want builtin (air-gapped)", ans.Model)
+	}
+	if ans.Reasoning.Execution != ai.ReasoningBuiltin || ans.Reasoning.Adapter != "builtin" {
+		t.Errorf("server reasoning receipt = %+v, want builtin local/air-gapped", ans.Reasoning)
 	}
 	if !ans.InsufficientEvidence || ans.ID == "" {
 		t.Errorf("no-evidence answer should be insufficient with an id, got %+v", ans)
@@ -92,6 +96,23 @@ func TestAIAskRemoteEgressDeniedReturnsForbidden(t *testing.T) {
 	}
 }
 
+func TestAIAskRejectsScopeInjectionAndInvalidRange(t *testing.T) {
+	h := testServer(nil).Handler()
+	for name, body := range map[string]map[string]any{
+		"tenant subject":   {"question": "what happened?", "subject": map[string]string{"tenant_id": "other"}},
+		"evidence subject": {"question": "what happened?", "subject": map[string]string{"evidence_id": "foreign"}},
+		"reversed range":   {"question": "what happened?", "range": map[string]string{"start": "2026-01-02T00:00:00Z", "end": "2026-01-01T00:00:00Z"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, aiTestReq(http.MethodPost, "/v1/ai/ask", body))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestAIRemoteEgressAuditDataIncludesSurface(t *testing.T) {
 	for _, surface := range []string{"rca", "author", "mcp"} {
 		data := aiRemoteEgressAuditData(ai.EgressEvent{
@@ -108,6 +129,13 @@ func TestAIRemoteEgressAuditDataIncludesSurface(t *testing.T) {
 		if data["model"] != "test-remote" || data["evidence_count"] != 2 {
 			t.Fatalf("ai.remote_egress audit payload lost model/evidence context: %#v", data)
 		}
+		if data["allowed"] != true {
+			t.Fatalf("successful egress audit must say allowed: %#v", data)
+		}
+	}
+	denied := aiRemoteEgressAuditData(ai.EgressEvent{Denied: true, DenialReason: "consent_missing"})
+	if denied["allowed"] != false || denied["denial_reason"] != "consent_missing" {
+		t.Fatalf("denied egress audit data = %#v", denied)
 	}
 }
 

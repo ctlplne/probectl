@@ -52,21 +52,44 @@ func egressEngine() *Engine {
 // model is never called.
 func TestRemoteModelEgressDeniedWithoutConsent(t *testing.T) {
 	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
+	var events []EgressEvent
+	audit := WithEgressAudit(func(_ context.Context, ev EgressEvent) { events = append(events, ev) })
 
 	// No policy wired at all: fail closed.
-	a := NewAnalyzer(egressEngine(), WithModel(m))
+	a := NewAnalyzer(egressEngine(), WithModel(m), audit)
 	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); !errors.Is(err, ErrEgressDenied) {
 		t.Fatalf("want ErrEgressDenied with no policy, got %v", err)
 	}
 
 	// Policy says no.
 	a = NewAnalyzer(egressEngine(), WithModel(m),
-		WithEgressPolicy(func(context.Context, string) (bool, error) { return false, nil }))
+		WithEgressPolicy(func(context.Context, string) (bool, error) { return false, nil }), audit)
 	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); !errors.Is(err, ErrEgressDenied) {
 		t.Fatalf("want ErrEgressDenied with denying policy, got %v", err)
 	}
 	if m.calls != 0 {
 		t.Fatalf("remote model was called %d times despite denial", m.calls)
+	}
+	if len(events) != 2 || !events[0].Denied || !events[1].Denied {
+		t.Fatalf("denied external calls must be audited before egress: %+v", events)
+	}
+	if events[0].DenialReason != "policy_unavailable" || events[1].DenialReason != "consent_missing" {
+		t.Fatalf("bounded denial reasons = %+v", events)
+	}
+}
+
+func TestRemoteModelEgressPolicyErrorFailsClosedAndIsAudited(t *testing.T) {
+	m := &fakeRemoteModel{endpoint: "https://api.example/v1"}
+	var events []EgressEvent
+	a := NewAnalyzer(egressEngine(), WithModel(m),
+		WithEgressPolicy(func(context.Context, string) (bool, error) { return false, errors.New("database unavailable") }),
+		WithEgressAudit(func(_ context.Context, ev EgressEvent) { events = append(events, ev) }),
+	)
+	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); !errors.Is(err, ErrEgressDenied) {
+		t.Fatalf("policy error must fail closed as ErrEgressDenied, got %v", err)
+	}
+	if m.calls != 0 || len(events) != 1 || !events[0].Denied || events[0].DenialReason != "policy_error" {
+		t.Fatalf("policy-error receipt = %+v, model calls = %d", events, m.calls)
 	}
 }
 
@@ -101,7 +124,12 @@ func TestRemoteModelEgressAllowedIsAudited(t *testing.T) {
 	if ev.EvidenceCount == 0 || len(ev.Planes) == 0 {
 		t.Fatalf("event must carry data categories: %+v", ev)
 	}
-	_ = ans
+	if ev.Denied {
+		t.Fatalf("allowed event marked denied: %+v", ev)
+	}
+	if ans.Reasoning.Execution != ReasoningExternalAdapter || ans.Reasoning.Adapter != "fake:remote" || ans.Reasoning.EgressConsent != ConsentGranted {
+		t.Fatalf("server-reported external reasoning receipt = %+v", ans.Reasoning)
+	}
 }
 
 // The air-gapped builtin path never consults the policy and never audits —
@@ -116,8 +144,12 @@ func TestBuiltinModelNeverConsultsEgress(t *testing.T) {
 			t.Fatal("egress audit fired for the builtin model")
 		}),
 	)
-	if _, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"}); err != nil {
+	ans, err := a.Analyze(context.Background(), egressPrincipal(), Question{Text: "why?"})
+	if err != nil {
 		t.Fatalf("builtin path: %v", err)
+	}
+	if ans.Reasoning.Execution != ReasoningBuiltin || ans.Reasoning.Adapter != "builtin" || ans.Reasoning.EgressConsent != ConsentNotRequired {
+		t.Fatalf("server-reported builtin reasoning receipt = %+v", ans.Reasoning)
 	}
 }
 

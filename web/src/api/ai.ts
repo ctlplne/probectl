@@ -58,12 +58,30 @@ export interface Answer {
   findings: Finding[]
   evidence: Evidence[]
   model: string
+  reasoning: ReasoningProvenance
   insufficient_evidence: boolean
+}
+
+export type ReasoningExecution =
+  | 'builtin_local'
+  | 'local_adapter'
+  | 'external_adapter'
+  | 'builtin_fallback'
+
+export interface ReasoningProvenance {
+  adapter: string
+  execution: ReasoningExecution
+  egress_consent: 'not_required' | 'granted'
+  attempted_adapter?: string
 }
 
 export interface AskRequest {
   question: string
   subject?: Record<string, string>
+  range?: {
+    start: string
+    end: string
+  }
 }
 
 /** useAsk runs an RCA: a natural-language question → a cited, RBAC-scoped answer. */
