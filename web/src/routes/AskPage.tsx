@@ -27,6 +27,8 @@ import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import { formatCount } from '../i18n/number'
 import type { MessageKey } from '../i18n/messages'
+import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
+import { useIncident } from '../api/incidents'
 
 function fmtVal(v: unknown): string {
   if (v === null || v === undefined) return ''
@@ -65,14 +67,24 @@ function planStatusLabel(status: InvestigationStep['status'], t: (key: MessageKe
  *  by" backlink and expandable raw detail, the trust summary is sharper, and
  *  feedback takes an optional note. Built on the S8a design system. */
 export function AskPage() {
-  const [params] = useSearchParams()
+  const [params, setParams] = useSearchParams()
   const { t } = useI18n()
+  const parsedPivot = useMemo(() => parsePivotContext(params), [params])
+  const pivot = parsedPivot.context
   const prefillQuestion = params.get('question') ?? ''
-  const incidentID = params.get('incident_id') ?? params.get('incident') ?? undefined
+  const contextIncident = useIncident(pivot.incidentId)
+  const contextIncidentID = contextIncident.data?.id
+  const authorizedContextIncident =
+    contextIncidentID === pivot.incidentId ? contextIncidentID : undefined
+  const incidentID =
+    authorizedContextIncident ??
+    (!pivot.incidentId
+      ? (params.get('incident_id') ?? params.get('incident') ?? undefined)
+      : undefined)
   const target = params.get('target') ?? undefined
   const [question, setQuestion] = useState(prefillQuestion)
   const ask = useAsk()
-  const context = useMemo<ProposalContext>(
+  const proposalContext = useMemo<ProposalContext>(
     () => ({ ...(incidentID ? { incidentID } : {}), ...(target ? { target } : {}) }),
     [incidentID, target],
   )
@@ -80,6 +92,30 @@ export function AskPage() {
   useEffect(() => {
     if (prefillQuestion) setQuestion(prefillQuestion)
   }, [prefillQuestion])
+
+  useEffect(() => {
+    if (
+      pivot.incidentId &&
+      (contextIncident.isError ||
+        (contextIncident.isSuccess && contextIncident.data.id !== pivot.incidentId))
+    ) {
+      setParams(
+        replacePivotContext(params, {
+          ...pivot,
+          incidentId: undefined,
+          selection: undefined,
+        }),
+        { replace: true },
+      )
+    }
+  }, [
+    contextIncident.data,
+    contextIncident.isError,
+    contextIncident.isSuccess,
+    params,
+    pivot,
+    setParams,
+  ])
 
   function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -123,7 +159,15 @@ export function AskPage() {
                   )
                 })}
               </div>
-              <Button type="submit" disabled={ask.isPending || question.trim() === ''}>
+              <Button
+                type="submit"
+                disabled={
+                  ask.isPending ||
+                  (Boolean(pivot.incidentId) &&
+                    (contextIncident.isPending || !authorizedContextIncident)) ||
+                  question.trim() === ''
+                }
+              >
                 {ask.isPending ? t('ask.submit.pending') : t('ask.submit')}
               </Button>
             </div>
@@ -136,7 +180,13 @@ export function AskPage() {
       ) : ask.isError ? (
         <ErrorState description={t('ask.error')} />
       ) : ask.data ? (
-        <AnswerView answer={ask.data} context={context} />
+        <AnswerView
+          answer={ask.data}
+          proposalContext={proposalContext}
+          pivotContext={pivot}
+          params={params}
+          setParams={setParams}
+        />
       ) : (
         <EmptyState title={t('ask.empty.title')} description={t('ask.empty.description')} />
       )}
@@ -149,14 +199,30 @@ interface PlaneGroup {
   items: Evidence[]
 }
 
-function AnswerView({ answer, context }: { answer: Answer; context?: ProposalContext }) {
+function AnswerView({
+  answer,
+  proposalContext,
+  pivotContext,
+  params,
+  setParams,
+}: {
+  answer: Answer
+  proposalContext?: ProposalContext
+  pivotContext: PivotContext
+  params: URLSearchParams
+  setParams: ReturnType<typeof useSearchParams>[1]
+}) {
   const { locale, t } = useI18n()
   const feedback = useSubmitFeedback()
   const remediations = useRemediations()
   const createProposal = useCreateRemediationProposal()
   const { push } = useToast()
   const [comment, setComment] = useState('')
-  const [highlighted, setHighlighted] = useState<string | null>(null)
+  const selectedEvidenceID =
+    pivotContext.selection?.kind === 'evidence' &&
+    answer.evidence.some((evidence) => evidence.id === pivotContext.selection?.id)
+      ? pivotContext.selection.id
+      : null
   const canPropose = Boolean(remediations.data)
   const proposalDisabled =
     createProposal.isPending || answer.insufficient_evidence || answer.evidence.length === 0
@@ -192,13 +258,29 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
   )
   const planes = groups.map((g) => g.plane)
 
+  useEffect(() => {
+    if (
+      pivotContext.selection?.kind === 'evidence' &&
+      !answer.evidence.some((evidence) => evidence.id === pivotContext.selection?.id)
+    ) {
+      setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
+        replace: true,
+      })
+    }
+  }, [answer.evidence, params, pivotContext, setParams])
+
   function focusEvidence(id: string) {
-    setHighlighted(id)
     document.getElementById(`ev-${id}`)?.focus()
+    setParams(
+      replacePivotContext(params, {
+        ...pivotContext,
+        selection: { kind: 'evidence', id },
+      }),
+    )
   }
 
   function proposeFromAnswer() {
-    createProposal.mutate(proposalFromAnswer(answer, context), {
+    createProposal.mutate(proposalFromAnswer(answer, proposalContext), {
       onSuccess: (p) =>
         push({
           tone: 'success',
@@ -383,7 +465,10 @@ function AnswerView({ answer, context }: { answer: Answer; context?: ProposalCon
                         key={e.id}
                         id={`ev-${e.id}`}
                         tabIndex={-1}
-                        className={[styles.evItem, highlighted === e.id ? styles.evHighlight : '']
+                        className={[
+                          styles.evItem,
+                          selectedEvidenceID === e.id ? styles.evHighlight : '',
+                        ]
                           .filter(Boolean)
                           .join(' ')}
                       >

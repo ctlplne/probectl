@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiFetch } from './client'
+import { apiFetch, isApiStatus } from './client'
 
 export type Severity = 'info' | 'warning' | 'critical'
 export type IncidentStatus = 'open' | 'resolved'
@@ -47,6 +47,9 @@ export function useIncident(id: string | undefined) {
     queryKey: ['incident', id],
     enabled: !!id,
     queryFn: () => apiFetch<Incident>(`/incidents/${id}`),
+    // A tenant-scoped miss is authoritative. Retrying an unavailable ID only
+    // delays fail-closed URL-context invalidation.
+    retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
   })
 }
 

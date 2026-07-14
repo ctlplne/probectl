@@ -4,6 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
 import { assertNoDoublePrefix, jsonResponse, pathOf } from './fetchStub'
 import type { Detection } from '../api/threat'
+import { parsePivotContext } from '../routes/pivotContext'
+
+function expectIncidentPivot(href: string | null) {
+  const url = new URL(href ?? '/', 'https://probectl.invalid')
+  const context = parsePivotContext(url.searchParams).context
+  expect(url.pathname).toBe('/incidents')
+  expect(context.incidentId).toBe('inc-42')
+  expect(context.filters).toEqual({ threat_source: 'feodo' })
+  expect(context.returnTo).toBe('/security')
+  expect(url.search.toLowerCase()).not.toContain('tenant')
+}
 
 /** The sprint's named fixture: a flow/connection to a known-bad IP with full
  *  source attribution + confidence — plus a low-confidence Tor-exit match
@@ -160,7 +171,7 @@ describe('threat/IOC triage surface (S-FE3)', () => {
     expect(within(rows[1]).getByText('critical')).toBeDefined()
     // The incident pivot link targets the correlated incident.
     const pivot = within(rows[1]).getByRole('link', { name: 'timeline' })
-    expect(pivot.getAttribute('href')).toBe('/incidents?incident=inc-42')
+    expectIncidentPivot(pivot.getAttribute('href'))
     // The uncorrelated detection shows no pivot.
     expect(within(rows[2]).queryByRole('link')).toBeNull()
   })
@@ -180,9 +191,9 @@ describe('threat/IOC triage surface (S-FE3)', () => {
     expect(within(dialog).getByText(/feodo · botnet · license: non-commercial/)).toBeDefined()
     expect(within(dialog).getByText(/feeds can list benign infrastructure/)).toBeDefined()
     expect(within(dialog).getByText(/never blocks/)).toBeDefined()
-    expect(
+    expectIncidentPivot(
       within(dialog).getByRole('link', { name: 'Open incident timeline' }).getAttribute('href'),
-    ).toBe('/incidents?incident=inc-42')
+    )
   })
 
   test('pivoting to the incident opens its timeline (deep link honored)', async () => {

@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import styles from './path.module.css'
 import { Page } from './pages'
 import {
@@ -22,7 +23,8 @@ import { usePath, useDiscoverPath } from '../api/paths'
 import { PathGraph } from '../viz/PathGraph'
 import { LossByHop } from '../viz/LossByHop'
 import { NodeDetailModal } from '../viz/NodeDetailModal'
-import type { VizNode } from '../viz/layout'
+import { layoutPath, type VizNode } from '../viz/layout'
+import { parsePivotContext, replacePivotContext } from './pivotContext'
 
 function Legend() {
   return (
@@ -45,14 +47,72 @@ function Legend() {
 
 export function PathPage() {
   const tests = useTests()
-  const [chosen, setChosen] = useState('')
-  const [selected, setSelected] = useState<VizNode | null>(null)
+  const [params, setParams] = useSearchParams()
+  const parsedPivot = useMemo(() => parsePivotContext(params), [params])
+  const pivotContext = parsedPivot.context
+  const chosen = pivotContext.filters.path_test ?? ''
   const { push } = useToast()
 
   const testId = chosen || tests.data?.[0]?.id
   const test = tests.data?.find((t) => t.id === testId)
   const path = usePath(testId)
   const discover = useDiscoverPath(testId)
+  const pathNodes = useMemo(() => (path.data ? layoutPath(path.data).nodes : []), [path.data])
+  const requestedNodeID =
+    pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined
+  const selected = requestedNodeID
+    ? (pathNodes.find((node) => node.id === requestedNodeID) ?? null)
+    : null
+
+  useEffect(() => {
+    const unknownTest = Boolean(
+      tests.data && chosen && !tests.data.some((candidate) => candidate.id === chosen),
+    )
+    const unknownNode = Boolean(path.data && requestedNodeID && !selected)
+    if (unknownTest || unknownNode || (parsedPivot.hasContract && !parsedPivot.referencesValid)) {
+      const filters = { ...pivotContext.filters }
+      if (unknownTest) delete filters.path_test
+      setParams(replacePivotContext(params, { ...pivotContext, filters, selection: undefined }), {
+        replace: true,
+      })
+    }
+  }, [
+    chosen,
+    params,
+    parsedPivot.hasContract,
+    parsedPivot.referencesValid,
+    path.data,
+    pivotContext,
+    requestedNodeID,
+    selected,
+    setParams,
+    tests.data,
+  ])
+
+  function chooseTest(id: string) {
+    setParams(
+      replacePivotContext(params, {
+        ...pivotContext,
+        filters: { ...pivotContext.filters, path_test: id },
+        selection: undefined,
+      }),
+    )
+  }
+
+  function selectNode(node: VizNode) {
+    setParams(
+      replacePivotContext(params, {
+        ...pivotContext,
+        selection: { kind: 'entity', id: node.id },
+      }),
+    )
+  }
+
+  function closeNode() {
+    setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
+      replace: true,
+    })
+  }
 
   function runDiscover() {
     discover.mutate(undefined, {
@@ -72,7 +132,7 @@ export function PathPage() {
               label="Test"
               className={styles.testSelect}
               value={testId ?? ''}
-              onChange={(e) => setChosen(e.target.value)}
+              onChange={(e) => chooseTest(e.target.value)}
               options={(tests.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
             />
             {tests.hasNextPage ? (
@@ -148,7 +208,7 @@ export function PathPage() {
                 />
               ) : (
                 <>
-                  <PathGraph path={path.data} selectedId={selected?.id} onSelect={setSelected} />
+                  <PathGraph path={path.data} selectedId={selected?.id} onSelect={selectNode} />
                   <Legend />
                 </>
               )}
@@ -185,7 +245,7 @@ export function PathPage() {
         </div>
       )}
 
-      <NodeDetailModal node={selected} onClose={() => setSelected(null)} />
+      <NodeDetailModal node={selected} onClose={closeNode} />
     </Page>
   )
 }

@@ -1,5 +1,5 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styles from './planes.module.css'
 import { Page } from './pages'
 import {
@@ -38,8 +38,12 @@ import {
   formatScaledBytes,
 } from '../i18n/number'
 import { BgpAsPathView, FlowSankeyView } from '../viz/PlaneRelationships'
-
-type PlaneID = 'bgp' | 'flow' | 'device' | 'ebpf'
+import {
+  parsePivotContext,
+  planePivotHref,
+  replacePivotContext,
+  type PlaneID,
+} from './pivotContext'
 
 interface Plane {
   id: PlaneID
@@ -91,6 +95,9 @@ function toneForCount(n: number) {
 export function PlanesPage() {
   const { plane } = useParams()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
+  const parsedPivot = useMemo(() => parsePivotContext(params), [params])
+  const pivotContext = parsedPivot.context
   const { locale, t } = useI18n()
   const active: PlaneID = isPlaneID(plane) ? plane : 'bgp'
   const [flowBy, setFlowBy] = useState<FlowGroupBy>('src')
@@ -117,10 +124,32 @@ export function PlanesPage() {
     b.ts.localeCompare(a.ts),
   )[0]
   const impairedEndpoints = endpointItems.filter((e) => e.slow).length
-  const setActive = (next: PlaneID) => navigate(`/planes/${next}`)
+  const setActive = (next: PlaneID) => navigate(planePivotHref(next, pivotContext))
+
+  useEffect(() => {
+    const selectionUnavailable = Boolean(
+      pivotContext.selection &&
+      !topology.isLoading &&
+      (pivotContext.selection.kind === 'evidence' ||
+        !nodes.some((node) => node.id === pivotContext.selection?.id)),
+    )
+    if (selectionUnavailable || (parsedPivot.hasContract && !parsedPivot.referencesValid)) {
+      setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
+        replace: true,
+      })
+    }
+  }, [
+    nodes,
+    params,
+    parsedPivot.hasContract,
+    parsedPivot.referencesValid,
+    pivotContext,
+    setParams,
+    topology.isLoading,
+  ])
 
   if (plane && !isPlaneID(plane)) {
-    return <Navigate to="/planes/bgp" replace />
+    return <Navigate to={planePivotHref('bgp', pivotContext)} replace />
   }
 
   return (

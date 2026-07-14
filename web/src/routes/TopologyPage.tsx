@@ -20,7 +20,8 @@ import {
 import { useTopology, useWhatIf, type TopoNode, type WhatIfImpact } from '../api/topology'
 import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
 import { FilterBar, SavedViews } from './listControls'
-import { filterValue, setURLFilters } from './urlFilters'
+import { filterValue } from './urlFilters'
+import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
 
 const TOPOLOGY_FILTER_DEFAULTS = {
   topo_q: '',
@@ -34,17 +35,19 @@ const TOPOLOGY_FILTER_DEFAULTS = {
  * the what-if failure simulation. The functional view; PR2+ iterates layout/
  * drill-down/change-overlay polish (design-led, multi-PR). */
 export function TopologyPage() {
-  const [at, setAt] = useState('') // '' = live
-  const [timeInput, setTimeInput] = useState('')
   const [params, setParams] = useSearchParams()
+  const parsedPivot = useMemo(() => parsePivotContext(params), [params])
+  const pivotContext = parsedPivot.context
+  const initialAt = params.get('at') ?? pivotContext.to ?? ''
+  const [at, setAt] = useState(initialAt) // '' = live
+  const [timeInput, setTimeInput] = useState(toDateTimeLocal(initialAt))
   const { data, isPending, isError } = useTopology(at || undefined)
   const whatIf = useWhatIf()
-  const [selected, setSelected] = useState<TopoNode | null>(null)
-  const urlQuery = filterValue(params, 'topo_q')
+  const urlQuery = filterValue(params, 'topo_q', pivotContext.filters.topo_q ?? '')
   const [query, setQuery] = useState(urlQuery)
-  const kind = filterValue(params, 'topo_kind', 'all')
-  const site = filterValue(params, 'topo_site', 'all')
-  const tag = filterValue(params, 'topo_tag', 'all')
+  const kind = filterValue(params, 'topo_kind', pivotContext.filters.topo_kind ?? 'all')
+  const site = filterValue(params, 'topo_site', pivotContext.filters.topo_site ?? 'all')
+  const tag = filterValue(params, 'topo_tag', pivotContext.filters.topo_tag ?? 'all')
 
   const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes])
   const edges = useMemo(() => data?.edges ?? [], [data?.edges])
@@ -55,12 +58,23 @@ export function TopologyPage() {
     () => nodes.filter((node) => nodeMatches(node, { query, kind, site, tag })),
     [kind, nodes, query, site, tag],
   )
-  const filteredNodeIDs = useMemo(() => new Set(filteredNodes.map((node) => node.id)), [filteredNodes])
+  const filteredNodeIDs = useMemo(
+    () => new Set(filteredNodes.map((node) => node.id)),
+    [filteredNodes],
+  )
   const filteredEdges = useMemo(
     () => edges.filter((edge) => filteredNodeIDs.has(edge.from) && filteredNodeIDs.has(edge.to)),
     [edges, filteredNodeIDs],
   )
-  const layout = useMemo(() => layoutTopology(filteredNodes, filteredEdges), [filteredEdges, filteredNodes])
+  const requestedNodeID =
+    pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined
+  const selected = requestedNodeID
+    ? (filteredNodes.find((node) => node.id === requestedNodeID) ?? null)
+    : null
+  const layout = useMemo(
+    () => layoutTopology(filteredNodes, filteredEdges),
+    [filteredEdges, filteredNodes],
+  )
   const impact = whatIf.data ?? null
   const impacted = useMemo(() => impactedNodeIDs(impact), [impact])
   const currentFilters = useMemo(
@@ -68,12 +82,30 @@ export function TopologyPage() {
     [kind, query, site, tag],
   )
   const setFilter = (patch: Record<string, string>) =>
-    setURLFilters(params, setParams, TOPOLOGY_FILTER_DEFAULTS, { ...currentFilters, ...patch })
+    setParams(topologySearchParams(params, pivotContext, { ...currentFilters, ...patch }), {
+      replace: true,
+    })
   const savedFilters = activeFiltersForSave(currentFilters, TOPOLOGY_FILTER_DEFAULTS)
 
   useEffect(() => {
-    if (selected && !filteredNodeIDs.has(selected.id)) setSelected(null)
-  }, [filteredNodeIDs, selected])
+    if (
+      (!isPending && requestedNodeID && !filteredNodeIDs.has(requestedNodeID)) ||
+      (parsedPivot.hasContract && !parsedPivot.referencesValid)
+    ) {
+      setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
+        replace: true,
+      })
+    }
+  }, [
+    filteredNodeIDs,
+    isPending,
+    params,
+    parsedPivot.hasContract,
+    parsedPivot.referencesValid,
+    pivotContext,
+    requestedNodeID,
+    setParams,
+  ])
 
   useEffect(() => {
     setQuery(urlQuery)
@@ -82,10 +114,25 @@ export function TopologyPage() {
   useEffect(() => {
     if (query === urlQuery) return undefined
     const handle = window.setTimeout(() => {
-      setURLFilters(params, setParams, TOPOLOGY_FILTER_DEFAULTS, currentFilters)
+      setParams(topologySearchParams(params, pivotContext, currentFilters), { replace: true })
     }, 250)
     return () => window.clearTimeout(handle)
-  }, [currentFilters, params, query, setParams, urlQuery])
+  }, [currentFilters, params, pivotContext, query, setParams, urlQuery])
+
+  useEffect(() => {
+    const nextAt = params.get('at') ?? pivotContext.to ?? ''
+    setAt(nextAt)
+    setTimeInput(toDateTimeLocal(nextAt))
+  }, [params, pivotContext.to])
+
+  function selectNode(node: TopoNode) {
+    setParams(
+      replacePivotContext(params, {
+        ...pivotContext,
+        selection: { kind: 'entity', id: node.id },
+      }),
+    )
+  }
 
   const simulate = (target: string) => {
     whatIf.mutate({ target, at: at || undefined })
@@ -93,14 +140,28 @@ export function TopologyPage() {
 
   const updateTime = (value: string) => {
     setTimeInput(value)
-    setSelected(null)
     whatIf.reset()
     if (!value) {
       setAt('')
+      const next = new URLSearchParams(params)
+      next.delete('at')
+      setParams(replacePivotContext(next, { ...pivotContext, to: undefined, selection: undefined }))
       return
     }
     const next = new Date(value)
-    if (!Number.isNaN(next.getTime())) setAt(next.toISOString())
+    if (!Number.isNaN(next.getTime())) {
+      const absolute = next.toISOString()
+      setAt(absolute)
+      const nextParams = new URLSearchParams(params)
+      nextParams.set('at', absolute)
+      setParams(
+        replacePivotContext(nextParams, {
+          ...pivotContext,
+          to: absolute,
+          selection: undefined,
+        }),
+      )
+    }
   }
 
   return (
@@ -126,12 +187,15 @@ export function TopologyPage() {
         onQueryChange={setQuery}
         onChange={setFilter}
         onApply={(filters) =>
-          setURLFilters(params, setParams, TOPOLOGY_FILTER_DEFAULTS, {
-            topo_q: filters.topo_q ?? '',
-            topo_kind: filters.topo_kind ?? 'all',
-            topo_site: filters.topo_site ?? 'all',
-            topo_tag: filters.topo_tag ?? 'all',
-          })
+          setParams(
+            topologySearchParams(params, pivotContext, {
+              topo_q: filters.topo_q ?? '',
+              topo_kind: filters.topo_kind ?? 'all',
+              topo_site: filters.topo_site ?? 'all',
+              topo_tag: filters.topo_tag ?? 'all',
+            }),
+            { replace: true },
+          )
         }
       />
 
@@ -150,13 +214,13 @@ export function TopologyPage() {
               selected={selected}
               impact={impact}
               impacted={impacted}
-              onSelect={setSelected}
+              onSelect={selectNode}
             />
             <TopologyListCard
               nodes={filteredNodes}
               renderedCount={layout.nodes.length}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={selectNode}
             />
           </div>
           <TopologySidePanel
@@ -170,6 +234,29 @@ export function TopologyPage() {
       )}
     </Page>
   )
+}
+
+function topologySearchParams(
+  current: URLSearchParams,
+  pivotContext: PivotContext,
+  filters: Record<string, string>,
+): URLSearchParams {
+  const next = new URLSearchParams(current)
+  for (const [key, fallback] of Object.entries(TOPOLOGY_FILTER_DEFAULTS)) {
+    const value = (filters[key] ?? fallback).trim()
+    if (!value || value === fallback) next.delete(key)
+    else next.set(key, value)
+  }
+  const contextFilters = { ...pivotContext.filters }
+  for (const key of Object.keys(TOPOLOGY_FILTER_DEFAULTS)) delete contextFilters[key]
+  Object.assign(contextFilters, activeFiltersForSave(filters, TOPOLOGY_FILTER_DEFAULTS))
+  return replacePivotContext(next, { ...pivotContext, filters: contextFilters })
+}
+
+function toDateTimeLocal(value: string): string {
+  const timestamp = Date.parse(value)
+  if (!value || !Number.isFinite(timestamp)) return ''
+  return new Date(timestamp).toISOString().slice(0, 16)
 }
 
 function TopologyToolbar({
@@ -238,19 +325,28 @@ function TopologyFilters({
         label="Kind"
         value={kind}
         onChange={(e) => onChange({ topo_kind: e.target.value })}
-        options={[{ value: 'all', label: 'All kinds' }, ...kindOptions.map((value) => ({ value, label: value }))]}
+        options={[
+          { value: 'all', label: 'All kinds' },
+          ...kindOptions.map((value) => ({ value, label: value })),
+        ]}
       />
       <Select
         label="Site"
         value={site}
         onChange={(e) => onChange({ topo_site: e.target.value })}
-        options={[{ value: 'all', label: 'All sites' }, ...siteOptions.map((value) => ({ value, label: value }))]}
+        options={[
+          { value: 'all', label: 'All sites' },
+          ...siteOptions.map((value) => ({ value, label: value })),
+        ]}
       />
       <Select
         label="Tag"
         value={tag}
         onChange={(e) => onChange({ topo_tag: e.target.value })}
-        options={[{ value: 'all', label: 'All tags' }, ...tagOptions.map((value) => ({ value, label: value }))]}
+        options={[
+          { value: 'all', label: 'All tags' },
+          ...tagOptions.map((value) => ({ value, label: value })),
+        ]}
       />
       <SavedViews surface="topology" filters={filters} onApply={onApply} placeholder="Core graph" />
     </FilterBar>
@@ -432,7 +528,11 @@ function TopologyListCard({
       key: 'label',
       header: 'Node',
       render: (node) => (
-        <Button size="sm" variant={selected?.id === node.id ? 'primary' : 'ghost'} onClick={() => onSelect(node)}>
+        <Button
+          size="sm"
+          variant={selected?.id === node.id ? 'primary' : 'ghost'}
+          onClick={() => onSelect(node)}
+        >
           {node.label}
         </Button>
       ),

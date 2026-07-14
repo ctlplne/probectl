@@ -11,6 +11,7 @@ export function AppShell() {
   const location = useLocation()
   const mainRef = useRef<HTMLElement>(null)
   const firstRouteRender = useRef(true)
+  const previousPathname = useRef(location.pathname)
   const skipNextRouteFocus = useRef(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -34,16 +35,21 @@ export function AppShell() {
   }, [])
 
   useEffect(() => {
+    const pathnameChanged = previousPathname.current !== location.pathname
+    previousPathname.current = location.pathname
     if (firstRouteRender.current) {
       firstRouteRender.current = false
       return
     }
+    // Query-string changes are in-page context/filter/history updates. Moving
+    // focus to <main> here would steal it from the selected evidence or entity.
+    if (!pathnameChanged) return
     if (skipNextRouteFocus.current) {
       skipNextRouteFocus.current = false
       return
     }
     mainRef.current?.focus()
-  }, [location.key])
+  }, [location.key, location.pathname])
 
   return (
     <div className={styles.shell}>

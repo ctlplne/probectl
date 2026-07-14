@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import styles from './incidents.module.css'
 import { Page } from './pages'
@@ -37,6 +37,12 @@ import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
+import {
+  parsePivotContext,
+  pivotHref,
+  replacePivotContext,
+  type PivotContext,
+} from './pivotContext'
 
 type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -56,7 +62,13 @@ function incidentSeverityLabel(severity: string, t: TFn) {
 /** Timeline overlays every plane's signals for one incident in time order. The
  *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
  *  appears here with no UI change. */
-function Timeline({ incidentId }: { incidentId: string }) {
+function Timeline({
+  incidentId,
+  pivotContext,
+}: {
+  incidentId: string
+  pivotContext: PivotContext
+}) {
   const navigate = useNavigate()
   const { t } = useI18n()
   const incident = useIncident(incidentId)
@@ -74,12 +86,19 @@ function Timeline({ incidentId }: { incidentId: string }) {
   const canPropose = Boolean(remediations.data)
 
   function askAboutIncident() {
-    const params = new URLSearchParams({
-      incident_id: inc.id,
-      target: incidentTarget(inc),
-      question: questionForIncident(inc),
-    })
-    navigate(`/ask?${params.toString()}`)
+    navigate(
+      pivotHref(
+        '/ask',
+        {
+          ...pivotContext,
+          incidentId: inc.id,
+          from: inc.started_at,
+          to: inc.last_seen_at,
+          selection: undefined,
+        },
+        { target: incidentTarget(inc), question: questionForIncident(inc) },
+      ),
+    )
   }
 
   function proposeIncidentReview() {
@@ -192,11 +211,20 @@ export function IncidentsPage() {
   // Deep-link support (?incident=<id>): other surfaces (threat triage S-FE3,
   // alerts) pivot straight into a specific incident's timeline.
   const [params, setParams] = useSearchParams()
-  const [selected, setSelected] = useState<string | null>(params.get('incident'))
   const defaults = { incident_q: '', incident_status: 'all', incident_severity: 'all' }
   const query = filterValue(params, 'incident_q')
   const status = filterValue(params, 'incident_status', 'all')
   const severity = filterValue(params, 'incident_severity', 'all')
+  const parsedPivot = useMemo(
+    () =>
+      parsePivotContext(params, {
+        authorize: (reference) =>
+          reference.kind !== 'incident' ||
+          !incidents.data ||
+          incidents.data.some((incident) => incident.id === reference.id),
+      }),
+    [incidents.data, params],
+  )
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
   const filteredIncidents = useMemo(() => {
@@ -212,16 +240,37 @@ export function IncidentsPage() {
       )
     })
   }, [incidents.data, query, severity, status])
+  const requestedIncident = parsedPivot.context.incidentId ?? params.get('incident')
+  const selected =
+    (requestedIncident && filteredIncidents.some((incident) => incident.id === requestedIncident)
+      ? requestedIncident
+      : filteredIncidents[0]?.id) ?? null
+  const activeFilters = filtersForSave(params, defaults)
+  const returnParams = new URLSearchParams(activeFilters)
+  if (selected) returnParams.set('incident', selected)
+  const pivotContext: PivotContext = {
+    ...parsedPivot.context,
+    filters: { ...parsedPivot.context.filters, ...activeFilters },
+    returnTo: returnParams.size > 0 ? `/incidents?${returnParams.toString()}` : '/incidents',
+  }
 
   useEffect(() => {
-    if (filteredIncidents.length === 0) {
-      setSelected(null)
-      return
+    if (incidents.data && parsedPivot.hasContract && !parsedPivot.referencesValid) {
+      setParams(replacePivotContext(params, parsedPivot.context), { replace: true })
     }
-    if (selected === null || !filteredIncidents.some((inc) => inc.id === selected)) {
-      setSelected(filteredIncidents[0].id)
-    }
-  }, [filteredIncidents, selected])
+  }, [incidents.data, params, parsedPivot, setParams])
+
+  function selectIncident(incidentID: string) {
+    const next = new URLSearchParams(
+      replacePivotContext(params, {
+        ...pivotContext,
+        incidentId: incidentID,
+        selection: undefined,
+      }),
+    )
+    next.delete('incident')
+    setParams(next)
+  }
 
   const columns: Column<Incident>[] = [
     {
@@ -235,7 +284,11 @@ export function IncidentsPage() {
       key: 'title',
       header: t('incidents.column.incident'),
       render: (r) => (
-        <Button variant="ghost" onClick={() => setSelected(r.id)} aria-pressed={selected === r.id}>
+        <Button
+          variant="ghost"
+          onClick={() => selectIncident(r.id)}
+          aria-pressed={selected === r.id}
+        >
           {r.title || r.target || r.id}
         </Button>
       ),
@@ -333,7 +386,7 @@ export function IncidentsPage() {
             rows={filteredIncidents}
             rowKey={(r) => r.id}
           />
-          {selected ? <Timeline incidentId={selected} /> : null}
+          {selected ? <Timeline incidentId={selected} pivotContext={pivotContext} /> : null}
         </div>
       )}
     </Page>

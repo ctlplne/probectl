@@ -34,6 +34,17 @@ import {
   type CreateProposalInput,
 } from '../api/remediation'
 import { DateTime } from '../time/DateTime'
+import { pivotHref } from './pivotContext'
+
+function detectionIncidentHref(detection: Detection): string {
+  return pivotHref('/incidents', {
+    incidentId: detection.incident_id,
+    from: detection.observed_at,
+    to: detection.observed_at,
+    filters: detection.source ? { threat_source: detection.source } : {},
+    returnTo: '/security',
+  })
+}
 
 /** expiryBadge renders days-to-expiry with a tone that matches urgency. */
 function expiryBadge(p: TLSPosture) {
@@ -242,9 +253,7 @@ function DetectionDetail({
           </Button>
         ) : null}
         {detection.incident_id ? (
-          <Link to={`/incidents?incident=${encodeURIComponent(detection.incident_id)}`}>
-            Open incident timeline
-          </Link>
+          <Link to={detectionIncidentHref(detection)}>Open incident timeline</Link>
         ) : (
           <span>No correlated incident</span>
         )}
@@ -447,12 +456,7 @@ function DetectionsCard() {
     {
       key: 'incident',
       header: 'Incident',
-      render: (d) =>
-        d.incident_id ? (
-          <Link to={`/incidents?incident=${encodeURIComponent(d.incident_id)}`}>timeline</Link>
-        ) : (
-          '—'
-        ),
+      render: (d) => (d.incident_id ? <Link to={detectionIncidentHref(d)}>timeline</Link> : '—'),
     },
     {
       key: 'actions',
