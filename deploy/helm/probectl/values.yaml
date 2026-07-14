@@ -51,6 +51,32 @@ bgpAnalyzer:
     # RIS Live destinations approved for this deployment. DNS is added below.
     egressTo: []
 
+# Optional rendered-browser synthetic agent (W2). The image packages the
+# tenant-bound Go agent and listener-free Playwright worker together so the
+# stdin/stdout ExecDriver contract stays inside one pod. Supply a Secret whose
+# agent.yml references the mTLS identity files carried in that same Secret.
+browserAgent:
+  enabled: false
+  image:
+    repository: ghcr.io/imfeelingtheagi/probectl-browser-agent
+    digest: "" # required when enabled; sha256:<64 hex>
+    pullPolicy: IfNotPresent
+  configSecret: ""
+  configKey: agent.yml
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  extraEnv: {}
+  extraVolumes: []
+  extraVolumeMounts: []
+  nodeSelector: {}
+  tolerations: []
+  networkPolicy:
+    enabled: true
+    # Required/non-empty when enabled: allow only the mTLS control plane and
+    # the public/private targets this tenant has explicitly approved.
+    egressTo: []
+
 replicaCount: 1
 
 # Apply database migrations from an init container before the server starts.

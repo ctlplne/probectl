@@ -5,6 +5,7 @@ package agent
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ type Config struct {
 	Agent         Meta                `yaml:"agent"`
 	Buffer        BufferConfig        `yaml:"buffer"`
 	ArtifactStore ArtifactStoreConfig `yaml:"artifact_store"`
+	Browser       BrowserConfig       `yaml:"browser"`
 	Canaries      []CanaryConfig      `yaml:"canaries"`
 	A2A           A2AConfig           `yaml:"a2a"`
 	Security      SecurityConfig      `yaml:"security"`
@@ -157,6 +159,25 @@ type ArtifactStoreConfig struct {
 	Dir string `yaml:"dir"`
 }
 
+// BrowserConfig selects the implementation used for browser transaction
+// canaries. "http" is the lightweight non-rendering driver. "browser" invokes
+// the local Playwright worker through stdin/stdout; the worker is validated at
+// startup so a rendered test can never silently fall back to HTTP.
+type BrowserConfig struct {
+	Driver string              `yaml:"driver"`
+	Worker BrowserWorkerConfig `yaml:"worker"`
+}
+
+// BrowserWorkerConfig identifies the rendering worker packaged beside the
+// browser-capable agent. It opens no listener: the agent executes Command with
+// Path as its first argument for each isolated transaction.
+type BrowserWorkerConfig struct {
+	Command     string   `yaml:"command"`
+	Path        string   `yaml:"path"`
+	Args        []string `yaml:"args"`
+	StepTimeout Duration `yaml:"step_timeout"`
+}
+
 // CanaryConfig configures one scheduled canary.
 type CanaryConfig struct {
 	Type     string            `yaml:"type"`
@@ -228,6 +249,9 @@ func (c *Config) applyEnv() {
 	override("PROBECTL_AGENT_TLS_CA_FILE", &c.TLS.CAFile)
 	override("PROBECTL_AGENT_BUFFER_DIR", &c.Buffer.Dir)
 	override("PROBECTL_AGENT_OBJECTSTORE_DIR", &c.ArtifactStore.Dir)
+	override("PROBECTL_AGENT_BROWSER_DRIVER", &c.Browser.Driver)
+	override("PROBECTL_AGENT_BROWSER_WORKER_COMMAND", &c.Browser.Worker.Command)
+	override("PROBECTL_AGENT_BROWSER_WORKER_PATH", &c.Browser.Worker.Path)
 	override("PROBECTL_AGENT_ENROLL_TOKEN_FILE", &c.Enroll.TokenFile)
 	override("PROBECTL_AGENT_ENROLL_SERVER", &c.Enroll.Server)
 	override("PROBECTL_AGENT_ENROLL_CA_PIN", &c.Enroll.CAPin)
@@ -256,6 +280,15 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Buffer.DrainPace == 0 {
 		c.Buffer.DrainPace = Duration(defaultDrainPace)
+	}
+	if c.Browser.Driver == "" {
+		c.Browser.Driver = "http"
+	}
+	if c.Browser.Worker.Command == "" {
+		c.Browser.Worker.Command = "node"
+	}
+	if c.Browser.Worker.StepTimeout == 0 {
+		c.Browser.Worker.StepTimeout = Duration(15 * time.Second)
 	}
 	for i := range c.Canaries {
 		if c.Canaries[i].Interval == 0 {
@@ -295,6 +328,29 @@ func (c *Config) validate() error {
 		if _, err := enrollmentEndpoint(c.Enroll.Server, "/enroll/agent", c.Enroll.AllowPlaintextLoopback); err != nil {
 			return fmt.Errorf("config: enroll.server: %w", err)
 		}
+	}
+	switch c.Browser.Driver {
+	case "http":
+		// The single-binary agent needs no browser runtime in HTTP mode.
+	case "browser":
+		if c.Browser.Worker.Path == "" {
+			return fmt.Errorf("config: browser.worker.path is required when browser.driver=browser")
+		}
+		if _, err := exec.LookPath(c.Browser.Worker.Command); err != nil {
+			return fmt.Errorf("config: browser worker command %q is unavailable: %w", c.Browser.Worker.Command, err)
+		}
+		info, err := os.Stat(c.Browser.Worker.Path)
+		if err != nil {
+			return fmt.Errorf("config: browser worker path %q is unavailable: %w", c.Browser.Worker.Path, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("config: browser worker path %q is not a regular file", c.Browser.Worker.Path)
+		}
+		if c.Browser.Worker.StepTimeout <= 0 {
+			return fmt.Errorf("config: browser.worker.step_timeout must be positive")
+		}
+	default:
+		return fmt.Errorf("config: browser.driver must be http or browser (got %q)", c.Browser.Driver)
 	}
 	for i, cc := range c.Canaries {
 		if cc.Type == "" {

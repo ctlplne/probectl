@@ -57,7 +57,7 @@ jobs:
 
   # TEST-011: the docs-vs-CI contradiction recurs the moment the Makefile grows
   # a binary that nobody adds here. This gate makes the published set cover the
-  # Makefile's BINARIES plus the Python/Go analyzer sidecar — drift fails the
+  # Makefile's BINARIES plus the analyzer/browser runtime images — drift fails the
   # release instead of silently shipping an incomplete set.
   components-match-makefile:
     name: published components complete
@@ -68,16 +68,16 @@ jobs:
       - name: Assert every Makefile binary is a published component
         run: |
           set -euo pipefail
-          expected="$({ grep -E '^BINARIES[[:space:]]*:=' Makefile | cut -d= -f2- | tr ' ' '\n'; echo probectl-bgp-analyzer; } | grep . | sort -u)"
+          expected="$({ grep -E '^BINARIES[[:space:]]*:=' Makefile | cut -d= -f2- | tr ' ' '\n'; printf '%s\n' probectl-bgp-analyzer probectl-browser-agent; } | grep . | sort -u)"
           # The full set this workflow publishes: the images matrix plus the
           # special-image includes (eBPF + analyzer). Keep in lockstep
           # with the matrix above — this list is the single assertion point.
           published="$(printf '%s\n' \
             probectl-control probectl-agent probectl-endpoint \
             probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl \
-            probectl-ebpf-agent probectl-bgp-analyzer | sort -u)"
+            probectl-ebpf-agent probectl-bgp-analyzer probectl-browser-agent | sort -u)"
           if ! diff <(echo "$expected") <(echo "$published"); then
-            echo "::error::release.yml published components drift from Makefile BINARIES + analyzer sidecar (TEST-011). Update the images matrix."
+            echo "::error::release.yml published components drift from Makefile BINARIES + special runtime images (TEST-011). Update the images matrix."
             exit 1
           fi
           echo "all $(echo "$expected" | wc -l | tr -d ' ') release components are published"
@@ -89,8 +89,8 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        # All Go binaries ship as images + signed downloads; the eBPF and BGP
-        # analyzer images use their special Dockerfiles below.
+        # All Go binaries ship as images + signed downloads; eBPF, BGP, and the
+        # rendered-browser agent use their special Dockerfiles below.
         component:
           - probectl-control
           - probectl-agent
@@ -110,6 +110,8 @@ jobs:
             dockerfile: deploy/docker/Dockerfile.ebpf
           - component: probectl-bgp-analyzer
             dockerfile: deploy/docker/Dockerfile.bgp-analyzer
+          - component: probectl-browser-agent
+            dockerfile: deploy/docker/Dockerfile.browser-agent
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3

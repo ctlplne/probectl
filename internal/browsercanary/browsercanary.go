@@ -12,7 +12,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/browser"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
@@ -24,7 +28,27 @@ const (
 	Type = "browser"
 	// ScriptParam carries the transaction Script JSON in a test's params map.
 	ScriptParam = "script"
+	// DriverParam states the execution semantics the test requires. An agent
+	// configured for another driver rejects the test instead of silently
+	// substituting a non-rendering HTTP transaction for a rendered browser.
+	DriverParam = "browser_driver"
+
+	DriverHTTP    = "http"
+	DriverBrowser = "browser"
 )
+
+const defaultWorkerStepTimeout = 15 * time.Second
+
+// DriverConfig selects the agent-local implementation for browser tests.
+// WorkerPath is passed as the first argument to WorkerCommand; no listener or
+// network control channel is created between the Go agent and Playwright.
+type DriverConfig struct {
+	Driver        string
+	WorkerCommand string
+	WorkerPath    string
+	WorkerArgs    []string
+	StepTimeout   time.Duration
+}
 
 // Browser is the schedulable browser/transaction synthetic canary.
 type Browser struct {
@@ -32,6 +56,7 @@ type Browser struct {
 	tenant string
 	script browser.Script
 	fleet  *browser.Fleet
+	driver string
 }
 
 // New builds a browser canary. If params.script is absent, target is wrapped in
@@ -39,7 +64,7 @@ type Browser struct {
 // present, it is the browser.Script JSON; target is still the server_address
 // join key used by result views.
 func New(cfg canary.Config) (canary.Canary, error) {
-	return newBrowser(cfg, nil, nil)
+	return newBrowser(cfg, nil, nil, DriverConfig{Driver: DriverHTTP})
 }
 
 // NewWithObjectStore builds a browser canary factory that stores failure
@@ -48,11 +73,48 @@ func New(cfg canary.Config) (canary.Canary, error) {
 // falling back to an unscoped path.
 func NewWithObjectStore(store objectstore.Store, log *slog.Logger) canary.Factory {
 	return func(cfg canary.Config) (canary.Canary, error) {
-		return newBrowser(cfg, store, log)
+		return newBrowser(cfg, store, log, DriverConfig{Driver: DriverHTTP})
 	}
 }
 
-func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger) (canary.Canary, error) {
+// NewFactory returns the browser factory registered by the shipped agent. In
+// rendered mode it verifies both the command and worker script at startup, so
+// an incomplete image/config fails closed before any schedules begin.
+func NewFactory(driver DriverConfig, store objectstore.Store, log *slog.Logger) (canary.Factory, error) {
+	if driver.Driver == "" {
+		driver.Driver = DriverHTTP
+	}
+	switch driver.Driver {
+	case DriverHTTP:
+	case DriverBrowser:
+		if strings.TrimSpace(driver.WorkerCommand) == "" {
+			return nil, errors.New("browser: worker command is required for browser driver")
+		}
+		if _, err := exec.LookPath(driver.WorkerCommand); err != nil {
+			return nil, fmt.Errorf("browser: worker command %q is unavailable: %w", driver.WorkerCommand, err)
+		}
+		if strings.TrimSpace(driver.WorkerPath) == "" {
+			return nil, errors.New("browser: worker path is required for browser driver")
+		}
+		info, err := os.Stat(driver.WorkerPath)
+		if err != nil {
+			return nil, fmt.Errorf("browser: worker path %q is unavailable: %w", driver.WorkerPath, err)
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("browser: worker path %q is not a regular file", driver.WorkerPath)
+		}
+		if driver.StepTimeout <= 0 {
+			driver.StepTimeout = defaultWorkerStepTimeout
+		}
+	default:
+		return nil, fmt.Errorf("browser: driver must be http or browser (got %q)", driver.Driver)
+	}
+	return func(cfg canary.Config) (canary.Canary, error) {
+		return newBrowser(cfg, store, log, driver)
+	}, nil
+}
+
+func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger, driver DriverConfig) (canary.Canary, error) {
 	target := strings.TrimSpace(cfg.Target)
 	if target == "" {
 		return nil, errors.New("browser: target URL is required")
@@ -69,14 +131,36 @@ func newBrowser(cfg canary.Config, store objectstore.Store, log *slog.Logger) (c
 	if err := checkScriptTargets(guard, s); err != nil {
 		return nil, err
 	}
+	requiredDriver := strings.TrimSpace(cfg.Params[DriverParam])
+	if requiredDriver == "" {
+		// Backward-compatible legacy browser tests were explicitly HTTP-layer
+		// transactions. Rendered execution is opt-in and must say so.
+		requiredDriver = DriverHTTP
+	}
+	if requiredDriver != DriverHTTP && requiredDriver != DriverBrowser {
+		return nil, fmt.Errorf("browser: %s must be http or browser (got %q)", DriverParam, requiredDriver)
+	}
+	if requiredDriver != driver.Driver {
+		return nil, fmt.Errorf("browser: test requires %s driver but this agent is configured for %s", requiredDriver, driver.Driver)
+	}
 	runTimeout := cfg.Timeout
+	driverFactory := func() browser.Driver {
+		if driver.Driver == DriverBrowser {
+			args := append([]string{driver.WorkerPath}, driver.WorkerArgs...)
+			return browser.NewExecDriver(driver.WorkerCommand, args...).WithEnv(
+				"PROBECTL_BROWSER_STEP_TIMEOUT_MS="+strconv.FormatInt(driver.StepTimeout.Milliseconds(), 10),
+				"PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS="+strconv.FormatBool(cfg.Params[canary.AllowPrivateParam] == "true"),
+			)
+		}
+		return browser.NewHTTPDriver(browser.WithTargetGuard(guard))
+	}
 	fleet := browser.NewFleet(
 		browser.Config{MaxConcurrency: 1, RunTimeout: runTimeout},
-		func() browser.Driver { return browser.NewHTTPDriver(browser.WithTargetGuard(guard)) },
+		driverFactory,
 		store,
 		log,
 	)
-	return &Browser{target: target, tenant: tenant, script: s, fleet: fleet}, nil
+	return &Browser{target: target, tenant: tenant, script: s, fleet: fleet, driver: driver.Driver}, nil
 }
 
 func scriptFromConfig(target string, params map[string]string) (browser.Script, error) {
@@ -133,7 +217,11 @@ func checkURL(guard *canary.TargetGuard, raw string) error {
 
 // Describe returns the browser canary spec.
 func (b *Browser) Describe() canary.Spec {
-	return canary.Spec{Type: Type, Version: "1", Description: "Browser transaction synthetic"}
+	description := "HTTP transaction synthetic (no rendering)"
+	if b.driver == DriverBrowser {
+		description = "Rendered browser synthetic (Playwright)"
+	}
+	return canary.Spec{Type: Type, Version: "1", Description: description}
 }
 
 // Run executes one browser transaction and maps it onto the canonical result.
@@ -143,6 +231,7 @@ func (b *Browser) Run(ctx context.Context) (canary.Result, error) {
 		return canary.Result{}, err
 	}
 	out := res.ToCanaryResult()
+	out.Attributes["browser.driver"] = b.driver
 	if out.Target == "" {
 		out.Target = b.target
 	}

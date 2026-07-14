@@ -8,8 +8,136 @@
 // Input  (stdin): the Script JSON (see internal/browser/script.go).
 // Output (stdout): the Result JSON (see toWorkerResult in execdriver.go).
 import { chromium } from "playwright";
+import { lookup } from "node:dns/promises";
+import http from "node:http";
+import https from "node:https";
+import { BlockList, isIP } from "node:net";
 
 const STEP_TIMEOUT_MS = Number(process.env.PROBECTL_BROWSER_STEP_TIMEOUT_MS || 15000);
+const ALLOW_PRIVATE_TARGETS = process.env.PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS === "true";
+const MAX_RESOURCE_BYTES = 16 * 1024 * 1024;
+
+const deniedIPv4 = new BlockList();
+for (const [network, prefix] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.168.0.0", 16],
+  ["224.0.0.0", 4],
+]) deniedIPv4.addSubnet(network, prefix);
+deniedIPv4.addAddress("255.255.255.255");
+
+const deniedIPv6 = new BlockList();
+deniedIPv6.addAddress("::", "ipv6");
+deniedIPv6.addAddress("::1", "ipv6");
+deniedIPv6.addSubnet("fc00::", 7, "ipv6");
+deniedIPv6.addSubnet("fe80::", 10, "ipv6");
+deniedIPv6.addSubnet("ff00::", 8, "ipv6");
+
+function mappedIPv4(address) {
+  const lower = address.toLowerCase();
+  if (!lower.startsWith("::ffff:")) return "";
+  const tail = lower.slice("::ffff:".length);
+  if (isIP(tail) === 4) return tail;
+  const words = tail.split(":");
+  if (words.length !== 2) return "";
+  const hi = Number.parseInt(words[0], 16);
+  const lo = Number.parseInt(words[1], 16);
+  if (!Number.isInteger(hi) || !Number.isInteger(lo) || hi < 0 || hi > 0xffff || lo < 0 || lo > 0xffff) return "";
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
+function targetDenied(address, family) {
+  if (ALLOW_PRIVATE_TARGETS) return false;
+  const unzoned = address.split("%")[0];
+  const mapped = mappedIPv4(unzoned);
+  if (mapped) return deniedIPv4.check(mapped, "ipv4");
+  return family === 6
+    ? deniedIPv6.check(unzoned, "ipv6")
+    : deniedIPv4.check(unzoned, "ipv4");
+}
+
+async function checkedAddresses(hostname) {
+  const host = hostname.replace(/^\[|\]$/g, "");
+  const literalFamily = isIP(host);
+  const addresses = literalFamily
+    ? [{ address: host, family: literalFamily }]
+    : await lookup(host, { all: true, verbatim: true });
+  if (addresses.length === 0) throw new Error(`SSRF guard: ${host} resolved to no addresses`);
+  for (const item of addresses) {
+    if (targetDenied(item.address, item.family)) {
+      throw new Error(`SSRF guard denied ${host} -> ${item.address}`);
+    }
+  }
+  return addresses;
+}
+
+function fixedLookup(addresses) {
+  return (_hostname, options, callback) => {
+    if (typeof options === "object" && options.all) {
+      callback(null, addresses);
+      return;
+    }
+    callback(null, addresses[0].address, addresses[0].family);
+  };
+}
+
+function responseHeaders(headers) {
+  const out = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (value == null || ["connection", "content-length", "transfer-encoding"].includes(name)) continue;
+    out[name] = Array.isArray(value) ? value.join(name === "set-cookie" ? "\n" : ", ") : String(value);
+  }
+  return out;
+}
+
+async function fetchGuarded(route) {
+  const request = route.request();
+  const target = new URL(request.url());
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    await route.abort("blockedbyclient");
+    return;
+  }
+  const addresses = await checkedAddresses(target.hostname);
+  const transport = target.protocol === "https:" ? https : http;
+  const headers = { ...request.headers(), host: target.host };
+  delete headers.connection;
+  delete headers["proxy-connection"];
+
+  const response = await new Promise((resolve, reject) => {
+    const upstream = transport.request(target, {
+      method: request.method(),
+      headers,
+      lookup: fixedLookup(addresses),
+      ...(target.protocol === "https:" ? { servername: target.hostname.replace(/^\[|\]$/g, "") } : {}),
+    }, (res) => {
+      const chunks = [];
+      let size = 0;
+      res.on("data", (chunk) => {
+        size += chunk.length;
+        if (size > MAX_RESOURCE_BYTES) {
+          res.destroy(new Error(`browser resource exceeds ${MAX_RESOURCE_BYTES} bytes`));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => resolve({
+        status: res.statusCode || 502,
+        headers: responseHeaders(res.headers),
+        body: Buffer.concat(chunks),
+      }));
+      res.on("error", reject);
+    });
+    upstream.on("error", reject);
+    const body = request.postDataBuffer();
+    if (body) upstream.write(body);
+    upstream.end();
+  });
+  await route.fulfill(response);
+}
 
 async function readStdin() {
   const chunks = [];
@@ -29,8 +157,19 @@ async function run(script) {
   let error = "";
 
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ ignoreHTTPSErrors: false });
+  const context = await browser.newContext({ ignoreHTTPSErrors: false, serviceWorkers: "block" });
   const page = await context.newPage();
+  await page.route("**/*", async (route) => {
+    try {
+      await fetchGuarded(route);
+    } catch (err) {
+      process.stderr.write(`browser target blocked: ${String(err && err.message ? err.message : err)}\n`);
+      await route.abort("blockedbyclient").catch(() => {});
+    }
+  });
+  if (typeof page.routeWebSocket === "function") {
+    await page.routeWebSocket("**/*", (socket) => socket.close());
+  }
 
   // Resource waterfall from Playwright request timings.
   page.on("response", (resp) => {

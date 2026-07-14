@@ -45,9 +45,15 @@ function startApp() {
   return new Promise((resolve) => srv.listen(0, "127.0.0.1", () => resolve(srv)));
 }
 
-function runWorker(script) {
+function runWorker(script, allowPrivate = true) {
   return new Promise((resolve, reject) => {
-    const p = spawn("node", ["worker.mjs"], { stdio: ["pipe", "pipe", "pipe"] });
+    const p = spawn("node", ["worker.mjs"], {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: {
+        ...process.env,
+        PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS: allowPrivate ? "true" : "false",
+      },
+    });
     let out = "";
     let err = "";
     p.stdout.on("data", (d) => (out += d));
@@ -75,6 +81,13 @@ const steps = (password) => [
 ];
 
 try {
+  const blocked = await runWorker({
+    name: "ssrf-guard",
+    start_url: `${base}/login`,
+    steps: [{ name: "open", action: "goto" }],
+  }, false);
+  assert(blocked.success === false, "private target must be refused without the audited override");
+
   const ok = await runWorker({ name: "login", start_url: `${base}/login`, steps: steps("secret") });
   assert(ok.success === true, "login should succeed: " + JSON.stringify(ok));
   assert(Array.isArray(ok.steps) && ok.steps.length === 5, "expected 5 step results");
@@ -85,7 +98,7 @@ try {
   assert(bad.success === false, "wrong password should fail");
   assert(typeof bad.screenshot_b64 === "string" && bad.screenshot_b64.length > 0, "expected a failure screenshot");
 
-  console.log("browser-worker smoke OK (success timings+waterfall+dom; failure screenshot)");
+  console.log("browser-worker smoke OK (SSRF guard; success timings+waterfall+dom; failure screenshot)");
 } finally {
   srv.close();
 }

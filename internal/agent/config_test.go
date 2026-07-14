@@ -3,10 +3,12 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestConfigRejectsPlaintextIdentityServer(t *testing.T) {
@@ -97,6 +99,22 @@ func TestShippedAgentConfigsLoadStrictly(t *testing.T) {
 	}
 }
 
+func TestShippedRenderedBrowserConfigLoadsStrictly(t *testing.T) {
+	// The shipped file points at the paths inside the browser-agent image. For a
+	// host-side schema test, replace both with this already-present test binary;
+	// the release-container smoke separately proves /worker/worker.mjs + node.
+	t.Setenv("PROBECTL_AGENT_BROWSER_WORKER_COMMAND", os.Args[0])
+	t.Setenv("PROBECTL_AGENT_BROWSER_WORKER_PATH", os.Args[0])
+	path := filepath.Join("..", "..", "deploy", "compose", "eval-browser-agent.yml")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load shipped rendered-browser config: %v", err)
+	}
+	if cfg.Browser.Driver != "browser" || cfg.Canaries[0].Params["browser_driver"] != "browser" {
+		t.Fatalf("rendered browser selection drifted: browser=%+v canary=%+v", cfg.Browser, cfg.Canaries[0])
+	}
+}
+
 func TestConfigRejectsPlaintextEnrollServerWithoutOverride(t *testing.T) {
 	path := writeAgentConfig(t, `
 control_plane:
@@ -181,6 +199,67 @@ tls:
 	}
 	if cfg.ArtifactStore.Dir != "/var/lib/probectl/objects" {
 		t.Fatalf("artifact_store.dir = %q", cfg.ArtifactStore.Dir)
+	}
+}
+
+func TestConfigBrowserDriverDefaultsToHTTP(t *testing.T) {
+	path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Browser.Driver != "http" {
+		t.Fatalf("browser.driver = %q, want http", cfg.Browser.Driver)
+	}
+}
+
+func TestConfigBrowserDriverRequiresPresentWorker(t *testing.T) {
+	base := `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+browser:
+  driver: browser
+  worker:
+    command: %q
+    path: %q
+`
+	for _, tc := range []struct {
+		name    string
+		command string
+		path    string
+		wantErr string
+	}{
+		{name: "missing path", command: os.Args[0], wantErr: "worker.path is required"},
+		{name: "missing command", command: filepath.Join(t.TempDir(), "missing-command"), path: os.Args[0], wantErr: "command"},
+		{name: "missing worker", command: os.Args[0], path: filepath.Join(t.TempDir(), "missing-worker.mjs"), wantErr: "worker path"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeAgentConfig(t, fmt.Sprintf(base, tc.command, tc.path))
+			_, err := Load(path)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Load error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+
+	path := writeAgentConfig(t, fmt.Sprintf(base, os.Args[0], os.Args[0]))
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("present browser worker rejected: %v", err)
+	}
+	if cfg.Browser.Driver != "browser" || cfg.Browser.Worker.StepTimeout.Std() != 15*time.Second {
+		t.Fatalf("browser config = %+v", cfg.Browser)
 	}
 }
 

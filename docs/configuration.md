@@ -291,6 +291,9 @@ mounting a full file is awkward:
 | `PROBECTL_AGENT_TLS_CA_FILE` | `tls.ca_file` | the CA that signed the control plane's server cert (PEM) |
 | `PROBECTL_AGENT_BUFFER_DIR` | `buffer.dir` | on-disk store-and-forward directory (see below) |
 | `PROBECTL_AGENT_OBJECTSTORE_DIR` | `artifact_store.dir` | optional operator-owned object-store directory for browser canary failure artifacts; artifacts are written under the agent certificate tenant prefix and should point at the same mounted backend as `PROBECTL_OBJECTSTORE_DIR` when lifecycle export/erase must cover them |
+| `PROBECTL_AGENT_BROWSER_DRIVER` | `browser.driver` | `http` for a non-rendering HTTP transaction or `browser` for rendered Playwright; rendered mode fails startup unless its worker is usable |
+| `PROBECTL_AGENT_BROWSER_WORKER_COMMAND` | `browser.worker.command` | executable used for the listener-free rendered worker (the shipped browser-agent image uses `node`) |
+| `PROBECTL_AGENT_BROWSER_WORKER_PATH` | `browser.worker.path` | worker program passed to the command (the shipped browser-agent image uses `/worker/worker.mjs`) |
 | `PROBECTL_AGENT_IDENTITY_SERVER` | `identity.server` | control-plane HTTPS base URL enabling automatic certificate rotation — the agent rotates its mTLS identity at ~2/3 of its lifetime via `/enroll/agent/rotate`. See [`agent/enrollment.md`](agent/enrollment.md) |
 | `PROBECTL_AGENT_JOIN_TOKEN` | — | a one-time join token for **first-boot enrollment**: with no identity present yet, the agent redeems it, writes its identity, then runs. Idempotent (a present identity is never overwritten) and fail-closed. See [`agent/enrollment.md`](agent/enrollment.md) |
 | `PROBECTL_AGENT_ENROLL_TOKEN_FILE` | `enroll.token_file` | a file holding the join token (a mounted secret, read once); `PROBECTL_AGENT_JOIN_TOKEN` takes precedence |
@@ -527,16 +530,46 @@ certificate observability* feature below, which consumes these captured fields.
 
 ### Browser / transaction tests
 
-The `browser` canary runs a scripted multi-step transaction. In shipped agents it
-uses the Go-native HTTP transaction driver, which means no Chromium process is
-needed: the script is executed as real HTTP requests with a cookie jar, response
-status checks, text assertions, per-step timings, and a request waterfall. The
-`target` is the default `start_url`. Parameters:
+The `browser` canary has two deliberately different meanings. An ordinary
+`probectl-agent` defaults to `browser.driver: http`: the script runs as real HTTP
+requests with a cookie jar, status/text assertions, per-step timings, and a
+request waterfall, but no DOM is rendered. The `probectl-browser-agent` image
+sets `browser.driver: browser` and executes the packaged Playwright worker for
+DOM/paint timings and visual screenshots. A test states which semantics it
+requires; an agent configured for the other driver rejects it, so a rendered
+test can never quietly become a cheaper HTTP check.
+
+The `target` is the default `start_url`. Parameters:
 
 | Param | Values | Default | Meaning |
 | ----- | ------ | ------- | ------- |
+| `browser_driver` | `http` \| `browser` | `http` | required execution semantics: non-rendering HTTP transaction or rendered Playwright browser |
 | `script` | JSON `browser.Script` | generated | transaction script. If omitted, the agent runs `goto target` then `assert_status 200` |
 | `allow_private_targets` | `true` \| `false` | `false` | the same audited SSRF-guard override as HTTP. It covers `start_url`, every step `url`, and every resolved dial address |
+
+The matching agent YAML is:
+
+```yaml
+# ordinary probectl-agent
+browser:
+  driver: http
+
+# dedicated probectl-browser-agent image
+browser:
+  driver: browser
+  worker:
+    command: node
+    path: /worker/worker.mjs
+    step_timeout: 15s
+```
+
+Rendered mode is fail-closed: configuration loading verifies the command and
+worker file before the agent connects. The worker opens no listener; the Go
+agent sends one script over the child process's stdin and reads one result from
+stdout. Its navigation, redirects, and page subresources pass through the same
+resolved-address private-target policy as the HTTP driver. The browser image is
+shipped in releases and air-gap bundles, with an opt-in Compose profile and an
+opt-in Helm DaemonSet described in [`browser-synthetic.md`](browser-synthetic.md).
 
 Example CLI creation:
 
@@ -546,6 +579,7 @@ probectl test create \
   --type browser \
   --target https://app.example/login \
   --interval 60 \
+  --param browser_driver=browser \
   --param 'script={"name":"login","start_url":"https://app.example/login","steps":[{"action":"goto"},{"action":"assert_status","status":200}]}'
 ```
 

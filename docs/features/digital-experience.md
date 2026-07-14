@@ -69,9 +69,10 @@ default driver reads the script as a sequence of HTTP requests, so it runs
 anywhere the agent runs (including air-gapped networks) with no browser engine
 required. It reports a **waterfall**: a per-request timing ladder showing when
 each resource's DNS lookup, connection, TLS handshake, and first byte happened — a
-Gantt chart of the page load. A separate rendering-capable worker (built on a real
-Chrome engine) can add paint timings and a screenshot; that worker is an optional
-component, not the default path.
+Gantt chart of the page load. The optional shipped
+`probectl-browser-agent` image runs the same test contract through a real Chrome
+engine and adds paint timings plus a visual screenshot. Test and agent both
+select rendered semantics explicitly, so it cannot silently fall back to HTTP.
 
 On failure, the failed page is captured and stored in an object store under a
 **per-tenant prefix**, so one tenant's failure artifacts are isolated from
@@ -232,8 +233,9 @@ flag distinguishes an unwired pipeline from a genuinely empty fleet.
   not a separate privileged ping.
 - **The default browser driver does not render.** It reads the transaction as
   HTTP, so it captures real request timings but not paint timings or a visual
-  screenshot unless you run the separate rendering worker. Some sites detect
-  non-rendering clients; configure a realistic user-agent for those.
+  screenshot. Use the separate `probectl-browser-agent` release image and
+  `browser_driver: browser` for rendered checks. Some sites detect headless
+  browsers; configure a realistic browser context for those.
 - **This is not full application performance monitoring.** No distributed traces,
   no session replay, no user-journey reconstruction — that is deliberately out of
   scope. RUM here is page-level vitals and errors converged with synthetics.

@@ -96,6 +96,24 @@ export function NotFoundPage() {
 // --- Targets & Tests (live /v1/tests CRUD) ---
 
 const TEST_TYPES = ['icmp', 'tcp', 'udp', 'dns', 'http', 'browser', 'voice', 'a2a', 'noop']
+const CREATE_TEST_TYPES = [
+  ...TEST_TYPES.filter((type) => type !== 'browser').map((type) => ({ value: type, label: type })),
+  { value: 'browser-http', label: 'HTTP transaction (no rendering)' },
+  { value: 'browser-rendered', label: 'Rendered browser (Playwright)' },
+]
+
+function browserDriver(selection: string): 'http' | 'browser' | null {
+  if (selection === 'browser-http') return 'http'
+  if (selection === 'browser-rendered') return 'browser'
+  return null
+}
+
+function testTypeLabel(test: Test): string {
+  if (test.type !== 'browser') return test.type
+  return test.params?.browser_driver === 'browser'
+    ? 'Rendered browser'
+    : 'HTTP transaction'
+}
 
 function defaultBrowserScript(name: string, target: string): string {
   return JSON.stringify({
@@ -124,9 +142,20 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
   }
 
   function submit() {
-    const params = type === 'browser' ? { script: defaultBrowserScript(name, target) } : undefined
+    const driver = browserDriver(type)
+    const params = driver
+      ? { script: defaultBrowserScript(name, target), browser_driver: driver }
+      : undefined
     create.mutate(
-      { name, type, target, interval_seconds: interval, timeout_seconds: 3, params, enabled: true },
+      {
+        name,
+        type: driver ? 'browser' : type,
+        target,
+        interval_seconds: interval,
+        timeout_seconds: driver ? 60 : 3,
+        params,
+        enabled: true,
+      },
       {
         onSuccess: () => {
           push({ tone: 'success', title: 'Test created', message: name })
@@ -165,14 +194,14 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
           label="Type"
           value={type}
           onChange={(e) => setType(e.target.value)}
-          options={TEST_TYPES.map((t) => ({ value: t, label: t }))}
+          options={CREATE_TEST_TYPES}
         />
         <Field
           label="Target"
           value={target}
           onChange={(e) => setTarget(e.target.value)}
           placeholder={
-            type === 'browser'
+            browserDriver(type)
               ? 'https://app.example/login'
               : type === 'tcp' || type === 'udp' || type === 'voice'
                 ? 'host:port'
@@ -181,8 +210,10 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
           hint={
             type === 'noop'
               ? 'Not required for noop.'
-              : type === 'browser'
-                ? 'Creates a browser transaction: open the URL and expect HTTP 200.'
+              : type === 'browser-http'
+                ? 'Runs a multi-step HTTP transaction without rendering a DOM.'
+                : type === 'browser-rendered'
+                  ? 'Requires a browser-configured agent and runs the transaction in Chromium.'
                 : undefined
           }
         />
@@ -242,7 +273,7 @@ export function TargetsPage() {
 
   const columns: Column<Test>[] = [
     { key: 'name', header: 'Test', render: (t) => <strong>{t.name}</strong> },
-    { key: 'type', header: 'Type', render: (t) => <Badge tone="neutral">{t.type}</Badge> },
+    { key: 'type', header: 'Type', render: (t) => <Badge tone="neutral">{testTypeLabel(t)}</Badge> },
     { key: 'target', header: 'Target', render: (t) => <code>{t.target || '—'}</code> },
     { key: 'interval', header: 'Interval', numeric: true, render: (t) => `${t.interval_seconds}s` },
     {

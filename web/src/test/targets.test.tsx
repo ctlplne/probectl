@@ -46,7 +46,9 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     await user.click(screen.getByRole('button', { name: /new test/i }))
     const dialog = await screen.findByRole('dialog', { name: /create test/i })
     await user.type(within(dialog).getByLabelText('Name'), 'my-test')
-    await user.selectOptions(within(dialog).getByLabelText('Type'), 'browser')
+    expect(within(dialog).getByRole('option', { name: 'HTTP transaction (no rendering)' })).toBeInTheDocument()
+    expect(within(dialog).getByRole('option', { name: 'Rendered browser (Playwright)' })).toBeInTheDocument()
+    await user.selectOptions(within(dialog).getByLabelText('Type'), 'browser-rendered')
     await user.type(within(dialog).getByLabelText('Target'), 'https://shop.example/login')
     await user.click(within(dialog).getByRole('button', { name: /^create$/i }))
 
@@ -62,6 +64,8 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
     expect(posted.name).toBe('my-test')
     expect(posted.type).toBe('browser')
     expect(posted.target).toBe('https://shop.example/login')
+    expect(posted.timeout_seconds).toBe(60)
+    expect(posted.params.browser_driver).toBe('browser')
     const script = JSON.parse(posted.params.script)
     expect(script.start_url).toBe('https://shop.example/login')
     expect(script.steps.map((step: { action: string }) => step.action)).toEqual([

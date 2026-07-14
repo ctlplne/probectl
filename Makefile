@@ -407,6 +407,11 @@ images: ## Build multi-arch images for all components (Buildx).
 		-f deploy/docker/Dockerfile.bgp-analyzer \
 		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
 		-t $(IMAGE_REGISTRY)/probectl-bgp-analyzer:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/probectl-bgp-analyzer:latest .
+	@echo ">> buildx probectl-browser-agent ($(PLATFORMS))"
+	docker buildx build --platform $(PLATFORMS) \
+		-f deploy/docker/Dockerfile.browser-agent \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
+		-t $(IMAGE_REGISTRY)/probectl-browser-agent:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/probectl-browser-agent:latest .
 
 .PHONY: e2e
 e2e: ## U-054 black-box full-stack e2e (test/e2e): compose deps + real binaries + public API + tenancy boundary. Nightly CI.

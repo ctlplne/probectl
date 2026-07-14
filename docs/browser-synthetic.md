@@ -1,12 +1,12 @@
 # Browser / transaction synthetic
 
 > **Status: shipped and schedulable.** `browser` is a first-class synthetic test
-> type in the REST API, CLI, web UI, test schema, and agent registry. The shipped
-> schedulable path runs the Go-native HTTP transaction driver through the browser
-> fleet, emits per-step timings as normal canary metrics, and is protected by the
-> same private-target SSRF guard as HTTP/TCP/UDP/DNS/voice probes. The Playwright
-> worker remains the rendering-capable driver component; the default agent path
-> does not spawn Chromium.
+> type in the REST API, CLI, web UI, test schema, and agent registry. Both the
+> non-rendering HTTP transaction driver and the rendered Playwright driver are
+> connected to the shipped agent. Each agent selects one driver at startup and
+> each test names the semantics it requires; a mismatch is rejected rather than
+> silently substituting HTTP for a rendered browser. Both paths enforce the
+> private-target SSRF guard.
 
 ## What it is
 
@@ -14,11 +14,10 @@ This is the **canary** (probectl's name for one scheduled synthetic test type)
 that drives a **scripted multi-step transaction** — a login, a checkout — and
 reports per-step timings plus a page-load **waterfall** (the per-request timing
 ladder: when each resource's DNS lookup, connection, TLS handshake, and first
-byte happened — a Gantt chart of the page load). The shipped driver is
-Go-native and reads the transaction as HTTP, so it works anywhere the agent
-runs. The rendering-capable Playwright worker can add **DOM/paint timings** and
-visual screenshots, but the default scheduled canary path keeps Chromium out of
-the single-binary agent.
+byte happened — a Gantt chart of the page load). The ordinary agent defaults to
+the Go-native HTTP driver. The dedicated `probectl-browser-agent` release image
+packages that same tenant-bound Go agent with the listener-free Playwright
+worker for **DOM/paint timings** and visual screenshots.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'#0d1117','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#8b949e','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
@@ -33,9 +32,12 @@ flowchart LR
 ## Two drivers, one contract
 
 Both drivers implement the same `Script → Result` contract (the
-`internal/browser.Driver` interface). The schedulable `browser` canary currently
-instantiates the HTTPDriver; the Playwright worker remains the full-rendering
-driver component behind the same contract.
+`internal/browser.Driver` interface). `browser.driver` in agent YAML chooses
+`http` or `browser`; `params.browser_driver` on a test declares the required
+semantics. Legacy tests without the parameter mean `http`. A rendered agent
+therefore refuses a legacy/HTTP test, and an ordinary agent refuses a rendered
+test. This explicit pairing prevents a green check from lying about whether a
+page was actually rendered.
 
 | | **HTTPDriver** (default) | **Playwright worker** |
 | - | ------------------------ | --------------------- |
@@ -43,7 +45,8 @@ driver component behind the same contract.
 | Waterfall | real, per request (DNS / connect / TLS / TTFB / total) | real, per resource |
 | DOM/paint timings | – | yes |
 | Screenshot | the failed page's HTML body | a visual PNG |
-| Runs | anywhere (incl. air-gapped, CI); current scheduled path | needs the Playwright image |
+| Shipped runtime | ordinary `probectl-agent` | `probectl-browser-agent` image |
+| Test parameter | `browser_driver: http` (default) | `browser_driver: browser` |
 
 (**Playwright** is the browser-automation framework the worker is built on — it
 drives a real Chrome engine from code; **headless** Chromium is that engine run
@@ -51,11 +54,11 @@ without a visible window.) The two drivers are a table read versus a full dress
 rehearsal: the HTTPDriver *reads the script* as raw HTTP — every request,
 timing, and status real, nothing rendered; the Playwright worker *stages it* in
 a real browser, adding what only rendering can show (DOM/paint timings, a
-visual screenshot). The HTTPDriver makes transaction monitoring available
-*everywhere* and is fully unit-tested; the Playwright worker adds true rendering
-on top. Browser rendering is delegated to a separate worker process (over the
-`ExecDriver` contract) precisely to keep a whole browser *out* of probectl's
-single-binary agent.
+visual screenshot). Browser rendering is delegated to a child worker process
+over the `ExecDriver` stdin/stdout contract. There is no worker listener or
+plaintext sidecar API: the tenant-bound agent starts one bounded worker for one
+transaction, sends JSON on stdin, reads JSON on stdout, and kills the process on
+timeout.
 
 ## Transaction script format
 
@@ -133,9 +136,16 @@ the store itself.
 
 ## Deploy
 
-No extra process is required for the shipped scheduled path: `probectl-agent`
-registers `browser`, builds a one-slot browser `Fleet`, and runs the HTTPDriver
-with the shared canary target guard. When `artifact_store.dir` (or
+For non-rendering HTTP transactions, no extra process is required:
+`probectl-agent` registers `browser`, builds a one-slot browser `Fleet`, and runs
+the HTTPDriver with the shared canary target guard. Configure:
+
+```yaml
+browser:
+  driver: http
+```
+
+When `artifact_store.dir` (or
 `PROBECTL_AGENT_OBJECTSTORE_DIR`) is set, the agent opens that self-hosted store
 and passes its mTLS tenant into the browser fleet, so failed transaction
 artifacts are written under `tenant/<id>/browser/...`. Point it at the same
@@ -149,30 +159,61 @@ probectl test create \
   --name login-browser \
   --type browser \
   --target https://app.example/login \
+  --param browser_driver=http \
   --param 'script={"name":"login","start_url":"https://app.example/login","steps":[{"action":"goto"},{"action":"assert_status","status":200}]}'
 ```
 
-The Playwright worker ships as `browser-worker/` — a `Dockerfile` built on the
-official Playwright image (Chromium + OS deps preinstalled), run as the image's
-non-root `pwuser`. The worker reads one Script as JSON on stdin and writes the
-Result as JSON on stdout (the process's standard input and output pipes — no
-listening port, no API surface). It is the rendering-capable driver component,
-not the default scheduled agent path. For the surrounding stack — bringing up
-the control plane and bus, and the per-producer deployment journeys — start at
+For rendered transactions, deploy the `probectl-browser-agent` image and use:
+
+```yaml
+browser:
+  driver: browser
+  worker:
+    command: node
+    path: /worker/worker.mjs
+    step_timeout: 15s
+canaries:
+  - type: browser
+    target: https://app.example/login
+    interval: 60s
+    timeout: 60s
+    params:
+      browser_driver: browser
+```
+
+The image is built from `deploy/docker/Dockerfile.browser-agent`, runs as
+Playwright's non-root `pwuser`, and is included in release and air-gap component
+manifests. Its worker is configuration-time required: missing command/script or
+an invalid timeout prevents agent startup. Compose exposes it only through the
+opt-in `browser-synthetic` profile in `eval-synthetic.yml`. Helm exposes it as
+the opt-in `browserAgent` DaemonSet in the main chart; enabling it requires an
+immutable image digest, a Secret containing `agent.yml` plus the mTLS
+certificate/key/CA, and an explicit non-empty egress allow-list. Neither deploy
+renders a Service because the worker listens on nothing.
+
+The worker applies the target policy to the start URL, redirects, and every page
+subresource after DNS resolution. Loopback, RFC1918/ULA, link-local/cloud
+metadata, CGNAT, multicast, and numeric-address bypasses are denied by default.
+`allow_private_targets: true` remains a per-test, permission-gated, audited
+override and is passed to the worker only after the Go-side guard accepts it.
+
+For the surrounding stack — bringing up the control plane and bus, and the
+per-producer deployment journeys — start at
 [`getting-started.md`](getting-started.md) and
 [`deploying-agents.md`](deploying-agents.md).
 
 ## Notes
 
-- **Integration status (honest).** Browser transactions are schedulable as
-  ordinary `browser` tests from REST, CLI, and the web UI. The agent registry
-  runs them through the HTTPDriver, and `/v1/results/latest` exposes the
-  per-step timing attributes the UI renders. Rendering through Playwright is
-  still a separate driver component rather than the default scheduled path.
+- **Integration status.** CI runs the real Playwright worker in its pinned
+  Chromium image, then constructs the shipped agent factory with
+  `browser.driver=browser` and asserts the agent receives waterfall and DOM
+  timings. The worker smoke separately proves private-target refusal and both
+  success/failure artifacts.
 - **Architecture choice.** The script format, result model, object-store upload,
   and fleet isolation/concurrency/recycling all live in Go (`internal/browser`,
-  fully tested); only rendering is delegated to the external Playwright worker.
-  This is what keeps browsers out of the single-binary agent.
+  fully tested); only rendering is delegated to the packaged Playwright child.
+  This keeps Chromium out of the portable single-binary agent while making the
+  browser-capable release image a complete runnable producer.
 - **Out of scope.** Real-user monitoring ([`rum.md`](rum.md)) and endpoint
   browser-session capture are separate features. Note that some sites detect
   headless browsers; for those, configure a realistic user-agent / browser

@@ -101,6 +101,51 @@ and the pod receives no Kubernetes API token. See
 [`docs/bgp.md`](../../docs/bgp.md) and
 [`docs/configuration.md`](../../docs/configuration.md) for the config schema.
 
+## Optional rendered-browser synthetic agent
+
+`browserAgent.enabled=true` adds a listener-free DaemonSet using the dedicated
+`probectl-browser-agent` image. The image packages the tenant-bound Go agent and
+Playwright child in one pod; no Service is rendered because their control
+contract is stdin/stdout, while results still leave over the agent's mTLS gRPC
+connection.
+
+Enabling it fails closed unless all three deployment boundaries are explicit:
+
+- `browserAgent.image.digest` pins the immutable release/mirror image;
+- `browserAgent.configSecret` names a Secret containing `agent.yml`,
+  `cert.pem`, `key.pem`, and `ca.pem`; the config selects
+  `browser.driver: browser` and those certificate paths;
+- `browserAgent.networkPolicy.egressTo` is non-empty and names the mTLS control
+  plane plus the tenant-approved targets. DNS is the only automatically added
+  egress rule.
+
+The pod runs as UID/GID 1000 with no API token, a read-only root filesystem,
+drop-ALL capabilities, RuntimeDefault seccomp, and memory-backed `/dev/shm` for
+Chromium. Example values:
+
+```yaml
+browserAgent:
+  enabled: true
+  image:
+    digest: sha256:<64-hex-release-digest>
+  configSecret: tenant-a-browser-agent
+  networkPolicy:
+    enabled: true
+    egressTo:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: probectl
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: probectl
+        ports:
+          - { protocol: TCP, port: 9443 }
+```
+
+See [`docs/browser-synthetic.md`](../../docs/browser-synthetic.md) for test
+semantics and the Secret's agent YAML.
+
 ## The agent chart (`probectl-agent/`)
 
 [`probectl-agent/`](probectl-agent/) deploys the eBPF host agent as a DaemonSet

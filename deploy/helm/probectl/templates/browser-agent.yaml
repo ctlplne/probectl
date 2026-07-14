@@ -1,0 +1,114 @@
+{{- if .Values.browserAgent.enabled }}
+{{- $digest := required "browserAgent.image.digest is required when browserAgent.enabled=true" .Values.browserAgent.image.digest -}}
+{{- $configSecret := required "browserAgent.configSecret is required when browserAgent.enabled=true" .Values.browserAgent.configSecret -}}
+{{- if not .Values.browserAgent.networkPolicy.enabled -}}
+{{- fail "browserAgent.networkPolicy.enabled must remain true when browserAgent is enabled" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "probectl.fullname" . }}-browser-agent
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: browser-agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "probectl.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: browser-agent
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 10%
+  template:
+    metadata:
+      labels:
+        {{- include "probectl.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: browser-agent
+    spec:
+      serviceAccountName: {{ include "probectl.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.browserAgent.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.browserAgent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: browser-agent
+          image: {{ printf "%s@%s" .Values.browserAgent.image.repository $digest | quote }}
+          imagePullPolicy: {{ .Values.browserAgent.image.pullPolicy }}
+          args: ["-config", "/etc/probectl-browser/agent.yml"]
+          env:
+            - name: HOME
+              value: /tmp/probectl-browser-home
+            - name: PROBECTL_AGENT_BROWSER_DRIVER
+              value: browser
+            - name: PROBECTL_AGENT_BROWSER_WORKER_COMMAND
+              value: node
+            - name: PROBECTL_AGENT_BROWSER_WORKER_PATH
+              value: /worker/worker.mjs
+            {{- range $name, $value := .Values.browserAgent.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.browserAgent.resources | nindent 12 }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: browser-config
+              mountPath: /etc/probectl-browser
+              readOnly: true
+            - name: browser-tmp
+              mountPath: /tmp
+            - name: browser-shm
+              mountPath: /dev/shm
+            {{- with .Values.browserAgent.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: browser-config
+          secret:
+            secretName: {{ $configSecret | quote }}
+            items:
+              - key: {{ .Values.browserAgent.configKey | quote }}
+                path: agent.yml
+              - key: cert.pem
+                path: cert.pem
+              - key: key.pem
+                path: key.pem
+                # Projected Secrets are owned by root; fsGroup=1000 makes this
+                # group-readable by the non-root worker without making it public.
+                mode: 0440
+              - key: ca.pem
+                path: ca.pem
+        - name: browser-tmp
+          emptyDir: {}
+        - name: browser-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        {{- with .Values.browserAgent.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

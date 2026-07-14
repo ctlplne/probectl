@@ -16,6 +16,8 @@ agent:
   heartbeat_interval: 30s
 artifact_store:
   dir: ""                                  # optional: browser artifacts under tenant/<id>/browser/
+browser:
+  driver: http                             # HTTP transaction; rendered browser needs the dedicated image/worker
 # The one-time enrollment token is NOT stored here. Provide it once to
 # `probectl-agent enroll` (or the Ansible vault lookup); the agent then keeps
 # only its issued certificate under tls.* above.

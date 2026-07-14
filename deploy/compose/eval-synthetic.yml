@@ -122,5 +122,33 @@ services:
     command: ["-config", "/etc/probectl/agent.yml"]
     restart: unless-stopped
 
+  # ---- optional rendered-browser canary -----------------------------------
+  # This image contains BOTH the Go agent and the listener-free Playwright
+  # worker. Select it instead of `canary` when you need DOM/paint timings and
+  # PNG failure screenshots:
+  #   PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
+  #     -f deploy/compose/eval-synthetic.yml --profile browser-synthetic \
+  #     up --build -d browser-canary
+  browser-canary:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.browser-agent
+    image: probectl-browser-agent-eval:dev
+    profiles: ["browser-synthetic"]
+    network_mode: "service:control"
+    depends_on: [control]
+    environment:
+      PROBECTL_AGENT_JOIN_TOKEN: "${PROBECTL_JOIN_TOKEN:?set PROBECTL_JOIN_TOKEN to a fresh pjt_ token from enroll-token}"
+    volumes:
+      - browser-identity:/identity
+      - browser-state:/var/lib/probectl-agent
+      - certs:/certs:ro
+      - ./eval-browser-agent.yml:/etc/probectl/agent.yml:ro
+    command: ["-config", "/etc/probectl/agent.yml"]
+    shm_size: 1gb
+    restart: unless-stopped
+
 volumes:
   identity: {}
+  browser-identity: {}
+  browser-state: {}

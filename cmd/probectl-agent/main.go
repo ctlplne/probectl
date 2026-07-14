@@ -125,9 +125,15 @@ func run() error {
 	reg.Register("dns", canary.NewDNS)
 	reg.Register("http", canary.NewHTTP)
 	reg.Register("voice", canary.NewVoice) // RTP MOS/jitter/loss (S47c)
-	browserFactory := browsercanary.New
-	if artifactStore != nil {
-		browserFactory = browsercanary.NewWithObjectStore(artifactStore, log)
+	browserFactory, err := browsercanary.NewFactory(browsercanary.DriverConfig{
+		Driver:        cfg.Browser.Driver,
+		WorkerCommand: cfg.Browser.Worker.Command,
+		WorkerPath:    cfg.Browser.Worker.Path,
+		WorkerArgs:    cfg.Browser.Worker.Args,
+		StepTimeout:   cfg.Browser.Worker.StepTimeout.Std(),
+	}, artifactStore, log)
+	if err != nil {
+		return fmt.Errorf("browser driver: %w", err)
 	}
 	reg.Register(browsercanary.Type, browserFactory)
 

@@ -173,9 +173,9 @@ delegation traces — walking root → TLD → authority itself instead of trust
 resolver's cache),
 **`http`** (availability + DNS/connect/TLS/TTFB/total breakdown — TTFB is
 time-to-first-byte — and on HTTPS the
-TLS handshake details that feed the TLS-posture view), **`browser`** (scripted
-transaction checks with per-step timings, using the Go-native HTTP transaction
-driver by default), and **`voice`** (RTP media probes scored as MOS — the 1–5
+TLS handshake details that feed the TLS-posture view), **`browser`** (either a
+non-rendering HTTP transaction or a rendered Playwright transaction, selected
+explicitly by both test and agent), and **`voice`** (RTP media probes scored as MOS — the 1–5
 mean-opinion-score call-quality scale — plus jitter / loss) — plus a `noop`
 heartbeat. It can also do **agent-to-agent
 (`a2a`)** two-way measurement (TWAMP-lite style: both ends timestamp, so each
@@ -186,6 +186,9 @@ per-session HMAC key delivered over the existing agent mTLS channel.
 
 **Where it runs.** Any OS, **unprivileged** by default — ICMP uses unprivileged
 datagram sockets, so no `CAP_NET_RAW` and no root for the common case.
+Rendered browser probes use the separate non-root `probectl-browser-agent`
+container because Chromium and its OS libraries are intentionally not embedded
+in the portable Go binary.
 
 **How it ships data.** It **streams straight to the control plane over
 gRPC/mTLS** — it does **not** use the bus. Point it at the control plane's gRPC

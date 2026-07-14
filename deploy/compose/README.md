@@ -21,6 +21,7 @@ stack bundles a producer; for the others, attach one next
 | `eval.yml` | **Evaluation stack (local only, never production)** — control plane + Postgres + Kafka + an eBPF agent replaying SAMPLE flows, so one command shows real data end-to-end |
 | `eval-synthetic.yml` | overlay on `eval.yml` that adds the agent CA + gRPC listener + a self-enrolling canary (synthetic probes) |
 | `eval-agent.yml` | the canary config the `eval-synthetic.yml` overlay mounts (one inline HTTP probe) |
+| `eval-browser-agent.yml` | rendered-browser agent config used by the opt-in `browser-synthetic` profile (Playwright + explicit `browser_driver: browser`) |
 | `dev.yml` | Local dev **dependency** stack: Postgres, Kafka, ClickHouse, Prometheus — no control plane (you run that from source) |
 | `prometheus.yml` | Prometheus config used by the `dev.yml` stack |
 | `clickhouse-backups.xml` | ClickHouse server config that whitelists `/backups` as a server-side `BACKUP`/`RESTORE` path (used by `dev.yml`) |
@@ -77,7 +78,19 @@ the no-auth API is physically unreachable from your network; you read it
 through the in-namespace `viewer` helper. The bus is plaintext and the cert
 self-signed. The release image refuses dev auth outright, so this stack builds
 its own local dev-auth image. Layer `eval-synthetic.yml` on top to add an
-enrolled canary running synthetic probes. The full walkthrough is
+enrolled canary running synthetic probes. Its `synthetic` profile runs the
+portable HTTP transaction driver. To exercise real Chromium instead, mint a
+fresh join token and start the separate combined agent/worker image:
+
+```sh
+PROBECTL_JOIN_TOKEN=pjt_xxx docker compose -f deploy/compose/eval.yml \
+  -f deploy/compose/eval-synthetic.yml --profile browser-synthetic \
+  up --build -d browser-canary
+```
+
+That image opens no browser-worker listener; the Go agent communicates with its
+Playwright child over stdin/stdout and sends results to the control plane over
+mTLS. The full walkthrough is
 [`docs/getting-started.md`](../../docs/getting-started.md); for anything real,
 use `probectl.yml`.
 

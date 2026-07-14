@@ -3,7 +3,7 @@
 Container build assets — the Dockerfiles that turn probectl's Go binaries into
 images. A **Dockerfile** is the recipe `docker build` follows; the shipping
 mechanics around it (tags, registries, multi-arch pushes) live in the Makefile
-and the release workflow, so these two files are the single source of truth for
+and the release workflow, so these files are the single source of truth for
 *what is inside an image*.
 
 | File | What it builds |
@@ -11,16 +11,39 @@ and the release workflow, so these two files are the single source of truth for
 | `Dockerfile` | a single multi-stage, multi-arch build that produces **any one** of probectl's Go binaries, selected with the `COMPONENT` build arg (a distroless `nonroot` final image) |
 | `Dockerfile.ebpf` | the **live** `probectl-ebpf-agent` image — same binary, but built with the eBPF CO-RE loader compiled in (`-tags ebpf`) instead of the fixture replayer |
 | `Dockerfile.bgp-analyzer` | the optional Python analyzer plus `probectl-control bgp-analyzer`, which tenant-binds JSONL and publishes canonical BGP events to Kafka |
+| `Dockerfile.browser-agent` | the tenant-bound Go canary agent plus the listener-free Playwright/Chromium worker for rendered browser synthetics |
 
 Both builds use the **repository root** as the build context — the build
 context being the set of files Docker is allowed to read while building. The
 compile needs `go.mod` and all of `internal/`, so the context must be the whole
 repo, not `deploy/docker/`.
 
-The analyzer image is intentionally separate from the control image. Enabling
-BGP public-feed intelligence therefore adds Python and outbound feed access only
-to the optional sidecar; the API stays distroless and a sidecar crash cannot
-take down core telemetry.
+The analyzer and browser images are intentionally separate from the control
+image. Enabling BGP public-feed intelligence adds Python/outbound feed access
+only to that optional component. Enabling rendered synthetics adds Chromium
+only to the dedicated browser agent. The API stays distroless in both cases.
+
+## Rendered browser agent (`Dockerfile.browser-agent`)
+
+This is a complete producer, not a standalone browser service: its Go
+`probectl-agent` derives tenant/agent identity from mTLS and registers the
+normal canary plugin, while `/worker/worker.mjs` provides the Playwright
+`ExecDriver`. The worker opens no TCP port. For each transaction the agent
+starts a bounded child, writes one script as JSON to stdin, and reads one result
+from stdout. The final image inherits Playwright's pinned Chromium runtime and
+runs as non-root `pwuser`; it contains neither a package-manager install at
+startup nor an unpinned browser download.
+
+```sh
+docker build -f deploy/docker/Dockerfile.browser-agent \
+  -t probectl-browser-agent:dev .
+```
+
+The release workflow publishes it for amd64/arm64, `make images` includes it,
+and the air-gap bundle saves it beside the ordinary agent. The rendered agent
+config must select `browser.driver: browser`; startup fails if `node` or the
+worker file is absent. See
+[`docs/browser-synthetic.md`](../../docs/browser-synthetic.md).
 
 ## Generic component image (`Dockerfile`)
 

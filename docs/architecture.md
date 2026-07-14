@@ -385,18 +385,21 @@ test CA and expired leaf with `internal/crypto`.
 The `browser` canary (`internal/browsercanary`) adapts the transaction engine
 (`internal/browser`) into the normal agent plugin interface. A test's `target`
 becomes the default start URL; `params.script` can carry the full JSON script
-when the operator wants multiple steps. The shipped agent path uses the
-Go-native HTTPDriver, so a browser test is schedulable without spawning
-Chromium: it follows the transaction with a cookie jar, records request
-waterfall timings, emits `transaction.step.<n>.duration_ms`, and stores step
-metadata as attributes. The same private-target guard used by HTTP/TCP/UDP/DNS
-checks the script's URLs at construction time and the resolved dial address at
-run time.
+when the operator wants multiple steps. The ordinary agent's Go-native
+HTTPDriver follows the transaction with a cookie jar, records request waterfall
+timings, emits `transaction.step.<n>.duration_ms`, and stores step metadata as
+attributes without spawning Chromium.
 
-The rendering-capable Playwright worker lives behind the same `Driver`
-contract, but it is not the default scheduled path. That split keeps the agent
-small while leaving a clean seam for deployments that need DOM/paint timings and
-visual screenshots.
+The dedicated `probectl-browser-agent` image connects that same registry to the
+Playwright `ExecDriver`. Agent config selects `browser.driver=http|browser`, and
+the test's `browser_driver` parameter must match; mismatches fail instead of
+changing test meaning. In rendered mode the tenant-bound Go process executes a
+local worker and exchanges one JSON request/result over stdin/stdout. The worker
+has no listener or Service, is killed with the run timeout, and adds DOM/paint
+timings plus visual screenshots. Both drivers reject forbidden script hosts at
+construction. HTTP enforces the resolved address in its dialer; Playwright
+intercepts every navigation/redirect/subresource, resolves it through the same
+deny-list, and fetches only via the checked address.
 
 ## Path discovery
 

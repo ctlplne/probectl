@@ -104,6 +104,28 @@ need_fixed "automountServiceAccountToken: false" "$analyzer_render" "BGP analyze
 need_fixed "PROBECTL_BGP_ANALYZER_CONFIG" "$analyzer_render" "BGP analyzer has no tenant config binding (W1)"
 need_fixed "ingress: []" "$analyzer_render" "BGP analyzer NetworkPolicy admits inbound traffic despite having no listener (W1)"
 
+# W2: the rendered-browser agent is a listener-free, tenant-bound DaemonSet.
+# Exercise the enabled branch and require explicit egress rather than letting a
+# Chromium workload inherit the control plane's allow-all fallback.
+if render --set browserAgent.enabled=true \
+  --set browserAgent.configSecret=browser-agent-config \
+  --set browserAgent.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  >/dev/null 2>&1; then
+  fail "browser agent rendered without an explicit egress allow-list (W2)"
+fi
+browser_render="$(render \
+  --set browserAgent.enabled=true \
+  --set browserAgent.configSecret=browser-agent-config \
+  --set browserAgent.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --set-json 'browserAgent.networkPolicy.egressTo=[{"to":[{"ipBlock":{"cidr":"203.0.113.0/24"}}],"ports":[{"protocol":"TCP","port":443}]}]')"
+need_fixed "kind: DaemonSet" "$browser_render" "browser agent DaemonSet did not render (W2)"
+need_fixed "name: probectl-browser-agent" "$browser_render" "browser agent workload/NetworkPolicy is missing (W2)"
+need_fixed "ghcr.io/imfeelingtheagi/probectl-browser-agent@sha256:0000000000000000000000000000000000000000000000000000000000000000" "$browser_render" "browser agent image is not digest-pinned (W2)"
+need_fixed "automountServiceAccountToken: false" "$browser_render" "browser agent received a Kubernetes API token (W2)"
+need_fixed "readOnlyRootFilesystem: true" "$browser_render" "browser agent root filesystem is writable (W2)"
+need_fixed "PROBECTL_AGENT_BROWSER_WORKER_PATH" "$browser_render" "browser agent is not pinned to the packaged worker (W2)"
+need_fixed "ingress: []" "$browser_render" "browser agent NetworkPolicy admits inbound traffic (W2)"
+
 # EBPF-001: every shipped eBPF config generator must include the schema version
 # accepted by the strict agent loader. The agent should keep failing closed on
 # missing/unknown config, while Helm/install/e2e never generate an old headerless

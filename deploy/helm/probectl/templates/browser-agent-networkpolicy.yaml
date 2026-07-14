@@ -1,0 +1,25 @@
+{{- if and .Values.browserAgent.enabled .Values.browserAgent.networkPolicy.enabled }}
+{{- $egress := required "browserAgent.networkPolicy.egressTo must be non-empty when browserAgent is enabled" .Values.browserAgent.networkPolicy.egressTo -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "probectl.fullname" . }}-browser-agent
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "probectl.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: browser-agent
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- toYaml $egress | nindent 4 }}
+{{- end }}

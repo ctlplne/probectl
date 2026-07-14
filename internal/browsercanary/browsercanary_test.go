@@ -6,6 +6,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +167,81 @@ func TestBrowserCanaryEnforcesSSRFGuardOnScriptStepURLs(t *testing.T) {
 		Params: map[string]string{ScriptParam: script},
 	}); err == nil {
 		t.Fatal("private step URL should be denied")
+	}
+}
+
+func TestBrowserFactorySelectsExecDriverWithoutSilentFallback(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for the exec-driver selection test")
+	}
+	worker := filepath.Join(t.TempDir(), "worker.mjs")
+	if err := os.WriteFile(worker, []byte(`
+import { readFileSync } from "node:fs";
+readFileSync(0, "utf8");
+process.stdout.write(JSON.stringify({success:true,total_ms:7,steps:[],waterfall:[],dom:{load_ms:3}}));
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	factory, err := NewFactory(DriverConfig{
+		Driver: DriverBrowser, WorkerCommand: "node", WorkerPath: worker,
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := factory(canary.Config{
+		Type: Type, Target: "https://example.com/", Timeout: time.Second,
+		Params: map[string]string{DriverParam: DriverBrowser},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := c.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success || res.Attributes["browser.driver"] != DriverBrowser || res.Metrics["dom.load_ms"] != 3 {
+		t.Fatalf("rendered result = %+v", res)
+	}
+
+	httpFactory, err := NewFactory(DriverConfig{Driver: DriverHTTP}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = httpFactory(canary.Config{
+		Type: Type, Target: "https://example.com/",
+		Params: map[string]string{DriverParam: DriverBrowser},
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires browser driver") {
+		t.Fatalf("HTTP agent silently accepted rendered test: %v", err)
+	}
+
+	_, err = factory(canary.Config{Type: Type, Target: "https://example.com/"})
+	if err == nil || !strings.Contains(err.Error(), "requires http driver") {
+		t.Fatalf("browser agent silently upgraded legacy HTTP transaction: %v", err)
+	}
+}
+
+func TestBrowserFactoryFailsClosedWhenWorkerMissing(t *testing.T) {
+	_, err := NewFactory(DriverConfig{
+		Driver: DriverBrowser, WorkerCommand: "definitely-not-a-probectl-worker", WorkerPath: "/missing/worker.mjs",
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "command") {
+		t.Fatalf("missing worker command accepted: %v", err)
+	}
+}
+
+func TestRenderedBrowserPreservesScriptTargetGuard(t *testing.T) {
+	factory, err := NewFactory(DriverConfig{
+		Driver: DriverBrowser, WorkerCommand: os.Args[0], WorkerPath: os.Args[0],
+	}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = factory(canary.Config{
+		Type: Type, Target: "http://169.254.169.254/latest/meta-data",
+		Params: map[string]string{DriverParam: DriverBrowser},
+	})
+	if err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("rendered driver accepted metadata target: %v", err)
 	}
 }
