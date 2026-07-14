@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/store/chclient"
 )
 
 // TENANT-102: when tenant scoping is on, a tenant-scoped read carries the
@@ -42,9 +44,8 @@ func TestTenantSettingAttach(t *testing.T) {
 func TestReaderRowPolicyDDLShape(t *testing.T) {
 	// Reproduce the DDL EnsureReaderRowPolicy emits (it is built from the same
 	// constants) and assert the security-relevant shape.
-	ddl := "CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON " + sharedFlowsTable +
-		" FOR SELECT USING tenant_id = getSetting('" + tenantSettingName + "') TO probectl_reader"
-	for _, must := range []string{"FOR SELECT", "tenant_id = getSetting('" + tenantSettingName + "')", "TO probectl_reader"} {
+	ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", sharedFlowsTable, tenantSettingName, "probectl_reader")
+	for _, must := range []string{"CREATE ROW POLICY OR REPLACE", "FOR SELECT", "tenant_id = getSetting('" + tenantSettingName + "')", "TO probectl_reader"} {
 		if !strings.Contains(ddl, must) {
 			t.Fatalf("reader policy DDL missing %q: %s", must, ddl)
 		}

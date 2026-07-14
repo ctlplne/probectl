@@ -386,9 +386,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 		return fmt.Errorf("pathstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
 	for _, table := range []string{hopsTable, linksTable, hopsRollupsTable, linksRollupsTable} {
-		ddl := fmt.Sprintf(
-			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
-			table, tenantSettingName, readerUser)
+		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
 		if err := c.exec(ctx, ddl, nil, nil); err != nil {
 			return fmt.Errorf("pathstore: reader row policy: %w", err)
 		}

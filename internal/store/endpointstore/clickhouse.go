@@ -383,7 +383,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 	if !chUserRe.MatchString(readerUser) {
 		return fmt.Errorf("endpointstore: refusing malformed ClickHouse user identifier %q", readerUser)
 	}
-	query := fmt.Sprintf("CREATE ROW POLICY IF NOT EXISTS probectl_endpoint_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s", eventsTable, tenantSetting, readerUser)
+	query := chclient.ReaderRowPolicyDDL("probectl_endpoint_reader_scope", eventsTable, tenantSetting, readerUser)
 	return c.execAt(ctx, "", query, nil, nil)
 }
 

@@ -909,9 +909,7 @@ func (c *ClickHouse) EnsureReaderRowPolicy(ctx context.Context, readerUser strin
 		return fmt.Errorf("otelstore: reader user: %w", err)
 	}
 	for _, table := range []string{spansTable, logsTable} {
-		ddl := fmt.Sprintf(
-			"CREATE ROW POLICY IF NOT EXISTS probectl_reader_scope ON %s FOR SELECT USING tenant_id = getSetting('%s') TO %s",
-			table, tenantSettingName, readerUser)
+		ddl := chclient.ReaderRowPolicyDDL("probectl_reader_scope", table, tenantSettingName, readerUser)
 		if err := c.exec(ctx, ddl, nil, nil); err != nil {
 			return fmt.Errorf("otelstore: reader row policy: %w", err)
 		}

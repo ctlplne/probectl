@@ -39,13 +39,15 @@ func TestPathSettingScopedReaderCannotCrossTenant(t *testing.T) {
 	now := time.Now().UTC()
 	ta := fmt.Sprintf("pathreda%d", now.UnixNano())
 	tb := fmt.Sprintf("pathredb%d", now.UnixNano())
-	reader := fmt.Sprintf("pathredr%d", now.UnixNano())
+	readerA := fmt.Sprintf("pathredra%d", now.UnixNano())
+	readerB := fmt.Sprintf("pathredrb%d", now.UnixNano())
 	readerPw := "readerpw"
 	target := fmt.Sprintf("red-target-%d.example", now.UnixNano())
 	defer func() {
 		_, _, _ = c.DeleteTenant(ctx, ta)
 		_, _, _ = c.DeleteTenant(ctx, tb)
-		_ = c.exec(ctx, "DROP USER IF EXISTS "+reader, nil, nil)
+		_ = c.exec(ctx, "DROP USER IF EXISTS "+readerA, nil, nil)
+		_ = c.exec(ctx, "DROP USER IF EXISTS "+readerB, nil, nil)
 	}()
 
 	mk := func(ip string) *path.Path {
@@ -67,22 +69,29 @@ func TestPathSettingScopedReaderCannotCrossTenant(t *testing.T) {
 		}
 	}
 
-	for _, ddl := range []string{
-		fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", reader, readerPw),
-		fmt.Sprintf("GRANT SELECT ON *.* TO %s", reader),
-	} {
-		if err := c.exec(ctx, ddl, nil, nil); err != nil {
-			t.Fatalf("provision reader user: %v (%s)", err, ddl)
+	for _, reader := range []string{readerA, readerB} {
+		for _, ddl := range []string{
+			fmt.Sprintf("CREATE USER IF NOT EXISTS %s IDENTIFIED BY '%s'", reader, readerPw),
+			fmt.Sprintf("GRANT SELECT ON *.* TO %s", reader),
+		} {
+			if err := c.exec(ctx, ddl, nil, nil); err != nil {
+				t.Fatalf("provision reader user: %v (%s)", err, ddl)
+			}
 		}
 	}
-	if err := c.EnsureReaderRowPolicy(ctx, reader); err != nil {
+	// Install for A, then rotate the fixed policy to B. IF NOT EXISTS would
+	// retain A's TO binding and leave B unfiltered; OR REPLACE must converge it.
+	if err := c.EnsureReaderRowPolicy(ctx, readerA); err != nil {
+		t.Fatalf("install reader A policy: %v", err)
+	}
+	if err := c.EnsureReaderRowPolicy(ctx, readerB); err != nil {
 		if strings.Contains(err.Error(), "etting") {
 			t.Skipf("custom settings prefix not configured on this server: %v", err)
 		}
 		t.Fatalf("EnsureReaderRowPolicy: %v", err)
 	}
 
-	n, errText := pathCountAs(t, reader, readerPw, ta)
+	n, errText := pathCountAs(t, readerB, readerPw, ta)
 	if errText != "" {
 		if strings.Contains(errText, "etting") {
 			t.Skipf("custom settings prefix not configured: %s", errText)
