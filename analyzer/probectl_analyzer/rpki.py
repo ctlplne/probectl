@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """RPKI route-origin validation (RFC 6811) against a VRP set.
 
 A *VRP* (Validated ROA Payload) is ``(prefix, max_length, asn)``. The analyzer

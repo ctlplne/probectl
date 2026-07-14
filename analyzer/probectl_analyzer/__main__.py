@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """CLI entry point: ``python -m probectl_analyzer --config cfg.json --mrt dump.mrt``.
 
 Emits ``probectl.bgp.events`` as JSON Lines on stdout (or ``--out``), which the Go

@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package otelstore persists externally-ingested OTLP traces and logs
 // (ARCH-001, Sprint 22) and serves their tenant-scoped queries. Two

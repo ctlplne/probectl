@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package tenancy is probectl's tenant boundary — the outermost scope and security
 // boundary on every tenant-owned record (F50). It defines the tenant identity

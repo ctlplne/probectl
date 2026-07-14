@@ -61,6 +61,20 @@ Exhibit A notice. New commercial source should carry
 license; third-party notices are inventoried in [`NOTICE`](NOTICE) and
 [`docs/third-party-licenses.md`](docs/third-party-licenses.md).
 
+The reproducible core header tool is
+`scripts/apply_license_headers.sh`; run it with no argument to update the tree
+or with `--check` for the read-only CI gate. It covers tracked `.go`, `.ts`,
+`.tsx`, and `.py` files outside `ee/`. The documented exclusions are:
+
+- third-party/build trees: any `vendor/`, `dist/`, or `node_modules/` path;
+- Protobuf output: `*.pb.go` / `*.pb.gw.go`;
+- OpenAPI SDK output: `sdk.gen.go` / `sdk.gen.ts`;
+- `bpf2go` output: `*_bpfel.go` / `*_bpfeb.go`.
+
+Those generated files must be changed through their generator, not by stamping
+the generated copy. `make license-header-gate` runs in both Go and Python lint
+jobs, so a new hand-maintained core source file without the notice fails CI.
+
 ## Trademarks and legal review
 
 MPL-2.0 does not grant rights to the probectl name, logos, or other trademarks.

@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package tenantlife is the per-tenant lifecycle engine (S-T5, F55):
 // tenant-scoped data EXPORT (portability), VERIFIABLE full deletion across

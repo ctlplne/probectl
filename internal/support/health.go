@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package support is the core supportability layer (S-EE4, F35): deep health
 // checks, a self-monitoring metric snapshot, and a secret-stripped support

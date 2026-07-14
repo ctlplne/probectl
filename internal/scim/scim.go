@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package scim implements the SCIM 2.0 (RFC 7643 schema / RFC 7644 protocol) wire
 // types and patch semantics for probectl's enterprise identity lifecycle (S31, F25).

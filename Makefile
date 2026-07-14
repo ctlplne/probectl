@@ -294,7 +294,11 @@ secret-scan: ## Run gitleaks across the full git history, including deleted file
 
 # ---- lint / format -------------------------------------------------------
 .PHONY: lint
-lint: lint-go lint-python ## Run all linters (Go + Python).
+lint: license-header-gate lint-go lint-python ## Run all linters (Go + Python).
+
+.PHONY: license-header-gate
+license-header-gate: ## Require MPL-2.0 SPDX + Exhibit A on hand-maintained core Go/TS/TSX/Python source.
+	./scripts/apply_license_headers.sh --check
 
 # The gofmt scope excludes generated code (*/gen/*). (The throwaway spike/
 # tree was removed from main in U-080 — git history preserves it.)

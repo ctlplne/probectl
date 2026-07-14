@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-# SPDX-License-Identifier: LicenseRef-probectl-TBD
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Validate and run the offline protocol-fixture interop manifest."""
 
 from __future__ import annotations

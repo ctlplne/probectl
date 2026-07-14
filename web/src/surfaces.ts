@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 /**
  * The capability→surface registry (S-FE6) — the contract the CI
  * frontend-coverage gate enforces so backend↔frontend coverage never silently

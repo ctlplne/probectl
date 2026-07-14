@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Per-prefix AS-path monitoring and origin/hijack/leak detection.
 
 Detections are *signals*, not verdicts (CLAUDE.md §7 guardrail 9): each carries a

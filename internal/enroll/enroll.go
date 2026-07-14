@@ -1,4 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-TBD
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 // Package enroll is the agent trust root (Sprint 11 — WIRE-002/RED-002/
 // TENANT-103/ARCH-004; ADR docs/adr/agent-enrollment.md): one-time,

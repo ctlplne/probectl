@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 import { forwardRef, useRef } from 'react'
 import { Badge, Button, Card, CardBody, CardHeader, ErrorState } from '../components'
 import { confidenceTone, useAsk, type Answer, type Citation, type Evidence } from '../api/ai'

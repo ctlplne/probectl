@@ -1,3 +1,9 @@
+# SPDX-License-Identifier: MPL-2.0
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Builders that emit real MRT (RFC 6396) wire bytes for the parser tests.
 
 Encoding the structures the parser decodes (TABLE_DUMP_V2 RIB + BGP4MP_AS4
