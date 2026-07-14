@@ -126,8 +126,14 @@ func TestPathAPI(t *testing.T) {
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id="+history.Items[0].ID, "", nil); rec.Code != http.StatusOK {
 		t.Fatalf("stable history replay = %d: %s", rec.Code, rec.Body)
 	}
-	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id=../../bad", "", nil); rec.Code != http.StatusBadRequest {
-		t.Errorf("malformed round ID = %d, want 400", rec.Code)
+	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id=../../bad", "", nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("malformed round ID = %d, want 422", rec.Code)
+	} else {
+		var body errorBody
+		mustJSON(t, rec, &body)
+		if body.Error.Code != "validation" {
+			t.Errorf("malformed round ID error code = %q, want validation", body.Error.Code)
+		}
 	}
 }
 
