@@ -33,6 +33,7 @@ func TestMultitenantHelmValuesShipClickHouseReaderUsers(t *testing.T) {
 		"PROBECTL_FLOWSTORE_READER_USER",
 		"PROBECTL_OTELSTORE_READER_USER",
 		"PROBECTL_EBPFSTORE_READER_USER",
+		"PROBECTL_ENDPOINTSTORE_READER_USER",
 	} {
 		if env[key] == "" {
 			t.Fatalf("values-multitenant.yaml must ship %s so ClickHouse tenant scoping cannot silently downgrade", key)

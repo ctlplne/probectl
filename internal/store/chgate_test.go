@@ -9,6 +9,7 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -16,14 +17,15 @@ import (
 
 // liveCHMigrations is the LIVE migration set of every ClickHouse telemetry
 // store — the same lists the stores apply at boot. The gate runs over THESE so
-// a destructive change to any of flow/eBPF/OTLP/path reddens the build
+// a destructive change to any of flow/eBPF/endpoint/OTLP/path reddens the build
 // (SCHEMA-001 — these stores were previously outside the expand/contract gate).
 func liveCHMigrations() map[string][]chmigrate.Migration {
 	return map[string][]chmigrate.Migration{
-		"flowstore": flowstore.CHMigrations(),
-		"ebpfstore": ebpfstore.CHMigrations(),
-		"otelstore": otelstore.CHMigrations(),
-		"pathstore": pathstore.CHMigrations(),
+		"flowstore":     flowstore.CHMigrations(),
+		"ebpfstore":     ebpfstore.CHMigrations(),
+		"endpointstore": endpointstore.CHMigrations(),
+		"otelstore":     otelstore.CHMigrations(),
+		"pathstore":     pathstore.CHMigrations(),
 	}
 }
 
@@ -51,16 +53,17 @@ func TestClickHouseMigrationGate(t *testing.T) {
 // version is legitimately added, append its entry here (the dump is in the test
 // log on mismatch).
 var goldenCHChecksums = map[string]string{
-	"ebpfstore|1": "aa012aac6d4d404946fdd39def7560d56b3943bfd8f0b191fc793519c04a80e9",
-	"flowstore|1": "875071f5ce661cb0cd28321315d4eff9ea89081c1c5795165b4049bad28d27db",
-	"flowstore|2": "026b57e815a6cbcd0ee70cd6b000f339846573305cd75dc57de7735db2ea4855",
-	"flowstore|3": "8d57cd291e20bfb21ef07200fb5cbc71c7f6d92ba290d64a3d659158c3c62e76",
-	"flowstore|4": "87a0cdfcdbf2d0ac089cd2c16d3e8c13927460fb1c2c3c681b22a2862aaa56bc",
-	"otelstore|1": "386721d17bf79ac6ddd91eb798f920fdf28ce4d0c80919a44055a3922569acd0",
-	"otelstore|2": "c7eddbb7f304453dfe47a5f53398d2346da81d190cf892732780ece08ff28a67",
-	"pathstore|1": "487d228b1b871ef223a377bb47e8621a61e56e8f2f9ef3469490c66061ff8b42",
-	"pathstore|2": "53f0f1079adfc037e3e481d3397a523a2e8049c79be9fbef87b7edcff964a76f",
-	"pathstore|3": "279b7a534d9247afe2a82e9ae49182158d656f44dceac628861e034cfaa54f41",
+	"ebpfstore|1":     "aa012aac6d4d404946fdd39def7560d56b3943bfd8f0b191fc793519c04a80e9",
+	"endpointstore|1": "14bad226cd7abbe76b40303d30ad3a4274267a5884b376fc6aa99b1ffbf95641",
+	"flowstore|1":     "875071f5ce661cb0cd28321315d4eff9ea89081c1c5795165b4049bad28d27db",
+	"flowstore|2":     "026b57e815a6cbcd0ee70cd6b000f339846573305cd75dc57de7735db2ea4855",
+	"flowstore|3":     "8d57cd291e20bfb21ef07200fb5cbc71c7f6d92ba290d64a3d659158c3c62e76",
+	"flowstore|4":     "87a0cdfcdbf2d0ac089cd2c16d3e8c13927460fb1c2c3c681b22a2862aaa56bc",
+	"otelstore|1":     "386721d17bf79ac6ddd91eb798f920fdf28ce4d0c80919a44055a3922569acd0",
+	"otelstore|2":     "c7eddbb7f304453dfe47a5f53398d2346da81d190cf892732780ece08ff28a67",
+	"pathstore|1":     "487d228b1b871ef223a377bb47e8621a61e56e8f2f9ef3469490c66061ff8b42",
+	"pathstore|2":     "53f0f1079adfc037e3e481d3397a523a2e8049c79be9fbef87b7edcff964a76f",
+	"pathstore|3":     "279b7a534d9247afe2a82e9ae49182158d656f44dceac628861e034cfaa54f41",
 }
 
 // TestClickHouseMigrationChecksumsAreImmutable: SCHEMA-007. Editing any shipped

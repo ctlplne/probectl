@@ -39,6 +39,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/store"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -121,6 +122,7 @@ type Engine struct {
 	topo              TopologyDeleter
 	topoRetention     TopologyRetentionPruner
 	endpointRetention EndpointRetentionPruner
+	endpointEvents    endpointstore.Store
 	otel              OtelDeleter // optional (WithOtel) — OTLP trace/log store
 	ebpf              EBPFDeleter // optional (WithEBPF) — eBPF L7 edge store
 	audit             AuditSink
@@ -199,6 +201,13 @@ func (e *Engine) WithTopology(t TopologyDeleter) *Engine {
 // rebuilds it from empty process state, but age retention still needs an owner.
 func (e *Engine) WithEndpointRetention(p EndpointRetentionPruner) *Engine {
 	e.endpointRetention = p
+	return e
+}
+
+// WithEndpointEvents attaches durable endpoint/DEM history for export,
+// retention, and count-verified tenant erasure.
+func (e *Engine) WithEndpointEvents(store endpointstore.Store) *Engine {
+	e.endpointEvents = store
 	return e
 }
 
@@ -314,6 +323,23 @@ func (e *Engine) Erase(ctx context.Context, tenantID, slug, actor string) (Attes
 		}
 	} else {
 		att.Stores = append(att.Stores, StoreResult{Store: "flows", VerifiedZero: true, Notes: "store not deployed"})
+	}
+
+	// Endpoint event history carries SSIDs, gateway/session targets, and
+	// attribution labels; erase it as a first-class tenant store.
+	if e.endpointEvents != nil {
+		remaining, err := e.endpointEvents.DeleteTenant(ctx, tenantID)
+		if err != nil {
+			fail("endpoint_events", "delete failed: "+err.Error())
+		} else {
+			att.Stores = append(att.Stores, StoreResult{Store: "endpoint_events", VerifiedZero: remaining == 0,
+				Notes: "remaining=" + fmt.Sprint(remaining)})
+			if remaining != 0 {
+				att.Complete = false
+			}
+		}
+	} else {
+		att.Stores = append(att.Stores, StoreResult{Store: "endpoint_events", VerifiedZero: true, Notes: "store not deployed"})
 	}
 
 	// 2) Object store: both the pooled and silo key namespaces.
@@ -966,6 +992,13 @@ func (e *Engine) pruneDerivedIdentityCaches(ctx context.Context, p retentionSwee
 	}
 	if e.endpointRetention != nil {
 		e.recordRetentionReceipt(ctx, p.tenant, "endpoint", e.endpointRetention.PruneTenantBefore(p.tenant, cutoff), cutoff, days)
+	}
+	if e.endpointEvents != nil {
+		deleted, err := e.endpointEvents.PruneTenantBefore(ctx, p.tenant, cutoff)
+		if err != nil {
+			return fmt.Errorf("endpoint event retention: %w", err)
+		}
+		e.recordRetentionAttempt(ctx, p.tenant, "endpoint_events", int64(deleted), cutoff, days, "tenant_policy", "enforced")
 	}
 	return nil
 }

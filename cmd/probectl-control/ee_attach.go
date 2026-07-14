@@ -38,6 +38,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/govern"
 	"github.com/imfeelingtheagi/probectl/internal/license"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -54,7 +55,7 @@ import (
 // surfaces stay hidden (404).
 func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log *slog.Logger,
 	lic *license.Manager, pool *pgxpool.Pool, results *control.LatestResults,
-	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store,
+	flowStore flowstore.Store, pathCH *pathstore.ClickHouse, ebpfStore ebpfstore.Store, otelStore otelstore.Store, endpointStore endpointstore.Store,
 	life *tenantlife.Engine,
 	resolveSecret func(context.Context, string) ([]byte, func(), error),
 	fairGate *fairness.Gate, topoStore topology.Store) error {
@@ -77,6 +78,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		var flowCH *flowstore.ClickHouse
 		var ebpfCH *ebpfstore.ClickHouse
 		var otelCH *otelstore.ClickHouse
+		var endpointCH *endpointstore.ClickHouse
 		if c, ok := flowStore.(*flowstore.ClickHouse); ok {
 			flowCH, ch.Flows = c, c
 			c.WithRouter(func(tenantID string) (flowstore.Target, error) {
@@ -117,7 +119,18 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 				return otelstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
 			})
 		}
-		prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log)
+		if c, ok := endpointStore.(*endpointstore.ClickHouse); ok {
+			endpointCH, ch.Endpoint = c, c
+			c.WithRouter(func(tenantID string) (endpointstore.Target, error) {
+				t, err := router.TargetsFor(context.Background(), tenantID)
+				if err != nil {
+					return endpointstore.Target{}, err
+				}
+				return endpointstore.Target{BaseURL: t.CHBaseURL, Database: t.CHDatabase}, nil
+			})
+		}
+		prov := silo.NewProvisioner(pool, ch, planes, cfg.FlowRetentionDays, log).
+			WithEndpointRetentionDays(cfg.EndpointRetentionDays)
 		// Startup catch-up is a routing precondition (ARCH-001): a siloed tenant
 		// must not become routable until its storage/query-layer schema is at the
 		// current public shape. Idempotent DDL keeps retries safe; failures keep
@@ -130,7 +143,7 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		log.Info("siloed/hybrid isolation attached (S-T2; TENANT-001 all planes)",
 			"data_planes", silo.PlaneNames(planes),
 			"flow_routed", flowCH != nil, "path_routed", pathCH != nil,
-			"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil)
+			"ebpf_routed", ebpfCH != nil, "otel_routed", otelCH != nil, "endpoint_routed", endpointCH != nil)
 	}
 
 	// Per-tenant metering + quotas (S-T3). The recorder hooks the core usage

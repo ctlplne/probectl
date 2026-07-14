@@ -20,12 +20,13 @@ func TestBuildServeStoresBuildsAndClosesCleanly(t *testing.T) {
 	cfg, err := config.Load(func(k string) string {
 		// All planes in memory mode → no external infra, deterministic in CI.
 		return map[string]string{
-			"PROBECTL_BUS_MODE":       "memory",
-			"PROBECTL_TSDB_MODE":      "memory",
-			"PROBECTL_PATHSTORE_MODE": "memory",
-			"PROBECTL_OTELSTORE_MODE": "memory",
-			"PROBECTL_FLOWSTORE_MODE": "memory",
-			"PROBECTL_EBPFSTORE_MODE": "memory",
+			"PROBECTL_BUS_MODE":           "memory",
+			"PROBECTL_TSDB_MODE":          "memory",
+			"PROBECTL_PATHSTORE_MODE":     "memory",
+			"PROBECTL_OTELSTORE_MODE":     "memory",
+			"PROBECTL_FLOWSTORE_MODE":     "memory",
+			"PROBECTL_EBPFSTORE_MODE":     "memory",
+			"PROBECTL_ENDPOINTSTORE_MODE": "memory",
 		}[k]
 	})
 	if err != nil {
@@ -64,6 +65,9 @@ func TestBuildServeStoresBuildsAndClosesCleanly(t *testing.T) {
 	if st.ebpfStore == nil {
 		t.Error("ebpfStore is nil")
 	}
+	if st.endpointStore == nil {
+		t.Error("endpointStore is nil")
+	}
 
 	// The aggregate closer must run all teardowns without panicking, and be
 	// idempotent enough to call once (it's invoked via defer in run()).
@@ -74,13 +78,14 @@ func TestBuildServeStoresWiresTenantObjectStore(t *testing.T) {
 	objectDir := t.TempDir()
 	cfg, err := config.Load(func(k string) string {
 		return map[string]string{
-			"PROBECTL_BUS_MODE":        "memory",
-			"PROBECTL_TSDB_MODE":       "memory",
-			"PROBECTL_PATHSTORE_MODE":  "memory",
-			"PROBECTL_OTELSTORE_MODE":  "memory",
-			"PROBECTL_FLOWSTORE_MODE":  "memory",
-			"PROBECTL_EBPFSTORE_MODE":  "memory",
-			"PROBECTL_OBJECTSTORE_DIR": objectDir,
+			"PROBECTL_BUS_MODE":           "memory",
+			"PROBECTL_TSDB_MODE":          "memory",
+			"PROBECTL_PATHSTORE_MODE":     "memory",
+			"PROBECTL_OTELSTORE_MODE":     "memory",
+			"PROBECTL_FLOWSTORE_MODE":     "memory",
+			"PROBECTL_EBPFSTORE_MODE":     "memory",
+			"PROBECTL_ENDPOINTSTORE_MODE": "memory",
+			"PROBECTL_OBJECTSTORE_DIR":    objectDir,
 		}[k]
 	})
 	if err != nil {

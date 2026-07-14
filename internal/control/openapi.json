@@ -5167,7 +5167,7 @@
         "tags": [
           "endpoints"
         ],
-        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence \u2014 impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. collector_running=false distinguishes an unwired consumer from an empty fleet.",
+        "description": "The caller's tenant's endpoint fleet (S37 DEM): per-endpoint latest WiFi link, gateway/local-network, last-mile segments, browser sessions, and the attribution verdict (wifi/local/isp/network/none) with confidence \u2014 impaired endpoints first. Privacy-minimized fields the agent withheld are absent, never re-derived. The bounded latest-view cache is hydrated from tenant-partitioned durable endpoint events after a control-plane restart; the query never loads another tenant. collector_running=false distinguishes an unwired consumer from an empty fleet.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"

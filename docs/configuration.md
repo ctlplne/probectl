@@ -1241,7 +1241,9 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_FLOWSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** in clickhouse mode. `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_EBPFSTORE_MODE`         | `memory` | where eBPF flow/L7 service-edge aggregates live: `memory` (lightweight/single-binary) \| `clickhouse` (durable history) |
 | `PROBECTL_EBPFSTORE_URL`          | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_EBPFSTORE_MODE=clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
-| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path), strict tenant bus lanes, durable stores, and TLS datastore URLs — defense-in-depth above app code (guardrails 7.1/7.12). In `multi-tenant`/`regulated`, ClickHouse-backed lanes may not downgrade this: startup requires each `*_TENANT_SCOPING=true` and its matching `*_READER_USER` |
+| `PROBECTL_ENDPOINTSTORE_MODE`     | `memory` | where event-shaped endpoint/DEM observations live: `memory` (lightweight) \| `clickhouse` (production durable history and restart recovery). Numeric endpoint metrics always use the configured TSDB |
+| `PROBECTL_ENDPOINTSTORE_URL`      | (none)   | ClickHouse HTTP(S) endpoint; **required** when `PROBECTL_ENDPOINTSTORE_MODE=clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
+| `PROBECTL_DEPLOYMENT_PROFILE` | `single` | isolation posture (TENANT-004): `single` (sovereign/single-tenant — app-layer WHERE scoping is the boundary) \| `multi-tenant` \| `regulated`. The latter two default **DB-enforced ClickHouse tenant isolation ON for every telemetry plane** (flow/otel/eBPF/path/endpoint), strict tenant bus lanes, durable stores, and TLS datastore URLs — defense-in-depth above app code (guardrails 7.1/7.12). In `multi-tenant`/`regulated`, ClickHouse-backed lanes may not downgrade this: startup requires each `*_TENANT_SCOPING=true` and its matching `*_READER_USER` |
 | `PROBECTL_FLOWSTORE_TENANT_SCOPING` | profile | defense-in-depth: also constrain flow reads at the **database** by attaching a per-request tenant setting that a ClickHouse row policy enforces (needs server-side `custom_settings_prefixes=SQL_` + a reader user). Defaults ON under `multi-tenant`/`regulated`, off under `single` |
 | `PROBECTL_FLOWSTORE_READER_USER` | (none) | the ClickHouse reader user the setting-scoped row policy is installed on at boot (pairs with the toggle above) |
 | `PROBECTL_OTELSTORE_TENANT_SCOPING` | profile | TENANT-003/004: DB-level reader scoping on the OTLP traces+logs plane (the PII-heaviest). Same mechanism as flow; defaults ON under `multi-tenant`/`regulated` |
@@ -1250,9 +1252,12 @@ capacity / anomalies). These are control-plane keys (not flow-agent keys):
 | `PROBECTL_EBPFSTORE_READER_USER` | (none) | the ClickHouse reader user the eBPF setting-scoped row policy is installed on at boot |
 | `PROBECTL_PATHSTORE_TENANT_SCOPING` | profile | TENANT-004: DB-level reader scoping on the path plane; defaults ON under `multi-tenant`/`regulated` |
 | `PROBECTL_PATHSTORE_READER_USER` | (none) | the ClickHouse reader user the path setting-scoped row policy is installed on at boot |
+| `PROBECTL_ENDPOINTSTORE_TENANT_SCOPING` | profile | DB-level reader scoping on the endpoint/DEM event plane; defaults ON under `multi-tenant`/`regulated` and fails closed when its tenant setting is absent |
+| `PROBECTL_ENDPOINTSTORE_READER_USER` | (none) | the ClickHouse reader user the endpoint setting-scoped row policy is installed on at boot |
 | `PROBECTL_INGEST_STRICT_TENANT_LANES` | profile | WIRE-001: refuse agent-published collector planes (flow/eBPF/device/endpoint) on the **shared pooled bus lane**, forcing them onto tenant-namespaced lanes (broker-ACL isolated, forgery-proof). Closes the residual shared-lane forgery surface. Defaults ON under `multi-tenant`/`regulated`, OFF under `single`. Rejections increment `probectl_pipeline_tenant_rejected_total` on `/metrics` |
 | `PROBECTL_FLOW_RETENTION_DAYS`    | `90` | delete-after-N-days TTL for the raw `probectl_flows` ClickHouse table. Hourly tenant-scoped rollups remain queryable in `probectl_flow_rollups_hour` until tenant/subject lifecycle deletion. `0` disables the raw TTL and keeps flows indefinitely; the control plane logs a loud warning because the raw flow table can then grow without bound |
 | `PROBECTL_EBPF_RETENTION_DAYS`    | `30` | delete-after-N-days TTL for the eBPF ClickHouse tables. `0` disables the TTL and keeps eBPF history indefinitely; use a finite value for high-churn L7/service-edge deployments |
+| `PROBECTL_ENDPOINT_RETENTION_DAYS` | `90` | delete-after-N-days TTL for raw endpoint/DEM event history. `0` disables the table TTL; tenant derived-identity policy can still enforce a tighter window |
 | `PROBECTL_FLOW_ENRICH_ASN`        | `false`  | opt-in Team Cymru ASN enrichment. Off by default because it makes outbound DNS lookups (the no-phone-home guardrail); AS numbers the device itself exported always pass through regardless |
 | `PROBECTL_FLOW_ENRICH_CACHE_MAX`  | `65536`  | hard maximum entries in the shared open-data enrichment cache. When more distinct IPs arrive, stale entries expire first and then the least-recently-used entry is evicted; cache size/hits/misses/evictions are exposed on `/metrics` |
 
@@ -1265,11 +1270,12 @@ deletion removes them.
 profiles, so startup refuses volatile raw-ingest/serving defaults. Set
 `PROBECTL_BUS_MODE=kafka`, `PROBECTL_TSDB_MODE=prometheus`, and
 `PROBECTL_PATHSTORE_MODE`, `PROBECTL_FLOWSTORE_MODE`, `PROBECTL_OTELSTORE_MODE`,
-and `PROBECTL_EBPFSTORE_MODE` to `clickhouse` with their required `https://`
+`PROBECTL_EBPFSTORE_MODE`, and `PROBECTL_ENDPOINTSTORE_MODE` to `clickhouse` with their required `https://`
 URLs before using those profiles. Postgres writer/read-replica URLs must carry
 `sslmode=require`, `verify-ca`, or `verify-full`. Each ClickHouse lane also needs the corresponding scoped
 reader user (`PROBECTL_PATHSTORE_READER_USER`, `PROBECTL_FLOWSTORE_READER_USER`,
-`PROBECTL_OTELSTORE_READER_USER`, and `PROBECTL_EBPFSTORE_READER_USER`) so boot
+`PROBECTL_OTELSTORE_READER_USER`, `PROBECTL_EBPFSTORE_READER_USER`, and
+`PROBECTL_ENDPOINTSTORE_READER_USER`) so boot
 can install the database row policy. The default `single` profile may still use
 memory modes for a lightweight sovereign/lab install.
 

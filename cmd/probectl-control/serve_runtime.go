@@ -41,6 +41,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/slo"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -58,15 +59,16 @@ type serveRuntime struct {
 	log             *slog.Logger
 	secretsResolver *secrets.Resolver
 
-	resultBus    bus.Bus
-	tsdbWriter   tsdb.Writer
-	ingestWriter tsdb.Writer
-	pathStore    pathstore.Store
-	pathCH       *pathstore.ClickHouse
-	otelStore    otelstore.Store
-	flowStore    flowstore.Store
-	ebpfStore    ebpfstore.Store
-	objectStore  objectstore.Store
+	resultBus     bus.Bus
+	tsdbWriter    tsdb.Writer
+	ingestWriter  tsdb.Writer
+	pathStore     pathstore.Store
+	pathCH        *pathstore.ClickHouse
+	otelStore     otelstore.Store
+	flowStore     flowstore.Store
+	ebpfStore     ebpfstore.Store
+	endpointStore endpointstore.Store
+	objectStore   objectstore.Store
 
 	ctx  context.Context
 	stop context.CancelFunc
@@ -99,7 +101,7 @@ type serveRuntime struct {
 	rumOn     bool
 
 	tlsPostures   *threat.PostureStore
-	endpointViews *endpoint.SnapshotStore
+	endpointViews *endpoint.Repository
 	latestResults *control.LatestResults
 	enrollSvc     *enroll.Service
 
@@ -148,7 +150,7 @@ func newServeRuntime(cfg *config.Config, db *store.DB, log *slog.Logger, st *ser
 		cfg: cfg, db: db, log: log, secretsResolver: secretsResolver,
 		resultBus: st.resultBus, tsdbWriter: st.tsdbWriter, ingestWriter: st.ingestWriter,
 		pathStore: st.pathStore, pathCH: st.pathCH, otelStore: st.otelStore,
-		flowStore: st.flowStore, ebpfStore: st.ebpfStore, objectStore: st.objectStore,
+		flowStore: st.flowStore, ebpfStore: st.ebpfStore, endpointStore: st.endpointStore, objectStore: st.objectStore,
 		ctx: ctx, stop: stop, g: g, gctx: gctx,
 		a2aBroker: a2a.NewBroker(),
 	}
@@ -228,7 +230,7 @@ func (rt *serveRuntime) buildServeEngines() error {
 	}
 
 	rt.tlsPostures = threat.NewPostureStore(0)
-	rt.endpointViews = endpoint.NewSnapshotStore(0)
+	rt.endpointViews = endpoint.NewRepository(rt.endpointStore, endpoint.NewSnapshotStore(0))
 	rt.latestResults = control.NewLatestResults(0)
 	rt.alertingActive = false
 	_ = costOn
@@ -380,8 +382,9 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 		return err
 	}
 	rt.lifeEngine.WithEndpointRetention(rt.endpointViews)
+	rt.lifeEngine.WithEndpointEvents(rt.endpointStore)
 	if err := attachEE(rt.gctx, rt.srv, rt.cfg, rt.log, rt.lic, rt.db.Pool(), rt.latestResults,
-		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.lifeEngine,
+		rt.flowStore, rt.pathCH, rt.ebpfStore, rt.otelStore, rt.endpointStore, rt.lifeEngine,
 		rt.secretsResolver.ResolveBytes, rt.fairGate, rt.topoStore); err != nil {
 		return err
 	}
@@ -442,6 +445,17 @@ func (rt *serveRuntime) startIngestConsumers() {
 	rt.g.Go(func() error {
 		return superviseBusLaneRestart(rt.gctx, "endpoint-view", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
 			return control.NewEndpointViewConsumer(rt.resultBus, rt.endpointViews, rt.log).
+				WithTenantBinding(rt.tenantBinding).
+				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
+				WithNamespaceTenants(snap.tenants).
+				Run(ctx)
+		})
+	})
+	rt.g.Go(func() error {
+		return superviseBusLaneRestart(rt.gctx, "endpoint-events", rt.log, func(ctx context.Context, snap busLaneSnapshot) error {
+			return control.NewEndpointEventConsumer(rt.resultBus, rt.endpointViews, rt.log).
+				WithTenantBinding(rt.tenantBinding).
+				WithStrictTenantLanes(rt.cfg.IngestStrictTenantLanes).
 				WithNamespaceTenants(snap.tenants).
 				Run(ctx)
 		})

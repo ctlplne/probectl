@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -44,25 +45,31 @@ type OtelDDL interface {
 	EnsureTenantDatabase(ctx context.Context, t otelstore.Target, retentionDays int) error
 	DropTenantDatabase(ctx context.Context, t otelstore.Target) error
 }
+type EndpointDDL interface {
+	EnsureTenantDatabase(ctx context.Context, t endpointstore.Target, retentionDays int) error
+	DropTenantDatabase(ctx context.Context, t endpointstore.Target) error
+}
 
 // CHPlanes bundles every ClickHouse plane's provisioning seam. A nil field =
 // that plane runs the memory store (no per-tenant database leg).
 type CHPlanes struct {
-	Flows FlowDDL
-	Paths PathDDL
-	EBPF  EBPFDDL
-	Otel  OtelDDL
+	Flows    FlowDDL
+	Paths    PathDDL
+	EBPF     EBPFDDL
+	Otel     OtelDDL
+	Endpoint EndpointDDL
 }
 
 // Provisioner creates, catches up, and tears down per-tenant isolated stores.
 // DDL runs as the pool's migration-capable login role (the same role that
 // applies migrations — schema creation is a migration-class operation).
 type Provisioner struct {
-	pool          *pgxpool.Pool
-	ch            CHPlanes
-	planes        map[string]DataPlane
-	retentionDays int
-	log           *slog.Logger
+	pool                  *pgxpool.Pool
+	ch                    CHPlanes
+	planes                map[string]DataPlane
+	retentionDays         int
+	endpointRetentionDays int
+	log                   *slog.Logger
 }
 
 // NewProvisioner wires the silo provisioner across every ClickHouse plane
@@ -74,7 +81,17 @@ func NewProvisioner(pool *pgxpool.Pool, ch CHPlanes, planes map[string]DataPlane
 	if planes == nil {
 		planes = map[string]DataPlane{}
 	}
-	return &Provisioner{pool: pool, ch: ch, planes: planes, retentionDays: retentionDays, log: log}
+	return &Provisioner{
+		pool: pool, ch: ch, planes: planes, retentionDays: retentionDays,
+		endpointRetentionDays: retentionDays, log: log,
+	}
+}
+
+// WithEndpointRetentionDays keeps endpoint event retention independent from
+// the flow-plane TTL while preserving the established constructor.
+func (p *Provisioner) WithEndpointRetentionDays(days int) *Provisioner {
+	p.endpointRetentionDays = days
+	return p
 }
 
 // ValidResidency reports whether a residency name is provisionable ("" =
@@ -112,6 +129,9 @@ func (p *Provisioner) ebpfTarget(tenantID, residency string) ebpfstore.Target {
 func (p *Provisioner) otelTarget(tenantID, residency string) otelstore.Target {
 	return otelstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
 }
+func (p *Provisioner) endpointTarget(tenantID, residency string) endpointstore.Target {
+	return endpointstore.Target{Database: CHDatabase(tenantID), BaseURL: p.chBaseURL(residency)}
+}
 
 // provisionCH creates every configured CH plane's per-tenant database (idempotent).
 func (p *Provisioner) provisionCH(ctx context.Context, tenantID, residency string) error {
@@ -133,6 +153,11 @@ func (p *Provisioner) provisionCH(ctx context.Context, tenantID, residency strin
 	if p.ch.Otel != nil {
 		if err := p.ch.Otel.EnsureTenantDatabase(ctx, p.otelTarget(tenantID, residency), p.retentionDays); err != nil {
 			return fmt.Errorf("silo: provision otel plane: %w", err)
+		}
+	}
+	if p.ch.Endpoint != nil {
+		if err := p.ch.Endpoint.EnsureTenantDatabase(ctx, p.endpointTarget(tenantID, residency), p.endpointRetentionDays); err != nil {
+			return fmt.Errorf("silo: provision endpoint plane: %w", err)
 		}
 	}
 	return nil
@@ -158,6 +183,11 @@ func (p *Provisioner) teardownCH(ctx context.Context, tenantID, residency string
 	if p.ch.Otel != nil {
 		if err := p.ch.Otel.DropTenantDatabase(ctx, p.otelTarget(tenantID, residency)); err != nil {
 			return fmt.Errorf("silo: teardown otel plane: %w", err)
+		}
+	}
+	if p.ch.Endpoint != nil {
+		if err := p.ch.Endpoint.DropTenantDatabase(ctx, p.endpointTarget(tenantID, residency)); err != nil {
+			return fmt.Errorf("silo: teardown endpoint plane: %w", err)
 		}
 	}
 	return nil

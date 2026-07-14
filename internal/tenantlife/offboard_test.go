@@ -14,6 +14,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -22,7 +23,7 @@ import (
 )
 
 // U-027 / TENANT-002 / TENANT-007 e2e offboard: erasure covers flows, objects,
-// tsdb, PATHS, TOPOLOGY, OTEL and the eBPF EDGE store; the attestation
+// tsdb, PATHS, TOPOLOGY, OTEL, endpoint events and the eBPF EDGE store; the attestation
 // enumerates every store with verified-zero results; the neighbor tenant is
 // untouched. A meta-assertion below pins the attested store set to the
 // configured set so an unwired plane (the exact TENANT-002 regression) fails.
@@ -35,6 +36,7 @@ func TestEraseCoversEveryStoreEndToEnd(t *testing.T) {
 	topo := topology.NewMemoryStore()
 	otel := otelstore.NewMemory()
 	edges := ebpfstore.NewMemory()
+	endpointEvents := endpointstore.NewMemory()
 
 	seed := func(tenant string) {
 		_ = flows.Insert(ctx, []flowstore.Row{{TenantID: tenant, AgentID: "a", Exporter: "e",
@@ -49,12 +51,14 @@ func TestEraseCoversEveryStoreEndToEnd(t *testing.T) {
 		_ = edges.Insert(ctx, []ebpfstore.Edge{{TenantID: tenant, AgentID: "a", WindowStart: time.Now(),
 			SrcWorkload: "svc-a", DstWorkload: "svc-b", DstPort: 443, L7Protocol: "http",
 			Bytes: 100, Packets: 2, Connections: 1}})
+		_ = endpointEvents.Insert(ctx, []endpointstore.Event{{TenantID: tenant, AgentID: "laptop",
+			Type: "endpoint.wifi", Target: tenant + "-ssid", ObservedAt: time.Now()}})
 	}
 	seed("victim")
 	seed("neighbor")
 
 	e := New(nil, flows, objects, tsdbW, nil, "test backup note", nil).
-		WithPaths(paths).WithTopology(topo).WithOtel(otel).WithEBPF(edges)
+		WithPaths(paths).WithTopology(topo).WithOtel(otel).WithEBPF(edges).WithEndpointEvents(endpointEvents)
 
 	att, err := e.Erase(ctx, "victim", "victim-slug", "test")
 	if err != nil {
@@ -66,7 +70,7 @@ func TestEraseCoversEveryStoreEndToEnd(t *testing.T) {
 
 	// The attestation enumerates every store, including paths/topology/otel/ebpf.
 	want := map[string]bool{"flows": false, "objects": false, "tsdb": false,
-		"paths": false, "topology": false, "otel": false, "ebpf": false}
+		"paths": false, "topology": false, "otel": false, "ebpf": false, "endpoint_events": false}
 	for _, sr := range att.Stores {
 		if _, ok := want[sr.Store]; ok {
 			want[sr.Store] = true
@@ -119,6 +123,12 @@ func TestEraseCoversEveryStoreEndToEnd(t *testing.T) {
 	}
 	if ne, _ := edges.TopEdges(ctx, "neighbor", ebpfstore.EdgeQuery{}); len(ne) != 1 {
 		t.Fatalf("neighbor eBPF edges damaged: %d", len(ne))
+	}
+	if rows, _ := endpointEvents.Latest(ctx, "victim"); len(rows) != 0 {
+		t.Fatalf("victim endpoint events survived erasure: %d", len(rows))
+	}
+	if rows, _ := endpointEvents.Latest(ctx, "neighbor"); len(rows) != 1 {
+		t.Fatalf("neighbor endpoint events damaged: %d", len(rows))
 	}
 }
 

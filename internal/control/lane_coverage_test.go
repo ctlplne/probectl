@@ -41,6 +41,7 @@ func TestConsumersFanOutAcrossLanes(t *testing.T) {
 		(*ComplianceConsumer)(nil),
 		(*CostConsumer)(nil),
 		(*EndpointViewConsumer)(nil),
+		(*EndpointEventConsumer)(nil),
 		(*RUMConsumer)(nil),
 		(*OutageConsumer)(nil),
 		(*BGPIncidentConsumer)(nil),
@@ -169,6 +170,13 @@ func laneConsumerRegistry() []laneConsumerSpec {
 			topics: []string{bus.EndpointResultsTopic},
 			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
 				return NewEndpointViewConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
+			},
+		},
+		{
+			name:   "endpoint-events",
+			topics: []string{bus.EndpointResultsTopic},
+			run: func(ctx context.Context, b bus.Bus, ns map[string]string) error {
+				return NewEndpointEventConsumer(b, nil, log).WithNamespaceTenants(ns).Run(ctx)
 			},
 		},
 		{

@@ -17,6 +17,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/browser"
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
@@ -194,16 +195,24 @@ func (promLike) Close() error                               { return nil }
 // object inventory + a manifest whose counts match, and nothing of tenant B.
 func TestExportRoundTrip(t *testing.T) {
 	flows, objects, mem := seedStores(t)
+	endpointEvents := endpointstore.NewMemory()
+	if err := endpointEvents.Insert(context.Background(), []endpointstore.Event{
+		{TenantID: "tnA", AgentID: "laptop-a", Type: "endpoint.wifi", Target: "A-SSID", ObservedAt: t0},
+		{TenantID: "tnB", AgentID: "decoy-b", Type: "endpoint.wifi", Target: "SECRET-B", ObservedAt: t0},
+	}); err != nil {
+		t.Fatal(err)
+	}
 	audit := &capturedAudit{}
 	e := New(nil, flows, objects, mem, audit.sink, "", testLog()).
-		WithClock(func() time.Time { return t0 })
+		WithClock(func() time.Time { return t0 }).
+		WithEndpointEvents(endpointEvents)
 
 	var buf bytes.Buffer
 	man, err := e.Export(context.Background(), "tnA", &buf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if man.Flows != 2 || len(man.Objects) != 2 {
+	if man.Flows != 2 || man.EndpointEvents != 1 || len(man.Objects) != 2 {
 		t.Fatalf("manifest counts: %+v", man)
 	}
 
@@ -248,6 +257,10 @@ func TestExportRoundTrip(t *testing.T) {
 			t.Fatalf("a foreign tenant's flow leaked into the export: %v", row)
 		}
 	}
+	endpointLines := strings.Split(strings.TrimSpace(string(files["endpoint_events.jsonl"])), "\n")
+	if len(endpointLines) != 1 || strings.Contains(endpointLines[0], "SECRET-B") {
+		t.Fatalf("endpoint event export crossed tenant boundary: %q", endpointLines)
+	}
 	// The object inventory names only tenant A's keys.
 	for _, o := range parsed.Objects {
 		if strings.Contains(o.Key, "tnB") {
@@ -256,6 +269,35 @@ func TestExportRoundTrip(t *testing.T) {
 	}
 	if len(audit.events) != 1 || audit.events[0] != "lifecycle.export" {
 		t.Fatalf("export must be audited: %v", audit.events)
+	}
+}
+
+func TestEndpointDurableRetentionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	events := endpointstore.NewMemory()
+	if err := events.Insert(ctx, []endpointstore.Event{
+		{TenantID: "tnA", AgentID: "old", Type: "endpoint.wifi", ObservedAt: t0.Add(-48 * time.Hour)},
+		{TenantID: "tnA", AgentID: "new", Type: "endpoint.wifi", ObservedAt: t0.Add(-1 * time.Hour)},
+		{TenantID: "tnB", AgentID: "neighbor", Type: "endpoint.wifi", ObservedAt: t0.Add(-48 * time.Hour)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	audit := &capturedAudit{}
+	e := New(nil, nil, nil, nil, audit.sink, "", testLog()).
+		WithClock(func() time.Time { return t0 }).
+		WithEndpointEvents(events).
+		WithDerivedIdentityRetentionDays(1)
+	if err := e.pruneDerivedIdentityCaches(ctx, retentionSweepPolicy{tenant: "tnA"}); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := events.Latest(ctx, "tnA"); len(rows) != 1 || rows[0].AgentID != "new" {
+		t.Fatalf("tenant endpoint retention rows = %+v, want only new", rows)
+	}
+	if rows, _ := events.Latest(ctx, "tnB"); len(rows) != 1 {
+		t.Fatalf("neighbor endpoint retention rows damaged: %+v", rows)
+	}
+	if len(audit.events) != 1 || audit.data[0]["store"] != "endpoint_events" || audit.data[0]["deleted"] != int64(1) {
+		t.Fatalf("endpoint retention receipt = events %v data %+v", audit.events, audit.data)
 	}
 }
 

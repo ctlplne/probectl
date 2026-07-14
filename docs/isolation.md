@@ -117,10 +117,10 @@ up is a compliance liability.** `PROBECTL_DATAPLANES` names the available planes
 provisioned with `residency: eu` gets its ClickHouse database **created on and
 routed to** that plane.
 
-**Pinned today:** the tenant's ClickHouse telemetry across all four planes —
-flow, path, eBPF L7 edges, and OTLP traces+logs (the PII-heaviest plane). Each
-plane's per-tenant database is created on and routed to the residency data
-plane (TENANT-001).
+**Pinned today:** the tenant's ClickHouse telemetry across all five planes —
+flow, path, eBPF L7 edges, endpoint/DEM events, and OTLP traces+logs (the
+PII-heaviest plane). Each plane's per-tenant database is created on and routed
+to the residency data plane (TENANT-001).
 
 **Not pinned today** (and you should not claim otherwise): the Postgres
 control/config state (it is a shared control plane), the metrics TSDB (metrics

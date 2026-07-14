@@ -3,9 +3,16 @@
 package endpoint
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
+
+// ViewReader is the tenant-first read-model seam used by the API. Both the
+// in-memory snapshot and durable read-through repository implement it.
+type ViewReader interface {
+	ListFilteredContext(ctx context.Context, tenant string, f ListFilter) ([]View, error)
+}
 
 // ListFilter is the server-side endpoint inventory filter. It is intentionally
 // small and explicit so list UX does not turn into an unbounded query language.
@@ -37,6 +44,12 @@ func (s *SnapshotStore) ListFiltered(tenant string, f ListFilter) ([]View, error
 		return nil, err
 	}
 	return FilterViews(s.List(tenant), f), nil
+}
+
+// ListFilteredContext is the context-aware ViewReader method. The snapshot
+// itself performs no I/O, so cancellation does not change its behavior.
+func (s *SnapshotStore) ListFilteredContext(_ context.Context, tenant string, f ListFilter) ([]View, error) {
+	return s.ListFiltered(tenant, f)
 }
 
 // FilterViews applies a normalized filter to already tenant-scoped views.

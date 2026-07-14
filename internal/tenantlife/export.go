@@ -21,6 +21,7 @@ import (
 //	manifest.json            counts, object inventory, format notes
 //	postgres/<table>.jsonl   every tenant-owned row, one JSON object per line
 //	flows.jsonl              every flow record (streamed from the flow store)
+//	endpoint_events.jsonl    every endpoint/DEM event
 //
 // TSDB series are NOT bundled (metrics export rides PromQL/federation — the
 // manifest says so); object-store BLOBS are inventoried in the manifest
@@ -28,14 +29,15 @@ import (
 
 // Manifest describes one export bundle.
 type Manifest struct {
-	FormatVersion int              `json:"format_version"`
-	TenantID      string           `json:"tenant_id"`
-	ExportedAt    time.Time        `json:"exported_at"`
-	Tables        map[string]int64 `json:"tables"` // table -> row count
-	Flows         int64            `json:"flows"`
-	Objects       []ObjectRef      `json:"objects"`
-	Notes         []string         `json:"notes"`
-	Redacted      bool             `json:"redacted"` // S-EE3: PII masked per the governance policy
+	FormatVersion  int              `json:"format_version"`
+	TenantID       string           `json:"tenant_id"`
+	ExportedAt     time.Time        `json:"exported_at"`
+	Tables         map[string]int64 `json:"tables"` // table -> row count
+	Flows          int64            `json:"flows"`
+	EndpointEvents int64            `json:"endpoint_events"`
+	Objects        []ObjectRef      `json:"objects"`
+	Notes          []string         `json:"notes"`
+	Redacted       bool             `json:"redacted"` // S-EE3: PII masked per the governance policy
 }
 
 // ObjectRef inventories one stored artifact.
@@ -140,6 +142,23 @@ func (e *Engine) export(ctx context.Context, tenantID string, w io.Writer, redac
 			flowsOut = govern.RedactJSONL(pol, flowsOut)
 		}
 		if err := writeTarFile(tw, "flows.jsonl", flowsOut, man.ExportedAt); err != nil {
+			return man, err
+		}
+	}
+
+	// 2b) Durable endpoint/DEM event history (tenant-scoped by the store).
+	if e.endpointEvents != nil {
+		var buf bytes.Buffer
+		n, err := e.endpointEvents.ExportTenant(ctx, tenantID, &buf)
+		if err != nil {
+			return man, fmt.Errorf("tenantlife: export endpoint events: %w", err)
+		}
+		man.EndpointEvents = n
+		out := buf.Bytes()
+		if redact {
+			out = govern.RedactJSONL(pol, out)
+		}
+		if err := writeTarFile(tw, "endpoint_events.jsonl", out, man.ExportedAt); err != nil {
 			return man, err
 		}
 	}

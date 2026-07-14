@@ -39,6 +39,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/secrets"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/ebpfstore"
+	"github.com/imfeelingtheagi/probectl/internal/store/endpointstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/otelstore"
 	"github.com/imfeelingtheagi/probectl/internal/store/pathstore"
@@ -57,15 +58,16 @@ import (
 // pathCH is the concrete *pathstore.ClickHouse kept BEFORE the batching wrapper
 // (TENANT-001: the ee silo router installs on it; the wrapper shares the pointer).
 type serveStores struct {
-	resultBus    bus.Bus
-	tsdbWriter   tsdb.Writer
-	ingestWriter tsdb.Writer
-	pathStore    pathstore.Store
-	pathCH       *pathstore.ClickHouse
-	otelStore    otelstore.Store
-	flowStore    flowstore.Store
-	ebpfStore    ebpfstore.Store
-	objectStore  objectstore.Store
+	resultBus     bus.Bus
+	tsdbWriter    tsdb.Writer
+	ingestWriter  tsdb.Writer
+	pathStore     pathstore.Store
+	pathCH        *pathstore.ClickHouse
+	otelStore     otelstore.Store
+	flowStore     flowstore.Store
+	ebpfStore     ebpfstore.Store
+	endpointStore endpointstore.Store
+	objectStore   objectstore.Store
 }
 
 var devAuthAvailable = control.DevModeAvailable
@@ -134,7 +136,7 @@ func verifyServePosture(ctx context.Context, cfg *config.Config, db *store.DB, l
 	log.Info("tenant isolation posture verified (RLS forced, app role non-bypass)")
 
 	chScoped := cfg.FlowCHTenantScoping && cfg.OTelCHTenantScoping &&
-		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.IngestStrictTenantLanes
+		cfg.EBPFCHTenantScoping && cfg.PathCHTenantScoping && cfg.EndpointCHTenantScoping && cfg.IngestStrictTenantLanes
 	if err := tenancy.AssertDeploymentProfilePosture(ctx, db.Pool(), cfg.DeploymentProfile, chScoped); err != nil {
 		return fmt.Errorf("deployment profile self-check failed: %w", err)
 	}
@@ -293,6 +295,27 @@ func buildServeStores(cfg *config.Config, log *slog.Logger) (*serveStores, func(
 	if err := installCHReaderPolicy(cfg.EBPFCHTenantScoping, cfg.EBPFCHReaderUser, "ebpfstore", "TENANT-004", log,
 		func() (func(context.Context, string) error, bool) {
 			ch, ok := ebpfStore.(*ebpfstore.ClickHouse)
+			if !ok {
+				return nil, false
+			}
+			ch.WithTenantScoping(true)
+			return ch.EnsureReaderRowPolicy, true
+		}); err != nil {
+		return fail(err)
+	}
+
+	// W3: endpoint metrics already use the TSDB; event-shaped DEM attributes
+	// need their own durable ClickHouse history so /v1/endpoints survives a
+	// control-plane restart.
+	endpointStore, err := endpointstore.New(cfg.EndpointStoreMode, cfg.EndpointStoreURL, cfg.EndpointRetentionDays)
+	if err != nil {
+		return fail(fmt.Errorf("endpointstore: %w", err))
+	}
+	s.endpointStore = endpointStore
+	closers = append(closers, func() { _ = endpointStore.Close() })
+	if err := installCHReaderPolicy(cfg.EndpointCHTenantScoping, cfg.EndpointCHReaderUser, "endpointstore", "TENANT-004", log,
+		func() (func(context.Context, string) error, bool) {
+			ch, ok := endpointStore.(*endpointstore.ClickHouse)
 			if !ok {
 				return nil, false
 			}

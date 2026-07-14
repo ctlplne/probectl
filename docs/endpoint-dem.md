@@ -32,6 +32,8 @@ flowchart LR
   end
   P -->|resultv1.Result, tenant-keyed| B[(probectl.endpoint.results)]
   B --> PIPE[pipeline → TSDB / incidents]
+  B --> CH[(tenant-partitioned ClickHouse events)]
+  CH --> API[GET /v1/endpoints read-through cache]
 ```
 
 ## What it measures
@@ -150,7 +152,13 @@ attribute *is* the Wi-Fi / ISP / network verdict.
 Results are published to **`probectl.endpoint.results`** as a `resultv1.Result`,
 tenant-keyed, so they flow through the **same** pipeline → TSDB / incident path as
 every other canary — the control-plane result consumer drains them on its own
-consumer group alongside `probectl.network.results`.
+consumer group alongside `probectl.network.results`. A separate durable consumer
+writes the event-shaped fields (SSID/gateway/session labels and attribution) to
+ClickHouse. It verifies the bus lane or registered agent-to-tenant binding
+*before* either cache or durable persistence, retries a bounded number of times,
+and sends the original protobuf to `probectl.deadletter.results` if ClickHouse
+remains unavailable. A store failure therefore cannot silently acknowledge and
+lose an endpoint event.
 
 ## Deploy
 
@@ -181,12 +189,17 @@ verdict — not when the process starts.
 
 ## The fleet surface
 
-Endpoint results are additionally retained as a tenant-scoped, in-memory
-**snapshot** (the latest result per signal type per endpoint, bounded per tenant
-and per-agent session targets, evicting the stalest) by the endpoint-view
-consumer, and served at `GET /v1/endpoints` (RBAC `agent.read` — endpoints *are*
-DEM agents; a `collector_running=false` flag distinguishes an unwired consumer
-from a genuinely empty fleet).
+Endpoint results are served from a tenant-scoped **read-through snapshot**: the
+per-replica cache keeps the latest result per signal type per endpoint, remains
+bounded to 2,000 endpoints per tenant and 10 session targets per agent, and
+evicts the stalest entries. The durable event store is ClickHouse in production
+(`probectl_endpoint_events`, partitioned and ordered with `tenant_id` first) and
+memory only in the lightweight profile. After a control-plane restart, the
+first `GET /v1/endpoints` for tenant A loads only tenant A's latest rows into the
+cache; it never scans or hydrates another tenant. The endpoint is guarded by
+RBAC `agent.read` — endpoints *are* DEM agents — and
+`collector_running=false` distinguishes an unwired consumer from a genuinely
+empty fleet.
 
 The web surface lives at `/endpoints`: a fleet list (attribution verdict first —
 "slow: WiFi / ISP / network" — with Wi-Fi strength, gateway and ISP-edge RTT,
@@ -201,9 +214,12 @@ view ID.
 **Privacy display contract:** identifiers the agent withheld (SSID / BSSID /
 gateway IP / public hops) are absent from the results, and the UI renders that
 absence **honestly** — "withheld (privacy)" — never a re-derived or fabricated
-value. The snapshot rebuilds from the stream after a restart; longer history
-lives in the TSDB series the pipeline writes. The latest-view snapshot is also
-an age-pruned derived cache: `PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS` removes
+value. Numeric history lives in the TSDB series; event-shaped history lives in
+ClickHouse and reconstructs the latest view after restart. The latest-view
+snapshot is also an age-pruned derived cache:
+`PROBECTL_DERIVED_IDENTITY_RETENTION_DAYS` removes
 stale SSIDs, gateway IPs, session targets, and attribution labels from tenant
-query surfaces, with `lifecycle.retention_sweep` receipts when entries are
-deleted.
+query surfaces and durable endpoint events, with `lifecycle.retention_sweep`
+receipts when entries are deleted. The ClickHouse table also has the deployment
+TTL configured by `PROBECTL_ENDPOINT_RETENTION_DAYS` (default 90 days; `0`
+disables the table TTL).

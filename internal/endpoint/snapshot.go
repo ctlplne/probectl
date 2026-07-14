@@ -139,6 +139,11 @@ func (s *SnapshotStore) Record(tenant, agent string, rv ResultView) {
 	st.byType[rv.Type] = rv
 }
 
+// RecordCache satisfies the cache-recorder seam used by EndpointViewConsumer.
+func (s *SnapshotStore) RecordCache(tenant, agent string, rv ResultView) {
+	s.Record(tenant, agent, rv)
+}
+
 // List assembles the tenant's endpoint views: impaired (slow) endpoints first,
 // then most recently seen.
 func (s *SnapshotStore) List(tenant string) []View {

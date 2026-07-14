@@ -11,7 +11,7 @@
 {{- fail (printf "PROBECTL_DEPLOYMENT_PROFILE=%s requires PROBECTL_DATABASE_READ_URL with PostgreSQL TLS sslmode=require, verify-ca, or verify-full (WIRE-001)" $profile) -}}
 {{- end -}}
 {{- end -}}
-{{- range $envName := list "PROBECTL_PATHSTORE_URL" "PROBECTL_FLOWSTORE_URL" "PROBECTL_OTELSTORE_URL" "PROBECTL_EBPFSTORE_URL" -}}
+{{- range $envName := list "PROBECTL_PATHSTORE_URL" "PROBECTL_FLOWSTORE_URL" "PROBECTL_OTELSTORE_URL" "PROBECTL_EBPFSTORE_URL" "PROBECTL_ENDPOINTSTORE_URL" -}}
 {{- with (get $extraEnv $envName) -}}
 {{- $chURL := printf "%v" . -}}
 {{- if and $chURL (not (regexMatch "^https://" $chURL)) -}}

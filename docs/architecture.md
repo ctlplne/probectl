@@ -437,6 +437,15 @@ and a `clickhouse` adapter that reads/writes hop and link rows over ClickHouse's
 **HTTP interface** (no native-driver dependency), partitioned by `tenant_id` so
 path data never crosses a tenant boundary.
 
+Endpoint/DEM results split by shape: numeric measurements flow into the TSDB,
+while privacy-minimized event attributes are durably stored in
+`internal/store/endpointstore`. Its ClickHouse table partitions and orders with
+`tenant_id` first. `GET /v1/endpoints` uses a bounded in-memory latest-state
+cache, but after restart its first read hydrates only the caller's tenant from
+that durable table. The bus-to-store consumer validates the authoritative
+tenant lane/agent binding before persistence and preserves exhausted writes in
+the result DLQ.
+
 ## Path visualization
 
 The data API is two routes: `GET /v1/tests/{id}/path` returns the latest stored

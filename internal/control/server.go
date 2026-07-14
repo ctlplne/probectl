@@ -141,7 +141,7 @@ type Server struct {
 
 	// Endpoint DEM views (S-FE4): the snapshot store the endpoint-view consumer
 	// maintains. Set via WithEndpointViews; nil reports collector_running=false.
-	endpointViews  *endpoint.SnapshotStore
+	endpointViews  endpoint.ViewReader
 	inventoryViews inventory.ViewStore
 
 	// Latest synthetic results (S-FE5): newest full result per (type, target,

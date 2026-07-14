@@ -278,6 +278,11 @@ type Config struct {
 	EBPFStoreMode     string
 	EBPFStoreURL      string
 	EBPFRetentionDays int
+	// EndpointStore persists event-shaped DEM observations so the endpoint
+	// inventory can rebuild after restart; numeric metrics remain in the TSDB.
+	EndpointStoreMode     string
+	EndpointStoreURL      string
+	EndpointRetentionDays int
 	// PathRetentionDays bounds the path/traceroute tables (SCALE-006).
 	PathRetentionDays int
 	// DerivedIdentityRetentionDays bounds topology/endpoint identity labels
@@ -314,12 +319,14 @@ type Config struct {
 	// installs a setting-scoped reader row policy on its reader user, so the
 	// query path cannot cross tenants even if app-layer WHERE scoping is
 	// bypassed. Defaulted ON by the multi-tenant/regulated profile.
-	OTelCHTenantScoping bool
-	OTelCHReaderUser    string
-	EBPFCHTenantScoping bool
-	EBPFCHReaderUser    string
-	PathCHTenantScoping bool
-	PathCHReaderUser    string
+	OTelCHTenantScoping     bool
+	OTelCHReaderUser        string
+	EBPFCHTenantScoping     bool
+	EBPFCHReaderUser        string
+	PathCHTenantScoping     bool
+	PathCHReaderUser        string
+	EndpointCHTenantScoping bool
+	EndpointCHReaderUser    string
 
 	// IngestStrictTenantLanes (WIRE-001): refuse agent-published collector
 	// planes (flow/eBPF/device/endpoint) on the SHARED pooled bus lane, forcing
@@ -736,6 +743,9 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.EBPFStoreMode = l.enum("PROBECTL_EBPFSTORE_MODE", "memory", "memory", "clickhouse")
 	cfg.EBPFStoreURL = l.str("PROBECTL_EBPFSTORE_URL", "")
 	cfg.EBPFRetentionDays = l.intRange("PROBECTL_EBPF_RETENTION_DAYS", 30, 0, 3650)
+	cfg.EndpointStoreMode = l.enum("PROBECTL_ENDPOINTSTORE_MODE", "memory", "memory", "clickhouse")
+	cfg.EndpointStoreURL = l.str("PROBECTL_ENDPOINTSTORE_URL", "")
+	cfg.EndpointRetentionDays = l.intRange("PROBECTL_ENDPOINT_RETENTION_DAYS", 90, 0, 3650)
 	// SCALE-016: finite flow retention by default; 0 remains explicit keep-forever.
 	cfg.FlowRetentionDays = l.intRange("PROBECTL_FLOW_RETENTION_DAYS", 90, 0, 3650)
 	cfg.PathRetentionDays = l.intRange("PROBECTL_PATH_RETENTION_DAYS", 90, 0, 3650)
@@ -751,6 +761,8 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 	cfg.EBPFCHReaderUser = l.str("PROBECTL_EBPFSTORE_READER_USER", "")
 	cfg.PathCHTenantScoping = l.boolean("PROBECTL_PATHSTORE_TENANT_SCOPING", chScopeDefault)
 	cfg.PathCHReaderUser = l.str("PROBECTL_PATHSTORE_READER_USER", "")
+	cfg.EndpointCHTenantScoping = l.boolean("PROBECTL_ENDPOINTSTORE_TENANT_SCOPING", chScopeDefault)
+	cfg.EndpointCHReaderUser = l.str("PROBECTL_ENDPOINTSTORE_READER_USER", "")
 	cfg.IngestStrictTenantLanes = l.boolean("PROBECTL_INGEST_STRICT_TENANT_LANES", chScopeDefault)
 	cfg.CMDBProvider = l.enum("PROBECTL_CMDB_PROVIDER", "", "", "servicenow", "netbox")
 	cfg.CMDBURL = l.str("PROBECTL_CMDB_URL", "")
@@ -924,6 +936,9 @@ func validateConfig(l *loader, cfg *Config) {
 	if cfg.EBPFStoreMode == "clickhouse" && cfg.EBPFStoreURL == "" {
 		l.errf("PROBECTL_EBPFSTORE_MODE=clickhouse requires PROBECTL_EBPFSTORE_URL")
 	}
+	if cfg.EndpointStoreMode == "clickhouse" && cfg.EndpointStoreURL == "" {
+		l.errf("PROBECTL_ENDPOINTSTORE_MODE=clickhouse requires PROBECTL_ENDPOINTSTORE_URL")
+	}
 	validateDatastoreTLS(l, cfg)
 	validateClickHouseTenantReaders(l, cfg)
 	if cfg.DeploymentProfile != "single" && !cfg.IngestStrictTenantLanes {
@@ -977,6 +992,7 @@ func validateDatastoreTLS(l *loader, c *Config) {
 		{modeEnv: "PROBECTL_FLOWSTORE_MODE", mode: c.FlowStoreMode, urlEnv: "PROBECTL_FLOWSTORE_URL", rawURL: c.FlowStoreURL},
 		{modeEnv: "PROBECTL_OTELSTORE_MODE", mode: c.OTelStoreMode, urlEnv: "PROBECTL_OTELSTORE_URL", rawURL: c.OTelStoreURL},
 		{modeEnv: "PROBECTL_EBPFSTORE_MODE", mode: c.EBPFStoreMode, urlEnv: "PROBECTL_EBPFSTORE_URL", rawURL: c.EBPFStoreURL},
+		{modeEnv: "PROBECTL_ENDPOINTSTORE_MODE", mode: c.EndpointStoreMode, urlEnv: "PROBECTL_ENDPOINTSTORE_URL", rawURL: c.EndpointStoreURL},
 	} {
 		if lane.mode != "clickhouse" || strings.TrimSpace(lane.rawURL) == "" {
 			continue
@@ -1162,6 +1178,9 @@ func volatileProductionModes(c *Config) []string {
 	if c.EBPFStoreMode == "memory" {
 		volatile = append(volatile, "PROBECTL_EBPFSTORE_MODE=memory")
 	}
+	if c.EndpointStoreMode == "memory" {
+		volatile = append(volatile, "PROBECTL_ENDPOINTSTORE_MODE=memory")
+	}
 	return volatile
 }
 
@@ -1197,6 +1216,7 @@ func validateClickHouseTenantReaders(l *loader, c *Config) {
 		{modeEnv: "PROBECTL_FLOWSTORE_MODE", modeValue: c.FlowStoreMode, scopingEnv: "PROBECTL_FLOWSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_FLOWSTORE_READER_USER", readerUser: c.FlowCHReaderUser, scoping: c.FlowCHTenantScoping},
 		{modeEnv: "PROBECTL_OTELSTORE_MODE", modeValue: c.OTelStoreMode, scopingEnv: "PROBECTL_OTELSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_OTELSTORE_READER_USER", readerUser: c.OTelCHReaderUser, scoping: c.OTelCHTenantScoping},
 		{modeEnv: "PROBECTL_EBPFSTORE_MODE", modeValue: c.EBPFStoreMode, scopingEnv: "PROBECTL_EBPFSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_EBPFSTORE_READER_USER", readerUser: c.EBPFCHReaderUser, scoping: c.EBPFCHTenantScoping},
+		{modeEnv: "PROBECTL_ENDPOINTSTORE_MODE", modeValue: c.EndpointStoreMode, scopingEnv: "PROBECTL_ENDPOINTSTORE_TENANT_SCOPING", readerEnv: "PROBECTL_ENDPOINTSTORE_READER_USER", readerUser: c.EndpointCHReaderUser, scoping: c.EndpointCHTenantScoping},
 	} {
 		if lane.modeValue != "clickhouse" {
 			continue

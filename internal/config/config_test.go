@@ -20,29 +20,32 @@ func envFunc(m map[string]string) func(string) string {
 
 func durableTenantProfileEnv(profile string) map[string]string {
 	return map[string]string{
-		"PROBECTL_DEPLOYMENT_PROFILE":    profile,
-		"PROBECTL_SESSION_HMAC_KEY":      testSessionHMACKeyHex,
-		"PROBECTL_BUS_MODE":              "kafka",
-		"PROBECTL_BUS_BROKERS":           "kafka.example:9093",
-		"PROBECTL_BUS_TLS_ENABLED":       "true",
-		"PROBECTL_TSDB_MODE":             "prometheus",
-		"PROBECTL_TSDB_URL":              "https://prometheus.example",
-		"PROBECTL_PATHSTORE_MODE":        "clickhouse",
-		"PROBECTL_PATHSTORE_URL":         "https://clickhouse.example:8443",
-		"PROBECTL_PATHSTORE_READER_USER": "probectl_path_reader",
-		"PROBECTL_FLOWSTORE_MODE":        "clickhouse",
-		"PROBECTL_FLOWSTORE_URL":         "https://clickhouse.example:8443",
-		"PROBECTL_FLOWSTORE_READER_USER": "probectl_flow_reader",
-		"PROBECTL_OTELSTORE_MODE":        "clickhouse",
-		"PROBECTL_OTELSTORE_URL":         "https://clickhouse.example:8443",
-		"PROBECTL_OTELSTORE_READER_USER": "probectl_otel_reader",
-		"PROBECTL_EBPFSTORE_MODE":        "clickhouse",
-		"PROBECTL_EBPFSTORE_URL":         "https://clickhouse.example:8443",
-		"PROBECTL_EBPFSTORE_READER_USER": "probectl_ebpf_reader",
-		"PROBECTL_AUDIT_WORM_DIR":        "/var/lib/probectl/audit-worm",
-		"PROBECTL_WORM_SIGNING_KEY_FILE": "/var/lib/probectl/keys/audit-worm-ed25519.pem",
-		"PROBECTL_SIEM_ENABLED":          "true",
-		"PROBECTL_SIEM_ENDPOINT":         "https://siem.example/ingest",
+		"PROBECTL_DEPLOYMENT_PROFILE":        profile,
+		"PROBECTL_SESSION_HMAC_KEY":          testSessionHMACKeyHex,
+		"PROBECTL_BUS_MODE":                  "kafka",
+		"PROBECTL_BUS_BROKERS":               "kafka.example:9093",
+		"PROBECTL_BUS_TLS_ENABLED":           "true",
+		"PROBECTL_TSDB_MODE":                 "prometheus",
+		"PROBECTL_TSDB_URL":                  "https://prometheus.example",
+		"PROBECTL_PATHSTORE_MODE":            "clickhouse",
+		"PROBECTL_PATHSTORE_URL":             "https://clickhouse.example:8443",
+		"PROBECTL_PATHSTORE_READER_USER":     "probectl_path_reader",
+		"PROBECTL_FLOWSTORE_MODE":            "clickhouse",
+		"PROBECTL_FLOWSTORE_URL":             "https://clickhouse.example:8443",
+		"PROBECTL_FLOWSTORE_READER_USER":     "probectl_flow_reader",
+		"PROBECTL_OTELSTORE_MODE":            "clickhouse",
+		"PROBECTL_OTELSTORE_URL":             "https://clickhouse.example:8443",
+		"PROBECTL_OTELSTORE_READER_USER":     "probectl_otel_reader",
+		"PROBECTL_EBPFSTORE_MODE":            "clickhouse",
+		"PROBECTL_EBPFSTORE_URL":             "https://clickhouse.example:8443",
+		"PROBECTL_EBPFSTORE_READER_USER":     "probectl_ebpf_reader",
+		"PROBECTL_ENDPOINTSTORE_MODE":        "clickhouse",
+		"PROBECTL_ENDPOINTSTORE_URL":         "https://clickhouse.example:8443",
+		"PROBECTL_ENDPOINTSTORE_READER_USER": "probectl_endpoint_reader",
+		"PROBECTL_AUDIT_WORM_DIR":            "/var/lib/probectl/audit-worm",
+		"PROBECTL_WORM_SIGNING_KEY_FILE":     "/var/lib/probectl/keys/audit-worm-ed25519.pem",
+		"PROBECTL_SIEM_ENABLED":              "true",
+		"PROBECTL_SIEM_ENDPOINT":             "https://siem.example/ingest",
 	}
 }
 
@@ -89,7 +92,7 @@ func TestLoadDefaults(t *testing.T) {
 }
 
 // TENANT-004: DB-enforced ClickHouse tenant isolation must default ON across
-// ALL four telemetry planes in the multi-tenant/regulated profile (defense in
+// ALL five telemetry planes in the multi-tenant/regulated profile (defense in
 // depth above app-layer WHERE scoping, guardrail 7.1) and stay OFF in the
 // single-tenant profile.
 func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
@@ -104,6 +107,7 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 		for name, on := range map[string]bool{
 			"flow": cfg.FlowCHTenantScoping, "otel": cfg.OTelCHTenantScoping,
 			"ebpf": cfg.EBPFCHTenantScoping, "path": cfg.PathCHTenantScoping,
+			"endpoint": cfg.EndpointCHTenantScoping,
 		} {
 			if on {
 				t.Errorf("single profile: %s CH scoping defaulted ON, want OFF", name)
@@ -119,6 +123,7 @@ func TestDeploymentProfileDefaultsCHScoping(t *testing.T) {
 			for name, on := range map[string]bool{
 				"flow": cfg.FlowCHTenantScoping, "otel": cfg.OTelCHTenantScoping,
 				"ebpf": cfg.EBPFCHTenantScoping, "path": cfg.PathCHTenantScoping,
+				"endpoint": cfg.EndpointCHTenantScoping,
 			} {
 				if !on {
 					t.Errorf("%s profile: %s CH scoping defaulted OFF, want ON (DB-layer isolation)", profile, name)
@@ -154,6 +159,7 @@ func TestTenantProfilesRequireClickHouseReaderUsers(t *testing.T) {
 			{name: "flow", env: "PROBECTL_FLOWSTORE_READER_USER"},
 			{name: "otel", env: "PROBECTL_OTELSTORE_READER_USER"},
 			{name: "ebpf", env: "PROBECTL_EBPFSTORE_READER_USER"},
+			{name: "endpoint", env: "PROBECTL_ENDPOINTSTORE_READER_USER"},
 		} {
 			t.Run(profile+" missing "+tc.name+" reader", func(t *testing.T) {
 				env := durableTenantProfileEnv(profile)
@@ -206,6 +212,7 @@ func TestTenantProfilesRejectVolatileStores(t *testing.T) {
 				"PROBECTL_FLOWSTORE_MODE=memory",
 				"PROBECTL_OTELSTORE_MODE=memory",
 				"PROBECTL_EBPFSTORE_MODE=memory",
+				"PROBECTL_ENDPOINTSTORE_MODE=memory",
 			} {
 				if !strings.Contains(msg, want) {
 					t.Fatalf("error %q missing volatile mode %s", msg, want)
@@ -252,6 +259,7 @@ func TestDatastoreTLSRequiredForTenantProfiles(t *testing.T) {
 			{name: "flow", urlEnv: "PROBECTL_FLOWSTORE_URL"},
 			{name: "otel", urlEnv: "PROBECTL_OTELSTORE_URL"},
 			{name: "ebpf", urlEnv: "PROBECTL_EBPFSTORE_URL"},
+			{name: "endpoint", urlEnv: "PROBECTL_ENDPOINTSTORE_URL"},
 		} {
 			t.Run(profile+" rejects plaintext "+tc.name+" clickhouse", func(t *testing.T) {
 				env := durableTenantProfileEnv(profile)

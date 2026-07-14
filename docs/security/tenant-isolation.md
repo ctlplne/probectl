@@ -74,7 +74,7 @@ sets no tenant variable, so the per-tenant policies match nothing for it and onl
 the explicit provider grants apply. An operator literally cannot `SELECT` a
 tenant's flows through this path.
 
-## ClickHouse — high-volume telemetry (flow, path, threat, change, cost)
+## ClickHouse — high-volume telemetry (flow, path, endpoint, threat, change, cost)
 
 ClickHouse holds the firehose: flows, L7 events, threat signals. It gets a
 layered defense because the pooled service account that ingests data is, by
@@ -119,7 +119,7 @@ path entirely:
    `SQL_probectl_tenant=<tenant>`. (Admin / cross-tenant reads — migrations,
    global counts — pass no setting, by design.)
 2. A dedicated **reader user** (for example `PROBECTL_FLOWSTORE_READER_USER`;
-   the same pattern exists for path, OTLP, and eBPF) gets
+   the same pattern exists for path, OTLP, eBPF, and endpoint/DEM events) gets
    `EnsureReaderRowPolicy`: a policy
    `probectl_reader_scope ... FOR SELECT USING tenant_id =
    getSetting('SQL_probectl_tenant')`, with no permissive escape. Because the
@@ -181,6 +181,11 @@ pass against real datastores.
   (`-tags isolation`) a non-service ClickHouse reader issuing a
   **predicate-free** read sees only its own tenant's rows — proving the row
   policy, not the app `WHERE`, is what scopes it.
+- **`internal/store/endpointstore`:** the first migration puts `tenant_id`
+  first in both partition and order keys; restart reads require a non-empty
+  tenant and use a server-bound tenant predicate plus the setting-scoped row
+  policy. Unit and real-ClickHouse tests seed a decoy tenant and prove it is not
+  returned.
 - **`internal/pipeline` (`-tags isolation`):** end-to-end ingest injection — a
   payload claiming another tenant is rejected and never lands in the victim's
   partition, against real ClickHouse and the RLS-scoped registry on real

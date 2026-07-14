@@ -33,6 +33,8 @@ Tenant self-service: **Admin → Data lifecycle → Export my data**, or
   (`format_version: 1`);
 - `postgres/<table>.jsonl` — every tenant-owned row, one JSON object per line;
 - `flows.jsonl` — every flow record, streamed from the flow store.
+- `endpoint_events.jsonl` — every raw endpoint/DEM event, streamed through the
+  tenant-scoped event-store boundary.
 
 Time-series metrics are **not** in the bundle: export them via the
 Prometheus-compatible API (federation / PromQL) — the manifest says so. Hand the
@@ -117,12 +119,13 @@ the same row-level security (RLS) scope as live queries — the eraser is
 | Postgres (pooled or silo-routed) | per-table `DELETE` **under the tenant's own scope** (RLS + silo routing — it cannot touch another tenant), multi-pass to satisfy intra-tenant foreign-key ordering | per-table `count(*) == 0` in-scope |
 | Provider rows about the tenant (usage, quotas, branding, break-glass, retention) | provider-role-scoped deletes | per-table count == 0 |
 | ClickHouse flows | pooled: synchronous lightweight delete (`SETTINGS mutations_sync=2`); siloed: `DROP DATABASE` | post-delete count == 0 |
+| ClickHouse endpoint/DEM events | pooled: tenant-predicate mutation; siloed: `DROP DATABASE` | post-delete count == 0 (`endpoint_events` in the attestation) |
 | Object store (`PROBECTL_OBJECTSTORE_DIR`, when configured) | `DeletePrefix` on `tenant/<id>/` and `silo/<id>/`; browser synthetic artifacts use the same tenant-prefixed namespace | post-delete list is empty |
 | Tenant keys (BYOK editions) | **crypto-shred** — every key version's wrapped key is nulled and the chain marked `destroyed`, so any ciphertext (including in still-live backups) is permanently unreadable, and destroyed chains refuse re-keying | versions-destroyed count on the attestation; unlicensed deployments record "no per-tenant keyring installed" |
 | Time-series (TSDB) | memory mode: in-place series delete. Prometheus mode: the engine calls the admin `delete_series` API itself and verifies. **If that admin API is disabled, this becomes a MANUAL STEP** — run `delete_series` for `{tenant_id="<id>"}` yourself (or let retention expire it); the attestation marks this store incomplete until you do | per mode |
 
 > The engine also erases the other tenant-scoped planes the same way (path,
-> topology, and externally-ingested OTLP traces/logs) — they appear in the
+> topology, endpoint/DEM event history, and externally-ingested OTLP traces/logs) — they appear in the
 > attestation's store list too. The table above is the representative subset most
 > often asked about.
 

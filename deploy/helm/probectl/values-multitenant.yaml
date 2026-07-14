@@ -39,6 +39,7 @@ control:
     PROBECTL_FLOWSTORE_READER_USER: "probectl_reader"
     PROBECTL_OTELSTORE_READER_USER: "probectl_reader"
     PROBECTL_EBPFSTORE_READER_USER: "probectl_reader"
+    PROBECTL_ENDPOINTSTORE_READER_USER: "probectl_reader"
 
 # Keep a quorum during the S34 rolling upgrade / node drains.
 podDisruptionBudget:
