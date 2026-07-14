@@ -10,6 +10,7 @@ import {
   CardHeader,
   ChartShell,
   Column,
+  DemoDataBadge,
   EmptyState,
   ErrorState,
   Field,
@@ -110,9 +111,7 @@ function browserDriver(selection: string): 'http' | 'browser' | null {
 
 function testTypeLabel(test: Test): string {
   if (test.type !== 'browser') return test.type
-  return test.params?.browser_driver === 'browser'
-    ? 'Rendered browser'
-    : 'HTTP transaction'
+  return test.params?.browser_driver === 'browser' ? 'Rendered browser' : 'HTTP transaction'
 }
 
 function defaultBrowserScript(name: string, target: string): string {
@@ -214,7 +213,7 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
                 ? 'Runs a multi-step HTTP transaction without rendering a DOM.'
                 : type === 'browser-rendered'
                   ? 'Requires a browser-configured agent and runs the transaction in Chromium.'
-                : undefined
+                  : undefined
           }
         />
         <Field
@@ -273,7 +272,11 @@ export function TargetsPage() {
 
   const columns: Column<Test>[] = [
     { key: 'name', header: 'Test', render: (t) => <strong>{t.name}</strong> },
-    { key: 'type', header: 'Type', render: (t) => <Badge tone="neutral">{testTypeLabel(t)}</Badge> },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (t) => <Badge tone="neutral">{testTypeLabel(t)}</Badge>,
+    },
     { key: 'target', header: 'Target', render: (t) => <code>{t.target || '—'}</code> },
     { key: 'interval', header: 'Interval', numeric: true, render: (t) => `${t.interval_seconds}s` },
     {
@@ -332,21 +335,13 @@ export function TargetsPage() {
       }
     >
       <div className={styles.statRow}>
-        <ChartShell
-          title="Avg RTT (24h)"
-          height={120}
-          toolbar={<Badge tone="neutral">sample</Badge>}
-        >
+        <ChartShell title="Avg RTT (24h)" height={120} toolbar={<DemoDataBadge />}>
           <Sparkline
             label="Average round-trip time, last 24 hours"
             data={[20, 18, 22, 19, 24, 30, 26, 21, 23, 19, 17, 20]}
           />
         </ChartShell>
-        <ChartShell
-          title="Packet loss (24h)"
-          height={120}
-          toolbar={<Badge tone="neutral">sample</Badge>}
-        >
+        <ChartShell title="Packet loss (24h)" height={120} toolbar={<DemoDataBadge />}>
           <Sparkline
             label="Packet loss, last 24 hours"
             data={[0, 0, 0, 1, 0, 0, 3, 8, 2, 0, 0, 0]}

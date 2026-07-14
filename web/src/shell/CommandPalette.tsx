@@ -114,13 +114,16 @@ export function CommandPalette({
       icon: themeName === 'aurora' ? 'sun' : 'moon',
       run: () => setTheme(themeName),
     }))
-    const tenant = tenants.map<Command>((tenant) => ({
-      id: `tenant:${tenant.id}`,
-      label: t('command.switchTenant', { tenant: tenant.name }),
-      hint: t('command.tenant'),
-      icon: 'targets',
-      run: () => switchTenant(tenant.id),
-    }))
+    const tenant =
+      tenants.length > 1
+        ? tenants.map<Command>((tenant) => ({
+            id: `tenant:${tenant.id}`,
+            label: t('command.switchTenant', { tenant: tenant.name }),
+            hint: t('command.tenant'),
+            icon: 'targets',
+            run: () => switchTenant(tenant.id),
+          }))
+        : []
     return [...task, ...go, ...theme, ...tenant]
   }, [navigate, setTheme, t, themes, tenants, switchTenant])
 

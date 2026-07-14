@@ -1,7 +1,7 @@
 export { Button } from './Button'
 export type { ButtonProps, ButtonVariant, ButtonSize } from './Button'
 export { Card, CardHeader, CardBody } from './Card'
-export { Badge, StatusDot } from './Badge'
+export { Badge, DemoDataBadge, StatusDot } from './Badge'
 export type { BadgeTone } from './Badge'
 export { Field } from './Input'
 export { Select } from './Select'

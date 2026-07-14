@@ -27,7 +27,13 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
       if (path === '/v1/tests' && method === 'GET') return jsonResponse({ items: tests })
       if (path === '/v1/tests' && method === 'POST') {
         const body = JSON.parse(String(init?.body))
-        const created = { ...body, id: 'new', params: body.params ?? {}, created_at: '', updated_at: '' }
+        const created = {
+          ...body,
+          id: 'new',
+          params: body.params ?? {},
+          created_at: '',
+          updated_at: '',
+        }
         tests = [created, ...tests]
         return jsonResponse(created, 201)
       }
@@ -42,12 +48,18 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
 
     renderApp('/targets')
     await screen.findByText('edge-dns')
+    expect(screen.getAllByText('Demo data')).toHaveLength(2)
+    expect(screen.queryByText(/^sample$/i)).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /new test/i }))
     const dialog = await screen.findByRole('dialog', { name: /create test/i })
     await user.type(within(dialog).getByLabelText('Name'), 'my-test')
-    expect(within(dialog).getByRole('option', { name: 'HTTP transaction (no rendering)' })).toBeInTheDocument()
-    expect(within(dialog).getByRole('option', { name: 'Rendered browser (Playwright)' })).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('option', { name: 'HTTP transaction (no rendering)' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByRole('option', { name: 'Rendered browser (Playwright)' }),
+    ).toBeInTheDocument()
     await user.selectOptions(within(dialog).getByLabelText('Type'), 'browser-rendered')
     await user.type(within(dialog).getByLabelText('Target'), 'https://shop.example/login')
     await user.click(within(dialog).getByRole('button', { name: /^create$/i }))

@@ -13,6 +13,8 @@
  *                   "cli:<probectl command>" in the terminal surface).
  *  - "none-by-design": deliberately no current surface. The gate requires a
  *                   reason, and the feature denominator test still counts it.
+ *  - "dev-showcase": a routed development aid outside the product capability
+ *                    denominator and tenant navigation.
  *
  * Adding a nav destination without registering it here fails the gate; so
  * does declaring a native surface that renders the placeholder. Adding a PRD
@@ -20,7 +22,7 @@
  * consistency, not polish (the S-FE6 'watch out for').
  */
 
-export type SurfaceKind = 'native' | 'federated' | 'none-by-design'
+export type SurfaceKind = 'native' | 'federated' | 'none-by-design' | 'dev-showcase'
 export type SurfaceLiveReceiptStatus = 'live-green' | 'static-only' | 'non-live'
 
 export interface SurfaceLiveReceipt {
@@ -129,6 +131,14 @@ export interface SurfaceDecl {
 
 export const SURFACES: SurfaceDecl[] = [
   // --- native screens (S8a shell) ---
+  {
+    capability: 'Design-system developer gallery',
+    sprint: 'W10',
+    kind: 'dev-showcase',
+    route: '/gallery',
+    offNav: true,
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
   {
     capability: 'Synthetic tests CRUD + per-type result detail',
     featureIds: ['PLANE_ACTIVE_SYNTHETIC', 'F1', 'F2', 'F4', 'F5', 'F15'],
@@ -444,7 +454,7 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: EBPF_LIVE_RECEIPT,
   },
   {
-    capability: 'REST/gRPC API and CLI/TUI command surface',
+    capability: 'REST/gRPC API and CLI command surface',
     featureIds: ['F10'],
     sprint: 'DESIGN-002',
     kind: 'native',
@@ -624,7 +634,7 @@ export function checkRegistryShape(
   const violations: RegistryViolation[] = []
   const routed = new Map<string, SurfaceDecl[]>()
   for (const s of surfaces) {
-    if (!s.featureIds || s.featureIds.length === 0) {
+    if (s.kind !== 'dev-showcase' && (!s.featureIds || s.featureIds.length === 0)) {
       violations.push({
         capability: s.capability,
         problem: 'surface declares no PRD featureIds',

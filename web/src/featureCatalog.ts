@@ -73,7 +73,7 @@ export const REQUIRED_FEATURES: RequiredFeature[] = [
   },
   {
     id: 'F10',
-    name: 'Control plane, REST/gRPC, CLI/TUI',
+    name: 'Control plane, REST/gRPC, CLI',
     status: 'delivered',
     source: 'prd-v1.0:3',
   },

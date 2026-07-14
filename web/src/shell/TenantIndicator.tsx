@@ -11,6 +11,7 @@ export function TenantIndicator() {
   const { tenant, tenants, switchTenant } = useAuth()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const canSwitch = tenants.length > 1
 
   useEffect(() => {
     if (!open) return
@@ -30,21 +31,24 @@ export function TenantIndicator() {
 
   return (
     <div className={styles.wrap} ref={ref}>
-      <button
-        type="button"
-        className={styles.button}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className={styles.dot} aria-hidden="true" />
-        <span className={styles.meta}>
-          <span className={styles.kicker}>Tenant</span>
-          <span className={styles.name}>{tenant.name}</span>
-        </span>
-        <Icon name="chevron" size={14} />
-      </button>
-      {open ? (
+      {canSwitch ? (
+        <button
+          type="button"
+          className={styles.button}
+          aria-label={`Switch tenant; current tenant ${tenant.name}`}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <TenantName name={tenant.name} />
+          <Icon name="chevron" size={14} />
+        </button>
+      ) : (
+        <div className={styles.indicator} aria-label={`Current tenant: ${tenant.name}`}>
+          <TenantName name={tenant.name} />
+        </div>
+      )}
+      {canSwitch && open ? (
         <div className={styles.menu} role="menu" aria-label="Switch tenant">
           {tenants.map((t) => (
             <button
@@ -65,5 +69,17 @@ export function TenantIndicator() {
         </div>
       ) : null}
     </div>
+  )
+}
+
+function TenantName({ name }: { name: string }) {
+  return (
+    <>
+      <span className={styles.dot} aria-hidden="true" />
+      <span className={styles.meta}>
+        <span className={styles.kicker}>Tenant</span>
+        <span className={styles.name}>{name}</span>
+      </span>
+    </>
   )
 }

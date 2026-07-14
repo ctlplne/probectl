@@ -51,6 +51,21 @@ describe('command palette (keyboard-first)', () => {
     )
   })
 
+  test('does not offer tenant switching for a single-tenant session', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets')
+    await screen.findByRole('heading', { name: /targets & tests/i })
+
+    expect(screen.getByLabelText(/current tenant:/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /switch tenant/i })).not.toBeInTheDocument()
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: /search commands/i })
+    const listbox = screen.getByRole('listbox')
+    await user.type(input, 'Switch tenant')
+    expect(within(listbox).queryByRole('option')).not.toBeInTheDocument()
+  })
+
   test('exposes task commands and deep-links into human-gated workflows', async () => {
     const user = userEvent.setup()
     renderApp('/targets')
@@ -81,9 +96,14 @@ describe('command palette (keyboard-first)', () => {
 
     await user.keyboard('{Escape}')
     await user.keyboard('{Meta>}k{/Meta}')
-    await user.type(await screen.findByRole('combobox', { name: /search commands/i }), 'Silence alert')
+    await user.type(
+      await screen.findByRole('combobox', { name: /search commands/i }),
+      'Silence alert',
+    )
     await user.keyboard('{Enter}')
-    expect(await screen.findByRole('dialog', { name: /checkout latency burn/i })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('dialog', { name: /checkout latency burn/i }),
+    ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Silence' })).toBeInTheDocument()
 
     await user.keyboard('{Escape}')

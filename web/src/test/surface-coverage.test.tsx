@@ -33,7 +33,12 @@ const openapiPaths = Object.keys((JSON.parse(openapi) as { paths: Record<string,
 const cliSurfaceSource = readFileSync(join(REPO_ROOT, 'internal/cli/surfaces.go'), 'utf8')
 const cliCommands = cliCommandsFromSurfaceSource(cliSurfaceSource)
 const prd = readPRDv1()
-const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>(['native', 'federated', 'none-by-design'])
+const allowedSurfaceKinds = new Set<SurfaceDecl['kind']>([
+  'native',
+  'federated',
+  'none-by-design',
+  'dev-showcase',
+])
 const allowedLiveReceiptStatuses = new Set<SurfaceLiveReceipt['status']>([
   'live-green',
   'static-only',
@@ -74,11 +79,7 @@ const PRD_ROW_SURFACE_PARITY: Array<{
     name: 'Device telemetry',
     kind: 'native',
     route: '/planes/device',
-    evidence: [
-      'openapi:/v1/devices',
-      'openapi:/v1/device/metrics',
-      'cli:probectl device metrics',
-    ],
+    evidence: ['openapi:/v1/devices', 'openapi:/v1/device/metrics', 'cli:probectl device metrics'],
   },
   {
     id: 'F26',
@@ -241,11 +242,13 @@ function liveReceiptViolations(surfaces: SurfaceDecl[]): string[] {
     if (receipt.evidence.length === 0) {
       violations.push(`${s.capability}: live receipt evidence is required`)
     }
-    if (s.kind === 'native' && receipt.status === 'non-live') {
+    if ((s.kind === 'native' || s.kind === 'dev-showcase') && receipt.status === 'non-live') {
       violations.push(`${s.capability}: native surface must be live-green or static-only`)
     }
-    if (s.kind !== 'native' && receipt.status === 'static-only') {
-      violations.push(`${s.capability}: only native surfaces may use static-only receipt status`)
+    if (s.kind !== 'native' && s.kind !== 'dev-showcase' && receipt.status === 'static-only') {
+      violations.push(
+        `${s.capability}: only native or dev-showcase surfaces may use static-only receipt status`,
+      )
     }
     const hasCI = receipt.evidence.some((ev) => ev.startsWith('ci:'))
     const hasTest = receipt.evidence.some((ev) => ev.startsWith('test:'))
@@ -566,9 +569,10 @@ describe('frontend-coverage gate (S-FE6)', () => {
   test('every declared file, OpenAPI, and CLI evidence exists', () => {
     expect(evidenceViolations(SURFACES)).toEqual([])
     for (const s of SURFACES.filter((x) => x.kind === 'federated')) {
-      expect(s.evidence?.length ?? 0, `${s.capability}: federated surface declares evidence`).toBeGreaterThan(
-        0,
-      )
+      expect(
+        s.evidence?.length ?? 0,
+        `${s.capability}: federated surface declares evidence`,
+      ).toBeGreaterThan(0)
     }
   })
 

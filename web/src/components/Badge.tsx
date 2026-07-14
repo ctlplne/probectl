@@ -7,6 +7,11 @@ export function Badge({ tone = 'neutral', children }: { tone?: BadgeTone; childr
   return <span className={[styles.badge, styles[tone]].join(' ')}>{children}</span>
 }
 
+/** Marks illustrative values that are not tenant telemetry. */
+export function DemoDataBadge() {
+  return <Badge tone="warning">Demo data</Badge>
+}
+
 /** StatusDot pairs a tone dot with a label (used for health/up-down states). */
 export function StatusDot({ tone = 'neutral', label }: { tone?: BadgeTone; label: string }) {
   return (

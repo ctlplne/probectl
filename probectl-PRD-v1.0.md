@@ -52,8 +52,8 @@ Everything in this section is backed by code in the repo and a named evidence pa
 - ✅ **Unified incidents.** Cross-plane signals correlate into one tenant-scoped incident with a timeline; a standing CI gate injects a known multi-plane fault and asserts exactly one correlated, fully tenant-scoped incident. `internal/incident`, `internal/pipeline` · *integration (correlation gate)*.
 - ✅ **Topology graph.** Telemetry-fed, versioned, tenant-keyed; rebuild-on-restart by design (ADR `docs/adr/volatile-stores.md`, U-047) with cold-start tests. `internal/topology`.
 - ✅ **Change intelligence.** Git/CI/deploy webhook ingestion (HMAC-verified, treated as untrusted), change timeline, change-to-incident candidates, feeds RCA. `internal/change`, `docs/change-intel.md`.
-- ✅ **AI RCA + NL query.** Deterministic planner → tenant-first-then-RBAC semantic query engine → synthesis → **citation-integrity grounding** (a finding citing nonexistent evidence is dropped). Air-gapped builtin model is the default; Ollama/OpenAI/Anthropic adapters are gated on per-tenant recorded egress consent + audit + PII redaction (U-013/C7/C8); prompt-injection hardening with non-guessable evidence IDs (U-037/D9); process-wide concurrency backstop (U-048); per-domain evidence field allow-list (U-092); optional persisted answer artifacts with retention for disputes (U-093). `internal/ai` · *test-go, rca-eval*.
-- ✅ **RCA quality eval.** 24 labeled scenarios across planes, scoring answer accuracy / citation precision / honesty (negative control must yield "insufficient evidence"); builtin baseline 0.91/0.92/pass; the blocking CI job enforces 0.85/0.85 floors and uploads the score artifact (U-049). `internal/ai/eval` · *rca-eval*.
+- ✅ **AI RCA + NL query.** Deterministic planner → tenant-first-then-RBAC semantic query engine → synthesis → **citation-integrity grounding** (a finding citing nonexistent evidence is dropped). Air-gapped builtin model is the default; Ollama, OpenAI-compatible (including Azure OpenAI and vLLM), and Anthropic adapters are gated on per-tenant recorded egress consent + audit + PII redaction (U-013/C7/C8); there is no native Azure or Bedrock adapter. Prompt-injection hardening uses non-guessable evidence IDs (U-037/D9); a process-wide concurrency backstop (U-048), per-domain evidence field allow-list (U-092), and optional persisted answer artifacts with retention for disputes (U-093) complete the path. `internal/ai` · *test-go, rca-eval*.
+- ✅ **RCA quality eval.** 25 labeled scenarios across planes, scoring answer accuracy / citation precision / honesty (negative control must yield "insufficient evidence"); builtin baseline 0.91/0.92/pass; the blocking CI job enforces 0.85/0.85 floors and uploads the score artifact (U-049). `internal/ai/eval` · *rca-eval*.
 - ✅ **MCP server.** Tenant- + RBAC-scoped tools over the same query boundary; hashed tokens with RLS-backed storage (U-091). `internal/ai/mcp`, `internal/store/mcptokens.go`.
 - ✅ **AI test authoring + auto-discovery.** NL → canary config; heuristic by default, model-backed when configured. `internal/ai/author`, `docs/ai-authoring.md`.
 
@@ -84,7 +84,7 @@ Everything in this section is backed by code in the repo and a named evidence pa
 
 ### 2.6 Enterprise trust
 
-- ✅ **Identity.** OIDC SSO (per-tenant IdP), SCIM 2.0, RBAC + custom roles + ABAC (deny-override), delegated admin, MFA via IdP, auth rate-limiting + lockout (U-024); **fail-closed auth default** — no configured mode refuses requests (U-001). `internal/auth`, `internal/scim`, `internal/abac*`.
+- ✅ **Identity.** OIDC SSO (per-tenant IdP), SCIM 2.0, RBAC + custom roles + ABAC (deny-override), delegated admin, MFA via IdP, auth rate-limiting + lockout (U-024); **fail-closed auth default** — no configured mode refuses requests (U-001). `internal/auth`, `internal/control/scim.go`, `internal/auth/abac.go`, `internal/control/abac.go`.
 - ✅ **Audit.** Hash-chained tamper-evident tenant streams + a separate provider/break-glass stream; signed WORM export to object storage with chain verification (U-041/D8); SIEM forwarding with a monotonic cursor. `internal/audit`, `internal/siem`.
 - ✅ **Crypto.** Everything through `internal/crypto` (FIPS-swappable seam; a CI ratchet forbids primitives elsewhere); envelope encryption at rest; mTLS + SPIFFE everywhere agent↔control-plane with trust-domain pinning (C2) and a registry-driven revocation deny-list (U-038); TLS on every listener, HTTPS-by-default deploys, CSP/HSTS/secure cookies (U-003/B5). · *crypto-import ratchet, fips-gate*.
 - ✅ **Supply chain.** SHA-pinned actions with pin lint (U-007), digest-pinned images + SBOM + cosign keyless signing (U-068/C6/C11), locked + audited npm (U-061/62), pinned codegen/lint/scanner tools with a generated-code diff gate (U-059/60), dependabot + scheduled scans (C12), dependency policy incl. the cilium/ebpf pre-1.0 risk entry (`docs/dependency-policy.md`, U-080/81).
@@ -150,7 +150,7 @@ Strict standard; one line each. Evidence = package / doc / gate / U-ID.
 | F22 | SSO + role model | ✅ | `internal/auth` (fail-closed default — U-001) |
 | F23 | Audit foundation | ✅ | `internal/audit` (+ WORM, U-041) |
 | F24 | Tenant→Org→Team→Project | ✅ | `internal/store/hierarchy.go` |
-| F25 | SCIM/ABAC/delegated admin | ✅ | `internal/scim`, ABAC deny-override |
+| F25 | SCIM/ABAC/delegated admin | ✅ | `internal/control/scim.go`; ABAC deny-override in `internal/auth/abac.go` + `internal/control/abac.go` |
 | F26 | SIEM integration | ✅ | `internal/siem` (cursor, tenant-routed) |
 | F27 | On-call & ITSM | ✅ | `internal/notify`, `docs/oncall-itsm.md` |
 | F28 | Zero-downtime lifecycle + fleet rollout | ✅ | migrations gate + rollout engine ✅ (`internal/agent/rollout.go`); operator CLI/API surface ✅ (`probectl rollout`, `/v1/rollouts`, `docs/ops/fleet-rollout.md`) |
@@ -232,7 +232,7 @@ item.
 
 ### 5.4 Organizational (need hires / an acquirer, not code)
 
-- **SOC 2 readiness → Type II** — the technical controls are mapped (`docs/compliance/soc2-mapping.md`); separation-of-duties and formal policies close with the first hires.
+- **SOC 2 readiness → Type II** — the technical controls are mapped (`docs/compliance/control-evidence.md`); separation-of-duties and formal policies close with the first hires.
 - **STIG/CIS and certification-grade customer package** — FIPS module certificate evidence and the validated-module build path are in repo (F32 ✅); remaining work is deployment hardening/compliance packaging, not claiming a probectl-owned CMVP certificate.
 - **VPAT publication** — the WCAG 2.2 AA gate runs in CI; the formal VPAT document is a publication task.
 - **Public launch** — the repo is private by strategy; OSS launch (and every adoption metric in §8) starts the clock when flipped.
