@@ -1,0 +1,101 @@
+PROBECTL COMMERCIAL SOURCE LICENSE
+
+DRAFT-FOR-COUNSEL — NOT FINAL COMMERCIAL TERMS
+License identifier: LicenseRef-Probectl-Commercial
+
+IMPORTANT: This document is a drafting skeleton for counsel review. It does not
+replace an order form, reseller agreement, support agreement, or other agreement
+signed by the Licensor. Until counsel publishes final terms, production or
+resale rights exist only when granted by a separately executed agreement with
+the Licensor.
+
+Copyright (c) the probectl contributors and applicable rights holders.
+All rights not expressly granted are reserved.
+
+1. Scope
+
+This license applies only to source and related materials under the repository's
+`ee/` directory (the "Commercial Software"). The MPL-2.0 license in the
+repository root applies to core files outside `ee/`; it does not apply to the
+Commercial Software.
+
+2. Definitions
+
+"Licensor" means [COUNSEL TO INSERT FINAL LEGAL ENTITY AND ADDRESS].
+
+"Valid Commercial License" means an unexpired Enterprise or MSP entitlement
+issued by the Licensor and used within its licensed customer, deployment,
+feature, and tenant limits. A signed order form or other executed agreement—not
+the visibility of this repository—controls the commercial scope.
+
+"Production Use" means using the Commercial Software to operate, secure,
+observe, manage, or support a live organization, customer, or service. It does
+not include a time-limited internal evaluation that processes only synthetic or
+non-production data.
+
+"Resale" means providing a hosted, managed, sublicensed, or otherwise
+commercially supplied service or product to a third party using the Commercial
+Software, whether separately or bundled with other software.
+
+3. Source review and licensed-use grant
+
+3.1 Source review. Subject to this license, a recipient may view the Commercial
+Software solely for evaluation, security review, interoperability assessment,
+and deciding whether to acquire a Valid Commercial License. This limited review
+permission grants no Production Use, distribution, or Resale right.
+
+3.2 Licensed use. While the recipient holds a Valid Commercial License and
+complies with the applicable executed agreement, the Licensor grants a limited,
+non-exclusive, non-transferable right to reproduce, modify, and use the
+Commercial Software solely for that recipient's licensed internal use. Copies
+and modifications must retain this notice and remain subject to the same
+commercial restrictions.
+
+3.3 Evaluation. Any evaluation beyond source review—including executing the
+Commercial Software—requires written evaluation terms from the Licensor. Those
+terms define duration, data restrictions, and permitted environments.
+
+4. Restrictions
+
+Except where an executed agreement expressly says otherwise, a recipient may
+not:
+
+* use the Commercial Software in production without a Valid Commercial License;
+* resell, host for third parties, provide managed services, sublicense, or
+  distribute the Commercial Software without both an MSP entitlement and a
+  separately executed reseller agreement;
+* remove or obscure copyright, SPDX, trademark, or license notices;
+* use the Commercial Software outside licensed feature, tenant, deployment, or
+  customer limits;
+* represent that repository access, source visibility, or a technical ability
+  to bypass a feature gate grants commercial rights; or
+* use probectl names, logos, or marks except as an executed trademark or
+  reseller agreement permits.
+
+5. Ownership and feedback
+
+The Licensor and applicable rights holders retain all right, title, and interest
+in the Commercial Software. [COUNSEL TO INSERT FINAL MODIFICATION, CONTRIBUTION,
+AND FEEDBACK OWNERSHIP LANGUAGE CONSISTENT WITH THE DCO POLICY.]
+
+6. No warranty in draft source
+
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, SOURCE PROVIDED FOR REVIEW UNDER THIS
+DRAFT IS PROVIDED "AS IS," WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND.
+[COUNSEL TO INSERT FINAL WARRANTY, INDEMNITY, SUPPORT, AND LIABILITY TERMS.]
+
+7. Term and termination
+
+Review rights end when the recipient breaches this license. Licensed-use rights
+end when the applicable Valid Commercial License or executed agreement expires
+or terminates. Sections intended by their nature to survive—including ownership,
+restrictions, warranty disclaimers, and reserved rights—survive termination.
+
+8. Controlling agreement and remaining counsel fields
+
+If this skeleton conflicts with an executed agreement, the executed agreement
+controls. [COUNSEL TO INSERT FINAL GOVERNING LAW, VENUE, EXPORT CONTROL,
+ASSIGNMENT, SEVERABILITY, NOTICE, AND ENTIRE-AGREEMENT LANGUAGE.]
+
+No reseller right, trademark right, production right, support commitment, data
+processing term, or service-level commitment is implied by this draft.

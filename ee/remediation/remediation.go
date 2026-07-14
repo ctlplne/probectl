@@ -1,6 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-Commercial-TBD
-
-// probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
+// SPDX-License-Identifier: LicenseRef-Probectl-Commercial
+//
+// Licensed under the probectl Commercial Source License; see ee/LICENSE.
+// Production use requires a valid commercial agreement; resale additionally
+// requires an MSP entitlement and reseller agreement.
 
 // Package remediation (ee/) implements the guarded-remediation workflow
 // (S-EE5, F44 — guardrail-critical), unlocked by the `remediation` Enterprise

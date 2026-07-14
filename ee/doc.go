@@ -1,12 +1,14 @@
-// SPDX-License-Identifier: LicenseRef-probectl-Commercial-TBD
-
-// probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
+// SPDX-License-Identifier: LicenseRef-Probectl-Commercial
 //
-// Source files in the ee/ tree are NOT covered by the repository's
-// source-available license. They are provided under the probectl commercial
-// license, which will be finalized with counsel before the repository goes
-// public. Until then this header is the placeholder every ee/ file carries
-// (CLAUDE.md §2, editions decisions — ratified June 2026).
+// Licensed under the probectl Commercial Source License; see ee/LICENSE.
+// Production use requires a valid commercial agreement; resale additionally
+// requires an MSP entitlement and reseller agreement.
+
+// Source files in ee/ are NOT covered by the root MPL-2.0 license. Their source
+// is visible for review, but production use requires a valid Enterprise/MSP
+// agreement and resale additionally requires an MSP entitlement plus a signed
+// reseller agreement. ee/LICENSE is explicitly DRAFT-FOR-COUNSEL until the
+// final commercial text is approved.
 //
 // The boundary rules (CI-enforced by the editions gate):
 //   - ee/ may import core packages; core may NEVER import ee/.

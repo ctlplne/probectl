@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: LicenseRef-Probectl-Commercial; see ee/LICENSE -->
+
 # `ee/` — the probectl commercial tree
 
 Everything under `ee/` is commercial code: the provider/MSP plane, siloed
@@ -5,12 +7,15 @@ isolation, metering/billing export, BYOK/governance, and guarded
 (human-gated) remediation. The directory name is the "enterprise edition"
 convention GitLab and CockroachDB use — one repository, with the paid features
 fenced into a single *readable* subtree (the fence is the license, not source
-secrecy), never a private fork. The legal license text is still being finalized
-with counsel; until it lands, every file here carries the placeholder commercial
-header from `ee/doc.go`.
+secrecy), never a private fork. The source is governed by the
+[`LicenseRef-Probectl-Commercial`](LICENSE) boundary. `ee/LICENSE` is prominently
+marked **DRAFT-FOR-COUNSEL**: source review is allowed, while production use
+requires a valid Enterprise/MSP agreement and resale additionally requires an
+MSP entitlement plus a signed reseller agreement.
 
 ```text
 ee/
+├── LICENSE        # DRAFT-FOR-COUNSEL commercial source-license skeleton
 ├── provider/      # provider / management plane (tenant lifecycle, fleet, break-glass)
 ├── silo/          # siloed / hybrid per-tenant isolation
 ├── billing/       # per-tenant metering + usage/billing export
@@ -18,17 +23,20 @@ ee/
 ├── governance/    # governance controls (e.g. AI egress policy)
 ├── remediation/   # guarded, human-gated remediation
 ├── web/           # commercial UI source (aliased @ee in web/)
-└── doc.go         # the placeholder commercial-license header
+└── doc.go         # package boundary + commercial-license summary
 ```
 
-The three rules (enforced by `make editions-gate` in CI):
+The four rules (enforced by `make editions-gate` in CI):
 
 1. **One-way imports.** `ee/` may import core packages. Core may **never**
    import `ee/` — `scripts/check_editions_imports.sh` fails the build on any
    violation.
 2. **Core stands alone.** The core-only build (every package except `ee/...`)
    must pass the full suite. Nothing in core may depend on `ee/` existing.
-3. **License-gated activation only.** Features here are constructed at the
+3. **Commercial header boundary.** Every tracked `ee/` file identifies
+   `LicenseRef-Probectl-Commercial` and points to `ee/LICENSE`; core source must
+   never carry that identifier. The editions gate self-tests both directions.
+4. **License-gated activation only.** Features here are constructed at the
    `main.go` `Build*` seams — concretely `cmd/probectl-control/ee_attach.go`,
    the one file the import guard allowlists — when `internal/license` grants
    the entitlement. No tier checks inside handlers or engines, ever (the

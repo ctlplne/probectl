@@ -1,6 +1,8 @@
-// SPDX-License-Identifier: LicenseRef-probectl-Commercial-TBD
-
-// probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
+// SPDX-License-Identifier: LicenseRef-Probectl-Commercial
+//
+// Licensed under the probectl Commercial Source License; see ee/LICENSE.
+// Production use requires a valid commercial agreement; resale additionally
+// requires an MSP entitlement and reseller agreement.
 
 // Package governance is the ee/ data-governance layer (S-EE3, F34, unlocked by
 // the `governance` Enterprise feature). The classification + redaction

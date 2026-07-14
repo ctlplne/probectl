@@ -1,6 +1,9 @@
-// SPDX-License-Identifier: LicenseRef-probectl-Commercial-TBD
+// SPDX-License-Identifier: LicenseRef-Probectl-Commercial
+//
+// Licensed under the probectl Commercial Source License; see ee/LICENSE.
+// Production use requires a valid commercial agreement; resale additionally
+// requires an MSP entitlement and reseller agreement.
 
-// probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
 // See ee/doc.go for the boundary rules every ee/ file observes.
 
 // Package provider is the probectl provider/management plane (S-T1, F51):

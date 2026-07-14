@@ -1,4 +1,8 @@
-// probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
+// SPDX-License-Identifier: LicenseRef-Probectl-Commercial
+//
+// Licensed under the probectl Commercial Source License; see ee/LICENSE.
+// Production use requires a valid commercial agreement; resale additionally
+// requires an MSP entitlement and reseller agreement.
 //
 // The provider/operator console (S-T1): a VISUALLY-SEPARATE surface from any
 // tenant app — its own shell, a loud PROVIDER-PLANE banner, no tenant

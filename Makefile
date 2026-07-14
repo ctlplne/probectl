@@ -212,7 +212,7 @@ drill-evidence-gate: ## RUNOPS gate: representative restore/failover rows are fr
 audit-verify-gate: ## Validate repaired probectl-audit VERIFY appendices and citation summary. Set PROBECTL_AUDIT_OUTPUTS to override the sibling audit output directory.
 	node scripts/check_audit_verify_outputs.mjs --repo . --outputs "$${PROBECTL_AUDIT_OUTPUTS:-../probectl-audit/outputs}"
 
-editions-gate: ## The S-T0/S-T1 editions gate: ee/ import guard (with self-test) + the core-only build/test (-tags probectl_core links ZERO ee/ code via the attach-seam twin).
+editions-gate: ## Editions import + commercial-header guards (self-tested), then core-only build/test with zero ee/ code linked.
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 	core_pkgs="$$( $(GO) list -tags probectl_core -f '{{if .GoFiles}}{{.ImportPath}}{{end}}' ./... | grep -v '^github.com/imfeelingtheagi/probectl/ee' | grep . )"; \
 	$(GO) build -tags probectl_core $$core_pkgs; \

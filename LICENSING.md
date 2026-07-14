@@ -21,10 +21,15 @@ for counsel review; do not add Exhibit B to source headers.
 
 ## Commercial source: `ee/`
 
-Files under [`ee/`](ee/) are **not** offered under MPL-2.0. They are governed by
-the separate commercial terms in [`ee/LICENSE`](ee/LICENSE). The source may be
+Files under [`ee/`](ee/) are **not** offered under MPL-2.0. They carry
+`LicenseRef-Probectl-Commercial` and point to the separate
+[`ee/LICENSE`](ee/LICENSE). That file is currently a **DRAFT-FOR-COUNSEL
+skeleton**, not final commercial paper: separately executed customer/reseller
+agreements control until counsel publishes the final text. The source may be
 visible in this repository, but visibility alone does not grant production,
-resale, or trademark rights.
+resale, or trademark rights. Production requires a valid Enterprise/MSP
+agreement; resale additionally requires an MSP entitlement and signed reseller
+agreement.
 
 Commercial capabilities are also runtime-gated by an offline-verifiable signed
 license. Runtime gating and source licensing are different layers: removing a
@@ -74,12 +79,15 @@ or with `--check` for the read-only CI gate. It covers tracked `.go`, `.ts`,
 Those generated files must be changed through their generator, not by stamping
 the generated copy. `make license-header-gate` runs in both Go and Python lint
 jobs, so a new hand-maintained core source file without the notice fails CI.
+`make editions-gate` separately checks every `ee/` file for its
+commercial identifier + `ee/LICENSE` pointer and rejects that identifier from
+core source. Its self-test plants a violation on each side of the boundary.
 
 ## Trademarks and legal review
 
 MPL-2.0 does not grant rights to the probectl name, logos, or other trademarks.
-The bespoke `ee/` commercial license, reseller terms, DPA/MSA, and commercial
-open-data AUP review remain counsel-owned work. Those pending documents do not
+Finalizing the `ee/` commercial license skeleton, reseller terms, DPA/MSA, and
+commercial open-data AUP review remain counsel-owned work. Those pending documents do not
 make the core license provisional: core is MPL-2.0 now.
 
 This file explains the repository split; it is not a substitute for the license
