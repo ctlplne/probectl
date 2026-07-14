@@ -1198,10 +1198,9 @@ three export dialects devices speak; AWS VPC Flow Logs, Azure NSG Flow Logs, and
 GCP VPC Flow Logs are the equivalent cloud-export path. The flow collector
 listens for NetFlow v5/v9, IPFIX, and sFlow v5 datagrams from network devices,
 decodes them (template + sampling handling), and publishes normalized batches to
-`probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed). Cloud flow logs are
-imported from local/exported files through the flow cloud connector, and cloud
-metric/object pulls run only when an operator explicitly configures the
-read-only cloud connector framework.
+`probectl.flow.events` (`flowv1.FlowBatch`, tenant-keyed). Cloud flow logs and
+metrics are imported from local files already exported by the operator's cloud
+pipeline. probectl does not poll cloud-provider APIs.
 It reads a YAML config (default path `PROBECTL_FLOW_CONFIG`); `PROBECTL_FLOW_*`
 env vars override the file. The defaults serve all three protocols on their
 standard ports (NetFlow `:2055`, IPFIX `:4739`, sFlow `:6343`). See
@@ -1250,14 +1249,10 @@ If all UDP listeners are disabled, `cloud_import` must be complete; otherwise
 the flow agent refuses to start. Cloud import still publishes to the configured
 bus as `probectl.flow.events`, tenant-keyed by `tenant_id`.
 
-Cloud metric connectors live in `internal/cloudconnect`. They pull AWS, Azure, or
-GCP metric snapshots and cloud-flow object manifests over HTTPS with certificate
-validation, using provider-specific read-only scopes only. The connector stamps
-the tenant from its registered config, never from provider payloads, sends
-credentials only in authorization headers, caches the last good snapshot, and
-returns a degraded cached result when the provider/proxy is down. This is still
-an explicit operator opt-in outbound integration: no cloud account is contacted
-by the default flow-agent config.
+Cloud metrics use the live `probectl-cloud-metrics` importer documented below.
+It reads operator-exported JSONL locally and sends tenant-bound remote write to
+the self-hosted control plane. The previous cloud-pull prototype was never wired
+into a command, so there is no hidden cloud-API polling path.
 
 The **control plane** consumes that flow topic, optionally enriches each record
 with ASN/geo, and persists to the flow store behind `/v1/flows/*` (top-talkers /

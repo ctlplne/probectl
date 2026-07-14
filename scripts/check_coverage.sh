@@ -160,7 +160,7 @@ awk -v mod="${MODULE}" '
     # internal/ebpf/gendigests is a build-time `go run` generator (package
     # main, emits the BPF object-digest manifest, U-014) — a tool, not runtime
     # logic, so it carries no unit-test floor (like internal/gen/*).
-    n = split("internal/billing internal/compliance internal/cost internal/slo internal/ebpf/gendigests", ex, " ")
+    n = split("internal/compliance internal/cost internal/slo internal/ebpf/gendigests", ex, " ")
     for (i = 1; i <= n; i++) exempt[ex[i]] = 1
   }
   NR == 1 && $1 == "mode:" { next }
