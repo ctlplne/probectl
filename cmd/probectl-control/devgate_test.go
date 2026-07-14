@@ -61,3 +61,25 @@ func TestValidateDevAuthMode(t *testing.T) {
 		t.Fatalf("dev auth with compiled hook, explicit ack, and loopback should pass: %v", err)
 	}
 }
+
+func TestRunRefusesUnavailableDevAuthBeforeEnvelopeSetup(t *testing.T) {
+	t.Setenv("PROBECTL_AUTH_MODE", "dev")
+	t.Setenv("PROBECTL_ENVELOPE_KEY", "")
+	t.Setenv("PROBECTL_ENVELOPE_KEY_FILE", "")
+	t.Setenv("PROBECTL_ALLOW_KEYLESS_DEV", "")
+
+	orig := devAuthAvailable
+	devAuthAvailable = func() bool { return false }
+	t.Cleanup(func() { devAuthAvailable = orig })
+
+	err := run("serve")
+	if err == nil {
+		t.Fatal("release startup unexpectedly accepted unavailable dev auth")
+	}
+	if !strings.Contains(err.Error(), "not compiled into this binary") {
+		t.Fatalf("release startup must reject unavailable dev auth before unrelated secret setup, got %v", err)
+	}
+	if strings.Contains(err.Error(), "envelope key") {
+		t.Fatalf("release startup leaked past the authoritative dev-auth refusal: %v", err)
+	}
+}

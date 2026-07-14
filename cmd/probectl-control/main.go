@@ -94,6 +94,15 @@ func run(cmd string) error {
 	slog.SetDefault(log)
 	crypto.LogPowerOnSelfTestStatus(log)
 
+	// RED-001/SEC-001: reject a request for dev auth before resolving any
+	// unrelated secret backend or envelope key. Release binaries do not contain
+	// the dev principal at all, so that authoritative refusal must be the first
+	// startup answer; otherwise an operator is sent toward fixing a key that
+	// cannot make the requested auth mode available.
+	if err := validateDevAuthMode(cfg); err != nil {
+		return err
+	}
+
 	// S41/SEC-002/S-T6: resolve secret-reference config and install the at-rest
 	// envelope sealer (extracted to setupSecretsAndEnvelope — CODE-005).
 	secretsResolver, envelopeGenerated, err := setupSecretsAndEnvelope(cfg)
@@ -104,10 +113,6 @@ func run(cmd string) error {
 	if envelopeGenerated {
 		log.Warn("GENERATED a new at-rest envelope key — back this file up like any key material; losing it makes sealed values unreadable",
 			"key_file", cfg.EnvelopeKeyFile, "key_id", cfg.EnvelopeKeyID)
-	}
-
-	if err := validateDevAuthMode(cfg); err != nil {
-		return err
 	}
 
 	db, err := store.Open(context.Background(), cfg.DatabaseURL,
