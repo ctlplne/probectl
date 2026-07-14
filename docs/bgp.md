@@ -104,6 +104,28 @@ timeline:
 You see the prefix, the AS that *should* originate it versus the one that *did*, and
 the RPKI verdict — enough to act in seconds.
 
+Run the public-collector analyzer through its shipped tenant-bound bridge (the
+sidecar is opt-in and needs the same TLS Kafka settings as the control plane):
+
+```sh
+PROBECTL_BGP_ANALYZER_CONFIG=/etc/probectl/bgp/analyzer.json \
+PROBECTL_BGP_ANALYZER_SOURCE=mrt \
+PROBECTL_BGP_ANALYZER_SOURCE_FILE=/var/lib/probectl/routes.mrt \
+PROBECTL_BUS_MODE=kafka \
+PROBECTL_BUS_BROKERS=kafka-1:9093 \
+PROBECTL_BUS_TLS_ENABLED=true \
+  probectl-control bgp-analyzer
+```
+
+The Go supervisor treats the JSON config's `tenant_id` as the trusted binding,
+rejects a Python payload that claims any other tenant, and only then publishes
+the canonical protobuf. A Python crash backs off and restarts without affecting
+the API or other telemetry planes. For a deterministic local proof, run the
+Compose `bgp-analyzer` profile documented in `deploy/compose/eval.yml`.
+The source must be selected explicitly. The stock sidecar image supports MRT
+and recorded RIS replay; live RIS streaming requires the analyzer's separately
+documented optional `websockets` package in a custom analyzer image.
+
 To ingest direct router BMP streams, run the listener with a server certificate and
 the CA that signs router/client certificates:
 

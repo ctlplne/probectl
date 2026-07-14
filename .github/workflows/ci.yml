@@ -699,6 +699,8 @@ jobs:
         # ClickHouse and FAIL (not skip) under PROBECTL_TEST_REQUIRE_SERVICES=1,
         # so the store must be up and its URL exported before make test-integration.
         run: docker compose -f deploy/compose/dev.yml up -d --wait clickhouse
+      - name: Install hash-locked BGP analyzer runtime dependency
+        run: python3 -m pip install --require-hashes -r analyzer/requirements.lock
       - name: Integration tests (migrations + readiness + result pipeline + cross-plane e2e)
         # WIRE-005: require services so the mTLS/enroll wire-defense integration
         # tests (TestRejectsNonMTLS, TestAgentRegistersOverMTLS,

@@ -1,0 +1,25 @@
+{{- if and .Values.bgpAnalyzer.enabled .Values.bgpAnalyzer.networkPolicy.enabled }}
+{{- $egress := required "bgpAnalyzer.networkPolicy.egressTo must be non-empty when the analyzer is enabled" .Values.bgpAnalyzer.networkPolicy.egressTo -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "probectl.fullname" . }}-bgp-analyzer
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "probectl.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: bgp-analyzer
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- toYaml $egress | nindent 4 }}
+{{- end }}

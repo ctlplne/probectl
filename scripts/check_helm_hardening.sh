@@ -77,6 +77,33 @@ need_file "database.url" "$CI_WORKFLOW" "CI kubeconform render must pass databas
 
 bash scripts/check_clickhouse_restore_contract.sh
 
+# W1: the optional analyzer must remain listener-free, tenant-configured,
+# immutable-image pinned, and default-deny on ingress/egress. Exercise the
+# disabled-by-default branch AND the enabled render so this component cannot
+# silently rot behind a values flag.
+if render --set bgpAnalyzer.enabled=true \
+  --set bgpAnalyzer.configSecret=bgp-config \
+  --set bgpAnalyzer.source=mrt \
+  --set bgpAnalyzer.sourceFile=/fixtures/routes.mrt \
+  --set bgpAnalyzer.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --set-string bgpAnalyzer.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+  >/dev/null 2>&1; then
+  fail "BGP analyzer rendered without an explicit egress allow-list (W1)"
+fi
+analyzer_render="$(render \
+  --set bgpAnalyzer.enabled=true \
+  --set bgpAnalyzer.configSecret=bgp-config \
+  --set bgpAnalyzer.source=mrt \
+  --set bgpAnalyzer.sourceFile=/fixtures/routes.mrt \
+  --set bgpAnalyzer.image.digest=sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+  --set-string bgpAnalyzer.extraEnv.PROBECTL_BUS_BROKERS=kafka.probectl.svc:9093 \
+  --set-json 'bgpAnalyzer.networkPolicy.egressTo=[{"to":[{"ipBlock":{"cidr":"10.0.0.0/8"}}],"ports":[{"protocol":"TCP","port":9093}]}]')"
+need_fixed "name: probectl-bgp-analyzer" "$analyzer_render" "BGP analyzer Deployment/NetworkPolicy did not render (W1)"
+need_fixed "ghcr.io/imfeelingtheagi/probectl-bgp-analyzer@sha256:0000000000000000000000000000000000000000000000000000000000000000" "$analyzer_render" "BGP analyzer image is not digest-pinned (W1)"
+need_fixed "automountServiceAccountToken: false" "$analyzer_render" "BGP analyzer received a Kubernetes API token (W1)"
+need_fixed "PROBECTL_BGP_ANALYZER_CONFIG" "$analyzer_render" "BGP analyzer has no tenant config binding (W1)"
+need_fixed "ingress: []" "$analyzer_render" "BGP analyzer NetworkPolicy admits inbound traffic despite having no listener (W1)"
+
 # EBPF-001: every shipped eBPF config generator must include the schema version
 # accepted by the strict agent loader. The agent should keep failing closed on
 # missing/unknown config, while Helm/install/e2e never generate an old headerless

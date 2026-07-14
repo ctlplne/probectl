@@ -18,6 +18,43 @@
     "imagePullSecrets": { "type": "array" },
     "nameOverride": { "type": "string" },
     "fullnameOverride": { "type": "string" },
+    "bgpAnalyzer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "digest": { "type": "string", "pattern": "^(|sha256:[0-9a-f]{64})$" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+          },
+          "required": ["repository", "digest", "pullPolicy"]
+        },
+        "configSecret": { "type": "string" },
+        "configKey": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "enum": ["", "ris-live", "mrt", "replay"] },
+        "sourceFile": { "type": "string" },
+        "restart": { "type": "boolean" },
+        "busSecret": { "type": "string" },
+        "extraEnv": { "type": "object" },
+        "extraVolumes": { "type": "array" },
+        "extraVolumeMounts": { "type": "array" },
+        "resources": { "type": "object" },
+        "networkPolicy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "egressTo": { "type": "array" }
+          },
+          "required": ["enabled", "egressTo"]
+        }
+      },
+      "required": ["enabled", "image", "configKey", "source", "restart", "networkPolicy"]
+    },
     "replicaCount": { "type": "integer", "minimum": 1 },
     "migrateOnBoot": { "type": "boolean" },
     "publicTLS": { "type": "boolean" },

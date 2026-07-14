@@ -81,6 +81,26 @@ replicas. Provider profiles also need audit-retention watermarks at install time
 tenant audit rows prune only below the SIEM cursor, and provider/break-glass rows
 prune only below the signed WORM segment watermark.
 
+## Optional public-feed BGP analyzer
+
+`bgpAnalyzer.enabled=true` adds one listener-free Deployment containing the
+Python analyzer and its tenant-bound Go Kafka bridge. Create a Secret whose
+`analyzer.json` key contains exactly one tenant's analyzer config, use an
+immutable `probectl-bgp-analyzer` image digest, and set the existing Kafka TLS
+variables under `bgpAnalyzer.extraEnv`. Put SASL credentials in the dedicated
+`bgpAnalyzer.busSecret`, not in values.
+
+Select `bgpAnalyzer.source` explicitly. The stock image runs MRT files and
+recorded RIS replay; a custom live-RIS image must add the analyzer's documented
+optional `websockets` package under the same hash-pinning policy.
+
+The analyzer NetworkPolicy is fail-closed: enabling the component also requires
+a non-empty `bgpAnalyzer.networkPolicy.egressTo` list covering the Kafka broker
+and any explicitly configured RIS/RPKI destination. No Service is rendered,
+and the pod receives no Kubernetes API token. See
+[`docs/bgp.md`](../../docs/bgp.md) and
+[`docs/configuration.md`](../../docs/configuration.md) for the config schema.
+
 ## The agent chart (`probectl-agent/`)
 
 [`probectl-agent/`](probectl-agent/) deploys the eBPF host agent as a DaemonSet

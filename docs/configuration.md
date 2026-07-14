@@ -67,7 +67,8 @@ enrollment — [`agent/enrollment.md`](agent/enrollment.md)), `scim-token`
 `support-bundle` (supportability, below), `backup-seal` / `backup-open`
 (sealed backups — *Tenant lifecycle*, below), `backup-rewrap` and
 `envelope-rewrap` (deployment-envelope key rotation — [hardening.md](hardening.md)),
-and `replay-deadletter`
+`bgp-analyzer` (the optional Python analyzer bridge — *BGP routing
+intelligence*, below), and `replay-deadletter`
 (re-ingest dead-lettered records — [`ops/dead-letter-replay.md`](ops/dead-letter-replay.md)).
 
 A note on the defaults: the listen address is `:8080`, the database DSN — the
@@ -662,8 +663,9 @@ validation compares each seen announcement against them, labeling it `valid`,
 `invalid`, or `not_found`. With no VRP source configured, everything is
 honestly `unknown`.
 
-The analyzer emits `probectl.bgp.events` as **JSON Lines**; the Go bridge tails that
-stream, validates the tenant, and republishes each as the canonical
+The shipped `probectl-control bgp-analyzer` sidecar starts that Python command,
+tails its **JSON Lines**, checks every payload tenant against the trusted
+`tenant_id` in the mounted config, and republishes each as the canonical
 `probectl.bgp.v1.BGPEvent` protobuf onto the bus (topic `probectl.bgp.events`, keyed by
 tenant). Event types: `origin_change` (old/new origin + AS path), `possible_hijack`,
 `possible_leak`, `rpki_invalid`; each carries an RPKI status (`valid` / `invalid` /
@@ -673,6 +675,27 @@ full RIB in memory); a down RPKI/collector source degrades gracefully rather
 than breaking the plane.
 RouteViews/RIS are open data — their AUP/provenance matters for MSP/commercial
 resale, not for private development or single-tenant OSS use.
+
+The sidecar is off by default and requires Kafka because a separate process
+cannot share the control plane's in-memory bus. It has no listener. Live mode
+restarts after crashes with exponential backoff capped at 30 seconds; finite
+MRT/replay jobs exit after one successful run. The child Python process does
+not receive Kafka/DB credentials — the Go bridge alone owns the bus connection.
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `PROBECTL_BGP_ANALYZER_CONFIG` | (none) | analyzer JSON path; required; its `tenant_id` becomes the trusted output binding |
+| `PROBECTL_BGP_ANALYZER_SOURCE` | (none) | required: `ris-live` \| `mrt` \| `replay`; the stock image supports MRT/replay, while live mode needs the analyzer's optional `websockets` package |
+| `PROBECTL_BGP_ANALYZER_SOURCE_FILE` | (none) | required input path for `mrt` and `replay` |
+| `PROBECTL_BGP_ANALYZER_RESTART` | `true` for live; `false` for files | restart the subprocess after it exits; backoff is always bounded |
+| `PROBECTL_BGP_ANALYZER_PYTHON` | `python3` | Python executable path |
+| `PROBECTL_BGP_ANALYZER_MODULE` | `probectl_analyzer` | Python module passed to `python -m` |
+| `PROBECTL_BGP_ANALYZER_WORKDIR` | (none; image uses `/opt/probectl/analyzer`) | child working directory |
+| `PROBECTL_BUS_*` | see result-bus table | must select Kafka; the same TLS/mTLS/SASL fail-closed policy applies |
+
+Helm renders this as an optional one-replica Deployment with no Service and an
+explicit egress NetworkPolicy. Compose's `bgp-analyzer` profile replays a
+recorded RIS fixture end to end for evaluation.
 
 For operators who run routers that export **BMP** (BGP Monitoring Protocol), run
 `probectl-bmp-listener` next to the routing fabric. It serves **mTLS only**:

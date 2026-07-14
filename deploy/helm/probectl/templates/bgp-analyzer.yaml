@@ -1,0 +1,80 @@
+{{- if .Values.bgpAnalyzer.enabled }}
+{{- $digest := required "bgpAnalyzer.image.digest is required when bgpAnalyzer.enabled=true" .Values.bgpAnalyzer.image.digest -}}
+{{- $configSecret := required "bgpAnalyzer.configSecret is required when bgpAnalyzer.enabled=true" .Values.bgpAnalyzer.configSecret -}}
+{{- $source := required "bgpAnalyzer.source is required when bgpAnalyzer.enabled=true" .Values.bgpAnalyzer.source -}}
+{{- if and (or (eq $source "mrt") (eq $source "replay")) (empty .Values.bgpAnalyzer.sourceFile) -}}
+{{- fail "bgpAnalyzer.sourceFile is required for mrt/replay sources" -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "probectl.fullname" . }}-bgp-analyzer
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bgp-analyzer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "probectl.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: bgp-analyzer
+  template:
+    metadata:
+      labels:
+        {{- include "probectl.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: bgp-analyzer
+    spec:
+      serviceAccountName: {{ include "probectl.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: bgp-analyzer
+          image: {{ printf "%s@%s" .Values.bgpAnalyzer.image.repository $digest | quote }}
+          imagePullPolicy: {{ .Values.bgpAnalyzer.image.pullPolicy }}
+          env:
+            - name: PROBECTL_BGP_ANALYZER_CONFIG
+              value: /etc/probectl-bgp/analyzer.json
+            - name: PROBECTL_BGP_ANALYZER_SOURCE
+              value: {{ $source | quote }}
+            - name: PROBECTL_BGP_ANALYZER_RESTART
+              value: {{ .Values.bgpAnalyzer.restart | quote }}
+            {{- if .Values.bgpAnalyzer.sourceFile }}
+            - name: PROBECTL_BGP_ANALYZER_SOURCE_FILE
+              value: {{ .Values.bgpAnalyzer.sourceFile | quote }}
+            {{- end }}
+            {{- range $name, $value := .Values.bgpAnalyzer.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- if .Values.bgpAnalyzer.busSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.bgpAnalyzer.busSecret | quote }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.bgpAnalyzer.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: analyzer-config
+              mountPath: /etc/probectl-bgp
+              readOnly: true
+            {{- with .Values.bgpAnalyzer.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: analyzer-config
+          secret:
+            secretName: {{ $configSecret | quote }}
+            items:
+              - key: {{ .Values.bgpAnalyzer.configKey | quote }}
+                path: analyzer.json
+        {{- with .Values.bgpAnalyzer.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

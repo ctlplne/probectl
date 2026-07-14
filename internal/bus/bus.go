@@ -219,3 +219,19 @@ func TenantKey(tenantID, entropy string) []byte {
 	b := h % TenantBuckets
 	return []byte(tenantID + "|b" + string(rune('a'+b)))
 }
+
+// TenantFromKey returns the authenticated tenant portion of a bus key produced
+// by TenantKey. Plain tenant keys remain valid for single-writer topics. Only
+// the exact |b[a-p] suffix is stripped; a malformed suffix stays part of the
+// key so downstream tenant/payload comparison rejects it instead of guessing.
+func TenantFromKey(key []byte) string {
+	s := string(key)
+	if len(s) < 3 || s[len(s)-3:len(s)-1] != "|b" {
+		return s
+	}
+	bucket := s[len(s)-1]
+	if bucket < 'a' || bucket >= 'a'+TenantBuckets {
+		return s
+	}
+	return s[:len(s)-3]
+}

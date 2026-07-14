@@ -1,0 +1,1 @@
+{"type":"ris_message","data":{"type":"UPDATE","timestamp":1700000000.0,"peer":"192.0.2.1","peer_asn":"64511","host":"rrc00","path":[64511,64500,65551],"announcements":[{"next_hop":"192.0.2.1","prefixes":["192.0.2.0/24"]}],"withdrawals":[]}}

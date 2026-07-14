@@ -39,8 +39,9 @@ type Publisher interface {
 
 // Bridge republishes analyzer events onto the bus.
 type Bridge struct {
-	bus Publisher
-	log *slog.Logger
+	bus            Publisher
+	log            *slog.Logger
+	expectedTenant string
 }
 
 // Stats summarizes an ingest run.
@@ -55,6 +56,15 @@ func NewBridge(b Publisher, log *slog.Logger) *Bridge {
 		log = slog.Default()
 	}
 	return &Bridge{bus: b, log: log}
+}
+
+// WithExpectedTenant binds analyzer output to the tenant named by the runner's
+// trusted configuration. The Python payload still carries tenant_id as a
+// defense-in-depth assertion, but it cannot use that field to switch tenants:
+// a mismatch is rejected before publication (guardrail 7.1).
+func (br *Bridge) WithExpectedTenant(tenantID string) *Bridge {
+	br.expectedTenant = tenantID
+	return br
 }
 
 // PublishEvent validates and publishes one canonical BGP event. It is shared by
@@ -123,6 +133,14 @@ func (br *Bridge) Ingest(ctx context.Context, r io.Reader) (Stats, error) {
 		if err := ev.validate(); err != nil {
 			stats.Skipped++
 			br.log.Warn("skipping invalid bgp event", "error", err)
+			continue
+		}
+		if br.expectedTenant != "" && ev.TenantID != br.expectedTenant {
+			stats.Skipped++
+			br.log.Error("rejecting bgp event with mismatched tenant binding",
+				"expected_tenant_id", br.expectedTenant,
+				"payload_binding_mismatch", true,
+			)
 			continue
 		}
 		if err := PublishEvent(ctx, br.bus, ev); err != nil {

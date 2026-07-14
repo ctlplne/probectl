@@ -402,6 +402,11 @@ images: ## Build multi-arch images for all components (Buildx).
 			-t $(IMAGE_REGISTRY)/$$b:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/$$b:latest \
 			. || exit 1; \
 	done
+	@echo ">> buildx probectl-bgp-analyzer ($(PLATFORMS))"
+	docker buildx build --platform $(PLATFORMS) \
+		-f deploy/docker/Dockerfile.bgp-analyzer \
+		--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
+		-t $(IMAGE_REGISTRY)/probectl-bgp-analyzer:$(IMAGE_TAG) -t $(IMAGE_REGISTRY)/probectl-bgp-analyzer:latest .
 
 .PHONY: e2e
 e2e: ## U-054 black-box full-stack e2e (test/e2e): compose deps + real binaries + public API + tenancy boundary. Nightly CI.

@@ -350,7 +350,7 @@ func installCHReaderPolicy(
 }
 
 // dispatchEarlyCommand handles the subcommands that need NO database or config
-// (version/gen-cert/support-bundle/preflight/backup-*) plus the unknown-command
+// (version/gen-cert/support-bundle/preflight/backup-*/bgp-analyzer) plus the unknown-command
 // error. It returns handled=false for `serve` and the
 // DB-backed subcommands so run() falls through to the configured path.
 // Extracted verbatim from run()'s leading switch (CODE-001) — behavior is
@@ -380,11 +380,14 @@ func dispatchEarlyCommand(cmd string) (handled bool, err error) {
 		// KEYS-002: stream an old backup through open+seal so its header
 		// carries the active deployment KEK id and no plaintext lands on disk.
 		return true, backupRewrap(os.Args[2:])
+	case "bgp-analyzer":
+		// W1: optional Python analyzer supervisor + tenant-bound Kafka bridge.
+		return true, runBGPAnalyzer(os.Getenv)
 	case "serve", "migrate", "mcp-stdio", "mcp-token", "scim-token", "agent-ca", "enroll-token", "revoke-agent", "revoke-enroll-token", "register-collector", "replay-deadletter", "envelope-rewrap":
 		// fall through to the configured path in run()
 		return false, nil
 	default:
-		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | gen-cert | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
+		return true, fmt.Errorf("unknown command %q (want: serve | migrate | mcp-stdio | mcp-token | scim-token | agent-ca | enroll-token | revoke-agent | revoke-enroll-token | register-collector | replay-deadletter | envelope-rewrap | bgp-analyzer | gen-cert | support-bundle | preflight | backup-seal | backup-open | backup-rewrap | version)", cmd)
 	}
 }
 

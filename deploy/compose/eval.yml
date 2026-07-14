@@ -162,6 +162,34 @@ services:
     # on real failure rather than re-emitting forever on a clean exit.
     restart: on-failure
 
+  # ---- optional producer: real Python BGP analyzer -> tenant-bound bridge ---
+  # The profile replays one recorded RIS update so evaluation is deterministic:
+  #   docker compose -f deploy/compose/eval.yml --profile bgp-analyzer up --build -d
+  # Kafka retains the event after this finite runner exits; read it through
+  # `viewer` with URL=/v1/bgp/events. Production uses source=ris-live and TLS
+  # Kafka; this eval profile is the explicit local plaintext exception.
+  bgp-analyzer:
+    profiles: ["bgp-analyzer"]
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.bgp-analyzer
+    image: probectl-bgp-analyzer-eval:dev
+    depends_on:
+      kafka: { condition: service_healthy }
+    environment:
+      PROBECTL_BGP_ANALYZER_CONFIG: /etc/probectl/analyzer.json
+      PROBECTL_BGP_ANALYZER_SOURCE: replay
+      PROBECTL_BGP_ANALYZER_SOURCE_FILE: /fixtures/ris-hijack.jsonl
+      PROBECTL_BUS_MODE: kafka
+      PROBECTL_BUS_BROKERS: kafka:19092
+      PROBECTL_BUS_ALLOW_PLAINTEXT: "true"
+      PROBECTL_LOG_FORMAT: json
+    volumes:
+      - ./bgp-analyzer-eval.json:/etc/probectl/analyzer.json:ro
+      - ../../internal/control/testdata/bgp/ris-hijack.jsonl:/fixtures/ris-hijack.jsonl:ro
+    networks: [probectl]
+    restart: on-failure
+
   # ---- helper: read first data through the loopback API ---------------------
   # Shares the control plane's network namespace so it can reach 127.0.0.1:8443
   # (which is not published to your host). `--profile tools` keeps it off the

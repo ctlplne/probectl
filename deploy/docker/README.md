@@ -10,11 +10,17 @@ and the release workflow, so these two files are the single source of truth for
 | ---- | -------------- |
 | `Dockerfile` | a single multi-stage, multi-arch build that produces **any one** of probectl's Go binaries, selected with the `COMPONENT` build arg (a distroless `nonroot` final image) |
 | `Dockerfile.ebpf` | the **live** `probectl-ebpf-agent` image — same binary, but built with the eBPF CO-RE loader compiled in (`-tags ebpf`) instead of the fixture replayer |
+| `Dockerfile.bgp-analyzer` | the optional Python analyzer plus `probectl-control bgp-analyzer`, which tenant-binds JSONL and publishes canonical BGP events to Kafka |
 
 Both builds use the **repository root** as the build context — the build
 context being the set of files Docker is allowed to read while building. The
 compile needs `go.mod` and all of `internal/`, so the context must be the whole
 repo, not `deploy/docker/`.
+
+The analyzer image is intentionally separate from the control image. Enabling
+BGP public-feed intelligence therefore adds Python and outbound feed access only
+to the optional sidecar; the API stays distroless and a sidecar crash cannot
+take down core telemetry.
 
 ## Generic component image (`Dockerfile`)
 

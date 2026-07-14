@@ -18,6 +18,39 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Optional Python BGP intelligence sidecar (W1). Disabled means no Python
+# runtime and no outbound BGP feed connection exist. When enabled, provide an
+# immutable probectl-bgp-analyzer image digest, a Secret containing one
+# tenant-bound analyzer JSON config, and explicit Kafka/TLS egress settings.
+bgpAnalyzer:
+  enabled: false
+  image:
+    repository: ghcr.io/imfeelingtheagi/probectl-bgp-analyzer
+    digest: "" # required when enabled; sha256:<64 hex>
+    pullPolicy: IfNotPresent
+  configSecret: "" # key below must contain analyzer JSON with tenant_id
+  configKey: analyzer.json
+  source: "" # required when enabled: ris-live | mrt | replay
+  sourceFile: "" # required by the runner for mrt/replay; mount it below
+  restart: true
+  # Optional Secret containing ONLY PROBECTL_BUS_* auth/TLS environment keys.
+  busSecret: ""
+  # Non-secret PROBECTL_BUS_* settings, e.g. mode=kafka, brokers, TLS CA path.
+  extraEnv:
+    PROBECTL_BUS_MODE: kafka
+    PROBECTL_BUS_BROKERS: ""
+    PROBECTL_BUS_TLS_ENABLED: "true"
+  extraVolumes: []
+  extraVolumeMounts: []
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  networkPolicy:
+    enabled: true
+    # Required/non-empty when enabled: allow only Kafka, configured RPKI, and
+    # RIS Live destinations approved for this deployment. DNS is added below.
+    egressTo: []
+
 replicaCount: 1
 
 # Apply database migrations from an init container before the server starts.

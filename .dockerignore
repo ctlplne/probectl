@@ -13,8 +13,15 @@ go.work
 go.work.sum
 test/
 
+# The optional BGP image copies only the analyzer runtime package + production
+# lock; exclude its tests/tooling and every other analyzer file.
+analyzer/*
+!analyzer/probectl_analyzer/
+!analyzer/probectl_analyzer/**
+!analyzer/requirements.lock
+analyzer/probectl_analyzer/__pycache__/
+analyzer/probectl_analyzer/**/*.pyc
 # Other components / docs / deploy assets.
-analyzer/
 # web/: the UI SOURCE is needed — the image builds the SPA in a node stage and
 # embeds it (UX-002, deploy/docker/Dockerfile `web` stage runs `COPY web/`).
 # Exclude only the heavy/generated subdirs so `npm ci` + `npm run build` run on a

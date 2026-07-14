@@ -19,7 +19,7 @@ func bindBGPEventAuthenticatedTenant(ev *bgpv1.BGPEvent, msg bus.Message, laneTe
 	if ev == nil {
 		return "", errBGPMissingTenantEnvelope
 	}
-	keyTenant := string(msg.Key)
+	keyTenant := bus.TenantFromKey(msg.Key)
 	envelopeTenant := laneTenant
 	if envelopeTenant != "" && keyTenant != "" && keyTenant != envelopeTenant {
 		return "", fmt.Errorf("%w: key tenant %q != lane tenant %q", errBGPTenantEnvelopeMismatch, keyTenant, envelopeTenant)

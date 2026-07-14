@@ -21,6 +21,7 @@
 //	probectl-control backup-rewrap        re-encrypt a backup container under the active KEK
 //	probectl-control envelope-rewrap      rewrap live deployment-envelope secrets
 //	probectl-control preflight            validate config/connectivity and exit
+//	probectl-control bgp-analyzer         run the optional Python analyzer bridge
 //	probectl-control version              print build metadata and exit
 //
 // Configuration is read from PROBECTL_-prefixed environment variables

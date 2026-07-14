@@ -56,11 +56,11 @@ jobs:
           exit 1
 
   # TEST-011: the docs-vs-CI contradiction recurs the moment the Makefile grows
-  # a binary that nobody adds here. This gate makes the published set and the
-  # Makefile's BINARIES list prove each other equal — drift fails the release
-  # instead of silently shipping an incomplete set.
+  # a binary that nobody adds here. This gate makes the published set cover the
+  # Makefile's BINARIES plus the Python/Go analyzer sidecar — drift fails the
+  # release instead of silently shipping an incomplete set.
   components-match-makefile:
-    name: published components == Makefile BINARIES
+    name: published components complete
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -68,19 +68,19 @@ jobs:
       - name: Assert every Makefile binary is a published component
         run: |
           set -euo pipefail
-          expected="$(grep -E '^BINARIES[[:space:]]*:=' Makefile | cut -d= -f2- | tr ' ' '\n' | grep . | sort -u)"
+          expected="$({ grep -E '^BINARIES[[:space:]]*:=' Makefile | cut -d= -f2- | tr ' ' '\n'; echo probectl-bgp-analyzer; } | grep . | sort -u)"
           # The full set this workflow publishes: the images matrix plus the
-          # ebpf-agent include (its own live-build Dockerfile). Keep in lockstep
+          # special-image includes (eBPF + analyzer). Keep in lockstep
           # with the matrix above — this list is the single assertion point.
           published="$(printf '%s\n' \
             probectl-control probectl-agent probectl-endpoint \
             probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl \
-            probectl-ebpf-agent | sort -u)"
+            probectl-ebpf-agent probectl-bgp-analyzer | sort -u)"
           if ! diff <(echo "$expected") <(echo "$published"); then
-            echo "::error::release.yml published components drift from Makefile BINARIES (TEST-011): the < line is in the Makefile but unpublished, the > line is published but not a Makefile binary. Update the images matrix."
+            echo "::error::release.yml published components drift from Makefile BINARIES + analyzer sidecar (TEST-011). Update the images matrix."
             exit 1
           fi
-          echo "all $(echo "$expected" | wc -l | tr -d ' ') Makefile binaries are published"
+          echo "all $(echo "$expected" | wc -l | tr -d ' ') release components are published"
 
   images:
     name: images (${{ matrix.component }})
@@ -89,9 +89,8 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        # ALL 9 of the Makefile's BINARIES ship as images + signed downloads —
-        # every documented producer is installable without a Go toolchain.
-        # (probectl-ebpf-agent rides its special live-build Dockerfile below.)
+        # All Go binaries ship as images + signed downloads; the eBPF and BGP
+        # analyzer images use their special Dockerfiles below.
         component:
           - probectl-control
           - probectl-agent
@@ -109,6 +108,8 @@ jobs:
           # the binary records the tag.
           - component: probectl-ebpf-agent
             dockerfile: deploy/docker/Dockerfile.ebpf
+          - component: probectl-bgp-analyzer
+            dockerfile: deploy/docker/Dockerfile.bgp-analyzer
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3

@@ -1,0 +1,8 @@
+{
+  "tenant_id": "00000000-0000-0000-0000-000000000001",
+  "collector": "rrc00",
+  "monitored_prefixes": [
+    {"prefix": "192.0.2.0/24", "expected_origins": [64496]}
+  ],
+  "log_level": "INFO"
+}
