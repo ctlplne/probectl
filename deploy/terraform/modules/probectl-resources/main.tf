@@ -2,37 +2,37 @@ locals {
   typed_resources = merge(
     {
       for name, body in var.tests : "test.${name}" => {
-        method         = "POST"
-        path           = "/v1/tests"
-        body           = body
+        method = "POST"
+        path   = "/v1/tests"
+        body   = body
       }
     },
     {
       for name, body in var.alert_routes : "alert.${name}" => {
-        method         = "POST"
-        path           = "/v1/alerts"
-        body           = body
+        method = "POST"
+        path   = "/v1/alerts"
+        body   = body
       }
     },
     {
       for name, body in var.slos : "slo.${name}" => {
-        method         = "POST"
-        path           = try(body.path, "/v1/slos")
-        body           = body
+        method = "POST"
+        path   = try(body.path, "/v1/slos")
+        body   = body
       }
     },
     {
       for name, body in var.integrations : "integration.${name}" => {
-        method         = try(body.method, "POST")
-        path           = try(body.path, "/v1/alerts/test-channel")
-        body           = body
+        method = try(body.method, "POST")
+        path   = try(body.path, "/v1/alerts/test-channel")
+        body   = body
       }
     },
     {
       for name, body in var.provider_tenants : "provider_tenant.${name}" => {
-        method         = "POST"
-        path           = "/provider/v1/tenants"
-        body           = body
+        method = "POST"
+        path   = "/provider/v1/tenants"
+        body   = body
       }
     }
   )
@@ -44,9 +44,9 @@ resource "terraform_data" "probectl" {
   for_each = local.resources
 
   input = {
-    method         = upper(each.value.method)
-    path           = each.value.path
-    body           = try(each.value.body, null)
+    method = upper(each.value.method)
+    path   = each.value.path
+    body   = try(each.value.body, null)
   }
 
   triggers_replace = [
