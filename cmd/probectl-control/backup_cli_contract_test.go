@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -296,9 +297,13 @@ esac
 		"PROBECTL_OBJECTSTORE_MODE=s3",
 		"PROBECTL_OBJECTSTORE_S3_URI=s3://live-objects/probectl",
 	)
+	commandEnv := func(extra ...string) []string {
+		env := slices.Clone(baseEnv)
+		return append(env, extra...)
+	}
 
 	backup := exec.Command("bash", filepath.Join(root, "scripts/backup_objectstore.sh"), "s3://dr-backups/probectl")
-	backup.Env = append(baseEnv, "AWS_LOCK_MODE=COMPLIANCE")
+	backup.Env = commandEnv("AWS_LOCK_MODE=COMPLIANCE")
 	if out, err := backup.CombinedOutput(); err != nil {
 		t.Fatalf("locked S3 backup failed: %v\n%s", err, out)
 	}
@@ -314,20 +319,19 @@ esac
 	}
 
 	restore := exec.Command("bash", filepath.Join(root, "scripts/restore_objectstore.sh"), "s3://dr-backups/probectl/20260714T000000Z", "s3://live-objects/probectl")
-	restore.Env = append(baseEnv, "AWS_LOCK_MODE=COMPLIANCE", "PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore")
+	restore.Env = commandEnv("AWS_LOCK_MODE=COMPLIANCE", "PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore")
 	if out, err := restore.CombinedOutput(); err != nil {
 		t.Fatalf("locked S3 restore failed: %v\n%s", err, out)
 	}
 
 	insecure := exec.Command("bash", filepath.Join(root, "scripts/backup_objectstore.sh"), "s3://dr-backups/probectl")
-	insecure.Env = append(baseEnv, "AWS_LOCK_MODE=COMPLIANCE", "PROBECTL_OBJECTSTORE_S3_ENDPOINT=http://minio.internal:9000")
+	insecure.Env = commandEnv("AWS_LOCK_MODE=COMPLIANCE", "PROBECTL_OBJECTSTORE_S3_ENDPOINT=http://minio.internal:9000")
 	if out, err := insecure.CombinedOutput(); err == nil || !strings.Contains(string(out), "must use verified https://") {
 		t.Fatalf("plaintext MinIO endpoint must fail closed; err=%v output=%s", err, out)
 	}
 
-	unlockedEnv := append(baseEnv, "AWS_LOCK_MODE=GOVERNANCE")
 	unlocked := exec.Command("bash", filepath.Join(root, "scripts/backup_objectstore.sh"), "s3://dr-backups/probectl")
-	unlocked.Env = unlockedEnv
+	unlocked.Env = commandEnv("AWS_LOCK_MODE=GOVERNANCE")
 	if out, err := unlocked.CombinedOutput(); err == nil || !strings.Contains(string(out), "Object Lock COMPLIANCE") {
 		t.Fatalf("non-COMPLIANCE destination must fail closed; err=%v output=%s", err, out)
 	}
