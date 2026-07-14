@@ -40,8 +40,8 @@ func (s *unitTenantIDPSource) Get(_ context.Context, tenantID string) (*store.Te
 
 type unitOIDCProvider struct{ issuer string }
 
-func (p unitOIDCProvider) AuthCodeURL(string, string) string { return p.issuer }
-func (unitOIDCProvider) Exchange(context.Context, string) (*auth.Identity, error) {
+func (p unitOIDCProvider) AuthCodeURL(string, string, string) string { return p.issuer }
+func (unitOIDCProvider) Exchange(context.Context, string, string) (*auth.Identity, error) {
 	return &auth.Identity{}, nil
 }
 
@@ -323,15 +323,15 @@ func TestTenantIdPPerTenantResolutionAndEnvironmentFallback(t *testing.T) {
 	}
 
 	providerA, err := factory.For(context.Background(), "tenant-a")
-	if err != nil || providerA.AuthCodeURL("", "") != "https://tenant-a-idp.example" {
+	if err != nil || providerA.AuthCodeURL("", "", "") != "https://tenant-a-idp.example" {
 		t.Fatalf("tenant A provider = %v, err=%v", providerA, err)
 	}
 	providerB, err := factory.For(context.Background(), "tenant-b")
-	if err != nil || providerB.AuthCodeURL("", "") != env.OIDCIssuer {
+	if err != nil || providerB.AuthCodeURL("", "", "") != env.OIDCIssuer {
 		t.Fatalf("tenant B environment fallback = %v, err=%v", providerB, err)
 	}
 	disabled, err := factory.For(context.Background(), "tenant-disabled")
-	if err != nil || disabled.AuthCodeURL("", "") != env.OIDCIssuer {
+	if err != nil || disabled.AuthCodeURL("", "", "") != env.OIDCIssuer {
 		t.Fatalf("disabled override environment fallback = %v, err=%v", disabled, err)
 	}
 	if len(built) != 3 {

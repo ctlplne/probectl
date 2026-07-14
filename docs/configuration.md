@@ -918,12 +918,15 @@ within that tenant.
 
 **Login flow.** `GET /auth/login` (optionally `?tenant=<uuid>`) starts the OIDC
 authorization-code flow: it sets a short-lived, HttpOnly CSRF `state` cookie and
-redirects to the tenant's identity provider. The IdP redirects back to
-`GET /auth/callback`, which verifies the `state`, exchanges the code, verifies the
-ID token, **just-in-time provisions** the user within the tenant (a brand-new user
-gets **no roles** — a secure default; an admin grants access), mints a server-side
-session, and sets the session cookie. `POST /auth/logout` revokes the session.
-`GET /v1/me` returns the caller's tenant, identity, and effective permissions.
+separate nonce and PKCE-verifier cookies, then redirects to the tenant's identity
+provider with the PKCE S256 `code_challenge`. The IdP redirects back to
+`GET /auth/callback`, which verifies the `state`, supplies the matching
+`code_verifier` directly to the token endpoint, verifies the ID token and nonce,
+**just-in-time provisions** the user within the tenant (a brand-new user gets
+**no roles** — a secure default; an admin grants access), mints a server-side
+session, and sets the session cookie. Missing or mismatched transient values fail
+closed. `POST /auth/logout` revokes the session. `GET /v1/me` returns the caller's
+tenant, identity, and effective permissions.
 
 **Sessions.** A session is a random, high-entropy opaque token. Only its
 server-keyed **HMAC hash** is stored (table `sessions`), so a database read

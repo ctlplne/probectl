@@ -90,6 +90,7 @@ var allPermissionKeys = []string{
 const (
 	oauthStateCookie  = "probectl_oauth_state"
 	oauthNonceCookie  = "probectl_oauth_nonce"
+	oauthPKCECookie   = "probectl_oauth_pkce"
 	oauthTenantCookie = "probectl_oauth_tenant"
 	oauthCookieTTL    = 10 * time.Minute
 )
@@ -471,10 +472,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	codeVerifier, err := crypto.NewPKCEVerifier()
+	if err != nil {
+		return err
+	}
 	s.setOAuthCookie(w, oauthStateCookie, state)
 	s.setOAuthCookie(w, oauthNonceCookie, nonce)
+	s.setOAuthCookie(w, oauthPKCECookie, codeVerifier)
 	s.setOAuthCookie(w, oauthTenantCookie, tid.String())
-	http.Redirect(w, r, prov.AuthCodeURL(state, nonce), http.StatusFound)
+	http.Redirect(w, r, prov.AuthCodeURL(state, nonce, codeVerifier), http.StatusFound)
 	return nil
 }
 
@@ -506,7 +512,14 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	ident, err := prov.Exchange(r.Context(), code)
+	pkceCookie, _ := r.Cookie(oauthPKCECookie)
+	if pkceCookie == nil || pkceCookie.Value == "" {
+		return apierror.Unauthorized("missing PKCE code verifier")
+	}
+	// The verifier is a single-login credential. Expire it before the network
+	// exchange so callback retries cannot reuse it after any exchange attempt.
+	s.clearOAuthCookie(w, oauthPKCECookie)
+	ident, err := prov.Exchange(r.Context(), code, pkceCookie.Value)
 	if err != nil {
 		s.log.Warn("sso exchange failed", "error", err)
 		return apierror.Unauthorized("sso exchange failed")

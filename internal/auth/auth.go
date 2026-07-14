@@ -95,11 +95,12 @@ type PermissionLoader interface {
 	ForUser(ctx context.Context, tenantID, userID string) ([]string, error)
 }
 
-// Provider is one tenant's SSO provider (OIDC). AuthCodeURL begins the login;
-// Exchange completes it, returning the verified end-user identity.
+// Provider is one tenant's SSO provider (OIDC). AuthCodeURL begins the login
+// with the one-time PKCE verifier; Exchange must receive that same verifier to
+// redeem the authorization code and return the verified end-user identity.
 type Provider interface {
-	AuthCodeURL(state, nonce string) string
-	Exchange(ctx context.Context, code string) (*Identity, error)
+	AuthCodeURL(state, nonce, codeVerifier string) string
+	Exchange(ctx context.Context, code, codeVerifier string) (*Identity, error)
 }
 
 // ProviderFactory resolves the SSO provider configured for a tenant — the

@@ -32,6 +32,7 @@ type mockIDP struct {
 	issuer   string
 	// claims overrides for the next minted token.
 	sub, email, name, zoneinfo, locale string
+	tokenCodeVerifier                  string
 }
 
 func newMockIDP(t *testing.T, clientID string) *mockIDP {
@@ -86,7 +87,11 @@ func newMockIDP(t *testing.T, clientID string) *mockIDP {
 		})
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) { writeJSONResp(w, jwks) })
-	mux.HandleFunc("/token", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse token form: %v", err)
+		}
+		idp.tokenCodeVerifier = r.Form.Get("code_verifier")
 		writeJSONResp(w, map[string]any{
 			"access_token": "at",
 			"token_type":   "Bearer",
@@ -148,16 +153,25 @@ func TestOIDCProviderExchange(t *testing.T) {
 		t.Fatalf("new provider: %v", err)
 	}
 
-	// AuthCodeURL carries the CSRF state, the nonce, and the client config.
-	u := prov.AuthCodeURL("state-xyz", "nonce-abc")
+	// RFC 7636 Appendix B vector: authorization carries only the S256
+	// challenge, while token exchange carries the original verifier.
+	const codeVerifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+	const codeChallenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+	u := prov.AuthCodeURL("state-xyz", "nonce-abc", codeVerifier)
 	for _, want := range []string{"state=state-xyz", "nonce=nonce-abc", "client_id=probectl-client", "response_type=code"} {
 		if !strings.Contains(u, want) {
 			t.Errorf("auth URL missing %q: %s", want, u)
 		}
 	}
+	if !strings.Contains(u, "code_challenge="+codeChallenge) || !strings.Contains(u, "code_challenge_method=S256") {
+		t.Fatalf("auth URL missing RFC 7636 S256 challenge: %s", u)
+	}
+	if strings.Contains(u, "code_verifier") || strings.Contains(u, codeVerifier) {
+		t.Fatalf("authorization URL leaked the PKCE verifier: %s", u)
+	}
 
 	// Exchange a code → verified identity from the signed ID token.
-	id, err := prov.Exchange(ctx, "any-code")
+	id, err := prov.Exchange(ctx, "any-code", codeVerifier)
 	if err != nil {
 		t.Fatalf("exchange: %v", err)
 	}
@@ -172,6 +186,9 @@ func TestOIDCProviderExchange(t *testing.T) {
 	if id.Nonce != "nonce-abc" {
 		t.Fatalf("Identity.Nonce = %q, want the token's nonce claim", id.Nonce)
 	}
+	if idp.tokenCodeVerifier != codeVerifier {
+		t.Fatalf("token endpoint code_verifier = %q, want login verifier", idp.tokenCodeVerifier)
+	}
 }
 
 func TestOIDCProviderRejectsWrongAudience(t *testing.T) {
@@ -181,7 +198,18 @@ func TestOIDCProviderRejectsWrongAudience(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new provider: %v", err)
 	}
-	if _, err := prov.Exchange(ctx, "code"); err == nil {
+	if _, err := prov.Exchange(ctx, "code", "verifier"); err == nil {
 		t.Fatal("expected verification failure for mismatched audience")
+	}
+}
+
+func TestOIDCProviderRejectsMissingPKCEVerifier(t *testing.T) {
+	idp := newMockIDP(t, "probectl-client")
+	prov, err := NewOIDCProvider(context.Background(), OIDCConfig{Issuer: idp.issuer, ClientID: "probectl-client"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prov.Exchange(context.Background(), "code", ""); err == nil || !strings.Contains(err.Error(), "PKCE") {
+		t.Fatalf("missing verifier must fail closed, got %v", err)
 	}
 }

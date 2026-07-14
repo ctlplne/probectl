@@ -7,7 +7,8 @@
 // a crypto primitive.
 //
 // It provides: the Provider interface + stdlib default (Hash, Random,
-// AES-256-GCM Encrypt/Decrypt, HMAC-SHA256 Sign/Verify); envelope encryption
+// AES-256-GCM Encrypt/Decrypt, HMAC-SHA256 Sign/Verify); OAuth PKCE S256
+// verifier/challenge construction; envelope encryption
 // (Envelope + a pluggable KeyProvider; StaticKeyProvider for dev) for sensitive
 // columns; a hardened TLS server config (ConfigureServerTLS) and mTLS configs
 // (ServerMTLSConfig/ClientMTLSConfig); a tenant-bound SPIFFE-style agent

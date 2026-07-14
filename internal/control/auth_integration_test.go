@@ -35,15 +35,20 @@ type fakeProvider struct {
 	// back as the ID token's nonce claim (SEC-004). wrongNonce simulates a
 	// replayed/substituted token.
 	lastNonce  string
+	lastPKCE   string
 	wrongNonce bool
 }
 
-func (f *fakeProvider) AuthCodeURL(state, nonce string) string {
+func (f *fakeProvider) AuthCodeURL(state, nonce, codeVerifier string) string {
 	f.lastNonce = nonce
+	f.lastPKCE = codeVerifier
 	return "https://idp.example/authorize?state=" + state
 }
 
-func (f *fakeProvider) Exchange(context.Context, string) (*auth.Identity, error) {
+func (f *fakeProvider) Exchange(_ context.Context, _, codeVerifier string) (*auth.Identity, error) {
+	if codeVerifier == "" || codeVerifier != f.lastPKCE {
+		return nil, fmt.Errorf("PKCE verifier mismatch")
+	}
 	id := f.ident
 	id.Nonce = f.lastNonce
 	if f.wrongNonce {
@@ -143,11 +148,15 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	state := findCookie(login.Result().Cookies(), oauthStateCookie)
 	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
 	nonceCk := findCookie(login.Result().Cookies(), oauthNonceCookie)
+	pkceCk := findCookie(login.Result().Cookies(), oauthPKCECookie)
 	if state == nil || state.Value == "" {
 		t.Fatal("login did not set the oauth state cookie")
 	}
 	if nonceCk == nil || nonceCk.Value == "" {
 		t.Fatal("login did not set the oauth nonce cookie (SEC-004)")
+	}
+	if pkceCk == nil || len(pkceCk.Value) < 43 || !pkceCk.HttpOnly {
+		t.Fatalf("login did not set a conforming HttpOnly PKCE verifier cookie: %+v", pkceCk)
 	}
 
 	// 2. Callback with matching state + nonce → 302 + session cookie.
@@ -155,6 +164,7 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	cb.AddCookie(state)
 	cb.AddCookie(tenantCk)
 	cb.AddCookie(nonceCk)
+	cb.AddCookie(pkceCk)
 	cbRec := httptest.NewRecorder()
 	h.ServeHTTP(cbRec, cb)
 	if cbRec.Code != http.StatusFound {
@@ -166,6 +176,10 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	}
 	if !sess.HttpOnly {
 		t.Error("session cookie must be HttpOnly")
+	}
+	clearedPKCE := findCookie(cbRec.Result().Cookies(), oauthPKCECookie)
+	if clearedPKCE == nil || clearedPKCE.MaxAge >= 0 {
+		t.Fatalf("callback did not expire one-time PKCE verifier: %+v", clearedPKCE)
 	}
 
 	// 3. /v1/me with the session → 200; the JIT-provisioned user has no roles.
@@ -286,11 +300,13 @@ func TestCallbackRejectsNonceMismatch(t *testing.T) {
 	state := findCookie(login.Result().Cookies(), oauthStateCookie)
 	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
 	nonceCk := findCookie(login.Result().Cookies(), oauthNonceCookie)
+	pkceCk := findCookie(login.Result().Cookies(), oauthPKCECookie)
 
 	cb := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state.Value, nil)
 	cb.AddCookie(state)
 	cb.AddCookie(tenantCk)
 	cb.AddCookie(nonceCk)
+	cb.AddCookie(pkceCk)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, cb)
 	if rec.Code != http.StatusUnauthorized {
@@ -310,14 +326,42 @@ func TestCallbackRejectsMissingNonceCookie(t *testing.T) {
 	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
 	state := findCookie(login.Result().Cookies(), oauthStateCookie)
 	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
+	pkceCk := findCookie(login.Result().Cookies(), oauthPKCECookie)
 
 	cb := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state.Value, nil)
 	cb.AddCookie(state)
 	cb.AddCookie(tenantCk) // nonce cookie deliberately omitted
+	cb.AddCookie(pkceCk)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, cb)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing nonce cookie must be 401, got %d: %s", rec.Code, rec.Body)
+	}
+}
+
+// RFC 7636: a callback without the verifier bound to the authorization request
+// must fail before the code is sent to the token endpoint.
+func TestCallbackRejectsMissingPKCECookie(t *testing.T) {
+	srv, _ := setupSessionAPI(t, auth.Identity{Email: "pkce@example.com"})
+	h := srv.Handler()
+
+	login := httptest.NewRecorder()
+	h.ServeHTTP(login, httptest.NewRequest(http.MethodGet, "/auth/login", nil))
+	state := findCookie(login.Result().Cookies(), oauthStateCookie)
+	tenantCk := findCookie(login.Result().Cookies(), oauthTenantCookie)
+	nonceCk := findCookie(login.Result().Cookies(), oauthNonceCookie)
+
+	cb := httptest.NewRequest(http.MethodGet, "/auth/callback?code=abc&state="+state.Value, nil)
+	cb.AddCookie(state)
+	cb.AddCookie(tenantCk)
+	cb.AddCookie(nonceCk)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, cb)
+	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), "PKCE") {
+		t.Fatalf("missing PKCE cookie must fail closed, got %d: %s", rec.Code, rec.Body)
+	}
+	if findCookie(rec.Result().Cookies(), auth.SessionCookie) != nil {
+		t.Fatal("missing PKCE verifier must not mint a session")
 	}
 }
 

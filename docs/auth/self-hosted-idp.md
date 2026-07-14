@@ -30,9 +30,16 @@ passwords itself. Login is the standard authorization-code flow handled at
 the IdP, the IdP authenticates the user and sends the browser back with a
 one-time code, and probectl exchanges that code for an **ID token** — a signed
 statement of **claims** (named facts about the user: email, name, how they
-authenticated). On a successful callback (`internal/control/auth.go`) probectl:
+authenticated). The code exchange is bound to that exact browser login with
+**PKCE S256**: probectl puts only a SHA-256-derived `code_challenge` in the
+authorization request, keeps the random `code_verifier` in a short-lived
+HttpOnly cookie, then sends the verifier directly to the IdP's token endpoint.
+Someone who steals only the one-time code therefore cannot redeem it. A missing
+verifier fails the callback closed. On a successful callback
+(`internal/control/auth.go`) probectl:
 
-1. validates the ID token (signature, and the `nonce` it minted at login — a
+1. validates the one-time authorization code with PKCE S256, then validates the
+   ID token (signature, and the `nonce` it minted at login — a
    **nonce** is a single-use random value that ties this token to this login
    attempt, so a captured token cannot be replayed; a mismatch fails the login
    closed);
@@ -74,6 +81,8 @@ To be a valid IdP for probectl, the provider must:
 - issue ID tokens for the `openid` scope, including an `email` claim (probectl
   requests `openid`, `email`, `profile` by default and refuses a login with no
   email);
+- support OAuth 2.0 PKCE using the `S256` challenge method for the authorization
+  code flow;
 - honor the `nonce` (probectl validates it on the callback);
 - redirect back to `${PROBECTL_OIDC_REDIRECT_URL}` over HTTPS.
 
@@ -144,8 +153,9 @@ would accept *anyone*, and login is the worst possible place to accept anyone.
 
 ## What's covered by tests vs. what you wire up
 
-The OIDC relying-party path — discovery, nonce validation, the callback, and
-the `mfa`-from-`amr`/`acr` derivation — is covered by the auth suite
+The OIDC relying-party path — discovery, PKCE S256 challenge/verifier binding,
+nonce validation, the callback, and the `mfa`-from-`amr`/`acr` derivation — is
+covered by the auth suite
 (`internal/auth/oidc_test.go`, `oidc_mfa_test.go`). The IdP itself is
 operator-run; standing up Dex in a disconnected cluster and completing a login
 end-to-end is the deployment-time exercise, scripted by the values above.

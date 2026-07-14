@@ -9,6 +9,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // OIDCConfig configures one tenant's OIDC identity provider.
@@ -51,15 +53,24 @@ func NewOIDCProvider(ctx context.Context, c OIDCConfig) (Provider, error) {
 	}, nil
 }
 
-// AuthCodeURL returns the IdP authorization URL carrying the CSRF state + nonce.
-func (p *oidcProvider) AuthCodeURL(state, nonce string) string {
-	return p.oauth.AuthCodeURL(state, oidc.Nonce(nonce))
+// AuthCodeURL returns the IdP authorization URL carrying CSRF state, nonce, and
+// an RFC 7636 S256 PKCE challenge. Challenge derivation stays behind
+// internal/crypto so the FIPS-swappable provider owns SHA-256.
+func (p *oidcProvider) AuthCodeURL(state, nonce, codeVerifier string) string {
+	return p.oauth.AuthCodeURL(state,
+		oidc.Nonce(nonce),
+		oauth2.SetAuthURLParam("code_challenge", crypto.PKCEChallengeS256(codeVerifier)),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	)
 }
 
 // Exchange swaps the authorization code for tokens, verifies the ID token, and
 // returns the end-user identity.
-func (p *oidcProvider) Exchange(ctx context.Context, code string) (*Identity, error) {
-	tok, err := p.oauth.Exchange(ctx, code)
+func (p *oidcProvider) Exchange(ctx context.Context, code, codeVerifier string) (*Identity, error) {
+	if codeVerifier == "" {
+		return nil, fmt.Errorf("oidc: PKCE code verifier is required")
+	}
+	tok, err := p.oauth.Exchange(ctx, code, oauth2.VerifierOption(codeVerifier))
 	if err != nil {
 		return nil, fmt.Errorf("oidc: code exchange: %w", err)
 	}
