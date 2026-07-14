@@ -149,8 +149,10 @@ func TestCrossPlaneCorrelationE2E(t *testing.T) {
 	}
 
 	// Poll Postgres (through the RLS-scoped store) until tenant A's single
-	// correlated incident carries both planes, or the deadline trips.
-	var incA *incident.Incident
+	// correlated incident carries both planes AND tenant B's independently
+	// scheduled IOC result has opened its own incident. Both Kafka consumers are
+	// asynchronous, so observing A is not a delivery barrier for B.
+	var incA, incB *incident.Incident
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		open := openIncidentsRLS(t, pool, tenantA)
@@ -161,13 +163,26 @@ func TestCrossPlaneCorrelationE2E(t *testing.T) {
 			full := getIncidentRLS(t, pool, tenantA, open[0].ID)
 			if planeCount(full) >= 2 {
 				incA = full
-				break
 			}
+		}
+
+		openB := openIncidentsRLS(t, pool, tenantB)
+		if len(openB) > 1 {
+			t.Fatalf("tenant B's decoy split into %d incidents, want exactly 1", len(openB))
+		}
+		if len(openB) == 1 {
+			incB = getIncidentRLS(t, pool, tenantB, openB[0].ID)
+		}
+		if incA != nil && incB != nil {
+			break
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 	if incA == nil {
 		t.Fatal("timed out waiting for ONE 2-plane correlated incident for tenant A")
+	}
+	if incB == nil {
+		t.Fatal("timed out waiting for tenant B's independent IOC incident")
 	}
 
 	// The incident rolls up to the worst plane's severity (critical BGP).
@@ -184,12 +199,11 @@ func TestCrossPlaneCorrelationE2E(t *testing.T) {
 
 	// Isolation: tenant B has its OWN incident, and tenant A's evidence never
 	// leaked into it.
-	openB := openIncidentsRLS(t, pool, tenantB)
-	if len(openB) != 1 {
-		t.Fatalf("tenant B should have its own 1 incident, got %d", len(openB))
-	}
-	if openB[0].ID == incA.ID {
+	if incB.ID == incA.ID {
 		t.Fatal("tenant B's incident is the SAME row as tenant A's — cross-tenant correlation leak")
+	}
+	if planeCount(incB) != 1 || len(incB.Signals) != 1 || incB.Signals[0].Plane != "threat" {
+		t.Fatalf("tenant B incident must contain only its own threat evidence, got %+v", incB.Signals)
 	}
 }
 
