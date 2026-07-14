@@ -72,3 +72,25 @@ description = "Historical known-risks mention of the dummy Stripe-style AI redac
 condition = "AND"
 commits = ['''4fa7ffba4a2e9773085d03a4bfff33a9504dbda6''']
 paths = ['''docs/diligence/known-risks\.md''']
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Historical CI compose-render fixture: exact commits + path + documented 64-byte throwaway value must all match."
+condition = "AND"
+commits = [
+  '''6894913f378e2e69adb43375aac59abdc490dc00''',
+  '''658753e0e362a90038eab5d2b0034633fa8f3b27''',
+]
+paths = ['''\.github/workflows/ci\.yml''']
+regexTarget = "line"
+regexes = ["PROBECTL_SESSION_HMAC_KEY:\\s*0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\s*$"]
+
+[[rules.allowlists]]
+description = "Historical e2e envelope fixture: exact commit + path + documented base64 test KEK must all match."
+condition = "AND"
+commits = ['''ac217d7ac307a1380c4ca7c7352e22104ccfe839''']
+paths = ['''test/e2e/e2e_test\.go''']
+regexTarget = "line"
+regexes = ["PROBECTL_ENVELOPE_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="]
