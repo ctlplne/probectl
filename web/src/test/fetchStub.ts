@@ -484,7 +484,7 @@ export function defaultFetch(): typeof fetch {
       return jsonResponse({ flow_retention_days: null, isolation_model: 'pooled' })
     if (path === '/v1/editions')
       return jsonResponse({
-        tier: 'community',
+        tier: 'core',
         state: 'community',
         features: [
           { name: 'fips', tier: 'enterprise', licensed: false, mode: 'off' },
@@ -498,10 +498,9 @@ export function defaultFetch(): typeof fetch {
             licensed: false,
             mode: 'off',
           },
-          { name: 'provider_plane', tier: 'provider', licensed: false, mode: 'off' },
-          { name: 'siloed_isolation', tier: 'provider', licensed: false, mode: 'off' },
-          { name: 'metering', tier: 'provider', licensed: false, mode: 'off' },
-          { name: 'white_label', tier: 'provider', licensed: false, mode: 'off' },
+          { name: 'siloed_isolation', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'provider_plane', tier: 'msp', licensed: false, mode: 'off' },
+          { name: 'metering', tier: 'msp', licensed: false, mode: 'off' },
         ],
       })
     return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)

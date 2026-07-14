@@ -15,7 +15,7 @@ import (
 // lockout, and lockouts land in the provider audit stream. (The tenant login
 // has had this since U-024; this closes the provider-plane gap.)
 func TestProviderLoginThrottleLockout(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 
 	// attempt returns the status + Retry-After header (closing the body) — the
 	// only things this test asserts on, so no *http.Response escapes (bodyclose).
@@ -64,7 +64,7 @@ func TestProviderLoginThrottleLockout(t *testing.T) {
 // The per-IP dimension trips independently of the account: rotating accounts
 // from one source is still throttled.
 func TestProviderLoginThrottlePerIP(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 
 	var saw429 bool
 	for i := 0; i < 12; i++ {

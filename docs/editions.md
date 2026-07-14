@@ -1,7 +1,7 @@
 # Editions & licensing
 
 probectl is **open-core**: the core platform is open source under MPL-2.0 and
-free, while a commercial tier (Enterprise, plus a Provider/MSP tier) is gated.
+free, while the commercial Enterprise and MSP tiers are gated.
 This document is the engineering contract for how that split is enforced in the
 codebase.
 
@@ -40,34 +40,30 @@ There is exactly **one** feature→tier table in the whole codebase:
 `tierFeatures` in `internal/license/license.go`. Tier knowledge is never
 duplicated anywhere else, so there is a single source of truth.
 
-The buyer-facing pricing boundary follows that table: the full five-plane core
-platform is free, and paid packaging is fixed-license. Enterprise is banded by
-support/governance posture; Provider/MSP is banded by licensed tenant count
-(`tenant_band` in the offline license claims). Provider/MSP metering can export
-usage counters for showback, tenant reporting, and capacity planning, but those
-counters are not probectl billing units and the core product is not a per-host,
-per-flow, or per-GB toll on telemetry. The public buyer-facing plan summary lives
-in [`pricing.md`](pricing.md).
+The buyer-facing boundary follows that table. The full five-plane core is free.
+Enterprise is a flat-rate self-hosted license: the customer bears its own
+infrastructure cost, so one Enterprise entitlement opens every non-resale
+`ee/` capability. MSP is consumption-priced for self-hosted resale under the
+**probectl** banner. Its usage basis is the existing tenant-scoped meters, which
+the operator exports deliberately; no meter is ever transmitted by probectl.
+The public plan summary lives in [`pricing.md`](pricing.md).
 
 | Tier | Gated features |
 |---|---|
-| `community` | None — everything not listed below is core and free forever. |
-| `enterprise` | `fips` (a build artifact, see below), `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA) |
-| `provider` | `provider_plane`, `siloed_isolation`, `metering`, `white_label` |
+| `core` | None — everything not listed below is core and free forever. |
+| `enterprise` | `fips` (a build artifact, see below), `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA), `siloed_isolation` |
+| `msp` | The complete Enterprise set, plus `provider_plane` and `metering` for resale operations. |
 
 `ha_support` is a support/SLA and assurance entitlement, not the high-availability
 runtime itself. The control plane can run the documented HA reference deployment
 in core; Enterprise buys the validated support path around that operation.
 
-**Read the tiers as independent feature sets, not a strict superset.** A
-`provider` license grants the four provider features — it does **not**
-automatically include the enterprise features. In the code, each feature is
-checked on its own (`granted()` looks only at `tierFeatures[the license's tier]`
-plus any explicit extras), and the license test asserts exactly this: a provider
-license has `provider_plane` but not `remediation` unless `remediation` is listed
-as an explicit extra. A real-world "provider that also wants BYOK" deal is
-expressed by issuing a `provider` license with `byok` in its `features` extras
-list (see the license file below) — not by an implied inheritance.
+**Read MSP as a strict superset.** Every MSP tenant receives the Enterprise
+capabilities, and the MSP additionally gets the separately privileged provider
+plane and metering/export surface. Enterprise does **not** get those two resale
+operations: a self-hoster administers its own deployment and does not resell a
+tenant service. `pricing_model` is descriptive metadata only; all enforcement
+still comes from this one tier table and the `Build*` seams.
 
 **Some capabilities are deliberately core (free), even though they sound
 commercial:**
@@ -116,23 +112,26 @@ The claims inside:
   "v": 1,
   "id": "lic_2026_0001",
   "customer": "Reseller GmbH",
-  "tier": "provider",
-  "features": ["byok"],
+  "tier": "msp",
+  "pricing_model": "consumption",
   "tenant_band": 25,
   "issued_at": "2026-06-05T00:00:00Z",
   "expires_at": "2027-06-05T23:59:59Z"
 }
 ```
 
-- `tier` implies its feature set from the one table; `features` lists *explicit
-  extras* on top (the mechanism for a one-off grant, like the "provider + byok"
-  deal above).
+- `tier` implies its feature set from the one table; `features` lists explicit
+  bespoke extras on top.
+- `pricing_model` is informational and accepts `flat` or `consumption`. When it
+  is absent, Enterprise implies `flat` and MSP implies `consumption`. It never
+  grants a capability. Existing signed v1 development licenses using the old
+  `provider` tier continue to verify and normalize in memory to `msp`.
 - `tenant_band` is the licensed tenant-count band (`0` or absent = unlimited).
   It is enforced at tenant *provisioning* time (the provider plane refuses to
   create a tenant past the band, with `tenant_band_exhausted`), and is **never**
   a kill-switch on already-running telemetry.
-- Verification rejects: an unknown payload version, an unknown or `community` tier
-  (community needs no license at all), a signature that fails against every
+- Verification rejects: an unknown payload version, an unknown or `core` tier
+  (core needs no license at all), an invalid pricing model, a signature that fails against every
   trusted key, and an inverted validity window (expiry before issue). An
   **expired license still loads** — expiry is a *state*, not a parse error (see
   the ladder below).
@@ -151,7 +150,7 @@ anyone bring their own lock.
 go build -ldflags "-X github.com/imfeelingtheagi/probectl/internal/license.builtinPubKeysB64=<base64 PEM>[,<base64 PEM>]" ./cmd/probectl-control
 ```
 
-Dev builds bake no keys: unconfigured deployments run Community; a
+Dev builds bake no keys: unconfigured deployments run Core; a
 *configured* license file against a keyless build fails startup loudly
 (fail closed — a license you cannot verify is a misconfiguration, not a
 shrug).
@@ -166,7 +165,8 @@ probectl-license gen-key -out-priv signing.key -out-pub signing.pub
 
 # 2) Sign a license (expiry = end-of-day UTC)
 probectl-license sign -key signing.key -customer "Reseller GmbH" \
-  -tier provider -tenant-band 25 -expires 2027-06-05 -out license.json
+  -tier msp -pricing-model consumption -tenant-band 25 \
+  -expires 2027-06-05 -out license.json
 
 # 3) Verify against a public key (what the control plane does at startup)
 probectl-license verify -file license.json -pub signing.pub
@@ -188,10 +188,10 @@ untouched.
 
 | State | When | Behavior |
 |---|---|---|
-| `community` | No license configured | Default-open core; commercial features hidden. |
+| `community` | No license configured | Tier is `core`; commercial features are hidden. |
 | `active` | Within validity | Granted features `enabled`. |
 | `grace` | 0–30 days past expiry | Features stay `enabled`; the UI banners the deadline. |
-| `read_only` | >30 days past expiry | Granted features degrade to `read_only`: existing views still render, but **no new tenants or config**; branding persists; **telemetry pipelines never break**. Expired is not the same as broken observability. |
+| `read_only` | >30 days past expiry | Granted features degrade to `read_only`: existing views still render, but **no new tenants or config**; **telemetry pipelines never break**. Expired is not the same as broken observability. |
 
 In code, this is why there are two methods: `Manager.Has(f)` stays true in
 `read_only` (so read paths still construct and serve), while `Manager.Mode(f)`

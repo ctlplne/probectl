@@ -95,7 +95,7 @@ func TestSiloRetentionStaysProviderOwned(t *testing.T) {
 		t.Fatalf("retention sweep kept wrong flows: n=%d rows=%s", n, remaining.String())
 	}
 
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	f.h.WithGovernance(&Governance{Store: eegovernance.NewStore(pool), Pool: pool})
 	token := f.bootstrapAndLoginFast(t)
 	rec := f.doAuthed(t, token, http.MethodGet, "/provider/v1/tenants/"+tenantID+"/governance", nil)

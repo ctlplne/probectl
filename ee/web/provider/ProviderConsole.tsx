@@ -58,6 +58,7 @@ interface GrantRow {
 
 interface LicenseInfo {
   tier: string;
+  pricing_model?: "flat" | "consumption";
   state: string;
   customer?: string;
   tenant_band?: number;
@@ -274,6 +275,7 @@ function Dashboard({ operator }: { operator: Operator }) {
         <p className={styles.note}>
           {t("provider.license.prefix")} <strong>{license.tier}</strong> ·{" "}
           {license.state}
+          {license.pricing_model ? ` · ${license.pricing_model}` : null}
           {license.tenant_band ? (
             <>
               {" "}
@@ -947,7 +949,8 @@ function FairnessCard({
           parts.push(`${p.flow_events_per_sec}/s flows`);
         if (p.device_metrics_per_sec)
           parts.push(`${p.device_metrics_per_sec}/s device`);
-        if (p.otlp_series_per_sec) parts.push(`${p.otlp_series_per_sec}/s OTLP`);
+        if (p.otlp_series_per_sec)
+          parts.push(`${p.otlp_series_per_sec}/s OTLP`);
         if (p.queries_per_min) parts.push(`${p.queries_per_min}/min queries`);
         if (p.query_concurrency)
           parts.push(`${p.query_concurrency} concurrent`);

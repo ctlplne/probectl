@@ -10,7 +10,7 @@ events, device telemetry, and AI evidence inside your boundary.
 ## Decision in one sentence
 
 Buy probectl when the winning requirement is sovereign, multi-plane network
-visibility with fixed-license pricing, hard tenant isolation, and proof-based
+visibility with predictable self-hosted pricing, hard tenant isolation, and proof-based
 operations; do not buy it when you need a vendor-hosted SaaS, a global vendor
 probe fleet, an APM replacement, a SIEM, or an inline IPS.
 
@@ -25,7 +25,7 @@ replacement motion for several network-observability spend lines:
 | Active path and synthetic monitoring | ThousandEyes-style tests and path visibility | Run tenant-bound canary agents from sites you control; use owned vantage points rather than a vendor-operated global probe fleet. |
 | Device telemetry and network health | SolarWinds-style polling and operational inventory | Collect device telemetry, topology, incidents, and alert state into the same control plane as active tests and flows. |
 | Network-adjacent observability inside a larger telemetry estate | Datadog-style dashboards and cross-signal views | Federate through OpenTelemetry and served APIs while keeping probectl focused on network planes, not general APM ownership. |
-| Provider/MSP resale | Managed monitoring platform with per-customer portals | Run the Provider/MSP edition yourself, isolate tenants, export usage for MSP reporting, and keep probectl out of customer data custody. |
+| MSP resale | Managed monitoring platform with per-customer portals | Run the MSP tier yourself, isolate tenants, explicitly export usage for consumption reporting, resell under the probectl banner, and keep probectl out of customer data custody. |
 
 The ELI5 picture: most shops buy one flashlight for the road, one for the
 router, one for the server, and one for the billing meter. probectl gives the
@@ -49,18 +49,19 @@ audited.
 
 ## Pricing posture
 
-The pricing posture is fixed license, not surprise metering:
+The pricing posture follows who bears the operating cost:
 
 - Core stays free as the five-plane self-hosted platform.
-- Enterprise is sold by support and governance band.
-- Provider/MSP is sold by fixed annual tenant band.
-- Usage counters exist for fairness, capacity planning, showback, and MSP tenant
-  reporting. They are **not probectl billing units**.
-- No per-host, per-flow, per-GB, or per-test toll is introduced by the product.
+- Enterprise is a flat-rate self-hosted license opening every non-resale `ee/`
+  capability.
+- MSP is consumption-based, receives the Enterprise set plus provider operations,
+  and resells under the probectl banner at its own customer pricing.
+- Usage counters are collected locally and leave only through an operator-run
+  export. There is no phone-home billing path.
 
-That matters because telemetry tools often punish success: the more you observe,
-the more you pay. probectl's model is meant to make deeper visibility the safe
-default rather than a billing decision during an incident.
+The split stays legible: a sovereign enterprise that already pays for its
+infrastructure gets flat-rate software; an MSP operating a resale business uses
+the local consumption record while retaining custody of every tenant signal.
 
 ## Proof receipts
 

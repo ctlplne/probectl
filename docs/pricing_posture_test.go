@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestPricingDocsPublishFixedLicensePosture(t *testing.T) {
+func TestPricingDocsPublishEnterpriseAndMSPPosture(t *testing.T) {
 	read := func(path string) string {
 		t.Helper()
 		b, err := os.ReadFile(path)
@@ -28,31 +28,28 @@ func TestPricingDocsPublishFixedLicensePosture(t *testing.T) {
 
 	for _, stale := range []string{
 		"**Quote-based**",
-		"per-host billing",
-		"per-flow billing",
-		"per-GB billing",
+		"Fixed annual tenant-band license",
+		"Provider-25",
+		"white_label",
 	} {
 		if strings.Contains(combined, stale) {
-			t.Fatalf("pricing posture must not reintroduce consumption/quote framing %q", stale)
+			t.Fatalf("pricing posture contains retired packaging %q", stale)
 		}
 	}
 
 	for _, want := range []string{
-		"Fixed annual license by support/governance band",
-		"Fixed annual tenant-band license",
-		"Enterprise-Support",
-		"Enterprise-Governance",
-		"Enterprise-Regulated",
-		"Provider-25",
-		"Provider-100",
-		"Provider-500",
-		"Provider-Unlimited",
-		"not probectl billing units",
+		"Flat-rate self-hosted license",
+		"Consumption-based self-hosted resale license",
+		"strict superset",
+		"probectl banner",
+		"operator-run export",
+		"never phones home",
 		"showback",
 		"capacity planning",
 		"tenant_band",
-		"fixed-license",
-		"per-host, per-flow, or per-GB tolls",
+		"results_ingested",
+		"ingest_bytes",
+		"pricing_model",
 	} {
 		if !strings.Contains(combined, want) && !strings.Contains(normalized, want) {
 			t.Fatalf("pricing posture missing %q", want)

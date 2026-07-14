@@ -94,7 +94,8 @@ function providerStub(opts?: { loggedIn?: boolean; readOnly?: boolean }) {
       return jsonResponse({ operator, token: 't' })
     if (url.endsWith('/provider/v1/license'))
       return jsonResponse({
-        tier: 'provider',
+        tier: 'msp',
+        pricing_model: 'consumption',
         state: opts?.readOnly ? 'read_only' : 'active',
         customer: 'MSP Test GmbH',
         tenant_band: 25,
@@ -323,7 +324,9 @@ describe('provider console (S-T1)', () => {
     // tn_1 shows shed units + query rejections; tn_2 is unbounded.
     expect(await screen.findByText('40')).toBeInTheDocument()
     expect(screen.getByText('13')).toBeInTheDocument()
-    expect(screen.getByText(/100\/s results · 25\/s device · 30\/s OTLP · 60\/min queries/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/100\/s results · 25\/s device · 30\/s OTLP · 60\/min queries/),
+    ).toBeInTheDocument()
     expect(screen.getByText('unbounded')).toBeInTheDocument()
     // The admin policy editor PUTs the numeric payload.
     await userEvent.type(screen.getByLabelText(/tenant id \(fairness\)/i), 'tn_1')

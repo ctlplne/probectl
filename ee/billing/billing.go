@@ -48,11 +48,7 @@ func MeterUnit(meter string) string {
 
 // Meters is the canonical meter set (export completeness + console order).
 func Meters() []string {
-	return []string{
-		usage.MeterAgents, usage.MeterTests,
-		usage.MeterResultsIngested, usage.MeterIngestBytes,
-		usage.MeterFlowEvents, usage.MeterAICalls,
-	}
+	return usage.Meters()
 }
 
 // Period is the metering bucket: hourly, UTC. Hour granularity keeps records

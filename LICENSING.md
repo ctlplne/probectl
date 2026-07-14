@@ -32,6 +32,19 @@ feature check does not change the commercial license, and license verification
 never phones home. The one-way code boundary remains: `ee/` may import core;
 core never imports `ee/`.
 
+The runtime tiers are:
+
+| Tier | Pricing model | Commercial capabilities |
+|---|---|---|
+| `core` | Free | No `ee/` grants. |
+| `enterprise` | Flat-rate, self-hosted | FIPS artifact, BYOK, governance, guarded remediation, HA support/SLA, and siloed isolation. |
+| `msp` | Consumption, self-hosted resale | The complete Enterprise set plus provider-plane operations and local usage metering/export. The MSP resells under the probectl banner. |
+
+`pricing_model` in a signed license is informational (`flat` or
+`consumption`); only the single feature table in `internal/license` grants code.
+MSP usage reporting is an operator-run export from the self-hosted provider
+plane. It never phones home.
+
 ## Contributions
 
 Contributions use the [Developer Certificate of Origin 1.1](https://developercertificate.org/)

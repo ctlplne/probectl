@@ -18,12 +18,12 @@ Tokyo, probectl does not imply Tokyo is covered.
 | Vendor-owned probe fleet | Customer/MSP-owned `probectl-agent` fleet, enrolled into the buyer's tenant over mTLS |
 | Vendor data custody | Tenant telemetry stays in the buyer-owned or MSP-owned control plane |
 | Vendor-defined locations | Operator-defined site and region labels, tied to business geography |
-| Consumption pricing by test volume | Fixed license / Provider/MSP tenant band; usage counters support fairness, capacity planning, showback, and MSP tenant reporting |
+| Vendor-defined consumption and custody | Enterprise stays flat-rate; MSP uses locally collected consumption meters and operator-run export while retaining custody |
 | Black-box internet weather | `/v1/outages` joins your vantages with opt-in public outage data and says what is not covered |
 
 This is the ThousandEyes-style job, but with a different trust boundary. probectl
 does not operate a global probe fleet, and that is intentional. It beats the
-managed-service model when the buyer values custody, fixed economics, and MSP
+managed-service model when the buyer values custody, predictable economics, and MSP
 resale more than renting someone else's worldwide vantage estate.
 
 ## Label model
@@ -187,18 +187,16 @@ breaking core monitoring.
 
 For an MSP, the product shape is:
 
-1. The MSP self-hosts probectl Provider/MSP edition.
+1. The MSP self-hosts the probectl MSP tier and resells under the probectl banner.
 2. Each customer is a tenant with its own enrolled vantages and tenant-scoped
    tests.
-3. The MSP can export usage for showback or its own invoice, but probectl's
-   product unit remains the fixed annual tenant-band license.
-4. Usage counters are not probectl billing units.
-5. White-label branding can make the tenant portal feel native to the MSP
-   without changing where telemetry lives.
+3. The existing local meters form the MSP consumption basis and can also feed
+   showback or the MSP's own invoice.
+4. Reporting is an operator-run export; no usage or telemetry phones home.
 
 The rule is **no vendor-managed shared probe pool** that silently mixes
 customers' data. If an MSP wants pooled infrastructure, the pool is still MSP-owned,
-tenant-isolated, audited, and priced by tenant band rather than test volume.
+tenant-isolated and audited.
 
 ## Proof checklist
 
@@ -210,8 +208,8 @@ Use these checks before claiming outside-in coverage:
 - `POST /v1/a2a/mesh` succeeds for the sites that should be mesh-tested.
 - `GET /v1/outages` returns coverage notes, and those notes are copied into the
   operations review.
-- `docs/pricing.md` still says Provider/MSP is a fixed annual tenant-band
-  license and usage counters are not probectl billing units.
+- `docs/pricing.md` still says Enterprise is flat-rate, MSP is
+  consumption-based, and MSP reporting is an operator-run export.
 - Public outage feeds are either off by default or explicitly enabled by the
   operator with source/AUP review.
 
@@ -221,5 +219,5 @@ Use these checks before claiming outside-in coverage:
 - Internet outage view: [`features/open-data-and-outage.md`](features/open-data-and-outage.md)
 - Agent deployment: [`deploying-agents.md`](deploying-agents.md)
 - Provider/MSP plane: [`provider-plane.md`](provider-plane.md)
-- Fixed-license pricing: [`pricing.md`](pricing.md)
+- Editions and pricing: [`pricing.md`](pricing.md)
 - Buyer memo: [`buyer-memo.md`](buyer-memo.md)

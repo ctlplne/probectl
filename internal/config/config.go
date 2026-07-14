@@ -512,13 +512,13 @@ type Config struct {
 	CarbonGridGCO2E int
 
 	// Editions (S-T0): the path to the offline-signed license file. Empty =
-	// Community (the full core, default-open). A configured-but-invalid file
+	// Core (default-open). A configured-but-invalid file
 	// FAILS STARTUP; an expired one degrades per the grace ladder — it never
 	// breaks running telemetry. Verification is local math against
 	// build-time-baked public keys (never phone-home).
 	LicenseFile string
 
-	// Provider plane (S-T1, ee/; active only with a provider-tier license).
+	// Provider plane (S-T1, ee/; active only with an MSP-tier license).
 	// ProviderBootstrapToken creates the FIRST operator (single-use: inert once
 	// any operator exists). ProviderBreakGlassMaxTTLMinutes caps break-glass
 	// grant lifetimes (default 240 = 4h).

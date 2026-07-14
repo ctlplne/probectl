@@ -9,18 +9,16 @@ the public plan boundary and the metering units without inventing legal terms.
 
 | Plan | Price posture | Boundary |
 |---|---|---|
-| Community | **$0** for self-hosted core use | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. |
-| Enterprise | **Fixed annual license by support/governance band** | Validated-module/FIPS distribution, BYOK, governance controls, guarded remediation, and HA support/SLA entitlement; the runtime HA reference deployment remains core. |
-| Provider/MSP | **Fixed annual tenant-band license** | Provider plane, siloed/hybrid isolation and residency controls, metering/showback export, white-label, and tenant-band licensing for self-hosted resale. |
+| Core | **$0** for self-hosted core use | The full five-plane platform: observability, AI assistant and MCP, security/threat signals, topology, cost/SLO, OIDC SSO, SCIM, RBAC/ABAC, per-tenant export/deletion, fairness enforcement, and support-bundle generation. |
+| Enterprise | **Flat-rate self-hosted license** | Every non-resale `ee/` capability: validated-module/FIPS distribution, BYOK, governance, guarded remediation, HA support/SLA, and siloed/hybrid isolation. |
+| MSP | **Consumption-based self-hosted resale license** | The complete Enterprise set plus the provider plane and usage metering/export. The MSP resells under the probectl banner and sets its own customer prices. |
 
-The paid posture is intentionally a public fixed-license framework, not a
-consumption meter. Enterprise bands are support/governance bands:
-`Enterprise-Support`, `Enterprise-Governance`, and `Enterprise-Regulated`.
-Provider/MSP bands are licensed tenant-count bands: `Provider-25`,
-`Provider-100`, `Provider-500`, and `Provider-Unlimited`. Bespoke procurement can
-change contract terms, support response, or reseller commitments, but it does not
-change the product billing unit into per-host, per-flow, per-test, per-result, or
-per-GB charges.
+Enterprise is intentionally flat-rate because the customer bears the deployment
+and telemetry infrastructure cost. MSP is intentionally consumption-based
+because the operator resells a managed tenant service. `tenant_band` remains a
+provisioning ceiling, not a telemetry kill switch. Contract rates and reseller
+terms are counsel-owned artifacts; they do not create another runtime feature
+table.
 
 There is no "SSO tax": OIDC SSO, SCIM, RBAC, and ABAC are core. SAML is not yet
 supported, and is tracked as a capability gap rather than a paid downgrade.
@@ -36,18 +34,19 @@ The commercial features are exactly the ones in the license table:
 
 | Plan | Gated features |
 |---|---|
-| Enterprise | `fips`, `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA) |
-| Provider/MSP | `provider_plane`, `siloed_isolation`, `metering`, `white_label` |
+| Enterprise | `fips`, `byok`, `governance`, `remediation`, `ha_support` (displayed as HA support/SLA), `siloed_isolation` |
+| MSP | Every Enterprise feature, plus `provider_plane` and `metering` |
 
-Provider is not an automatic superset of Enterprise. If a provider deal also
-needs BYOK or guarded remediation, the signed license grants those as explicit
-extras; the code checks each feature by name.
+MSP is a strict superset of Enterprise. Enterprise never grants
+`provider_plane` or `metering`, because those are resale operations rather than
+self-hosted product capabilities.
 
 ## Metering units
 
-Provider/MSP metering is a showback, capacity-planning, fairness, and MSP
-tenant-reporting feed. It does not turn core observability into surprise
-per-host, per-flow, or per-GB-at-rest probectl billing.
+MSP metering is the probectl-to-MSP consumption basis and also feeds showback,
+capacity planning, fairness reviews, and the MSP's own tenant billing. It is
+collected locally from tenant-tagged streams already flowing through the
+deployment.
 
 The units are the same ones documented in [`metering.md`](metering.md):
 
@@ -60,9 +59,11 @@ The units are the same ones documented in [`metering.md`](metering.md):
 | `flow_events` | counter | count | Sum of flow events or batches recorded in the period; not a hidden per-flow core gate. |
 | `ai_calls` | counter | count | Sum of AI assistant questions in the period. |
 
-These counters can help an MSP invoice its own customers or plan capacity, but
-they are not probectl invoice units. probectl's paid unit is the fixed Enterprise
-band or Provider/MSP tenant band.
+This is an **operator-run export**: the operator explicitly downloads CSV or
+JSON Lines from the provider plane.
+probectl never uploads these values, calls a billing endpoint, or gains access to
+tenant telemetry. The MSP chooses how those meters map to its customer pricing;
+that downstream price is not configured by probectl.
 
 Quotas use the creation-time controls from the Provider plane (`max_agents`,
 `max_tests`). They do not drop telemetry: existing agents keep sending, ingest is

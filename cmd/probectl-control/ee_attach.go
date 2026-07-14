@@ -28,9 +28,7 @@ import (
 	eeremediation "github.com/imfeelingtheagi/probectl/ee/remediation"
 	"github.com/imfeelingtheagi/probectl/ee/silo"
 	"github.com/imfeelingtheagi/probectl/ee/tenantkeys"
-	"github.com/imfeelingtheagi/probectl/ee/whitelabel"
 	"github.com/imfeelingtheagi/probectl/internal/audit"
-	"github.com/imfeelingtheagi/probectl/internal/branding"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/control"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
@@ -164,19 +162,6 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 		log.Info("per-tenant metering attached (S-T3)", "flush", "1m", "snapshot", "15m")
 	}
 
-	// White-label branding (S-T4): the resolver installs onto the core
-	// branding seam (the public /branding endpoint + custom-domain login);
-	// the provider console gets the configuration surface. Unlicensed
-	// deployments keep the default probectl brand.
-	var wl *provider.WhiteLabel
-	if lic.Has(license.FeatureWhiteLabel) {
-		wstore := whitelabel.NewPGStore(pool)
-		resolver := whitelabel.NewResolver(wstore, 0)
-		branding.SetSource(resolver)
-		wl = &provider.WhiteLabel{Store: wstore, Invalidate: resolver.Invalidate}
-		log.Info("white-label branding attached (S-T4)")
-	}
-
 	// Per-tenant key isolation / BYOK (S-T6). The keyring replaces the
 	// deployment envelope as the PRIMARY sealer; the deployment sealer stays
 	// registered as an opener (main installed it), so pre-existing dv1 rows
@@ -255,9 +240,8 @@ func attachEE(ctx context.Context, srv *control.Server, cfg *config.Config, log 
 					routerInvalidate()
 				}
 			},
-			Metering:   metering,
-			WhiteLabel: wl,
-			Lifecycle:  life,
+			Metering:  metering,
+			Lifecycle: life,
 			// S-T7: operator fairness views over the CORE gate (enforcement
 			// is core; only the views/tuning ride the provider plane).
 			Fairness: &provider.Fairness{Gate: fairGate, Store: fairness.NewPGStore(pool)},

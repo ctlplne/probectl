@@ -61,7 +61,7 @@ func (f *fakeSilo) Planes() []string { return f.planes }
 // pooled needs nothing; siloed/hybrid require the capability + a valid
 // residency, provision the silo BEFORE success, and offboard tears it down.
 func TestSiloedProvisioningLifecycle(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	silo := &fakeSilo{planes: []string{"eu"}}
 	invalidated := 0
 	f.svc.WithSilo(silo, func() { invalidated++ })
@@ -147,7 +147,7 @@ func TestSiloedProvisioningLifecycle(t *testing.T) {
 // seam attaches it only when siloed_isolation is licensed), siloed/hybrid
 // provisioning is refused and pooled still works.
 func TestSiloRequiresLicenseCapability(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	token := f.bootstrapAndLoginFast(t) // NO WithSilo
 
 	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/tenants",
@@ -167,7 +167,7 @@ func TestSiloRequiresLicenseCapability(t *testing.T) {
 // the isolation fields differ. (The storage-level parity test runs against
 // real Postgres in the integration suite.)
 func TestPooledSiloedHandlerParity(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	f.svc.WithSilo(&fakeSilo{}, nil)
 	token := f.bootstrapAndLoginFast(t)
 

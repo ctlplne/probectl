@@ -42,7 +42,7 @@ what-if simulation, and cost/SLO intelligence on top.
 One codebase serves two operating modes: **sovereign single-tenant** (a
 regulated or air-gapped org self-hosts; the deployment *is* the tenant) and
 **multi-tenant / provider** (an MSP self-hosts once and serves many
-hard-isolated, white-labeled tenants). A **tenant** is one isolated customer or
+hard-isolated tenants under the probectl banner). A **tenant** is one isolated customer or
 organization in a deployment, and the single-tenant install is just the
 one-tenant case — there is no separate code path, no enterprise fork to drift
 out of sync. **Tenant is the outermost scope and security boundary** on every
@@ -107,14 +107,13 @@ Four choices set it apart:
   The same choice is the no-lock-in story: data portability is under operator
   control through OTLP export and tenant export paths, so you can take your data
   out without turning a commercial feature on.
-- **It does not meter the core by surprise.** The full five-plane core platform
-  is free; paid packaging is fixed-license: Enterprise support/governance bands
-  and Provider/MSP tenant-band licenses. Usage counters exist for showback,
-  fairness, capacity planning, and MSP tenant reporting, not per-host, per-flow,
-  or per-GB tolls on the signals you already collect.
+- **Its packaging matches the operator.** The full five-plane core is free.
+  Enterprise is flat-rate because the customer bears the hosting cost. MSP is
+  consumption-based because it resells a managed tenant service; meter values
+  leave only through an operator-run export, never a phone-home path.
 - **It's multi-tenant to the core.** The same binary runs as a single sovereign
-  tenant for one org, or as a hard-isolated, white-labeled, individually-metered
-  platform an MSP resells — one codebase, one security boundary.
+  tenant for one org, or as a hard-isolated, individually-metered platform an
+  MSP resells under the probectl banner — one codebase, one security boundary.
 
 ## What it answers
 
@@ -161,8 +160,8 @@ network change on its own.
   sector, defense, critical infrastructure) that need deep network
   observability but cannot send telemetry to a third-party cloud.
 - **MSPs & internal platform teams** serving many customers or business units —
-  self-host once, serve hard-isolated, white-labeled, individually-metered
-  tenants from one control plane.
+  self-host once, serve hard-isolated, individually-metered tenants under the
+  probectl banner from one control plane.
 - **Network & platform engineers** tired of hand-correlating five dashboards
   who want a single OTel-native source of truth they actually own.
 
@@ -188,7 +187,7 @@ Intelligence, security, and platform layers built across the planes:
 | **Cost / SLO** | FinOps egress-cost attribution, an OpenSLO engine, and segmentation/compliance validation with evidence |
 | **Guarded remediation** | the AI **proposes** a fix grounded in RCA + a dry-run; a human **approves**; probectl **never executes** — proposal-only, blast-radius-limited, fully audited |
 | **Multi-tenancy** | **pooled / siloed / hybrid** isolation, selectable per deployment and per tenant |
-| **Provider / MSP plane** | tenant lifecycle, fleet-across-tenants, per-tenant metering + quotas, white-label branding, and audited break-glass (no implicit access to tenant telemetry) |
+| **Provider / MSP plane** | tenant lifecycle, fleet-across-tenants, per-tenant metering + export/quotas, and audited break-glass (no implicit access to tenant telemetry) |
 | **Sovereignty & crypto** | mTLS/SPIFFE agent identity (mutual TLS — both ends prove who they are — with standard workload-identity naming), envelope encryption, per-tenant **BYOK** (bring-your-own-key), per-tenant export + verifiable erasure, and an optional build against the **FIPS 140-3-validated Go Cryptographic Module** (CMVP cert **#5247**; probectl itself holds no product-level certificate — see [`docs/hardening.md`](docs/hardening.md)) |
 
 ## How it works
@@ -214,7 +213,7 @@ platform with it.
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'background':'transparent','primaryColor':'#161b22','primaryTextColor':'#e6edf3','primaryBorderColor':'#3b82f6','lineColor':'#768390','secondaryColor':'#21262d','tertiaryColor':'#0d1117','clusterBkg':'#161b22','clusterBorder':'#30363d','titleColor':'#e6edf3','edgeLabelBackground':'#161b22','fontFamily':'ui-monospace, SFMono-Regular, Menlo, monospace'},'flowchart':{'curve':'basis','nodeSpacing':55,'rankSpacing':55,'padding':12}}}%%
 flowchart TB
-    Provider["Provider / Management Plane — MSP operators (distinct privilege domain)<br/>tenant lifecycle · fleet-across-tenants · metering/billing · white-label<br/>audited break-glass (no implicit tenant-data access)"]
+    Provider["Provider / Management Plane — MSP operators (distinct privilege domain)<br/>tenant lifecycle · fleet-across-tenants · metering/export<br/>audited break-glass (no implicit tenant-data access)"]
 
     subgraph CP["Control Plane — Go, stateless request path + leased singletons, TENANT-AWARE"]
         Edge["REST (OpenAPI 3.1) · gRPC (agents, mTLS) · MCP · Webhooks/OTLP<br/>Auth (SSO/RBAC/ABAC) · Audit · Tenant → Org → Team → Project"]
@@ -271,15 +270,14 @@ security/threat, topology, cost/SLO, and single-tenant self-hosting — is
 **core, and free**. Commercial code lives in a **publicly-readable `ee/` tree**
 (the fence is the license + trademark, not source secrecy) and is gated at
 runtime by an **offline-verifiable, signed license** that never phones home.
-That boundary is operational rather than volume-taxed: tenant-band/provider
-controls, governance, HA support/SLA, BYOK, and resale are gated; the core
-signal plane is not priced by per-host, per-flow, or per-GB meters.
-**Enterprise** adds the validated-module (FIPS) build, BYOK/governance,
-validated HA support/SLA, and guarded remediation; the runtime HA reference
-deployment remains core. **Provider/MSP** adds the management plane,
-siloed/hybrid physical isolation and residency controls,
-metering/billing, and white-label. Hard tenant isolation is a core-platform
-property; Provider/MSP adds stronger placement and operations controls on top.
+**Enterprise** is a flat-rate self-hosted license that adds the validated-module
+(FIPS) build, BYOK/governance, validated HA support/SLA, guarded remediation,
+and siloed/hybrid physical isolation; the runtime HA reference deployment
+remains core. **MSP** is a consumption-based self-hosted resale license: it
+inherits the Enterprise set and adds the management plane plus local
+metering/export. MSPs set their own customer pricing and resell under the
+probectl banner. Meter reporting is operator-run and never phones home. Hard
+tenant isolation remains a core-platform property.
 Unlicensed commercial features are simply hidden (no lockware). See
 **[`docs/editions.md`](docs/editions.md)** and
 **[`docs/pricing.md`](docs/pricing.md)**.
@@ -386,7 +384,7 @@ cmd/            # binaries: probectl-control, probectl-agent, probectl-ebpf-agen
                 #           probectl-flow-agent, probectl-device-agent,
                 #           probectl-endpoint, probectl-license, probectl (CLI)
 internal/       # subsystem packages (control, tenancy, path, bgp, crypto, ai, ...)
-ee/             # commercial tree (provider plane, white-label, metering, BYOK,
+ee/             # commercial tree (provider plane, metering, BYOK,
                 #   remediation) — publicly readable; core never imports it
 pkg/            # shared, public libraries
 proto/          # protobuf schemas (gRPC + bus) — buf-managed
@@ -456,7 +454,7 @@ the [Mozilla Public License 2.0](LICENSE), a file-level copyleft license. The
 MPL Exhibit B incompatibility notice is not invoked.
 
 Source under `ee/` is excluded from that grant and governed by the separate
-commercial terms in `ee/LICENSE`; a valid offline-signed license enables those
-Enterprise and Provider/MSP capabilities at runtime. See
+commercial terms in `ee/LICENSE`; a valid offline-signed license enables
+Enterprise or MSP capabilities at runtime. See
 [`LICENSING.md`](LICENSING.md) for the boundary, contribution rules, trademark
 note, and counsel-owned documents that remain.

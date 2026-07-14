@@ -11,7 +11,7 @@
 //     outside this package's API are a review-blocking defect.
 //   - Gating happens only at the main.go Build* seams: a missing entitlement
 //     behaves exactly like a disabled feature flag.
-//   - No license file = Community: the full core, forever (default-open).
+//   - No license file = Core: the full core, forever (default-open).
 //   - A present-but-invalid license is a STARTUP ERROR (you configured a
 //     license; it being forged or corrupt deserves a loud stop) — but an
 //     EXPIRED license is never an error: 30 days of grace, then commercial
@@ -30,17 +30,32 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 // Tier names an edition.
 type Tier string
 
-// The editions (the rate card's code-gated tiers; Starter/Pro differ only in
-// entitlements, not code, so they do not appear here).
+// The editions. Core is the unlicensed default; Enterprise and MSP are the
+// only issuable tiers.
 const (
-	TierCommunity  Tier = "community"
+	TierCore       Tier = "core"
 	TierEnterprise Tier = "enterprise"
-	TierProvider   Tier = "provider"
+	TierMSP        Tier = "msp"
+
+	// legacyTierProvider is accepted only while verifying already-signed v1
+	// development licenses. New licenses are always issued as TierMSP.
+	legacyTierProvider Tier = "provider"
+)
+
+// PricingModel is descriptive commercial metadata. It never grants a feature
+// and therefore cannot become a second license-gating table.
+type PricingModel string
+
+// Pricing models carried by commercial licenses.
+const (
+	PricingModelFlat        PricingModel = "flat"
+	PricingModelConsumption PricingModel = "consumption"
 )
 
 // Feature is one license-gated capability.
@@ -54,11 +69,10 @@ const (
 	FeatureGovernance  Feature = "governance"
 	FeatureRemediation Feature = "remediation"
 	FeatureHASupport   Feature = "ha_support"
-	// Provider / MSP.
+	// Enterprise isolation and MSP resale operations.
 	FeatureProviderPlane   Feature = "provider_plane"
 	FeatureSiloedIsolation Feature = "siloed_isolation"
 	FeatureMetering        Feature = "metering"
-	FeatureWhiteLabel      Feature = "white_label"
 )
 
 // tierFeatures is THE feature→tier table — the only one in the codebase.
@@ -66,8 +80,16 @@ const (
 // enforcement (S-T7), support-bundle generation (S-EE4) — they never appear
 // here because they are not gated.
 var tierFeatures = map[Tier][]Feature{
-	TierEnterprise: {FeatureFIPS, FeatureBYOK, FeatureGovernance, FeatureRemediation, FeatureHASupport},
-	TierProvider:   {FeatureProviderPlane, FeatureSiloedIsolation, FeatureMetering, FeatureWhiteLabel},
+	TierCore: {},
+	TierEnterprise: {
+		FeatureFIPS, FeatureBYOK, FeatureGovernance, FeatureRemediation,
+		FeatureHASupport, FeatureSiloedIsolation,
+	},
+	TierMSP: {
+		FeatureFIPS, FeatureBYOK, FeatureGovernance, FeatureRemediation,
+		FeatureHASupport, FeatureSiloedIsolation, FeatureProviderPlane,
+		FeatureMetering,
+	},
 }
 
 // TierFeatures returns a tier's feature set (copy).
@@ -75,34 +97,59 @@ func TierFeatures(t Tier) []Feature {
 	return append([]Feature(nil), tierFeatures[t]...)
 }
 
-// AllFeatures returns every gated feature in stable (tier, declaration) order.
+// AllFeatures returns every gated feature once, in stable minimum-tier order.
 func AllFeatures() []Feature {
 	out := append([]Feature(nil), tierFeatures[TierEnterprise]...)
-	return append(out, tierFeatures[TierProvider]...)
+	seen := make(map[Feature]bool, len(out))
+	for _, f := range out {
+		seen[f] = true
+	}
+	for _, f := range tierFeatures[TierMSP] {
+		if !seen[f] {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
-// FeatureTier returns the tier that grants f by default.
+// FeatureTier returns the minimum tier that grants f by default.
 func FeatureTier(f Feature) Tier {
-	for t, fs := range tierFeatures {
+	for _, t := range []Tier{TierEnterprise, TierMSP} {
+		fs := tierFeatures[t]
 		for _, g := range fs {
 			if g == f {
 				return t
 			}
 		}
 	}
-	return TierCommunity
+	return TierCore
+}
+
+// DefaultPricingModel returns the commercial model implied by a tier. The
+// value is informational: feature grants continue to come only from
+// tierFeatures.
+func DefaultPricingModel(t Tier) PricingModel {
+	switch t {
+	case TierEnterprise:
+		return PricingModelFlat
+	case TierMSP, legacyTierProvider:
+		return PricingModelConsumption
+	default:
+		return ""
+	}
 }
 
 // Claims is the signed license payload (the wire contract).
 type Claims struct {
-	V          int       `json:"v"`
-	ID         string    `json:"id"`
-	Customer   string    `json:"customer"`
-	Tier       Tier      `json:"tier"`
-	Features   []Feature `json:"features,omitempty"`    // explicit extras beyond the tier set (bespoke deals)
-	TenantBand int       `json:"tenant_band,omitempty"` // provider tiers: licensed tenant count; 0 = unlimited
-	IssuedAt   time.Time `json:"issued_at"`
-	ExpiresAt  time.Time `json:"expires_at"`
+	V            int          `json:"v"`
+	ID           string       `json:"id"`
+	Customer     string       `json:"customer"`
+	Tier         Tier         `json:"tier"`
+	PricingModel PricingModel `json:"pricing_model,omitempty"`
+	Features     []Feature    `json:"features,omitempty"`    // explicit extras beyond the tier set (bespoke deals)
+	TenantBand   int          `json:"tenant_band,omitempty"` // MSP tenant count; 0 = unlimited
+	IssuedAt     time.Time    `json:"issued_at"`
+	ExpiresAt    time.Time    `json:"expires_at"`
 }
 
 // File is the on-disk shape: the EXACT payload bytes (base64) plus a
@@ -138,13 +185,13 @@ const (
 )
 
 // Manager answers tier/feature questions for one loaded license (or the
-// Community default). It is immutable after construction.
+// Core default). It is immutable after construction.
 type Manager struct {
 	claims *Claims
 	clock  func() time.Time
 }
 
-// Community returns the unlicensed manager: every gated feature off.
+// Community returns the unlicensed Core manager: every gated feature off.
 func Community() *Manager { return &Manager{clock: time.Now} }
 
 // Verify checks a license file's signature against the trusted public keys
@@ -184,8 +231,26 @@ func Verify(raw []byte, trustedPubPEMs [][]byte) (*Claims, error) {
 	if c.V != 1 {
 		return nil, fmt.Errorf("license: unsupported license version %d", c.V)
 	}
-	if c.Tier != TierEnterprise && c.Tier != TierProvider {
+	// Compatibility is applied only after signature verification: the signed
+	// bytes stay untouched, while callers receive the current tier vocabulary.
+	if c.Tier == legacyTierProvider {
+		c.Tier = TierMSP
+	}
+	if c.Tier != TierEnterprise && c.Tier != TierMSP {
 		return nil, fmt.Errorf("license: unknown tier %q", c.Tier)
+	}
+	if c.PricingModel == "" {
+		c.PricingModel = DefaultPricingModel(c.Tier)
+	}
+	if c.PricingModel != PricingModelFlat && c.PricingModel != PricingModelConsumption {
+		return nil, fmt.Errorf("license: unknown pricing model %q", c.PricingModel)
+	}
+	if c.Tier != TierMSP {
+		for _, f := range c.Features {
+			if FeatureTier(f) == TierMSP {
+				return nil, fmt.Errorf("license: feature %q is MSP-only", f)
+			}
+		}
 	}
 	if c.ExpiresAt.IsZero() || c.IssuedAt.IsZero() || !c.ExpiresAt.After(c.IssuedAt) {
 		return nil, fmt.Errorf("license: invalid validity window")
@@ -193,7 +258,7 @@ func Verify(raw []byte, trustedPubPEMs [][]byte) (*Claims, error) {
 	return &c, nil
 }
 
-// Load reads and verifies the license at path. path == "" means Community
+// Load reads and verifies the license at path. path == "" means Core
 // (nil error — default-open). A configured-but-missing or invalid file is a
 // startup ERROR (fail closed on configuration); an EXPIRED license loads
 // fine and degrades per the grace ladder.
@@ -247,12 +312,24 @@ func (m *Manager) State() State {
 	}
 }
 
-// Tier returns the licensed tier (Community when unlicensed).
+// Tier returns the licensed tier (Core when unlicensed).
 func (m *Manager) Tier() Tier {
 	if m == nil || m.claims == nil {
-		return TierCommunity
+		return TierCore
 	}
 	return m.claims.Tier
+}
+
+// PricingModel returns descriptive pricing metadata. It never participates in
+// feature enforcement; absent v1 values are inferred from the tier.
+func (m *Manager) PricingModel() PricingModel {
+	if m == nil || m.claims == nil {
+		return ""
+	}
+	if m.claims.PricingModel != "" {
+		return m.claims.PricingModel
+	}
+	return DefaultPricingModel(m.claims.Tier)
 }
 
 // granted reports whether the license grants f at all (tier set or explicit
@@ -312,19 +389,21 @@ type FeatureInfo struct {
 // Info is the Admin → Editions payload — the one place tiers appear when
 // unlicensed (the hidden-unlicensed UX, ratified).
 type Info struct {
-	Tier       Tier          `json:"tier"`
-	State      State         `json:"state"`
-	Customer   string        `json:"customer,omitempty"`
-	LicenseID  string        `json:"license_id,omitempty"`
-	ExpiresAt  *time.Time    `json:"expires_at,omitempty"`
-	ReadOnlyAt *time.Time    `json:"read_only_at,omitempty"` // when grace ends
-	TenantBand int           `json:"tenant_band,omitempty"`
-	Features   []FeatureInfo `json:"features"`
+	Tier         Tier          `json:"tier"`
+	PricingModel PricingModel  `json:"pricing_model,omitempty"`
+	State        State         `json:"state"`
+	Customer     string        `json:"customer,omitempty"`
+	LicenseID    string        `json:"license_id,omitempty"`
+	ExpiresAt    *time.Time    `json:"expires_at,omitempty"`
+	ReadOnlyAt   *time.Time    `json:"read_only_at,omitempty"` // when grace ends
+	TenantBand   int           `json:"tenant_band,omitempty"`
+	Meters       []string      `json:"meters,omitempty"`
+	Features     []FeatureInfo `json:"features"`
 }
 
 // Info renders the editions view.
 func (m *Manager) Info() Info {
-	info := Info{Tier: m.Tier(), State: m.State(), Features: []FeatureInfo{}}
+	info := Info{Tier: m.Tier(), PricingModel: m.PricingModel(), State: m.State(), Features: []FeatureInfo{}}
 	if m != nil && m.claims != nil {
 		info.Customer = m.claims.Customer
 		info.LicenseID = m.claims.ID
@@ -333,6 +412,9 @@ func (m *Manager) Info() Info {
 		info.ExpiresAt = &exp
 		info.ReadOnlyAt = &ro
 		info.TenantBand = m.claims.TenantBand
+		if m.claims.Tier == TierMSP {
+			info.Meters = usage.Meters()
+		}
 	}
 	for _, f := range AllFeatures() {
 		info.Features = append(info.Features, FeatureInfo{

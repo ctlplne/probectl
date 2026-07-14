@@ -118,6 +118,24 @@ the deadline; `read_only` (past grace) → **GETs keep working, but every mutati
 returns `license_read_only`** (no new tenants, operators, or grants). Running
 telemetry is never touched — expired is not the same as broken observability.
 
+## MSP consumption and export
+
+The MSP tier uses the existing local usage meters (`agents`, `tests`,
+`results_ingested`, `ingest_bytes`, `flow_events`, and `ai_calls`) as its
+consumption basis. The path is deliberately one-way and operator-driven:
+
+1. tenant-scoped streams update meters inside this self-hosted deployment;
+2. an authenticated provider operator requests
+   `GET /provider/v1/usage/export?format=csv|jsonl`;
+3. the operator sends that file through the commercial process agreed with
+   probectl and may independently map the same data into its own customer
+   pricing.
+
+There is no background uploader, billing beacon, vendor callback, or implicit
+telemetry read. If the operator does not run an export, nothing leaves the
+deployment. See [`metering.md`](metering.md) for meter semantics and the stable
+export columns.
+
 ## The console
 
 The console lives at `/provider` in the web app and is a **deliberately
@@ -135,9 +153,8 @@ fleet-across-tenants table (counts and versions only — no telemetry);
 break-glass request/list/revoke with per-grant audited-use counts; usage,
 fairness, and governance cards (each documented on its own page —
 [`metering.md`](metering.md), [`fairness.md`](fairness.md),
-[`governance.md`](governance.md)); and, for admins, the white-label branding
-card ([`white-label.md`](white-label.md)) and operator management with one-time
-enrollment tokens.
+[`governance.md`](governance.md)); and operator management with one-time
+enrollment tokens for admins. MSPs resell the service under the probectl banner.
 
 ## Engineering eval smoke
 
@@ -147,7 +164,7 @@ unlicensed build must keep returning a plain 404 for `/provider/*`. Think of
 that as the door not existing in that build, not as a locked door with a sales
 message behind it.
 
-For an engineering evaluation, use a disposable local stack and a provider-tier
+For an engineering evaluation, use a disposable local stack and an MSP-tier
 eval license issued for that evaluation. Do not weaken `internal/license`, do
 not make core import `ee/`, and do not use `PROBECTL_ALLOW_KEYLESS_DEV` for a
 provider-plane smoke. The minimum runtime preconditions are:
@@ -198,5 +215,5 @@ is what keeps the "core never imports `ee/`" rule intact.
 | `PROBECTL_PROVIDER_BREAKGLASS_MAX_TTL_MINUTES` | `240` | break-glass TTL cap (5–1440) |
 | `PROBECTL_ENVELOPE_KEY` | (none) | **required** for the provider plane (TOTP secrets are sealed at rest) |
 
-Plus a provider-tier license (`PROBECTL_LICENSE_FILE`) granting
+Plus an MSP-tier license (`PROBECTL_LICENSE_FILE`) granting
 `provider_plane` — see [`editions.md`](editions.md).

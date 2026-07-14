@@ -39,7 +39,7 @@ func seedUsage(t *testing.T, store *billing.MemStore, now time.Time) {
 
 func meteredFixture(t *testing.T) (*fixture, *billing.MemStore, string) {
 	t.Helper()
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	// Pin a fixed mid-month, mid-day clock so the metering buckets (h and
 	// h-2*Period) always land on the same calendar day — otherwise the day
 	// rollup splits them whenever the test runs within 2h of UTC midnight.
@@ -178,7 +178,7 @@ func TestQuotaManagement(t *testing.T) {
 // TestMeteringHiddenWhenUnattached: without the metering capability the S-T3
 // routes answer not_found — indistinguishable from unknown paths.
 func TestMeteringHiddenWhenUnattached(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	token := f.bootstrapAndLoginFast(t) // no WithMetering
 	for _, probe := range []struct{ method, path string }{
 		{http.MethodGet, "/provider/v1/usage"},
@@ -197,7 +197,7 @@ func TestMeteringHiddenWhenUnattached(t *testing.T) {
 // TestQuotaWriteReadOnlyDegrade: the license read-only ladder blocks quota
 // writes (config mutations) while usage reads keep working.
 func TestQuotaWriteReadOnlyDegrade(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, -31*24*time.Hour)) // read_only
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, -31*24*time.Hour)) // read_only
 	*f.now = time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	store := billing.NewMemStore()
 	f.h.WithMetering(&Metering{Store: store})

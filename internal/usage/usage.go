@@ -29,6 +29,16 @@ const (
 	MeterTests  = "tests"
 )
 
+// Meters returns the canonical meter vocabulary in console/export order.
+// Keeping the vocabulary in the inert core seam lets Admin → Editions explain
+// an MSP license without constructing or importing the commercial collector.
+func Meters() []string {
+	return []string{
+		MeterAgents, MeterTests, MeterResultsIngested, MeterIngestBytes,
+		MeterFlowEvents, MeterAICalls,
+	}
+}
+
 // Recorder receives usage deltas. Implementations must be cheap and
 // non-blocking (they sit on hot ingest paths) and tolerate concurrent use.
 type Recorder interface {

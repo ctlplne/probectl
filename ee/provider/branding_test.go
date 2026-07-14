@@ -21,7 +21,7 @@ import (
 
 func brandedFixture(t *testing.T) (*fixture, *whitelabel.MemStore, *whitelabel.Resolver, string) {
 	t.Helper()
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	store := whitelabel.NewMemStore()
 	resolver := whitelabel.NewResolver(store, time.Minute)
 	f.h.WithWhiteLabel(&WhiteLabel{Store: store, Invalidate: resolver.Invalidate})
@@ -108,7 +108,7 @@ func TestBrandingSoDAndHidden(t *testing.T) {
 	}
 
 	// Unattached = hidden.
-	bare := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	bare := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	tok := bare.bootstrapAndLoginFast(t)
 	for _, probe := range []struct{ method, path string }{
 		{http.MethodGet, "/provider/v1/branding"},
@@ -123,7 +123,7 @@ func TestBrandingSoDAndHidden(t *testing.T) {
 }
 
 func TestBrandingReadOnlyDegrade(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, -31*24*time.Hour)) // read_only
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, -31*24*time.Hour)) // read_only
 	store := whitelabel.NewMemStore()
 	f.h.WithWhiteLabel(&WhiteLabel{Store: store})
 	token := f.bootstrapAndLoginReadOnly(t)

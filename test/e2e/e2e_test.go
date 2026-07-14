@@ -77,7 +77,7 @@ func TestE2E(t *testing.T) {
 	runCmd(t, root, nil, licenseTool, "sign",
 		"-key", licensePriv,
 		"-customer", "probectl e2e",
-		"-tier", "provider",
+		"-tier", "msp",
 		"-tenant-band", "4",
 		"-expires", time.Now().UTC().AddDate(1, 0, 0).Format("2006-01-02"),
 		"-out", licenseFile)

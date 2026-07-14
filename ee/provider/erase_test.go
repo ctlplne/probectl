@@ -36,7 +36,7 @@ func (f *fakeLifecycle) Erase(_ context.Context, tenantID, slug, actor string) (
 // TestProviderErase: the operator-facing S-T5 trigger — admin SoD,
 // slug-confirmed, audited, attestation returned.
 func TestProviderErase(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	life := &fakeLifecycle{}
 	f.h.WithLifecycle(life)
 	admin := f.bootstrapAndLoginFast(t)
@@ -92,7 +92,7 @@ func TestProviderErase(t *testing.T) {
 	}
 
 	// Without the engine attached (pool-less test server) the route is 503.
-	bare := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	bare := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	tok := bare.bootstrapAndLoginFast(t)
 	if rec = bare.doAuthed(t, tok, http.MethodPost, "/provider/v1/tenants/x/erase",
 		map[string]string{"confirm": "x"}); rec.Code != http.StatusServiceUnavailable {

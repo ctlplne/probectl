@@ -187,7 +187,7 @@ func newFixture(t *testing.T, lic *license.Manager) *fixture {
 }
 
 func newTestHandler(t *testing.T) *Handler {
-	return newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour)).h
+	return newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour)).h
 }
 
 func newReq(method, path string, body any) *http.Request {
@@ -300,7 +300,7 @@ func mustDecode(t *testing.T, rec *httptest.ResponseRecorder, v any) {
 // TestProviderLifecycle is the provision→configure→suspend→resume→offboard
 // end-to-end, including licensed-band enforcement and the audit trail.
 func TestProviderLifecycle(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 2, 90*24*time.Hour)) // band of 2
+	f := newFixture(t, licenseManager(t, license.TierMSP, 2, 90*24*time.Hour)) // band of 2
 	token := f.bootstrapAndLogin(t)
 
 	// Provision two tenants — the licensed band.
@@ -365,7 +365,7 @@ func TestProviderLifecycle(t *testing.T) {
 // not after expiry, not after revocation, not via another operator's grant —
 // and every successful access is audited on the provider stream.
 func TestNoImplicitTelemetryAccess(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	f.svc.telemetry = fakeTelemetry{byTenant: map[string][]string{
 		"tnA": {"result-A1", "result-A2"},
 		"tnB": {"result-B1"},
@@ -470,7 +470,7 @@ func TestNoImplicitTelemetryAccess(t *testing.T) {
 // TestFleetAggregation: fleet health spans tenants (counts/versions only) and
 // never bleeds one tenant's rows into another.
 func TestFleetAggregation(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	token := f.bootstrapAndLoginFast(t)
 
 	var ids []string
@@ -514,7 +514,7 @@ func TestFleetAggregation(t *testing.T) {
 }
 
 func TestFairnessProviderRoundTripDeviceAndOTLPOverrides(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	token := f.bootstrapAndLoginFast(t)
 	store := &memFairnessStore{policies: map[string]fairness.Policy{}}
 	now := time.Now()
@@ -590,7 +590,7 @@ func TestFairnessProviderRoundTripDeviceAndOTLPOverrides(t *testing.T) {
 
 // TestSeparationOfDuties: operator-role accounts cannot manage operators.
 func TestSeparationOfDuties(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	admin := f.bootstrapAndLoginFast(t)
 
 	rec := f.doAuthed(t, admin, http.MethodPost, "/provider/v1/operators",
@@ -622,7 +622,7 @@ func TestSeparationOfDuties(t *testing.T) {
 // TestReadOnlyDegrade: an expired-past-grace provider license keeps GETs alive
 // and blocks every mutation with license_read_only (the S-T0 ladder).
 func TestReadOnlyDegrade(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, -31*24*time.Hour)) // read_only state
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, -31*24*time.Hour)) // read_only state
 	token := f.bootstrapAndLoginReadOnly(t)
 
 	// Reads still work.
@@ -662,7 +662,7 @@ func (f *fixture) bootstrapAndLoginReadOnly(t *testing.T) string {
 // TestAuthHardening: bad bootstrap tokens, uniform login failures, dead
 // sessions after disablement, and bootstrap single-use.
 func TestAuthHardening(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 
 	// A wrong bootstrap token is refused with no detail.
 	rec := doReq(f.h, newReq(http.MethodPost, "/provider/v1/auth/bootstrap",
@@ -744,7 +744,7 @@ func TestGrantStateDerivation(t *testing.T) {
 
 // TestConsentListIsTenantScoped: each tenant sees only its own pending grants.
 func TestConsentListIsTenantScoped(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	token := f.bootstrapAndLoginFast(t)
 	for _, tn := range []string{"tnA", "tnB"} {
 		rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass",
@@ -766,7 +766,7 @@ func TestConsentListIsTenantScoped(t *testing.T) {
 
 // TestBreakGlassTTLCap: TTLs beyond the configured cap are refused.
 func TestBreakGlassTTLCap(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	token := f.bootstrapAndLoginFast(t)
 	rec := f.doAuthed(t, token, http.MethodPost, "/provider/v1/breakglass",
 		map[string]any{"tenant_id": "tnA", "reason": "way too long", "ttl_minutes": 60 * 24 * 7})

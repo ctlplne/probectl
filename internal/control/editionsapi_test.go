@@ -18,7 +18,7 @@ import (
 func TestBuildLicenseGating(t *testing.T) {
 	// Unconfigured = Community, never an error (default-open).
 	m, err := BuildLicense(&config.Config{}, intelTestLog())
-	if err != nil || m.Tier() != license.TierCommunity {
+	if err != nil || m.Tier() != license.TierCore {
 		t.Fatalf("unconfigured: tier=%v err=%v", m.Tier(), err)
 	}
 	// Configured-but-missing fails startup (fail closed on configuration).
@@ -59,7 +59,7 @@ func TestEditionsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
 		t.Fatal(err)
 	}
-	if info.Tier != license.TierCommunity || info.State != license.StateCommunity {
+	if info.Tier != license.TierCore || info.State != license.StateCommunity {
 		t.Fatalf("community truth wrong: %+v", info)
 	}
 	if len(info.Features) != len(license.AllFeatures()) {
@@ -71,14 +71,15 @@ func TestEditionsEndpoint(t *testing.T) {
 		}
 	}
 
-	// Licensed truth: a provider license renders its grants + band + horizon.
+	// Licensed truth: an MSP license renders its inherited grants, consumption
+	// metadata, meter vocabulary, band, and expiry horizon.
 	priv, pub, err := crypto.GenerateEd25519KeyPEM()
 	if err != nil {
 		t.Fatal(err)
 	}
 	expires := time.Now().Add(90 * 24 * time.Hour).UTC().Truncate(time.Second)
 	raw, err := license.Sign(license.Claims{
-		V: 1, ID: "lic_msp_1", Customer: "Reseller GmbH", Tier: license.TierProvider,
+		V: 1, ID: "lic_msp_1", Customer: "Reseller GmbH", Tier: license.TierMSP,
 		TenantBand: 25, IssuedAt: time.Now().UTC(), ExpiresAt: expires,
 	}, priv)
 	if err != nil {
@@ -97,26 +98,29 @@ func TestEditionsEndpoint(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &info); err != nil {
 		t.Fatal(err)
 	}
-	if info.Tier != license.TierProvider || info.State != license.StateActive ||
+	if info.Tier != license.TierMSP || info.PricingModel != license.PricingModelConsumption || info.State != license.StateActive ||
 		info.Customer != "Reseller GmbH" || info.TenantBand != 25 {
 		t.Fatalf("licensed truth wrong: %+v", info)
+	}
+	if len(info.Meters) != 6 {
+		t.Fatalf("MSP meters missing: %v", info.Meters)
 	}
 	if info.ExpiresAt == nil || !info.ExpiresAt.Equal(expires) || info.ReadOnlyAt == nil {
 		t.Fatal("expiry horizon missing")
 	}
-	var providerOn, fipsOff, haClarified bool
+	var providerOn, fipsOn, haClarified bool
 	for _, f := range info.Features {
 		if f.Name == license.FeatureProviderPlane && f.Licensed && f.Mode == license.ModeEnabled {
 			providerOn = true
 		}
-		if f.Name == license.FeatureFIPS && !f.Licensed {
-			fipsOff = true
+		if f.Name == license.FeatureFIPS && f.Licensed {
+			fipsOn = true
 		}
 		if f.Name == license.FeatureHASupport && f.DisplayName == "HA support/SLA" {
 			haClarified = true
 		}
 	}
-	if !providerOn || !fipsOff || !haClarified {
+	if !providerOn || !fipsOn || !haClarified {
 		t.Fatalf("feature rows wrong: %+v", info.Features)
 	}
 }

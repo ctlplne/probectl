@@ -39,7 +39,7 @@ func (m *memGovStore) Upsert(_ context.Context, tenantID string, pol govern.Poli
 
 func governedFixture(t *testing.T) (*fixture, *memGovStore, string) {
 	t.Helper()
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, 90*24*time.Hour))
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, 90*24*time.Hour))
 	store := newMemGov()
 	f.h.WithGovernance(&Governance{Store: store}) // Pool nil → composed PG reads skipped
 	token := f.bootstrapAndLoginFast(t)
@@ -163,7 +163,7 @@ func TestGovernancePut(t *testing.T) {
 // TestGovernanceReadOnlyDegrade: the license read-only ladder blocks governance
 // writes while the view keeps working.
 func TestGovernanceReadOnlyDegrade(t *testing.T) {
-	f := newFixture(t, licenseManager(t, license.TierProvider, 0, -31*24*time.Hour)) // read_only
+	f := newFixture(t, licenseManager(t, license.TierMSP, 0, -31*24*time.Hour)) // read_only
 	store := newMemGov()
 	f.h.WithGovernance(&Governance{Store: store})
 	token := f.bootstrapAndLoginReadOnly(t)

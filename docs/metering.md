@@ -10,13 +10,13 @@ usage/showback API (showback — showing each tenant its consumption without
 probectl doing the charging), per-tenant creation quotas (a quota — a cap on how
 many of a resource a tenant may create), and a billing-export feed the MSP feeds
 into its existing professional-services-automation (PSA) or billing system.
-These are not probectl billing units: probectl's Provider/MSP price posture is a
-fixed tenant-band license, not per-host, per-flow, per-GB, per-test, or
-per-result usage billing.
+These local meters are the probectl-to-MSP consumption basis and can also feed
+the MSP's own customer pricing. They are never transmitted automatically: the
+operator must request an export.
 
-It is a **commercial (Provider/MSP tier)** feature. The implementation lives in
+It is a **commercial (MSP tier)** feature. The implementation lives in
 `ee/billing` and is unlocked by the `metering` license feature; the core
-platform ships only an inert seam (`internal/usage`). A community or unlicensed
+platform ships only an inert seam (`internal/usage`). A core or unlicensed
 deployment therefore **meters nothing** — the seam is a no-op that records
 nothing and allows everything — and the provider-console usage surfaces stay
 hidden. (For why the line is drawn here, see
@@ -27,7 +27,8 @@ first export target is **generic CSV + JSON Lines**: vendor-neutral, because
 every PSA imports CSV. Vendor-shaped connectors (ConnectWise, Autotask, Stripe)
 are follow-ups, to be built once a design partner names the one they need. The
 export supports the MSP's resale motion without making probectl a managed-service
-data custodian or a consumption-billing vendor.
+data custodian. The control plane never phones home with meter values; contract
+rating happens outside this telemetry path.
 
 ## The meters
 
@@ -130,5 +131,5 @@ editor. It is hidden entirely when the `metering` feature is not licensed.
 
 There are no configuration keys. The flush cadence (1 minute) and snapshot
 cadence (15 minutes) are fixed; the feature activates when the license grants
-`metering` (Provider/MSP tier). Quotas and usage live in Postgres alongside the
+`metering` (MSP tier). Quotas and usage live in Postgres alongside the
 tenant registry.

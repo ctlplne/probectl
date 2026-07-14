@@ -10,7 +10,8 @@
 //
 //	probectl-license gen-key  -out-priv license-signing.key -out-pub license-signing.pub
 //	probectl-license sign     -key license-signing.key -customer "Acme Corp" \
-//	    -tier enterprise -expires 2027-06-30 [-features byok,...] [-tenant-band 25] \
+//	    -tier enterprise -expires 2027-06-30 [-pricing-model flat] \
+//	    [-features byok,...] [-tenant-band 25] \
 //	    -out probectl-license.json
 //	probectl-license verify   -file probectl-license.json -pub license-signing.pub
 //	probectl-license inspect  -file probectl-license.json
@@ -89,15 +90,27 @@ func sign(args []string) error {
 	keyPath := fs.String("key", "", "signing private key (PEM)")
 	customer := fs.String("customer", "", "customer name")
 	id := fs.String("id", "", "license id (default lic_<unix>)")
-	tier := fs.String("tier", "", "enterprise | provider")
+	tier := fs.String("tier", "", "enterprise | msp")
+	pricingModel := fs.String("pricing-model", "", "informational pricing model: flat | consumption (default implied by tier)")
 	features := fs.String("features", "", "comma-separated explicit extras (bespoke deals)")
-	band := fs.Int("tenant-band", 0, "provider tenant band (0 = unlimited)")
+	band := fs.Int("tenant-band", 0, "MSP tenant band (0 = unlimited)")
 	expires := fs.String("expires", "", "expiry date YYYY-MM-DD (UTC end of day)")
 	out := fs.String("out", "probectl-license.json", "license file output path")
 	_ = fs.Parse(args)
 
 	if *keyPath == "" || *customer == "" || *tier == "" || *expires == "" {
 		return fmt.Errorf("sign requires -key, -customer, -tier, -expires")
+	}
+	licenseTier := license.Tier(*tier)
+	if licenseTier != license.TierEnterprise && licenseTier != license.TierMSP {
+		return fmt.Errorf("-tier must be enterprise or msp")
+	}
+	model := license.PricingModel(*pricingModel)
+	if model == "" {
+		model = license.DefaultPricingModel(licenseTier)
+	}
+	if model != license.PricingModelFlat && model != license.PricingModelConsumption {
+		return fmt.Errorf("-pricing-model must be flat or consumption")
 	}
 	priv, err := os.ReadFile(*keyPath)
 	if err != nil {
@@ -108,13 +121,14 @@ func sign(args []string) error {
 		return fmt.Errorf("parse -expires: %w", err)
 	}
 	c := license.Claims{
-		V:          1,
-		ID:         *id,
-		Customer:   *customer,
-		Tier:       license.Tier(*tier),
-		TenantBand: *band,
-		IssuedAt:   time.Now().UTC().Truncate(time.Second),
-		ExpiresAt:  exp.Add(24*time.Hour - time.Second).UTC(),
+		V:            1,
+		ID:           *id,
+		Customer:     *customer,
+		Tier:         licenseTier,
+		PricingModel: model,
+		TenantBand:   *band,
+		IssuedAt:     time.Now().UTC().Truncate(time.Second),
+		ExpiresAt:    exp.Add(24*time.Hour - time.Second).UTC(),
 	}
 	if c.ID == "" {
 		c.ID = fmt.Sprintf("lic_%d", time.Now().Unix())
@@ -131,7 +145,7 @@ func sign(args []string) error {
 	if err := os.WriteFile(*out, raw, 0o600); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s — %s · %s · expires %s\n", *out, c.Customer, c.Tier, c.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("wrote %s — %s · %s · %s · expires %s\n", *out, c.Customer, c.Tier, c.PricingModel, c.ExpiresAt.Format(time.RFC3339))
 	return nil
 }
 
@@ -155,7 +169,7 @@ func verify(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("VALID — %s · %s · expires %s\n", c.Customer, c.Tier, c.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("VALID — %s · %s · %s · expires %s\n", c.Customer, c.Tier, c.PricingModel, c.ExpiresAt.Format(time.RFC3339))
 	return nil
 }
 
@@ -182,13 +196,17 @@ func inspect(args []string) error {
 		return fmt.Errorf("malformed claims: %w", err)
 	}
 	fmt.Printf("UNVERIFIED CLAIMS (run `verify` to check the signature):\n")
-	fmt.Printf("  id:          %s\n  customer:    %s\n  tier:        %s\n", c.ID, c.Customer, c.Tier)
+	model := c.PricingModel
+	if model == "" {
+		model = license.DefaultPricingModel(c.Tier)
+	}
+	fmt.Printf("  id:            %s\n  customer:      %s\n  tier:          %s\n  pricing model: %s\n", c.ID, c.Customer, c.Tier, model)
 	if len(c.Features) > 0 {
-		fmt.Printf("  extras:      %v\n", c.Features)
+		fmt.Printf("  extras:        %v\n", c.Features)
 	}
 	if c.TenantBand > 0 {
-		fmt.Printf("  tenant band: %d\n", c.TenantBand)
+		fmt.Printf("  tenant band:   %d\n", c.TenantBand)
 	}
-	fmt.Printf("  issued:      %s\n  expires:     %s\n", c.IssuedAt.Format(time.RFC3339), c.ExpiresAt.Format(time.RFC3339))
+	fmt.Printf("  issued:        %s\n  expires:       %s\n", c.IssuedAt.Format(time.RFC3339), c.ExpiresAt.Format(time.RFC3339))
 	return nil
 }

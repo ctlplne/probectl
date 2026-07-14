@@ -8,7 +8,8 @@ import { apiFetch } from './client'
  * grace, then read-only — never broken telemetry.
  */
 
-export type EditionTier = 'community' | 'enterprise' | 'provider'
+export type EditionTier = 'core' | 'enterprise' | 'msp'
+export type PricingModel = 'flat' | 'consumption'
 export type EditionState = 'community' | 'active' | 'grace' | 'read_only'
 export type FeatureMode = 'enabled' | 'read_only' | 'off'
 
@@ -30,12 +31,14 @@ export interface FIPSStatus {
 
 export interface EditionsInfo {
   tier: EditionTier
+  pricing_model?: PricingModel
   state: EditionState
   customer?: string
   license_id?: string
   expires_at?: string
   read_only_at?: string
   tenant_band?: number
+  meters?: string[]
   features: FeatureInfo[]
   fips?: FIPSStatus
 }

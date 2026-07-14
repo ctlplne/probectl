@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/usage"
 )
 
 func testKeypair(t *testing.T) (priv, pub []byte) {
@@ -79,10 +80,14 @@ func TestVerifyTable(t *testing.T) {
 
 	// Claims-level rejections (signed correctly, invalid content).
 	for name, c := range map[string]Claims{
-		"wrong version":             {V: 2, Tier: TierEnterprise, IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
-		"unknown tier":              {V: 1, Tier: "platinum", IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
-		"community is not issuable": {V: 1, Tier: TierCommunity, IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
-		"inverted window":           {V: 1, Tier: TierEnterprise, IssuedAt: now, ExpiresAt: now.Add(-time.Hour)},
+		"wrong version":         {V: 2, Tier: TierEnterprise, IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
+		"unknown tier":          {V: 1, Tier: "platinum", IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
+		"core is not issuable":  {V: 1, Tier: TierCore, IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
+		"unknown pricing model": {V: 1, Tier: TierEnterprise, PricingModel: "auction", IssuedAt: now, ExpiresAt: now.Add(time.Hour)},
+		"MSP feature on enterprise": {
+			V: 1, Tier: TierEnterprise, Features: []Feature{FeatureProviderPlane}, IssuedAt: now, ExpiresAt: now.Add(time.Hour),
+		},
+		"inverted window": {V: 1, Tier: TierEnterprise, IssuedAt: now, ExpiresAt: now.Add(-time.Hour)},
 	} {
 		raw, err := Sign(c, priv)
 		if err != nil {
@@ -91,6 +96,24 @@ func TestVerifyTable(t *testing.T) {
 		if _, err := Verify(raw, [][]byte{pub}); err == nil {
 			t.Errorf("%s: must be rejected", name)
 		}
+	}
+}
+
+func TestVerifyLegacyProviderV1AsMSP(t *testing.T) {
+	priv, pub := testKeypair(t)
+	now := time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC)
+	legacy := testClaims(legacyTierProvider, now.Add(time.Hour))
+
+	raw, err := Sign(legacy, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Verify(raw, [][]byte{pub})
+	if err != nil {
+		t.Fatalf("existing signed v1 provider license must keep verifying: %v", err)
+	}
+	if c.Tier != TierMSP || c.PricingModel != PricingModelConsumption {
+		t.Fatalf("legacy claims normalize to msp/consumption: %+v", c)
 	}
 }
 
@@ -126,7 +149,7 @@ func tamperSignature(t *testing.T, raw []byte) []byte {
 func TestStateLadderAndDegrade(t *testing.T) {
 	priv, pub := testKeypair(t)
 	expires := time.Date(2026, 6, 9, 0, 0, 0, 0, time.UTC)
-	c := testClaims(TierProvider, expires)
+	c := testClaims(TierMSP, expires)
 
 	tests := []struct {
 		name      string
@@ -152,53 +175,66 @@ func TestStateLadderAndDegrade(t *testing.T) {
 		if !m.Has(FeatureProviderPlane) {
 			t.Errorf("%s: Has must remain true while licensed", tc.name)
 		}
-		// A feature outside the tier stays off in every state.
-		if m.Mode(FeatureFIPS) != ModeOff {
-			t.Errorf("%s: unlicensed feature must be off", tc.name)
+		// MSP inherits the Enterprise feature set in every state.
+		if m.Mode(FeatureFIPS) != tc.wantMode {
+			t.Errorf("%s: inherited enterprise feature mode = %s want %s", tc.name, m.Mode(FeatureFIPS), tc.wantMode)
 		}
 	}
 }
 
-// --- tier mapping + explicit extras ---
+// --- tier mapping + inheritance ---
 
 func TestTierTableAndExtras(t *testing.T) {
-	// Table integrity: every feature belongs to exactly one tier.
-	seen := map[Feature]Tier{}
-	for _, tier := range []Tier{TierEnterprise, TierProvider} {
-		for _, f := range TierFeatures(tier) {
-			if prev, dup := seen[f]; dup {
-				t.Fatalf("feature %s in both %s and %s", f, prev, tier)
-			}
-			seen[f] = tier
+	// Table integrity: MSP is a strict superset of Enterprise, while the two
+	// resale-only capabilities never leak into Enterprise.
+	enterprise := map[Feature]bool{}
+	for _, f := range TierFeatures(TierEnterprise) {
+		enterprise[f] = true
+	}
+	msp := map[Feature]bool{}
+	for _, f := range TierFeatures(TierMSP) {
+		msp[f] = true
+	}
+	for f := range enterprise {
+		if !msp[f] {
+			t.Errorf("MSP must inherit Enterprise feature %s", f)
 		}
 	}
-	if len(AllFeatures()) != len(seen) {
-		t.Fatalf("AllFeatures() = %d features, table has %d", len(AllFeatures()), len(seen))
+	if enterprise[FeatureProviderPlane] || enterprise[FeatureMetering] {
+		t.Fatal("Enterprise must not expose provider_plane or metering")
 	}
-	for f, tier := range seen {
-		if FeatureTier(f) != tier {
-			t.Errorf("FeatureTier(%s) = %s want %s", f, FeatureTier(f), tier)
-		}
+	if !msp[FeatureProviderPlane] || !msp[FeatureMetering] {
+		t.Fatal("MSP must expose provider_plane and metering")
+	}
+	if len(AllFeatures()) != len(msp) {
+		t.Fatalf("AllFeatures() = %d features, MSP table has %d", len(AllFeatures()), len(msp))
+	}
+	if FeatureTier(FeatureBYOK) != TierEnterprise || FeatureTier(FeatureProviderPlane) != TierMSP {
+		t.Fatal("minimum feature tiers are wrong")
 	}
 
-	// An enterprise license grants enterprise features, not provider ones.
+	// An enterprise license grants every self-hosted ee feature, but never the
+	// MSP resale plane.
 	priv, pub := testKeypair(t)
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	ent := managerAt(t, testClaims(TierEnterprise, now.Add(time.Hour)), priv, pub, now)
-	if !ent.Has(FeatureBYOK) || ent.Has(FeatureWhiteLabel) {
+	if !ent.Has(FeatureBYOK) || !ent.Has(FeatureSiloedIsolation) || ent.Has(FeatureProviderPlane) || ent.Has(FeatureMetering) {
 		t.Fatal("enterprise grant wrong")
 	}
-
-	// A bespoke deal: provider + explicit byok extra.
-	c := testClaims(TierProvider, now.Add(time.Hour))
-	c.Features = []Feature{FeatureBYOK}
-	c.TenantBand = 25
-	prov := managerAt(t, c, priv, pub, now)
-	if !prov.Has(FeatureProviderPlane) || !prov.Has(FeatureBYOK) || prov.Has(FeatureRemediation) {
-		t.Fatal("explicit-extras grant wrong")
+	if ent.PricingModel() != PricingModelFlat || len(ent.Info().Meters) != 0 {
+		t.Fatalf("enterprise pricing metadata wrong: %+v", ent.Info())
 	}
-	if prov.TenantBand() != 25 {
-		t.Fatalf("tenant band = %d want 25", prov.TenantBand())
+
+	// MSP automatically receives the complete Enterprise set plus its resale
+	// plane and consumption meters.
+	c := testClaims(TierMSP, now.Add(time.Hour))
+	c.TenantBand = 25
+	mspManager := managerAt(t, c, priv, pub, now)
+	if !mspManager.Has(FeatureProviderPlane) || !mspManager.Has(FeatureBYOK) || !mspManager.Has(FeatureRemediation) {
+		t.Fatal("msp superset grant wrong")
+	}
+	if mspManager.TenantBand() != 25 {
+		t.Fatalf("tenant band = %d want 25", mspManager.TenantBand())
 	}
 }
 
@@ -206,8 +242,8 @@ func TestTierTableAndExtras(t *testing.T) {
 
 func TestCommunityAndLoad(t *testing.T) {
 	m := Community()
-	if m.Tier() != TierCommunity || m.State() != StateCommunity {
-		t.Fatal("community defaults wrong")
+	if m.Tier() != TierCore || m.State() != StateCommunity {
+		t.Fatal("core defaults wrong")
 	}
 	for _, f := range AllFeatures() {
 		if m.Has(f) || m.Mode(f) != ModeOff {
@@ -215,12 +251,12 @@ func TestCommunityAndLoad(t *testing.T) {
 		}
 	}
 	info := m.Info()
-	if info.Tier != TierCommunity || len(info.Features) != len(AllFeatures()) {
-		t.Fatalf("community info wrong: %+v", info)
+	if info.Tier != TierCore || info.PricingModel != "" || len(info.Features) != len(AllFeatures()) {
+		t.Fatalf("core info wrong: %+v", info)
 	}
 
 	// Empty path = Community, nil error (default-open).
-	if m, err := Load("", nil); err != nil || m.Tier() != TierCommunity {
+	if m, err := Load("", nil); err != nil || m.Tier() != TierCore {
 		t.Fatalf("Load(\"\") = %v, %v", m.Tier(), err)
 	}
 	// Configured-but-missing = startup error (fail closed on config).
@@ -255,13 +291,16 @@ func TestCommunityAndLoad(t *testing.T) {
 func TestInfoRendersLicenseTruth(t *testing.T) {
 	priv, pub := testKeypair(t)
 	expires := time.Date(2026, 12, 31, 0, 0, 0, 0, time.UTC)
-	c := testClaims(TierProvider, expires)
+	c := testClaims(TierMSP, expires)
 	c.TenantBand = 100
 	m := managerAt(t, c, priv, pub, expires.Add(-time.Hour))
 
 	info := m.Info()
-	if info.Tier != TierProvider || info.State != StateActive || info.Customer != "Acme Corp" {
+	if info.Tier != TierMSP || info.PricingModel != PricingModelConsumption || info.State != StateActive || info.Customer != "Acme Corp" {
 		t.Fatalf("info header wrong: %+v", info)
+	}
+	if len(info.Meters) != len(usage.Meters()) {
+		t.Fatalf("MSP meter vocabulary missing: %v", info.Meters)
 	}
 	if info.ExpiresAt == nil || !info.ExpiresAt.Equal(expires) {
 		t.Fatal("expiry missing")
@@ -269,20 +308,20 @@ func TestInfoRendersLicenseTruth(t *testing.T) {
 	if info.ReadOnlyAt == nil || !info.ReadOnlyAt.Equal(expires.Add(GracePeriod)) {
 		t.Fatal("read-only horizon missing")
 	}
-	var sawLicensed, sawUnlicensed bool
+	var sawProvider, sawEnterprise bool
 	var sawHAClarified bool
 	for _, f := range info.Features {
 		if f.Name == FeatureProviderPlane && f.Licensed && f.Mode == ModeEnabled {
-			sawLicensed = true
+			sawProvider = true
 		}
-		if f.Name == FeatureFIPS && !f.Licensed && f.Mode == ModeOff {
-			sawUnlicensed = true
+		if f.Name == FeatureFIPS && f.Licensed && f.Mode == ModeEnabled && f.Tier == TierEnterprise {
+			sawEnterprise = true
 		}
 		if f.Name == FeatureHASupport && f.DisplayName == "HA support/SLA" {
 			sawHAClarified = true
 		}
 	}
-	if !sawLicensed || !sawUnlicensed || !sawHAClarified {
+	if !sawProvider || !sawEnterprise || !sawHAClarified {
 		t.Fatalf("feature rows wrong: %+v", info.Features)
 	}
 }

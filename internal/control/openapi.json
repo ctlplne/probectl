@@ -3234,7 +3234,7 @@
         "tags": [
           "editions"
         ],
-        "description": "The deployment's edition truth: licensed tier (community/enterprise/provider), lifecycle state (community, active, grace, read_only), customer + expiry + read-only horizon when licensed, the provider tenant band, and the full gated-feature table with per-feature licensed/mode status. This endpoint is the ONE place tiers appear when unlicensed (the hidden-unlicensed UX): commercial features are otherwise invisible without an entitlement. License verification is offline (Ed25519 against build-time-baked keys) \u2014 never phone-home; expiry degrades read-only after a 30-day grace and never breaks running telemetry.",
+        "description": "The deployment's edition truth: tier (core/enterprise/msp), informational pricing model (flat/consumption), lifecycle state (community, active, grace, read_only), customer + expiry + read-only horizon when licensed, the MSP tenant band and meter vocabulary, and the full gated-feature table with per-feature licensed/mode status. This endpoint is the ONE place tiers appear when unlicensed (the hidden-unlicensed UX): commercial features are otherwise invisible without an entitlement. License verification is offline (Ed25519 against build-time-baked keys) \u2014 never phone-home; expiry degrades read-only after a 30-day grace and never breaks running telemetry.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3251,10 +3251,18 @@
                     "tier": {
                       "type": "string",
                       "enum": [
-                        "community",
+                        "core",
                         "enterprise",
-                        "provider"
+                        "msp"
                       ]
+                    },
+                    "pricing_model": {
+                      "type": "string",
+                      "enum": [
+                        "flat",
+                        "consumption"
+                      ],
+                      "description": "Informational commercial model; feature enforcement comes only from tier."
                     },
                     "state": {
                       "type": "string",
@@ -3281,6 +3289,13 @@
                     },
                     "tenant_band": {
                       "type": "integer"
+                    },
+                    "meters": {
+                      "type": "array",
+                      "description": "Canonical local usage meters, present for MSP licenses only.",
+                      "items": {
+                        "type": "string"
+                      }
                     },
                     "features": {
                       "type": "array",

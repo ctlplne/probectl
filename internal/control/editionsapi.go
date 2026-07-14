@@ -31,10 +31,10 @@ func BuildLicense(cfg *config.Config, log *slog.Logger) (*license.Manager, error
 	if err != nil {
 		return nil, err
 	}
-	if log != nil && m.Tier() != license.TierCommunity {
+	if log != nil && m.Tier() != license.TierCore {
 		info := m.Info()
 		log.Info("license loaded",
-			"tier", info.Tier, "state", info.State, "customer", info.Customer,
+			"tier", info.Tier, "pricing_model", info.PricingModel, "state", info.State, "customer", info.Customer,
 			"expires_at", info.ExpiresAt, "tenant_band", info.TenantBand)
 	}
 	return m, nil

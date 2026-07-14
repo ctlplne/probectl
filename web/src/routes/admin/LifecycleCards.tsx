@@ -113,10 +113,9 @@ export function LifecycleCard() {
               </a>
             </p>
             <p className={styles.editionsLede}>
-              Audit retention is deployment-level: single deployments can keep local rows
-              forever; multi-tenant and regulated profiles default to 365 days and require
-              WORM/SIEM export receipts before pruning. /readyz reports if raw rows are not
-              aging out.
+              Audit retention is deployment-level: single deployments can keep local rows forever;
+              multi-tenant and regulated profiles default to 365 days and require WORM/SIEM export
+              receipts before pruning. /readyz reports if raw rows are not aging out.
             </p>
             <form
               className={styles.actions}
@@ -427,12 +426,13 @@ export function EditionsCard() {
         ) : (
           <>
             <p className={styles.editionsLede}>
-              {stateBadge()} <strong>{(data?.tier ?? 'community').toUpperCase()}</strong>
+              {stateBadge()} <strong>{(data?.tier ?? 'core').toUpperCase()}</strong>
               {data?.customer ? (
                 <> · licensed to {data.customer}</>
               ) : (
                 <> — the full core, free forever</>
               )}
+              {data?.pricing_model ? <> · {data.pricing_model} pricing</> : null}
               {data?.expires_at ? (
                 <>
                   {' '}
@@ -447,6 +447,12 @@ export function EditionsCard() {
               ) : null}
               {data?.tenant_band ? <> · tenant band {data.tenant_band}</> : null}
             </p>
+            {data?.meters?.length ? (
+              <p className={styles.editionsLede}>
+                MSP consumption meters: <code>{data.meters.join(', ')}</code> · operator-run export
+                only; never phone-home
+              </p>
+            ) : null}
             {data?.fips && (data.fips.build_tag || data.fips.module_active) ? (
               <p className={styles.editionsLede}>
                 <Badge tone={data.fips.module_active ? 'success' : 'warning'}>
