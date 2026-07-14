@@ -1,5 +1,19 @@
 .progress {
+  display: grid;
+  gap: var(--space-3);
   margin-block-end: var(--space-4);
+}
+
+.progressHeader {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.progressHeader h2 {
+  margin: 0;
+  font-size: var(--font-size-xl);
 }
 
 .progressList {
@@ -26,10 +40,72 @@
   color: var(--color-text-subtle);
 }
 
+.findingReceipt {
+  margin-block-end: var(--space-4);
+}
+
+.findingBody {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.findingBody strong {
+  flex-basis: 100%;
+}
+
+.findingBody code,
+.findingBody time {
+  color: var(--color-text-muted);
+}
+
 .planeChooser {
   display: grid;
   gap: var(--space-4);
   margin-block-end: var(--space-4);
+}
+
+.engineReadiness {
+  display: grid;
+  gap: var(--space-4);
+  margin-block-end: var(--space-4);
+}
+
+.engineList {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.engineItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+}
+
+.engineItem > div {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.engineItem span {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.engineItem button {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .sectionIntro {

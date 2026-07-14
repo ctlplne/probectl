@@ -7258,6 +7258,71 @@
           "items"
         ]
       },
+      "OnboardingReadiness": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable producer-plane or engine identifier."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "quiet",
+              "blocked"
+            ],
+            "description": "ready means operational/data observed, quiet means running without tenant data, and blocked means unavailable or unhealthy."
+          },
+          "detail": {
+            "type": "string"
+          },
+          "next_action": {
+            "type": "string",
+            "description": "Tenant-relative UI route for the next useful action."
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "detail",
+          "next_action"
+        ]
+      },
+      "OnboardingFinding": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "type",
+          "target",
+          "success",
+          "observed_at",
+          "href"
+        ]
+      },
       "OnboardingProgress": {
         "type": "object",
         "additionalProperties": false,
@@ -7270,20 +7335,70 @@
             "type": "boolean",
             "description": "True once at least one agent row exists for this tenant."
           },
+          "agent_connected": {
+            "type": "boolean",
+            "description": "True once a tenant-bound producer has completed an authenticated registration or heartbeat."
+          },
+          "producer_healthy": {
+            "type": "boolean",
+            "description": "True while at least one tenant-bound producer has a current online heartbeat."
+          },
           "first_test_created": {
             "type": "boolean",
             "description": "True once at least one synthetic test exists for this tenant."
           },
+          "first_result_received": {
+            "type": "boolean",
+            "description": "True once the server has retained a real result in this tenant's result partition."
+          },
+          "first_finding_visible": {
+            "type": "boolean",
+            "description": "True once a named, navigable finding receipt is available."
+          },
           "scim_token_created": {
             "type": "boolean",
             "description": "True once at least one SCIM provisioning token row exists for this tenant."
+          },
+          "readiness_steps_complete": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4,
+            "description": "Count of operational milestones only: connected, healthy, result, finding. Setup artifacts do not advance it."
+          },
+          "readiness_steps_total": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 4
+          },
+          "first_finding": {
+            "$ref": "#/components/schemas/OnboardingFinding"
+          },
+          "producers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnboardingReadiness"
+            }
+          },
+          "engines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OnboardingReadiness"
+            }
           }
         },
         "required": [
           "agent_enroll_token_created",
           "agent_registered",
+          "agent_connected",
+          "producer_healthy",
           "first_test_created",
-          "scim_token_created"
+          "first_result_received",
+          "first_finding_visible",
+          "scim_token_created",
+          "readiness_steps_complete",
+          "readiness_steps_total",
+          "producers",
+          "engines"
         ]
       },
       "MPLSLabel": {

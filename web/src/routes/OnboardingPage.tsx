@@ -11,23 +11,22 @@ import {
   Select,
   StatusDot,
 } from '../components'
-import { useAuth } from '../auth/useAuth'
 import {
-  flattenAgents,
-  useAgents,
   useMintAgentEnrollToken,
   useOnboardingProgress,
   type AgentEnrollToken,
   type CollectorPlane,
+  type OnboardingReadiness,
 } from '../api/agents'
-import { useCreateScimToken, type CreatedScimToken, useScimTokens } from '../api/identity'
-import { useCreateTest, useTests, type Test } from '../api/tests'
+import { useCreateScimToken, type CreatedScimToken } from '../api/identity'
+import { useCreateTest, type Test } from '../api/tests'
 import { Page } from './pages'
 import { agentEnrollCommand, defaultControlPlaneURL } from './enrollment'
 import styles from './onboarding.module.css'
 import { useI18n } from '../i18n/useI18n'
-import { formatCount } from '../i18n/number'
 import type { MessageKey } from '../i18n/messages'
+import type { BadgeTone } from '../components'
+import { useTime } from '../time/useTime'
 
 const FIRST_TEST_TYPES = ['http', 'dns', 'icmp', 'tcp']
 
@@ -123,13 +122,16 @@ function ProgressItem({
   )
 }
 
+function readinessTone(state: OnboardingReadiness['state']): BadgeTone {
+  if (state === 'ready') return 'success'
+  if (state === 'quiet') return 'info'
+  return 'warning'
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate()
-  const { locale, t } = useI18n()
-  const { tenant, user } = useAuth()
-  const agentsQuery = useAgents()
-  const testsQuery = useTests()
-  const scimQuery = useScimTokens()
+  const { t } = useI18n()
+  const time = useTime()
   const onboardingProgress = useOnboardingProgress()
   const mintAgent = useMintAgentEnrollToken()
   const createTest = useCreateTest()
@@ -140,119 +142,68 @@ export function OnboardingPage() {
   const [controlURL, setControlURL] = useState(defaultControlPlaneURL)
   const [agentToken, setAgentToken] = useState<AgentEnrollToken | null>(null)
 
-  const [testName, setTestName] = useState('first-http-check')
-  const [testType, setTestType] = useState('http')
-  const [testTarget, setTestTarget] = useState('https://app.example.test/health')
+  const [testName, setTestName] = useState('first-loopback-check')
+  const [testType, setTestType] = useState('icmp')
+  const [testTarget, setTestTarget] = useState('127.0.0.1')
   const [testInterval, setTestInterval] = useState('60')
   const [createdTest, setCreatedTest] = useState<Test | null>(null)
 
   const [inviteName, setInviteName] = useState('first-run-teammates')
   const [inviteToken, setInviteToken] = useState<CreatedScimToken | null>(null)
 
-  const agents = flattenAgents(agentsQuery.data?.pages)
-  const tests = testsQuery.data ?? []
-  const scimTokens = scimQuery.data ?? []
   const persistedProgress = onboardingProgress.data
   const command = agentToken
     ? agentEnrollCommand(agentToken, controlURL.trim() || defaultControlPlaneURL())
     : ''
 
   const progress = useMemo(() => {
-    const agentDone =
-      agents.length > 0 ||
-      agentToken !== null ||
-      Boolean(persistedProgress?.agent_registered || persistedProgress?.agent_enroll_token_created)
-    const testDone =
-      tests.length > 0 || createdTest !== null || Boolean(persistedProgress?.first_test_created)
-    const teammatesDone =
-      scimTokens.length > 0 ||
-      inviteToken !== null ||
-      Boolean(persistedProgress?.scim_token_created)
+    const tokenCreated =
+      agentToken !== null || Boolean(persistedProgress?.agent_enroll_token_created)
     return [
       {
-        label: t('onboarding.progress.session'),
-        done: true,
-        detail: t('onboarding.progress.session.detail', {
-          email: user.email,
-          tenant: tenant.slug || tenant.id,
-        }),
+        label: t('onboarding.progress.credential'),
+        done: tokenCreated,
+        detail: tokenCreated
+          ? t('onboarding.progress.credential.created')
+          : t('onboarding.progress.credential.waiting'),
       },
       {
-        label: t('onboarding.progress.agent'),
-        done: agentDone,
-        detail:
-          agents.length > 0
-            ? t('onboarding.progress.agent.visible', {
-                count: formatCount(
-                  agents.length,
-                  t('onboarding.unit.agent'),
-                  t('onboarding.unit.agents'),
-                  locale,
-                ),
-              })
-            : agentToken
-              ? t('onboarding.progress.agent.tokenMinted')
-              : persistedProgress?.agent_registered
-                ? t('onboarding.progress.agent.registered')
-                : persistedProgress?.agent_enroll_token_created
-                  ? t('onboarding.progress.agent.tokenAlreadyMinted')
-                  : t('onboarding.progress.agent.waiting'),
+        label: t('onboarding.progress.connected'),
+        done: Boolean(persistedProgress?.agent_connected),
+        detail: persistedProgress?.agent_connected
+          ? t('onboarding.progress.connected.ready')
+          : t('onboarding.progress.connected.waiting'),
       },
       {
-        label: t('onboarding.progress.firstTest'),
-        done: testDone,
-        detail:
-          tests.length > 0
-            ? t('onboarding.progress.firstTest.configured', {
-                count: formatCount(
-                  tests.length,
-                  t('onboarding.unit.test'),
-                  t('onboarding.unit.tests'),
-                  locale,
-                ),
-              })
-            : createdTest
-              ? t('onboarding.progress.firstTest.created', { name: createdTest.name })
-              : persistedProgress?.first_test_created
-                ? t('onboarding.progress.firstTest.alreadyConfigured')
-                : t('onboarding.progress.firstTest.waiting'),
+        label: t('onboarding.progress.healthy'),
+        done: Boolean(persistedProgress?.producer_healthy),
+        detail: persistedProgress?.producer_healthy
+          ? t('onboarding.progress.healthy.ready')
+          : t('onboarding.progress.healthy.waiting'),
       },
       {
-        label: t('onboarding.progress.teammates'),
-        done: teammatesDone,
-        detail:
-          scimTokens.length > 0
-            ? t('onboarding.progress.teammates.active', {
-                count: formatCount(
-                  scimTokens.length,
-                  t('onboarding.unit.scimToken'),
-                  t('onboarding.unit.scimTokens'),
-                  locale,
-                ),
-              })
-            : inviteToken
-              ? t('onboarding.progress.teammates.created', { name: inviteToken.name })
-              : persistedProgress?.scim_token_created
-                ? t('onboarding.progress.teammates.alreadyCreated')
-                : t('onboarding.progress.teammates.waiting'),
+        label: t('onboarding.progress.result'),
+        done: Boolean(persistedProgress?.first_result_received),
+        detail: persistedProgress?.first_result_received
+          ? t('onboarding.progress.result.ready')
+          : t('onboarding.progress.result.waiting'),
+      },
+      {
+        label: t('onboarding.progress.finding'),
+        done: Boolean(persistedProgress?.first_finding_visible),
+        detail: persistedProgress?.first_finding_visible
+          ? t('onboarding.progress.finding.ready')
+          : t('onboarding.progress.finding.waiting'),
       },
     ]
   }, [
     agentToken,
-    agents.length,
-    createdTest,
-    inviteToken,
-    locale,
     persistedProgress?.agent_enroll_token_created,
-    persistedProgress?.agent_registered,
-    persistedProgress?.first_test_created,
-    persistedProgress?.scim_token_created,
-    scimTokens.length,
+    persistedProgress?.agent_connected,
+    persistedProgress?.first_finding_visible,
+    persistedProgress?.first_result_received,
+    persistedProgress?.producer_healthy,
     t,
-    tenant.id,
-    tenant.slug,
-    tests.length,
-    user.email,
   ])
 
   function submitAgent(e: FormEvent) {
@@ -263,7 +214,12 @@ export function OnboardingPage() {
         ...(agentLabel.trim() ? { name: agentLabel.trim() } : {}),
         ...(Number.isFinite(ttl) && ttl > 0 ? { ttl_seconds: Math.round(ttl * 60) } : {}),
       },
-      { onSuccess: setAgentToken },
+      {
+        onSuccess: (token) => {
+          setAgentToken(token)
+          void onboardingProgress.refetch()
+        },
+      },
     )
   }
 
@@ -280,7 +236,12 @@ export function OnboardingPage() {
         params: {},
         enabled: true,
       },
-      { onSuccess: setCreatedTest },
+      {
+        onSuccess: (test) => {
+          setCreatedTest(test)
+          void onboardingProgress.refetch()
+        },
+      },
     )
   }
 
@@ -288,12 +249,25 @@ export function OnboardingPage() {
     e.preventDefault()
     createInvite.mutate(
       { name: inviteName.trim() || 'first-run-teammates' },
-      { onSuccess: setInviteToken },
+      {
+        onSuccess: (token) => {
+          setInviteToken(token)
+          void onboardingProgress.refetch()
+        },
+      },
     )
   }
 
   function choosePlane(plane: ProducerPlane) {
-    if (plane.id === 'synthetic') {
+    const nextAction = persistedProgress?.producers.find(
+      (item) => item.id === plane.id,
+    )?.next_action
+    if (nextAction === '/onboarding') return
+    if (nextAction && nextAction !== '/onboarding#first-run-agent') {
+      navigate(nextAction)
+      return
+    }
+    if (plane.id === 'synthetic' || nextAction === '/onboarding#first-run-agent') {
       const target = document.getElementById('first-run-agent')
       target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
       target?.querySelector<HTMLButtonElement | HTMLInputElement>('input, button')?.focus()
@@ -313,6 +287,15 @@ export function OnboardingPage() {
       }
     >
       <section className={styles.progress} aria-label={t('onboarding.progress.aria')}>
+        <div className={styles.progressHeader}>
+          <h2>{t('onboarding.progress.title')}</h2>
+          <Badge tone={persistedProgress?.readiness_steps_complete === 4 ? 'success' : 'info'}>
+            {t('onboarding.progress.count', {
+              complete: persistedProgress?.readiness_steps_complete ?? 0,
+              total: persistedProgress?.readiness_steps_total ?? 4,
+            })}
+          </Badge>
+        </div>
         <ul className={styles.progressList} role="list">
           {progress.map((item) => (
             <ProgressItem
@@ -323,6 +306,35 @@ export function OnboardingPage() {
           ))}
         </ul>
       </section>
+
+      {persistedProgress?.first_finding ? (
+        <Card className={styles.findingReceipt}>
+          <CardHeader
+            title={t('onboarding.finding.title')}
+            description={t('onboarding.finding.description')}
+            actions={
+              <Badge tone={persistedProgress.first_finding.success ? 'success' : 'danger'}>
+                {persistedProgress.first_finding.success
+                  ? t('onboarding.finding.healthy')
+                  : t('onboarding.finding.failed')}
+              </Badge>
+            }
+          />
+          <CardBody className={styles.findingBody}>
+            <strong>{persistedProgress.first_finding.title}</strong>
+            <code>{persistedProgress.first_finding.target}</code>
+            <time dateTime={persistedProgress.first_finding.observed_at}>
+              {time.format(persistedProgress.first_finding.observed_at).text}
+            </time>
+            <Button
+              variant="primary"
+              onClick={() => navigate(persistedProgress.first_finding!.href)}
+            >
+              <Icon name="targets" /> {t('onboarding.finding.open')}
+            </Button>
+          </CardBody>
+        </Card>
+      ) : null}
 
       <section className={styles.planeChooser} aria-labelledby="plane-chooser-title">
         <div className={styles.sectionIntro}>
@@ -336,12 +348,26 @@ export function OnboardingPage() {
                 title={t(plane.titleKey)}
                 description={t(plane.producerKey)}
                 actions={
-                  <Badge tone={plane.id === 'synthetic' ? 'info' : 'warning'}>
-                    {plane.id === 'synthetic' ? 'gRPC' : 'bus'}
+                  <Badge
+                    tone={readinessTone(
+                      persistedProgress?.producers.find((item) => item.id === plane.id)?.state ??
+                        'blocked',
+                    )}
+                  >
+                    {persistedProgress?.producers.find((item) => item.id === plane.id)?.state ??
+                      'blocked'}
                   </Badge>
                 }
               />
               <CardBody className={styles.planeBody}>
+                {persistedProgress?.producers.find((item) => item.id === plane.id) ? (
+                  <StatusDot
+                    tone={readinessTone(
+                      persistedProgress.producers.find((item) => item.id === plane.id)!.state,
+                    )}
+                    label={persistedProgress.producers.find((item) => item.id === plane.id)!.detail}
+                  />
+                ) : null}
                 <dl className={styles.planeFacts}>
                   <dt>{t('onboarding.field.prerequisites')}</dt>
                   <dd>{t(plane.prerequisitesKey)}</dd>
@@ -351,14 +377,42 @@ export function OnboardingPage() {
                 <Button
                   variant={plane.id === 'synthetic' ? 'primary' : 'secondary'}
                   onClick={() => choosePlane(plane)}
+                  disabled={
+                    persistedProgress?.producers.find((item) => item.id === plane.id)
+                      ?.next_action === '/onboarding'
+                  }
                 >
                   <Icon name={plane.id === 'synthetic' ? 'targets' : 'admin'} />{' '}
-                  {t(plane.actionKey)}
+                  {persistedProgress?.producers.find((item) => item.id === plane.id)?.state ===
+                  'ready'
+                    ? t('onboarding.producer.open')
+                    : t(plane.actionKey)}
                 </Button>
               </CardBody>
             </Card>
           ))}
         </div>
+      </section>
+
+      <section className={styles.engineReadiness} aria-labelledby="engine-readiness-title">
+        <div className={styles.sectionIntro}>
+          <h2 id="engine-readiness-title">{t('onboarding.engines.title')}</h2>
+          <p>{t('onboarding.engines.description')}</p>
+        </div>
+        <ul className={styles.engineList} role="list">
+          {(persistedProgress?.engines ?? []).map((engine) => (
+            <li key={engine.id} className={styles.engineItem}>
+              <div>
+                <strong>{engine.id}</strong>
+                <span>{engine.detail}</span>
+              </div>
+              <Badge tone={readinessTone(engine.state)}>{engine.state}</Badge>
+              <Button variant="secondary" onClick={() => navigate(engine.next_action)}>
+                {t('onboarding.engines.nextAction')}
+              </Button>
+            </li>
+          ))}
+        </ul>
       </section>
 
       <div className={styles.grid}>

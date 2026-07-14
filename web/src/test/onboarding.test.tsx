@@ -14,8 +14,29 @@ function onboardingFetch(capture: {
   const progress = {
     agent_enroll_token_created: false,
     agent_registered: false,
+    agent_connected: false,
+    producer_healthy: false,
     first_test_created: false,
+    first_result_received: false,
+    first_finding_visible: false,
     scim_token_created: false,
+    readiness_steps_complete: 0,
+    readiness_steps_total: 4,
+    producers: ['synthetic', 'flow', 'bgp', 'device', 'ebpf', 'endpoint'].map((id) => ({
+      id,
+      state: 'blocked',
+      detail: 'producer is not registered',
+      next_action:
+        id === 'synthetic' ? '/onboarding#first-run-agent' : `/admin?register_collector=${id}`,
+    })),
+    engines: [
+      {
+        id: 'synthetic-results',
+        state: 'quiet',
+        detail: 'engine is running and waiting for tenant data',
+        next_action: '/targets',
+      },
+    ],
   }
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
@@ -129,6 +150,7 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     const firstTest = cardByHeading(/create the first test/i)
     await user.clear(within(firstTest).getByLabelText(/test name/i))
     await user.type(within(firstTest).getByLabelText(/test name/i), 'checkout-health')
+    await user.selectOptions(within(firstTest).getByLabelText(/type/i), 'http')
     await user.clear(within(firstTest).getByLabelText(/^target$/i))
     await user.type(
       within(firstTest).getByLabelText(/^target$/i),
@@ -175,13 +197,13 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
     await user.click(within(agent).getByRole('button', { name: /mint enrollment token/i }))
 
     expect(await screen.findByDisplayValue('pjt_onboarding_agent')).toBeInTheDocument()
-    expect(screen.getByText(/enrollment token minted/i)).toBeInTheDocument()
+    expect(screen.getByText(/credential exists; readiness is still 0/i)).toBeInTheDocument()
 
     firstRender.unmount()
     vi.stubGlobal('fetch', fetchStub)
     renderApp('/')
 
-    expect(await screen.findByText(/enrollment token already minted/i)).toBeInTheDocument()
+    expect(await screen.findByText(/credential exists; readiness is still 0/i)).toBeInTheDocument()
     expect(screen.queryByDisplayValue('pjt_onboarding_agent')).not.toBeInTheDocument()
     expect(capture.enroll).toMatchObject({ name: 'edge-canary-1', ttl_seconds: 3600 })
   })
@@ -198,7 +220,9 @@ describe('first-run onboarding journey (JOURNEY-001)', () => {
 
     renderApp('/')
 
-    expect(await screen.findByRole('heading', { name: /choose a producer plane/i })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: /choose a producer plane/i }),
+    ).toBeInTheDocument()
     for (const plane of ['Synthetic', 'Flow', 'BGP', 'Device', 'eBPF', 'Endpoint']) {
       expect(screen.getByRole('heading', { name: plane })).toBeInTheDocument()
     }

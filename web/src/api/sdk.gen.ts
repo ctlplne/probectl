@@ -673,11 +673,36 @@ export interface Me {
   user_id: string
 }
 
+export interface OnboardingFinding {
+  href: string
+  observed_at: string
+  success: boolean
+  target: string
+  title: string
+  type: string
+}
+
 export interface OnboardingProgress {
+  agent_connected: boolean
   agent_enroll_token_created: boolean
   agent_registered: boolean
+  engines: OnboardingReadiness[]
+  first_finding?: OnboardingFinding
+  first_finding_visible: boolean
+  first_result_received: boolean
   first_test_created: boolean
+  producer_healthy: boolean
+  producers: OnboardingReadiness[]
+  readiness_steps_complete: number
+  readiness_steps_total: number
   scim_token_created: boolean
+}
+
+export interface OnboardingReadiness {
+  detail: string
+  id: string
+  next_action: string
+  state: "ready" | "quiet" | "blocked"
 }
 
 export interface OncallStatus {

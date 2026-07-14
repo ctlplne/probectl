@@ -752,11 +752,36 @@ type Me struct {
 	UserId         string   `json:"user_id"`
 }
 
+type OnboardingFinding struct {
+	Href       string `json:"href"`
+	ObservedAt string `json:"observed_at"`
+	Success    bool   `json:"success"`
+	Target     string `json:"target"`
+	Title      string `json:"title"`
+	Type       string `json:"type"`
+}
+
 type OnboardingProgress struct {
-	AgentEnrollTokenCreated bool `json:"agent_enroll_token_created"`
-	AgentRegistered         bool `json:"agent_registered"`
-	FirstTestCreated        bool `json:"first_test_created"`
-	ScimTokenCreated        bool `json:"scim_token_created"`
+	AgentConnected          bool                  `json:"agent_connected"`
+	AgentEnrollTokenCreated bool                  `json:"agent_enroll_token_created"`
+	AgentRegistered         bool                  `json:"agent_registered"`
+	Engines                 []OnboardingReadiness `json:"engines"`
+	FirstFinding            OnboardingFinding     `json:"first_finding,omitempty"`
+	FirstFindingVisible     bool                  `json:"first_finding_visible"`
+	FirstResultReceived     bool                  `json:"first_result_received"`
+	FirstTestCreated        bool                  `json:"first_test_created"`
+	ProducerHealthy         bool                  `json:"producer_healthy"`
+	Producers               []OnboardingReadiness `json:"producers"`
+	ReadinessStepsComplete  int                   `json:"readiness_steps_complete"`
+	ReadinessStepsTotal     int                   `json:"readiness_steps_total"`
+	ScimTokenCreated        bool                  `json:"scim_token_created"`
+}
+
+type OnboardingReadiness struct {
+	Detail     string `json:"detail"`
+	Id         string `json:"id"`
+	NextAction string `json:"next_action"`
+	State      string `json:"state"`
 }
 
 // Read-only, tenant-scoped on-call/ITSM posture. Secrets and endpoint path/query values are intentionally omitted.

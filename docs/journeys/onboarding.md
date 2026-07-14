@@ -8,7 +8,8 @@ to end.
 ## Who this is for
 
 A new operator or site-reliability engineer (SRE) standing up probectl for the
-first time. You have a Linux or macOS machine, Docker, and an hour. You have never
+first time. You have a Linux or macOS machine, Docker, and 15 minutes after the
+reference Compose stack is healthy. You have never
 run probectl before and you want to get from an empty install to **real data on
 the screen** without guessing.
 
@@ -66,8 +67,18 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
    it to the agent, which generates its private key locally and enrolls itself (the
    enrollment commands are in the [getting-started guide](../getting-started.md)).
    This is the agent described in [active / synthetic testing](../features/active-testing.md).
+   The browser's **First-run setup** page shows token creation separately from
+   operational readiness: the token does not count as ready. Readiness advances
+   only after the server observes the authenticated connection and a current
+   producer heartbeat.
+   Producer and engine next actions are permission-aware: if your tenant role
+   cannot inspect a plane, the server returns a closed state instead of leaking
+   whether that plane contains data.
 
-3. **Define and run your first network / HTTP / DNS test.** Create a synthetic test
+3. **Define and run your first network / HTTP / DNS test.** The First-run setup
+   page defaults to an ICMP check of `127.0.0.1`, a real loopback observation
+   that does not require outbound Internet access. You may use that default or
+   create another synthetic test
    — for example an HTTP check, an Internet Control Message Protocol (ICMP) ping, or
    a Domain Name System (DNS) lookup — by posting to the tests route:
 
@@ -81,7 +92,11 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
    and streams a result back. The test types and their parameters are detailed in
    [active / synthetic testing](../features/active-testing.md).
 
-4. **Read the first result and see the path map.** Read the latest result per
+4. **Read the first finding receipt, then see the path map.** First-run setup
+   polls tenant-scoped server state and ends on a named receipt such as
+   `ICMP check healthy — 127.0.0.1`. Its **View first finding** action opens the
+   target without a tenant picker. You can inspect the same result and topology
+   over the API:
    target, then read the topology graph the result feeds into:
 
    ```sh
@@ -111,10 +126,12 @@ trust its self-signed certificate by passing `--cacert ./certs/ca.crt` to `curl`
 
 ## You're done when
 
-You query `/v1/results/latest` and see a real synthetic result with its phase
-breakdown, and `/v1/topology` returns a rendered graph of nodes and edges. The
+First-run setup reports all four operational milestones—agent connected,
+producer healthy, first result, and first finding—and shows the named finding
+receipt. A minted token or saved test alone does not satisfy completion. The
 loop is proven: a producer observed, the control plane consumed it, and the
-application programming interface (API) served it back — all within your tenant.
+application programming interface (API) served it back—all within your tenant
+and within 15 minutes after the reference Compose stack became healthy.
 
 ## Next
 

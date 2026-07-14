@@ -112,6 +112,16 @@ docker compose -f deploy/compose/eval.yml --profile tools run --rm \
   -e URL=/v1/results/latest viewer
 ```
 
+The web **First-run setup** page measures the same end-to-end path. It keeps
+credential creation outside the readiness count, then waits for four
+server-observed milestones: authenticated agent connection, fresh producer
+heartbeat, first tenant-scoped result, and a named first-finding receipt. The
+default first test is an ICMP check of `127.0.0.1`, so the proof is a real local
+observation and does not depend on outbound Internet access. From a healthy
+reference Compose stack, this path is budgeted at no more than seven UI
+interactions and 15 minutes; the deterministic journey test records four UI
+interactions plus the shell enrollment handoff.
+
 > **The synthetic overlay is the most intricate part of the eval stack and the
 > least exercised.** If a step misbehaves, don't fight it — the **from-source
 > walkthrough below** is the fully verified canary path and needs none of this

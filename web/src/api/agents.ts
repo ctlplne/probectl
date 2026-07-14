@@ -54,8 +54,31 @@ export interface CollectorRegistration {
 export interface OnboardingProgress {
   agent_enroll_token_created: boolean
   agent_registered: boolean
+  agent_connected: boolean
+  producer_healthy: boolean
   first_test_created: boolean
+  first_result_received: boolean
+  first_finding_visible: boolean
   scim_token_created: boolean
+  readiness_steps_complete: number
+  readiness_steps_total: number
+  first_finding?: {
+    title: string
+    type: string
+    target: string
+    success: boolean
+    observed_at: string
+    href: string
+  }
+  producers: OnboardingReadiness[]
+  engines: OnboardingReadiness[]
+}
+
+export interface OnboardingReadiness {
+  id: string
+  state: 'ready' | 'quiet' | 'blocked'
+  detail: string
+  next_action: string
 }
 
 // UX-004: the agent fleet can be large, so the list MUST ride the backend's
@@ -106,6 +129,7 @@ export function useOnboardingProgress() {
   return useQuery({
     queryKey: ['onboarding', 'progress'],
     queryFn: () => apiFetch<OnboardingProgress>('/onboarding/progress'),
+    refetchInterval: 5_000,
   })
 }
 

@@ -58,18 +58,23 @@ const baselineFixtures: BaselineFixture[] = [
   {
     journey: 'J1',
     name: 'install to first real insight',
-    pointer: 8,
+    pointer: 4,
     keyboard: 0,
-    typed: 34,
-    contextBreaks: 2,
+    typed: 0,
+    contextBreaks: 1,
     activeTime: {
-      min_ms: 15 * 60_000,
-      max_ms: 30 * 60_000,
-      basis: 'source-backed compose, shell enrollment, and UI handoff proxy',
+      min_ms: 6 * 60_000,
+      max_ms: 12 * 60_000,
+      basis:
+        'reference compose healthy; mint, shell enrollment, test creation, and finding receipt',
     },
     outcome: {
-      status: 'incomplete',
-      reason: 'onboarding has no producer-health wait or first-finding receipt',
+      status: 'complete',
+      evidence: [
+        'server reports connected and healthy producer separately from token creation',
+        'real loopback result renders a named first-finding receipt',
+        'finding opens from onboarding without tenant selection',
+      ],
     },
   },
   {

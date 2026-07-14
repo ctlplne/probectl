@@ -30,6 +30,17 @@ type Agent struct {
 // Agents is the tenant-scoped agent registry.
 type Agents struct{}
 
+// ProducerReadiness is the bounded onboarding view for one shipped producer
+// plane. Registered means a tenant-scoped registry row exists; Connected means
+// that row has completed at least one authenticated registration/heartbeat;
+// Healthy additionally requires an online, recent heartbeat.
+type ProducerReadiness struct {
+	ID         string `json:"id"`
+	Registered bool   `json:"registered"`
+	Connected  bool   `json:"connected"`
+	Healthy    bool   `json:"healthy"`
+}
+
 const agentCols = `id::text, tenant_id::text, name, hostname, agent_version, status,
 	capabilities, spiffe_id, registered_at, last_seen_at, created_at`
 
@@ -101,6 +112,48 @@ func (Agents) Exists(ctx context.Context, s tenancy.Scope) (bool, error) {
 	var ok bool
 	err := s.Q.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM agents)`).Scan(&ok)
 	return ok, err
+}
+
+// ProducerReadiness reports all six shipped producer planes in a fixed-size
+// query. The query runs through the tenant transaction, so Postgres RLS is the
+// outer boundary; application code never receives another tenant's agents.
+func (Agents) ProducerReadiness(ctx context.Context, s tenancy.Scope, freshAfter time.Time) ([]ProducerReadiness, error) {
+	rows, err := s.Q.Query(ctx, `
+		WITH planes(id) AS (
+			VALUES ('synthetic'), ('flow'), ('bgp'), ('device'), ('ebpf'), ('endpoint')
+		), matching AS (
+			SELECT p.id, a.status, a.last_seen_at
+			FROM planes p
+			LEFT JOIN agents a ON CASE
+				WHEN p.id = 'synthetic' THEN
+					NOT (a.capabilities ? 'collector') OR
+					a.capabilities ?| ARRAY['icmp', 'tcp', 'udp', 'http', 'dns', 'browser', 'voice']
+				ELSE a.capabilities ? p.id
+			END
+		)
+		SELECT id,
+		       count(status) > 0,
+		       count(last_seen_at) > 0,
+		       count(*) FILTER (WHERE status = 'online' AND last_seen_at >= $1) > 0
+		FROM matching
+		GROUP BY id
+		ORDER BY CASE id
+			WHEN 'synthetic' THEN 0 WHEN 'flow' THEN 1 WHEN 'bgp' THEN 2
+			WHEN 'device' THEN 3 WHEN 'ebpf' THEN 4 ELSE 5 END`, freshAfter)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]ProducerReadiness, 0, 6)
+	for rows.Next() {
+		var readiness ProducerReadiness
+		if err := rows.Scan(&readiness.ID, &readiness.Registered, &readiness.Connected, &readiness.Healthy); err != nil {
+			return nil, err
+		}
+		out = append(out, readiness)
+	}
+	return out, rows.Err()
 }
 
 // Rename updates an agent's display name (the agent's id and tenant remain

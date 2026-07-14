@@ -69,6 +69,49 @@ func TestAgentsRegistry(t *testing.T) {
 	})
 }
 
+func TestAgentsProducerReadinessTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	sfx := time.Now().UnixNano()
+	tenantA, err := NewTenants(pool).Create(ctx, fmt.Sprintf("producer-a-%d", sfx), "Producer A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tenantB, err := NewTenants(pool).Create(ctx, fmt.Sprintf("producer-b-%d", sfx), "Producer B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+	agentID := fmt.Sprintf("a9000000-0000-4000-8000-%012x", sfx&0xffffffffffff)
+	inTenant(ctx, t, pool, tenantA.ID, func(ctx context.Context, scope tenancy.Scope) error {
+		_, registerErr := (Agents{}).Register(ctx, scope, agentID, "flow-a", "host-a", "1.0.0",
+			"spiffe://probectl/tenant/"+tenantA.ID+"/agent/"+agentID, []string{"collector", "flow"})
+		return registerErr
+	})
+
+	assertPlane := func(tenantID, plane string, wantRegistered bool) {
+		t.Helper()
+		inTenant(ctx, t, pool, tenantID, func(ctx context.Context, scope tenancy.Scope) error {
+			rows, readErr := (Agents{}).ProducerReadiness(ctx, scope, time.Now().Add(-time.Hour))
+			if readErr != nil {
+				return readErr
+			}
+			for _, row := range rows {
+				if row.ID == plane {
+					if row.Registered != wantRegistered || row.Connected != wantRegistered || row.Healthy != wantRegistered {
+						t.Fatalf("tenant %s plane %s = %+v, want registered/connected/healthy %t", tenantID, plane, row, wantRegistered)
+					}
+					return nil
+				}
+			}
+			t.Fatalf("plane %s missing from readiness", plane)
+			return nil
+		})
+	}
+	assertPlane(tenantA.ID, "flow", true)
+	assertPlane(tenantB.ID, "flow", false)
+}
+
 func TestIncidentLifecycle(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
