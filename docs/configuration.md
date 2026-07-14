@@ -88,7 +88,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_HTTP_IDLE_TIMEOUT`        | `60s`                                                              | HTTP idle (keep-alive) timeout               |
 | `PROBECTL_SHUTDOWN_TIMEOUT`         | `15s`                                                              | graceful-shutdown drain timeout              |
 | `PROBECTL_DATABASE_URL`             | `postgres://probectl:probectl@localhost:5432/probectl?sslmode=require`    | PostgreSQL DSN; `sslmode=require` is the default (TLS to the DB out of the box). `multi-tenant`/`regulated` profiles require `sslmode=require`, `verify-ca`, or `verify-full` on writer and read-replica DSNs; dev-only `sslmode=disable` is accepted only under the `single` profile |
-| `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (1–1000). Per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
+| `PROBECTL_DATABASE_MAX_CONNS`       | `25`                                                               | max pool connections (2–1000). One session is reserved by the singleton advisory-lock lease, leaving at least one for work; per-tier sizing (SCALE-009): small/single-node `25`; medium `50`; large/multi-tenant `100+` — size to `instances × max_conns ≤ Postgres max_connections` with headroom for migrations/admin |
 | `PROBECTL_DATABASE_MIN_CONNS`       | `2`                                                                | min (warm) pool connections — keeps a couple of conns open so the first request after idle skips the connect+TLS cold start. Production profiles may raise this |
 | `PROBECTL_DATABASE_CONNECT_TIMEOUT` | `5s`                                                              | per-connection connect timeout               |
 | `PROBECTL_MIGRATE_ON_BOOT`          | `false`                                                            | apply migrations during `serve` startup      |
@@ -2054,6 +2054,7 @@ runbook: `docs/multi-region.md`,
 | `PROBECTL_RESIDENCY` | (empty) | default data-residency region (governance) |
 | `PROBECTL_RPO_SECONDS` | `0` | provisional RPO target (human sign-off) |
 | `PROBECTL_RTO_SECONDS` | `60` | provisional RTO target (human sign-off) |
+| `PROBECTL_SINGLETON_LEASE_INTERVAL` | `5s` | renew/retry cadence for the cluster-wide background-work advisory lock. Alert evaluation, SIEM audit polling, WORM export, and retention run only on the fenced holder; standbys retry within this interval. Minimum `250ms` |
 
 The writer must be reachable for API writes; `cluster_state` (migration 0032)
 holds the promotion epoch the fence reads. Promotion is `cluster_promote()` in

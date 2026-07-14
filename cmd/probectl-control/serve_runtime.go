@@ -19,6 +19,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/alert"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/carbon"
+	"github.com/imfeelingtheagi/probectl/internal/cluster"
 	"github.com/imfeelingtheagi/probectl/internal/cmdb"
 	"github.com/imfeelingtheagi/probectl/internal/compliance"
 	"github.com/imfeelingtheagi/probectl/internal/config"
@@ -116,6 +117,7 @@ type serveRuntime struct {
 	threatIntelOn   bool
 	alertingActive  bool
 	nsTenants       map[string]string
+	singletons      *cluster.Coordinator
 }
 
 func runServe(cfg *config.Config, db *store.DB, log *slog.Logger, st *serveStores, secretsResolver *secrets.Resolver) error {
@@ -137,6 +139,7 @@ func runServe(cfg *config.Config, db *store.DB, log *slog.Logger, st *serveStore
 	if err := rt.startSignalConsumers(); err != nil {
 		return err
 	}
+	rt.g.Go(func() error { return rt.singletons.Run(rt.gctx) })
 	if err := rt.startEdgeTransports(); err != nil {
 		return err
 	}
@@ -282,6 +285,12 @@ func (rt *serveRuntime) buildAPIServer() error {
 	if rt.enrollSvc != nil {
 		rt.srv.SetEnrollService(rt.enrollSvc)
 	}
+	singletons, err := cluster.NewSingletonCoordinator(rt.db.Pool(), "control-background",
+		rt.cfg.SingletonLeaseInterval, rt.log)
+	if err != nil {
+		return fmt.Errorf("cluster singleton coordinator: %w", err)
+	}
+	rt.singletons = singletons.WithMetrics(rt.srv.Metrics())
 	if rt.complianceEngine != nil {
 		rt.srv.WithCompliance(rt.complianceEngine)
 	}
@@ -377,7 +386,7 @@ func (rt *serveRuntime) configureTestSync() error {
 func (rt *serveRuntime) startLifecycleAndServe() error {
 	var err error
 	rt.lifeEngine, err = startHAAndTenantLifecycle(rt.gctx, rt.g, rt.cfg, rt.db, rt.log,
-		rt.srv, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.ebpfStore, rt.objectStore)
+		rt.srv, rt.singletons, rt.tsdbWriter, rt.flowStore, rt.pathStore, rt.topoStore, rt.otelStore, rt.ebpfStore, rt.objectStore)
 	if err != nil {
 		return err
 	}
@@ -393,10 +402,12 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 		func(tenant string, src control.AlertStateSource) { rt.srv.WithAlertState(tenant, src) },
 		func(tenant string) { rt.srv.WithoutAlertState(tenant) }); ok {
 		rt.alertingActive = true
-		if err := sup.Sync(rt.gctx); err != nil {
-			rt.log.Warn("alert tenant sync failed", "error", err.Error())
+		if err := rt.singletons.Register("alert-evaluator", func(ctx context.Context, _ cluster.LeaseToken) error {
+			sup.Run(ctx)
+			return nil
+		}); err != nil {
+			return err
 		}
-		rt.g.Go(func() error { sup.Run(rt.gctx); return nil })
 	} else {
 		rt.log.Warn("ALERTING INACTIVE: no query backend wired in this profile — stored rules will NOT evaluate")
 	}
@@ -539,7 +550,9 @@ func (rt *serveRuntime) startBGPIncidentConsumer() {
 }
 
 func (rt *serveRuntime) startSignalConsumers() error {
-	rt.startSIEM()
+	if err := rt.startSIEM(); err != nil {
+		return err
+	}
 	rt.startThreatIntel()
 	rt.startTopologyConsumer()
 	rt.startCostCarbonConsumers()
@@ -568,17 +581,21 @@ func (rt *serveRuntime) startSignalConsumers() error {
 	return nil
 }
 
-func (rt *serveRuntime) startSIEM() {
+func (rt *serveRuntime) startSIEM() error {
 	var siemOn bool
 	rt.siemFwd, siemOn = control.BuildSIEM(rt.cfg, rt.log)
 	if !siemOn {
-		return
+		return nil
 	}
 	rt.g.Go(func() error { return rt.siemFwd.Run(rt.gctx) })
-	rt.g.Go(func() error {
-		return control.NewSIEMAuditPoller(rt.db.Pool(), rt.siemFwd, rt.cfg.SIEMRedactKeys, rt.cfg.SIEMPollInterval, rt.log).Run(rt.gctx)
-	})
+	poller := control.NewSIEMAuditPoller(rt.db.Pool(), rt.siemFwd, rt.cfg.SIEMRedactKeys, rt.cfg.SIEMPollInterval, rt.log)
+	if err := rt.singletons.Register("siem-audit-poller", func(ctx context.Context, _ cluster.LeaseToken) error {
+		return poller.Run(ctx)
+	}); err != nil {
+		return err
+	}
 	rt.log.Info("siem export enabled", "preset", rt.cfg.SIEMPreset, "poll", rt.cfg.SIEMPollInterval)
+	return nil
 }
 
 func (rt *serveRuntime) startThreatIntel() {

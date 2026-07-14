@@ -8,10 +8,11 @@ that the service survives a machine, or here a whole region, dying.
 opposed to active-passive, where a standby region idles until disaster.)
 
 - The **control-plane tier is active everywhere**: every region runs
-  interchangeable, *stateless* control-plane and ingest replicas — stateless
-  meaning a replica holds no durable data of its own, so any replica can serve
-  any request and killing one loses nothing — all serving
-  traffic at the same time.
+  interchangeable control-plane and ingest replicas. Their request/ingest paths
+  are *stateless* — a replica holds no durable tenant data of its own, so any
+  replica can serve any request and killing one loses nothing. Timer-driven
+  side effects are a separate case: one replica holds a fenced PostgreSQL
+  advisory-lock lease while all others remain hot standbys.
 - The **database is single-writer with read replicas**: durable state is one
   PostgreSQL primary (the writer), with streaming replicas in the other regions
   (**streaming replication** — the primary ships its write log to each replica
@@ -26,8 +27,8 @@ writes** so a split-brain situation can never corrupt state. (Fencing is explain
 in detail below — it is the safety core of this whole design.)
 
 **Edition note:** the *mechanics* and these docs are **core/free** — stateless
-replicas are inherent to how the control plane is built, and the split-brain
-fence protects any deployment, single-region or not. What's an Enterprise
+request replicas and leased singletons are inherent to how the control plane is
+built, and the split-brain fence protects any deployment, single-region or not. What's an Enterprise
 entitlement (`ha_support`) is the *validated failover runbooks and support*, not
 the code.
 
@@ -223,7 +224,9 @@ region.
 - **Metrics:** `probectl_cluster_writes_usable`, `probectl_cluster_writer_role`
   (writer=1 / reader=0 / stale=-1 / unknown=-2 — alert on `< 1`),
   `probectl_cluster_epoch`, and `probectl_cluster_replica_lag_seconds`, all
-  labeled by `region`.
+  labeled by `region`. Background-loop leadership additionally exposes
+  `probectl_cluster_singleton_lease_holder` and
+  `probectl_cluster_singleton_lease_epoch`; see [`ha.md`](ha.md).
 - **Failover:** see [`runbooks/region-failover.md`](runbooks/region-failover.md).
 - **Config:** see [`configuration.md`](configuration.md) → "Multi-region / HA".
 
@@ -231,7 +234,8 @@ region.
 
 A multi-writer global database (CockroachDB/Yugabyte-style); a probectl-operated
 hosted SaaS; FedRAMP authorization. The control plane is region-agnostic and
-stateless — scaling out a region is adding replicas.
+has stateless request/ingest paths plus leased singleton loops — scaling out a
+region is adding replicas, while PostgreSQL elects one background-loop holder.
 
 **Cross-region telemetry replication is not shipped.** The default ClickHouse
 topology is single-node `MergeTree`; its regional RPO is the off-region backup

@@ -479,7 +479,7 @@ func TestLoadReportsMultipleErrors(t *testing.T) {
 		"PROBECTL_LOG_LEVEL":          "verbose", // invalid enum
 		"PROBECTL_LOG_FORMAT":         "xml",     // invalid enum
 		"PROBECTL_HTTP_READ_TIMEOUT":  "soon",    // invalid duration
-		"PROBECTL_DATABASE_MAX_CONNS": "0",       // out of range (min 1)
+		"PROBECTL_DATABASE_MAX_CONNS": "1",       // out of range (one lease session + one worker minimum)
 	}))
 	if err == nil {
 		t.Fatal("expected validation errors")
@@ -488,6 +488,20 @@ func TestLoadReportsMultipleErrors(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should mention %s; got: %v", want, err)
 		}
+	}
+}
+
+func TestSingletonLeaseConfig(t *testing.T) {
+	cfg, err := Load(envFunc(map[string]string{"PROBECTL_SINGLETON_LEASE_INTERVAL": "750ms"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SingletonLeaseInterval != 750*time.Millisecond {
+		t.Fatalf("SingletonLeaseInterval = %s, want 750ms", cfg.SingletonLeaseInterval)
+	}
+	_, err = Load(envFunc(map[string]string{"PROBECTL_SINGLETON_LEASE_INTERVAL": "100ms"}))
+	if err == nil || !strings.Contains(err.Error(), "PROBECTL_SINGLETON_LEASE_INTERVAL") {
+		t.Fatalf("unsafe lease interval must fail validation, got %v", err)
 	}
 }
 

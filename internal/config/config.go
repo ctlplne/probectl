@@ -50,6 +50,9 @@ type Config struct {
 	ReplicationMode string  // sync | async (descriptive; sets achievable RPO)
 	RPOSeconds      float64 // provisional target (human sign-off)
 	RTOSeconds      float64 // provisional target (human sign-off)
+	// SingletonLeaseInterval is both the Postgres advisory-lock renewal cadence
+	// and the maximum normal standby acquisition delay for background singletons.
+	SingletonLeaseInterval time.Duration
 
 	// Migrations.
 	MigrateOnBoot bool
@@ -667,7 +670,9 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.DatabaseURL = l.str("PROBECTL_DATABASE_URL", "postgres://probectl:probectl@localhost:5432/probectl?sslmode=require")
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
 	// SCALE-009: warmer pool defaults for high fan-in API + consumers.
-	cfg.DatabaseMaxConns = int32(l.intRange("PROBECTL_DATABASE_MAX_CONNS", 25, 1, 1000))
+	// One session is reserved for the cluster singleton advisory lock; at least
+	// one more must remain for the singleton tasks and request path.
+	cfg.DatabaseMaxConns = int32(l.intRange("PROBECTL_DATABASE_MAX_CONNS", 25, 2, 1000))
 	cfg.DatabaseMinConns = int32(l.intRange("PROBECTL_DATABASE_MIN_CONNS", 2, 0, 1000))
 	cfg.Region = l.str("PROBECTL_REGION", "")
 	cfg.Regions = l.list("PROBECTL_REGIONS")
@@ -675,6 +680,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.ReplicationMode = l.enum("PROBECTL_REPLICATION_MODE", "async", "async", "sync")
 	cfg.RPOSeconds = l.float("PROBECTL_RPO_SECONDS", 0)
 	cfg.RTOSeconds = l.float("PROBECTL_RTO_SECONDS", 60)
+	cfg.SingletonLeaseInterval = l.dur("PROBECTL_SINGLETON_LEASE_INTERVAL", 5*time.Second)
 	cfg.DatabaseConnTimeout = l.dur("PROBECTL_DATABASE_CONNECT_TIMEOUT", 5*time.Second)
 	cfg.MigrateOnBoot = l.boolean("PROBECTL_MIGRATE_ON_BOOT", false)
 	cfg.LogLevel = l.enum("PROBECTL_LOG_LEVEL", "info", "debug", "info", "warn", "error")
@@ -896,6 +902,9 @@ func auditRetentionDefault(profile string) time.Duration {
 }
 
 func validateConfig(l *loader, cfg *Config) {
+	if cfg.SingletonLeaseInterval < 250*time.Millisecond {
+		l.errf("PROBECTL_SINGLETON_LEASE_INTERVAL must be at least 250ms")
+	}
 	if (cfg.TLSCertFile == "") != (cfg.TLSKeyFile == "") {
 		l.errf("PROBECTL_TLS_CERT_FILE and PROBECTL_TLS_KEY_FILE must be set together")
 	}

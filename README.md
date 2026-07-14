@@ -195,8 +195,9 @@ Intelligence, security, and platform layers built across the planes:
 
 Lightweight **producers** — a small family of single static Go binaries, each
 bound to one tenant — run probes, collect flows/device/endpoint signals, and
-watch the wire, then push results onto a **bus**. The stateless
-**control plane** consumes that stream, persists each signal to the store that
+watch the wire, then push results onto a **bus**. The **control plane** has a
+stateless request/ingest path plus PostgreSQL-leased singleton background loops;
+it consumes that stream, persists each signal to the store that
 fits it (Postgres for state, ClickHouse for high-cardinality events,
 Prometheus/VictoriaMetrics for metrics), and continuously builds incidents and a
 versioned topology graph. Every record, query, metric, and message is scoped by
@@ -215,7 +216,7 @@ platform with it.
 flowchart TB
     Provider["Provider / Management Plane — MSP operators (distinct privilege domain)<br/>tenant lifecycle · fleet-across-tenants · metering/billing · white-label<br/>audited break-glass (no implicit tenant-data access)"]
 
-    subgraph CP["Control Plane — Go, stateless, TENANT-AWARE"]
+    subgraph CP["Control Plane — Go, stateless request path + leased singletons, TENANT-AWARE"]
         Edge["REST (OpenAPI 3.1) · gRPC (agents, mTLS) · MCP · Webhooks/OTLP<br/>Auth (SSO/RBAC/ABAC) · Audit · Tenant → Org → Team → Project"]
         Subsys["subsystems: tenancy · path · bgp · opendata · threat · change ·<br/>topology · cost · slo · compliance · ai · remediation · …"]
     end

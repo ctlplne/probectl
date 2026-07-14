@@ -19,7 +19,7 @@ data to another. Keep that in mind and the rest follows.
 flowchart TB
     Provider["Provider / Management Plane — MSP operators (distinct privilege domain)<br/>tenant lifecycle · fleet-across-tenants · metering/billing · white-label<br/>audited break-glass (no implicit tenant-data access)"]
 
-    subgraph CP["Control Plane — Go, stateless, TENANT-AWARE"]
+    subgraph CP["Control Plane — Go, stateless request path + leased singletons, TENANT-AWARE"]
         Edge["REST (OpenAPI 3.1) · gRPC (agents, mTLS) · MCP · Webhooks/OTLP<br/>Auth (SSO/RBAC/ABAC) · Audit · Tenant → Org → Team → Project"]
         Subsys["subsystems: tenancy · path · bgp · opendata · threat · change ·<br/>topology · cost · slo · compliance · ai · …"]
     end
@@ -43,9 +43,9 @@ flowchart TB
 **Reading the diagram:** an agent probes the network, ships each result onto the
 **bus** — the publish/subscribe message pipe (Kafka, or an in-process memory
 mode) that decouples whoever produces data from whoever stores it — *stamped
-with its tenant*; a **control-plane consumer** (the control plane is the
-central, stateless Go service; a consumer is the part of it that reads messages
-off the bus) persists it and folds it
+with its tenant*; a **control-plane consumer** (the control plane has stateless
+request/ingest paths plus PostgreSQL-leased singleton background loops; a
+consumer is the part that reads messages off the bus) persists it and folds it
 into incidents/topology; and then the API, UI, AI, and MCP server read the
 unified stores — always **filtering to the caller's tenant first, then applying
 that user's role permissions (RBAC)**. The external feeds on the right (route

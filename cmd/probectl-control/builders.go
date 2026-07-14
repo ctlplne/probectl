@@ -717,6 +717,7 @@ func startHAAndTenantLifecycle(
 	db *store.DB,
 	log *slog.Logger,
 	srv *control.Server,
+	singletons *cluster.Coordinator,
 	tsdbWriter tsdb.Writer,
 	flowStore flowstore.Store,
 	pathStore pathstore.Store,
@@ -762,7 +763,12 @@ func startHAAndTenantLifecycle(
 		lifeEngine.WithEBPF(ed)
 	}
 	srv.WithTenantLife(lifeEngine)
-	g.Go(func() error { lifeEngine.RunRetention(ctx, 24*time.Hour); return nil })
+	if err := singletons.Register("tenant-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
+		lifeEngine.RunRetention(ctx, 24*time.Hour)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
 
 	var providerAuditWatermark audit.ProviderWatermarkFunc
 	if cfg.AuditWORMDir != "" {
@@ -784,12 +790,22 @@ func startHAAndTenantLifecycle(
 		}
 		worm.WithMetrics(srv.Metrics())
 		providerAuditWatermark = worm.ExportedWatermark
-		g.Go(func() error { worm.Run(ctx, cfg.AuditWORMInterval); return nil })
+		if err := singletons.Register("audit-worm-export", func(ctx context.Context, _ cluster.LeaseToken) error {
+			worm.Run(ctx, cfg.AuditWORMInterval)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
 		log.Info("audit WORM export enabled", "dir", cfg.AuditWORMDir, "interval", cfg.AuditWORMInterval.String())
 	}
 	if cfg.AuditRetention > 0 {
 		retention := audit.NewRetentionRunnerPG(db.Pool(), audit.RetentionPolicy{Window: cfg.AuditRetention}, providerAuditWatermark, log)
-		g.Go(func() error { retention.Run(ctx, time.Hour); return nil })
+		if err := singletons.Register("audit-retention", func(ctx context.Context, _ cluster.LeaseToken) error {
+			retention.Run(ctx, time.Hour)
+			return nil
+		}); err != nil {
+			return nil, err
+		}
 		log.Info("audit retention prune enabled",
 			"retention", cfg.AuditRetention.String(),
 			"interval", time.Hour.String(),

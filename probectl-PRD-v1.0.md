@@ -158,7 +158,7 @@ Strict standard; one line each. Evidence = package / doc / gate / U-ID.
 | F30 | CMDB / Grafana / Prom federation | ✅ | `internal/cmdb`, `internal/promapi`, federated surfaces declared |
 | F31 | Secrets integration | ✅ | `internal/secrets` (seam + Vault path), device creds |
 | F32 | FIPS-mode crypto | ✅ | seam + build-tag + *fips-gate* ✅; dated module evidence in `docs/compliance/fips-evidence.md` (Go Cryptographic Module v1.0.0, CMVP #5247, CAVP A6650); probectl itself has no separate CMVP certificate |
-| F33 | Multi-region / HA | 🔶 | HA control plane, failover drill, runbooks ✅; multi-region validated runbooks + rep-hardware sign-off ⏳ (§5.2) |
+| F33 | Multi-region / HA | 🔶 | stateless request/ingest path + PostgreSQL-leased, epoch-fenced singleton background loops; HA control plane, failover drill, runbooks ✅; multi-region validated runbooks + rep-hardware sign-off ⏳ (§5.2) |
 | F34 | Advanced governance | ✅ | `internal/govern`, retention/erasure/redaction, BYOK |
 | F35 | Supportability | ✅ | `internal/support` (tenant-scoped, secret-stripped bundles) |
 | F36 | TLS/cert observability | ✅ | `internal/threat`, trustctl handoff |
