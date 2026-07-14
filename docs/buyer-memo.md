@@ -87,8 +87,9 @@ not the same thing as a served buyer surface.
 
 These are decision inputs, not footnotes:
 
-- The legal license text is still a `TBD` artifact. The codebase is
-  source-available, not open source yet.
+- Core is licensed under MPL-2.0; `ee/` remains separately commercial. Counsel
+  still must finalize the bespoke `ee/LICENSE`, reseller terms, DPA/MSA, and
+  trademark posture before commercial/MSP motion.
 - L/XL/XXL scale rows are targets until reference-cluster runs are recorded.
 - The regional disaster-recovery receipt is partial: local failover mechanics
   have proof, but regional DNS/WAN/proxy/fence timing and ClickHouse/object-store

@@ -1,12 +1,19 @@
 # Editions & licensing
 
-probectl is **open-core**: the core platform is source-available and free, and a
-commercial tier (Enterprise, plus a Provider/MSP tier) is gated. This document is
-the engineering contract for how that split is enforced in the codebase.
+probectl is **open-core**: the core platform is open source under MPL-2.0 and
+free, while a commercial tier (Enterprise, plus a Provider/MSP tier) is gated.
+This document is the engineering contract for how that split is enforced in the
+codebase.
 
 The one-sentence version: **it is one repo with one binary lineage and no edition
 branches — the commercial boundary is a license file plus a directory fence, never
 a fork.** Everything below is an elaboration of that sentence.
+
+The source-license boundary is final: first-party core files outside `ee/` are
+**MPL-2.0**, while `ee/` is governed by its separate commercial license. MPL's
+Exhibit B incompatibility notice is not used. See
+[`../LICENSING.md`](../LICENSING.md) for the file-level rules and contributor
+expectations; runtime tier checks do not alter either source license.
 
 ## The model in one paragraph
 
@@ -259,6 +266,7 @@ Ed25519 math — no sockets.
   commercial license + trademark; the gate is for honest customers.
 - Not a kill-switch: no state in the ladder ever stops ingestion, probing,
   alerting, or dashboards that already exist.
-- Not finalized legal text: the repository `LICENSE` is a placeholder and `ee/`
-  files carry a *placeholder* commercial header until counsel delivers the
-  final texts. The enforcement mechanics above are complete either way.
+- Not finalized commercial legal text: the core [`LICENSE`](../LICENSE) is the
+  final, unmodified MPL-2.0 text. The bespoke `ee/LICENSE`, commercial headers,
+  reseller terms, DPA/MSA, and open-data resale review remain counsel work. The
+  enforcement mechanics above are complete independently of that review.

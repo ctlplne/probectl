@@ -84,11 +84,23 @@ CI enforces this in the **`dco`** job, which runs a dependency-free
 missing the trailer — and a red `dco` does not get merged. The DCO applies to
 commits going forward.
 
-A **Contributor License Agreement (CLA)** may additionally be required. That
-decision, the project's `LICENSE`, and the SPDX headers all depend on the
-licensing outcome that is still being finalized — until then, source files carry
-a placeholder `SPDX-License-Identifier: LicenseRef-probectl-TBD`, which will be
-replaced in a single pass once the license is chosen.
+The repository is open-core and the target file decides the contribution
+license. Core source outside `ee/` is MPL-2.0; commercial source under `ee/`
+uses the terms referenced by `ee/LICENSE`. The DCO certifies that you have the
+right to submit the contribution under that target license; it does not change
+the license boundary. No Contributor License Agreement is required today.
+
+For new first-party source, use these machine-readable identifiers:
+
+- core: `SPDX-License-Identifier: MPL-2.0`, together with the MPL Exhibit A
+  notice; do **not** add Exhibit B;
+- `ee/`: `SPDX-License-Identifier: LicenseRef-Probectl-Commercial`, together
+  with a pointer to `ee/LICENSE`.
+
+Generated files and third-party material keep generator/upstream notices. The
+tree-wide replacement of historical placeholder headers is enforced by the
+licensing header gate; never copy `LicenseRef-probectl-TBD` into a new file. See
+[`LICENSING.md`](LICENSING.md) for the complete split.
 
 ## Definition of Done
 

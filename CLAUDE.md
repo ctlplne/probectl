@@ -19,15 +19,15 @@ If you read nothing else, read this. Full text in §7.
 
 ## 1. What probectl is
 
-A **self-hosted, source-available, multi-tenant network observability platform**. It unifies five planes — active/synthetic testing, BGP/routing, flow analytics, device telemetry, and eBPF host/L7 — on an **OpenTelemetry-native** control plane, with an **AI assistant** for cross-plane root-cause analysis, a native **security/threat** layer (TLS/cert posture + NDR-lite signals), **change-aware topology**, and **cost/SLO** intelligence. Enriched by public open-data + threat-intel; **telemetry never leaves the operator's network**.
+A **self-hosted, open-core, multi-tenant network observability platform**. It unifies five planes — active/synthetic testing, BGP/routing, flow analytics, device telemetry, and eBPF host/L7 — on an **OpenTelemetry-native** control plane, with an **AI assistant** for cross-plane root-cause analysis, a native **security/threat** layer (TLS/cert posture + NDR-lite signals), **change-aware topology**, and **cost/SLO** intelligence. Enriched by public open-data + threat-intel; **telemetry never leaves the operator's network**.
 
 - **Two operating modes, one codebase.** (1) *Sovereign single-tenant* — a regulated/air-gapped org self-hosts; the deployment *is* the tenant boundary. (2) *Multi-tenant / provider* — an MSP (or internal platform team) self-hosts once and serves many hard-isolated, white-labeled tenants. The single-tenant install is just the one-tenant case — **there is no separate code path**. Tenant is the outermost scope on every record, agent, query, metric, event, and object (see §7.1).
-- **Mode:** solo founder + AI agents; built in the open (the repo is now public — source-available, not OSS yet: see the TBD LICENSE); open-core. The provider/management plane + white-label + per-tenant metering are the commercial-tier / MSP-resale features.
+- **Mode:** solo founder + AI agents; built in the open. Core is MPL-2.0; `ee/` remains separately commercially licensed. The provider/management plane + white-label + per-tenant metering are the commercial-tier / MSP-resale features.
 - **Sibling:** `trustctl` (certificate/NHI lifecycle). probectl reuses its patterns (control-plane + agents, MCP server) and hands TLS/cert findings to it.
 
 ## 2. Editions & licensing
 
-probectl is **open-core**: the core platform is source-available; a commercial tier (Enterprise + Provider/MSP) is gated. How the split works in the codebase:
+probectl is **open-core**: the core platform is licensed under MPL-2.0; a commercial tier (Enterprise + Provider/MSP) is gated. How the split works in the codebase:
 
 - **One repo, no edition branches.** Commercial code lives in a top-level **`ee/`** tree under a commercial-license header; in a public repo `ee/` source is readable (GitLab/CockroachDB model) — the fence is the license + trademark, not source secrecy.
 - **One-way boundary:** `ee/` may import core; **core never imports `ee/`**, enforced by CI (`make editions-gate` + the import guard). The core-only build (`-tags probectl_core`) passes the full suite with `ee/` inert.
@@ -35,7 +35,7 @@ probectl is **open-core**: the core platform is source-available; a commercial t
 - **Tiers.** *Enterprise* — FIPS build (build-tag), BYOK/governance, guarded remediation, HA support. *Provider/MSP* — provider plane, siloed/hybrid isolation, metering/billing export, white-label. *Core (deliberately free)* — per-tenant export/verifiable deletion (a compliance right), fairness enforcement (protects the pooled platform), support-bundle generation (the tool is core; the support SLA is a contract).
 - **Unlicensed UX:** commercial features are *hidden* (no lockware); one **Admin → Editions** page shows tiers/features/state. **Expiry:** a 30-day grace banner, then commercial features degrade **read-only** (no new tenants/config; branding persists; telemetry pipelines never break).
 
-The enforcement mechanics are complete. The **`LICENSE` file remains a `TBD` placeholder pending counsel** — the legal texts (BSL parameters, the commercial license, reseller terms) are a legal artifact owned outside the codebase; `ee/` files carry a commercial-header placeholder until those land. (Open-data/threat-intel feed AUPs matter only to commercial/MSP resale, not to single-tenant OSS use.)
+The enforcement mechanics are complete. The root **`LICENSE` is the unmodified MPL-2.0 text**, and Exhibit B is not invoked. Counsel still owns the bespoke `ee/LICENSE`, commercial header wording, reseller terms, DPA/MSA, trademark posture, and commercial open-data/threat-intel AUP review. Those pending commercial documents do not make the core grant provisional.
 
 ## 3. Architecture (the shape)
 
@@ -93,7 +93,7 @@ Flow: tenant-bound agents probe → push results to the bus (tenant-tagged) → 
 
 ```
 probectl/
-├── CLAUDE.md  README.md  LICENSE(TBD placeholder)  Makefile  go.work/go.mod
+├── CLAUDE.md  README.md  LICENSE(MPL-2.0)  LICENSING.md  Makefile  go.work/go.mod
 ├── cmd/
 │   ├── probectl-control/      # control-plane API server
 │   ├── probectl-agent/        # canary/enterprise agent (single binary)

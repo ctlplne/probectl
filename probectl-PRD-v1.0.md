@@ -5,11 +5,11 @@
 | **Product** | probectl |
 | **Owner** | Shankar (solo founder) |
 | **Status** | v1.0 — code-backed delivery inventory plus remaining GA evidence debt; current green proof requires fresh gate receipts on the exact commit |
-| **Last Updated** | July 1, 2026 |
-| **License** | Source-available; legal texts are the top remaining item (§5.3) — `LICENSE` is a placeholder pending counsel |
+| **Last Updated** | July 14, 2026 |
+| **License** | Open-core: core is MPL-2.0; `ee/` is separately commercial. Bespoke commercial/reseller texts remain counsel work (§5.3) |
 | **Supersedes** | `probectl-PRD-v0.5.md` (frozen as the historical pre-build contract; section map in §10) |
 
-> **One-sentence vision (unchanged, now built):** probectl is a self-hosted, source-available, **multi-tenant** network observability platform that unifies active/synthetic testing, BGP/routing intelligence, flow analytics, device telemetry, and eBPF host visibility into a single OpenTelemetry-aligned control plane — with an AI assistant that performs cited cross-plane root-cause analysis, a native security/threat layer, change-aware topology, and cost/SLO intelligence, enriched by public internet + threat-intel data — deployable as a sovereign single-tenant install *or* operated by an MSP that resells hard-isolated, white-labeled tenants, with telemetry never leaving the operator's network.
+> **One-sentence vision (unchanged, now built):** probectl is a self-hosted, open-core, **multi-tenant** network observability platform that unifies active/synthetic testing, BGP/routing intelligence, flow analytics, device telemetry, and eBPF host visibility into a single OpenTelemetry-aligned control plane — with an AI assistant that performs cited cross-plane root-cause analysis, a native security/threat layer, change-aware topology, and cost/SLO intelligence, enriched by public internet + threat-intel data — deployable as a sovereign single-tenant install *or* operated by an MSP that resells hard-isolated, white-labeled tenants, with telemetry never leaving the operator's network.
 
 > **How to read this document.** v0.5 was a promise written before the build; v1.0 is an inventory written after it. Every "delivered" claim carries an evidence pointer — a repo path, a CI gate, or a diligence-register ID (`U-xxx`, from `probectl-audit/outputs/00-UNIFIED-REGISTER.html`). After the July 1, 2026 audit harness run, read those pointers as **code-backed evidence targets**, not as a blanket current-green claim: coverage, integration, isolation, and e2e proof are current only when the named gates have rerun green on the exact commit. Items whose code exists but whose *evidence* is still provisional (e.g. load numbers on real iron, or a red/unknown gate receipt) are listed as remaining or evidence debt, not buyer-facing GA proof. §2–§4 are the diligence read; §5 is the steering read.
 
@@ -19,7 +19,7 @@
 
 ## 1. What probectl is
 
-A **self-hosted, source-available, multi-tenant network observability platform**, built in private by a solo founder + AI agents, to an acquirable, Fortune-500-procurable bar. Two operating modes, one codebase: **sovereign single-tenant** (the deployment is the tenant boundary; air-gap capable) and **multi-tenant / provider** (an MSP self-hosts once and resells hard-isolated, white-labeled tenants). The single-tenant install is the one-tenant case — there is no separate code path.
+A **self-hosted, open-core, multi-tenant network observability platform**, built in private by a solo founder + AI agents, to an acquirable, Fortune-500-procurable bar. Two operating modes, one codebase: **sovereign single-tenant** (the deployment is the tenant boundary; air-gap capable) and **multi-tenant / provider** (an MSP self-hosts once and resells hard-isolated, white-labeled tenants). The single-tenant install is the one-tenant case — there is no separate code path.
 
 **The moat as built** (each item now has running code behind it, per §2):
 1. **Sovereign by construction** — no phone-home, air-gapped AI default, open data fetched read-only and cached, everything self-hosted.
@@ -221,7 +221,12 @@ item.
 
 ### 5.3 Counsel / legal (the actual critical path to any commercial motion)
 
-- **LICENSE + commercial texts** — BSL parameters, the commercial license, `ee/` header, **reseller terms** (the MSP channel is legally off until this lands). `LICENSE` is a TBD placeholder by design.
+- **Commercial legal texts** — core licensing is decided and shipped as
+  unmodified MPL-2.0, without the Exhibit B incompatibility notice. Counsel must
+  finalize the bespoke `ee/LICENSE`, commercial header wording, **reseller
+  terms**, DPA/MSA, and trademark posture before commercial/MSP motion. Runtime
+  enforcement is already offline and complete; it does not substitute for those
+  agreements.
 - **Procurement pack legal review** — DPA/MSA templates, subprocessor posture, CAIQ finalization (drafts exist — U-065).
 - **Open-data / threat-intel AUP matrix for commercial resale** — tracked per source (`docs/opendata-aup.md`); single-tenant OSS use is unaffected; MSP resale is gated on this review.
 

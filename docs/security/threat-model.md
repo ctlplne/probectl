@@ -160,7 +160,7 @@ this revision:
 | Large / extra-large full-stack load numbers + SLO sign-off | the load harness and a CI smoke test have landed; the reference-hardware run is human-scheduled |
 | Multi-region RTO/RPO at representative scale | the CI failover drill runs continuously; a representative-scale run and sign-off are pending |
 | Reference-host agent overhead (live kernel ring buffer) | the userspace pipeline is measured; the on-host live row is pending |
-| `LICENSE` is a placeholder pending counsel | a legal artifact owned outside the codebase |
+| Core `LICENSE` is MPL-2.0; bespoke `ee/`/reseller terms await counsel | commercial motion remains gated on counsel-approved terms, without making the core grant provisional |
 
 ## 6. Review log
 

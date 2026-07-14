@@ -16,7 +16,7 @@ and an AI assistant that explains root cause <em>across</em> them. Telemetry nev
 <a href="https://goreportcard.com/report/github.com/imfeelingtheagi/probectl"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/imfeelingtheagi/probectl"></a>
 <img alt="Go" src="https://img.shields.io/badge/Go-1.26+-00ADD8?logo=go&logoColor=white">
 <img alt="status" src="https://img.shields.io/badge/status-active%20development-orange">
-<img alt="license" src="https://img.shields.io/badge/license-source--available%20%C2%B7%20not%20OSS%20yet-lightgrey">
+<a href="LICENSE"><img alt="license" src="https://img.shields.io/badge/core%20license-MPL--2.0-blue"></a>
 </p>
 
 <p align="center">
@@ -54,8 +54,8 @@ record, agent, query, metric, event, and object.
 > `verify-all` receipt. As of the July 1, 2026 audit harness run, coverage,
 > integration, isolation, and e2e receipts are considered current only when the
 > named gates are rerun green on the exact commit. Compose + Helm are
-> **HTTPS-by-default**. The license is intentionally **`TBD`** —
-> **source-available, not open source (yet)** ([details](#license)).
+> **HTTPS-by-default**. probectl is **open-core**: core is MPL-2.0 and `ee/`
+> remains commercially licensed ([details](#license)).
 >
 > **Scale proof:** CI/dev-scale gates are committed, and L/XL/XXL architecture
 > targets are documented, but the buyer-facing verified scale rows remain
@@ -451,12 +451,12 @@ only through `internal/crypto`, TLS on every listener) are summarized in
 
 ## License
 
-**Source-available — not open source (yet).** The source is published to be read,
-audited, and self-hosted, but it is **not** released under an OSI-approved
-open-source license, and **no open-source rights are granted at this time**.
+probectl is **open-core**. All first-party source outside `ee/` is licensed under
+the [Mozilla Public License 2.0](LICENSE), a file-level copyleft license. The
+MPL Exhibit B incompatibility notice is not invoked.
 
-The license is intentionally **[`TBD`](LICENSE)**: the open-core / reseller
-boundary is still an open decision, with a Business Source License (BSL)–family,
-open-core model intended (a core that may open over time; commercial use of the
-provider/MSP and Enterprise features reserved). Until a grant is added here, treat
-the code as **all rights reserved**.
+Source under `ee/` is excluded from that grant and governed by the separate
+commercial terms in `ee/LICENSE`; a valid offline-signed license enables those
+Enterprise and Provider/MSP capabilities at runtime. See
+[`LICENSING.md`](LICENSING.md) for the boundary, contribution rules, trademark
+note, and counsel-owned documents that remain.
