@@ -1,0 +1,143 @@
+.room {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.actions,
+.entities {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--layout-sidebar-width), 1fr));
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.summaryGrid div,
+.inspector div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.summaryGrid dt,
+.inspector dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+}
+
+.summaryGrid dd,
+.inspector dd {
+  margin: 0;
+}
+
+.clock,
+.entities,
+.changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.clock {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--color-border-strong);
+}
+
+.clock button {
+  display: grid;
+  gap: var(--space-1);
+  min-width: max-content;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(var(--layout-sidebar-width), 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.evidenceColumn,
+.inspectorColumn,
+.planeGroups {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.inspectorColumn {
+  position: sticky;
+  top: var(--space-4);
+}
+
+.planeGroup {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.planeGroup h3 {
+  margin: 0;
+  font-size: var(--font-size-md);
+}
+
+.coverageGap,
+.coverageWarning,
+.safety {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+}
+
+.coverageWarning,
+.safety {
+  margin-top: var(--space-3);
+}
+
+.changes {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.changes li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
+  gap: var(--space-3);
+  align-items: center;
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--color-border-strong);
+  font-size: var(--font-size-sm);
+}
+
+.inspector {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.nextStep {
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .inspectorColumn {
+    position: static;
+  }
+
+  .changes li {
+    grid-template-columns: 1fr;
+  }
+}

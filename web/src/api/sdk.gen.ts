@@ -545,6 +545,8 @@ export interface Incident {
   severity?: "info" | "warning" | "critical"
   signal_count?: number
   signals?: Signal[]
+  signals_limit?: number
+  signals_truncated?: boolean
   started_at?: string
   status?: "open" | "resolved"
   target?: string

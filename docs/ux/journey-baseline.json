@@ -27,18 +27,18 @@
     {
       "journey": "J2",
       "name": "incident to cited RCA to share",
-      "pointer_interactions": 4,
+      "pointer_interactions": 1,
       "keyboard_interactions": 0,
       "typed_characters": 0,
-      "context_breaks": 1,
+      "context_breaks": 0,
       "active_time_proxy": {
-        "min_ms": 60000,
-        "max_ms": 180000,
-        "basis": "source-backed Incidents to Ask interaction proxy"
+        "min_ms": 15000,
+        "max_ms": 45000,
+        "basis": "auto-selected firing incident plus one inline likely-cause action"
       },
       "outcome": {
         "status": "incomplete",
-        "reason": "cited RCA exists but no stable incident share or evidence export exists"
+        "reason": "cited RCA is complete; stable incident share ships in X6"
       }
     },
     {

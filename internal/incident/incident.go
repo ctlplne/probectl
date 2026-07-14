@@ -14,6 +14,11 @@ package incident
 
 import "time"
 
+// MaxSignalsPerRead bounds one incident-room response. SignalCount remains the
+// full durable count; callers can distinguish a truncated evidence window from
+// a complete read instead of mistaking omitted planes for healthy zeroes.
+const MaxSignalsPerRead = 500
+
 // Severity is an incident/signal triage level, ordered info < warning < critical.
 type Severity string
 
@@ -89,6 +94,10 @@ type Incident struct {
 	ResolvedAt  *time.Time `json:"resolved_at,omitempty"`
 	SignalCount int        `json:"signal_count"`
 	Signals     []Signal   `json:"signals,omitempty"`
+	// SignalsTruncated is explicit coverage metadata for bounded incident-room
+	// reads. SignalsLimit states the server cap when truncation occurred.
+	SignalsTruncated bool `json:"signals_truncated"`
+	SignalsLimit     int  `json:"signals_limit,omitempty"`
 }
 
 // newIncident seeds an incident from the signal that opened it.

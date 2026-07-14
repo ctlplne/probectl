@@ -352,6 +352,13 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/incidents.ts',
+    method: 'GET',
+    path: '`/incidents/${id}/changes`',
+    response: '{ items: ChangeCandidate[] }',
+    generated: 'ListIncidentChangesResponse',
+  },
+  {
+    file: 'api/incidents.ts',
     method: 'PATCH',
     path: '`/incidents/${id}`',
     response: 'Incident',

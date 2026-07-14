@@ -199,7 +199,11 @@ interface PlaneGroup {
   items: Evidence[]
 }
 
-function AnswerView({
+function evidenceMatchesSelection(evidence: Evidence, selectionID: string): boolean {
+  return evidence.id === selectionID || evidence.fields?.id === selectionID
+}
+
+export function AnswerView({
   answer,
   proposalContext,
   pivotContext,
@@ -218,11 +222,13 @@ function AnswerView({
   const createProposal = useCreateRemediationProposal()
   const { push } = useToast()
   const [comment, setComment] = useState('')
-  const selectedEvidenceID =
-    pivotContext.selection?.kind === 'evidence' &&
-    answer.evidence.some((evidence) => evidence.id === pivotContext.selection?.id)
-      ? pivotContext.selection.id
-      : null
+  const selectedEvidence =
+    pivotContext.selection?.kind === 'evidence'
+      ? answer.evidence.find((evidence) =>
+          evidenceMatchesSelection(evidence, pivotContext.selection?.id ?? ''),
+        )
+      : undefined
+  const selectedEvidenceID = selectedEvidence?.id ?? null
   const canPropose = Boolean(remediations.data)
   const proposalDisabled =
     createProposal.isPending || answer.insufficient_evidence || answer.evidence.length === 0
@@ -261,7 +267,9 @@ function AnswerView({
   useEffect(() => {
     if (
       pivotContext.selection?.kind === 'evidence' &&
-      !answer.evidence.some((evidence) => evidence.id === pivotContext.selection?.id)
+      !answer.evidence.some((evidence) =>
+        evidenceMatchesSelection(evidence, pivotContext.selection?.id ?? ''),
+      )
     ) {
       setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
         replace: true,

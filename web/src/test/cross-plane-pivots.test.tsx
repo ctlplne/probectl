@@ -53,6 +53,7 @@ const answer = {
       plane: 'bgp',
       title: 'route changed',
       occurred_at: '2026-07-14T10:03:00Z',
+      fields: { id: 'inc-context:0' },
     },
   ],
 }
@@ -92,7 +93,7 @@ function currentURL(): URL {
 }
 
 describe('native cross-plane pivots', () => {
-  test('incident → Ask preserves context in one interaction and browser history replays selection', async () => {
+  test('incident room preserves inline RCA context and browser history replays selection', async () => {
     const fallback = defaultFetch()
     vi.stubGlobal(
       'fetch',
@@ -114,11 +115,11 @@ describe('native cross-plane pivots', () => {
       incident_status: 'open',
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /ask about this incident/i }))
+    await userEvent.click(screen.getByRole('button', { name: /find likely cause/i }))
     url = currentURL()
-    const askContext = parsePivotContext(url.searchParams).context
-    expect(url.pathname).toBe('/ask')
-    expect(askContext).toMatchObject({
+    const roomContext = parsePivotContext(url.searchParams).context
+    expect(url.pathname).toBe('/incidents')
+    expect(roomContext).toMatchObject({
       incidentId: 'inc-context',
       from: '2026-07-14T10:00:00.000Z',
       to: '2026-07-14T10:05:00.000Z',
@@ -127,7 +128,6 @@ describe('native cross-plane pivots', () => {
     })
     expect(url.search.toLowerCase()).not.toContain('tenant')
 
-    await userEvent.click(screen.getByRole('button', { name: /^ask$/i }))
     await screen.findByText('The BGP route changed.')
     await userEvent.click(screen.getAllByRole('link', { name: 'E-BGP-1' })[0])
     expect(parsePivotContext(currentURL().searchParams).context.selection).toEqual({
@@ -139,7 +139,7 @@ describe('native cross-plane pivots', () => {
     await waitFor(() =>
       expect(parsePivotContext(currentURL().searchParams).context.selection).toBeUndefined(),
     )
-    expect(currentURL().pathname).toBe('/ask')
+    expect(currentURL().pathname).toBe('/incidents')
 
     await userEvent.click(screen.getByRole('button', { name: 'Test forward' }))
     await waitFor(() =>

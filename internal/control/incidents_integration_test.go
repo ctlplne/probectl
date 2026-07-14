@@ -197,6 +197,70 @@ func TestIncidentsAPITenantIsolation(t *testing.T) {
 	}
 }
 
+// TestIncidentEvidenceReadIsBoundedAndTenantScoped proves the incident-room
+// evidence window is bounded without weakening RLS: another tenant receives a
+// 404, while the owner sees explicit truncation metadata rather than a false
+// healthy zero for omitted evidence.
+func TestIncidentEvidenceReadIsBoundedAndTenantScoped(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	tenantA := freshTenant(t, db, "inc-evidence-a")
+	tenantB := freshTenant(t, db, "inc-evidence-b")
+	c := BuildCorrelator(db.Pool(), 5*time.Minute, quietLog())
+	now := time.Now().UTC().Truncate(time.Second)
+
+	incA, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenantA, Plane: "network", Kind: "alert.firing",
+		Title: "tenant A bounded evidence", Target: "192.0.2.10",
+		Severity: incident.SeverityWarning, OccurredAt: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Ingest(ctx, incident.Signal{
+		TenantID: tenantB, Plane: "network", Kind: "alert.firing",
+		Title: "tenant B secret evidence", Target: "198.51.100.20",
+		Severity: incident.SeverityCritical, OccurredAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantA)), db.Pool(),
+		func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := sc.Q.Exec(ctx, `
+				INSERT INTO incident_signals
+				  (tenant_id, incident_id, plane, kind, severity, title, occurred_at)
+				SELECT $1, $2, 'flow', 'flow.sample', 'info',
+				       'bounded evidence ' || n::text, $3::timestamptz + (n || ' milliseconds')::interval
+				  FROM generate_series(1, $4) AS n`,
+				tenantA, incA.ID, now, incident.MaxSignalsPerRead); err != nil {
+				return err
+			}
+			_, err := sc.Q.Exec(ctx,
+				`UPDATE incidents SET signal_count = $2, last_seen_at = $3 WHERE id = $1`,
+				incA.ID, incident.MaxSignalsPerRead+1, now.Add(time.Second))
+			return err
+		}); err != nil {
+		t.Fatalf("seed bounded evidence: %v", err)
+	}
+
+	if rec := apiReq(t, h, http.MethodGet, "/v1/incidents/"+incA.ID, tenantB, nil); rec.Code != http.StatusNotFound {
+		t.Fatalf("cross-tenant incident evidence read = %d, want 404", rec.Code)
+	}
+	rec := apiReq(t, h, http.MethodGet, "/v1/incidents/"+incA.ID, tenantA, nil)
+	var got incident.Incident
+	mustJSON(t, rec, &got)
+	if len(got.Signals) != incident.MaxSignalsPerRead || !got.SignalsTruncated || got.SignalsLimit != incident.MaxSignalsPerRead {
+		t.Fatalf("bounded evidence metadata = count %d truncated=%v limit=%d", len(got.Signals), got.SignalsTruncated, got.SignalsLimit)
+	}
+	if got.SignalCount != incident.MaxSignalsPerRead+1 {
+		t.Fatalf("durable signal_count = %d, want %d", got.SignalCount, incident.MaxSignalsPerRead+1)
+	}
+	if strings.Contains(rec.Body.String(), "tenant B secret evidence") {
+		t.Fatal("tenant B evidence leaked into tenant A incident room")
+	}
+}
+
 func TestThreatDetectionsAPIReadsDurableIncidentSignals(t *testing.T) {
 	h, db := setupAPI(t)
 	ctx := context.Background()

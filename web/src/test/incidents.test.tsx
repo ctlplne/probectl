@@ -49,8 +49,8 @@ function stubIncidents(items: unknown[] = [incident]) {
   )
 }
 
-describe('incidents timeline', () => {
-  test('lists incidents and overlays network + BGP signals in one timeline', async () => {
+describe('unified incident room', () => {
+  test('lists incidents and overlays network + BGP signals on one clock', async () => {
     stubIncidents()
     renderApp('/incidents')
 
@@ -58,11 +58,16 @@ describe('incidents timeline', () => {
     // The incident appears in the list as a selectable button.
     await screen.findByRole('button', { name: /high loss to 192\.0\.2\.10/i })
 
-    // The first incident is auto-selected; its unified timeline overlays both planes.
-    const timeline = await screen.findByRole('list', { name: /incident timeline/i })
+    // The first incident is auto-selected; its unified clock overlays both planes.
+    const timeline = await screen.findByRole('list', {
+      name: /incident evidence on one time axis/i,
+    })
     expect(within(timeline).getByText('network')).toBeInTheDocument()
     expect(within(timeline).getByText('bgp')).toBeInTheDocument()
-    expect(within(timeline).getByText(/possible hijack/i)).toBeInTheDocument()
+    expect(screen.getByText(/possible hijack/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/flow analytics evidence is missing.*coverage gap, not a healthy zero/i),
+    ).toBeInTheDocument()
   })
 
   test('shows an empty state when there are no incidents', async () => {
@@ -74,12 +79,12 @@ describe('incidents timeline', () => {
   test('the incidents page has no axe violations', async () => {
     stubIncidents()
     const { container } = renderApp('/incidents')
-    await screen.findByRole('list', { name: /incident timeline/i })
+    await screen.findByRole('list', { name: /incident evidence on one time axis/i })
     const results = await axe(container)
     expect(results).toHaveNoViolations()
   })
 
-  test('hands incident context to Ask and files an observe-only remediation proposal', async () => {
+  test('runs cited RCA inline and files an observe-only remediation proposal', async () => {
     const base = defaultFetch()
     const askCalls: Array<Record<string, unknown>> = []
     const proposalCalls: Array<Record<string, string>> = []
@@ -119,7 +124,7 @@ describe('incidents timeline', () => {
                 title: 'possible hijack of 192.0.2.0/24',
                 summary: 'AS64500 originated a more-specific route.',
                 ref: 'incident:inc-1',
-                fields: { target: '192.0.2.10' },
+                fields: { id: 'inc-1:1', target: '192.0.2.10' },
               },
             ],
           })
@@ -152,22 +157,20 @@ describe('incidents timeline', () => {
     await userEvent.click(
       await screen.findByRole('button', { name: /high loss to 192\.0\.2\.10/i }),
     )
-    await userEvent.click(await screen.findByRole('button', { name: /ask about this incident/i }))
+    await userEvent.click(await screen.findByRole('button', { name: /find likely cause/i }))
 
-    await screen.findByRole('heading', { name: /ask \(ai\)/i })
-    expect(screen.getByLabelText(/your question/i)).toHaveValue(
-      'What caused incident inc-1: high loss to 192.0.2.10?',
-    )
-
-    await userEvent.click(screen.getByRole('button', { name: /^ask$/i }))
-    await screen.findByText(/most likely root cause/i)
+    const inlineRCA = await screen.findByRole('region', {
+      name: /inline cited root-cause analysis/i,
+    })
+    expect(within(inlineRCA).getByText(/most likely root cause/i)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /ask \(ai\)/i })).not.toBeInTheDocument()
     expect(askCalls[0]).toMatchObject({
       question: expect.stringContaining('incident inc-1'),
       subject: { incident_id: 'inc-1', target: '192.0.2.10' },
     })
     expect(JSON.stringify(askCalls[0])).not.toContain('tenant_id')
 
-    await userEvent.click(await screen.findByRole('button', { name: /propose remediation/i }))
+    await userEvent.click(within(inlineRCA).getByRole('button', { name: /propose remediation/i }))
     expect(proposalCalls).toHaveLength(1)
     expect(proposalCalls[0]).toMatchObject({
       kind: 'open_ticket',

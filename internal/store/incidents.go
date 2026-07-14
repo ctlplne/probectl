@@ -84,12 +84,18 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 	}
 	rows, err := s.Q.Query(ctx,
 		`SELECT plane, kind, severity, title, summary, target, prefix, attributes, occurred_at
-		 FROM incident_signals WHERE incident_id = $1 ORDER BY occurred_at`, id)
+		 FROM incident_signals WHERE incident_id = $1 ORDER BY occurred_at, id LIMIT $2`,
+		id, incident.MaxSignalsPerRead+1)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
+		if len(inc.Signals) == incident.MaxSignalsPerRead {
+			inc.SignalsTruncated = true
+			inc.SignalsLimit = incident.MaxSignalsPerRead
+			break
+		}
 		var sig incident.Signal
 		var severity string
 		var attrs []byte
@@ -106,6 +112,10 @@ func (Incidents) Get(ctx context.Context, s tenancy.Scope, id string) (*incident
 			}
 		}
 		inc.Signals = append(inc.Signals, sig)
+	}
+	if inc.SignalCount > len(inc.Signals) {
+		inc.SignalsTruncated = true
+		inc.SignalsLimit = incident.MaxSignalsPerRead
 	}
 	return &inc, rows.Err()
 }

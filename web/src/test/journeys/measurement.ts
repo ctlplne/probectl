@@ -80,18 +80,18 @@ const baselineFixtures: BaselineFixture[] = [
   {
     journey: 'J2',
     name: 'incident to cited RCA to share',
-    pointer: 4,
+    pointer: 1,
     keyboard: 0,
     typed: 0,
-    contextBreaks: 1,
+    contextBreaks: 0,
     activeTime: {
-      min_ms: 60_000,
-      max_ms: 3 * 60_000,
-      basis: 'source-backed Incidents to Ask interaction proxy',
+      min_ms: 15_000,
+      max_ms: 45_000,
+      basis: 'auto-selected firing incident plus one inline likely-cause action',
     },
     outcome: {
       status: 'incomplete',
-      reason: 'cited RCA exists but no stable incident share or evidence export exists',
+      reason: 'cited RCA is complete; stable incident share ships in X6',
     },
   },
   {

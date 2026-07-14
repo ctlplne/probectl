@@ -7933,13 +7933,22 @@
             "format": "date-time"
           },
           "signal_count": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Total durable signal count, including evidence omitted by the bounded detail response."
           },
           "signals": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Signal"
             }
+          },
+          "signals_truncated": {
+            "type": "boolean",
+            "description": "True when the incident has more evidence than this response returns; omitted evidence is a coverage gap, never a healthy zero."
+          },
+          "signals_limit": {
+            "type": "integer",
+            "description": "Maximum number of time-ordered signals returned when signals_truncated is true."
           }
         }
       },

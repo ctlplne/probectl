@@ -1,13 +1,10 @@
 import { useEffect, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import styles from './incidents.module.css'
 import { Page } from './pages'
 import {
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
   EmptyState,
   ErrorState,
   Field,
@@ -15,34 +12,16 @@ import {
   Select,
   StatusDot,
   Table,
-  useToast,
   type Column,
 } from '../components'
-import {
-  type Incident,
-  type Signal,
-  severityTone,
-  useIncident,
-  useIncidents,
-  useResolveIncident,
-} from '../api/incidents'
-import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
-import {
-  incidentTarget,
-  proposalFromIncident,
-  questionForIncident,
-} from '../remediation/proposalContext'
+import { type Incident, severityTone, useIncidents } from '../api/incidents'
 import { DateTime } from '../time/DateTime'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
-import {
-  parsePivotContext,
-  pivotHref,
-  replacePivotContext,
-  type PivotContext,
-} from './pivotContext'
+import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
+import { IncidentRoom } from './IncidentRoom'
 
 type TFn = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -57,152 +36,6 @@ function incidentSeverityLabel(severity: string, t: TFn) {
   if (severity === 'warning') return t('severity.warning')
   if (severity === 'info') return t('severity.info')
   return severity
-}
-
-/** Timeline overlays every plane's signals for one incident in time order. The
- *  rendering is plane-agnostic (it reads the generic Signal), so a new plane
- *  appears here with no UI change. */
-function Timeline({
-  incidentId,
-  pivotContext,
-}: {
-  incidentId: string
-  pivotContext: PivotContext
-}) {
-  const navigate = useNavigate()
-  const { t } = useI18n()
-  const incident = useIncident(incidentId)
-  const resolve = useResolveIncident(incidentId)
-  const remediations = useRemediations()
-  const createProposal = useCreateRemediationProposal()
-  const { push } = useToast()
-
-  if (incident.isLoading) return <LoadingState label={t('incidents.loadingOne')} />
-  if (incident.isError || !incident.data)
-    return <ErrorState description={t('incidents.errorOne')} />
-
-  const inc = incident.data
-  const signals = inc.signals ?? []
-  const canPropose = Boolean(remediations.data)
-
-  function askAboutIncident() {
-    navigate(
-      pivotHref(
-        '/ask',
-        {
-          ...pivotContext,
-          incidentId: inc.id,
-          from: inc.started_at,
-          to: inc.last_seen_at,
-          selection: undefined,
-        },
-        { target: incidentTarget(inc), question: questionForIncident(inc) },
-      ),
-    )
-  }
-
-  function proposeIncidentReview() {
-    createProposal.mutate(proposalFromIncident(inc), {
-      onSuccess: (p) =>
-        push({
-          tone: 'success',
-          title: t('incidents.toast.proposalCreated'),
-          message: t('incidents.toast.proposalCreatedMessage', { id: p.id }),
-        }),
-      onError: (err) =>
-        push({
-          tone: 'danger',
-          title: t('incidents.toast.proposalFailed'),
-          message: err instanceof Error ? err.message : t('incidents.toast.proposalFailedMessage'),
-        }),
-    })
-  }
-
-  return (
-    <Card>
-      <CardHeader
-        title={inc.title || inc.target || t('incidents.fallbackTitle')}
-        actions={
-          <div className={styles.actionsRow}>
-            <Button variant="secondary" onClick={askAboutIncident}>
-              {t('incidents.action.ask')}
-            </Button>
-            {canPropose ? (
-              <Button
-                variant="secondary"
-                onClick={proposeIncidentReview}
-                disabled={createProposal.isPending}
-              >
-                {createProposal.isPending
-                  ? t('incidents.action.proposing')
-                  : t('incidents.action.propose')}
-              </Button>
-            ) : null}
-            {inc.status === 'open' ? (
-              <Button
-                variant="secondary"
-                onClick={() => resolve.mutate()}
-                disabled={resolve.isPending}
-              >
-                {t('incidents.action.resolve')}
-              </Button>
-            ) : (
-              <Badge tone="neutral">{t('incidents.status.resolved')}</Badge>
-            )}
-          </div>
-        }
-      />
-      <CardBody>
-        <dl className={styles.meta}>
-          <div>
-            <dt>{t('incidents.meta.severity')}</dt>
-            <dd>
-              <Badge tone={severityTone(inc.severity)}>
-                {incidentSeverityLabel(inc.severity, t)}
-              </Badge>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('incidents.meta.target')}</dt>
-            <dd>{inc.target || inc.prefix || '—'}</dd>
-          </div>
-          <div>
-            <dt>{t('incidents.meta.signals')}</dt>
-            <dd>{inc.signal_count}</dd>
-          </div>
-          <div>
-            <dt>{t('incidents.meta.started')}</dt>
-            <dd>
-              <DateTime value={inc.started_at} />
-            </dd>
-          </div>
-        </dl>
-
-        <ol className={styles.timeline} aria-label={t('incidents.timeline.aria')}>
-          {signals.map((s: Signal, i) => (
-            <li key={`${s.plane}-${i}`} className={styles.event}>
-              <DateTime value={s.occurred_at} className={styles.time} />
-              <span className={styles.dot}>
-                <StatusDot
-                  tone={severityTone(s.severity)}
-                  label={incidentSeverityLabel(s.severity, t)}
-                />
-              </span>
-              <div className={styles.body}>
-                <div className={styles.row}>
-                  <Badge tone="accent">{s.plane}</Badge>
-                  <code className={styles.kind}>{s.kind}</code>
-                </div>
-                <p className={styles.title}>{s.title || s.kind}</p>
-                {s.summary ? <p className={styles.summary}>{s.summary}</p> : null}
-                {s.target ? <p className={styles.target}>{s.target}</p> : null}
-              </div>
-            </li>
-          ))}
-        </ol>
-      </CardBody>
-    </Card>
-  )
 }
 
 export function IncidentsPage() {
@@ -386,7 +219,7 @@ export function IncidentsPage() {
             rows={filteredIncidents}
             rowKey={(r) => r.id}
           />
-          {selected ? <Timeline incidentId={selected} pivotContext={pivotContext} /> : null}
+          {selected ? <IncidentRoom incidentId={selected} pivotContext={pivotContext} /> : null}
         </div>
       )}
     </Page>

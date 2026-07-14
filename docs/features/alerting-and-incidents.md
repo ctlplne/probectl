@@ -14,7 +14,7 @@ So this page covers two connected things:
   value crosses a line or drifts from its own normal. A rule can be *silenced*
   (hushed for a while) or *acknowledged* (claimed by an owner), and those
   operator actions survive a restart of the platform.
-- **Dashboards and the incident timeline** — instead of a flood of disconnected
+- **Dashboards and the incident room** — instead of a flood of disconnected
   alerts, probectl groups related signals from every observability plane
   (synthetic tests, routing, flow, device telemetry, host/kernel data) into a
   single, [tenant](../glossary.md)-scoped **incident** that carries
@@ -87,10 +87,29 @@ from your probectl. Incident-level paging, chat, and ticketing connectors
 *incident* pipeline rather than individual alert rules.
 
 When something does break, related signals across planes land in **one
-incident**. If a synthetic probe to a service starts failing *and* that service
-is a node in the host/kernel service map, those two facts attach to the same
-incident as cross-plane evidence — the probe failure and the affected service
-edge — instead of arriving as two unrelated alerts.
+incident**. Its incident room is one workbench: the summary, one absolute clock,
+five evidence groups, ranked changes, affected entities, a plane inspector, and
+human-gated next actions stay together. If a synthetic probe to a service starts
+failing *and* that service is a node in the host/kernel service map, those two
+facts attach to the same incident as cross-plane evidence — the probe failure
+and the affected service edge — instead of arriving as two unrelated alerts.
+
+The **Find likely cause** action runs the tenant- and RBAC-scoped RCA inside the
+same room. It needs no typed question and does not navigate to another page. Its
+citations and the evidence tables share the same URL-safe selection contract:
+selecting a clock marker, exact plane row, or citation selects that same source
+row in the inspector. The URL carries only bounded investigation context; it
+never carries a tenant identifier because the authenticated server session owns
+tenant scope.
+
+The room is deliberately honest about coverage. All five plane groups remain
+visible even when a producer returned no evidence, and an empty group says
+**coverage gap**, never “zero” or “healthy.” An incident detail read returns at
+most 500 signals. `signal_count` remains the total, while
+`signals_truncated: true` and `signals_limit` explicitly say the evidence list
+was bounded. Candidate changes use the separately tenant-authorized
+`/v1/incidents/<id>/changes` read and report unavailable or empty data as another
+coverage gap.
 
 ## Use it
 
@@ -149,17 +168,23 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
 curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
   https://probectl.example.com/v1/incidents/<id>
 
-# Observe: one incident object whose evidence list spans planes — e.g. a failing
-# synthetic probe AND the affected service edge — plus related change/topology
-# context, all scoped to your tenant.
+# Observe: one incident object whose bounded evidence list spans planes — e.g. a
+# failing synthetic probe AND the affected service edge. Compare signal_count
+# with signals_truncated/signals_limit before concluding that coverage is whole.
+
+# Read candidate changes ranked by topology proximity and recency.
+curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
+  https://probectl.example.com/v1/incidents/<id>/changes
 ```
 
 In the web interface, the **Alerts** page shows the active-alert table (filter
 by state and severity, with silence and acknowledge actions) over the rule table
 (create, edit, delete with threshold and baseline forms). The active list
 re-reads engine state every few seconds, and every action re-renders from the
-engine's response. The **Incidents** view shows each correlated incident with
-its cross-plane evidence and related change context.
+engine's response. The **Incidents** view opens the unified five-plane room. A
+firing incident is auto-selected, and one **Find likely cause** interaction
+renders cited RCA inline. Selection coordinates the one clock, exact evidence
+row, citation, and plane inspector without a route change.
 
 ## Pitfalls & limits
 
@@ -182,7 +207,11 @@ its cross-plane evidence and related change context.
   the webhook channel, or incident-level connectors, for paging.
 - **Correlation needs more than one plane reporting.** A single-plane deployment
   still alerts perfectly, but "one incident with cross-plane evidence" only pays
-  off once you have producers feeding more than one plane.
+  off once you have producers feeding more than one plane. The room names each
+  missing plane as a coverage gap so absence is never presented as health.
+- **Incident evidence reads are bounded.** The detail endpoint returns at most
+  500 signals. Check `signals_truncated` and `signal_count`; use a refined or
+  exported investigation before drawing a conclusion from a truncated set.
 
 ## Reference
 
@@ -194,7 +223,8 @@ its cross-plane evidence and related change context.
 | Manage planned maintenance windows | `/v1/alerts/maintenance*` | `alert.read` / `alert.write` |
 | Create / edit / delete rules | `/v1/alerts` | `alert.read` / `alert.write` |
 | List correlated incidents | `GET /v1/incidents` | `incident.read` |
-| One incident's cross-plane evidence | `GET /v1/incidents/<id>` | `incident.read` |
+| One incident's bounded cross-plane evidence | `GET /v1/incidents/<id>` | `incident.read` |
+| Ranked candidate changes | `GET /v1/incidents/<id>/changes` | `incident.read` |
 
 Properties you can rely on: the displayed firing state is always the engine's
 current truth (never computed in the browser); silences and acknowledgements

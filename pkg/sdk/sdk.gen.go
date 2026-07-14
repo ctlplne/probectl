@@ -616,18 +616,20 @@ type HopNode struct {
 }
 
 type Incident struct {
-	Id          string   `json:"id,omitempty"`
-	LastSeenAt  string   `json:"last_seen_at,omitempty"`
-	Prefix      string   `json:"prefix,omitempty"`
-	ResolvedAt  string   `json:"resolved_at,omitempty"`
-	Severity    string   `json:"severity,omitempty"`
-	SignalCount int      `json:"signal_count,omitempty"`
-	Signals     []Signal `json:"signals,omitempty"`
-	StartedAt   string   `json:"started_at,omitempty"`
-	Status      string   `json:"status,omitempty"`
-	Target      string   `json:"target,omitempty"`
-	TenantId    string   `json:"tenant_id,omitempty"`
-	Title       string   `json:"title,omitempty"`
+	Id               string   `json:"id,omitempty"`
+	LastSeenAt       string   `json:"last_seen_at,omitempty"`
+	Prefix           string   `json:"prefix,omitempty"`
+	ResolvedAt       string   `json:"resolved_at,omitempty"`
+	Severity         string   `json:"severity,omitempty"`
+	SignalCount      int      `json:"signal_count,omitempty"`
+	Signals          []Signal `json:"signals,omitempty"`
+	SignalsLimit     int      `json:"signals_limit,omitempty"`
+	SignalsTruncated bool     `json:"signals_truncated,omitempty"`
+	StartedAt        string   `json:"started_at,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	TenantId         string   `json:"tenant_id,omitempty"`
+	Title            string   `json:"title,omitempty"`
 }
 
 type IncidentList struct {

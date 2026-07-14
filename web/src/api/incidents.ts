@@ -31,6 +31,28 @@ export interface Incident {
   resolved_at?: string
   signal_count: number
   signals?: Signal[]
+  signals_truncated?: boolean
+  signals_limit?: number
+}
+
+export interface ChangeEvent {
+  id: string
+  source: string
+  kind: string
+  title: string
+  summary?: string
+  target?: string
+  prefix?: string
+  actor?: string
+  ref?: string
+  url?: string
+  occurred_at: string
+}
+
+export interface ChangeCandidate {
+  event: ChangeEvent
+  score: number
+  reason: string
 }
 
 /** useIncidents lists the tenant's incidents, most-recently-active first. */
@@ -41,7 +63,8 @@ export function useIncidents() {
   })
 }
 
-/** useIncident fetches one incident with its full signal timeline. */
+/** useIncident fetches one incident with its bounded signal timeline. The
+ * server sets signals_truncated when signal_count exceeds the returned rows. */
 export function useIncident(id: string | undefined) {
   return useQuery({
     queryKey: ['incident', id],
@@ -50,6 +73,18 @@ export function useIncident(id: string | undefined) {
     // A tenant-scoped miss is authoritative. Retrying an unavailable ID only
     // delays fail-closed URL-context invalidation.
     retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
+  })
+}
+
+/** Candidate changes are already tenant-scoped and ranked by the server. */
+export function useIncidentChanges(id: string | undefined) {
+  return useQuery({
+    queryKey: ['incident-changes', id],
+    enabled: !!id,
+    queryFn: () =>
+      apiFetch<{ items: ChangeCandidate[] }>(`/incidents/${id}/changes`).then((r) => r.items),
+    retry: (failureCount, error) =>
+      !isApiStatus(error, 404) && !isApiStatus(error, 503) && failureCount < 1,
   })
 }
 
