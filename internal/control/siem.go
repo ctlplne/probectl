@@ -282,8 +282,10 @@ func (p *SIEMAuditPoller) tick(ctx context.Context) error {
 }
 
 // drainTenant forwards a tenant's pending audit events one page (one transaction)
-// at a time until it catches up or a page pauses (SIEM error). One short tx per
-// page keeps the database transaction off the network-delivery path.
+// at a time until it catches up or a page pauses (SIEM error). The transaction
+// holds the tenant cursor row lock across bounded network delivery: this
+// deliberately trades one database connection for no duplicate page forwarding
+// when two replicas overlap. The sink timeout bounds each delivery attempt.
 func (p *SIEMAuditPoller) drainTenant(ctx context.Context, tenantID string) error {
 	for {
 		more, err := p.drainPage(ctx, tenantID)
@@ -300,7 +302,7 @@ func (p *SIEMAuditPoller) drainTenant(ctx context.Context, tenantID string) erro
 func (p *SIEMAuditPoller) drainPage(ctx context.Context, tenantID string) (more bool, err error) {
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), p.pool,
 		func(c context.Context, sc tenancy.Scope) error {
-			cursor, e := (store.SIEMDelivery{}).Cursor(c, sc)
+			cursor, e := (store.SIEMDelivery{}).CursorForUpdate(c, sc)
 			if e != nil {
 				return e
 			}

@@ -92,11 +92,19 @@ flowchart LR
 - **Audit path** — `SIEMAuditPoller` drains each tenant's audit events from a
   **durable per-tenant cursor** (`siem_delivery`, RLS-scoped). A **cursor** is a
   persisted bookmark: "everything before this point was delivered." It drains
-  one page per short transaction and advances the committed cursor **only past
+  one bounded page transaction and advances the committed cursor **only past
   events the SIEM acknowledged** — like a registered-mail clerk who crosses an
   item off the ledger only when the signed receipt is in hand. So a restart
   resumes exactly where it paused — no drops, and (outside a narrow crash
   window) no re-sends.
+- **Replica concurrency** — each page transaction creates the cursor row when
+  needed and locks it with `SELECT ... FOR UPDATE` before reading audit events.
+  A second replica waits, then observes the committed cursor, so overlapping
+  pollers do not forward the same page twice. A process crash after remote
+  acknowledgement but before commit can still replay that final event; SIEM
+  receivers should therefore keep their documented `(tenant_id, audit.seq)`
+  idempotency key. This is at-least-once delivery with no gaps, not a false
+  exactly-once claim.
 - **Threat path** — consumers **enqueue** signals into a bounded buffer; when it
   is full, producers **block** (backpressure — the pipeline slows down rather
   than throwing events away) instead of dropping. A worker delivers

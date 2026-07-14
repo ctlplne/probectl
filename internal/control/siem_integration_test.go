@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,35 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
+
+type blockingSIEMSender struct {
+	mu      sync.Mutex
+	got     [][]byte
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingSIEMSender) Send(ctx context.Context, payload []byte) error {
+	select {
+	case s.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	s.mu.Lock()
+	s.got = append(s.got, append([]byte(nil), payload...))
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *blockingSIEMSender) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.got)
+}
 
 // appendAudit writes one audit event to a tenant's chain (with a secret in the
 // data, to assert redaction on export).
@@ -97,6 +127,61 @@ func TestSIEMAuditDrainCursorAndScope(t *testing.T) {
 	}
 	if again := tenantCursor(t, db, tenantA); again != cursor {
 		t.Fatalf("cursor moved with no new events: %d -> %d", cursor, again)
+	}
+}
+
+// Two replicas may overlap briefly during failover even though the singleton
+// lease is the outer guard. The cursor row lock is the storage-layer backstop:
+// while poller A is delivering, poller B cannot read the same cursor/page.
+func TestSIEMAuditConcurrentPollersDoNotDuplicateForward(t *testing.T) {
+	db := changeDB(t)
+	tenant := freshTenant(t, db, "siem-concurrent")
+	appendAudit(t, db, tenant, "alert.create")
+	appendAudit(t, db, tenant, "agent.delete")
+
+	sender := &blockingSIEMSender{entered: make(chan struct{}, 4), release: make(chan struct{})}
+	fmtr, _ := siem.NewFormatter("ecs")
+	fw := siem.NewForwarder(fmtr, sender, siem.Config{}, testLog())
+	pollerA := NewSIEMAuditPoller(db.Pool(), fw, nil, time.Minute, testLog())
+	pollerB := NewSIEMAuditPoller(db.Pool(), fw, nil, time.Minute, testLog())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	for _, poller := range []*SIEMAuditPoller{pollerA, pollerB} {
+		go func(p *SIEMAuditPoller) {
+			<-start
+			errs <- p.drainTenant(ctx, tenant)
+		}(poller)
+	}
+	close(start)
+
+	select {
+	case <-sender.entered: // first poller reached the external delivery
+	case <-time.After(5 * time.Second):
+		t.Fatal("first poller never reached SIEM sender")
+	}
+	// Keep the first delivery blocked long enough for the second poller to race.
+	// Without the cursor row lock, both enter the sender with the same first event.
+	select {
+	case <-sender.entered:
+		// A second entry before release is the old duplicate-forward race. Let
+		// both finish so the final count below gives the actionable failure.
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(sender.release)
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent drain: %v", err)
+		}
+	}
+
+	if got := sender.count(); got != 2 {
+		t.Fatalf("concurrent pollers forwarded %d records, want exactly the 2 unique audit events", got)
+	}
+	if cursor := tenantCursor(t, db, tenant); cursor <= 0 {
+		t.Fatalf("cursor did not advance after serialized delivery: %d", cursor)
 	}
 }
 
