@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-07-14T00:00:00Z",
+  "method": "source-backed deterministic interaction proxy; secrets excluded from keystrokes",
+  "measurements": [
+    {
+      "journey": "J1",
+      "name": "install to first real insight",
+      "pointer_interactions": 8,
+      "keyboard_interactions": 0,
+      "typed_characters": 34,
+      "context_breaks": 2,
+      "active_time_proxy": {
+        "min_ms": 900000,
+        "max_ms": 1800000,
+        "basis": "source-backed compose, shell enrollment, and UI handoff proxy"
+      },
+      "outcome": {
+        "status": "incomplete",
+        "reason": "onboarding has no producer-health wait or first-finding receipt"
+      }
+    },
+    {
+      "journey": "J2",
+      "name": "incident to cited RCA to share",
+      "pointer_interactions": 4,
+      "keyboard_interactions": 0,
+      "typed_characters": 0,
+      "context_breaks": 1,
+      "active_time_proxy": {
+        "min_ms": 60000,
+        "max_ms": 180000,
+        "basis": "source-backed Incidents to Ask interaction proxy"
+      },
+      "outcome": {
+        "status": "incomplete",
+        "reason": "cited RCA exists but no stable incident share or evidence export exists"
+      }
+    },
+    {
+      "journey": "J3",
+      "name": "explore to answer ten canonical questions",
+      "pointer_interactions": 20,
+      "keyboard_interactions": 0,
+      "typed_characters": 480,
+      "context_breaks": 7,
+      "active_time_proxy": {
+        "min_ms": 600000,
+        "max_ms": 1200000,
+        "basis": "ten Ask submissions plus manual plane-page pivot proxy"
+      },
+      "outcome": {
+        "status": "incomplete",
+        "reason": "only about three canonical questions are discoverable through one query surface"
+      }
+    },
+    {
+      "journey": "J4",
+      "name": "debug a lossy ECMP path",
+      "pointer_interactions": 6,
+      "keyboard_interactions": 0,
+      "typed_characters": 16,
+      "context_breaks": 1,
+      "active_time_proxy": {
+        "min_ms": 120000,
+        "max_ms": 240000,
+        "basis": "Path plus disconnected Topology interaction proxy"
+      },
+      "outcome": {
+        "status": "incomplete",
+        "reason": "path comparison, incident overlay, context-preserving pivot, and share are absent"
+      }
+    },
+    {
+      "journey": "J5",
+      "name": "find and act on fleet health",
+      "pointer_interactions": 1,
+      "keyboard_interactions": 2,
+      "typed_characters": 7,
+      "context_breaks": 0,
+      "active_time_proxy": {
+        "min_ms": 30000,
+        "max_ms": 60000,
+        "basis": "command-palette navigation and Admin filtering proxy"
+      },
+      "outcome": {
+        "status": "incomplete",
+        "reason": "agent rows lack a health reason, rollout state, and recommended safe action"
+      }
+    },
+    {
+      "journey": "J6",
+      "name": "MSP multi-tenant operations under probectl",
+      "pointer_interactions": 10,
+      "keyboard_interactions": 0,
+      "typed_characters": 32,
+      "context_breaks": 0,
+      "active_time_proxy": {
+        "min_ms": 120000,
+        "max_ms": 240000,
+        "basis": "provider sign-in, fleet scan, siloed provisioning, and usage export proxy"
+      },
+      "outcome": {
+        "status": "complete",
+        "evidence": [
+          "provider fleet table identifies unhealthy tenants",
+          "tenant provisioning accepts isolation and residency",
+          "usage CSV and JSONL exports are linked"
+        ]
+      }
+    }
+  ]
+}

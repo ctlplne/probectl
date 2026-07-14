@@ -243,7 +243,9 @@ card scheduled for removal by W11; therefore it is not yet the crisp MSP demo mo
 ## probectl-today interaction baseline
 
 These are the numbers X-lane journey tests must beat. “Incomplete” is deliberately not turned
-into a flattering time.
+into a flattering time. The same records live in the versioned machine-readable
+[`journey-baseline.json`](./journey-baseline.json); its test fixture rejects client-authored
+tenant scope and returns no comparable elapsed value for an incomplete outcome.
 
 | Journey | Current shortest source-backed path | UI/command interactions | Keystrokes | Active-time proxy | Completion gap |
 |---|---|---:|---:|---:|---|
