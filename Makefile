@@ -7,6 +7,7 @@ SHELL := /usr/bin/env bash
 # ---- configuration -------------------------------------------------------
 MODULE   := github.com/imfeelingtheagi/probectl
 GO       ?= go
+PYTHON   ?= python3
 BIN_DIR  := bin
 BINARIES := probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl
 # FIPS artifacts cover every customer-shipped binary plus security-sensitive
@@ -136,7 +137,7 @@ test-integration: ## Run integration tests across modules (needs a database / de
 
 .PHONY: test-python
 test-python: ## Run the Python analyzer test suite with the coverage floor (U-094).
-	cd analyzer && python -m pytest --cov=probectl_analyzer --cov-report=term
+	cd analyzer && $(PYTHON) -m pytest --cov=probectl_analyzer --cov-report=term
 
 .PHONY: cover
 cover: ## Run unit tests with a coverage profile.
