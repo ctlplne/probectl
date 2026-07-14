@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -101,12 +102,42 @@ func TestLifecycleEndToEndPG(t *testing.T) {
 	// Register the pool first so the lock cleanup runs before pool shutdown.
 	t.Cleanup(pool.Close)
 	testsupport.LockPostgresPublicCatalog(t, pool)
+
+	var victim, bystander string
+	if ok := t.Run("round_trip", func(t *testing.T) {
+		victim, bystander = runLifecycleEndToEndPG(t, pool)
+	}); !ok {
+		return
+	}
+	// The child cleanup has run before t.Run returns. Pin that both the erased
+	// victim tombstone and the bystander fixture are gone, so repeated gates do
+	// not make the shared integration database grow forever.
+	for _, tenantID := range []string{victim, bystander} {
+		var remaining int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM tenants WHERE id = $1`, tenantID).Scan(&remaining); err != nil {
+			t.Fatalf("verify lifecycle fixture cleanup: %v", err)
+		}
+		if remaining != 0 {
+			t.Fatalf("lifecycle fixture tenant %s remains after cleanup", tenantID)
+		}
+	}
+}
+
+func runLifecycleEndToEndPG(t *testing.T, pool *pgxpool.Pool) (string, string) {
+	t.Helper()
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	stamp := time.Now().UTC().Format("150405")
+	stamp := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	victim := mkTenant(t, pool, "it-life-a-"+stamp)
 	bystander := mkTenant(t, pool, "it-life-b-"+stamp)
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(),
+			`DELETE FROM tenants WHERE id = $1 OR id = $2`, victim, bystander); err != nil {
+			t.Errorf("cleanup lifecycle integration tenants: %v", err)
+		}
+	})
 	seedTenant(t, pool, victim, "victim-probe")
 	seedTenant(t, pool, bystander, "bystander-probe")
 
@@ -198,4 +229,5 @@ func TestLifecycleEndToEndPG(t *testing.T) {
 	if err := audit.ProviderVerifyFrom(ctx, pool, providerHead); err != nil {
 		t.Fatalf("provider chain must verify after the attestation: %v", err)
 	}
+	return victim, bystander
 }
