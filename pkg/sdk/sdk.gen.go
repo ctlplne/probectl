@@ -918,6 +918,17 @@ type Path struct {
 	TraceCount         int    `json:"trace_count,omitempty"`
 }
 
+type PathHistory struct {
+	Items []PathSnapshot `json:"items"`
+}
+
+// One immutable path-discovery round. The opaque ID is always read under tenant_id and target scope.
+type PathSnapshot struct {
+	Id         string `json:"id"`
+	ObservedAt string `json:"observed_at"`
+	Path       Path   `json:"path"`
+}
+
 // A SCIM bearer-token metadata row. The token hash and plaintext token are never returned from list/get responses.
 type SCIMToken struct {
 	CreatedAt  string `json:"created_at"`
@@ -3318,6 +3329,20 @@ func (c *Client) DiscoverTestPath(ctx context.Context, req DiscoverTestPathReque
 	query := url.Values{}
 	var out Path
 	if err := c.doJSON(ctx, http.MethodPost, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List immutable path-discovery rounds for comparison and stable replay
+type ListTestPathHistoryRequest struct {
+}
+
+func (c *Client) ListTestPathHistory(ctx context.Context, req ListTestPathHistoryRequest) (*PathHistory, error) {
+	path := "/v1/tests/{id}/path/history"
+	query := url.Values{}
+	var out PathHistory
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

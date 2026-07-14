@@ -835,6 +835,16 @@ export interface Path {
   trace_count?: number
 }
 
+export interface PathHistory {
+  items: PathSnapshot[]
+}
+
+export interface PathSnapshot {
+  id: string
+  observed_at: string
+  path: Path
+}
+
 export interface SCIMToken {
   created_at: string
   id: string
@@ -1805,6 +1815,11 @@ export interface DiscoverTestPathRequest {
 }
 
 export type DiscoverTestPathResponse = Path
+
+export interface ListTestPathHistoryRequest {
+}
+
+export type ListTestPathHistoryResponse = PathHistory
 
 export interface ListThreatDetectionsRequest {
 }
@@ -2792,6 +2807,12 @@ export class ProbectlSDKClient {
     let path = "/v1/tests/{id}/path"
     const query = new URLSearchParams()
     return this.requestJSON<DiscoverTestPathResponse>("POST", path, query, undefined)
+  }
+
+  async listTestPathHistory(): Promise<ListTestPathHistoryResponse> {
+    let path = "/v1/tests/{id}/path/history"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListTestPathHistoryResponse>("GET", path, query, undefined)
   }
 
   async listThreatDetections(): Promise<ListThreatDetectionsResponse> {

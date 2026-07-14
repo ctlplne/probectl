@@ -59,6 +59,17 @@ func (f *fakeCH) handler() http.HandlerFunc {
 			f.mu.Lock()
 			f.deleted[table] = true
 			f.mu.Unlock()
+		case strings.Contains(q, "any(target_ip)"):
+			if qv.Get("param_path0") != "" && qv.Get("param_path0") != "p1" {
+				return
+			}
+			_, _ = w.Write([]byte(`{"path_id":"p1","target_ip":"8.8.8.8","mode":"icmp","observed_at":"2026-07-14 12:05:00.000"}` + "\n"))
+		case strings.Contains(q, "SELECT path_id, ttl, from_ip"):
+			_, _ = w.Write([]byte(`{"path_id":"p1","ttl":1,"from_ip":"10.0.0.1","to_ip":"8.8.8.8"}` + "\n"))
+		case strings.Contains(q, "SELECT path_id, ttl"):
+			_, _ = w.Write([]byte(
+				`{"path_id":"p1","ttl":1,"responder":"10.0.0.1","sent":3,"received":3,"loss_ratio":0,"rtt_min_ms":"1.1","rtt_avg_ms":1.5,"rtt_max_ms":2.0,"mpls_labels":[16001]}` + "\n" +
+					`{"path_id":"p1","ttl":2,"responder":"8.8.8.8","sent":3,"received":2,"loss_ratio":0.33,"rtt_min_ms":4.0,"rtt_avg_ms":4.5,"rtt_max_ms":5.0,"mpls_labels":[]}` + "\n"))
 		case strings.Contains(q, "SELECT path_id"):
 			if strings.Contains(q, "'missing.example'") || qv.Get("param_target") == "missing.example" {
 				return // no rows -> not found
@@ -105,11 +116,57 @@ func TestClickHouseRefusesUnscopedOperations(t *testing.T) {
 	if _, _, err := ch.Latest(ctx, "", "x"); !errors.Is(err, ErrNoTenant) {
 		t.Fatalf("Latest without tenant = %v, want ErrNoTenant", err)
 	}
+	if _, err := ch.History(ctx, "", "x", HistoryQuery{}); !errors.Is(err, ErrNoTenant) {
+		t.Fatalf("History without tenant = %v, want ErrNoTenant", err)
+	}
 	if _, _, err := ch.DeleteTenant(ctx, ""); !errors.Is(err, ErrNoTenant) {
 		t.Fatalf("DeleteTenant without tenant = %v, want ErrNoTenant", err)
 	}
 	if f.count() != before {
 		t.Fatalf("an unscoped operation reached ClickHouse: %v", f.queries[before:])
+	}
+}
+
+func TestClickHousePathHistoryScopesQueriesAndBindsCopiedID(t *testing.T) {
+	f, ch := newFakeCH(t)
+	before := f.count()
+	rounds, err := ch.History(context.Background(), "tenant-a", "dns.example", HistoryQuery{
+		IDs: []string{"p1"}, Limit: 2,
+	})
+	if err != nil || len(rounds) != 1 {
+		t.Fatalf("History: len=%d err=%v", len(rounds), err)
+	}
+	if rounds[0].ID != "p1" || rounds[0].Path.Target != "dns.example" || len(rounds[0].Path.Hops) != 2 || len(rounds[0].Path.Links) != 1 {
+		t.Fatalf("reconstructed round = %+v", rounds[0])
+	}
+	if rounds[0].ObservedAt.IsZero() || !rounds[0].Path.DestinationReached {
+		t.Fatalf("round metadata = %+v", rounds[0])
+	}
+
+	f.mu.Lock()
+	queries := append([]string(nil), f.queries[before:]...)
+	f.mu.Unlock()
+	if len(queries) != 3 {
+		t.Fatalf("history should use one metadata + one batched hop + one batched link query, got %d: %v", len(queries), queries)
+	}
+	for _, query := range queries {
+		if !strings.Contains(query, "tenant_id={tenant:String}") ||
+			!strings.Contains(query, "target={target:String}") ||
+			!strings.Contains(query, "/*param_tenant=tenant-a*/") ||
+			!strings.Contains(query, "/*param_target=dns.example*/") {
+			t.Fatalf("history query is not tenant+target scoped with bound values: %s", query)
+		}
+		if strings.Contains(query, "'tenant-a'") || strings.Contains(query, "'dns.example'") {
+			t.Fatalf("history query embedded an untrusted literal: %s", query)
+		}
+	}
+	if !strings.Contains(queries[0], "path_id={path0:String}") || !strings.Contains(queries[0], "/*param_path0=p1*/") {
+		t.Fatalf("copied round ID is not server-bound: %s", queries[0])
+	}
+
+	missing, err := ch.History(context.Background(), "tenant-a", "dns.example", HistoryQuery{IDs: []string{"foreign-round"}})
+	if err != nil || len(missing) != 0 {
+		t.Fatalf("unknown copied ID: len=%d err=%v", len(missing), err)
 	}
 }
 

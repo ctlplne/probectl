@@ -332,6 +332,7 @@ func specialCLICoverage() []cliCoverage {
 		{Method: http.MethodGet, Path: "/v1/tests/bundle", Command: "probectl test bundle"},
 		{Method: http.MethodGet, Path: "/v1/tests/{id}/path", Command: "probectl test path <id>"},
 		{Method: http.MethodPost, Path: "/v1/tests/{id}/path", Command: "probectl test path <id> --body"},
+		{Method: http.MethodGet, Path: "/v1/tests/{id}/path/history", Command: "probectl test path-history <id>"},
 		{Method: http.MethodGet, Path: "/v1/agents", Command: "probectl agent list"},
 		{Method: http.MethodPost, Path: "/v1/agents/enroll-tokens", Command: "probectl agent enroll-token"},
 		{Method: http.MethodGet, Path: "/v1/agents/{id}", Command: "probectl agent get <id>"},

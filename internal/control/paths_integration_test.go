@@ -109,6 +109,22 @@ func TestPathAPI(t *testing.T) {
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path", "", nil); rec.Code != http.StatusOK {
 		t.Errorf("get path after discovery = %d, want 200", rec.Code)
 	}
+	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?limit=10", "", nil); rec.Code != http.StatusOK {
+		t.Fatalf("get path history = %d: %s", rec.Code, rec.Body)
+	}
+	var history struct {
+		Items []pathstore.Snapshot `json:"items"`
+	}
+	mustJSON(t, rec, &history)
+	if len(history.Items) != 1 || history.Items[0].ID == "" || history.Items[0].Path.Target != "9.9.9.9" {
+		t.Fatalf("history = %+v", history.Items)
+	}
+	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id="+history.Items[0].ID, "", nil); rec.Code != http.StatusOK {
+		t.Fatalf("stable history replay = %d: %s", rec.Code, rec.Body)
+	}
+	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history?round_id=../../bad", "", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("malformed round ID = %d, want 400", rec.Code)
+	}
 }
 
 // TestPathAPITenantIsolation proves the path-viz API is tenant-scoped: a path
@@ -137,8 +153,41 @@ func TestPathAPITenantIsolation(t *testing.T) {
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path", tn.ID, nil); rec.Code != http.StatusOK {
 		t.Errorf("tenant B get path = %d, want 200", rec.Code)
 	}
+	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path/history", tn.ID, nil); rec.Code != http.StatusOK {
+		t.Fatalf("tenant B get history = %d: %s", rec.Code, rec.Body)
+	}
+	var tenantBHistory struct {
+		Items []pathstore.Snapshot `json:"items"`
+	}
+	mustJSON(t, rec, &tenantBHistory)
+	if len(tenantBHistory.Items) != 1 {
+		t.Fatalf("tenant B history = %+v", tenantBHistory.Items)
+	}
 	// ...the default tenant cannot even see the test (404).
 	if rec = apiReq(t, h, http.MethodGet, "/v1/tests/"+created.ID+"/path", "", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("cross-tenant path get = %d, want 404", rec.Code)
+	}
+
+	// Even when tenant A owns a test for the SAME target, replaying tenant B's
+	// opaque round ID is an empty 200. The ID does not bypass the store's outer
+	// tenant+target scope.
+	rec = apiReq(t, h, http.MethodPost, "/v1/tests", "",
+		map[string]any{"name": fmt.Sprintf("pa-%d", time.Now().UnixNano()), "type": "icmp", "target": "9.9.9.9"})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create tenant A test = %d: %s", rec.Code, rec.Body)
+	}
+	var tenantATest store.Test
+	mustJSON(t, rec, &tenantATest)
+	rec = apiReq(t, h, http.MethodGet,
+		"/v1/tests/"+tenantATest.ID+"/path/history?round_id="+tenantBHistory.Items[0].ID, "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cross-tenant copied ID = %d: %s", rec.Code, rec.Body)
+	}
+	var tenantAHistory struct {
+		Items []pathstore.Snapshot `json:"items"`
+	}
+	mustJSON(t, rec, &tenantAHistory)
+	if len(tenantAHistory.Items) != 0 {
+		t.Fatalf("CROSS-TENANT HISTORY LEAK: %+v", tenantAHistory.Items)
 	}
 }

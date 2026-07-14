@@ -413,6 +413,94 @@
         }
       }
     },
+    "/v1/tests/{id}/path/history": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/TenantHeader"
+        },
+        {
+          "$ref": "#/components/parameters/IdPath"
+        },
+        {
+          "name": "from",
+          "in": "query",
+          "required": false,
+          "description": "Inclusive RFC3339 window start. Ignored when round_id is supplied.",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "to",
+          "in": "query",
+          "required": false,
+          "description": "Inclusive RFC3339 window end. Ignored when round_id is supplied.",
+          "schema": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        {
+          "name": "round_id",
+          "in": "query",
+          "required": false,
+          "description": "Opaque discovery-round ID for stable same-tenant replay; repeat at most twice.",
+          "schema": {
+            "type": "array",
+            "maxItems": 2,
+            "items": {
+              "type": "string"
+            }
+          },
+          "style": "form",
+          "explode": true
+        },
+        {
+          "name": "limit",
+          "in": "query",
+          "required": false,
+          "description": "Maximum newest-first rounds to return.",
+          "schema": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      ],
+      "get": {
+        "operationId": "listTestPathHistory",
+        "summary": "List immutable path-discovery rounds for comparison and stable replay",
+        "description": "Every read is constrained by the authenticated tenant and the tenant-owned test target before opaque round IDs are applied.",
+        "tags": [
+          "tests"
+        ],
+        "responses": {
+          "200": {
+            "description": "Newest-first discovery rounds.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PathHistory"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 100,
+          "reason": "Path history is newest-first and hard-limited to at most 100 immutable rounds."
+        }
+      }
+    },
     "/v1/agents": {
       "get": {
         "operationId": "listAgents",
@@ -7700,6 +7788,42 @@
           "mode",
           "hops",
           "links"
+        ]
+      },
+      "PathSnapshot": {
+        "type": "object",
+        "description": "One immutable path-discovery round. The opaque ID is always read under tenant_id and target scope.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "path": {
+            "$ref": "#/components/schemas/Path"
+          }
+        },
+        "required": [
+          "id",
+          "observed_at",
+          "path"
+        ]
+      },
+      "PathHistory": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/PathSnapshot"
+            }
+          }
+        },
+        "required": [
+          "items"
         ]
       },
       "ChannelSpec": {

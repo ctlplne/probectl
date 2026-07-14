@@ -1,6 +1,6 @@
 import { vi } from 'vitest'
 import { jsonResponse, pathOf } from './fetchStub'
-import type { Path } from '../api/paths'
+import type { Path, PathSnapshot } from '../api/paths'
 
 // A path with an ECMP branch at hop 2 where one branch is lossy + carries MPLS.
 export const samplePath: Path = {
@@ -86,6 +86,9 @@ const sampleTest = {
 }
 
 export function stubPathFetch(path: Path | null = samplePath) {
+  const history: PathSnapshot[] = path
+    ? [{ id: 'round-latest', observed_at: '2026-07-14T12:30:00Z', path }]
+    : []
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -96,6 +99,10 @@ export function stubPathFetch(path: Path | null = samplePath) {
         return path
           ? jsonResponse(path)
           : jsonResponse({ error: { code: 'not_found', message: 'no path' } }, 404)
+      }
+      if (pathName === '/v1/tests/t1/path/history') return jsonResponse({ items: history })
+      if (pathName === '/v1/incidents' || pathName === '/v1/changes') {
+        return jsonResponse({ items: [] })
       }
       return jsonResponse({ error: { code: 'not_found', message: 'no route' } }, 404)
     }),

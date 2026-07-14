@@ -7,13 +7,13 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -373,11 +373,6 @@ type linkRow struct {
 	To       string `json:"to_ip"`
 }
 
-// Save writes one discovery (its hops and links) under tenantID.
-// ErrNoTenant refuses any tenant-keyed ClickHouse operation without a tenant
-// (U-026 defense in depth).
-var ErrNoTenant = errors.New("pathstore: tenant_id is required (refusing an unscoped ClickHouse query)")
-
 // EnsureReaderRowPolicy installs the SETTING-SCOPED row policy (TENANT-004
 // parity): the readerUser's SELECTs on the path tables are constrained to rows
 // whose tenant_id equals the per-request custom setting SQL_probectl_tenant.
@@ -622,6 +617,184 @@ func (c *ClickHouse) Latest(ctx context.Context, tenantID, target string) (*path
 		p.Links = append(p.Links, path.Link{TTL: chToInt(r["ttl"]), From: chToString(r["from_ip"]), To: chToString(r["to_ip"])})
 	}
 	return p, true, nil
+}
+
+// History reconstructs a bounded, newest-first set of immutable discovery
+// rounds. Every metadata, hop, and link query constrains tenant_id and target;
+// an opaque path_id never acts as authorization by itself.
+func (c *ClickHouse) History(ctx context.Context, tenantID, target string, q HistoryQuery) ([]Snapshot, error) {
+	if tenantID == "" {
+		return nil, ErrNoTenant
+	}
+	t, err := c.route(tenantID)
+	if err != nil {
+		return nil, err
+	}
+	hopsT, err := qualify(t, hopsTable)
+	if err != nil {
+		return nil, err
+	}
+	linksT, err := qualify(t, linksTable)
+	if err != nil {
+		return nil, err
+	}
+	limit := historyLimit(q.Limit)
+	params := chParams{
+		"tenant": tenantID,
+		"target": target,
+		"limit":  strconv.Itoa(limit),
+	}
+	where := "tenant_id={tenant:String} AND target={target:String}"
+	if len(q.IDs) > 0 {
+		ids := q.IDs
+		if len(ids) > limit {
+			ids = ids[:limit]
+		}
+		predicates := make([]string, 0, len(ids))
+		for i, id := range ids {
+			key := "path" + strconv.Itoa(i)
+			params[key] = id
+			predicates = append(predicates, "path_id={"+key+":String}")
+		}
+		where += " AND (" + strings.Join(predicates, " OR ") + ")"
+	} else {
+		if !q.From.IsZero() {
+			params["from"] = formatCHTime(q.From)
+			where += " AND ts>={from:DateTime64(3)}"
+		}
+		if !q.To.IsZero() {
+			params["to"] = formatCHTime(q.To)
+			where += " AND ts<={to:DateTime64(3)}"
+		}
+	}
+	metaRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT path_id, any(target_ip) AS target_ip, any(mode) AS mode, max(ts) AS observed_at FROM "+hopsT+
+			" WHERE "+where+" GROUP BY path_id ORDER BY observed_at DESC, path_id DESC LIMIT {limit:UInt32}",
+		params)
+	if err != nil {
+		return nil, err
+	}
+	if len(metaRows) == 0 {
+		return []Snapshot{}, nil
+	}
+
+	snapshots := make([]Snapshot, 0, len(metaRows))
+	byID := make(map[string]*Snapshot, len(metaRows))
+	for _, row := range metaRows {
+		id := chToString(row["path_id"])
+		if id == "" {
+			continue
+		}
+		snapshots = append(snapshots, Snapshot{
+			ID:         id,
+			ObservedAt: parseCHTime(row["observed_at"]),
+			Path: path.Path{
+				Target: target, TargetIP: chToString(row["target_ip"]), Mode: chToString(row["mode"]),
+			},
+		})
+		byID[id] = &snapshots[len(snapshots)-1]
+	}
+	if len(snapshots) == 0 {
+		return []Snapshot{}, nil
+	}
+
+	selectedParams := chParams{"tenant": tenantID, "target": target}
+	predicates := make([]string, 0, len(snapshots))
+	for i := range snapshots {
+		key := "selected" + strconv.Itoa(i)
+		selectedParams[key] = snapshots[i].ID
+		predicates = append(predicates, "path_id={"+key+":String}")
+	}
+	selectedWhere := "tenant_id={tenant:String} AND target={target:String} AND (" +
+		strings.Join(predicates, " OR ") + ")"
+	hopRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT path_id, ttl, responder, sent, received, loss_ratio, rtt_min_ms, rtt_avg_ms, rtt_max_ms, mpls_labels FROM "+hopsT+
+			" WHERE "+selectedWhere+" ORDER BY path_id, ttl, responder", selectedParams)
+	if err != nil {
+		return nil, err
+	}
+	hopsByPath := make(map[string]map[int]*path.Hop, len(snapshots))
+	for _, row := range hopRows {
+		id := chToString(row["path_id"])
+		snapshot := byID[id]
+		if snapshot == nil {
+			continue
+		}
+		byTTL := hopsByPath[id]
+		if byTTL == nil {
+			byTTL = map[int]*path.Hop{}
+			hopsByPath[id] = byTTL
+		}
+		ttl := chToInt(row["ttl"])
+		hop := byTTL[ttl]
+		if hop == nil {
+			hop = &path.Hop{TTL: ttl}
+			byTTL[ttl] = hop
+		}
+		node := path.HopNode{
+			IP: chToString(row["responder"]), Sent: chToInt(row["sent"]), Received: chToInt(row["received"]),
+			LossRatio: chToFloat(row["loss_ratio"]), RTTMinMs: chToFloat(row["rtt_min_ms"]),
+			RTTAvgMs: chToFloat(row["rtt_avg_ms"]), RTTMaxMs: chToFloat(row["rtt_max_ms"]),
+		}
+		for _, label := range chToUintSlice(row["mpls_labels"]) {
+			node.MPLS = append(node.MPLS, path.MPLSLabel{Label: label})
+		}
+		if node.IP == snapshot.Path.TargetIP {
+			snapshot.Path.DestinationReached = true
+		}
+		hop.Nodes = append(hop.Nodes, node)
+		if ttl > snapshot.Path.MaxHops {
+			snapshot.Path.MaxHops = ttl
+		}
+	}
+	for i := range snapshots {
+		byTTL := hopsByPath[snapshots[i].ID]
+		order := make([]int, 0, len(byTTL))
+		for ttl := range byTTL {
+			order = append(order, ttl)
+		}
+		sort.Ints(order)
+		for _, ttl := range order {
+			hop := *byTTL[ttl]
+			snapshots[i].Path.Hops = append(snapshots[i].Path.Hops, hop)
+			traces := 0
+			for _, node := range hop.Nodes {
+				traces += node.Sent
+			}
+			if traces > snapshots[i].Path.TraceCount {
+				snapshots[i].Path.TraceCount = traces
+			}
+		}
+	}
+
+	linkRows, err := c.queryScoped(ctx, t.BaseURL, tenantID,
+		"SELECT path_id, ttl, from_ip, to_ip FROM "+linksT+" WHERE "+selectedWhere+
+			" ORDER BY path_id, ttl, from_ip, to_ip", selectedParams)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range linkRows {
+		if snapshot := byID[chToString(row["path_id"])]; snapshot != nil {
+			snapshot.Path.Links = append(snapshot.Path.Links, path.Link{
+				TTL: chToInt(row["ttl"]), From: chToString(row["from_ip"]), To: chToString(row["to_ip"]),
+			})
+		}
+	}
+	return snapshots, nil
+}
+
+func formatCHTime(value time.Time) string {
+	return value.UTC().Format("2006-01-02 15:04:05.000")
+}
+
+func parseCHTime(value any) time.Time {
+	raw := chToString(value)
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.000", "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 // Close is a no-op (the HTTP client needs no teardown).

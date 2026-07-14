@@ -659,6 +659,13 @@ Where the discovered hops/links are stored is a control-plane choice:
 | `PROBECTL_PATHSTORE_URL` | (none) | ClickHouse HTTP(S) endpoint (e.g. `http://localhost:8123` for single-profile dev, `https://clickhouse.example:8443` for production), partitioned by tenant; **required** when mode is `clickhouse`. `multi-tenant`/`regulated` profiles require `https://` |
 | `PROBECTL_PATH_RETENTION_DAYS` | `90` | delete-after-N-days TTL on the path/traceroute ClickHouse tables (applied at boot); `0` disables the TTL |
 
+Each stored discovery is an immutable history round. The Path UI reads a
+maximum of 50 rounds by default (the API hard ceiling is 100) and can request up
+to two exact opaque `round_id` values for a stable comparison link. Those IDs
+never select a tenant: the authenticated session's `tenant_id` and the selected
+test's target are mandatory storage predicates, so a copied cross-tenant or
+cross-target ID returns an empty history.
+
 ### BGP routing intelligence
 
 BGP is the protocol networks use to tell each other which IP blocks (prefixes)

@@ -90,6 +90,15 @@ export function useIncidents(enabled = true) {
   })
 }
 
+/** Tenant-scoped change timeline used by path/incident evidence overlays. */
+export function useChanges(enabled = true) {
+  return useQuery({
+    queryKey: ['changes'],
+    enabled,
+    queryFn: () => apiFetch<{ items: ChangeEvent[] }>('/changes').then((r) => r.items),
+  })
+}
+
 /** useIncident fetches one incident with its bounded signal timeline. The
  * server sets signals_truncated when signal_count exceeds the returned rows. */
 export function useIncident(id: string | undefined) {

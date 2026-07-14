@@ -61,18 +61,22 @@
     {
       "journey": "J4",
       "name": "debug a lossy ECMP path",
-      "pointer_interactions": 6,
+      "pointer_interactions": 5,
       "keyboard_interactions": 0,
-      "typed_characters": 16,
-      "context_breaks": 1,
+      "typed_characters": 0,
+      "context_breaks": 0,
       "active_time_proxy": {
-        "min_ms": 120000,
-        "max_ms": 240000,
-        "basis": "Path plus disconnected Topology interaction proxy"
+        "min_ms": 30000,
+        "max_ms": 90000,
+        "basis": "above-fold branch triage, inline round diff, stable copy, and incident pivot"
       },
       "outcome": {
-        "status": "incomplete",
-        "reason": "path comparison, incident overlay, context-preserving pivot, and share are absent"
+        "status": "complete",
+        "evidence": [
+          "lossy ECMP branch remains selected across round comparison",
+          "stable link contains opaque rounds and no tenant selector",
+          "incident pivot retains the X3 clock and branch evidence"
+        ]
       }
     },
     {

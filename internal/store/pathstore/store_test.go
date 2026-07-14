@@ -4,7 +4,9 @@ package pathstore
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/path"
 )
@@ -59,6 +61,61 @@ func TestMemoryLatest(t *testing.T) {
 	}
 	if _, ok, _ := m.Latest(ctx, "other-tenant", "8.8.8.8"); ok {
 		t.Error("another tenant must not see this tenant's path")
+	}
+}
+
+func TestMemoryPathHistoryTenantTargetAndCopiedIDIsolation(t *testing.T) {
+	m := NewMemory()
+	ctx := context.Background()
+	before := time.Now().UTC().Add(-time.Second)
+
+	pathA := samplePath()
+	pathA.TargetIP = "198.51.100.10"
+	pathB := samplePath()
+	pathB.TargetIP = "192.0.2.99"
+	otherTarget := samplePath()
+	otherTarget.Target = "one.one.one.one"
+	if err := m.Save(ctx, "tenant-a", pathA); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Save(ctx, "tenant-b", pathB); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Save(ctx, "tenant-a", otherTarget); err != nil {
+		t.Fatal(err)
+	}
+
+	roundsA, err := m.History(ctx, "tenant-a", "8.8.8.8", HistoryQuery{
+		From: before, To: time.Now().UTC().Add(time.Second), Limit: 10,
+	})
+	if err != nil || len(roundsA) != 1 {
+		t.Fatalf("tenant A history: len=%d err=%v", len(roundsA), err)
+	}
+	if roundsA[0].Path.TargetIP != "198.51.100.10" {
+		t.Fatalf("tenant A read wrong path: %+v", roundsA[0].Path)
+	}
+	roundsB, err := m.History(ctx, "tenant-b", "8.8.8.8", HistoryQuery{})
+	if err != nil || len(roundsB) != 1 {
+		t.Fatalf("tenant B history: len=%d err=%v", len(roundsB), err)
+	}
+
+	// A stable URL's opaque round ID is only a selector. Replaying B's ID in
+	// A's session, or A's ID against another target, returns nothing.
+	if got, err := m.History(ctx, "tenant-a", "8.8.8.8", HistoryQuery{IDs: []string{roundsB[0].ID}}); err != nil || len(got) != 0 {
+		t.Fatalf("copied cross-tenant round ID: len=%d err=%v", len(got), err)
+	}
+	if got, err := m.History(ctx, "tenant-a", "one.one.one.one", HistoryQuery{IDs: []string{roundsA[0].ID}}); err != nil || len(got) != 0 {
+		t.Fatalf("copied cross-target round ID: len=%d err=%v", len(got), err)
+	}
+	if _, err := m.History(ctx, "", "8.8.8.8", HistoryQuery{}); !errors.Is(err, ErrNoTenant) {
+		t.Fatalf("unscoped history = %v, want ErrNoTenant", err)
+	}
+
+	// Returned rounds are deep copies. A caller cannot mutate stored evidence.
+	roundsA[0].Path.Hops[0].Nodes[0].IP = "mutated"
+	again, err := m.History(ctx, "tenant-a", "8.8.8.8", HistoryQuery{})
+	if err != nil || again[0].Path.Hops[0].Nodes[0].IP == "mutated" {
+		t.Fatalf("history snapshot was not cloned: %+v err=%v", again, err)
 	}
 }
 

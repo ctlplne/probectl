@@ -448,12 +448,17 @@ the result DLQ.
 
 ## Path visualization
 
-The data API is two routes: `GET /v1/tests/{id}/path` returns the latest stored
-path for a test, and `POST /v1/tests/{id}/path` runs a discovery now and stores
-it. Both are tenant-scoped through the test lookup, and the discoverer is
-injectable (default `path.Run`) so the handlers are testable without touching the
-network. Discovery currently runs from the control plane (operator-triggered); an
-agent-vantage scheduler is a future refinement.
+The data API has three routes: `GET /v1/tests/{id}/path` returns the latest stored
+path for a test, `POST /v1/tests/{id}/path` runs and stores a discovery, and
+`GET /v1/tests/{id}/path/history` returns at most 100 immutable, newest-first
+rounds for an RFC3339 window or up to two opaque `round_id` selectors. Every
+history query constrains `tenant_id` **and** the tenant-owned test target in the
+memory/ClickHouse store before applying a round ID. In ELI5 terms, the copied ID
+is a coat-check number, not a building key: the session must already be inside
+the right tenant and test. All three routes are tenant-scoped through the test
+lookup, and the discoverer is injectable (default `path.Run`) so handlers are
+testable without touching the network. Discovery currently runs from the control
+plane (operator-triggered); an agent-vantage scheduler is a future refinement.
 
 The **hero UI** (`web/src/viz`) renders the merged multi-path on the design
 system: a pure `layoutPath` function places hops in TTL columns with ECMP branches
@@ -473,6 +478,14 @@ data. A compact summary before the graph keeps the path and tenant/time scope,
 worst branch, and observe-only next action visible at the 1440×900 desktop
 baseline. Layout remains linear in nodes + links and animation respects
 `prefers-reduced-motion`.
+
+The same Path page owns the historical workflow. Its X3 clock bounds history,
+incident, and change reads; a range control scrubs selected rounds and a
+side-by-side table labels common, measurement-changed, and unique responders.
+The selected test, two round IDs, branch, filters, and absolute time serialize
+through the shared X3 pivot contract. Stable path links contain no tenant
+selector and are re-authorized by the history endpoint on replay. Incident and
+change links preserve that context while opening the exact evidence object.
 
 ## BGP / routing intelligence
 

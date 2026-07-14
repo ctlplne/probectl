@@ -114,18 +114,22 @@ const baselineFixtures: BaselineFixture[] = [
   {
     journey: 'J4',
     name: 'debug a lossy ECMP path',
-    pointer: 6,
+    pointer: 5,
     keyboard: 0,
-    typed: 16,
-    contextBreaks: 1,
+    typed: 0,
+    contextBreaks: 0,
     activeTime: {
-      min_ms: 2 * 60_000,
-      max_ms: 4 * 60_000,
-      basis: 'Path plus disconnected Topology interaction proxy',
+      min_ms: 30_000,
+      max_ms: 90_000,
+      basis: 'above-fold branch triage, inline round diff, stable copy, and incident pivot',
     },
     outcome: {
-      status: 'incomplete',
-      reason: 'path comparison, incident overlay, context-preserving pivot, and share are absent',
+      status: 'complete',
+      evidence: [
+        'lossy ECMP branch remains selected across round comparison',
+        'stable link contains opaque rounds and no tenant selector',
+        'incident pivot retains the X3 clock and branch evidence',
+      ],
     },
   },
   {

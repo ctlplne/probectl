@@ -172,10 +172,11 @@ func (s changeEventsSource) QueryEvents(ctx context.Context, tenant string, sel 
 				if err != nil {
 					return err
 				}
-				target, prefix := sel["target"], sel["prefix"]
+				target, prefix, eventID := sel["target"], sel["prefix"], sel["id"]
 				for i := range evs {
 					ev := evs[i]
-					if !changeMatches(ev, target, prefix) || !eventTypeMatches(ev, typ) {
+					if (eventID != "" && ev.ID != eventID) ||
+						!changeMatches(ev, target, prefix) || !eventTypeMatches(ev, typ) {
 						continue
 					}
 					plane := eventPlane(ev)

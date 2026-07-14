@@ -180,6 +180,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"DELETE /v1/tests/{id}":                       auditExplicit(auditFacetMutation, "test.delete"),
 	"GET /v1/tests/bundle":                        auditWrapped(auditFacetExport),
 	"GET /v1/tests/{id}/path":                     auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/tests/{id}/path/history":             auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/tests/{id}/path":                    auditWrapped(auditFacetOperational),
 	"GET /v1/agents":                              auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/onboarding/progress":                 auditWrapped(auditFacetSensitiveRead),

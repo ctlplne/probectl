@@ -360,6 +360,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/incidents.ts',
     method: 'GET',
+    path: '/changes',
+    response: '{ items: ChangeEvent[] }',
+    generated: 'ListChangesResponse',
+  },
+  {
+    file: 'api/incidents.ts',
+    method: 'GET',
     path: '`/incidents/${id}`',
     response: 'Incident',
     generated: 'GetIncidentResponse',
@@ -454,6 +461,13 @@ export const API_CALL_CONTRACTS = [
     path: '`/tests/${testId}/path`',
     response: 'Path',
     generated: 'DiscoverTestPathResponse',
+  },
+  {
+    file: 'api/paths.ts',
+    method: 'GET',
+    path: '`/tests/${testId}/path/history?${params.toString()}`',
+    response: '{ items: PathSnapshot[] }',
+    generated: 'ListTestPathHistoryResponse',
   },
   {
     file: 'api/planes.ts',
@@ -655,11 +669,13 @@ export const OPENAPI_TYPE_CONTRACTS = {
   tenantIdPSettings: true,
   incident: true,
   signal: true,
+  changeEvent: true,
   incidentShareArtifact: true,
   incidentShareContext: true,
   lifecycleStatus: true,
   lifecycleRetentionInput: true,
   path: true,
+  pathSnapshot: true,
   hop: true,
   hopNode: true,
   pathLink: true,
@@ -694,6 +710,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   tenantIdPSettings: GeneratedHasViewKeys<SDK.TenantIdPSettings, Identity.TenantIdPSettings>
   incident: GeneratedHasViewKeys<SDK.Incident, Incidents.Incident>
   signal: GeneratedHasViewKeys<SDK.Signal, Incidents.Signal>
+  changeEvent: GeneratedHasViewKeys<SDK.ChangeEvent, Incidents.ChangeEvent>
   incidentShareArtifact: GeneratedHasViewKeys<
     SDK.IncidentShareArtifact,
     Incidents.IncidentShareArtifact
@@ -708,6 +725,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
     Lifecycle.LifecycleRetentionInput
   >
   path: GeneratedHasViewKeys<SDK.Path, Paths.Path>
+  pathSnapshot: GeneratedHasViewKeys<SDK.PathSnapshot, Paths.PathSnapshot>
   hop: GeneratedHasViewKeys<SDK.Hop, Paths.Hop>
   hopNode: GeneratedHasViewKeys<SDK.HopNode, Paths.HopNode>
   pathLink: GeneratedHasViewKeys<SDK.Link, Paths.Link>

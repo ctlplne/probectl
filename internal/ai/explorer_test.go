@@ -39,3 +39,16 @@ func TestExplorerRejectsSemanticTenantSelectors(t *testing.T) {
 		}
 	}
 }
+
+func TestExplorerAllowsExactTenantScopedChangeID(t *testing.T) {
+	query, err := NormalizeExplorerQuery(ExplorerQuery{
+		Question: "show this change", Source: ExplorerChanges,
+		Filters: map[string]string{"id": "change-path"},
+	}, time.Date(2026, 7, 14, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("exact change selector: %v", err)
+	}
+	if query.Filters["id"] != "change-path" {
+		t.Fatalf("exact selector was dropped: %+v", query.Filters)
+	}
+}

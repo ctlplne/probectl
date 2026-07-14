@@ -137,6 +137,13 @@ func (b *BatchingSaver) Latest(ctx context.Context, tenantID, target string) (*p
 	return b.inner.Latest(ctx, tenantID, target)
 }
 
+// History flushes pending saves first so a just-discovered round is immediately
+// available to the scrubber and stable-share flow.
+func (b *BatchingSaver) History(ctx context.Context, tenantID, target string, q HistoryQuery) ([]Snapshot, error) {
+	b.Flush(ctx)
+	return b.inner.History(ctx, tenantID, target, q)
+}
+
 // Close flushes and closes the backend.
 func (b *BatchingSaver) Close() error {
 	b.Flush(context.Background())

@@ -42,6 +42,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/tests/bundle", s.handleTestBundle, permTestRead},
 		{http.MethodGet, "/v1/tests/{id}/path", s.handleGetPath, permTestRead},
 		{http.MethodPost, "/v1/tests/{id}/path", s.handleDiscoverPath, permTestWrite},
+		{http.MethodGet, "/v1/tests/{id}/path/history", s.handleGetPathHistory, permTestRead},
 		{http.MethodGet, "/v1/agents", s.handleListAgents, permAgentRead},
 		{http.MethodGet, "/v1/onboarding/progress", s.handleOnboardingProgress, permAgentRead},
 		{http.MethodPost, "/v1/agents/enroll-tokens", s.handleMintEnrollToken, permAgentWrite},

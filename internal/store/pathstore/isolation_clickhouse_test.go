@@ -53,9 +53,26 @@ func TestClickHousePathCrossTenantIsolation(t *testing.T) {
 	if got.TargetIP != "198.51.100.10" {
 		t.Fatalf("CROSS-TENANT LEAK: tenant A read %q", got.TargetIP)
 	}
+	roundsA, err := c.History(ctx, ta, target, HistoryQuery{})
+	if err != nil || len(roundsA) != 1 || roundsA[0].Path.TargetIP != "198.51.100.10" {
+		t.Fatalf("history A: rounds=%+v err=%v", roundsA, err)
+	}
+	roundsB, err := c.History(ctx, tb, target, HistoryQuery{})
+	if err != nil || len(roundsB) != 1 || roundsB[0].Path.TargetIP != "192.0.2.99" {
+		t.Fatalf("history B: rounds=%+v err=%v", roundsB, err)
+	}
+	// Replaying B's stable round ID in A's authenticated scope must be a
+	// clean miss. path_id is never authorization by itself.
+	foreign, err := c.History(ctx, ta, target, HistoryQuery{IDs: []string{roundsB[0].ID}})
+	if err != nil || len(foreign) != 0 {
+		t.Fatalf("CROSS-TENANT HISTORY LEAK: rounds=%+v err=%v", foreign, err)
+	}
 
 	// The empty-tenant refusal (defense in depth) holds on the live store too.
 	if _, _, err := c.Latest(ctx, "", target); err == nil {
 		t.Fatal("unscoped Latest must refuse (ErrNoTenant)")
+	}
+	if _, err := c.History(ctx, "", target, HistoryQuery{}); err == nil {
+		t.Fatal("unscoped History must refuse (ErrNoTenant)")
 	}
 }

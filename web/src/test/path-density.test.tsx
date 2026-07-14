@@ -74,6 +74,20 @@ function stubDensePathFetch() {
       if (pathname === '/v1/tests/dense-path/path' && method === 'GET') {
         return jsonResponse(densePath)
       }
+      if (pathname === '/v1/tests/dense-path/path/history' && method === 'GET') {
+        return jsonResponse({
+          items: [
+            {
+              id: 'dense-latest',
+              observed_at: '2026-07-14T12:30:00Z',
+              path: densePath,
+            },
+          ],
+        })
+      }
+      if (pathname === '/v1/incidents' || pathname === '/v1/changes') {
+        return jsonResponse({ items: [] })
+      }
       return jsonResponse({ error: { code: 'not_found', message: 'no route' } }, 404)
     }),
   )

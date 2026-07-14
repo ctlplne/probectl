@@ -168,7 +168,7 @@ type explorerFieldSet struct {
 
 var explorerFields = map[ExplorerSource]explorerFieldSet{
 	ExplorerFlow:      {dimensions: []string{"site", "interface", "direction"}, measures: []string{"bps", "pps"}},
-	ExplorerChanges:   {dimensions: []string{"source", "actor", "target", "prefix", "kind", "incident_id"}, measures: []string{"events"}},
+	ExplorerChanges:   {dimensions: []string{"id", "source", "actor", "target", "prefix", "kind", "incident_id"}, measures: []string{"events"}},
 	ExplorerPath:      {dimensions: []string{"target", "hop", "node"}, measures: []string{"loss_ratio", "rtt_avg_ms"}},
 	ExplorerTopology:  {dimensions: []string{"from", "to", "kind"}, measures: []string{"edges"}},
 	ExplorerEndpoints: {dimensions: []string{"endpoint", "cause", "summary"}, measures: []string{"affected_endpoints"}},

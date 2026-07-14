@@ -12,7 +12,7 @@ import (
 
 func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "test: expected a subcommand (list|get|create|delete)")
+		fmt.Fprintln(stderr, "test: expected a subcommand (list|get|create|delete|path|path-history)")
 		return 2
 	}
 	c := newClient(cfg)
@@ -74,6 +74,12 @@ func cmdTest(cfg Config, args []string, stdout, stderr io.Writer) int {
 			}
 		}
 		return runRawOperation(cfg, apiOp{Method: method, Path: "/v1/tests/{id}/path", ArgName: "id"}, args[1:], stdout, stderr)
+	case "path-history":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "test path-history: missing <id>")
+			return 2
+		}
+		return runRawOperation(cfg, apiOp{Method: http.MethodGet, Path: "/v1/tests/{id}/path/history", ArgName: "id"}, args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "test: unknown subcommand %q\n", args[0])
 		return 2
