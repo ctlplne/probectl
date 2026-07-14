@@ -192,7 +192,9 @@ describe('topology + what-if (S43)', () => {
     expect(within(table).getByRole('button', { name: 'zz-hidden-target' })).toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText(/search topology/i), 'zz-hidden-target')
-    expect(await within(graph).findByRole('button', { name: 'service zz-hidden-target' })).toBeInTheDocument()
+    expect(
+      await within(graph).findByRole('button', { name: 'service zz-hidden-target' }),
+    ).toBeInTheDocument()
   }, 10_000)
 
   test('time travel: picking a time refetches with ?at=', async () => {

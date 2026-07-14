@@ -59,7 +59,9 @@ async function tabUntil(user: ReturnType<typeof userEvent.setup>, target: HTMLEl
     await user.tab()
     if (document.activeElement === target) return
   }
-  throw new Error(`tab order did not reach ${target.textContent ?? target.getAttribute('aria-label')}`)
+  throw new Error(
+    `tab order did not reach ${target.textContent ?? target.getAttribute('aria-label')}`,
+  )
 }
 
 describe('guarded remediation (S-EE5)', () => {

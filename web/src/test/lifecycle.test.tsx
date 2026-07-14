@@ -31,7 +31,9 @@ describe('tenant data lifecycle (S-T5)', () => {
     expect(screen.getByLabelText(/flow days/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/otlp days/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/audit days/i)).toBeInTheDocument()
-    expect(screen.getByText(/multi-tenant and regulated profiles default to 365 days/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/multi-tenant and regulated profiles default to 365 days/i),
+    ).toBeInTheDocument()
     expect(screen.getByText(/readyz reports if raw rows are not aging out/i)).toBeInTheDocument()
   })
 

@@ -79,12 +79,18 @@ describe('native API docs route', () => {
 
     await userEvent.type(screen.getByLabelText('Filter operations'), 'alerts')
     await waitFor(() => {
-      expect(within(screen.getByRole('table', { name: 'API operations' })).queryByText('/v1/tests')).toBeNull()
-      expect(within(screen.getByRole('table', { name: 'API operations' })).getByText('/v1/alerts')).toBeDefined()
+      expect(
+        within(screen.getByRole('table', { name: 'API operations' })).queryByText('/v1/tests'),
+      ).toBeNull()
+      expect(
+        within(screen.getByRole('table', { name: 'API operations' })).getByText('/v1/alerts'),
+      ).toBeDefined()
     })
 
     expect(requests).toContain('/openapi.json')
-    expect(requests.every((path) => ['/branding', '/v1/me', '/openapi.json'].includes(path))).toBe(true)
+    expect(requests.every((path) => ['/branding', '/v1/me', '/openapi.json'].includes(path))).toBe(
+      true,
+    )
   })
 
   test('/docs/api executes a GET with the same-origin session only', async () => {
@@ -117,7 +123,8 @@ describe('native API docs route', () => {
       const path = pathnameOf(input)
       calls.push({ path, init })
       if (path === '/openapi.json') return jsonResponse(openapiDoc)
-      if (path === '/v1/alerts') return jsonResponse({ id: 'alert-1', name: 'edge latency burn' }, 201)
+      if (path === '/v1/alerts')
+        return jsonResponse({ id: 'alert-1', name: 'edge latency burn' }, 201)
       return jsonResponse({ ok: true })
     }) as unknown as typeof fetch
     vi.stubGlobal('fetch', fetcher)
@@ -126,7 +133,7 @@ describe('native API docs route', () => {
 
     const curl = await screen.findByText(/curl -X POST/)
     expect(curl.textContent).toContain('/v1/alerts')
-    expect(curl.textContent).toContain("Content-Type: application/json")
+    expect(curl.textContent).toContain('Content-Type: application/json')
     expect(curl.textContent).not.toMatch(/cookie|authorization|bearer|session/i)
     expect(screen.getByText(/credentials: 'same-origin'/)).toBeDefined()
 

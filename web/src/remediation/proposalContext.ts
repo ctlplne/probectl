@@ -103,7 +103,10 @@ function evidenceSummary(answer: Answer): string {
     .join(' | ')
 }
 
-export function proposalFromAnswer(answer: Answer, context: ProposalContext = {}): CreateProposalInput {
+export function proposalFromAnswer(
+  answer: Answer,
+  context: ProposalContext = {},
+): CreateProposalInput {
   const incidentID = context.incidentID || incidentIDFromEvidence(answer.evidence)
   const target = context.target || targetFromEvidence(answer.evidence)
 

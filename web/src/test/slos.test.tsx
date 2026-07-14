@@ -84,7 +84,9 @@ describe('SLO dashboard (S45)', () => {
     const table = await screen.findByRole('table', { name: /slo statuses/i })
     const checkoutRow = within(table).getByText('Checkout availability').closest('tr')
     expect(checkoutRow).not.toBeNull()
-    await userEvent.click(within(checkoutRow as HTMLElement).getByRole('button', { name: 'View as YAML' }))
+    await userEvent.click(
+      within(checkoutRow as HTMLElement).getByRole('button', { name: 'View as YAML' }),
+    )
 
     const dialog = await screen.findByRole('dialog', {
       name: /export as code: checkout-availability/i,

@@ -43,7 +43,11 @@ export function RemediationCard() {
   const approvalsEnabled = data?.approvals_enabled ?? false
 
   const columns: Column<Proposal>[] = [
-    { key: 'title', header: t('remediation.column.proposal'), render: (p) => <strong>{p.title}</strong> },
+    {
+      key: 'title',
+      header: t('remediation.column.proposal'),
+      render: (p) => <strong>{p.title}</strong>,
+    },
     { key: 'kind', header: t('remediation.column.kind'), render: (p) => <code>{p.kind}</code> },
     {
       key: 'blast',

@@ -7,11 +7,7 @@
 import { useState, type ReactNode } from 'react'
 import styles from './listControls.module.css'
 import { Button, Field, Select, useToast } from '../components'
-import {
-  useCreateSavedView,
-  useSavedViews,
-  type SavedViewSurface,
-} from '../api/savedViews'
+import { useCreateSavedView, useSavedViews, type SavedViewSurface } from '../api/savedViews'
 
 export function FilterBar({ children }: { children: ReactNode }) {
   return (

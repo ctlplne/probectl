@@ -73,7 +73,10 @@ describe('native audit route', () => {
           )
           return jsonResponse({ items, next: items.at(-1)?.seq ?? 0 })
         }
-        return jsonResponse({ error: { code: 'not_found', message: `unstubbed ${url.pathname}` } }, 404)
+        return jsonResponse(
+          { error: { code: 'not_found', message: `unstubbed ${url.pathname}` } },
+          404,
+        )
       }),
     )
 
@@ -93,12 +96,14 @@ describe('native audit route', () => {
     await userEvent.click(screen.getByRole('button', { name: /Apply/ }))
 
     await waitFor(() =>
-      expect(
-        requests.some((r) => r.includes('/v1/audit?') && r.includes('actor=alice')),
-      ).toBe(true),
+      expect(requests.some((r) => r.includes('/v1/audit?') && r.includes('actor=alice'))).toBe(
+        true,
+      ),
     )
     expect(requests.some((r) => r.includes('action=alert') && r.includes('target=api'))).toBe(true)
-    expect(within(screen.getByRole('table', { name: 'Audit events' })).queryByText('bob@example.com')).toBeNull()
+    expect(
+      within(screen.getByRole('table', { name: 'Audit events' })).queryByText('bob@example.com'),
+    ).toBeNull()
 
     const exportLink = screen.getByRole('link', { name: 'Export JSON' })
     expect(exportLink.getAttribute('href')).toContain('/v1/audit')

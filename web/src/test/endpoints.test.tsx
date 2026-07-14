@@ -189,7 +189,9 @@ function endpointsBackend(items: EndpointView[]) {
     if (path.startsWith('/v1/inventory/views/') && (init?.method ?? 'GET') === 'GET') {
       const id = path.split('/').pop()
       const view = savedForTenant().find((v) => v.id === id)
-      return view ? jsonResponse(view) : jsonResponse({ error: { message: 'saved view not found' } }, 404)
+      return view
+        ? jsonResponse(view)
+        : jsonResponse({ error: { message: 'saved view not found' } }, 404)
     }
     return jsonResponse({ items: [] })
   }) as unknown as typeof fetch
@@ -298,9 +300,9 @@ describe('endpoint / WiFi DEM surface (S-FE4)', () => {
     await waitFor(() => expect(screen.getByRole('option', { name: 'WiFi saved' })).toBeDefined())
     const saved = backend.state.saved.get('tenant-a')?.[0]
     expect(saved?.filters).toEqual({ cause: 'wifi', q: 'laptop' })
-    expect(backend.state.requests.some((r) => r.includes('/v1/endpoints?') && r.includes('cause=wifi'))).toBe(
-      true,
-    )
+    expect(
+      backend.state.requests.some((r) => r.includes('/v1/endpoints?') && r.includes('cause=wifi')),
+    ).toBe(true)
     first.unmount()
 
     backend.setTenant('tenant-b')

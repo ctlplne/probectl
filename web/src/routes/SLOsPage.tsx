@@ -48,12 +48,20 @@ export function SLOsPage() {
         </div>
       ),
     },
-    { key: 'objective', header: t('slo.column.objective'), render: (s) => pct(s.objective, locale) },
+    {
+      key: 'objective',
+      header: t('slo.column.objective'),
+      render: (s) => pct(s.objective, locale),
+    },
     {
       key: 'attainment',
       header: t('slo.column.attainment'),
       render: (s) =>
-        s.cold_start ? <Badge tone="neutral">{t('slo.coldStart')}</Badge> : pct(s.attainment, locale),
+        s.cold_start ? (
+          <Badge tone="neutral">{t('slo.coldStart')}</Badge>
+        ) : (
+          pct(s.attainment, locale)
+        ),
     },
     {
       key: 'budget',
@@ -90,7 +98,11 @@ export function SLOsPage() {
         </div>
       ),
     },
-    { key: 'events', header: t('slo.column.events'), render: (s) => formatInteger(s.total_events, locale) },
+    {
+      key: 'events',
+      header: t('slo.column.events'),
+      render: (s) => formatInteger(s.total_events, locale),
+    },
     {
       key: 'code',
       header: <span className="sr-only">Code</span>,
@@ -99,9 +111,7 @@ export function SLOsPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() =>
-            setCodeExport({ title: `Export as code: ${s.name}`, code: sloAsCode(s) })
-          }
+          onClick={() => setCodeExport({ title: `Export as code: ${s.name}`, code: sloAsCode(s) })}
         >
           View as YAML
         </Button>
@@ -110,15 +120,9 @@ export function SLOsPage() {
   ]
 
   return (
-    <Page
-      title={t('slo.page.title')}
-      subtitle={t('slo.page.subtitle')}
-    >
+    <Page title={t('slo.page.title')} subtitle={t('slo.page.subtitle')}>
       <Card>
-        <CardHeader
-          title={t('slo.card.title')}
-          description={t('slo.card.description')}
-        />
+        <CardHeader title={t('slo.card.title')} description={t('slo.card.description')} />
         <CardBody>
           {isPending ? (
             <LoadingState label={t('slo.loading')} />

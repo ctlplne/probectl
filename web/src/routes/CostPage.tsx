@@ -288,9 +288,8 @@ function CarbonCard() {
                 minimumFractionDigits: 3,
                 maximumFractionDigits: 3,
               })}{' '}
-              over{' '}
-              {fmtGiB(s?.total_bytes ?? 0)} GiB — coefficient-based estimate, not measured power ·
-              grid{' '}
+              over {fmtGiB(s?.total_bytes ?? 0)} GiB — coefficient-based estimate, not measured
+              power · grid{' '}
               {formatUnit(s?.methodology.grid_gco2e_per_kwh ?? 0, 'gCO2e/kWh', locale, {
                 maximumFractionDigits: 1,
               })}{' '}

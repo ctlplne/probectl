@@ -17,9 +17,7 @@ export function I18nProvider({
   initialLocale?: string
 }) {
   const initialRawLocale = initialLocale ?? browserLocale()
-  const [locale, setLocale] = useState<Locale>(() =>
-    resolveLocale(initialRawLocale),
-  )
+  const [locale, setLocale] = useState<Locale>(() => resolveLocale(initialRawLocale))
   const [htmlLocale, setHTMLLocale] = useState(() => documentLocale(initialRawLocale))
 
   const setResolvedLocale = useCallback((next: Locale) => {

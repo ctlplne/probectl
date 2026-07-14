@@ -70,7 +70,9 @@ describe('saved list views', () => {
 
     await userEvent.type(screen.getByLabelText('View name'), 'DNS edge')
     await userEvent.click(screen.getByRole('button', { name: 'Save view' }))
-    await waitFor(() => expect(views.get('targets')?.[0].filters).toEqual({ q: 'edge', type: 'dns' }))
+    await waitFor(() =>
+      expect(views.get('targets')?.[0].filters).toEqual({ q: 'edge', type: 'dns' }),
+    )
 
     await userEvent.clear(screen.getByLabelText('Find'))
     await userEvent.type(screen.getByLabelText('Find'), 'api')
@@ -97,7 +99,9 @@ describe('saved list views', () => {
     )
 
     await userEvent.selectOptions(screen.getByLabelText('Status'), 'offline')
-    expect(within(screen.getByRole('table', { name: 'Registered agents' })).queryByText('agent-1')).toBeNull()
+    expect(
+      within(screen.getByRole('table', { name: 'Registered agents' })).queryByText('agent-1'),
+    ).toBeNull()
 
     await userEvent.selectOptions(screen.getByLabelText('Saved views'), 'agents-1')
     expect(screen.getByLabelText('Status')).toHaveValue('online')
@@ -141,7 +145,9 @@ describe('saved list views', () => {
     )
 
     await userEvent.selectOptions(screen.getByLabelText('Severity'), 'critical')
-    expect(within(screen.getByRole('table', { name: 'Active alerts' })).queryByText(/target=checkout/)).toBeNull()
+    expect(
+      within(screen.getByRole('table', { name: 'Active alerts' })).queryByText(/target=checkout/),
+    ).toBeNull()
 
     await userEvent.selectOptions(screen.getByLabelText('Saved views'), 'alerts-1')
     expect(screen.getByLabelText('Find')).toHaveValue('checkout')

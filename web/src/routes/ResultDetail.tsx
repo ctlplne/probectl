@@ -78,9 +78,7 @@ function HTTPWaterfall({ r }: { r: LatestResult }) {
         {m(r, 'http.tls.cert_expiry_days') !== undefined ? (
           <>
             <dt>Cert expiry</dt>
-            <dd>
-              {formatCount(m(r, 'http.tls.cert_expiry_days') ?? 0, 'day', 'days', locale)}
-            </dd>
+            <dd>{formatCount(m(r, 'http.tls.cert_expiry_days') ?? 0, 'day', 'days', locale)}</dd>
           </>
         ) : null}
       </dl>
@@ -148,8 +146,8 @@ function LatencyLoss({ r }: { r: LatestResult }) {
       </dd>
       <dt>{fam === 'rtt' ? 'RTT' : 'Connect'}</dt>
       <dd>
-        min {fmt(m(r, `${fam}.min.ms`), 'ms')} · avg {fmt(m(r, `${fam}.avg.ms`), 'ms')} ·
-        max {fmt(m(r, `${fam}.max.ms`), 'ms')} · σ {fmt(m(r, `${fam}.stddev.ms`), 'ms')}
+        min {fmt(m(r, `${fam}.min.ms`), 'ms')} · avg {fmt(m(r, `${fam}.avg.ms`), 'ms')} · max{' '}
+        {fmt(m(r, `${fam}.max.ms`), 'ms')} · σ {fmt(m(r, `${fam}.stddev.ms`), 'ms')}
       </dd>
       <dt>Jitter</dt>
       <dd>{fmt(m(r, 'jitter.ms'), 'ms')}</dd>
@@ -186,14 +184,12 @@ function VoiceBreakdown({ r }: { r: LatestResult }) {
       </dd>
       <dt>Jitter / loss</dt>
       <dd>
-        {fmt(m(r, 'voice.jitter.ms'), 'ms')} (RFC 3550) · loss{' '}
-        {fmt(m(r, 'voice.loss.pct'), '%', 1)} · {fmt(m(r, 'packets.received'), '', 0)}/
-        {fmt(m(r, 'packets.sent'), '', 0)} packets
+        {fmt(m(r, 'voice.jitter.ms'), 'ms')} (RFC 3550) · loss {fmt(m(r, 'voice.loss.pct'), '%', 1)}{' '}
+        · {fmt(m(r, 'packets.received'), '', 0)}/{fmt(m(r, 'packets.sent'), '', 0)} packets
       </dd>
       <dt>Delay</dt>
       <dd>
-        one-way est. {fmt(m(r, 'voice.one_way.ms'), 'ms')} · RTT avg{' '}
-        {fmt(m(r, 'rtt.avg.ms'), 'ms')}
+        one-way est. {fmt(m(r, 'voice.one_way.ms'), 'ms')} · RTT avg {fmt(m(r, 'rtt.avg.ms'), 'ms')}
       </dd>
       <dt>Model</dt>
       <dd>
@@ -267,7 +263,12 @@ function BrowserBreakdown({ r }: { r: LatestResult }) {
         <dt>Resources</dt>
         <dd>
           {formatCount(m(r, 'transaction.resources') ?? 0, 'resource', 'resources', locale)} ·{' '}
-          {formatCount(m(r, 'transaction.failed_steps') ?? 0, 'failed step', 'failed steps', locale)}
+          {formatCount(
+            m(r, 'transaction.failed_steps') ?? 0,
+            'failed step',
+            'failed steps',
+            locale,
+          )}
         </dd>
       </dl>
       <Table

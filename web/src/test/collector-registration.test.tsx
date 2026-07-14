@@ -81,7 +81,9 @@ describe('Admin collector registration journey (JOURNEY-003)', () => {
 
     const dialog = await screen.findByRole('dialog', { name: /register collector/i })
     expect(within(dialog).getByLabelText(/collector plane/i)).toHaveValue('ebpf')
-    expect(within(dialog).getByText(/Linux host with CAP_BPF, CAP_PERFMON, and BTF/i)).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/Linux host with CAP_BPF, CAP_PERFMON, and BTF/i),
+    ).toBeInTheDocument()
     expect(capture.mint).toBeUndefined()
     expect(capture.register).toBeUndefined()
   })

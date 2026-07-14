@@ -13,11 +13,7 @@ export function AuthorityBadge() {
   const posture = authorityPosture(permissions)
 
   return (
-    <span
-      role="status"
-      aria-label={`Authority posture: ${posture.label}`}
-      title={posture.detail}
-    >
+    <span role="status" aria-label={`Authority posture: ${posture.label}`} title={posture.detail}>
       <Badge tone={posture.tone}>{posture.label}</Badge>
     </span>
   )

@@ -73,7 +73,13 @@ export function MobileNavDrawer({ open, onClose }: { open: boolean; onClose: () 
           <h2 id={titleId} className={styles.title}>
             Navigation
           </h2>
-          <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Close navigation">
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            onClick={onClose}
+            aria-label="Close navigation"
+          >
             <Icon name="close" />
           </Button>
         </div>

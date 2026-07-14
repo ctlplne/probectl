@@ -4,7 +4,6 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-
 import { vi } from 'vitest'
 import type { Incident, ChangeEvent } from '../api/incidents'
 import type { Path, PathSnapshot } from '../api/paths'
