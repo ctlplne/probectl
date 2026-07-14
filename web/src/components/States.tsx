@@ -14,19 +14,23 @@ export function EmptyState({
   description,
   action,
   preview,
+  headingLevel = 3,
 }: {
   icon?: IconName
   title: string
   description?: ReactNode
   action?: ReactNode
   preview?: ReactNode
+  headingLevel?: 2 | 3
 }) {
+  const Heading = headingLevel === 2 ? 'h2' : 'h3'
+
   return (
     <div className={styles.state}>
       <span className={styles.glyph}>
         <Icon name={icon} size={24} />
       </span>
-      <h3 className={styles.title}>{title}</h3>
+      <Heading className={styles.title}>{title}</Heading>
       {description ? <p className={styles.description}>{description}</p> : null}
       {action ? <div className={styles.action}>{action}</div> : null}
       {preview ? <div className={styles.preview}>{preview}</div> : null}
@@ -38,17 +42,21 @@ export function ErrorState({
   title = 'Something went wrong',
   description,
   action,
+  headingLevel = 3,
 }: {
   title?: string
   description?: ReactNode
   action?: ReactNode
+  headingLevel?: 2 | 3
 }) {
+  const Heading = headingLevel === 2 ? 'h2' : 'h3'
+
   return (
     <div className={styles.state} role="alert">
       <span className={[styles.glyph, styles.danger].join(' ')}>
         <Icon name="alert" size={24} />
       </span>
-      <h3 className={styles.title}>{title}</h3>
+      <Heading className={styles.title}>{title}</Heading>
       {description ? <p className={styles.description}>{description}</p> : null}
       {action ? <div className={styles.action}>{action}</div> : null}
     </div>

@@ -112,7 +112,7 @@ export function IncidentsPage() {
     if (shared.isError || !shared.data) {
       return (
         <Page title={t('incidents.share.pageTitle')} subtitle={t('incidents.share.pageSubtitle')}>
-          <ErrorState description={t('incidents.share.unavailable')} />
+          <ErrorState description={t('incidents.share.unavailable')} headingLevel={2} />
         </Page>
       )
     }
@@ -245,16 +245,18 @@ export function IncidentsPage() {
       {incidents.isLoading ? (
         <LoadingState label={t('incidents.loading')} />
       ) : incidents.isError ? (
-        <ErrorState description={t('incidents.error')} />
+        <ErrorState description={t('incidents.error')} headingLevel={2} />
       ) : !incidents.data || incidents.data.length === 0 ? (
         <EmptyState
           title={t('incidents.empty.title')}
           description={t('incidents.empty.description')}
+          headingLevel={2}
         />
       ) : filteredIncidents.length === 0 ? (
         <EmptyState
           title={t('incidents.empty.noMatchTitle')}
           description={t('incidents.empty.noMatchDescription')}
+          headingLevel={2}
         />
       ) : (
         <div className={styles.layout}>

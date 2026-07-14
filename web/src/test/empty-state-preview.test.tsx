@@ -15,6 +15,18 @@ import {
 } from '../components'
 
 describe('EmptyState preview slot', () => {
+  test('uses an explicit h2 for a top-level page state while retaining the nested h3 default', () => {
+    render(
+      <div>
+        <EmptyState title="Top-level empty state" headingLevel={2} />
+        <EmptyState title="Nested empty state" />
+      </div>,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Top-level empty state', level: 2 })).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'Nested empty state', level: 3 })).toBeDefined()
+  })
+
   test('renders an optional preview without replacing the action', () => {
     render(
       <EmptyState

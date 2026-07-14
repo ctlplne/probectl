@@ -184,7 +184,7 @@ export function IncidentRoom({
   if (!incidentSnapshot && incident.isLoading)
     return <LoadingState label={t('incidents.loadingOne')} />
   if ((!incidentSnapshot && incident.isError) || !inc)
-    return <ErrorState description={t('incidents.errorOne')} />
+    return <ErrorState description={t('incidents.errorOne')} headingLevel={2} />
   const roomIncident = inc
 
   const canPropose = Boolean(remediations.data)
