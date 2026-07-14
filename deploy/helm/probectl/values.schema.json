@@ -241,6 +241,17 @@
             "serverBackupPath": { "type": "string", "minLength": 1 },
             "image": { "type": "string" }
           }
+        },
+        "objectStore": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "schedule": { "type": "string" },
+            "sourceClaim": { "type": "string" },
+            "mountPath": { "type": "string", "minLength": 1 },
+            "image": { "type": "string" }
+          }
         }
       }
     },

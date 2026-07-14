@@ -2,7 +2,7 @@
 
 ## What this is
 
-probectl keeps its durable state in two databases. A **backup** is a copy of
+probectl keeps durable state in two databases plus an object store. A **backup** is a copy of
 that state placed where a failure can't reach it; a **restore** is putting the
 copy back and getting a working deployment out of it. This runbook is how you
 take the copy, how you put it back, how long each takes, and the automated
@@ -24,7 +24,7 @@ one day be running under pressure.
 | **Postgres** | tenants, config/state, RBAC, audit chains, SLOs, incidents | **Yes** — logical `pg_dump` (custom format), nightly |
 | **ClickHouse** | flow/path/threat/change/cost events + the `probectl_ch_migrations` ledger | **Yes** — native `BACKUP DATABASE … TO File()`, nightly |
 | Prometheus/VictoriaMetrics | metric series | Optional — operational telemetry, rebuildable by re-ingesting the retention window. Use the snapshot API if your org requires it. |
-| Object store | support bundles, WORM audit exports | Replicate the bucket. WORM = write-once-read-many (appendable, never rewritable); that export is itself the tamper-evident off-database copy of the provider audit chain. |
+| **Object store** | tenant objects, support bundles, Ed25519-signed WORM audit exports | **Yes** — encrypted filesystem archive or verified S3/MinIO copy into a COMPLIANCE Object Lock destination. WORM = write-once-read-many: appendable, never rewritable during retention. |
 | Kafka | results/events in transit | No — it's transit, not a system of record. Consumers drain it into the stores above. |
 
 **Backups contain tenant data**, so they are **encrypted at rest by default.**
@@ -34,7 +34,9 @@ envelope-encrypted container. The ClickHouse script, compose overlay, and chart
 CronJob first create the native server-side `.zip` in the encrypted ClickHouse
 backup staging path, then stream that zip through the same `backup-seal` filter,
 delete the raw staging zip, and keep only `.zip.pbk` plus its checksum for
-off-box custody. Both are sealed with the deployment's at-rest key (the
+off-box custody. Filesystem object-store backup streams `tar` directly through
+`backup-seal` to `.tar.pbk`, so no plaintext archive lands on disk. All three
+local artifacts are sealed with the deployment's at-rest key (the
 **same** `PROBECTL_ENVELOPE_KEY` as live storage).
 **Envelope encryption** means the data is encrypted under a one-off data key,
 and that data key is itself wrapped by the deployment's master key (the KEK,
@@ -78,12 +80,16 @@ One-shot (any time — e.g. right before an upgrade):
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
   ./scripts/backup_clickhouse.sh /srv/probectl-backups # → clickhouse-<db>-<ts>.zip.pbk + .sha256
 
+PROBECTL_OBJECTSTORE_DIR=/var/lib/probectl/objects \
+PROBECTL_ENVELOPE_KEY=<base64 KEK> \
+  ./scripts/backup_objectstore.sh /srv/probectl-backups # → objectstore-<ts>.tar.pbk + .sha256
+
 # Raw fallback only when both the ClickHouse staging path and off-box target are encrypted:
 PROBECTL_CLICKHOUSE_BACKUP_ACK=encrypted-clickhouse-backup-target \
   ./scripts/backup_clickhouse.sh /srv/probectl-backups # → clickhouse-<db>-<ts>.zip + .sha256
 ```
 
-Both scripts run the dump *inside* the running compose container (so you need
+The database scripts run the dump *inside* the running compose container (so you need
 no Postgres/ClickHouse client on the host), write a SHA-256 manifest next to
 the artifact (a **checksum** — a fingerprint that changes if even one byte of
 the artifact does, so corruption is caught before a restore starts), and copy
@@ -98,6 +104,16 @@ For a non-dev deployment, override the env vars the scripts read:
 `COMPOSE_FILE` (default `deploy/compose/dev.yml`),
 `PG_SERVICE`/`PGUSER`/`PGDATABASE`, and
 `CH_SERVICE`/`CH_USER`/`CH_PASSWORD`/`CH_DB`.
+
+The object-store script has two modes. `filesystem` is the default shown above:
+it refuses symlinks/special files and a destination nested under the source,
+then writes only the authenticated `.tar.pbk`. `s3` copies
+`PROBECTL_OBJECTSTORE_S3_URI` to a timestamped destination prefix using the AWS
+CLI credential chain/workload identity. Custom MinIO endpoints must use verified
+HTTPS (provide an internal CA with `AWS_CA_BUNDLE`), SSE defaults to `AES256`,
+and the destination bucket must report default Object Lock retention mode
+`COMPLIANCE`. This is defense in depth: Ed25519 detects changed audit evidence;
+Object Lock prevents changing or deleting it during retention.
 
 Plaintext Postgres dumps are break-glass only. The backup script and shipped
 cron examples refuse to write `.dump` unless
@@ -114,9 +130,9 @@ Their Postgres jobs also produce `.dump.pbk` by default; the standalone
 Kubernetes manifest reads the envelope key from the `probectl-envelope-key`
 secret and expects a `probectl-backup-tools` PVC with the `probectl-control`
 sealing binary.
-A reasonable cadence: nightly, retain 7 daily + 4 weekly, and stagger Postgres
-and ClickHouse so they don't contend (the shipped chart schedules them at 02:00
-and 02:30).
+A reasonable cadence: nightly, retain 7 daily + 4 weekly, and stagger all three
+so they don't contend (the shipped chart schedules Postgres at 02:00,
+ClickHouse at 02:30, and the object store at 02:45).
 
 ## Telemetry regional DR profile: off-region ClickHouse backups
 
@@ -181,11 +197,19 @@ PROBECTL_ENVELOPE_KEY=<base64 KEK> \
 PROBECTL_ENVELOPE_KEY=<base64 KEK> \
   ./scripts/restore_clickhouse.sh /srv/probectl-backups/clickhouse-probectl-<ts>.zip.pbk
 
-# 4. Start probectl-control. On boot it re-runs the Postgres migrations
+# 4. Restore the object tree. This verifies the checksum, opens directly into
+#    a staging directory, preserves the old target, then atomically publishes:
+PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore \
+PROBECTL_ENVELOPE_KEY=<base64 KEK> \
+  ./scripts/restore_objectstore.sh \
+    /srv/probectl-backups/objectstore-<ts>.tar.pbk \
+    /var/lib/probectl/objects
+
+# 5. Start probectl-control. On boot it re-runs the Postgres migrations
 #    idempotently; the restored probectl_ch_migrations ledger keeps the
 #    ClickHouse schema state consistent with the restored data.
 
-# 5. Sanity-check: /readyz is green; a tenant-scoped query returns pre-incident
+# 6. Sanity-check: /readyz is green; a tenant-scoped query returns pre-incident
 #    data; the audit chain verifies (the WORM verify job also re-checks the
 #    exported provider chain against object storage).
 ```
@@ -239,7 +263,8 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
   With the shipped nightly chart schedules that is **≤ 24 h** plus off-region
   copy lag. Tighten the schedules, add WAL archiving for Postgres, and use
   ClickHouse incrementals for less. The WORM audit exports run on their own
-  interval, so they are not lost with the DB.
+  interval, but their regional RPO follows the object-store snapshot/copy
+  cadence. The default object CronJob is nightly at 02:45.
 - **RTO** (recovery time objective — how long a restore takes):
   - *Small / dev-sized:* minutes — usually single-digit seconds at drill size.
     The CI drill measures the real number on every run and prints
@@ -250,6 +275,7 @@ helm upgrade probectl deploy/helm/probectl --reuse-values \
 
 | Date (UTC) | Profile / environment | Data size | Backup time | Restore time | Notes |
 |---|---|---|---|---|---|
+| 2026-07-14 | `ci-marker` / dev compose | 137 PG rows; 251 tenant CH rows; 3-event signed WORM chain + tenant object; 249,638 B artifacts | 1 s | 2 s | First three-store H8 drill; object `.tar.pbk` 20,590 B; all signed evidence bytes matched after restore |
 | 2026-07-01 | `small` / dev compose | 137 PG rows; 251 tenant CH rows; 345,746 B artifacts | 1 s | 2 s | RPO `86,400` s; CH zip 7,379 B; transcript row in `docs/ops/backup-restore-results.csv` |
 | 2026-07-01 | `medium` / dev compose | 5,000 PG rows; 50,000 tenant CH rows; 470,028 B artifacts | 1 s | 2 s | RPO `86,400` s; CH zip 118,806 B; transcript row in `docs/ops/backup-restore-results.csv` |
 | 2026-07-01 | `large` / dev compose | 20,000 PG rows; 250,000 tenant CH rows; 1,004,783 B artifacts | 0 s | 1 s | RPO `86,400` s; CH zip 611,640 B; archived log `docs/ops/drill-logs/backup-restore-large-20260701.log`; transcript row in `docs/ops/backup-restore-results.csv` |
@@ -266,10 +292,13 @@ the release evidence.
 make backup-restore-drill
 ```
 
-This seeds nonce-marked rows in **both** stores (137 rows in Postgres, 251
-tenant-scoped rows in ClickHouse plus a second-tenant control), backs them up,
-**drops both databases**, restores from the off-box artifacts, then asserts
-every marker row survived — both the count *and* the nonce — and prints the
+This seeds nonce-marked rows in both databases (137 rows in Postgres, 251
+tenant-scoped rows in ClickHouse plus a second-tenant control) and generates a
+cryptographically valid three-event Ed25519-signed provider WORM segment plus a
+tenant object. It backs up all three stores, **drops both databases and removes
+the object tree**, restores only from the off-box artifacts, then asserts every
+database marker survived and the WORM segment, signature, public key, and tenant
+object are byte-for-byte identical. It prints the
 measured backup/restore times. The **nonce** (a one-time random marker) is what
 makes the check honest: a row count alone could pass on leftovers from an
 earlier run, but only *this* run's rows carry this run's nonce, so a pass proves
@@ -296,7 +325,7 @@ PROBECTL_DRILL_RESULT_FILE=backup-restore-results.csv \
 ```
 
 `backup-restore-drill-large` runs the same destructive backup → wipe → restore
-→ verify loop, but refuses to pass when the summed Postgres + ClickHouse backup
+→ verify loop, but refuses to pass when the summed Postgres + ClickHouse + object-store backup
 artifacts are below `PROBECTL_DRILL_MIN_ARTIFACT_BYTES` or when restore time
 exceeds `PROBECTL_DRILL_RTO_BUDGET_SECONDS`. That keeps the production-shaped
 row honest: a marker-sized dev database cannot accidentally satisfy the

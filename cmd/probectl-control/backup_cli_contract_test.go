@@ -225,6 +225,110 @@ func TestPITRRecipesUseRealCLI(t *testing.T) {
 	}
 }
 
+func TestObjectStoreBackupRestoreContracts(t *testing.T) {
+	backup := stripComments(readArtifact(t, "scripts/backup_objectstore.sh"))
+	restore := stripComments(readArtifact(t, "scripts/restore_objectstore.sh"))
+	drill := stripComments(readArtifact(t, "scripts/backup_restore_drill.sh"))
+	helm := readArtifact(t, "deploy/helm/probectl/templates/backup-cronjobs.yaml")
+
+	assertNoBadBackupFlags(t, "scripts/backup_objectstore.sh", backup)
+	assertNoBadBackupFlags(t, "scripts/restore_objectstore.sh", restore)
+	for _, want := range []struct{ body, substr, why string }{
+		{backup, "PROBECTL_OBJECTSTORE_MODE:-filesystem", "filesystem must be the explicit self-hosted default"},
+		{backup, "custom S3/MinIO endpoint must use verified https://", "custom object-store TLS must fail closed"},
+		{backup, "get-object-lock-configuration", "the backup destination must be queried for retention policy"},
+		{backup, `= "COMPLIANCE"`, "the S3/MinIO destination must provide immutable compliance retention"},
+		{backup, "--sse AES256", "remote object copies must request encryption at rest by default"},
+		{backup, "refusing symlink/special object-store entry", "filesystem archives must reject unsafe entry types"},
+		{restore, `ACK}" = "replace-objectstore"`, "destructive replacement must require the exact operator acknowledgement"},
+		{restore, "sha256sum -c", "sealed filesystem artifacts must be verified before opening"},
+		{restore, "get-object-lock-configuration", "the restored S3/MinIO WORM target must enforce immutable retention"},
+		{restore, ".pre-restore-", "the prior object tree must be preserved for rollback"},
+		{drill, "go run ./test/drill/wormfixture", "the drill must create a genuinely signed WORM segment"},
+		{drill, "backup_objectstore.sh", "the drill must exercise the shipped object backup script"},
+		{drill, "restore_objectstore.sh", "the drill must exercise the shipped object restore script"},
+		{drill, "restored WORM signature bytes changed", "the drill must compare signed evidence bytes after restore"},
+		{helm, "objectstore-backup", "backup.enabled must include the object-store CronJob"},
+		{helm, "readOnly: true", "the source object-store PVC must be immutable to the backup job"},
+	} {
+		if !strings.Contains(want.body, want.substr) {
+			t.Errorf("missing %q — %s", want.substr, want.why)
+		}
+	}
+	for name, body := range map[string]string{"backup": backup, "restore": restore} {
+		if strings.Contains(body, "--no-verify-ssl") || strings.Contains(body, "http://") {
+			t.Errorf("object-store %s script contains a TLS-verification bypass or plaintext endpoint", name)
+		}
+	}
+
+	idxChecksum := strings.Index(restore, "sha256sum -c")
+	idxOpen := strings.Index(restore, `"${open_cmd[@]}"`)
+	idxSwap := strings.Index(restore, `mv "${target_abs}" "${old}"`)
+	if idxChecksum < 0 || idxOpen < 0 || idxSwap < 0 || idxChecksum >= idxOpen || idxOpen >= idxSwap {
+		t.Fatalf("filesystem restore order must be checksum -> authenticated open -> directory swap; indexes checksum=%d open=%d swap=%d", idxChecksum, idxOpen, idxSwap)
+	}
+}
+
+func TestObjectStoreS3ModeUsesLockedEncryptedVerifiedCopies(t *testing.T) {
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(tmp, "aws.log")
+	fakeAWS := `#!/bin/sh
+printf '%s\n' "$*" >> "$AWS_LOG"
+case " $* " in
+  *" s3api get-object-lock-configuration "*) printf '%s\n' "${AWS_LOCK_MODE:-}" ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte(fakeAWS), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	root := repoRoot(t)
+	baseEnv := append(os.Environ(),
+		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"AWS_LOG="+logPath,
+		"PROBECTL_OBJECTSTORE_MODE=s3",
+		"PROBECTL_OBJECTSTORE_S3_URI=s3://live-objects/probectl",
+	)
+
+	backup := exec.Command("bash", filepath.Join(root, "scripts/backup_objectstore.sh"), "s3://dr-backups/probectl")
+	backup.Env = append(baseEnv, "AWS_LOCK_MODE=COMPLIANCE")
+	if out, err := backup.CombinedOutput(); err != nil {
+		t.Fatalf("locked S3 backup failed: %v\n%s", err, out)
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logBody := string(logBytes)
+	for _, want := range []string{"get-object-lock-configuration", "s3 sync", "--sse AES256", "--dryrun --delete"} {
+		if !strings.Contains(logBody, want) {
+			t.Errorf("S3 backup did not call aws with %q; log:\n%s", want, logBody)
+		}
+	}
+
+	restore := exec.Command("bash", filepath.Join(root, "scripts/restore_objectstore.sh"), "s3://dr-backups/probectl/20260714T000000Z", "s3://live-objects/probectl")
+	restore.Env = append(baseEnv, "AWS_LOCK_MODE=COMPLIANCE", "PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore")
+	if out, err := restore.CombinedOutput(); err != nil {
+		t.Fatalf("locked S3 restore failed: %v\n%s", err, out)
+	}
+
+	insecure := exec.Command("bash", filepath.Join(root, "scripts/backup_objectstore.sh"), "s3://dr-backups/probectl")
+	insecure.Env = append(baseEnv, "AWS_LOCK_MODE=COMPLIANCE", "PROBECTL_OBJECTSTORE_S3_ENDPOINT=http://minio.internal:9000")
+	if out, err := insecure.CombinedOutput(); err == nil || !strings.Contains(string(out), "must use verified https://") {
+		t.Fatalf("plaintext MinIO endpoint must fail closed; err=%v output=%s", err, out)
+	}
+
+	unlockedEnv := append(baseEnv, "AWS_LOCK_MODE=GOVERNANCE")
+	unlocked := exec.Command("bash", filepath.Join(root, "scripts/backup_objectstore.sh"), "s3://dr-backups/probectl")
+	unlocked.Env = unlockedEnv
+	if out, err := unlocked.CombinedOutput(); err == nil || !strings.Contains(string(out), "Object Lock COMPLIANCE") {
+		t.Fatalf("non-COMPLIANCE destination must fail closed; err=%v output=%s", err, out)
+	}
+}
+
 func TestRestorePostgresRequiresChecksumBeforeMutation(t *testing.T) {
 	body := readArtifact(t, "scripts/restore_postgres.sh")
 	stripped := stripComments(body)

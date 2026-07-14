@@ -755,8 +755,9 @@ jobs:
   backup-drill:
     name: backup-drill
     # U-030: the backup → wipe → restore drill EXECUTES on every pass against
-    # the dev compose Postgres + ClickHouse: nonce-marked rows must survive a
-    # full database drop via the off-box artifacts, and the job log carries
+    # the dev compose Postgres + ClickHouse + filesystem object store:
+    # nonce-marked rows and real signed WORM evidence must survive a full wipe
+    # via the off-box artifacts, and the job log carries
     # the measured backup/restore times the runbook cites
     # (docs/ops/backup-restore.md).
     runs-on: ubuntu-latest

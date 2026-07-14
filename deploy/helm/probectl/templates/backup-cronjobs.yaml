@@ -1,11 +1,11 @@
 {{- if .Values.backup.enabled }}
-{{- if and .Values.backup.postgres.enabled (not .Values.backup.encryption.enabled) (ne .Values.backup.plaintextAck "allow-plaintext-tenant-backup") }}
-{{- fail "backup.postgres plaintext dumps require backup.plaintextAck=allow-plaintext-tenant-backup when backup.encryption.enabled=false" }}
+{{- if and (or .Values.backup.postgres.enabled .Values.backup.objectStore.enabled) (not .Values.backup.encryption.enabled) (ne .Values.backup.plaintextAck "allow-plaintext-tenant-backup") }}
+{{- fail "plaintext Postgres/object-store backups require backup.plaintextAck=allow-plaintext-tenant-backup when backup.encryption.enabled=false" }}
 {{- end }}
 {{- if and .Values.backup.clickhouse.enabled (ne .Values.backup.clickhouse.encryptedTargetAck "encrypted-clickhouse-backup-target") }}
 {{- fail "backup.clickhouse writes server-side .zip artifacts and requires backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" }}
 {{- end }}
-# OPS-009: chart-managed PG + CH backup CronJobs (folded in from
+# OPS-009/H8: chart-managed PG + CH + object-store/WORM backup CronJobs (folded in from
 # deploy/backup/, U-030). Behind backup.enabled — off by default; an operator
 # opts in and supplies the backups PVC + db-credentials secret (or lets the
 # chart create the PVC via backup.persistence).
@@ -182,6 +182,86 @@ spec:
                 - { name: envelope-key, mountPath: /keys, readOnly: true }
                 {{- end }}
           volumes:
+            - name: backups
+              persistentVolumeClaim:
+                claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}
+            {{- if .Values.backup.encryption.enabled }}
+            - name: tools
+              emptyDir: {}
+            - name: envelope-key
+              secret:
+                secretName: {{ .Values.backup.encryption.keySecret }}
+                items:
+                  - { key: {{ .Values.backup.encryption.keySecretKey }}, path: envelope.key }
+            {{- end }}
+{{- end }}
+{{- if .Values.backup.objectStore.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "probectl.fullname" . }}-objectstore-backup
+  labels:
+    {{- include "probectl.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backup.objectStore.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            fsGroup: 65532
+          {{- if .Values.backup.encryption.enabled }}
+          initContainers:
+            - name: stage-probectl
+              image: {{ include "probectl.image" . }}
+              command: ["/bin/sh", "-ec", "cp /usr/local/bin/app /tools/probectl-control"]
+              volumeMounts:
+                - { name: tools, mountPath: /tools }
+          {{- end }}
+          containers:
+            - name: objectstore-backup
+              image: {{ .Values.backup.objectStore.image | default .Values.backup.postgres.image | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  bad="$(find {{ .Values.backup.objectStore.mountPath | quote }} -mindepth 1 \( -type l -o \( ! -type d ! -type f \) \) -print -quit)"
+                  test -z "$bad" || { echo "refusing symlink/special object-store entry: $bad" >&2; exit 1; }
+                  {{- if .Values.backup.encryption.enabled }}
+                  out="/backups/objectstore-$(date -u +%Y%m%dT%H%M%SZ).tar.pbk"
+                  tar -C {{ .Values.backup.objectStore.mountPath | quote }} -cf - . \
+                    | /tools/probectl-control backup-seal --key-file=/keys/envelope.key > "${out}.tmp"
+                  test -s "${out}.tmp"
+                  mv "${out}.tmp" "${out}"
+                  {{- else }}
+                  out="/backups/objectstore-$(date -u +%Y%m%dT%H%M%SZ).tar"
+                  echo "WARNING writing PLAINTEXT object-store/WORM backup under explicit backup.plaintextAck=allow-plaintext-tenant-backup" >&2
+                  tar -C {{ .Values.backup.objectStore.mountPath | quote }} -cf "${out}" .
+                  {{- end }}
+                  sha256sum "${out}" > "${out}.sha256"
+                  echo "wrote ${out}"
+              resources:
+                {{- toYaml .Values.backup.resources | nindent 16 }}
+              volumeMounts:
+                - name: objectstore
+                  mountPath: {{ .Values.backup.objectStore.mountPath | quote }}
+                  readOnly: true
+                - { name: backups, mountPath: /backups }
+                {{- if .Values.backup.encryption.enabled }}
+                - { name: tools, mountPath: /tools, readOnly: true }
+                - { name: envelope-key, mountPath: /keys, readOnly: true }
+                {{- end }}
+          volumes:
+            - name: objectstore
+              persistentVolumeClaim:
+                claimName: {{ required "backup.objectStore.sourceClaim is required" .Values.backup.objectStore.sourceClaim | quote }}
             - name: backups
               persistentVolumeClaim:
                 claimName: {{ .Values.backup.persistence.claimName | default (printf "%s-backups" (include "probectl.fullname" .)) }}

@@ -1,9 +1,10 @@
 # Scheduled backups
 
-Cron examples for the two durable stores — PostgreSQL (control-plane state,
+Cron examples for the three durable stores — PostgreSQL (control-plane state,
 backed up as a `pg_dump` *logical dump*: the SQL-level contents, restorable
 into any fresh server) and ClickHouse (high-cardinality events, backed up with
-its native server-side `BACKUP` statement). The scripts they wrap
+its native server-side `BACKUP` statement), plus the object store (tenant
+objects and Ed25519-signed WORM audit segments). The scripts they wrap
 (`scripts/backup_*.sh` / `scripts/restore_*.sh`), the restore procedure,
 RTO/RPO expectations (**RTO** — how long a restore takes; **RPO** — how much
 recent data you can afford to lose), and the recovery drill are in
@@ -22,6 +23,43 @@ default (`pg_dump | probectl-control backup-seal > .dump.pbk`), so the raw
 tenant database does not land on the backups volume. Plaintext `.dump` output
 requires the exact break-glass acknowledgement
 `PROBECTL_PLAINTEXT_BACKUP_ACK=allow-plaintext-tenant-backup`.
+Filesystem object stores are streamed directly through the same envelope
+encryption into `.tar.pbk`; no plaintext tar is written. S3/MinIO copies require
+verified HTTPS, server-side encryption, and a destination bucket whose default
+Object Lock retention is `COMPLIANCE`.
+
+## Object store / WORM evidence
+
+Filesystem-backed installs use the shipped pair directly:
+
+```sh
+PROBECTL_OBJECTSTORE_DIR=/var/lib/probectl/objects \
+PROBECTL_BACKUP_KEY_FILE=/secure/probectl/envelope.key \
+  ./scripts/backup_objectstore.sh /srv/probectl-backups
+
+PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore \
+PROBECTL_BACKUP_KEY_FILE=/secure/probectl/envelope.key \
+  ./scripts/restore_objectstore.sh \
+    /srv/probectl-backups/objectstore-<ts>.tar.pbk \
+    /var/lib/probectl/objects
+```
+
+Restore verifies the `.sha256`, authenticates/decrypts into a sibling staging
+directory, then swaps directories. The prior tree remains as
+`.pre-restore-<timestamp>` for rollback. Symlinks and special files are refused,
+so an archive cannot silently capture data outside the configured root.
+
+For S3 or MinIO, set `PROBECTL_OBJECTSTORE_MODE=s3`, source
+`PROBECTL_OBJECTSTORE_S3_URI=s3://live-bucket/prefix`, and pass an off-region
+`s3://backup-bucket/prefix` destination. Credentials come only from the normal
+AWS credential chain/workload identity. A custom MinIO endpoint must be
+`https://`; use `AWS_CA_BUNDLE` for an internal CA. The script never disables
+certificate verification. It defaults to `AES256` SSE; select `aws:kms` with
+`PROBECTL_OBJECTSTORE_S3_KMS_KEY_ID`. The destination bucket must have default
+S3 Object Lock **COMPLIANCE** retention, which prevents even an administrator
+from rewriting a signed ledger during its retention window. Restore is an
+explicit replacement sync and requires
+`PROBECTL_OBJECTSTORE_RESTORE_ACK=replace-objectstore`.
 
 ## Compose (host cron)
 
@@ -76,13 +114,17 @@ In Kubernetes the crontab line becomes a **CronJob** — the cluster-native
 object that runs a pod on a schedule. Two supported paths:
 
 - **Helm-managed** — set `backup.enabled=true` on the `probectl` chart. It
-  renders Postgres + ClickHouse CronJobs from the same digest-pinned images,
+  renders Postgres + ClickHouse + filesystem object-store CronJobs from the
+  same digest-pinned images,
   envelope-encrypts the Postgres dump in-pipe and the ClickHouse native zip
   after server-side staging, so only `.dump.pbk` and `.zip.pbk` artifacts are
   retained by default, and is wired by
   `backup.credentialsSecret` plus a backups
   PVC (`backup.persistence.*`; a PersistentVolumeClaim is the cluster's
   request slip for durable disk). Off by default; the strict profile enables it.
+  Set `backup.objectStore.sourceClaim` to the existing object-store PVC; it is
+  mounted read-only and sealed into `.tar.pbk`. No object-store credential or
+  secret value is stored in chart values.
   See [`deploy/helm/`](../helm/README.md).
 - **Standalone manifests** — `k8s-cronjob-postgres.yaml` and
   `k8s-cronjob-clickhouse.yaml` for clusters that don't use the chart: adjust

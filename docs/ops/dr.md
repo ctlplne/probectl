@@ -75,7 +75,7 @@ It is dev-sized, single-host, and replicates over the LAN loopback. It therefore
 distance run further behind, which widens RPO); DNS/proxy writer
 re-pointing and the control-plane fence release (which widen RTO — see
 [region-failover.md](../runbooks/region-failover.md)); agent geo-DNS shedding;
-and the ClickHouse / object-store regional strategies. **Be explicit about the
+and real WAN copies. **Be explicit about the
 telemetry store:** ClickHouse ships as a single-node `MergeTree` and does **not**
 replicate cross-region by default, so its regional RPO is the off-region
 ClickHouse backup cadence — **≤ 24 h** with the shipped nightly backup profile,
@@ -83,7 +83,12 @@ plus copy lag — not the metadata DB's seconds-scale RPO unless the operator ru
 ClickHouse replication. See [multi-region.md → the RPO asymmetry](../multi-region.md#metadata-vs-telemetry-the-rpo-asymmetry)
 and the tested off-region backup recovery path in
 [backup-restore.md](backup-restore.md#telemetry-regional-dr-profile-off-region-clickhouse-backups)
-(restore RTO is measured by *its* own drill). The representative run measures the
+(restore RTO is measured by *its* own drill). The same backup/restore drill now
+also creates a real Ed25519-signed WORM audit segment and tenant object, seals
+the filesystem object tree, removes it, restores it, and checks the segment,
+signature, public key, and tenant object byte-for-byte. For S3/MinIO deployments,
+the shipped copy path additionally requires verified HTTPS, encrypted objects,
+and a COMPLIANCE Object Lock destination. The representative run measures the
 full metadata-tier sequence end to end.
 
 ## Measured results
@@ -108,8 +113,9 @@ This is the short version; the full procedure is
 3. Re-point the writer endpoint (DNS/proxy) and release the fence by stamping
    the new promotion epoch.
 4. Verify: a write succeeds; `/readyz` is green in the surviving regions; agents
-   re-shed via geo-DNS; ClickHouse / object store follow their regional plan
-   (telemetry RPO = backup cadence by default — restore the latest off-region
-   backup; see [multi-region.md](../multi-region.md#telemetry-store-regional-dr-clickhouse)).
+   re-shed via geo-DNS; restore ClickHouse and the object store from their latest
+   verified off-region artifacts. Run the WORM chain verifier before allowing
+   audit pruning (telemetry/object RPO = backup cadence by default; see
+   [backup-restore.md](backup-restore.md)).
 5. Record the timeline in the table above. When you rebuild the lost region, the
    `make backup-restore-drill` logic is how you validate the restore into it.

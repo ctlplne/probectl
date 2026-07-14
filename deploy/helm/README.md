@@ -234,8 +234,12 @@ proving the rendered YAML is well-formed Kubernetes) on the rendered
 charts, so a hardening regression fails the build, not a customer install.
 
 Opt-in extras, both off by default and enabled in the strict profile:
-`backup.enabled=true` renders the encrypted Postgres + ClickHouse backup
-CronJobs ([`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md));
+`backup.enabled=true` renders the encrypted Postgres + ClickHouse + filesystem
+object-store/WORM backup CronJobs
+([`docs/ops/backup-restore.md`](../../docs/ops/backup-restore.md)). The object
+CronJob reads `backup.objectStore.sourceClaim` through a read-only mount and
+streams it directly into `.tar.pbk`; the chart carries no object-store
+credentials;
 `metrics.serviceMonitor.enabled=true` renders a Prometheus-Operator
 ServiceMonitor; `metrics.prometheusRule.enabled=true` renders the
 PrometheusRule self-alert pack with runbook annotations. In the default profile,

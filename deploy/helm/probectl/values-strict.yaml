@@ -82,6 +82,14 @@ backup:
     create: true
     size: 100Gi
 
+# H8: the regulated reference keeps tenant objects and signed WORM segments on
+# one encrypted operator-owned PVC so the object backup CronJob can snapshot it.
+# Create this claim out-of-band with the cluster's encrypted StorageClass.
+objectStore:
+  enabled: true
+  mountPath: /var/lib/probectl
+  existingClaim: probectl-objects
+
 # Strict pod hardening (mirrors the seccomp/strict guidance — keep these in
 # step with your platform's PodSecurity "restricted" admission).
 podSecurityContext:

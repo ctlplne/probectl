@@ -33,6 +33,8 @@ func TestBackupRestoreTranscriptHasNamedProfilesAndRPORTO(t *testing.T) {
 		"profile",
 		"pg_rows",
 		"ch_rows",
+		"worm_events",
+		"objectstore_artifact_bytes",
 		"artifact_bytes",
 		"backup_secs",
 		"restore_secs",
@@ -60,6 +62,11 @@ func TestBackupRestoreTranscriptHasNamedProfilesAndRPORTO(t *testing.T) {
 			}
 		}
 		for _, col := range []string{"backup_secs", "restore_secs"} {
+			if parseNonNegative(t, profile, col, row[header[col]]) < 0 {
+				t.Fatalf("profile %s column %s must be non-negative", profile, col)
+			}
+		}
+		for _, col := range []string{"worm_events", "objectstore_artifact_bytes"} {
 			if parseNonNegative(t, profile, col, row[header[col]]) < 0 {
 				t.Fatalf("profile %s column %s must be non-negative", profile, col)
 			}

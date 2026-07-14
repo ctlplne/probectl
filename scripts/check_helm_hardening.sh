@@ -283,6 +283,9 @@ need "alert: ProbectlFairnessShedOrRejected" "$strict" "strict profile missing f
 need "alert: ProbectlWORMExportGap" "$strict" "strict profile missing WORM export gap alert (RUNOPS-003)"
 need "alert: ProbectlWORMSignatureFailures" "$strict" "strict profile missing WORM signature/chain verification alert (RUNOPS-003)"
 need "kind: CronJob"                "$strict" "strict profile missing backup CronJob (OPS-009)"
+if [ "$(grep -c '^kind: CronJob$' <<<"$strict")" -ne 3 ]; then
+  fail "strict profile must render exactly Postgres + ClickHouse + object-store backup CronJobs (H8)"
+fi
 
 # 3b. /metrics + backup are chart-managed and gated. Default profile must
 #     NOT ship the operator-CRD ServiceMonitor or the opt-in CronJobs.
@@ -294,11 +297,22 @@ if render --set backup.enabled=true >/dev/null 2>&1; then
 fi
 backup_render="$(render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target)"
 need "kind: CronJob" "$backup_render" "backup.enabled=true must render the backup CronJobs (OPS-009)"
+if [ "$(grep -c '^kind: CronJob$' <<<"$backup_render")" -ne 3 ]; then
+  fail "backup.enabled=true must render exactly three backup CronJobs (Postgres + ClickHouse + object store, H8)"
+fi
 need ".dump.pbk" "$backup_render" "default Postgres backup must render sealed .dump.pbk artifact (RUNOPS-002)"
 need "backup-seal" "$backup_render" "default Postgres backup must stream through backup-seal (RUNOPS-002)"
 need "backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target" "$backup_render" "ClickHouse backup render must carry exact encrypted-target ack (RED-004)"
 need 'name}.pbk' "$backup_render" "default ClickHouse backup must render sealed .zip.pbk artifact (CRYPTO-001)"
 need "rm -f.*server_backup_path.*name" "$backup_render" "ClickHouse backup must remove raw staging zip after sealing (CRYPTO-001)"
+need_fixed "probectl-objectstore-backup" "$backup_render" "object-store backup CronJob is missing (H8)"
+need_fixed ".tar.pbk" "$backup_render" "default object-store backup must render a sealed .tar.pbk artifact (H8)"
+need_fixed "claimName: \"probectl-objects\"" "$backup_render" "object-store backup must read the operator-supplied source PVC (H8)"
+need_fixed "readOnly: true" "$backup_render" "object-store source PVC must be mounted read-only (H8)"
+need_fixed "refusing symlink/special object-store entry" "$backup_render" "object-store backup must reject symlinks/special files before archiving (H8)"
+if render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.objectStore.sourceClaim='' >/dev/null 2>&1; then
+  fail "chart rendered object-store backup without backup.objectStore.sourceClaim (H8)"
+fi
 if render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.encryption.enabled=false >/dev/null 2>&1; then
   fail "chart rendered plaintext Postgres backup without backup.plaintextAck (RUNOPS-002)"
 fi
@@ -308,6 +322,7 @@ fi
 plaintext_backup="$(render --set backup.enabled=true --set backup.clickhouse.encryptedTargetAck=encrypted-clickhouse-backup-target --set backup.encryption.enabled=false --set backup.plaintextAck=allow-plaintext-tenant-backup)"
 need ".dump" "$plaintext_backup" "plaintext break-glass render must write .dump artifact (RUNOPS-002)"
 need "WARNING writing PLAINTEXT tenant backup" "$plaintext_backup" "plaintext break-glass render must emit warning (RUNOPS-002)"
+need "WARNING writing PLAINTEXT object-store/WORM backup" "$plaintext_backup" "plaintext object-store break-glass render must emit warning (H8)"
 need "backup.plaintextAck=allow-plaintext-tenant-backup" "$plaintext_backup" "plaintext break-glass render must be searchable by exact ack (RUNOPS-002)"
 default_sm="$(render --set metrics.serviceMonitor.enabled=true)"
 need "kind: ServiceMonitor" "$default_sm" "metrics.serviceMonitor.enabled=true must render the ServiceMonitor (OPS-005)"
