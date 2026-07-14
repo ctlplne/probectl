@@ -96,7 +96,11 @@ func countTests(t *testing.T, pool *pgxpool.Pool, tenantID string) int64 {
 
 func TestLifecycleEndToEndPG(t *testing.T) {
 	pool := itPool(t)
-	defer pool.Close()
+	// The lifecycle export enumerates the live public tenant-table catalog.
+	// Serialize it with integration tests that temporarily mutate that catalog.
+	// Register the pool first so the lock cleanup runs before pool shutdown.
+	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 

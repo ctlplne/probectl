@@ -77,6 +77,7 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	// Register the pool first so it closes last: testing cleanups run LIFO, and
 	// every schema/table cleanup below still needs a live connection.
 	t.Cleanup(pool.Close)
+	testsupport.LockPostgresPublicCatalog(t, pool)
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
