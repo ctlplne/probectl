@@ -23,6 +23,7 @@ const (
 	SurfaceAgents    = "agents"
 	SurfaceIncidents = "incidents"
 	SurfaceAlerts    = "alerts"
+	SurfaceExplorer  = "explorer"
 )
 
 var ErrNotFound = errors.New("inventory saved view not found")
@@ -194,7 +195,7 @@ func cleanInput(input SaveViewInput) (SaveViewInput, error) {
 
 func supportedSurface(surface string) bool {
 	switch surface {
-	case SurfaceEndpoints, SurfaceTargets, SurfaceAgents, SurfaceIncidents, SurfaceAlerts:
+	case SurfaceEndpoints, SurfaceTargets, SurfaceAgents, SurfaceIncidents, SurfaceAlerts, SurfaceExplorer:
 		return true
 	default:
 		return false

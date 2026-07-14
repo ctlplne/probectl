@@ -66,10 +66,7 @@ const NONE_BY_DESIGN_RECEIPT: SurfaceLiveReceipt = {
 
 const FULL_STACK_TOPOLOGY_RECEIPT: SurfaceLiveReceipt = {
   status: 'live-green',
-  evidence: [
-    'ci:.github/workflows/nightly.yml:make e2e',
-    'test:test/e2e/e2e_test.go:TestE2E',
-  ],
+  evidence: ['ci:.github/workflows/nightly.yml:make e2e', 'test:test/e2e/e2e_test.go:TestE2E'],
   note: 'Black-box e2e boots compose plus real binaries, ingests tenant-separated eBPF fixture flows through Kafka, and reads the tenant-scoped /v1/topology API.',
 }
 
@@ -210,6 +207,15 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S24',
     kind: 'native',
     route: '/ask',
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
+    capability: 'Structured and natural-language telemetry Explorer',
+    featureIds: ['F13'],
+    sprint: 'X7',
+    kind: 'native',
+    route: '/explore',
+    evidence: ['openapi:/v1/explorer/query', 'cli:probectl explorer query'],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {

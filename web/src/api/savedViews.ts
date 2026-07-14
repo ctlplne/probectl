@@ -1,7 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
 
-export type SavedViewSurface = 'endpoints' | 'targets' | 'agents' | 'incidents' | 'alerts' | 'topology'
+export type SavedViewSurface =
+  | 'endpoints'
+  | 'targets'
+  | 'agents'
+  | 'incidents'
+  | 'alerts'
+  | 'topology'
+  | 'explorer'
 
 export interface SavedInventoryView {
   id: string
@@ -31,8 +38,7 @@ function jsonInit(method: string, body: unknown): RequestInit {
 export function useSavedViews(surface: SavedViewSurface) {
   return useQuery({
     queryKey: ['inventory', 'views', surface],
-    queryFn: () =>
-      apiFetch<SavedInventoryViewsResponse>(`/inventory/views?surface=${surface}`),
+    queryFn: () => apiFetch<SavedInventoryViewsResponse>(`/inventory/views?surface=${surface}`),
   })
 }
 

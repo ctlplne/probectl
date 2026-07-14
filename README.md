@@ -423,6 +423,7 @@ Going deeper:
 | Tenant isolation (pooled/siloed/hybrid) | [`docs/isolation.md`](docs/isolation.md) |
 | Provider / MSP plane | [`docs/provider-plane.md`](docs/provider-plane.md) |
 | Using the AI (ask → local model → MCP, in 10 min) | [`docs/ai-quickstart.md`](docs/ai-quickstart.md) |
+| Structured + natural-language Explorer | [`docs/explorer.md`](docs/explorer.md) |
 | AI RCA · semantic query · MCP | [`docs/ai-rca.md`](docs/ai-rca.md) · [`docs/ai-query.md`](docs/ai-query.md) · [`docs/mcp.md`](docs/mcp.md) |
 | Guarded remediation (policy) | [`docs/remediation.md`](docs/remediation.md) |
 | FIPS / hardening · multi-region HA · BYOK | [`docs/hardening.md`](docs/hardening.md) · [`docs/multi-region.md`](docs/multi-region.md) · [`docs/byok.md`](docs/byok.md) |

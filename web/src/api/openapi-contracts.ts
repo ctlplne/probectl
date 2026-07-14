@@ -281,6 +281,20 @@ export const API_CALL_CONTRACTS = [
     generated: 'CreateInventoryViewResponse',
   },
   {
+    file: 'api/explorer.ts',
+    method: 'GET',
+    path: '/explorer/schema',
+    response: 'ExplorerSchema',
+    generated: 'GetExplorerSchemaResponse',
+  },
+  {
+    file: 'api/explorer.ts',
+    method: 'POST',
+    path: '/explorer/query',
+    response: 'ExplorerResult',
+    generated: 'QueryExplorerResponse',
+  },
+  {
     file: 'api/identity.ts',
     method: 'GET',
     path: '/identity/settings',

@@ -15,6 +15,7 @@ import { AlertsPage } from './AlertsPage'
 import { SecurityPage } from './SecurityPage'
 import { EndpointsPage } from './EndpointsPage'
 import { AskPage } from './AskPage'
+import { ExplorerPage } from './ExplorerPage'
 import { DashboardsPage } from './DashboardsPage'
 import { OnboardingPage } from './OnboardingPage'
 import { ApiDocsPage } from './ApiDocsPage'
@@ -42,6 +43,7 @@ export function AppRoutes() {
         <Route path="/security" element={<SecurityPage />} />
         <Route path="/endpoints" element={<EndpointsPage />} />
         <Route path="/ask" element={<AskPage />} />
+        <Route path="/explore" element={<ExplorerPage />} />
         <Route path="/dashboards" element={<DashboardsPage />} />
         <Route path="/topology" element={<TopologyPage />} />
         <Route path="/cost" element={<CostPage />} />
@@ -63,6 +65,7 @@ export function AppRoutes() {
               '/security',
               '/endpoints',
               '/ask',
+              '/explore',
               '/dashboards',
               '/topology',
               '/cost',

@@ -428,6 +428,53 @@ export interface ErrorDetail {
   request_id?: string
 }
 
+export interface ExplorerColumn {
+  key: string
+  label: string
+  numeric?: boolean
+}
+
+export interface ExplorerQuery {
+  dimensions?: string[]
+  filters?: { [key: string]: string }
+  from?: string
+  groupings?: string[]
+  limit?: number
+  measures?: string[]
+  question: string
+  source: "flow" | "changes" | "path" | "topology" | "endpoints" | "tls" | "cost" | "slo"
+  template?: string
+  to?: string
+  visualization?: "table" | "bar" | "line" | "timeline" | "topology"
+}
+
+export interface ExplorerResult {
+  columns: ExplorerColumn[]
+  evidence_path: string
+  preview: string
+  query: ExplorerQuery
+  rows: JsonObject[]
+  suggestions: { [key: string]: string[] }
+  truncated: boolean
+}
+
+export interface ExplorerSchemaResponse {
+  max_rows: number
+  templates: ExplorerTemplate[]
+  visualizations: string[]
+}
+
+export interface ExplorerTemplate {
+  dimensions: string[]
+  evidence_path: string
+  groupings: string[]
+  id: string
+  measures: string[]
+  question: string
+  source: string
+  visualization: string
+}
+
 export interface FlowAnomaly {
   baseline_bps?: number
   current_bps?: number
@@ -608,7 +655,7 @@ export interface InventorySavedView {
   id: string
   name: string
   owner_id: string
-  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
+  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts" | "explorer"
   tenant_id: string
   updated_at: string
 }
@@ -616,7 +663,7 @@ export interface InventorySavedView {
 export interface InventorySavedViewInput {
   filters?: { [key: string]: string }
   name: string
-  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
+  surface: "endpoints" | "targets" | "agents" | "incidents" | "alerts" | "explorer"
 }
 
 export interface InventorySavedViewList {
@@ -1283,6 +1330,17 @@ export interface ListEndpointsRequest {
 
 export type ListEndpointsResponse = JsonObject
 
+export interface QueryExplorerRequest {
+  body: ExplorerQuery
+}
+
+export type QueryExplorerResponse = ExplorerResult
+
+export interface GetExplorerSchemaRequest {
+}
+
+export type GetExplorerSchemaResponse = ExplorerSchemaResponse
+
 export interface GetV1FairnessRequest {
 }
 
@@ -1464,7 +1522,7 @@ export interface CreateIncidentShareRequest {
 export type CreateIncidentShareResponse = IncidentShareArtifact
 
 export interface ListInventoryViewsRequest {
-  surface?: "endpoints" | "targets" | "agents" | "incidents" | "alerts"
+  surface?: "endpoints" | "targets" | "agents" | "incidents" | "alerts" | "explorer"
 }
 
 export type ListInventoryViewsResponse = InventorySavedViewList
@@ -2196,6 +2254,18 @@ export class ProbectlSDKClient {
     let path = "/v1/endpoints"
     const query = new URLSearchParams()
     return this.requestJSON<ListEndpointsResponse>("GET", path, query, undefined)
+  }
+
+  async queryExplorer(request: QueryExplorerRequest): Promise<QueryExplorerResponse> {
+    let path = "/v1/explorer/query"
+    const query = new URLSearchParams()
+    return this.requestJSON<QueryExplorerResponse>("POST", path, query, request.body)
+  }
+
+  async getExplorerSchema(): Promise<GetExplorerSchemaResponse> {
+    let path = "/v1/explorer/schema"
+    const query = new URLSearchParams()
+    return this.requestJSON<GetExplorerSchemaResponse>("GET", path, query, undefined)
   }
 
   async getV1Fairness(): Promise<GetV1FairnessResponse> {

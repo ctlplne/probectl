@@ -1586,6 +1586,83 @@
         }
       }
     },
+    "/v1/explorer/schema": {
+      "get": {
+        "operationId": "getExplorerSchema",
+        "summary": "Get the bounded Explorer grammar and canonical query recipes",
+        "tags": [
+          "ai"
+        ],
+        "description": "Returns the structured query vocabulary used by the Explorer UI. The catalog contains no telemetry, but still requires an authenticated tenant principal with ai.query.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Explorer grammar and canonical recipes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerSchemaResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 10,
+          "reason": "The Explorer recipe catalog is a fixed bounded grammar."
+        }
+      }
+    },
+    "/v1/explorer/query": {
+      "post": {
+        "operationId": "queryExplorer",
+        "summary": "Run one structured Explorer query against tenant-scoped telemetry",
+        "tags": [
+          "ai"
+        ],
+        "description": "Resolves tenant scope from authentication first, checks source-specific RBAC second, and then queries the existing tenant-bound flow, change, path, topology, endpoint, TLS, cost, or SLO store. Tenant selectors are rejected. Value suggestions are derived only from the authorized result rows.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExplorerQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Exact rows, query receipt, tenant-derived suggestions, and evidence pivot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Explorer validation caps each query to 500 rows before rendering."
+        }
+      }
+    },
     "/v1/ai/feedback": {
       "post": {
         "operationId": "aiFeedback",
@@ -5443,7 +5520,8 @@
                 "targets",
                 "agents",
                 "incidents",
-                "alerts"
+                "alerts",
+                "explorer"
               ]
             },
             "description": "Optional surface filter."
@@ -7856,7 +7934,8 @@
               "targets",
               "agents",
               "incidents",
-              "alerts"
+              "alerts",
+              "explorer"
             ]
           },
           "name": {
@@ -7894,7 +7973,8 @@
               "targets",
               "agents",
               "incidents",
-              "alerts"
+              "alerts",
+              "explorer"
             ]
           },
           "name": {
@@ -8799,6 +8879,177 @@
           "range": {
             "$ref": "#/components/schemas/AIQueryRange"
           }
+        }
+      },
+      "ExplorerQuery": {
+        "type": "object",
+        "required": [
+          "question",
+          "source"
+        ],
+        "properties": {
+          "template": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "flow",
+              "changes",
+              "path",
+              "topology",
+              "endpoints",
+              "tls",
+              "cost",
+              "slo"
+            ]
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dimensions": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string"
+            }
+          },
+          "filters": {
+            "type": "object",
+            "maxProperties": 12,
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Bounded source fields only. tenant, tenant_id, and semantic variants are rejected."
+          },
+          "groupings": {
+            "type": "array",
+            "maxItems": 4,
+            "items": {
+              "type": "string"
+            }
+          },
+          "measures": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "type": "string"
+            }
+          },
+          "visualization": {
+            "type": "string",
+            "enum": [
+              "table",
+              "bar",
+              "line",
+              "timeline",
+              "topology"
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        }
+      },
+      "ExplorerTemplate": {
+        "type": "object",
+        "required": [
+          "id",
+          "question",
+          "source",
+          "dimensions",
+          "groupings",
+          "measures",
+          "visualization",
+          "evidence_path"
+        ],
+        "properties": {
+          "id": { "type": "string" },
+          "question": { "type": "string" },
+          "source": { "type": "string" },
+          "dimensions": { "type": "array", "items": { "type": "string" } },
+          "groupings": { "type": "array", "items": { "type": "string" } },
+          "measures": { "type": "array", "items": { "type": "string" } },
+          "visualization": { "type": "string" },
+          "evidence_path": { "type": "string" }
+        }
+      },
+      "ExplorerSchemaResponse": {
+        "type": "object",
+        "required": [
+          "templates",
+          "visualizations",
+          "max_rows"
+        ],
+        "properties": {
+          "templates": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ExplorerTemplate" }
+          },
+          "visualizations": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "max_rows": { "type": "integer" }
+        }
+      },
+      "ExplorerColumn": {
+        "type": "object",
+        "required": [
+          "key",
+          "label"
+        ],
+        "properties": {
+          "key": { "type": "string" },
+          "label": { "type": "string" },
+          "numeric": { "type": "boolean" }
+        }
+      },
+      "ExplorerResult": {
+        "type": "object",
+        "required": [
+          "query",
+          "preview",
+          "columns",
+          "rows",
+          "suggestions",
+          "evidence_path",
+          "truncated"
+        ],
+        "properties": {
+          "query": { "$ref": "#/components/schemas/ExplorerQuery" },
+          "preview": { "type": "string" },
+          "columns": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ExplorerColumn" }
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "suggestions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "evidence_path": { "type": "string" },
+          "truncated": { "type": "boolean" }
         }
       },
       "AIQueryRange": {

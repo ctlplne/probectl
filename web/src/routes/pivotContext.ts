@@ -61,6 +61,7 @@ const MAX_VALUE_LENGTH = 512
 const MAX_REFERENCE_LENGTH = 256
 const SAFE_RETURN_PREFIXES = [
   '/ask',
+  '/explore',
   '/incidents',
   '/path',
   '/planes',

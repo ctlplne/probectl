@@ -149,6 +149,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/audit", s.handleListAudit, permAuditRead},
 		{http.MethodGet, "/v1/audit/verify", s.handleVerifyAudit, permAuditRead},
 		{http.MethodPost, "/v1/ai/ask", s.handleAIAsk, permAIQuery},
+		{http.MethodGet, "/v1/explorer/schema", s.handleExplorerSchema, permAIQuery},
+		{http.MethodPost, "/v1/explorer/query", s.handleExplorerQuery, permAIQuery},
 		{http.MethodPost, "/v1/ai/feedback", s.handleAIFeedback, permAIQuery},
 		{http.MethodPost, "/v1/ai/author", s.handleAIAuthor, permTestWrite},
 		{http.MethodPost, "/v1/ai/discover", s.handleAIDiscover, permTestWrite},

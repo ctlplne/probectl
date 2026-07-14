@@ -48,6 +48,7 @@ export const NAV: NavItem[] = [
   { to: '/alerts', labelKey: 'nav.alerts', icon: 'alert', group: 'monitor' },
   { to: '/endpoints', labelKey: 'nav.endpoints', icon: 'endpoints', group: 'monitor' },
   { to: '/ask', labelKey: 'nav.ask', icon: 'ask', group: 'analyze' },
+  { to: '/explore', labelKey: 'nav.explore', icon: 'dashboards', group: 'analyze' },
   { to: '/dashboards', labelKey: 'nav.dashboards', icon: 'dashboards', group: 'analyze' },
   { to: '/security', labelKey: 'nav.security', icon: 'security', group: 'secure' },
   { to: '/compliance', labelKey: 'nav.compliance', icon: 'compliance', group: 'secure' },

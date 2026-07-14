@@ -506,6 +506,53 @@ type ErrorDetail struct {
 	RequestId string    `json:"request_id,omitempty"`
 }
 
+type ExplorerColumn struct {
+	Key     string `json:"key"`
+	Label   string `json:"label"`
+	Numeric bool   `json:"numeric,omitempty"`
+}
+
+type ExplorerQuery struct {
+	Dimensions    []string          `json:"dimensions,omitempty"`
+	Filters       map[string]string `json:"filters,omitempty"`
+	From          string            `json:"from,omitempty"`
+	Groupings     []string          `json:"groupings,omitempty"`
+	Limit         int               `json:"limit,omitempty"`
+	Measures      []string          `json:"measures,omitempty"`
+	Question      string            `json:"question"`
+	Source        string            `json:"source"`
+	Template      string            `json:"template,omitempty"`
+	To            string            `json:"to,omitempty"`
+	Visualization string            `json:"visualization,omitempty"`
+}
+
+type ExplorerResult struct {
+	Columns      []ExplorerColumn    `json:"columns"`
+	EvidencePath string              `json:"evidence_path"`
+	Preview      string              `json:"preview"`
+	Query        ExplorerQuery       `json:"query"`
+	Rows         []map[string]any    `json:"rows"`
+	Suggestions  map[string][]string `json:"suggestions"`
+	Truncated    bool                `json:"truncated"`
+}
+
+type ExplorerSchemaResponse struct {
+	MaxRows        int                `json:"max_rows"`
+	Templates      []ExplorerTemplate `json:"templates"`
+	Visualizations []string           `json:"visualizations"`
+}
+
+type ExplorerTemplate struct {
+	Dimensions    []string `json:"dimensions"`
+	EvidencePath  string   `json:"evidence_path"`
+	Groupings     []string `json:"groupings"`
+	Id            string   `json:"id"`
+	Measures      []string `json:"measures"`
+	Question      string   `json:"question"`
+	Source        string   `json:"source"`
+	Visualization string   `json:"visualization"`
+}
+
 type FlowAnomaly struct {
 	BaselineBps      float64               `json:"baseline_bps,omitempty"`
 	CurrentBps       float64               `json:"current_bps,omitempty"`
@@ -1959,6 +2006,35 @@ func (c *Client) ListEndpoints(ctx context.Context, req ListEndpointsRequest) (m
 		return nil, err
 	}
 	return out, nil
+}
+
+// Run one structured Explorer query against tenant-scoped telemetry
+type QueryExplorerRequest struct {
+	Body *ExplorerQuery `json:"-"`
+}
+
+func (c *Client) QueryExplorer(ctx context.Context, req QueryExplorerRequest) (*ExplorerResult, error) {
+	path := "/v1/explorer/query"
+	query := url.Values{}
+	var out ExplorerResult
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get the bounded Explorer grammar and canonical query recipes
+type GetExplorerSchemaRequest struct {
+}
+
+func (c *Client) GetExplorerSchema(ctx context.Context, req GetExplorerSchemaRequest) (*ExplorerSchemaResponse, error) {
+	path := "/v1/explorer/schema"
+	query := url.Values{}
+	var out ExplorerSchemaResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // The tenant's own fairness view (S-T7): the bounds it runs under (policy) + admitted/shed/rejected accounting — debugging a fairness dispute never requires the provider's word

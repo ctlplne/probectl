@@ -148,6 +148,118 @@ const sampleLatestResults = [
   },
 ]
 
+export const sampleExplorerTemplates = [
+  [
+    'top-talkers-site',
+    'Show top talkers by site',
+    'flow',
+    ['site', 'interface'],
+    ['site'],
+    ['bps', 'pps'],
+    'bar',
+    '/planes/flow',
+  ],
+  [
+    'asn-before-incident',
+    'Which ASN change preceded this incident?',
+    'changes',
+    ['source', 'prefix', 'target'],
+    ['source'],
+    ['events'],
+    'timeline',
+    '/incidents',
+  ],
+  [
+    'loss-by-hop',
+    'Show loss by hop for this test',
+    'path',
+    ['target', 'hop', 'node'],
+    ['hop'],
+    ['loss_ratio', 'rtt_avg_ms'],
+    'line',
+    '/path',
+  ],
+  [
+    'service-dependencies',
+    'Show service dependencies',
+    'topology',
+    ['from', 'to', 'kind'],
+    ['kind'],
+    ['edges'],
+    'topology',
+    '/topology',
+  ],
+  [
+    'saturated-interface',
+    'Which device interface is saturated?',
+    'flow',
+    ['site', 'interface'],
+    ['site', 'interface'],
+    ['bps', 'pps'],
+    'line',
+    '/planes/device',
+  ],
+  [
+    'outage-endpoints',
+    'Which endpoints are affected by this outage?',
+    'endpoints',
+    ['endpoint', 'cause', 'summary'],
+    ['cause'],
+    ['affected_endpoints'],
+    'table',
+    '/endpoints',
+  ],
+  [
+    'certificates-expiring',
+    'Which certificates expire in the next 30 days?',
+    'tls',
+    ['target', 'subject', 'issuer'],
+    ['issuer'],
+    ['days_remaining'],
+    'table',
+    '/security',
+  ],
+  [
+    'cross-az-cost',
+    'Show cross-AZ network cost',
+    'cost',
+    ['from_zone', 'to_zone', 'service'],
+    ['from_zone', 'to_zone'],
+    ['bytes', 'usd'],
+    'bar',
+    '/cost',
+  ],
+  [
+    'slo-budget-burn',
+    'Which SLO error budgets are burning?',
+    'slo',
+    ['slo', 'service', 'team'],
+    ['service'],
+    ['burn_rate', 'budget_remaining'],
+    'bar',
+    '/slos',
+  ],
+  [
+    'deployments-before-incident',
+    'Which deployments immediately preceded this incident?',
+    'changes',
+    ['source', 'actor', 'target'],
+    ['source'],
+    ['events'],
+    'timeline',
+    '/incidents',
+  ],
+].map(([id, question, source, dimensions, groupings, measures, visualization, evidence_path]) => ({
+  id,
+  question,
+  source,
+  dimensions,
+  groupings,
+  measures,
+  visualization,
+  evidence_path,
+}))
+
 /**
  * pathOf parses a fetched URL to its PATHNAME (no query, no origin) so stub
  * routes match by exact path, not substring. RED-006/UX-006: matching with
@@ -174,7 +286,7 @@ export function assertNoDoublePrefix(input: RequestInfo | URL): void {
 /** A read-only default fetch covering the list endpoints, so any screen renders
  *  with data in tests. CRUD tests install their own stateful stub. */
 export function defaultFetch(): typeof fetch {
-  return vi.fn(async (input: RequestInfo | URL) => {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
     const path = pathOf(input)
     // SEC-001: the app resolves identity from /v1/me; serve a default
@@ -194,6 +306,43 @@ export function defaultFetch(): typeof fetch {
     // pathOf, so the exact path matches regardless. Return one (final) page.
     if (path === '/v1/agents') return jsonResponse({ items: sampleAgents })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
+    if (path === '/v1/explorer/schema')
+      return jsonResponse({
+        templates: sampleExplorerTemplates,
+        visualizations: ['table', 'bar', 'line', 'timeline', 'topology'],
+        max_rows: 500,
+      })
+    if (path === '/v1/explorer/query') {
+      const query = JSON.parse(String(init?.body)) as {
+        template?: string
+        question: string
+        source: string
+        from: string
+        to: string
+        dimensions: string[]
+        filters: Record<string, string>
+        groupings: string[]
+        measures: string[]
+        visualization: string
+        limit: number
+      }
+      const row: Record<string, unknown> = {}
+      for (const dimension of query.dimensions) row[dimension] = `${dimension}-value`
+      for (const measure of query.measures) row[measure] = 1
+      const template = sampleExplorerTemplates.find((item) => item.id === query.template)
+      return jsonResponse({
+        query,
+        preview: `FROM ${query.source} | GROUP BY ${query.groupings.join(', ')} | MEASURE ${query.measures.join(', ')} | VIEW ${query.visualization}`,
+        columns: [
+          ...query.dimensions.map((key) => ({ key, label: key.replace(/_/g, ' ') })),
+          ...query.measures.map((key) => ({ key, label: key.replace(/_/g, ' '), numeric: true })),
+        ],
+        rows: [row],
+        suggestions: Object.fromEntries(query.dimensions.map((key) => [key, [String(row[key])]])),
+        evidence_path: template?.evidence_path ?? '/explore',
+        truncated: false,
+      })
+    }
     if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
     if (path === '/v1/incidents/inc-dashboard') return jsonResponse(sampleIncident)
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
