@@ -74,7 +74,9 @@ func countIn(t *testing.T, pool *pgxpool.Pool, table, tenantID string) int {
 
 func TestSiloedPhysicalSeparation(t *testing.T) {
 	pool := itPool(t)
-	defer pool.Close()
+	// Register the pool first so it closes last: testing cleanups run LIFO, and
+	// every schema/table cleanup below still needs a live connection.
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 
@@ -87,7 +89,11 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 	if err := prov.Provision(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
 		t.Fatalf("provision: %v", err)
 	}
-	t.Cleanup(func() { _ = prov.Teardown(ctx, siloedID, "", tenancy.IsolationSiloed) })
+	t.Cleanup(func() {
+		if err := prov.Teardown(ctx, siloedID, "", tenancy.IsolationSiloed); err != nil {
+			t.Errorf("cleanup silo %s: %v", schema, err)
+		}
+	})
 
 	// The schema exists and contains the tenant-owned tables.
 	var schemaExists bool
@@ -197,11 +203,19 @@ func TestSiloedPhysicalSeparation(t *testing.T) {
 		id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL)`, newPlane)); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, newPlane)) })
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`DROP TABLE IF EXISTS %s`, newPlane)); err != nil {
+			t.Errorf("cleanup public test table %s: %v", newPlane, err)
+		}
+	})
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE tests ADD COLUMN IF NOT EXISTS %s text NOT NULL DEFAULT ''`, extraColumn)); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE tests DROP COLUMN IF EXISTS %s`, extraColumn)) })
+	t.Cleanup(func() {
+		if _, err := pool.Exec(ctx, fmt.Sprintf(`ALTER TABLE tests DROP COLUMN IF EXISTS %s`, extraColumn)); err != nil {
+			t.Errorf("cleanup public test column %s: %v", extraColumn, err)
+		}
+	})
 
 	drift, err := prov.DriftFor(ctx, siloedID)
 	if err != nil || drift.Empty() {
