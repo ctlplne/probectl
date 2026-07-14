@@ -16,7 +16,39 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/store/chmigrate"
 )
+
+func TestNewClickHouseReadsPopulatedMigrationLedgerAsJSONEachRow(t *testing.T) {
+	wantChecksum := chmigrate.Checksum(CHMigrations()[0])
+	var mu sync.Mutex
+	sawLedgerRead := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query().Get("query")
+		if strings.Contains(query, "SELECT version, checksum FROM probectl_ch_migrations") {
+			mu.Lock()
+			sawLedgerRead = true
+			mu.Unlock()
+			if !strings.Contains(query, "FORMAT JSONEachRow") {
+				t.Errorf("populated ledger query omitted JSONEachRow format: %s", query)
+			}
+			_, _ = w.Write([]byte(`{"version":1,"checksum":"` + wantChecksum + `"}` + "\n"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	if _, err := NewClickHouse(srv.URL, 0); err != nil {
+		t.Fatalf("restart with populated migration ledger: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !sawLedgerRead {
+		t.Fatal("store startup never read the populated migration ledger")
+	}
+}
 
 // TENANT-001: a siloed tenant's eBPF edges must route to its per-tenant
 // database (and residency data plane), not the shared pooled table.

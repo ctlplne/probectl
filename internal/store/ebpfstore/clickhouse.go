@@ -169,7 +169,7 @@ func (e chExec) Exec(ctx context.Context, sql string, p chmigrate.Params) error 
 	return e.c.execAt(ctx, e.base, sql, chParams(p))
 }
 func (e chExec) Query(ctx context.Context, sql string, p chmigrate.Params) ([]map[string]any, error) {
-	return e.c.queryAt(ctx, e.base, sql, chParams(p))
+	return e.c.queryAt(ctx, e.base, sql+" FORMAT JSONEachRow", chParams(p))
 }
 
 func chParams(p chmigrate.Params) url.Values {
