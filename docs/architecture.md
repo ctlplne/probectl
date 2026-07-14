@@ -458,11 +458,20 @@ agent-vantage scheduler is a future refinement.
 The **hero UI** (`web/src/viz`) renders the merged multi-path on the design
 system: a pure `layoutPath` function places hops in TTL columns with ECMP branches
 stacked and links drawn from observed adjacencies, and an SVG `PathGraph` colors
-nodes by loss (so the lossy hop visually jumps out), draws MPLS markers, and
-offers hover/focus tooltips. Nodes are keyboard-operable and open a per-hop
-drill-down, backed by a visually-hidden hop table so screen readers get the same
-data. A **loss-by-hop** sparkline pinpoints where drops start. Layout is linear in
-nodes + links even for dense graphs, and animation respects
+nodes by loss (so the lossy hop visually jumps out). Stable ECMP branch identity,
+average RTT, loss, destination state, and complete MPLS label values are printed
+on the graph; they are not hidden behind hover. The graph, interactive
+**loss-by-hop** chart, and visible searchable hop table share one keyboard-
+operable branch selection and per-hop drill-down.
+
+Dense paths have an explicit two-layer contract. The SVG is capped at 120
+representative responders and prioritizes destination, selected, lossiest, and
+highest-latency branches; a coverage note always states the represented and exact
+counts. The table retains every exact responder, searches before applying its
+200-row DOM safety bound, and states any truncation rather than silently clipping
+data. A compact summary before the graph keeps the path and tenant/time scope,
+worst branch, and observe-only next action visible at the 1440×900 desktop
+baseline. Layout remains linear in nodes + links and animation respects
 `prefers-reduced-motion`.
 
 ## BGP / routing intelligence

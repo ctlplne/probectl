@@ -6,6 +6,18 @@
 .bar {
   transition: fill var(--motion-fast) var(--easing-standard);
 }
+.selected .bar {
+  stroke: var(--color-focus);
+  stroke-width: var(--border-width-strong);
+}
+.selected:focus {
+  outline: none;
+}
+.selected:focus-visible .bar,
+.svg g:focus-visible .bar {
+  stroke: var(--color-focus);
+  stroke-width: var(--border-width-strong);
+}
 .ok {
   fill: var(--color-border-strong);
 }
@@ -20,4 +32,11 @@
   fill: var(--color-text-subtle);
   font-family: var(--font-sans);
   font-size: var(--font-size-3xs);
+}
+
+.value {
+  fill: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-3xs);
+  font-weight: var(--font-weight-semibold);
 }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import styles from './path.module.css'
 import { Page } from './pages'
 import {
@@ -23,9 +23,11 @@ import { usePath, useDiscoverPath } from '../api/paths'
 import { PathGraph } from '../viz/PathGraph'
 import { LossByHop } from '../viz/LossByHop'
 import { NodeDetailModal } from '../viz/NodeDetailModal'
-import { layoutPath, type VizNode } from '../viz/layout'
-import { parsePivotContext, replacePivotContext } from './pivotContext'
+import { PathHopTable } from '../viz/PathHopTable'
+import { layoutPath, worstPathNode, type VizNode } from '../viz/layout'
+import { parsePivotContext, pivotHref, replacePivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
+import { DateTime } from '../time/DateTime'
 
 function Legend() {
   return (
@@ -59,6 +61,7 @@ export function PathPage() {
   const path = usePath(testId)
   const discover = useDiscoverPath(testId)
   const pathNodes = useMemo(() => (path.data ? layoutPath(path.data).nodes : []), [path.data])
+  const worst = useMemo(() => (path.data ? worstPathNode(path.data) : undefined), [path.data])
   const requestedNodeID =
     pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined
   const selected = requestedNodeID
@@ -122,6 +125,15 @@ export function PathPage() {
     })
   }
 
+  const topologyLink = path.data
+    ? pivotHref('/topology', {
+        ...pivotContext,
+        filters: { ...pivotContext.filters, ...(testId ? { path_test: testId } : {}) },
+        selection: worst ? { kind: 'entity', id: worst.id } : undefined,
+        returnTo: '/path',
+      })
+    : '/topology'
+
   return (
     <Page
       title="Path & Topology"
@@ -176,74 +188,141 @@ export function PathPage() {
           </CardBody>
         </Card>
       ) : (
-        <div className={styles.grid}>
-          <Card className={styles.graphCard}>
-            <CardHeader
-              title={test ? `Path to ${test.target}` : 'Path'}
-              actions={
-                path.data ? (
-                  path.data.destination_reached ? (
-                    <StatusDot tone="success" label="Destination reached" />
+        <>
+          {path.data ? (
+            <section className={styles.triage} aria-label="Path triage summary">
+              <div>
+                <span className={styles.triageLabel}>Selected path</span>
+                <strong>
+                  {test?.name ?? 'Test'} → {path.data.target}
+                </strong>
+                <span>
+                  <Badge tone="neutral">{path.data.mode}</Badge>{' '}
+                  {path.data.destination_reached
+                    ? 'destination reached'
+                    : 'destination not reached'}
+                </span>
+              </div>
+              <div>
+                <span className={styles.triageLabel}>Scope / time</span>
+                <strong>Current tenant · {path.data.trace_count} merged flows</strong>
+                <span>
+                  {pivotContext.from && pivotContext.to ? (
+                    <>
+                      <DateTime value={pivotContext.from} /> – <DateTime value={pivotContext.to} />
+                    </>
                   ) : (
-                    <StatusDot tone="warning" label="Incomplete" />
-                  )
-                ) : null
-              }
-            />
-            <CardBody>
-              {discover.isPending || path.isPending ? (
-                <LoadingState label="Discovering path…" />
-              ) : path.isError ? (
-                <ErrorState description={path.error?.message ?? 'Could not load the path.'} />
-              ) : !path.data ? (
-                <EmptyState
-                  icon="path"
-                  title="No path discovered yet"
-                  description="Run a discovery to map the route to this target."
-                  action={
-                    <Button variant="primary" onClick={runDiscover} disabled={discover.isPending}>
-                      Discover path
+                    'Latest stored discovery'
+                  )}
+                </span>
+              </div>
+              <div>
+                <span className={styles.triageLabel}>Worst hop</span>
+                <strong>
+                  {worst ? `Hop ${worst.ttl} · ${worst.branchLabel}` : 'No responder'}
+                </strong>
+                <span>
+                  {worst
+                    ? `${worst.ip} · ${Math.round(worst.lossRatio * 100)}% loss · ${worst.node?.rtt_avg_ms ?? 0} ms avg`
+                    : 'No hop evidence'}
+                </span>
+              </div>
+              <div>
+                <span className={styles.triageLabel}>Next action</span>
+                <div className={styles.nextActions}>
+                  {worst ? (
+                    <Button size="sm" variant="primary" onClick={() => selectNode(worst)}>
+                      Inspect worst hop
                     </Button>
-                  }
-                  preview={<TopologyPreview />}
-                />
-              ) : (
-                <>
-                  <PathGraph path={path.data} selectedId={selected?.id} onSelect={selectNode} />
-                  <Legend />
-                </>
-              )}
-            </CardBody>
-          </Card>
+                  ) : null}
+                  <Link to={topologyLink}>Open in Topology</Link>
+                </div>
+                <span>Review evidence first; path analysis never changes the network.</span>
+              </div>
+            </section>
+          ) : null}
 
-          <div className={styles.side}>
-            {path.data ? (
-              <>
-                <LossByHop path={path.data} />
-                <Card>
-                  <CardBody>
-                    <dl className={styles.summary}>
-                      <div>
-                        <dt>Hops</dt>
-                        <dd>{path.data.hops.length}</dd>
-                      </div>
-                      <div>
-                        <dt>Flows merged</dt>
-                        <dd>{path.data.trace_count}</dd>
-                      </div>
-                      <div>
-                        <dt>Mode</dt>
-                        <dd>
-                          <Badge tone="neutral">{path.data.mode}</Badge>
-                        </dd>
-                      </div>
-                    </dl>
-                  </CardBody>
-                </Card>
-              </>
-            ) : null}
+          <div className={styles.grid}>
+            <Card className={styles.graphCard}>
+              <CardHeader
+                title={test ? `Path to ${test.target}` : 'Path'}
+                actions={
+                  path.data ? (
+                    path.data.destination_reached ? (
+                      <StatusDot tone="success" label="Destination reached" />
+                    ) : (
+                      <StatusDot tone="warning" label="Incomplete" />
+                    )
+                  ) : null
+                }
+              />
+              <CardBody>
+                {discover.isPending || path.isPending ? (
+                  <LoadingState label="Discovering path…" />
+                ) : path.isError ? (
+                  <ErrorState description={path.error?.message ?? 'Could not load the path.'} />
+                ) : !path.data ? (
+                  <EmptyState
+                    icon="path"
+                    title="No path discovered yet"
+                    description="Run a discovery to map the route to this target."
+                    action={
+                      <Button variant="primary" onClick={runDiscover} disabled={discover.isPending}>
+                        Discover path
+                      </Button>
+                    }
+                    preview={<TopologyPreview />}
+                  />
+                ) : (
+                  <>
+                    <PathGraph path={path.data} selectedId={selected?.id} onSelect={selectNode} />
+                    <Legend />
+                  </>
+                )}
+              </CardBody>
+            </Card>
+
+            <div className={styles.side}>
+              {path.data ? (
+                <>
+                  <LossByHop path={path.data} selectedId={selected?.id} onSelect={selectNode} />
+                  <Card>
+                    <CardBody>
+                      <dl className={styles.summary}>
+                        <div>
+                          <dt>Hops</dt>
+                          <dd>{path.data.hops.length}</dd>
+                        </div>
+                        <div>
+                          <dt>Responders</dt>
+                          <dd>{pathNodes.length - 1}</dd>
+                        </div>
+                        <div>
+                          <dt>Selected</dt>
+                          <dd>
+                            {selected ? `${selected.branchLabel} · hop ${selected.ttl}` : 'none'}
+                          </dd>
+                        </div>
+                      </dl>
+                    </CardBody>
+                  </Card>
+                </>
+              ) : null}
+            </div>
           </div>
-        </div>
+
+          {path.data ? (
+            <Card>
+              <CardHeader
+                title="Exact hop data"
+                description="Search and select every responder, including branches summarized out of the graph viewport."
+              />
+              <CardBody>
+                <PathHopTable path={path.data} selectedId={selected?.id} onSelect={selectNode} />
+              </CardBody>
+            </Card>
+          ) : null}
+        </>
       )}
 
       <ExplainView

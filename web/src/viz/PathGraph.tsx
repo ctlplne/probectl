@@ -1,14 +1,12 @@
 import { useMemo, useState, type KeyboardEvent } from 'react'
 import styles from './PathGraph.module.css'
-import { layoutPath, lossTone, NODE_H, NODE_W, type VizNode } from './layout'
+import { layoutPath, lossTone, NODE_H, NODE_W, summarizePathForGraph, type VizNode } from './layout'
 import type { Path } from '../api/paths'
 import { useI18n } from '../i18n/useI18n'
 import { formatPercentValue, formatUnit } from '../i18n/number'
 
 function fmtMs(ms: number, locale: string) {
-  return ms >= 0
-    ? formatUnit(ms, 'ms', locale, { maximumFractionDigits: ms < 10 ? 1 : 0 })
-    : '—'
+  return ms >= 0 ? formatUnit(ms, 'ms', locale, { maximumFractionDigits: ms < 10 ? 1 : 0 }) : '—'
 }
 function fmtLoss(loss: number, locale: string) {
   return formatPercentValue(loss * 100, locale, { maximumFractionDigits: 0 })
@@ -16,9 +14,9 @@ function fmtLoss(loss: number, locale: string) {
 
 /**
  * PathGraph renders a merged multi-path traceroute as an interactive, dark-native
- * SVG: TTL columns, ECMP branches, links colored by loss, MPLS markers, hover/
- * focus tooltips, and keyboard-operable nodes that open a drill-down. A
- * visually-hidden table mirrors the data for assistive tech.
+ * SVG: TTL columns, stable ECMP branch identities, inline loss/latency/MPLS,
+ * links colored by loss, focus tooltips, and keyboard-operable selection. Dense
+ * paths deliberately summarize only the SVG; PathHopTable keeps every exact row.
  */
 export function PathGraph({
   path,
@@ -30,7 +28,11 @@ export function PathGraph({
   onSelect: (node: VizNode) => void
 }) {
   const { locale } = useI18n()
-  const { nodes, edges, width, height } = useMemo(() => layoutPath(path), [path])
+  const summarized = useMemo(() => summarizePathForGraph(path, selectedId), [path, selectedId])
+  const { nodes, edges, width, height } = useMemo(
+    () => layoutPath(summarized.path, summarized.branchLabels),
+    [summarized],
+  )
   const [activeId, setActiveId] = useState<string | null>(null)
   const active = nodes.find((n) => n.id === activeId)
 
@@ -79,10 +81,9 @@ export function PathGraph({
               .join(' ')
             const ariaLabel = n.isSource
               ? 'Source'
-              : `Hop ${n.ttl}, ${n.ip}${n.isDestination ? ' (destination)' : ''}, ${fmtLoss(
-                  n.lossRatio,
-                  locale,
-                )} loss, ${fmtMs(n.node?.rtt_avg_ms ?? -1, locale)}`
+              : `Hop ${n.ttl}, ${n.branchLabel}, ${n.ip}${
+                  n.isDestination ? ' (destination)' : ''
+                }, ${fmtLoss(n.lossRatio, locale)} loss, ${fmtMs(n.node?.rtt_avg_ms ?? -1, locale)}`
             return (
               <g
                 key={n.id}
@@ -90,6 +91,7 @@ export function PathGraph({
                 transform={`translate(${n.x} ${n.y})`}
                 tabIndex={n.isSource ? -1 : 0}
                 role={n.isSource ? undefined : 'button'}
+                aria-pressed={n.isSource ? undefined : n.id === selectedId}
                 aria-label={n.isSource ? undefined : ariaLabel}
                 onMouseEnter={() => setActiveId(n.id)}
                 onMouseLeave={() => setActiveId((id) => (id === n.id ? null : id))}
@@ -99,18 +101,18 @@ export function PathGraph({
                 onKeyDown={(e) => !n.isSource && activate(n, e)}
               >
                 <rect className={styles.box} width={NODE_W} height={NODE_H} rx={8} />
-                <text className={styles.ip} x={12} y={20}>
+                <text className={styles.ip} x={12} y={18}>
                   {n.label}
                 </text>
                 {!n.isSource ? (
                   <text className={styles.meta} x={12} y={36}>
-                    {fmtMs(n.node?.rtt_avg_ms ?? -1, locale)}
+                    {n.branchLabel} · {fmtMs(n.node?.rtt_avg_ms ?? -1, locale)}
                     {n.lossRatio > 0 ? ` · ${fmtLoss(n.lossRatio, locale)} loss` : ''}
                   </text>
                 ) : null}
                 {n.node?.mpls && n.node.mpls.length > 0 ? (
-                  <text className={styles.mpls} x={NODE_W - 10} y={16} textAnchor="end">
-                    MPLS
+                  <text className={styles.mpls} x={12} y={53}>
+                    MPLS {n.node.mpls.map((label) => label.label).join(' / ')}
                   </text>
                 ) : null}
               </g>
@@ -148,34 +150,13 @@ export function PathGraph({
           </div>
         ) : null}
       </div>
-
-      {/* Accessible, text alternative to the graph. */}
-      <table className="sr-only">
-        <caption>Path to {path.target} by hop</caption>
-        <thead>
-          <tr>
-            <th scope="col">Hop</th>
-            <th scope="col">Responder</th>
-            <th scope="col">Loss</th>
-            <th scope="col">Avg RTT</th>
-          </tr>
-        </thead>
-        <tbody>
-          {path.hops.map((hop) =>
-            hop.nodes.map((node) => (
-              <tr key={`${hop.ttl}:${node.ip}`}>
-                <td>{hop.ttl}</td>
-                <td>
-                  {node.ip}
-                  {node.ip === path.target_ip ? ' (destination)' : ''}
-                </td>
-                <td>{fmtLoss(node.loss_ratio, locale)}</td>
-                <td>{fmtMs(node.rtt_avg_ms, locale)}</td>
-              </tr>
-            )),
-          )}
-        </tbody>
-      </table>
+      {summarized.aggregated ? (
+        <p className={styles.coverage} role="note" aria-label="Path graph coverage">
+          Graph shows {summarized.visibleNodes} representative responders of {summarized.totalNodes}
+          . Lossiest and highest-latency branches are prioritized; every exact responder remains
+          searchable in the hop table.
+        </p>
+      ) : null}
     </div>
   )
 }

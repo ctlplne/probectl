@@ -18,7 +18,7 @@ export function NodeDetailModal({ node, onClose }: { node: VizNode | null; onClo
     <Modal
       open={!!node && !node.isSource}
       onClose={onClose}
-      title={node ? `Hop ${node.ttl} · ${node.ip}` : ''}
+      title={node ? `Hop ${node.ttl} · ${node.branchLabel} · ${node.ip}` : ''}
     >
       {n ? (
         <dl className={styles.detail}>
@@ -30,10 +30,13 @@ export function NodeDetailModal({ node, onClose }: { node: VizNode | null; onClo
             </dd>
           </div>
           <div>
+            <dt>ECMP branch</dt>
+            <dd>{node?.branchLabel}</dd>
+          </div>
+          <div>
             <dt>RTT (min / avg / max)</dt>
             <dd>
-              {ms(n.rtt_min_ms, locale)} / {ms(n.rtt_avg_ms, locale)} /{' '}
-              {ms(n.rtt_max_ms, locale)}
+              {ms(n.rtt_min_ms, locale)} / {ms(n.rtt_avg_ms, locale)} / {ms(n.rtt_max_ms, locale)}
             </dd>
           </div>
           <div>

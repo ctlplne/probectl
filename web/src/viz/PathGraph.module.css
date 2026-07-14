@@ -6,7 +6,7 @@
   position: relative;
   width: 100%;
   overflow: auto;
-  border: 1px solid var(--color-border);
+  border: var(--border-width-thin) solid var(--color-border);
   border-radius: var(--radius-lg);
   background:
     radial-gradient(circle at 1px 1px, var(--color-border) 1px, transparent 0) 0 0 / 24px 24px,
@@ -103,10 +103,20 @@
 }
 .mpls {
   fill: var(--color-info);
-  font-family: var(--font-sans);
+  font-family: var(--font-mono);
   font-size: var(--font-size-3xs);
   font-weight: var(--font-weight-semibold);
   letter-spacing: var(--tracking-wide);
+}
+
+.coverage {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-sm);
 }
 
 /* Hover/focus tooltip */

@@ -7,22 +7,45 @@ import { jsonResponse } from './fetchStub'
 import { stubPathFetch } from './pathFixture'
 
 describe('path visualization', () => {
-  test('renders the path, marks the lossy hop, and opens the drill-down', async () => {
+  test('shows ECMP evidence inline and synchronizes keyboard selection', async () => {
     const user = userEvent.setup()
     stubPathFetch()
     renderApp('/path')
 
     await screen.findByRole('heading', { name: /path & topology/i })
-    await screen.findByRole('group', { name: /network path to 9\.9\.9\.9/i })
+    const graph = await screen.findByRole('group', { name: /network path to 9\.9\.9\.9/i })
+
+    // Branch identity, loss, latency, and MPLS evidence are visible before drill-down.
+    expect(within(graph).getByText(/Branch 1.*12 ms.*66% loss/i)).toBeInTheDocument()
+    expect(within(graph).getByText(/MPLS.*16001/i)).toBeInTheDocument()
 
     // The lossy ECMP branch is a focusable node whose accessible name states the loss.
-    const lossy = await screen.findByRole('button', { name: /10\.0\.0\.2.*66% loss/i })
+    const lossy = within(graph).getByRole('button', {
+      name: /hop 2, branch 1, 10\.0\.0\.2.*66% loss/i,
+    })
     lossy.focus()
     expect(lossy).toHaveFocus()
 
-    // Keyboard-operable: Enter opens the per-hop drill-down with its MPLS labels.
+    // Keyboard-operable: Enter selects the branch in every view and opens its details.
     await user.keyboard('{Enter}')
-    const dialog = await screen.findByRole('dialog', { name: /hop 2 .*10\.0\.0\.2/i })
+    expect(lossy).toHaveAttribute('aria-pressed', 'true')
+
+    const lossChart = screen.getByRole('group', { name: /packet loss by hop/i })
+    expect(
+      within(lossChart).getByRole('button', { name: /hop 2, branch 1, 10\.0\.0\.2/i }),
+    ).toHaveAttribute('aria-pressed', 'true')
+
+    const table = screen.getByRole('table', { name: /path to 9\.9\.9\.9 by hop/i })
+    const selectedRow = within(table).getByText('10.0.0.2').closest('tr')
+    expect(selectedRow).not.toBeNull()
+    expect(within(selectedRow!).getByRole('button', { name: 'Selected' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    const dialog = await screen.findByRole('dialog', {
+      name: /hop 2 .*branch 1.*10\.0\.0\.2/i,
+    })
     expect(within(dialog).getByText(/16001/)).toBeInTheDocument()
   })
 
@@ -31,7 +54,9 @@ describe('path visualization', () => {
     renderApp('/path')
     const table = await screen.findByRole('table', { name: /path to 9\.9\.9\.9 by hop/i })
     expect(within(table).getByText('10.0.0.2')).toBeInTheDocument()
-    expect(within(table).getByText('9.9.9.9 (destination)')).toBeInTheDocument()
+    const destinationRow = within(table).getByText('9.9.9.9').closest('tr')
+    expect(destinationRow).not.toBeNull()
+    expect(within(destinationRow!).getByText('destination')).toBeInTheDocument()
   })
 
   test('shows an empty state when no path has been discovered', async () => {
