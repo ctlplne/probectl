@@ -265,6 +265,9 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
 function Dashboard({ operator }: { operator: Operator }) {
   const { t } = useI18n();
   const [license, setLicense] = useState<LicenseInfo | null>(null);
+  const [fleetExceptions, setFleetExceptions] = useState(0);
+  const [pendingBreakGlass, setPendingBreakGlass] = useState(0);
+  const [usageAvailable, setUsageAvailable] = useState(false);
   useEffect(() => {
     api<LicenseInfo>("GET", "/provider/v1/license")
       .then(setLicense)
@@ -273,47 +276,236 @@ function Dashboard({ operator }: { operator: Operator }) {
   const readOnly = license?.state === "read_only";
 
   return (
-    <>
-      <h2 className={styles.title}>{t("provider.dashboard.title")}</h2>
-      {license ? (
-        <p className={styles.note}>
-          {t("provider.license.prefix")} <strong>{license.tier}</strong> ·{" "}
-          {license.state}
-          {license.pricing_model ? ` · ${license.pricing_model}` : null}
-          {license.tenant_band ? (
-            <>
-              {" "}
-              ·{" "}
-              {t("provider.license.tenantBand", { band: license.tenant_band })}
-            </>
-          ) : null}
-          {license.state === "grace"
-            ? ` — ${t("provider.license.grace")}`
-            : null}
-          {readOnly ? ` — ${t("provider.license.readOnly")}` : null}
-        </p>
-      ) : null}
-      <TenantsCard readOnly={readOnly} api={api} />
-      <FleetCard />
-      <UsageCard isAdmin={operator.role === "admin"} readOnly={readOnly} />
-      <FairnessCard isAdmin={operator.role === "admin"} readOnly={readOnly} />
-      <GovernanceCard isAdmin={operator.role === "admin"} readOnly={readOnly} />
-      <BreakGlassCard />
-      {operator.role === "admin" ? <OperatorsCard readOnly={readOnly} /> : null}
-    </>
+    <div className={styles.dashboard}>
+      <div className={styles.dashboardIntro}>
+        <h2 className={styles.title}>{t("provider.dashboard.title")}</h2>
+        <p className={styles.note}>{t("provider.dashboard.subtitle")}</p>
+        {license ? (
+          <p
+            className={styles.licenseState}
+            role={readOnly ? "status" : undefined}
+          >
+            {t("provider.license.prefix")} <strong>{license.tier}</strong> ·{" "}
+            {license.state}
+            {license.pricing_model ? ` · ${license.pricing_model}` : null}
+            {license.tenant_band ? (
+              <>
+                {" "}
+                ·{" "}
+                {t("provider.license.tenantBand", {
+                  band: license.tenant_band,
+                })}
+              </>
+            ) : null}
+            {license.state === "grace"
+              ? ` — ${t("provider.license.grace")}`
+              : null}
+            {readOnly ? ` — ${t("provider.license.readOnly")}` : null}
+          </p>
+        ) : null}
+      </div>
+
+      <ProviderTaskNavigation
+        fleetExceptions={fleetExceptions}
+        pendingBreakGlass={pendingBreakGlass}
+        usageAvailable={usageAvailable}
+        isAdmin={operator.role === "admin"}
+      />
+
+      <div className={styles.taskStack}>
+        <div
+          id="provider-exceptions"
+          className={styles.taskSection}
+          tabIndex={-1}
+        >
+          <FleetCard onExceptionsChange={setFleetExceptions} />
+        </div>
+        <div id="provider-tenants" className={styles.taskSection} tabIndex={-1}>
+          <TenantsCard readOnly={readOnly} api={api} />
+        </div>
+        <div id="provider-usage" className={styles.taskSection} tabIndex={-1}>
+          <UsageCard
+            isAdmin={operator.role === "admin"}
+            readOnly={readOnly}
+            onAvailability={setUsageAvailable}
+          />
+        </div>
+        <div
+          id="provider-fairness"
+          className={styles.taskSection}
+          tabIndex={-1}
+        >
+          <FairnessCard
+            isAdmin={operator.role === "admin"}
+            readOnly={readOnly}
+          />
+        </div>
+        <div
+          id="provider-breakglass"
+          className={styles.taskSection}
+          tabIndex={-1}
+        >
+          <BreakGlassCard
+            readOnly={readOnly}
+            onPendingChange={setPendingBreakGlass}
+          />
+        </div>
+        <div
+          id="provider-governance"
+          className={styles.taskSection}
+          tabIndex={-1}
+        >
+          <GovernanceCard
+            isAdmin={operator.role === "admin"}
+            readOnly={readOnly}
+          />
+        </div>
+        {operator.role === "admin" ? (
+          <div
+            id="provider-operators"
+            className={styles.taskSection}
+            tabIndex={-1}
+          >
+            <OperatorsCard readOnly={readOnly} />
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
-function FleetCard() {
+function ProviderTaskNavigation({
+  fleetExceptions,
+  pendingBreakGlass,
+  usageAvailable,
+  isAdmin,
+}: {
+  fleetExceptions: number;
+  pendingBreakGlass: number;
+  usageAvailable: boolean;
+  isAdmin: boolean;
+}) {
+  const { t } = useI18n();
+  const tasks = [
+    {
+      rank: "01",
+      href: "#provider-exceptions",
+      key: "x",
+      label: t("provider.tasks.exceptions", { count: fleetExceptions }),
+    },
+    {
+      rank: "02",
+      href: "#provider-tenants",
+      key: "t",
+      label: t("provider.tasks.tenants"),
+    },
+    ...(usageAvailable
+      ? [
+          {
+            rank: "03",
+            href: "#provider-usage",
+            key: "u",
+            label: t("provider.tasks.usage"),
+          },
+        ]
+      : []),
+    {
+      rank: "04",
+      href: "#provider-fairness",
+      key: "f",
+      label: t("provider.tasks.fairness"),
+    },
+    {
+      rank: "05",
+      href: "#provider-breakglass",
+      key: "b",
+      label: t("provider.tasks.breakglass", { count: pendingBreakGlass }),
+    },
+    {
+      rank: "06",
+      href: "#provider-governance",
+      key: "g",
+      label: t("provider.tasks.governance"),
+    },
+    ...(isAdmin
+      ? [
+          {
+            rank: "07",
+            href: "#provider-operators",
+            key: "o",
+            label: t("provider.tasks.operators"),
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <nav className={styles.taskNav} aria-label={t("provider.tasks.label")}>
+      <ol className={styles.taskList}>
+        {tasks.map((task) => (
+          <li key={task.href}>
+            <a
+              className={styles.taskLink}
+              href={task.href}
+              accessKey={task.key}
+              aria-keyshortcuts={`Alt+${task.key.toUpperCase()}`}
+            >
+              <span className={styles.taskRank}>{task.rank}</span>
+              <span>{task.label}</span>
+              <kbd className={styles.taskKey}>{task.key.toUpperCase()}</kbd>
+            </a>
+          </li>
+        ))}
+      </ol>
+      {usageAvailable ? (
+        <a
+          className={styles.exportTask}
+          href="/provider/v1/usage/export?format=csv&rollup=day"
+          download
+          accessKey="e"
+          aria-keyshortcuts="Alt+E"
+        >
+          {t("provider.tasks.export")}
+          <kbd className={styles.taskKey}>E</kbd>
+        </a>
+      ) : null}
+    </nav>
+  );
+}
+
+function FleetCard({
+  onExceptionsChange,
+}: {
+  onExceptionsChange: (count: number) => void;
+}) {
   const [rows, setRows] = useState<FleetRow[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [selected, setSelected] = useState<FleetRow | null>(null);
   useEffect(() => {
     api<{ items: FleetRow[] }>("GET", "/provider/v1/fleet")
-      .then((r) => setRows(r.items ?? []))
+      .then((r) => {
+        const items = [...(r.items ?? [])].sort(
+          (a, b) => fleetExceptionScore(b) - fleetExceptionScore(a),
+        );
+        setRows(items);
+        onExceptionsChange(
+          items.filter((row) => fleetExceptionScore(row) > 0).length,
+        );
+      })
       .catch(() => setFailed(true));
-  }, []);
+  }, [onExceptionsChange]);
 
   const columns: Column<FleetRow>[] = [
+    {
+      key: "priority",
+      header: "Priority",
+      render: (f) =>
+        fleetExceptionScore(f) > 0 ? (
+          <Badge tone="warning">P1 exception</Badge>
+        ) : (
+          <Badge tone="success">Healthy</Badge>
+        ),
+    },
     {
       key: "tenant",
       header: "Tenant",
@@ -353,6 +545,18 @@ function FleetCard() {
           .map(([v, n]) => `${v}×${n}`)
           .join(", ") || "—",
     },
+    {
+      key: "action",
+      header: "Safe next step",
+      render: (f) =>
+        fleetExceptionScore(f) > 0 ? (
+          <Button size="sm" variant="secondary" onClick={() => setSelected(f)}>
+            Triage {f.tenant_slug} exception
+          </Button>
+        ) : (
+          "No action"
+        ),
+    },
   ];
 
   return (
@@ -362,6 +566,21 @@ function FleetCard() {
         description="Agent health per tenant — counts and versions only. Operators hold no implicit access to tenant telemetry; the storage role physically cannot read it."
       />
       <CardBody>
+        {selected ? (
+          <div className={styles.exceptionReceipt} role="status">
+            <strong>
+              {selected.tenant_name} needs provider-level attention.
+            </strong>
+            <span>
+              {selected.agents_stale} stale; {selected.agents_online}/
+              {selected.agents_total} agents online. This metadata-only triage
+              grants no tenant telemetry access. Inspecting tenant data still
+              requires explicit tenant consent, a time-bounded break-glass
+              grant, and a separate provider audit receipt.
+            </span>
+            <a href="#provider-tenants">Continue to tenant lifecycle</a>
+          </div>
+        ) : null}
         {failed ? (
           <ErrorState description="Could not load the fleet view." />
         ) : rows === null ? (
@@ -386,7 +605,21 @@ function FleetCard() {
   );
 }
 
-function BreakGlassCard() {
+function fleetExceptionScore(row: FleetRow): number {
+  return (
+    row.agents_stale * 10 +
+    Math.max(0, row.agents_total - row.agents_online) * 5 +
+    (row.tenant_status === "active" ? 0 : 1)
+  );
+}
+
+function BreakGlassCard({
+  readOnly,
+  onPendingChange,
+}: {
+  readOnly: boolean;
+  onPendingChange: (count: number) => void;
+}) {
   const [grants, setGrants] = useState<GrantRow[] | null>(null);
   const [tenantID, setTenantID] = useState("");
   const [reason, setReason] = useState("");
@@ -395,9 +628,15 @@ function BreakGlassCard() {
 
   const load = useCallback(() => {
     api<{ items: GrantRow[] }>("GET", "/provider/v1/breakglass")
-      .then((r) => setGrants(r.items ?? []))
+      .then((r) => {
+        const items = r.items ?? [];
+        setGrants(items);
+        onPendingChange(
+          items.filter((grant) => grant.state === "pending").length,
+        );
+      })
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [onPendingChange]);
   useEffect(load, [load]);
 
   const request = async (e: React.FormEvent) => {
@@ -448,7 +687,12 @@ function BreakGlassCard() {
       header: "Actions",
       render: (g) =>
         g.state === "active" || g.state === "pending" ? (
-          <Button size="sm" variant="secondary" onClick={() => revoke(g.id)}>
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={readOnly}
+            onClick={() => revoke(g.id)}
+          >
             Revoke
           </Button>
         ) : null,
@@ -462,6 +706,13 @@ function BreakGlassCard() {
         description="The ONLY path to tenant telemetry: explicit, time-bounded, and usable only after the tenant's admin consents. Every access is written to the provider audit stream."
       />
       <CardBody>
+        {readOnly ? (
+          <p className={styles.readOnlyNotice} role="status">
+            Read-only license: requesting or revoking break-glass access is
+            disabled. Existing grants and their separate audit receipts remain
+            visible.
+          </p>
+        ) : null}
         <form className={styles.row} onSubmit={request}>
           <span className={styles.grow}>
             <Field
@@ -469,6 +720,7 @@ function BreakGlassCard() {
               value={tenantID}
               onChange={(e) => setTenantID(e.target.value)}
               required
+              disabled={readOnly}
             />
           </span>
           <span className={styles.grow}>
@@ -477,19 +729,21 @@ function BreakGlassCard() {
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               required
+              disabled={readOnly}
             />
           </span>
           <Select
             label="TTL"
             value={ttl}
             onChange={(e) => setTtl(e.target.value)}
+            disabled={readOnly}
             options={[
               { value: "30", label: "30 minutes" },
               { value: "60", label: "1 hour" },
               { value: "240", label: "4 hours" },
             ]}
           />
-          <Button type="submit" variant="primary">
+          <Button type="submit" variant="primary" disabled={readOnly}>
             Request access
           </Button>
         </form>
@@ -537,9 +791,11 @@ interface UsageRow {
 function UsageCard({
   isAdmin,
   readOnly,
+  onAvailability,
 }: {
   isAdmin: boolean;
   readOnly: boolean;
+  onAvailability: (available: boolean) => void;
 }) {
   const [rows, setRows] = useState<UsageRow[] | null>(null);
   const [enabled, setEnabled] = useState(true);
@@ -551,12 +807,17 @@ function UsageCard({
 
   useEffect(() => {
     api<{ items: UsageRow[] }>("GET", "/provider/v1/usage?rollup=day")
-      .then((r) => setRows(r.items ?? []))
+      .then((r) => {
+        setRows(r.items ?? []);
+        onAvailability(true);
+      })
       .catch((err) => {
-        if (err instanceof NotEnabledError) setEnabled(false);
-        else setError((err as Error).message);
+        if (err instanceof NotEnabledError) {
+          setEnabled(false);
+          onAvailability(false);
+        } else setError((err as Error).message);
       });
-  }, []);
+  }, [onAvailability]);
 
   if (!enabled) return null; // metering not licensed: no lockware, no card
 

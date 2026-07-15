@@ -235,13 +235,17 @@ unsupported capability, and unavailable rollout evidence remain distinct honest 
 | Datadog NPM | 3 | 3 | 4 | 4 | 5 | 3 | 3 | 5 | 5 | 4 | 39 |
 | Grafana | 2 | 3 | 5 | 2 | 4 | 2 | 2 | 5 | 5 | 5 | 35 |
 | Auvik | 5 | 5 | 3 | 5 | 4 | 1 | 5 | 5 | 5 | 3 | 41 |
-| **probectl today** | **4** | **4** | **2** | **3** | **3** | **2** | **4** | **3** | **3** | **2** | **30** |
+| **probectl today** | **4** | **5** | **2** | **3** | **4** | **2** | **5** | **4** | **5** | **5** | **39** |
 
-probectl's provider console is correctly outside the tenant shell, says that operators have
-no implicit telemetry access, and puts inventory, isolation/residency, fleet, usage export,
-fairness, governance, and break-glass on one surface. The present page is a long stack of
-independent cards, lacks task navigation and keyboard commands, and still contains a branding
-card scheduled for removal by W11; therefore it is not yet the crisp MSP demo moment.
+probectl's provider console remains outside the tenant shell under a sticky probectl
+**PROVIDER PLANE** banner. Its one-page task rail now ranks fleet exceptions, lifecycle plus
+isolation/residency, usage/showback, fairness, pending break-glass, governance, and operators;
+every task has a keyboard shortcut. After MFA, J6 triages an unhealthy tenant, provisions a
+siloed EU tenant, and opens usage export in eight interactions and under two active minutes.
+The triage receipt uses metadata only and repeats that tenant telemetry still requires
+consented, time-bounded break-glass plus a separate provider audit receipt. License expiry
+leaves reads visible and disables every mutation. Per-tenant white-label controls remain
+absent: resale stays under the probectl product identity.
 
 ## probectl-today interaction baseline
 
@@ -257,12 +261,14 @@ tenant scope and returns no comparable elapsed value for an incomplete outcome.
 | J3 | Ask textarea + submit, repeated for ten questions; manual plane pages for unsupported answers | >=20 | ~480 | 10–20m | only about 3/10 are discoverable through one query surface without docs |
 | J4 | select/run path -> inspect hop -> manually open Topology -> select/simulate -> type historical time | 5–7 | 16 | 2–4m | compare, incident overlay, context-preserving pivot, and share absent |
 | J5 | command palette -> Admin -> Needs action -> safe-action review | 3 | 0 | 5–30s | complete: stale and skewed rows expose reasons, rollout state, and human-gated guidance |
-| J6 | provider MFA sign-in -> scan fleet -> choose siloed -> enter residency/slug/name -> provision -> export usage | 10 | ~32 + credentials | 2–4m | page-stack scanning, no task nav/palette, no guided fleet action |
+| J6 | after MFA -> triage exception -> provision task -> siloed + EU + slug/name -> provision -> direct usage export | 8 | 16 | 30–120s | complete: ranked keyboard task rail, metadata-only triage, explicit isolation/residency, direct showback |
 
 Counting rules: opening the command palette plus executing a command is one compound keyboard
 interaction in the table; each committed field/select and each submit/copy/navigation is one;
 reading and scrolling are not counted. J1 uses the product defaults except that the
 `app.example.test` placeholder must be replaced before the result can be called real.
+J6 begins after mandatory MFA so passwords and authenticator codes are neither replayed nor
+counted as workflow keystrokes.
 
 ## Gap decomposition decisions
 

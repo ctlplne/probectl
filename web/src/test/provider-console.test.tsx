@@ -322,7 +322,7 @@ describe('provider console (S-T1)', () => {
     const stub = providerStub()
     vi.stubGlobal('fetch', stub)
     renderApp('/provider')
-    expect(await screen.findByText('Fairness')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Fairness' })).toBeInTheDocument()
     // tn_1 shows shed units + query rejections; tn_2 is unbounded.
     expect(await screen.findByText('40')).toBeInTheDocument()
     expect(screen.getByText('13')).toBeInTheDocument()
@@ -404,6 +404,62 @@ describe('provider console (S-T1)', () => {
     expect(await screen.findByText(/READ-ONLY: lifecycle changes are blocked/i)).toBeInTheDocument()
     const provision = await screen.findByRole('button', { name: /provision/i })
     expect(provision).toBeDisabled()
+    expect(screen.getByRole('button', { name: /request access/i })).toBeDisabled()
+    for (const revoke of screen.getAllByRole('button', { name: /revoke/i })) {
+      expect(revoke).toBeDisabled()
+    }
+    expect(screen.getByRole('button', { name: /save quotas/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /save policy/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^create$/i })).toBeDisabled()
+    for (const lifecycle of screen.getAllByRole('button', {
+      name: /suspend|resume|offboard/i,
+    })) {
+      expect(lifecycle).toBeDisabled()
+    }
+  })
+
+  test('one-page task rail ranks exceptions, lifecycle, usage, fairness, break-glass, and governance', async () => {
+    const stub = providerStub()
+    vi.stubGlobal('fetch', stub)
+    renderApp('/provider')
+
+    const nav = await screen.findByRole('navigation', { name: 'Provider tasks' })
+    const taskLinks = within(nav).getAllByRole('link')
+    expect(taskLinks.map((link) => link.textContent)).toEqual([
+      expect.stringContaining('01Fleet exceptions'),
+      expect.stringContaining('02Provision & lifecycle'),
+      expect.stringContaining('03Usage & showback'),
+      expect.stringContaining('04Fairness'),
+      expect.stringContaining('05Break-glass'),
+      expect.stringContaining('06Governance'),
+      expect.stringContaining('07Operators'),
+      expect.stringContaining('Export usage CSV'),
+    ])
+    expect(within(nav).getByRole('link', { name: /fleet exceptions/i })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Alt+X',
+    )
+    expect(within(nav).getByRole('link', { name: /export usage csv/i })).toHaveAttribute(
+      'href',
+      '/provider/v1/usage/export?format=csv&rollup=day',
+    )
+
+    const fleetTable = await screen.findByRole('table', { name: /fleet across tenants/i })
+    const rows = within(fleetTable).getAllByRole('row')
+    expect(within(rows[1]).getByText('acme')).toBeInTheDocument()
+    await userEvent.click(within(rows[1]).getByRole('button', { name: /triage acme exception/i }))
+    expect(
+      await screen.findByText(/metadata-only triage grants no tenant telemetry access/i),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/separate provider audit receipt/i)).toBeInTheDocument()
+    expect(screen.getByText(/break-glass \(1 pending\)/i)).toBeInTheDocument()
+
+    const calls = (stub as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([url]) =>
+      String(url),
+    )
+    expect(calls.some((url) => /telemetry|\/v1\/agents/.test(url))).toBe(false)
+    expect(screen.getByText(/probectl · provider plane/i)).toBeInTheDocument()
+    expect(screen.queryByLabelText(/brand|logo|white.?label|color/i)).toBeNull()
   })
 
   test('S-T3 showback: month-to-date usage per tenant + the export feed links', async () => {

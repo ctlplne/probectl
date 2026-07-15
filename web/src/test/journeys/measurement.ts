@@ -156,21 +156,23 @@ const baselineFixtures: BaselineFixture[] = [
   {
     journey: 'J6',
     name: 'MSP multi-tenant operations under probectl',
-    pointer: 10,
+    pointer: 8,
     keyboard: 0,
-    typed: 32,
+    typed: 16,
     contextBreaks: 0,
     activeTime: {
-      min_ms: 2 * 60_000,
-      max_ms: 4 * 60_000,
-      basis: 'provider sign-in, fleet scan, siloed provisioning, and usage export proxy',
+      min_ms: 30_000,
+      max_ms: 120_000,
+      basis:
+        'after MFA: metadata-only exception triage, siloed provisioning, and direct usage export',
     },
     outcome: {
       status: 'complete',
       evidence: [
-        'provider fleet table identifies unhealthy tenants',
-        'tenant provisioning accepts isolation and residency',
-        'usage CSV and JSONL exports are linked',
+        'ranked task rail identifies and triages fleet exceptions without implicit telemetry access',
+        'tenant provisioning accepts siloed isolation and explicit EU residency',
+        'usage CSV is directly reachable and the complete workflow stays within eight interactions',
+        'provider privilege banner, keyboard shortcuts, break-glass consent, and separate audit constraints stay visible',
       ],
     },
   },

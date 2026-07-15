@@ -103,21 +103,22 @@
     {
       "journey": "J6",
       "name": "MSP multi-tenant operations under probectl",
-      "pointer_interactions": 10,
+      "pointer_interactions": 8,
       "keyboard_interactions": 0,
-      "typed_characters": 32,
+      "typed_characters": 16,
       "context_breaks": 0,
       "active_time_proxy": {
-        "min_ms": 120000,
-        "max_ms": 240000,
-        "basis": "provider sign-in, fleet scan, siloed provisioning, and usage export proxy"
+        "min_ms": 30000,
+        "max_ms": 120000,
+        "basis": "after MFA: metadata-only exception triage, siloed provisioning, and direct usage export"
       },
       "outcome": {
         "status": "complete",
         "evidence": [
-          "provider fleet table identifies unhealthy tenants",
-          "tenant provisioning accepts isolation and residency",
-          "usage CSV and JSONL exports are linked"
+          "ranked task rail identifies and triages fleet exceptions without implicit telemetry access",
+          "tenant provisioning accepts siloed isolation and explicit EU residency",
+          "usage CSV is directly reachable and the complete workflow stays within eight interactions",
+          "provider privilege banner, keyboard shortcuts, break-glass consent, and separate audit constraints stay visible"
         ]
       }
     }

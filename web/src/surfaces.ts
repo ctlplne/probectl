@@ -341,12 +341,16 @@ export const SURFACES: SurfaceDecl[] = [
   // The provider/operator console (ee/) is deliberately OFF the tenant nav: a
   // separate privilege domain, hidden when unlicensed (the API 404s).
   {
-    capability: 'Provider console: tenant lifecycle, fleet, break-glass (operators)',
+    capability: 'Provider console: ranked MSP operations, lifecycle, showback, and break-glass',
     featureIds: ['F51', 'F53'],
     sprint: 'S-T1',
     kind: 'native',
     route: '/provider',
     offNav: true,
+    evidence: [
+      'file:ee/web/provider/ProviderConsole.tsx',
+      'file:web/src/test/journeys/msp-ops.test.tsx',
+    ],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
 

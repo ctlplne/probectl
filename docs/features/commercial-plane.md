@@ -87,6 +87,28 @@ When the provider plane is not licensed, its routes return a plain *not found* â
 the feature is *hidden*, not locked behind an upsell wall. Think of the door not
 existing in that build, rather than a locked door with a sales message behind it.
 
+### One-page operator workflow
+
+After mandatory MFA, the provider console is a single ranked operations page,
+not a tenant dashboard and not a stack of unrelated settings. A sticky task rail
+keeps these jobs in operational order: fleet exceptions; tenant provisioning and
+lifecycle (including isolation and residency); usage/showback; fairness;
+pending break-glass; governance; and operator separation of duties. Each task
+has a visible keyboard shortcut, and the usage CSV is directly reachable from
+the rail.
+
+Fleet exception triage uses aggregate registry metadata only: online/stale
+counts, versions, and tenant lifecycle status. Opening its guidance performs no
+API mutation and grants no tenant telemetry access. If tenant data is genuinely
+needed, the operator must still request the explicit, consented, time-bounded
+break-glass flow below; every read writes to the separate provider audit stream
+before data is returned.
+
+License expiry keeps every operational receipt readable but disables every
+mutation on this page: provision/suspend/resume/offboard, quotas, fairness,
+governance, operator creation, and break-glass request/revoke. Usage export and
+other reads remain available; telemetry ingestion is never interrupted.
+
 ### Break-glass: the only path to tenant telemetry
 
 Since operators have no standing access, "break-glass" is the one narrow,
