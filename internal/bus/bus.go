@@ -19,14 +19,11 @@ import (
 const NetworkResultsTopic = "probectl.network.results"
 
 // BGPEventsTopic carries routing-security signals from the BGP analyzer bridge
-// (S14), tenant-tagged via the message key.
+// (S14), tenant-tagged via the message key. BGP intentionally has no dead-letter
+// topic: a correlation failure is returned to the bus so the source offset stays
+// uncommitted and Kafka redelivers the event. Declare a BGP DLQ only alongside a
+// real bounded-retry producer and replay consumer.
 const BGPEventsTopic = "probectl.bgp.events"
-
-// DeadLetterBGPTopic is reserved for a future BGP bounded-retry producer. The
-// current incident consumer returns correlation errors so Kafka leaves the
-// source offset uncommitted; until a real producer publishes this topic, the
-// replay registry must reject it.
-const DeadLetterBGPTopic = "probectl.deadletter.bgp"
 
 // EBPFFlowsTopic carries L3/L4 flow + service-edge batches from the eBPF host
 // agent (S20), tenant-tagged via the message key. Payload: ebpfv1.FlowBatch.

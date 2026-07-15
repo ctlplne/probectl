@@ -18,7 +18,6 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	bgpv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/bgp/v1"
 	"github.com/imfeelingtheagi/probectl/internal/incident"
-	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 )
 
 func TestSignalFromAlert(t *testing.T) {
@@ -81,6 +80,9 @@ func TestBGPKindAndSeverity(t *testing.T) {
 	}
 }
 
+// Returning the correlation error is the BGP durability contract: Kafka keeps
+// the source offset uncommitted and redelivers the event instead of sending it
+// to a dead-letter topic.
 func TestBGPIncidentConsumerReturnsCorrelatorError(t *testing.T) {
 	wantErr := errors.New("incident store down")
 	c := incident.NewCorrelator(failingIncidentStore{err: wantErr}, time.Minute, intelTestLog())
@@ -103,9 +105,6 @@ func TestBGPIncidentConsumerReturnsCorrelatorError(t *testing.T) {
 	}, "")
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("handleLane error = %v, want wrapping %v", err, wantErr)
-	}
-	if src, ok := pipeline.SourceTopicFor(bus.DeadLetterBGPTopic); ok {
-		t.Fatalf("BGP correlation failures leave the source offset uncommitted, so %s must not be replayable without a producer; got source %s", bus.DeadLetterBGPTopic, src)
 	}
 }
 

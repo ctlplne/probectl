@@ -248,18 +248,3 @@ func TestReplaySourceMapping(t *testing.T) {
 		}
 	}
 }
-
-func TestReplayRejectsBGPTopicUntilProducerExists(t *testing.T) {
-	if src, ok := SourceTopicFor(bus.DeadLetterBGPTopic); ok {
-		t.Fatalf("BGP DLQ mapped to %q, but BGP has no DLQ producer yet", src)
-	}
-	for _, topic := range ReplayableTopics() {
-		if topic == bus.DeadLetterBGPTopic {
-			t.Fatalf("ReplayableTopics() includes %q without a BGP DLQ producer", bus.DeadLetterBGPTopic)
-		}
-	}
-	r := NewDeadLetterReplayer(bus.NewMemory(), testLogger())
-	if _, err := r.Replay(context.Background(), ReplayConfig{DLQTopic: bus.DeadLetterBGPTopic}); err == nil {
-		t.Fatalf("Replay(%q) must fail closed until BGP publishes a real DLQ", bus.DeadLetterBGPTopic)
-	}
-}

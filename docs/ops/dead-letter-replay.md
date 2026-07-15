@@ -28,8 +28,9 @@ underlying store has recovered (ARCH-001).
 
 `probectl.deadletter.bgp` is intentionally not listed: the BGP incident
 consumer currently leaves failed source messages uncommitted instead of
-publishing a bounded-retry DLQ. `replay-deadletter` rejects that topic until a
-real BGP DLQ producer exists.
+publishing a bounded-retry DLQ. No BGP dead-letter topic constant is declared,
+and `replay-deadletter` rejects that topic unless a real producer and replay
+consumer are implemented together.
 
 ## Procedure
 

@@ -12,17 +12,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 )
 
-func TestReplayDeadLetterRejectsBGPTopicWithoutProducer(t *testing.T) {
+func TestReplayDeadLetterRejectsUnknownTopic(t *testing.T) {
+	const unknownTopic = "probectl.deadletter.unwired"
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	err := runReplayDeadLetter(&config.Config{}, log, []string{"--topic", bus.DeadLetterBGPTopic})
+	err := runReplayDeadLetter(&config.Config{}, log, []string{"--topic", unknownTopic})
 	if err == nil {
-		t.Fatalf("replay-deadletter accepted %q, but BGP has no DLQ producer", bus.DeadLetterBGPTopic)
+		t.Fatalf("replay-deadletter accepted unknown topic %q", unknownTopic)
 	}
-	if !strings.Contains(err.Error(), bus.DeadLetterBGPTopic) || !strings.Contains(err.Error(), "not a known dead-letter topic") {
+	if !strings.Contains(err.Error(), unknownTopic) || !strings.Contains(err.Error(), "not a known dead-letter topic") {
 		t.Fatalf("replay-deadletter error = %q, want fail-closed unknown-topic rejection", err)
 	}
 }
