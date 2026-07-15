@@ -32,7 +32,7 @@ selftest() {
 
   mkdir -p "$tmp/pkg/real" "$tmp/pkg/empty"
   printf '.DS_Store\n' > "$tmp/.gitignore"
-  printf 'module example.com/govuln-selftest\n\ngo 1.26.4\n' > "$tmp/go.mod"
+  printf 'module example.com/govuln-selftest\n\ngo 1.26.5\n' > "$tmp/go.mod"
   printf 'package real\n\nfunc OK() bool { return true }\n' > "$tmp/pkg/real/real.go"
   : > "$tmp/pkg/empty/.DS_Store"
 

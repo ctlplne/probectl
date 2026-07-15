@@ -17,12 +17,12 @@
 # qualify); vmlinux.h is generated from it, CO-RE relocates at load time on
 # the deployment kernel.
 
-ARG GO_VERSION=1.26
+ARG GO_VERSION=1.26.5
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no
 # auto-update bot). Tag kept for humans.
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d AS ebpf-toolchain
-ARG GO_VERSION=1.26
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS ebpf-toolchain
+ARG GO_VERSION=1.26.5
 
 # clang compiles the BPF objects; bpftool dumps the build host's BTF → vmlinux.h.
 # The libbpf BPF headers are vendored (internal/ebpf/bpf/headers, -I'd into bpf2go
@@ -51,7 +51,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /usr/local/share/probectl; \
     { \
-      echo "base=golang:${GO_VERSION}-bookworm@sha256:5d2b868674b57c9e48cdd39e891acce4196b6926ca6d11e9c270a8f85106203d"; \
+      echo "base=golang:${GO_VERSION}-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651"; \
       echo "debian_snapshot=${DEBIAN_SNAPSHOT}"; \
       echo "clang-14=${CLANG_14_VERSION}"; \
       echo "llvm-14=${LLVM_14_VERSION}"; \

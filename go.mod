@@ -1,10 +1,10 @@
 module github.com/imfeelingtheagi/probectl
 
-// Pinned to the official go1.26.4 release (sumdb-verified on download —
+// Pinned to the official go1.26.5 release (sumdb-verified on download —
 // docs/build/toolchain.md). The exact patch in the go directive keeps
 // govulncheck's stdlib attribution honest (Sprint 25): a bare "go 1.26"
 // scans as 1.26.0 and false-flags every already-patched stdlib CVE.
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/cilium/ebpf v0.21.0

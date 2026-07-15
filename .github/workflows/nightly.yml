@@ -15,12 +15,12 @@ on:
 permissions:
   contents: read
 
-# Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.4` /
-# `toolchain go1.26.4`, SUPPLY-007) and ci.yml's GO_VERSION. A bare "1.26" let
+# Exact patch pin, in lockstep with go.work + go.mod (`go 1.26.5` /
+# `toolchain go1.26.5`, SUPPLY-007) and ci.yml's GO_VERSION. A bare "1.26" let
 # setup-go resolve a different patch on the runner than the toolchain the
 # modules require — the skew that broke a build job; pin the patch everywhere.
 env:
-  GO_VERSION: "1.26.4"
+  GO_VERSION: "1.26.5"
 
 jobs:
   e2e:

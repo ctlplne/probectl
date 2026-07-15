@@ -5,8 +5,8 @@
 // ...) from the production module added in S6+.
 module github.com/imfeelingtheagi/probectl/test
 
-go 1.26.4
+go 1.26.5
 
-// Patched toolchain (stdlib fixes: GO-2026-5037 crypto/x509, GO-2026-5039
-// net/textproto). Keep in sync with the root module + go.work.
-toolchain go1.26.4
+// Patched toolchain (including GO-2026-5856 crypto/tls). Keep in sync with the
+// root module + go.work.
+toolchain go1.26.5
