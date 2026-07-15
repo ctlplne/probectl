@@ -33,6 +33,45 @@ func readPRDv1(t *testing.T) string {
 	return ""
 }
 
+func readPRDv11(t *testing.T) string {
+	t.Helper()
+	candidates := []string{
+		filepath.Join("..", "probectl-PRD-v1.1.md"),
+		filepath.Join("..", "..", "probectl-PRD-v1.1.md"),
+	}
+	for _, path := range candidates {
+		b, err := os.ReadFile(path)
+		if err == nil {
+			return string(b)
+		}
+		if !os.IsNotExist(err) {
+			t.Fatalf("read %s: %v", path, err)
+		}
+	}
+	t.Fatalf("probectl-PRD-v1.1.md not found in %s or %s", candidates[0], candidates[1])
+	return ""
+}
+
+func TestPRDv11DeliveredStateKeepsExternalProofParked(t *testing.T) {
+	prd := readPRDv11(t)
+	for _, want := range []string{
+		"75/75 agent-executable tasks",
+		"dataroom-receipts-20260715/",
+		"F33 multi-region/HA stays partial",
+		"F49 marketplace stays future/out-of-GA",
+		"E2",
+		"E3",
+		"E4",
+		"L4",
+		"Developer-machine performance and recovery smoke results are regression",
+		"Draft commercial paper is not legal approval",
+	} {
+		if !strings.Contains(prd, want) {
+			t.Fatalf("probectl-PRD-v1.1.md missing delivered-state boundary %q", want)
+		}
+	}
+}
+
 func readDoc(t *testing.T, path string) string {
 	t.Helper()
 	b, err := os.ReadFile(path)

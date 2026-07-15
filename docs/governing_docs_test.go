@@ -17,6 +17,7 @@ func TestGoverningDocsLiveInTargetRepo(t *testing.T) {
 	rootDocs := map[string]string{
 		"CLAUDE.md":            "Engineering reference for the probectl codebase",
 		"probectl-PRD-v1.0.md": "Product Requirements Document",
+		"probectl-PRD-v1.1.md": "Product Requirements Document",
 	}
 
 	for name, marker := range rootDocs {

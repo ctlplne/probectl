@@ -197,7 +197,7 @@ run_checks() { # run_checks <root>
     echo "DOCS-S16: core LICENSE must remain final unmodified MPL-2.0; only commercial paper is pending counsel" >&2; f=1
   fi
   if grep -RniE 'legal source-available license text is still|`LICENSE` / commercial license texts.{0,40}(pending|placeholder)|root LICENSE.{0,40}(pending|placeholder)' \
-       "$r/README.md" "$r/LICENSING.md" "$r/probectl-PRD-v1.0.md" "$r/docs" 2>/dev/null | grep -q .; then
+       "$r/README.md" "$r/LICENSING.md" "$r/probectl-PRD-v1.0.md" "$r/probectl-PRD-v1.1.md" "$r/docs" 2>/dev/null | grep -q .; then
     echo "DOCS-S16: stale root-LICENSE placeholder/pending-counsel claim found" >&2; f=1
   fi
 

@@ -48,10 +48,10 @@ one-tenant case — there is no separate code path, no enterprise fork to drift
 out of sync. **Tenant is the outermost scope and security boundary** on every
 record, agent, query, metric, event, and object.
 
-> **Status:** the major code paths are built, and the project is in
-> evidence-driven hardening toward GA. A fresh local gate receipt for source
-> commit `1331b664e160fac2851221a09394c8cd9498bc4d` is committed in
-> [`dataroom-receipts-20260714/`](dataroom-receipts-20260714/README.md). It
+> **Status:** the agent-executable remediation ledger is complete; the current
+> delivered-state contract is [`probectl-PRD-v1.1.md`](probectl-PRD-v1.1.md).
+> A fresh local end-gate receipt for its exact source commit is committed in
+> [`dataroom-receipts-20260715/`](dataroom-receipts-20260715/README.md). It
 > covers build, tests, coverage, web, real-store isolation/integration, recovery
 > drills, vulnerability scans, image build, and SBOM evidence. Reference-hardware
 > scale/overhead, representative multi-region DR, and counsel-owned commercial
