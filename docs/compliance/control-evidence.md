@@ -86,5 +86,8 @@ by code because they live outside it:
 - **DR drill on real multi-region infrastructure** — the runbook + CI failover
   drill exist; the live cross-region exercise is an operator action
   (`docs/ops/dr.md`), infrastructure-blocked in CI.
-- **The `LICENSE` / commercial license texts** — a legal artifact pending
-  counsel (placeholder in-tree); not a technical control.
+- **Commercial legal paper** — the root `LICENSE` is already the final,
+  unmodified MPL-2.0 grant for core (without Exhibit B). Counsel still owns the
+  draft `ee/LICENSE`, commercial header wording, reseller terms, DPA/MSA,
+  trademark posture, and open-data resale review; those are legal artifacts,
+  not technical controls.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S15, SEC-004).
+# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S16, SEC-004).
 #
 # The audit confirmed a set of HONEST-CLAIM strengths: the default AI is the
 # air-gapped builtin, there is no vendor-telemetry egress in the source, no
@@ -186,6 +186,21 @@ run_checks() { # run_checks <root>
     fi
   done <<<"$disclosure_hits"
 
+  # DOCS-S16 / LICENSE-001: the owner decision is final for core. The root
+  # grant is canonical MPL-2.0 without Exhibit B; only the separate commercial
+  # paper remains counsel work. Keep buyer/compliance pages from quietly
+  # reverting to the old "root LICENSE is a placeholder" state.
+  if ! grep -q '^Mozilla Public License Version 2\.0$' "$r/LICENSE" 2>/dev/null \
+     || ! grep -q 'complete, unmodified license is in' "$r/LICENSING.md" 2>/dev/null \
+     || ! grep -q 'root `LICENSE` is already the final' "$r/docs/compliance/control-evidence.md" 2>/dev/null \
+     || ! grep -q 'core license grant is already final' "$r/docs/pricing.md" 2>/dev/null; then
+    echo "DOCS-S16: core LICENSE must remain final unmodified MPL-2.0; only commercial paper is pending counsel" >&2; f=1
+  fi
+  if grep -RniE 'legal source-available license text is still|`LICENSE` / commercial license texts.{0,40}(pending|placeholder)|root LICENSE.{0,40}(pending|placeholder)' \
+       "$r/README.md" "$r/LICENSING.md" "$r/probectl-PRD-v1.0.md" "$r/docs" 2>/dev/null | grep -q .; then
+    echo "DOCS-S16: stale root-LICENSE placeholder/pending-counsel claim found" >&2; f=1
+  fi
+
   # SEC-004: SECURITY.md scopes provider-operator break-glass abuse as in-scope.
   if [ -f "$r/SECURITY.md" ] \
      && ! grep -qi 'break-glass-gate bypass' "$r/SECURITY.md"; then
@@ -201,7 +216,7 @@ write_good_fixture() { # write_good_fixture <dir>
     "$d/.github/workflows" \
     "$d/cmd" "$d/ee" "$d/internal/ai/eval" "$d/internal/control" \
     "$d/internal/ebpf" "$d/internal/otel/otlp" "$d/internal/threat" \
-    "$d/pkg" "$d/docs/features"
+    "$d/pkg" "$d/docs/compliance" "$d/docs/features"
 
   cat > "$d/internal/control/ai.go" <<'EOF'
 package control
@@ -303,7 +318,19 @@ lint-go:
 	SELFTEST=1 ./scripts/check_editions_imports.sh
 EOF
   cat > "$d/LICENSE" <<'EOF'
-TBD
+Mozilla Public License Version 2.0
+EOF
+  cat > "$d/LICENSING.md" <<'EOF'
+The complete, unmodified license is in LICENSE. Commercial paper remains counsel-owned.
+EOF
+  cat > "$d/probectl-PRD-v1.0.md" <<'EOF'
+Core is final MPL-2.0; only commercial terms remain counsel work.
+EOF
+  cat > "$d/docs/compliance/control-evidence.md" <<'EOF'
+The root `LICENSE` is already the final, unmodified MPL-2.0 grant; draft `ee/LICENSE` remains counsel work.
+EOF
+  cat > "$d/docs/pricing.md" <<'EOF'
+The core license grant is already final; draft `ee/LICENSE` and commercial agreements remain counsel-owned.
 EOF
   cat > "$d/docs/features/cost-slo-and-chaos.md" <<'EOF'
 ../limitations.md#built-not-yet-served-edges
@@ -407,6 +434,11 @@ EOF
 Email channel not wired.
 EOF
       ;;
+    DOCS-S16)
+      cat > "$d/docs/compliance/control-evidence.md" <<'EOF'
+The `LICENSE` / commercial license texts are a legal artifact pending counsel (placeholder in-tree).
+EOF
+      ;;
     SEC-004)
       echo '# scope' > "$d/SECURITY.md"
       ;;
@@ -440,7 +472,7 @@ expect_label_failure() { # expect_label_failure <label>
 }
 
 if [ "${1:-}" = "SELFTEST" ]; then
-  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 SEC-004}"
+  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 SEC-004}"
   for label in $labels; do
     expect_label_failure "$label"
   done
@@ -450,4 +482,4 @@ fi
 
 run_checks "." || fail=1
 if [ "$fail" -ne 0 ]; then exit 1; fi
-echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S15, SEC-004)"
+echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S16, SEC-004)"

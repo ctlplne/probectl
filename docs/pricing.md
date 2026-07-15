@@ -77,6 +77,9 @@ inside the control plane and never phones home. Unlicensed commercial surfaces a
 hidden except for Admin -> Editions, and expired commercial features degrade
 read-only after the grace period. Telemetry pipelines keep running.
 
-The legal source-available license text is still a separate counsel-owned
-artifact. Until it lands, this page describes product packaging and metering, not
-legal rights.
+The core license grant is already final: first-party source outside `ee/` is
+covered by the unmodified MPL-2.0 text in the root [`LICENSE`](../LICENSE),
+without Exhibit B. The draft `ee/LICENSE`, commercial agreements, reseller
+terms, DPA/MSA, trademark posture, and open-data resale review remain
+counsel-owned. This page describes product packaging and metering; it does not
+replace that commercial paper.
