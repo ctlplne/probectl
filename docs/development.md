@@ -136,7 +136,7 @@ This is the full list; `ci.yml` is the source of truth.
 | `load-smoke`             | S-tier full-stack load smoke through real Kafka + Prometheus + ClickHouse                                                                                                                                                        |
 | `proto`                  | `buf lint` + `buf breaking` vs `main` (additive-only wire contract) + generated-code drift                                                                                                                                       |
 | `web`                    | typecheck + lint + the frontend surface-coverage gate + jsdom axe/theme/no-hardcoded-token gates + `npm audit` + production build                                                                                                |
-| `web-rendered-a11y`      | rendered Chromium contrast/focus/target-size accessibility gate                                                                                                                                                                  |
+| `web-rendered-a11y`      | rendered Chromium route/theme/viewport accessibility plus J1–J6 LCP/INP and bundle-budget gates; writes JSON receipts under `receipts/web-ux/`                                                                                   |
 | `dependency-scan`        | `govulncheck` + Trivy filesystem scan (**vulnerabilities only**)                                                                                                                                                                 |
 | `image-scan`             | Trivy image scan (**vulnerabilities only**)                                                                                                                                                                                      |
 | `build-images`           | multi-arch image build for every component (Buildx + QEMU)                                                                                                                                                                       |
@@ -146,7 +146,7 @@ This is the full list; `ci.yml` is the source of truth.
 | `compose-render`         | every shipped compose file renders with `docker compose config`                                                                                                                                                                  |
 | `verify-all`             | the umbrella check: red unless every verification job it depends on concluded green — the gates are wired in series, like a strand of old holiday lights: one dark bulb darkens the whole strand                                 |
 
-For the rendered Chromium accessibility gate, `cd web && npm run a11y:browser`
+For the rendered Chromium accessibility/performance gate, `cd web && npm run a11y:browser`
 uses a local Chrome/Chromium binary or the Playwright browser cache. On a fresh
 machine, use `make web-rendered-a11y` from the repo root instead; it runs the
 same digest-pinned Playwright container as CI's `web-rendered-a11y` job and does

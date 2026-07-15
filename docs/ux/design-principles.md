@@ -151,6 +151,17 @@ Test: CI runs unit axe, rendered-browser axe in every theme, keyboard journeys, 
 budgets, and route/chunk size checks. There are no hardcoded design values, third-party fonts,
 or default outbound browser requests.
 
+The CI reference profile is deliberately fixed and local: the production bundle,
+deterministic same-origin API fixtures, pinned Chromium, dark and aurora themes,
+1366×900 desktop plus 390×844 mobile accessibility viewports, and five fresh browser
+contexts for every J1–J6 landing route. The performance checker recomputes nearest-rank
+p75 from the five raw samples and enforces LCP <2.5 seconds and INP <200 milliseconds.
+The bundle checker enforces initial JavaScript <=250 KiB gzip and every lazy route
+entry <=150 KiB gzip. Both ceilings are enforcement-code constants, not generated
+baselines. CI retains `receipts/web-ux/rendered-a11y.json`, `web-performance.json`,
+and `bundle-budget.json`; a missing route, matrix cell, run, dynamic route entry, or
+receipt is a red build.
+
 ## Review shorthand
 
 A UX change is ready when a reviewer can answer yes to all five questions:

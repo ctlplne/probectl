@@ -30,6 +30,10 @@ describe('mobile navigation drawer', () => {
     renderApp('/targets')
 
     await screen.findByRole('heading', { name: /targets & tests/i })
+    expect(screen.getByRole('button', { name: 'Search or run a command' })).toHaveAttribute(
+      'aria-label',
+      'Search or run a command',
+    )
     const trigger = mobileTrigger()
     trigger.focus()
 

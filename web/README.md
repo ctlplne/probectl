@@ -74,15 +74,25 @@ npm run bundle:check # enforce gzip budgets from dist/.vite/manifest.json
 npm run test         # Vitest (a11y, theme-swap, command palette, surface coverage, per-surface tests)
 npm run coverage-gate # the surface-coverage gate on its own
 npm run lint         # ESLint
-npm run a11y:browser # rendered Chromium a11y gate (uses local Chrome/Chromium or Playwright browser cache)
+npm run a11y:browser # production-build Chromium a11y + J1-J6 performance capture
 ```
 
 Every product route is a dynamic import, so opening one surface does not put all
 other surface implementations in the initial app-shell chunk. CI builds first,
-then `bundle:check` requires the one main entry to remain below 400 kB gzip and
-every lazy route entry below 250 kB gzip. The check also fails when the manifest
+then `bundle:check` requires the one initial entry to remain at or below 250 KiB
+gzip and every lazy route entry at or below 150 KiB gzip. The check also fails when the manifest
 contains no dynamic route entries, which prevents deleting code splitting while
-still passing on a small development fixture.
+still passing on a small development fixture. The ceilings live in the checker,
+not a generated baseline, so relaxing one requires an explicit reviewed code
+change. The machine-readable result is `receipts/web-ux/bundle-budget.json`.
+
+The rendered gate derives every native route from `src/surfaces.ts`, then checks
+dark and aurora at 1366×900 desktop and 390×844 mobile widths. It also captures
+five fresh-context production-build runs for each J1–J6 landing route. Run
+`node scripts/check_web_perf_budgets.mjs` from the repo root to recompute p75 and
+enforce LCP <2.5 s and INP <200 ms. CI retains the route/theme/viewport axe and
+raw timing receipts under `receipts/web-ux/`; missing matrix cells or samples
+fail rather than silently disappearing.
 
 Fresh machines do not need a hand-installed Playwright browser cache. From the
 repo root, run `make web-rendered-a11y`; from `web/`, run

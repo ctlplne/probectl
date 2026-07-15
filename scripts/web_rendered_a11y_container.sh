@@ -24,7 +24,9 @@ echo "  $IMAGE"
   --user "$(id -u):$(id -g)" \
   --workdir /workspace/web \
   --volume "$ROOT:/workspace" \
+  --tmpfs "/workspace/web/node_modules:rw,exec,uid=$(id -u),gid=$(id -g),mode=0755" \
+  --tmpfs "/workspace/browser-worker/node_modules:rw,exec,uid=$(id -u),gid=$(id -g),mode=0755" \
   --env HOME=/tmp/probectl-a11y-home \
   --env npm_config_cache=/tmp/probectl-npm-cache \
   "$IMAGE" \
-  bash -lc 'npm ci --no-audit --no-fund && npm run a11y:browser'
+  bash -lc 'npm ci --no-audit --no-fund && npm run a11y:browser && node ../scripts/check_web_perf_budgets.mjs && npm run bundle:check'

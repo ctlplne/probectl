@@ -117,7 +117,7 @@ jobs is below — 39 specialist jobs plus the `verify-all` umbrella, for
 | `load-smoke`             | load/soak smoke                                                                                                                                    |
 | `proto`                  | buf lint + breaking-change check                                                                                                                   |
 | `web`                    | typecheck, eslint, npm audit, surface-coverage + jsdom a11y + tests                                                                                |
-| `web-rendered-a11y`      | rendered Chromium contrast/focus/target-size accessibility gate                                                                                    |
+| `web-rendered-a11y`      | rendered route/theme/viewport accessibility plus J1–J6 LCP/INP performance gate                                                                    |
 | `dependency-scan`        | govulncheck / npm / pip advisories                                                                                                                 |
 | `build-images`           | the release Dockerfiles build                                                                                                                      |
 | `image-scan`             | Trivy image scan                                                                                                                                   |

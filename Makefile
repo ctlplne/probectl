@@ -191,7 +191,7 @@ browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs
 	cd browser-worker && node --check worker.mjs && node --check smoke.mjs
 
 .PHONY: web-rendered-a11y
-web-rendered-a11y: ## Run the rendered Chromium a11y gate in the same Playwright container CI uses.
+web-rendered-a11y: ## Run rendered a11y, J1-J6 LCP/INP, and bundle budgets in CI's Playwright container.
 	bash scripts/web_rendered_a11y_container.sh
 
 .PHONY: editions-gate

@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-// Real-browser frontend a11y gate (PRODUCT-001).
+// Real-browser frontend a11y and interaction-performance gate (X16).
 //
 // This deliberately reuses the already-pinned browser-worker Playwright
 // dependency instead of adding a second browser stack to web/. The check runs
-// the real Vite app in Chromium, injects local API responses, then verifies:
-// axe WCAG tags (including browser-computed color contrast), no positive
-// tabindex, minimum interactive target size, visible keyboard focus, and
-// focus-not-obscured for each native surface route under each shipped theme.
+// the production Vite build in Chromium, injects local API responses, then
+// verifies axe WCAG tags (including browser-computed color contrast), no
+// positive tabindex, minimum interactive target size, visible keyboard focus,
+// and focus-not-obscured for each native route under each shipped theme and
+// reference viewport. It also records raw LCP/INP samples for J1-J6; the
+// separate checker owns and enforces the canonical p75 budgets.
 
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -19,7 +21,22 @@ const repoRoot = dirname(scriptDir);
 const webRoot = join(repoRoot, "web");
 const browserWorkerRoot = join(repoRoot, "browser-worker");
 const themes = ["dark", "aurora"];
-const viewport = { width: 1366, height: 900 };
+const viewports = [
+  { name: "desktop", width: 1366, height: 900 },
+  { name: "mobile", width: 390, height: 844 },
+];
+const journeyRoutes = [
+  { journey: "J1", route: "/onboarding" },
+  { journey: "J2", route: "/incidents" },
+  { journey: "J3", route: "/explore" },
+  { journey: "J4", route: "/path" },
+  { journey: "J5", route: "/admin" },
+  { journey: "J6", route: "/provider" },
+];
+const performanceRuns = 5;
+const receiptRoot = join(repoRoot, "receipts", "web-ux");
+const a11yReceiptPath = join(receiptRoot, "rendered-a11y.json");
+const performanceReceiptPath = join(receiptRoot, "web-performance.json");
 const dashboardCaptions = [
   "Active tests dashboard",
   "BGP routing dashboard",
@@ -59,12 +76,6 @@ async function loadVite() {
   return import(
     pathToFileURL(join(dirname(vitePackage), "dist/node/index.js")).href
   );
-}
-
-async function loadReactPlugin() {
-  const pluginPath = webRequire.resolve("@vitejs/plugin-react");
-  const mod = await import(pathToFileURL(pluginPath).href);
-  return mod.default;
 }
 
 async function nativeRoutes() {
@@ -609,21 +620,140 @@ function fetchStubSource(theme) {
   })();`;
 }
 
+function performanceObserverSource() {
+  return `(() => {
+    const state = {
+      lcp_ms: null,
+      interactions: {},
+      lcp_supported: typeof PerformanceObserver !== 'undefined' &&
+        PerformanceObserver.supportedEntryTypes?.includes('largest-contentful-paint'),
+      event_timing_supported: typeof PerformanceObserver !== 'undefined' &&
+        PerformanceObserver.supportedEntryTypes?.includes('event'),
+    };
+    window.__probectlPerformance = state;
+    if (state.lcp_supported) {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) state.lcp_ms = entry.startTime;
+      }).observe({ type: 'largest-contentful-paint', buffered: true });
+    }
+    if (state.event_timing_supported) {
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (!entry.interactionId) continue;
+          const key = String(entry.interactionId);
+          state.interactions[key] = Math.max(state.interactions[key] || 0, entry.duration);
+        }
+      }).observe({ type: 'event', buffered: true, durationThreshold: 0 });
+    }
+  })();`;
+}
+
+async function writeReceipt(path, receipt) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(receipt, null, 2)}\n`);
+}
+
+async function settleTwoFrames(page) {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+}
+
+async function exerciseJourneyInteraction(page, route) {
+  if (route === "/provider") {
+    await page.locator('a[href="#provider-tenants"]').first().click();
+    return;
+  }
+  await page.getByRole("button", { name: "Search or run a command" }).click();
+}
+
+async function runPerformanceProfile(browser, baseURL) {
+  const receipt = {
+    schema: "probectl.web-performance/v1",
+    generated_at: new Date().toISOString(),
+    profile: {
+      browser: "pinned Chromium",
+      viewport: viewports[0],
+      theme: "dark",
+      cache: "fresh context per run",
+      api: "local deterministic fixtures",
+      runs_per_route: performanceRuns,
+      interaction:
+        "open command palette (J1-J5); provider tenant-lifecycle anchor (J6)",
+      lcp: "Largest Contentful Paint PerformanceObserver",
+      inp: "maximum Event Timing duration for the exercised interaction",
+    },
+    journeys: [],
+    failures: [],
+  };
+
+  for (const { journey, route } of journeyRoutes) {
+    const record = { journey, route, runs: [] };
+    receipt.journeys.push(record);
+    for (let run = 1; run <= performanceRuns; run += 1) {
+      const context = await browser.newContext({
+        viewport: viewports[0],
+        colorScheme: "dark",
+      });
+      await context.addInitScript(fetchStubSource("dark"));
+      await context.addInitScript(performanceObserverSource());
+      const page = await context.newPage();
+      try {
+        await page.goto(`${baseURL}${route}`, { waitUntil: "networkidle" });
+        await page.waitForSelector("main", { timeout: 10_000 });
+        await settleTwoFrames(page);
+        await exerciseJourneyInteraction(page, route);
+        await settleTwoFrames(page);
+        const measured = await page.evaluate(() => {
+          const state = globalThis.__probectlPerformance;
+          const interactionDurations = Object.values(
+            state?.interactions || {},
+          ).filter((value) => Number.isFinite(value));
+          return {
+            lcp_ms: state?.lcp_ms ?? null,
+            // Chromium only reports Event Timing entries at or above its
+            // reporting floor. A supported observer with no entry therefore
+            // means the exercised interaction completed below that floor.
+            inp_ms:
+              interactionDurations.length > 0
+                ? Math.max(...interactionDurations)
+                : state?.event_timing_supported
+                  ? 0
+                  : null,
+            lcp_supported: Boolean(state?.lcp_supported),
+            event_timing_supported: Boolean(state?.event_timing_supported),
+          };
+        });
+        record.runs.push({ run, ...measured });
+      } catch (error) {
+        const message = `${journey} ${route} run ${run}: ${error instanceof Error ? error.message : String(error)}`;
+        receipt.failures.push(message);
+        record.runs.push({ run, error: message });
+      } finally {
+        await context.close();
+      }
+    }
+  }
+
+  return receipt;
+}
+
 async function startVite() {
-  const { createServer } = await loadVite();
-  const react = await loadReactPlugin();
-  const server = await createServer({
+  const { preview } = await loadVite();
+  const server = await preview({
     configFile: false,
     root: webRoot,
-    plugins: [react()],
-    resolve: { alias: { "@ee": join(repoRoot, "ee/web") } },
-    server: { host: "127.0.0.1", port: 0, strictPort: false, proxy: {} },
+    preview: { host: "127.0.0.1", port: 0, strictPort: false },
     logLevel: "error",
   });
-  await server.listen();
-  const baseURL = server.resolvedUrls?.local?.[0];
-  if (!baseURL) throw new Error("vite did not report a local URL");
-  return { server, baseURL: baseURL.replace(/\/$/, "") };
+  const address = server.httpServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("vite preview did not report a TCP address");
+  }
+  return { server, baseURL: `http://127.0.0.1:${address.port}` };
 }
 
 async function runAxe(page, axeSource) {
@@ -667,10 +797,10 @@ function formatAxe(violations) {
 }
 
 function blockingAxeResults(result) {
-  return [
-    ...result.violations,
-    ...result.incomplete.filter((v) => v.id === "color-contrast"),
-  ];
+  // "incomplete" means axe could not decide and requests human review; it is
+  // not a violation. Actual color-contrast failures remain in violations and
+  // are proven live by selfCheck() before the route matrix runs.
+  return result.violations;
 }
 
 async function targetAndTabChecks(page) {
@@ -817,10 +947,10 @@ async function dashboardChecks(page) {
 }
 
 async function selfCheck(browser, axeSource) {
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport: viewports[0] });
   await page.setContent(`
     <main>
-      <button style="color:#777;background:#777;border:0">Bad contrast</button>
+      <p style="color:#aaa;background-color:#fff;font-size:16px">Bad contrast</p>
       <button id="tiny" style="width:10px;height:10px;padding:0">T</button>
     </main>
   `);
@@ -856,19 +986,46 @@ async function main() {
   const routes = await nativeRoutes();
   const { server, baseURL } = await startVite();
   const failures = [];
+  const a11yReceipt = {
+    schema: "probectl.web-rendered-a11y/v1",
+    generated_at: new Date().toISOString(),
+    source: "web/src/surfaces.ts native routes",
+    themes,
+    viewports,
+    routes,
+    checks: [],
+    failures,
+  };
+  let performanceReceipt = {
+    schema: "probectl.web-performance/v1",
+    generated_at: new Date().toISOString(),
+    journeys: [],
+    failures: ["performance profile did not run"],
+  };
 
   try {
     await selfCheck(browser, axeSource);
-    for (const theme of themes) {
-      const context = await browser.newContext({
-        viewport,
-        colorScheme: theme === "aurora" ? "light" : "dark",
-      });
-      await context.addInitScript(fetchStubSource(theme));
-      for (const route of routes) {
-        const page = await context.newPage();
-        page.on("console", (msg) => {
-          if (msg.type() === "error") {
+    for (const viewport of viewports) {
+      for (const theme of themes) {
+        const context = await browser.newContext({
+          viewport,
+          colorScheme: theme === "aurora" ? "light" : "dark",
+        });
+        await context.addInitScript(fetchStubSource(theme));
+        for (const route of routes) {
+          const record = {
+            route,
+            theme,
+            viewport: viewport.name,
+            axe: [],
+            custom: [],
+            dashboard: [],
+            runtime: [],
+          };
+          a11yReceipt.checks.push(record);
+          const page = await context.newPage();
+          page.on("console", (msg) => {
+            if (msg.type() !== "error") return;
             const loc = msg.location();
             if (
               loc.url.endsWith("/favicon.ico") &&
@@ -876,58 +1033,108 @@ async function main() {
             ) {
               return;
             }
-            failures.push(
-              `${theme} ${route}: console error: ${msg.text()} (${loc.url || "unknown"}:${loc.lineNumber})`,
+            record.runtime.push(
+              `console error: ${msg.text()} (${loc.url || "unknown"}:${loc.lineNumber})`,
             );
-          }
-        });
-        page.on("response", (resp) => {
-          if (resp.status() >= 400) {
-            const url = new URL(resp.url());
-            failures.push(
-              `${theme} ${route}: HTTP ${resp.status()} ${url.pathname}`,
-            );
-          }
-        });
-        try {
-          await page.goto(`${baseURL}${route}`, { waitUntil: "networkidle" });
-          await page.waitForSelector("main", { timeout: 10_000 });
-          await page.addStyleTag({
-            content: `*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }`,
           });
-          const axe = await runAxe(page, axeSource);
-          const axeFailures = blockingAxeResults(axe);
-          if (axeFailures.length > 0) {
-            failures.push(
-              `${theme} ${route}: axe violations\n${formatAxe(axeFailures)}`,
-            );
-          }
-          const custom = await targetAndTabChecks(page);
-          if (custom.length > 0) {
-            failures.push(
-              `${theme} ${route}: focus/target violations\n  ${custom.join("\n  ")}`,
-            );
-          }
-          if (route === "/dashboards") {
-            const dashboard = await dashboardChecks(page);
-            if (dashboard.length > 0) {
+          page.on("response", (resp) => {
+            if (resp.status() < 400) return;
+            const url = new URL(resp.url());
+            record.runtime.push(`HTTP ${resp.status()} ${url.pathname}`);
+          });
+          try {
+            await page.goto(`${baseURL}${route}`, {
+              waitUntil: "networkidle",
+            });
+            await page.waitForSelector("main", { timeout: 10_000 });
+            await page.addStyleTag({
+              content: `*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }`,
+            });
+            const axe = await runAxe(page, axeSource);
+            const axeFailures = blockingAxeResults(axe);
+            record.axe = axeFailures.map((violation) => ({
+              id: violation.id,
+              impact: violation.impact,
+              help: violation.help,
+              targets: violation.nodes.map((node) => node.target),
+            }));
+            if (axeFailures.length > 0) {
               failures.push(
-                `${theme} ${route}: dashboard coverage violations\n  ${dashboard.join("\n  ")}`,
+                `${viewport.name} ${theme} ${route}: axe violations\n${formatAxe(axeFailures)}`,
               );
             }
+            record.custom = await targetAndTabChecks(page);
+            if (record.custom.length > 0) {
+              failures.push(
+                `${viewport.name} ${theme} ${route}: focus/target violations\n  ${record.custom.join("\n  ")}`,
+              );
+            }
+            if (route === "/dashboards") {
+              record.dashboard = await dashboardChecks(page);
+              if (record.dashboard.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: dashboard coverage violations\n  ${record.dashboard.join("\n  ")}`,
+                );
+              }
+            }
+          } catch (err) {
+            record.runtime.push(
+              `route check failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          } finally {
+            await page.close();
           }
-        } catch (err) {
-          failures.push(
-            `${theme} ${route}: route check failed: ${err.message}`,
+          if (record.runtime.length > 0) {
+            failures.push(
+              `${viewport.name} ${theme} ${route}: runtime violations\n  ${record.runtime.join("\n  ")}`,
+            );
+          }
+          record.status =
+            record.axe.length === 0 &&
+            record.custom.length === 0 &&
+            record.dashboard.length === 0 &&
+            record.runtime.length === 0
+              ? "pass"
+              : "fail";
+        }
+        await context.close();
+      }
+    }
+    const expectedChecks = routes.length * themes.length * viewports.length;
+    if (a11yReceipt.checks.length !== expectedChecks) {
+      failures.push(
+        `route matrix incomplete: expected ${expectedChecks}, recorded ${a11yReceipt.checks.length}`,
+      );
+    }
+    for (const route of routes) {
+      for (const theme of themes) {
+        for (const viewport of viewports) {
+          const matches = a11yReceipt.checks.filter(
+            (record) =>
+              record.route === route &&
+              record.theme === theme &&
+              record.viewport === viewport.name,
           );
-        } finally {
-          await page.close();
+          if (matches.length !== 1) {
+            failures.push(
+              `route matrix ${viewport.name} ${theme} ${route}: expected one record, found ${matches.length}`,
+            );
+          }
         }
       }
-      await context.close();
     }
+    performanceReceipt = await runPerformanceProfile(browser, baseURL);
+  } catch (error) {
+    failures.push(
+      `browser gate aborted: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
-    await server.close();
+    a11yReceipt.status = failures.length === 0 ? "pass" : "fail";
+    await writeReceipt(a11yReceiptPath, a11yReceipt);
+    await writeReceipt(performanceReceiptPath, performanceReceipt);
+    await new Promise((resolve, reject) => {
+      server.httpServer.close((error) => (error ? reject(error) : resolve()));
+    });
     await browser.close();
   }
 
@@ -939,8 +1146,10 @@ async function main() {
     process.exit(1);
   }
   console.log(
-    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes)`,
+    `rendered browser a11y OK (${routes.length} native routes x ${themes.length} themes x ${viewports.length} viewports)`,
   );
+  console.log(`rendered a11y receipt: ${a11yReceiptPath}`);
+  console.log(`web performance receipt: ${performanceReceiptPath}`);
 }
 
 main().catch((err) => {

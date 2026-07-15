@@ -55,6 +55,7 @@ export function TopBar({
         type="button"
         className={styles.command}
         onClick={onOpenPalette}
+        aria-label="Search or run a command"
         aria-keyshortcuts="Meta+K Control+K"
       >
         <Icon name="search" size={16} />

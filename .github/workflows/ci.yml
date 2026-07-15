@@ -953,16 +953,23 @@ jobs:
         run: npm run coverage
       - name: Build
         run: npm run build
-      - name: Bundle performance budget (H9 — main <400 kB gz; routes <250 kB gz)
+      - name: Bundle performance budget (X16 — initial <=250 KiB gz; routes <=150 KiB gz)
         run: npm run bundle:check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: web-bundle-budget-receipt
+          path: receipts/web-ux/bundle-budget.json
+          retention-days: 90
 
   web-rendered-a11y:
     name: web-rendered-a11y
-    # PRODUCT-001: real-browser WCAG gate. Runs in the same digest-pinned
-    # Playwright image used by the browser worker so Chromium + OS deps are
-    # controlled, not whatever happens to be on the hosted runner.
+    # X16: real-browser WCAG + J1-J6 interaction-performance gate. Runs in the
+    # same digest-pinned Playwright image used by the browser worker so
+    # Chromium + OS deps are controlled, not whatever happens to be on the
+    # hosted runner.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     container: mcr.microsoft.com/playwright:v1.55.1-noble@sha256:2f29369043d81d6d69a815ceb80760f55e85f5020371ad06a4d996f18503ad1c
     defaults:
       run:
@@ -980,6 +987,16 @@ jobs:
         run: npm ci
       - name: Rendered browser a11y gate
         run: npm run a11y:browser
+      - name: J1-J6 LCP and INP budgets
+        run: node ../scripts/check_web_perf_budgets.mjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: web-route-a11y-performance-receipts
+          path: |
+            receipts/web-ux/rendered-a11y.json
+            receipts/web-ux/web-performance.json
+          retention-days: 90
 
   dependency-scan:
     name: dependency-scan

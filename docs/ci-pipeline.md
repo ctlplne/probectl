@@ -127,10 +127,12 @@ Verification you ran, not verification you described.
   (see [`docs/quality/coverage.md`](quality/coverage.md)).
 - **web** — the frontend: typecheck, lint, production build, surface coverage,
   jsdom axe, theme-token, and no-hardcoded-token gates.
-- **web-rendered-a11y** — a real Chromium accessibility gate in the pinned
-  Playwright container; it renders every native route under dark and aurora and
-  checks browser-computed contrast, keyboard focus, focus-obscured, and target
-  size.
+- **web-rendered-a11y** — a real Chromium accessibility and interaction-performance
+  gate in the pinned Playwright container. It renders every native route under
+  dark and aurora at desktop and mobile reference widths, checks browser-computed
+  contrast, keyboard focus, focus-obscured, and target size, then records five
+  fresh-context LCP/INP runs for every J1–J6 landing route. CI recomputes p75 and
+  retains the route/theme/viewport and raw-sample JSON receipts.
 - **browser-worker** — the Playwright browser-synthetic worker, run inside the
   official Playwright image (a real scripted login, timings + failure screenshot).
 
