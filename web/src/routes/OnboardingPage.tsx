@@ -26,7 +26,7 @@ import {
 } from '../api/agents'
 import { useCreateScimToken, type CreatedScimToken } from '../api/identity'
 import { useCreateTest, type Test } from '../api/tests'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import { agentEnrollCommand, defaultControlPlaneURL } from './enrollment'
 import styles from './onboarding.module.css'
 import { useI18n } from '../i18n/useI18n'

@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import styles from './slos.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

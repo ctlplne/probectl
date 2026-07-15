@@ -6,7 +6,7 @@
 
 import { useMemo, useState, type FormEvent } from 'react'
 import styles from './security.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

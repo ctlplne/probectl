@@ -7,7 +7,7 @@
 import { useMemo, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styles from './dashboards.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

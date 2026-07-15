@@ -7,7 +7,7 @@
 import { useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './incidents.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import styles from './path.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

@@ -70,11 +70,19 @@ the AI **Ask** panel, the provider console, and more) are routes on top of it.
 npm install
 npm run dev          # Vite dev server (http://localhost:5173)
 npm run build        # typecheck (tsc --noEmit) + production build
+npm run bundle:check # enforce gzip budgets from dist/.vite/manifest.json
 npm run test         # Vitest (a11y, theme-swap, command palette, surface coverage, per-surface tests)
 npm run coverage-gate # the surface-coverage gate on its own
 npm run lint         # ESLint
 npm run a11y:browser # rendered Chromium a11y gate (uses local Chrome/Chromium or Playwright browser cache)
 ```
+
+Every product route is a dynamic import, so opening one surface does not put all
+other surface implementations in the initial app-shell chunk. CI builds first,
+then `bundle:check` requires the one main entry to remain below 400 kB gzip and
+every lazy route entry below 250 kB gzip. The check also fails when the manifest
+contains no dynamic route entries, which prevents deleting code splitting while
+still passing on a small development fixture.
 
 Fresh machines do not need a hand-installed Playwright browser cache. From the
 repo root, run `make web-rendered-a11y`; from `web/`, run

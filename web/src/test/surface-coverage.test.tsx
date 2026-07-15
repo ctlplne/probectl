@@ -589,12 +589,14 @@ describe('frontend-coverage gate (S-FE6)', () => {
       // The shell mounts AFTER the session resolves (/v1/me, SEC-001), so await
       // the <main> landmark rather than asserting synchronously.
       expect(await findByRole('main'), `${route}: no main landmark`).toBeTruthy()
-      await new Promise((r) => setTimeout(r, 30)) // let the page settle
+      // Native routes are lazy chunks. The heading is the stable signal that
+      // the route module resolved; a fixed sleep made this gate runner-speed
+      // dependent and could inspect the Suspense fallback instead.
+      expect(await findByRole('heading', { level: 1 }), `${route}: no h1`).toBeTruthy()
       expect(
         container.textContent ?? '',
         `${route} is declared native but renders the placeholder`,
       ).not.toMatch(PLACEHOLDER_MARKER)
-      expect(container.querySelector('h1'), `${route}: no h1`).toBeTruthy()
       unmount()
     }
   })

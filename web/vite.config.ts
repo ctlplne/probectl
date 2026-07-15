@@ -13,6 +13,12 @@ import react from '@vitejs/plugin-react'
 // build (sovereignty — guardrail 11).
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // The bundle-budget gate reads Vite's graph rather than guessing from
+    // hashed filenames: isEntry is the app shell; isDynamicEntry marks the
+    // route-level imports in AppRoutes.
+    manifest: true,
+  },
   resolve: {
     // The ee/ web seam (S-T1): commercial UI source lives in ee/web (the
     // editions boundary applies to the frontend too); the bundle always

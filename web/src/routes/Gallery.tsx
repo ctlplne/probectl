@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import styles from './Gallery.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import { useTheme } from '../theme/useTheme'
 import {
   Badge,

@@ -7,7 +7,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import styles from './planes.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

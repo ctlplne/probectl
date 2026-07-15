@@ -6,7 +6,7 @@
 
 import { useMemo } from 'react'
 import styles from './outages.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

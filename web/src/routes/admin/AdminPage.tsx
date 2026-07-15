@@ -23,7 +23,7 @@ import {
   StatusDot,
   Table,
 } from '../../components'
-import { Page } from '../pages'
+import { Page } from '../RoutePage'
 import {
   useAgents,
   useMintAgentEnrollToken,

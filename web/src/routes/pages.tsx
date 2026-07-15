@@ -4,10 +4,9 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './pages.module.css'
-import { NAV } from '../nav/ia'
 import {
   Badge,
   Button,
@@ -16,7 +15,6 @@ import {
   CardHeader,
   Column,
   EmptyState,
-  ErrorState,
   Field,
   HonestDataState,
   Icon,
@@ -31,72 +29,11 @@ import { classifySurfaceTruth } from '../components'
 import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
 import { ResultDetail } from './ResultDetail'
-import { useI18n } from '../i18n/useI18n'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 import { CodeExportPanel } from './CodeExportPanel'
 import { testAsCode } from './codeExport'
-
-export function Page({
-  title,
-  subtitle,
-  actions,
-  children,
-}: {
-  title: string
-  subtitle?: string
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <div className={styles.page}>
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>{title}</h1>
-          {subtitle ? <p className={styles.subtitle}>{subtitle}</p> : null}
-        </div>
-        {actions ? <div className={styles.actions}>{actions}</div> : null}
-      </header>
-      {children}
-    </div>
-  )
-}
-
-/** PlaceholderPage stands in for an IA section until its sprint lands. */
-export function PlaceholderPage({ to }: { to: string }) {
-  const { t } = useI18n()
-  const item = NAV.find((n) => n.to === to)
-  const label = item ? t(item.labelKey) : t('page.generic')
-  return (
-    <Page title={label} subtitle={t('page.placeholder.subtitle')}>
-      <Card>
-        <CardBody>
-          <EmptyState
-            icon={item?.icon}
-            title={t('page.placeholder.title', { label })}
-            description={t('page.placeholder.description')}
-          />
-        </CardBody>
-      </Card>
-    </Page>
-  )
-}
-
-export function NotFoundPage() {
-  const { t } = useI18n()
-  return (
-    <Page title={t('page.notFound.title')}>
-      <Card>
-        <CardBody>
-          <ErrorState
-            title={t('page.notFound.errorTitle')}
-            description={t('page.notFound.description')}
-          />
-        </CardBody>
-      </Card>
-    </Page>
-  )
-}
+import { Page } from './RoutePage'
 
 // --- Targets & Tests (live /v1/tests CRUD) ---
 
@@ -477,9 +414,3 @@ export function TargetsPage() {
     </Page>
   )
 }
-
-// CODE-003: the Admin & Settings surface (the fleet table + the secret-backend,
-// keys, lifecycle, remediation, support, and editions cards) lives in its own
-// file to keep this one focused on the shared Page primitives + Targets. AdminPage
-// is re-exported so existing importers (AppRoutes) are unaffected.
-export { AdminPage } from './admin/AdminPage'

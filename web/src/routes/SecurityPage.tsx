@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import styles from './security.module.css'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import {
   Badge,
   Button,

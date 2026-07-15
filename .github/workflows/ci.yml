@@ -953,6 +953,8 @@ jobs:
         run: npm run coverage
       - name: Build
         run: npm run build
+      - name: Bundle performance budget (H9 — main <400 kB gz; routes <250 kB gz)
+        run: npm run bundle:check
 
   web-rendered-a11y:
     name: web-rendered-a11y

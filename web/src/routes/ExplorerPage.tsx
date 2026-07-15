@@ -29,7 +29,7 @@ import {
   type ExplorerTemplate,
   type ExplorerVisualization,
 } from '../api/explorer'
-import { Page } from './pages'
+import { Page } from './RoutePage'
 import { SavedViews } from './listControls'
 import { ExplainView } from './ExplainView'
 import { pivotHref } from './pivotContext'
