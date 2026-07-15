@@ -130,7 +130,15 @@ test-isolation: ## Run the cross-tenant isolation gate (CLAUDE.md §7 guardrail 
 
 .PHONY: test-integration
 test-integration: ## Run integration tests across modules (needs a database / dev stack).
-	@./scripts/with_integration_stack_lock.sh test-integration bash -c 'set -euo pipefail; for d in $(GO_MODULE_DIRS); do \
+	@PROBECTL_DATABASE_URL="$(or $(PROBECTL_DATABASE_URL),postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable)" \
+		PROBECTL_TEST_KAFKA="$(or $(PROBECTL_TEST_KAFKA),localhost:9092)" \
+		PROBECTL_PROM_URL="$(or $(PROBECTL_PROM_URL),http://localhost:9090)" \
+		PROBECTL_FLOWSTORE_URL="$(or $(PROBECTL_FLOWSTORE_URL),http://probectl:probectl@localhost:8123)" \
+		PROBECTL_PATHSTORE_URL="$(or $(PROBECTL_PATHSTORE_URL),http://probectl:probectl@localhost:8123)" \
+		PROBECTL_OTELSTORE_URL="$(or $(PROBECTL_OTELSTORE_URL),http://probectl:probectl@localhost:8123)" \
+		PROBECTL_EBPFSTORE_URL="$(or $(PROBECTL_EBPFSTORE_URL),http://probectl:probectl@localhost:8123)" \
+		PROBECTL_TEST_CLICKHOUSE_URL="$(or $(PROBECTL_TEST_CLICKHOUSE_URL),http://probectl:probectl@localhost:8123)" \
+		./scripts/with_integration_stack_lock.sh test-integration bash -c 'set -euo pipefail; for d in $(GO_MODULE_DIRS); do \
 		echo ">> integration tests ($$d)"; \
 		( cd $$d && $(GO) test -p=1 -tags=integration -count=1 ./... ) || exit 1; \
 	done'
