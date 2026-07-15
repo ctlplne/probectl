@@ -146,7 +146,7 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
-    capability: 'Synthetic tests CRUD + per-type result detail',
+    capability: 'Scheduled agent-to-service synthetic test CRUD + per-type result detail',
     featureIds: ['PLANE_ACTIVE_SYNTHETIC', 'F1', 'F2', 'F4', 'F5', 'F15'],
     sprint: 'S9/S-FE5',
     kind: 'native',
@@ -386,6 +386,20 @@ export const SURFACES: SurfaceDecl[] = [
   },
 
   // --- federated surfaces (by design) ---
+  {
+    capability: 'Broker-coordinated agent-to-agent session and mesh scheduling',
+    featureIds: ['F2'],
+    sprint: 'S8/W7',
+    kind: 'federated',
+    evidence: [
+      'openapi:/v1/a2a/sessions',
+      'openapi:/v1/a2a/mesh',
+      'cli:probectl a2a create-session',
+      'cli:probectl a2a start-mesh',
+      'file:docs/adr/a2a-broker-coordination.md',
+    ],
+    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
+  },
   {
     capability: 'Cost dashboards (Grafana via the probectl datasource)',
     featureIds: ['F41'],

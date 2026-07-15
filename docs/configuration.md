@@ -645,6 +645,14 @@ session, the control plane gives both agents a random session id over the
 existing agent mTLS channel; A2A probe and reply frames are HMAC-SHA256 signed
 through `internal/crypto` with that per-session key. A responder ignores short,
 unsigned, tampered, or wrong-session frames and only counts authenticated probes.
+
+`a2a.enabled` is permission to **participate**, not a schedule. Do not add
+`type: a2a` under `canaries:`: A2A is not registered in the single-agent
+interval scheduler. Start a pair or mesh through the tenant-scoped A2A API/CLI;
+the control-plane broker then sequences responder → endpoint report → initiator.
+See the [A2A coordination ADR](adr/a2a-broker-coordination.md) for why this is a
+separate execution path.
+
 **Caveats (document for production):**
 
 - **NAT/firewall.** The responder advertises `advertise_host`; behind NAT this

@@ -14,4 +14,9 @@
 // identity comes from its client certificate's SPIFFE id, and every result it
 // buffers/emits is stamped with that tenant + agent id (F50). It holds no database
 // connection — it is a thin, dependency-light client.
+//
+// A2A measurement is the deliberate exception to local canary scheduling: an
+// opted-in Coordinator polls for control-plane-brokered two-agent tasks and
+// writes their results into the same buffer. It is not a registered Canary
+// plugin; see docs/adr/a2a-broker-coordination.md.
 package agent

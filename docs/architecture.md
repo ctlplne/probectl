@@ -319,7 +319,12 @@ discover each other directly. The broker assigns roles, relays the responder's
 listen endpoint to the initiator, and hands each agent its task when it polls
 (`ReportEndpoint` and the polling API). All broker state is tenant-scoped: an
 agent only ever receives its own tasks, and only a session's responder may report
-an endpoint. The measurement itself is TWAMP-lite (a lightweight take on TWAMP,
+an endpoint. A2A is deliberately not a locally scheduled `Canary` plugin: one
+agent's timer cannot safely select and sequence both tenant-bound peers. Pair and
+mesh sessions start through the audited A2A API/CLI, while `a2a.enabled` only
+opts an agent into executing assigned roles. The rationale and alternatives are
+recorded in the [A2A coordination ADR](adr/a2a-broker-coordination.md).
+The measurement itself is TWAMP-lite (a lightweight take on TWAMP,
 the standard two-way active-measurement protocol; `internal/canary/a2a.go`):
 four timestamps T1–T4 yield round-trip = (T4−T1)−(T3−T2), forward one-way = T2−T1,
 and reverse one-way = T4−T3. The one-way figures assume the two hosts' clocks are

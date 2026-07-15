@@ -182,7 +182,11 @@ heartbeat. It can also do **agent-to-agent
 direction's latency is measured separately) when you enable the `a2a:` block,
 turning a pair of agents into a synthetic mesh. A2A is opt-in (`enabled: false`
 by default), and every brokered probe/reply frame is authenticated with a
-per-session HMAC key delivered over the existing agent mTLS channel.
+per-session HMAC key delivered over the existing agent mTLS channel. Unlike the
+single-agent canaries above, A2A is not placed in `canaries:` and does not run on
+a local interval: an audited API/CLI request creates the pair or mesh, and the
+control-plane broker assigns each agent its role. See the
+[A2A coordination ADR](adr/a2a-broker-coordination.md).
 
 **Where it runs.** Any OS, **unprivileged** by default — ICMP uses unprivileged
 datagram sockets, so no `CAP_NET_RAW` and no root for the common case.
