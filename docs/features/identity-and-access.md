@@ -143,6 +143,10 @@ PROBECTL_OIDC_REDIRECT_URL=https://probectl.example/auth/callback
 Register that redirect URL with your IdP. Login begins at `GET /auth/login`; the
 session cookie is set Secure, HttpOnly, and SameSite=Lax — sent only over HTTPS,
 unreadable to page scripts, and not attached to cross-site requests.
+The server additionally applies a 12-hour absolute lifetime and a configurable
+30-minute idle timeout. A fresh login always replaces the old session ID; a
+role grant or revoke replaces it on the next request before changed permissions
+are used.
 
 Those variables are the deployment fallback. A tenant admin can bring a
 different IdP in **Admin & Settings → Identity administration**, or call `PUT
@@ -230,7 +234,8 @@ give. Among matching policies the highest priority wins, and a deny wins ties.
 
 - **SSO config:** `PROBECTL_AUTH_MODE=session`, `PROBECTL_OIDC_ISSUER`,
   `PROBECTL_OIDC_CLIENT_ID`, `PROBECTL_OIDC_CLIENT_SECRET`,
-  `PROBECTL_OIDC_REDIRECT_URL`, `PROBECTL_SESSION_TTL` (default 12h). Login at
+  `PROBECTL_OIDC_REDIRECT_URL`, `PROBECTL_SESSION_TTL` (default 12h), and
+  `PROBECTL_SESSION_IDLE_TIMEOUT` (default 30m). Login at
   `GET /auth/login` → IdP → `GET /auth/callback`.
 - **Tenant IdP API:** `GET /v1/identity/settings` reads public metadata; `PUT
   /v1/identity/settings` persists the tenant override and accepts the client

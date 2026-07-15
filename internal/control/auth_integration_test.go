@@ -186,6 +186,31 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 		t.Fatalf("callback did not expire one-time PKCE verifier: %+v", clearedPKCE)
 	}
 
+	// A second successful login in the same browser must consume the first
+	// session ID and return a distinct token (session-fixation defense).
+	login2Req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	login2Req.AddCookie(sess)
+	login2 := httptest.NewRecorder()
+	h.ServeHTTP(login2, login2Req)
+	state2 := findCookie(login2.Result().Cookies(), oauthStateCookie)
+	tenant2 := findCookie(login2.Result().Cookies(), oauthTenantCookie)
+	nonce2 := findCookie(login2.Result().Cookies(), oauthNonceCookie)
+	pkce2 := findCookie(login2.Result().Cookies(), oauthPKCECookie)
+	cb2 := httptest.NewRequest(http.MethodGet, "/auth/callback?code=def&state="+state2.Value, nil)
+	for _, c := range []*http.Cookie{sess, state2, tenant2, nonce2, pkce2} {
+		cb2.AddCookie(c)
+	}
+	cb2Rec := httptest.NewRecorder()
+	h.ServeHTTP(cb2Rec, cb2)
+	rotated := findCookie(cb2Rec.Result().Cookies(), auth.SessionCookie)
+	if cb2Rec.Code != http.StatusFound || rotated == nil || rotated.Value == "" || rotated.Value == sess.Value {
+		t.Fatalf("repeat login did not rotate session: code=%d old=%v new=%v", cb2Rec.Code, sess, rotated)
+	}
+	if rec := withCookie(t, h, http.MethodGet, "/v1/me", sess); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("pre-login token survived rotation: want 401, got %d", rec.Code)
+	}
+	sess = rotated
+
 	// 3. /v1/me with the session → 200; the JIT-provisioned user has no roles.
 	me := withCookie(t, h, http.MethodGet, "/v1/me", sess)
 	if me.Code != http.StatusOK {
@@ -221,11 +246,18 @@ func TestSSOLoginAndRBAC(t *testing.T) {
 	}
 
 	// 5. Grant viewer → reads allowed, writes still denied (403). RBAC is checked
-	// before the handler, so the missing body never matters.
+	// before the handler, so the missing body never matters. The first request
+	// after the grant rotates the session ID before serving elevated access.
 	bindRole(t, db, meBody.UserID, "viewer")
-	if rec := withCookie(t, h, http.MethodGet, "/v1/tests", sess); rec.Code != http.StatusOK {
-		t.Fatalf("viewer read: want 200, got %d: %s", rec.Code, rec.Body)
+	viewerRead := withCookie(t, h, http.MethodGet, "/v1/tests", sess)
+	if viewerRead.Code != http.StatusOK {
+		t.Fatalf("viewer read: want 200, got %d: %s", viewerRead.Code, viewerRead.Body)
 	}
+	elevated := findCookie(viewerRead.Result().Cookies(), auth.SessionCookie)
+	if elevated == nil || elevated.Value == "" || elevated.Value == sess.Value {
+		t.Fatalf("role elevation did not rotate session: old=%v new=%v", sess, elevated)
+	}
+	sess = elevated
 	if rec := withCookie(t, h, http.MethodPost, "/v1/tests", sess); rec.Code != http.StatusForbidden {
 		t.Fatalf("viewer write: want 403, got %d: %s", rec.Code, rec.Body)
 	}

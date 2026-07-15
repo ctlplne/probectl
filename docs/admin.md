@@ -130,7 +130,8 @@ ciphertext. Register the callback with each IdP. Login begins at `GET
 `Secure + HttpOnly + SameSite=Lax` — sent only over HTTPS, unreadable to page
 scripts, and not attached to cross-site requests — with lifetime
 `PROBECTL_SESSION_TTL`
-(default 12 h).
+(default 12 h) and inactivity wall `PROBECTL_SESSION_IDLE_TIMEOUT` (default 30
+minutes). Login and role changes rotate its opaque ID.
 
 The database stores one IdP row per tenant behind forced Postgres RLS. The
 client secret is envelope-encrypted through `internal/crypto`, with tenant-bound

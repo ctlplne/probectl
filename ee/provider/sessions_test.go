@@ -8,6 +8,7 @@ package provider
 
 import (
 	"testing"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
@@ -24,6 +25,24 @@ func TestSessionsUseKeyedHMACWhenConfigured(t *testing.T) {
 	unkeyed := NewSessions(nil).hashKey(token)
 	if keyed == unkeyed {
 		t.Fatal("provider session hash did not use PROBECTL_SESSION_HMAC_KEY")
+	}
+}
+
+func TestSessionsIdleTimeout(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	s := NewSessions(nil).WithIdleTimeout(30 * time.Minute)
+	s.now = func() time.Time { return now }
+	token, err := s.Issue(Operator{ID: "op1", Email: "op@example.com"})
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	now = now.Add(29 * time.Minute)
+	if got := s.Resolve(token); got == nil {
+		t.Fatal("active provider session expired before idle timeout")
+	}
+	now = now.Add(31 * time.Minute)
+	if got := s.Resolve(token); got != nil {
+		t.Fatalf("idle provider session resolved: %+v", got)
 	}
 }
 

@@ -244,8 +244,9 @@ type Config struct {
 	// code path exists only in -tags devauth builds — release binaries refuse
 	// this mode at boot — and even tagged builds additionally require
 	// PROBECTL_DEV_AUTH_ACK=i-understand plus a loopback-only bind).
-	AuthMode   string
-	SessionTTL time.Duration
+	AuthMode           string
+	SessionTTL         time.Duration
+	SessionIdleTimeout time.Duration
 	// SessionHMACKey is the 32-byte key used to HMAC session tokens before
 	// storing their digest in the DB (PROBECTL_SESSION_HMAC_KEY, hex-encoded
 	// 64-char string). Production session-cookie deployments refuse to start
@@ -794,6 +795,7 @@ func loadTelemetryStoreConfig(l *loader, cfg *Config, chScopeDefault bool) {
 func loadAuthIngressConfig(l *loader, cfg *Config) {
 	cfg.AuthMode = l.enum("PROBECTL_AUTH_MODE", "session", "dev", "session")
 	cfg.SessionTTL = l.dur("PROBECTL_SESSION_TTL", 12*time.Hour)
+	cfg.SessionIdleTimeout = l.dur("PROBECTL_SESSION_IDLE_TIMEOUT", 30*time.Minute)
 	cfg.SessionHMACKey = l.hexBytes("PROBECTL_SESSION_HMAC_KEY", 32)
 	cfg.AuthRateMaxFailures = l.intRange("PROBECTL_AUTH_RATE_MAX_FAILURES", 5, 1, 1000)
 	cfg.AuthRateWindow = l.dur("PROBECTL_AUTH_RATE_WINDOW", time.Minute)

@@ -25,16 +25,34 @@ type fakeStore struct {
 func newFakeStore() *fakeStore { return &fakeStore{byHash: map[string]Session{}} }
 
 func (f *fakeStore) Create(_ context.Context, h []byte, s Session) error {
+	if s.CreatedAt.IsZero() {
+		s.CreatedAt = time.Now()
+	}
+	if s.LastActivityAt.IsZero() {
+		s.LastActivityAt = s.CreatedAt
+	}
 	f.byHash[string(h)] = s
 	return nil
 }
 
-func (f *fakeStore) LookupByHash(_ context.Context, h []byte) (*Session, error) {
+func (f *fakeStore) LookupByHash(_ context.Context, h []byte, idle time.Duration) (*Session, error) {
 	s, ok := f.byHash[string(h)]
-	if !ok || s.ExpiresAt.Before(time.Now()) {
+	now := time.Now()
+	if !ok || s.ExpiresAt.Before(now) || !s.LastActivityAt.After(now.Add(-idle)) {
 		return nil, nil
 	}
+	s.LastActivityAt = now
+	f.byHash[string(h)] = s
 	return &s, nil
+}
+
+func (f *fakeStore) RotateByHash(_ context.Context, oldHash, newHash []byte, s Session) (bool, error) {
+	if _, ok := f.byHash[string(oldHash)]; !ok {
+		return false, nil
+	}
+	delete(f.byHash, string(oldHash))
+	f.byHash[string(newHash)] = s
+	return true, nil
 }
 
 func (f *fakeStore) DeleteByHash(_ context.Context, h []byte) error {
@@ -95,6 +113,72 @@ func TestManagerExpiredSession(t *testing.T) {
 		Session{TenantID: "t1", UserID: "u1", ExpiresAt: time.Now().Add(-time.Minute)})
 	if s, _ := m.Resolve(context.Background(), "expired-tok"); s != nil {
 		t.Fatal("expired session should not resolve")
+	}
+}
+
+func TestManagerIdleTimeout(t *testing.T) {
+	st := newFakeStore()
+	m := NewManager(st, time.Hour, false, nil).WithIdleTimeout(time.Minute)
+	ctx := context.Background()
+
+	idleToken, err := m.Issue(ctx, Session{TenantID: "t1", UserID: "u1"})
+	if err != nil {
+		t.Fatalf("issue idle session: %v", err)
+	}
+	idleHash := string(m.hashToken(idleToken))
+	idle := st.byHash[idleHash]
+	idle.LastActivityAt = time.Now().Add(-2 * time.Minute)
+	st.byHash[idleHash] = idle
+	if got, err := m.Resolve(ctx, idleToken); err != nil || got != nil {
+		t.Fatalf("idle session must fail closed: session=%+v err=%v", got, err)
+	}
+
+	activeToken, err := m.Issue(ctx, Session{TenantID: "t1", UserID: "u1"})
+	if err != nil {
+		t.Fatalf("issue active session: %v", err)
+	}
+	activeHash := string(m.hashToken(activeToken))
+	active := st.byHash[activeHash]
+	active.LastActivityAt = time.Now().Add(-30 * time.Second)
+	before := active.LastActivityAt
+	st.byHash[activeHash] = active
+	if got, err := m.Resolve(ctx, activeToken); err != nil || got == nil {
+		t.Fatalf("active session should resolve: session=%+v err=%v", got, err)
+	}
+	if !st.byHash[activeHash].LastActivityAt.After(before) {
+		t.Fatal("successful resolve did not advance last activity")
+	}
+}
+
+func TestManagerRotatePreservesAbsoluteLifetime(t *testing.T) {
+	st := newFakeStore()
+	m := NewManager(st, time.Hour, false, nil)
+	ctx := context.Background()
+	oldToken, err := m.Issue(ctx, Session{TenantID: "t1", UserID: "u1"})
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	oldSession, err := m.Resolve(ctx, oldToken)
+	if err != nil || oldSession == nil {
+		t.Fatalf("resolve old: session=%+v err=%v", oldSession, err)
+	}
+
+	newToken, err := m.Rotate(ctx, oldToken, *oldSession)
+	if err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if newToken == "" || newToken == oldToken {
+		t.Fatalf("rotation did not mint a distinct token: old=%q new=%q", oldToken, newToken)
+	}
+	if got, err := m.Resolve(ctx, oldToken); err != nil || got != nil {
+		t.Fatalf("old token survived rotation: session=%+v err=%v", got, err)
+	}
+	rotated, err := m.Resolve(ctx, newToken)
+	if err != nil || rotated == nil {
+		t.Fatalf("replacement did not resolve: session=%+v err=%v", rotated, err)
+	}
+	if !rotated.CreatedAt.Equal(oldSession.CreatedAt) || !rotated.ExpiresAt.Equal(oldSession.ExpiresAt) {
+		t.Fatalf("rotation extended absolute lifetime: before=%+v after=%+v", oldSession, rotated)
 	}
 }
 
@@ -216,6 +300,44 @@ func TestAuthenticatorResolve(t *testing.T) {
 	}
 	if !p.Has("test.read") || !p.Has("agent.read") || p.Has("test.write") {
 		t.Fatalf("wrong permissions: %v", p.Permissions)
+	}
+}
+
+type mutablePerms struct{ keys []string }
+
+func (m *mutablePerms) ForUser(context.Context, string, string) ([]string, error) {
+	return append([]string(nil), m.keys...), nil
+}
+
+func TestAuthenticatorRotatesOnRoleElevation(t *testing.T) {
+	st := newFakeStore()
+	m := NewManager(st, time.Hour, false, nil)
+	perms := &mutablePerms{keys: []string{"test.read"}}
+	oldToken, err := m.Issue(context.Background(), Session{
+		TenantID: "t1", UserID: "u1", AuthorizationHash: PermissionFingerprint(perms.keys),
+	})
+	if err != nil {
+		t.Fatalf("issue: %v", err)
+	}
+	perms.keys = []string{"test.read", "test.write"}
+	req := httptest.NewRequest(http.MethodGet, "/v1/tests", nil)
+	req.AddCookie(&http.Cookie{Name: SessionCookie, Value: oldToken})
+
+	p, replacement, err := NewAuthenticator(m, perms).ResolveAndRotate(req)
+	if err != nil {
+		t.Fatalf("resolve elevated role: %v", err)
+	}
+	if p == nil || !p.Has("test.write") {
+		t.Fatalf("elevated permissions not loaded: %+v", p)
+	}
+	if replacement == "" || replacement == oldToken {
+		t.Fatalf("role elevation did not rotate token: old=%q new=%q", oldToken, replacement)
+	}
+	if old, err := m.Resolve(context.Background(), oldToken); err != nil || old != nil {
+		t.Fatalf("pre-elevation token survived: session=%+v err=%v", old, err)
+	}
+	if next, err := m.Resolve(context.Background(), replacement); err != nil || next == nil {
+		t.Fatalf("replacement token invalid: session=%+v err=%v", next, err)
 	}
 }
 

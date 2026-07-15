@@ -711,7 +711,7 @@ flowchart TD
     end
     subgraph Request["every /v1 request"]
       U2["browser<br/>(session cookie)"] --> MW["authenticate middleware"]
-      MW -->|Resolve session → load perms| PR["Principal<br/>tenant + permission set"]
+      MW -->|Resolve + idle touch → load perms<br/>rotate token if perms changed| PR["Principal<br/>tenant + permission set"]
       PR --> T{"tenant<br/>resolved?"}
       T -- no --> U401["401"]
       T -- yes --> RB{"principal.Has(route perm)?"}
@@ -725,6 +725,10 @@ flowchart TD
 persisted in the `sessions` table — a global table, looked up *before* any tenant
 context is established, because the row is what reveals which tenant the session
 belongs to. The cookie is **HttpOnly + SameSite=Lax**, and **Secure** on HTTPS.
+Postgres enforces both absolute and idle expiry during lookup. Successful login
+and effective-permission changes rotate the opaque ID; a composite
+`(tenant_id, user_id)` foreign key prevents cross-tenant user/session pairing at
+the storage layer.
 Hashing and the RNG go through `internal/crypto`, so `auth` imports no crypto
 primitive directly and the import guard stays satisfied; ID-token verification
 lives inside the go-oidc / go-jose libraries.

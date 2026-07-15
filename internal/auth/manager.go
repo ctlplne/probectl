@@ -9,6 +9,7 @@ package auth
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"time"
 
@@ -18,10 +19,23 @@ import (
 // SessionCookie is the name of the session cookie.
 const SessionCookie = "probectl_session"
 
+// DefaultSessionIdleTimeout is the fail-closed inactivity window used when no
+// deployment override is supplied. It is deliberately shorter than the 12h
+// absolute lifetime: activity may keep a session busy, but can never extend its
+// absolute expiry.
+const DefaultSessionIdleTimeout = 30 * time.Minute
+
+// ErrSessionNotFound means a strict token rotation lost its source session.
+// This is expected when another concurrent request already rotated the token;
+// callers must not mint another replacement because that would leave two valid
+// post-elevation sessions.
+var ErrSessionNotFound = errors.New("auth: session no longer exists")
+
 // Manager issues, resolves, and revokes sessions, and manages the session cookie.
 type Manager struct {
 	store   SessionStore
 	ttl     time.Duration
+	idle    time.Duration
 	secure  bool
 	hmacKey []byte // HMAC-SHA256 key for token hashing (KEYS-002); must be 32 bytes
 }
@@ -34,24 +48,84 @@ func NewManager(store SessionStore, ttl time.Duration, secure bool, hmacKey []by
 	if ttl <= 0 {
 		ttl = 12 * time.Hour
 	}
-	return &Manager{store: store, ttl: ttl, secure: secure, hmacKey: hmacKey}
+	return &Manager{
+		store: store, ttl: ttl, idle: DefaultSessionIdleTimeout,
+		secure: secure, hmacKey: hmacKey,
+	}
+}
+
+// WithIdleTimeout configures the server-enforced inactivity window. A zero or
+// negative value keeps the safe default rather than creating an unlimited
+// session. The absolute TTL remains an independent upper bound.
+func (m *Manager) WithIdleTimeout(idle time.Duration) *Manager {
+	if idle > 0 {
+		m.idle = idle
+	}
+	return m
 }
 
 // Issue mints a session for an authenticated user and returns the opaque token.
 // Only the token's hash is stored, so a database read cannot recover it.
 func (m *Manager) Issue(ctx context.Context, sess Session) (string, error) {
-	raw, err := crypto.Random(32)
+	token, tokenHash, sess, err := m.prepare(sess)
 	if err != nil {
 		return "", err
 	}
-	token := hex.EncodeToString(raw)
-	now := time.Now()
-	sess.CreatedAt = now
-	sess.ExpiresAt = now.Add(m.ttl)
-	if err := m.store.Create(ctx, m.hashToken(token), sess); err != nil {
+	if err := m.store.Create(ctx, tokenHash, sess); err != nil {
 		return "", err
 	}
 	return token, nil
+}
+
+// Rotate atomically replaces an existing opaque token. It preserves an
+// existing session's absolute CreatedAt/ExpiresAt values (role-change rotation
+// must not lengthen its lifetime), while a zero-valued fresh-login session gets
+// a new absolute lifetime. If the old token disappeared concurrently, rotation
+// fails closed with ErrSessionNotFound instead of minting a second successor.
+func (m *Manager) Rotate(ctx context.Context, oldToken string, sess Session) (string, error) {
+	if oldToken == "" {
+		return "", ErrSessionNotFound
+	}
+	token, tokenHash, sess, err := m.prepare(sess)
+	if err != nil {
+		return "", err
+	}
+	rotated, err := m.store.RotateByHash(ctx, m.hashToken(oldToken), tokenHash, sess)
+	if err != nil {
+		return "", err
+	}
+	if rotated {
+		return token, nil
+	}
+	if m.keyedHashing() {
+		// KEYS-002 compatibility: replace a pre-HMAC legacy row with a newly
+		// keyed row. The store still performs the replacement atomically.
+		rotated, err = m.store.RotateByHash(ctx, legacyHashToken(oldToken), tokenHash, sess)
+		if err != nil {
+			return "", err
+		}
+		if rotated {
+			return token, nil
+		}
+	}
+	return "", ErrSessionNotFound
+}
+
+func (m *Manager) prepare(sess Session) (string, []byte, Session, error) {
+	raw, err := crypto.Random(32)
+	if err != nil {
+		return "", nil, Session{}, err
+	}
+	token := hex.EncodeToString(raw)
+	now := time.Now()
+	if sess.CreatedAt.IsZero() {
+		sess.CreatedAt = now
+	}
+	if sess.ExpiresAt.IsZero() {
+		sess.ExpiresAt = now.Add(m.ttl)
+	}
+	sess.LastActivityAt = now
+	return token, m.hashToken(token), sess, nil
 }
 
 // Resolve returns the session for a token, or (nil, nil) if there is none/expired.
@@ -59,14 +133,14 @@ func (m *Manager) Resolve(ctx context.Context, token string) (*Session, error) {
 	if token == "" {
 		return nil, nil
 	}
-	sess, err := m.store.LookupByHash(ctx, m.hashToken(token))
+	sess, err := m.store.LookupByHash(ctx, m.hashToken(token), m.idle)
 	if err != nil || sess != nil || !m.keyedHashing() {
 		return sess, err
 	}
 	// KEYS-002 migration window: sessions minted before the keyed hash rolled
 	// out are stored under the legacy unkeyed digest. They expire naturally by
 	// TTL; new sessions are always stored under the keyed digest.
-	return m.store.LookupByHash(ctx, legacyHashToken(token))
+	return m.store.LookupByHash(ctx, legacyHashToken(token), m.idle)
 }
 
 // Revoke deletes a session (logout).

@@ -93,6 +93,19 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.FairnessQueriesPerMin != 120 {
 		t.Errorf("FairnessQueriesPerMin = %v, want 120", cfg.FairnessQueriesPerMin)
 	}
+	if cfg.SessionIdleTimeout != 30*time.Minute {
+		t.Errorf("SessionIdleTimeout = %v, want 30m", cfg.SessionIdleTimeout)
+	}
+}
+
+func TestSessionIdleTimeoutOverride(t *testing.T) {
+	cfg, err := Load(envFunc(map[string]string{"PROBECTL_SESSION_IDLE_TIMEOUT": "45m"}))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.SessionIdleTimeout != 45*time.Minute {
+		t.Fatalf("SessionIdleTimeout = %v, want 45m", cfg.SessionIdleTimeout)
+	}
 }
 
 // TENANT-004: DB-enforced ClickHouse tenant isolation must default ON across

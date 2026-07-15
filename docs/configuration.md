@@ -152,6 +152,7 @@ process serve HTTPS itself instead.
 | `PROBECTL_AUTH_MODE`                | `session`                                                          | identity mode: `session` (real OIDC SSO + session cookies) \| `dev` (LOCAL EVALUATION ONLY — exists only in `-tags devauth` builds; release binaries refuse it at boot) |
 | `PROBECTL_DEV_AUTH_ACK`             | (none)                                                             | must be `i-understand` to start in dev auth mode (tagged builds only, loopback bind required) |
 | `PROBECTL_SESSION_TTL`              | `12h`                                                            | server-side session lifetime                               |
+| `PROBECTL_SESSION_IDLE_TIMEOUT`     | `30m`                                                            | default-on inactivity limit for tenant and provider sessions; `0` keeps the safe 30m default rather than disabling it |
 | `PROBECTL_AUTH_RATE_MAX_FAILURES`   | `5`         | auth brute-force guard: failures per window before lockout |
 | `PROBECTL_AUTH_RATE_WINDOW`         | `1m`        | failure-counting window for the auth throttle |
 | `PROBECTL_AUTH_RATE_LOCKOUT`        | `1m`        | base lockout; doubles per consecutive lockout, capped at 1h; lockouts are audited |
@@ -969,8 +970,20 @@ cannot mint or cheaply test a session without `PROBECTL_SESSION_HMAC_KEY`.
 Production session-cookie deployments fail closed without that key: all
 `multi-tenant` / `regulated` session auth, and `single` profile session auth once
 OIDC is configured. The cookie is **HttpOnly + SameSite=Lax**, and **Secure**
-whenever the API serves HTTPS. `PROBECTL_SESSION_TTL` (default `12h`) bounds its
-lifetime.
+whenever the API serves HTTPS. `PROBECTL_SESSION_TTL` (default `12h`) is the
+absolute lifetime; activity never extends it. `PROBECTL_SESSION_IDLE_TIMEOUT`
+(default `30m`) is a second, database-enforced inactivity wall. A successful
+lookup atomically advances `last_activity_at`; an idle or absolutely expired
+token returns no session. Setting the idle value to `0` keeps the safe default
+rather than creating an unlimited session.
+
+Every successful login replaces the browser's previous session ID. Each session
+also stores a deterministic digest of its effective permission keys. When a
+role grant or revoke changes that digest, the next request atomically consumes
+the old token, sets a newly random cookie, and only then serves the request.
+Two racing requests cannot create two successors. The session table also has a
+composite `(tenant_id, user_id)` foreign key, so the database rejects a session
+that pairs one tenant with another tenant's user.
 
 **Per-tenant IdP.** Providers are resolved per tenant through a provider factory.
 The environment configuration (`PROBECTL_OIDC_*`) is the deployment fallback;

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
@@ -31,8 +32,9 @@ const SessionCookie = "probectl_provider_session"
 const sessionTTL = 4 * time.Hour
 
 type opSession struct {
-	op      Operator
-	expires time.Time
+	op           Operator
+	expires      time.Time
+	lastActivity time.Time
 }
 
 // Sessions is the in-memory operator-session store.
@@ -40,6 +42,7 @@ type Sessions struct {
 	mu      sync.Mutex
 	byH     map[string]opSession
 	now     func() time.Time
+	idle    time.Duration
 	hmacKey []byte // PROBECTL_SESSION_HMAC_KEY (KEYS-002); must be 32 bytes
 }
 
@@ -48,7 +51,19 @@ type Sessions struct {
 // so both session domains benefit from keyed hashing (KEYS-002). Pass nil only
 // in tests; production always supplies a key.
 func NewSessions(hmacKey []byte) *Sessions {
-	return &Sessions{byH: map[string]opSession{}, now: time.Now, hmacKey: hmacKey}
+	return &Sessions{
+		byH: map[string]opSession{}, now: time.Now,
+		idle: auth.DefaultSessionIdleTimeout, hmacKey: hmacKey,
+	}
+}
+
+// WithIdleTimeout applies the same configurable, default-on inactivity window
+// as tenant sessions. Zero cannot silently create unlimited provider access.
+func (s *Sessions) WithIdleTimeout(idle time.Duration) *Sessions {
+	if idle > 0 {
+		s.idle = idle
+	}
+	return s
 }
 
 // Issue mints an opaque session token for an authenticated operator.
@@ -60,7 +75,8 @@ func (s *Sessions) Issue(op Operator) (string, error) {
 	token := hex.EncodeToString(raw)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.byH[s.hashKey(token)] = opSession{op: op, expires: s.now().Add(sessionTTL)}
+	now := s.now()
+	s.byH[s.hashKey(token)] = opSession{op: op, expires: now.Add(sessionTTL), lastActivity: now}
 	return token, nil
 }
 
@@ -73,10 +89,13 @@ func (s *Sessions) Resolve(token string) *Operator {
 	defer s.mu.Unlock()
 	h := s.hashKey(token)
 	sess, ok := s.byH[h]
-	if !ok || s.now().After(sess.expires) {
+	now := s.now()
+	if !ok || now.After(sess.expires) || !sess.lastActivity.After(now.Add(-s.idle)) {
 		delete(s.byH, h)
 		return nil
 	}
+	sess.lastActivity = now
+	s.byH[h] = sess
 	op := sess.op
 	return &op
 }

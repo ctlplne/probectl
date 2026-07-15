@@ -339,6 +339,10 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) error {
 	for _, k := range keys {
 		h.limiter.Success(k)
 	}
+	// Successful authentication always changes the provider-domain session ID.
+	// Consume the browser/CLI's prior token before minting its replacement; if
+	// minting fails, losing the old high-privilege session is the safe outcome.
+	h.sessions.Revoke(tokenFromRequest(r))
 	token, err := h.sessions.Issue(op)
 	if err != nil {
 		return err

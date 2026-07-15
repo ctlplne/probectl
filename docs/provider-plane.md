@@ -26,7 +26,8 @@ vice versa) — with their own everything:
 - **Their own accounts** (`provider_operators`), **their own sessions** (a
   separate cookie, `probectl_provider_session`; `SameSite=Strict`, meaning the
   browser refuses to attach it to any navigation that starts on another site, so
-  a malicious page cannot ride an operator's session; a 4-hour TTL,
+  a malicious page cannot ride an operator's session; a 4-hour absolute TTL
+  plus the default-on `PROBECTL_SESSION_IDLE_TIMEOUT` inactivity wall,
   held in memory by design — a restart deliberately re-authenticates this
   high-privilege domain rather than persisting its sessions), and **their own
   tamper-evident audit chain** (`provider_audit_events`).

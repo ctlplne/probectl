@@ -186,9 +186,10 @@ func TestRBACStore(t *testing.T) {
 	})
 }
 
-// Sessions (pool-based, global lookup): Create, LookupByHash, DeleteByHash,
-// DeleteAllForUser. Needs a real tenant + user (FKs).
-func TestSessionStore(t *testing.T) {
+// Sessions (pool-based, global lookup): Create, idle-touching LookupByHash,
+// atomic RotateByHash, DeleteByHash, DeleteAllForUser. Needs a real tenant +
+// user (FKs).
+func TestSessionStoreCrossTenantIsolation(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)
 	defer pool.Close()
@@ -215,13 +216,57 @@ func TestSessionStore(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("session create: %v", err)
 	}
-	if got, err := sess.LookupByHash(ctx, h1); err != nil || got == nil || got.UserID != userID ||
+	if got, err := sess.LookupByHash(ctx, h1, time.Minute); err != nil || got == nil || got.UserID != userID ||
 		got.TimeZone != "Asia/Tokyo" || got.Locale != "ar-EG" ||
 		got.TenantTimeZone != "America/New_York" || got.TenantLocale != "es" {
 		t.Fatalf("lookupByHash: %v / %+v", err, got)
 	}
-	if err := sess.DeleteByHash(ctx, h1); err != nil {
+	other, err := NewTenants(pool).Create(ctx, fmt.Sprintf("sess-other-%d", time.Now().UnixNano()), "Other Sessions")
+	if err != nil {
+		t.Fatalf("other tenant: %v", err)
+	}
+	badHash := crypto.Hash([]byte("cross-tenant-session-" + sfx))
+	if err := sess.Create(ctx, badHash, auth.Session{
+		TenantID: other.ID, UserID: userID, Email: "mismatch@x.com", ExpiresAt: time.Now().Add(time.Hour),
+	}); err == nil {
+		t.Fatal("cross-tenant tenant/user session pair was accepted by storage")
+	}
+	if ok, err := sess.RotateByHash(ctx, h1, badHash, auth.Session{
+		TenantID: other.ID, UserID: userID, Email: "mismatch@x.com", ExpiresAt: time.Now().Add(time.Hour),
+	}); err == nil || ok {
+		t.Fatalf("cross-tenant rotation must fail: err=%v rotated=%t", err, ok)
+	}
+	if got, err := sess.LookupByHash(ctx, h1, time.Minute); err != nil || got == nil || got.TenantID != tn.ID {
+		t.Fatalf("failed cross-tenant rotation did not preserve original: %v / %+v", err, got)
+	}
+	hRotated := crypto.Hash([]byte("sess1-rotated-" + sfx))
+	if ok, err := sess.RotateByHash(ctx, h1, hRotated, auth.Session{
+		TenantID: tn.ID, UserID: userID, Email: "sess-" + sfx + "@x.com",
+		ExpiresAt: time.Now().Add(time.Hour), AuthorizationHash: crypto.Hash([]byte("viewer")),
+	}); err != nil || !ok {
+		t.Fatalf("rotateByHash: %v / %t", err, ok)
+	}
+	if got, err := sess.LookupByHash(ctx, h1, time.Minute); err != nil || got != nil {
+		t.Fatalf("old hash survived rotation: %v / %+v", err, got)
+	}
+	if got, err := sess.LookupByHash(ctx, hRotated, time.Minute); err != nil || got == nil || got.TenantID != tn.ID {
+		t.Fatalf("rotated lookup: %v / %+v", err, got)
+	}
+	if err := sess.DeleteByHash(ctx, hRotated); err != nil {
 		t.Fatalf("deleteByHash: %v", err)
+	}
+	hIdle := crypto.Hash([]byte("sess-idle-" + sfx))
+	if err := sess.Create(ctx, hIdle, auth.Session{
+		TenantID: tn.ID, UserID: userID, Email: "sess-" + sfx + "@x.com",
+		ExpiresAt: time.Now().Add(time.Hour), LastActivityAt: time.Now().Add(-2 * time.Hour),
+	}); err != nil {
+		t.Fatalf("idle session create: %v", err)
+	}
+	if got, err := sess.LookupByHash(ctx, hIdle, 30*time.Minute); err != nil || got != nil {
+		t.Fatalf("idle session must fail closed: %v / %+v", err, got)
+	}
+	if err := sess.DeleteByHash(ctx, hIdle); err != nil {
+		t.Fatalf("idle session cleanup: %v", err)
 	}
 	h2 := crypto.Hash([]byte("sess2-" + sfx))
 	if err := sess.Create(ctx, h2, auth.Session{

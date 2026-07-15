@@ -280,6 +280,14 @@ func DevModeActive() bool { return devModeActive.Load() }
 // injects it into the context. Per-route enforcement (401/403) happens later.
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Login/callback/logout establish or consume credentials themselves and
+		// never read a Principal. Skipping ambient resolution here also prevents
+		// a permission-change rotation in middleware from racing the callback's
+		// required login rotation and leaving two successor sessions.
+		if strings.HasPrefix(r.URL.Path, "/auth/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		// Dev auth exists only behind the compiled-in hook. In a release
 		// build (hook nil) AuthMode=dev grants NOTHING — requests fall
 		// through unauthenticated and the route layer 401s (and main has
@@ -295,7 +303,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if p := s.resolvePrincipal(r); p != nil {
+		if p := s.resolvePrincipalAndRotate(w, r); p != nil {
 			r = r.WithContext(auth.WithPrincipal(r.Context(), p))
 		}
 		next.ServeHTTP(w, r)
@@ -307,6 +315,17 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 // never reaches here — it exists only behind devModeHook (compiled in via
 // -tags devauth).
 func (s *Server) resolvePrincipal(r *http.Request) *auth.Principal {
+	return s.resolvePrincipalSession(nil, r)
+}
+
+// resolvePrincipalAndRotate is the HTTP-edge session path. It can return the
+// replacement cookie required when effective authorization changed; callers
+// without a ResponseWriter use resolvePrincipal and deliberately cannot rotate.
+func (s *Server) resolvePrincipalAndRotate(w http.ResponseWriter, r *http.Request) *auth.Principal {
+	return s.resolvePrincipalSession(w, r)
+}
+
+func (s *Server) resolvePrincipalSession(w http.ResponseWriter, r *http.Request) *auth.Principal {
 	if token, ok := bearerTokenFromRequest(r); ok {
 		p, err := s.resolveBearerPrincipal(r, token)
 		if err != nil {
@@ -319,10 +338,22 @@ func (s *Server) resolvePrincipal(r *http.Request) *auth.Principal {
 	if s.authn == nil {
 		return nil
 	}
-	p, err := s.authn.Resolve(r)
+	var (
+		p           *auth.Principal
+		replacement string
+		err         error
+	)
+	if w == nil {
+		p, err = s.authn.Resolve(r)
+	} else {
+		p, replacement, err = s.authn.ResolveAndRotate(r)
+	}
 	if err != nil {
 		s.log.Warn("session resolve failed", "error", err)
 		return nil
+	}
+	if replacement != "" {
+		s.sessions.SetCookie(w, replacement)
 	}
 	s.loadSubjectAttributes(r.Context(), p)
 	return p
@@ -572,17 +603,35 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	token, err := s.sessions.Issue(r.Context(), auth.Session{
-		TenantID:       tid.String(),
-		UserID:         user.ID,
-		Email:          user.Email,
-		DisplayName:    user.DisplayName,
-		MFASatisfied:   ident.MFASatisfied, // SEC-005: from the ID token's amr/acr
-		TimeZone:       prefOrDefault(ident.TimeZone, "UTC"),
-		Locale:         prefOrDefault(ident.Locale, "en"),
-		TenantTimeZone: "UTC",
-		TenantLocale:   "en",
-	})
+	keys, err := (permLoader{pool: s.pool}).ForUser(r.Context(), tid.String(), user.ID)
+	if err != nil {
+		return err
+	}
+	newSession := auth.Session{
+		TenantID:          tid.String(),
+		UserID:            user.ID,
+		Email:             user.Email,
+		DisplayName:       user.DisplayName,
+		MFASatisfied:      ident.MFASatisfied, // SEC-005: from the ID token's amr/acr
+		TimeZone:          prefOrDefault(ident.TimeZone, "UTC"),
+		Locale:            prefOrDefault(ident.Locale, "en"),
+		TenantTimeZone:    "UTC",
+		TenantLocale:      "en",
+		AuthorizationHash: auth.PermissionFingerprint(keys),
+	}
+	oldToken := auth.TokenFromRequest(r)
+	var token string
+	if oldToken == "" {
+		token, err = s.sessions.Issue(r.Context(), newSession)
+	} else {
+		// A successful login always changes the session ID. An unknown/expired
+		// cookie has no server-side authority to preserve, so mint normally;
+		// a live cookie is consumed atomically by Rotate.
+		token, err = s.sessions.Rotate(r.Context(), oldToken, newSession)
+		if errors.Is(err, auth.ErrSessionNotFound) {
+			token, err = s.sessions.Issue(r.Context(), newSession)
+		}
+	}
 	if err != nil {
 		return err
 	}

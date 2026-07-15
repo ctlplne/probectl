@@ -7,8 +7,13 @@
 package auth
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"sort"
+	"strings"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 type ctxKey int
@@ -54,6 +59,45 @@ func (a *Authenticator) Resolve(r *http.Request) (*Principal, error) {
 		return nil, err
 	}
 	return principalFromSession(sess, keys), nil
+}
+
+// ResolveAndRotate resolves a cookie session and atomically rotates its opaque
+// ID when the user's effective permission set changed since issuance. The
+// replacement token is returned for the HTTP edge to set as a cookie before
+// serving the request. Rotation covers both grants (privilege elevation) and
+// revocations; the latter is intentionally just as strict.
+func (a *Authenticator) ResolveAndRotate(r *http.Request) (*Principal, string, error) {
+	token := TokenFromRequest(r)
+	sess, err := a.mgr.Resolve(r.Context(), token)
+	if err != nil {
+		return nil, "", err
+	}
+	if sess == nil {
+		return nil, "", nil
+	}
+	keys, err := a.perms.ForUser(r.Context(), sess.TenantID, sess.UserID)
+	if err != nil {
+		return nil, "", err
+	}
+	fingerprint := PermissionFingerprint(keys)
+	if bytes.Equal(sess.AuthorizationHash, fingerprint) {
+		return principalFromSession(sess, keys), "", nil
+	}
+	sess.AuthorizationHash = fingerprint
+	replacement, err := a.mgr.Rotate(r.Context(), token, *sess)
+	if err != nil {
+		return nil, "", err
+	}
+	return principalFromSession(sess, keys), replacement, nil
+}
+
+// PermissionFingerprint returns a deterministic, non-secret digest of the
+// effective permission keys. Sorting means a database query-plan order change
+// does not spuriously rotate every session.
+func PermissionFingerprint(keys []string) []byte {
+	canonical := append([]string(nil), keys...)
+	sort.Strings(canonical)
+	return crypto.Hash([]byte(strings.Join(canonical, "\x00")))
 }
 
 // principalFromSession builds a Principal from a session + its permission keys.

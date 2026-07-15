@@ -114,7 +114,7 @@ func Build(cfg *config.Config, d Deps) (http.Handler, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	return NewHandler(svc, NewSessions(cfg.SessionHMACKey), tenantAuth, log,
+	return NewHandler(svc, NewSessions(cfg.SessionHMACKey).WithIdleTimeout(cfg.SessionIdleTimeout), tenantAuth, log,
 		cfg.ProviderBootstrapToken, cfg.CookieSecure()).
 		WithMetering(d.Metering).WithLifecycle(d.Lifecycle).
 		WithFairness(d.Fairness).WithGovernance(d.Governance), nil
