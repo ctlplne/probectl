@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import styles from './path.module.css'
 import { Page } from './pages'
@@ -91,6 +91,7 @@ export function PathPage() {
   )
   const { push } = useToast()
   const [copiedLink, setCopiedLink] = useState(false)
+  const autoCopyHandled = useRef(false)
 
   const testId = chosen || tests.data?.[0]?.id
   const test = tests.data?.find((t) => t.id === testId)
@@ -307,7 +308,7 @@ export function PathPage() {
     })
   }
 
-  function copyStablePathLink() {
+  const copyStablePathLink = useCallback(() => {
     const stableURL = new URL(stablePathHref, window.location.origin).toString()
     if (!navigator.clipboard) {
       setCopiedLink(true)
@@ -319,7 +320,21 @@ export function PathPage() {
       .catch(() =>
         push({ tone: 'danger', title: 'Copy failed', message: 'Clipboard access was denied.' }),
       )
-  }
+  }, [push, stablePathHref])
+
+  useEffect(() => {
+    const requested = params.get('task') === 'copy-stable-link'
+    if (!requested) {
+      autoCopyHandled.current = false
+      return
+    }
+    if (autoCopyHandled.current || !selectedRound) return
+    autoCopyHandled.current = true
+    const next = new URLSearchParams(params)
+    next.delete('task')
+    setParams(next, { replace: true })
+    copyStablePathLink()
+  }, [copyStablePathLink, params, selectedRound, setParams])
 
   const topologyLink = displayedPath
     ? pivotHref('/topology', {

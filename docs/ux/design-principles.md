@@ -83,6 +83,12 @@ palette and keyboard-operable path/topology nodes
 Test: scripted keyboard-only tests complete J1–J6 with zero pointer events and assert the
 documented interaction budgets.
 
+Implementation receipt: the generated
+[`keyboard-command-reference.md`](./keyboard-command-reference.md) comes from the same typed
+registry as the palette. Cross-plane commands serialize only the X3 allow-list; disabled
+commands state why; palette and modal focus trap/restore; and a tenant switch clears the
+object/action-bearing URL before credentials can change.
+
 ## 6. Dense, then disclose
 
 An expert should see scope, time, health, magnitude, change, and the next action without

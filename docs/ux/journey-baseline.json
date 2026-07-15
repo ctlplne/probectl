@@ -7,7 +7,7 @@
       "journey": "J1",
       "name": "install to first real insight",
       "pointer_interactions": 4,
-      "keyboard_interactions": 0,
+      "keyboard_interactions": 4,
       "typed_characters": 0,
       "context_breaks": 1,
       "active_time_proxy": {
@@ -27,42 +27,50 @@
     {
       "journey": "J2",
       "name": "incident to cited RCA to share",
-      "pointer_interactions": 1,
-      "keyboard_interactions": 0,
+      "pointer_interactions": 4,
+      "keyboard_interactions": 4,
       "typed_characters": 0,
       "context_breaks": 0,
       "active_time_proxy": {
         "min_ms": 15000,
         "max_ms": 45000,
-        "basis": "auto-selected firing incident plus one inline likely-cause action"
+        "basis": "select evidence, run inline RCA, follow its citation, and copy one stable link"
       },
       "outcome": {
-        "status": "incomplete",
-        "reason": "cited RCA is complete; stable incident share ships in X6"
+        "status": "complete",
+        "evidence": [
+          "four keyboard actions and zero pointer events or typed characters",
+          "copied URL contains only a random share artifact ID",
+          "authenticated replay restores clock, filters, selection, citations, and reasoning provenance"
+        ]
       }
     },
     {
       "journey": "J3",
       "name": "explore to answer ten canonical questions",
       "pointer_interactions": 20,
-      "keyboard_interactions": 0,
-      "typed_characters": 480,
-      "context_breaks": 7,
+      "keyboard_interactions": 20,
+      "typed_characters": 0,
+      "context_breaks": 0,
       "active_time_proxy": {
-        "min_ms": 600000,
-        "max_ms": 1200000,
-        "basis": "ten Ask submissions plus manual plane-page pivot proxy"
+        "min_ms": 60000,
+        "max_ms": 180000,
+        "basis": "choose one taught canonical question and run it; two keyboard actions each"
       },
       "outcome": {
-        "status": "incomplete",
-        "reason": "only about three canonical questions are discoverable through one query surface"
+        "status": "complete",
+        "evidence": [
+          "10 of 10 canonical questions execute through one tenant-scoped surface",
+          "two keyboard actions per answer and zero typed query characters",
+          "no documentation or syntax lookup and no client-supplied tenant scope"
+        ]
       }
     },
     {
       "journey": "J4",
       "name": "debug a lossy ECMP path",
       "pointer_interactions": 5,
-      "keyboard_interactions": 0,
+      "keyboard_interactions": 5,
       "typed_characters": 0,
       "context_breaks": 0,
       "active_time_proxy": {
@@ -83,7 +91,7 @@
       "journey": "J5",
       "name": "find and act on fleet health",
       "pointer_interactions": 2,
-      "keyboard_interactions": 0,
+      "keyboard_interactions": 2,
       "typed_characters": 0,
       "context_breaks": 0,
       "active_time_proxy": {
@@ -104,7 +112,7 @@
       "journey": "J6",
       "name": "MSP multi-tenant operations under probectl",
       "pointer_interactions": 8,
-      "keyboard_interactions": 0,
+      "keyboard_interactions": 8,
       "typed_characters": 16,
       "context_breaks": 0,
       "active_time_proxy": {

@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import styles from './incidentRoom.module.css'
 import {
@@ -147,6 +147,7 @@ export function IncidentRoom({
   const { push } = useToast()
   const [explanation, setExplanation] = useState<Answer | undefined>(sharedAnswer)
   const [shareLink, setShareLink] = useState<string>()
+  const autoShareHandled = useRef(false)
 
   useEffect(() => setExplanation(sharedAnswer), [sharedAnswer])
 
@@ -180,6 +181,56 @@ export function IncidentRoom({
     }
     return items.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
   }, [changes.data, signalRows])
+
+  const copyCitedShareLink = useCallback(
+    (roomIncident: Incident) => {
+      createShare.mutate(
+        {
+          context: {
+            from: pivotContext.from ?? roomIncident.started_at,
+            to: pivotContext.to ?? roomIncident.last_seen_at,
+            filters: pivotContext.filters,
+            ...(pivotContext.selection ? { selection: pivotContext.selection } : {}),
+          },
+        },
+        {
+          onSuccess: (artifact) => {
+            const url = new URL('/incidents', window.location.origin)
+            url.searchParams.set('share', artifact.id)
+            const stableLink = url.toString()
+            setShareLink(stableLink)
+            void navigator.clipboard?.writeText(stableLink).catch(() => undefined)
+            push({
+              tone: 'success',
+              title: t('incidents.share.copied'),
+              message: t('incidents.share.expires', { expires: artifact.expires_at }),
+            })
+          },
+          onError: () =>
+            push({
+              tone: 'danger',
+              title: t('incidents.share.failed'),
+              message: t('incidents.share.failedDescription'),
+            }),
+        },
+      )
+    },
+    [createShare, pivotContext, push, t],
+  )
+
+  useEffect(() => {
+    const requested = params.get('task') === 'incident-share'
+    if (!requested) {
+      autoShareHandled.current = false
+      return
+    }
+    if (autoShareHandled.current || !explanation || !inc) return
+    autoShareHandled.current = true
+    const next = new URLSearchParams(params)
+    next.delete('task')
+    setParams(next, { replace: true })
+    copyCitedShareLink(inc)
+  }, [copyCitedShareLink, explanation, inc, params, setParams])
 
   if (!incidentSnapshot && incident.isLoading)
     return <LoadingState label={t('incidents.loadingOne')} />
@@ -254,39 +305,6 @@ export function IncidentRoom({
             error instanceof Error ? error.message : t('incidents.toast.proposalFailedMessage'),
         }),
     })
-  }
-
-  function copyCitedShareLink() {
-    createShare.mutate(
-      {
-        context: {
-          from: pivotContext.from ?? roomIncident.started_at,
-          to: pivotContext.to ?? roomIncident.last_seen_at,
-          filters: pivotContext.filters,
-          ...(pivotContext.selection ? { selection: pivotContext.selection } : {}),
-        },
-      },
-      {
-        onSuccess: (artifact) => {
-          const url = new URL('/incidents', window.location.origin)
-          url.searchParams.set('share', artifact.id)
-          const stableLink = url.toString()
-          setShareLink(stableLink)
-          void navigator.clipboard?.writeText(stableLink).catch(() => undefined)
-          push({
-            tone: 'success',
-            title: t('incidents.share.copied'),
-            message: t('incidents.share.expires', { expires: artifact.expires_at }),
-          })
-        },
-        onError: () =>
-          push({
-            tone: 'danger',
-            title: t('incidents.share.failed'),
-            message: t('incidents.share.failedDescription'),
-          }),
-      },
-    )
   }
 
   return (
@@ -404,7 +422,7 @@ export function IncidentRoom({
             <div className={styles.actions}>
               <Button
                 variant="secondary"
-                onClick={copyCitedShareLink}
+                onClick={() => copyCitedShareLink(roomIncident)}
                 disabled={createShare.isPending}
               >
                 {createShare.isPending ? t('incidents.share.creating') : t('incidents.share.copy')}

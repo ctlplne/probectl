@@ -162,6 +162,20 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
+    capability: 'Keyboard command API and pointer-free J1-J6 journey parity',
+    featureIds: ['F1', 'F3', 'F9', 'F28', 'F51'],
+    sprint: 'X15',
+    kind: 'native',
+    route: '/onboarding',
+    offNav: true,
+    evidence: [
+      'file:web/src/shell/journeyCommands.ts',
+      'file:docs/ux/keyboard-command-reference.md',
+      'file:web/src/test/journeys/keyboard-only.test.tsx',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'AI test authoring + auto-discovery',
     featureIds: ['F45'],
     sprint: 'S26',

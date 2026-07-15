@@ -28,18 +28,18 @@ counts.
 Scores are integers from 1 (missing) to 5 (category-leading). Each D-column uses the same
 anchor in all six journey tables.
 
-| Dimension | 5 | 3 | 1 |
-|---|---|---|---|
-| D1 — time to first insight | real finding in <=15 minutes from a fresh supported install | <=60 minutes with guided setup | no complete fresh-install path |
-| D2 — interactions to outcome | RCA and share in <=5 interactions | 10–14 or one context break | outcome cannot be completed |
-| D3 — query expressiveness | 9–10 of the canonical questions answerable without docs | 5–6 | 0–1 |
-| D4 — path/topology power | ECMP + hop metrics + what-if + history in one coherent flow | two of four | none |
-| D5 — cross-plane pivots | four or more planes, one-hop pivots, time/filter preserved | two planes or partial context | no pivot |
-| D6 — AI trust | inline explanation, exact claim-to-evidence links, and sovereign execution state | explanation/follow-up without exact evidence links | absent |
-| D7 — onboarding/empty states | every shipped engine has readiness, next action, and progress | generic guidance for most surfaces | blank/error masquerades as healthy |
-| D8 — alert round trip | fire, acknowledge, silence, maintenance, on-call/ticket, and postmortem link | three or four stages | rules/notifications only |
-| D9 — density with clarity | passes all five heuristics below | passes three | decoration or ambiguity hides state |
-| D10 — keyboard/a11y/perf | complete keyboard journey + axe + LCP/INP + bundle budgets | two of those controls | no published/observable control |
+| Dimension                    | 5                                                                                | 3                                                  | 1                                   |
+| ---------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------- |
+| D1 — time to first insight   | real finding in <=15 minutes from a fresh supported install                      | <=60 minutes with guided setup                     | no complete fresh-install path      |
+| D2 — interactions to outcome | RCA and share in <=5 interactions                                                | 10–14 or one context break                         | outcome cannot be completed         |
+| D3 — query expressiveness    | 9–10 of the canonical questions answerable without docs                          | 5–6                                                | 0–1                                 |
+| D4 — path/topology power     | ECMP + hop metrics + what-if + history in one coherent flow                      | two of four                                        | none                                |
+| D5 — cross-plane pivots      | four or more planes, one-hop pivots, time/filter preserved                       | two planes or partial context                      | no pivot                            |
+| D6 — AI trust                | inline explanation, exact claim-to-evidence links, and sovereign execution state | explanation/follow-up without exact evidence links | absent                              |
+| D7 — onboarding/empty states | every shipped engine has readiness, next action, and progress                    | generic guidance for most surfaces                 | blank/error masquerades as healthy  |
+| D8 — alert round trip        | fire, acknowledge, silence, maintenance, on-call/ticket, and postmortem link     | three or four stages                               | rules/notifications only            |
+| D9 — density with clarity    | passes all five heuristics below                                                 | passes three                                       | decoration or ambiguity hides state |
+| D10 — keyboard/a11y/perf     | complete keyboard journey + axe + LCP/INP + bundle budgets                       | two of those controls                              | no published/observable control     |
 
 D9's five heuristics are: (1) scope and time are visible, (2) hierarchy makes the next action
 obvious, (3) overview and exact values coexist, (4) detail is disclosed on demand, and (5)
@@ -50,14 +50,14 @@ commercial value.
 
 ## Six replayable scripts
 
-| ID | Start | Required end state | Counted proof |
-|---|---|---|---|
-| J1 install -> insight | supported self-host install with no telemetry | one real, named signal is visible and its producer is healthy | wall time, actions, commands, and every out-of-product handoff |
-| J2 incident -> RCA -> share | a firing multi-plane incident | likely cause, exact evidence, and a stable tenant-authorized share/export | actions, context breaks, evidence hops, stable link/export |
-| J3 explore -> answer | authenticated tenant home | answer ten canonical questions without documentation | questions answered, actions, syntax lookup, preserved filters |
-| J4 path debug | a lossy ECMP path | bad hop/branch isolated, change over time compared, incident context and share retained | actions, visible ECMP/hop/MPLS data, scrub/compare/share |
-| J5 fleet health | one stale and one version-skewed agent | unhealthy agents identified and the safe next action is obvious | actions, tenant scope, version/last-seen/readiness evidence |
-| J6 MSP operations | provider operator sign-in | fleet triaged, a siloed tenant provisioned, usage exported under the probectl banner | actions, tenant isolation cues, privilege-domain separation, export |
+| ID                          | Start                                         | Required end state                                                                      | Counted proof                                                       |
+| --------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| J1 install -> insight       | supported self-host install with no telemetry | one real, named signal is visible and its producer is healthy                           | wall time, actions, commands, and every out-of-product handoff      |
+| J2 incident -> RCA -> share | a firing multi-plane incident                 | likely cause, exact evidence, and a stable tenant-authorized share/export               | actions, context breaks, evidence hops, stable link/export          |
+| J3 explore -> answer        | authenticated tenant home                     | answer ten canonical questions without documentation                                    | questions answered, actions, syntax lookup, preserved filters       |
+| J4 path debug               | a lossy ECMP path                             | bad hop/branch isolated, change over time compared, incident context and share retained | actions, visible ECMP/hop/MPLS data, scrub/compare/share            |
+| J5 fleet health             | one stale and one version-skewed agent        | unhealthy agents identified and the safe next action is obvious                         | actions, tenant scope, version/last-seen/readiness evidence         |
+| J6 MSP operations           | provider operator sign-in                     | fleet triaged, a siloed tenant provisioned, usage exported under the probectl banner    | actions, tenant isolation cues, privilege-domain separation, export |
 
 J3's canonical questions are: top talkers by site; the ASN change preceding an incident; loss
 by hop for a test; service dependencies; a saturated device interface; endpoints affected by
@@ -135,25 +135,25 @@ Notation is `actions / active-time proxy`; `+` means a lower bound because insta
 telemetry wait, or account configuration remains. These estimates make the scoring
 falsifiable; a licensed replay should replace them in `rubric-results.md`.
 
-| Product | J1 | J2 | J3 | J4 | J5 | J6 |
-|---|---:|---:|---:|---:|---:|---:|
-| Kentik | 9+ / 30–60m | 6–9 / 3–7m | 3–6 / 2–5m | 5–8 / 3–7m | 4–7 / 2–5m | 8+ / 5–10m |
-| ThousandEyes | 10+ / 30–60m | 4–7 / 2–5m | 6–10 / 4–8m | 3–6 / 2–5m | 4–8 / 3–6m | 8+ / 5–10m |
-| Datadog NPM | 6–10 / 15–30m | 5–8 / 3–6m | 3–6 / 2–5m | 4–7 / 3–6m | 4–7 / 2–5m | 8+ / 5–10m |
-| Grafana | 10+ / 30–60m | 5–9 / 4–8m | 3–7 / 3–8m | 8+ / 8–15m | 4–7 / 3–6m | 8+ / 5–10m |
-| Auvik | 5–8 / 5–15m | 6–10 / 5–10m | 6–10 / 5–10m | 3–6 / 2–5m | 2–5 / 1–3m | 4–7 / 2–5m |
+| Product      |            J1 |           J2 |           J3 |         J4 |         J5 |         J6 |
+| ------------ | ------------: | -----------: | -----------: | ---------: | ---------: | ---------: |
+| Kentik       |   9+ / 30–60m |   6–9 / 3–7m |   3–6 / 2–5m | 5–8 / 3–7m | 4–7 / 2–5m | 8+ / 5–10m |
+| ThousandEyes |  10+ / 30–60m |   4–7 / 2–5m |  6–10 / 4–8m | 3–6 / 2–5m | 4–8 / 3–6m | 8+ / 5–10m |
+| Datadog NPM  | 6–10 / 15–30m |   5–8 / 3–6m |   3–6 / 2–5m | 4–7 / 3–6m | 4–7 / 2–5m | 8+ / 5–10m |
+| Grafana      |  10+ / 30–60m |   5–9 / 4–8m |   3–7 / 3–8m | 8+ / 8–15m | 4–7 / 3–6m | 8+ / 5–10m |
+| Auvik        |   5–8 / 5–15m | 6–10 / 5–10m | 6–10 / 5–10m | 3–6 / 2–5m | 2–5 / 1–3m | 4–7 / 2–5m |
 
 ## Per-journey D1–D10 scores
 
 ### J1 — fresh install to first real insight
 
-| Product | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | D9 | D10 | /50 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Kentik | 3 | 3 | 5 | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 39 |
-| ThousandEyes | 3 | 3 | 3 | 5 | 4 | 4 | 4 | 4 | 4 | 3 | 37 |
-| Datadog NPM | 4 | 4 | 4 | 4 | 5 | 3 | 4 | 5 | 5 | 4 | 42 |
-| Grafana | 2 | 2 | 5 | 2 | 4 | 2 | 2 | 4 | 5 | 5 | 33 |
-| Auvik | 5 | 4 | 2 | 4 | 2 | 1 | 5 | 4 | 4 | 3 | 34 |
+| Product            |    D1 |    D2 |    D3 |    D4 |    D5 |    D6 |    D7 |    D8 |    D9 |   D10 |    /50 |
+| ------------------ | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | -----: |
+| Kentik             |     3 |     3 |     5 |     4 |     4 |     4 |     4 |     5 |     4 |     3 |     39 |
+| ThousandEyes       |     3 |     3 |     3 |     5 |     4 |     4 |     4 |     4 |     4 |     3 |     37 |
+| Datadog NPM        |     4 |     4 |     4 |     4 |     5 |     3 |     4 |     5 |     5 |     4 |     42 |
+| Grafana            |     2 |     2 |     5 |     2 |     4 |     2 |     2 |     4 |     5 |     5 |     33 |
+| Auvik              |     5 |     4 |     2 |     4 |     2 |     1 |     5 |     4 |     4 |     3 |     34 |
 | **probectl today** | **2** | **2** | **2** | **3** | **3** | **4** | **3** | **3** | **3** | **3** | **28** |
 
 The category max is Auvik's 5–15 minute discovery loop. probectl's first-run page is guided
@@ -162,13 +162,13 @@ agent progress before a producer is actually healthy or a finding exists.
 
 ### J2 — incident to cited RCA to share
 
-| Product | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | D9 | D10 | /50 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Kentik | 4 | 4 | 4 | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 40 |
-| ThousandEyes | 4 | 4 | 3 | 5 | 5 | 4 | 4 | 4 | 4 | 3 | 40 |
-| Datadog NPM | 4 | 4 | 4 | 4 | 5 | 3 | 4 | 5 | 5 | 4 | 42 |
-| Grafana | 3 | 3 | 5 | 2 | 4 | 2 | 3 | 5 | 5 | 5 | 37 |
-| Auvik | 4 | 3 | 2 | 3 | 2 | 1 | 4 | 4 | 4 | 3 | 30 |
+| Product            |    D1 |    D2 |    D3 |    D4 |    D5 |    D6 |    D7 |    D8 |    D9 |   D10 |    /50 |
+| ------------------ | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | -----: |
+| Kentik             |     4 |     4 |     4 |     4 |     4 |     4 |     4 |     5 |     4 |     3 |     40 |
+| ThousandEyes       |     4 |     4 |     3 |     5 |     5 |     4 |     4 |     4 |     4 |     3 |     40 |
+| Datadog NPM        |     4 |     4 |     4 |     4 |     5 |     3 |     4 |     5 |     5 |     4 |     42 |
+| Grafana            |     3 |     3 |     5 |     2 |     4 |     2 |     3 |     5 |     5 |     5 |     37 |
+| Auvik              |     4 |     3 |     2 |     3 |     2 |     1 |     4 |     4 |     4 |     3 |     30 |
 | **probectl today** | **3** | **1** | **2** | **3** | **4** | **4** | **3** | **4** | **3** | **3** | **30** |
 
 probectl has the hardest trust primitive here: citations jump to exact evidence and
@@ -177,13 +177,13 @@ is a route change and there is no incident snapshot/permalink/export action afte
 
 ### J3 — explore to answer ten canonical questions
 
-| Product | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | D9 | D10 | /50 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Kentik | 4 | 4 | 5 | 4 | 4 | 4 | 4 | 4 | 5 | 3 | 41 |
-| ThousandEyes | 4 | 4 | 3 | 5 | 4 | 4 | 4 | 4 | 4 | 3 | 39 |
-| Datadog NPM | 4 | 4 | 5 | 4 | 5 | 3 | 4 | 5 | 5 | 4 | 43 |
-| Grafana | 3 | 3 | 5 | 2 | 4 | 2 | 3 | 5 | 5 | 5 | 37 |
-| Auvik | 4 | 3 | 2 | 3 | 2 | 1 | 4 | 4 | 4 | 3 | 30 |
+| Product            |    D1 |    D2 |    D3 |    D4 |    D5 |    D6 |    D7 |    D8 |    D9 |   D10 |    /50 |
+| ------------------ | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | -----: |
+| Kentik             |     4 |     4 |     5 |     4 |     4 |     4 |     4 |     4 |     5 |     3 |     41 |
+| ThousandEyes       |     4 |     4 |     3 |     5 |     4 |     4 |     4 |     4 |     4 |     3 |     39 |
+| Datadog NPM        |     4 |     4 |     5 |     4 |     5 |     3 |     4 |     5 |     5 |     4 |     43 |
+| Grafana            |     3 |     3 |     5 |     2 |     4 |     2 |     3 |     5 |     5 |     5 |     37 |
+| Auvik              |     4 |     3 |     2 |     3 |     2 |     1 |     4 |     4 |     4 |     3 |     30 |
 | **probectl today** | **3** | **3** | **2** | **3** | **3** | **4** | **3** | **3** | **3** | **3** | **30** |
 
 Kentik, Datadog, and Grafana offer a discoverable structured exploration grammar. probectl
@@ -193,13 +193,13 @@ a shareable view.
 
 ### J4 — debug a lossy ECMP path
 
-| Product | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | D9 | D10 | /50 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Kentik | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 39 |
-| ThousandEyes | 4 | 5 | 3 | 5 | 5 | 4 | 4 | 4 | 5 | 3 | 42 |
-| Datadog NPM | 4 | 4 | 4 | 5 | 5 | 3 | 4 | 5 | 5 | 4 | 43 |
-| Grafana | 2 | 3 | 5 | 2 | 3 | 2 | 2 | 4 | 4 | 5 | 32 |
-| Auvik | 5 | 4 | 2 | 4 | 2 | 1 | 5 | 4 | 4 | 3 | 34 |
+| Product            |    D1 |    D2 |    D3 |    D4 |    D5 |    D6 |    D7 |    D8 |    D9 |   D10 |    /50 |
+| ------------------ | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | -----: |
+| Kentik             |     3 |     4 |     4 |     4 |     4 |     4 |     4 |     5 |     4 |     3 |     39 |
+| ThousandEyes       |     4 |     5 |     3 |     5 |     5 |     4 |     4 |     4 |     5 |     3 |     42 |
+| Datadog NPM        |     4 |     4 |     4 |     5 |     5 |     3 |     4 |     5 |     5 |     4 |     43 |
+| Grafana            |     2 |     3 |     5 |     2 |     3 |     2 |     2 |     4 |     4 |     5 |     32 |
+| Auvik              |     5 |     4 |     2 |     4 |     2 |     1 |     5 |     4 |     4 |     3 |     34 |
 | **probectl today** | **3** | **3** | **2** | **3** | **3** | **2** | **3** | **3** | **3** | **3** | **28** |
 
 probectl already renders merged ECMP branches, per-hop loss/latency, MPLS detail, and an
@@ -209,13 +209,13 @@ explain-this-view, or share control.
 
 ### J5 — find and act on fleet health
 
-| Product | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | D9 | D10 | /50 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Kentik | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 39 |
-| ThousandEyes | 4 | 4 | 3 | 4 | 4 | 4 | 5 | 4 | 4 | 3 | 39 |
-| Datadog NPM | 4 | 4 | 4 | 4 | 5 | 3 | 4 | 5 | 5 | 4 | 42 |
-| Grafana | 2 | 3 | 5 | 2 | 4 | 2 | 2 | 5 | 5 | 5 | 35 |
-| Auvik | 5 | 5 | 3 | 5 | 4 | 1 | 5 | 5 | 5 | 3 | 41 |
+| Product            |    D1 |    D2 |    D3 |    D4 |    D5 |    D6 |    D7 |    D8 |    D9 |   D10 |    /50 |
+| ------------------ | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | -----: |
+| Kentik             |     3 |     4 |     4 |     4 |     4 |     4 |     4 |     5 |     4 |     3 |     39 |
+| ThousandEyes       |     4 |     4 |     3 |     4 |     4 |     4 |     5 |     4 |     4 |     3 |     39 |
+| Datadog NPM        |     4 |     4 |     4 |     4 |     5 |     3 |     4 |     5 |     5 |     4 |     42 |
+| Grafana            |     2 |     3 |     5 |     2 |     4 |     2 |     2 |     5 |     5 |     5 |     35 |
+| Auvik              |     5 |     5 |     3 |     5 |     4 |     1 |     5 |     5 |     5 |     3 |     41 |
 | **probectl today** | **4** | **4** | **4** | **4** | **4** | **4** | **4** | **5** | **5** | **4** | **42** |
 
 The tenant Admin page is now a fleet action center: each RLS-scoped row explains heartbeat
@@ -228,13 +228,13 @@ unsupported capability, and unavailable rollout evidence remain distinct honest 
 
 ### J6 — MSP multi-tenant operations under the probectl banner
 
-| Product | D1 | D2 | D3 | D4 | D5 | D6 | D7 | D8 | D9 | D10 | /50 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Kentik | 3 | 3 | 4 | 4 | 4 | 4 | 4 | 5 | 4 | 3 | 38 |
-| ThousandEyes | 3 | 3 | 3 | 4 | 4 | 4 | 4 | 4 | 4 | 3 | 36 |
-| Datadog NPM | 3 | 3 | 4 | 4 | 5 | 3 | 3 | 5 | 5 | 4 | 39 |
-| Grafana | 2 | 3 | 5 | 2 | 4 | 2 | 2 | 5 | 5 | 5 | 35 |
-| Auvik | 5 | 5 | 3 | 5 | 4 | 1 | 5 | 5 | 5 | 3 | 41 |
+| Product            |    D1 |    D2 |    D3 |    D4 |    D5 |    D6 |    D7 |    D8 |    D9 |   D10 |    /50 |
+| ------------------ | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | -----: |
+| Kentik             |     3 |     3 |     4 |     4 |     4 |     4 |     4 |     5 |     4 |     3 |     38 |
+| ThousandEyes       |     3 |     3 |     3 |     4 |     4 |     4 |     4 |     4 |     4 |     3 |     36 |
+| Datadog NPM        |     3 |     3 |     4 |     4 |     5 |     3 |     3 |     5 |     5 |     4 |     39 |
+| Grafana            |     2 |     3 |     5 |     2 |     4 |     2 |     2 |     5 |     5 |     5 |     35 |
+| Auvik              |     5 |     5 |     3 |     5 |     4 |     1 |     5 |     5 |     5 |     3 |     41 |
 | **probectl today** | **4** | **5** | **2** | **3** | **4** | **2** | **5** | **4** | **5** | **5** | **39** |
 
 probectl's provider console remains outside the tenant shell under a sticky probectl
@@ -254,14 +254,14 @@ into a flattering time. The same records live in the versioned machine-readable
 [`journey-baseline.json`](./journey-baseline.json); its test fixture rejects client-authored
 tenant scope and returns no comparable elapsed value for an incomplete outcome.
 
-| Journey | Current shortest source-backed path | UI/command interactions | Keystrokes | Active-time proxy | Completion gap |
-|---|---|---:|---:|---:|---|
-| J1 | default onboarding -> mint -> copy/run agent command -> replace example target -> create test -> navigate to results | 8 | ~34 + shell command | 15–30m | no health wait or first-finding receipt; token minted can look complete |
-| J2 | auto-selected incident -> Ask about incident -> submit prefilled question -> open exact citation | 4 | 0 | 1–3m to RCA | **incomplete:** no stable share/export |
-| J3 | Ask textarea + submit, repeated for ten questions; manual plane pages for unsupported answers | >=20 | ~480 | 10–20m | only about 3/10 are discoverable through one query surface without docs |
-| J4 | select/run path -> inspect hop -> manually open Topology -> select/simulate -> type historical time | 5–7 | 16 | 2–4m | compare, incident overlay, context-preserving pivot, and share absent |
-| J5 | command palette -> Admin -> Needs action -> safe-action review | 3 | 0 | 5–30s | complete: stale and skewed rows expose reasons, rollout state, and human-gated guidance |
-| J6 | after MFA -> triage exception -> provision task -> siloed + EU + slug/name -> provision -> direct usage export | 8 | 16 | 30–120s | complete: ranked keyboard task rail, metadata-only triage, explicit isolation/residency, direct showback |
+| Journey | Current shortest source-backed path                                                                                  | UI/command interactions |          Keystrokes | Active-time proxy | Completion gap                                                                                           |
+| ------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------: | ------------------: | ----------------: | -------------------------------------------------------------------------------------------------------- |
+| J1      | default onboarding -> mint -> copy/run agent command -> replace example target -> create test -> navigate to results |                       8 | ~34 + shell command |            15–30m | no health wait or first-finding receipt; token minted can look complete                                  |
+| J2      | select evidence -> inline cited RCA -> exact citation -> fixed share snapshot                                        |                       4 |                   0 |            15–45s | complete: random-ID replay restores the authorized clock, selection, citations, and provenance           |
+| J3      | choose a taught Explorer question -> run, repeated for ten questions                                                 |                      20 |                   0 |              1–3m | complete: 10/10 exact structured answers through one tenant-scoped surface                               |
+| J4      | select/run path -> inspect hop -> manually open Topology -> select/simulate -> type historical time                  |                     5–7 |                  16 |              2–4m | compare, incident overlay, context-preserving pivot, and share absent                                    |
+| J5      | command palette -> Admin -> Needs action -> safe-action review                                                       |                       3 |                   0 |             5–30s | complete: stale and skewed rows expose reasons, rollout state, and human-gated guidance                  |
+| J6      | after MFA -> triage exception -> provision task -> siloed + EU + slug/name -> provision -> direct usage export       |                       8 |                  16 |           30–120s | complete: ranked keyboard task rail, metadata-only triage, explicit isolation/residency, direct showback |
 
 Counting rules: opening the command palette plus executing a command is one compound keyboard
 interaction in the table; each committed field/select and each submit/copy/navigation is one;

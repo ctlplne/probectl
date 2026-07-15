@@ -10,6 +10,13 @@ import userEvent from '@testing-library/user-event'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { renderApp } from './renderApp'
+import {
+  JOURNEY_KEYBOARD_ACTIONS,
+  JOURNEY_PALETTE_COMMANDS,
+  journeyCommandHref,
+  renderJourneyCommandReference,
+} from '../shell/journeyCommands'
+import { parsePivotContext } from '../routes/pivotContext'
 
 describe('command palette (keyboard-first)', () => {
   test('opens with ⌘K, filters, runs the active command on Enter, and restores focus', async () => {
@@ -55,6 +62,25 @@ describe('command palette (keyboard-first)', () => {
     await waitFor(() =>
       expect(screen.queryByRole('combobox', { name: /search commands/i })).not.toBeInTheDocument(),
     )
+  })
+
+  test('traps Tab in the combobox and restores the trigger after safe Escape', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets')
+    await screen.findByRole('heading', { name: /targets & tests/i })
+    const trigger = screen.getByRole('button', { name: /search or run a command/i })
+    trigger.focus()
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: /search commands/i })
+    expect(input).toHaveFocus()
+    await user.keyboard('{Tab}')
+    expect(input).toHaveFocus()
+    await user.keyboard('{Shift>}{Tab}{/Shift}')
+    expect(input).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(trigger).toHaveFocus())
   })
 
   test('does not offer tenant switching for a single-tenant session', async () => {
@@ -131,6 +157,108 @@ describe('command palette (keyboard-first)', () => {
     )
     await user.keyboard('{Enter}')
     expect(await screen.findByRole('dialog', { name: 'Register collector' })).toBeInTheDocument()
+  })
+
+  test('lists all journey commands and explains unavailable or unauthorized actions', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets')
+    await screen.findByRole('heading', { name: /targets & tests/i })
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: /search commands/i })
+    const listbox = screen.getByRole('listbox')
+
+    const expectedLabels = [
+      'Start first real insight',
+      'Open incident RCA',
+      'Share cited incident RCA',
+      'Open canonical Explorer',
+      'Compare path rounds',
+      'Copy stable path link',
+      'Simulate selected topology node',
+      'Review unhealthy fleet',
+      'Open provider fleet exceptions',
+      'Open provider tenant provisioning',
+      'Open provider usage showback',
+    ]
+    for (const label of expectedLabels) {
+      await user.clear(input)
+      await user.type(input, label)
+      expect(within(listbox).getAllByRole('option')[0]).toHaveTextContent(label)
+    }
+
+    await user.clear(input)
+    await user.type(input, 'Share cited incident RCA')
+    const unavailable = within(listbox).getByRole('option')
+    expect(unavailable).toHaveAttribute('aria-disabled', 'true')
+    expect(unavailable).toHaveTextContent(/unavailable until an incident is open/i)
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('combobox', { name: /search commands/i })).toBeInTheDocument()
+  })
+
+  test('disables state-changing commands for an explicit read-only authority', async () => {
+    const user = userEvent.setup()
+    renderApp('/targets', { me: { permissions: ['audit.read'] } })
+    await screen.findByRole('heading', { name: /targets & tests/i })
+    await user.keyboard('{Meta>}k{/Meta}')
+    const input = await screen.findByRole('combobox', { name: /search commands/i })
+    await user.type(input, 'Create test')
+
+    const option = within(screen.getByRole('listbox')).getByRole('option')
+    expect(option).toHaveAttribute('aria-disabled', 'true')
+    expect(option).toHaveTextContent(/current read-only authority/i)
+  })
+
+  test('journey deep links preserve only the safe X3 contract', () => {
+    const command = JOURNEY_PALETTE_COMMANDS.find(
+      (candidate) => candidate.id === 'journey:path-compare',
+    )
+    expect(command).toBeDefined()
+    const href = journeyCommandHref(
+      command!,
+      '/incidents?tenant_id=foreign&ctx_v=1&ctx_expires=2099-01-01T00%3A00%3A00.000Z&ctx_incident=inc-1&ctx_from=2026-07-14T10%3A00%3A00.000Z&ctx_to=2026-07-14T10%3A05%3A00.000Z&ctx_filter=severity%3Acritical&ctx_selected_kind=evidence&ctx_selected_id=E-1',
+      new Date('2026-07-14T10:00:00Z'),
+    )
+    const url = new URL(href, 'https://probectl.invalid')
+    const context = parsePivotContext(url.searchParams, { now: new Date('2026-07-14T10:00:00Z') })
+
+    expect(url.pathname).toBe('/path')
+    expect(url.searchParams.get('task')).toBe('compare-rounds')
+    expect(context.context).toMatchObject({
+      incidentId: 'inc-1',
+      from: '2026-07-14T10:00:00.000Z',
+      to: '2026-07-14T10:05:00.000Z',
+      filters: { severity: 'critical' },
+      selection: { kind: 'evidence', id: 'E-1' },
+    })
+    expect(href.toLowerCase()).not.toContain('tenant')
+  })
+
+  test('generated reference covers every J1-J6 action and is current', () => {
+    const generated = renderJourneyCommandReference()
+    const committed = readFileSync(
+      resolve(process.cwd(), '../docs/ux/keyboard-command-reference.md'),
+      'utf8',
+    )
+
+    const normalizeTableSpacing = (value: string) =>
+      value
+        .split('\n')
+        .map((line) =>
+          /^\|\s*-+\s*\|/.test(line)
+            ? '|---|---|---|---|'
+            : line.startsWith('|')
+              ? line
+                  .split('|')
+                  .map((cell) => cell.trim())
+                  .join('|')
+              : line,
+        )
+        .join('\n')
+    expect(normalizeTableSpacing(committed)).toBe(normalizeTableSpacing(generated))
+    for (const journey of ['J1', 'J2', 'J3', 'J4', 'J5', 'J6']) {
+      expect(JOURNEY_KEYBOARD_ACTIONS.some((action) => action.journey === journey)).toBe(true)
+      expect(JOURNEY_PALETTE_COMMANDS.some((command) => command.journey === journey)).toBe(true)
+    }
   })
 
   test('search input has a tokenized visible focus style', () => {

@@ -78,6 +78,11 @@
   color: var(--color-accent);
 }
 
+.disabled {
+  cursor: not-allowed;
+  color: var(--color-text-subtle);
+}
+
 .label {
   flex: 1;
   font-size: var(--font-size-md);

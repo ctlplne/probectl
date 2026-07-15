@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import styles from './TenantIndicator.module.css'
 import { useAuth } from '../auth/useAuth'
 import { Icon } from '../components/Icon'
@@ -14,6 +15,7 @@ import { Icon } from '../components/Icon'
  * track of which tenant's data they are looking at. It doubles as a switcher.
  */
 export function TenantIndicator() {
+  const navigate = useNavigate()
   const { tenant, tenants, switchTenant } = useAuth()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -64,6 +66,14 @@ export function TenantIndicator() {
               aria-checked={t.id === tenant.id}
               className={styles.item}
               onClick={() => {
+                if (t.id === tenant.id) {
+                  setOpen(false)
+                  return
+                }
+                // Neutralize all tenant-owned object references and pending
+                // task parameters before provider code switches credentials.
+                // The new tenant therefore cannot replay an old-tenant action.
+                navigate('/onboarding', { replace: true })
                 switchTenant(t.id)
                 setOpen(false)
               }}

@@ -6,13 +6,19 @@
 
 import { useEffect, useMemo, useRef, useState, useId, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import styles from './CommandPalette.module.css'
 import { NAV } from '../nav/ia'
 import { useTheme } from '../theme/useTheme'
 import { useAuth } from '../auth/useAuth'
 import { Icon, type IconName } from '../components/Icon'
 import { useI18n } from '../i18n/useI18n'
+import { parsePivotContext, pivotHref } from '../routes/pivotContext'
+import {
+  JOURNEY_PALETTE_COMMANDS,
+  journeyCommandHref,
+  type JourneyAvailability,
+} from './journeyCommands'
 
 interface Command {
   id: string
@@ -20,7 +26,33 @@ interface Command {
   hint: string
   icon: IconName
   changesRoute?: boolean
+  disabledReason?: string
+  tag?: string
   run: () => void
+}
+
+const PIVOT_ROUTES = new Set([
+  '/alerts',
+  '/ask',
+  '/explore',
+  '/incidents',
+  '/path',
+  '/planes',
+  '/security',
+  '/topology',
+])
+
+function isExplicitlyReadOnly(permissions: string[]) {
+  return (
+    permissions.length > 0 &&
+    permissions.every(
+      (permission) =>
+        permission.endsWith('.read') ||
+        permission === 'audit.read' ||
+        permission === 'diagnostics.read' ||
+        permission === 'lifecycle.export',
+    )
+  )
 }
 
 /**
@@ -38,15 +70,55 @@ export function CommandPalette({
   onRouteCommand?: () => void
 }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const { setTheme, themes } = useTheme()
-  const { tenants, switchTenant } = useAuth()
+  const { permissions, tenant: activeTenant, tenants, switchTenant } = useAuth()
   const { t } = useI18n()
   const inputRef = useRef<HTMLInputElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const listId = useId()
 
   const commands = useMemo<Command[]>(() => {
+    const currentParams = new URLSearchParams(location.search)
+    const parsedPivot = parsePivotContext(currentParams)
+    const currentContext = {
+      ...parsedPivot.context,
+      returnTo: `${location.pathname}${location.search}${location.hash}`,
+    }
+    const readOnly = isExplicitlyReadOnly(permissions)
+    const disabledFor = (availability: JourneyAvailability) => {
+      if (availability === 'incident-open' && location.pathname !== '/incidents')
+        return t('command.unavailable.incident')
+      if (availability === 'path-open' && location.pathname !== '/path')
+        return t('command.unavailable.path')
+      if (
+        availability === 'topology-selected' &&
+        (location.pathname !== '/topology' || parsedPivot.context.selection?.kind !== 'entity')
+      )
+        return t('command.unavailable.topologySelection')
+      return undefined
+    }
+    const journey = JOURNEY_PALETTE_COMMANDS.map<Command>((spec) => {
+      const disabledReason =
+        spec.requiresWrite && readOnly
+          ? t('command.unavailable.readOnly')
+          : disabledFor(spec.availability)
+      return {
+        id: spec.id,
+        label: t(spec.labelKey),
+        hint: t(spec.hintKey),
+        icon: spec.icon,
+        changesRoute: true,
+        disabledReason,
+        tag: spec.journey,
+        run: () =>
+          navigate(
+            journeyCommandHref(spec, `${location.pathname}${location.search}${location.hash}`),
+          ),
+      }
+    })
     const task: Command[] = [
       {
         id: 'task:create-test',
@@ -54,6 +126,7 @@ export function CommandPalette({
         hint: t('command.task.createTestHint'),
         icon: 'targets',
         changesRoute: true,
+        disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
         run: () => navigate('/targets?create=test'),
       },
       {
@@ -62,7 +135,8 @@ export function CommandPalette({
         hint: t('command.task.discoverPathHint'),
         icon: 'path',
         changesRoute: true,
-        run: () => navigate('/path?task=discover-path'),
+        disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
+        run: () => navigate(pivotHref('/path', currentContext, { task: 'discover-path' })),
       },
       {
         id: 'task:silence-alert',
@@ -70,6 +144,7 @@ export function CommandPalette({
         hint: t('command.task.silenceAlertHint'),
         icon: 'alert',
         changesRoute: true,
+        disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
         run: () => navigate('/alerts?alert_state=firing&task=silence-alert'),
       },
       {
@@ -78,6 +153,7 @@ export function CommandPalette({
         hint: t('command.task.scheduleMaintenanceHint'),
         icon: 'alert',
         changesRoute: true,
+        disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
         run: () => navigate('/alerts?task=schedule-maintenance'),
       },
       {
@@ -86,6 +162,10 @@ export function CommandPalette({
         hint: t('command.task.exportAuditHint'),
         icon: 'compliance',
         changesRoute: true,
+        disabledReason:
+          permissions.length > 0 && !permissions.includes('audit.read')
+            ? t('command.unavailable.audit')
+            : undefined,
         run: () => navigate('/audit?task=export-audit'),
       },
       {
@@ -94,6 +174,7 @@ export function CommandPalette({
         hint: t('command.task.openSupportBundleHint'),
         icon: 'admin',
         changesRoute: true,
+        disabledReason: readOnly ? t('command.unavailable.readOnly') : undefined,
         run: () => navigate('/admin#support-bundle'),
       },
       {
@@ -111,7 +192,12 @@ export function CommandPalette({
       hint: t('command.navigate'),
       icon: n.icon,
       changesRoute: true,
-      run: () => navigate(n.to),
+      run: () =>
+        navigate(
+          parsedPivot.hasContract && PIVOT_ROUTES.has(n.to)
+            ? pivotHref(n.to, currentContext)
+            : n.to,
+        ),
     }))
     const theme = themes.map<Command>((themeName) => ({
       id: `theme:${themeName}`,
@@ -127,11 +213,18 @@ export function CommandPalette({
             label: t('command.switchTenant', { tenant: tenant.name }),
             hint: t('command.tenant'),
             icon: 'targets',
-            run: () => switchTenant(tenant.id),
+            changesRoute: true,
+            run: () => {
+              // Clear every object/action-bearing URL before the provider-owned
+              // tenant switch can update credentials. This prevents a render in
+              // the new tenant from replaying the old tenant's selected object.
+              navigate('/onboarding', { replace: true })
+              switchTenant(tenant.id)
+            },
           }))
         : []
-    return [...task, ...go, ...theme, ...tenant]
-  }, [navigate, setTheme, t, themes, tenants, switchTenant])
+    return [...journey, ...task, ...go, ...theme, ...tenant]
+  }, [location, navigate, permissions, setTheme, t, themes, tenants, switchTenant])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -149,10 +242,18 @@ export function CommandPalette({
     return () => prev?.focus?.()
   }, [open])
 
+  useEffect(() => {
+    // Defense in depth for tenant switches initiated outside this palette. The
+    // explicit switch commands navigate first; this catches future switchers
+    // and clears palette state when the authenticated tenant identity changes.
+    setQuery('')
+    setActive(0)
+  }, [activeTenant.id])
+
   if (!open) return null
 
   function run(cmd?: Command) {
-    if (!cmd) return
+    if (!cmd || cmd.disabledReason) return
     if (cmd.changesRoute) onRouteCommand?.()
     cmd.run()
     setQuery('')
@@ -165,7 +266,7 @@ export function CommandPalette({
       onClose()
     } else if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActive((i) => Math.min(i + 1, filtered.length - 1))
+      setActive((i) => (filtered.length ? Math.min(i + 1, filtered.length - 1) : 0))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActive((i) => Math.max(i - 1, 0))
@@ -175,15 +276,30 @@ export function CommandPalette({
     }
   }
 
+  function onDialogKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      onClose()
+    } else if (e.key === 'Tab') {
+      // The combobox owns option focus through aria-activedescendant, so the
+      // input is intentionally the dialog's only tab stop.
+      e.preventDefault()
+      inputRef.current?.focus()
+    }
+  }
+
   const activeOptionId = filtered[active] ? `${listId}-${filtered[active].id}` : undefined
 
   return createPortal(
     <div className={styles.overlay} onMouseDown={onClose}>
       <div
+        ref={dialogRef}
         className={styles.palette}
         role="dialog"
         aria-modal="true"
         aria-label={t('command.palette')}
+        onKeyDown={onDialogKeyDown}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className={styles.search}>
@@ -214,7 +330,12 @@ export function CommandPalette({
                 id={`${listId}-${c.id}`}
                 role="option"
                 aria-selected={i === active}
-                className={[styles.item, i === active ? styles.active : ''].join(' ')}
+                aria-disabled={c.disabledReason ? 'true' : undefined}
+                className={[
+                  styles.item,
+                  i === active ? styles.active : '',
+                  c.disabledReason ? styles.disabled : '',
+                ].join(' ')}
                 onMouseEnter={() => setActive(i)}
                 onMouseDown={(e) => {
                   e.preventDefault()
@@ -223,7 +344,11 @@ export function CommandPalette({
               >
                 <Icon name={c.icon} />
                 <span className={styles.label}>{c.label}</span>
-                <span className={styles.hint}>{c.hint}</span>
+                {c.tag ? <kbd className={styles.kbd}>{c.tag}</kbd> : null}
+                <span className={styles.hint}>
+                  {c.hint}
+                  {c.disabledReason ? ` · ${c.disabledReason}` : ''}
+                </span>
               </li>
             ))
           )}
