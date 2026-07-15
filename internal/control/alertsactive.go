@@ -287,8 +287,8 @@ func (s *Server) handleAlertWorkflow(w http.ResponseWriter, r *http.Request) err
 	if src != nil {
 		for _, item := range src.Active() {
 			if item.Fingerprint == fingerprint {
-				copy := item
-				active = &copy
+				itemCopy := item
+				active = &itemCopy
 				break
 			}
 		}

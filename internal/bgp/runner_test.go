@@ -76,6 +76,22 @@ func TestAnalyzerRunnerRestartBackoffIsBounded(t *testing.T) {
 	}
 }
 
+func TestAnalyzerRunnerOneShotCrashReturnsWithoutRetry(t *testing.T) {
+	pub := &capturePublisher{}
+	runner, err := NewAnalyzerRunner(pub, helperAnalyzerProcess("t1", "crash"), discardLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.stderr = io.Discard
+	runner.wait = func(context.Context, time.Duration) error {
+		t.Fatal("one-shot analyzer must not enter the live-process restart loop")
+		return nil
+	}
+	if err := runner.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "bgp analyzer process") {
+		t.Fatalf("one-shot crash error = %v, want subprocess failure", err)
+	}
+}
+
 func helperAnalyzerProcess(tenant, mode string) AnalyzerProcess {
 	return AnalyzerProcess{
 		TenantID:   tenant,

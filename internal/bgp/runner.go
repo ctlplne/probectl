@@ -88,7 +88,10 @@ func (r *AnalyzerRunner) Run(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if err == nil && !r.process.Restart {
+		if !r.process.Restart {
+			if err != nil {
+				return fmt.Errorf("bgp analyzer run: %w", err)
+			}
 			r.log.Info("bgp analyzer completed",
 				"tenant_id", r.process.TenantID,
 				"published", stats.Published,
