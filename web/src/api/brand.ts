@@ -48,11 +48,12 @@ interface ContrastPair {
 
 const SHIPPED_CONTRAST_THEMES: Record<string, Record<string, string>> = {
   dark: {
-    '--color-bg': '#0b0e14',
-    '--color-surface': '#11151f',
-    '--color-surface-raised': '#171c28',
-    '--color-text': '#e7eaf2',
-    '--color-text-muted': '#a6adbd',
+    '--color-bg': '#0a0c12',
+    '--color-surface': '#0e1119',
+    '--color-surface-raised': '#141823',
+    '--color-surface-high': '#1a1f2c',
+    '--color-text': '#e9ecf4',
+    '--color-text-muted': '#a3acbd',
     '--color-text-subtle': '#808a9b',
     '--color-text-inverse': '#0b0e14',
     '--color-accent': '#2fb6a8',
@@ -60,24 +61,32 @@ const SHIPPED_CONTRAST_THEMES: Record<string, Record<string, string>> = {
     '--color-accent-strong': '#23a394',
     '--color-accent-contrast': '#04130f',
     '--color-success': '#46c08a',
-    '--color-success-soft': 'rgba(70, 192, 138, 0.14)',
+    '--color-success-soft': 'rgba(70, 192, 138, 0.12)',
     '--color-warning': '#e0b25a',
-    '--color-warning-soft': 'rgba(224, 178, 90, 0.14)',
+    '--color-warning-soft': 'rgba(224, 178, 90, 0.12)',
     '--color-danger': '#e8736b',
-    '--color-danger-soft': 'rgba(232, 115, 107, 0.14)',
+    '--color-danger-soft': 'rgba(232, 115, 107, 0.12)',
     '--color-info': '#5aa9e6',
-    '--color-info-soft': 'rgba(90, 169, 230, 0.14)',
+    '--color-info-soft': 'rgba(90, 169, 230, 0.12)',
     '--color-focus': '#6fd2c6',
+    '--color-selection': '#7adbd0',
+    '--color-selection-soft': 'rgba(47, 182, 168, 0.22)',
+    '--color-selection-contrast': '#04130f',
     '--color-chart-1': '#2fb6a8',
     '--color-chart-2': '#5aa9e6',
     '--color-chart-3': '#a78bff',
     '--color-chart-4': '#e0b25a',
     '--color-chart-5': '#e8736b',
+    '--color-chart-6': '#d783c6',
+    '--color-chart-grid': '#69758a',
+    '--color-chart-axis': '#a3acbd',
+    '--color-chart-neutral': '#808a9b',
   },
   aurora: {
-    '--color-bg': '#f6f7fb',
+    '--color-bg': '#f4f6fb',
     '--color-surface': '#ffffff',
     '--color-surface-raised': '#ffffff',
+    '--color-surface-high': '#ffffff',
     '--color-text': '#1b1d2a',
     '--color-text-muted': '#50566b',
     '--color-text-subtle': '#676d80',
@@ -95,11 +104,18 @@ const SHIPPED_CONTRAST_THEMES: Record<string, Record<string, string>> = {
     '--color-info': '#2f73c7',
     '--color-info-soft': 'rgba(47, 115, 199, 0.12)',
     '--color-focus': '#6a4cf0',
+    '--color-selection': '#593ad9',
+    '--color-selection-soft': 'rgba(106, 76, 240, 0.2)',
+    '--color-selection-contrast': '#ffffff',
     '--color-chart-1': '#0e9e92',
     '--color-chart-2': '#2f73c7',
     '--color-chart-3': '#6a4cf0',
     '--color-chart-4': '#b9821f',
     '--color-chart-5': '#d2463c',
+    '--color-chart-6': '#9c3f86',
+    '--color-chart-grid': '#7f8698',
+    '--color-chart-axis': '#50566b',
+    '--color-chart-neutral': '#676d80',
   },
 }
 
@@ -183,12 +199,18 @@ function buildContrastPairs(): ContrastPair[] {
   for (const bg of ['--color-accent', '--color-accent-hover', '--color-accent-strong']) {
     pairs.push({ fg: '--color-accent-contrast', bg, min: WCAG_TEXT_CONTRAST })
   }
+  pairs.push({
+    fg: '--color-selection-contrast',
+    bg: '--color-selection',
+    min: WCAG_TEXT_CONTRAST,
+  })
   for (const bg of [
     '--color-accent-soft',
     '--color-success-soft',
     '--color-warning-soft',
     '--color-danger-soft',
     '--color-info-soft',
+    '--color-selection-soft',
   ]) {
     pairs.push({ fg: '--color-text', bg, min: WCAG_TEXT_CONTRAST, backdrop: '--color-surface' })
   }
@@ -197,6 +219,7 @@ function buildContrastPairs(): ContrastPair[] {
     '--color-accent-hover',
     '--color-accent-strong',
     '--color-focus',
+    '--color-selection',
     '--color-success',
     '--color-warning',
     '--color-danger',
@@ -206,6 +229,10 @@ function buildContrastPairs(): ContrastPair[] {
     '--color-chart-3',
     '--color-chart-4',
     '--color-chart-5',
+    '--color-chart-6',
+    '--color-chart-grid',
+    '--color-chart-axis',
+    '--color-chart-neutral',
   ]) {
     for (const bg of backgrounds) pairs.push({ fg, bg, min: WCAG_UI_CONTRAST })
   }

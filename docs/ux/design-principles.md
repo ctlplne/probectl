@@ -162,6 +162,16 @@ baselines. CI retains `receipts/web-ux/rendered-a11y.json`, `web-performance.jso
 and `bundle-budget.json`; a missing route, matrix cell, run, dynamic route entry, or
 receipt is a red build.
 
+Implementation receipt: X17 adds deployment-level comfortable/compact density tokens and
+wires them into controls, rows, panels, and tables. Compact mode keeps a 44px coarse-pointer
+target. Six chart colors are paired with dash-pattern tokens, observed/estimated/missing
+states have non-color border styles, and graph selection combines color with a thicker
+outline. Shared focus, selection, layer, duration, and easing tokens are contrast-tested in
+both themes. `prefers-reduced-motion` zeros every duration while visible labels and shapes
+continue to communicate state. The token gate scans core and commercial product CSS and
+rejects raw color, spacing, type, radius, z-index, duration, or easing values. Overrides are
+one deployment-wide allowlisted theme; selectors and tests reject tenant-addressed themes.
+
 ## Review shorthand
 
 A UX change is ready when a reviewer can answer yes to all five questions:

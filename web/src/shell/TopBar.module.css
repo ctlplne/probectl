@@ -35,8 +35,8 @@
 }
 
 .menuButton:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .command {
@@ -61,8 +61,8 @@
 }
 
 .command:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .commandLabel {
@@ -71,7 +71,7 @@
 }
 
 .kbd {
-  padding: 2px var(--space-2);
+  padding: var(--space-half) var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);

@@ -4,8 +4,8 @@
 }
 
 .scroll:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .table {
@@ -17,7 +17,8 @@
 .table th,
 .table td {
   text-align: start;
-  padding: var(--space-3) var(--space-4);
+  min-height: var(--density-row-block);
+  padding: var(--density-table-cell-block) var(--density-table-cell-inline);
   border-bottom: 1px solid var(--color-border);
 }
 

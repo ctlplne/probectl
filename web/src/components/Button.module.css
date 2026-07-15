@@ -7,7 +7,7 @@
   border-radius: var(--radius-md);
   font-weight: var(--font-weight-medium);
   font-size: var(--font-size-md);
-  line-height: 1;
+  line-height: var(--line-height-none);
   cursor: pointer;
   white-space: nowrap;
   transition:
@@ -24,28 +24,28 @@
 }
 
 .button:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .md {
-  height: 36px;
+  height: var(--density-control-block);
   padding: 0 var(--space-4);
 }
 
 .sm {
-  height: 28px;
+  height: var(--density-control-block-sm);
   padding: 0 var(--space-3);
   font-size: var(--font-size-sm);
 }
 
 .iconOnly.md {
-  width: 36px;
+  width: var(--density-control-block);
   padding: 0;
 }
 
 .iconOnly.sm {
-  width: 28px;
+  width: var(--density-control-block-sm);
   padding: 0;
 }
 

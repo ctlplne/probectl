@@ -29,7 +29,7 @@
 .message {
   font-size: var(--font-size-sm);
   color: var(--color-text-muted);
-  margin-top: 2px;
+  margin-top: var(--space-half);
 }
 
 .info {

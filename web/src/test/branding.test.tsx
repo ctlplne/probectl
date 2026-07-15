@@ -36,7 +36,7 @@ describe('deployment-level probectl theming', () => {
         token_overrides: {
           '--color-accent': '#6a4cf0',
           '--color-accent-hover': '#7054f6',
-          '--color-accent-strong': '#684af0',
+          '--color-accent-strong': '#6a4cf0',
           '--color-accent-contrast': '#ffffff',
         },
       }),
@@ -92,7 +92,7 @@ describe('deployment-level probectl theming', () => {
       token_overrides: {
         '--color-accent': '#6a4cf0',
         '--color-accent-hover': '#7054f6',
-        '--color-accent-strong': '#684af0',
+        '--color-accent-strong': '#6a4cf0',
         '--color-accent-contrast': '#ffffff',
         '--color-focus': '#6a4cf0',
       },
@@ -100,13 +100,13 @@ describe('deployment-level probectl theming', () => {
     applyBrand({
       product_name: 'probectl',
       token_overrides: {
-        '--color-accent': '#684af0',
+        '--color-accent': '#7054f6',
         '--color-accent-hover': '#6a4cf0',
-        '--color-accent-strong': '#684af0',
+        '--color-accent-strong': '#6a4cf0',
         '--color-accent-contrast': '#ffffff',
       },
     })
-    expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#684af0')
+    expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#7054f6')
     expect(document.documentElement.style.getPropertyValue('--color-focus')).toBe('')
     expect(document.title).toBe('probectl')
   })
@@ -133,7 +133,7 @@ describe('deployment-level probectl theming', () => {
       sanitizeTokenOverrides({
         '--color-accent': '#6a4cf0',
         '--color-accent-hover': '#7054f6',
-        '--color-accent-strong': '#684af0',
+        '--color-accent-strong': '#6a4cf0',
         '--color-accent-contrast': '#ffffff',
         '--color-text': '#ffffff',
       }),

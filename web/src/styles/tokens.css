@@ -10,6 +10,8 @@
  *   - no-hardcoded-colors.test.ts → color literals live ONLY in this file.
  *   - theme.test.tsx             → every theme defines the SAME --color-* set,
  *                                   so a single attribute swap re-skins the UI.
+ *   - design-tokens-v2.test.tsx  → density, visualization, focus, layering,
+ *                                   and motion remain token-only in product CSS.
  *
  * Color contrast targets WCAG 2.2 AA (>= 4.5:1 body text on its background).
  * No external fonts or URLs are referenced (sovereignty — CLAUDE.md §7 #11).
@@ -56,13 +58,21 @@
   --color-info-soft: rgba(90, 169, 230, 0.12);
 
   --color-focus: #6fd2c6;
+  --color-selection: #7adbd0;
+  --color-selection-soft: rgba(47, 182, 168, 0.22);
+  --color-selection-contrast: #04130f;
 
-  /* Categorical data-viz ramp (charts/series). Cohesive with accent+status. */
+  /* Data-viz ramp plus grid/axis neutrals. Series also have non-color dash
+     tokens below, so hue never carries unique meaning. */
   --color-chart-1: #2fb6a8;
   --color-chart-2: #5aa9e6;
   --color-chart-3: #a78bff;
   --color-chart-4: #e0b25a;
   --color-chart-5: #e8736b;
+  --color-chart-6: #d783c6;
+  --color-chart-grid: #69758a;
+  --color-chart-axis: #a3acbd;
+  --color-chart-neutral: #808a9b;
 
   /* Gradients (brand mark, accent emphasis). */
   --gradient-brand: linear-gradient(135deg, #3acabb 0%, #2fb6a8 100%);
@@ -107,12 +117,19 @@
   --color-info-soft: rgba(47, 115, 199, 0.12);
 
   --color-focus: #6a4cf0;
+  --color-selection: #593ad9;
+  --color-selection-soft: rgba(106, 76, 240, 0.2);
+  --color-selection-contrast: #ffffff;
 
   --color-chart-1: #0e9e92;
   --color-chart-2: #2f73c7;
   --color-chart-3: #6a4cf0;
   --color-chart-4: #b9821f;
   --color-chart-5: #d2463c;
+  --color-chart-6: #9c3f86;
+  --color-chart-grid: #7f8698;
+  --color-chart-axis: #50566b;
+  --color-chart-neutral: #676d80;
 
   --gradient-brand: linear-gradient(135deg, #7b5cff 0%, #6a4cf0 100%);
   --gradient-accent: linear-gradient(135deg, #7b5cff 0%, #4f33d6 100%);
@@ -141,7 +158,9 @@
   --font-size-2xl: 1.625rem; /* 26px */
   --font-size-3xl: 1.875rem; /* 30px — page titles */
   --font-size-4xl: 2.375rem; /* 38px — hero / display */
+  --font-size-code: 0.9em;
 
+  --line-height-none: 1;
   --line-height-display: 1.1;
   --line-height-tight: 1.25;
   --line-height-normal: 1.5;
@@ -160,6 +179,9 @@
 
   /* Spacing — 4px base scale. */
   --space-0: 0;
+  --space-px: 1px;
+  --space-neg-px: -1px;
+  --space-half: 0.125rem;
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
@@ -189,13 +211,37 @@
   --motion-fast: 120ms;
   --motion-normal: 200ms;
   --motion-slow: 320ms;
+  --motion-spinner: 800ms;
+  --motion-shimmer: 1400ms;
+  --easing-linear: linear;
   --easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --easing-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
+
+  /* Focus and selection geometry is shared by keyboard, table, graph, and
+     inspector surfaces. Selection always combines outline/shape with color. */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
+  --focus-ring-offset-inset: -2px;
+  --selection-outline-width: 3px;
+
+  /* Visualization grammar. Solid/dashed/dotted strokes distinguish series
+     and observed/estimated/missing states in monochrome and high contrast. */
+  --viz-series-1-dash: none;
+  --viz-series-2-dash: 8 3;
+  --viz-series-3-dash: 3 3;
+  --viz-series-4-dash: 10 3 2 3;
+  --viz-series-5-dash: 2 4;
+  --viz-series-6-dash: 12 4;
+  --viz-state-observed-border: solid;
+  --viz-state-estimated-border: dashed;
+  --viz-state-missing-border: dotted;
 
   /* Layout. */
   --layout-sidebar-width: 248px;
   --layout-topbar-height: 56px;
   --layout-content-max: 1320px;
+  --layout-dialog-inset-block: 12vh;
+  --layout-palette-inset-block: 14vh;
 
   /* Stacking. */
   --z-sticky: 100;
@@ -204,11 +250,36 @@
   --z-toast: 1100;
 }
 
+/* Density is a deployment-level/document setting, never a tenant theme.
+   Compact mode reduces visual chrome; coarse pointers recover a 44px target. */
+:root,
+[data-density='comfortable'] {
+  --density-control-block: 36px;
+  --density-control-block-sm: 28px;
+  --density-row-block: 44px;
+  --density-panel-padding: var(--space-5);
+  --density-table-cell-block: var(--space-3);
+  --density-table-cell-inline: var(--space-4);
+  --density-touch-target: 44px;
+}
+
+[data-density='compact'] {
+  --density-control-block: 32px;
+  --density-control-block-sm: 24px;
+  --density-row-block: 36px;
+  --density-panel-padding: var(--space-3);
+  --density-table-cell-block: var(--space-2);
+  --density-table-cell-inline: var(--space-3);
+  --density-touch-target: 44px;
+}
+
 /* Honor the OS reduced-motion preference (WCAG 2.3.3). */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 0ms;
     --motion-normal: 0ms;
     --motion-slow: 0ms;
+    --motion-spinner: 0ms;
+    --motion-shimmer: 0ms;
   }
 }

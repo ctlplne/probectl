@@ -59,7 +59,7 @@
 }
 .node:focus-visible .box {
   stroke: var(--color-focus);
-  stroke-width: 2;
+  stroke-width: var(--focus-ring-width);
 }
 
 .warning .box {
@@ -76,11 +76,11 @@
 }
 .source .box {
   fill: var(--color-surface-raised);
-  stroke-dasharray: 4 3;
+  stroke-dasharray: var(--viz-series-2-dash);
 }
 .selected .box {
-  stroke: var(--color-focus);
-  stroke-width: 2;
+  stroke: var(--color-selection);
+  stroke-width: var(--selection-outline-width);
 }
 
 .ip {

@@ -82,7 +82,7 @@
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  line-height: 1.5;
+  line-height: var(--line-height-normal);
   padding: var(--space-3);
 }
 
@@ -128,7 +128,7 @@
   color: var(--color-text);
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  line-height: 1.5;
+  line-height: var(--line-height-normal);
   padding: var(--space-3);
   white-space: pre-wrap;
   overflow-wrap: anywhere;

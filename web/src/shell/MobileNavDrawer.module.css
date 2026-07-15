@@ -51,7 +51,7 @@
 .group {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-half);
   margin-bottom: var(--space-4);
 }
 
@@ -68,7 +68,7 @@
 .list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-half);
   margin: 0;
 }
 

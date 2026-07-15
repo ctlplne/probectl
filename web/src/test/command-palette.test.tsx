@@ -265,7 +265,7 @@ describe('command palette (keyboard-first)', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/shell/CommandPalette.module.css'), 'utf8')
 
     expect(css).toMatch(
-      /\.input:focus-visible\s*{[^}]*outline:\s*2px\s+solid\s+var\(--color-focus\);[^}]*outline-offset:\s*2px;/s,
+      /\.input:focus-visible\s*{[^}]*outline:\s*var\(--focus-ring-width\)\s+solid\s+var\(--color-focus\);[^}]*outline-offset:\s*var\(--focus-ring-offset\);/s,
     )
   })
 })

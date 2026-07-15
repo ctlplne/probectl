@@ -48,12 +48,14 @@ function contrastPairs(): Pair[] {
   for (const bg of ['--color-accent', '--color-accent-hover', '--color-accent-strong']) {
     pairs.push({ fg: '--color-accent-contrast', bg, min: TEXT_MIN })
   }
+  pairs.push({ fg: '--color-selection-contrast', bg: '--color-selection', min: TEXT_MIN })
   for (const bg of [
     '--color-accent-soft',
     '--color-success-soft',
     '--color-warning-soft',
     '--color-danger-soft',
     '--color-info-soft',
+    '--color-selection-soft',
   ]) {
     pairs.push({ fg: '--color-text', bg, min: TEXT_MIN, backdrop: '--color-surface' })
   }
@@ -62,6 +64,7 @@ function contrastPairs(): Pair[] {
     '--color-accent-hover',
     '--color-accent-strong',
     '--color-focus',
+    '--color-selection',
     '--color-success',
     '--color-warning',
     '--color-danger',
@@ -71,6 +74,10 @@ function contrastPairs(): Pair[] {
     '--color-chart-3',
     '--color-chart-4',
     '--color-chart-5',
+    '--color-chart-6',
+    '--color-chart-grid',
+    '--color-chart-axis',
+    '--color-chart-neutral',
   ]) {
     for (const bg of backgrounds) pairs.push({ fg, bg, min: UI_MIN })
   }
@@ -105,9 +112,10 @@ describe('theme color contrast', () => {
     expect(failures).toEqual([])
   })
 
-  test('bad tenant override fixtures fail the same contrast gate', () => {
+  test('bad deployment override fixtures fail the same contrast gate', () => {
     expect(tokenOverridesPassContrast({ '--color-text': '#ffffff' })).toBe(false)
     expect(tokenOverridesPassContrast({ '--color-accent': '#ff3300' })).toBe(false)
     expect(tokenOverridesPassContrast({ '--color-chart-1': '#ffffff' })).toBe(false)
+    expect(tokenOverridesPassContrast({ '--color-chart-6': '#ffffff' })).toBe(false)
   })
 })
