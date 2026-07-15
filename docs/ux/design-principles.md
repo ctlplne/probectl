@@ -105,15 +105,17 @@ Test: the 1440×900 reference screenshot exposes the journey's scope/time/key he
 action above the fold; the accessible table and visualization report the same fixture values;
 axe reports no serious/critical violations in both themes.
 
-## 7. Empty means ready, blocked, or quiet—never “zero-ish”
+## 7. Empty means truthful state—never “zero-ish”
 
-Every empty state names one of three truths: ready but no data, blocked by configuration or
-permission, or genuinely quiet. It shows producer readiness, last successful ingest when
-available, and one authorized next action. Demo/sample data is globally and persistently
-badged and exits in one keyboard command; sample pixels never mix with live tenant data.
+Every tenant-data empty state names one of six server-derived truths: ready but no data,
+blocked by configuration, permission denied, degraded, genuinely quiet, or isolated demo.
+It shows producer readiness, last successful ingest when available, the coverage limitation,
+and one authorized next action. Demo/sample data is globally and persistently badged and
+exits with Shift+D; sample pixels never mix with live tenant data.
 
-Test: fixture coverage exercises ready, blocked, quiet, and demo states on every native data
-surface; no `running:false` fixture renders a healthy zero or generic “no data.”
+Test: fixture coverage exercises all six states and audits every native data route's truth
+sources; no `running:false`, unavailable-store, or failed-fetch fixture renders a healthy zero,
+sample pixel, or generic “no data.” See [the X18 contract and demo runbook](demo-mode.md).
 
 ## 8. Hero views answer an operational question
 

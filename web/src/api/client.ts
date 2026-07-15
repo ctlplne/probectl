@@ -13,6 +13,18 @@
  */
 export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/v1'
 
+let demoTransportIsolated = false
+
+/**
+ * Demo mode is a product-wide transport boundary, not a per-chart badge. The
+ * tenant shell sets this before mounting demo content. Keeping the final check
+ * here means a future demo component cannot accidentally reach a live tenant
+ * endpoint even if it bypasses the normal route boundary.
+ */
+export function setDemoTransportIsolation(active: boolean) {
+  demoTransportIsolated = active
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -40,6 +52,9 @@ export function apiURL(path: string): string {
  * client unit test enforce it at build time too.
  */
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  if (demoTransportIsolated && path !== '/me') {
+    throw new ApiError(403, 'Live tenant APIs are disabled while demo mode is active.')
+  }
   const res = await fetch(apiURL(path), {
     credentials: 'same-origin',
     headers: { Accept: 'application/json', ...(init?.headers ?? {}) },

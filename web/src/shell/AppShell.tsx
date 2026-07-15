@@ -12,8 +12,12 @@ import { TopBar } from './TopBar'
 import { CommandPalette } from './CommandPalette'
 import { SkipLink } from './SkipLink'
 import { MobileNavDrawer } from './MobileNavDrawer'
+import { DemoModeBanner } from '../demo/DemoModeBanner'
+import { DemoWorkspace } from '../demo/DemoWorkspace'
+import { useDemoMode } from '../demo/useDemoMode'
 
 export function AppShell() {
+  const { active: demoMode } = useDemoMode()
   const location = useLocation()
   const mainRef = useRef<HTMLElement>(null)
   const firstRouteRender = useRef(true)
@@ -66,10 +70,9 @@ export function AppShell() {
         onOpenNavigation={openMobileNav}
         navigationOpen={mobileNavOpen}
       />
+      <DemoModeBanner />
       <main id="main-content" ref={mainRef} className={styles.main} tabIndex={0}>
-        <div className={styles.content}>
-          <Outlet />
-        </div>
+        <div className={styles.content}>{demoMode ? <DemoWorkspace /> : <Outlet />}</div>
       </main>
       <MobileNavDrawer open={mobileNavOpen} onClose={closeMobileNav} />
       <CommandPalette

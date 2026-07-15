@@ -1,9 +1,10 @@
 .shell {
   display: grid;
   grid-template-columns: var(--layout-sidebar-width) 1fr;
-  grid-template-rows: var(--layout-topbar-height) 1fr;
+  grid-template-rows: var(--layout-topbar-height) auto 1fr;
   grid-template-areas:
     'sidebar topbar'
+    'sidebar banner'
     'sidebar main';
   height: 100vh;
 }
@@ -11,6 +12,7 @@
 :global(html[dir='rtl']) .shell {
   grid-template-areas:
     'topbar sidebar'
+    'banner sidebar'
     'main sidebar';
 }
 
@@ -36,6 +38,7 @@
     grid-template-columns: 1fr;
     grid-template-areas:
       'topbar'
+      'banner'
       'main';
   }
   .shell > nav[aria-label='Primary'] {

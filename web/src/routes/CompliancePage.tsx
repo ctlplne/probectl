@@ -13,9 +13,10 @@ import {
   CardBody,
   CardHeader,
   EmptyState,
-  ErrorState,
+  HonestDataState,
   LoadingState,
   Table,
+  classifySurfaceTruth,
   type Column,
 } from '../components'
 import { useCompliance, type RuleResult, type Verdict } from '../api/compliance'
@@ -26,7 +27,7 @@ import { DateTime } from '../time/DateTime'
  * pass/fail per declared boundary, with the never-overclaim coverage block
  * and the audit-grade evidence export. */
 export function CompliancePage() {
-  const { data, isPending, isError } = useCompliance()
+  const { data, isPending, isError, error, refetch } = useCompliance()
 
   const columns: Column<RuleResult>[] = [
     {
@@ -80,18 +81,47 @@ export function CompliancePage() {
           {isPending ? (
             <LoadingState label="Loading validation results…" />
           ) : isError ? (
-            <ErrorState description="Could not load compliance results." />
+            <HonestDataState
+              state={classifySurfaceTruth({ error })}
+              producer="Compliance validator"
+              producerReadiness="The tenant-scoped validator response is unavailable"
+              lastSuccessfulIngest={null}
+              coverageLimitation="No segmentation verdict is shown because coverage could not be established."
+              action={
+                <Button variant="secondary" onClick={() => void refetch()}>
+                  Retry validator status
+                </Button>
+              }
+            />
           ) : !data?.compliance_running ? (
-            <EmptyState
+            <HonestDataState
+              state="blocked"
               icon="compliance"
               title="Compliance validator not wired"
-              description="The control plane started without segmentation policies (PROBECTL_COMPLIANCE_POLICY_DIR)."
+              producer="Compliance validator"
+              producerReadiness="Server reports compliance_running=false"
+              lastSuccessfulIngest={null}
+              coverageLimitation="No policy or observed-flow verdict exists until PROBECTL_COMPLIANCE_POLICY_DIR is configured."
+              action={
+                <Button variant="secondary" onClick={() => void refetch()}>
+                  Recheck validator status
+                </Button>
+              }
             />
           ) : data.items.length === 0 ? (
-            <EmptyState
+            <HonestDataState
+              state="ready-no-data"
               icon="compliance"
               title="No policies declared"
-              description="Drop segmentation policy YAML into PROBECTL_COMPLIANCE_POLICY_DIR to start validating."
+              producer="Compliance validator"
+              producerReadiness="Ready; the server returned no declared policies"
+              lastSuccessfulIngest={null}
+              coverageLimitation="Observed traffic cannot be evaluated until policy YAML is added to PROBECTL_COMPLIANCE_POLICY_DIR."
+              action={
+                <Button variant="secondary" onClick={() => void refetch()}>
+                  Recheck declared policies
+                </Button>
+              }
             />
           ) : (
             <>

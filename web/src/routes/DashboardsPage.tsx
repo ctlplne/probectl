@@ -4,11 +4,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useMemo } from 'react'
+import { useMemo, type ReactElement } from 'react'
+import { useNavigate } from 'react-router-dom'
 import styles from './dashboards.module.css'
 import { Page } from './pages'
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -16,9 +18,11 @@ import {
   DashboardPreview,
   EmptyState,
   ErrorState,
+  HonestDataState,
   LoadingState,
   Sparkline,
   Table,
+  classifySurfaceTruth,
   type Column,
 } from '../components'
 import { flattenAgents, useAgents, type Agent } from '../api/agents'
@@ -83,6 +87,7 @@ const EMPTY_RESULTS: LatestResult[] = []
 const EMPTY_FLOW_ANOMALIES: FlowAnomaly[] = []
 
 export function DashboardsPage() {
+  const navigate = useNavigate()
   const { locale } = useI18n()
   const { tenant, user } = useAuth()
   const tests = useTests()
@@ -131,7 +136,10 @@ export function DashboardsPage() {
   const deviceEdges = edges.filter((e) => e.kind === 'device')
   const costSummary = cost.data?.summary
   const costTrend = (costSummary?.trend ?? []).map((p) => p.usd)
-  const latencyTrend = latestResults.map((r) => r.duration_ms ?? r.metrics?.['rtt.avg.ms'] ?? 0)
+  const latencyTrend = latestResults.flatMap((result) => {
+    const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
+    return value === undefined ? [] : [value]
+  })
   const threatItems = detections.data?.items ?? []
   const latestByTarget = useMemo(() => {
     const byTarget = new Map<string, LatestResult>()
@@ -284,11 +292,17 @@ export function DashboardsPage() {
             <DashboardMetric
               label="Threat signals"
               value={threatItems.length}
-              detail={`${formatInteger(
-                threatItems.filter((d) => d.severity === 'critical').length,
-                locale,
-              )} critical`}
-              tone={metricTone(threatItems.length)}
+              detail={
+                detections.data?.detections_running
+                  ? `${formatInteger(
+                      threatItems.filter((d) => d.severity === 'critical').length,
+                      locale,
+                    )} critical`
+                  : 'detection engine not running'
+              }
+              tone={
+                detections.data?.detections_running ? metricTone(threatItems.length) : 'warning'
+              }
               locale={locale}
             />
             <DashboardMetric
@@ -315,7 +329,7 @@ export function DashboardsPage() {
                 description={`${formatInteger(serviceNodes, locale)} services visible in topology`}
               />
               <CardBody className={styles.chartStack}>
-                <ChartShell
+                <DashboardTrend
                   title="Network cost"
                   legend={
                     costSummary
@@ -325,31 +339,62 @@ export function DashboardsPage() {
                         )}`
                       : 'No cost summary'
                   }
-                >
-                  <Sparkline data={costTrend.length > 0 ? costTrend : [0]} label="Cost trend" />
-                </ChartShell>
-                <ChartShell
+                  data={costTrend}
+                  label="Cost trend"
+                  producer="Cost attribution engine"
+                  producerRunning={cost.data?.cost_running}
+                  producerReadiness={
+                    cost.data?.cost_running
+                      ? 'Ready; no trend samples were returned'
+                      : 'Server reports cost_running=false'
+                  }
+                  lastSuccessfulIngest={costSummary?.pricing_as_of ?? null}
+                  coverageLimitation="A cost trend requires attributed flow records and current local pricing data."
+                  action={
+                    <Button variant="secondary" onClick={() => navigate('/cost')}>
+                      Open cost readiness
+                    </Button>
+                  }
+                />
+                <DashboardTrend
                   title="Flow capacity"
                   legend={
                     latestCapacity
                       ? `${formatScaledBitRate(latestCapacity.bps, locale)} at ${latestCapacity.exporter} if${latestCapacity.iface}`
                       : `${capacityPoints.length} tenant capacity samples`
                   }
-                >
-                  <Sparkline
-                    data={capacityTrend.length > 0 ? capacityTrend : [0]}
-                    label="Flow capacity trend"
-                  />
-                </ChartShell>
-                <ChartShell
+                  data={capacityTrend}
+                  label="Flow capacity trend"
+                  producer="Flow collector"
+                  producerReadiness="The tenant query succeeded; no capacity samples were returned"
+                  lastSuccessfulIngest={latestCapacity?.ts ?? null}
+                  coverageLimitation="Only registered exporters and interfaces can contribute capacity samples."
+                  action={
+                    <Button variant="secondary" onClick={() => navigate('/planes/flow')}>
+                      Open flow readiness
+                    </Button>
+                  }
+                />
+                <DashboardTrend
                   title="Latest test latency"
                   legend={`${latestResults.length} latest synthetic results`}
-                >
-                  <Sparkline
-                    data={latencyTrend.length > 0 ? latencyTrend : [0]}
-                    label="Synthetic latency trend"
-                  />
-                </ChartShell>
+                  data={latencyTrend}
+                  label="Synthetic latency trend"
+                  producer="Synthetic result collector"
+                  producerRunning={results.data?.collector_running}
+                  producerReadiness={
+                    results.data?.collector_running
+                      ? 'Ready; no latest results were returned'
+                      : 'Server reports collector_running=false'
+                  }
+                  lastSuccessfulIngest={latestResults.at(-1)?.observed_at ?? null}
+                  coverageLimitation="Latency exists only for configured tests that have returned a result."
+                  action={
+                    <Button variant="secondary" onClick={() => navigate('/targets')}>
+                      Open synthetic readiness
+                    </Button>
+                  }
+                />
                 <CostBudgetTable rows={costSummary?.budgets ?? []} locale={locale} />
               </CardBody>
             </Card>
@@ -468,6 +513,49 @@ export function DashboardsPage() {
         </>
       )}
     </Page>
+  )
+}
+
+function DashboardTrend({
+  title,
+  legend,
+  data,
+  label,
+  producer,
+  producerRunning,
+  producerReadiness,
+  lastSuccessfulIngest,
+  coverageLimitation,
+  action,
+}: {
+  title: string
+  legend: ReactElement | string
+  data: number[]
+  label: string
+  producer: string
+  producerRunning?: boolean
+  producerReadiness: string
+  lastSuccessfulIngest: string | null
+  coverageLimitation: string
+  action: ReactElement
+}) {
+  if (data.length > 0) {
+    return (
+      <ChartShell title={title} legend={legend}>
+        <Sparkline data={data} label={label} />
+      </ChartShell>
+    )
+  }
+
+  return (
+    <HonestDataState
+      state={classifySurfaceTruth({ producerRunning })}
+      producer={producer}
+      producerReadiness={producerReadiness}
+      lastSuccessfulIngest={lastSuccessfulIngest}
+      coverageLimitation={coverageLimitation}
+      action={action}
+    />
   )
 }
 

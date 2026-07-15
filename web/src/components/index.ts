@@ -17,6 +17,12 @@ export { Modal } from './Modal'
 export { ToastProvider, useToast } from './Toast'
 export type { ToastTone } from './Toast'
 export { EmptyState, ErrorState, LoadingState, Skeleton } from './States'
+export { HonestDataState } from './HonestDataState'
+export {
+  classifySurfaceTruth,
+  type HonestDataStateKind,
+  type SurfaceTruth,
+} from '../data/classifySurfaceTruth'
 export {
   DashboardPreview,
   FirstRunPreview,

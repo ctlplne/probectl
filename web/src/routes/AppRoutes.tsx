@@ -27,6 +27,7 @@ import { OnboardingPage } from './OnboardingPage'
 import { ApiDocsPage } from './ApiDocsPage'
 import { AuditPage } from './AuditPage'
 import { Gallery } from './Gallery'
+import { DemoModeProvider } from '../demo/DemoMode'
 
 /** The route tree (kept separate from the router so tests can supply their own). */
 export function AppRoutes() {
@@ -37,7 +38,13 @@ export function AppRoutes() {
           domain. Not in the tenant nav; the API behind it is hidden
           (404) unless the deployment holds a provider license. */}
       <Route path="/provider/*" element={<ProviderConsole />} />
-      <Route element={<AppShell />}>
+      <Route
+        element={
+          <DemoModeProvider>
+            <AppShell />
+          </DemoModeProvider>
+        }
+      >
         <Route index element={<Navigate to="/onboarding" replace />} />
         <Route path="/onboarding" element={<OnboardingPage />} />
         <Route path="/targets" element={<TargetsPage />} />

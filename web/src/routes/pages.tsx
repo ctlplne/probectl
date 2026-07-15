@@ -14,22 +14,20 @@ import {
   Card,
   CardBody,
   CardHeader,
-  ChartShell,
   Column,
-  DemoDataBadge,
   EmptyState,
   ErrorState,
   Field,
-  FirstRunPreview,
+  HonestDataState,
   Icon,
   LoadingState,
   Modal,
   Select,
-  Sparkline,
   StatusDot,
   Table,
   useToast,
 } from '../components'
+import { classifySurfaceTruth } from '../components'
 import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
 import { ResultDetail } from './ResultDetail'
@@ -234,8 +232,16 @@ function CreateTestModal({ open, onClose }: { open: boolean; onClose: () => void
 }
 
 export function TargetsPage() {
-  const { data, isPending, isError, error, hasNextPage, fetchNextPage, isFetchingNextPage } =
-    useTests()
+  const {
+    data,
+    isPending,
+    isError,
+    error,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useTests()
   const del = useDeleteTest()
   const { push } = useToast()
   const [creating, setCreating] = useState(false)
@@ -340,21 +346,6 @@ export function TargetsPage() {
         </Button>
       }
     >
-      <div className={styles.statRow}>
-        <ChartShell title="Avg RTT (24h)" height={120} toolbar={<DemoDataBadge />}>
-          <Sparkline
-            label="Average round-trip time, last 24 hours"
-            data={[20, 18, 22, 19, 24, 30, 26, 21, 23, 19, 17, 20]}
-          />
-        </ChartShell>
-        <ChartShell title="Packet loss (24h)" height={120} toolbar={<DemoDataBadge />}>
-          <Sparkline
-            label="Packet loss, last 24 hours"
-            data={[0, 0, 0, 1, 0, 0, 3, 8, 2, 0, 0, 0]}
-          />
-        </ChartShell>
-      </div>
-
       <AuthoringPanel />
 
       <Card>
@@ -407,7 +398,18 @@ export function TargetsPage() {
           {isPending ? (
             <LoadingState label="Loading tests…" />
           ) : isError ? (
-            <ErrorState description={error?.message ?? 'Could not load tests.'} />
+            <HonestDataState
+              state={classifySurfaceTruth({ error })}
+              producer="Control-plane test registry"
+              producerReadiness={`The server did not return an authoritative tenant-scoped result: ${error?.message ?? 'request failed'}`}
+              lastSuccessfulIngest={null}
+              coverageLimitation="Synthetic definitions and their measurements are not shown while this request is unavailable."
+              action={
+                <Button variant="secondary" onClick={() => void refetch()}>
+                  Retry tenant-scoped request
+                </Button>
+              }
+            />
           ) : (
             <>
               <Table
@@ -416,16 +418,33 @@ export function TargetsPage() {
                 rows={filteredTests}
                 rowKey={(t) => t.id}
                 empty={
-                  <EmptyState
-                    title="No tests yet"
-                    description="Create your first test to begin monitoring."
-                    action={
-                      <Button variant="primary" onClick={() => setCreating(true)}>
-                        New test
-                      </Button>
-                    }
-                    preview={<FirstRunPreview />}
-                  />
+                  (data?.length ?? 0) > 0 ? (
+                    <EmptyState
+                      title="No tests match these filters"
+                      description="The server returned tests, but none match the current local filter."
+                      action={
+                        <Button
+                          variant="secondary"
+                          onClick={() => setURLFilters(params, setParams, defaults, {})}
+                        >
+                          Clear filters
+                        </Button>
+                      }
+                    />
+                  ) : (
+                    <HonestDataState
+                      state="ready-no-data"
+                      producer="Control-plane test registry"
+                      producerReadiness="Ready; the tenant has no test definitions"
+                      lastSuccessfulIngest={null}
+                      coverageLimitation="No targets are configured, so no synthetic RTT, loss, DNS, HTTP, or path evidence exists yet."
+                      action={
+                        <Button variant="primary" onClick={() => setCreating(true)}>
+                          New test
+                        </Button>
+                      }
+                    />
+                  )
                 }
               />
               {hasNextPage ? (

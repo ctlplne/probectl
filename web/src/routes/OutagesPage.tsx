@@ -9,13 +9,15 @@ import styles from './outages.module.css'
 import { Page } from './pages'
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
   EmptyState,
-  ErrorState,
+  HonestDataState,
   LoadingState,
   Table,
+  classifySurfaceTruth,
   type Column,
 } from '../components'
 import { useOutages, type FeedHealth, type OutageEvent } from '../api/outages'
@@ -29,10 +31,14 @@ type T = (key: MessageKey, vars?: Record<string, string | number>) => string
  * feeds + the tenant's own vantage points, correlated with affected tests.
  * The coverage notes keep the view honest: this is NOT a global probe fleet. */
 export function OutagesPage() {
-  const { data, isPending, isError } = useOutages()
+  const { data, isPending, isError, error, refetch } = useOutages()
   const { t } = useI18n()
   const eventColumns = useMemo(() => makeEventColumns(t), [t])
   const feedColumns = useMemo(() => makeFeedColumns(t), [t])
+  const feedDegraded = data?.feeds?.some((feed) => feed.status === 'failed') ?? false
+  const lastSuccessfulIngest = latestTimestamp(
+    data?.feeds?.flatMap((feed) => (feed.last_success ? [feed.last_success] : [])) ?? [],
+  )
 
   return (
     <Page title={t('outages.page.title')} subtitle={t('outages.page.subtitle')}>
@@ -42,12 +48,32 @@ export function OutagesPage() {
           {isPending ? (
             <LoadingState label={t('outages.loading')} />
           ) : isError ? (
-            <ErrorState description={t('outages.error')} />
+            <HonestDataState
+              state={classifySurfaceTruth({ error })}
+              producer="Outage correlation service"
+              producerReadiness="The tenant-scoped outage response is unavailable"
+              lastSuccessfulIngest={null}
+              coverageLimitation="Neither public-feed nor tenant-vantage coverage can be established from a failed request."
+              action={
+                <Button variant="secondary" onClick={() => void refetch()}>
+                  Retry outage status
+                </Button>
+              }
+            />
           ) : !data?.outage_running ? (
-            <EmptyState
+            <HonestDataState
+              state="blocked"
               icon="outage"
               title={t('outages.unwired.title')}
-              description={t('outages.unwired.description')}
+              producer="Outage correlation service"
+              producerReadiness="Server reports outage_running=false"
+              lastSuccessfulIngest={lastSuccessfulIngest}
+              coverageLimitation={t('outages.unwired.description')}
+              action={
+                <Button variant="secondary" onClick={() => void refetch()}>
+                  Recheck outage service
+                </Button>
+              }
             />
           ) : (
             <>
@@ -63,11 +89,29 @@ export function OutagesPage() {
                 </div>
               )}
               {(data.events?.length ?? 0) === 0 && (data.vantage_events?.length ?? 0) === 0 ? (
-                <EmptyState
+                <HonestDataState
+                  state={classifySurfaceTruth({
+                    producerRunning: true,
+                    degraded: feedDegraded,
+                    quiet: !feedDegraded,
+                  })}
                   icon="outage"
                   title={t('outages.none.title')}
-                  description={
-                    data.feeds_enabled ? t('outages.none.feedsOn') : t('outages.none.feedsOff')
+                  producer="Outage correlation service"
+                  producerReadiness={
+                    feedDegraded
+                      ? 'Running, but at least one enabled feed reports failure'
+                      : 'Running; no outage events were returned for the observed window'
+                  }
+                  lastSuccessfulIngest={lastSuccessfulIngest}
+                  coverageLimitation={[
+                    data.feeds_enabled ? t('outages.none.feedsOn') : t('outages.none.feedsOff'),
+                    ...(data.coverage_notes ?? []),
+                  ].join(' ')}
+                  action={
+                    <Button variant="secondary" onClick={() => void refetch()}>
+                      Refresh observed window
+                    </Button>
                   }
                 />
               ) : (
@@ -118,6 +162,10 @@ export function OutagesPage() {
       )}
     </Page>
   )
+}
+
+function latestTimestamp(values: string[]): string | null {
+  return values.sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null
 }
 
 function makeEventColumns(t: T): Column<OutageEvent>[] {

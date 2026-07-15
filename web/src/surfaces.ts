@@ -176,6 +176,23 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
+    capability: 'Truthful six-state data surfaces and transport-isolated demo workspace',
+    featureIds: ['F1', 'F3', 'F6', 'F8', 'F9', 'F11', 'F18'],
+    sprint: 'X18',
+    kind: 'native',
+    route: '/targets',
+    offNav: true,
+    evidence: [
+      'file:docs/ux/demo-mode.md',
+      'file:web/src/components/HonestDataState.tsx',
+      'file:web/src/data/surfaceTruth.ts',
+      'file:web/src/demo/DemoMode.tsx',
+      'file:web/src/test/empty-states.test.tsx',
+      'file:web/src/test/demo-mode.test.tsx',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'AI test authoring + auto-discovery',
     featureIds: ['F45'],
     sprint: 'S26',

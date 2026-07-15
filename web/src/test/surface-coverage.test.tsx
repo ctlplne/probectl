@@ -21,6 +21,11 @@ import {
   type SurfaceDecl,
   type SurfaceLiveReceipt,
 } from '../surfaces'
+import {
+  ALL_HONEST_DATA_STATES,
+  NATIVE_DATA_SURFACE_TRUTH,
+  NON_DATA_NATIVE_ROUTES,
+} from '../data/surfaceTruth'
 
 /**
  * The frontend-coverage gate (S-FE6). Backend↔frontend coverage is a verified,
@@ -374,6 +379,27 @@ function prdCatalogStatusViolations(features: RequiredFeature[]): string[] {
 }
 
 describe('frontend-coverage gate (S-FE6)', () => {
+  test('every native data route declares all six server-truth states and their evidence fields', () => {
+    const contractsByRoute = new Map(
+      NATIVE_DATA_SURFACE_TRUTH.map((contract) => [contract.route, contract]),
+    )
+    const expectedRoutes = uniqueRoutes('native').filter(
+      (route) => !NON_DATA_NATIVE_ROUTES.has(route),
+    )
+
+    expect([...contractsByRoute.keys()].sort()).toEqual(expectedRoutes.sort())
+    for (const route of expectedRoutes) {
+      const contract = contractsByRoute.get(route)
+      expect(contract, `${route} lacks a truthful data-state contract`).toBeDefined()
+      expect(contract?.states).toEqual(ALL_HONEST_DATA_STATES)
+      expect(contract?.producer.trim()).toBeTruthy()
+      expect(contract?.serverTruth.trim()).toBeTruthy()
+      expect(contract?.lastSuccessfulIngest.trim()).toBeTruthy()
+      expect(contract?.coverageLimitation.trim()).toBeTruthy()
+      expect(contract?.authorizedNextAction.trim()).toBeTruthy()
+    }
+  })
+
   test('registry shape: every nav destination is registered; routed declarations sit on or under nav', () => {
     const violations = checkRegistryShape(
       NAV.map((n) => n.to),

@@ -54,7 +54,9 @@ describe('Targets & Tests (live /v1/tests CRUD)', () => {
 
     renderApp('/targets')
     await screen.findByText('edge-dns')
-    expect(screen.getAllByText('Demo data')).toHaveLength(2)
+    expect(screen.queryByText('Demo data')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Avg RTT \(24h\)/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Packet loss \(24h\)/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/^sample$/i)).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /new test/i }))

@@ -1,0 +1,214 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, describe, expect, test, vi } from 'vitest'
+import { ApiError } from '../api/client'
+import { HonestDataState, classifySurfaceTruth, type HonestDataStateKind } from '../components'
+import { defaultFetch, jsonResponse } from './fetchStub'
+import { renderApp } from './renderApp'
+
+afterEach(() => cleanup())
+
+const STATES: HonestDataStateKind[] = [
+  'ready-no-data',
+  'blocked',
+  'permission-denied',
+  'degraded',
+  'quiet',
+  'demo',
+]
+
+function pathOf(input: RequestInfo | URL): string {
+  const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  return new URL(raw, 'https://probectl.test').pathname
+}
+
+describe('truthful tenant-data states', () => {
+  test('classifies explicit server truth without turning failures into healthy empties', () => {
+    expect(classifySurfaceTruth({})).toBe('ready-no-data')
+    expect(classifySurfaceTruth({ producerRunning: false })).toBe('blocked')
+    expect(classifySurfaceTruth({ error: new ApiError(403, 'forbidden') })).toBe(
+      'permission-denied',
+    )
+    expect(classifySurfaceTruth({ error: new Error('store unavailable') })).toBe('degraded')
+    expect(classifySurfaceTruth({ degraded: true })).toBe('degraded')
+    expect(classifySurfaceTruth({ producerRunning: true, quiet: true })).toBe('quiet')
+    expect(
+      classifySurfaceTruth({ demo: true, error: new Error('must not leak live status') }),
+    ).toBe('demo')
+  })
+
+  test.each(STATES)('%s shows readiness, ingest, coverage, and one next action', (state) => {
+    const { container } = render(
+      <HonestDataState
+        state={state}
+        producer="Synthetic collector"
+        producerReadiness="Server-reported readiness"
+        lastSuccessfulIngest="2026-07-14T20:30:00Z"
+        coverageLimitation="Only configured tenant vantage points are covered."
+        action={<button type="button">Authorized next action</button>}
+      />,
+    )
+
+    const surfaceState = container.querySelector(`[data-data-state="${state}"]`)
+    expect(surfaceState).not.toBeNull()
+    expect(within(surfaceState as HTMLElement).getByText(/producer readiness/i)).toBeInTheDocument()
+    expect(
+      within(surfaceState as HTMLElement).getByText(/last successful ingest/i),
+    ).toBeInTheDocument()
+    expect(
+      within(surfaceState as HTMLElement).getByText(/coverage limitation/i),
+    ).toBeInTheDocument()
+    const action = (surfaceState as HTMLElement).querySelector('[data-authorized-next-action]')
+    expect(within(action as HTMLElement).getAllByRole('button')).toHaveLength(1)
+  })
+
+  test('a successful empty targets response is ready-no-data and paints no sample telemetry', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        pathOf(input) === '/v1/tests'
+          ? Promise.resolve(jsonResponse({ items: [] }))
+          : fallback(input, init),
+      ),
+    )
+
+    const { container } = renderApp('/targets')
+    await waitFor(() =>
+      expect(container.querySelector('[data-data-state="ready-no-data"]')).not.toBeNull(),
+    )
+    expect(container).toHaveTextContent('Ready; the tenant has no test definitions')
+    expect(screen.queryByLabelText(/sample preview/i)).toBeNull()
+    expect(screen.queryByText(/Avg RTT \(24h\)/i)).toBeNull()
+    expect(screen.queryByText(/Packet loss \(24h\)/i)).toBeNull()
+  })
+
+  test('running:false renders blocked facts, never a healthy table or sample pixel', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        pathOf(input) === '/v1/compliance'
+          ? Promise.resolve(jsonResponse({ compliance_running: false, items: [] }))
+          : fallback(input, init),
+      ),
+    )
+
+    const { container } = renderApp('/compliance')
+    expect(await screen.findByText(/server reports compliance_running=false/i)).toBeInTheDocument()
+    expect(container.querySelector('[data-data-state="blocked"]')).not.toBeNull()
+    expect(screen.queryByRole('table', { name: /segmentation verdicts/i })).toBeNull()
+    expect(screen.queryByLabelText(/sample preview/i)).toBeNull()
+  })
+
+  test('failed and forbidden fetches remain degraded and permission-denied', async () => {
+    const fallback = defaultFetch()
+    let status = 503
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        pathOf(input) === '/v1/tests'
+          ? Promise.resolve(
+              jsonResponse(
+                { error: { message: status === 403 ? 'forbidden' : 'store unavailable' } },
+                status,
+              ),
+            )
+          : fallback(input, init),
+      ),
+    )
+
+    const first = renderApp('/targets')
+    await waitFor(
+      () => expect(first.container.querySelector('[data-data-state="degraded"]')).not.toBeNull(),
+      { timeout: 3_000 },
+    )
+    expect(screen.queryByRole('table', { name: /synthetic tests/i })).toBeNull()
+    first.unmount()
+
+    status = 403
+    const second = renderApp('/targets')
+    await waitFor(() =>
+      expect(
+        second.container.querySelector('[data-data-state="permission-denied"]'),
+      ).not.toBeNull(),
+    )
+    expect(screen.queryByRole('table', { name: /synthetic tests/i })).toBeNull()
+  })
+
+  test('server-reported feed failure is degraded, while a healthy empty window is quiet', async () => {
+    const fallback = defaultFetch()
+    let failed = true
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+        pathOf(input) === '/v1/outages'
+          ? Promise.resolve(
+              jsonResponse({
+                outage_running: true,
+                feeds_enabled: true,
+                events: [],
+                vantage_events: [],
+                feeds: [
+                  {
+                    name: 'cached-open-feed',
+                    status: failed ? 'failed' : 'ok',
+                    last_success: '2026-07-14T20:30:00Z',
+                    events: 0,
+                    license: 'open',
+                    commercial_use: 'reviewed',
+                    url: 'https://example.test/feed',
+                  },
+                ],
+                coverage_notes: ['Tenant vantage points only.'],
+              }),
+            )
+          : fallback(input, init),
+      ),
+    )
+
+    const degraded = renderApp('/outages')
+    await waitFor(() =>
+      expect(degraded.container.querySelector('[data-data-state="degraded"]')).not.toBeNull(),
+    )
+    expect(screen.getByText('2026-07-14T20:30:00Z')).toBeInTheDocument()
+    degraded.unmount()
+
+    failed = false
+    const quiet = renderApp('/outages')
+    await waitFor(() =>
+      expect(quiet.container.querySelector('[data-data-state="quiet"]')).not.toBeNull(),
+    )
+  })
+
+  test('dashboard running:false fixtures never synthesize zero-valued trend pixels', async () => {
+    const fallback = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        switch (pathOf(input)) {
+          case '/v1/cost/summary':
+            return Promise.resolve(jsonResponse({ cost_running: false }))
+          case '/v1/flows/capacity':
+            return Promise.resolve(jsonResponse({ items: [] }))
+          case '/v1/results/latest':
+            return Promise.resolve(jsonResponse({ items: [], collector_running: false }))
+          default:
+            return fallback(input, init)
+        }
+      }),
+    )
+
+    renderApp('/dashboards')
+    expect(await screen.findByText(/server reports cost_running=false/i)).toBeInTheDocument()
+    expect(screen.getByText(/server reports collector_running=false/i)).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: /cost trend/i })).toBeNull()
+    expect(screen.queryByRole('img', { name: /flow capacity trend/i })).toBeNull()
+    expect(screen.queryByRole('img', { name: /synthetic latency trend/i })).toBeNull()
+  })
+})

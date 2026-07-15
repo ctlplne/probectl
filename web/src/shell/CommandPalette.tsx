@@ -19,6 +19,7 @@ import {
   journeyCommandHref,
   type JourneyAvailability,
 } from './journeyCommands'
+import { useDemoMode } from '../demo/useDemoMode'
 
 interface Command {
   id: string
@@ -74,6 +75,7 @@ export function CommandPalette({
   const { setTheme, themes } = useTheme()
   const { permissions, tenant: activeTenant, tenants, switchTenant } = useAuth()
   const { t } = useI18n()
+  const { active: demoMode, exit: exitDemoMode } = useDemoMode()
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
@@ -223,8 +225,30 @@ export function CommandPalette({
             },
           }))
         : []
-    return [...journey, ...task, ...go, ...theme, ...tenant]
-  }, [location, navigate, permissions, setTheme, t, themes, tenants, switchTenant])
+    const demo: Command[] = demoMode
+      ? [
+          {
+            id: 'demo:exit',
+            label: 'Exit demo mode',
+            hint: 'Return to live tenant data · Shift+D',
+            icon: 'dashboards',
+            run: exitDemoMode,
+          },
+        ]
+      : []
+    return [...demo, ...journey, ...task, ...go, ...theme, ...tenant]
+  }, [
+    demoMode,
+    exitDemoMode,
+    location,
+    navigate,
+    permissions,
+    setTheme,
+    t,
+    themes,
+    tenants,
+    switchTenant,
+  ])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

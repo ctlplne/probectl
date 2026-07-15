@@ -5,10 +5,17 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import styles from './EmptyStatePreviews.module.css'
+import { DemoDataBadge } from './Badge'
+import { useDemoMode } from '../demo/useDemoMode'
 
 export function FirstRunPreview() {
+  const { active } = useDemoMode()
+  if (!active) return null
   return (
     <div className={styles.panel} aria-label="First-run sample preview">
+      <div className={styles.badge}>
+        <DemoDataBadge />
+      </div>
       <div className={styles.row}>
         <span className={styles.dotSuccess} />
         <strong>checkout-http</strong>
@@ -24,8 +31,13 @@ export function FirstRunPreview() {
 }
 
 export function TopologyPreview() {
+  const { active } = useDemoMode()
+  if (!active) return null
   return (
     <div className={styles.graph} aria-label="Topology sample preview">
+      <div className={styles.badge}>
+        <DemoDataBadge />
+      </div>
       <span className={styles.node}>canary</span>
       <span className={styles.edge} />
       <span className={styles.node}>edge-r1</span>
@@ -36,8 +48,13 @@ export function TopologyPreview() {
 }
 
 export function PlanesPreview() {
+  const { active } = useDemoMode()
+  if (!active) return null
   return (
     <div className={styles.panel} aria-label="Planes sample preview">
+      <div className={styles.badge}>
+        <DemoDataBadge />
+      </div>
       <div className={styles.row}>
         <strong>BGP</strong>
         <span>2 AS paths</span>
@@ -55,8 +72,13 @@ export function PlanesPreview() {
 }
 
 export function DashboardPreview() {
+  const { active } = useDemoMode()
+  if (!active) return null
   return (
     <div className={styles.metrics} aria-label="Dashboard sample preview">
+      <div className={styles.badge}>
+        <DemoDataBadge />
+      </div>
       <span>
         <strong>99.95%</strong>
         <small>SLO</small>

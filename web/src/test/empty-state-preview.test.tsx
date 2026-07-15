@@ -27,7 +27,7 @@ describe('EmptyState preview slot', () => {
     expect(screen.getByRole('heading', { name: 'Nested empty state', level: 3 })).toBeDefined()
   })
 
-  test('renders an optional preview without replacing the action', () => {
+  test('never renders an illustrative preview in live mode and preserves the action', () => {
     render(
       <EmptyState
         title="No tests yet"
@@ -39,11 +39,11 @@ describe('EmptyState preview slot', () => {
 
     expect(screen.getByRole('heading', { name: /no tests yet/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new test/i })).toBeInTheDocument()
-    expect(screen.getByLabelText(/first-run sample preview/i)).toBeInTheDocument()
-    expect(screen.getByText('checkout-http')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/first-run sample preview/i)).toBeNull()
+    expect(screen.queryByText('checkout-http')).toBeNull()
   })
 
-  test('ships reusable first-run, topology, planes, and dashboard previews', () => {
+  test('all reusable sample previews fail closed outside the isolated demo provider', () => {
     render(
       <div>
         <FirstRunPreview />
@@ -53,12 +53,9 @@ describe('EmptyState preview slot', () => {
       </div>,
     )
 
-    expect(screen.getByLabelText(/first-run sample preview/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/topology sample preview/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/planes sample preview/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/dashboard sample preview/i)).toBeInTheDocument()
-    expect(screen.getByText('edge-r1')).toBeInTheDocument()
-    expect(screen.getByText('Flow')).toBeInTheDocument()
-    expect(screen.getByText('99.95%')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/first-run sample preview/i)).toBeNull()
+    expect(screen.queryByLabelText(/topology sample preview/i)).toBeNull()
+    expect(screen.queryByLabelText(/planes sample preview/i)).toBeNull()
+    expect(screen.queryByLabelText(/dashboard sample preview/i)).toBeNull()
   })
 })
