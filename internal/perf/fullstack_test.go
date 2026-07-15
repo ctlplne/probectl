@@ -47,6 +47,38 @@ func TestWarmKafkaTopicBoundsDependencyFailure(t *testing.T) {
 	}
 }
 
+type skippedFirstProbeBus struct {
+	published int
+}
+
+func (b *skippedFirstProbeBus) Publish(context.Context, string, []byte, []byte) error {
+	b.published++
+	return nil
+}
+func (*skippedFirstProbeBus) Subscribe(context.Context, string, string, bus.Handler) error {
+	return nil
+}
+func (*skippedFirstProbeBus) Close() error { return nil }
+
+func TestWaitFullStackReadyRepublishesAfterColdAssignmentRace(t *testing.T) {
+	b := &skippedFirstProbeBus{}
+	count := func(context.Context, string) (float64, error) {
+		// Model Kafka's FromEnd behavior when the first record lands before
+		// consumer-group assignment: only a later probe reaches the writer.
+		if b.published >= 2 {
+			return 1, nil
+		}
+		return 0, nil
+	}
+	consumerErr := make(chan error)
+	if err := waitFullStackReady(context.Background(), b, count, "lscold", consumerErr); err != nil {
+		t.Fatal(err)
+	}
+	if b.published < 2 {
+		t.Fatalf("readiness publishes = %d, want a retry after the skipped first record", b.published)
+	}
+}
+
 // memCounter emulates the two instant queries the driver issues against a
 // memory store with PROMETHEUS semantics: count() counts DISTINCT series,
 // while Memory.Query returns one entry per sample — so dedup by label set.

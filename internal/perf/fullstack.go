@@ -122,7 +122,8 @@ const (
 	// A freshly created single-node KRaft broker can report API health before
 	// its first consumer-group coordinator/offset topic is ready. Keep this
 	// setup allowance separate from the measured load and settle windows.
-	fullStackReadinessTimeout = 60 * time.Second
+	fullStackReadinessTimeout       = 60 * time.Second
+	fullStackReadinessProbeInterval = time.Second
 )
 
 // DriveFullStack drives one tier profile through bus → consumer → writer and
@@ -279,6 +280,47 @@ func fullStackTotalSeriesExpr(ns, rng string) string {
 
 func waitFullStackReady(ctx context.Context, b bus.Bus, count QueryCounter, ns string, consumerErr <-chan error) error {
 	tenant := ns + "-ready"
+	if err := publishFullStackReadiness(ctx, b, tenant); err != nil {
+		return err
+	}
+
+	readyCtx, cancel := context.WithTimeout(ctx, fullStackReadinessTimeout)
+	defer cancel()
+	probeTicker := time.NewTicker(fullStackReadinessProbeInterval)
+	defer probeTicker.Stop()
+	queryTicker := time.NewTicker(250 * time.Millisecond)
+	defer queryTicker.Stop()
+	query := fmt.Sprintf(`count(%s{tenant_id="%s"})`, successMetric, tenant)
+	for {
+		v, err := count(readyCtx, query)
+		if err == nil && v >= 1 {
+			return nil
+		}
+		select {
+		case consumerRunErr := <-consumerErr:
+			if consumerRunErr != nil {
+				return fmt.Errorf("perf: full-stack consumer exited during readiness: %w", consumerRunErr)
+			}
+			return errors.New("perf: full-stack consumer exited during readiness")
+		case <-readyCtx.Done():
+			if err != nil {
+				return fmt.Errorf("perf: readiness query: %w", err)
+			}
+			return fmt.Errorf("perf: readiness result not visible in Prometheus within %s", fullStackReadinessTimeout)
+		case <-probeTicker.C:
+			// A newly created consumer group configured to start at the end can
+			// be assigned just after the first probe lands. Re-publishing this
+			// run-scoped probe turns readiness into an active handshake instead
+			// of sleeping and hoping the assignment won the race.
+			if err := publishFullStackReadiness(readyCtx, b, tenant); err != nil {
+				return err
+			}
+		case <-queryTicker.C:
+		}
+	}
+}
+
+func publishFullStackReadiness(ctx context.Context, b bus.Bus, tenant string) error {
 	payload, err := proto.Marshal(buildResult(identity{
 		tenant:        tenant,
 		agent:         "ready-agent",
@@ -291,35 +333,7 @@ func waitFullStackReady(ctx context.Context, b bus.Bus, count QueryCounter, ns s
 	if err := b.Publish(ctx, bus.NetworkResultsTopic, []byte(tenant), payload); err != nil {
 		return fmt.Errorf("perf: readiness publish: %w", err)
 	}
-	if err := flushFullStackBus(ctx, b, "readiness"); err != nil {
-		return err
-	}
-
-	readyCtx, cancel := context.WithTimeout(ctx, fullStackReadinessTimeout)
-	defer cancel()
-	query := fmt.Sprintf(`count(%s{tenant_id="%s"})`, successMetric, tenant)
-	for {
-		select {
-		case err := <-consumerErr:
-			if err != nil {
-				return fmt.Errorf("perf: full-stack consumer exited during readiness: %w", err)
-			}
-			return errors.New("perf: full-stack consumer exited during readiness")
-		default:
-		}
-		v, err := count(readyCtx, query)
-		if err == nil && v >= 1 {
-			return nil
-		}
-		select {
-		case <-readyCtx.Done():
-			if err != nil {
-				return fmt.Errorf("perf: readiness query: %w", err)
-			}
-			return fmt.Errorf("perf: readiness result not visible in Prometheus within %s", fullStackReadinessTimeout)
-		case <-time.After(250 * time.Millisecond):
-		}
-	}
+	return flushFullStackBus(ctx, b, "readiness")
 }
 
 // RunFullStackGate wires the REAL stack — Kafka producer/consumer and the

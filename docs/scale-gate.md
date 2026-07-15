@@ -190,6 +190,13 @@ silently repeat load traffic against a persistent developer stack. Invoke
 `make load-test-smoke`, `make load-test`, or `make scale-fullstack` when the
 full-stack load contract is intended.
 
+Readiness is an end-to-end handshake, not a container-health sleep. The result
+leg publishes a run-scoped probe repeatedly (within a fixed 60-second setup
+budget) until the Kafka consumer, remote-write path, and tenant-scoped
+Prometheus query can see it. This covers a cold KRaft consumer group whose
+`FromEnd` partition assignment completes just after the first probe, without
+including broker startup time in the measured load result.
+
 | Date | Tier | Hardware | Throughput (results/s) | Publish p95 | Query p95 | Series confirmed | Verdict |
 |---|---|---|---|---|---|---|---|
 | _pending_ | L | _to be recorded_ | — | — | — | — | — |
