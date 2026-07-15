@@ -103,7 +103,10 @@ describe('tenant data lifecycle (S-T5)', () => {
     renderApp('/admin')
     await userEvent.type(await screen.findByLabelText(/flow days/i), '0')
     await userEvent.click(screen.getByRole('button', { name: /save retention/i }))
-    expect(await screen.findByRole('alert')).toHaveTextContent(/flow_retention_days must be >= 1/)
+    expect(await screen.findByText(/flow_retention_days must be >= 1/)).toHaveAttribute(
+      'role',
+      'alert',
+    )
   })
 
   test('saving retention uses the shared 401 reauth path', async () => {
