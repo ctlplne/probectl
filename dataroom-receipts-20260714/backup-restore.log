@@ -1,0 +1,67 @@
+./scripts/backup_restore_drill.sh
+
+== drill: prepare backup sealing key + probectl-control ==
+
+== drill: generate and verify signed WORM/object-store fixture ==
+wormfixture: generated and verified 3 signed events in /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/objectstore-live
+
+== drill: boot postgres + clickhouse (dev compose) ==
+ Network probectl-dev Creating 
+ Network probectl-dev Created 
+ Volume probectl-dev_chbackups Creating 
+ Volume probectl-dev_chbackups Created 
+ Volume probectl-dev_pgdata Creating 
+ Volume probectl-dev_pgdata Created 
+ Volume probectl-dev_chdata Creating 
+ Volume probectl-dev_chdata Created 
+ Container probectl-dev-postgres-1 Creating 
+ Container probectl-dev-clickhouse-1 Creating 
+ Container probectl-dev-clickhouse-1 Created 
+ Container probectl-dev-postgres-1 Created 
+ Container probectl-dev-postgres-1 Starting 
+ Container probectl-dev-clickhouse-1 Starting 
+ Container probectl-dev-postgres-1 Started 
+ Container probectl-dev-clickhouse-1 Started 
+ Container probectl-dev-clickhouse-1 Waiting 
+ Container probectl-dev-postgres-1 Waiting 
+ Container probectl-dev-postgres-1 Healthy 
+ Container probectl-dev-clickhouse-1 Healthy 
+
+== drill: seed marker data (nonce drill-1784079455-45227) ==
+
+== drill: backup Postgres + ClickHouse + object-store/WORM ==
+backup_postgres: wrote /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/postgres-probectl-20260715T013744Z.dump.pbk (    2219 bytes)
+backup_clickhouse: wrote sealed ClickHouse artifact /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/clickhouse-probectl-20260715T013745Z.zip.pbk via backup-seal
+backup_clickhouse: wrote /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/clickhouse-probectl-20260715T013745Z.zip.pbk (    7492 bytes)
+backup_objectstore: wrote sealed /private/var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T/probectl-drill.E9698s/objectstore-20260715T013745Z.tar.pbk (   20590 bytes)
+total 85200
+-rw-r--r--  1 shankar  staff      7492 Jul 14 21:37 clickhouse-probectl-20260715T013745Z.zip.pbk
+-rw-r--r--  1 shankar  staff       111 Jul 14 21:37 clickhouse-probectl-20260715T013745Z.zip.pbk.sha256
+-rw-r--r--  1 shankar  staff     20590 Jul 14 21:37 objectstore-20260715T013745Z.tar.pbk
+-rw-r--r--  1 shankar  staff       103 Jul 14 21:37 objectstore-20260715T013745Z.tar.pbk.sha256
+drwx------  4 shankar  staff       128 Jul 14 21:37 objectstore-live
+-rw-r--r--@ 1 shankar  staff      2219 Jul 14 21:37 postgres-probectl-20260715T013744Z.dump.pbk
+-rw-r--r--@ 1 shankar  staff       110 Jul 14 21:37 postgres-probectl-20260715T013744Z.dump.pbk.sha256
+-rwxr-xr-x  1 shankar  staff  43569682 Jul 14 21:37 probectl-control
+
+== drill: WIPE all three stores (simulated regional loss; restore only from off-box artifacts) ==
+wipe confirmed: both databases and object store gone
+
+== drill: restore from the ENCRYPTED .pbk via backup-open (the shipped Job's command) ==
+restore_postgres: checksum verified
+NOTICE:  database "probectl" does not exist, skipping
+restore_postgres: restored probectl from /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/postgres-probectl.decrypted.dump
+restore_clickhouse: checksum verified
+restore_clickhouse: opened sealed ClickHouse backup /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/clickhouse-probectl-20260715T013745Z.zip.pbk
+ probectl-dev-clickhouse-1 Copying /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-ch-restore.cW0wkq/clickhouse-probectl-20260715T013745Z.zip to probectl-dev-clickhouse-1:/backups/restore-clickhouse-probectl-20260715T013745Z.zip
+ probectl-dev-clickhouse-1 Copied /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-ch-restore.cW0wkq/clickhouse-probectl-20260715T013745Z.zip to probectl-dev-clickhouse-1:/backups/restore-clickhouse-probectl-20260715T013745Z.zip
+restore_clickhouse: restored probectl from /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/clickhouse-probectl-20260715T013745Z.zip.pbk
+restore_objectstore: checksum verified
+restore_objectstore: restored /private/var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T/probectl-drill.E9698s/objectstore-live from /var/folders/q3/3vdpt6rs5fx08rz67jl4n14h0000gn/T//probectl-drill.E9698s/objectstore-20260715T013745Z.tar.pbk
+
+== drill: verify database markers + exact signed WORM/object bytes ==
+
+clickhouse regional-loss drill: PASS (tenant 11111111-1111-1111-1111-111111111111 rows 251/251; default shipped telemetry RPO <= 24h; documented telemetry RPO 86400s with the selected backup cadence)
+object-store/WORM drill: PASS (3-event Ed25519-signed chain + tenant object restored byte-for-byte from sealed .tar.pbk)
+BACKUP_RESTORE_RESULT run_at=2026-07-15T01:37:35Z git_sha=1331b664e160 profile=ci-marker pg_rows=137 ch_rows=251 ch_other_rows=17 worm_events=3 postgres_artifact_bytes=2219 clickhouse_artifact_bytes=7492 objectstore_artifact_bytes=20590 artifact_bytes=30301 backup_secs=1 restore_secs=1 rpo_seconds=86400 rto_budget_seconds=0
+backup-restore drill: PASS (backup 1s, restore 1s — record in docs/ops/backup-restore.md)

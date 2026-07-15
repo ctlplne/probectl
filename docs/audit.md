@@ -101,6 +101,12 @@ than silently continuing — that's the signal to investigate.
   tenant-scoped reads.
 - Export: streamed to your SIEM ([siem.md](siem.md)); retention configured per
   [data-retention.md](data-retention.md).
+- Local GA gate receipt: [`dataroom-receipts-20260714`](../dataroom-receipts-20260714/README.md)
+  verifies source commit `1331b664e160fac2851221a09394c8cd9498bc4d` with
+  machine-readable gate results, coverage, real-store isolation/integration,
+  recovery transcripts, vulnerability reports, image identity, and SBOM. It
+  deliberately excludes reference-hardware scale/overhead, representative
+  multi-region DR, and counsel-owned commercial legal work.
 
 ## See also
 

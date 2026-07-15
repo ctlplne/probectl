@@ -49,11 +49,13 @@ out of sync. **Tenant is the outermost scope and security boundary** on every
 record, agent, query, metric, event, and object.
 
 > **Status:** the major code paths are built, and the project is in
-> evidence-driven hardening toward GA. Treat the capability tables below as
-> code-backed inventory, not a claim that the current branch has a fresh green
-> `verify-all` receipt. As of the July 1, 2026 audit harness run, coverage,
-> integration, isolation, and e2e receipts are considered current only when the
-> named gates are rerun green on the exact commit. Compose + Helm are
+> evidence-driven hardening toward GA. A fresh local gate receipt for source
+> commit `1331b664e160fac2851221a09394c8cd9498bc4d` is committed in
+> [`dataroom-receipts-20260714/`](dataroom-receipts-20260714/README.md). It
+> covers build, tests, coverage, web, real-store isolation/integration, recovery
+> drills, vulnerability scans, image build, and SBOM evidence. Reference-hardware
+> scale/overhead, representative multi-region DR, and counsel-owned commercial
+> paper remain explicitly outside that local receipt. Compose + Helm are
 > **HTTPS-by-default**. probectl is **open-core**: core is MPL-2.0 and `ee/`
 > remains commercially licensed ([details](#license)).
 >

@@ -1,0 +1,302 @@
+{
+  "receipt-metadata": {
+    "result": "success",
+    "outputs": {
+      "verified_source_commit": "1331b664e160fac2851221a09394c8cd9498bc4d",
+      "run_date_local": "2026-07-14",
+      "host": "darwin/arm64",
+      "go": "1.26.5",
+      "docker_engine": "29.6.1"
+    }
+  },
+  "action-and-supply-pins": {
+    "result": "success",
+    "outputs": {
+      "scope": "GitHub Actions, toolchain images, release signing inputs"
+    }
+  },
+  "secret-scan": {
+    "result": "success",
+    "outputs": {
+      "commits_scanned": 1013,
+      "findings": 0,
+      "report": "gitleaks-history.json"
+    }
+  },
+  "lint-and-doc-claims": {
+    "result": "success",
+    "outputs": {
+      "go": "clean",
+      "python": "clean",
+      "license_headers": "clean",
+      "docs_claims": "clean"
+    }
+  },
+  "editions-gate": {
+    "result": "success",
+    "outputs": {
+      "core_imports_ee": false,
+      "core_only_build_and_tests": "pass",
+      "commercial_headers": "pass"
+    }
+  },
+  "build-matrix": {
+    "result": "success",
+    "outputs": {
+      "native_binaries": 9,
+      "linux_architectures": ["amd64", "arm64"],
+      "endpoint_targets": 6,
+      "fips_artifacts": 11
+    }
+  },
+  "fips-gate": {
+    "result": "success",
+    "outputs": {
+      "module": "v1.0.0",
+      "power_on_self_test": "pass",
+      "known_answer_tests": "pass"
+    }
+  },
+  "test-go": {
+    "result": "success",
+    "outputs": {
+      "race": true,
+      "workspace_modules": [".", "test"]
+    }
+  },
+  "test-python": {
+    "result": "success",
+    "outputs": {
+      "tests": 49,
+      "coverage_percent": 92.58
+    }
+  },
+  "coverage": {
+    "result": "success",
+    "outputs": {
+      "statement_percent": 78.0,
+      "all_package_floors_pass": true,
+      "profile": "coverage.out",
+      "summary": "coverage-summary.txt"
+    }
+  },
+  "rca-eval": {
+    "result": "success",
+    "outputs": {
+      "scenarios": 25,
+      "answer_accuracy": 0.92,
+      "mean_citation_precision": 0.92,
+      "honesty": true,
+      "model": "builtin",
+      "report": "rca-eval-report.json"
+    }
+  },
+  "openapi-gate": {
+    "result": "success",
+    "outputs": {
+      "openapi": "3.1.0",
+      "paths": 125,
+      "versioned_paths": 114,
+      "undocumented_routes": 0
+    }
+  },
+  "migration-gate": {
+    "result": "success",
+    "outputs": {
+      "postgres": "pass",
+      "clickhouse": "pass",
+      "expand_contract_compatibility": "pass"
+    }
+  },
+  "cross-tenant-isolation": {
+    "result": "success",
+    "outputs": {
+      "services_required": true,
+      "postgres": "pass",
+      "clickhouse": "pass"
+    }
+  },
+  "integration": {
+    "result": "success",
+    "outputs": {
+      "postgres": "pass",
+      "kafka": "pass",
+      "clickhouse": "pass",
+      "prometheus": "pass",
+      "python_analyzer": "pass"
+    }
+  },
+  "perf-smoke": {
+    "result": "success",
+    "outputs": {
+      "ingest_results_per_second": 85850,
+      "pooled_queries_per_second": 2701,
+      "pooled_p95_ms": 20.63,
+      "isolation": true
+    }
+  },
+  "load-smoke": {
+    "result": "success",
+    "outputs": {
+      "tier": "S",
+      "results_per_second": 15,
+      "flow_rows_per_second": 357,
+      "result_query_p95_ms": 1.18,
+      "flow_query_p95_ms": 8.02
+    }
+  },
+  "blackbox-e2e": {
+    "result": "success",
+    "outputs": {
+      "tenant_ingest_visible": true,
+      "isolation_both_directions": true
+    }
+  },
+  "backup-restore-drill": {
+    "result": "success",
+    "outputs": {
+      "postgres_rows": 137,
+      "clickhouse_rows": 251,
+      "clickhouse_other_tenant_rows": 17,
+      "worm_events": 3,
+      "sealed_artifact_bytes": 30301,
+      "backup_seconds": 1,
+      "restore_seconds": 1,
+      "csv": "backup-restore.csv",
+      "log": "backup-restore.log"
+    }
+  },
+  "failover-drill": {
+    "result": "success",
+    "outputs": {
+      "write_rate_per_second": 7.6,
+      "rto_ms": 604,
+      "rpo_acked_rows": 0,
+      "rpo_seconds": 0.0,
+      "csv": "failover.csv",
+      "log": "failover.log"
+    }
+  },
+  "chaos-dependency-drill": {
+    "result": "success",
+    "outputs": {
+      "recovery_assertions": 4,
+      "disk_full_recovery_drained": 2,
+      "pod_kill_recovered_acks": 2,
+      "dependency_recovered": 1
+    }
+  },
+  "web": {
+    "result": "success",
+    "outputs": {
+      "node": 22,
+      "test_files": 65,
+      "tests": 362,
+      "statement_coverage_percent": 86.89,
+      "branch_coverage_percent": 72.85,
+      "production_build": "pass"
+    }
+  },
+  "rendered-browser-a11y": {
+    "result": "success",
+    "outputs": {
+      "routes": 23,
+      "themes": 2,
+      "axe_violations": 0
+    }
+  },
+  "browser-worker": {
+    "result": "success",
+    "outputs": {
+      "pinned_playwright_image": "pass",
+      "syntax": "pass",
+      "real_browser_smoke": "pass"
+    }
+  },
+  "proto-and-sdk": {
+    "result": "success",
+    "outputs": {
+      "buf_lint": "pass",
+      "generated_diff": "clean",
+      "sdk_diff": "clean"
+    }
+  },
+  "packaging": {
+    "result": "success",
+    "outputs": {
+      "helm_profiles": "pass",
+      "gitops_manifests": "pass",
+      "terraform_1_9_8": "pass",
+      "compose_render": "pass",
+      "https_defaults": "pass"
+    }
+  },
+  "dependency-scan": {
+    "result": "success",
+    "outputs": {
+      "reachable_vulnerabilities": 0,
+      "imported_package_vulnerabilities": 0,
+      "required_module_not_called": 1,
+      "report": "govulncheck.txt"
+    }
+  },
+  "filesystem-scan": {
+    "result": "success",
+    "outputs": {
+      "fixed_high_or_critical": 0,
+      "trivy": "0.71.1",
+      "report": "trivy-fs.txt"
+    }
+  },
+  "image-build-and-scan": {
+    "result": "success",
+    "outputs": {
+      "image": "probectl/probectl-control:e1-1331b66",
+      "image_id": "sha256:bda1c4bafca91136c239584a699e0a54344f11bd54f878f34057baa3ecdc6d37",
+      "debian_fixed_high_or_critical": 0,
+      "go_binary_fixed_high_or_critical": 0,
+      "report": "trivy-image.txt"
+    }
+  },
+  "sbom": {
+    "result": "success",
+    "outputs": {
+      "format": "CycloneDX",
+      "spec_version": "1.5",
+      "target": "probectl-control linux/arm64",
+      "components": 26,
+      "source_commit_stamped": true,
+      "file": "probectl-control-linux-arm64.cdx.json"
+    }
+  },
+  "no-devauth-in-release": {
+    "result": "success",
+    "outputs": {
+      "release_binary_rejects_dev_auth": true
+    }
+  },
+  "offline-interop": {
+    "result": "success",
+    "outputs": {
+      "replays": "pass",
+      "network_required": false,
+      "strict_stock_provenance": "excluded-not-claimed"
+    }
+  },
+  "fuzz-policy-and-smoke": {
+    "result": "success",
+    "outputs": {
+      "targets_discovered": 31,
+      "seconds_per_target": 10,
+      "crashers": 0
+    }
+  },
+  "strength-controls": {
+    "result": "success",
+    "outputs": {
+      "controls": 102,
+      "failures": 0
+    }
+  }
+}
+

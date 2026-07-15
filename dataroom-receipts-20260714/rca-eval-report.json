@@ -1,0 +1,259 @@
+{
+  "scenarios": 25,
+  "answer_accuracy": 0.9166666666666666,
+  "mean_citation_precision": 0.9166666666666666,
+  "honesty_pass": true,
+  "model": "builtin",
+  "results": [
+    {
+      "name": "deploy-caused-latency",
+      "answer_correct": true,
+      "citation_precision": 0.75,
+      "cited": 4,
+      "relevant_cited": 3,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Deploy checkout v2.31\" — rollout of checkout v2.31 to production (critical)."
+    },
+    {
+      "name": "bgp-prefix-hijack",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Origin change for 203.0.113.0/24\" — unexpected origin AS64511 announced the prefix (critical)."
+    },
+    {
+      "name": "bgp-route-withdrawal",
+      "answer_correct": true,
+      "citation_precision": 0.6666666666666666,
+      "cited": 3,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Route withdrawn for 198.51.100.0/24\" — upstream AS64500 withdrew the prefix (critical)."
+    },
+    {
+      "name": "expired-tls-cert",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "low",
+      "root_cause": "Most likely root cause: \"TLS certificate expired for api.example.com\" — leaf certificate expired at 09:00 UTC (critical)."
+    },
+    {
+      "name": "config-push-broke-dns",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Config push to resolver fleet\" — ACL update applied to all resolvers (critical)."
+    },
+    {
+      "name": "transit-path-loss",
+      "answer_correct": true,
+      "citation_precision": 0.6666666666666666,
+      "cited": 3,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Packet loss on transit hop ae-3.tier1.net\" — 12% loss introduced at hop 7 (critical)."
+    },
+    {
+      "name": "device-interface-down",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Interface Gi0/0/1 down on edge-rtr-2\" — link down trap + ifOperStatus=down (critical)."
+    },
+    {
+      "name": "rollout-l7-error-spike",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Rollout of payments-svc 9.2\" — canary promoted to 100% (warning)."
+    },
+    {
+      "name": "release-slo-burn",
+      "answer_correct": false,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "low",
+      "root_cause": "Most likely root cause: \"SLO burn rate 14x on web-frontend\" — error budget exhausted in 6h at this rate (critical)."
+    },
+    {
+      "name": "syn-flood-anomaly",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "low",
+      "root_cause": "Most likely root cause: \"Traffic anomaly: inbound SYN flood\" — SYN rate 40x baseline from 1.2k sources (critical)."
+    },
+    {
+      "name": "peer-session-flap",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Peer AS64500 session flap\" — session reset 6 times in 30m (warning)."
+    },
+    {
+      "name": "cdn-origin-unreachable",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Origin unreachable via POP fra-1\" — traceroute dies after the POP egress (critical)."
+    },
+    {
+      "name": "db-failover-change",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Failover of pg-primary to replica-2\" — automatic failover triggered by health check (critical)."
+    },
+    {
+      "name": "mtls-ca-rotation-breakage",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Rotated mTLS CA bundle\" — new CA bundle pushed fleet-wide (critical)."
+    },
+    {
+      "name": "route-leak-upstream",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Route leak via AS64511\" — more-specifics leaked to transit, path detour (critical)."
+    },
+    {
+      "name": "firewall-rule-block",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Firewall policy update DENY 10.0.0.0/8\" — deny rule shadowing internal routes (critical)."
+    },
+    {
+      "name": "dns-divergence-threat",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "low",
+      "root_cause": "Most likely root cause: \"DNS responses diverge from authoritative\" — resolver answers differ from authoritative records in 3 regions (critical)."
+    },
+    {
+      "name": "kernel-upgrade-flow-gap",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Node kernel upgrade to 6.8\" — staged kernel upgrade across the fleet (warning)."
+    },
+    {
+      "name": "autoscaler-cost-spike",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Autoscaler policy change\" — min replicas raised 3 -\u003e 12 in all regions (warning)."
+    },
+    {
+      "name": "ix-maintenance-reroute",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 2,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"IX maintenance: paths shifted to backup transit\" — planned maintenance drained the IX port (warning)."
+    },
+    {
+      "name": "hard-bgp-cause-with-change-noise",
+      "answer_correct": false,
+      "citation_precision": 0.6666666666666666,
+      "cited": 3,
+      "relevant_cited": 2,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Unrelated dev-cluster deploy\" — dev environment deploy, no prod impact (info)."
+    },
+    {
+      "name": "adversarial-bgp-near-duplicate-event-time",
+      "answer_correct": true,
+      "citation_precision": 0.75,
+      "cited": 4,
+      "relevant_cited": 3,
+      "insufficient": false,
+      "confidence": "high",
+      "root_cause": "Most likely root cause: \"Current BGP origin change for 192.0.2.0/24\" — collector event time 2026-07-01T10:05:00Z; origin AS64500 via peer AS64496; attributes prefix=192.0.2.0/24 origin_asn=64500 peer_asn=64496 (critical)."
+    },
+    {
+      "name": "hard-two-changes-one-cause",
+      "answer_correct": true,
+      "citation_precision": 0.5,
+      "cited": 2,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "medium",
+      "root_cause": "Most likely root cause: \"Deploy checkout v3.0 (schema migration)\" — migration locked the orders table (critical)."
+    },
+    {
+      "name": "symptom-only-latency",
+      "answer_correct": true,
+      "citation_precision": 1,
+      "cited": 1,
+      "relevant_cited": 1,
+      "insufficient": false,
+      "confidence": "low",
+      "root_cause": "Most likely root cause: \"Regional latency elevated in us-east\" — p95 up 60% across services (warning)."
+    },
+    {
+      "name": "negative-control-no-signals",
+      "answer_correct": false,
+      "citation_precision": 1,
+      "cited": 0,
+      "relevant_cited": 0,
+      "insufficient": true,
+      "confidence": "low",
+      "root_cause": "Insufficient evidence: no signals were found for this question within your scope."
+    }
+  ]
+}
