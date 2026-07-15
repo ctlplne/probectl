@@ -527,6 +527,7 @@
       "get": {
         "operationId": "listAgents",
         "summary": "List agents",
+        "description": "Returns one bounded page of the caller tenant's registry rows enriched with heartbeat age/reason, N/N-1 version readiness, capabilities, persisted rollout cohort/state, last failure, and exactly one read-only safe next action. The endpoint never updates an agent.",
         "tags": [
           "agents"
         ],
@@ -7742,22 +7743,141 @@
           "name"
         ]
       },
+      "FleetSafeAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Exactly one read-only, authorized next step. The action opens tenant-scoped evidence or the human-gated rollout runbook; it never updates an agent.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "inspect_heartbeat",
+              "review_capabilities",
+              "review_staged_rollout",
+              "verify_rollout_wave",
+              "review_halted_rollout",
+              "inspect_evidence"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "reason",
+          "href"
+        ]
+      },
+      "FleetAgent": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Agent"
+          },
+          {
+            "type": "object",
+            "description": "Tenant-scoped fleet action-center view. Health and rollout fields are derived from authenticated registry heartbeats, the N/N-1 lifecycle policy, reported capabilities, and persisted staged-rollout plans.",
+            "properties": {
+              "heartbeat_age_seconds": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "heartbeat_state": {
+                "type": "string",
+                "enum": ["ready", "stale", "never_seen"]
+              },
+              "heartbeat_reason": {
+                "type": "string"
+              },
+              "version_state": {
+                "type": "string",
+                "enum": ["current", "supported_skew", "unsupported", "unknown"]
+              },
+              "version_reason": {
+                "type": "string"
+              },
+              "readiness_state": {
+                "type": "string",
+                "enum": ["ready", "stale", "never_connected", "unsupported_capability", "version_skew"]
+              },
+              "readiness_reason": {
+                "type": "string"
+              },
+              "rollout_id": {
+                "type": "string"
+              },
+              "rollout_target": {
+                "type": "string"
+              },
+              "rollout_cohort": {
+                "type": "string",
+                "enum": ["canary", "early", "main"]
+              },
+              "rollout_state": {
+                "type": "string",
+                "enum": ["pending", "applying", "complete", "halted"]
+              },
+              "rollout_halted": {
+                "type": "boolean"
+              },
+              "rollout_halt_reason": {
+                "type": "string"
+              },
+              "last_failure": {
+                "type": "string",
+                "description": "Most relevant known rollout, heartbeat, capability, or unsupported-version failure; empty when none is recorded."
+              },
+              "next_safe_action": {
+                "$ref": "#/components/schemas/FleetSafeAction"
+              }
+            },
+            "required": [
+              "heartbeat_state",
+              "heartbeat_reason",
+              "version_state",
+              "version_reason",
+              "readiness_state",
+              "readiness_reason",
+              "rollout_halted",
+              "last_failure",
+              "next_safe_action"
+            ]
+          }
+        ]
+      },
       "AgentList": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Agent"
+              "$ref": "#/components/schemas/FleetAgent"
             }
           },
           "next_cursor": {
             "type": "string",
             "description": "Cursor for the next page; absent when the last page was returned (SCALE-010)."
+          },
+          "control_version": {
+            "type": "string",
+            "description": "Control-plane version used to derive N/N-1 agent version health."
+          },
+          "rollouts_available": {
+            "type": "boolean",
+            "description": "Whether persisted staged-rollout evidence was available while building this page."
           }
         },
         "required": [
-          "items"
+          "items",
+          "control_version",
+          "rollouts_available"
         ]
       },
       "OnboardingReadiness": {

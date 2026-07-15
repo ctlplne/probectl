@@ -704,7 +704,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   testList: true,
   testRequest: true,
 } satisfies {
-  agent: GeneratedHasViewKeys<SDK.Agent, Agents.Agent>
+  agent: GeneratedHasViewKeys<SDK.FleetAgent, Agents.Agent>
   collectorRegisterRequest: GeneratedHasViewKeys<
     SDK.CollectorRegisterRequest,
     Agents.RegisterCollectorInput

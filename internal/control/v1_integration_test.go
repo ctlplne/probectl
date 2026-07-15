@@ -20,12 +20,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/agent"
 	"github.com/imfeelingtheagi/probectl/internal/browser"
 	"github.com/imfeelingtheagi/probectl/internal/browsercanary"
 	"github.com/imfeelingtheagi/probectl/internal/canary"
 	"github.com/imfeelingtheagi/probectl/internal/config"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	resultv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/result/v1"
+	"github.com/imfeelingtheagi/probectl/internal/lifecycle"
 	"github.com/imfeelingtheagi/probectl/internal/logging"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
@@ -35,6 +37,60 @@ import (
 
 func setupAPI(t *testing.T) (http.Handler, *store.DB) {
 	return setupAPIWithLatest(t, nil)
+}
+
+func TestFleetHealthTenantIsolation(t *testing.T) {
+	h, db := setupAPI(t)
+	ctx := context.Background()
+	tenantA, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("fleet-a-%d", time.Now().UnixNano()), "Fleet A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tenantB, err := store.NewTenants(db.Pool()).Create(ctx, fmt.Sprintf("fleet-b-%d", time.Now().UnixNano()), "Fleet B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+
+	seed := func(tenantID, agentID, secret string) {
+		t.Helper()
+		err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenantID)), db.Pool(), func(ctx context.Context, sc tenancy.Scope) error {
+			if _, err := (store.Agents{}).Register(ctx, sc, agentID, secret, secret+".example", "v1.3.0", "spiffe://probectl/tenant/"+tenantID+"/agent/"+agentID, []string{"flow"}); err != nil {
+				return err
+			}
+			plan := &agent.RolloutPlan{
+				Target:     agent.VerifiedArtifact{Version: "v1.4.0", Digest: "sha256:" + secret, Method: "cosign verify", VerifiedBy: "operator"},
+				Waves:      []agent.Wave{{Cohort: lifecycle.CohortCanary, AgentIDs: []string{agentID}, Status: agent.WaveHalted}},
+				Halted:     true,
+				HaltReason: secret + "-failure",
+			}
+			raw, err := encodeRolloutPlan(plan)
+			if err != nil {
+				return err
+			}
+			_, err = (store.Rollouts{}).Create(ctx, sc, "rollout-"+secret, raw)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("seed %s: %v", secret, err)
+		}
+	}
+	seed(tenantA.ID, uuid(t), "tenant-a-only")
+	seed(tenantB.ID, uuid(t), "tenant-b-only")
+
+	for _, tc := range []struct {
+		tenant string
+		want   string
+		deny   string
+	}{{tenantA.ID, "tenant-a-only", "tenant-b-only"}, {tenantB.ID, "tenant-b-only", "tenant-a-only"}} {
+		rec := apiReq(t, h, http.MethodGet, "/v1/agents", tc.tenant, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET fleet for %s = %d: %s", tc.tenant, rec.Code, rec.Body)
+		}
+		body := rec.Body.String()
+		if !strings.Contains(body, tc.want) || strings.Contains(body, tc.deny) {
+			t.Fatalf("tenant fleet boundary failed: want %q and no %q in %s", tc.want, tc.deny, body)
+		}
+	}
 }
 
 func setupAPIWithLatest(t *testing.T, latest *LatestResults) (http.Handler, *store.DB) {

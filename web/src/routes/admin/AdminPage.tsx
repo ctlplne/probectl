@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   Badge,
   Button,
@@ -28,6 +28,7 @@ import {
   useAgents,
   useMintAgentEnrollToken,
   useRegisterCollector,
+  fleetMetadata,
   flattenAgents,
   type Agent,
   type AgentEnrollToken,
@@ -53,6 +54,132 @@ function agentStatusLabel(status: Agent['status'], t: TFn) {
   if (status === 'online') return t('admin.filter.online')
   if (status === 'offline') return t('admin.filter.offline')
   return t('admin.filter.registered')
+}
+
+function readinessState(agent: Agent): NonNullable<Agent['readiness_state']> | 'unavailable' {
+  return agent.readiness_state ?? 'unavailable'
+}
+
+function readinessLabel(agent: Agent, t: TFn) {
+  const labels: Record<ReturnType<typeof readinessState>, MessageKey> = {
+    ready: 'admin.fleet.health.ready',
+    stale: 'admin.fleet.health.stale',
+    never_connected: 'admin.fleet.health.neverConnected',
+    unsupported_capability: 'admin.fleet.health.capabilityGap',
+    version_skew: 'admin.fleet.health.versionSkew',
+    unavailable: 'admin.fleet.health.unavailable',
+  }
+  return t(labels[readinessState(agent)])
+}
+
+function readinessTone(agent: Agent): 'success' | 'warning' | 'danger' | 'neutral' {
+  const state = readinessState(agent)
+  if (state === 'ready') return 'success'
+  if (state === 'stale' || state === 'version_skew') return 'warning'
+  if (state === 'never_connected' || state === 'unsupported_capability') return 'danger'
+  return 'neutral'
+}
+
+function versionLabel(agent: Agent, t: TFn) {
+  const labels: Record<NonNullable<Agent['version_state']> | 'unknown', MessageKey> = {
+    current: 'admin.fleet.version.current',
+    supported_skew: 'admin.fleet.version.supportedSkew',
+    unsupported: 'admin.fleet.version.unsupported',
+    unknown: 'admin.fleet.version.unknown',
+  }
+  return t(labels[agent.version_state ?? 'unknown'])
+}
+
+function heartbeatAge(agent: Agent, t: TFn) {
+  if (agent.heartbeat_state === 'never_seen') return t('admin.fleet.heartbeat.never')
+  if (agent.heartbeat_age_seconds === undefined) return t('admin.fleet.heartbeat.unavailable')
+  return t('admin.fleet.heartbeat.age', { seconds: agent.heartbeat_age_seconds })
+}
+
+function safeActionLabel(agent: Agent, t: TFn) {
+  const labels: Record<NonNullable<Agent['next_safe_action']>['kind'], MessageKey> = {
+    inspect_heartbeat: 'admin.fleet.action.inspectHeartbeat',
+    review_capabilities: 'admin.fleet.action.reviewCapabilities',
+    review_staged_rollout: 'admin.fleet.action.reviewRollout',
+    verify_rollout_wave: 'admin.fleet.action.verifyWave',
+    review_halted_rollout: 'admin.fleet.action.reviewHalted',
+    inspect_evidence: 'admin.fleet.action.inspect',
+  }
+  return agent.next_safe_action
+    ? t(labels[agent.next_safe_action.kind])
+    : t('admin.fleet.action.inspect')
+}
+
+function FleetActionDialog({
+  agent,
+  rolloutsAvailable,
+  onClose,
+}: {
+  agent: Agent | null
+  rolloutsAvailable: boolean
+  onClose: () => void
+}) {
+  const { t } = useI18n()
+  if (!agent) return null
+  const action = agent.next_safe_action
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t('admin.fleet.dialog.title', { agent: agent.name || agent.id })}
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          {t('admin.fleet.dialog.done')}
+        </Button>
+      }
+    >
+      <div className={styles.form}>
+        <p className={styles.fleetSafety}>{t('admin.fleet.dialog.safety')}</p>
+        <dl className={styles.fleetEvidence}>
+          <div>
+            <dt>{t('admin.fleet.dialog.health')}</dt>
+            <dd>{readinessLabel(agent, t)}</dd>
+          </div>
+          <div>
+            <dt>{t('admin.fleet.dialog.heartbeat')}</dt>
+            <dd>{agent.heartbeat_reason || t('admin.fleet.evidenceUnavailable')}</dd>
+          </div>
+          <div>
+            <dt>{t('admin.fleet.dialog.version')}</dt>
+            <dd>{agent.version_reason || t('admin.fleet.evidenceUnavailable')}</dd>
+          </div>
+          <div>
+            <dt>{t('admin.fleet.dialog.rollout')}</dt>
+            <dd>
+              {!rolloutsAvailable
+                ? t('admin.fleet.rollout.unavailable')
+                : agent.rollout_id
+                  ? t('admin.fleet.rollout.detail', {
+                      id: agent.rollout_id,
+                      cohort: agent.rollout_cohort ?? '—',
+                      state: agent.rollout_state ?? '—',
+                      target: agent.rollout_target ?? '—',
+                    })
+                  : t('admin.fleet.rollout.none')}
+            </dd>
+          </div>
+          <div>
+            <dt>{t('admin.fleet.dialog.lastFailure')}</dt>
+            <dd>{agent.last_failure || t('admin.fleet.failure.none')}</dd>
+          </div>
+        </dl>
+        <div>
+          <strong>{safeActionLabel(agent, t)}</strong>
+          <p className={styles.editionsLede}>
+            {action?.reason || t('admin.fleet.action.inspectReason')}
+          </p>
+        </div>
+        <p className={styles.editionsLede}>{t('admin.fleet.dialog.guardrails')}</p>
+        <Link to={action?.href || '/docs/api#rollouts'}>{t('admin.fleet.dialog.openRunbook')}</Link>
+      </div>
+    </Modal>
+  )
 }
 
 // --- Admin & Settings: the agent fleet (live /v1/agents) + secret-backend
@@ -472,15 +599,22 @@ export function AdminPage() {
   const { data, isPending, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useAgents()
   const [enrollOpen, setEnrollOpen] = useState(false)
   const [collectorOpen, setCollectorOpen] = useState(false)
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const [params, setParams] = useSearchParams()
   const collectorPlaneParam = params.get('register_collector')
   const deepLinkedCollectorPlane = isCollectorPlane(collectorPlaneParam)
     ? collectorPlaneParam
     : undefined
-  const defaults = { agent_q: '', agent_status: 'all', agent_capability: 'all' }
+  const defaults = {
+    agent_q: '',
+    agent_status: 'all',
+    agent_capability: 'all',
+    agent_health: 'all',
+  }
   const q = filterValue(params, 'agent_q')
   const status = filterValue(params, 'agent_status', 'all')
   const capability = filterValue(params, 'agent_capability', 'all')
+  const health = filterValue(params, 'agent_health', 'all')
   const setFilter = (patch: Record<string, string>) =>
     setURLFilters(params, setParams, defaults, patch)
 
@@ -497,6 +631,7 @@ export function AdminPage() {
   }
   // UX-004: flatten the cursor-paged result into the rows fetched so far.
   const agents = flattenAgents(data?.pages)
+  const fleet = fleetMetadata(data?.pages)
   const capabilities = useMemo(
     () => Array.from(new Set(agents.flatMap((a) => a.capabilities))).sort(),
     [agents],
@@ -509,6 +644,16 @@ export function AdminPage() {
         agent.hostname,
         agent.agent_version,
         agent.status,
+        agent.heartbeat_state,
+        agent.heartbeat_reason,
+        agent.version_state,
+        agent.version_reason,
+        agent.readiness_state,
+        agent.readiness_reason,
+        agent.rollout_cohort,
+        agent.rollout_state,
+        agent.rollout_target,
+        agent.last_failure,
         ...agent.capabilities,
       ]
         .join(' ')
@@ -516,35 +661,109 @@ export function AdminPage() {
       return (
         (!needle || haystack.includes(needle)) &&
         (status === 'all' || agent.status === status) &&
-        (capability === 'all' || agent.capabilities.includes(capability))
+        (capability === 'all' || agent.capabilities.includes(capability)) &&
+        (health === 'all' ||
+          (health === 'needs_action'
+            ? readinessState(agent) !== 'ready'
+            : readinessState(agent) === health))
       )
     })
-  }, [agents, capability, q, status])
+  }, [agents, capability, health, q, status])
 
   const columns: Column<Agent>[] = [
-    { key: 'name', header: t('admin.column.agent'), render: (a) => <strong>{a.name}</strong> },
     {
-      key: 'host',
-      header: t('admin.column.hostname'),
-      render: (a) => <code>{a.hostname || '—'}</code>,
+      key: 'agent',
+      header: t('admin.column.agent'),
+      render: (a) => (
+        <span className={styles.fleetCell}>
+          <strong>{a.name}</strong>
+          <code>{a.hostname || '—'}</code>
+        </span>
+      ),
     },
-    { key: 'version', header: t('admin.column.version'), render: (a) => a.agent_version || '—' },
+    {
+      key: 'health',
+      header: t('admin.fleet.column.health'),
+      render: (a) => (
+        <span className={styles.fleetCell}>
+          <StatusDot tone={readinessTone(a)} label={readinessLabel(a, t)} />
+          <span>{heartbeatAge(a, t)}</span>
+          <small>{agentStatusLabel(a.status, t)}</small>
+          <small>{a.readiness_reason || t('admin.fleet.evidenceUnavailable')}</small>
+        </span>
+      ),
+    },
+    {
+      key: 'version',
+      header: t('admin.column.version'),
+      render: (a) => (
+        <span className={styles.fleetCell}>
+          <code>{a.agent_version || '—'}</code>
+          <Badge
+            tone={
+              a.version_state === 'current'
+                ? 'success'
+                : a.version_state === 'unsupported'
+                  ? 'danger'
+                  : a.version_state === 'supported_skew'
+                    ? 'warning'
+                    : 'neutral'
+            }
+          >
+            {versionLabel(a, t)}
+          </Badge>
+          {fleet.controlVersion ? (
+            <small>{t('admin.fleet.controlVersion', { version: fleet.controlVersion })}</small>
+          ) : null}
+        </span>
+      ),
+    },
     {
       key: 'caps',
       header: t('admin.column.capabilities'),
-      render: (a) => (a.capabilities.length ? a.capabilities.join(', ') : '—'),
+      render: (a) => (
+        <span className={styles.fleetBadges}>
+          {a.capabilities.length ? (
+            a.capabilities.map((cap) => <Badge key={cap}>{cap}</Badge>)
+          ) : (
+            <Badge tone="danger">{t('admin.fleet.capabilities.none')}</Badge>
+          )}
+        </span>
+      ),
     },
     {
-      key: 'status',
-      header: t('admin.column.status'),
-      render: (a) =>
-        a.status === 'online' ? (
-          <StatusDot tone="success" label={agentStatusLabel(a.status, t)} />
-        ) : a.status === 'offline' ? (
-          <StatusDot tone="danger" label={agentStatusLabel(a.status, t)} />
-        ) : (
-          <StatusDot tone="neutral" label={agentStatusLabel(a.status, t)} />
-        ),
+      key: 'rollout',
+      header: t('admin.fleet.column.rollout'),
+      render: (a) => (
+        <span className={styles.fleetCell}>
+          {!fleet.rolloutsAvailable ? (
+            <StatusDot tone="neutral" label={t('admin.fleet.rollout.unavailable')} />
+          ) : a.rollout_id ? (
+            <>
+              <Badge tone={a.rollout_halted ? 'danger' : 'info'}>
+                {a.rollout_cohort} · {a.rollout_state}
+              </Badge>
+              <small>{t('admin.fleet.rollout.target', { target: a.rollout_target ?? '—' })}</small>
+            </>
+          ) : (
+            <span>{t('admin.fleet.rollout.none')}</span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: 'failure',
+      header: t('admin.fleet.column.lastFailure'),
+      render: (a) => a.last_failure || t('admin.fleet.failure.none'),
+    },
+    {
+      key: 'action',
+      header: t('admin.fleet.column.safeAction'),
+      render: (a) => (
+        <Button size="sm" variant="secondary" onClick={() => setSelectedAgent(a)}>
+          {safeActionLabel(a, t)}
+        </Button>
+      ),
     },
   ]
 
@@ -566,6 +785,11 @@ export function AdminPage() {
           }
         />
         <CardBody>
+          {!fleet.rolloutsAvailable && !isPending ? (
+            <p role="status" className={styles.fleetNotice}>
+              {t('admin.fleet.rollout.unavailableNotice')}
+            </p>
+          ) : null}
           <FilterBar>
             <Field
               label={t('admin.filter.find')}
@@ -585,6 +809,23 @@ export function AdminPage() {
               ]}
             />
             <Select
+              label={t('admin.fleet.filter.health')}
+              value={health}
+              onChange={(e) => setFilter({ agent_health: e.target.value })}
+              options={[
+                { value: 'all', label: t('admin.fleet.filter.allHealth') },
+                { value: 'needs_action', label: t('admin.fleet.filter.needsAction') },
+                { value: 'ready', label: t('admin.fleet.health.ready') },
+                { value: 'stale', label: t('admin.fleet.health.stale') },
+                { value: 'version_skew', label: t('admin.fleet.health.versionSkew') },
+                { value: 'never_connected', label: t('admin.fleet.health.neverConnected') },
+                {
+                  value: 'unsupported_capability',
+                  label: t('admin.fleet.health.capabilityGap'),
+                },
+              ]}
+            />
+            <Select
               label={t('admin.filter.capability')}
               value={capability}
               onChange={(e) => setFilter({ agent_capability: e.target.value })}
@@ -601,6 +842,7 @@ export function AdminPage() {
                   agent_q: filters.agent_q ?? '',
                   agent_status: filters.agent_status ?? 'all',
                   agent_capability: filters.agent_capability ?? 'all',
+                  agent_health: filters.agent_health ?? 'all',
                 })
               }
               placeholder={t('admin.saved.placeholder')}
@@ -641,6 +883,11 @@ export function AdminPage() {
         </CardBody>
       </Card>
       <AgentEnrollDialog open={enrollOpen} onClose={() => setEnrollOpen(false)} />
+      <FleetActionDialog
+        agent={selectedAgent}
+        rolloutsAvailable={fleet.rolloutsAvailable}
+        onClose={() => setSelectedAgent(null)}
+      />
       <CollectorRegisterDialog
         open={collectorOpen}
         onClose={closeCollectorDialog}

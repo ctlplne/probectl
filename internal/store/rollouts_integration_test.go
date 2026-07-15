@@ -60,6 +60,13 @@ func TestRolloutsTenantIsolation(t *testing.T) {
 		if !jsonEqual(t, got.Plan, applying) {
 			t.Fatalf("tenant A plan = %s, want %s", got.Plan, applying)
 		}
+		matched, err := (Rollouts{}).ListForAgents(ctx, sc, []string{"agent-a", "agent-unknown"})
+		if err != nil {
+			t.Fatalf("list tenant A rollout membership: %v", err)
+		}
+		if len(matched) != 1 || matched[0].ID != id {
+			t.Fatalf("tenant A membership = %+v, want only %s", matched, id)
+		}
 		return nil
 	})
 
@@ -70,6 +77,13 @@ func TestRolloutsTenantIsolation(t *testing.T) {
 		}
 		if len(items) != 0 {
 			t.Fatalf("tenant B saw tenant A rollouts: %+v", items)
+		}
+		matched, err := (Rollouts{}).ListForAgents(ctx, sc, []string{"agent-a"})
+		if err != nil {
+			t.Fatalf("list tenant B rollout membership: %v", err)
+		}
+		if len(matched) != 0 {
+			t.Fatalf("tenant B saw tenant A rollout membership: %+v", matched)
 		}
 		_, err = (Rollouts{}).Get(ctx, sc, id)
 		if err == nil {

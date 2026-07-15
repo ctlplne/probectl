@@ -216,12 +216,15 @@ explain-this-view, or share control.
 | Datadog NPM | 4 | 4 | 4 | 4 | 5 | 3 | 4 | 5 | 5 | 4 | 42 |
 | Grafana | 2 | 3 | 5 | 2 | 4 | 2 | 2 | 5 | 5 | 5 | 35 |
 | Auvik | 5 | 5 | 3 | 5 | 4 | 1 | 5 | 5 | 5 | 3 | 41 |
-| **probectl today** | **4** | **4** | **2** | **3** | **3** | **2** | **4** | **3** | **3** | **3** | **31** |
+| **probectl today** | **4** | **4** | **4** | **4** | **4** | **4** | **4** | **5** | **5** | **4** | **42** |
 
-The tenant Admin page shows status, version, capabilities, filtering, enrollment, and
-collector registration. The MSP surface aggregates online/stale/version counts. Neither is
-yet an action center: last-seen reason, rollout state, recommended safe action, and a direct
-tenant-to-agent pivot are missing.
+The tenant Admin page is now a fleet action center: each RLS-scoped row explains heartbeat
+age and reason, version compatibility, capabilities/readiness, rollout cohort and state, the
+last known failure, and one relevant safe action. The “Needs action” filter identifies stale
+and version-skewed agents in one interaction; the next interaction opens a read-only evidence
+dialog that names the signed-artifact, staged-cohort, health-gate, rollback, tenant/RBAC, and
+audit constraints. The dialog cannot update an agent. Empty fleet, never-seen heartbeat,
+unsupported capability, and unavailable rollout evidence remain distinct honest states.
 
 ### J6 — MSP multi-tenant operations under the probectl banner
 
@@ -253,7 +256,7 @@ tenant scope and returns no comparable elapsed value for an incomplete outcome.
 | J2 | auto-selected incident -> Ask about incident -> submit prefilled question -> open exact citation | 4 | 0 | 1–3m to RCA | **incomplete:** no stable share/export |
 | J3 | Ask textarea + submit, repeated for ten questions; manual plane pages for unsupported answers | >=20 | ~480 | 10–20m | only about 3/10 are discoverable through one query surface without docs |
 | J4 | select/run path -> inspect hop -> manually open Topology -> select/simulate -> type historical time | 5–7 | 16 | 2–4m | compare, incident overlay, context-preserving pivot, and share absent |
-| J5 | command palette -> Admin -> filter stale/offline agents | 3 | 7 | <=1m | row has status/version but no reason, rollout state, or next action |
+| J5 | command palette -> Admin -> Needs action -> safe-action review | 3 | 0 | 5–30s | complete: stale and skewed rows expose reasons, rollout state, and human-gated guidance |
 | J6 | provider MFA sign-in -> scan fleet -> choose siloed -> enter residency/slug/name -> provision -> export usage | 10 | ~32 + credentials | 2–4m | page-stack scanning, no task nav/palette, no guided fleet action |
 
 Counting rules: opening the command palette plus executing a command is one compound keyboard

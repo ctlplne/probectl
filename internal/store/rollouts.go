@@ -103,6 +103,47 @@ func (Rollouts) List(ctx context.Context, s tenancy.Scope) ([]RolloutRecord, err
 	return out, rows.Err()
 }
 
+// ListForAgents returns only the newest persisted rollout containing each
+// requested agent. agentIDs comes from one already-bounded, RLS-scoped registry
+// page. Doing the membership reduction in Postgres avoids pulling hundreds of
+// historical fleet-sized plans into the control process merely to render at
+// most one rollout state per visible row.
+func (Rollouts) ListForAgents(ctx context.Context, s tenancy.Scope, agentIDs []string) ([]RolloutRecord, error) {
+	if len(agentIDs) == 0 {
+		return []RolloutRecord{}, nil
+	}
+	rows, err := s.Q.Query(ctx, `
+		WITH memberships AS (
+			SELECT rp.rollout_id, rp.tenant_id, rp.plan, rp.revision, rp.created_at, rp.updated_at,
+			       member.agent_id,
+			       row_number() OVER (
+				   PARTITION BY member.agent_id
+				   ORDER BY rp.updated_at DESC, rp.rollout_id
+			       ) AS recency
+			FROM rollout_plans rp
+			CROSS JOIN LATERAL jsonb_array_elements(COALESCE(rp.plan->'Waves', '[]'::jsonb)) AS wave
+			CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(wave->'AgentIDs', '[]'::jsonb)) AS member(agent_id)
+			WHERE member.agent_id = ANY($1::text[])
+		)
+		SELECT DISTINCT `+rolloutCols+`
+		FROM memberships
+		WHERE recency = 1
+		ORDER BY updated_at DESC, rollout_id`, agentIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RolloutRecord
+	for rows.Next() {
+		var r RolloutRecord
+		if err := scanRollout(rows, &r); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // Update advances the plan with optimistic concurrency. A stale revision means
 // another operator/process changed the rollout after this request read it.
 func (Rollouts) Update(ctx context.Context, s tenancy.Scope, id string, expectedRevision int64, plan json.RawMessage) (int64, error) {

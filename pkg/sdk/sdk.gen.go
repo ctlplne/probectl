@@ -184,8 +184,10 @@ type Agent struct {
 }
 
 type AgentList struct {
-	Items      []Agent `json:"items"`
-	NextCursor string  `json:"next_cursor,omitempty"`
+	ControlVersion    string       `json:"control_version"`
+	Items             []FleetAgent `json:"items"`
+	NextCursor        string       `json:"next_cursor,omitempty"`
+	RolloutsAvailable bool         `json:"rollouts_available"`
 }
 
 type AgentPatch struct {
@@ -556,6 +558,43 @@ type ExplorerTemplate struct {
 	Question      string   `json:"question"`
 	Source        string   `json:"source"`
 	Visualization string   `json:"visualization"`
+}
+
+type FleetAgent struct {
+	AgentVersion        string          `json:"agent_version,omitempty"`
+	Capabilities        []string        `json:"capabilities"`
+	CreatedAt           string          `json:"created_at,omitempty"`
+	HeartbeatAgeSeconds int             `json:"heartbeat_age_seconds,omitempty"`
+	HeartbeatReason     string          `json:"heartbeat_reason"`
+	HeartbeatState      string          `json:"heartbeat_state"`
+	Hostname            string          `json:"hostname,omitempty"`
+	Id                  string          `json:"id"`
+	LastFailure         string          `json:"last_failure"`
+	LastSeenAt          string          `json:"last_seen_at,omitempty"`
+	Name                string          `json:"name"`
+	NextSafeAction      FleetSafeAction `json:"next_safe_action"`
+	ReadinessReason     string          `json:"readiness_reason"`
+	ReadinessState      string          `json:"readiness_state"`
+	RegisteredAt        string          `json:"registered_at,omitempty"`
+	RolloutCohort       string          `json:"rollout_cohort,omitempty"`
+	RolloutHaltReason   string          `json:"rollout_halt_reason,omitempty"`
+	RolloutHalted       bool            `json:"rollout_halted"`
+	RolloutId           string          `json:"rollout_id,omitempty"`
+	RolloutState        string          `json:"rollout_state,omitempty"`
+	RolloutTarget       string          `json:"rollout_target,omitempty"`
+	SpiffeId            string          `json:"spiffe_id,omitempty"`
+	Status              string          `json:"status"`
+	TenantId            string          `json:"tenant_id"`
+	VersionReason       string          `json:"version_reason"`
+	VersionState        string          `json:"version_state"`
+}
+
+// Exactly one read-only, authorized next step. The action opens tenant-scoped evidence or the human-gated rollout runbook; it never updates an agent.
+type FleetSafeAction struct {
+	Href   string `json:"href"`
+	Kind   string `json:"kind"`
+	Label  string `json:"label"`
+	Reason string `json:"reason"`
 }
 
 type FlowAnomaly struct {

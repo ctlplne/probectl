@@ -15,11 +15,44 @@ export interface Agent {
   status: 'registered' | 'online' | 'offline'
   capabilities: string[]
   last_seen_at?: string
+  heartbeat_age_seconds?: number
+  heartbeat_state?: 'ready' | 'stale' | 'never_seen'
+  heartbeat_reason?: string
+  version_state?: 'current' | 'supported_skew' | 'unsupported' | 'unknown'
+  version_reason?: string
+  readiness_state?:
+    | 'ready'
+    | 'stale'
+    | 'never_connected'
+    | 'unsupported_capability'
+    | 'version_skew'
+  readiness_reason?: string
+  rollout_id?: string
+  rollout_target?: string
+  rollout_cohort?: 'canary' | 'early' | 'main'
+  rollout_state?: 'pending' | 'applying' | 'complete' | 'halted'
+  rollout_halted?: boolean
+  rollout_halt_reason?: string
+  last_failure?: string
+  next_safe_action?: {
+    kind:
+      | 'inspect_heartbeat'
+      | 'review_capabilities'
+      | 'review_staged_rollout'
+      | 'verify_rollout_wave'
+      | 'review_halted_rollout'
+      | 'inspect_evidence'
+    label: string
+    reason: string
+    href: string
+  }
 }
 
-interface AgentsPage {
+export interface AgentsPage {
   items: Agent[]
   next_cursor?: string
+  control_version?: string
+  rollouts_available?: boolean
 }
 
 export interface MintAgentEnrollTokenInput {
@@ -142,4 +175,13 @@ export function useOnboardingProgress() {
 /** Flatten the paged result into the agent rows fetched so far. */
 export function flattenAgents(pages: AgentsPage[] | undefined): Agent[] {
   return (pages ?? []).flatMap((p) => p.items)
+}
+
+/** Fleet metadata is repeated per cursor page; the first page is authoritative. */
+export function fleetMetadata(pages: AgentsPage[] | undefined) {
+  const first = pages?.[0]
+  return {
+    controlVersion: first?.control_version ?? '',
+    rolloutsAvailable: first?.rollouts_available === true,
+  }
 }

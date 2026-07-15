@@ -135,18 +135,22 @@ const baselineFixtures: BaselineFixture[] = [
   {
     journey: 'J5',
     name: 'find and act on fleet health',
-    pointer: 1,
-    keyboard: 2,
-    typed: 7,
+    pointer: 2,
+    keyboard: 0,
+    typed: 0,
     contextBreaks: 0,
     activeTime: {
-      min_ms: 30_000,
-      max_ms: 60_000,
-      basis: 'command-palette navigation and Admin filtering proxy',
+      min_ms: 5_000,
+      max_ms: 30_000,
+      basis: 'filter unhealthy agents, then open one evidence-only safe action',
     },
     outcome: {
-      status: 'incomplete',
-      reason: 'agent rows lack a health reason, rollout state, and recommended safe action',
+      status: 'complete',
+      evidence: [
+        'stale and version-skewed agents are identified without typing',
+        'each row exposes heartbeat, version, capability, rollout, and last-failure evidence',
+        'the recommended action is read-only and preserves human approval, health gates, rollback, tenant/RBAC, and audit',
+      ],
     },
   },
   {

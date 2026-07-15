@@ -48,6 +48,21 @@ const sampleAgents = [
     agent_version: '0.1.0',
     status: 'online',
     capabilities: ['icmp', 'tcp', 'flow', 'device', 'ebpf', 'endpoint'],
+    heartbeat_age_seconds: 30,
+    heartbeat_state: 'ready',
+    heartbeat_reason: 'Authenticated heartbeat is inside the five-minute health gate.',
+    version_state: 'current',
+    version_reason: 'Agent matches the control-plane version.',
+    readiness_state: 'ready',
+    readiness_reason: 'Heartbeat, version policy, and reported capabilities are ready.',
+    rollout_halted: false,
+    last_failure: '',
+    next_safe_action: {
+      kind: 'inspect_evidence',
+      label: 'Inspect agent evidence',
+      reason: 'Review the tenant-scoped registry evidence; no fleet change is performed.',
+      href: '/docs/api#rollouts',
+    },
   },
 ]
 
@@ -310,7 +325,12 @@ export function defaultFetch(): typeof fetch {
     if (path === '/v1/tests') return jsonResponse({ items: sampleTests })
     // UX-004: useAgents pages with ?after=&limit=; the query is dropped by
     // pathOf, so the exact path matches regardless. Return one (final) page.
-    if (path === '/v1/agents') return jsonResponse({ items: sampleAgents })
+    if (path === '/v1/agents')
+      return jsonResponse({
+        items: sampleAgents,
+        control_version: '0.1.0',
+        rollouts_available: true,
+      })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
     if (path === '/v1/explorer/schema')
       return jsonResponse({

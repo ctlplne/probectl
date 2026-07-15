@@ -395,6 +395,19 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
+    capability: 'Tenant fleet health and safe-action review',
+    featureIds: ['F28'],
+    sprint: 'X12',
+    kind: 'native',
+    route: '/admin',
+    evidence: [
+      'openapi:/v1/agents',
+      'file:web/src/routes/admin/AdminPage.tsx',
+      'file:web/src/test/journeys/fleet-health.test.tsx',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'Staged fleet rollout controls (CLI + API + operator runbook)',
     featureIds: ['F28'],
     sprint: 'S49',

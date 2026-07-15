@@ -11,6 +11,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
@@ -21,6 +22,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 	"github.com/imfeelingtheagi/probectl/internal/testspec"
 	"github.com/imfeelingtheagi/probectl/internal/usage"
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 // apiRoute binds a method+pattern to a handler. This table is the single source
@@ -396,13 +398,45 @@ func (s *Server) handleListAgents(w http.ResponseWriter, r *http.Request) error 
 	limit := intQuery(r, "limit", store.DefaultAgentPageSize)
 	var agents []store.Agent
 	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-		a, e := store.Agents{}.ListPage(ctx, sc, after, limit)
+		a, e := (store.Agents{}).ListPage(ctx, sc, after, limit)
 		agents = a
 		return e
 	}); err != nil {
 		return err
 	}
-	resp := map[string]any{"items": agents}
+
+	// Rollout evidence is operational context, not a prerequisite for reading
+	// the registry. Query it in its own RLS transaction so a temporarily
+	// unavailable/corrupt rollout store cannot hide the fleet; the response
+	// explicitly reports the degraded state instead of guessing.
+	rolloutsAvailable := true
+	var rollouts []store.RolloutRecord
+	if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+		agentIDs := make([]string, len(agents))
+		for i := range agents {
+			agentIDs[i] = agents[i].ID
+		}
+		var err error
+		rollouts, err = (store.Rollouts{}).ListForAgents(ctx, sc, agentIDs)
+		return err
+	}); err != nil {
+		rolloutsAvailable = false
+		rollouts = nil
+		tenantID, _ := s.principalTenant(r)
+		s.log.Warn("fleet rollout evidence unavailable", "tenant_id", tenantID, "error", err)
+	}
+	views, err := buildFleetAgentViews(agents, rollouts, version.Get().Version, time.Now())
+	if err != nil {
+		rolloutsAvailable = false
+		tenantID, _ := s.principalTenant(r)
+		s.log.Warn("fleet rollout evidence invalid", "tenant_id", tenantID, "error", err)
+		views, _ = buildFleetAgentViews(agents, nil, version.Get().Version, time.Now())
+	}
+	resp := map[string]any{
+		"items":              views,
+		"control_version":    version.Get().Version,
+		"rollouts_available": rolloutsAvailable,
+	}
 	// next_cursor is the last id; absent when the page wasn't full (end of set).
 	if len(agents) == limit && limit > 0 {
 		resp["next_cursor"] = agents[len(agents)-1].ID

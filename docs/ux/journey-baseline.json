@@ -82,18 +82,22 @@
     {
       "journey": "J5",
       "name": "find and act on fleet health",
-      "pointer_interactions": 1,
-      "keyboard_interactions": 2,
-      "typed_characters": 7,
+      "pointer_interactions": 2,
+      "keyboard_interactions": 0,
+      "typed_characters": 0,
       "context_breaks": 0,
       "active_time_proxy": {
-        "min_ms": 30000,
-        "max_ms": 60000,
-        "basis": "command-palette navigation and Admin filtering proxy"
+        "min_ms": 5000,
+        "max_ms": 30000,
+        "basis": "filter unhealthy agents, then open one evidence-only safe action"
       },
       "outcome": {
-        "status": "incomplete",
-        "reason": "agent rows lack a health reason, rollout state, and recommended safe action"
+        "status": "complete",
+        "evidence": [
+          "stale and version-skewed agents are identified without typing",
+          "each row exposes heartbeat, version, capability, rollout, and last-failure evidence",
+          "the recommended action is read-only and preserves human approval, health gates, rollback, tenant/RBAC, and audit"
+        ]
       }
     },
     {

@@ -55,6 +55,25 @@ floor, and development builds skip the check.
 
 ## Operator flow
 
+### Fleet health action center
+
+The tenant **Admin & Settings** page is the read-only front door to this
+workflow. `GET /v1/agents` joins each RLS-scoped registry row to that tenant's
+newest persisted rollout membership and derives one honest readiness state:
+fresh, stale, never connected, capability unavailable, or version skew. Each
+row includes heartbeat age and reason, control/agent version evidence, reported
+capabilities, rollout cohort/state/target, the last known failure, and exactly
+one safe next action.
+
+That action opens evidence and this runbook; it is **not** a deploy button. The
+web application has no agent-update endpoint, artifact URL, script, executable,
+or hidden autonomous action. An operator must still verify the signed artifact,
+call the RBAC-protected rollout API or CLI, apply one cohort through the external
+orchestrator, and verify the heartbeat health gate. Those mutations remain
+tenant-scoped, human-approved, persisted, and audited. If rollout evidence is
+unavailable, Admin keeps the registry rows visible and labels rollout state
+unavailable instead of guessing.
+
 ### 0. Verify the artifact — and record it
 
 Per [verify-artifacts.md](verify-artifacts.md), confirm the artifact was built

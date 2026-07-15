@@ -115,8 +115,10 @@ export interface Agent {
 }
 
 export interface AgentList {
-  items: Agent[]
+  control_version: string
+  items: FleetAgent[]
   next_cursor?: string
+  rollouts_available: boolean
 }
 
 export interface AgentPatch {
@@ -478,6 +480,42 @@ export interface ExplorerTemplate {
   question: string
   source: string
   visualization: string
+}
+
+export interface FleetAgent {
+  agent_version?: string
+  capabilities: string[]
+  created_at?: string
+  heartbeat_age_seconds?: number
+  heartbeat_reason: string
+  heartbeat_state: "ready" | "stale" | "never_seen"
+  hostname?: string
+  id: string
+  last_failure: string
+  last_seen_at?: string
+  name: string
+  next_safe_action: FleetSafeAction
+  readiness_reason: string
+  readiness_state: "ready" | "stale" | "never_connected" | "unsupported_capability" | "version_skew"
+  registered_at?: string
+  rollout_cohort?: "canary" | "early" | "main"
+  rollout_halt_reason?: string
+  rollout_halted: boolean
+  rollout_id?: string
+  rollout_state?: "pending" | "applying" | "complete" | "halted"
+  rollout_target?: string
+  spiffe_id?: string
+  status: "registered" | "online" | "offline"
+  tenant_id: string
+  version_reason: string
+  version_state: "current" | "supported_skew" | "unsupported" | "unknown"
+}
+
+export interface FleetSafeAction {
+  href: string
+  kind: "inspect_heartbeat" | "review_capabilities" | "review_staged_rollout" | "verify_rollout_wave" | "review_halted_rollout" | "inspect_evidence"
+  label: string
+  reason: string
 }
 
 export interface FlowAnomaly {

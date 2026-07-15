@@ -58,3 +58,60 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-md);
 }
+
+.fleetCell {
+  display: flex;
+  min-width: 12rem;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.fleetCell small {
+  max-width: 36ch;
+  color: var(--color-text-muted);
+  line-height: var(--line-height-body);
+}
+
+.fleetBadges {
+  display: flex;
+  max-width: 18rem;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.fleetNotice,
+.fleetSafety {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
+.fleetSafety {
+  border-color: var(--color-warning);
+  color: var(--color-text);
+}
+
+.fleetEvidence {
+  display: grid;
+  margin: 0;
+  gap: var(--space-3);
+}
+
+.fleetEvidence div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.35fr) 1fr;
+  gap: var(--space-3);
+}
+
+.fleetEvidence dt {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-semibold);
+}
+
+.fleetEvidence dd {
+  margin: 0;
+}
