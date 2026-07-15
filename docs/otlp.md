@@ -60,13 +60,17 @@ store (see "Deliberate bounds" below).
   correlation keys. It keeps the receipts, not the warehouse: enough of each
   span and log line to join evidence across planes, never the full archive.
   Metric TSDB conversion supports OTLP gauge, sum, and explicit-bucket
-  histogram points. OTLP summary and exponential histogram points are accepted
-  at the receiver but are not converted into queryable TSDB series; probectl
-  counts them at `/metrics` as
+  histogram points. OTLP summary, exponential-histogram, and unspecified metric
+  data are rejected as one invalid push before the sink/bus boundary: OTLP/gRPC
+  returns `InvalidArgument`, and OTLP/HTTP returns `400 Bad Request`, with an
+  `unsupported metric point type` error naming the kind. The authenticated
+  tenant boundary is checked first, so a cross-tenant push still fails as
+  `PermissionDenied` / `403 Forbidden`. Defensive consumer counters remain for
+  legacy queued data or an internal producer that bypasses the receiver:
   `probectl_otlp_metrics_summary_skipped_total` and
-  `probectl_otlp_metrics_exponential_histogram_skipped_total` so an operator can
-  see the bound instead of losing it silently. It is **not** an APM /
-  distributed-tracing replacement and **not** a log-analytics store. probectl
+  `probectl_otlp_metrics_exponential_histogram_skipped_total`. This means an
+  unsupported kind is never acknowledged and then silently lost. It is **not**
+  an APM / distributed-tracing replacement and **not** a log-analytics store. probectl
   claims three-signal OTLP ingest/export with exactly those bounds — and no
   more.
 

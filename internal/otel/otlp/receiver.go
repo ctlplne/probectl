@@ -116,6 +116,9 @@ func (s *metricsService) Export(ctx context.Context, req *colmetricspb.ExportMet
 	if err := scopeToTenant(req, tenant); err != nil {
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
+	if err := validateMetricPointTypes(req); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	if err := s.sink.ConsumeMetrics(ctx, tenant, req); err != nil {
 		return nil, status.Error(codes.Internal, "otlp: sink error")
 	}
@@ -165,6 +168,10 @@ func MetricsHTTPHandlerWithFreshness(auth Authenticator, sink Sink, maxBytes int
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		if err := validateMetricPointTypes(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := sink.ConsumeMetrics(r.Context(), tenant, &req); err != nil {
 			http.Error(w, "sink error", http.StatusInternalServerError)
 			return
@@ -173,6 +180,35 @@ func MetricsHTTPHandlerWithFreshness(auth Authenticator, sink Sink, maxBytes int
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		_, _ = w.Write(resp)
 	})
+}
+
+// validateMetricPointTypes makes the receiver's TSDB materialization boundary
+// explicit. Gauge, sum, and explicit-bucket histogram points are supported by
+// the downstream converter. Summary and exponential-histogram points are not:
+// reject the whole push at the authenticated edge so a collector receives a
+// documented error instead of a success followed by a downstream silent drop.
+// Tenant scoping MUST run before this check (tenant is the outer boundary).
+func validateMetricPointTypes(req *colmetricspb.ExportMetricsServiceRequest) error {
+	for resourceIndex, rm := range req.GetResourceMetrics() {
+		for scopeIndex, sm := range rm.GetScopeMetrics() {
+			for metricIndex, metric := range sm.GetMetrics() {
+				kind := ""
+				switch metric.GetData().(type) {
+				case *metricspb.Metric_Gauge, *metricspb.Metric_Sum, *metricspb.Metric_Histogram:
+					continue
+				case *metricspb.Metric_Summary:
+					kind = "summary"
+				case *metricspb.Metric_ExponentialHistogram:
+					kind = "exponential_histogram"
+				default:
+					kind = "unspecified"
+				}
+				return fmt.Errorf("otlp: unsupported metric point type %q at resource[%d].scope[%d].metric[%d] (%q)",
+					kind, resourceIndex, scopeIndex, metricIndex, metric.GetName())
+			}
+		}
+	}
+	return nil
 }
 
 // readOTLPBody reads the request body with a hard size bound and transparently

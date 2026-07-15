@@ -33,12 +33,14 @@ import (
 // arrive tenant-keyed with a marshaled ExportMetricsServiceRequest payload.
 //
 // Conversion scope (deliberate, documented): GAUGE, SUM, and explicit-bucket
-// HISTOGRAM points become TSDB series. SUMMARY and EXPONENTIAL_HISTOGRAM points
-// are accepted at the OTLP boundary but visibly counted as unsupported for TSDB
-// conversion. Labels are bounded (the busiest attributes win deterministically)
-// and every emitted series carries tenant_id — the same label contract as every
-// other plane, so RBAC'd PromQL and Grafana federation see OTLP metrics exactly
-// like native ones.
+// HISTOGRAM points become TSDB series. The receiver rejects SUMMARY,
+// EXPONENTIAL_HISTOGRAM, and unspecified metric data before publishing. These
+// defensive counters remain for legacy queued payloads or an internal producer
+// that bypasses the receiver, so even that invalid path is visible rather than
+// silently dropped. Labels are bounded (the busiest attributes win
+// deterministically) and every emitted series carries tenant_id — the same
+// label contract as every other plane, so RBAC'd PromQL and Grafana federation
+// see OTLP metrics exactly like native ones.
 type OTLPConsumer struct {
 	bus  bus.Bus
 	tsdb tsdb.Writer
@@ -89,11 +91,11 @@ func (c *OTLPConsumer) WithMetrics(reg *metrics.Registry) *OTLPConsumer {
 	c.ledger.withMetrics(reg)
 	c.dlq.withMetrics(reg)
 	c.summarySkippedMetric = reg.Counter("probectl_otlp_metrics_summary_skipped_total",
-		"OTLP summary points accepted but not converted to TSDB series.")
+		"Legacy/internal OTLP summary points rejected from TSDB conversion.")
 	c.expHistogramSkippedMetric = reg.Counter("probectl_otlp_metrics_exponential_histogram_skipped_total",
-		"OTLP exponential histogram points accepted but not converted to TSDB series.")
+		"Legacy/internal OTLP exponential histogram points rejected from TSDB conversion.")
 	c.unknownSkippedMetric = reg.Counter("probectl_otlp_metrics_unknown_skipped_total",
-		"OTLP metric points with unknown data kind accepted but not converted to TSDB series.")
+		"Legacy/internal OTLP metric points with unknown data kind rejected from TSDB conversion.")
 	c.compositeAttrsSkippedMetric = reg.Counter("probectl_otlp_metrics_composite_attrs_skipped_total",
 		"Composite OTLP metric attributes intentionally skipped instead of flattened into labels.")
 	return c

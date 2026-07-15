@@ -150,8 +150,9 @@ func TestHistogramConversionDeltaTemporality(t *testing.T) {
 }
 
 // ARCH-003: every OTLP metric point kind is explicit. Gauge, sum, and
-// explicit-bucket histogram become queryable TSDB series; summary and
-// exponential histogram are bounded by visible unsupported-kind counters.
+// explicit-bucket histogram become queryable TSDB series. The receiver rejects
+// summary and exponential histogram; this direct-consumer fixture proves a
+// legacy queued/internal-bypass payload is still visibly counted, not silent.
 func TestOTLPMetricKindFidelityFixtures(t *testing.T) {
 	reg := selfmetrics.New("test", "abc")
 	c := NewOTLPConsumer(nil, tsdb.NewMemory(), testLogger()).WithMetrics(reg)

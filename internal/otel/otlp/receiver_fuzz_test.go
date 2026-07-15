@@ -45,6 +45,19 @@ func FuzzOTLPPayload(f *testing.F) {
 	f.Add(mk(""))
 	f.Add(mk("tenant-a"))
 	f.Add(mk("tenant-evil"))
+	metricSeed := func(metric *metricspb.Metric) []byte {
+		return mustFuzzMarshal(&colmetricspb.ExportMetricsServiceRequest{
+			ResourceMetrics: []*metricspb.ResourceMetrics{{
+				Resource: fuzzTenantResource("tenant-a"),
+				ScopeMetrics: []*metricspb.ScopeMetrics{{
+					Metrics: []*metricspb.Metric{metric},
+				}},
+			}},
+		})
+	}
+	f.Add(metricSeed(&metricspb.Metric{Name: "summary", Data: &metricspb.Metric_Summary{Summary: &metricspb.Summary{}}}))
+	f.Add(metricSeed(&metricspb.Metric{Name: "exponential", Data: &metricspb.Metric_ExponentialHistogram{ExponentialHistogram: &metricspb.ExponentialHistogram{}}}))
+	f.Add(metricSeed(nil))
 	f.Add([]byte{})
 	f.Add([]byte{0xff, 0xff, 0xff})
 
@@ -56,6 +69,9 @@ func FuzzOTLPPayload(f *testing.F) {
 		err := scopeToTenant(&req, "tenant-a")
 		if err != nil {
 			return // foreign tenant refused — fine
+		}
+		if err := validateMetricPointTypes(&req); err != nil {
+			return // unsupported point type refused — fine
 		}
 		// Accepted: every resource must now read as the caller's tenant via
 		// the SAME first-match reader the pipeline uses downstream.
@@ -138,6 +154,20 @@ func tracePayloadSeeds() [][]byte {
 		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
 			ResourceSpans: []*tracepb.ResourceSpans{{Resource: fuzzNilTenantValueResource()}},
 		}),
+		mustFuzzMarshal(&coltracepb.ExportTraceServiceRequest{
+			ResourceSpans: []*tracepb.ResourceSpans{{
+				Resource: fuzzTenantResource("tenant-a"),
+				ScopeSpans: []*tracepb.ScopeSpans{{Spans: []*tracepb.Span{{
+					TraceId: []byte("0123456789abcdef"),
+					SpanId:  []byte("01234567"),
+					Name:    "GET /checkout",
+					Attributes: []*commonpb.KeyValue{{
+						Key:   "http.response.status_code",
+						Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_IntValue{IntValue: 503}},
+					}},
+				}}}},
+			}},
+		}),
 		{},
 		{0xff, 0xff, 0xff},
 		{0x82, 0x06, 0x00}, // unknown field 100, length-delimited, empty
@@ -161,6 +191,18 @@ func logPayloadSeeds() [][]byte {
 		}),
 		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
 			ResourceLogs: []*logspb.ResourceLogs{{Resource: fuzzNilTenantValueResource()}},
+		}),
+		mustFuzzMarshal(&collogspb.ExportLogsServiceRequest{
+			ResourceLogs: []*logspb.ResourceLogs{{
+				Resource: fuzzTenantResource("tenant-a"),
+				ScopeLogs: []*logspb.ScopeLogs{{LogRecords: []*logspb.LogRecord{{
+					Body: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "checkout failed"}},
+					Attributes: []*commonpb.KeyValue{{
+						Key:   "error.type",
+						Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "timeout"}},
+					}},
+				}}}},
+			}},
 		}),
 		{},
 		{0xff, 0xff, 0xff},

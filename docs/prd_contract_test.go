@@ -153,8 +153,8 @@ func TestPRDAndDocsAdvertiseCLIOnlyUntilTUIExists(t *testing.T) {
 
 // TestPRDOTLPContractMatchesAllSignalImplementation keeps the product contract
 // aligned with the shipped OTLP receiver/exporter. The implementation accepts
-// and forwards metrics, traces, and logs; the PRD must not keep describing
-// traces/logs as an undecided GA item.
+// and forwards metrics, traces, and logs and explicitly rejects metric point
+// types it cannot materialize; the PRD must not describe either as undecided.
 func TestPRDOTLPContractMatchesAllSignalImplementation(t *testing.T) {
 	prd := readPRDv1(t)
 
@@ -163,6 +163,7 @@ func TestPRDOTLPContractMatchesAllSignalImplementation(t *testing.T) {
 		"re-scoped metrics-only claim",
 		"metrics-only claim",
 		"OTLP traces/logs (if",
+		"Remaining GA work is edge-case conformance and hardening",
 	} {
 		if strings.Contains(prd, stale) {
 			t.Fatalf("probectl-PRD-v1.0.md still contains stale OTLP contract wording %q", stale)
@@ -171,7 +172,8 @@ func TestPRDOTLPContractMatchesAllSignalImplementation(t *testing.T) {
 	for _, want := range []string{
 		"metrics/traces/logs ingest/export",
 		"the three-signal OTLP path is delivered",
-		"Remaining GA work is edge-case conformance and hardening, not a traces/logs product decision",
+		"OTLP point-type conformance is delivered",
+		"This is no longer a remaining GA item",
 	} {
 		if !strings.Contains(prd, want) {
 			t.Fatalf("probectl-PRD-v1.0.md missing all-signal OTLP contract wording %q", want)
