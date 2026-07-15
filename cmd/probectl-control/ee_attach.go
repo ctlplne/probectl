@@ -6,7 +6,8 @@
 
 //go:build !probectl_core
 
-// probectl Commercial License — PLACEHOLDER (legal text TBD with counsel).
+// Commercial linkage seam: imported ee/ source is governed separately by
+// ee/LICENSE; this MPL-licensed wiring file grants no rights to that source.
 //
 // This file is THE sanctioned ee attach seam (allowlisted in
 // scripts/check_editions_imports.sh): the one place core meets ee/. The

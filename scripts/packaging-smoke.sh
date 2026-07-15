@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: LicenseRef-probectl-TBD
+# SPDX-License-Identifier: MPL-2.0
 #
 # packaging-smoke.sh (OPS-002) — build ONE deb + ONE rpm from a stand-in binary,
 # exactly as release.yml does, and assert both artifacts appear with the NUMERIC

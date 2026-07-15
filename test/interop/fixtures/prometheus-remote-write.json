@@ -1,5 +1,5 @@
 {
-  "spdx": "LicenseRef-probectl-TBD",
+  "spdx": "MPL-2.0",
   "kind": "prometheus_remote_write_v1",
   "source": "Synthetic fixture shaped like a Prometheus remote-write WriteRequest.",
   "license": "Synthetic local fixture; no third-party payload license.",

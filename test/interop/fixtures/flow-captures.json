@@ -1,5 +1,5 @@
 {
-  "spdx": "LicenseRef-probectl-TBD",
+  "spdx": "MPL-2.0",
   "kind": "flow_capture_family",
   "source": "Synthetic RFC-shaped NetFlow v5, NetFlow v9, IPFIX, and sFlow captures emitted by package test builders.",
   "license": "Synthetic local fixture; no third-party packet capture license.",

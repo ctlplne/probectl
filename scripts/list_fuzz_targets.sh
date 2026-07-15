@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: LicenseRef-probectl-TBD
+# SPDX-License-Identifier: MPL-2.0
 #
 # Discover Go fuzz targets under core and commercial packages. This is
 # intentionally dependency-free so CI can use it before any project tooling is

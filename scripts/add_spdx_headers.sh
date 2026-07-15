@@ -5,7 +5,8 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-# Compatibility wrapper. L2 finalized the core license as MPL-2.0; the old
-# placeholder stamper must never reintroduce LicenseRef-probectl-TBD.
+# Compatibility wrapper. L2 finalized the core license as MPL-2.0; this old
+# entry point delegates to the canonical stamper and cannot reintroduce the
+# retired pre-MPL placeholder identifier.
 set -euo pipefail
 exec "$(dirname "$0")/apply_license_headers.sh" "$@"

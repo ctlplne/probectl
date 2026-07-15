@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: LicenseRef-probectl-TBD
+# SPDX-License-Identifier: MPL-2.0
 #
 # check-test-clocks.sh (TEST-002 / RESIL-002) — prevent the SLO-engine time-bomb
 # regression class.

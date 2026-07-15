@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: LicenseRef-probectl-TBD
+# SPDX-License-Identifier: MPL-2.0
 #
 # Synthetic offline OpenTelemetry Collector fixture.
 # Source shape: OpenTelemetry Collector otlphttp exporter configuration.

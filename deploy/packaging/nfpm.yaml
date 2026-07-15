@@ -26,7 +26,7 @@ description: |
   the bus-publishing collectors, a registered identity) and reports telemetry.
 vendor: "probectl"
 homepage: "https://docs.probectl.example"
-license: "LicenseRef-probectl-TBD"
+license: "MPL-2.0"
 
 contents:
   - src: ./dist/probectl-${AGENT}_${FILE_TAG}_linux_${ARCH}

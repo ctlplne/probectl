@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: LicenseRef-probectl-TBD
+# SPDX-License-Identifier: MPL-2.0
 #
 # check_version_consistency.sh (OPS-008) — the shipped artifacts must agree on
 # ONE version. The repo-root VERSION file is the single source of truth; this

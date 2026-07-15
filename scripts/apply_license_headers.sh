@@ -39,8 +39,7 @@ has_header() {
   grep -Fqx "${prefix} SPDX-License-Identifier: MPL-2.0" "${file}" &&
     grep -Fqx "${prefix} This Source Code Form is subject to the terms of the Mozilla Public" "${file}" &&
     grep -Fqx "${prefix} License, v. 2.0. If a copy of the MPL was not distributed with this" "${file}" &&
-    grep -Fqx "${prefix} file, You can obtain one at https://mozilla.org/MPL/2.0/." "${file}" &&
-    ! grep -Eq '^(//|#) SPDX-License-Identifier: LicenseRef-probectl-TBD$' "${file}"
+    grep -Fqx "${prefix} file, You can obtain one at https://mozilla.org/MPL/2.0/." "${file}"
 }
 
 write_header() {
@@ -60,7 +59,7 @@ apply_one() {
   # Strip only legacy/partial SPDX lines. The rest of the file is copied byte
   # for byte, so this pass cannot alter program logic.
   awk '
-    !/^(\/\/|#) SPDX-License-Identifier: (LicenseRef-probectl-TBD|MPL-2.0)$/ &&
+    !/^(\/\/|#) SPDX-License-Identifier: (LicenseRef-probectl-T[B]D|MPL-2.0)$/ &&
     !/^(\/\/|#) This Source Code Form is subject to the terms of the Mozilla Public$/ &&
     !/^(\/\/|#) License, v[.] 2[.]0[.] If a copy of the MPL was not distributed with this$/ &&
     !/^(\/\/|#) file, You can obtain one at https:\/\/mozilla[.]org\/MPL\/2[.]0\/[.]$/
@@ -108,6 +107,18 @@ if [ "${missing_count}" -gt 0 ]; then
   echo "license header gate: ${missing_count} core source file(s) missing the MPL-2.0 SPDX + Exhibit A notice:" >&2
   printf '  %s\n' "${missing[@]}" >&2
   echo "run scripts/apply_license_headers.sh and commit the mechanical header changes" >&2
+  exit 1
+fi
+
+# The owner decision applies to every tracked core artifact, not only the
+# hand-maintained source extensions above. Generated SDKs, release scripts,
+# package metadata, and interop fixtures previously escaped the narrow header
+# scan. Match the retired identifier with a character class so the detector
+# does not contain (and therefore whitelist) the literal it rejects.
+stale_identifiers="$(git grep -n -E 'LicenseRef-probectl-T[B]D' -- . || true)"
+if [ -n "${stale_identifiers}" ]; then
+  echo "license header gate: retired pre-MPL SPDX identifier remains in tracked files:" >&2
+  printf '%s\n' "${stale_identifiers}" >&2
   exit 1
 fi
 

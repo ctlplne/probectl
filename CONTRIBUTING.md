@@ -98,9 +98,9 @@ For new first-party source, use these machine-readable identifiers:
   with a pointer to `ee/LICENSE`.
 
 Generated files and third-party material keep generator/upstream notices. The
-tree-wide replacement of historical placeholder headers is enforced by the
-licensing header gate; never copy `LicenseRef-probectl-TBD` into a new file. See
-[`LICENSING.md`](LICENSING.md) for the complete split.
+tree-wide replacement of the historical pre-MPL placeholder identifier is
+enforced by the licensing header gate; never copy that retired identifier into
+a new file. See [`LICENSING.md`](LICENSING.md) for the complete split.
 
 ## Definition of Done
 
