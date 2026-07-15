@@ -59,6 +59,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/alerts", s.handleCreateAlert, permAlertWrite},
 		{http.MethodPost, "/v1/alerts/test-channel", s.handleAlertChannelTest, permAlertWrite},
 		{http.MethodGet, "/v1/alerts/active", s.handleListActiveAlerts, permAlertRead},
+		{http.MethodGet, "/v1/alerts/active/{fingerprint}/workflow", s.handleAlertWorkflow, permAlertRead},
 		{http.MethodPost, "/v1/alerts/active/silence", s.handleSilenceAlert, permAlertWrite},
 		{http.MethodPost, "/v1/alerts/active/ack", s.handleAckAlert, permAlertWrite},
 		{http.MethodGet, "/v1/alerts/maintenance", s.handleListMaintenanceWindows, permAlertRead},

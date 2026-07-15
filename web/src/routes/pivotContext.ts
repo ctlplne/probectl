@@ -66,6 +66,7 @@ const MAX_FILTERS = 24
 const MAX_VALUE_LENGTH = 512
 const MAX_REFERENCE_LENGTH = 256
 const SAFE_RETURN_PREFIXES = [
+  '/alerts',
   '/ask',
   '/explore',
   '/incidents',

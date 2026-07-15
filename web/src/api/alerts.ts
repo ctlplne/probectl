@@ -6,7 +6,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from './client'
-import type { Severity } from './incidents'
+import type { Incident, Severity } from './incidents'
 
 /**
  * The S16 alerting API (surface: S-FE1). Two halves:
@@ -104,6 +104,43 @@ export interface ActiveAlert {
   acked_at?: string
 }
 
+export interface AlertWorkflowOperation {
+  action: 'acknowledged' | 'silenced' | 'unsilenced'
+  actor: string
+  reason: string
+  started_at: string
+  expires_at?: string
+  delivery_status: string
+  audit_ref: string
+}
+
+export interface AlertWorkflowDelivery {
+  connector: string
+  external_ref: string
+  status: string
+  created_at: string
+  updated_at: string
+  receipt_ref: string
+}
+
+export interface AlertWorkflow {
+  alert?: ActiveAlert
+  operations: AlertWorkflowOperation[]
+  incident?: Incident
+  deliveries: AlertWorkflowDelivery[]
+  evaluator_running: boolean
+  persistence_running: boolean
+  connector_running: boolean
+}
+
+export interface AlertActionResponse extends ActiveAlert {
+  persistence_running: boolean
+  operation_actor: string
+  operation_reason: string
+  operation_started_at: string
+  audit_ref?: string
+}
+
 export type MaintenanceRecurrence = '' | 'daily' | 'weekly'
 
 export interface MaintenanceWindow {
@@ -117,6 +154,7 @@ export interface MaintenanceWindow {
   match?: Record<string, string>
   rule_ids?: string[]
   created_by?: string
+  audit_ref?: string
   created_at?: string
   updated_at?: string
 }
@@ -142,6 +180,21 @@ export function useActiveAlerts() {
     queryKey: ['alerts', 'active'],
     queryFn: () => apiFetch<ActiveAlertsResponse>('/alerts/active'),
     refetchInterval: 15_000,
+  })
+}
+
+export function useAlertWorkflow(fingerprint: string | undefined, incidentID?: string) {
+  const query = new URLSearchParams()
+  if (incidentID) query.set('incident_id', incidentID)
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  return useQuery({
+    queryKey: ['alerts', 'workflow', fingerprint, incidentID ?? ''],
+    enabled: !!fingerprint,
+    queryFn: () =>
+      apiFetch<AlertWorkflow>(
+        `/alerts/active/${encodeURIComponent(fingerprint ?? '')}/workflow${suffix}`,
+      ),
+    retry: false,
   })
 }
 
@@ -248,12 +301,23 @@ export function useTestOncallConnector() {
 export function useSilenceAlert() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ fingerprint, minutes }: { fingerprint: string; minutes: number }) =>
-      apiFetch<ActiveAlert>(
+    mutationFn: ({
+      fingerprint,
+      minutes,
+      reason,
+    }: {
+      fingerprint: string
+      minutes: number
+      reason?: string
+    }) =>
+      apiFetch<AlertActionResponse>(
         '/alerts/active/silence',
-        jsonInit('POST', { fingerprint, duration_minutes: minutes }),
+        jsonInit('POST', { fingerprint, duration_minutes: minutes, reason }),
       ),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['alerts', 'active'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['alerts', 'active'] })
+      void qc.invalidateQueries({ queryKey: ['alerts', 'workflow'] })
+    },
   })
 }
 
@@ -261,9 +325,15 @@ export function useSilenceAlert() {
 export function useAckAlert() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ fingerprint }: { fingerprint: string }) =>
-      apiFetch<ActiveAlert>('/alerts/active/ack', jsonInit('POST', { fingerprint })),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['alerts', 'active'] }),
+    mutationFn: ({ fingerprint, reason }: { fingerprint: string; reason?: string }) =>
+      apiFetch<AlertActionResponse>(
+        '/alerts/active/ack',
+        jsonInit('POST', { fingerprint, reason }),
+      ),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['alerts', 'active'] })
+      void qc.invalidateQueries({ queryKey: ['alerts', 'workflow'] })
+    },
   })
 }
 

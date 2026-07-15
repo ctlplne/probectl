@@ -177,9 +177,9 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 		opts = append(opts, alert.WithAlertSink(sink))
 	}
 	engine := alert.NewEngine(source, alert.NewNotifier(deps, log), log, opts...)
-	// ARCH-005 (scoped per the volatile-stores ADR): silences/acks are the
-	// ADR's documented exception — reload them so a restart does not drop
-	// operator state, and delete the row when the episode resolves.
+	// ARCH-005 (scoped per the volatile-stores ADR): silences, acks, and
+	// maintenance windows are documented exceptions — reload them so a restart
+	// does not drop operator intent, and delete alert_ops when an episode resolves.
 	restoreCtx, cancelRestore := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelRestore()
 	err := tenancy.InTenant(tenancy.WithTenant(restoreCtx, tenant), pool,
@@ -188,27 +188,38 @@ func BuildAlertEvaluator(pool *pgxpool.Pool, writer any, deps alert.ChannelDeps,
 			if lerr != nil {
 				return lerr
 			}
-			if len(ops) == 0 {
-				return nil
-			}
-			restored := make(map[string]alert.RestoredOp, len(ops))
-			for _, op := range ops {
-				r := alert.RestoredOp{AckedBy: op.AckedBy}
-				if op.SilencedUntil != nil {
-					r.SilencedUntil = *op.SilencedUntil
+			if len(ops) > 0 {
+				restored := make(map[string]alert.RestoredOp, len(ops))
+				for _, op := range ops {
+					r := alert.RestoredOp{AckedBy: op.AckedBy}
+					if op.SilencedUntil != nil {
+						r.SilencedUntil = *op.SilencedUntil
+					}
+					if op.AckedAt != nil {
+						r.AckedAt = *op.AckedAt
+					}
+					restored[op.Fingerprint] = r
 				}
-				if op.AckedAt != nil {
-					r.AckedAt = *op.AckedAt
-				}
-				restored[op.Fingerprint] = r
+				engine.RestoreOps(restored)
+				log.Info("alert silences/acks restored", "tenant", tenant.String(), "ops", len(ops))
 			}
-			engine.RestoreOps(restored)
-			log.Info("alert silences/acks restored", "tenant", tenant.String(), "ops", len(ops))
+			windows, lerr := (store.AlertMaintenance{}).List(ctx, sc)
+			if lerr != nil {
+				return lerr
+			}
+			for _, window := range windows {
+				if _, err := engine.UpsertMaintenanceWindow(window); err != nil {
+					return err
+				}
+			}
+			if len(windows) > 0 {
+				log.Info("alert maintenance windows restored", "tenant", tenant.String(), "windows", len(windows))
+			}
 			return nil
 		})
 	if err != nil {
-		// Degrade loudly, never block alerting on the ops table.
-		log.Warn("alert ops reload failed (silences/acks from before the restart are lost)",
+		// Degrade loudly, but never block evaluation on the operator-state tables.
+		log.Warn("alert operator-state reload failed (silences/acks or maintenance windows from before the restart are unavailable)",
 			"tenant", tenant.String(), "error", err.Error())
 	}
 	engine.SetResolveHook(func(fingerprint string) {

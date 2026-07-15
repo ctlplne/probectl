@@ -140,17 +140,21 @@ closed and returns nothing.
    alert so the next person knows it is owned. *Acknowledge* is signing the station
    logbook — it records who owns the alert and changes nothing about evaluation or
    delivery. (It is not *silence*, which hushes notifications but leaves the alarm
-   light on.) Re-read the active list to confirm the engine's updated view:
+   light on.) Read the workflow receipt to confirm the engine view, immutable
+   operator action, connector delivery, and linked postmortem context together:
 
    ```sh
-   # Re-read active alerts to confirm operator state after the fix (needs alert.read).
+   # Confirm closed-loop state after the fix (needs alert.read). The optional
+   # incident_id is freshly tenant-authorized by the server before it is joined.
    curl --cacert ./certs/ca.crt -H "Authorization: Bearer $TOKEN" \
-     https://control.example/v1/alerts/active
+     'https://control.example/v1/alerts/active/<fingerprint>/workflow?incident_id=<id>'
    ```
 
-   You observe the series now carrying its operator state, and once the underlying
-   condition clears it leaves the firing list and you get the recovery notification.
-   Powered by [alerting and incidents](../features/alerting-and-incidents.md).
+   You observe actor, reason, start/expiry, immutable audit reference, and delivery
+   status. Once the underlying condition clears it leaves the firing list and you
+   get the recovery notification; if a silence merely expires first, the same
+   workbench visibly returns it to firing. Powered by [alerting and
+   incidents](../features/alerting-and-incidents.md).
 
 ## You're done when
 

@@ -72,6 +72,8 @@ function alertsBackend() {
         rule_ids: ['r1'],
         match: { target: 'db' },
         reason: 'planned database work',
+        created_by: 'operator@probectl.test',
+        audit_ref: 'audit:1:maintenance-hash',
         created_at: since,
         updated_at: since,
       } as MaintenanceWindow,
@@ -114,6 +116,15 @@ function alertsBackend() {
     },
     channelTests: [] as Record<string, unknown>[],
     connectorTests: [] as string[],
+    workflowOperations: [] as Array<{
+      action: 'acknowledged' | 'silenced' | 'unsilenced'
+      actor: string
+      reason: string
+      started_at: string
+      expires_at?: string
+      delivery_status: string
+      audit_ref: string
+    }>,
     requests: [] as { method: string; url: string }[],
   }
 
@@ -131,14 +142,90 @@ function alertsBackend() {
       if (!a) return jsonResponse({ error: { code: 'not_found', message: 'no firing alert' } }, 404)
       const mins = Number(body.duration_minutes ?? 0)
       a.silenced_until = mins > 0 ? '2026-06-04T13:00:00Z' : undefined
-      return jsonResponse(a)
+      state.workflowOperations.push({
+        action: mins > 0 ? 'silenced' : 'unsilenced',
+        actor: 'dev@probectl.local',
+        reason: String(body.reason || 'Operator silence'),
+        started_at: '2026-06-04T12:05:00Z',
+        ...(mins > 0 ? { expires_at: '2026-06-04T13:00:00Z' } : {}),
+        delivery_status: 'not_applicable',
+        audit_ref: `audit:${state.workflowOperations.length + 2}:silence-hash`,
+      })
+      return jsonResponse({
+        ...a,
+        persistence_running: true,
+        operation_actor: 'dev@probectl.local',
+        operation_reason: body.reason,
+        operation_started_at: '2026-06-04T12:05:00Z',
+      })
     }
     if (url.endsWith('/v1/alerts/active/ack') && method === 'POST') {
       const a = state.active.find((x) => x.fingerprint === body.fingerprint)
       if (!a) return jsonResponse({ error: { code: 'not_found', message: 'no firing alert' } }, 404)
       a.acked_by = 'dev@probectl.local' // the ENGINE decides who acked (server-side principal)
       a.acked_at = '2026-06-04T12:05:00Z'
-      return jsonResponse(a)
+      state.workflowOperations.push({
+        action: 'acknowledged',
+        actor: 'dev@probectl.local',
+        reason: String(body.reason || 'Investigation accepted'),
+        started_at: '2026-06-04T12:05:00Z',
+        delivery_status: 'not_applicable',
+        audit_ref: `audit:${state.workflowOperations.length + 2}:ack-hash`,
+      })
+      return jsonResponse({
+        ...a,
+        persistence_running: true,
+        operation_actor: 'dev@probectl.local',
+        operation_reason: body.reason,
+        operation_started_at: '2026-06-04T12:05:00Z',
+      })
+    }
+    if (url.includes('/v1/alerts/active/fp-1/workflow') && method === 'GET') {
+      return jsonResponse({
+        alert: state.active[0],
+        operations: state.workflowOperations,
+        incident: {
+          id: 'inc-alert',
+          tenant_id: 't',
+          status: 'open',
+          severity: 'critical',
+          title: 'rtt high firing',
+          target: 'db',
+          started_at: since,
+          last_seen_at: since,
+          signal_count: 1,
+        },
+        deliveries: [
+          {
+            connector: 'pagerduty',
+            external_ref: 'PD-123',
+            status: 'open',
+            created_at: since,
+            updated_at: since,
+            receipt_ref: 'connector:pagerduty:PD-123',
+          },
+        ],
+        evaluator_running: true,
+        persistence_running: true,
+        connector_running: true,
+      })
+    }
+    if (url.endsWith('/v1/incidents') && method === 'GET') {
+      return jsonResponse({
+        items: [
+          {
+            id: 'inc-alert',
+            tenant_id: 't',
+            status: 'open',
+            severity: 'critical',
+            title: 'rtt high firing',
+            target: 'db',
+            started_at: since,
+            last_seen_at: since,
+            signal_count: 1,
+          },
+        ],
+      })
     }
     if (url.endsWith('/v1/alerts') && method === 'GET') {
       return jsonResponse({ items: state.rules })
@@ -153,6 +240,8 @@ function alertsBackend() {
         tenant_id: 't',
         created_at: '2026-06-04T12:10:00Z',
         updated_at: '2026-06-04T12:10:00Z',
+        created_by: 'dev@probectl.local',
+        audit_ref: `audit:${state.maintenance.length + 10}:maintenance-hash`,
       }
       const idx = state.maintenance.findIndex((w) => w.id === win.id)
       if (idx >= 0) state.maintenance[idx] = win
@@ -341,7 +430,7 @@ describe('alerting surface (S-FE1)', () => {
 
     // Acknowledge -> identity comes from the server response, not the client.
     await userEvent.click(within(dialog).getByRole('button', { name: 'Acknowledge' }))
-    expect(await within(dialog).findByText(/dev@probectl\.local/)).toBeDefined()
+    expect((await within(dialog).findAllByText(/dev@probectl\.local/)).length).toBeGreaterThan(0)
 
     // The list reflects engine state after refetch: one silenced badge.
     await userEvent.click(within(dialog).getByRole('button', { name: /close/i }))

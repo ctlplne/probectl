@@ -4882,6 +4882,89 @@
         }
       }
     },
+    "/v1/alerts/active/{fingerprint}/workflow": {
+      "get": {
+        "operationId": "getAlertWorkflow",
+        "summary": "Durable alert-to-postmortem workflow receipts",
+        "tags": [
+          "alerts"
+        ],
+        "description": "Joins the caller tenant's current evaluator truth to immutable acknowledge/silence audit receipts and, when incident_id is supplied and freshly authorized through tenant RLS, the linked incident plus persisted on-call/ticket delivery receipts. An unavailable fingerprint or cross-tenant incident id fails closed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "fingerprint",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "incident_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional incident id from the tenant-scoped incident list; the server re-authorizes it through RLS before returning any incident or connector receipt."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current alert state, durable operator receipts, linked incident, and connector delivery receipts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operations",
+                    "deliveries",
+                    "evaluator_running",
+                    "persistence_running",
+                    "connector_running"
+                  ],
+                  "properties": {
+                    "alert": {
+                      "type": "object"
+                    },
+                    "operations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "incident": {
+                      "type": "object"
+                    },
+                    "deliveries": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "evaluator_running": {
+                      "type": "boolean"
+                    },
+                    "persistence_running": {
+                      "type": "boolean"
+                    },
+                    "connector_running": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No current or durable workflow exists for the fingerprint, or the incident is outside the caller tenant."
+          }
+        }
+      }
+    },
     "/v1/alerts/active/silence": {
       "post": {
         "operationId": "silenceAlert",
@@ -4889,7 +4972,7 @@
         "tags": [
           "alerts"
         ],
-        "description": "Suppresses channel notifications (and the incident sink) for one firing series for duration_minutes (0 clears, max 7 days). The series keeps evaluating and stays listed as firing; the silence clears automatically on resolve.",
+        "description": "Suppresses channel notifications (and the incident sink) for one firing series for duration_minutes (0 clears, max 7 days). The series keeps evaluating and stays listed as firing; the silence clears automatically on resolve or expiry. The reason and deadline are persisted with an immutable audit receipt.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -4911,6 +4994,10 @@
                   "duration_minutes": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
                   }
                 }
               }
@@ -4944,7 +5031,7 @@
         "tags": [
           "alerts"
         ],
-        "description": "Records the caller as having seen/owning the firing series. Evaluation and delivery are unchanged; the ack clears on resolve.",
+        "description": "Records the caller as having seen/owning the firing series. Evaluation and delivery are unchanged; the ack clears on resolve. The operator reason is persisted with an immutable audit receipt.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -4962,6 +5049,10 @@
                 "properties": {
                   "fingerprint": {
                     "type": "string"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 500
                   }
                 }
               }

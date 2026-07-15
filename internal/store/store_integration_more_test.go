@@ -73,6 +73,61 @@ func TestAgentsRegistry(t *testing.T) {
 	})
 }
 
+func TestAlertMaintenanceTenantIsolation(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenantA, err := NewTenants(pool).Create(ctx, "maint-a-"+suffix, "Maintenance A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tenantB, err := NewTenants(pool).Create(ctx, "maint-b-"+suffix, "Maintenance B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC().Add(time.Hour)
+
+	for _, tc := range []struct {
+		tenant string
+		name   string
+	}{
+		{tenant: tenantA.ID, name: "tenant A patch"},
+		{tenant: tenantB.ID, name: "tenant B patch"},
+	} {
+		inTenant(ctx, t, pool, tc.tenant, func(ctx context.Context, s tenancy.Scope) error {
+			window := alert.MaintenanceWindow{
+				ID: "shared-id", TenantID: "untrusted-other-tenant", Name: tc.name,
+				Reason: "planned", StartsAt: start, EndsAt: start.Add(time.Hour),
+				CreatedBy: "operator@example.test", AuditRef: "audit:" + tc.name,
+				CreatedAt: start.Add(-time.Hour), UpdatedAt: start.Add(-time.Hour),
+			}
+			return (AlertMaintenance{}).Upsert(ctx, s, window)
+		})
+	}
+
+	for _, tc := range []struct {
+		tenant string
+		want   string
+		deny   string
+	}{
+		{tenant: tenantA.ID, want: "tenant A patch", deny: "tenant B patch"},
+		{tenant: tenantB.ID, want: "tenant B patch", deny: "tenant A patch"},
+	} {
+		inTenant(ctx, t, pool, tc.tenant, func(ctx context.Context, s tenancy.Scope) error {
+			windows, err := (AlertMaintenance{}).List(ctx, s)
+			if err != nil {
+				return err
+			}
+			if len(windows) != 1 || windows[0].Name != tc.want || windows[0].Name == tc.deny ||
+				windows[0].TenantID != tc.tenant {
+				t.Fatalf("tenant %s windows = %+v", tc.tenant, windows)
+			}
+			return nil
+		})
+	}
+}
+
 func TestAgentsProducerReadinessTenantIsolation(t *testing.T) {
 	ctx := context.Background()
 	pool := setup(ctx, t)

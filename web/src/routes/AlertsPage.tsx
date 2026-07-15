@@ -27,6 +27,7 @@ import {
 import { severityTone } from '../api/incidents'
 import {
   alertStateOf,
+  useAlertWorkflow,
   useAckAlert,
   useActiveAlerts,
   useAlertRules,
@@ -40,8 +41,10 @@ import {
   useTestAlertChannel,
   useTestOncallConnector,
   type ActiveAlert,
+  type AlertActionResponse,
   type AlertRule,
   type AlertRuleInput,
+  type AlertWorkflowOperation,
   type ChannelSpec,
   type MaintenanceRecurrence,
   type MaintenanceWindow,
@@ -49,12 +52,14 @@ import {
   type OncallInboundWebhook,
   type OncallOutboundConnector,
 } from '../api/alerts'
+import { useIncidents, type Incident } from '../api/incidents'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
 import { CodeExportPanel } from './CodeExportPanel'
 import { alertRuleAsCode, maintenanceWindowAsCode } from './codeExport'
+import { pivotHref } from './pivotContext'
 
 function labelText(labels?: Record<string, string>): string {
   if (!labels) return ''
@@ -192,12 +197,68 @@ function stateTone(s: 'firing' | 'silenced' | 'acked'): 'danger' | 'neutral' | '
 
 /** ActiveAlertDetail shows one firing series with its operator actions —
  *  everything rendered comes from the engine response, never client state. */
+function linkedIncidentForAlert(alert: ActiveAlert, incidents: Incident[]): Incident | undefined {
+  const targets = new Set(
+    [alert.labels?.target, alert.labels?.server_address, alert.labels?.service]
+      .map((value) => value?.trim().toLowerCase())
+      .filter((value): value is string => Boolean(value)),
+  )
+  return incidents.find((incident) => {
+    const target = (incident.target || incident.prefix || '').trim().toLowerCase()
+    return (
+      targets.has(target) || incident.title.toLowerCase().includes(alert.rule_name.toLowerCase())
+    )
+  })
+}
+
 function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: () => void }) {
   const { push } = useToast()
   const silence = useSilenceAlert()
   const ack = useAckAlert()
+  const incidents = useIncidents()
+  const oncall = useOncallStatus()
   const [minutes, setMinutes] = useState('60')
+  const [operationReason, setOperationReason] = useState('Investigating the firing alert')
   const state = alertStateOf(alert)
+  const linkedIncident = linkedIncidentForAlert(alert, incidents.data ?? [])
+  const workflow = useAlertWorkflow(alert.fingerprint, linkedIncident?.id)
+  const operationReceipts = useMemo(() => {
+    const receipts = [...(workflow.data?.operations ?? [])]
+    const append = (
+      response: AlertActionResponse | undefined,
+      action: AlertWorkflowOperation['action'],
+      expiresAt?: string,
+    ) => {
+      if (!response?.audit_ref || receipts.some((item) => item.audit_ref === response.audit_ref)) {
+        return
+      }
+      receipts.push({
+        action,
+        actor: response.operation_actor,
+        reason: response.operation_reason,
+        started_at: response.operation_started_at,
+        expires_at: expiresAt,
+        delivery_status: 'not_applicable',
+        audit_ref: response.audit_ref,
+      })
+    }
+    append(ack.data, 'acknowledged')
+    append(
+      silence.data,
+      silence.data?.silenced_until ? 'silenced' : 'unsilenced',
+      silence.data?.silenced_until,
+    )
+    return receipts
+  }, [ack.data, silence.data, workflow.data?.operations])
+  const incidentHref = linkedIncident
+    ? pivotHref('/incidents', {
+        incidentId: linkedIncident.id,
+        from: alert.since,
+        to: alert.last_seen_at,
+        filters: {},
+        returnTo: '/alerts',
+      })
+    : undefined
 
   const act = (fn: () => Promise<unknown>, ok: string) => {
     void fn()
@@ -242,9 +303,21 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
             </dd>
           </>
         ) : null}
+        <dt>Evaluation actor</dt>
+        <dd>probectl evaluator</dd>
+        <dt>Evaluation reference</dt>
+        <dd>
+          <code>engine:{alert.fingerprint}</code>
+        </dd>
       </dl>
 
       <div className={styles.actionsRow}>
+        <Field
+          label="Operator reason"
+          value={operationReason}
+          onChange={(event) => setOperationReason(event.target.value)}
+          hint="Stored with the durable operation and immutable audit receipt."
+        />
         <Select
           label="Silence for"
           value={minutes}
@@ -262,7 +335,11 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
           onClick={() =>
             act(
               () =>
-                silence.mutateAsync({ fingerprint: alert.fingerprint, minutes: Number(minutes) }),
+                silence.mutateAsync({
+                  fingerprint: alert.fingerprint,
+                  minutes: Number(minutes),
+                  reason: operationReason,
+                }),
               'Alert silenced',
             )
           }
@@ -275,7 +352,12 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
             disabled={silence.isPending}
             onClick={() =>
               act(
-                () => silence.mutateAsync({ fingerprint: alert.fingerprint, minutes: 0 }),
+                () =>
+                  silence.mutateAsync({
+                    fingerprint: alert.fingerprint,
+                    minutes: 0,
+                    reason: operationReason,
+                  }),
                 'Silence cleared',
               )
             }
@@ -287,12 +369,114 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
           variant="secondary"
           disabled={ack.isPending || !!alert.acked_by}
           onClick={() =>
-            act(() => ack.mutateAsync({ fingerprint: alert.fingerprint }), 'Alert acknowledged')
+            act(
+              () => ack.mutateAsync({ fingerprint: alert.fingerprint, reason: operationReason }),
+              'Alert acknowledged',
+            )
           }
         >
           {alert.acked_by ? 'Acknowledged' : 'Acknowledge'}
         </Button>
       </div>
+
+      <section className={styles.workflow} aria-label="Alert operator workflow">
+        <h3>Alert → postmortem workflow</h3>
+        <p className={styles.muted}>
+          Engine truth, durable operator actions, delivery receipts, and the linked incident in one
+          place. An expired silence disappears from current state and evaluation visibly returns to
+          firing.
+        </p>
+        {workflow.isLoading ? (
+          <LoadingState label="Loading durable alert receipts…" />
+        ) : workflow.isError ? (
+          <div className={styles.workflowBlocked} role="alert">
+            <strong>Workflow receipts unavailable</strong>
+            <span>The alert still evaluates; retry from the active-alert list.</span>
+          </div>
+        ) : (
+          <>
+            {!workflow.data?.persistence_running ? (
+              <div className={styles.workflowBlocked} role="status">
+                <strong>Durable receipts blocked</strong>
+                <Link to="/docs/api#alerting-setup">Wire the Postgres alert store</Link>
+              </div>
+            ) : null}
+            <ol className={styles.receipts} aria-label="Immutable alert operation receipts">
+              {operationReceipts.map((operation) => {
+                const expired =
+                  operation.action === 'silenced' &&
+                  operation.expires_at &&
+                  Date.parse(operation.expires_at) <= Date.now() &&
+                  !alert.silenced_until
+                return (
+                  <li key={operation.audit_ref}>
+                    <div className={styles.receiptHeading}>
+                      <Badge tone={expired ? 'neutral' : 'info'}>
+                        {expired ? 'silence expired · firing resumed' : operation.action}
+                      </Badge>
+                      <code>{operation.audit_ref}</code>
+                    </div>
+                    <span>Actor: {operation.actor}</span>
+                    <span>Reason: {operation.reason}</span>
+                    <span>
+                      Started: <DateTime value={operation.started_at} />
+                    </span>
+                    <span>
+                      Expiry:{' '}
+                      {operation.expires_at ? <DateTime value={operation.expires_at} /> : 'resolve'}
+                    </span>
+                    <span>Delivery: {operation.delivery_status}</span>
+                  </li>
+                )
+              })}
+            </ol>
+            {operationReceipts.length === 0 ? (
+              <p className={styles.muted}>No operator action receipts yet.</p>
+            ) : null}
+
+            <div className={styles.postmortemContext}>
+              <h4>Linked incident + postmortem context</h4>
+              {incidentHref && workflow.data?.incident ? (
+                <>
+                  <Link to={incidentHref}>Open incident &amp; postmortem context</Link>
+                  <span>
+                    {workflow.data.incident.id} · {workflow.data.incident.status}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>No tenant-authorized incident is linked yet.</span>
+                  <Link to="/incidents">Inspect incident correlation</Link>
+                </>
+              )}
+            </div>
+
+            <div className={styles.deliveryReceipts} aria-label="On-call and ticket receipts">
+              <h4>On-call / ticket receipt</h4>
+              {(workflow.data?.deliveries ?? []).map((delivery) => (
+                <div key={delivery.receipt_ref}>
+                  <Badge tone={delivery.status === 'open' ? 'success' : 'neutral'}>
+                    {delivery.status}
+                  </Badge>
+                  <span>{providerLabel(delivery.connector)}</span>
+                  <span>External: {delivery.external_ref || 'accepted without external id'}</span>
+                  <code>{delivery.receipt_ref}</code>
+                </div>
+              ))}
+              {(workflow.data?.deliveries.length ?? 0) === 0 ? (
+                <div className={styles.workflowBlocked} role="status">
+                  <strong>
+                    {oncall.data?.configured && workflow.data?.connector_running
+                      ? 'Delivery pending or unavailable'
+                      : 'Connector delivery blocked'}
+                  </strong>
+                  <Link to="/docs/api#oncall-setup">Configure or inspect notification routing</Link>
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
+      </section>
     </Modal>
   )
 }
@@ -737,13 +921,13 @@ export function AlertsPage() {
   const [creatingWindow, setCreatingWindow] = useState(false)
   const [codeExport, setCodeExport] = useState<{ title: string; code: string } | null>(null)
   const maintenanceWindows = maintenance.data?.items ?? []
+  const activeItems = active.data?.items
   const evaluatorInactive =
     active.data?.evaluator_running === false || maintenance.data?.evaluator_running === false
 
   const items = useMemo(() => {
-    const all = active.data?.items ?? []
     const needle = query.trim().toLowerCase()
-    return all.filter((a) => {
+    return (activeItems ?? []).filter((a) => {
       const haystack = [a.rule_name, a.metric, labelText(a.labels), a.reason]
         .join(' ')
         .toLowerCase()
@@ -753,9 +937,11 @@ export function AlertsPage() {
         (severityFilter === 'all' || a.severity === severityFilter)
       )
     })
-  }, [active.data, query, stateFilter, severityFilter])
+  }, [activeItems, query, stateFilter, severityFilter])
 
-  const detailAlert = items.find((a) => a.fingerprint === detail) ?? null
+  // Keep an opened workflow available when its state changes and the current
+  // table filter would otherwise hide it (for example firing -> acknowledged).
+  const detailAlert = activeItems?.find((a) => a.fingerprint === detail) ?? null
 
   useEffect(() => {
     if (params.get('task') !== 'schedule-maintenance') return
@@ -908,6 +1094,12 @@ export function AlertsPage() {
     },
     { key: 'scope', header: 'Scope', render: maintenanceScope },
     { key: 'reason', header: 'Reason', render: (w) => w.reason || 'none' },
+    { key: 'actor', header: 'Actor', render: (w) => w.created_by || 'unavailable' },
+    {
+      key: 'audit',
+      header: 'Audit reference',
+      render: (w) => (w.audit_ref ? <code>{w.audit_ref}</code> : 'persistence unavailable'),
+    },
     {
       key: 'actions',
       header: <span className="sr-only">Actions</span>,
@@ -1215,6 +1407,17 @@ function OncallRoutingCard() {
               Provider choices:{' '}
               {(status.data?.supported_providers ?? []).map(providerLabel).join(', ')}
             </p>
+            {!status.data?.configured || !status.data.dispatcher_running ? (
+              <div className={styles.workflowBlocked} role="status">
+                <strong>Notification delivery blocked</strong>
+                <span>
+                  {status.data?.configured
+                    ? 'Connectors exist, but the dispatcher is unavailable.'
+                    : 'No tenant-routed connector is configured.'}
+                </span>
+                <Link to="/docs/api#oncall-setup">Open notification-routing setup</Link>
+              </div>
+            ) : null}
             <Table
               caption="Incident connectors"
               columns={outboundColumns}

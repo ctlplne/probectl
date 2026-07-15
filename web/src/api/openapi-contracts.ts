@@ -82,6 +82,15 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/alerts.ts',
     method: 'GET',
+    path: "`/alerts/active/${encodeURIComponent(fingerprint ?? '')}/workflow${suffix}`",
+    response: 'AlertWorkflow',
+    generated: 'GetAlertWorkflowResponse',
+    reason:
+      'OpenAPI intentionally keeps the joined workflow payload generic; AlertWorkflow is the explicit tenant-scoped receipt view model.',
+  },
+  {
+    file: 'api/alerts.ts',
+    method: 'GET',
     path: '/alerts',
     response: '{ items: AlertRule[] }',
     generated: 'ListAlertsResponse',
@@ -163,19 +172,19 @@ export const API_CALL_CONTRACTS = [
     file: 'api/alerts.ts',
     method: 'POST',
     path: '/alerts/active/silence',
-    response: 'ActiveAlert',
+    response: 'AlertActionResponse',
     generated: 'SilenceAlertResponse',
     reason:
-      'OpenAPI currently emits JsonObject for active-alert actions; ActiveAlert is the explicit view model.',
+      'OpenAPI currently emits JsonObject for active-alert actions; AlertActionResponse includes the engine view and durable receipt metadata.',
   },
   {
     file: 'api/alerts.ts',
     method: 'POST',
     path: '/alerts/active/ack',
-    response: 'ActiveAlert',
+    response: 'AlertActionResponse',
     generated: 'AcknowledgeAlertResponse',
     reason:
-      'OpenAPI currently emits JsonObject for active-alert actions; ActiveAlert is the explicit view model.',
+      'OpenAPI currently emits JsonObject for active-alert actions; AlertActionResponse includes the engine view and durable receipt metadata.',
   },
   {
     file: 'api/audit.ts',

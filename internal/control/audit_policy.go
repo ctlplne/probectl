@@ -177,6 +177,8 @@ var auditOperationalRoutes = map[string]bool{
 	"POST /v1/ai/discover":           true,
 }
 
+const auditAlertWorkflowRoute = "GET /v1/alerts/active/{fingerprint}/workflow"
+
 var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/tests":                               auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/tests":                              auditExplicit(auditFacetMutation, "test.create"),
@@ -198,6 +200,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/alerts":                              auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/alerts":                             auditExplicit(auditFacetMutation, "alert.create"),
 	"GET /v1/alerts/active":                       auditWrapped(auditFacetSensitiveRead),
+	auditAlertWorkflowRoute:                       auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/alerts/active/silence":              auditExplicit(auditFacetOperational, "alert.silence"),
 	"POST /v1/alerts/active/ack":                  auditExplicit(auditFacetOperational, "alert.acknowledge"),
 	"POST /v1/alerts/test-channel":                auditExplicit(auditFacetMutation, "alert.channel_test"),

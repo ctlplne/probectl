@@ -38,6 +38,7 @@ type MaintenanceWindow struct {
 	Match      map[string]string     `json:"match,omitempty"`
 	RuleIDs    []string              `json:"rule_ids,omitempty"`
 	CreatedBy  string                `json:"created_by,omitempty"`
+	AuditRef   string                `json:"audit_ref,omitempty"`
 	CreatedAt  time.Time             `json:"created_at,omitempty"`
 	UpdatedAt  time.Time             `json:"updated_at,omitempty"`
 }
@@ -196,7 +197,9 @@ func (en *Engine) UpsertMaintenanceWindow(w MaintenanceWindow) (MaintenanceWindo
 	if w.CreatedAt.IsZero() {
 		w.CreatedAt = now
 	}
-	w.UpdatedAt = now
+	if w.UpdatedAt.IsZero() {
+		w.UpdatedAt = now
+	}
 	if err := w.Validate(); err != nil {
 		return MaintenanceWindow{}, err
 	}

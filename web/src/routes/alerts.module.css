@@ -137,3 +137,61 @@
   display: grid;
   gap: var(--space-3);
 }
+
+.workflow {
+  display: grid;
+  gap: var(--space-3);
+  margin-block-start: var(--space-5);
+  padding-block-start: var(--space-4);
+  border-block-start: 1px solid var(--color-border-subtle);
+}
+
+.workflow h3,
+.workflow h4,
+.workflow p {
+  margin: 0;
+}
+
+.workflowBlocked {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-soft);
+  font-size: var(--font-size-sm);
+}
+
+.receipts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.receipts li,
+.postmortemContext,
+.deliveryReceipts {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-sm);
+}
+
+.receiptHeading,
+.deliveryReceipts > div:not(.workflowBlocked) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.receiptHeading code,
+.deliveryReceipts code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+}

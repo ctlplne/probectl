@@ -78,7 +78,9 @@ episode starts clean. And because a silence or acknowledgement is human input
 that can't be re-derived from any data stream, **both survive a control-plane
 restart** — losing them would re-page someone who had deliberately quieted an
 alert. A restored silence is re-applied the first time that same alert fires
-again, and an already-expired silence is skipped.
+again, and an already-expired silence is skipped. Planned maintenance windows
+are durable for the same reason: a restart must not unexpectedly page during an
+approved change window.
 
 Delivery honesty, stated plainly: the **webhook** channel is the fully wired
 path — an HTTPS POST whose body is signed so the receiver can verify it came
@@ -170,11 +172,17 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
 # Silence that series for 120 minutes (0 clears a silence; max is 7 days).
 curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
   -X POST https://probectl.example.com/v1/alerts/active/silence \
-  -d '{"fingerprint":"a1b2c3d4","duration_minutes":120}'
+  -d '{"fingerprint":"a1b2c3d4","duration_minutes":120,"reason":"database rollout"}'
 
 # Observe: the response is the engine's UPDATED view — the same series now shows
 # a "silenced_until" timestamp and stays in the list, badged as silenced. It
 # keeps evaluating; it just stops notifying until the deadline.
+
+# Read the closed-loop receipt. Supplying incident_id asks the server to
+# authorize that incident inside the same tenant before joining its persisted
+# on-call/ticket receipts; a missing or other-tenant ID returns not found.
+curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
+  'https://probectl.example.com/v1/alerts/active/a1b2c3d4/workflow?incident_id=<id>'
 ```
 
 ```sh
@@ -193,14 +201,15 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
   https://probectl.example.com/v1/incidents/<id>/changes
 ```
 
-In the web interface, the **Alerts** page shows the active-alert table (filter
-by state and severity, with silence and acknowledge actions) over the rule table
-(create, edit, delete with threshold and baseline forms). The active list
-re-reads engine state every few seconds, and every action re-renders from the
-engine's response. The **Incidents** view opens the unified five-plane room. A
-firing incident is auto-selected, and one **Find likely cause** interaction
-renders cited RCA inline. Selection coordinates the one clock, exact evidence
-row, citation, and plane inspector without a route change.
+In the web interface, the **Alerts** page shows the active-alert table over
+durable rules and maintenance windows. One detail workbench carries the operator
+from firing state through acknowledge, bounded silence, immutable actor/reason/
+start/expiry receipts, on-call or ticket delivery status, and the linked
+incident/postmortem context. A state change does not close the workbench merely
+because the table is filtered to `firing`; an expired silence visibly returns to
+firing. The **Incidents** view then opens the unified five-plane room. A firing
+incident is auto-selected, and one **Find likely cause** interaction renders
+cited RCA inline.
 
 ## Pitfalls & limits
 
@@ -234,6 +243,7 @@ row, citation, and plane inspector without a route change.
 | Capability | Surface | Permission |
 |---|---|---|
 | List firing alerts (with operator state) | `GET /v1/alerts/active` | `alert.read` |
+| Read alert operation, incident, and delivery receipts | `GET /v1/alerts/active/<fingerprint>/workflow` | `alert.read` |
 | Silence a firing series | `POST /v1/alerts/active/silence` | `alert.write` |
 | Acknowledge a firing series | `POST /v1/alerts/active/ack` | `alert.write` |
 | Manage planned maintenance windows | `/v1/alerts/maintenance*` | `alert.read` / `alert.write` |
@@ -247,8 +257,9 @@ row, citation, and plane inspector without a route change.
 Properties you can rely on: the displayed firing state is always the engine's
 current truth (never computed in the browser); silences and acknowledgements
 persist across a restart and never leak from one firing episode into the next;
-maintenance windows are reusable, tenant-scoped planned suppressors with preview
-and audit on change; every silence and acknowledgement is tenant-scoped and audited; and one
+maintenance windows are reusable, durable, tenant-scoped planned suppressors
+with preview and audit on change; every silence and acknowledgement is
+tenant-scoped, reasoned, and audited; and one
 underlying fault surfaces as one tenant-scoped incident with evidence drawn from
 every plane that observed it.
 

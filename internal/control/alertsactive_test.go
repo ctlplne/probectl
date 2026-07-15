@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/alert"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -177,6 +178,48 @@ func TestSilenceAndAckEndpoints(t *testing.T) {
 	}
 }
 
+func TestAlertWorkflowTenantScopeFailsClosed(t *testing.T) {
+	srv := testServer(fakePinger{}).WithAlertState(tenancy.DefaultTenantID.String(), newStubAlertState())
+	rec := do(srv, http.MethodGet, "/v1/alerts/active/fp-1/workflow")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"persistence_running":false`) ||
+		!strings.Contains(rec.Body.String(), `"fingerprint":"fp-1"`) {
+		t.Fatalf("default tenant workflow = %d %s", rec.Code, rec.Body.String())
+	}
+
+	// The same opaque fingerprint in a tenant with no evaluator/receipts is
+	// absent, never a handle into the default tenant's workflow.
+	rec = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/alerts/active/fp-1/workflow", nil)
+	req.Header.Set("X-Probectl-Tenant", "00000000-0000-0000-0000-000000000002")
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "rtt high") {
+		t.Fatalf("cross-tenant workflow = %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAlertOperationReceiptProjection(t *testing.T) {
+	expires := time.Date(2026, 6, 4, 13, 0, 0, 0, time.UTC)
+	ev := audit.Event{
+		Seq: 7, Actor: "operator@example.test", Action: "alert.silence", Target: "r1",
+		Data: map[string]any{
+			"fingerprint": "fp-1", "duration_minutes": float64(60),
+			"reason": "database maintenance", "expires_at": expires.Format(time.RFC3339),
+		},
+		Hash: "immutable-hash", CreatedAt: expires.Add(-time.Hour),
+	}
+	receipt := alertWorkflowOperationFromAudit(ev)
+	if receipt.Action != "silenced" || receipt.Actor != ev.Actor || receipt.Reason != "database maintenance" ||
+		receipt.ExpiresAt == nil || !receipt.ExpiresAt.Equal(expires) ||
+		receipt.AuditRef != "audit:7:immutable-hash" {
+		t.Fatalf("receipt = %+v", receipt)
+	}
+
+	ev.Data["duration_minutes"] = float64(0)
+	if got := alertWorkflowOperationFromAudit(ev); got.Action != "unsilenced" {
+		t.Fatalf("clear-silence action = %q", got.Action)
+	}
+}
+
 func TestMaintenanceWindowEndpoints(t *testing.T) {
 	state := newStubAlertState()
 	srv := testServer(fakePinger{}).WithAlertState(tenancy.DefaultTenantID.String(), state)
@@ -215,13 +258,14 @@ func TestMaintenanceWindowEndpoints(t *testing.T) {
 func TestActiveAlertRoutePerms(t *testing.T) {
 	srv := testServer(fakePinger{})
 	want := map[string]string{
-		"GET /v1/alerts/active":               permAlertRead,
-		"POST /v1/alerts/active/silence":      permAlertWrite,
-		"POST /v1/alerts/active/ack":          permAlertWrite,
-		"GET /v1/alerts/maintenance":          permAlertRead,
-		"POST /v1/alerts/maintenance":         permAlertWrite,
-		"POST /v1/alerts/maintenance/preview": permAlertRead,
-		"DELETE /v1/alerts/maintenance/{id}":  permAlertWrite,
+		"GET /v1/alerts/active":                        permAlertRead,
+		"GET /v1/alerts/active/{fingerprint}/workflow": permAlertRead,
+		"POST /v1/alerts/active/silence":               permAlertWrite,
+		"POST /v1/alerts/active/ack":                   permAlertWrite,
+		"GET /v1/alerts/maintenance":                   permAlertRead,
+		"POST /v1/alerts/maintenance":                  permAlertWrite,
+		"POST /v1/alerts/maintenance/preview":          permAlertRead,
+		"DELETE /v1/alerts/maintenance/{id}":           permAlertWrite,
 	}
 	seen := 0
 	for _, rt := range srv.apiRoutes() {

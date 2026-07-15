@@ -15,6 +15,8 @@ import (
 
 	"github.com/imfeelingtheagi/probectl/internal/alert"
 	"github.com/imfeelingtheagi/probectl/internal/apierror"
+	"github.com/imfeelingtheagi/probectl/internal/audit"
+	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
 )
 
@@ -138,10 +140,21 @@ func (s *Server) handleUpsertMaintenanceWindow(w http.ResponseWriter, r *http.Re
 	}
 	if s.pool != nil {
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-			return s.recordAudit(ctx, sc, r, "alert.maintenance_upsert", out.ID, maintenanceWindowAuditData(out))
+			ev, err := audit.TenantAppend(ctx, sc, auditActor(r), "alert.maintenance_upsert", out.ID,
+				maintenanceWindowAuditData(out))
+			if err != nil {
+				return err
+			}
+			out.AuditRef = alertAuditReference(ev)
+			return (store.AlertMaintenance{}).Upsert(ctx, sc, out)
 		}); err != nil {
 			restoreMaintenanceWindow(src, before, existed, out.ID)
 			return err
+		}
+		out, err = src.UpsertMaintenanceWindow(out)
+		if err != nil {
+			restoreMaintenanceWindow(src, before, existed, out.ID)
+			return apierror.Internal("could not activate persisted maintenance window").Wrap(err)
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -169,7 +182,11 @@ func (s *Server) handleDeleteMaintenanceWindow(w http.ResponseWriter, r *http.Re
 	}
 	if s.pool != nil {
 		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
-			return s.recordAudit(ctx, sc, r, "alert.maintenance_delete", id, map[string]any{"name": before.Name})
+			if _, err := audit.TenantAppend(ctx, sc, auditActor(r), "alert.maintenance_delete", id,
+				map[string]any{"name": before.Name, "reason": before.Reason}); err != nil {
+				return err
+			}
+			return (store.AlertMaintenance{}).Delete(ctx, sc, id)
 		}); err != nil {
 			restoreMaintenanceWindow(src, before, true, id)
 			return err
@@ -238,6 +255,7 @@ func restoreMaintenanceWindow(src AlertMaintenanceSource, before alert.Maintenan
 func maintenanceWindowAuditData(w alert.MaintenanceWindow) map[string]any {
 	return map[string]any{
 		"name":       w.Name,
+		"reason":     w.Reason,
 		"starts_at":  w.StartsAt,
 		"ends_at":    w.EndsAt,
 		"recurrence": string(w.Recurrence),

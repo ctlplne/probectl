@@ -1513,6 +1513,29 @@ func (c *Client) SilenceAlert(ctx context.Context, req SilenceAlertRequest) (map
 	return out, nil
 }
 
+// Durable alert-to-postmortem workflow receipts
+type GetAlertWorkflowRequest struct {
+	Fingerprint string  `json:"-"`
+	IncidentId  *string `json:"-"`
+}
+
+func (c *Client) GetAlertWorkflow(ctx context.Context, req GetAlertWorkflowRequest) (map[string]any, error) {
+	path := "/v1/alerts/active/{fingerprint}/workflow"
+	if req.Fingerprint == "" {
+		return nil, fmt.Errorf("fingerprint is required")
+	}
+	path = strings.ReplaceAll(path, "{fingerprint}", url.PathEscape(req.Fingerprint))
+	query := url.Values{}
+	if req.IncidentId != nil {
+		query.Set("incident_id", formatQueryValue(*req.IncidentId))
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // List reusable planned-maintenance windows
 type ListMaintenanceWindowsRequest struct {
 }

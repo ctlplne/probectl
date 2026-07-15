@@ -1160,6 +1160,13 @@ export interface SilenceAlertRequest {
 
 export type SilenceAlertResponse = JsonObject
 
+export interface GetAlertWorkflowRequest {
+  fingerprint: string
+  incidentId?: string
+}
+
+export type GetAlertWorkflowResponse = JsonObject
+
 export interface ListMaintenanceWindowsRequest {
 }
 
@@ -2078,6 +2085,14 @@ export class ProbectlSDKClient {
     let path = "/v1/alerts/active/silence"
     const query = new URLSearchParams()
     return this.requestJSON<SilenceAlertResponse>("POST", path, query, request.body)
+  }
+
+  async getAlertWorkflow(request: GetAlertWorkflowRequest): Promise<GetAlertWorkflowResponse> {
+    let path = "/v1/alerts/active/{fingerprint}/workflow"
+    path = path.replace("{fingerprint}", encodeURIComponent(String(request.fingerprint)))
+    const query = new URLSearchParams()
+    if (request.incidentId !== undefined) query.set("incident_id", String(request.incidentId))
+    return this.requestJSON<GetAlertWorkflowResponse>("GET", path, query, undefined)
   }
 
   async listMaintenanceWindows(): Promise<ListMaintenanceWindowsResponse> {

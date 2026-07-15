@@ -51,6 +51,7 @@ var surfaceCommands = map[string]surfaceCommand{
 		"update":              {Method: http.MethodPut, Path: "/v1/alerts/{id}", ArgName: "id"},
 		"delete":              {Method: http.MethodDelete, Path: "/v1/alerts/{id}", ArgName: "id"},
 		"active":              {Method: http.MethodGet, Path: "/v1/alerts/active"},
+		"workflow":            {Method: http.MethodGet, Path: "/v1/alerts/active/{fingerprint}/workflow", ArgName: "fingerprint", Description: "show durable alert actions, incident context, and delivery receipts"},
 		"ack":                 {Method: http.MethodPost, Path: "/v1/alerts/active/ack"},
 		"silence":             {Method: http.MethodPost, Path: "/v1/alerts/active/silence"},
 		"maintenance":         {Method: http.MethodGet, Path: "/v1/alerts/maintenance"},
@@ -287,8 +288,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"posture": {Method: http.MethodGet, Path: "/v1/tls/posture"},
 	}},
 	"topology": {Name: "topology", Summary: "topology and what-if simulation", Ops: map[string]apiOp{
-		"show":   {Method: http.MethodGet, Path: "/v1/topology"},
-		"whatif": {Method: http.MethodPost, Path: "/v1/topology/whatif"},
+		"show":          {Method: http.MethodGet, Path: "/v1/topology"},
+		"whatif":        {Method: http.MethodPost, Path: "/v1/topology/whatif"},
+		"whatif-export": {Method: http.MethodGet, Path: "/v1/topology/whatif/export", Description: "export the tenant-scoped what-if evidence artifact"},
 	}},
 	"tenant": {Name: "tenant", Summary: "provider tenant lifecycle", Ops: map[string]apiOp{
 		"list":     {Method: http.MethodGet, Path: "/provider/v1/tenants"},
