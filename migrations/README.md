@@ -19,6 +19,12 @@ re-running is safe.
   `0002_tenancy_core.sql`), applied in ascending numeric order.
 - **Idempotent**: use `IF NOT EXISTS`, `ON CONFLICT`, etc. so repeated execution
   is safe.
+- **RLS policy creation is guarded** — PostgreSQL does not support `CREATE
+  POLICY IF NOT EXISTS`. Precede a policy creation with the exact matching
+  `DROP POLICY IF EXISTS <policy> ON <table>`, or use a `DO` block that branches
+  on that exact `pg_policies` row (`IF NOT EXISTS ... CREATE`, or `IF EXISTS ...
+  ALTER ... ELSE CREATE`). The migration gate rejects an unguarded `CREATE
+  POLICY`, including one hidden inside a dollar-quoted `DO` block.
 - **Backward-compatible** for zero-downtime upgrades — the `migration-gate` CI
   job (`make migration-gate`) rejects destructive or blocking changes (drop
   column, type change, rename, adding `NOT NULL`), so release N's schema keeps

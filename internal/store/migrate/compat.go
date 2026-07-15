@@ -82,6 +82,16 @@ var (
 	createTableName = regexp.MustCompile(`\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Z0-9_."]+)`)
 	indexOnTable    = regexp.MustCompile(`\bON\s+([A-Z0-9_."]+)`)
 	alterTableName  = regexp.MustCompile(`\bALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?([A-Z0-9_."]+)`)
+
+	// PostgreSQL has no CREATE POLICY IF NOT EXISTS. A policy creation is
+	// idempotent only when the same migration first drops that exact policy
+	// with IF EXISTS, or when a DO block branches on its exact pg_policies row.
+	createPolicy      = regexp.MustCompile(`\bCREATE\s+POLICY\s+([A-Z0-9_."]+)\s+ON\s+([A-Z0-9_."%]+)`)
+	policyCatalog     = regexp.MustCompile(`\bFROM\s+PG_POLICIES\b`)
+	policySchemaCheck = regexp.MustCompile(`\bSCHEMANAME\s*=`)
+	policyIfExists    = regexp.MustCompile(`\bIF\s+EXISTS\s*\(`)
+	policyIfNotExists = regexp.MustCompile(`\bIF\s+NOT\s+EXISTS\s*\(`)
+	policyElse        = regexp.MustCompile(`\bELSE\b`)
 	// lockOK matches a per-statement reviewed exception: a comment
 	// `-- lock-ok: <reason>` (or `lock-ok(<rule>): <reason>`) authorizes one
 	// locking statement that has been confirmed safe (e.g. a brand-new or tiny
@@ -94,6 +104,7 @@ var (
 // `-- lock-ok: <reason>` annotation can authorize a confirmed-safe exception.
 func CheckSQL(file, sql string) []Violation {
 	var out []Violation
+	var priorNorm strings.Builder
 	noTx := hasNoTxDirective(sql)
 	// Split on the RAW SQL so each statement retains its leading/inline
 	// comments; strip comments only for the body match.
@@ -136,9 +147,60 @@ func CheckSQL(file, sql string) []Violation {
 				Statement: trimStmt(stmt),
 			})
 		}
+		out = append(out, policyIdempotencyViolations(file, raw, norm, priorNorm.String())...)
 		out = append(out, lockViolations(file, raw, norm, fresh)...)
+		priorNorm.WriteByte(' ')
+		priorNorm.WriteString(norm)
 	}
 	return out
+}
+
+// policyIdempotencyViolations rejects CREATE POLICY without an exact guard.
+// CREATE POLICY has no native IF NOT EXISTS syntax, so the safe forms are:
+//
+//   - DROP POLICY IF EXISTS <same policy> ON <same table>; CREATE POLICY ...
+//   - a DO block whose exact pg_policies row controls an IF NOT EXISTS create,
+//     or an IF EXISTS alter / ELSE create branch.
+func policyIdempotencyViolations(file, raw, norm, prior string) []Violation {
+	var out []Violation
+	matches := createPolicy.FindAllStringSubmatchIndex(norm, -1)
+	for _, match := range matches {
+		policy := norm[match[2]:match[3]]
+		table := norm[match[4]:match[5]]
+		prefix := prior + " " + norm[:match[0]]
+		if matchingPolicyDrop(prefix, policy, table) || catalogGuardsPolicy(norm, prefix, policy, table) {
+			continue
+		}
+		out = append(out, Violation{
+			File:      file,
+			Rule:      "create policy without idempotency guard (precede it with matching DROP POLICY IF EXISTS, or branch on the exact pg_policies row)",
+			Statement: trimStmt(raw),
+		})
+	}
+	return out
+}
+
+func matchingPolicyDrop(prefix, policy, table string) bool {
+	drop := regexp.MustCompile(`\bDROP\s+POLICY\s+IF\s+EXISTS\s+` + regexp.QuoteMeta(policy) + `\s+ON\s+` + regexp.QuoteMeta(table) + `(?:\s|$|[';)])`)
+	return drop.MatchString(prefix)
+}
+
+func catalogGuardsPolicy(norm, prefix, policy, table string) bool {
+	if !policyCatalog.MatchString(norm) || !policySchemaCheck.MatchString(norm) {
+		return false
+	}
+	policy = strings.Trim(policy, `"`)
+	table = normalizeTable(table)
+	policyMatch := regexp.MustCompile(`\bPOLICYNAME\s*=\s*'` + regexp.QuoteMeta(policy) + `'`).MatchString(norm)
+	tableMatch := regexp.MustCompile(`\bTABLENAME\s*=\s*'` + regexp.QuoteMeta(table) + `'`).MatchString(norm)
+	if !policyMatch || !tableMatch {
+		return false
+	}
+	if policyIfNotExists.MatchString(prefix) {
+		return true
+	}
+	// IF EXISTS ... ALTER ... ELSE CREATE is the zero-gap converge form.
+	return policyIfExists.MatchString(prefix) && policyElse.MatchString(prefix)
 }
 
 // normalizeTable strips a schema qualifier and quotes so "public.\"Foo\"" and

@@ -137,6 +137,71 @@ END $$;`
 	}
 }
 
+func TestCheckSQLRejectsUnguardedCreatePolicy(t *testing.T) {
+	cases := map[string]string{
+		"bare": `CREATE POLICY tenant_isolation ON widgets USING (true);`,
+		"do block without catalog branch": `DO $$
+BEGIN
+    CREATE POLICY tenant_isolation ON widgets USING (true);
+END $$;`,
+		"guard for another table": `DROP POLICY IF EXISTS tenant_isolation ON other;
+CREATE POLICY tenant_isolation ON widgets USING (true);`,
+		"catalog guard without schema": `DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+         WHERE tablename = 'widgets' AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation ON widgets USING (true);
+    END IF;
+END $$;`,
+	}
+	for name, sql := range cases {
+		t.Run(name, func(t *testing.T) {
+			violations := CheckSQL("bad_policy.sql", sql)
+			if len(violations) == 0 || !strings.Contains(violations[0].Rule, "idempotency guard") {
+				t.Fatalf("unguarded CREATE POLICY violations = %v", violations)
+			}
+		})
+	}
+}
+
+func TestCheckSQLAllowsGuardedCreatePolicy(t *testing.T) {
+	cases := map[string]string{
+		"drop then create": `DROP POLICY IF EXISTS tenant_isolation ON widgets;
+CREATE POLICY tenant_isolation ON widgets USING (true);`,
+		"catalog create or alter": `DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_policies
+         WHERE schemaname = current_schema()
+           AND tablename = 'widgets' AND policyname = 'tenant_isolation'
+    ) THEN
+        ALTER POLICY tenant_isolation ON widgets USING (true);
+    ELSE
+        CREATE POLICY tenant_isolation ON widgets USING (true);
+    END IF;
+END $$;`,
+		"catalog create when absent": `DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+         WHERE schemaname = current_schema()
+           AND tablename = 'widgets' AND policyname = 'tenant_isolation'
+    ) THEN
+        CREATE POLICY tenant_isolation ON widgets USING (true);
+    END IF;
+END $$;`,
+	}
+	for name, sql := range cases {
+		t.Run(name, func(t *testing.T) {
+			if violations := CheckSQL("guarded_policy.sql", sql); len(violations) != 0 {
+				t.Fatalf("guarded CREATE POLICY violations = %v", violations)
+			}
+		})
+	}
+}
+
 // The migration-gate: every shipped migration must be backward-compatible
 // (expand/contract). This walks the real embedded migrations FS, so adding a
 // destructive migration fails CI here.

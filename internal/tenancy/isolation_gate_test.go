@@ -26,6 +26,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	"github.com/imfeelingtheagi/probectl/internal/store"
 	"github.com/imfeelingtheagi/probectl/internal/store/migrate"
 	"github.com/imfeelingtheagi/probectl/internal/tenancy"
@@ -129,6 +130,80 @@ func TestCrossTenantIsolation(t *testing.T) {
 	if !errors.Is(err, tenancy.ErrNoTenant) {
 		t.Errorf("InTenant without a tenant = %v, want ErrNoTenant", err)
 	}
+}
+
+// TestMCPTokenPolicyConfinesRawTenantReads pins the 0040/0059 RLS contract:
+// pre-tenant token authentication still resolves its tenant, but once a tenant
+// GUC is set even a predicate-free raw query cannot see another tenant's token.
+func TestMCPTokenPolicyConfinesRawTenantReads(t *testing.T) {
+	ctx := context.Background()
+	pool := setup(ctx, t)
+	defer pool.Close()
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	tenants := store.NewTenants(pool)
+	ta, err := tenants.Create(ctx, "mcp-iso-a-"+suffix, "MCP Iso A")
+	if err != nil {
+		t.Fatalf("create tenant A: %v", err)
+	}
+	tb, err := tenants.Create(ctx, "mcp-iso-b-"+suffix, "MCP Iso B")
+	if err != nil {
+		t.Fatalf("create tenant B: %v", err)
+	}
+
+	var userA, userB string
+	mustScope(ctx, t, pool, ta.ID, func(ctx context.Context, s tenancy.Scope) error {
+		u, err := (store.Users{}).Create(ctx, s, "mcp-a-"+suffix+"@example.com", "MCP A")
+		if err == nil {
+			userA = u.ID
+		}
+		return err
+	})
+	mustScope(ctx, t, pool, tb.ID, func(ctx context.Context, s tenancy.Scope) error {
+		u, err := (store.Users{}).Create(ctx, s, "mcp-b-"+suffix+"@example.com", "MCP B")
+		if err == nil {
+			userB = u.ID
+		}
+		return err
+	})
+
+	mcp := store.NewMCPTokens(pool)
+	hashA := crypto.Hash([]byte("mcp-a-" + suffix))
+	hashB := crypto.Hash([]byte("mcp-b-" + suffix))
+	idA, err := mcp.Create(ctx, ta.ID, userA, "tenant-a", hashA)
+	if err != nil {
+		t.Fatalf("create tenant A MCP token: %v", err)
+	}
+	idB, err := mcp.Create(ctx, tb.ID, userB, "tenant-b", hashB)
+	if err != nil {
+		t.Fatalf("create tenant B MCP token: %v", err)
+	}
+
+	// Pre-tenant authentication is the deliberate exception: the secret hash
+	// selects its row, and that row establishes the tenant for later RBAC.
+	if gotTenant, gotUser, err := mcp.Authenticate(ctx, hashB); err != nil || gotTenant != tb.ID || gotUser != userB {
+		t.Fatalf("pre-tenant authenticate = (%q,%q,%v), want tenant B/user B", gotTenant, gotUser, err)
+	}
+
+	mustScope(ctx, t, pool, ta.ID, func(ctx context.Context, s tenancy.Scope) error {
+		var visible int
+		if err := s.Q.QueryRow(ctx,
+			"SELECT count(*) FROM mcp_tokens WHERE id IN ($1::uuid, $2::uuid)", idA, idB).Scan(&visible); err != nil {
+			return err
+		}
+		if visible != 1 {
+			t.Errorf("tenant A raw MCP-token count = %d, want exactly its own row", visible)
+		}
+		var foreignVisible bool
+		if err := s.Q.QueryRow(ctx,
+			"SELECT EXISTS (SELECT 1 FROM mcp_tokens WHERE id = $1::uuid)", idB).Scan(&foreignVisible); err != nil {
+			return err
+		}
+		if foreignVisible {
+			t.Error("tenant A raw query could see tenant B MCP token (CROSS-TENANT LEAK)")
+		}
+		return nil
+	})
 }
 
 func mustScope(ctx context.Context, t *testing.T, pool *pgxpool.Pool, tenantID string, fn func(context.Context, tenancy.Scope) error) {

@@ -168,7 +168,7 @@ openapi-gate: ## OpenAPI completeness gate (S19): valid 3.1 specs + no undocumen
 	GO=$(GO) bash scripts/check_openapi.sh
 
 .PHONY: migration-gate
-migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive + locking Postgres DDL AND destructive ClickHouse DDL.
+migration-gate: ## Migration gate (S34/SCHEMA-001/003): reject destructive, locking, or non-idempotent Postgres DDL AND destructive ClickHouse DDL.
 	$(GO) test -run 'TestMigrationsExpandContractCompat|TestCheckSQL' ./internal/store/migrate/...
 	$(GO) test -run 'TestCheckMigrations|TestCheckMigrationsAllowsAdditive' ./internal/store/chmigrate/...
 	$(GO) test -run 'TestClickHouseMigrationGate' ./internal/store/
