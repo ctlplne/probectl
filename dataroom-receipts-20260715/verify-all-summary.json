@@ -2,9 +2,9 @@
   "receipt-metadata": {
     "result": "success",
     "outputs": {
-      "verified_source_commit": "b2a038a31aa921d0fbebe0f110f8dd5934d8a9c1",
-      "run_completed_utc": "2026-07-15T09:59:35Z",
-      "source_checkout": "detached clean worktree",
+      "verified_source_commit": "9a691590e1bae6d948bfa1f52ef59f1d31aa4abf",
+      "run_completed_utc": "2026-07-15T12:42:54Z",
+      "source_checkout": "clean local clone",
       "host": "Darwin 27.0.0 arm64",
       "go": "1.26.5",
       "python": "3.14.6",
@@ -12,13 +12,14 @@
       "docker_engine": "29.6.1"
     }
   },
-  "per-task-verifiers": {
+  "source-proof-verifiers": {
     "result": "success",
     "outputs": {
-      "commands_run": 101,
-      "commands_expected": 101,
+      "commands_run": 100,
+      "commands_expected": 100,
       "tasks_reopened": 0,
-      "source_backlog_done_tasks": 75
+      "receipt_task_excluded_until_receipt_exists": "E1",
+      "end_gate_recursion_excluded": "E8"
     }
   },
   "build-and-unit": {
@@ -27,23 +28,28 @@
       "default_build": "pass",
       "core_only_build": "pass",
       "all_go_tests": "pass",
-      "race_suite": "pass",
+      "race_and_isolation_suites": "pass",
       "python_tests_and_lint": "pass"
     }
   },
-  "lint-and-claims": {
+  "lint-coverage-and-claims": {
     "result": "success",
     "outputs": {
       "go_lint": "clean",
+      "go_statement_coverage_percent": 80.5,
+      "all_package_coverage_floors": "pass",
       "license_headers": "clean",
       "crypto_import_boundary": "clean",
       "documentation_claims": "clean",
       "repository_hygiene": "clean"
     }
   },
-  "editions-and-fips": {
+  "licensing-editions-and-fips": {
     "result": "success",
     "outputs": {
+      "core_license": "MPL-2.0",
+      "retired_core_license_identifiers": 0,
+      "ee_commercial_boundary": "pass",
       "core_imports_ee": false,
       "core_only_tests": "pass",
       "fips_artifacts": 11,
@@ -69,22 +75,26 @@
       "tests": 417,
       "coverage_gate": "pass",
       "production_build": "pass",
-      "rendered_browser_accessibility": "pass",
+      "rendered_browser_accessibility": "pass twice",
       "performance_and_bundle_budgets": "pass",
       "surface_coverage": "pass",
       "hardcoded_design_value_gate": "pass"
     }
   },
-  "real-service-integration": {
+  "real-service-integration-and-load": {
     "result": "success",
     "outputs": {
       "services_required": true,
       "postgres": "pass",
       "kafka": "pass",
-      "clickhouse": "pass",
-      "prometheus": "pass",
-      "otel_store": "pass",
-      "cross_plane_correlation_repetitions": 5
+      "clickhouse_flow_path_otel_ebpf_endpoint": "pass",
+      "prometheus_remote_write_and_query": "pass",
+      "full_integration_target": "pass",
+      "cross_plane_correlation_repetitions": 5,
+      "load_activation_is_explicit": true,
+      "cold_kafka_readiness_handshake": "pass",
+      "ci_scale_result_series": "12/12",
+      "ci_scale_flow_rows": "200/200"
     }
   },
   "tenant-isolation": {
@@ -108,7 +118,7 @@
     "result": "success",
     "outputs": {
       "gitleaks_version": "8.21.2",
-      "git_commits_scanned": 1037,
+      "git_commits_scanned": 994,
       "secret_findings": 0,
       "planted_secret_self_test": "pass",
       "govulncheck_reachable_findings": 0,
