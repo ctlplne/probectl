@@ -55,24 +55,64 @@ floor, and development builds skip the check.
 
 ## Operator flow
 
-### Fleet health action center
+### Fleet health action center and rollout control
 
-The tenant **Admin & Settings** page is the read-only front door to this
-workflow. `GET /v1/agents` joins each RLS-scoped registry row to that tenant's
-newest persisted rollout membership and derives one honest readiness state:
-fresh, stale, never connected, capability unavailable, or version skew. Each
-row includes heartbeat age and reason, control/agent version evidence, reported
-capabilities, rollout cohort/state/target, the last known failure, and exactly
-one safe next action.
+The tenant **Admin & Settings** page has two deliberately different layers:
 
-That action opens evidence and this runbook; it is **not** a deploy button. The
-web application has no agent-update endpoint, artifact URL, script, executable,
-or hidden autonomous action. An operator must still verify the signed artifact,
-call the RBAC-protected rollout API or CLI, apply one cohort through the external
-orchestrator, and verify the heartbeat health gate. Those mutations remain
-tenant-scoped, human-approved, persisted, and audited. If rollout evidence is
-unavailable, Admin keeps the registry rows visible and labels rollout state
-unavailable instead of guessing.
+1. The **Agents** table is the read-only evidence layer. `GET /v1/agents` joins
+   each RLS-scoped registry row to that tenant's newest persisted rollout
+   membership and derives one honest readiness state: fresh, stale, never
+   connected, capability unavailable, or version skew. Each row includes
+   heartbeat age and reason, control/agent version evidence, reported
+   capabilities, rollout cohort/state/target, the last known failure, and
+   exactly one safe next action.
+2. **Staged rollout control** loads existing plans from `GET /v1/rollouts` and
+   renders every fixed wave, agent count, digest pin, current server progress,
+   halt evidence, and the most recent action receipt from this browser session.
+   It can Advance, Verify, Halt, or Resume an existing plan through the matching
+   `/v1/rollouts/{id}/...` endpoint. Every mutation opens a human confirmation;
+   Halt and Resume also require a written audit note.
+
+Neither layer is a deploy button. The web application has no agent-update
+endpoint, artifact URL, script, executable, or hidden autonomous action.
+**Advance changes only the audited state machine from pending to applying.** A
+human still applies that exact digest to that cohort through Helm, Ansible, or
+their configuration manager. **Verify** then re-reads the live, tenant-scoped
+agent registry and accepts the wave only when every member reports the target
+version with a fresh authenticated heartbeat. If rollout storage is unavailable,
+Admin keeps the registry rows visible and labels rollout evidence unavailable
+instead of guessing or showing dead controls.
+
+### Web-console walkthrough
+
+The control card uses the same dark-native cards, status dots, compact badges,
+keyboard-focus treatment, and always-visible tenant indicator as the rest of the
+operator console. Start at **Admin & Settings → Staged rollout control**. The
+overview answers four questions without opening another page: which digest is
+fixed, which wave is applying, how many agents are in every wave, and what the
+registry health gate will check.
+
+![Staged rollout console showing canary, early, and main wave status](images/fleet-rollout-console.jpg)
+
+Choose an enabled action. Nothing is sent until the confirmation dialog is
+submitted. The dialog repeats the rollout id, verified target, current wave, and
+the non-execution boundary. Halt and Resume keep the confirmation disabled until
+the operator writes an audit reason.
+
+![Human-gated halt confirmation with an operator audit reason](images/fleet-rollout-human-gate.jpg)
+
+After Halt, the applying wave turns red, the server-provided halt reason and
+receipt are visible together, Advance and Verify are disabled, and Resume is the
+only forward action. Resume opens the same human gate and requires a remediation
+note; it never happens automatically.
+
+![Halted rollout with server evidence and explicit Resume control](images/fleet-rollout-halted.jpg)
+
+The screenshots are reproducible without tenant credentials or outbound calls:
+run the Vite development server on loopback port 4174, then run
+`node scripts/web_rollout_fixture.mjs` from the repository root and open
+`http://127.0.0.1:4175/admin`. The fixture proxies the real application and
+serves deterministic, same-origin API shapes only for documentation capture.
 
 ### 0. Verify the artifact — and record it
 
@@ -112,9 +152,10 @@ verified** it — an unattested artifact refuses to plan.
 Snapshot the fleet from the registry (`GET /v1/agents`) and plan. Waves render
 like `canary[3]=pending early[11]=pending main[46]=pending`. The wave
 membership — the exact agent ids in each wave — is the orchestrator's worklist.
-The operator surface is deliberately **CLI + API + runbook** (`web/src/surfaces.ts`
-declares it as federated): ordinary tenant navigation should not hide the fact
-that this is a fleet-change workflow driven by external orchestration, not a
+Planning remains deliberately **CLI + API + runbook**: an operator verifies the
+artifact and fixes cohort membership before anything appears in the web console.
+The console controls only an existing plan's audited state machine; ordinary
+tenant navigation never turns this external-orchestration workflow into a
 point-and-click agent self-update channel.
 
 ```sh

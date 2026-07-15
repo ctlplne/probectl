@@ -159,7 +159,32 @@ function apiPayload(path, method, pagePath = "") {
       permissions: [],
     });
   if (path === "/v1/tests") return json({ items: sampleTests });
-  if (path === "/v1/agents") return json({ items: sampleAgents });
+  if (path === "/v1/agents")
+    return json({
+      items: sampleAgents,
+      control_version: "0.2.0",
+      rollouts_available: true,
+    });
+  if (path === "/v1/rollouts")
+    return json({
+      items: [
+        {
+          id: "rollout-a11y",
+          target: "0.2.0",
+          digest: "sha256:a11yfixture",
+          halted: false,
+          halt_reason: "",
+          done: false,
+          progress:
+            "rollout to 0.2.0: canary[1]=applying early[4]=pending main[16]=pending",
+          waves: [
+            { cohort: "canary", agents: 1, status: "applying" },
+            { cohort: "early", agents: 4, status: "pending" },
+            { cohort: "main", agents: 16, status: "pending" },
+          ],
+        },
+      ],
+    });
   if (path === "/v1/ai/discover") return json({ proposals: [] });
   if (path === "/v1/incidents")
     return json({

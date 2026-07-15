@@ -57,6 +57,24 @@ export const API_CALL_CONTRACTS = [
     generated: 'GetOnboardingProgressResponse',
   },
   {
+    file: 'api/rollouts.ts',
+    method: 'GET',
+    path: '/rollouts',
+    response: 'RolloutList',
+    generated: 'ListRolloutsResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for the rollout wave list; RolloutList is the explicit operator-console view model.',
+  },
+  {
+    file: 'api/rollouts.ts',
+    method: 'POST',
+    path: '`/rollouts/${encodeURIComponent(id)}/${action}`',
+    response: 'Rollout',
+    generated: 'VerifyRolloutResponse',
+    reason:
+      'Advance, Verify, Halt, and Resume share the same generic rollout view; the closed RolloutAction union selects only those documented endpoints.',
+  },
+  {
     file: 'api/ai.ts',
     method: 'POST',
     path: '/ai/ask',

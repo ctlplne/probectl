@@ -39,6 +39,7 @@ import { useSecretsHealth, type SecretBackendHealth } from '../../api/secrets'
 import { RemediationCard, KeysCard } from './AdminCards'
 import { LifecycleCard, SupportCard, EditionsCard } from './LifecycleCards'
 import { IdentityCard } from './IdentityCard'
+import { RolloutCard } from './RolloutCard'
 import { agentEnrollCommand, defaultControlPlaneURL } from '../enrollment'
 import styles from '../pages.module.css'
 import { FilterBar, SavedViews } from '../listControls'
@@ -893,6 +894,7 @@ export function AdminPage() {
         onClose={closeCollectorDialog}
         initialPlane={deepLinkedCollectorPlane}
       />
+      <RolloutCard available={isPending ? undefined : fleet.rolloutsAvailable} />
       <SecretBackendsCard />
       <IdentityCard />
       <KeysCard />

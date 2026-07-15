@@ -331,6 +331,7 @@ export function defaultFetch(): typeof fetch {
         control_version: '0.1.0',
         rollouts_available: true,
       })
+    if (path === '/v1/rollouts') return jsonResponse({ items: [] })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
     if (path === '/v1/explorer/schema')
       return jsonResponse({

@@ -94,7 +94,7 @@ Everything in this section is backed by code in the repo and a named evidence pa
 
 - ✅ **Frontend foundation.** Design tokens (no hardcoded values; one optional deployment-wide operator override), component library, app shell + command palette, WCAG 2.2 AA CI gate, dark-native; the probectl banner and tenant indicator are always visible; provider console visually separate; a **surface-coverage CI gate** requires every capability to declare native/federated/none-by-design. `web/` · *web (a11y + frontend-coverage)*.
 - ✅ **Packaging.** Multi-arch images; Helm for control plane (hardening-gated: non-root, read-only FS, drop-ALL, **NetworkPolicy default-on with documented holes** — U-086) + the agent DaemonSet chart (explicit BPF/PERFMON contract, seccomp — U-016/D10); compose profiles; VM installer; air-gapped bundle; Terraform + GitOps validation. `deploy/` · *helm-gate, terraform-gate, kubeconform*.
-- ✅ **Reliability tooling.** Backup/restore scripts + runbook + **a CI drill that drops/restores both databases and round-trips real signed WORM/object-store evidence on every pass** (U-030/H8); Helm renders three encrypted backup CronJobs behind `backup.enabled`; filesystem and S3/MinIO object backup paths fail closed on missing encryption, verified TLS, or COMPLIANCE Object Lock. Failover drill + DR runbook (U-053 — sign-off pending, §5.2); staged fleet rollout engine with health gates + rollback (U-031 — console wiring pending, §5.1); bounded retry + DLQ on store writes; circuit breakers on Prom/CH clients (U-078); async batched bus publish + backpressure (U-023); in-memory TSDB retention/eviction (U-029). · *backup-drill, failover-drill*.
+- ✅ **Reliability tooling.** Backup/restore scripts + runbook + **a CI drill that drops/restores both databases and round-trips real signed WORM/object-store evidence on every pass** (U-030/H8); Helm renders three encrypted backup CronJobs behind `backup.enabled`; filesystem and S3/MinIO object backup paths fail closed on missing encryption, verified TLS, or COMPLIANCE Object Lock. Failover drill + DR runbook (U-053 — sign-off pending, §5.2); staged fleet rollout engine with health gates + rollback and a human-gated native wave console (U-031/E7); bounded retry + DLQ on store writes; circuit breakers on Prom/CH clients (U-078); async batched bus publish + backpressure (U-023); in-memory TSDB retention/eviction (U-029). · *backup-drill, failover-drill*.
 - ✅ **Self-observability.** probectl observes probectl (metrics/logs per subsystem); load harness for S–XL tiers with an S-tier smoke + scale-gate floor in CI (U-005/U-055 — L/XL evidence runs pending, §5.2); agent overhead bench suite with a throughput tripwire (U-051 — reference row pending). `internal/perf`, `scripts/bench/` · *load-smoke, perf-smoke*.
 - ✅ **Black-box e2e.** Compose-stack boot → API → agent → result-flow assertions, nightly (U-054). `test/` · *nightly*.
 
@@ -153,7 +153,7 @@ Strict standard; one line each. Evidence = package / doc / gate / U-ID.
 | F25 | SCIM/ABAC/delegated admin | ✅ | `internal/control/scim.go`; ABAC deny-override in `internal/auth/abac.go` + `internal/control/abac.go` |
 | F26 | SIEM integration | ✅ | `internal/siem` (cursor, tenant-routed) |
 | F27 | On-call & ITSM | ✅ | `internal/notify`, `docs/oncall-itsm.md` |
-| F28 | Zero-downtime lifecycle + fleet rollout | ✅ | migrations gate + rollout engine ✅ (`internal/agent/rollout.go`); operator CLI/API surface ✅ (`probectl rollout`, `/v1/rollouts`, `docs/ops/fleet-rollout.md`) |
+| F28 | Zero-downtime lifecycle + fleet rollout | ✅ | migrations gate + rollout engine ✅ (`internal/agent/rollout.go`); CLI/API + native human-gated wave console ✅ (`probectl rollout`, `/v1/rollouts`, `web/src/routes/admin/RolloutCard.tsx`, `docs/ops/fleet-rollout.md`) |
 | F29 | IaC & GitOps | ✅ | `deploy/terraform`, *gitops-gate*, *helm-gate* |
 | F30 | CMDB / Grafana / Prom federation | ✅ | `internal/cmdb`, `internal/promapi`, federated surfaces declared |
 | F31 | Secrets integration | ✅ | `internal/secrets` (seam + Vault path), device creds |
@@ -211,11 +211,18 @@ exponential-histogram, and unspecified metric data at the authenticated receiver
 with a protocol-visible error; trace/log fuzz seeds cover realistic nested
 payloads. This is no longer a remaining GA item.
 
-1. **Fleet rollout polish** — the delivered rollout engine (`internal/agent/rollout.go`, U-031) is operator-usable through `probectl rollout` plus `/v1/rollouts` (`docs/ops/fleet-rollout.md`). Remaining GA work is UX/evidence polish around scripted fleet workflows, not the missing operator surface itself.
-2. **eBPF capture follow-ups** — IPv6 L4 capture is delivered (`internal/ebpf/bpf/l4flow.bpf.c`, `internal/ebpf/l4event.go`, `internal/ebpf/live_smoke_ebpf_test.go`; U-073). Go `crypto/tls` plaintext capture is explicitly post-GA/out-of-scope for GA (disclosed limitation, U-074): keep C-library TLS uprobes default-off/consent-gated/redacted, and treat Go `crypto/tls` as a separately-scoped future module rather than silent coverage.
-3. **Alert operation UX/evidence polish** — silences/acks persistence is delivered (`migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`; ARCH-005/U-047). Remaining GA work is evidence/UX polish around persisted alert operations, not the persistence mechanism itself.
-4. **Design-led polish on the hero surfaces** — path map + topology/what-if iterated to the "crush the incumbents" bar (PRD v0.5 §6 ambition; the foundation and gates exist, the polish loop is product work, not plumbing).
-5. **GA milestone gate** — the nightly E2E now covers join-token redemption → tenant-bound SVID → real canary over mTLS → tenant-scoped HTTPS result, alongside the two-tenant flow/topology boundary. Remaining GA work is the surface-coverage, correlation, coverage, integration, isolation, and nightly receipts on the exact release commit.
+Fleet rollout polish is delivered: existing plans now render as a native,
+tenant-scoped wave console with explicit Advance/Verify/Halt/Resume confirmation,
+required halt/resume audit notes, registry health-gate evidence, server receipts,
+rendered WCAG coverage, and a screenshot walkthrough (`web/src/routes/admin/RolloutCard.tsx`,
+`docs/ops/fleet-rollout.md`; E7). The console still cannot deploy code; the
+external orchestrator remains the only update authority. This is no longer a
+remaining GA item.
+
+1. **eBPF capture follow-ups** — IPv6 L4 capture is delivered (`internal/ebpf/bpf/l4flow.bpf.c`, `internal/ebpf/l4event.go`, `internal/ebpf/live_smoke_ebpf_test.go`; U-073). Go `crypto/tls` plaintext capture is explicitly post-GA/out-of-scope for GA (disclosed limitation, U-074): keep C-library TLS uprobes default-off/consent-gated/redacted, and treat Go `crypto/tls` as a separately-scoped future module rather than silent coverage.
+2. **Alert operation UX/evidence polish** — silences/acks persistence is delivered (`migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`; ARCH-005/U-047). Remaining GA work is evidence/UX polish around persisted alert operations, not the persistence mechanism itself.
+3. **Design-led polish on the hero surfaces** — path map + topology/what-if iterated to the "crush the incumbents" bar (PRD v0.5 §6 ambition; the foundation and gates exist, the polish loop is product work, not plumbing).
+4. **GA milestone gate** — the nightly E2E now covers join-token redemption → tenant-bound SVID → real canary over mTLS → tenant-scoped HTTPS result, alongside the two-tenant flow/topology boundary. Remaining GA work is the surface-coverage, correlation, coverage, integration, isolation, and nightly receipts on the exact release commit.
 
 ### 5.2 Evidence runs (need real iron, not code)
 
