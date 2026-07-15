@@ -30,6 +30,14 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     css: true,
+    // A full coverage run instruments 65 files and executes the long-form
+    // onboarding/admin journeys concurrently. Vitest's implicit 5s default is
+    // shorter than those journeys under a loaded CI runner, so it can kill a
+    // test after its assertions have been making normal progress. Keep a
+    // finite 15s hang detector while giving V8 instrumentation bounded
+    // headroom; individual exhaustive accessibility loops retain their tighter
+    // explicit budgets.
+    testTimeout: 15_000,
     // TEST-012: a coverage FLOOR so the UI test suite can't quietly rot. `npm
     // run coverage` fails the build if any metric drops below the threshold.
     // Start conservative and ratchet up as the suite grows.
