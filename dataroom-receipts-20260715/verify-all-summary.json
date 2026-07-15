@@ -1,0 +1,127 @@
+{
+  "receipt-metadata": {
+    "result": "success",
+    "outputs": {
+      "verified_source_commit": "b2a038a31aa921d0fbebe0f110f8dd5934d8a9c1",
+      "run_completed_utc": "2026-07-15T09:59:35Z",
+      "source_checkout": "detached clean worktree",
+      "host": "Darwin 27.0.0 arm64",
+      "go": "1.26.5",
+      "python": "3.14.6",
+      "node": "26.0.0",
+      "docker_engine": "29.6.1"
+    }
+  },
+  "per-task-verifiers": {
+    "result": "success",
+    "outputs": {
+      "commands_run": 101,
+      "commands_expected": 101,
+      "tasks_reopened": 0,
+      "source_backlog_done_tasks": 75
+    }
+  },
+  "build-and-unit": {
+    "result": "success",
+    "outputs": {
+      "default_build": "pass",
+      "core_only_build": "pass",
+      "all_go_tests": "pass",
+      "race_suite": "pass",
+      "python_tests_and_lint": "pass"
+    }
+  },
+  "lint-and-claims": {
+    "result": "success",
+    "outputs": {
+      "go_lint": "clean",
+      "license_headers": "clean",
+      "crypto_import_boundary": "clean",
+      "documentation_claims": "clean",
+      "repository_hygiene": "clean"
+    }
+  },
+  "editions-and-fips": {
+    "result": "success",
+    "outputs": {
+      "core_imports_ee": false,
+      "core_only_tests": "pass",
+      "fips_artifacts": 11,
+      "fips_power_on_and_known_answer_tests": "pass",
+      "offline_license_boundary": "pass"
+    }
+  },
+  "api-schema-and-sdks": {
+    "result": "success",
+    "outputs": {
+      "openapi_gate": "pass",
+      "migration_gate": "pass",
+      "protobuf_generation_drift": "clean",
+      "sdk_gate": "pass",
+      "terraform_validation": "pass"
+    }
+  },
+  "web": {
+    "result": "success",
+    "outputs": {
+      "format_typecheck_lint": "pass",
+      "test_files": 76,
+      "tests": 417,
+      "coverage_gate": "pass",
+      "production_build": "pass",
+      "rendered_browser_accessibility": "pass",
+      "performance_and_bundle_budgets": "pass",
+      "surface_coverage": "pass",
+      "hardcoded_design_value_gate": "pass"
+    }
+  },
+  "real-service-integration": {
+    "result": "success",
+    "outputs": {
+      "services_required": true,
+      "postgres": "pass",
+      "kafka": "pass",
+      "clickhouse": "pass",
+      "prometheus": "pass",
+      "otel_store": "pass",
+      "cross_plane_correlation_repetitions": 5
+    }
+  },
+  "tenant-isolation": {
+    "result": "success",
+    "outputs": {
+      "postgres_rls": "pass",
+      "clickhouse_row_policy_and_scoped_readers": "pass",
+      "pooled_siloed_and_hybrid_paths": "pass",
+      "tenant_scoped_subject_erasure": "pass",
+      "aggregate_isolation_suite": "pass"
+    }
+  },
+  "recovery": {
+    "result": "success",
+    "outputs": {
+      "backup_restore_drill": "pass",
+      "postgres_clickhouse_and_signed_worm_round_trip": "pass"
+    }
+  },
+  "security-and-supply-chain": {
+    "result": "success",
+    "outputs": {
+      "gitleaks_version": "8.21.2",
+      "git_commits_scanned": 1037,
+      "secret_findings": 0,
+      "planted_secret_self_test": "pass",
+      "govulncheck_reachable_findings": 0,
+      "supply_pins": "pass",
+      "secure_compose_render": "pass"
+    }
+  },
+  "re-audit": {
+    "result": "success",
+    "outputs": {
+      "dark_packages": 0,
+      "production_stub_patterns": 0,
+      "ux_final_target": "pass"
+    }
+  }
+}
