@@ -1,0 +1,130 @@
+# Dashboards and tenant report delivery
+
+The `/dashboards` screen is the dense, first-party view for joining probectl's
+network planes. It has two presentation presets—**Operator** and **Executive**—but
+both presets keep the evidence visible: exact values remain tables, charts share
+one absolute UTC interval, and coverage gaps stay attached to the view.
+
+Think of a saved dashboard as a sealed recipe card. The card records which
+tenant it belongs to, who owns it, the absolute time range, the exact values the
+authorized browser saw, provenance, redaction state, and known blind spots. A
+report renderer can turn that card into PDF or CSV without contacting another
+service.
+
+## Scope shown in every view and artifact
+
+The page keeps these facts visible above the panels:
+
+- tenant display name and immutable tenant UUID;
+- Operator or Executive preset;
+- absolute `from` and `to` timestamps in UTC;
+- the coordinated chart window;
+- an expandable receipt for provenance, redaction, and coverage limitations.
+
+Every generated PDF/CSV repeats the same contract and adds generation time and
+generator identity. A report is rejected before storage if any mandatory field
+is absent. This prevents a chart from becoming an apparently universal claim
+after its tenant or observation window is separated from it.
+
+## API and authorization
+
+All routes resolve tenant identity from the authenticated principal before
+checking RBAC. The browser never sends `tenant_id`.
+
+| Route | Permission | Purpose |
+|---|---|---|
+| `GET /v1/dashboards` | `metrics.read` | List views owned by the caller or shared inside this tenant |
+| `POST /v1/dashboards` | `metrics.write` | Save a bounded dashboard definition |
+| `GET /v1/dashboards/{id}` | `metrics.read` | Read an owned/shared view; foreign IDs look missing |
+| `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule |
+| `POST /v1/dashboard-reports` | `metrics.read` | Generate a PDF/CSV artifact in the tenant inbox |
+| `GET /v1/dashboard-report-artifacts` | `metrics.read` | List artifact metadata without loading binary bodies |
+| `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read` | Audited artifact download |
+
+Malformed JSON is `400`; semantically invalid input is `422`. A missing,
+private, or cross-tenant object is the same `404` shape (apart from the unique
+request ID), so an identifier cannot be used to discover another tenant's
+objects.
+
+## Storage isolation
+
+Migration `0061_dashboard_reporting.sql` creates three tenant-owned tables:
+
+1. `dashboard_views` stores the saved definition.
+2. `dashboard_report_schedules` references a view through
+   `(tenant_id, dashboard_id)`.
+3. `dashboard_report_artifacts` references its view and optional schedule
+   through composite tenant keys and caps binary content at 2 MiB.
+
+All three tables have non-null `tenant_id`, tenant-leading indexes, `ENABLE ROW
+LEVEL SECURITY`, and `FORCE ROW LEVEL SECURITY`. Store queries also carry an
+explicit tenant predicate. That is two locks on the same door: the query asks
+for one tenant, and PostgreSQL refuses to reveal any other tenant even if a
+future query forgets.
+
+The global `tenants` registry remains provider-only. Migration
+`0062_current_tenant_identity.sql` exposes only the current transaction's name
+and slug through a `SECURITY DEFINER` function bound to
+`probectl.tenant_id`; it does **not** grant the application role permission to
+enumerate the registry.
+
+Tenant deletion cascades through views, schedules, and artifacts. Artifact list
+queries return metadata only; loading bytes is a separate audited action.
+
+## Scheduling and delivery
+
+Core ships one configured destination: `tenant-report-inbox`.
+
+- It is local PostgreSQL storage, not an email address or webhook.
+- `outbound_default` is always `false`.
+- An unknown destination fails validation; the scheduler never guesses an
+  endpoint.
+- The UI disables scheduling when no configured destination is ready.
+
+The control-plane singleton `dashboard-report-scheduler` scans active tenant
+registry metadata, then opens a **separate RLS transaction for each tenant**.
+Due rows are selected with `FOR UPDATE ... SKIP LOCKED`, which makes HA workers
+safe: only one worker owns a schedule in a transaction. It renders the bounded
+saved definition, stores the artifact, advances the next daily/weekly/monthly
+run beyond the current time, and appends `dashboard.report_delivery` atomically.
+Missed intervals are collapsed into one current delivery rather than replayed
+as a burst.
+
+Scheduled artifacts intentionally preserve the saved dashboard's absolute
+observation interval and values. `generated_at` tells when delivery happened;
+`absolute_from`/`absolute_to` tell when the evidence was observed. This is a
+repeatable evidence snapshot, not a claim that old values were freshly sampled.
+Save a new view when the intended observation interval changes.
+
+## Audit events
+
+The tenant hash chain records:
+
+- `dashboard.save`;
+- `dashboard.report_schedule`;
+- `dashboard.report_export`;
+- `dashboard.report_delivery` (actor `probectl-report-scheduler`);
+- `dashboard.report_download`.
+
+The audit payload carries IDs, format, destination, and redaction state—not
+artifact bytes or exact telemetry values.
+
+## Operator checks
+
+```sh
+cd web
+npm test -- src/test/dashboards.test.tsx src/test/dashboard-reporting.test.tsx
+
+cd ..
+GOCACHE=/private/tmp/probectl-gocache go test ./internal/control ./internal/store \
+  -run 'Test.*Dashboard.*Tenant|Test.*Report.*Tenant|Test.*Export.*Audit' -count=1
+
+PROBECTL_DATABASE_URL='postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable' \
+GOCACHE=/private/tmp/probectl-gocache go test -tags=integration ./internal/control ./internal/store \
+  -run 'TestDashboardExportAuditAndTenantIsolation|TestDashboardReportTenantIsolation' -count=1
+```
+
+If scheduled delivery stops, check the singleton coordinator and search the
+tenant audit stream for the last `dashboard.report_delivery`. Renderer/storage
+failure leaves the schedule due and commits neither a partial artifact nor a
+misleading audit receipt.

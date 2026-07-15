@@ -54,6 +54,10 @@
     {
       "name": "abac",
       "description": "Attribute-based access control policies over RBAC (S31)."
+    },
+    {
+      "name": "dashboards",
+      "description": "Tenant-scoped saved dashboards, scheduled local-inbox delivery, and audited PDF/CSV artifacts."
     }
   ],
   "paths": {
@@ -7314,6 +7318,152 @@
         }
       }
     },
+    "/v1/dashboards": {
+      "get": {
+        "operationId": "listDashboards",
+        "summary": "List dashboard views owned by or shared with the caller",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "responses": {
+          "200": {
+            "description": "Tenant-confined dashboard views.",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"items": {"type": "array", "items": {"$ref": "#/components/schemas/DashboardView"}}}}}}
+          },
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
+        },
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Saved dashboard lists are SQL-limited newest-first."}
+      },
+      "post": {
+        "operationId": "createDashboard",
+        "summary": "Save a dashboard definition inside the caller tenant",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardCreateRequest"}}}},
+        "responses": {
+          "201": {"description": "Dashboard saved and audited.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardView"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/dashboards/{id}": {
+      "get": {
+        "operationId": "getDashboard",
+        "summary": "Get an owned or tenant-shared dashboard",
+        "description": "Missing, unauthorized, and cross-tenant identifiers all return the same not-found response.",
+        "tags": ["dashboards"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "Dashboard view.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardView"}}}},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/dashboard-report-schedules": {
+      "get": {
+        "operationId": "listDashboardReportSchedules",
+        "summary": "List caller-owned report schedules and configured destinations",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "responses": {
+          "200": {"description": "Schedules plus the local tenant report inbox; outbound_default is always false.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportScheduleList"}}}},
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
+        },
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Schedules are SQL-limited newest-first."}
+      },
+      "post": {
+        "operationId": "createDashboardReportSchedule",
+        "summary": "Schedule PDF or CSV delivery to a configured destination",
+        "description": "Core configures only the internal tenant report inbox. An unconfigured or outbound destination fails closed; there is no default outbound delivery.",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportScheduleRequest"}}}},
+        "responses": {
+          "201": {"description": "Schedule saved and audited.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportSchedule"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/dashboard-reports": {
+      "post": {
+        "operationId": "generateDashboardReport",
+        "summary": "Generate an audited PDF or CSV artifact in the tenant report inbox",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["dashboard_id", "format"],
+                "properties": {
+                  "dashboard_id": {"type": "string"},
+                  "format": {"type": "string", "enum": ["pdf", "csv"]}
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {"description": "Generated artifact metadata.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DashboardReportArtifact"}}}},
+          "400": {"$ref": "#/components/responses/ErrorResponse"},
+          "422": {"$ref": "#/components/responses/ErrorResponse"},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
+    "/v1/dashboard-report-artifacts": {
+      "get": {
+        "operationId": "listDashboardReportArtifacts",
+        "summary": "List generated artifacts in the caller tenant's report inbox",
+        "tags": ["dashboards"],
+        "parameters": [{"$ref": "#/components/parameters/TenantHeader"}],
+        "responses": {
+          "200": {
+            "description": "Artifact metadata; content is available only through the audited download route.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {"$ref": "#/components/schemas/DashboardReportArtifact"}
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {"$ref": "#/components/responses/ErrorResponse"}
+        },
+        "x-probectl-pagination": {"mode": "bounded", "max_items": 200, "reason": "Artifact metadata is SQL-limited newest-first; binary content is excluded."}
+      }
+    },
+    "/v1/dashboard-report-artifacts/{id}": {
+      "get": {
+        "operationId": "downloadDashboardReportArtifact",
+        "summary": "Download and audit one tenant-confined report artifact",
+        "description": "Missing and cross-tenant artifact IDs are indistinguishable.",
+        "tags": ["dashboards"],
+        "parameters": [
+          {"$ref": "#/components/parameters/TenantHeader"},
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "200": {"description": "PDF or CSV attachment.", "content": {"application/pdf": {"schema": {"type": "string", "format": "binary"}}, "text/csv": {"schema": {"type": "string"}}}},
+          "404": {"$ref": "#/components/responses/ErrorResponse"}
+        }
+      }
+    },
     "/v1/collectors/register": {
       "post": {
         "operationId": "registerCollector",
@@ -7396,6 +7546,106 @@
       }
     },
     "schemas": {
+      "DashboardDefinition": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["absolute_from", "absolute_to", "provenance", "redaction_state", "coverage_limitations", "metrics"],
+        "properties": {
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "provenance": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "maxLength": 240}},
+          "redaction_state": {"type": "string", "minLength": 1, "maxLength": 120},
+          "coverage_limitations": {"type": "array", "minItems": 1, "maxItems": 20, "items": {"type": "string", "maxLength": 240}},
+          "metrics": {"type": "object", "maxProperties": 100, "additionalProperties": {"type": "string", "maxLength": 240}}
+        }
+      },
+      "DashboardCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "preset", "shared", "definition"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean", "description": "Shares only within the same tenant; RBAC still applies."},
+          "definition": {"$ref": "#/components/schemas/DashboardDefinition"}
+        }
+      },
+      "DashboardView": {
+        "type": "object",
+        "required": ["id", "tenant_id", "owner_id", "name", "preset", "shared", "definition", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "owner_id": {"type": "string"},
+          "name": {"type": "string"},
+          "preset": {"type": "string", "enum": ["operator", "executive"]},
+          "shared": {"type": "boolean"},
+          "definition": {"$ref": "#/components/schemas/DashboardDefinition"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DashboardReportScheduleRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dashboard_id", "name", "format", "cadence", "destination_id"],
+        "properties": {
+          "dashboard_id": {"type": "string"},
+          "name": {"type": "string", "minLength": 1, "maxLength": 120},
+          "format": {"type": "string", "enum": ["pdf", "csv"]},
+          "cadence": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+          "destination_id": {"type": "string", "enum": ["tenant-report-inbox"]},
+          "first_run_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DashboardReportSchedule": {
+        "type": "object",
+        "required": ["id", "tenant_id", "dashboard_id", "owner_id", "name", "format", "cadence", "destination_id", "enabled", "next_run_at", "created_at", "updated_at"],
+        "properties": {
+          "id": {"type": "string"},
+          "tenant_id": {"type": "string", "format": "uuid"},
+          "dashboard_id": {"type": "string"},
+          "owner_id": {"type": "string"},
+          "name": {"type": "string"},
+          "format": {"type": "string", "enum": ["pdf", "csv"]},
+          "cadence": {"type": "string", "enum": ["daily", "weekly", "monthly"]},
+          "destination_id": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "next_run_at": {"type": "string", "format": "date-time"},
+          "last_run_at": {"type": ["string", "null"], "format": "date-time"},
+          "created_at": {"type": "string", "format": "date-time"},
+          "updated_at": {"type": "string", "format": "date-time"}
+        }
+      },
+      "DashboardReportScheduleList": {
+        "type": "object",
+        "required": ["items", "destinations", "outbound_default"],
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/DashboardReportSchedule"}},
+          "destinations": {"type": "array", "items": {"type": "object", "required": ["id", "name", "kind", "outbound", "ready"], "properties": {"id": {"type": "string"}, "name": {"type": "string"}, "kind": {"type": "string"}, "outbound": {"type": "boolean"}, "ready": {"type": "boolean"}}}},
+          "outbound_default": {"type": "boolean", "const": false}
+        }
+      },
+      "DashboardReportArtifact": {
+        "type": "object",
+        "required": ["id", "dashboard_id", "format", "media_type", "filename", "generated_by", "generated_at", "absolute_from", "absolute_to", "provenance", "redaction_state", "coverage_limitations", "download_url"],
+        "properties": {
+          "id": {"type": "string"},
+          "dashboard_id": {"type": "string"},
+          "schedule_id": {"type": ["string", "null"]},
+          "format": {"type": "string", "enum": ["pdf", "csv"]},
+          "media_type": {"type": "string", "enum": ["application/pdf", "text/csv"]},
+          "filename": {"type": "string"},
+          "generated_by": {"type": "string"},
+          "generated_at": {"type": "string", "format": "date-time"},
+          "absolute_from": {"type": "string", "format": "date-time"},
+          "absolute_to": {"type": "string", "format": "date-time"},
+          "provenance": {"type": "array", "items": {"type": "string"}},
+          "redaction_state": {"type": "string"},
+          "coverage_limitations": {"type": "array", "items": {"type": "string"}},
+          "download_url": {"type": "string", "description": "Same-origin authenticated path; never an external URL."}
+        }
+      },
       "Branding": {
         "type": "object",
         "required": [
@@ -8732,6 +8982,8 @@
         "description": "The authenticated caller: the resolved tenant (always present), identity, and the effective RBAC permission keys within that tenant.",
         "required": [
           "tenant_id",
+          "tenant_name",
+          "tenant_slug",
           "user_id",
           "permissions"
         ],
@@ -8739,6 +8991,14 @@
           "tenant_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "tenant_name": {
+            "type": "string",
+            "description": "Tenant display name read under the authenticated tenant's RLS scope."
+          },
+          "tenant_slug": {
+            "type": "string",
+            "description": "Tenant slug read under the authenticated tenant's RLS scope."
           },
           "user_id": {
             "type": "string"

@@ -143,15 +143,17 @@ var auditExemptRoutes = map[string]bool{
 }
 
 var auditExportRoutes = map[string]bool{
-	"GET /v1/tests/bundle":               true,
-	"GET /v1/prometheus/federate":        true,
-	"GET /v1/compliance/evidence":        true,
-	"GET /v1/slos/openslo":               true,
-	"GET /v1/lifecycle/export":           true,
-	"POST /v1/lifecycle/subjects/export": true,
-	"GET /v1/diagnostics/bundle":         true,
-	"POST /v1/incidents/{id}/shares":     true,
-	"GET /v1/topology/whatif/export":     true,
+	"GET /v1/tests/bundle":                    true,
+	"GET /v1/prometheus/federate":             true,
+	"GET /v1/compliance/evidence":             true,
+	"GET /v1/slos/openslo":                    true,
+	"GET /v1/lifecycle/export":                true,
+	"POST /v1/lifecycle/subjects/export":      true,
+	"GET /v1/diagnostics/bundle":              true,
+	"POST /v1/incidents/{id}/shares":          true,
+	"GET /v1/topology/whatif/export":          true,
+	"POST /v1/dashboard-reports":              true,
+	"GET /v1/dashboard-report-artifacts/{id}": true,
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
@@ -197,6 +199,14 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/agents/{id}":                         auditWrapped(auditFacetSensitiveRead),
 	"PATCH /v1/agents/{id}":                       auditExplicit(auditFacetMutation, "agent.update"),
 	"DELETE /v1/agents/{id}":                      auditExplicit(auditFacetMutation, "agent.delete"),
+	"GET /v1/dashboards":                          auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/dashboards":                         auditExplicit(auditFacetMutation, "dashboard.save"),
+	"GET /v1/dashboards/{id}":                     auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/dashboard-report-schedules":          auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/dashboard-report-schedules":         auditExplicit(auditFacetMutation, "dashboard.report_schedule"),
+	"POST /v1/dashboard-reports":                  auditExplicit(auditFacetExport, "dashboard.report_export"),
+	"GET /v1/dashboard-report-artifacts":          auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/dashboard-report-artifacts/{id}":     auditExplicit(auditFacetExport, "dashboard.report_download"),
 	"GET /v1/alerts":                              auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/alerts":                             auditExplicit(auditFacetMutation, "alert.create"),
 	"GET /v1/alerts/active":                       auditWrapped(auditFacetSensitiveRead),

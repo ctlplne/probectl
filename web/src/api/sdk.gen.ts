@@ -294,6 +294,82 @@ export interface CollectorRegistration {
   tenant_id: string
 }
 
+export interface DashboardCreateRequest {
+  definition: DashboardDefinition
+  name: string
+  preset: "operator" | "executive"
+  shared: boolean
+}
+
+export interface DashboardDefinition {
+  absolute_from: string
+  absolute_to: string
+  coverage_limitations: string[]
+  metrics: { [key: string]: string }
+  provenance: string[]
+  redaction_state: string
+}
+
+export interface DashboardReportArtifact {
+  absolute_from: string
+  absolute_to: string
+  coverage_limitations: string[]
+  dashboard_id: string
+  download_url: string
+  filename: string
+  format: "pdf" | "csv"
+  generated_at: string
+  generated_by: string
+  id: string
+  media_type: "application/pdf" | "text/csv"
+  provenance: string[]
+  redaction_state: string
+  schedule_id?: string | null
+}
+
+export interface DashboardReportSchedule {
+  cadence: "daily" | "weekly" | "monthly"
+  created_at: string
+  dashboard_id: string
+  destination_id: string
+  enabled: boolean
+  format: "pdf" | "csv"
+  id: string
+  last_run_at?: string | null
+  name: string
+  next_run_at: string
+  owner_id: string
+  tenant_id: string
+  updated_at: string
+}
+
+export interface DashboardReportScheduleList {
+  destinations: JsonObject[]
+  items: DashboardReportSchedule[]
+  outbound_default: boolean
+}
+
+export interface DashboardReportScheduleRequest {
+  cadence: "daily" | "weekly" | "monthly"
+  dashboard_id: string
+  destination_id: "tenant-report-inbox"
+  first_run_at?: string
+  format: "pdf" | "csv"
+  name: string
+}
+
+export interface DashboardView {
+  created_at: string
+  definition: DashboardDefinition
+  id: string
+  name: string
+  owner_id: string
+  preset: "operator" | "executive"
+  shared: boolean
+  tenant_id: string
+  updated_at: string
+}
+
 export interface DeviceConfigArchiveRequest {
   content: string
   device: string
@@ -800,6 +876,8 @@ export interface Me {
   permissions: string[]
   tenant_id: string
   tenant_locale?: string
+  tenant_name: string
+  tenant_slug: string
   tenant_time_zone?: string
   time_zone?: string
   user_id: string
@@ -1309,6 +1387,51 @@ export interface GetCostSummaryRequest {
 }
 
 export type GetCostSummaryResponse = JsonObject
+
+export interface ListDashboardReportArtifactsRequest {
+}
+
+export type ListDashboardReportArtifactsResponse = JsonObject
+
+export interface DownloadDashboardReportArtifactRequest {
+  id: string
+}
+
+export type DownloadDashboardReportArtifactResponse = Response
+
+export interface ListDashboardReportSchedulesRequest {
+}
+
+export type ListDashboardReportSchedulesResponse = DashboardReportScheduleList
+
+export interface CreateDashboardReportScheduleRequest {
+  body: DashboardReportScheduleRequest
+}
+
+export type CreateDashboardReportScheduleResponse = DashboardReportSchedule
+
+export interface GenerateDashboardReportRequest {
+  body: JsonObject
+}
+
+export type GenerateDashboardReportResponse = DashboardReportArtifact
+
+export interface ListDashboardsRequest {
+}
+
+export type ListDashboardsResponse = JsonObject
+
+export interface CreateDashboardRequest {
+  body: DashboardCreateRequest
+}
+
+export type CreateDashboardResponse = DashboardView
+
+export interface GetDashboardRequest {
+  id: string
+}
+
+export type GetDashboardResponse = DashboardView
 
 export interface ListDeviceConfigsRequest {
   device?: string
@@ -2249,6 +2372,56 @@ export class ProbectlSDKClient {
     let path = "/v1/cost/summary"
     const query = new URLSearchParams()
     return this.requestJSON<GetCostSummaryResponse>("GET", path, query, undefined)
+  }
+
+  async listDashboardReportArtifacts(): Promise<ListDashboardReportArtifactsResponse> {
+    let path = "/v1/dashboard-report-artifacts"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListDashboardReportArtifactsResponse>("GET", path, query, undefined)
+  }
+
+  async downloadDashboardReportArtifact(request: DownloadDashboardReportArtifactRequest): Promise<DownloadDashboardReportArtifactResponse> {
+    let path = "/v1/dashboard-report-artifacts/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.request("GET", path, query, undefined)
+  }
+
+  async listDashboardReportSchedules(): Promise<ListDashboardReportSchedulesResponse> {
+    let path = "/v1/dashboard-report-schedules"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListDashboardReportSchedulesResponse>("GET", path, query, undefined)
+  }
+
+  async createDashboardReportSchedule(request: CreateDashboardReportScheduleRequest): Promise<CreateDashboardReportScheduleResponse> {
+    let path = "/v1/dashboard-report-schedules"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateDashboardReportScheduleResponse>("POST", path, query, request.body)
+  }
+
+  async generateDashboardReport(request: GenerateDashboardReportRequest): Promise<GenerateDashboardReportResponse> {
+    let path = "/v1/dashboard-reports"
+    const query = new URLSearchParams()
+    return this.requestJSON<GenerateDashboardReportResponse>("POST", path, query, request.body)
+  }
+
+  async listDashboards(): Promise<ListDashboardsResponse> {
+    let path = "/v1/dashboards"
+    const query = new URLSearchParams()
+    return this.requestJSON<ListDashboardsResponse>("GET", path, query, undefined)
+  }
+
+  async createDashboard(request: CreateDashboardRequest): Promise<CreateDashboardResponse> {
+    let path = "/v1/dashboards"
+    const query = new URLSearchParams()
+    return this.requestJSON<CreateDashboardResponse>("POST", path, query, request.body)
+  }
+
+  async getDashboard(request: GetDashboardRequest): Promise<GetDashboardResponse> {
+    let path = "/v1/dashboards/{id}"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<GetDashboardResponse>("GET", path, query, undefined)
   }
 
   async listDeviceConfigs(request: ListDeviceConfigsRequest = {}): Promise<ListDeviceConfigsResponse> {

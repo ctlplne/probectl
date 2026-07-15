@@ -664,6 +664,19 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 	if p == nil {
 		return apierror.Unauthorized("authentication required")
 	}
+	tenantName, tenantSlug := p.TenantID, p.TenantID
+	if s.pool != nil {
+		if err := s.inTenant(r, func(ctx context.Context, sc tenancy.Scope) error {
+			// The principal's tenant is both the explicit predicate and the FORCE
+			// RLS setting. /me must never become a tenant-name enumeration path.
+			return sc.Q.QueryRow(ctx, `
+				SELECT name, slug
+				  FROM public.probectl_current_tenant_identity()
+				 WHERE id = $1`, sc.Tenant.String()).Scan(&tenantName, &tenantSlug)
+		}); err != nil {
+			return err
+		}
+	}
 	perms := make([]string, 0, len(p.Permissions))
 	for k := range p.Permissions {
 		perms = append(perms, k)
@@ -671,6 +684,8 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) error {
 	sort.Strings(perms)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"tenant_id":        p.TenantID,
+		"tenant_name":      tenantName,
+		"tenant_slug":      tenantSlug,
 		"user_id":          p.UserID,
 		"email":            p.Email,
 		"display_name":     p.DisplayName,

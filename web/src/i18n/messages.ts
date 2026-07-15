@@ -126,6 +126,7 @@ const en = {
   'planes.bgp.loading': 'Loading BGP plane...',
   'planes.bgp.error': 'Could not load topology routing evidence.',
   'planes.bgp.table.caption': 'BGP routing edges',
+  'dashboard.bgp.table.caption': 'BGP routing dashboard',
   'planes.bgp.empty.title': 'No BGP routing evidence',
   'planes.bgp.empty.description':
     'BGP events appear here after the analyzer publishes tenant-scoped routing events.',
@@ -1046,6 +1047,7 @@ const es: Record<MessageKey, string> = {
   'planes.bgp.loading': 'Cargando plano BGP...',
   'planes.bgp.error': 'No se pudo cargar la evidencia de enrutamiento de topologia.',
   'planes.bgp.table.caption': 'Aristas de enrutamiento BGP',
+  'dashboard.bgp.table.caption': 'Panel de enrutamiento BGP',
   'planes.bgp.empty.title': 'Sin evidencia de enrutamiento BGP',
   'planes.bgp.empty.description':
     'Los eventos BGP aparecen aqui despues de que el analizador publica eventos de enrutamiento con tenant.',
@@ -1976,6 +1978,7 @@ const ar: Record<MessageKey, string> = {
   'planes.bgp.loading': 'جار تحميل مستوى BGP...',
   'planes.bgp.error': 'تعذر تحميل دليل توجيه الطوبولوجيا.',
   'planes.bgp.table.caption': 'حواف توجيه BGP',
+  'dashboard.bgp.table.caption': 'لوحة معلومات توجيه BGP',
   'planes.bgp.empty.title': 'لا يوجد دليل توجيه BGP',
   'planes.bgp.empty.description':
     'تظهر أحداث BGP هنا بعد أن ينشر المحلل أحداث توجيه مقيدة بالمستأجر.',

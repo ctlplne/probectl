@@ -266,11 +266,17 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
-    capability: 'Curated in-app dashboards',
+    capability: 'Curated dashboards + tenant-safe PDF/CSV reporting',
     featureIds: ['F9'],
     sprint: 'S45',
     kind: 'native',
     route: '/dashboards',
+    evidence: [
+      'openapi:/v1/dashboards',
+      'openapi:/v1/dashboard-report-schedules',
+      'openapi:/v1/dashboard-reports',
+      'openapi:/v1/dashboard-report-artifacts',
+    ],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {

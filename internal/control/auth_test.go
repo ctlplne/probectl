@@ -251,6 +251,7 @@ func TestMeEndpoint(t *testing.T) {
 	}
 	var body struct {
 		TenantID       string   `json:"tenant_id"`
+		TenantName     string   `json:"tenant_name"`
 		TimeZone       string   `json:"time_zone"`
 		Locale         string   `json:"locale"`
 		TenantTimeZone string   `json:"tenant_time_zone"`
@@ -262,6 +263,9 @@ func TestMeEndpoint(t *testing.T) {
 	}
 	if body.TenantID != tenancy.DefaultTenantID.String() {
 		t.Fatalf("tenant_id = %s", body.TenantID)
+	}
+	if body.TenantName != tenancy.DefaultTenantID.String() {
+		t.Fatalf("DB-less tenant_name = %s, want safe tenant id fallback", body.TenantName)
 	}
 	if body.TimeZone != "UTC" || body.Locale != "en" || body.TenantTimeZone != "UTC" || body.TenantLocale != "en" {
 		t.Fatalf("preferences = timezone:%q locale:%q tenant_timezone:%q tenant_locale:%q",

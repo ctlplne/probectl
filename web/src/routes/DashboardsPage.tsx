@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useMemo, type ReactElement } from 'react'
+import { useMemo, useState, type ReactElement } from 'react'
 import { useNavigate } from 'react-router-dom'
 import styles from './dashboards.module.css'
 import { Page } from './RoutePage'
@@ -42,6 +42,7 @@ import { pct, useSLOs, type SLOStatus } from '../api/slos'
 import { useDetections, type Detection } from '../api/threat'
 import { useTests, type Test } from '../api/tests'
 import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
+import type { DashboardDefinition, DashboardPreset } from '../api/dashboardReporting'
 import { useAuth } from '../auth/useAuth'
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
@@ -52,6 +53,7 @@ import {
   formatRatioPercent,
   formatScaledBitRate,
 } from '../i18n/number'
+import { DashboardReportingCard } from './DashboardReportingCard'
 
 function compact(n: number, locale: string): string {
   return formatInteger(n, locale)
@@ -88,7 +90,7 @@ const EMPTY_FLOW_ANOMALIES: FlowAnomaly[] = []
 
 export function DashboardsPage() {
   const navigate = useNavigate()
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const { tenant, user } = useAuth()
   const tests = useTests()
   const agentsQuery = useAgents()
@@ -103,6 +105,9 @@ export function DashboardsPage() {
   const slos = useSLOs()
   const compliance = useCompliance()
   const detections = useDetections()
+  const [preset, setPreset] = useState<DashboardPreset>('operator')
+  const scopeTo = useMemo(() => new Date(), [])
+  const scopeFrom = useMemo(() => new Date(scopeTo.getTime() - 60 * 60 * 1000), [scopeTo])
 
   const testItems = tests.data ?? EMPTY_TESTS
   const enabledTests = testItems.filter((t) => t.enabled)
@@ -191,6 +196,65 @@ export function DashboardsPage() {
       user.email,
     ],
   )
+  const coverageLimitations = useMemo(() => {
+    const gaps = [
+      'Uninstrumented endpoints and traffic outside registered collectors are not observed.',
+    ]
+    if (agents.length === 0 || onlineAgents.length < agents.length) {
+      gaps.push(`${agents.length - onlineAgents.length} registered collector(s) are not online.`)
+    }
+    if (!topology.data?.topology_running) gaps.push('Topology producer reports not running.')
+    if (!cost.data?.cost_running) gaps.push('Cost producer reports not running or unpriced.')
+    if (!detections.data?.detections_running)
+      gaps.push('Threat detection producer reports not running.')
+    return gaps
+  }, [
+    agents.length,
+    cost.data?.cost_running,
+    detections.data?.detections_running,
+    onlineAgents.length,
+    topology.data?.topology_running,
+  ])
+  const reportDefinition = useMemo<DashboardDefinition>(
+    () => ({
+      absolute_from: scopeFrom.toISOString(),
+      absolute_to: scopeTo.toISOString(),
+      provenance: [
+        'Tenant-scoped probectl control-plane APIs',
+        'PostgreSQL, topology, flow, cost, SLO, compliance, and detection read models',
+      ],
+      redaction_state: 'Secrets excluded; values are already authorized for this tenant session.',
+      coverage_limitations: coverageLimitations,
+      metrics: {
+        'Active tests': formatInteger(enabledTests.length, locale),
+        'Latest success rate': formatRatioPercent(successRate, locale, {
+          maximumFractionDigits: 1,
+        }),
+        [t('planes.bgp.table.caption')]: formatInteger(routingEdges.length, locale),
+        'Flow volume': flowBytes(flowTotal, locale),
+        'Online collectors': `${formatInteger(onlineAgents.length, locale)}/${formatInteger(agents.length, locale)}`,
+        'Open incidents': formatInteger(openIncidents.length, locale),
+        'Burning SLOs': formatInteger(burningSLOs.length, locale),
+        'Threat signals': formatInteger(threatItems.length, locale),
+      },
+    }),
+    [
+      agents.length,
+      burningSLOs.length,
+      coverageLimitations,
+      enabledTests.length,
+      flowTotal,
+      locale,
+      onlineAgents.length,
+      openIncidents.length,
+      routingEdges.length,
+      scopeFrom,
+      scopeTo,
+      successRate,
+      t,
+      threatItems.length,
+    ],
+  )
 
   const anyLoading =
     tests.isLoading ||
@@ -232,6 +296,58 @@ export function DashboardsPage() {
         <LoadingState label="Loading dashboards..." />
       ) : (
         <>
+          <section className={styles.scopeBar} aria-label="Dashboard scope and preset">
+            <div className={styles.presetGroup} aria-label="Dashboard preset">
+              <span className={styles.scopeLabel}>Preset</span>
+              <Button
+                size="sm"
+                variant={preset === 'operator' ? 'primary' : 'secondary'}
+                aria-pressed={preset === 'operator'}
+                onClick={() => setPreset('operator')}
+              >
+                Operator
+              </Button>
+              <Button
+                size="sm"
+                variant={preset === 'executive' ? 'primary' : 'secondary'}
+                aria-pressed={preset === 'executive'}
+                onClick={() => setPreset('executive')}
+              >
+                Executive
+              </Button>
+            </div>
+            <div className={styles.scopeFact}>
+              <span className={styles.scopeLabel}>Tenant</span>
+              <strong>{tenant.name}</strong>
+              <code>{tenant.id}</code>
+            </div>
+            <div className={styles.scopeFact}>
+              <span className={styles.scopeLabel}>Absolute time · UTC</span>
+              <strong>
+                <DateTime value={scopeFrom.toISOString()} /> –{' '}
+                <DateTime value={scopeTo.toISOString()} />
+              </strong>
+            </div>
+            <Badge tone="info">1 hour coordinated</Badge>
+            <details className={styles.scopeDetails}>
+              <summary>Coverage, provenance, and redaction details</summary>
+              <dl>
+                <div>
+                  <dt>Provenance</dt>
+                  <dd>{reportDefinition.provenance.join(' · ')}</dd>
+                </div>
+                <div>
+                  <dt>Redaction</dt>
+                  <dd>{reportDefinition.redaction_state}</dd>
+                </div>
+                <div>
+                  <dt>Coverage gaps</dt>
+                  <dd>{coverageLimitations.join(' · ')}</dd>
+                </div>
+              </dl>
+            </details>
+          </section>
+
           <div className={styles.metrics}>
             <DashboardMetric
               label="Active tests"
@@ -326,7 +442,7 @@ export function DashboardsPage() {
             <Card>
               <CardHeader
                 title="Cost and capacity"
-                description={`${formatInteger(serviceNodes, locale)} services visible in topology`}
+                description={`${formatInteger(serviceNodes, locale)} services · charts coordinated to the visible 1-hour scope`}
               />
               <CardBody className={styles.chartStack}>
                 <DashboardTrend
@@ -411,14 +527,14 @@ export function DashboardsPage() {
 
             <Card>
               <CardHeader
-                title="BGP routing"
+                title={t('planes.stat.bgp.title')}
                 description="AS, prefix, and routing-edge coverage."
               />
               <CardBody>
                 <PlaneTable
-                  caption="BGP routing dashboard"
+                  caption={t('dashboard.bgp.table.caption')}
                   rows={bgpRows}
-                  emptyTitle="No BGP routing evidence"
+                  emptyTitle={t('planes.bgp.empty.title')}
                 />
               </CardBody>
             </Card>
@@ -510,6 +626,7 @@ export function DashboardsPage() {
               </CardBody>
             </Card>
           </div>
+          <DashboardReportingCard preset={preset} definition={reportDefinition} />
         </>
       )}
     </Page>

@@ -16,6 +16,8 @@ import { jsonResponse } from './fetchStub'
  *  render as a signed-in operator. */
 interface MeFixture {
   tenant_id: string
+  tenant_name?: string
+  tenant_slug?: string
   user_id: string
   email: string
   display_name: string
@@ -29,6 +31,8 @@ interface MeFixture {
 
 const DEFAULT_ME: MeFixture = {
   tenant_id: '00000000-0000-0000-0000-000000000001',
+  tenant_name: 'Acme Industries',
+  tenant_slug: 'acme-industries',
   user_id: 'u_test',
   email: 'operator@probectl.test',
   display_name: 'Test Operator',

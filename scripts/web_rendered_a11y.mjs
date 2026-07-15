@@ -152,6 +152,8 @@ function apiPayload(path, method, pagePath = "") {
   if (path === "/v1/me")
     return json({
       tenant_id: "00000000-0000-0000-0000-000000000001",
+      tenant_name: "Acme Industries",
+      tenant_slug: "acme-industries",
       user_id: "u_test",
       email: "operator@probectl.test",
       display_name: "Test Operator",
@@ -185,6 +187,22 @@ function apiPayload(path, method, pagePath = "") {
         },
       ],
     });
+  if (path === "/v1/dashboards") return json({ items: [] });
+  if (path === "/v1/dashboard-report-schedules")
+    return json({
+      items: [],
+      destinations: [
+        {
+          id: "tenant-report-inbox",
+          name: "Tenant report inbox",
+          kind: "local",
+          outbound: false,
+          ready: true,
+        },
+      ],
+      outbound_default: false,
+    });
+  if (path === "/v1/dashboard-report-artifacts") return json({ items: [] });
   if (path === "/v1/ai/discover") return json({ proposals: [] });
   if (path === "/v1/incidents")
     return json({
@@ -957,6 +975,9 @@ async function dashboardChecks(page) {
       "/v1/flows/anomalies",
       "/v1/cost/summary",
       "/v1/threat/detections",
+      "/v1/dashboards",
+      "/v1/dashboard-report-schedules",
+      "/v1/dashboard-report-artifacts",
     ];
     for (const requiredPath of requiredPaths) {
       if (
@@ -966,6 +987,23 @@ async function dashboardChecks(page) {
       ) {
         problems.push(`missing tenant-scoped fetch: ${requiredPath}`);
       }
+    }
+    const body = normalize(document.body.textContent);
+    for (const requiredText of [
+      "Acme Industries",
+      "00000000-0000-0000-0000-000000000001",
+      "Absolute time · UTC",
+      "1 hour coordinated",
+      "Coverage, provenance, and redaction details",
+      "Operator",
+      "Executive",
+      "Tenant report inbox",
+      "no outbound default",
+    ]) {
+      if (!body.includes(requiredText))
+        problems.push(
+          `missing dashboard scope/reporting text: ${requiredText}`,
+        );
     }
     return problems;
   }, dashboardCaptions);

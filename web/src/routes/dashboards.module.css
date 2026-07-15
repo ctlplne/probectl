@@ -1,14 +1,81 @@
+.scopeBar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 2fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.presetGroup,
+.scopeFact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.scopeFact {
+  flex-wrap: wrap;
+}
+
+.scopeFact code,
+.shareLink code {
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.scopeLabel {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+}
+
+.scopeDetails {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.scopeDetails summary {
+  cursor: pointer;
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.scopeDetails dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+}
+
+.scopeDetails dt {
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.scopeDetails dd {
+  margin: var(--space-1) 0 0;
+}
+
 .metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
 .metric {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  min-height: 152px;
+  gap: var(--space-1);
+  min-height: calc(var(--space-8) * 3);
+  padding: var(--space-3);
 }
 
 .metricLabel {
@@ -17,7 +84,7 @@
 }
 
 .metricValue {
-  font-size: var(--font-size-2xl);
+  font-size: var(--font-size-xl);
   line-height: var(--line-height-display);
   font-weight: var(--font-weight-bold);
   font-variant-numeric: tabular-nums;
@@ -38,11 +105,137 @@
 
 .chartStack {
   display: grid;
+  gap: var(--space-3);
+}
+
+.reportingSection {
+  scroll-margin-block-start: var(--space-8);
+}
+
+.reportingCard {
+  margin-top: var(--space-4);
+}
+
+.reportingBody {
+  display: grid;
   gap: var(--space-4);
+}
+
+.reportingControls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  min-height: calc(var(--space-8) + var(--space-2));
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.checkboxLabel input {
+  accent-color: var(--color-accent);
+}
+
+.reportActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.reportingLists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-width-thin) solid var(--color-border);
+}
+
+.reportingLists h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-md);
+}
+
+.compactList {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.compactList a {
+  color: var(--color-accent);
+}
+
+.shareLink,
+.reportingEmpty,
+.reportingError {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.savedSnapshot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.savedSnapshot strong {
+  color: var(--color-text);
+}
+
+.reportingError {
+  color: var(--color-danger);
+}
+
+@media (max-width: 1200px) {
+  .metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .scopeBar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reportingControls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 960px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .scopeBar,
+  .scopeDetails dl,
+  .reportingControls,
+  .reportingLists {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .presetGroup,
+  .scopeFact {
+    align-items: flex-start;
   }
 }

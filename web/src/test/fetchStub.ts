@@ -316,6 +316,8 @@ export function defaultFetch(): typeof fetch {
     if (path === '/v1/me')
       return jsonResponse({
         tenant_id: '00000000-0000-0000-0000-000000000001',
+        tenant_name: 'Acme Industries',
+        tenant_slug: 'acme-industries',
         user_id: 'u_test',
         email: 'operator@probectl.test',
         display_name: 'Test Operator',
@@ -332,6 +334,22 @@ export function defaultFetch(): typeof fetch {
         rollouts_available: true,
       })
     if (path === '/v1/rollouts') return jsonResponse({ items: [] })
+    if (path === '/v1/dashboards') return jsonResponse({ items: [] })
+    if (path === '/v1/dashboard-report-schedules')
+      return jsonResponse({
+        items: [],
+        destinations: [
+          {
+            id: 'tenant-report-inbox',
+            name: 'Tenant report inbox',
+            kind: 'local',
+            outbound: false,
+            ready: true,
+          },
+        ],
+        outbound_default: false,
+      })
+    if (path === '/v1/dashboard-report-artifacts') return jsonResponse({ items: [] })
     if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
     if (path === '/v1/explorer/schema')
       return jsonResponse({

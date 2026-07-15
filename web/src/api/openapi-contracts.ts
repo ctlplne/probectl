@@ -8,6 +8,7 @@ import type * as Agents from './agents'
 import type * as AI from './ai'
 import type * as Alerts from './alerts'
 import type * as Authoring from './authoring'
+import type * as DashboardReporting from './dashboardReporting'
 import type * as Identity from './identity'
 import type * as Incidents from './incidents'
 import type * as Lifecycle from './lifecycle'
@@ -258,6 +259,52 @@ export const API_CALL_CONTRACTS = [
     generated: 'GetCostSummaryResponse',
     reason:
       'OpenAPI currently emits JsonObject for cost summaries; CostResponse is the explicit view model.',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'GET',
+    path: '/dashboards',
+    response: 'DashboardList',
+    generated: 'ListDashboardsResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for the saved-dashboard list; DashboardList is the explicit tenant-scoped view model.',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'POST',
+    path: '/dashboards',
+    response: 'DashboardView',
+    generated: 'CreateDashboardResponse',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'GET',
+    path: '/dashboard-report-schedules',
+    response: 'ScheduleList',
+    generated: 'ListDashboardReportSchedulesResponse',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'POST',
+    path: '/dashboard-report-schedules',
+    response: 'ReportSchedule',
+    generated: 'CreateDashboardReportScheduleResponse',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'GET',
+    path: '/dashboard-report-artifacts',
+    response: 'ArtifactList',
+    generated: 'ListDashboardReportArtifactsResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for the artifact list wrapper; ArtifactList is the explicit tenant-scoped view model.',
+  },
+  {
+    file: 'api/dashboardReporting.ts',
+    method: 'POST',
+    path: '/dashboard-reports',
+    response: 'ReportArtifact',
+    generated: 'GenerateDashboardReportResponse',
   },
   {
     file: 'api/diagnostics.ts',
@@ -696,6 +743,9 @@ export const OPENAPI_TYPE_CONTRACTS = {
   alertRequest: true,
   authorProposal: true,
   discoverProposal: true,
+  dashboardView: true,
+  dashboardReportSchedule: true,
+  dashboardReportArtifact: true,
   scimToken: true,
   scimTokenCreated: true,
   abacPolicy: true,
@@ -737,6 +787,15 @@ export const OPENAPI_TYPE_CONTRACTS = {
   alertRequest: GeneratedHasViewKeys<SDK.AlertRequest, Alerts.AlertRuleInput>
   authorProposal: GeneratedHasViewKeys<SDK.TestProposal, Authoring.TestProposal>
   discoverProposal: GeneratedHasViewKeys<SDK.DiscoverProposal, Authoring.DiscoverProposal>
+  dashboardView: GeneratedHasViewKeys<SDK.DashboardView, DashboardReporting.DashboardView>
+  dashboardReportSchedule: GeneratedHasViewKeys<
+    SDK.DashboardReportSchedule,
+    DashboardReporting.ReportSchedule
+  >
+  dashboardReportArtifact: GeneratedHasViewKeys<
+    SDK.DashboardReportArtifact,
+    DashboardReporting.ReportArtifact
+  >
   scimToken: GeneratedHasViewKeys<SDK.SCIMToken, Identity.ScimToken>
   scimTokenCreated: GeneratedHasViewKeys<SDK.SCIMTokenCreated, Identity.CreatedScimToken>
   abacPolicy: GeneratedHasViewKeys<SDK.ABACPolicy, Identity.ABACPolicy>

@@ -415,6 +415,14 @@ func (rt *serveRuntime) startLifecycleAndServe() error {
 	} else {
 		rt.log.Warn("ALERTING INACTIVE: no query backend wired in this profile — stored rules will NOT evaluate")
 	}
+	if reports, ok := control.BuildDashboardReportSupervisor(rt.db.Pool(), time.Minute, rt.log); ok {
+		if err := rt.singletons.Register("dashboard-report-scheduler", func(ctx context.Context, _ cluster.LeaseToken) error {
+			reports.Run(ctx)
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
 	rt.srv.WithAlertingActive(rt.alertingActive)
 	rt.g.Go(func() error { return rt.srv.Run(rt.gctx) })
 	return nil

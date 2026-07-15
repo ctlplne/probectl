@@ -46,6 +46,8 @@ export const AuthContext = createContext<AuthContextValue | null>(null)
 /** The `/v1/me` response (the server's authenticated view of the caller). */
 interface Me {
   tenant_id: string
+  tenant_name?: string
+  tenant_slug?: string
   user_id: string
   email: string
   display_name: string
@@ -98,8 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // switchTenant is a no-op (the always-visible indicator stays correct).
     const tenant: Tenant = {
       id: me.tenant_id,
-      name: me.tenant_id,
-      slug: me.tenant_id,
+      name: me.tenant_name || me.tenant_id,
+      slug: me.tenant_slug || me.tenant_id,
       time_zone: me.tenant_time_zone,
       locale: me.tenant_locale,
     }

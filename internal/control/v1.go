@@ -181,6 +181,15 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/rollouts/{id}/verify", s.handleVerifyRollout, permAgentWrite},
 		{http.MethodPost, "/v1/rollouts/{id}/halt", s.handleHaltRollout, permAgentWrite},
 		{http.MethodPost, "/v1/rollouts/{id}/resume", s.handleResumeRollout, permAgentWrite},
+		// X14: durable tenant-scoped dashboards plus local report-inbox delivery.
+		{http.MethodGet, "/v1/dashboards", s.handleListDashboards, permMetricsRead},
+		{http.MethodPost, "/v1/dashboards", s.handleCreateDashboard, permMetricsWrite},
+		{http.MethodGet, "/v1/dashboards/{id}", s.handleGetDashboard, permMetricsRead},
+		{http.MethodGet, "/v1/dashboard-report-schedules", s.handleListReportSchedules, permMetricsRead},
+		{http.MethodPost, "/v1/dashboard-report-schedules", s.handleCreateReportSchedule, permMetricsWrite},
+		{http.MethodPost, "/v1/dashboard-reports", s.handleGenerateDashboardReport, permMetricsRead},
+		{http.MethodGet, "/v1/dashboard-report-artifacts", s.handleListDashboardReportArtifacts, permMetricsRead},
+		{http.MethodGet, "/v1/dashboard-report-artifacts/{id}", s.handleDownloadDashboardReportArtifact, permMetricsRead},
 		{http.MethodGet, "/v1/me", s.handleMe, ""},
 	}
 }

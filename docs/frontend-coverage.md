@@ -23,7 +23,9 @@ Two pieces make it work:
   focus-obscured, positive `tabindex`, and 24px minimum interactive targets.
   The `/dashboards` route has an extra data-depth assertion in that same browser
   pass: active tests, BGP, flow, device, eBPF, cost, threat, and tenant-health
-  dashboard tables must all render tenant-scoped fixture rows, and browser
+  dashboard tables must all render tenant-scoped fixture rows; tenant name,
+  immutable tenant ID, absolute time, preset, and coverage details must be
+  visible; the report destination must remain local/no-outbound; and browser
   requests must not carry a `tenant_id` query parameter.
 
 Think of the registry as a passenger manifest and the gate as the headcount:

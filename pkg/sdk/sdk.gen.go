@@ -367,6 +367,82 @@ type CollectorRegistration struct {
 	TenantId     string              `json:"tenant_id"`
 }
 
+type DashboardCreateRequest struct {
+	Definition DashboardDefinition `json:"definition"`
+	Name       string              `json:"name"`
+	Preset     string              `json:"preset"`
+	Shared     bool                `json:"shared"`
+}
+
+type DashboardDefinition struct {
+	AbsoluteFrom        string            `json:"absolute_from"`
+	AbsoluteTo          string            `json:"absolute_to"`
+	CoverageLimitations []string          `json:"coverage_limitations"`
+	Metrics             map[string]string `json:"metrics"`
+	Provenance          []string          `json:"provenance"`
+	RedactionState      string            `json:"redaction_state"`
+}
+
+type DashboardReportArtifact struct {
+	AbsoluteFrom        string   `json:"absolute_from"`
+	AbsoluteTo          string   `json:"absolute_to"`
+	CoverageLimitations []string `json:"coverage_limitations"`
+	DashboardId         string   `json:"dashboard_id"`
+	DownloadUrl         string   `json:"download_url"`
+	Filename            string   `json:"filename"`
+	Format              string   `json:"format"`
+	GeneratedAt         string   `json:"generated_at"`
+	GeneratedBy         string   `json:"generated_by"`
+	Id                  string   `json:"id"`
+	MediaType           string   `json:"media_type"`
+	Provenance          []string `json:"provenance"`
+	RedactionState      string   `json:"redaction_state"`
+	ScheduleId          *string  `json:"schedule_id,omitempty"`
+}
+
+type DashboardReportSchedule struct {
+	Cadence       string  `json:"cadence"`
+	CreatedAt     string  `json:"created_at"`
+	DashboardId   string  `json:"dashboard_id"`
+	DestinationId string  `json:"destination_id"`
+	Enabled       bool    `json:"enabled"`
+	Format        string  `json:"format"`
+	Id            string  `json:"id"`
+	LastRunAt     *string `json:"last_run_at,omitempty"`
+	Name          string  `json:"name"`
+	NextRunAt     string  `json:"next_run_at"`
+	OwnerId       string  `json:"owner_id"`
+	TenantId      string  `json:"tenant_id"`
+	UpdatedAt     string  `json:"updated_at"`
+}
+
+type DashboardReportScheduleList struct {
+	Destinations    []map[string]any          `json:"destinations"`
+	Items           []DashboardReportSchedule `json:"items"`
+	OutboundDefault bool                      `json:"outbound_default"`
+}
+
+type DashboardReportScheduleRequest struct {
+	Cadence       string `json:"cadence"`
+	DashboardId   string `json:"dashboard_id"`
+	DestinationId string `json:"destination_id"`
+	FirstRunAt    string `json:"first_run_at,omitempty"`
+	Format        string `json:"format"`
+	Name          string `json:"name"`
+}
+
+type DashboardView struct {
+	CreatedAt  string              `json:"created_at"`
+	Definition DashboardDefinition `json:"definition"`
+	Id         string              `json:"id"`
+	Name       string              `json:"name"`
+	OwnerId    string              `json:"owner_id"`
+	Preset     string              `json:"preset"`
+	Shared     bool                `json:"shared"`
+	TenantId   string              `json:"tenant_id"`
+	UpdatedAt  string              `json:"updated_at"`
+}
+
 type DeviceConfigArchiveRequest struct {
 	Content    string `json:"content"`
 	Device     string `json:"device"`
@@ -882,6 +958,8 @@ type Me struct {
 	Permissions    []string `json:"permissions"`
 	TenantId       string   `json:"tenant_id"`
 	TenantLocale   string   `json:"tenant_locale,omitempty"`
+	TenantName     string   `json:"tenant_name"`
+	TenantSlug     string   `json:"tenant_slug"`
 	TenantTimeZone string   `json:"tenant_time_zone,omitempty"`
 	TimeZone       string   `json:"time_zone,omitempty"`
 	UserId         string   `json:"user_id"`
@@ -1863,6 +1941,127 @@ func (c *Client) GetCostSummary(ctx context.Context, req GetCostSummaryRequest) 
 		return nil, err
 	}
 	return out, nil
+}
+
+// List generated artifacts in the caller tenant's report inbox
+type ListDashboardReportArtifactsRequest struct {
+}
+
+func (c *Client) ListDashboardReportArtifacts(ctx context.Context, req ListDashboardReportArtifactsRequest) (map[string]any, error) {
+	path := "/v1/dashboard-report-artifacts"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Download and audit one tenant-confined report artifact
+type DownloadDashboardReportArtifactRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) DownloadDashboardReportArtifact(ctx context.Context, req DownloadDashboardReportArtifactRequest) ([]byte, error) {
+	path := "/v1/dashboard-report-artifacts/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	return c.doRaw(ctx, http.MethodGet, path, query, nil)
+}
+
+// List caller-owned report schedules and configured destinations
+type ListDashboardReportSchedulesRequest struct {
+}
+
+func (c *Client) ListDashboardReportSchedules(ctx context.Context, req ListDashboardReportSchedulesRequest) (*DashboardReportScheduleList, error) {
+	path := "/v1/dashboard-report-schedules"
+	query := url.Values{}
+	var out DashboardReportScheduleList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Schedule PDF or CSV delivery to a configured destination
+type CreateDashboardReportScheduleRequest struct {
+	Body *DashboardReportScheduleRequest `json:"-"`
+}
+
+func (c *Client) CreateDashboardReportSchedule(ctx context.Context, req CreateDashboardReportScheduleRequest) (*DashboardReportSchedule, error) {
+	path := "/v1/dashboard-report-schedules"
+	query := url.Values{}
+	var out DashboardReportSchedule
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Generate an audited PDF or CSV artifact in the tenant report inbox
+type GenerateDashboardReportRequest struct {
+	Body *map[string]any `json:"-"`
+}
+
+func (c *Client) GenerateDashboardReport(ctx context.Context, req GenerateDashboardReportRequest) (*DashboardReportArtifact, error) {
+	path := "/v1/dashboard-reports"
+	query := url.Values{}
+	var out DashboardReportArtifact
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// List dashboard views owned by or shared with the caller
+type ListDashboardsRequest struct {
+}
+
+func (c *Client) ListDashboards(ctx context.Context, req ListDashboardsRequest) (map[string]any, error) {
+	path := "/v1/dashboards"
+	query := url.Values{}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// Save a dashboard definition inside the caller tenant
+type CreateDashboardRequest struct {
+	Body *DashboardCreateRequest `json:"-"`
+}
+
+func (c *Client) CreateDashboard(ctx context.Context, req CreateDashboardRequest) (*DashboardView, error) {
+	path := "/v1/dashboards"
+	query := url.Values{}
+	var out DashboardView
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Get an owned or tenant-shared dashboard
+type GetDashboardRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) GetDashboard(ctx context.Context, req GetDashboardRequest) (*DashboardView, error) {
+	path := "/v1/dashboards/{id}"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out DashboardView
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // List tenant-scoped device config versions
