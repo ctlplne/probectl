@@ -113,6 +113,18 @@ func uniqueSeriesFor(c IngestConfig) int {
 // query leg counts it per tenant (one series per agent×test).
 const successMetric = "probectl_probe_success"
 
+// fullStackKafkaFlushTimeout is a phase bound, not the whole load-test budget.
+// A missing broker/topic must fail this warmup promptly; otherwise franz-go can
+// legitimately keep retrying until the 10-minute outer scale context expires,
+// hiding the real dependency failure behind a suite-wide timeout.
+const (
+	fullStackKafkaFlushTimeout = 20 * time.Second
+	// A freshly created single-node KRaft broker can report API health before
+	// its first consumer-group coordinator/offset topic is ready. Keep this
+	// setup allowance separate from the measured load and settle windows.
+	fullStackReadinessTimeout = 60 * time.Second
+)
+
 // DriveFullStack drives one tier profile through bus → consumer → writer and
 // confirms it back OUT of the store via count: settle on this run's unique
 // series, then per-tenant correctness + query latency. The bus/writer/count
@@ -279,13 +291,11 @@ func waitFullStackReady(ctx context.Context, b bus.Bus, count QueryCounter, ns s
 	if err := b.Publish(ctx, bus.NetworkResultsTopic, []byte(tenant), payload); err != nil {
 		return fmt.Errorf("perf: readiness publish: %w", err)
 	}
-	if f, ok := b.(bus.Flusher); ok {
-		if err := f.Flush(ctx); err != nil {
-			return fmt.Errorf("perf: readiness flush: %w", err)
-		}
+	if err := flushFullStackBus(ctx, b, "readiness"); err != nil {
+		return err
 	}
 
-	readyCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	readyCtx, cancel := context.WithTimeout(ctx, fullStackReadinessTimeout)
 	defer cancel()
 	query := fmt.Sprintf(`count(%s{tenant_id="%s"})`, successMetric, tenant)
 	for {
@@ -306,7 +316,7 @@ func waitFullStackReady(ctx context.Context, b bus.Bus, count QueryCounter, ns s
 			if err != nil {
 				return fmt.Errorf("perf: readiness query: %w", err)
 			}
-			return fmt.Errorf("perf: readiness result not visible in Prometheus within %s", 30*time.Second)
+			return fmt.Errorf("perf: readiness result not visible in Prometheus within %s", fullStackReadinessTimeout)
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
@@ -365,10 +375,21 @@ func warmKafkaTopic(ctx context.Context, b bus.Bus) error {
 	if err := b.Publish(ctx, bus.NetworkResultsTopic, []byte("perf-warmup"), payload); err != nil {
 		return fmt.Errorf("perf: warmup publish: %w", err)
 	}
-	if f, ok := b.(bus.Flusher); ok {
-		if err := f.Flush(ctx); err != nil {
-			return fmt.Errorf("perf: warmup flush: %w", err)
-		}
+	if err := flushFullStackBus(ctx, b, "warmup"); err != nil {
+		return err
+	}
+	return nil
+}
+
+func flushFullStackBus(ctx context.Context, b bus.Bus, phase string) error {
+	f, ok := b.(bus.Flusher)
+	if !ok {
+		return nil
+	}
+	flushCtx, cancel := context.WithTimeout(ctx, fullStackKafkaFlushTimeout)
+	defer cancel()
+	if err := f.Flush(flushCtx); err != nil {
+		return fmt.Errorf("perf: %s flush: %w", phase, err)
 	}
 	return nil
 }

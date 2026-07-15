@@ -174,11 +174,9 @@ func DriveFullStackFlow(ctx context.Context, b bus.Bus, st flowstore.Store, part
 	rep.Published = published
 	rep.Batches = batches
 	if pubErr == nil {
-		if f, ok := b.(bus.Flusher); ok {
-			t0 := time.Now()
-			pubErr = f.Flush(cctx)
-			rep.FlushLatency = time.Since(t0)
-		}
+		t0 := time.Now()
+		pubErr = flushFullStackBus(cctx, b, "full-stack flow publish")
+		rep.FlushLatency = time.Since(t0)
 	}
 	if pubErr != nil {
 		cancel()

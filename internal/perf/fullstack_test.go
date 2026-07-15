@@ -18,6 +18,35 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/store/tsdb"
 )
 
+type deadlineFlusherBus struct {
+	flushDeadline time.Time
+}
+
+func (*deadlineFlusherBus) Publish(context.Context, string, []byte, []byte) error { return nil }
+func (*deadlineFlusherBus) Subscribe(context.Context, string, string, bus.Handler) error {
+	return nil
+}
+func (*deadlineFlusherBus) Close() error { return nil }
+func (b *deadlineFlusherBus) Flush(ctx context.Context) error {
+	b.flushDeadline, _ = ctx.Deadline()
+	return context.DeadlineExceeded
+}
+
+func TestWarmKafkaTopicBoundsDependencyFailure(t *testing.T) {
+	b := &deadlineFlusherBus{}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	start := time.Now()
+	err := warmKafkaTopic(ctx, b)
+	if err == nil || !strings.Contains(err.Error(), "warmup flush") {
+		t.Fatalf("warmup error = %v, want contextual flush failure", err)
+	}
+	remaining := b.flushDeadline.Sub(start)
+	if remaining <= 0 || remaining > fullStackKafkaFlushTimeout+time.Second {
+		t.Fatalf("warmup flush deadline in %s, want a positive bound <= %s", remaining, fullStackKafkaFlushTimeout)
+	}
+}
+
 // memCounter emulates the two instant queries the driver issues against a
 // memory store with PROMETHEUS semantics: count() counts DISTINCT series,
 // while Memory.Query returns one entry per sample — so dedup by label set.

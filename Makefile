@@ -234,6 +234,7 @@ load-test-smoke: ## U-005/SCALE-001 S-tier FULL-STACK load smoke (real Kafka + P
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_PROM_URL=$(or $(PROBECTL_PROM_URL),http://localhost:9090) \
 	PROBECTL_FLOWSTORE_URL=$(or $(PROBECTL_FLOWSTORE_URL),http://probectl:probectl@localhost:8123) \
+	PROBECTL_RUN_FULLSTACK_LOAD=1 \
 	PROBECTL_SCALE_TIER=S \
 		$(GO) test -tags=integration -count=1 -v -timeout 12m -run '^TestFullStack(Load|Flow)Gate$$' ./internal/perf/
 
@@ -242,6 +243,7 @@ load-test: ## U-005/SCALE-001 full-stack L/XL/XXL load gate on reference hardwar
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_PROM_URL=$(or $(PROBECTL_PROM_URL),http://localhost:9090) \
 	PROBECTL_FLOWSTORE_URL=$(or $(PROBECTL_FLOWSTORE_URL),http://probectl:probectl@localhost:8123) \
+	PROBECTL_RUN_FULLSTACK_LOAD=1 \
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
 		$(GO) test -tags=integration -count=1 -v -timeout 180m -run '^TestFullStack(Load|Flow)Gate$$' ./internal/perf/
 
@@ -254,11 +256,13 @@ scale-fullstack: ## EXC-GATE-01: the full reference-hardware scale gate — in-p
 	@echo ">> step 2/3: full-stack result load gate (real Kafka + Prometheus, end to end)"
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_PROM_URL=$(or $(PROBECTL_PROM_URL),http://localhost:9090) \
+	PROBECTL_RUN_FULLSTACK_LOAD=1 \
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
 		$(GO) test -tags=integration -count=1 -v -timeout 240m -run '^TestFullStackLoadGate$$' ./internal/perf/
 	@echo ">> step 3/3: full-stack flow load gate (real Kafka + ClickHouse, end to end)"
 	PROBECTL_TEST_KAFKA=$(or $(PROBECTL_TEST_KAFKA),localhost:9092) \
 	PROBECTL_FLOWSTORE_URL=$(or $(PROBECTL_FLOWSTORE_URL),http://probectl:probectl@localhost:8123) \
+	PROBECTL_RUN_FULLSTACK_LOAD=1 \
 	PROBECTL_SCALE=1 PROBECTL_SCALE_TIER=$(or $(TIER),L) \
 		$(GO) test -tags=integration -count=1 -v -timeout 240m -run '^TestFullStackFlowGate$$' ./internal/perf/
 	@echo ">> scale-fullstack TIER=$(or $(TIER),L) PASSED — record the RESULT ROW lines in docs/scale-gate.md and promote the SLOs (they stay UNVERIFIED until recorded)."

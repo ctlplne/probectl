@@ -183,6 +183,13 @@ sees the storage-path target beside the served `/v1/flows/*` response target.
   plane and the flow plane — commit them below; once the selected reference tiers
   pass, the matching SLO rows above stop being provisional.
 
+The dedicated Make targets set `PROBECTL_RUN_FULLSTACK_LOAD=1`. Merely having
+Kafka/Prometheus/ClickHouse URLs in the environment does not arm a load run:
+generic `test-integration` and `cover-gate` executions stay bounded and do not
+silently repeat load traffic against a persistent developer stack. Invoke
+`make load-test-smoke`, `make load-test`, or `make scale-fullstack` when the
+full-stack load contract is intended.
+
 | Date | Tier | Hardware | Throughput (results/s) | Publish p95 | Query p95 | Series confirmed | Verdict |
 |---|---|---|---|---|---|---|---|
 | _pending_ | L | _to be recorded_ | — | — | — | — | — |

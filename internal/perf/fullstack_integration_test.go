@@ -29,6 +29,9 @@ import (
 // the service-free integration/coverage jobs are unaffected. Run against a
 // FRESH stack (`make compose-up`).
 func TestFullStackLoadGate(t *testing.T) {
+	if os.Getenv("PROBECTL_RUN_FULLSTACK_LOAD") != "1" {
+		t.Skip("full-stack load gate is explicit; run make load-test-smoke or make load-test")
+	}
 	brokers := os.Getenv("PROBECTL_TEST_KAFKA")
 	prom := os.Getenv("PROBECTL_PROM_URL")
 	if brokers == "" || prom == "" {
@@ -72,6 +75,9 @@ func TestFullStackLoadGate(t *testing.T) {
 // tenant-scoped TopTalkers queries. It proves completeness, insert latency,
 // query p95, and ClickHouse active-part pressure on the real flow stack.
 func TestFullStackFlowGate(t *testing.T) {
+	if os.Getenv("PROBECTL_RUN_FULLSTACK_LOAD") != "1" {
+		t.Skip("full-stack flow gate is explicit; run make load-test-smoke or make load-test")
+	}
 	brokers := os.Getenv("PROBECTL_TEST_KAFKA")
 	flowURL := os.Getenv("PROBECTL_FLOWSTORE_URL")
 	if brokers == "" || flowURL == "" {
