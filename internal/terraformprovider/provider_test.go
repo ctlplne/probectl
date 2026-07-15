@@ -24,6 +24,14 @@ func TestProviderInternalValidateAndConfigure(t *testing.T) {
 	if err := p.InternalValidate(); err != nil {
 		t.Fatalf("provider schema should validate: %v", err)
 	}
+	for _, name := range []string{
+		"probectl_tenant", "probectl_tenants", "probectl_test",
+		"probectl_tests", "probectl_agent", "probectl_agents",
+	} {
+		if p.DataSourcesMap[name] == nil {
+			t.Fatalf("provider does not register data source %q", name)
+		}
+	}
 
 	for _, raw := range []string{"https://probectl.example.com", "http://127.0.0.1:18080", "http://localhost:18080"} {
 		if err := validateAPIURL(raw); err != nil {

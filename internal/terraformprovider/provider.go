@@ -59,6 +59,14 @@ func New() *schema.Provider {
 			"probectl_provider_tenant": resourceProviderTenant(),
 			"probectl_api_resource":    resourceAPIResource(),
 		},
+		DataSourcesMap: map[string]*schema.Resource{
+			"probectl_tenant":  dataSourceTenant(),
+			"probectl_tenants": dataSourceTenants(),
+			"probectl_test":    dataSourceTest(),
+			"probectl_tests":   dataSourceTests(),
+			"probectl_agent":   dataSourceAgent(),
+			"probectl_agents":  dataSourceAgents(),
+		},
 	}
 	p.ConfigureContextFunc = configure
 	return p
@@ -131,7 +139,10 @@ func (c *client) do(ctx context.Context, method, path string, body any, out any)
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
 	}
-	if c.tenant != "" {
+	// The provider/management plane is a distinct privilege domain. Never
+	// leak a tenant selector onto it, even when this provider instance also
+	// has a tenant configured for /v1 reads.
+	if c.tenant != "" && !strings.HasPrefix(path, "/provider/") {
 		req.Header.Set("X-Probectl-Tenant", c.tenant)
 	}
 	resp, err := c.hc.Do(req)

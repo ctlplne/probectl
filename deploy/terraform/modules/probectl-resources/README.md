@@ -70,6 +70,8 @@ module "probectl_resources" {
 The native `terraform-provider-probectl` binary is also shipped. Use it when you
 want Terraform state to track typed probectl resources directly:
 `probectl_test`, `probectl_alert_route`, `probectl_provider_tenant`, and
-`probectl_api_resource`. This module remains the no-plugin path for bootstrap,
-restricted CI runners, and environments that deliberately avoid provider
-installation.
+`probectl_api_resource`. It also supplies read-only by-ID and bounded-list data
+sources for tenants, tests, and agents (`probectl_tenant(s)`,
+`probectl_test(s)`, and `probectl_agent(s)`). This module remains the no-plugin
+path for bootstrap, restricted CI runners, and environments that deliberately
+avoid provider installation.

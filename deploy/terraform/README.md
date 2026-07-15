@@ -18,8 +18,11 @@ deploy/terraform/
 │   └── versions.tf · variables.tf · main.tf · outputs.tf
 ├── modules/probectl-resources/       # API resources through `probectl api`
 │   └── versions.tf · variables.tf · main.tf · outputs.tf · README.md
-└── examples/kubernetes/              # a root you can `terraform apply`
-    └── main.tf · variables.tf · terraform.tfvars.example
+└── examples/
+    ├── kubernetes/                   # deployment root you can `terraform apply`
+    │   └── main.tf · variables.tf · terraform.tfvars.example
+    └── provider-data-sources/        # native provider read-only lookups/pages
+        └── main.tf
 ```
 
 The module requires Terraform >= 1.5 with the `hashicorp/helm` (~> 2.12) and
@@ -145,6 +148,22 @@ Resources:
 - `probectl_api_resource` -> advanced arbitrary served API operations, such as
   early SLO or integration endpoints before a typed Terraform resource exists
 
+Read-only data sources use singular/by-ID and plural/bounded-page pairs:
+
+- `probectl_test` (`test_id`) and `probectl_tests` (`after`, `limit`) read
+  tenant-scoped synthetic tests;
+- `probectl_agent` (`agent_id`) and `probectl_agents` (`after`, `limit`) read
+  tenant-scoped registered agents; and
+- `probectl_tenant` (`tenant_id`) and `probectl_tenants` read lifecycle metadata
+  from the separate Provider/MSP privilege domain. They never read tenant
+  telemetry and never send `X-Probectl-Tenant` to `/provider/*`.
+
+List data sources return at most `limit` records (default 200, maximum 1000).
+When `next_cursor` is non-empty, pass it as `after` in another data source to
+read the next page. See the complete
+[`provider-data-sources` example](examples/provider-data-sources/main.tf),
+including an aliased provider for the separate Provider/MSP operator token.
+
 ```hcl
 resource "probectl_test" "edge_dns" {
   name             = "edge dns"
@@ -168,6 +187,14 @@ resource "probectl_alert_route" "loss" {
     type = "webhook"
     url  = "https://hooks.internal.example/probectl"
   }
+}
+
+data "probectl_test" "edge_dns" {
+  test_id = probectl_test.edge_dns.id
+}
+
+data "probectl_agents" "first_page" {
+  limit = 200
 }
 ```
 

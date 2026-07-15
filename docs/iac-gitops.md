@@ -111,9 +111,14 @@ release values. It's cloud-agnostic: point the providers at any kubeconfig. The
 module interface (inputs / outputs / secret handling) is documented in
 [deploy/terraform/README.md](../deploy/terraform/README.md). The native
 `terraform-provider-probectl` then manages tests, alert routes, Provider/MSP
-tenants, and advanced API resources against the self-hosted control plane. `make
+tenants, and advanced API resources against the self-hosted control plane. Its
+read-only data sources look up or page through tenants, tests, and agents, so
+modules can compose with existing probectl objects without importing them as
+managed resources. Tenant and agent/test reads remain tenant-scoped; provider
+tenant inventory uses the separate operator privilege domain. `make
 terraform-gate` runs `terraform fmt -check` and `terraform validate` against the
-example root in `deploy/terraform/examples/kubernetes`.
+example root in `deploy/terraform/examples/kubernetes`; provider data-source
+examples live in `deploy/terraform/examples/provider-data-sources`.
 
 ## GitOps
 
