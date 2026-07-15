@@ -210,7 +210,7 @@ item.
 3. **eBPF capture follow-ups** — IPv6 L4 capture is delivered (`internal/ebpf/bpf/l4flow.bpf.c`, `internal/ebpf/l4event.go`, `internal/ebpf/live_smoke_ebpf_test.go`; U-073). Go `crypto/tls` plaintext capture is explicitly post-GA/out-of-scope for GA (disclosed limitation, U-074): keep C-library TLS uprobes default-off/consent-gated/redacted, and treat Go `crypto/tls` as a separately-scoped future module rather than silent coverage.
 4. **Alert operation UX/evidence polish** — silences/acks persistence is delivered (`migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`; ARCH-005/U-047). Remaining GA work is evidence/UX polish around persisted alert operations, not the persistence mechanism itself.
 5. **Design-led polish on the hero surfaces** — path map + topology/what-if iterated to the "crush the incumbents" bar (PRD v0.5 §6 ambition; the foundation and gates exist, the polish loop is product work, not plumbing).
-6. **GA milestone gate** — surface-coverage, correlation, coverage, integration, isolation, and nightly e2e receipts green at GA scope on the exact release commit; nightly e2e extended to the canary-agent mTLS path.
+6. **GA milestone gate** — the nightly E2E now covers join-token redemption → tenant-bound SVID → real canary over mTLS → tenant-scoped HTTPS result, alongside the two-tenant flow/topology boundary. Remaining GA work is the surface-coverage, correlation, coverage, integration, isolation, and nightly receipts on the exact release commit.
 
 ### 5.2 Evidence runs (need real iron, not code)
 

@@ -10,19 +10,22 @@
 // and the versioned REST API. No internal packages are imported, by
 // design.
 //
-// The happy path + tenancy boundary:
+// The happy paths + tenancy boundary:
 //
-//	compose up (postgres+kafka) → build probectl-control +
-//	probectl-ebpf-agent → boot the control plane (dev auth) → run TWO
-//	fixture-mode agents (tenant A and tenant B, disjoint traffic) →
-//	flows ride Kafka → query /v1/topology per tenant → A sees exactly
-//	A's edges, B exactly B's → teardown.
+//	compose up (postgres+kafka) → build probectl-control + agents →
+//	boot HTTPS + agent mTLS → redeem a one-time join token for a
+//	tenant-bound SVID → run a real noop canary over mTLS → assert its
+//	result through /v1/results/latest → run TWO fixture-mode eBPF agents
+//	(tenant A and tenant B, disjoint traffic) → flows ride Kafka → query
+//	/v1/topology per tenant → assert no result or topology bleed → teardown.
 //
 // Gated on PROBECTL_E2E=1 (the nightly e2e workflow sets it; `go test
 // ./test/...` stays a no-op skip everywhere else).
 package e2e
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -37,16 +40,20 @@ import (
 )
 
 const (
-	apiAddr  = "127.0.0.1:18080"
-	tenantA  = "00000000-0000-0000-0000-000000000001" // the seeded default tenant
-	tenantB  = "00000000-0000-0000-0000-00000000e2e2"
-	agentAID = "a7000000-0000-4000-8000-000000000001"
-	agentBID = "a7000000-0000-4000-8000-000000000002"
-	laneA    = "t-e2e-a"
-	laneB    = "t-e2e-b"
-	ipOnlyA  = "10.77.1.9"  // appears only in tenant A's traffic
-	ipOnlyB  = "10.88.2.10" // appears only in tenant B's traffic
-	composeF = "deploy/compose/dev.yml"
+	apiAddr       = "127.0.0.1:18080"
+	apiBase       = "https://" + apiAddr
+	agentGRPCAddr = "127.0.0.1:19443"
+	tenantA       = "00000000-0000-0000-0000-000000000001" // the seeded default tenant
+	tenantB       = "00000000-0000-0000-0000-00000000e2e2"
+	agentAID      = "a7000000-0000-4000-8000-000000000001"
+	agentBID      = "a7000000-0000-4000-8000-000000000002"
+	canaryAgentID = "a7000000-0000-4000-8000-000000000003"
+	canaryTarget  = "e2e-mtls-noop"
+	laneA         = "t-e2e-a"
+	laneB         = "t-e2e-b"
+	ipOnlyA       = "10.77.1.9"  // appears only in tenant A's traffic
+	ipOnlyB       = "10.88.2.10" // appears only in tenant B's traffic
+	composeF      = "deploy/compose/dev.yml"
 )
 
 func TestE2E(t *testing.T) {
@@ -68,11 +75,14 @@ func TestE2E(t *testing.T) {
 	createKafkaTopics(t, root,
 		"probectl."+laneA+".ebpf.flows",
 		"probectl."+laneB+".ebpf.flows",
+		"probectl."+laneA+".network.results",
+		"probectl."+laneB+".network.results",
 	)
 
 	// ── build the real binaries from this tree ──────────────────────────
 	control := filepath.Join(work, "probectl-control")
-	agent := filepath.Join(work, "probectl-ebpf-agent")
+	ebpfAgent := filepath.Join(work, "probectl-ebpf-agent")
+	canaryAgent := filepath.Join(work, "probectl-agent")
 	licenseTool := filepath.Join(work, "probectl-license")
 	licensePriv := filepath.Join(work, "license-signing.key")
 	licensePub := filepath.Join(work, "license-signing.pub")
@@ -95,7 +105,14 @@ func TestE2E(t *testing.T) {
 		base64.StdEncoding.EncodeToString(pubPEM)
 
 	runCmd(t, root, nil, "go", "build", "-tags", "devauth", "-ldflags", licenseLDFlags, "-o", control, "./cmd/probectl-control")
-	runCmd(t, root, nil, "go", "build", "-o", agent, "./cmd/probectl-ebpf-agent")
+	runCmd(t, root, nil, "go", "build", "-o", ebpfAgent, "./cmd/probectl-ebpf-agent")
+	runCmd(t, root, nil, "go", "build", "-o", canaryAgent, "./cmd/probectl-agent")
+
+	serverTLSDir := filepath.Join(work, "server-tls")
+	runCmd(t, root, nil, control, "gen-cert", serverTLSDir)
+	serverCert := filepath.Join(serverTLSDir, "tls.crt")
+	serverKey := filepath.Join(serverTLSDir, "tls.key")
+	serverCA := filepath.Join(serverTLSDir, "ca.crt")
 
 	controlEnv := []string{
 		"PROBECTL_DATABASE_URL=postgres://probectl:probectl@localhost:5432/probectl?sslmode=disable",
@@ -120,24 +137,89 @@ func TestE2E(t *testing.T) {
 	runCmd(t, root, controlEnv, control, "migrate")
 	seedE2ETenants(t, root)
 	runCmd(t, root, controlEnv, control, "agent-ca", "init")
+	agentCABundle := filepath.Join(work, "agent-ca.crt")
+	runCmd(t, root, controlEnv, control, "agent-ca", "export", agentCABundle)
 	registerCollector(t, root, control, controlEnv, tenantA, agentAID, "agent-a")
 	registerCollector(t, root, control, controlEnv, tenantB, agentBID, "agent-b")
+	canaryToken := mintEnrollToken(t, root, control, controlEnv, tenantA, canaryAgentID, "e2e-canary")
+
+	serveEnv := append(append([]string(nil), controlEnv...),
+		"PROBECTL_TLS_CERT_FILE="+serverCert,
+		"PROBECTL_TLS_KEY_FILE="+serverKey,
+		"PROBECTL_AGENT_GRPC_ADDR="+agentGRPCAddr,
+		"PROBECTL_AGENT_TLS_CERT_FILE="+serverCert,
+		"PROBECTL_AGENT_TLS_KEY_FILE="+serverKey,
+		"PROBECTL_AGENT_TLS_CA_FILE="+agentCABundle,
+	)
+	apiClient := newAPIClient(t, serverCA)
 
 	// ── control plane: public configuration surface only ────────────────
-	controlLog := startProc(t, work, "control", control, nil, controlEnv)
+	controlLog := startProc(t, work, "control", control, nil, serveEnv)
 	waitFor(t, "control plane /readyz", 90*time.Second, func() bool {
-		resp, err := http.Get("http://" + apiAddr + "/readyz")
+		resp, err := apiClient.Get(apiBase + "/readyz")
 		if err != nil {
 			return false
 		}
 		defer resp.Body.Close()
 		return resp.StatusCode == http.StatusOK
 	})
-	if body := isolationJSON(t, tenantA); !strings.Contains(body, `"mode":"tenant_namespaced"`) || !strings.Contains(body, laneA) {
+	if body := isolationJSON(t, apiClient, tenantA); !strings.Contains(body, `"mode":"tenant_namespaced"`) || !strings.Contains(body, laneA) {
 		t.Fatalf("tenant A isolation status did not report the expected namespaced lane %s:\n%s", laneA, body)
 	}
 
 	// ── two fixture-mode agents, one per tenant, disjoint traffic ───────
+	// ── real canary agent: join token → SVID → mTLS → result API ──────
+	// The real canary path runs first; the fixture agents follow it.
+	identityDir := filepath.Join(work, "canary-identity")
+	enrollOut := runCmdOutput(t, root, nil, canaryAgent, "enroll",
+		"--server", apiBase,
+		"--token", canaryToken,
+		"--dir", identityDir,
+		"--ca-file", serverCA,
+		"--hostname", "e2e-canary")
+	wantSPIFFE := "spiffe://probectl/tenant/" + tenantA + "/agent/" + canaryAgentID
+	if !strings.Contains(enrollOut, wantSPIFFE) {
+		t.Fatalf("agent enrollment did not return the expected tenant-bound SVID %s:\n%s", wantSPIFFE, enrollOut)
+	}
+
+	canaryConfig := filepath.Join(work, "canary-agent.yaml")
+	writeFile(t, canaryConfig, fmt.Sprintf(`apiVersion: probectl.io/agent/v1
+control_plane:
+  grpc_addr: %q
+tls:
+  cert_file: %q
+  key_file: %q
+  ca_file: %q
+  server_name: "localhost"
+agent:
+  hostname: "e2e-canary"
+  capabilities: ["noop"]
+  heartbeat_interval: 1s
+buffer:
+  dir: %q
+  max_records: 100
+  drain_pace: 100ms
+canaries:
+  - type: noop
+    target: %q
+    interval: 1s
+    timeout: 1s
+`, agentGRPCAddr,
+		filepath.Join(identityDir, "cert.pem"),
+		filepath.Join(identityDir, "key.pem"),
+		serverCA,
+		filepath.Join(work, "canary-buffer"),
+		canaryTarget))
+	startProc(t, work, "canary-agent", canaryAgent, []string{"-config", canaryConfig}, nil)
+
+	waitFor(t, "tenant A's mTLS canary in /v1/results/latest", 90*time.Second, func() bool {
+		return latestResultsContains(t, apiClient, tenantA, canaryAgentID, "noop", canaryTarget)
+	})
+	if latestResultsContains(t, apiClient, tenantB, canaryAgentID, "noop", canaryTarget) {
+		t.Fatalf("CROSS-TENANT LEAK: tenant B can read tenant A's mTLS canary result (%s/%s)", canaryAgentID, canaryTarget)
+	}
+
+	// Two fixture-mode agents now exercise tenant-namespaced flow ingestion.
 	for _, a := range []struct{ tenant, ip, name, agentID, lane string }{
 		{tenantA, ipOnlyA, "agent-a", agentAID, laneA},
 		{tenantB, ipOnlyB, "agent-b", agentBID, laneB},
@@ -147,7 +229,7 @@ func TestE2E(t *testing.T) {
 		writeFile(t, cfg, fmt.Sprintf(
 			"apiVersion: probectl.io/ebpf-agent/v1\ntenant_id: %q\nhost: %q\nfixture_path: %q\nbus:\n  mode: kafka\n  brokers: [\"localhost:9092\"]\n  namespace: %q\n",
 			a.tenant, a.agentID, fixture, a.lane))
-		startProc(t, work, a.name, agent, []string{"--config", cfg}, []string{
+		startProc(t, work, a.name, ebpfAgent, []string{"--config", cfg}, []string{
 			"PROBECTL_EBPF_BUS_ALLOW_PLAINTEXT=true",
 		})
 	}
@@ -159,25 +241,25 @@ func TestE2E(t *testing.T) {
 
 	// ── ingest lands: each tenant's edge appears via the PUBLIC API ─────
 	waitFor(t, "tenant A's edge in /v1/topology", 90*time.Second, func() bool {
-		return strings.Contains(topologyJSON(t, tenantA), ipOnlyA)
+		return strings.Contains(topologyJSON(t, apiClient, tenantA), ipOnlyA)
 	})
 	waitFor(t, "tenant B's edge in /v1/topology", 90*time.Second, func() bool {
-		return strings.Contains(topologyJSON(t, tenantB), ipOnlyB)
+		return strings.Contains(topologyJSON(t, apiClient, tenantB), ipOnlyB)
 	})
 
 	// ── the tenancy boundary: no bleed in either direction ──────────────
-	if body := topologyJSON(t, tenantA); strings.Contains(body, ipOnlyB) {
+	if body := topologyJSON(t, apiClient, tenantA); strings.Contains(body, ipOnlyB) {
 		t.Fatalf("CROSS-TENANT LEAK: tenant A's topology contains tenant B's endpoint %s:\n%s", ipOnlyB, body)
 	}
-	if body := topologyJSON(t, tenantB); strings.Contains(body, ipOnlyA) {
+	if body := topologyJSON(t, apiClient, tenantB); strings.Contains(body, ipOnlyA) {
 		t.Fatalf("CROSS-TENANT LEAK: tenant B's topology contains tenant A's endpoint %s:\n%s", ipOnlyA, body)
 	}
 
 	// And a malformed tenant override is rejected, not defaulted (dev-mode
 	// fail-closed contract).
-	req, _ := http.NewRequest(http.MethodGet, "http://"+apiAddr+"/v1/topology", nil)
+	req, _ := http.NewRequest(http.MethodGet, apiBase+"/v1/topology", nil)
 	req.Header.Set("X-Probectl-Tenant", "not-a-uuid")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := apiClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +268,7 @@ func TestE2E(t *testing.T) {
 		t.Fatalf("malformed tenant override returned %d, want 400", resp.StatusCode)
 	}
 
-	t.Logf("e2e PASS: ingest visible per tenant via the public API; isolation holds both ways (control log: %s)", controlLog)
+	t.Logf("e2e PASS: join token -> tenant-bound SVID -> mTLS canary -> public result API; flow ingest is tenant-scoped and isolation holds both ways (control log: %s)", controlLog)
 }
 
 // ── helpers (stdlib only — this module stays dependency-free) ───────────
@@ -240,6 +322,16 @@ SET slug = EXCLUDED.slug,
 
 func registerCollector(t *testing.T, root, control string, env []string, tenant, agentID, name string) {
 	t.Helper()
+	token := mintEnrollToken(t, root, control, env, tenant, agentID, name)
+	regOut := runCmdOutput(t, root, env, control,
+		"register-collector", "-token", token, "-plane", "ebpf", "-hostname", name)
+	if !strings.Contains(regOut, agentID) || !strings.Contains(regOut, tenant) {
+		t.Fatalf("collector registration did not bind expected tenant/agent (%s/%s):\n%s", tenant, agentID, regOut)
+	}
+}
+
+func mintEnrollToken(t *testing.T, root, control string, env []string, tenant, agentID, name string) string {
+	t.Helper()
 	tokenOut := runCmdOutput(t, root, env, control,
 		"enroll-token", "-tenant", tenant, "-agent", agentID, "-name", name, "-ttl", "10m")
 	token := ""
@@ -252,11 +344,7 @@ func registerCollector(t *testing.T, root, control string, env []string, tenant,
 	if token == "" {
 		t.Fatalf("enroll-token did not print a display token:\n%s", tokenOut)
 	}
-	regOut := runCmdOutput(t, root, env, control,
-		"register-collector", "-token", token, "-plane", "ebpf", "-hostname", name)
-	if !strings.Contains(regOut, agentID) || !strings.Contains(regOut, tenant) {
-		t.Fatalf("collector registration did not bind expected tenant/agent (%s/%s):\n%s", tenant, agentID, regOut)
-	}
+	return token
 }
 
 func createKafkaTopics(t *testing.T, root string, topics ...string) {
@@ -283,6 +371,8 @@ func dumpKafkaDiagnostics(t *testing.T, root string) {
 		{name: "consumer-groups", args: []string{"/opt/kafka/bin/kafka-consumer-groups.sh", "--bootstrap-server", "localhost:9092", "--all-groups", "--describe"}},
 		{name: "tenant-a-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneA + ".ebpf.flows"}},
 		{name: "tenant-b-ebpf-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneB + ".ebpf.flows"}},
+		{name: "tenant-a-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneA + ".network.results"}},
+		{name: "tenant-b-result-offsets", args: []string{"/opt/kafka/bin/kafka-get-offsets.sh", "--bootstrap-server", "localhost:9092", "--topic", "probectl." + laneB + ".network.results"}},
 	} {
 		args := append([]string{"compose", "-f", composeF, "exec", "-T", "kafka"}, tc.args...)
 		cmd := exec.Command("docker", args...)
@@ -350,23 +440,42 @@ func waitFor(t *testing.T, what string, timeout time.Duration, ok func() bool) {
 	t.Fatalf("timed out after %s waiting for %s", timeout, what)
 }
 
+func newAPIClient(t *testing.T, caFile string) *http.Client {
+	t.Helper()
+	caPEM, err := os.ReadFile(caFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		t.Fatalf("API CA file %s contains no certificates", caFile)
+	}
+	return &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			RootCAs:    pool,
+		}},
+	}
+}
+
 // topologyJSON fetches /v1/topology as the given tenant (dev-auth header)
 // and returns the raw body (valid JSON asserted).
-func topologyJSON(t *testing.T, tenant string) string {
+func topologyJSON(t *testing.T, client *http.Client, tenant string) string {
 	t.Helper()
-	return getTenantJSON(t, tenant, "/v1/topology")
+	return getTenantJSON(t, client, tenant, "/v1/topology")
 }
 
-func isolationJSON(t *testing.T, tenant string) string {
+func isolationJSON(t *testing.T, client *http.Client, tenant string) string {
 	t.Helper()
-	return getTenantJSON(t, tenant, "/v1/isolation/status")
+	return getTenantJSON(t, client, tenant, "/v1/isolation/status")
 }
 
-func getTenantJSON(t *testing.T, tenant, path string) string {
+func getTenantJSON(t *testing.T, client *http.Client, tenant, path string) string {
 	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, "http://"+apiAddr+path, nil)
+	req, _ := http.NewRequest(http.MethodGet, apiBase+path, nil)
 	req.Header.Set("X-Probectl-Tenant", tenant)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("%s query: %v", path, err)
 	}
@@ -379,6 +488,28 @@ func getTenantJSON(t *testing.T, tenant, path string) string {
 		t.Fatalf("%s response is not JSON: %s", path, body)
 	}
 	return string(body)
+}
+
+func latestResultsContains(t *testing.T, client *http.Client, tenant, agentID, canaryType, target string) bool {
+	t.Helper()
+	var response struct {
+		Items []struct {
+			AgentID string `json:"agent_id"`
+			Type    string `json:"type"`
+			Target  string `json:"target"`
+			Success bool   `json:"success"`
+		} `json:"items"`
+	}
+	body := getTenantJSON(t, client, tenant, "/v1/results/latest")
+	if err := json.Unmarshal([]byte(body), &response); err != nil {
+		t.Fatalf("decode /v1/results/latest for %s: %v", tenant, err)
+	}
+	for _, item := range response.Items {
+		if item.AgentID == agentID && item.Type == canaryType && item.Target == target && item.Success {
+			return true
+		}
+	}
+	return false
 }
 
 // writeFixture emits a small recorded-flow file whose endpoints are unique

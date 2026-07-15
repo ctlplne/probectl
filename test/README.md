@@ -35,9 +35,13 @@ make e2e                # PROBECTL_E2E=1 full-stack e2e (compose deps + real bin
 The integration tests are build-tagged `integration` (a build tag is a
 compile-time label — files marked `//go:build integration` are invisible to a
 plain `go test`), so they never run during the default `make test`. The e2e
-test (`test/e2e`, `TestE2E`) brings up the compose dependencies, runs the real
-binaries, and asserts the public API and the **cross-tenant boundary** (no
-bleed in either direction); it is skipped unless `PROBECTL_E2E=1` is set.
+test (`test/e2e`, `TestE2E`) brings up the compose dependencies and runs the
+real binaries. It redeems a one-time join token for a tenant-bound SVID, sends
+a noop canary result through the agent's mTLS gRPC transport, reads that result
+through the HTTPS API, and then checks two tenants' Kafka flow lanes. Both the
+synthetic result and topology assertions include **cross-tenant negative
+checks** (no bleed in either direction). The test is skipped unless
+`PROBECTL_E2E=1` is set.
 
 The unit-level **cross-tenant isolation** gate is separate — `make
 test-isolation` runs the `isolation`-tagged suite across the main module, with
