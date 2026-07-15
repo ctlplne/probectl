@@ -15,6 +15,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // ErrAtlasDisabled is returned when RIPE Atlas scheduling is requested but not
@@ -62,11 +64,11 @@ type AtlasClient struct {
 	baseURL string
 }
 
-// NewAtlasClient builds a live Atlas scheduler. A nil client uses a default HTTPS
-// client (TLS certificate validation on, guardrail 12).
+// NewAtlasClient builds a live Atlas scheduler. A nil client uses the hardened
+// HTTPS client (TLS 1.2+ floor, verified certificates, bounded redirects).
 func NewAtlasClient(apiKey string, client Doer) *AtlasClient {
 	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = crypto.HardenedHTTPClient(15 * time.Second)
 	}
 	return &AtlasClient{client: client, apiKey: apiKey, baseURL: atlasBase}
 }

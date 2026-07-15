@@ -15,6 +15,8 @@ import (
 	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/imfeelingtheagi/probectl/internal/crypto"
 )
 
 // Doer is the subset of *http.Client an HTTP source needs (injectable for tests).
@@ -35,11 +37,11 @@ type peeringDBSource struct {
 	cache map[uint32][]IXP
 }
 
-// NewPeeringDB builds the PeeringDB IXP source. A nil client uses a default
-// HTTPS client (TLS certificate validation on, per guardrail 12).
+// NewPeeringDB builds the PeeringDB IXP source. A nil client uses the hardened
+// HTTPS client (TLS 1.2+ floor, verified certificates, bounded redirects).
 func NewPeeringDB(client Doer) Source {
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = crypto.HardenedHTTPClient(10 * time.Second)
 	}
 	return &peeringDBSource{client: client, baseURL: peeringDBBase, cache: make(map[uint32][]IXP)}
 }
