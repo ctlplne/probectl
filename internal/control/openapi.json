@@ -3715,7 +3715,7 @@
         "tags": [
           "topology"
         ],
-        "description": "Simulates the failure of one node (e.g. hop:10.0.0.1, service:api, as:64500) or edge (from|kind|to) at a point in time and returns the predicted impact: broken vs rerouted agent\u2192target paths (with the surviving route), transitively impacted services, impacted prefixes, newly disconnected nodes, and SLO impact when the S45 engine is wired. READ-ONLY: the simulation runs on a copy; probectl never acts on predictions (S-EE5 is human-gated). The coverage block reports completeness honestly. Unknown targets are a 404, never an empty 'no impact'.",
+        "description": "Simulates the failure of one node (e.g. hop:10.0.0.1, service:api, as:64500) or edge (from|kind|to) at a point in time and returns the predicted impact: broken vs rerouted agent\u2192target paths (with the surviving route), affected path tests identified by agent+target, transitively impacted services, impacted prefixes, newly disconnected nodes, and SLO impact when the S45 engine is wired. READ-ONLY: the simulation runs on a copy; probectl never acts on or prevents failures from predictions (S-EE5 is human-gated). Confidence is a coverage score, not a probability. The coverage block reports completeness honestly. Unknown targets are a 404, never an empty 'no impact'.",
         "parameters": [
           {
             "$ref": "#/components/parameters/TenantHeader"
@@ -3775,6 +3775,32 @@
                         "type": "object"
                       }
                     },
+                    "impacted_tests": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "agent_id",
+                          "target",
+                          "status"
+                        ],
+                        "properties": {
+                          "agent_id": {
+                            "type": "string"
+                          },
+                          "target": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "broken",
+                              "rerouted"
+                            ]
+                          }
+                        }
+                      }
+                    },
                     "impacted_services": {
                       "type": "array",
                       "items": {
@@ -3801,8 +3827,88 @@
                     },
                     "coverage": {
                       "type": "object"
+                    },
+                    "confidence": {
+                      "type": "object",
+                      "required": [
+                        "level",
+                        "score",
+                        "basis"
+                      ],
+                      "properties": {
+                        "level": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "medium",
+                            "high"
+                          ]
+                        },
+                        "score": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        "basis": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/topology/whatif/export": {
+      "get": {
+        "operationId": "exportWhatIf",
+        "summary": "Download an audited topology what-if receipt",
+        "tags": [
+          "topology"
+        ],
+        "description": "Reruns the same tenant-scoped, RBAC-gated, observe-only simulation as POST /v1/topology/whatif and downloads its JSON result. The graph is never mutated. This deliberate export is recorded in the tenant's tamper-evident audit trail.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Node id or edge id (from|kind|to) to fail."
+          },
+          {
+            "name": "at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "RFC3339 simulation time; omitted means the live graph."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "An attachment containing the same impact object returned by simulateWhatIf.",
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Attachment filename for the JSON receipt."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
                 }
               }
             }

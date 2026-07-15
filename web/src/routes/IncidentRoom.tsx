@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import styles from './incidentRoom.module.css'
 import {
   Badge,
@@ -41,7 +41,7 @@ import {
 import { DateTime } from '../time/DateTime'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
-import { replacePivotContext, type PivotContext } from './pivotContext'
+import { pivotHref, replacePivotContext, type PivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import type { Answer, Evidence } from '../api/ai'
 
@@ -193,6 +193,27 @@ export function IncidentRoom({
   const otherSignals = signalRows.filter(
     (row) => !knownPlanes.has(row.signal.plane.toLowerCase()) && row.signal.plane !== 'change',
   )
+  const topologyEntity = topologyEntityForEvidence(selectedSignal?.signal, selectedChange)
+  const topologyHref =
+    topologyEntity && selectedSourceID
+      ? pivotHref(
+          '/topology',
+          {
+            ...pivotContext,
+            incidentId: roomIncident.id,
+            from: roomIncident.started_at,
+            to: roomIncident.last_seen_at,
+            filters: {
+              ...pivotContext.filters,
+              topology_source_evidence: selectedSourceID,
+            },
+            selection: { kind: 'entity', id: topologyEntity },
+            returnTo:
+              pivotContext.returnTo ?? `/incidents?incident=${encodeURIComponent(roomIncident.id)}`,
+          },
+          { preview: 'blast' },
+        )
+      : undefined
 
   function selectEvidence(id: string) {
     setParams(
@@ -485,7 +506,13 @@ export function IncidentRoom({
             </CardBody>
           </Card>
 
-          <EvidenceInspector signal={selectedSignal?.signal} change={selectedChange} t={t} />
+          <EvidenceInspector
+            signal={selectedSignal?.signal}
+            change={selectedChange}
+            topologyHref={topologyHref}
+            topologyEntity={topologyEntity}
+            t={t}
+          />
 
           {!sharedArtifactID ? (
             <Card>
@@ -645,13 +672,53 @@ function ChangeEvidence({
   )
 }
 
+function topologyEntityForEvidence(signal?: Signal, change?: ChangeCandidate): string | undefined {
+  const knownID = (value?: string) => {
+    const clean = value?.trim()
+    return clean && /^(agent|hop|host|service|prefix|as|device):/.test(clean) ? clean : undefined
+  }
+  const direct =
+    knownID(signal?.target) ??
+    knownID(signal?.prefix) ??
+    knownID(change?.event.target) ??
+    knownID(change?.event.prefix)
+  if (direct) return direct
+  if (signal?.prefix) return `prefix:${signal.prefix}`
+  if (change?.event.prefix) return `prefix:${change.event.prefix}`
+  const attributes = signal?.attributes ?? {}
+  for (const [key, kind] of [
+    ['service', 'service'],
+    ['agent_id', 'agent'],
+    ['device', 'device'],
+    ['host', 'host'],
+    ['node', 'host'],
+  ] as const) {
+    const value = attributes[key]?.trim()
+    if (value) return `${kind}:${value}`
+  }
+  const target = signal?.target?.trim() ?? change?.event.target?.trim()
+  if (!target) return undefined
+  const plane = signal?.plane.toLowerCase() ?? ''
+  if (plane === 'flow' || plane === 'ebpf' || plane === 'host' || plane === 'l7') {
+    return `service:${target}`
+  }
+  if (plane === 'device' || plane === 'telemetry') return `device:${target}`
+  if (plane === 'bgp' || plane === 'routing') return `prefix:${target}`
+  if (/^[0-9a-f:.]+$/i.test(target)) return `host:${target}`
+  return undefined
+}
+
 function EvidenceInspector({
   signal,
   change,
+  topologyHref,
+  topologyEntity,
   t,
 }: {
   signal?: Signal
   change?: ChangeCandidate
+  topologyHref?: string
+  topologyEntity?: string
   t: (key: MessageKey, vars?: Record<string, string | number>) => string
 }) {
   return (
@@ -712,6 +779,15 @@ function EvidenceInspector({
             description={t('incidents.room.inspector.emptyDescription')}
           />
         )}
+        {topologyHref && topologyEntity ? (
+          <div className={styles.topologyPivot}>
+            <Link to={topologyHref}>Preview blast radius for {topologyEntity}</Link>
+            <span>
+              Observe-only dry-run; incident, evidence, absolute time, filters, and return context
+              travel with this pivot.
+            </span>
+          </div>
+        ) : null}
       </CardBody>
     </Card>
   )

@@ -60,7 +60,14 @@ function impactFixture(): WhatIfImpact {
         alt_route: ['agent:probe-1', 'hop:10.0.0.1', 'hop:10.0.0.3', 'host:203.0.113.10'],
       },
     ],
-    impacted_services: [],
+    impacted_tests: [
+      {
+        agent_id: 'agent:probe-1',
+        target: 'host:203.0.113.10',
+        status: 'rerouted',
+      },
+    ],
+    impacted_services: ['service:api'],
     impacted_prefixes: [],
     disconnected: [],
     impacted_slos: [],
@@ -70,6 +77,11 @@ function impactFixture(): WhatIfImpact {
       routing_edges: 0,
       device_edges: 0,
       notes: ['slo impact not wired (S45) — paths/services only'],
+    },
+    confidence: {
+      level: 'medium',
+      score: 40,
+      basis: '2 of 5 impact evidence sources wired (path, flow, routing, device, SLO)',
     },
   }
 }
@@ -109,7 +121,18 @@ describe('topology + what-if (S43)', () => {
     expect(await screen.findByText(/predicted impact/i)).toBeInTheDocument()
     const rerouted = screen.getByRole('list', { name: /rerouted paths/i })
     expect(within(rerouted).getByText(/agent:probe-1 → host:203.0.113.10/)).toBeInTheDocument()
-    expect(within(rerouted).getByText(/via .*hop:10.0.0.3/)).toBeInTheDocument()
+    expect(within(rerouted).getByText(/alternate .*hop:10.0.0.3/)).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: /affected tests/i })).toHaveTextContent(
+      'agent:probe-1 → host:203.0.113.10',
+    )
+    expect(screen.getByLabelText(/simulation confidence/i)).toHaveTextContent(
+      'medium confidence · 40% coverage',
+    )
+    expect(screen.getByText(/executes and prevents nothing/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /export audited json/i })).toHaveAttribute(
+      'href',
+      expect.stringContaining('/v1/topology/whatif/export?'),
+    )
     // The SLO honesty note rides along.
     expect(screen.getByText(/slo impact not wired/i)).toBeInTheDocument()
   })

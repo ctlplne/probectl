@@ -9,7 +9,9 @@ package control
 // Topology + what-if API (S43, F40-full). GET /v1/topology serves the
 // tenant's dependency graph (live, or AS IT WAS at ?at= — the versioned-graph
 // contract); POST /v1/topology/whatif simulates a node/link failure and
-// returns the predicted impact with its coverage/honesty block. The graph is
+// returns the predicted impact with its coverage/honesty block. GET
+// /v1/topology/whatif/export reruns that same read-only calculation as an
+// audited JSON download. The graph is
 // fed by a consumer over the streams the control plane already receives
 // (eBPF service edges, BGP events, device telemetry) plus path discoveries at
 // save time. Tenant first, always: every read resolves the caller's tenant
@@ -97,25 +99,48 @@ type whatIfRequest struct {
 // one element. Read-only: it simulates on a copy and never mutates the graph
 // (observe-only; acting on predictions is S-EE5, human-gated).
 func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) error {
-	tid, err := s.principalTenant(r)
-	if err != nil {
-		return err
-	}
-	if s.topo == nil {
-		return apierror.Unavailable("topology is not wired on this deployment")
-	}
 	var req whatIfRequest
 	if err := decodeJSONLimit(r, 1<<16, &req); err != nil {
 		return err
 	}
+	imp, err := s.simulateWhatIf(r, req)
+	if err != nil {
+		return err
+	}
+	writeJSON(w, http.StatusOK, imp)
+	return nil
+}
+
+// handleWhatIfExport returns the same observe-only prediction as an
+// attachment. The audit-route policy classifies this endpoint as an export,
+// so every download gets a tenant-scoped tamper-evident receipt.
+func (s *Server) handleWhatIfExport(w http.ResponseWriter, r *http.Request) error {
+	req := whatIfRequest{Target: r.URL.Query().Get("target"), At: r.URL.Query().Get("at")}
+	imp, err := s.simulateWhatIf(r, req)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Disposition", `attachment; filename="probectl-topology-whatif.json"`)
+	writeJSON(w, http.StatusOK, imp)
+	return nil
+}
+
+func (s *Server) simulateWhatIf(r *http.Request, req whatIfRequest) (topology.Impact, error) {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return topology.Impact{}, err
+	}
+	if s.topo == nil {
+		return topology.Impact{}, apierror.Unavailable("topology is not wired on this deployment")
+	}
 	if req.Target == "" {
-		return apierror.BadRequest("target (node or edge id) is required")
+		return topology.Impact{}, apierror.BadRequest("target (node or edge id) is required")
 	}
 	var at time.Time // zero = simulate over the live graph
 	if req.At != "" {
 		parsed, err := time.Parse(time.RFC3339, req.At)
 		if err != nil {
-			return apierror.BadRequest("at must be RFC3339")
+			return topology.Impact{}, apierror.BadRequest("at must be RFC3339")
 		}
 		at = parsed
 	}
@@ -127,10 +152,9 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) error {
 	}
 	imp, err := topology.Simulate(s.topo, tid, req.Target, at, sloSrc)
 	if err != nil {
-		return apierror.NotFound(err.Error())
+		return topology.Impact{}, apierror.NotFound(err.Error())
 	}
-	writeJSON(w, http.StatusOK, imp)
-	return nil
+	return imp, nil
 }
 
 // atParam parses ?at=RFC3339 with a default.

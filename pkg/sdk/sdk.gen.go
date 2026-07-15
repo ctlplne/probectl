@@ -3442,6 +3442,28 @@ func (c *Client) SimulateWhatIf(ctx context.Context, req SimulateWhatIfRequest) 
 	return out, nil
 }
 
+// Download an audited topology what-if receipt
+type ExportWhatIfRequest struct {
+	Target *string `json:"-"`
+	At     *string `json:"-"`
+}
+
+func (c *Client) ExportWhatIf(ctx context.Context, req ExportWhatIfRequest) (map[string]any, error) {
+	path := "/v1/topology/whatif/export"
+	query := url.Values{}
+	if req.Target != nil {
+		query.Set("target", formatQueryValue(*req.Target))
+	}
+	if req.At != nil {
+		query.Set("at", formatQueryValue(*req.At))
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Build metadata
 type GetVersionRequest struct {
 }

@@ -171,16 +171,29 @@ a deployment outgrows a single process.
   Permission: `topology.read`. (When topology isn't wired on a deployment, the
   endpoint returns `topology_running: false` with empty node/edge lists.)
 - `POST /v1/topology/whatif {target, at?}` — the simulated impact for failing one
-  node or edge. Permission: `topology.read`. An unknown target is a `404`.
+  node or edge. Permission: `topology.read`. The response names affected path
+  tests by their observed agent and target, reports broken/rerouted routes,
+  services, prefixes, disconnected nodes, known SLO impact, explicit coverage
+  gaps, and a coverage-derived confidence score. That score says how many
+  evidence seams are wired; it is not a probability. An unknown target is a
+  `404`.
+- `GET /v1/topology/whatif/export?target=...&at=...` — reruns the same
+  tenant-scoped, read-only calculation and downloads its JSON result. The route
+  is RBAC-gated and recorded as an export in the tenant audit trail.
 - The **Topology** page renders the layered graph (columns by kind, capped for
   legibility on dense graphs with an honest "showing N of M"), node drill-down,
-  time travel, and the what-if overlay (failed element dashed, impacted elements
-  highlighted, broken/rerouted lists with their routes).
+  one version clock, and an explicit added/removed/changed node-and-edge diff.
+  Scrubbing the clock preserves the selected entity. Incident evidence can pivot
+  into the selected entity and open the what-if overlay in two interactions
+  while preserving the incident, evidence, time range, filters, and return path.
+  The overlay is labelled **observe-only dry-run** and shows affected tests,
+  services, the authorized linked incident, routes, known SLOs, confidence, and
+  gaps before offering the audited JSON export.
 
 ## Out of scope (by design)
 
-Acting on what-if predictions (that's a separate, human-gated remediation
-capability); dependency mapping beyond the signals the planes actually emit
+Acting on what-if predictions or preventing the simulated failure (those are
+separate, human-gated remediation capabilities); dependency mapping beyond the signals the planes actually emit
 (probectl links what it observes, and reports the gaps where it can't). The
 AI/RBAC-aware query layer sits *on top of* this graph, enforcing tenant first,
 then RBAC — the topology store itself is the tenant-scoped foundation.

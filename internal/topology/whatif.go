@@ -40,6 +40,26 @@ type PathImpact struct {
 	AltRoute []string `json:"alt_route,omitempty"` // the surviving route (status "rerouted")
 }
 
+// TestImpact names an affected synthetic/path observation by the tenant-bound
+// agent and target carried by the topology graph. Topology does not retain the
+// scheduled test-definition ID, so the API says exactly what it knows instead
+// of inventing one.
+type TestImpact struct {
+	AgentID string `json:"agent_id"`
+	Target  string `json:"target"`
+	Status  string `json:"status"`
+}
+
+// SimulationConfidence explains how much of the cross-plane dependency model
+// contributed to a result. Score is coverage, not probability: 100 means all
+// four graph planes plus the SLO seam were present, not that the prediction is
+// guaranteed.
+type SimulationConfidence struct {
+	Level string `json:"level"`
+	Score int    `json:"score"`
+	Basis string `json:"basis"`
+}
+
 // Path impact classifications.
 const (
 	PathBroken   = "broken"   // no surviving route
@@ -58,16 +78,18 @@ type Coverage struct {
 
 // Impact is the simulation result for one failed element.
 type Impact struct {
-	Target           string       `json:"target"`
-	TargetKind       string       `json:"target_kind"` // node kind, or "edge"
-	At               time.Time    `json:"at"`
-	BrokenPaths      []PathImpact `json:"broken_paths"`
-	ReroutedPaths    []PathImpact `json:"rerouted_paths"`
-	ImpactedServices []string     `json:"impacted_services"`
-	ImpactedPrefixes []string     `json:"impacted_prefixes"`
-	Disconnected     []string     `json:"disconnected"` // newly unreachable from every agent
-	ImpactedSLOs     []string     `json:"impacted_slos"`
-	Coverage         Coverage     `json:"coverage"`
+	Target           string               `json:"target"`
+	TargetKind       string               `json:"target_kind"` // node kind, or "edge"
+	At               time.Time            `json:"at"`
+	BrokenPaths      []PathImpact         `json:"broken_paths"`
+	ReroutedPaths    []PathImpact         `json:"rerouted_paths"`
+	ImpactedTests    []TestImpact         `json:"impacted_tests"`
+	ImpactedServices []string             `json:"impacted_services"`
+	ImpactedPrefixes []string             `json:"impacted_prefixes"`
+	Disconnected     []string             `json:"disconnected"` // newly unreachable from every agent
+	ImpactedSLOs     []string             `json:"impacted_slos"`
+	Coverage         Coverage             `json:"coverage"`
+	Confidence       SimulationConfidence `json:"confidence"`
 }
 
 // Simulate fails the element with id `target` (a node ID like "hop:10.0.0.1"
@@ -134,6 +156,20 @@ func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impa
 	}
 	sortPathImpacts(imp.BrokenPaths)
 	sortPathImpacts(imp.ReroutedPaths)
+	for _, path := range imp.BrokenPaths {
+		imp.ImpactedTests = append(imp.ImpactedTests, TestImpact{
+			AgentID: path.From, Target: path.To, Status: PathBroken,
+		})
+	}
+	for _, path := range imp.ReroutedPaths {
+		imp.ImpactedTests = append(imp.ImpactedTests, TestImpact{
+			AgentID: path.From, Target: path.To, Status: PathRerouted,
+		})
+	}
+	if len(imp.ImpactedTests) > 0 {
+		imp.Coverage.Notes = append(imp.Coverage.Notes,
+			"scheduled test definition IDs are not carried by topology path edges — affected tests are identified by agent and target")
+	}
 
 	// --- service plane: transitive callers of a failed service lose their
 	// dependency (reverse reachability over flow edges) ---
@@ -200,6 +236,7 @@ func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impa
 		imp.Coverage.Notes = append(imp.Coverage.Notes,
 			"slo impact not wired (S45) — paths/services only")
 	}
+	imp.Confidence = simulationConfidence(imp.Coverage, slo != nil)
 
 	// Never-nil slices: the API renders honest empties, not nulls.
 	for _, p := range []*[]PathImpact{&imp.BrokenPaths, &imp.ReroutedPaths} {
@@ -212,7 +249,37 @@ func Simulate(s Store, tenant, target string, at time.Time, slo SLOSource) (Impa
 			*l = []string{}
 		}
 	}
+	if imp.ImpactedTests == nil {
+		imp.ImpactedTests = []TestImpact{}
+	}
 	return imp, nil
+}
+
+func simulationConfidence(coverage Coverage, sloWired bool) SimulationConfidence {
+	sources := 0
+	for _, present := range []bool{
+		coverage.PathEdges > 0,
+		coverage.FlowEdges > 0,
+		coverage.RoutingEdges > 0,
+		coverage.DeviceEdges > 0,
+		sloWired,
+	} {
+		if present {
+			sources++
+		}
+	}
+	score := sources * 20
+	level := "low"
+	if score >= 80 {
+		level = "high"
+	} else if score >= 40 {
+		level = "medium"
+	}
+	return SimulationConfidence{
+		Level: level,
+		Score: score,
+		Basis: fmt.Sprintf("%d of 5 impact evidence sources wired (path, flow, routing, device, SLO)", sources),
+	}
 }
 
 // --- simulation graph helpers ---

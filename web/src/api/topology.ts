@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { apiFetch } from './client'
+import { apiFetch, apiURL } from './client'
 
 /**
  * The topology + what-if API (surface: S43 over the S30 graph). The graph is
@@ -54,23 +54,38 @@ export interface PathImpact {
   alt_route?: string[]
 }
 
+export interface TestImpact {
+  agent_id: string
+  target: string
+  status: 'broken' | 'rerouted'
+}
+
+export interface SimulationConfidence {
+  level: 'low' | 'medium' | 'high'
+  score: number
+  basis: string
+}
+
 export interface WhatIfImpact {
   target: string
   target_kind: string
   at: string
   broken_paths: PathImpact[]
   rerouted_paths: PathImpact[]
+  impacted_tests: TestImpact[]
   impacted_services: string[]
   impacted_prefixes: string[]
   disconnected: string[]
   impacted_slos: string[]
   coverage: TopoCoverage
+  confidence: SimulationConfidence
 }
 
-export function useTopology(at?: string) {
+export function useTopology(at?: string, enabled = true) {
   const qs = at ? `?at=${encodeURIComponent(at)}` : ''
   return useQuery({
     queryKey: ['topology', at ?? 'live'],
+    enabled,
     queryFn: () => apiFetch<TopologyResponse>(`/topology${qs}`),
   })
 }
@@ -84,4 +99,10 @@ export function useWhatIf() {
         body: JSON.stringify(req),
       }),
   })
+}
+
+export function topologyWhatIfExportHref(target: string, at?: string): string {
+  const query = new URLSearchParams({ target })
+  if (at) query.set('at', at)
+  return apiURL(`/topology/whatif/export?${query.toString()}`)
 }

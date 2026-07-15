@@ -149,6 +149,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodPost, "/v1/remediation/proposals/{id}/reject", s.handleRemediationReject, permRemediationApprove},
 		{http.MethodPost, "/v1/security/keys/rotate", s.handleKeysRotate, permSecurityKeys},
 		{http.MethodPost, "/v1/topology/whatif", s.handleWhatIf, ai.PermTopologyRead},
+		{http.MethodGet, "/v1/topology/whatif/export", s.handleWhatIfExport, ai.PermTopologyRead},
 		{http.MethodGet, "/v1/incidents/{id}/cis", s.handleIncidentCIs, permIncidentRead},
 		{http.MethodGet, "/v1/agents/{id}/ci", s.handleAgentCI, permAgentRead},
 		{http.MethodGet, "/v1/audit", s.handleListAudit, permAuditRead},

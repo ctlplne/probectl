@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import styles from './topology.module.css'
 import { Page } from './pages'
@@ -23,7 +23,16 @@ import {
   TopologyPreview,
   type Column,
 } from '../components'
-import { useTopology, useWhatIf, type TopoNode, type WhatIfImpact } from '../api/topology'
+import {
+  topologyWhatIfExportHref,
+  useTopology,
+  useWhatIf,
+  type TopoEdge,
+  type TopoNode,
+  type TopologyResponse,
+  type WhatIfImpact,
+} from '../api/topology'
+import { useIncident } from '../api/incidents'
 import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue } from './urlFilters'
@@ -45,11 +54,16 @@ export function TopologyPage() {
   const [params, setParams] = useSearchParams()
   const parsedPivot = useMemo(() => parsePivotContext(params), [params])
   const pivotContext = parsedPivot.context
-  const initialAt = params.get('at') ?? pivotContext.to ?? ''
+  const initialAt = topologyTime(params, pivotContext)
   const [at, setAt] = useState(initialAt) // '' = live
   const [timeInput, setTimeInput] = useState(toDateTimeLocal(initialAt))
   const { data, isPending, isError } = useTopology(at || undefined)
+  const comparisonAt =
+    at && pivotContext.from && pivotContext.from !== at ? pivotContext.from : undefined
+  const comparison = useTopology(comparisonAt, Boolean(at))
+  const linkedIncident = useIncident(pivotContext.incidentId)
   const whatIf = useWhatIf()
+  const autoPreviewed = useRef('')
   const urlQuery = filterValue(params, 'topo_q', pivotContext.filters.topo_q ?? '')
   const [query, setQuery] = useState(urlQuery)
   const kind = filterValue(params, 'topo_kind', pivotContext.filters.topo_kind ?? 'all')
@@ -58,6 +72,7 @@ export function TopologyPage() {
 
   const nodes = useMemo(() => data?.nodes ?? [], [data?.nodes])
   const edges = useMemo(() => data?.edges ?? [], [data?.edges])
+  const comparisonNodes = useMemo(() => comparison.data?.nodes ?? [], [comparison.data?.nodes])
   const kindOptions = useMemo(() => unique(nodes.map((node) => node.kind)), [nodes])
   const siteOptions = useMemo(() => unique(nodes.map((node) => node.site ?? '')), [nodes])
   const tagOptions = useMemo(() => unique(nodes.flatMap((node) => node.tags ?? [])), [nodes])
@@ -76,7 +91,9 @@ export function TopologyPage() {
   const requestedNodeID =
     pivotContext.selection?.kind === 'entity' ? pivotContext.selection.id : undefined
   const selected = requestedNodeID
-    ? (filteredNodes.find((node) => node.id === requestedNodeID) ?? null)
+    ? (nodes.find((node) => node.id === requestedNodeID) ??
+      comparisonNodes.find((node) => node.id === requestedNodeID) ??
+      null)
     : null
   const layout = useMemo(
     () => layoutTopology(filteredNodes, filteredEdges),
@@ -84,6 +101,10 @@ export function TopologyPage() {
   )
   const impact = whatIf.data ?? null
   const impacted = useMemo(() => impactedNodeIDs(impact), [impact])
+  const versionDiff = useMemo(
+    () => (at && data && comparison.data ? diffTopology(comparison.data, data) : null),
+    [at, comparison.data, data],
+  )
   const currentFilters = useMemo(
     () => ({ topo_q: query, topo_kind: kind, topo_site: site, topo_tag: tag }),
     [kind, query, site, tag],
@@ -95,22 +116,33 @@ export function TopologyPage() {
   const savedFilters = activeFiltersForSave(currentFilters, TOPOLOGY_FILTER_DEFAULTS)
 
   useEffect(() => {
-    if (
-      (!isPending && requestedNodeID && !filteredNodeIDs.has(requestedNodeID)) ||
-      (parsedPivot.hasContract && !parsedPivot.referencesValid)
-    ) {
-      setParams(replacePivotContext(params, { ...pivotContext, selection: undefined }), {
-        replace: true,
-      })
+    const invalidContract = parsedPivot.hasContract && !parsedPivot.referencesValid
+    const invalidEntity =
+      Boolean(requestedNodeID) && !isPending && (!at || !comparison.isPending) && !selected
+    const invalidIncident = Boolean(pivotContext.incidentId) && linkedIncident.isError
+    if (invalidContract || invalidEntity || invalidIncident) {
+      setParams(
+        replacePivotContext(params, {
+          ...pivotContext,
+          incidentId: invalidContract || invalidIncident ? undefined : pivotContext.incidentId,
+          selection: invalidContract || invalidEntity ? undefined : pivotContext.selection,
+        }),
+        {
+          replace: true,
+        },
+      )
     }
   }, [
-    filteredNodeIDs,
+    at,
+    comparison.isPending,
     isPending,
+    linkedIncident.isError,
     params,
     parsedPivot.hasContract,
     parsedPivot.referencesValid,
     pivotContext,
     requestedNodeID,
+    selected,
     setParams,
   ])
 
@@ -127,14 +159,17 @@ export function TopologyPage() {
   }, [currentFilters, params, pivotContext, query, setParams, urlQuery])
 
   useEffect(() => {
-    const nextAt = params.get('at') ?? pivotContext.to ?? ''
+    const nextAt = topologyTime(params, pivotContext)
     setAt(nextAt)
     setTimeInput(toDateTimeLocal(nextAt))
-  }, [params, pivotContext.to])
+  }, [params, pivotContext])
 
   function selectNode(node: TopoNode) {
+    whatIf.reset()
+    const next = new URLSearchParams(params)
+    next.delete('preview')
     setParams(
-      replacePivotContext(params, {
+      replacePivotContext(next, {
         ...pivotContext,
         selection: { kind: 'entity', id: node.id },
       }),
@@ -145,14 +180,24 @@ export function TopologyPage() {
     whatIf.mutate({ target, at: at || undefined })
   }
 
+  useEffect(() => {
+    const target = params.get('preview') === 'blast' ? selected?.id : undefined
+    const incidentReady = !pivotContext.incidentId || linkedIncident.data?.id
+    if (!target || !incidentReady) return
+    const key = `${target}|${at || 'live'}|${linkedIncident.data?.id ?? ''}`
+    if (autoPreviewed.current === key) return
+    autoPreviewed.current = key
+    whatIf.mutate({ target, at: at || undefined })
+  }, [at, linkedIncident.data?.id, params, pivotContext.incidentId, selected?.id, whatIf])
+
   const updateTime = (value: string) => {
     setTimeInput(value)
     whatIf.reset()
     if (!value) {
       setAt('')
       const next = new URLSearchParams(params)
-      next.delete('at')
-      setParams(replacePivotContext(next, { ...pivotContext, to: undefined, selection: undefined }))
+      next.set('at', 'live')
+      setParams(replacePivotContext(next, pivotContext))
       return
     }
     const next = new Date(value)
@@ -161,13 +206,7 @@ export function TopologyPage() {
       setAt(absolute)
       const nextParams = new URLSearchParams(params)
       nextParams.set('at', absolute)
-      setParams(
-        replacePivotContext(nextParams, {
-          ...pivotContext,
-          to: absolute,
-          selection: undefined,
-        }),
-      )
+      setParams(replacePivotContext(nextParams, pivotContext))
     }
   }
 
@@ -179,6 +218,7 @@ export function TopologyPage() {
       <TopologyToolbar
         at={at}
         timeInput={timeInput}
+        comparisonAt={comparisonAt}
         onTimeChange={updateTime}
         onLive={() => updateTime('')}
       />
@@ -215,6 +255,14 @@ export function TopologyPage() {
       ) : (
         <div className={styles.grid}>
           <div className={styles.mainColumn}>
+            {versionDiff && (
+              <TopologyVersionDiffCard
+                diff={versionDiff}
+                from={comparison.data?.at ?? comparisonAt ?? 'live'}
+                to={data.at ?? at}
+                selectedID={selected?.id}
+              />
+            )}
             <TopologyGraphCard
               layout={layout}
               coverageNotes={data.coverage?.notes ?? []}
@@ -235,6 +283,8 @@ export function TopologyPage() {
             impact={impact}
             isSimulating={whatIf.isPending}
             simulationFailed={whatIf.isError}
+            affectedIncidentID={linkedIncident.data?.id}
+            at={at}
             onSimulate={simulate}
           />
         </div>
@@ -267,6 +317,12 @@ function topologySearchParams(
   return replacePivotContext(next, { ...pivotContext, filters: contextFilters })
 }
 
+function topologyTime(params: URLSearchParams, context: PivotContext): string {
+  const pageTime = params.get('at')
+  if (pageTime === 'live') return ''
+  return pageTime ?? context.to ?? ''
+}
+
 function toDateTimeLocal(value: string): string {
   const timestamp = Date.parse(value)
   if (!value || !Number.isFinite(timestamp)) return ''
@@ -276,29 +332,135 @@ function toDateTimeLocal(value: string): string {
 function TopologyToolbar({
   at,
   timeInput,
+  comparisonAt,
   onTimeChange,
   onLive,
 }: {
   at: string
   timeInput: string
+  comparisonAt?: string
   onTimeChange: (value: string) => void
   onLive: () => void
 }) {
   return (
-    <div className={styles.toolbar}>
-      <Field
-        label="As of"
-        hint="Empty = live; pick a time to view the graph as it was."
-        type="datetime-local"
-        value={timeInput}
-        onChange={(e) => onTimeChange(e.target.value)}
-      />
-      {at !== '' && (
-        <Button variant="ghost" onClick={onLive}>
-          Back to live
-        </Button>
-      )}
+    <div className={styles.clock} role="group" aria-label="Topology version clock">
+      <div className={styles.clockCopy}>
+        <strong>Version clock</strong>
+        <span>
+          Scrub the graph without dropping the selected entity. Historical views explain every node
+          and edge change against {comparisonAt ? 'the investigation start' : 'live'}.
+        </span>
+      </div>
+      <div className={styles.toolbar}>
+        <Field
+          label="As of"
+          hint="Empty = live; pick a time to view the graph as it was."
+          type="datetime-local"
+          value={timeInput}
+          onChange={(e) => onTimeChange(e.target.value)}
+        />
+        <Badge tone={at ? 'info' : 'success'}>{at ? `Selected ${at}` : 'Live topology'}</Badge>
+        {at !== '' && (
+          <Button variant="ghost" onClick={onLive}>
+            Back to live
+          </Button>
+        )}
+      </div>
     </div>
+  )
+}
+
+function TopologyVersionDiffCard({
+  diff,
+  from,
+  to,
+  selectedID,
+}: {
+  diff: TopologyDiff
+  from: string
+  to: string
+  selectedID?: string
+}) {
+  const changed =
+    diff.addedNodes.length +
+    diff.removedNodes.length +
+    diff.changedNodes.length +
+    diff.addedEdges.length +
+    diff.removedEdges.length +
+    diff.changedEdges.length
+  return (
+    <Card>
+      <CardHeader
+        title="Version changes"
+        description={`${from} → ${to}; ${changed} explained graph change${changed === 1 ? '' : 's'}.`}
+        actions={selectedID ? <Badge tone="accent">Selection preserved: {selectedID}</Badge> : null}
+      />
+      <CardBody>
+        {changed === 0 ? (
+          <p className={styles.noChanges}>No node or edge changes in this interval.</p>
+        ) : (
+          <div className={styles.diffGrid} aria-label="Topology version differences">
+            <TopologyDiffGroup
+              title="Added nodes"
+              tone="success"
+              items={diff.addedNodes.map(nodeSummary)}
+            />
+            <TopologyDiffGroup
+              title="Removed nodes"
+              tone="danger"
+              items={diff.removedNodes.map(nodeSummary)}
+            />
+            <TopologyDiffGroup
+              title="Changed nodes"
+              tone="warning"
+              items={diff.changedNodes.map(nodeSummary)}
+            />
+            <TopologyDiffGroup
+              title="Added edges"
+              tone="success"
+              items={diff.addedEdges.map(edgeSummary)}
+            />
+            <TopologyDiffGroup
+              title="Removed edges"
+              tone="danger"
+              items={diff.removedEdges.map(edgeSummary)}
+            />
+            <TopologyDiffGroup
+              title="Changed edges"
+              tone="warning"
+              items={diff.changedEdges.map(edgeSummary)}
+            />
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  )
+}
+
+function TopologyDiffGroup({
+  title,
+  tone,
+  items,
+}: {
+  title: string
+  tone: 'success' | 'danger' | 'warning'
+  items: string[]
+}) {
+  return (
+    <section className={styles.diffGroup} aria-label={title}>
+      <h4>
+        <Badge tone={tone}>{items.length}</Badge> {title}
+      </h4>
+      {items.length > 0 ? (
+        <ul>
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <span>None</span>
+      )}
+    </section>
   )
 }
 
@@ -628,12 +790,16 @@ function TopologySidePanel({
   impact,
   isSimulating,
   simulationFailed,
+  affectedIncidentID,
+  at,
   onSimulate,
 }: {
   selected: TopoNode | null
   impact: WhatIfImpact | null
   isSimulating: boolean
   simulationFailed: boolean
+  affectedIncidentID?: string
+  at: string
   onSimulate: (target: string) => void
 }) {
   return (
@@ -665,17 +831,20 @@ function TopologySidePanel({
                 <dt>Tags</dt>
                 <dd>{selected.tags?.join(', ') || 'none'}</dd>
               </dl>
-              <p>
+              <p className={styles.simulationAction}>
                 <Button onClick={() => onSimulate(selected.id)} disabled={isSimulating}>
-                  {isSimulating ? 'Simulating…' : 'Simulate failure'}
+                  {isSimulating ? 'Simulating…' : 'Simulate failure (dry-run)'}
                 </Button>
+              </p>
+              <p className={styles.safetyCopy}>
+                Observe only. This tenant/RBAC-scoped preview executes and prevents nothing.
               </p>
             </>
           )}
         </CardBody>
       </Card>
 
-      {impact && <ImpactCard impact={impact} />}
+      {impact && <ImpactCard impact={impact} affectedIncidentID={affectedIncidentID} at={at} />}
       {simulationFailed && (
         <Card>
           <CardBody>
@@ -688,22 +857,64 @@ function TopologySidePanel({
 }
 
 /** ImpactCard renders the what-if prediction: broken/rerouted paths with
- * routes, impacted services/prefixes, and the coverage honesty notes. */
-function ImpactCard({ impact }: { impact: WhatIfImpact }) {
+ * routes, affected tests/services/incidents/SLOs, confidence, and gaps. */
+function ImpactCard({
+  impact,
+  affectedIncidentID,
+  at,
+}: {
+  impact: WhatIfImpact
+  affectedIncidentID?: string
+  at: string
+}) {
+  const impactedTests = impact.impacted_tests ?? []
+  const confidence = impact.confidence ?? {
+    level: 'low' as const,
+    score: 0,
+    basis: 'The server did not report confidence coverage.',
+  }
+  const coverageNotes = impact.coverage.notes ?? []
+  const sloCoverageMissing = coverageNotes.some((note) => note.includes('slo impact not wired'))
   return (
     <Card>
       <CardHeader
-        title="Predicted impact"
-        description={`If ${impact.target} fails — a simulation, nothing was touched.`}
+        title="Predicted impact · observe-only dry-run"
+        description={`If ${impact.target} fails — a prediction, not execution or prevention.`}
       />
       <CardBody>
-        {(impact.coverage.notes?.length ?? 0) > 0 && (
-          <div className={styles.coverage} role="note" aria-label="simulation coverage gaps">
-            {impact.coverage.notes?.map((n) => (
-              <span key={n}>{n}</span>
-            ))}
-          </div>
-        )}
+        <div className={styles.safetyBar} aria-label="simulation safety">
+          <Badge tone="warning">DRY-RUN</Badge>
+          <Badge tone="neutral">OBSERVE ONLY</Badge>
+          <span>
+            Tenant/RBAC scoped. The server audits this preview; export gets an export receipt.
+          </span>
+        </div>
+        <div className={styles.confidence} aria-label="simulation confidence">
+          <Badge
+            tone={
+              confidence.level === 'high'
+                ? 'success'
+                : confidence.level === 'medium'
+                  ? 'warning'
+                  : 'danger'
+            }
+          >
+            {confidence.level} confidence · {confidence.score}% coverage
+          </Badge>
+          <span>{confidence.basis}. Coverage is not probability or a guarantee.</span>
+        </div>
+        <div className={styles.coverage} role="note" aria-label="simulation coverage gaps">
+          <strong>Coverage gaps</strong>
+          <span>
+            Edges: path {impact.coverage.path_edges}, flow {impact.coverage.flow_edges}, routing{' '}
+            {impact.coverage.routing_edges}, device {impact.coverage.device_edges}.
+          </span>
+          {coverageNotes.length > 0 ? (
+            coverageNotes.map((note) => <span key={note}>{note}</span>)
+          ) : (
+            <span>No declared graph or SLO coverage gaps.</span>
+          )}
+        </div>
         <dl className={styles.detailList}>
           <dt>Broken paths</dt>
           <dd>
@@ -714,6 +925,7 @@ function ImpactCard({ impact }: { impact: WhatIfImpact }) {
                 {impact.broken_paths.map((p) => (
                   <li key={`${p.from}-${p.to}`}>
                     <Badge tone="danger">broken</Badge> {p.from} → {p.to}
+                    <div className={styles.route}>lost route {p.route.join(' → ')}</div>
                   </li>
                 ))}
               </ul>
@@ -728,7 +940,25 @@ function ImpactCard({ impact }: { impact: WhatIfImpact }) {
                 {impact.rerouted_paths.map((p) => (
                   <li key={`${p.from}-${p.to}`}>
                     <Badge tone="warning">rerouted</Badge> {p.from} → {p.to}
-                    <div className={styles.route}>via {p.alt_route?.join(' → ')}</div>
+                    <div className={styles.route}>original {p.route.join(' → ')}</div>
+                    <div className={styles.route}>alternate {p.alt_route?.join(' → ')}</div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+          <dt>Affected tests</dt>
+          <dd>
+            {impactedTests.length === 0 ? (
+              '0'
+            ) : (
+              <ul className={styles.impactList} aria-label="affected tests">
+                {impactedTests.map((test) => (
+                  <li key={`${test.agent_id}-${test.target}-${test.status}`}>
+                    <Badge tone={test.status === 'broken' ? 'danger' : 'warning'}>
+                      {test.status}
+                    </Badge>{' '}
+                    {test.agent_id} → {test.target}
                   </li>
                 ))}
               </ul>
@@ -740,12 +970,81 @@ function ImpactCard({ impact }: { impact: WhatIfImpact }) {
           <dd>{impact.impacted_prefixes.length ? impact.impacted_prefixes.join(', ') : '0'}</dd>
           <dt>Disconnected</dt>
           <dd>{impact.disconnected.length ? impact.disconnected.join(', ') : '0'}</dd>
-          <dt>SLOs</dt>
-          <dd>{impact.impacted_slos.length ? impact.impacted_slos.join(', ') : '—'}</dd>
+          <dt>Affected incidents</dt>
+          <dd>{affectedIncidentID ?? '0 linked incident evidence objects'}</dd>
+          <dt>Known SLO impact</dt>
+          <dd>
+            {impact.impacted_slos.length
+              ? impact.impacted_slos.join(', ')
+              : sloCoverageMissing
+                ? 'Unknown — SLO impact is not wired'
+                : '0 known impacted SLOs'}
+          </dd>
         </dl>
+        <div className={styles.exportRow}>
+          <a
+            className={styles.exportLink}
+            href={topologyWhatIfExportHref(impact.target, impact.at || at || undefined)}
+            download
+          >
+            Export audited JSON
+          </a>
+          <span>Saving is not implicit; this deliberate export is audit-recorded.</span>
+        </div>
       </CardBody>
     </Card>
   )
+}
+
+interface TopologyDiff {
+  addedNodes: TopoNode[]
+  removedNodes: TopoNode[]
+  changedNodes: TopoNode[]
+  addedEdges: TopoEdge[]
+  removedEdges: TopoEdge[]
+  changedEdges: TopoEdge[]
+}
+
+function diffTopology(from: TopologyResponse, to: TopologyResponse): TopologyDiff {
+  const fromNodes = new Map(from.nodes.map((node) => [node.id, node]))
+  const toNodes = new Map(to.nodes.map((node) => [node.id, node]))
+  const fromEdges = new Map(from.edges.map((edge) => [topologyEdgeID(edge), edge]))
+  const toEdges = new Map(to.edges.map((edge) => [topologyEdgeID(edge), edge]))
+  return {
+    addedNodes: to.nodes.filter((node) => !fromNodes.has(node.id)),
+    removedNodes: from.nodes.filter((node) => !toNodes.has(node.id)),
+    changedNodes: to.nodes.filter((node) => {
+      const previous = fromNodes.get(node.id)
+      return previous ? topologyNodeState(previous) !== topologyNodeState(node) : false
+    }),
+    addedEdges: to.edges.filter((edge) => !fromEdges.has(topologyEdgeID(edge))),
+    removedEdges: from.edges.filter((edge) => !toEdges.has(topologyEdgeID(edge))),
+    changedEdges: to.edges.filter((edge) => {
+      const previous = fromEdges.get(topologyEdgeID(edge))
+      return previous ? (previous.label ?? '') !== (edge.label ?? '') : false
+    }),
+  }
+}
+
+function topologyNodeState(node: TopoNode): string {
+  return JSON.stringify({
+    kind: node.kind,
+    label: node.label,
+    site: node.site ?? '',
+    tags: [...(node.tags ?? [])].sort((left, right) => left.localeCompare(right)),
+  })
+}
+
+function topologyEdgeID(edge: TopoEdge): string {
+  return `${edge.from}|${edge.kind}|${edge.to}`
+}
+
+function nodeSummary(node: TopoNode): string {
+  return `${node.kind} ${node.label} (${node.id})`
+}
+
+function edgeSummary(edge: TopoEdge): string {
+  return `${edge.from} → ${edge.to} [${edge.kind}]${edge.label ? ` ${edge.label}` : ''}`
 }
 
 type ImpactOverlay = {

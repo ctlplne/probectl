@@ -7,6 +7,61 @@
   flex-wrap: wrap;
 }
 
+.clock {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-xs);
+}
+
+.clockCopy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.clockCopy span,
+.noChanges,
+.safetyCopy,
+.exportRow span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.diffGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-8) * 5)), 1fr));
+  gap: var(--space-3);
+}
+
+.diffGroup {
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.diffGroup h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-sm);
+}
+
+.diffGroup ul {
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+}
+
+.diffGroup > span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -129,6 +184,66 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+.simulationAction {
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.safetyCopy {
+  margin: 0;
+}
+
+.safetyBar,
+.confidence,
+.exportRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-block-end: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.safetyBar {
+  background: var(--color-warning-soft);
+}
+
+.confidence {
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-sm);
+}
+
+.exportRow {
+  margin-block: var(--space-4) 0;
+  background: var(--color-accent-soft);
+}
+
+.exportLink {
+  min-height: calc(var(--space-8) + var(--space-1));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--border-width-thin) solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  padding-inline: var(--space-3);
+  color: var(--color-text);
+  background: var(--color-surface-raised);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  text-decoration: none;
+}
+
+.exportLink:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.exportLink:focus-visible {
+  outline: var(--border-width-thin) solid var(--color-focus);
+  outline-offset: var(--space-1);
 }
 
 .detailList {

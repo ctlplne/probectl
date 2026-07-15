@@ -1858,6 +1858,13 @@ export interface SimulateWhatIfRequest {
 
 export type SimulateWhatIfResponse = JsonObject
 
+export interface ExportWhatIfRequest {
+  target: string
+  at?: string
+}
+
+export type ExportWhatIfResponse = JsonObject
+
 export interface GetVersionRequest {
 }
 
@@ -2860,6 +2867,14 @@ export class ProbectlSDKClient {
     let path = "/v1/topology/whatif"
     const query = new URLSearchParams()
     return this.requestJSON<SimulateWhatIfResponse>("POST", path, query, request.body)
+  }
+
+  async exportWhatIf(request: ExportWhatIfRequest): Promise<ExportWhatIfResponse> {
+    let path = "/v1/topology/whatif/export"
+    const query = new URLSearchParams()
+    if (request.target !== undefined) query.set("target", String(request.target))
+    if (request.at !== undefined) query.set("at", String(request.at))
+    return this.requestJSON<ExportWhatIfResponse>("GET", path, query, undefined)
   }
 
   async getVersion(): Promise<GetVersionResponse> {

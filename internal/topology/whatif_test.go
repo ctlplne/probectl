@@ -63,6 +63,10 @@ func TestWhatIfLinkFailure(t *testing.T) {
 	if len(imp.ReroutedPaths) != 1 || imp.ReroutedPaths[0].To != "host:203.0.113.10" {
 		t.Fatalf("rerouted = %+v", imp.ReroutedPaths)
 	}
+	if len(imp.ImpactedTests) != 1 || imp.ImpactedTests[0].AgentID != "agent:a" ||
+		imp.ImpactedTests[0].Target != "host:203.0.113.10" || imp.ImpactedTests[0].Status != PathRerouted {
+		t.Fatalf("impacted tests = %+v", imp.ImpactedTests)
+	}
 	alt := strings.Join(imp.ReroutedPaths[0].AltRoute, "→")
 	if !strings.Contains(alt, "hop:10.0.0.3") {
 		t.Fatalf("alternate route must go via r3: %s", alt)
@@ -131,6 +135,10 @@ func TestWhatIfCoverageHonesty(t *testing.T) {
 	if !containsSub(c.Notes, "slo impact not wired") {
 		t.Fatalf("notes = %v", c.Notes)
 	}
+	if imp.Confidence.Level != "high" || imp.Confidence.Score != 80 ||
+		!strings.Contains(imp.Confidence.Basis, "4 of 5") {
+		t.Fatalf("confidence = %+v", imp.Confidence)
+	}
 
 	// A path-only graph reports the missing planes.
 	bare := NewMemoryStore()
@@ -144,6 +152,9 @@ func TestWhatIfCoverageHonesty(t *testing.T) {
 		if !containsSub(imp.Coverage.Notes, want) {
 			t.Fatalf("coverage notes missing %q: %v", want, imp.Coverage.Notes)
 		}
+	}
+	if imp.Confidence.Level != "low" || imp.Confidence.Score != 20 {
+		t.Fatalf("path-only confidence = %+v", imp.Confidence)
 	}
 }
 
@@ -162,6 +173,9 @@ func TestWhatIfSLOSeamAndUnknownTarget(t *testing.T) {
 	}
 	if containsSub(imp.Coverage.Notes, "slo impact not wired") {
 		t.Fatalf("wired SLO source still flagged: %v", imp.Coverage.Notes)
+	}
+	if imp.Confidence.Score != 100 || imp.Confidence.Level != "high" {
+		t.Fatalf("fully wired confidence = %+v", imp.Confidence)
 	}
 
 	// Unknown target fails closed — never an empty "no impact".

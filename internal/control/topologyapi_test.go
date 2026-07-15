@@ -9,6 +9,7 @@ package control
 import (
 	"encoding/json"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,9 @@ func TestWhatIfEndpoint(t *testing.T) {
 	if imp.TargetKind != "hop" || len(imp.ReroutedPaths) != 1 || len(imp.BrokenPaths) != 0 {
 		t.Fatalf("impact = %+v", imp)
 	}
+	if len(imp.ImpactedTests) != 1 || imp.Confidence.Score == 0 || imp.Confidence.Basis == "" {
+		t.Fatalf("test/confidence contract missing: %+v", imp)
+	}
 	if !strings.Contains(strings.Join(imp.ReroutedPaths[0].AltRoute, "→"), "hop:10.0.0.3") {
 		t.Fatalf("alt route = %v", imp.ReroutedPaths[0].AltRoute)
 	}
@@ -116,5 +120,46 @@ func TestWhatIfEndpoint(t *testing.T) {
 	}
 	if rec = doJSONReq(srv, http.MethodPost, "/v1/topology/whatif", `{"target":"x","at":"yesterday"}`); rec.Code != http.StatusBadRequest {
 		t.Fatalf("bad at: %d", rec.Code)
+	}
+}
+
+// TestTopologySimulationObserveOnlyExport proves the downloadable receipt is
+// the same dry-run calculation, carries an attachment disposition, cannot see
+// another tenant's target, and leaves the versioned graph byte-for-byte
+// unchanged.
+func TestTopologySimulationObserveOnlyExport(t *testing.T) {
+	store := seededTopology()
+	graph, err := store.ForTenant(tenancy.DefaultTenantID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := graph.Latest()
+	srv := testServer(fakePinger{}).WithTopology(store)
+
+	rec := do(srv, http.MethodGet,
+		"/v1/topology/whatif/export?target=hop%3A10.0.0.2&at=2026-06-04T12%3A00%3A00Z")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("export status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") ||
+		!strings.Contains(got, "probectl-topology-whatif.json") {
+		t.Fatalf("content disposition = %q", got)
+	}
+	var impact topology.Impact
+	if err := json.Unmarshal(rec.Body.Bytes(), &impact); err != nil {
+		t.Fatal(err)
+	}
+	if impact.Target != "hop:10.0.0.2" || len(impact.ReroutedPaths) != 1 {
+		t.Fatalf("export impact = %+v", impact)
+	}
+	if after := graph.Latest(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("observe-only simulation mutated topology:\nbefore=%+v\nafter=%+v", before, after)
+	}
+
+	// This target exists only in the other tenant's graph. A scoped export
+	// returns the same not-found result as an unknown local target.
+	rec = do(srv, http.MethodGet, "/v1/topology/whatif/export?target=hop%3A172.16.0.1")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("cross-tenant export = %d, want 404", rec.Code)
 	}
 }

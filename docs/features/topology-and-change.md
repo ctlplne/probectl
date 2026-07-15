@@ -169,11 +169,28 @@ curl -X POST https://control.example/v1/topology/whatif \
   -d '{"target": "service:payments-api"}'
 ```
 
-What you should observe: lists of broken paths, rerouted paths (with surviving
-routes), impacted services and prefixes, disconnected nodes, and a coverage block.
-An unknown target returns a `404`, never an empty "no impact." In the web
-interface this is the **Topology** page's what-if overlay: the failed element
-dashed, the impacted elements highlighted.
+What you should observe: lists of broken paths, rerouted paths (with original and
+surviving routes), affected path tests identified by observed agent and target,
+impacted services and prefixes, disconnected nodes, known SLO impact, a coverage
+block, and confidence derived from the five wired evidence seams (path, flow,
+routing, device, and SLO). Confidence is coverage, not a probability or a
+guarantee. An unknown target returns a `404`, never an empty "no impact." In the
+web interface this is the **Topology** page's observe-only dry-run overlay. Its
+single version clock explains added, removed, and changed nodes and edges while
+preserving the selected entity. Incident evidence pivots into this preview with
+the incident, evidence selection, absolute time range, filters, and return path
+intact.
+
+To deliberately save the result, download an audited JSON receipt:
+
+```sh
+curl -OJ \
+  "https://control.example/v1/topology/whatif/export?target=service%3Apayments-api"
+```
+
+The export reruns the same tenant-scoped, RBAC-gated, read-only calculation. It
+does not execute remediation or mutate the graph, and the download is recorded
+in the tenant audit trail.
 
 **Send a change event** from a CI pipeline or automation tool, signed with that
 webhook's secret:
@@ -240,8 +257,9 @@ PROBECTL_CHANGE_CORRELATION_WINDOW: "24h"
   credential — the front door fails closed rather than storing an unverifiable
   change.
 - **What-if is a prediction on a model, not a guarantee about the live network.**
-  It is read-only and never mutates the graph. Acting on the prediction is a
-  separate, human-decided capability.
+  Its confidence percentage is evidence coverage, not failure probability. It
+  is read-only, prevents nothing, and never mutates the graph. Acting on the
+  prediction is a separate, human-decided capability.
 - **Tenant-scoped throughout.** Every topology read and every change correlation
   returns only your own tenant's data; an invalid or empty tenant scope returns
   nothing.
@@ -251,7 +269,9 @@ PROBECTL_CHANGE_CORRELATION_WINDOW: "24h"
 - **Read the graph:** `GET /v1/topology` (live) or `GET /v1/topology?at=RFC3339`
   (as it was at a past moment); returns nodes, edges, and a coverage block.
 - **What-if:** `POST /v1/topology/whatif` with `{"target": "...", "at": "..."}`;
-  unknown target is a `404`; result is read-only.
+  unknown target is a `404`; result is read-only. `GET
+  /v1/topology/whatif/export?target=...&at=...` downloads the same simulation as
+  an audited JSON receipt.
 - **Send a change:** `POST /ingest/changes/{provider}/{id}` with the provider's
   signature header (GitHub, GitLab, and a generic CI/infrastructure-as-code scheme
   are supported); verified delivery returns `202`, forged returns `401`.

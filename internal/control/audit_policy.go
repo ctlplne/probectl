@@ -151,6 +151,7 @@ var auditExportRoutes = map[string]bool{
 	"POST /v1/lifecycle/subjects/export": true,
 	"GET /v1/diagnostics/bundle":         true,
 	"POST /v1/incidents/{id}/shares":     true,
+	"GET /v1/topology/whatif/export":     true,
 }
 
 var auditSensitiveReadRoutes = map[string]bool{
@@ -290,6 +291,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"POST /v1/remediation/proposals/{id}/reject":  auditWrapped(auditFacetOperational),
 	"POST /v1/security/keys/rotate":               auditExplicit(auditFacetOperational, "security.key_rotate"),
 	"POST /v1/topology/whatif":                    auditWrapped(auditFacetOperational),
+	"GET /v1/topology/whatif/export":              auditWrapped(auditFacetExport),
 	"GET /v1/incidents/{id}/cis":                  auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/agents/{id}/ci":                      auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/ai/ask":                             auditExplicit(auditFacetSensitiveRead, "ai.ask"),
