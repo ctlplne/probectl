@@ -88,6 +88,14 @@ regexTarget = "line"
 regexes = ["PROBECTL_SESSION_HMAC_KEY:\\s*0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\\s*$"]
 
 [[rules.allowlists]]
+description = "Historical all-compose render fixture: exact W35 commit + workflow path + documented throwaway value must all match."
+condition = "AND"
+commits = ['''1dadbc56716b91eee24acb6ff5017ec182018efa''']
+paths = ['''\.github/workflows/ci\.yml''']
+regexTarget = "line"
+regexes = ['''export PROBECTL_SESSION_HMAC_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"''']
+
+[[rules.allowlists]]
 description = "Historical e2e envelope fixture: exact commit + path + documented base64 test KEK must all match."
 condition = "AND"
 commits = ['''ac217d7ac307a1380c4ca7c7352e22104ccfe839''']

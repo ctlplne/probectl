@@ -1168,7 +1168,7 @@ jobs:
           # deployments (operators must set these in .env).
           export POSTGRES_PASSWORD="ci-render-only"
           export PROBECTL_JOIN_TOKEN="pjt_ci-render-only"
-          export PROBECTL_SESSION_HMAC_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          export PROBECTL_SESSION_HMAC_KEY="0000000000000000000000000000000000000000000000000000000000000000"
           export PROBECTL_IMAGE="ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
           cd deploy/compose
           # Overlays are validated MERGED with the base they extend (each file's
