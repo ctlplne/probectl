@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -208,6 +209,25 @@ func cmdLifecycle(cfg Config, args []string, stdout, stderr io.Writer) int {
 		spec := surfaceCommands["lifecycle"]
 		return cmdSurface(cfg, spec, args, stdout, stderr)
 	}
+}
+
+func cmdDashboardReport(cfg Config, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] != "download" {
+		return cmdSurface(cfg, surfaceCommands["dashboard-report"], args, stdout, stderr)
+	}
+	if len(args) < 2 {
+		fmt.Fprintln(stderr, "dashboard-report download: missing <id>")
+		return 2
+	}
+	if len(args) > 2 {
+		fmt.Fprintf(stderr, "dashboard-report download: unexpected args: %s\n", strings.Join(args[2:], " "))
+		return 2
+	}
+	path := "/v1/dashboard-report-artifacts/" + url.PathEscape(args[1])
+	if err := newClient(cfg).stream(http.MethodGet, path, nil, stdout); err != nil {
+		return fail(stderr, err)
+	}
+	return 0
 }
 
 func lifecycleExport(c *client, args []string, stdout, stderr io.Writer) int {

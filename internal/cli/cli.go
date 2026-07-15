@@ -72,6 +72,8 @@ func Run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		return cmdAgent(cfg, rest[1:], stdout, stderr)
 	case "lifecycle":
 		return cmdLifecycle(cfg, rest[1:], stdout, stderr)
+	case "dashboard-report":
+		return cmdDashboardReport(cfg, rest[1:], stdout, stderr)
 	case "api":
 		return cmdAPI(cfg, rest[1:], stdout, stderr)
 	default:

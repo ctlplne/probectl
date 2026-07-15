@@ -282,6 +282,62 @@ func TestCLIRolloutSurfaceMapsHumanGatedOps(t *testing.T) {
 	}
 }
 
+func TestCLIDashboardAndReportSurfacesMapEveryOperation(t *testing.T) {
+	cases := map[string]map[string]apiOp{
+		"dashboard": {
+			"list":   {Method: http.MethodGet, Path: "/v1/dashboards"},
+			"create": {Method: http.MethodPost, Path: "/v1/dashboards"},
+			"get":    {Method: http.MethodGet, Path: "/v1/dashboards/{id}", ArgName: "id"},
+		},
+		"dashboard-report": {
+			"schedules":       {Method: http.MethodGet, Path: "/v1/dashboard-report-schedules"},
+			"create-schedule": {Method: http.MethodPost, Path: "/v1/dashboard-report-schedules"},
+			"generate":        {Method: http.MethodPost, Path: "/v1/dashboard-reports"},
+			"artifacts":       {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts"},
+			"download":        {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts/{id}", ArgName: "id"},
+		},
+	}
+	for group, operations := range cases {
+		spec, ok := surfaceCommands[group]
+		if !ok {
+			t.Fatalf("%s CLI surface is not registered", group)
+		}
+		for name, want := range operations {
+			got, ok := spec.Ops[name]
+			if !ok {
+				t.Fatalf("%s CLI missing %q", group, name)
+			}
+			if got.Method != want.Method || got.Path != want.Path || got.ArgName != want.ArgName {
+				t.Fatalf("%s %s = %+v, want %+v", group, name, got, want)
+			}
+		}
+	}
+}
+
+func TestCLIDashboardReportDownloadStreamsAuditedArtifact(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/dashboard-report-artifacts/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.PathValue("id"); got != "artifact/one" {
+			t.Fatalf("artifact id = %q", got)
+		}
+		if got := r.Header.Get("X-Probectl-Tenant"); got != "tenant-a" {
+			t.Fatalf("tenant header = %q", got)
+		}
+		w.Header().Set("Content-Type", "text/csv")
+		_, _ = w.Write([]byte("metric,value\nlatency,12\n"))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	out, errs, code := run(t, srv, "--tenant", "tenant-a", "dashboard-report", "download", "artifact/one")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr=%s", code, errs)
+	}
+	if out != "metric,value\nlatency,12\n" {
+		t.Fatalf("download = %q", out)
+	}
+}
+
 func TestCLIInventoryViewSurfaceMapsSavedViews(t *testing.T) {
 	spec, ok := surfaceCommands["inventory-view"]
 	if !ok {

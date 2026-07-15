@@ -31,20 +31,31 @@ after its tenant or observation window is separated from it.
 All routes resolve tenant identity from the authenticated principal before
 checking RBAC. The browser never sends `tenant_id`.
 
-| Route | Permission | Purpose |
-|---|---|---|
-| `GET /v1/dashboards` | `metrics.read` | List views owned by the caller or shared inside this tenant |
-| `POST /v1/dashboards` | `metrics.write` | Save a bounded dashboard definition |
-| `GET /v1/dashboards/{id}` | `metrics.read` | Read an owned/shared view; foreign IDs look missing |
-| `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule |
-| `POST /v1/dashboard-reports` | `metrics.read` | Generate a PDF/CSV artifact in the tenant inbox |
-| `GET /v1/dashboard-report-artifacts` | `metrics.read` | List artifact metadata without loading binary bodies |
-| `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read` | Audited artifact download |
+| Route                                     | Permission                       | Purpose                                                     |
+| ----------------------------------------- | -------------------------------- | ----------------------------------------------------------- |
+| `GET /v1/dashboards`                      | `metrics.read`                   | List views owned by the caller or shared inside this tenant |
+| `POST /v1/dashboards`                     | `metrics.write`                  | Save a bounded dashboard definition                         |
+| `GET /v1/dashboards/{id}`                 | `metrics.read`                   | Read an owned/shared view; foreign IDs look missing         |
+| `GET/POST /v1/dashboard-report-schedules` | `metrics.read` / `metrics.write` | Inspect configured destinations or create a schedule        |
+| `POST /v1/dashboard-reports`              | `metrics.read`                   | Generate a PDF/CSV artifact in the tenant inbox             |
+| `GET /v1/dashboard-report-artifacts`      | `metrics.read`                   | List artifact metadata without loading binary bodies        |
+| `GET /v1/dashboard-report-artifacts/{id}` | `metrics.read`                   | Audited artifact download                                   |
 
 Malformed JSON is `400`; semantically invalid input is `422`. A missing,
 private, or cross-tenant object is the same `404` shape (apart from the unique
 request ID), so an identifier cannot be used to discover another tenant's
 objects.
+
+The same operations are available from the terminal surface:
+
+- `probectl dashboard list|create|get` manages saved views;
+- `probectl dashboard-report schedules|create-schedule|generate|artifacts`
+  manages the local report inbox; and
+- `probectl dashboard-report download <id>` streams the audited PDF/CSV bytes to
+  standard output, so an operator chooses the destination explicitly.
+
+Requests use the authenticated session's `--tenant` scope; no command accepts
+`tenant_id` in a request body.
 
 ## Storage isolation
 

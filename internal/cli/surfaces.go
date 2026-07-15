@@ -107,6 +107,18 @@ var surfaceCommands = map[string]surfaceCommand{
 	"cost": {Name: "cost", Summary: "network cost summary", Ops: map[string]apiOp{
 		"summary": {Method: http.MethodGet, Path: "/v1/cost/summary"},
 	}},
+	"dashboard": {Name: "dashboard", Summary: "saved tenant dashboards", Ops: map[string]apiOp{
+		"list":   {Method: http.MethodGet, Path: "/v1/dashboards"},
+		"create": {Method: http.MethodPost, Path: "/v1/dashboards"},
+		"get":    {Method: http.MethodGet, Path: "/v1/dashboards/{id}", ArgName: "id"},
+	}},
+	"dashboard-report": {Name: "dashboard-report", Summary: "local dashboard report inbox", Ops: map[string]apiOp{
+		"schedules":       {Method: http.MethodGet, Path: "/v1/dashboard-report-schedules"},
+		"create-schedule": {Method: http.MethodPost, Path: "/v1/dashboard-report-schedules"},
+		"generate":        {Method: http.MethodPost, Path: "/v1/dashboard-reports"},
+		"artifacts":       {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts"},
+		"download":        {Method: http.MethodGet, Path: "/v1/dashboard-report-artifacts/{id}", ArgName: "id", Description: "download one audited PDF or CSV artifact"},
+	}},
 	"diagnostics": {Name: "diagnostics", Summary: "diagnostics and support bundle", Ops: map[string]apiOp{
 		"status": {Method: http.MethodGet, Path: "/v1/diagnostics"},
 		"bundle": {Method: http.MethodGet, Path: "/v1/diagnostics/bundle"},

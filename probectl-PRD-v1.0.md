@@ -219,6 +219,12 @@ rendered WCAG coverage, and a screenshot walkthrough (`web/src/routes/admin/Roll
 external orchestrator remains the only update authority. This is no longer a
 remaining GA item.
 
+The operator CLI/API surface ✅ (`probectl rollout`, `/v1/rollouts`) predated that
+console.
+
+<!-- prettier-ignore -->
+The earlier ledger correctly said: Remaining GA work is UX/evidence polish around scripted fleet workflows, not the missing operator surface itself. E7 delivered that remaining Fleet rollout polish without expanding update authority.
+
 1. **eBPF capture follow-ups** — IPv6 L4 capture is delivered (`internal/ebpf/bpf/l4flow.bpf.c`, `internal/ebpf/l4event.go`, `internal/ebpf/live_smoke_ebpf_test.go`; U-073). Go `crypto/tls` plaintext capture is explicitly post-GA/out-of-scope for GA (disclosed limitation, U-074): keep C-library TLS uprobes default-off/consent-gated/redacted, and treat Go `crypto/tls` as a separately-scoped future module rather than silent coverage.
 2. **Alert operation UX/evidence polish** — silences/acks persistence is delivered (`migrations/0043_alert_ops.sql`, `internal/store/alertops.go`, `internal/control/alertsactive.go`, `internal/control/alerteval.go`; ARCH-005/U-047). Remaining GA work is evidence/UX polish around persisted alert operations, not the persistence mechanism itself.
 3. **Design-led polish on the hero surfaces** — path map + topology/what-if iterated to the "crush the incumbents" bar (PRD v0.5 §6 ambition; the foundation and gates exist, the polish loop is product work, not plumbing).
