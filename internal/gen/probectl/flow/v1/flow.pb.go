@@ -4,13 +4,14 @@
 // 	protoc        (unknown)
 // source: probectl/flow/v1/flow.proto
 
-// Device flow records (S38, F17): NetFlow v5/v9, IPFIX, and sFlow v5 datagrams
-// decoded by the flow collector into one normalized record. Field names follow
-// OpenTelemetry source.* / destination.* / network.* semantic conventions from
-// the first field (matching result.proto / ebpf.proto), so the OTLP layer (S22)
-// EXPOSES these signals rather than remapping them; fields with no OTel/ECS
-// equivalent use the probectl.flow.* namespace. The tenant is the outermost
-// scope (probectl.tenant.id, F50): every batch is tenant-tagged on the bus and
+// Device and cloud flow records (S38, F17): NetFlow v5/v9, IPFIX, sFlow v5,
+// AWS VPC Flow Logs, Azure NSG Flow Logs, and GCP VPC Flow Logs decoded into
+// one normalized record. Field names follow OpenTelemetry source.* /
+// destination.* / network.* semantic conventions from the first field
+// (matching result.proto / ebpf.proto), so the OTLP layer (S22) EXPOSES these
+// signals rather than remapping them; fields with no OTel/ECS equivalent use
+// the probectl.flow.* namespace. The tenant is the outermost scope
+// (probectl.tenant.id, F50): every batch is tenant-tagged on the bus and
 // tenant-scoped in ClickHouse.
 //
 // Sampling: bytes/packets carry the RAW exported counters; sampling_rate is the
@@ -43,8 +44,9 @@ type FlowRecord struct {
 	AgentId           string `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                                // -> "probectl.agent.id" (the collecting agent)
 	ExporterAddress   string `protobuf:"bytes,3,opt,name=exporter_address,json=exporterAddress,proto3" json:"exporter_address,omitempty"`        // -> "probectl.flow.exporter.address" (the device)
 	ObservationDomain uint32 `protobuf:"varint,4,opt,name=observation_domain,json=observationDomain,proto3" json:"observation_domain,omitempty"` // v9 source ID / IPFIX observation domain / sFlow sub-agent
-	// flow_protocol is the wire protocol the record was decoded from:
-	// netflow5 | netflow9 | ipfix | sflow5.
+	// flow_protocol is the source format the record was decoded from:
+	// netflow5 | netflow9 | ipfix | sflow5 | aws_vpc_flow_logs |
+	// azure_nsg_flow_logs | gcp_vpc_flow_logs.
 	FlowProtocol       string `protobuf:"bytes,5,opt,name=flow_protocol,json=flowProtocol,proto3" json:"flow_protocol,omitempty"`                        // -> "probectl.flow.protocol"
 	ObservedAtUnixNano int64  `protobuf:"varint,6,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"` // collector receive time (OTel-style ns)
 	StartUnixNano      int64  `protobuf:"varint,7,opt,name=start_unix_nano,json=startUnixNano,proto3" json:"start_unix_nano,omitempty"`                  // flow start (exporter clock, mapped to unix)

@@ -5,12 +5,14 @@
 // source: probectl/bgp/v1/bgp.proto
 
 // BGPEvent is the canonical probectl.bgp.events schema (S14): a routing-security
-// signal produced by the Python BGP analyzer from public collector data
-// (RouteViews MRT, RIPE RIS / RIS Live) and bridged onto the bus by internal/bgp.
+// signal produced from public collector data (RouteViews MRT, RIPE RIS / RIS
+// Live) or from direct tenant-authenticated BMP router sessions, then bridged
+// onto the bus by internal/bgp.
 //
 // Tenancy: tenant_id is the outermost scope (F50). External BGP data is ingested
-// once and scoped per tenant by the monitoring configuration (CLAUDE.md §7
-// guardrail 10); the bridge fails closed on an event with no tenant.
+// once and scoped per tenant by the monitoring configuration; direct BMP peers
+// derive tenant_id from the verified SPIFFE client certificate. The bridge fails
+// closed on an event with no tenant (CLAUDE.md §7 guardrails 1 and 10).
 //
 // Detection is a SIGNAL, not ground truth (guardrail 9): every event carries a
 // confidence and a severity and is tunable/suppressible downstream — probectl does
