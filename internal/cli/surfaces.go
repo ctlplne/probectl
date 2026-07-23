@@ -258,8 +258,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"approve": {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/approve", ArgName: "id"},
 		"reject":  {Method: http.MethodPost, Path: "/v1/remediation/proposals/{id}/reject", ArgName: "id"},
 	}},
-	"result": {Name: "result", Summary: "latest synthetic results", Ops: map[string]apiOp{
-		"latest": {Method: http.MethodGet, Path: "/v1/results/latest"},
+	"result": {Name: "result", Summary: "synthetic results", Ops: map[string]apiOp{
+		"latest":  {Method: http.MethodGet, Path: "/v1/results/latest"},
+		"history": {Method: http.MethodGet, Path: "/v1/results/history", Description: "recent results inside the trailing window (oldest first)"},
 	}},
 	"rollout": {Name: "rollout", Summary: "fleet rollouts", Ops: map[string]apiOp{
 		"list":    {Method: http.MethodGet, Path: "/v1/rollouts"},

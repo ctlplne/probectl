@@ -6024,10 +6024,9 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
-              "default": "1h"
+              "type": "string"
             },
-            "description": "Trailing observation window as a Go duration (for example 15m, 1h)."
+            "description": "Trailing observation window as a Go duration (for example 15m, 1h); the server defaults to 1h when absent."
           }
         ],
         "responses": {
