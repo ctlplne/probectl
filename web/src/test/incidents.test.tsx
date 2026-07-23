@@ -70,7 +70,9 @@ describe('unified incident room', () => {
     })
     expect(within(timeline).getByText('network')).toBeInTheDocument()
     expect(within(timeline).getByText('bgp')).toBeInTheDocument()
-    expect(screen.getByText(/possible hijack/i)).toBeInTheDocument()
+    // The hijack signal now appears twice by design: as a clock marker's
+    // accessible name and as its evidence row.
+    expect(screen.getAllByText(/possible hijack/i).length).toBeGreaterThan(0)
     expect(
       screen.getByText(/flow analytics evidence is missing.*coverage gap, not a healthy zero/i),
     ).toBeInTheDocument()

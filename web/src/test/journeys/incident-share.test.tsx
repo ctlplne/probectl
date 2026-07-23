@@ -143,7 +143,12 @@ describe('J2 cited incident sharing', () => {
       name: /unified five-plane incident room/i,
     })
 
-    await user.click(within(room).getByRole('button', { name: /traffic shifted to transit-b/i }))
+    // Scoped: the clock timeline carries a marker with the same accessible
+    // name; this step exercises the evidence ROW inside the flow plane region.
+    const flowPlane = within(room).getByRole('region', { name: /flow analytics/i })
+    await user.click(
+      within(flowPlane).getByRole('button', { name: /traffic shifted to transit-b/i }),
+    )
     await user.click(within(room).getByRole('button', { name: /explain this view/i }))
     const explanation = await within(room).findByRole('region', {
       name: /explanation inspector/i,
@@ -193,8 +198,11 @@ describe('J2 cited incident sharing', () => {
     expect(within(replay).getByText(/more-specific route likely shifted/i)).toBeInTheDocument()
     expect(within(replay).getByText(/built-in.*local\/air-gapped/i)).toBeInTheDocument()
     expect(within(replay).getAllByRole('link', { name: 'E-bgp' }).length).toBeGreaterThan(0)
+    // Scoped to the plane region — the clock marker shares this accessible
+    // name and, by design, the same pressed selection state.
+    const replayBgpPlane = within(replay).getByRole('region', { name: /bgp & routing/i })
     expect(
-      within(replay).getByRole('button', { name: /unexpected more-specific route/i }),
+      within(replayBgpPlane).getByRole('button', { name: /unexpected more-specific route/i }),
     ).toHaveAttribute('aria-pressed', 'true')
     expect(within(replay).queryByRole('button', { name: /resolve/i })).not.toBeInTheDocument()
     const replayPaths = requests

@@ -1,0 +1,181 @@
+/*
+ * IncidentClock: plane lanes on one absolute time axis. Like every chart
+ * surface, the clock is an LTR coordinate island — time flows left-to-right
+ * regardless of document direction, so the logical inline properties below
+ * resolve to the same physical edges the percent positions use.
+ */
+
+.clock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  direction: ltr;
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--color-border-strong);
+}
+
+.lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.lane {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.laneLabel {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track {
+  position: relative;
+  display: block;
+  height: 28px;
+  isolation: isolate;
+}
+
+.track::before {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  border-top: 1px solid var(--color-border-strong);
+}
+
+/* Markers are true buttons: 24px minimum interactive target (the rendered
+ * a11y gate measures this), centered on their instant via transform. */
+.marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.marker:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--radius-sm);
+  z-index: var(--z-sticky);
+}
+
+.marker:hover {
+  z-index: var(--z-sticky);
+}
+
+.marker:hover .shape {
+  transform: scale(1.25);
+}
+
+.shape {
+  display: block;
+  width: 10px;
+  height: 10px;
+  transition: transform var(--motion-fast) var(--easing-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shape {
+    transition: none;
+  }
+}
+
+.shapeSignal {
+  border-radius: var(--radius-pill);
+}
+
+/* Changes are diamonds: shape is the non-color kind encoding. */
+.shapeChange {
+  transform: rotate(45deg);
+}
+
+.marker:hover .shapeChange {
+  transform: rotate(45deg) scale(1.25);
+}
+
+.selected .shape {
+  box-shadow: 0 0 0 var(--selection-outline-width) var(--color-selection);
+}
+
+.selected {
+  z-index: var(--z-sticky);
+}
+
+.toneDanger {
+  background: var(--color-danger);
+}
+
+.toneWarning {
+  background: var(--color-warning);
+}
+
+.toneInfo {
+  background: var(--color-info);
+}
+
+.toneNeutral {
+  background: var(--color-chart-neutral);
+}
+
+/* The axis reuses the lane grid so tick positions align with the tracks. */
+.axis {
+  display: grid;
+  grid-template-columns: minmax(140px, max-content) minmax(0, 1fr);
+  gap: var(--space-3);
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.axisTicks {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.tick {
+  flex: 1;
+  text-align: center;
+}
+
+.tick:first-child {
+  text-align: start;
+}
+
+.tick:last-child {
+  text-align: end;
+}
+
+@media (max-width: 640px) {
+  .lane,
+  .axis {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+
+  .axisSpacer {
+    display: none;
+  }
+
+  .tick:nth-child(2) {
+    display: none;
+  }
+}

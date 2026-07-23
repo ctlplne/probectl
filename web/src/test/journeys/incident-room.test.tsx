@@ -179,11 +179,17 @@ describe('J2 unified incident room', () => {
       expect(within(room).getByRole('region', { name: plane })).toBeInTheDocument()
     }
     expect(within(room).getByText(/showing 5 of 507 signals/i)).toBeInTheDocument()
-    expect(within(room).getByText(/edge export policy changed/i)).toBeInTheDocument()
+    // Appears twice by design: clock timeline marker + candidate-change row.
+    expect(within(room).getAllByText(/edge export policy changed/i).length).toBeGreaterThan(0)
     expect(within(room).getByText('checkout-api')).toBeInTheDocument()
     expect(within(room).getByText(/nothing runs automatically/i)).toBeInTheDocument()
 
-    const flowRow = within(room).getByRole('button', { name: /traffic shifted to transit-b/i })
+    // Scoped to the plane region: the clock timeline carries a marker with the
+    // same accessible name, and this step exercises the evidence ROW.
+    const flowPlane = within(room).getByRole('region', { name: /flow analytics/i })
+    const flowRow = within(flowPlane).getByRole('button', {
+      name: /traffic shifted to transit-b/i,
+    })
     await user.click(flowRow)
     const inspector = within(room).getByLabelText(/incident evidence inspector/i)
     expect(within(inspector).getByText(/egress traffic shifted/i)).toBeInTheDocument()
@@ -196,7 +202,10 @@ describe('J2 unified incident room', () => {
     expect(screen.queryByRole('heading', { name: /ask \(ai\)/i })).not.toBeInTheDocument()
 
     await user.click(within(inlineRCA).getAllByRole('link', { name: 'E-bgp' })[0])
-    const bgpRow = within(room).getByRole('button', { name: /unexpected more-specific route/i })
+    const bgpPlane = within(room).getByRole('region', { name: /bgp & routing/i })
+    const bgpRow = within(bgpPlane).getByRole('button', {
+      name: /unexpected more-specific route/i,
+    })
     await waitFor(() => expect(bgpRow).toHaveAttribute('aria-pressed', 'true'))
     expect(flowRow).toHaveAttribute('aria-pressed', 'false')
     expect(within(inspector).getByText(/AS64550 announced/i)).toBeInTheDocument()

@@ -39,6 +39,7 @@ import {
   questionForIncident,
 } from '../remediation/proposalContext'
 import { DateTime } from '../time/DateTime'
+import { IncidentClock, type IncidentClockItem, type IncidentClockLane } from '../viz/IncidentClock'
 import { useI18n } from '../i18n/useI18n'
 import type { MessageKey } from '../i18n/messages'
 import { pivotHref, replacePivotContext, type PivotContext } from './pivotContext'
@@ -85,11 +86,9 @@ interface SignalRow {
   signal: Signal
 }
 
-interface ClockItem {
-  id: string
-  plane: string
-  title: string
-  occurredAt: string
+function planeGroupID(plane: string): string {
+  const match = PLANE_GROUPS.find((group) => group.aliases.has(plane.toLowerCase()))
+  return match?.id ?? 'other'
 }
 
 function signalID(incidentID: string, index: number): string {
@@ -164,23 +163,36 @@ export function IncidentRoom({
   const selectedSourceID = sourceIDForSelection(pivotContext)
   const selectedSignal = signalRows.find((row) => row.id === selectedSourceID)
   const selectedChange = changes.data?.find((candidate) => candidate.event.id === selectedSourceID)
-  const clockItems = useMemo<ClockItem[]>(() => {
-    const items = signalRows.map((row) => ({
+  const clockItems = useMemo<IncidentClockItem[]>(() => {
+    const items: IncidentClockItem[] = signalRows.map((row) => ({
       id: row.id,
-      plane: row.signal.plane,
+      laneID: planeGroupID(row.signal.plane),
+      meta: row.signal.plane,
       title: row.signal.title || row.signal.kind,
       occurredAt: row.signal.occurred_at,
+      severity: row.signal.severity,
+      kind: 'signal',
     }))
     for (const candidate of changes.data ?? []) {
       items.push({
         id: candidate.event.id,
-        plane: 'change',
+        laneID: 'change',
+        meta: 'change',
         title: candidate.event.title,
         occurredAt: candidate.event.occurred_at,
+        kind: 'change',
       })
     }
     return items.sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
   }, [changes.data, signalRows])
+  const clockLanes = useMemo<IncidentClockLane[]>(
+    () => [
+      ...PLANE_GROUPS.map((group) => ({ id: group.id, label: t(group.labelKey) })),
+      { id: 'other', label: t('incidents.room.plane.other') },
+      { id: 'change', label: t('incidents.room.changes.title') },
+    ],
+    [t],
+  )
 
   const copyCitedShareLink = useCallback(
     (roomIncident: Incident) => {
@@ -439,21 +451,15 @@ export function IncidentRoom({
           description={t('incidents.room.clock.description')}
         />
         <CardBody>
-          <ol className={styles.clock} aria-label={t('incidents.room.clock.aria')}>
-            {clockItems.map((item) => (
-              <li key={`${item.plane}:${item.id}`}>
-                <Button
-                  size="sm"
-                  variant={selectedSourceID === item.id ? 'primary' : 'ghost'}
-                  aria-pressed={selectedSourceID === item.id}
-                  onClick={() => selectEvidence(item.id)}
-                >
-                  <DateTime value={item.occurredAt} />
-                  <span>{item.plane}</span>
-                </Button>
-              </li>
-            ))}
-          </ol>
+          <IncidentClock
+            lanes={clockLanes}
+            items={clockItems}
+            selectedID={selectedSourceID}
+            onSelect={selectEvidence}
+            label={t('incidents.room.clock.aria')}
+            windowStart={roomIncident.started_at}
+            windowEnd={roomIncident.last_seen_at}
+          />
         </CardBody>
       </Card>
 

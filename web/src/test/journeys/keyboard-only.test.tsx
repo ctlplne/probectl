@@ -269,7 +269,7 @@ describe('J1-J6 keyboard-only completion', () => {
     const stopPointerWatch = watchPointerEvents()
     vi.stubGlobal('fetch', installJourneyFetch())
     renderApp('/onboarding')
-    expect(await screen.findByText(/0 of 4 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/0 of 5 readiness steps/i)).toBeInTheDocument()
 
     await activate(user, screen.getByRole('button', { name: /mint enrollment token/i }))
     const agentCard = screen.getByRole('heading', { name: /enroll an agent/i }).closest('section')!
@@ -279,7 +279,7 @@ describe('J1-J6 keyboard-only completion', () => {
       .closest('section')!
     await activate(user, within(testCard).getByRole('button', { name: /create first test/i }))
 
-    expect(await screen.findByText(/4 of 4 readiness steps/i)).toBeInTheDocument()
+    expect(await screen.findByText(/5 of 5 readiness steps/i)).toBeInTheDocument()
     await activate(user, screen.getByRole('button', { name: /view first finding/i }))
     expect(await screen.findByRole('heading', { name: /targets & tests/i })).toBeInTheDocument()
     stopPointerWatch()
@@ -331,7 +331,10 @@ describe('J1-J6 keyboard-only completion', () => {
     renderApp('/incidents?incident_status=open')
     const room = await screen.findByRole('region', { name: /unified five-plane incident room/i })
 
-    await activate(user, within(room).getByRole('button', { name: /HTTP latency above SLO/i }))
+    // J2's first keyboard action selects the signal directly on the incident
+    // clock timeline — the marker and the evidence row share one selection.
+    const clock = within(room).getByRole('list', { name: /one time axis/i })
+    await activate(user, within(clock).getByRole('button', { name: /HTTP latency above SLO/i }))
     await activate(user, within(room).getByRole('button', { name: /explain this view/i }))
     const explanation = await within(room).findByRole('region', {
       name: /explanation inspector/i,
