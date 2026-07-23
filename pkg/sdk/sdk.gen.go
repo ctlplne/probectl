@@ -3262,6 +3262,24 @@ func (c *Client) PostV1RemediationProposalsIdReject(ctx context.Context, req Pos
 	return c.doJSON(ctx, http.MethodPost, path, query, nil, nil)
 }
 
+// Recent synthetic results inside a trailing window, oldest first
+type ListResultsHistoryRequest struct {
+	Window *string `json:"-"`
+}
+
+func (c *Client) ListResultsHistory(ctx context.Context, req ListResultsHistoryRequest) (map[string]any, error) {
+	path := "/v1/results/history"
+	query := url.Values{}
+	if req.Window != nil {
+		query.Set("window", formatQueryValue(*req.Window))
+	}
+	var out map[string]any
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Latest synthetic result per (type, target, agent) with full detail
 type ListLatestResultsRequest struct {
 }

@@ -159,7 +159,15 @@ export function DashboardsPage() {
     const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
     return value === undefined ? [] : [{ ts: result.observed_at, value }]
   })
-  const latencyPoints = historyPoints.length >= 2 ? historyPoints : snapshotPoints
+  // Honesty: history renders only when BOTH result surfaces agree the
+  // collector is running — a not-running producer must surface its honest
+  // state, never a chart assembled from a disagreeing source.
+  const latencyPoints =
+    resultsHistory.data?.collector_running &&
+    results.data?.collector_running &&
+    historyPoints.length >= 2
+      ? historyPoints
+      : snapshotPoints
   const threatItems = detections.data?.items ?? []
   const latestByTarget = useMemo(() => {
     const byTarget = new Map<string, LatestResult>()

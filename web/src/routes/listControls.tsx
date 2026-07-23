@@ -68,7 +68,7 @@ export function SavedViews({
               ? 'Saved views unavailable'
               : saved.isPending
                 ? 'Loading views…'
-                : (saved.data?.items.length ?? 0) === 0
+                : (saved.data?.items?.length ?? 0) === 0
                   ? 'No saved views yet'
                   : 'Choose view',
           },

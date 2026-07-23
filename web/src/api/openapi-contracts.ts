@@ -625,6 +625,15 @@ export const API_CALL_CONTRACTS = [
       'OpenAPI currently emits JsonObject for latest results; LatestResultsResponse is the explicit view model.',
   },
   {
+    file: 'api/results.ts',
+    method: 'GET',
+    path: '`/results/history?window=${encodeURIComponent(window)}`',
+    response: 'ResultsHistoryResponse',
+    generated: 'ListResultsHistoryResponse',
+    reason:
+      'OpenAPI currently emits JsonObject for results history; ResultsHistoryResponse is the explicit view model.',
+  },
+  {
     file: 'api/rum.ts',
     method: 'GET',
     path: '/rum',

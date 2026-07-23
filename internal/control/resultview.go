@@ -84,11 +84,10 @@ func (s *LatestResults) Record(tenant string, rv ResultView) {
 	defer s.mu.Unlock()
 	// Every accepted observation joins the trend ring (evict-oldest), even
 	// when a newer result already owns the latest slot for its series.
-	ring := append(s.recent[tenant], rv)
-	if len(ring) > s.maxHist {
-		ring = ring[len(ring)-s.maxHist:]
+	s.recent[tenant] = append(s.recent[tenant], rv)
+	if len(s.recent[tenant]) > s.maxHist {
+		s.recent[tenant] = s.recent[tenant][len(s.recent[tenant])-s.maxHist:]
 	}
-	s.recent[tenant] = ring
 	part, ok := s.tenants[tenant]
 	if !ok {
 		part = map[string]ResultView{}
