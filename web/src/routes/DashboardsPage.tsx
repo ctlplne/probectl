@@ -37,7 +37,7 @@ import {
   type FlowTopRow,
 } from '../api/planes'
 import { useIncidents, severityTone, type Incident } from '../api/incidents'
-import { useLatestResults, type LatestResult } from '../api/results'
+import { useLatestResults, useResultsHistory, type LatestResult } from '../api/results'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
 import { useDetections, type Detection } from '../api/threat'
 import { useTests, type Test } from '../api/tests'
@@ -54,6 +54,9 @@ import {
   formatScaledBitRate,
 } from '../i18n/number'
 import { DashboardReportingCard } from './DashboardReportingCard'
+// Direct import (not the components barrel): uplot must ride only in lazy
+// route chunks so the app-shell entry stays inside its bundle budget.
+import { TimeSeries } from '../components/TimeSeries'
 
 function compact(n: number, locale: string): string {
   return formatInteger(n, locale)
@@ -145,6 +148,18 @@ export function DashboardsPage() {
     const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
     return value === undefined ? [] : [value]
   })
+  // Real latency series from /v1/results/history (oldest first); an older
+  // control plane 404s and the latest snapshot keeps the tile honest.
+  const resultsHistory = useResultsHistory('1h')
+  const historyPoints = (resultsHistory.data?.items ?? []).flatMap((result) => {
+    const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
+    return value === undefined ? [] : [{ ts: result.observed_at, value }]
+  })
+  const snapshotPoints = latestResults.flatMap((result) => {
+    const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
+    return value === undefined ? [] : [{ ts: result.observed_at, value }]
+  })
+  const latencyPoints = historyPoints.length >= 2 ? historyPoints : snapshotPoints
   const threatItems = detections.data?.items ?? []
   const latestByTarget = useMemo(() => {
     const byTarget = new Map<string, LatestResult>()
@@ -439,7 +454,7 @@ export function DashboardsPage() {
           </div>
 
           <div className={styles.grid}>
-            <Card>
+            <Card className={styles.chartsCard}>
               <CardHeader
                 title="Cost and capacity"
                 description={`${formatInteger(serviceNodes, locale)} services · charts coordinated to the visible 1-hour scope`}
@@ -456,6 +471,11 @@ export function DashboardsPage() {
                       : 'No cost summary'
                   }
                   data={costTrend}
+                  points={costSummary?.trend.map((point) => ({
+                    ts: point.hour,
+                    value: point.usd,
+                  }))}
+                  formatValue={(value) => usd(value, locale)}
                   label="Cost trend"
                   producer="Cost attribution engine"
                   producerRunning={cost.data?.cost_running}
@@ -480,6 +500,8 @@ export function DashboardsPage() {
                       : `${capacityPoints.length} tenant capacity samples`
                   }
                   data={capacityTrend}
+                  points={capacityPoints.map((point) => ({ ts: point.ts, value: point.bps }))}
+                  formatValue={(value) => formatScaledBitRate(value, locale)}
                   label="Flow capacity trend"
                   producer="Flow collector"
                   producerReadiness="The tenant query succeeded; no capacity samples were returned"
@@ -495,6 +517,8 @@ export function DashboardsPage() {
                   title="Latest test latency"
                   legend={`${latestResults.length} latest synthetic results`}
                   data={latencyTrend}
+                  points={latencyPoints}
+                  formatValue={(value) => `${formatInteger(value, locale)} ms`}
                   label="Synthetic latency trend"
                   producer="Synthetic result collector"
                   producerRunning={results.data?.collector_running}
@@ -637,6 +661,8 @@ function DashboardTrend({
   title,
   legend,
   data,
+  points,
+  formatValue,
   label,
   producer,
   producerRunning,
@@ -648,6 +674,10 @@ function DashboardTrend({
   title: string
   legend: ReactElement | string
   data: number[]
+  /** Timestamped samples upgrade the trend from Sparkline to the real
+   * time-axis TimeSeries (S11/S43 first slice); plain values keep Sparkline. */
+  points?: { ts: string; value: number | null }[]
+  formatValue?: (value: number) => string
   label: string
   producer: string
   producerRunning?: boolean
@@ -656,6 +686,39 @@ function DashboardTrend({
   coverageLimitation: string
   action: ReactElement
 }) {
+  if (points && points.length >= 2) {
+    return (
+      <ChartShell title={title} legend={legend}>
+        <TimeSeries
+          label={label}
+          timestamps={points.map((point) => point.ts)}
+          series={[{ label: title, values: points.map((point) => point.value) }]}
+          formatValue={formatValue}
+        />
+      </ChartShell>
+    )
+  }
+  // Decision 2026-07-24: one sample reads as a VALUE, not a chart — a big
+  // stat tile in the same frame, honest about its sample count.
+  if (points && points.length === 1) {
+    const point = points[0]
+    const value =
+      point.value == null ? '—' : formatValue ? formatValue(point.value) : String(point.value)
+    return (
+      <ChartShell title={title} legend={legend}>
+        <div
+          className={styles.singleSample}
+          role="img"
+          aria-label={`${label}: ${value}, single sample`}
+        >
+          <strong>{value}</strong>
+          <span>
+            1 sample · <DateTime value={point.ts} />
+          </span>
+        </div>
+      </ChartShell>
+    )
+  }
   if (data.length > 0) {
     return (
       <ChartShell title={title} legend={legend}>
@@ -697,7 +760,15 @@ function DashboardMetric({
           {typeof value === 'number' ? compact(value, locale) : value}
         </span>
         <span className={styles.metricDetail}>{detail}</span>
-        <Badge tone={tone}>{tone === 'success' ? 'steady' : 'watch'}</Badge>
+        {/* Signal on exception: eight identical green pills flatten the scan.
+            Steady reads as quiet text; only non-steady states earn a badge. */}
+        {tone === 'success' ? (
+          <span className={styles.metricSteady}>steady</span>
+        ) : (
+          // Decision 2026-07-24: the badge says how bad — warning watches,
+          // danger is failing.
+          <Badge tone={tone}>{tone === 'danger' ? 'failing' : 'watch'}</Badge>
+        )}
       </CardBody>
     </Card>
   )

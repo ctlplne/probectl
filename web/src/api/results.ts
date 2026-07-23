@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useQuery } from '@tanstack/react-query'
-import { apiFetch } from './client'
+import { apiFetch, isApiStatus } from './client'
 
 /**
  * The latest-synthetic-result API (surface: S-FE5). One entry per (type,
@@ -38,6 +38,26 @@ export function useLatestResults() {
     queryKey: ['results', 'latest'],
     queryFn: () => apiFetch<LatestResultsResponse>('/results/latest'),
     refetchInterval: 15_000,
+  })
+}
+
+export interface ResultsHistoryResponse {
+  items: LatestResult[]
+  collector_running: boolean
+  window: string
+}
+
+/** useResultsHistory returns the trailing-window result series (oldest
+ * first) behind real-time-axis trends. A 404 means an older control plane
+ * without the endpoint — callers fall back to the latest snapshot, so the
+ * miss is authoritative and never retried. */
+export function useResultsHistory(window = '1h') {
+  return useQuery({
+    queryKey: ['results', 'history', window],
+    queryFn: () =>
+      apiFetch<ResultsHistoryResponse>(`/results/history?window=${encodeURIComponent(window)}`),
+    refetchInterval: 30_000,
+    retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
   })
 }
 
