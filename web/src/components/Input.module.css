@@ -57,6 +57,36 @@
   color: var(--color-text-subtle);
 }
 
+/* Native date/time controls: theme correctness comes from the per-theme
+ * color-scheme token; these rules align the parts the UA still lets us style
+ * so the control reads as a designed field, not browser chrome. */
+.input[type='datetime-local'],
+.input[type='date'],
+.input[type='time'] {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.input::-webkit-calendar-picker-indicator {
+  opacity: 0.65;
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--easing-standard);
+}
+
+.input:hover::-webkit-calendar-picker-indicator,
+.input:focus-visible::-webkit-calendar-picker-indicator {
+  opacity: 1;
+}
+
+.input::-webkit-datetime-edit-fields-wrapper {
+  color: var(--color-text);
+}
+
+.input:invalid::-webkit-datetime-edit,
+.input::-webkit-datetime-edit-text {
+  color: var(--color-text-subtle);
+}
+
 .hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-subtle);

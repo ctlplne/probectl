@@ -61,7 +61,17 @@ export function SavedViews({
           if (view) onApply(view.filters)
         }}
         options={[
-          { value: '', label: saved.isError ? 'Views unavailable' : 'Choose view' },
+          {
+            value: '',
+            // Honest states: an error is not the same as "none saved yet".
+            label: saved.isError
+              ? 'Saved views unavailable'
+              : saved.isPending
+                ? 'Loading views…'
+                : (saved.data?.items.length ?? 0) === 0
+                  ? 'No saved views yet'
+                  : 'Choose view',
+          },
           ...(saved.data?.items ?? []).map((v) => ({ value: v.id, label: v.name })),
         ]}
       />
