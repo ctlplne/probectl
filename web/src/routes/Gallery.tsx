@@ -17,12 +17,71 @@ import {
   ChartShell,
   EmptyState,
   Field,
+  HonestDataState,
+  Icon,
+  ICON_NAMES,
   LoadingState,
   Modal,
   Sparkline,
   StatusDot,
   useToast,
+  type HonestDataStateKind,
 } from '../components'
+import { IncidentClock } from '../viz/IncidentClock'
+// Direct import (not the components barrel): uplot must ride only in lazy
+// route chunks so the app-shell entry stays inside its bundle budget.
+import { TimeSeries } from '../components/TimeSeries'
+
+// Deterministic showcase samples (hourly): the gallery must render identically
+// on every visit — no randomness, no clock reads.
+const DEMO_HOURS = Array.from(
+  { length: 8 },
+  (_, index) => `2026-06-04T${String(9 + index).padStart(2, '0')}:00:00Z`,
+)
+
+const HONEST_STATES: HonestDataStateKind[] = [
+  'ready-no-data',
+  'blocked',
+  'permission-denied',
+  'degraded',
+  'quiet',
+  'demo',
+]
+
+const DEMO_CLOCK_LANES = [
+  { id: 'synthetic', label: 'Synthetic & path' },
+  { id: 'flow', label: 'Flow analytics' },
+  { id: 'change', label: 'Candidate changes' },
+]
+
+const DEMO_CLOCK_ITEMS = [
+  {
+    id: 'g1',
+    laneID: 'synthetic',
+    meta: 'synthetic',
+    title: 'HTTP latency above SLO',
+    occurredAt: '2026-06-04T11:55:00Z',
+    severity: 'warning' as const,
+    kind: 'signal' as const,
+  },
+  {
+    id: 'g2',
+    laneID: 'flow',
+    meta: 'flow',
+    title: 'edge-r1 throughput spike',
+    occurredAt: '2026-06-04T11:58:00Z',
+    severity: 'critical' as const,
+    kind: 'signal' as const,
+  },
+  {
+    id: 'g3',
+    laneID: 'change',
+    meta: 'change',
+    title: 'Export policy edit',
+    occurredAt: '2026-06-04T11:50:00Z',
+    kind: 'change' as const,
+  },
+]
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -111,8 +170,73 @@ export function Gallery() {
         <ChartShell title="Latency" height={120}>
           <Sparkline label="Sample latency series" data={[12, 14, 9, 18, 22, 16, 13, 19]} />
         </ChartShell>
+        <ChartShell
+          title="Time series (uPlot)"
+          height={200}
+          legend={
+            <span>
+              Aligned multi-series on a real time axis; dash patterns carry the non-color series
+              encoding. Drag to zoom x, double-click to reset.
+            </span>
+          }
+        >
+          <TimeSeries
+            label="Demo latency percentiles over eight hours"
+            timestamps={DEMO_HOURS}
+            series={[
+              { label: 'p50 (ms)', values: [12, 14, 9, 18, 22, 16, 13, 19] },
+              { label: 'p95 (ms)', values: [28, 31, 24, 44, 61, 39, 33, 47] },
+            ]}
+            formatValue={(value) => `${value} ms`}
+          />
+        </ChartShell>
         <LoadingState label="Loading…" />
         <EmptyState title="Nothing here yet" description="Empty states guide the next action." />
+      </Section>
+
+      <Section title="Incident clock timeline">
+        <div className={styles.wide}>
+          <IncidentClock
+            lanes={DEMO_CLOCK_LANES}
+            items={DEMO_CLOCK_ITEMS}
+            selectedID="g2"
+            onSelect={() => undefined}
+            label="Demo incident evidence on one time axis"
+            windowStart="2026-06-04T11:45:00Z"
+            windowEnd="2026-06-04T12:00:00Z"
+          />
+        </div>
+      </Section>
+
+      <Section title="Honest data states">
+        <div className={styles.stack}>
+          {HONEST_STATES.map((state) => (
+            <HonestDataState
+              key={state}
+              state={state}
+              producer="Flow collector"
+              producerReadiness={
+                state === 'blocked'
+                  ? 'Server reports flow_running=false'
+                  : 'The tenant query succeeded'
+              }
+              lastSuccessfulIngest={state === 'quiet' ? '2026-06-04T12:00:00Z' : null}
+              coverageLimitation="Only registered exporters contribute samples."
+              action={<Button variant="secondary">Open flow readiness</Button>}
+            />
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Icons">
+        <ul className={styles.iconGrid} aria-label="Every probectl icon">
+          {ICON_NAMES.map((name) => (
+            <li key={name} className={styles.iconCell}>
+              <Icon name={name} size={20} />
+              <span>{name}</span>
+            </li>
+          ))}
+        </ul>
       </Section>
     </Page>
   )

@@ -30,5 +30,5 @@ export {
   TopologyPreview,
 } from './EmptyStatePreviews'
 export { ChartShell, Sparkline } from './ChartShell'
-export { Icon } from './Icon'
+export { Icon, ICON_NAMES } from './Icon'
 export type { IconName } from './Icon'

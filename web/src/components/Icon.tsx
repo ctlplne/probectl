@@ -29,6 +29,32 @@ export type IconName =
   | 'alert'
   | 'info'
 
+/** Runtime list of every icon (for the design-system gallery). */
+// eslint-disable-next-line react-refresh/only-export-components
+export const ICON_NAMES: IconName[] = [
+  'targets',
+  'endpoints',
+  'path',
+  'incidents',
+  'security',
+  'cost',
+  'slo',
+  'ask',
+  'dashboards',
+  'compliance',
+  'outage',
+  'admin',
+  'search',
+  'menu',
+  'sun',
+  'moon',
+  'close',
+  'chevron',
+  'check',
+  'alert',
+  'info',
+]
+
 const paths: Record<IconName, ReactNode> = {
   outage: (
     // A globe with a broken meridian — the collective internet-outage view.
