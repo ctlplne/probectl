@@ -87,6 +87,7 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `react-router` | 6.30.4 | runtime | MIT | web/package-lock.json:node_modules/react-router |
 | npm:web | `react-router-dom` | 6.30.4 | runtime | MIT | web/package-lock.json:node_modules/react-router-dom |
 | npm:web | `scheduler` | 0.23.2 | runtime | MIT | web/package-lock.json:node_modules/scheduler |
+| npm:web | `uplot` | 1.6.32 | runtime | MIT | web/package-lock.json:node_modules/uplot |
 | npm:web | `@adobe/css-tools` | 4.5.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@adobe/css-tools |
 | npm:web | `@asamuzakjp/css-color` | 3.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@asamuzakjp/css-color |
 | npm:web | `@babel/code-frame` | 7.29.7 | dev/build-only | MIT | web/package-lock.json:node_modules/@babel/code-frame |

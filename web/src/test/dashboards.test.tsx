@@ -27,7 +27,10 @@ describe('curated dashboards', () => {
 
     expect((await screen.findAllByText('Active tests')).length).toBeGreaterThan(0)
     expect(screen.getByText('BGP routes')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /cost trend/i })).toBeInTheDocument()
+    // Cost trend (>=2 timestamped samples) upgraded to the S11 TimeSeries; in
+    // jsdom (no canvas) its accessible representation is the data-table twin.
+    expect(screen.getByRole('table', { name: /cost trend/i })).toBeInTheDocument()
+    // Capacity has a single fixture sample, so it stays on the SVG Sparkline.
     expect(screen.getByRole('img', { name: /flow capacity trend/i })).toBeInTheDocument()
 
     const panels = [

@@ -11,12 +11,16 @@ import {
   Card,
   CardBody,
   CardHeader,
+  ChartShell,
   EmptyState,
   ErrorState,
   LoadingState,
   Table,
   type Column,
 } from '../components'
+// Direct import (not the components barrel): uplot must ride only in lazy
+// route chunks so the app-shell entry stays inside its bundle budget.
+import { TimeSeries } from '../components/TimeSeries'
 import { gib, usd, useCostSummary, type BudgetStatus, type ChattyPair } from '../api/cost'
 import { useCarbon, type CarbonAgg } from '../api/carbon'
 import { useI18n } from '../i18n/useI18n'
@@ -167,6 +171,41 @@ export function CostPage() {
           )}
         </CardBody>
       </Card>
+
+      {data?.cost_running && s && s.trend.length >= 2 && (
+        <Card>
+          <CardHeader
+            title="Hourly egress cost"
+            description="The same attributed traffic on the incident clock's time axis."
+          />
+          <CardBody>
+            <ChartShell
+              title="Egress cost per hour"
+              height={220}
+              legend={
+                <span>
+                  {fmtGiB(s.total_bytes)} GiB total ·{' '}
+                  {s.priced ? fmtUSD(s.total_usd) : 'volume-only'}
+                </span>
+              }
+            >
+              <TimeSeries
+                label="Hourly egress cost trend"
+                timestamps={s.trend.map((point) => point.hour)}
+                series={[
+                  {
+                    label: s.priced ? 'USD per hour' : 'GiB per hour',
+                    values: s.trend.map((point) => (s.priced ? point.usd : point.bytes / 2 ** 30)),
+                  },
+                ]}
+                formatValue={(value) =>
+                  s.priced ? fmtUSD(value) : `${formatDecimal(value, locale)} GiB`
+                }
+              />
+            </ChartShell>
+          </CardBody>
+        </Card>
+      )}
 
       {data?.cost_running && s && (
         <>

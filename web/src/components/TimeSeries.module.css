@@ -1,0 +1,171 @@
+/*
+ * TimeSeries (S11/S43 charting layer, first slice): structural chrome for the
+ * uPlot canvas. uPlot's stock stylesheet is deliberately NOT imported — it
+ * carries raw color literals, and the token contract (design-tokens-v2 test)
+ * owns every color. These rules recreate only the layout skeleton uPlot
+ * needs; every color below is a token. Series, axis, and grid strokes are
+ * painted on canvas from the same tokens, resolved at runtime via
+ * getComputedStyle so a data-theme swap repaints correctly.
+ */
+
+.wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plot {
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: var(--radius-sm);
+  /* Charts are a coordinate island: the canvas plots time left-to-right and
+   * uPlot moves its cursor overlays with physical-pixel transforms, so the
+   * plot never mirrors under RTL. Pinning direction here makes the logical
+   * inline properties below resolve to the same physical edges uPlot uses. */
+  direction: ltr;
+}
+
+.plot:focus-visible {
+  outline: var(--focus-ring-width) solid var(--color-focus);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.plot :global(.uplot) {
+  font-family: var(--font-sans);
+}
+
+.plot :global(.u-wrap) {
+  position: relative;
+  user-select: none;
+}
+
+.plot :global(.u-over),
+.plot :global(.u-under) {
+  position: absolute;
+}
+
+.plot :global(.u-over),
+.plot :global(.u-under) {
+  overflow: hidden; /* also clips the parked (pre-hover) cursor lines */
+}
+
+.plot :global(.uplot canvas) {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.plot :global(.u-axis) {
+  position: absolute;
+}
+
+/* The shared ChartShell legend slot is the one legend; uPlot's own is off. */
+.plot :global(.u-legend) {
+  display: none;
+}
+
+/* Drag-select region for x-zoom (double-click resets). */
+.plot :global(.u-select) {
+  position: absolute;
+  pointer-events: none;
+  background: var(--color-selection-soft);
+}
+
+.plot :global(.u-cursor-x),
+.plot :global(.u-cursor-y) {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.plot :global(.u-hz .u-cursor-x) {
+  height: 100%;
+  border-inline-end: 1px dashed var(--color-chart-axis);
+}
+
+.plot :global(.u-hz .u-cursor-y) {
+  width: 100%;
+  border-bottom: 1px dashed var(--color-chart-grid);
+}
+
+.plot :global(.u-cursor-pt) {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* Series legend + crosshair readout (pointer affordance; aria-hidden). */
+.readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+}
+
+.readoutTime {
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.readoutSeries {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.readoutValue {
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.swatch {
+  width: 20px;
+  height: 8px;
+  flex-shrink: 0;
+}
+
+.swatch line {
+  stroke-width: 2;
+}
+
+/* Visible only when canvas is unavailable; otherwise the sr-only twin serves
+ * assistive tech (the honest, non-visual encoding of the same samples). */
+.fallbackTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.fallbackTable caption {
+  text-align: start;
+  color: var(--color-text-subtle);
+  padding-block-end: var(--space-2);
+}
+
+.fallbackTable th,
+.fallbackTable td {
+  text-align: start;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  font-weight: var(--font-weight-regular);
+}
+
+.fallbackTable thead th {
+  color: var(--color-text-subtle);
+  font-weight: var(--font-weight-semibold);
+}

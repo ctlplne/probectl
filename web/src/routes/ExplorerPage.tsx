@@ -30,6 +30,9 @@ import {
   type ExplorerVisualization,
 } from '../api/explorer'
 import { Page } from './RoutePage'
+// Direct import (not the components barrel): uplot must ride only in lazy
+// route chunks so the app-shell entry stays inside its bundle budget.
+import { TimeSeries } from '../components/TimeSeries'
 import { SavedViews } from './listControls'
 import { ExplainView } from './ExplainView'
 import { pivotHref } from './pivotContext'
@@ -154,6 +157,37 @@ function chartValues(rows: Record<string, unknown>[], measures: string[]) {
     .map((row) => row[key])
     .filter((value): value is number => typeof value === 'number')
   return values.length ? values : [0]
+}
+
+const TIME_COLUMN = /(^|_)(occurred_at|observed_at|timestamp|time|ts|hour|bucket|date)($|_)/i
+
+/** When the result carries a real time column, line/timeline visualizations
+ * upgrade from the indexed Sparkline to the S11 TimeSeries; results without
+ * one (hop-indexed lines, bars) honestly stay indexed. */
+function timeSeriesFromRows(
+  rows: Record<string, unknown>[],
+  columns: { key: string }[],
+  measures: string[],
+): { timestamps: string[]; values: (number | null)[] } | null {
+  const measure = measures[0]
+  if (!measure || rows.length < 2) return null
+  const timeKey = columns.find(
+    (column) =>
+      TIME_COLUMN.test(column.key) &&
+      rows.every((row) => {
+        const value = row[column.key]
+        return typeof value === 'string' && Number.isFinite(Date.parse(value))
+      }),
+  )?.key
+  if (!timeKey) return null
+  const timestamps: string[] = []
+  const values: (number | null)[] = []
+  for (const row of rows) {
+    timestamps.push(row[timeKey] as string)
+    const value = row[measure]
+    values.push(typeof value === 'number' ? value : null)
+  }
+  return { timestamps, values }
 }
 
 export function ExplorerPage() {
@@ -398,10 +432,27 @@ export function ExplorerPage() {
                 title={`${run.data.query.visualization} visualization`}
                 legend={<span>Exact {run.data.query.measures[0] ?? 'row count'} values</span>}
               >
-                <Sparkline
-                  data={chartValues(run.data.rows, run.data.query.measures)}
-                  label={`${run.data.query.visualization} visualization of authorized Explorer results`}
-                />
+                {(() => {
+                  const timed =
+                    run.data.query.visualization === 'line' ||
+                    run.data.query.visualization === 'timeline'
+                      ? timeSeriesFromRows(run.data.rows, run.data.columns, run.data.query.measures)
+                      : null
+                  return timed ? (
+                    <TimeSeries
+                      label={`${run.data.query.visualization} visualization of authorized Explorer results`}
+                      timestamps={timed.timestamps}
+                      series={[
+                        { label: run.data.query.measures[0] ?? 'value', values: timed.values },
+                      ]}
+                    />
+                  ) : (
+                    <Sparkline
+                      data={chartValues(run.data.rows, run.data.query.measures)}
+                      label={`${run.data.query.visualization} visualization of authorized Explorer results`}
+                    />
+                  )
+                })()}
               </ChartShell>
             ) : null}
             <Table

@@ -112,7 +112,9 @@ describe('tenant-safe dashboard reporting', () => {
     expect(within(scope).getByText('Coverage gaps')).toBeVisible()
 
     expect(screen.getByRole('table', { name: /active tests dashboard/i })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /cost trend/i })).toBeInTheDocument()
+    // Cost trend upgraded to the S11 TimeSeries; in jsdom (no canvas) its
+    // accessible representation is the sampled data-table twin.
+    expect(screen.getByRole('table', { name: /cost trend/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('checkbox', { name: /share inside this tenant/i }))
     await user.click(screen.getByRole('button', { name: /save dashboard/i }))

@@ -56,3 +56,7 @@
   fill: var(--color-accent-soft);
   stroke: none;
 }
+
+.dot {
+  fill: var(--color-chart-1);
+}

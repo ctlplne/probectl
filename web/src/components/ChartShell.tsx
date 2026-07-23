@@ -42,6 +42,22 @@ export function ChartShell({
 export function Sparkline({ data, label }: { data: number[]; label: string }) {
   const w = 600
   const h = 160
+
+  // Honesty: one sample is a point, not a trend. The old code drew a filled
+  // wedge across the full plot from a single value — misleading by geometry.
+  if (data.length === 1) {
+    return (
+      <svg
+        className={styles.spark}
+        viewBox={`0 0 ${w} ${h}`}
+        role="img"
+        aria-label={`${label} (single sample)`}
+      >
+        <circle className={styles.dot} cx={w / 2} cy={h / 2} r={6} />
+      </svg>
+    )
+  }
+
   const max = Math.max(...data, 1)
   const min = Math.min(...data, 0)
   const span = max - min || 1
