@@ -60,32 +60,32 @@ local/CI convenience.
 Run `make help` for the authoritative, self-documenting list. The ones you'll
 reach for most:
 
-| Target                             | What it does                                                                                     |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `make build`                       | Build all binaries into `./bin` (version stamped via `-ldflags`)                                 |
-| `make build-cross`                 | Cross-compile every binary for linux amd64 + arm64 (smoke)                                       |
-| `make run`                         | Run `probectl-control` locally                                                                   |
-| `make test`                        | Unit tests across all workspace modules (`-race`)                                                |
-| `make test-isolation`              | Cross-tenant isolation gate (`-tags=isolation`)                                                  |
-| `make test-integration`            | Integration tests (`-tags=integration`; needs a DB / dev stack)                                  |
-| `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                      |
-| `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`)                |
-| `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics |
-| `make interop-offline`             | Hermetic offline protocol-fixture replay for OTLP, Prometheus remote-write, flow, device, and BGP MRT protocols |
+| Target                             | What it does                                                                                                                    |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`                       | Build all binaries into `./bin` (version stamped via `-ldflags`)                                                                |
+| `make build-cross`                 | Cross-compile every binary for linux amd64 + arm64 (smoke)                                                                      |
+| `make run`                         | Run `probectl-control` locally                                                                                                  |
+| `make test`                        | Unit tests across all workspace modules (`-race`)                                                                               |
+| `make test-isolation`              | Cross-tenant isolation gate (`-tags=isolation`)                                                                                 |
+| `make test-integration`            | Integration tests (`-tags=integration`; needs a DB / dev stack)                                                                 |
+| `make test-python`                 | `pytest` for the analyzer (incl. Hypothesis property tests)                                                                     |
+| `make cover-gate`                  | Per-package coverage floor on service-free packages (`scripts/check_coverage.sh`)                                               |
+| `make audit-verify-gate`           | Validate repaired audit appendices, whole-run coverage summary, and citation fabrication metrics                                |
+| `make interop-offline`             | Hermetic offline protocol-fixture replay for OTLP, Prometheus remote-write, flow, device, and BGP MRT protocols                 |
 | `make interop-stock-offline`       | Strict stock-client proof gate; requires pinned stock executables or stock-emitted artifacts for every required protocol family |
-| `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                                |
-| `make lint`                        | `lint-go` + `lint-python`                                                                        |
-| `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                                |
-| `make sdk`                         | Generate Go + TypeScript REST SDKs from `internal/control/openapi.json`                          |
-| `make sdk-gate`                    | Regenerate REST SDKs, fail on drift, and compile the generated Go SDK sample                     |
-| `make proto`                       | `buf lint` + generate Go (+ gRPC) from `proto/`                                                  |
-| `make proto-tools`                 | Install protobuf codegen tools (buf + Go plugins, pinned)                                        |
-| `make migrate`                     | Apply DB migrations via `probectl-control migrate`                                               |
-| `make vuln`                        | `govulncheck` over Go dependencies                                                               |
-| `make images`                      | Multi-arch (`amd64`/`arm64`) images for every component                                          |
-| `make compose-up` / `compose-down` | Start / stop the local dev dependency stack                                                      |
-| `make tools`                       | Install pinned dev tools (golangci-lint)                                                         |
-| `make ci`                          | `lint` + `test` + `test-isolation` (the core gates locally)                                      |
+| `make fuzz-smoke`                  | Run each Go fuzz target briefly to catch crashers                                                                               |
+| `make lint`                        | `lint-go` + `lint-python`                                                                                                       |
+| `make fmt`                         | Auto-format Go (`gofmt`) and Python (`ruff check --fix`, `black`)                                                               |
+| `make sdk`                         | Generate Go + TypeScript REST SDKs from `internal/control/openapi.json`                                                         |
+| `make sdk-gate`                    | Regenerate REST SDKs, fail on drift, and compile the generated Go SDK sample                                                    |
+| `make proto`                       | `buf lint` + generate Go (+ gRPC) from `proto/`                                                                                 |
+| `make proto-tools`                 | Install protobuf codegen tools (buf + Go plugins, pinned)                                                                       |
+| `make migrate`                     | Apply DB migrations via `probectl-control migrate`                                                                              |
+| `make vuln`                        | `govulncheck` over Go dependencies                                                                                              |
+| `make images`                      | Multi-arch (`amd64`/`arm64`) images for every component                                                                         |
+| `make compose-up` / `compose-down` | Start / stop the local dev dependency stack                                                                                     |
+| `make tools`                       | Install pinned dev tools (golangci-lint)                                                                                        |
+| `make ci`                          | `lint` + `test` + `test-isolation` (the core gates locally)                                                                     |
 
 > `make ci` runs the **core** gates fast and locally. It is _not_ the full CI
 > suite — the integration, isolation-against-real-DBs, eBPF-kernel-matrix,
@@ -145,6 +145,25 @@ This is the full list; `ci.yml` is the source of truth.
 | `sbom`                   | CycloneDX SBOM (a **software bill of materials** — the machine-readable parts list) of the Go module graph, retained 90 days (informational, not a merge gate)                                                                   |
 | `compose-render`         | every shipped compose file renders with `docker compose config`                                                                                                                                                                  |
 | `verify-all`             | the umbrella check: red unless every verification job it depends on concluded green — the gates are wired in series, like a strand of old holiday lights: one dark bulb darkens the whole strand                                 |
+
+### Frontend design loop (no backend required)
+
+`cd web && npm run dev:fixtures` starts the Vite dev server with a **dev-only**
+middleware that answers `/v1` and `/branding` from the same read-only fixture
+catalog the unit suite renders (`web/src/test/fixtureApi.ts`) — hot reload for
+design/UI iteration with no control plane, database, or IdP on the laptop.
+Open `http://localhost:5173/ui/` and every screen renders signed in as the
+obviously-fake fixture operator; edits to components, tokens, or the fixture
+catalog itself reload live. Every response carries `x-probectl-fixture: 1`.
+
+This changes the laptop, not the product: the plugin (`web/dev/`) is
+`apply: 'serve'` so a production build never evaluates it, it is inert without
+`PROBECTL_WEB_FIXTURES=1`, and the shipped SPA still hard-requires the real
+backend session (plain `npm run dev` keeps proxying `/v1` to `localhost:8080`).
+It is the interactive sibling of the CI review proxies
+(`scripts/web_dashboard_fixture.mjs`, `scripts/web_rollout_fixture.mjs`). For
+an interactive login against a real control plane instead, use the Dex demo
+overlay in [`../deploy/compose/README.md`](../deploy/compose/README.md).
 
 For the rendered Chromium accessibility/performance gate, `cd web && npm run a11y:browser`
 uses a local Chrome/Chromium binary or the Playwright browser cache. On a fresh

@@ -7,12 +7,19 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
+import { fixtureApiPlugin } from './dev/fixtureApiPlugin'
 
 // HTTPS/CSP/HSTS are enforced by the serving ingress (CLAUDE.md §7 guardrail 12),
 // not by Vite's dev server. No external origins are referenced anywhere in the
 // build (sovereignty — guardrail 11).
 export default defineConfig({
-  plugins: [react()],
+  // The control plane mounts the embedded SPA at /ui/. Keep generated asset
+  // URLs under that same prefix; root-relative /assets/* is not registered by
+  // the HTTPS server and leaves the release shell blank.
+  base: '/ui/',
+  // fixtureApiPlugin is serve-only and inert unless PROBECTL_WEB_FIXTURES=1
+  // (`npm run dev:fixtures`): the no-backend design loop. See web/dev/.
+  plugins: [react(), fixtureApiPlugin()],
   build: {
     // The bundle-budget gate reads Vite's graph rather than guessing from
     // hashed filenames: isEntry is the app shell; isDynamicEntry marks the
@@ -23,7 +30,13 @@ export default defineConfig({
     // The ee/ web seam (S-T1): commercial UI source lives in ee/web (the
     // editions boundary applies to the frontend too); the bundle always
     // includes it — visibility is runtime-gated (the API 404s unlicensed).
-    alias: { '@ee': resolve(__dirname, '../ee/web') },
+    alias: {
+      '@ee': resolve(__dirname, '../ee/web'),
+      // ee/web sources import react-query for the provider data layer; bare
+      // specifiers don't node-resolve upward from ee/, so pin it to web's copy
+      // (tsconfig `paths` carries the matching type resolution).
+      '@tanstack/react-query': resolve(__dirname, 'node_modules/@tanstack/react-query'),
+    },
   },
   server: {
     port: 5173,
@@ -75,6 +88,9 @@ export default defineConfig({
         'src/api/sdk.gen.ts',
         'dist/**',
         '**/*.config.*',
+        // Dev-server-only tooling (fixture design loop); never in the bundle,
+        // so it must not dilute the UI coverage signal.
+        'dev/**',
       ],
     },
   },

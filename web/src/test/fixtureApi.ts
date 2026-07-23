@@ -1,0 +1,903 @@
+// SPDX-License-Identifier: MPL-2.0
+//
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+export function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+const sampleTests = [
+  {
+    id: 't1',
+    name: 'edge-dns',
+    type: 'dns',
+    target: '1.1.1.1',
+    interval_seconds: 30,
+    timeout_seconds: 3,
+    params: {},
+    enabled: true,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+  {
+    id: 't2',
+    name: 'api-gw',
+    type: 'tcp',
+    target: 'api.example.com:443',
+    interval_seconds: 60,
+    timeout_seconds: 3,
+    params: {},
+    enabled: false,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  },
+]
+
+const sampleAgents = [
+  {
+    id: 'a1',
+    name: 'agent-1',
+    hostname: 'host-a',
+    agent_version: '0.1.0',
+    status: 'online',
+    capabilities: ['icmp', 'tcp', 'flow', 'device', 'ebpf', 'endpoint'],
+    heartbeat_age_seconds: 30,
+    heartbeat_state: 'ready',
+    heartbeat_reason: 'Authenticated heartbeat is inside the five-minute health gate.',
+    version_state: 'current',
+    version_reason: 'Agent matches the control-plane version.',
+    readiness_state: 'ready',
+    readiness_reason: 'Heartbeat, version policy, and reported capabilities are ready.',
+    rollout_halted: false,
+    last_failure: '',
+    next_safe_action: {
+      kind: 'inspect_evidence',
+      label: 'Inspect agent evidence',
+      reason: 'Review the tenant-scoped registry evidence; no fleet change is performed.',
+      href: '/docs/api#rollouts',
+    },
+  },
+]
+
+const sampleIncident = {
+  id: 'inc-dashboard',
+  tenant_id: '00000000-0000-0000-0000-000000000001',
+  status: 'open',
+  severity: 'warning',
+  title: 'checkout latency burn',
+  target: 'https://checkout.probectl.test',
+  started_at: '2026-06-04T11:45:00Z',
+  last_seen_at: '2026-06-04T12:00:00Z',
+  signal_count: 3,
+  signals: [
+    {
+      plane: 'synthetic',
+      kind: 'http.latency',
+      severity: 'warning',
+      title: 'HTTP latency above SLO',
+      target: 'https://checkout.probectl.test',
+      occurred_at: '2026-06-04T11:55:00Z',
+    },
+    {
+      plane: 'flow',
+      kind: 'capacity.anomaly',
+      severity: 'warning',
+      title: 'edge-r1 throughput spike',
+      target: 'edge-r1',
+      occurred_at: '2026-06-04T11:58:00Z',
+    },
+  ],
+}
+
+/** Discovered path for t1 (edge-dns → 1.1.1.1): an ECMP fan at TTL 2–4 with
+ * an MPLS label on one branch, a loss hotspot on the other, reconverging
+ * before the destination — enough story for the J4 hero to demonstrate
+ * branches, labels, loss encoding, and round comparison. */
+function pathNode(
+  ip: string,
+  rtt: number,
+  loss = 0,
+  mpls?: { label: number; tc: number; s: boolean; ttl: number }[],
+) {
+  return {
+    ip,
+    sent: 12,
+    received: Math.round(12 * (1 - loss)),
+    loss_ratio: loss,
+    rtt_min_ms: Math.max(0, rtt - 1),
+    rtt_avg_ms: rtt,
+    rtt_max_ms: rtt + 2,
+    ...(mpls ? { mpls } : {}),
+  }
+}
+
+function samplePath(withSecondBranch: boolean) {
+  const hops = [
+    { ttl: 1, nodes: [pathNode('10.0.0.1', 1)] },
+    {
+      ttl: 2,
+      nodes: [pathNode('10.0.2.1', 3), ...(withSecondBranch ? [pathNode('10.0.2.2', 4)] : [])],
+    },
+    {
+      ttl: 3,
+      nodes: [
+        pathNode('172.16.3.1', 8, 0, [{ label: 16259, tc: 0, s: true, ttl: 1 }]),
+        ...(withSecondBranch ? [pathNode('172.16.3.2', 11, 0.12)] : []),
+      ],
+    },
+    { ttl: 4, nodes: [pathNode('192.0.2.9', 14)] },
+    { ttl: 5, nodes: [pathNode('1.1.1.1', 18)] },
+  ]
+  const links = [
+    { ttl: 1, from: '10.0.0.1', to: '10.0.2.1' },
+    ...(withSecondBranch ? [{ ttl: 1, from: '10.0.0.1', to: '10.0.2.2' }] : []),
+    { ttl: 2, from: '10.0.2.1', to: '172.16.3.1' },
+    ...(withSecondBranch ? [{ ttl: 2, from: '10.0.2.2', to: '172.16.3.2' }] : []),
+    { ttl: 3, from: '172.16.3.1', to: '192.0.2.9' },
+    ...(withSecondBranch ? [{ ttl: 3, from: '172.16.3.2', to: '192.0.2.9' }] : []),
+    { ttl: 4, from: '192.0.2.9', to: '1.1.1.1' },
+  ]
+  return {
+    target: '1.1.1.1',
+    target_ip: '1.1.1.1',
+    mode: 'icmp',
+    max_hops: 30,
+    trace_count: 12,
+    destination_reached: true,
+    hops,
+    links,
+  }
+}
+
+const samplePathRounds = [
+  { id: 'round-3', observed_at: '2026-06-04T12:00:00Z', path: samplePath(true) },
+  { id: 'round-2', observed_at: '2026-06-04T11:30:00Z', path: samplePath(false) },
+  { id: 'round-1', observed_at: '2026-06-04T11:00:00Z', path: samplePath(false) },
+]
+
+const sampleAnswer = {
+  id: 'ans-fixture',
+  tenant: '00000000-0000-0000-0000-000000000001',
+  question: '',
+  root_cause: 'Most likely root cause: "edge-r1 throughput spike" saturating the checkout path.',
+  root_cause_citations: [{ evidence_id: 'E1' }],
+  root_cause_grounded: true,
+  degraded: false,
+  confidence: 'medium',
+  model: 'builtin',
+  reasoning: {
+    adapter: 'builtin',
+    execution: 'builtin_local',
+    egress_consent: 'not_required',
+  },
+  insufficient_evidence: false,
+  investigation_plan: [
+    {
+      step: 1,
+      domain: 'entities',
+      goal: 'Check correlated incidents and their stitched cross-plane signals.',
+      limit: 50,
+      read_only: true,
+      status: 'queried',
+      evidence_count: 2,
+    },
+    {
+      step: 2,
+      domain: 'events',
+      goal: 'Check change and flow records near the question window.',
+      limit: 50,
+      read_only: true,
+      status: 'queried',
+      evidence_count: 1,
+    },
+  ],
+  findings: [
+    {
+      statement: 'The flow plane shows an edge-r1 throughput spike inside the incident window.',
+      citations: [{ evidence_id: 'E1' }],
+    },
+    {
+      statement: 'Synthetic HTTP latency crossed the SLO threshold three minutes later.',
+      citations: [{ evidence_id: 'E2' }],
+    },
+  ],
+  evidence: [
+    {
+      id: 'E1',
+      domain: 'entities',
+      plane: 'flow',
+      severity: 'warning',
+      title: 'edge-r1 throughput spike',
+      summary: 'capacity.anomaly at 85 Mbps against a 35 Mbps baseline',
+      ref: 'incident:inc-dashboard',
+      occurred_at: '2026-06-04T11:58:00Z',
+    },
+    {
+      id: 'E2',
+      domain: 'entities',
+      plane: 'synthetic',
+      severity: 'warning',
+      title: 'HTTP latency above SLO',
+      summary: 'checkout p95 above objective',
+      ref: 'incident:inc-dashboard',
+      occurred_at: '2026-06-04T11:55:00Z',
+    },
+  ],
+}
+
+const sampleIntelStatus = {
+  open_data_enabled: true,
+  threat_intel_enabled: true,
+  ioc_count: 1200,
+  open_data_sources: [
+    {
+      name: 'test_cymru',
+      kind: 'asn',
+      cadence_seconds: 86_400,
+      aup: {
+        license: 'public lookup',
+        url: 'https://terms.example/opendata',
+        attribution: 'Example Data',
+        commercial_use: 'allowed-with-attribution',
+        redistribution: 'cached lookup only',
+      },
+      enabled: true,
+      status: 'ok',
+      last_success: '2026-06-04T12:00:00Z',
+      last_error: '',
+    },
+  ],
+  threat_intel_feeds: [
+    {
+      name: 'feodo_tracker',
+      kind: 'threat_intel',
+      cadence_seconds: 3600,
+      aup: {
+        license: 'abuse.ch CC0',
+        url: 'https://abuse.ch/',
+        attribution: '',
+        commercial_use: 'allowed',
+        redistribution: '',
+      },
+      enabled: true,
+      status: 'ok',
+      last_success: '2026-06-04T12:00:00Z',
+      last_error: '',
+      ioc_count: 1200,
+    },
+  ],
+}
+
+const sampleLatestResults = [
+  {
+    agent_id: 'a1',
+    type: 'dns',
+    target: '1.1.1.1',
+    success: true,
+    duration_ms: 21,
+    metrics: { 'dns.query.ms': 21 },
+    observed_at: '2026-06-04T12:00:00Z',
+  },
+  {
+    agent_id: 'a1',
+    type: 'http',
+    target: 'https://checkout.probectl.test',
+    success: true,
+    duration_ms: 184,
+    metrics: { 'http.total.ms': 184, 'http.status': 200 },
+    observed_at: '2026-06-04T12:00:00Z',
+  },
+  {
+    agent_id: 'a1',
+    type: 'dns',
+    target: 'checkout.probectl.test',
+    success: true,
+    duration_ms: 18,
+    metrics: { 'dns.query.ms': 18 },
+    observed_at: '2026-06-04T12:00:00Z',
+  },
+]
+
+export const sampleExplorerTemplates = [
+  [
+    'top-talkers-site',
+    'Show top talkers by site',
+    'flow',
+    ['site', 'interface'],
+    ['site'],
+    ['bps', 'pps'],
+    'bar',
+    '/planes/flow',
+  ],
+  [
+    'asn-before-incident',
+    'Which ASN change preceded this incident?',
+    'changes',
+    ['source', 'prefix', 'target'],
+    ['source'],
+    ['events'],
+    'timeline',
+    '/incidents',
+  ],
+  [
+    'loss-by-hop',
+    'Show loss by hop for this test',
+    'path',
+    ['target', 'hop', 'node'],
+    ['hop'],
+    ['loss_ratio', 'rtt_avg_ms'],
+    'line',
+    '/path',
+  ],
+  [
+    'service-dependencies',
+    'Show service dependencies',
+    'topology',
+    ['from', 'to', 'kind'],
+    ['kind'],
+    ['edges'],
+    'topology',
+    '/topology',
+  ],
+  [
+    'saturated-interface',
+    'Which device interface is saturated?',
+    'flow',
+    ['site', 'interface'],
+    ['site', 'interface'],
+    ['bps', 'pps'],
+    'line',
+    '/planes/device',
+  ],
+  [
+    'outage-endpoints',
+    'Which endpoints are affected by this outage?',
+    'endpoints',
+    ['endpoint', 'cause', 'summary'],
+    ['cause'],
+    ['affected_endpoints'],
+    'table',
+    '/endpoints',
+  ],
+  [
+    'certificates-expiring',
+    'Which certificates expire in the next 30 days?',
+    'tls',
+    ['target', 'subject', 'issuer'],
+    ['issuer'],
+    ['days_remaining'],
+    'table',
+    '/security',
+  ],
+  [
+    'cross-az-cost',
+    'Show cross-AZ network cost',
+    'cost',
+    ['from_zone', 'to_zone', 'service'],
+    ['from_zone', 'to_zone'],
+    ['bytes', 'usd'],
+    'bar',
+    '/cost',
+  ],
+  [
+    'slo-budget-burn',
+    'Which SLO error budgets are burning?',
+    'slo',
+    ['slo', 'service', 'team'],
+    ['service'],
+    ['burn_rate', 'budget_remaining'],
+    'bar',
+    '/slos',
+  ],
+  [
+    'deployments-before-incident',
+    'Which deployments immediately preceded this incident?',
+    'changes',
+    ['source', 'actor', 'target'],
+    ['source'],
+    ['events'],
+    'timeline',
+    '/incidents',
+  ],
+].map(([id, question, source, dimensions, groupings, measures, visualization, evidence_path]) => ({
+  id,
+  question,
+  source,
+  dimensions,
+  groupings,
+  measures,
+  visualization,
+  evidence_path,
+}))
+
+/**
+ * pathOf parses a fetched URL to its PATHNAME (no query, no origin) so stub
+ * routes match by exact path, not substring. RED-006/UX-006: matching with
+ * url.endsWith()/url.includes() let a double-prefixed '/v1/v1/topology' satisfy
+ * a '/v1/topology' route and render green despite the bug. Exact-pathname
+ * matching plus the assertNoDoublePrefix guard below close that.
+ */
+export function pathOf(input: RequestInfo | URL): string {
+  const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : String(input)
+  // Resolve against a dummy origin so relative paths ('/v1/me') parse too.
+  return new URL(raw, 'http://t.invalid').pathname
+}
+
+/** RED-006: a fetched URL must NEVER carry a doubled '/v1/v1' segment — that is
+ *  the exact double-prefix bug (UX-001). Any stub call that sees it throws, so a
+ *  regression fails the suite loudly instead of passing on a lenient match. */
+export function assertNoDoublePrefix(input: RequestInfo | URL): void {
+  const p = pathOf(input)
+  if (p.includes('/v1/v1')) {
+    throw new Error(`double /v1 prefix in fetched URL: ${p} (UX-001/RED-006)`)
+  }
+}
+
+/** A read-only fetch covering the list endpoints, so any screen renders with
+ *  data. Pure (no vitest): the unit suite wraps it in vi.fn (fetchStub.ts) and
+ *  the dev-only Vite fixture middleware serves it for the design loop. CRUD
+ *  tests install their own stateful stub. */
+export function fixtureFetch(): typeof fetch {
+  return async (input: RequestInfo | URL, init?: RequestInit) => {
+    assertNoDoublePrefix(input)
+    const path = pathOf(input)
+    // SEC-001: the app resolves identity from /v1/me; serve a default
+    // authenticated session so any screen renders as a signed-in operator.
+    // Exclude the provider console's /provider/v1/me (different shape).
+    if (path === '/v1/me')
+      return jsonResponse({
+        tenant_id: '00000000-0000-0000-0000-000000000001',
+        tenant_name: 'Acme Industries',
+        tenant_slug: 'acme-industries',
+        user_id: 'u_test',
+        email: 'operator@probectl.test',
+        display_name: 'Test Operator',
+        mfa_satisfied: true,
+        permissions: [],
+      })
+    if (path === '/v1/tests') return jsonResponse({ items: sampleTests })
+    // UX-004: useAgents pages with ?after=&limit=; the query is dropped by
+    // pathOf, so the exact path matches regardless. Return one (final) page.
+    if (path === '/v1/agents')
+      return jsonResponse({
+        items: sampleAgents,
+        control_version: '0.1.0',
+        rollouts_available: true,
+      })
+    if (path === '/v1/rollouts') return jsonResponse({ items: [] })
+    if (path === '/v1/dashboards') return jsonResponse({ items: [] })
+    if (path === '/v1/dashboard-report-schedules')
+      return jsonResponse({
+        items: [],
+        destinations: [
+          {
+            id: 'tenant-report-inbox',
+            name: 'Tenant report inbox',
+            kind: 'local',
+            outbound: false,
+            ready: true,
+          },
+        ],
+        outbound_default: false,
+      })
+    if (path === '/v1/dashboard-report-artifacts') return jsonResponse({ items: [] })
+    if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
+    if (path === '/v1/explorer/schema')
+      return jsonResponse({
+        templates: sampleExplorerTemplates,
+        visualizations: ['table', 'bar', 'line', 'timeline', 'topology'],
+        max_rows: 500,
+      })
+    if (path === '/v1/explorer/query') {
+      const query = JSON.parse(String(init?.body)) as {
+        template?: string
+        question: string
+        source: string
+        from: string
+        to: string
+        dimensions: string[]
+        filters: Record<string, string>
+        groupings: string[]
+        measures: string[]
+        visualization: string
+        limit: number
+      }
+      // Timeline/line results carry a real time column (mirrors the server,
+      // which adds the bucket timestamp for time visualizations) so the S11
+      // TimeSeries upgrade path renders in the design loop.
+      const wantsTime = query.visualization === 'line' || query.visualization === 'timeline'
+      const makeRow = (index: number): Record<string, unknown> => {
+        const row: Record<string, unknown> = {}
+        if (wantsTime) row.occurred_at = `2026-06-04T1${index}:00:00Z`
+        for (const dimension of query.dimensions) row[dimension] = `${dimension}-value`
+        for (const measure of query.measures) row[measure] = (index + 1) * 7
+        return row
+      }
+      const rows = wantsTime ? [makeRow(0), makeRow(1), makeRow(2)] : [makeRow(0)]
+      const template = sampleExplorerTemplates.find((item) => item.id === query.template)
+      return jsonResponse({
+        query,
+        preview: `FROM ${query.source} | GROUP BY ${query.groupings.join(', ')} | MEASURE ${query.measures.join(', ')} | VIEW ${query.visualization}`,
+        columns: [
+          ...(wantsTime ? [{ key: 'occurred_at', label: 'occurred at' }] : []),
+          ...query.dimensions.map((key) => ({ key, label: key.replace(/_/g, ' ') })),
+          ...query.measures.map((key) => ({ key, label: key.replace(/_/g, ' '), numeric: true })),
+        ],
+        rows,
+        suggestions: Object.fromEntries(
+          query.dimensions.map((key) => [key, [String(rows[0][key])]]),
+        ),
+        evidence_path: template?.evidence_path ?? '/explore',
+        truncated: false,
+      })
+    }
+    if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
+    if (path === '/v1/incidents/inc-dashboard') return jsonResponse(sampleIncident)
+    if (path === '/v1/alerts') return jsonResponse({ items: [] })
+    if (path === '/v1/alerts/maintenance')
+      return jsonResponse({ items: [], evaluator_running: true })
+    if (path === '/v1/alerts/active')
+      return jsonResponse({
+        items: [
+          {
+            fingerprint: 'fp-dashboard',
+            rule_id: 'r-dashboard',
+            rule_name: 'checkout latency burn',
+            severity: 'warning',
+            metric: 'probectl_result_duration_ms',
+            labels: { target: 'checkout', service: 'checkout' },
+            value: 184,
+            reason: 'p95 latency above objective',
+            since: '2026-06-04T11:45:00Z',
+            last_seen_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        evaluator_running: true,
+      })
+    if (path === '/v1/tls/posture') return jsonResponse({ items: [], collector_running: true })
+    if (path === '/v1/threat/intel/status') return jsonResponse(sampleIntelStatus)
+    if (path === '/v1/threat/detections')
+      return jsonResponse({
+        items: [
+          {
+            id: 'det-dashboard',
+            kind: 'ioc_match',
+            plane: 'threat',
+            severity: 'warning',
+            confidence: 0.82,
+            source: 'test-intel',
+            category: 'scanner',
+            indicator: '10.0.0.20',
+            entity: '10.0.0.20',
+            title: 'Known scanner contact',
+            summary: 'Flow evidence matched a locally cached threat-intel indicator.',
+            observed_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        detections_running: true,
+      })
+    if (path === '/v1/endpoints')
+      return jsonResponse({
+        items: [
+          {
+            agent_id: 'endpoint-1',
+            last_seen_at: '2026-06-04T12:00:00Z',
+            cause: 'none',
+            summary: 'healthy last-mile path',
+            confidence: 0.93,
+            slow: false,
+          },
+        ],
+        collector_running: true,
+      })
+    if (path === '/v1/results/latest')
+      return jsonResponse({ items: sampleLatestResults, collector_running: true })
+    if (path === '/v1/device/syslog')
+      return jsonResponse({
+        items: [
+          {
+            id: 'syslog-1',
+            device: 'edge-r1',
+            severity_text: 'warning',
+            message: 'Interface Gi0/1 down',
+            observed_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        syslog_running: true,
+      })
+    if (path === '/v1/device/configs')
+      return jsonResponse({
+        items: [
+          {
+            id: 'config-2',
+            device: 'edge-r1',
+            source: 'running-config',
+            version: 2,
+            content_hash: '0123456789abcdef',
+            previous_hash: 'abcdef0123456789',
+            drifted: true,
+            archived_at: '2026-06-04T12:00:00Z',
+          },
+        ],
+        archive_running: true,
+      })
+    if (path === '/v1/topology')
+      return jsonResponse({
+        topology_running: true,
+        at: '2026-06-04T12:00:00Z',
+        nodes: [
+          { id: 'as:64500', kind: 'as', label: 'AS64500' },
+          { id: 'prefix:203.0.113.0/24', kind: 'prefix', label: '203.0.113.0/24' },
+          { id: 'service:checkout', kind: 'service', label: 'checkout' },
+          { id: 'service:payments', kind: 'service', label: 'payments' },
+          { id: 'device:10.0.0.1', kind: 'device', label: 'edge-r1' },
+          { id: 'hop:10.0.0.1', kind: 'hop', label: '10.0.0.1' },
+        ],
+        edges: [
+          { from: 'as:64500', to: 'prefix:203.0.113.0/24', kind: 'routing' },
+          { from: 'service:checkout', to: 'service:payments', kind: 'flow', label: 'http' },
+          { from: 'device:10.0.0.1', to: 'hop:10.0.0.1', kind: 'device' },
+        ],
+        coverage: { path_edges: 0, flow_edges: 1, routing_edges: 1, device_edges: 1 },
+      })
+    if (path === '/v1/inventory/views') return jsonResponse({ items: [] })
+    if (path === '/v1/results/history')
+      return jsonResponse({
+        collector_running: true,
+        window: '1h0m0s',
+        items: [18, 21, 24, 20, 31, 26].map((duration, index) => ({
+          agent_id: 'a1',
+          type: 'http',
+          target: 'https://checkout.probectl.test',
+          success: true,
+          duration_ms: duration,
+          metrics: { 'http.total.ms': duration },
+          observed_at: `2026-06-04T11:${String(10 + index * 10).padStart(2, '0')}:00Z`,
+        })),
+      })
+    if (path === '/v1/tests/t1/path' && (init?.method ?? 'GET') === 'GET')
+      return jsonResponse(samplePath(true))
+    if (path === '/v1/tests/t1/path/history') return jsonResponse({ items: samplePathRounds })
+    if (path === '/v1/ai/ask' && init?.method === 'POST') {
+      const request =
+        typeof init.body === 'string' ? (JSON.parse(init.body) as { question?: string }) : {}
+      return jsonResponse({ ...sampleAnswer, question: request.question ?? '' })
+    }
+    if (path === '/v1/topology/whatif' && init?.method === 'POST') {
+      const request =
+        typeof init.body === 'string' ? (JSON.parse(init.body) as { target?: string }) : {}
+      const target = request.target ?? 'service:checkout'
+      return jsonResponse({
+        target,
+        target_kind: target.split(':')[0] ?? 'service',
+        at: '2026-06-04T12:00:00Z',
+        broken_paths: [
+          {
+            from: 'service:checkout',
+            to: 'service:payments',
+            status: 'broken',
+            route: ['service:checkout', 'service:payments'],
+          },
+        ],
+        rerouted_paths: [],
+        impacted_tests: [{ agent_id: 'a1', target: 'api.example.com:443', status: 'broken' }],
+        impacted_services: ['payments'],
+        impacted_prefixes: [],
+        disconnected: ['service:payments'],
+        impacted_slos: ['slo:checkout-availability'],
+        coverage: { path_edges: 0, flow_edges: 1, routing_edges: 1, device_edges: 1 },
+        confidence: {
+          level: 'medium',
+          score: 0.62,
+          basis: 'Flow edges observed in the last hour; no path-plane coverage.',
+        },
+      })
+    }
+    if (path === '/v1/flows/top')
+      return jsonResponse({
+        items: [
+          {
+            key: '10.0.0.10',
+            detail: 'checkout',
+            bytes: 524_288_000,
+            packets: 120_000,
+            flows: 42,
+          },
+          {
+            key: '10.0.0.20',
+            detail: 'payments',
+            bytes: 104_857_600,
+            packets: 22_400,
+            flows: 18,
+          },
+        ],
+        effective_limit: 8,
+        window: '1h',
+      })
+    if (path === '/v1/flows/capacity')
+      return jsonResponse({
+        items: [
+          {
+            ts: '2026-06-04T12:00:00Z',
+            exporter: 'edge-r1',
+            iface: 1,
+            bps: 85_000_000,
+            pps: 12_000,
+          },
+        ],
+      })
+    if (path === '/v1/flows/anomalies')
+      return jsonResponse({
+        items: [
+          {
+            exporter: 'edge-r1',
+            iface: 1,
+            ts: '2026-06-04T12:00:00Z',
+            current_bps: 85_000_000,
+            baseline_bps: 35_000_000,
+            stddev_bps: 8_000_000,
+            sigma: 6.2,
+            model: 'local-zscore-v1',
+            training_window: {
+              start: '2026-06-04T11:15:00Z',
+              end: '2026-06-04T11:55:00Z',
+              samples: 9,
+            },
+            feature_citations: [
+              {
+                ref: 'flow:capacity:edge-r1:if1:1780574400',
+                plane: 'flow',
+                source: 'edge-r1',
+                metric: 'bps',
+              },
+            ],
+            features: {
+              'flow.bps': 85_000_000,
+              'flow.pps': 12_000,
+            },
+          },
+        ],
+      })
+    if (path === '/v1/cost/summary')
+      return jsonResponse({
+        cost_running: true,
+        summary: {
+          priced: true,
+          zones_mapped: true,
+          pricing_source: 'test',
+          pricing_as_of: '2026-06-01',
+          total_bytes: 17 * 2 ** 30,
+          total_usd: 0.38,
+          by_class: { inter_az: { bytes: 10 * 2 ** 30, usd: 0.1 } },
+          by_service: { checkout: { bytes: 12 * 2 ** 30, usd: 0.38 } },
+          by_team: { payments: { bytes: 12 * 2 ** 30, usd: 0.38 } },
+          chatty_pairs: [],
+          trend: [
+            { hour: '2026-06-04T10:00:00Z', bytes: 4 * 2 ** 30, usd: 0.08 },
+            { hour: '2026-06-04T11:00:00Z', bytes: 7 * 2 ** 30, usd: 0.16 },
+            { hour: '2026-06-04T12:00:00Z', bytes: 17 * 2 ** 30, usd: 0.38 },
+          ],
+          budgets: [
+            { kind: 'team', name: 'payments', monthly_usd: 500, spent_usd: 0.38, exceeded: false },
+          ],
+        },
+      })
+    if (path === '/v1/slos')
+      return jsonResponse({
+        slo_running: true,
+        items: [
+          {
+            name: 'checkout-availability',
+            display_name: 'Checkout availability',
+            service: 'checkout',
+            team: 'payments',
+            objective: 0.99,
+            window: '30d',
+            attainment: 0.982,
+            error_budget_remaining: 0.12,
+            total_events: 300,
+            cold_start: false,
+            burn_rates: [
+              {
+                window: 'fast',
+                long: '1h0m0s',
+                short: '5m0s',
+                burn: 16.2,
+                limit: 14.4,
+                firing: true,
+              },
+            ],
+          },
+        ],
+      })
+    if (path === '/v1/compliance')
+      return jsonResponse({
+        compliance_running: true,
+        items: [
+          {
+            policy: 'pci-east-west',
+            rule_id: 'deny-checkout-db',
+            description: 'Checkout must not talk directly to cardholder database',
+            from: 'checkout',
+            to: 'cardholder-db',
+            ports: '5432',
+            verdict: 'violation',
+            violations: 2,
+            observed_pairs: 1,
+          },
+        ],
+        coverage: {
+          flow_observed: true,
+          ebpf_observed: true,
+          observations: 3,
+          zones_seen: 2,
+          zones_total: 2,
+          notes: [],
+        },
+      })
+    if (path === '/v1/outages')
+      return jsonResponse({
+        outage_running: true,
+        feeds_enabled: false,
+        scope_resolution: false,
+        events: [],
+        vantage_events: [],
+        coverage_notes: [
+          'coverage = your vantage points + public open-data feeds — probectl does not operate a global probe fleet',
+        ],
+      })
+    if (path === '/v1/rum') return jsonResponse({ rum_running: false })
+    if (path === '/v1/carbon') return jsonResponse({ carbon_running: false })
+    if (path === '/v1/secrets/health')
+      return jsonResponse({
+        resolver_running: true,
+        backends: [{ scheme: 'env', configured: true, resolves: 0, failures: 0, cached_leases: 0 }],
+      })
+    if (path === '/v1/directory/scim-tokens') return jsonResponse({ items: [] })
+    if (path === '/v1/abac/policies') return jsonResponse({ items: [] })
+    if (path === '/v1/diagnostics')
+      return jsonResponse({
+        status: 'degraded',
+        checked_at: '2026-06-06T00:00:00Z',
+        checks: [
+          { name: 'database', status: 'ok' },
+          {
+            name: 'cluster',
+            status: 'degraded',
+            detail: 'writer endpoint points at a read-only standby (failover in progress)',
+          },
+        ],
+      })
+    if (path === '/branding') return jsonResponse({ product_name: 'probectl' })
+    if (path === '/v1/security/keys') return jsonResponse({ error: { message: 'not found' } }, 404)
+    if (path === '/v1/lifecycle/retention')
+      return jsonResponse({ flow_retention_days: null, isolation_model: 'pooled' })
+    if (path === '/v1/editions')
+      return jsonResponse({
+        tier: 'core',
+        state: 'community',
+        features: [
+          { name: 'fips', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'byok', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'governance', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'remediation', tier: 'enterprise', licensed: false, mode: 'off' },
+          {
+            name: 'ha_support',
+            display_name: 'HA support/SLA',
+            tier: 'enterprise',
+            licensed: false,
+            mode: 'off',
+          },
+          { name: 'siloed_isolation', tier: 'enterprise', licensed: false, mode: 'off' },
+          { name: 'provider_plane', tier: 'msp', licensed: false, mode: 'off' },
+          { name: 'metering', tier: 'msp', licensed: false, mode: 'off' },
+        ],
+      })
+    return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
+  }
+}
