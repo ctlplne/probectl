@@ -58,6 +58,81 @@ func TestLatestResultsStore(t *testing.T) {
 	}
 }
 
+func TestResultsHistoryRingIsTenantScopedAndBounded(t *testing.T) {
+	s := NewLatestResults(10)
+	s.maxHist = 3
+	now := time.Now()
+
+	// Every accepted observation joins the ring — including ones the
+	// newest-wins latest slot rejects as stale.
+	s.Record("t-a", ResultView{Type: "http", Target: "a", AgentID: "a1",
+		DurationMs: 100, ObservedAt: now.Add(-3 * time.Minute)})
+	s.Record("t-a", ResultView{Type: "http", Target: "a", AgentID: "a1",
+		DurationMs: 120, ObservedAt: now.Add(-2 * time.Minute)})
+	s.Record("t-a", ResultView{Type: "http", Target: "a", AgentID: "a1",
+		DurationMs: 90, ObservedAt: now.Add(-4 * time.Minute)}) // stale for latest, still history
+	s.Record("t-b", ResultView{Type: "icmp", Target: "SECRET", AgentID: "b1",
+		DurationMs: 5, ObservedAt: now.Add(-time.Minute)})
+
+	got := s.History("t-a", time.Hour)
+	if len(got) != 3 {
+		t.Fatalf("history len = %d, want 3 (%+v)", len(got), got)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i].ObservedAt.Before(got[i-1].ObservedAt) {
+			t.Fatalf("history not oldest-first: %+v", got)
+		}
+	}
+	for _, v := range got {
+		if v.Target == "SECRET" {
+			t.Fatal("CROSS-TENANT LEAK in History")
+		}
+	}
+
+	// The trailing window excludes older observations.
+	if short := s.History("t-a", 150*time.Second); len(short) != 1 || short[0].DurationMs != 120 {
+		t.Fatalf("windowed history = %+v, want only the -2m point", short)
+	}
+
+	// Ring bound evicts oldest.
+	s.Record("t-a", ResultView{Type: "http", Target: "a", AgentID: "a1",
+		DurationMs: 130, ObservedAt: now})
+	ring := s.History("t-a", time.Hour)
+	if len(ring) != 3 || ring[0].DurationMs != 90 {
+		t.Fatalf("ring after eviction = %+v, want 3 entries starting at the -4m point", ring)
+	}
+}
+
+func TestResultsHistoryEndpointHonestyAndWindow(t *testing.T) {
+	srv := testServer(fakePinger{})
+	rec := do(srv, http.MethodGet, "/v1/results/history")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unwired history = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"collector_running":false`) {
+		t.Fatalf("unwired history must report collector_running=false: %s", rec.Body.String())
+	}
+
+	store := NewLatestResults(0)
+	store.Record(tenancy.DefaultTenantID.String(), ResultView{Type: "http", Target: "a",
+		AgentID: "a1", DurationMs: 42, ObservedAt: time.Now().Add(-time.Minute)})
+	wired := testServer(fakePinger{}).WithLatestResults(store)
+	rec = do(wired, http.MethodGet, "/v1/results/history?window=15m")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"collector_running":true`) {
+		t.Fatalf("wired history = %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"window":"15m0s"`) {
+		t.Fatalf("history must echo the effective window: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"duration_ms":42`) {
+		t.Fatalf("history must include the recorded result: %s", rec.Body.String())
+	}
+
+	if bad := do(wired, http.MethodGet, "/v1/results/history?window=nope"); bad.Code == http.StatusOK {
+		t.Fatalf("invalid window must not be OK: %d %s", bad.Code, bad.Body.String())
+	}
+}
+
 // TestLatestResultsEndToEnd: published results land in the store and serve
 // through /v1/results/latest, tenant-scoped, full metrics + attributes intact.
 func TestLatestResultsEndToEnd(t *testing.T) {

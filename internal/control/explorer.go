@@ -354,6 +354,15 @@ func filterExplorerRows(rows []ai.Row, filters map[string]string) []ai.Row {
 func explorerColumns(query ai.ExplorerQuery) []explorerColumn {
 	columns := make([]explorerColumn, 0, len(query.Dimensions)+len(query.Measures)+1)
 	seen := map[string]bool{}
+	// Time visualizations declare the bucket timestamp the source rows already
+	// carry (flow points, change/routing events, endpoint and TLS records), so
+	// clients can plot line/timeline results on a real time axis instead of an
+	// index. Sources without a per-row timestamp simply leave the cells empty
+	// and clients fall back to indexed rendering.
+	if query.Visualization == "line" || query.Visualization == "timeline" {
+		seen["occurred_at"] = true
+		columns = append(columns, explorerColumn{Key: "occurred_at", Label: "Occurred at"})
+	}
 	for _, key := range append(append([]string{}, query.Dimensions...), query.Measures...) {
 		if seen[key] {
 			continue

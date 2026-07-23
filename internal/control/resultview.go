@@ -44,11 +44,20 @@ type ResultView struct {
 // DefaultMaxResultsPerTenant bounds each tenant's latest-result partition.
 const DefaultMaxResultsPerTenant = 5000
 
-// LatestResults retains the newest result per (tenant, type, target, agent).
+// DefaultMaxHistoryPerTenant bounds each tenant's recent-result ring (the
+// short trend window behind GET /v1/results/history). The TSDB pipeline
+// remains the long-horizon home for series; this ring only serves the
+// dashboard-scale trailing window without a store round trip.
+const DefaultMaxHistoryPerTenant = 2000
+
+// LatestResults retains the newest result per (tenant, type, target, agent)
+// plus a bounded per-tenant ring of recent observations for trend rendering.
 type LatestResults struct {
 	mu      sync.Mutex
 	max     int
+	maxHist int
 	tenants map[string]map[string]ResultView // tenant -> type|target|agent -> latest
+	recent  map[string][]ResultView          // tenant -> bounded recent ring
 }
 
 // NewLatestResults builds a store; maxPerTenant <= 0 takes the default.
@@ -56,7 +65,12 @@ func NewLatestResults(maxPerTenant int) *LatestResults {
 	if maxPerTenant <= 0 {
 		maxPerTenant = DefaultMaxResultsPerTenant
 	}
-	return &LatestResults{max: maxPerTenant, tenants: map[string]map[string]ResultView{}}
+	return &LatestResults{
+		max:     maxPerTenant,
+		maxHist: DefaultMaxHistoryPerTenant,
+		tenants: map[string]map[string]ResultView{},
+		recent:  map[string][]ResultView{},
+	}
 }
 
 // Record stores rv as the latest for its series. Unscoped or type-less
@@ -68,6 +82,13 @@ func (s *LatestResults) Record(tenant string, rv ResultView) {
 	key := rv.Type + "\x00" + rv.Target + "\x00" + rv.AgentID
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Every accepted observation joins the trend ring (evict-oldest), even
+	// when a newer result already owns the latest slot for its series.
+	ring := append(s.recent[tenant], rv)
+	if len(ring) > s.maxHist {
+		ring = ring[len(ring)-s.maxHist:]
+	}
+	s.recent[tenant] = ring
 	part, ok := s.tenants[tenant]
 	if !ok {
 		part = map[string]ResultView{}
@@ -106,6 +127,30 @@ func (s *LatestResults) List(tenant string) []ResultView {
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].ObservedAt.Equal(out[j].ObservedAt) {
 			return out[i].ObservedAt.After(out[j].ObservedAt)
+		}
+		if out[i].Type != out[j].Type {
+			return out[i].Type < out[j].Type
+		}
+		return out[i].Target < out[j].Target
+	})
+	return out
+}
+
+// History returns the tenant's results observed inside the trailing window,
+// oldest first (plot-ready). Bounded by the per-tenant ring by construction.
+func (s *LatestResults) History(tenant string, window time.Duration) []ResultView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Add(-window)
+	out := make([]ResultView, 0, len(s.recent[tenant]))
+	for _, v := range s.recent[tenant] {
+		if !v.ObservedAt.Before(cutoff) {
+			out = append(out, v)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].ObservedAt.Equal(out[j].ObservedAt) {
+			return out[i].ObservedAt.Before(out[j].ObservedAt)
 		}
 		if out[i].Type != out[j].Type {
 			return out[i].Type < out[j].Type
@@ -178,6 +223,36 @@ func (s *Server) WithLatestResults(lr *LatestResults) *Server {
 		s.latestResults = lr
 	}
 	return s
+}
+
+// handleResultsHistory serves GET /v1/results/history?window=1h — the
+// tenant's recent synthetic results inside the trailing window, oldest first,
+// so latency/duration trends render on a real time axis (the S11 charting
+// layer). Same bounded read model and honesty contract as /v1/results/latest:
+// collector_running=false distinguishes an unwired consumer from quiet.
+func (s *Server) handleResultsHistory(w http.ResponseWriter, r *http.Request) error {
+	tid, err := s.principalTenant(r)
+	if err != nil {
+		return err
+	}
+	window, err := windowParam(r, "window", time.Hour)
+	if err != nil {
+		return err
+	}
+	if s.latestResults == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"items": []ResultView{}, "collector_running": false, "window": window.String(),
+		})
+		return nil
+	}
+	items := s.latestResults.History(tid, window)
+	if items == nil {
+		items = []ResultView{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"items": items, "collector_running": true, "window": window.String(),
+	})
+	return nil
 }
 
 // handleLatestResults serves GET /v1/results/latest — the tenant's newest

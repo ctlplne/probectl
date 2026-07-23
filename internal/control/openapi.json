@@ -6007,6 +6007,98 @@
         }
       }
     },
+    "/v1/results/history": {
+      "get": {
+        "operationId": "listResultsHistory",
+        "summary": "Recent synthetic results inside a trailing window, oldest first",
+        "tags": [
+          "tests"
+        ],
+        "description": "The caller's tenant's recent synthetic results observed inside the trailing window (default 1h), oldest first and plot-ready, from the same bounded in-memory read model as /v1/results/latest — the series behind real-time-axis latency/duration trends (S11). collector_running=false distinguishes an unwired consumer from a quiet window.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1h"
+            },
+            "description": "Trailing observation window as a Go duration (for example 15m, 1h)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent results, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "collector_running": {
+                      "type": "boolean"
+                    },
+                    "window": {
+                      "type": "string"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "agent_id": {
+                            "type": "string"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "target": {
+                            "type": "string"
+                          },
+                          "success": {
+                            "type": "boolean"
+                          },
+                          "error": {
+                            "type": "string"
+                          },
+                          "duration_ms": {
+                            "type": "number"
+                          },
+                          "metrics": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "number"
+                            }
+                          },
+                          "attributes": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "observed_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 2000,
+          "reason": "History serves a bounded per-tenant ring of recent observations (evict-oldest); long-horizon series live in the TSDB."
+        }
+      }
+    },
     "/v1/lifecycle/export": {
       "get": {
         "summary": "Download the tenant's portability bundle (tar.gz: manifest + postgres/<table>.jsonl + flows.jsonl; S-T5 \u2014 export is a compliance right, core)",

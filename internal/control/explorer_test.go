@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imfeelingtheagi/probectl/internal/ai"
 	"github.com/imfeelingtheagi/probectl/internal/auth"
 	"github.com/imfeelingtheagi/probectl/internal/store/flowstore"
 )
@@ -56,6 +57,41 @@ func TestExplorerQueryAndSuggestionsAreTenantScoped(t *testing.T) {
 	recB := doReq(srv, reqB)
 	if recB.Code != http.StatusOK || !strings.Contains(recB.Body.String(), "SECRET-SITE-B") || strings.Contains(recB.Body.String(), "site-a") {
 		t.Fatalf("tenant-b Explorer response = %d %s", recB.Code, recB.Body.String())
+	}
+}
+
+func TestExplorerTimeVisualizationsDeclareOccurredAtColumn(t *testing.T) {
+	cases := []struct {
+		visualization string
+		want          bool
+	}{
+		{visualization: "line", want: true},
+		{visualization: "timeline", want: true},
+		{visualization: "bar", want: false},
+		{visualization: "table", want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.visualization, func(t *testing.T) {
+			columns := explorerColumns(ai.ExplorerQuery{
+				Source:        ai.ExplorerFlow,
+				Dimensions:    []string{"site"},
+				Measures:      []string{"bps"},
+				Visualization: tc.visualization,
+			})
+			got := false
+			for _, column := range columns {
+				if column.Key == "occurred_at" {
+					got = true
+					if column.Numeric {
+						t.Fatalf("occurred_at column must not be numeric: %+v", column)
+					}
+				}
+			}
+			if got != tc.want {
+				t.Fatalf("visualization %q occurred_at column = %v, want %v (columns %+v)",
+					tc.visualization, got, tc.want, columns)
+			}
+		})
 	}
 }
 

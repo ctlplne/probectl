@@ -115,6 +115,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/v1/prometheus/federate", s.handlePromFederate, ai.PermMetricsRead},
 		{http.MethodPost, "/v1/prometheus/write", s.handlePromWrite, permMetricsWrite},
 		{http.MethodGet, "/v1/results/latest", s.handleLatestResults, permTestRead},
+		{http.MethodGet, "/v1/results/history", s.handleResultsHistory, permTestRead},
 		{http.MethodGet, "/v1/endpoints", s.handleListEndpoints, permAgentRead},
 		{http.MethodGet, "/v1/inventory/views", s.handleListInventoryViews, permAgentRead},
 		{http.MethodPost, "/v1/inventory/views", s.handleCreateInventoryView, permAgentWrite},

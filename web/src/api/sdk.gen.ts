@@ -1865,6 +1865,12 @@ export interface PostV1RemediationProposalsIdRejectRequest {
 
 export type PostV1RemediationProposalsIdRejectResponse = void
 
+export interface ListResultsHistoryRequest {
+  window?: string
+}
+
+export type ListResultsHistoryResponse = JsonObject
+
 export interface ListLatestResultsRequest {
 }
 
@@ -2909,6 +2915,13 @@ export class ProbectlSDKClient {
     let path = "/v1/remediation/proposals/{id}/reject"
     const query = new URLSearchParams()
     await this.request("POST", path, query, undefined)
+  }
+
+  async listResultsHistory(request: ListResultsHistoryRequest = {}): Promise<ListResultsHistoryResponse> {
+    let path = "/v1/results/history"
+    const query = new URLSearchParams()
+    if (request.window !== undefined) query.set("window", String(request.window))
+    return this.requestJSON<ListResultsHistoryResponse>("GET", path, query, undefined)
   }
 
   async listLatestResults(): Promise<ListLatestResultsResponse> {

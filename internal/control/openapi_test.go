@@ -510,6 +510,7 @@ var collectionPaginationContracts = map[string]string{
 	"/v1/endpoints":                  "bounded",
 	"/v1/inventory/views":            "bounded",
 	"/v1/results/latest":             "bounded",
+	"/v1/results/history":            "bounded",
 	"/v1/otlp/traces":                "bounded",
 	"/v1/otlp/logs":                  "bounded",
 	"/v1/otlp-tokens":                "bounded",
