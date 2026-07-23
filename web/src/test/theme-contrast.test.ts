@@ -92,6 +92,7 @@ describe('theme color contrast', () => {
     for (const [theme, selector] of Object.entries({
       dark: "[data-theme='dark']",
       aurora: "[data-theme='aurora']",
+      ember: "[data-theme='ember']",
     })) {
       const tokens = colorTokens(css, selector)
       for (const pair of contrastPairs()) {

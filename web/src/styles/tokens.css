@@ -111,8 +111,10 @@
   --color-success-soft: rgba(31, 157, 99, 0.12);
   --color-warning: #b9821f;
   --color-warning-soft: rgba(185, 130, 31, 0.12);
-  --color-danger: #d2463c;
-  --color-danger-soft: rgba(210, 70, 60, 0.12);
+  /* >=4.5:1 on bg/surface/raised — #d2463c measured 4.49:1 on white (axe
+   * color-contrast fail on error text); darkened to keep the same hue. */
+  --color-danger: #c23a31;
+  --color-danger-soft: rgba(194, 58, 49, 0.12);
   --color-info: #2f73c7;
   --color-info-soft: rgba(47, 115, 199, 0.12);
 
@@ -133,6 +135,60 @@
 
   --gradient-brand: linear-gradient(135deg, #7b5cff 0%, #6a4cf0 100%);
   --gradient-accent: linear-gradient(135deg, #7b5cff 0%, #4f33d6 100%);
+}
+
+/* Ember: the third theme — a warm dark set proving the token contract
+ * generalizes beyond the original pair. Every value verified against the
+ * theme-contrast suite (text >=4.5:1 on all surfaces, UI colors >=3:1). */
+[data-theme='ember'] {
+  color-scheme: dark;
+
+  --color-bg: #16120f;
+  --color-surface: #1c1712;
+  --color-surface-raised: #231c15;
+  --color-surface-high: #2a221a;
+  --color-overlay: rgba(8, 6, 4, 0.6);
+
+  --color-text: #f3ede3; /* ~14:1 on --color-bg */
+  --color-text-muted: #b5aa9b; /* >=7:1 */
+  --color-text-subtle: #948a7c; /* >=4.5:1 on every surface */
+  --color-text-inverse: #16120f;
+
+  --color-border: #2b231b;
+  --color-border-strong: #3c3227;
+
+  --color-accent: #e2a65b;
+  --color-accent-hover: #eab873;
+  --color-accent-strong: #d29147;
+  --color-accent-soft: rgba(226, 166, 91, 0.14);
+  --color-accent-contrast: #211405;
+
+  --color-success: #5cc08e;
+  --color-success-soft: rgba(92, 192, 142, 0.12);
+  --color-warning: #e0b25a;
+  --color-warning-soft: rgba(224, 178, 90, 0.12);
+  --color-danger: #e8736b;
+  --color-danger-soft: rgba(232, 115, 107, 0.12);
+  --color-info: #74b4e8;
+  --color-info-soft: rgba(116, 180, 232, 0.12);
+
+  --color-focus: #e2a65b;
+  --color-selection: #f0c283;
+  --color-selection-soft: rgba(240, 194, 131, 0.22);
+  --color-selection-contrast: #241708;
+
+  --color-chart-1: #4fc1a6;
+  --color-chart-2: #74b4e8;
+  --color-chart-3: #b598ff;
+  --color-chart-4: #e0b25a;
+  --color-chart-5: #ee8577;
+  --color-chart-6: #de8fc7;
+  --color-chart-grid: #7a6e5e;
+  --color-chart-axis: #aba090;
+  --color-chart-neutral: #948a7c;
+
+  --gradient-brand: linear-gradient(135deg, #eab873 0%, #e2a65b 100%);
+  --gradient-accent: linear-gradient(135deg, #eab873 0%, #d29147 100%);
 }
 
 /* Non-color tokens are theme-independent by default. */

@@ -46,8 +46,10 @@ describe('deployment theming', () => {
     const css = readFileSync(join(process.cwd(), 'src/styles/tokens.css'), 'utf8')
     const dark = colorTokensFor(css, "[data-theme='dark']")
     const aurora = colorTokensFor(css, "[data-theme='aurora']")
+    const ember = colorTokensFor(css, "[data-theme='ember']")
 
     expect(dark.size).toBeGreaterThan(10)
     expect([...aurora].sort()).toEqual([...dark].sort())
+    expect([...ember].sort()).toEqual([...dark].sort())
   })
 })

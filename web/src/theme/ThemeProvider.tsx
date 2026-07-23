@@ -6,9 +6,9 @@
 
 import { createContext, useCallback, useEffect, useState, type ReactNode } from 'react'
 
-export type ThemeName = 'dark' | 'aurora'
+export type ThemeName = 'dark' | 'aurora' | 'ember'
 
-const THEMES: ThemeName[] = ['dark', 'aurora']
+const THEMES: ThemeName[] = ['dark', 'aurora', 'ember']
 const STORAGE_KEY = 'probectl.theme'
 
 export interface ThemeContextValue {
@@ -22,7 +22,7 @@ export interface ThemeContextValue {
 export const ThemeContext = createContext<ThemeContextValue | null>(null)
 
 function isTheme(v: unknown): v is ThemeName {
-  return v === 'dark' || v === 'aurora'
+  return THEMES.includes(v as ThemeName)
 }
 
 function readInitial(fallback: ThemeName): ThemeName {
@@ -60,8 +60,9 @@ export function ThemeProvider({
   }, [theme])
 
   const setTheme = useCallback((t: ThemeName) => setThemeState(t), [])
+  // Cycles the shipped set in order (dark → aurora → ember → dark …).
   const toggleTheme = useCallback(
-    () => setThemeState((t) => (t === 'dark' ? 'aurora' : 'dark')),
+    () => setThemeState((t) => THEMES[(THEMES.indexOf(t) + 1) % THEMES.length]),
     [],
   )
 
