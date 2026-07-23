@@ -18,6 +18,72 @@
   display: block;
 }
 
+/* Column structure (topology grammar): faint bands + TTL headers. */
+.colBand {
+  fill: var(--color-surface-raised);
+}
+
+.colHeader {
+  fill: var(--color-text-subtle);
+  font-size: var(--font-size-3xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wider);
+}
+
+.arrowHead {
+  fill: context-stroke;
+}
+
+/* Loss-tone legend under the graph. */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  margin-block-start: var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-subtle);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+.legendSwatch {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.legendOk {
+  border-color: var(--color-border-strong);
+}
+
+.legendWarning {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.legendDanger {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.legendDestination {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.legendMpls {
+  color: var(--color-info);
+  font-family: var(--font-mono);
+}
+
 /* Edges */
 .edge {
   fill: none;

@@ -33,7 +33,7 @@ import {
   type WhatIfImpact,
 } from '../api/topology'
 import { useIncident } from '../api/incidents'
-import { layoutTopology, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
+import { layoutTopology, T_HEADER, T_NODE_H, T_NODE_W, type TopoLayout } from '../viz/topoLayout'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue } from './urlFilters'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
@@ -639,44 +639,77 @@ function TopologyGraphCard({
         {layout.nodes.length === 0 ? (
           <EmptyState title="No matching nodes" description="Adjust search or filters." />
         ) : (
-          <div className={styles.graphWrap}>
-            <svg
-              role="group"
-              aria-label="Topology graph"
-              width={layout.width}
-              height={layout.height}
-              viewBox={`0 0 ${layout.width} ${layout.height}`}
-            >
-              {layout.edges.map((e) => (
-                <line
-                  key={e.id}
-                  className={[
-                    styles.edge,
-                    e.kind === 'flow' ? styles.edgeFlow : '',
-                    e.kind === 'routing' ? styles.edgeRouting : '',
-                    e.kind === 'device' ? styles.edgeDevice : '',
-                    impacted.edges.has(e.id) ? styles.edgeImpacted : '',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                  x1={e.x1}
-                  y1={e.y1}
-                  x2={e.x2}
-                  y2={e.y2}
-                />
-              ))}
-              {layout.nodes.map((n) => (
-                <TopologyNode
-                  key={n.id}
-                  node={n}
-                  selected={selected?.id === n.id}
-                  failed={impact?.target === n.id}
-                  impacted={impacted.nodes.has(n.id)}
-                  onSelect={onSelect}
-                />
-              ))}
-            </svg>
-          </div>
+          <>
+            <div className={styles.graphWrap}>
+              <svg
+                role="group"
+                aria-label="Topology graph"
+                width={layout.width}
+                height={layout.height}
+                viewBox={`0 0 ${layout.width} ${layout.height}`}
+              >
+                <defs>
+                  {/* Arrowheads inherit each edge's stroke via context-stroke. */}
+                  <marker
+                    id="topo-arrow"
+                    viewBox="0 0 8 8"
+                    refX="7"
+                    refY="4"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 8 4 L 0 8 z" className={styles.arrowHead} />
+                  </marker>
+                </defs>
+                {/* Kind bands + headers structure the dependency order. */}
+                <g aria-hidden="true">
+                  {layout.columns.map((column) => (
+                    <g key={column.kind}>
+                      <rect
+                        className={styles.colBand}
+                        x={column.x - T_BAND_PAD}
+                        y={0}
+                        width={T_NODE_W + T_BAND_PAD * 2}
+                        height={layout.height}
+                        rx={10}
+                      />
+                      <text className={styles.colHeader} x={column.x} y={T_HEADER - 12}>
+                        {column.kind}
+                      </text>
+                    </g>
+                  ))}
+                </g>
+                {layout.edges.map((e) => (
+                  <path
+                    key={e.id}
+                    className={[
+                      styles.edge,
+                      e.kind === 'flow' ? styles.edgeFlow : '',
+                      e.kind === 'routing' ? styles.edgeRouting : '',
+                      e.kind === 'device' ? styles.edgeDevice : '',
+                      impacted.edges.has(e.id) ? styles.edgeImpacted : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    d={edgePath(e)}
+                    markerEnd="url(#topo-arrow)"
+                  />
+                ))}
+                {layout.nodes.map((n) => (
+                  <TopologyNode
+                    key={n.id}
+                    node={n}
+                    selected={selected?.id === n.id}
+                    failed={impact?.target === n.id}
+                    impacted={impacted.nodes.has(n.id)}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </svg>
+            </div>
+            <TopologyLegend layout={layout} />
+          </>
         )}
       </CardBody>
     </Card>
@@ -738,6 +771,69 @@ function TopologyListCard({
   )
 }
 
+/** Node/edge kind → the token class carrying its categorical color. */
+const KIND_CLASS: Record<string, string | undefined> = {
+  service: styles.kindService,
+  device: styles.kindDevice,
+  as: styles.kindAs,
+  prefix: styles.kindPrefix,
+  host: styles.kindHost,
+  hop: styles.kindHop,
+  agent: styles.kindAgent,
+}
+
+function kindClass(kind: string): string {
+  return KIND_CLASS[kind] ?? styles.kindOther
+}
+
+const T_BAND_PAD = 14
+const T_EDGE_BOW = 46
+
+/** Gentle S-curve between columns; same-column edges arc out on the right
+ * instead of slicing through the node boxes between them. */
+function edgePath(e: TopoLayout['edges'][number]): string {
+  if (e.x2 <= e.x1) {
+    const exit = e.x1 + T_EDGE_BOW
+    return `M ${e.x1} ${e.y1} C ${exit} ${e.y1}, ${exit} ${e.y2}, ${e.x1} ${e.y2}`
+  }
+  return `M ${e.x1} ${e.y1} C ${e.x1 + T_EDGE_BOW} ${e.y1}, ${e.x2 - T_EDGE_BOW} ${e.y2}, ${e.x2} ${e.y2}`
+}
+
+function TopologyLegend({ layout }: { layout: TopoLayout }) {
+  const edgeKinds = [...new Set(layout.edges.map((edge) => edge.kind))]
+  return (
+    <div className={styles.legend}>
+      {layout.columns.map((column) => (
+        <span key={column.kind} className={`${styles.legendItem} ${kindClass(column.kind)}`}>
+          <span className={styles.legendNodeSwatch} aria-hidden="true" />
+          {column.kind}
+        </span>
+      ))}
+      {edgeKinds.map((kind) => (
+        <span key={kind} className={styles.legendItem}>
+          <svg className={styles.legendEdgeSwatch} viewBox="0 0 24 8" aria-hidden="true">
+            <line
+              className={[
+                styles.edge,
+                kind === 'flow' ? styles.edgeFlow : '',
+                kind === 'routing' ? styles.edgeRouting : '',
+                kind === 'device' ? styles.edgeDevice : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+              x1="1"
+              y1="4"
+              x2="23"
+              y2="4"
+            />
+          </svg>
+          {kind}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function TopologyNode({
   node,
   selected,
@@ -759,6 +855,7 @@ function TopologyNode({
       aria-label={`${node.kind} ${node.label}`}
       className={[
         styles.node,
+        kindClass(node.kind),
         selected ? styles.nodeSelected : '',
         failed ? styles.nodeFailed : '',
         impacted ? styles.nodeImpacted : '',
@@ -775,6 +872,7 @@ function TopologyNode({
       }}
     >
       <rect className={styles.nodeBox} width={T_NODE_W} height={T_NODE_H} rx={8} />
+      <rect className={styles.nodeAccent} width={4} height={T_NODE_H} rx={2} />
       <text className={styles.nodeKind} x={10} y={15}>
         {node.kind}
       </text>

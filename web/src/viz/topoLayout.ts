@@ -21,6 +21,8 @@ export const T_NODE_H = 40
 export const T_COL_GAP = 110
 export const T_ROW_GAP = 14
 export const T_MARGIN = 30
+/** Vertical room above the node grid for the per-kind column headers. */
+export const T_HEADER = 30
 
 /** Render cap for dense graphs (PR1 legibility guard). */
 export const MAX_NODES = 400
@@ -40,9 +42,16 @@ export interface PlacedEdge extends TopoEdge {
   y2: number
 }
 
+export interface TopoColumn {
+  kind: string
+  x: number
+}
+
 export interface TopoLayout {
   nodes: PlacedNode[]
   edges: PlacedEdge[]
+  /** Populated kind columns, in layout order — drives band headers + legend. */
+  columns: TopoColumn[]
   width: number
   height: number
   total: number // total nodes before the render cap
@@ -57,6 +66,7 @@ export function layoutTopology(nodes: TopoNode[], edges: TopoEdge[]): TopoLayout
     return {
       nodes: [],
       edges: [],
+      columns: [],
       width: T_MARGIN * 2 + T_NODE_W,
       height: T_MARGIN * 2 + T_NODE_H,
       total,
@@ -77,15 +87,18 @@ export function layoutTopology(nodes: TopoNode[], edges: TopoEdge[]): TopoLayout
 
   const populated = columns.filter((c) => c.length > 0)
   const maxRows = Math.max(1, ...populated.map((c) => c.length))
-  const height = T_MARGIN * 2 + maxRows * T_NODE_H + (maxRows - 1) * T_ROW_GAP
+  const height = T_HEADER + T_MARGIN * 2 + maxRows * T_NODE_H + (maxRows - 1) * T_ROW_GAP
   const width = T_MARGIN * 2 + populated.length * T_NODE_W + (populated.length - 1) * T_COL_GAP
 
   const byID = new Map<string, PlacedNode>()
+  const placedColumns: TopoColumn[] = []
   populated.forEach((col, ci) => {
     const colHeight = col.length * T_NODE_H + (col.length - 1) * T_ROW_GAP
-    const top = (height - colHeight) / 2
+    const top = T_HEADER + (height - T_HEADER - colHeight) / 2
+    const x = T_MARGIN + ci * (T_NODE_W + T_COL_GAP)
+    placedColumns.push({ kind: col === overflow ? 'other' : col[0].kind, x })
     col.forEach((n, ri) => {
-      n.x = T_MARGIN + ci * (T_NODE_W + T_COL_GAP)
+      n.x = x
       n.y = top + ri * (T_NODE_H + T_ROW_GAP)
       byID.set(n.id, n)
     })
@@ -110,6 +123,7 @@ export function layoutTopology(nodes: TopoNode[], edges: TopoEdge[]): TopoLayout
   return {
     nodes: [...byID.values()],
     edges: placedEdges,
+    columns: placedColumns,
     width,
     height,
     total,

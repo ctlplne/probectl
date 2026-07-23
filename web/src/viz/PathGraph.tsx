@@ -41,6 +41,15 @@ export function PathGraph({
   )
   const [activeId, setActiveId] = useState<string | null>(null)
   const active = nodes.find((n) => n.id === activeId)
+  const columns = useMemo(() => {
+    const byX = new Map<number, { x: number; label: string }>()
+    for (const node of nodes) {
+      if (!byX.has(node.x)) {
+        byX.set(node.x, { x: node.x, label: node.isSource ? 'Source' : `TTL ${node.ttl}` })
+      }
+    }
+    return [...byX.values()].sort((a, b) => a.x - b.x)
+  }, [nodes])
 
   function activate(node: VizNode, e: KeyboardEvent) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -61,6 +70,38 @@ export function PathGraph({
             path.destination_reached ? 'reached' : 'not reached'
           }`}
         >
+          <defs>
+            {/* Arrowheads inherit each link's loss-tone stroke. */}
+            <marker
+              id="path-arrow"
+              viewBox="0 0 8 8"
+              refX="7"
+              refY="4"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 8 4 L 0 8 z" className={styles.arrowHead} />
+            </marker>
+          </defs>
+          {/* TTL bands + headers structure the hop columns (topology grammar). */}
+          <g aria-hidden="true">
+            {columns.map((column) => (
+              <g key={column.label}>
+                <rect
+                  className={styles.colBand}
+                  x={column.x - 10}
+                  y={4}
+                  width={NODE_W + 20}
+                  height={height - 8}
+                  rx={10}
+                />
+                <text className={styles.colHeader} x={column.x} y={18}>
+                  {column.label}
+                </text>
+              </g>
+            ))}
+          </g>
           <g className={styles.edges}>
             {edges.map((edge) => {
               const dx = Math.max(24, (edge.x2 - edge.x1) / 2)
@@ -69,6 +110,7 @@ export function PathGraph({
                   key={edge.id}
                   className={[styles.edge, styles[lossTone(edge.lossRatio)]].join(' ')}
                   d={`M ${edge.x1} ${edge.y1} C ${edge.x1 + dx} ${edge.y1}, ${edge.x2 - dx} ${edge.y2}, ${edge.x2} ${edge.y2}`}
+                  markerEnd="url(#path-arrow)"
                 />
               )
             })}
@@ -155,6 +197,25 @@ export function PathGraph({
             </dl>
           </div>
         ) : null}
+      </div>
+      <div className={styles.legend} aria-hidden="true">
+        <span className={styles.legendItem}>
+          <span className={`${styles.legendSwatch} ${styles.legendOk}`} />
+          no loss
+        </span>
+        <span className={styles.legendItem}>
+          <span className={`${styles.legendSwatch} ${styles.legendWarning}`} />
+          loss under 30%
+        </span>
+        <span className={styles.legendItem}>
+          <span className={`${styles.legendSwatch} ${styles.legendDanger}`} />
+          loss 30%+
+        </span>
+        <span className={styles.legendItem}>
+          <span className={`${styles.legendSwatch} ${styles.legendDestination}`} />
+          destination
+        </span>
+        <span className={`${styles.legendItem} ${styles.legendMpls}`}>MPLS label</span>
       </div>
       {summarized.aggregated ? (
         <p className={styles.coverage} role="note" aria-label="Path graph coverage">
