@@ -10,7 +10,8 @@
 // behind it 404s when unlicensed (hidden-unlicensed), which this console
 // renders honestly as "not enabled".
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { api, NotEnabledError, useProviderData } from "./providerData";
 import {
   Badge,
   Button,
@@ -68,52 +69,8 @@ interface LicenseInfo {
   tenant_band?: number;
 }
 
-async function api<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    credentials: "same-origin",
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (res.status === 404) throw new NotEnabledError();
-  if (res.status === 429) {
-    // UX-005: rate-limited — surface a clear retry hint rather than a bare
-    // "HTTP 429". Honour Retry-After when the server sends it.
-    const after = res.headers.get("Retry-After");
-    const hint = after
-      ? ` Retry after ${after}s.`
-      : " Please wait a moment and try again.";
-    throw new APIError("rate_limited", `Too many requests.${hint}`);
-  }
-  if (!res.ok) {
-    const payload = (await res.json().catch(() => null)) as {
-      error?: { message?: string; code?: string };
-    } | null;
-    throw new APIError(
-      payload?.error?.code ?? "error",
-      payload?.error?.message ?? `HTTP ${res.status}`,
-    );
-  }
-  return (await res.json()) as T;
-}
-
-class NotEnabledError extends Error {
-  constructor() {
-    super("provider plane not enabled");
-  }
-}
-
-class APIError extends Error {
-  code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.code = code;
-  }
-}
+// api/NotEnabledError/APIError moved to providerData.ts so every card shares
+// one fetch contract and the react-query read layer below it.
 
 /** The console root: not-enabled / login / dashboard. */
 export function ProviderConsole() {
@@ -264,15 +221,14 @@ function LoginScreen({ onLoggedIn }: { onLoggedIn: (op: Operator) => void }) {
 
 function Dashboard({ operator }: { operator: Operator }) {
   const { t } = useI18n();
-  const [license, setLicense] = useState<LicenseInfo | null>(null);
   const [fleetExceptions, setFleetExceptions] = useState(0);
   const [pendingBreakGlass, setPendingBreakGlass] = useState(0);
   const [usageAvailable, setUsageAvailable] = useState(false);
-  useEffect(() => {
-    api<LicenseInfo>("GET", "/provider/v1/license")
-      .then(setLicense)
-      .catch(() => setLicense(null));
-  }, []);
+  const licenseQuery = useProviderData<LicenseInfo>(
+    ["license"],
+    "/provider/v1/license",
+  );
+  const license = licenseQuery.data ?? null;
   const readOnly = license?.state === "read_only";
 
   return (
@@ -478,22 +434,28 @@ function FleetCard({
 }: {
   onExceptionsChange: (count: number) => void;
 }) {
-  const [rows, setRows] = useState<FleetRow[] | null>(null);
-  const [failed, setFailed] = useState(false);
+  const fleetQuery = useProviderData<{ items: FleetRow[] }>(
+    ["fleet"],
+    "/provider/v1/fleet",
+  );
+  const rows = useMemo(
+    () =>
+      fleetQuery.data
+        ? [...(fleetQuery.data.items ?? [])].sort(
+            (a, b) => fleetExceptionScore(b) - fleetExceptionScore(a),
+          )
+        : null,
+    [fleetQuery.data],
+  );
+  const failed = fleetQuery.isError;
   const [selected, setSelected] = useState<FleetRow | null>(null);
   useEffect(() => {
-    api<{ items: FleetRow[] }>("GET", "/provider/v1/fleet")
-      .then((r) => {
-        const items = [...(r.items ?? [])].sort(
-          (a, b) => fleetExceptionScore(b) - fleetExceptionScore(a),
-        );
-        setRows(items);
-        onExceptionsChange(
-          items.filter((row) => fleetExceptionScore(row) > 0).length,
-        );
-      })
-      .catch(() => setFailed(true));
-  }, [onExceptionsChange]);
+    if (rows) {
+      onExceptionsChange(
+        rows.filter((row) => fleetExceptionScore(row) > 0).length,
+      );
+    }
+  }, [rows, onExceptionsChange]);
 
   const columns: Column<FleetRow>[] = [
     {
@@ -620,24 +582,33 @@ function BreakGlassCard({
   readOnly: boolean;
   onPendingChange: (count: number) => void;
 }) {
-  const [grants, setGrants] = useState<GrantRow[] | null>(null);
   const [tenantID, setTenantID] = useState("");
   const [reason, setReason] = useState("");
   const [ttl, setTtl] = useState("60");
   const [error, setError] = useState("");
 
+  const grantsQuery = useProviderData<{ items: GrantRow[] }>(
+    ["breakglass"],
+    "/provider/v1/breakglass",
+  );
+  const grants = useMemo(
+    () => (grantsQuery.data ? (grantsQuery.data.items ?? []) : null),
+    [grantsQuery.data],
+  );
+  const queryError = grantsQuery.error
+    ? (grantsQuery.error as Error).message
+    : "";
+  const { refetch: refetchGrants } = grantsQuery;
   const load = useCallback(() => {
-    api<{ items: GrantRow[] }>("GET", "/provider/v1/breakglass")
-      .then((r) => {
-        const items = r.items ?? [];
-        setGrants(items);
-        onPendingChange(
-          items.filter((grant) => grant.state === "pending").length,
-        );
-      })
-      .catch((e: Error) => setError(e.message));
-  }, [onPendingChange]);
-  useEffect(load, [load]);
+    void refetchGrants();
+  }, [refetchGrants]);
+  useEffect(() => {
+    if (grants) {
+      onPendingChange(
+        grants.filter((grant) => grant.state === "pending").length,
+      );
+    }
+  }, [grants, onPendingChange]);
 
   const request = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -747,9 +718,9 @@ function BreakGlassCard({
             Request access
           </Button>
         </form>
-        {error ? (
+        {error || queryError ? (
           <p role="alert" className={styles.note}>
-            {error}
+            {error || queryError}
           </p>
         ) : null}
         {grants === null ? (
@@ -797,27 +768,27 @@ function UsageCard({
   readOnly: boolean;
   onAvailability: (available: boolean) => void;
 }) {
-  const [rows, setRows] = useState<UsageRow[] | null>(null);
-  const [enabled, setEnabled] = useState(true);
   const [quotaTenant, setQuotaTenant] = useState("");
   const [maxAgents, setMaxAgents] = useState("");
   const [maxTests, setMaxTests] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
+  const usageQuery = useProviderData<{ items: UsageRow[] }>(
+    ["usage", "day"],
+    "/provider/v1/usage?rollup=day",
+  );
+  const rows = useMemo(
+    () => (usageQuery.data ? (usageQuery.data.items ?? []) : null),
+    [usageQuery.data],
+  );
+  const enabled = !(usageQuery.error instanceof NotEnabledError);
+  const loadError =
+    usageQuery.error && enabled ? (usageQuery.error as Error).message : "";
   useEffect(() => {
-    api<{ items: UsageRow[] }>("GET", "/provider/v1/usage?rollup=day")
-      .then((r) => {
-        setRows(r.items ?? []);
-        onAvailability(true);
-      })
-      .catch((err) => {
-        if (err instanceof NotEnabledError) {
-          setEnabled(false);
-          onAvailability(false);
-        } else setError((err as Error).message);
-      });
-  }, [onAvailability]);
+    if (rows) onAvailability(true);
+    if (!enabled) onAvailability(false);
+  }, [rows, enabled, onAvailability]);
 
   if (!enabled) return null; // metering not licensed: no lockware, no card
 
@@ -940,9 +911,9 @@ function UsageCard({
           </form>
         ) : null}
         {saved ? <p className={styles.note}>Quotas saved.</p> : null}
-        {error ? (
+        {error || loadError ? (
           <p role="alert" className={styles.note}>
-            {error}
+            {error || loadError}
           </p>
         ) : null}
       </CardBody>
@@ -1151,8 +1122,6 @@ function FairnessCard({
   isAdmin: boolean;
   readOnly: boolean;
 }) {
-  const [snaps, setSnaps] = useState<FairnessSnap[] | null>(null);
-  const [enabled, setEnabled] = useState(true);
   const [tenant, setTenant] = useState("");
   const [resultsSec, setResultsSec] = useState("");
   const [flowsSec, setFlowsSec] = useState("");
@@ -1163,14 +1132,19 @@ function FairnessCard({
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    api<{ items: FairnessSnap[] }>("GET", "/provider/v1/fairness")
-      .then((r) => setSnaps(r.items ?? []))
-      .catch((err) => {
-        if (err instanceof NotEnabledError) setEnabled(false);
-        else setError((err as Error).message);
-      });
-  }, []);
+  const fairnessQuery = useProviderData<{ items: FairnessSnap[] }>(
+    ["fairness"],
+    "/provider/v1/fairness",
+  );
+  const snaps = useMemo(
+    () => (fairnessQuery.data ? (fairnessQuery.data.items ?? []) : null),
+    [fairnessQuery.data],
+  );
+  const enabled = !(fairnessQuery.error instanceof NotEnabledError);
+  const loadError =
+    fairnessQuery.error && enabled
+      ? (fairnessQuery.error as Error).message
+      : "";
 
   if (!enabled) return null;
 
@@ -1329,9 +1303,9 @@ function FairnessCard({
             Fairness policy saved — enforced on the next admission.
           </p>
         ) : null}
-        {error ? (
+        {error || loadError ? (
           <p role="alert" className={styles.note}>
-            {error}
+            {error || loadError}
           </p>
         ) : null}
       </CardBody>
@@ -1340,19 +1314,27 @@ function FairnessCard({
 }
 
 function OperatorsCard({ readOnly }: { readOnly: boolean }) {
-  const [operators, setOperators] = useState<Operator[] | null>(null);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState("operator");
   const [enrollToken, setEnrollToken] = useState("");
   const [error, setError] = useState("");
 
+  const operatorsQuery = useProviderData<{ items: Operator[] }>(
+    ["operators"],
+    "/provider/v1/operators",
+  );
+  const operators = useMemo(
+    () => (operatorsQuery.data ? (operatorsQuery.data.items ?? []) : null),
+    [operatorsQuery.data],
+  );
+  const loadError = operatorsQuery.error
+    ? (operatorsQuery.error as Error).message
+    : "";
+  const { refetch: refetchOperators } = operatorsQuery;
   const load = useCallback(() => {
-    api<{ items: Operator[] }>("GET", "/provider/v1/operators")
-      .then((r) => setOperators(r.items ?? []))
-      .catch((e: Error) => setError(e.message));
-  }, []);
-  useEffect(load, [load]);
+    void refetchOperators();
+  }, [refetchOperators]);
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1444,9 +1426,9 @@ function OperatorsCard({ readOnly }: { readOnly: boolean }) {
             never shown again): <strong>{enrollToken}</strong>
           </p>
         ) : null}
-        {error ? (
+        {error || loadError ? (
           <p role="alert" className={styles.note}>
-            {error}
+            {error || loadError}
           </p>
         ) : null}
         {operators === null ? (

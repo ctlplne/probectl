@@ -424,6 +424,8 @@ describe('provider console (S-T1)', () => {
     renderApp('/provider')
 
     const nav = await screen.findByRole('navigation', { name: 'Provider tasks' })
+    // The usage rail entry appears once the metering query resolves.
+    await within(nav).findByRole('link', { name: /usage & showback/i })
     const taskLinks = within(nav).getAllByRole('link')
     expect(taskLinks.map((link) => link.textContent)).toEqual([
       expect.stringContaining('01Fleet exceptions'),

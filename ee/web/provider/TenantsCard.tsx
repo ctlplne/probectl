@@ -4,7 +4,8 @@
 // Production use requires a valid commercial agreement; resale additionally
 // requires an MSP entitlement and reseller agreement.
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Badge,
   Button,
@@ -18,84 +19,108 @@ import {
   StatusDot,
   Table,
   type Column,
-} from '../../../web/src/components'
-import styles from './ProviderConsole.module.css'
+} from "../../../web/src/components";
+import styles from "./ProviderConsole.module.css";
 
-export type ProviderAPI = <T>(method: string, path: string, body?: unknown) => Promise<T>
+export type ProviderAPI = <T>(
+  method: string,
+  path: string,
+  body?: unknown,
+) => Promise<T>;
 
 interface Tenant {
-  id: string
-  slug: string
-  name: string
-  status: string
-  isolation_model?: string
-  residency?: string
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  isolation_model?: string;
+  residency?: string;
 }
 
-type TenantAction = 'suspend' | 'resume' | 'offboard'
+type TenantAction = "suspend" | "resume" | "offboard";
 
-export function TenantsCard({ readOnly, api }: { readOnly: boolean; api: ProviderAPI }) {
-  const [tenants, setTenants] = useState<Tenant[] | null>(null)
-  const [error, setError] = useState('')
-  const [slug, setSlug] = useState('')
-  const [name, setName] = useState('')
-  const [isolation, setIsolation] = useState('pooled')
-  const [residency, setResidency] = useState('')
+export function TenantsCard({
+  readOnly,
+  api,
+}: {
+  readOnly: boolean;
+  api: ProviderAPI;
+}) {
+  const [error, setError] = useState("");
+  const [slug, setSlug] = useState("");
+  const [name, setName] = useState("");
+  const [isolation, setIsolation] = useState("pooled");
+  const [residency, setResidency] = useState("");
   // UX-005: offboard is destructive (removes a siloed tenant's isolated stores),
   // so it is gated behind a typed-slug confirm rather than a one-click button.
-  const [confirmTenant, setConfirmTenant] = useState<Tenant | null>(null)
-  const [confirmText, setConfirmText] = useState('')
+  const [confirmTenant, setConfirmTenant] = useState<Tenant | null>(null);
+  const [confirmText, setConfirmText] = useState("");
 
+  const tenantsQuery = useQuery<{ items: Tenant[] }>({
+    queryKey: ["provider", "tenants"],
+    queryFn: () => api<{ items: Tenant[] }>("GET", "/provider/v1/tenants"),
+    retry: false,
+    staleTime: 15_000,
+  });
+  const tenants = useMemo(
+    () => (tenantsQuery.data ? (tenantsQuery.data.items ?? []) : null),
+    [tenantsQuery.data],
+  );
+  const loadError = tenantsQuery.error
+    ? (tenantsQuery.error as Error).message
+    : "";
+  const { refetch: refetchTenants } = tenantsQuery;
   const load = useCallback(() => {
-    api<{ items: Tenant[] }>('GET', '/provider/v1/tenants')
-      .then((r) => setTenants(r.items ?? []))
-      .catch((e: Error) => setError(e.message))
-  }, [api])
-  useEffect(load, [load])
+    void refetchTenants();
+  }, [refetchTenants]);
 
   const provision = async (e: FormEvent) => {
-    e.preventDefault()
-    setError('')
+    e.preventDefault();
+    setError("");
     try {
-      await api('POST', '/provider/v1/tenants', {
+      await api("POST", "/provider/v1/tenants", {
         slug,
         name,
         isolation_model: isolation,
-        residency: isolation === 'pooled' ? '' : residency,
-      })
-      setSlug('')
-      setName('')
-      setResidency('')
-      load()
+        residency: isolation === "pooled" ? "" : residency,
+      });
+      setSlug("");
+      setName("");
+      setResidency("");
+      load();
     } catch (err) {
-      setError((err as Error).message)
+      setError((err as Error).message);
     }
-  }
+  };
 
   const act = async (id: string, action: TenantAction) => {
-    setError('')
+    setError("");
     try {
-      await api('POST', `/provider/v1/tenants/${id}/${action}`)
-      load()
+      await api("POST", `/provider/v1/tenants/${id}/${action}`);
+      load();
     } catch (err) {
-      setError((err as Error).message)
+      setError((err as Error).message);
     }
-  }
+  };
 
   const beginOffboard = (tenant: Tenant) => {
-    setConfirmText('')
-    setConfirmTenant(tenant)
-  }
+    setConfirmText("");
+    setConfirmTenant(tenant);
+  };
 
   const confirmOffboard = async () => {
-    const t = confirmTenant
-    if (!t || confirmText !== t.slug) return
-    setConfirmTenant(null)
-    setConfirmText('')
-    await act(t.id, 'offboard')
-  }
+    const t = confirmTenant;
+    if (!t || confirmText !== t.slug) return;
+    setConfirmTenant(null);
+    setConfirmText("");
+    await act(t.id, "offboard");
+  };
 
-  const columns = tenantColumns({ readOnly, onAction: act, onOffboard: beginOffboard })
+  const columns = tenantColumns({
+    readOnly,
+    onAction: act,
+    onOffboard: beginOffboard,
+  });
 
   return (
     <Card>
@@ -120,7 +145,11 @@ export function TenantsCard({ readOnly, api }: { readOnly: boolean; api: Provide
               onIsolation={setIsolation}
               onResidency={setResidency}
             />
-            {error ? <p role="alert" className={styles.note}>{error}</p> : null}
+            {error || loadError ? (
+              <p role="alert" className={styles.note}>
+                {error || loadError}
+              </p>
+            ) : null}
             <TenantInventoryTable tenants={tenants} columns={columns} />
             <OffboardConfirm
               tenant={confirmTenant}
@@ -129,15 +158,15 @@ export function TenantsCard({ readOnly, api }: { readOnly: boolean; api: Provide
               onConfirmText={setConfirmText}
               onConfirm={confirmOffboard}
               onCancel={() => {
-                setConfirmTenant(null)
-                setConfirmText('')
+                setConfirmTenant(null);
+                setConfirmText("");
               }}
             />
           </>
         )}
       </CardBody>
     </Card>
-  )
+  );
 }
 
 function TenantProvisionForm({
@@ -152,16 +181,16 @@ function TenantProvisionForm({
   onIsolation,
   onResidency,
 }: {
-  readOnly: boolean
-  slug: string
-  name: string
-  isolation: string
-  residency: string
-  onSubmit: (e: FormEvent) => void
-  onSlug: (value: string) => void
-  onName: (value: string) => void
-  onIsolation: (value: string) => void
-  onResidency: (value: string) => void
+  readOnly: boolean;
+  slug: string;
+  name: string;
+  isolation: string;
+  residency: string;
+  onSubmit: (e: FormEvent) => void;
+  onSlug: (value: string) => void;
+  onName: (value: string) => void;
+  onIsolation: (value: string) => void;
+  onResidency: (value: string) => void;
 }) {
   return (
     <form className={styles.row} onSubmit={onSubmit}>
@@ -191,12 +220,12 @@ function TenantProvisionForm({
         onChange={(e) => onIsolation(e.target.value)}
         disabled={readOnly}
         options={[
-          { value: 'pooled', label: 'pooled (default)' },
-          { value: 'siloed', label: 'siloed' },
-          { value: 'hybrid', label: 'hybrid' },
+          { value: "pooled", label: "pooled (default)" },
+          { value: "siloed", label: "siloed" },
+          { value: "hybrid", label: "hybrid" },
         ]}
       />
-      {isolation !== 'pooled' ? (
+      {isolation !== "pooled" ? (
         <span className={styles.grow}>
           <Field
             label="Residency (data plane, optional)"
@@ -211,15 +240,15 @@ function TenantProvisionForm({
         Provision
       </Button>
     </form>
-  )
+  );
 }
 
 function TenantInventoryTable({
   tenants,
   columns,
 }: {
-  tenants: Tenant[]
-  columns: Column<Tenant>[]
+  tenants: Tenant[];
+  columns: Column<Tenant>[];
 }) {
   return (
     <Table
@@ -227,9 +256,15 @@ function TenantInventoryTable({
       columns={columns}
       rows={tenants}
       rowKey={(t) => t.id}
-      empty={<EmptyState icon="admin" title="No tenants" description="Provision the first tenant above." />}
+      empty={
+        <EmptyState
+          icon="admin"
+          title="No tenants"
+          description="Provision the first tenant above."
+        />
+      }
     />
-  )
+  );
 }
 
 function OffboardConfirm({
@@ -240,20 +275,24 @@ function OffboardConfirm({
   onConfirm,
   onCancel,
 }: {
-  tenant: Tenant | null
-  confirmText: string
-  readOnly: boolean
-  onConfirmText: (value: string) => void
-  onConfirm: () => void
-  onCancel: () => void
+  tenant: Tenant | null;
+  confirmText: string;
+  readOnly: boolean;
+  onConfirmText: (value: string) => void;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
-  if (!tenant) return null
+  if (!tenant) return null;
   return (
-    <div role="alertdialog" aria-label="Confirm offboard" className={styles.note}>
+    <div
+      role="alertdialog"
+      aria-label="Confirm offboard"
+      className={styles.note}
+    >
       <p>
-        Offboarding <strong>{tenant.name}</strong> is destructive: it removes a siloed/hybrid
-        tenant&apos;s isolated stores and cannot be undone. Type the slug <code>{tenant.slug}</code>{' '}
-        to confirm.
+        Offboarding <strong>{tenant.name}</strong> is destructive: it removes a
+        siloed/hybrid tenant&apos;s isolated stores and cannot be undone. Type
+        the slug <code>{tenant.slug}</code> to confirm.
       </p>
       <span className={styles.row}>
         <span className={styles.grow}>
@@ -265,7 +304,11 @@ function OffboardConfirm({
             disabled={readOnly}
           />
         </span>
-        <Button variant="danger" disabled={readOnly || confirmText !== tenant.slug} onClick={onConfirm}>
+        <Button
+          variant="danger"
+          disabled={readOnly || confirmText !== tenant.slug}
+          onClick={onConfirm}
+        >
           Offboard {tenant.slug}
         </Button>
         <Button variant="secondary" onClick={onCancel}>
@@ -273,7 +316,7 @@ function OffboardConfirm({
         </Button>
       </span>
     </div>
-  )
+  );
 }
 
 function tenantColumns({
@@ -281,59 +324,82 @@ function tenantColumns({
   onAction,
   onOffboard,
 }: {
-  readOnly: boolean
-  onAction: (id: string, action: TenantAction) => void
-  onOffboard: (tenant: Tenant) => void
+  readOnly: boolean;
+  onAction: (id: string, action: TenantAction) => void;
+  onOffboard: (tenant: Tenant) => void;
 }): Column<Tenant>[] {
   return [
-    { key: 'slug', header: 'Slug', render: (t) => <code>{t.slug}</code> },
-    { key: 'name', header: 'Name', render: (t) => t.name },
+    { key: "slug", header: "Slug", render: (t) => <code>{t.slug}</code> },
+    { key: "name", header: "Name", render: (t) => t.name },
     {
-      key: 'isolation',
-      header: 'Isolation',
+      key: "isolation",
+      header: "Isolation",
       render: (t) => (
         <>
-          <Badge tone={t.isolation_model === 'siloed' ? 'accent' : t.isolation_model === 'hybrid' ? 'info' : 'neutral'}>
-            {t.isolation_model || 'pooled'}
+          <Badge
+            tone={
+              t.isolation_model === "siloed"
+                ? "accent"
+                : t.isolation_model === "hybrid"
+                  ? "info"
+                  : "neutral"
+            }
+          >
+            {t.isolation_model || "pooled"}
           </Badge>
           {t.residency ? <> {t.residency}</> : null}
         </>
       ),
     },
     {
-      key: 'status',
-      header: 'Status',
+      key: "status",
+      header: "Status",
       render: (t) =>
-        t.status === 'active' ? (
+        t.status === "active" ? (
           <StatusDot tone="success" label="Active" />
-        ) : t.status === 'suspended' ? (
+        ) : t.status === "suspended" ? (
           <StatusDot tone="danger" label="Suspended" />
         ) : (
           <StatusDot tone="neutral" label={t.status} />
         ),
     },
     {
-      key: 'actions',
-      header: 'Lifecycle',
+      key: "actions",
+      header: "Lifecycle",
       render: (t) => (
         <span className={styles.actions}>
-          {t.status === 'active' ? (
-            <Button size="sm" variant="secondary" disabled={readOnly} onClick={() => onAction(t.id, 'suspend')}>
+          {t.status === "active" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={readOnly}
+              onClick={() => onAction(t.id, "suspend")}
+            >
               Suspend
             </Button>
           ) : null}
-          {t.status === 'suspended' ? (
-            <Button size="sm" variant="secondary" disabled={readOnly} onClick={() => onAction(t.id, 'resume')}>
+          {t.status === "suspended" ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={readOnly}
+              onClick={() => onAction(t.id, "resume")}
+            >
               Resume
             </Button>
           ) : null}
-          {t.status === 'active' || t.status === 'suspended' ? (
-            <Button size="sm" variant="danger" disabled={readOnly} onClick={() => onOffboard(t)}>
+          {t.status === "active" || t.status === "suspended" ? (
+            <Button
+              size="sm"
+              variant="danger"
+              disabled={readOnly}
+              onClick={() => onOffboard(t)}
+            >
               Offboard…
             </Button>
           ) : null}
         </span>
       ),
     },
-  ]
+  ];
 }
