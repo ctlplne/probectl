@@ -1,6 +1,11 @@
 .scroll {
   width: 100%;
   overflow-x: auto;
+  /* Containing block for absolutely-positioned descendants (sr-only column
+   * headers): without this they resolve against the document and create
+   * phantom horizontal page scroll equal to their static position inside the
+   * scrolled table. */
+  position: relative;
 }
 
 .scroll:focus-visible {

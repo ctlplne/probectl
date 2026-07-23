@@ -41,3 +41,15 @@
   outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
+
+@media (max-width: 720px) {
+  .toggle {
+    min-width: 0;
+  }
+
+  .button {
+    min-width: 36px;
+    padding: 0 var(--space-1);
+    font-size: var(--font-size-3xs);
+  }
+}

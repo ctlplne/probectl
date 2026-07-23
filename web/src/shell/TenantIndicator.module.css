@@ -1,5 +1,8 @@
 .wrap {
   position: relative;
+  /* The indicator must stay visible at every width (CLAUDE.md §7), so it
+   * shrinks with an ellipsized name rather than pushing the shell wider. */
+  min-width: 0;
 }
 
 .button,
@@ -9,6 +12,8 @@
   gap: var(--space-2);
   height: 38px;
   padding: 0 var(--space-3);
+  max-width: 100%;
+  min-width: 0;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
@@ -44,6 +49,7 @@
   flex-direction: column;
   align-items: flex-start;
   line-height: var(--line-height-display);
+  min-width: 0;
 }
 
 .kicker {
@@ -56,6 +62,10 @@
 .name {
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .menu {

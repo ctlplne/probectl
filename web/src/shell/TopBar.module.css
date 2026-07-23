@@ -103,15 +103,26 @@
     padding: 0 var(--space-3);
   }
 
+  /* The identity cluster owns the flexible space; its children may shrink
+   * (tenant name ellipsizes) so the bar can never exceed the viewport. */
+  .left {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .left > * {
+    min-width: 0;
+  }
+
   .menuButton {
     display: inline-flex;
     flex-shrink: 0;
   }
 
   .command {
-    min-width: 42px;
+    min-width: 38px;
     max-width: none;
-    flex: 0 1 48px;
+    flex: 0 1 38px;
     justify-content: center;
     padding: 0 var(--space-2);
     margin: 0;
@@ -120,5 +131,17 @@
   .commandLabel,
   .kbd {
     display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  /* The initials avatar is decorative (identity lives in the tenant chip and
+   * admin surfaces); it yields its width to the tenant name first. */
+  .user {
+    display: none;
+  }
+
+  .left {
+    gap: var(--space-1);
   }
 }

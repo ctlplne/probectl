@@ -7,6 +7,7 @@
 import { Badge } from '../components'
 import { useAuth } from '../auth/useAuth'
 import { authorityPosture } from './authority'
+import styles from './AuthorityBadge.module.css'
 
 export function AuthorityBadge() {
   const { permissions } = useAuth()
@@ -14,7 +15,12 @@ export function AuthorityBadge() {
 
   return (
     <span role="status" aria-label={`Authority posture: ${posture.label}`} title={posture.detail}>
-      <Badge tone={posture.tone}>{posture.label}</Badge>
+      <Badge tone={posture.tone}>
+        <span className={styles.long}>{posture.label}</span>
+        <span className={styles.short} aria-hidden="true">
+          {posture.short}
+        </span>
+      </Badge>
     </span>
   )
 }

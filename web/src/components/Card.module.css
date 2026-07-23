@@ -1,4 +1,8 @@
 .card {
+  /* Cards are grid/flex items everywhere; without this, a wide child (table,
+   * chart) sets the card's min-content and pushes the page past the viewport
+   * instead of letting the child's own overflow-x scroll container work. */
+  min-width: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);

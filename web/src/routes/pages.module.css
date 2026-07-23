@@ -9,6 +9,13 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-4);
+  /* Narrow viewports: actions drop below the title instead of forcing the
+   * page wider than the screen. */
+  flex-wrap: wrap;
+}
+
+.header > * {
+  min-width: 0;
 }
 
 .title {

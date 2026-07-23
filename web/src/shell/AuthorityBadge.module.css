@@ -1,0 +1,21 @@
+/* Responsive authority label: the full posture wording on regular widths, a
+ * compressed synonym on narrow ones. The wrapper's aria-label always carries
+ * the full posture, so assistive tech never sees the abbreviation. */
+
+.long {
+  display: inline;
+}
+
+.short {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .long {
+    display: none;
+  }
+
+  .short {
+    display: inline;
+  }
+}

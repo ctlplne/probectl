@@ -8,6 +8,8 @@ import type { BadgeTone } from '../components'
 
 export interface AuthorityPosture {
   label: string
+  /** Compressed label for narrow viewports; same posture, fewer characters. */
+  short: string
   tone: BadgeTone
   detail: string
 }
@@ -27,6 +29,7 @@ export function authorityPosture(permissions: string[]): AuthorityPosture {
   if (sorted.some((permission) => /break[-_]?glass|breakglass/i.test(permission))) {
     return {
       label: 'Break-glass active',
+      short: 'Break-glass',
       tone: 'danger',
       detail: `Time-bounded emergency access from server permissions: ${joined}`,
     }
@@ -34,6 +37,7 @@ export function authorityPosture(permissions: string[]): AuthorityPosture {
   if (sorted.some((permission) => /read[_-]?only|degraded|license_read_only/i.test(permission))) {
     return {
       label: 'Degraded read-only',
+      short: 'Degraded',
       tone: 'warning',
       detail: `Read-only/degraded state from server permissions: ${joined}`,
     }
@@ -41,6 +45,7 @@ export function authorityPosture(permissions: string[]): AuthorityPosture {
   if (sorted.some((permission) => permission.startsWith('provider.'))) {
     return {
       label: 'Provider plane',
+      short: 'Provider',
       tone: 'warning',
       detail: `Provider privilege domain from server permissions: ${joined}`,
     }
@@ -48,6 +53,7 @@ export function authorityPosture(permissions: string[]): AuthorityPosture {
   if (sorted.length === 0 || (sorted.length === 1 && sorted[0] === 'audit.read')) {
     return {
       label: 'Auditor read-only',
+      short: 'Auditor',
       tone: 'info',
       detail:
         sorted.length === 0
@@ -58,12 +64,14 @@ export function authorityPosture(permissions: string[]): AuthorityPosture {
   if (sorted.every(isReadPermission)) {
     return {
       label: 'Read-only',
+      short: 'Read-only',
       tone: 'neutral',
       detail: `Read-only server permissions: ${joined}`,
     }
   }
   return {
     label: 'Operator',
+    short: 'Operator',
     tone: 'success',
     detail: `Write-capable server permissions: ${joined}`,
   }
