@@ -846,6 +846,52 @@ function blockingAxeResults(result) {
   return result.violations;
 }
 
+// A route must never widen the document beyond the viewport: horizontal page
+// scroll on mobile means clipped chrome (tenant indicator, primary actions)
+// that axe cannot see. Scrollable WIDGETS (tables, charts) are fine — this
+// measures only document-level overflow. Identifies the widest offenders so
+// a regression names its culprit.
+async function horizontalOverflowCheck(page) {
+  return page.evaluate(() => {
+    const doc = document.documentElement;
+    const overflow = doc.scrollWidth - doc.clientWidth;
+    if (overflow <= 1) return [];
+    const viewport = doc.clientWidth;
+    const insideScrollContainer = (el) => {
+      for (
+        let a = el.parentElement;
+        a && a !== document.body;
+        a = a.parentElement
+      ) {
+        const ox = getComputedStyle(a).overflowX;
+        if (
+          ox === "auto" ||
+          ox === "scroll" ||
+          ox === "hidden" ||
+          ox === "clip"
+        )
+          return true;
+      }
+      return false;
+    };
+    const offenders = [];
+    document.querySelectorAll("body *").forEach((el) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.right - viewport > 1 && !insideScrollContainer(el)) {
+        offenders.push(
+          `${el.tagName.toLowerCase()}${el.className ? `.${String(el.className).split(" ")[0]}` : ""} right=${Math.round(rect.right)}`,
+        );
+      }
+    });
+    return [
+      `document scrolls horizontally: scrollWidth ${doc.scrollWidth} > viewport ${viewport} (+${overflow}px)` +
+        (offenders.length > 0
+          ? `; widest: ${offenders.slice(0, 4).join(", ")}`
+          : ""),
+    ];
+  });
+}
+
 async function targetAndTabChecks(page) {
   return page.evaluate(() => {
     const selector = [
@@ -1082,6 +1128,7 @@ async function main() {
             viewport: viewport.name,
             axe: [],
             custom: [],
+            overflow: [],
             dashboard: [],
             runtime: [],
           };
@@ -1132,6 +1179,12 @@ async function main() {
                 `${viewport.name} ${theme} ${route}: focus/target violations\n  ${record.custom.join("\n  ")}`,
               );
             }
+            record.overflow = await horizontalOverflowCheck(page);
+            if (record.overflow.length > 0) {
+              failures.push(
+                `${viewport.name} ${theme} ${route}: horizontal overflow\n  ${record.overflow.join("\n  ")}`,
+              );
+            }
             if (route === "/dashboards") {
               record.dashboard = await dashboardChecks(page);
               if (record.dashboard.length > 0) {
@@ -1155,6 +1208,7 @@ async function main() {
           record.status =
             record.axe.length === 0 &&
             record.custom.length === 0 &&
+            record.overflow.length === 0 &&
             record.dashboard.length === 0 &&
             record.runtime.length === 0
               ? "pass"
