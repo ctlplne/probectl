@@ -20,6 +20,10 @@
   fill: none;
 }
 
+.arrowHead {
+  fill: context-stroke;
+}
+
 .bgpLink,
 .flowLink {
   fill: none;

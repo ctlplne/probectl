@@ -1162,9 +1162,11 @@ export function AlertsPage() {
           </section>
         ) : null}
         <Card>
-          <CardHeader
-            title="Active alerts"
-            actions={
+          <CardHeader title="Active alerts" />
+          <CardBody>
+            {/* Filters ride as a full-width toolbar above the table (the
+                incidents pattern) — never a side rail squeezing the card. */}
+            <div className={styles.tableFilters}>
               <FilterBar>
                 <Field
                   label="Find"
@@ -1207,9 +1209,7 @@ export function AlertsPage() {
                   placeholder="Critical database"
                 />
               </FilterBar>
-            }
-          />
-          <CardBody>
+            </div>
             {active.isLoading ? (
               <LoadingState label="Loading active alerts…" />
             ) : active.isError ? (

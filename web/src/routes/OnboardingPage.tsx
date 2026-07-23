@@ -113,16 +113,22 @@ function ProgressItem({
   label,
   detail,
   done,
+  active,
   readyLabel,
 }: {
   label: string
   detail: string
   done: boolean
+  /** The first not-done step — "you are here". */
+  active: boolean
   readyLabel: string
 }) {
   return (
-    <li className={styles.progressItem}>
-      <StatusDot tone={done ? 'success' : 'neutral'} label={done ? readyLabel : label} />
+    <li className={`${styles.progressItem} ${active ? styles.progressActive : ''}`}>
+      <StatusDot
+        tone={done ? 'success' : active ? 'warning' : 'neutral'}
+        label={done ? readyLabel : label}
+      />
       <span>{detail}</span>
     </li>
   )
@@ -212,6 +218,9 @@ export function OnboardingPage() {
     t,
   ])
 
+  const progressComplete = progress.filter((item) => item.done).length
+  const activeProgressIndex = progress.findIndex((item) => !item.done)
+
   function submitAgent(e: FormEvent) {
     e.preventDefault()
     const ttl = Number(agentTTLMinutes)
@@ -295,18 +304,21 @@ export function OnboardingPage() {
       <section className={styles.progress} aria-label={t('onboarding.progress.aria')}>
         <div className={styles.progressHeader}>
           <h2>{t('onboarding.progress.title')}</h2>
-          <Badge tone={persistedProgress?.readiness_steps_complete === 4 ? 'success' : 'info'}>
+          {/* One truth: the counter derives from the rendered steps, so it can
+              never disagree with the cards below it. */}
+          <Badge tone={progressComplete === progress.length ? 'success' : 'info'}>
             {t('onboarding.progress.count', {
-              complete: persistedProgress?.readiness_steps_complete ?? 0,
-              total: persistedProgress?.readiness_steps_total ?? 4,
+              complete: progressComplete,
+              total: progress.length,
             })}
           </Badge>
         </div>
         <ul className={styles.progressList} role="list">
-          {progress.map((item) => (
+          {progress.map((item, index) => (
             <ProgressItem
               key={item.label}
               {...item}
+              active={index === activeProgressIndex}
               readyLabel={t('onboarding.progress.ready', { label: item.label })}
             />
           ))}

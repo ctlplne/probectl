@@ -1,6 +1,10 @@
 /* Alerting surface layout (S-FE1). Layout-only — every visual value rides the
    S8a design tokens (no hardcoded colors/spacing; the CI gate enforces it). */
 
+.tableFilters {
+  margin-block-end: var(--space-4);
+}
+
 .kv {
   display: grid;
   grid-template-columns: auto 1fr;

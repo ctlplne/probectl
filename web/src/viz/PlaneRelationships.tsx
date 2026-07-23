@@ -90,7 +90,7 @@ export function BgpAsPathView({
   return (
     <ChartShell
       title="BGP AS-path arcs"
-      height={260}
+      height={Math.min(260, svgH + 12)}
       legend={
         <span>
           Showing {visible.length} of {relationships.length} routing relationships
@@ -113,6 +113,19 @@ export function BgpAsPathView({
           aria-hidden="true"
           focusable="false"
         >
+          <defs>
+            <marker
+              id="bgp-arrow"
+              viewBox="0 0 8 8"
+              refX="7"
+              refY="4"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 8 4 L 0 8 z" className={styles.arrowHead} />
+            </marker>
+          </defs>
           <g className={styles.links}>
             {visible.map((rel) => {
               const sy = yFor(sources.indexOf(rel.source), sources.length, svgH) + NODE_H / 2
@@ -124,6 +137,7 @@ export function BgpAsPathView({
                   key={rel.id}
                   className={styles.bgpLink}
                   d={`M ${sx} ${sy} C ${sx + 120} ${sy}, ${tx - 120} ${ty}, ${tx} ${ty}`}
+                  markerEnd="url(#bgp-arrow)"
                 >
                   <title>{`${rel.source} announces ${rel.target}`}</title>
                 </path>
@@ -168,7 +182,7 @@ export function FlowSankeyView({ rows }: { rows: FlowTopRow[] }) {
   return (
     <ChartShell
       title="Flow Sankey"
-      height={260}
+      height={Math.min(260, svgH + 12)}
       legend={
         <span>
           Showing {visible.length} of {rows.length} contributors
@@ -191,6 +205,19 @@ export function FlowSankeyView({ rows }: { rows: FlowTopRow[] }) {
           aria-hidden="true"
           focusable="false"
         >
+          <defs>
+            <marker
+              id="flow-arrow"
+              viewBox="0 0 8 8"
+              refX="7"
+              refY="4"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 8 4 L 0 8 z" className={styles.arrowHead} />
+            </marker>
+          </defs>
           <g className={styles.links}>
             {visible.map((row) => {
               const target = row.detail || 'tenant aggregate'
@@ -205,6 +232,7 @@ export function FlowSankeyView({ rows }: { rows: FlowTopRow[] }) {
                   className={styles.flowLink}
                   strokeWidth={width}
                   d={`M ${sx} ${sy} C ${sx + 130} ${sy}, ${tx - 130} ${ty}, ${tx} ${ty}`}
+                  markerEnd="url(#flow-arrow)"
                 >
                   <title>{`${row.key} to ${target}: ${formatScaledBytes(row.bytes, locale)}`}</title>
                 </path>

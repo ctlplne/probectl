@@ -40,6 +40,16 @@
   color: var(--color-text-subtle);
 }
 
+/* "You are here": the first not-done step reads as the active one. */
+.progressActive {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+}
+
+.progressActive span:last-child {
+  color: var(--color-text);
+}
+
 .findingReceipt {
   margin-block-end: var(--space-4);
 }
