@@ -25,6 +25,10 @@ COPY web/ ./
 # commercial UI source there so the import resolves (the bundle always includes
 # it; visibility is runtime-gated by the API, per the editions boundary).
 COPY ee/web /ee/web
+# The keyboard-journey contract test is type-checked by `npm run build` and
+# imports this committed product baseline from outside web/. Preserve that same
+# repository-relative path inside the isolated web build stage.
+COPY docs/ux/journey-baseline.json /docs/ux/journey-baseline.json
 RUN npm run build   # → /web/dist (hashed assets)
 
 # Digest-pinned (U-061); bumped manually per docs/dependency-policy.md (no

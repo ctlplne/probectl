@@ -30,7 +30,10 @@ analyzer/probectl_analyzer/**/*.pyc
 web/node_modules/
 web/dist/
 web/coverage/
-docs/
+docs/*
+!docs/ux/
+docs/ux/*
+!docs/ux/journey-baseline.json
 deploy/
 proto/
 buf.yaml

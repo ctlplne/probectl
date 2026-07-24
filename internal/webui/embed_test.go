@@ -77,13 +77,13 @@ func TestBuiltIsHonestAboutTheBundle(t *testing.T) {
 	}
 	referenced := false
 	for _, a := range assets {
-		if strings.Contains(index, "/assets/"+a.Name()) {
+		if strings.Contains(index, "/ui/assets/"+a.Name()) {
 			referenced = true
 			break
 		}
 	}
 	if !referenced {
-		t.Error("Built()==true but index.html references no /assets/<hashed> file — bundle looks fake")
+		t.Error("Built()==true but index.html references no /ui/assets/<hashed> file — bundle is not mounted at its served prefix")
 	}
 	if !strings.Contains(index, `id="root"`) {
 		t.Error("real bundle index.html should mount the SPA at #root")

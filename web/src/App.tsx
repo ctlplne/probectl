@@ -65,7 +65,7 @@ function AuthPreferenceBridge({ children }: { children: ReactNode }) {
 export function App() {
   return (
     <Providers>
-      <BrowserRouter>
+      <BrowserRouter basename="/ui">
         <AppRoutes />
       </BrowserRouter>
     </Providers>

@@ -24,13 +24,15 @@ coverage source, safe action, and all six states.
 ## Demo mode
 
 Enter the operator demo by opening any tenant route with `?demo=1`, for example
-`/targets?demo=1`. Entry is intentionally URL-explicit; it is not a remembered tenant
-preference and uses no browser storage.
+`/ui/dashboards?demo=1` in the embedded production UI. Entry is intentionally
+URL-explicit; it is not a remembered tenant preference and uses no browser storage.
 
 While active:
 
 - a persistent warning banner says that all values are sample data;
 - every illustrative panel also carries a **Demo data** badge;
+- every tenant navigation item renders its own populated sample surface, and
+  `demo=1` follows in-app navigation so a refresh remains inside the tour;
 - the tenant route outlet is not mounted, so route data hooks, exports, alerts, and incident
   actions do not exist in the rendered tree;
 - the shared API client independently fails closed for every tenant endpoint except the

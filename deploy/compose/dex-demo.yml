@@ -1,0 +1,50 @@
+# Local, demo-only OIDC overlay for the HTTPS production-shaped Compose stack.
+#
+# Dex shares the control container's network namespace, so BOTH the browser and
+# probectl resolve the issuer as https://localhost:5556/dex. It reuses the
+# quickstart TLS certificate and never opens a plaintext listener.
+#
+# Required runtime secrets (generate them; never commit them):
+#   DEX_CLIENT_SECRET       openssl rand -hex 32
+#   DEX_DEMO_PASSWORD_HASH  htpasswd -bnBC 12 demo '<password>' | cut -d: -f2
+services:
+  control:
+    environment:
+      PROBECTL_OIDC_ISSUER: https://localhost:5556/dex
+      PROBECTL_OIDC_CLIENT_ID: probectl-demo
+      PROBECTL_OIDC_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required for the local Dex demo}
+      PROBECTL_OIDC_REDIRECT_URL: https://localhost:8443/auth/callback
+      # The quickstart CA signs Dex's localhost certificate too. Go continues
+      # to load system certificate directories in addition to this explicit
+      # file, so normal verified outbound TLS remains available.
+      SSL_CERT_FILE: /certs/ca.crt
+    ports:
+      - "127.0.0.1:5556:5556"
+
+  dex:
+    image: ghcr.io/dexidp/dex@sha256:8499afd690c437f52301efd2b05b2455da5bd2dfc20332cd697dc9937f808462 # v2.45.1
+    # The probectl quickstart certificate and controldata volume are owned by
+    # the distroless non-root UID. Dex supports an arbitrary non-root UID, so
+    # sharing it preserves tls.key mode 0600 without running either process as
+    # root.
+    user: "65532:65532"
+    network_mode: "service:control"
+    depends_on:
+      control:
+        condition: service_started
+    command: ["dex", "serve", "/etc/dex/config.demo.yaml"]
+    environment:
+      DEX_CLIENT_SECRET: ${DEX_CLIENT_SECRET:?DEX_CLIENT_SECRET is required for the local Dex demo}
+      DEX_DEMO_PASSWORD_HASH: ${DEX_DEMO_PASSWORD_HASH:?DEX_DEMO_PASSWORD_HASH is required for the local Dex demo}
+    volumes:
+      - ./dex-demo.yaml:/etc/dex/config.demo.yaml:ro
+      - certs:/certs:ro
+      - controldata:/var/lib/probectl
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+

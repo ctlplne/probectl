@@ -1,0 +1,47 @@
+# Dex configuration template for dex-demo.yml. The official Dex container
+# renders *.yaml through gomplate before startup, so the password hash is
+# injected from the environment and no credential is committed.
+issuer: https://localhost:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/lib/probectl/dex.db
+
+web:
+  https: 0.0.0.0:5556
+  tlsCert: /certs/tls.crt
+  tlsKey: /certs/tls.key
+
+logger:
+  level: info
+  format: json
+
+oauth2:
+  responseTypes: ["code"]
+  skipApprovalScreen: true
+  alwaysShowLoginScreen: false
+
+expiry:
+  idTokens: 1h
+
+signer:
+  type: local
+  config:
+    keysRotationPeriod: 6h
+  authRequests: 5m
+
+enablePasswordDB: true
+
+staticClients:
+  - id: probectl-demo
+    name: probectl local demo
+    secretEnv: DEX_CLIENT_SECRET
+    redirectURIs:
+      - https://localhost:8443/auth/callback
+
+staticPasswords:
+  - email: demo@probectl.local
+    hash: '{{ .Env.DEX_DEMO_PASSWORD_HASH }}'
+    username: probectl demo
+    userID: 8f2a2932-37bf-4a4f-bc32-cd588fc8ffb7

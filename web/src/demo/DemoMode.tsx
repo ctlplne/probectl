@@ -11,8 +11,9 @@ import { DemoModeContext } from './context'
 
 /**
  * Demo mode is deliberately URL-entered (`?demo=1`) so it cannot be confused
- * with a tenant preference. Once entered it stays active across in-app routes
- * without browser storage. Shift+D exits and removes the URL marker.
+ * with a tenant preference. Once entered the marker follows in-app routes,
+ * keeping refreshes isolated without browser storage. Shift+D exits and
+ * removes the URL marker.
  */
 export function DemoModeProvider({ children }: { children: ReactNode }) {
   const location = useLocation()
@@ -30,6 +31,13 @@ export function DemoModeProvider({ children }: { children: ReactNode }) {
     if (requestedByURL && !exiting) setLatched(true)
     if (!requestedByURL && exiting) setExiting(false)
   }, [exiting, requestedByURL])
+
+  useEffect(() => {
+    if (!active || requestedByURL) return
+    const params = new URLSearchParams(location.search)
+    params.set('demo', '1')
+    navigate(`${location.pathname}?${params.toString()}${location.hash}`, { replace: true })
+  }, [active, location.hash, location.pathname, location.search, navigate, requestedByURL])
 
   useEffect(() => () => setDemoTransportIsolation(false), [])
 
