@@ -6,6 +6,9 @@
 
 import { createContext, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { apiFetch, publicFetch, redirectToLogin } from '../api/client'
+import { LoadingState } from '../components'
+import { useI18n } from '../i18n/useI18n'
+import styles from './AuthProvider.module.css'
 
 /**
  * AuthProvider resolves the REAL signed-in identity from the session (SEC-001):
@@ -122,12 +125,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [me, signOut])
 
+  // The SSO redirect is a navigation side effect — it belongs in an effect,
+  // not the render body (renders may run more than once; the redirect must not).
+  useEffect(() => {
+    if (status === 'unauthenticated') toLogin()
+  }, [status])
+
   if (status === 'loading') {
-    return <div role="status" aria-live="polite" aria-busy="true" />
+    return <AuthBoot messageKey="auth.boot.signingIn" />
   }
   if (status === 'unauthenticated' || !value) {
-    toLogin()
-    return null
+    return <AuthBoot messageKey="auth.boot.redirecting" />
   }
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+/** The only thing on screen between the SSO redirect and the first
+ * authenticated paint — a visible, announced status instead of a blank page. */
+function AuthBoot({ messageKey }: { messageKey: 'auth.boot.signingIn' | 'auth.boot.redirecting' }) {
+  const { t } = useI18n()
+  return (
+    <div className={styles.boot} role="status" aria-live="polite" aria-busy="true">
+      <span className={styles.wordmark}>probectl</span>
+      <LoadingState label={t(messageKey)} />
+    </div>
+  )
 }

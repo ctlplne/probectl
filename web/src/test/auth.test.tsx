@@ -6,9 +6,17 @@
 
 import { describe, expect, test, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { AuthProvider } from '../auth/AuthProvider'
 import { useAuth } from '../auth/useAuth'
+import { I18nProvider } from '../i18n/I18nProvider'
 import { jsonResponse } from './fetchStub'
+
+// AuthProvider's boot screen is translated, so the provider now sits under
+// I18nProvider exactly as it does in App.tsx.
+function Providers({ children }: { children: ReactNode }) {
+  return <I18nProvider initialLocale="en">{children}</I18nProvider>
+}
 
 function Identity() {
   const { user, tenant } = useAuth()
@@ -48,11 +56,31 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
       }),
     )
     render(
-      <AuthProvider>
-        <Identity />
-      </AuthProvider>,
+      <Providers>
+        <AuthProvider>
+          <Identity />
+        </AuthProvider>
+      </Providers>,
     )
     expect(await screen.findByText('ops@acme.example @ t-real')).toBeDefined()
+  })
+
+  test('the session probe is a visible, announced boot status — never a blank page', async () => {
+    // A fetch that never settles freezes the provider in its loading state.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise<Response>(() => {})),
+    )
+    render(
+      <Providers>
+        <AuthProvider>
+          <Identity />
+        </AuthProvider>
+      </Providers>,
+    )
+    const boot = screen.getByRole('status')
+    expect(boot).toHaveTextContent(/probectl/i)
+    expect(boot).toHaveTextContent(/signing you in/i)
   })
 
   test('unauthenticated → redirect to SSO login, NO demo identity rendered', async () => {
@@ -63,12 +91,16 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
       vi.fn(async () => jsonResponse({ error: { message: 'authentication required' } }, 401)),
     )
     render(
-      <AuthProvider>
-        <Identity />
-      </AuthProvider>,
+      <Providers>
+        <AuthProvider>
+          <Identity />
+        </AuthProvider>
+      </Providers>,
     )
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/login'))
     expect(screen.queryByText(/@/)).toBeNull() // no fallback identity ever shown
+    // The moment of redirect is announced, not blank.
+    expect(screen.getByRole('status')).toHaveTextContent(/redirecting to sign-in/i)
   })
 
   test('signOut posts /auth/logout then redirects to login', async () => {
@@ -87,9 +119,11 @@ describe('AuthProvider — real session identity (SEC-001)', () => {
       }),
     )
     render(
-      <AuthProvider>
-        <SignOutButton />
-      </AuthProvider>,
+      <Providers>
+        <AuthProvider>
+          <SignOutButton />
+        </AuthProvider>
+      </Providers>,
     )
     ;(await screen.findByRole('button', { name: 'sign out' })).click()
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/auth/login'))

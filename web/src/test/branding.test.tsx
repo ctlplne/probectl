@@ -5,7 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { renderApp } from './renderApp'
 import { defaultFetch, jsonResponse } from './fetchStub'
 import {
@@ -42,7 +42,10 @@ describe('deployment-level probectl theming', () => {
       }),
     )
     renderApp('/targets')
-    expect(await screen.findByText('probectl')).toBeInTheDocument()
+    // Scoped to the shell's primary nav: the transient auth boot screen also
+    // says "probectl", so an unscoped text query races the boot unmount.
+    const nav = await screen.findByRole('navigation', { name: 'Primary' })
+    expect(within(nav).getByText('probectl')).toBeInTheDocument()
     await waitFor(() => {
       expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe('#6a4cf0')
     })
@@ -63,7 +66,8 @@ describe('deployment-level probectl theming', () => {
       }),
     )
     renderApp('/targets')
-    expect(await screen.findByText('probectl')).toBeInTheDocument()
+    const nav = await screen.findByRole('navigation', { name: 'Primary' })
+    expect(within(nav).getByText('probectl')).toBeInTheDocument()
     await waitFor(() =>
       expect(document.documentElement.style.getPropertyValue('--color-accent')).toBe(''),
     )

@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+
+/* The pre-identity boot screen: the only thing on screen between the SSO
+ * redirect and the first authenticated paint, so it must stand alone. */
+.boot {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-4);
+  min-block-size: 100vh;
+  padding: var(--space-6);
+  background: var(--color-bg);
+}
+
+.wordmark {
+  color: var(--color-text);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-tight);
+}
+
+.wordmark::after {
+  content: '.';
+  color: var(--color-accent);
+}

@@ -5,7 +5,8 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import type { ReactNode } from 'react'
-import { Card, CardBody, EmptyState, ErrorState } from '../components'
+import { useNavigate } from 'react-router-dom'
+import { Button, Card, CardBody, EmptyState, ErrorState } from '../components'
 import { useI18n } from '../i18n/useI18n'
 import { NAV } from '../nav/ia'
 import styles from './pages.module.css'
@@ -60,6 +61,7 @@ export function PlaceholderPage({ to }: { to: string }) {
 
 export function NotFoundPage() {
   const { t } = useI18n()
+  const navigate = useNavigate()
   return (
     <Page title={t('page.notFound.title')}>
       <Card>
@@ -67,6 +69,11 @@ export function NotFoundPage() {
           <ErrorState
             title={t('page.notFound.errorTitle')}
             description={t('page.notFound.description')}
+            action={
+              <Button variant="primary" onClick={() => navigate('/dashboards')}>
+                {t('page.notFound.action')}
+              </Button>
+            }
           />
         </CardBody>
       </Card>
