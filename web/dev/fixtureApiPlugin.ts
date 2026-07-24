@@ -32,11 +32,16 @@ export function fixtureApiPlugin(): Plugin {
       if (process.env.PROBECTL_WEB_FIXTURES !== '1') return
 
       const FIXTURE_MODULE = '/src/test/fixtureApi.ts'
+      // PROBECTL_WEB_FIXTURES_PROFILE=cold serves the install-day catalog
+      // (fresh deployment, nothing enrolled) — `npm run dev:fixtures:cold`.
+      const profile = process.env.PROBECTL_WEB_FIXTURES_PROFILE === 'cold' ? 'cold' : 'populated'
       let handler: Promise<typeof fetch> | undefined
       const loadHandler = () =>
         (handler ??= server.ssrLoadModule(FIXTURE_MODULE).then((moduleExports) => {
-          const factory = (moduleExports as { fixtureFetch: () => typeof fetch }).fixtureFetch
-          return factory()
+          const factory = (
+            moduleExports as { fixtureFetch: (profile?: 'populated' | 'cold') => typeof fetch }
+          ).fixtureFetch
+          return factory(profile)
         }))
 
       // Editing the fixture catalog reloads it on the next request — the

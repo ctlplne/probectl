@@ -5,9 +5,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '../api/client'
 import { HonestDataState, classifySurfaceTruth, type HonestDataStateKind } from '../components'
+import { DemoModeProvider } from '../demo/DemoMode'
+import { I18nProvider } from '../i18n/I18nProvider'
 import { defaultFetch, jsonResponse } from './fetchStub'
 import { renderApp } from './renderApp'
 
@@ -43,15 +46,23 @@ describe('truthful tenant-data states', () => {
   })
 
   test.each(STATES)('%s shows readiness, ingest, coverage, and one next action', (state) => {
+    // The cold states additionally render the sample-tour bridge, which
+    // composes router + demo + i18n context — same providers App.tsx supplies.
     const { container } = render(
-      <HonestDataState
-        state={state}
-        producer="Synthetic collector"
-        producerReadiness="Server-reported readiness"
-        lastSuccessfulIngest="2026-07-14T20:30:00Z"
-        coverageLimitation="Only configured tenant vantage points are covered."
-        action={<button type="button">Authorized next action</button>}
-      />,
+      <MemoryRouter>
+        <I18nProvider initialLocale="en">
+          <DemoModeProvider>
+            <HonestDataState
+              state={state}
+              producer="Synthetic collector"
+              producerReadiness="Server-reported readiness"
+              lastSuccessfulIngest="2026-07-14T20:30:00Z"
+              coverageLimitation="Only configured tenant vantage points are covered."
+              action={<button type="button">Authorized next action</button>}
+            />
+          </DemoModeProvider>
+        </I18nProvider>
+      </MemoryRouter>,
     )
 
     const surfaceState = container.querySelector(`[data-data-state="${state}"]`)
@@ -65,6 +76,17 @@ describe('truthful tenant-data states', () => {
     ).toBeInTheDocument()
     const action = (surfaceState as HTMLElement).querySelector('[data-authorized-next-action]')
     expect(within(action as HTMLElement).getAllByRole('button')).toHaveLength(1)
+
+    // The sample-tour bridge appears on exactly the cold states — never on
+    // denied/degraded (no fiction as a next step) or inside the demo itself.
+    const bridge = within(surfaceState as HTMLElement).queryByRole('link', {
+      name: /see a sample/i,
+    })
+    if (state === 'ready-no-data' || state === 'blocked' || state === 'quiet') {
+      expect(bridge).toBeInTheDocument()
+    } else {
+      expect(bridge).toBeNull()
+    }
   })
 
   test('a successful empty targets response is ready-no-data and paints no sample telemetry', async () => {

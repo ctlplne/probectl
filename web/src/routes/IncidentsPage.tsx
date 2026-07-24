@@ -21,6 +21,7 @@ import {
   type Column,
 } from '../components'
 import { type Incident, severityTone, useIncidents, useIncidentShare } from '../api/incidents'
+import { SampleTourLink } from '../demo/SampleTourLink'
 import { DateTime } from '../time/DateTime'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
@@ -251,6 +252,7 @@ export function IncidentsPage() {
           title={t('incidents.empty.title')}
           description={t('incidents.empty.description')}
           headingLevel={2}
+          action={<SampleTourLink />}
         />
       ) : filteredIncidents.length === 0 ? (
         <EmptyState

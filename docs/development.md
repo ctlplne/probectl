@@ -160,6 +160,13 @@ This changes the laptop, not the product: the plugin (`web/dev/`) is
 `apply: 'serve'` so a production build never evaluates it, it is inert without
 `PROBECTL_WEB_FIXTURES=1`, and the shipped SPA still hard-requires the real
 backend session (plain `npm run dev` keeps proxying `/v1` to `localhost:8080`).
+
+`npm run dev:fixtures:cold` serves the same loop on the **install-day**
+profile: the data endpoints answer as a freshly deployed control plane before
+any agent enrolls (empty lists, truthful producer flags). Use it to design and
+regression-check the first thirty minutes; the cold states are pinned by
+`src/test/first-touch-cold.test.tsx`, and cold empty surfaces offer the
+isolated sample tour as a secondary next step.
 It is the interactive sibling of the CI review proxies
 (`scripts/web_dashboard_fixture.mjs`, `scripts/web_rollout_fixture.mjs`). For
 an interactive login against a real control plane instead, use the Dex demo

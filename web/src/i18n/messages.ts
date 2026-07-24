@@ -96,6 +96,19 @@ const en = {
   'page.notFound.action': 'Go to dashboards',
   'auth.boot.signingIn': 'Signing you in…',
   'auth.boot.redirecting': 'Redirecting to sign-in…',
+  'edition.banner.label': 'License status',
+  'edition.banner.badge.grace': 'License grace',
+  'edition.banner.badge.readOnly': 'Read-only',
+  'edition.banner.grace.one': 'License expired — commercial features become read-only tomorrow.',
+  'edition.banner.grace.many':
+    'License expired — commercial features become read-only in {days} days.',
+  'edition.banner.grace.nodate':
+    'License expired — the grace period is active; commercial features will become read-only.',
+  'edition.banner.readOnly':
+    'Commercial features are read-only (license expired). Telemetry is unaffected.',
+  'edition.banner.manage': 'Manage license',
+  'edition.banner.dismiss': 'Dismiss',
+  'demo.sampleLink': 'See a sample of this screen',
   'planes.tab.bgp': 'BGP',
   'planes.tab.flow': 'Flow',
   'planes.tab.device': 'Device',
@@ -1019,6 +1032,20 @@ const es: Record<MessageKey, string> = {
   'page.notFound.action': 'Ir a los paneles',
   'auth.boot.signingIn': 'Iniciando sesion…',
   'auth.boot.redirecting': 'Redirigiendo al inicio de sesion…',
+  'edition.banner.label': 'Estado de la licencia',
+  'edition.banner.badge.grace': 'Gracia de licencia',
+  'edition.banner.badge.readOnly': 'Solo lectura',
+  'edition.banner.grace.one':
+    'Licencia vencida — las funciones comerciales pasan a solo lectura manana.',
+  'edition.banner.grace.many':
+    'Licencia vencida — las funciones comerciales pasan a solo lectura en {days} dias.',
+  'edition.banner.grace.nodate':
+    'Licencia vencida — periodo de gracia activo; las funciones comerciales pasaran a solo lectura.',
+  'edition.banner.readOnly':
+    'Las funciones comerciales estan en solo lectura (licencia vencida). La telemetria no se ve afectada.',
+  'edition.banner.manage': 'Administrar licencia',
+  'edition.banner.dismiss': 'Descartar',
+  'demo.sampleLink': 'Ver un ejemplo de esta pantalla',
   'planes.tab.bgp': 'BGP',
   'planes.tab.flow': 'Flujo',
   'planes.tab.device': 'Dispositivo',

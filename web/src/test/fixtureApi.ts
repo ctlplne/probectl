@@ -438,14 +438,74 @@ export function assertNoDoublePrefix(input: RequestInfo | URL): void {
   }
 }
 
+export type FixtureProfile = 'populated' | 'cold'
+
+/** The install-day truth: what a freshly deployed control plane answers
+ * before any agent enrolls. Only DATA endpoints appear here — identity,
+ * branding, editions, schemas fall through to the shared catalog. Flags are
+ * honest per the six-state contract: consumers that run on a fresh control
+ * plane say running:true with zero items (ready-no-data/quiet), producers
+ * that need setup keep their populated defaults (rum/carbon already report
+ * running:false) or say so here. */
+function coldFixture(path: string): Response | null {
+  switch (path) {
+    case '/v1/tests':
+    case '/v1/incidents':
+    case '/v1/flows/top':
+    case '/v1/flows/capacity':
+    case '/v1/flows/anomalies':
+    case '/v1/inventory/views':
+      return jsonResponse({ items: [] })
+    case '/v1/agents':
+      return jsonResponse({ items: [], control_version: '0.1.0', rollouts_available: true })
+    case '/v1/results/latest':
+      return jsonResponse({ items: [], collector_running: true })
+    case '/v1/results/history':
+      return jsonResponse({ items: [], collector_running: true, window: '1h0m0s' })
+    case '/v1/alerts/active':
+      return jsonResponse({ items: [], evaluator_running: true })
+    case '/v1/threat/detections':
+      return jsonResponse({ items: [], detections_running: true })
+    case '/v1/endpoints':
+      return jsonResponse({ items: [], collector_running: true })
+    case '/v1/device/syslog':
+      return jsonResponse({ items: [], syslog_running: true })
+    case '/v1/device/configs':
+      return jsonResponse({ items: [], archive_running: true })
+    case '/v1/slos':
+      return jsonResponse({ slo_running: true, items: [] })
+    case '/v1/compliance':
+      return jsonResponse({ compliance_running: true, items: [] })
+    case '/v1/cost/summary':
+      // Fresh install: flow attribution is not configured yet — blocked, not a zero.
+      return jsonResponse({ cost_running: false })
+    case '/v1/topology':
+      return jsonResponse({
+        topology_running: true,
+        at: '2026-06-04T12:00:00Z',
+        nodes: [],
+        edges: [],
+        coverage: { path_edges: 0, flow_edges: 0, routing_edges: 0, device_edges: 0 },
+      })
+    default:
+      return null
+  }
+}
+
 /** A read-only fetch covering the list endpoints, so any screen renders with
  *  data. Pure (no vitest): the unit suite wraps it in vi.fn (fetchStub.ts) and
  *  the dev-only Vite fixture middleware serves it for the design loop. CRUD
- *  tests install their own stateful stub. */
-export function fixtureFetch(): typeof fetch {
+ *  tests install their own stateful stub. Profile 'cold' answers the data
+ *  endpoints as a freshly installed deployment (the install-day design/test
+ *  surface); everything else falls through to the populated catalog. */
+export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetch {
   return async (input: RequestInfo | URL, init?: RequestInit) => {
     assertNoDoublePrefix(input)
     const path = pathOf(input)
+    if (profile === 'cold') {
+      const cold = coldFixture(path)
+      if (cold) return cold
+    }
     // SEC-001: the app resolves identity from /v1/me; serve a default
     // authenticated session so any screen renders as a signed-in operator.
     // Exclude the provider console's /provider/v1/me (different shape).

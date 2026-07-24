@@ -17,3 +17,9 @@ export * from './fixtureApi'
 export function defaultFetch(): typeof fetch {
   return vi.fn(fixtureFetch())
 }
+
+/** The install-day stub: a freshly deployed control plane before any agent
+ * enrolls. See fixtureApi coldFixture. */
+export function coldFetch() {
+  return vi.fn(fixtureFetch('cold'))
+}

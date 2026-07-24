@@ -8,7 +8,17 @@ import type { ReactElement } from 'react'
 import type { HonestDataStateKind } from '../data/classifySurfaceTruth'
 import { Badge, type BadgeTone } from './Badge'
 import { Icon, type IconName } from './Icon'
+import { SampleTourLink } from '../demo/SampleTourLink'
 import styles from './HonestDataState.module.css'
+
+/** Cold states where offering the isolated sample tour helps a fresh install;
+ * denied/degraded surfaces must not suggest fiction as a next step, and the
+ * demo state IS the fiction. */
+const SAMPLE_TOUR_STATES: ReadonlySet<HonestDataStateKind> = new Set([
+  'ready-no-data',
+  'blocked',
+  'quiet',
+])
 
 const PRESENTATION: Record<
   HonestDataStateKind,
@@ -119,6 +129,7 @@ export function HonestDataState({
       <div className={styles.action} data-authorized-next-action>
         {action}
       </div>
+      {SAMPLE_TOUR_STATES.has(state) ? <SampleTourLink /> : null}
     </section>
   )
 }
