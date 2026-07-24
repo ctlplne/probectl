@@ -26,12 +26,23 @@ export interface DemoTableModel {
   rows: DemoTableRow[]
 }
 
+export type DemoVizKind = 'incident-clock' | 'path-graph' | 'time-series'
+
+/** Declares which sample visualization the page mounts; the heavy component
+ * and its static props live in the lazily-loaded DemoViz chunk. */
+export interface DemoVizSpec {
+  kind: DemoVizKind
+  title: string
+  description: string
+}
+
 export interface DemoPageModel {
   path: string
   kicker: string
   title: string
   description: string
   metrics: DemoMetric[]
+  viz?: DemoVizSpec
   primary: DemoTableModel
   secondary: DemoTableModel
 }
@@ -141,6 +152,12 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       metric('Peak loss', '3.8%', 'At transit hop 6', 'danger'),
       metric('ECMP branches', '3', 'For checkout traffic', 'accent'),
     ],
+    viz: {
+      kind: 'path-graph',
+      title: 'Hop-by-hop path evidence',
+      description:
+        'ECMP branches, MPLS context, and the lossy transit hop — the same sample evidence the tables cite, drawn as the network saw it.',
+    },
     primary: table(
       'Checkout path',
       'Illustrative path from canary-us-east to checkout.',
@@ -252,6 +269,12 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       metric('Mean time to acknowledge', '4 min', 'Sample 7-day trend', 'info'),
       metric('Planes correlated', '4', 'In the checkout incident', 'accent'),
     ],
+    viz: {
+      kind: 'incident-clock',
+      title: 'Cross-plane incident clock',
+      description:
+        'One absolute timeline: the sample routing change, the traffic shift, and the latency regression in causal order.',
+    },
     primary: table(
       'Open incidents',
       'Illustrative tenant-scoped incident queue.',
@@ -516,6 +539,12 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
       metric('Open incidents', '2', 'No critical incidents', 'warning'),
       metric('SLOs at risk', '1 / 12', 'Checkout is burning 3.2×', 'danger'),
     ],
+    viz: {
+      kind: 'time-series',
+      title: 'Latency during the sample window',
+      description:
+        'Checkout p95 steps at 09:37 while payments stays flat — the incident is visible before any alert fires.',
+    },
     primary: table(
       'Service health',
       'Illustrative operator rollup across the sample service graph.',
@@ -796,7 +825,7 @@ export const DEMO_PAGES: Record<string, DemoPageModel> = {
     description:
       'A sample OpenAPI catalogue shows the shape of the HTTPS-only, tenant-scoped v1 API.',
     metrics: [
-      metric('Operations', '84', 'Illustrative v1 surface', 'info'),
+      metric('Operations', '145', 'Documented v1 surface', 'info'),
       metric('Schemas', '53', 'Generated typed models', 'accent'),
       metric('API version', 'v1', 'OpenAPI 3.1 contract', 'success'),
       metric('Authentication', 'OIDC', 'Secure session cookie', 'success'),

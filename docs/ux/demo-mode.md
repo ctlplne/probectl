@@ -33,6 +33,10 @@ While active:
 - every illustrative panel also carries a **Demo data** badge;
 - every tenant navigation item renders its own populated sample surface, and
   `demo=1` follows in-app navigation so a refresh remains inside the tour;
+- the incidents, path, and dashboards tour pages additionally mount the real
+  presentational hero components (incident clock, path graph, time-series) on
+  static sample props, lazily loaded so the entry bundle is unaffected — no
+  data hook exists below the demo boundary either way;
 - the tenant route outlet is not mounted, so route data hooks, exports, alerts, and incident
   actions do not exist in the rendered tree;
 - the shared API client independently fails closed for every tenant endpoint except the

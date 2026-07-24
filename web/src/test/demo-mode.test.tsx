@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { axe } from 'jest-axe'
 import { afterEach, describe, expect, test, vi } from 'vitest'
@@ -66,6 +66,40 @@ describe('transport-isolated demo mode', () => {
     expect(requestedPaths(fetcher)).not.toContain('/v1/incidents')
   })
 
+  test('mounts the real incident clock on sample props, still without live queries', async () => {
+    const fetcher = defaultFetch() as ReturnType<typeof vi.fn>
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/incidents?demo=1')
+
+    const clock = await screen.findByRole('list', { name: /sample checkout incident timeline/i })
+    expect(within(clock).getByRole('button', { name: /as path changed/i })).toBeInTheDocument()
+
+    await userEvent.click(within(clock).getByRole('button', { name: /as path changed/i }))
+    expect(
+      screen.getByText(/selected evidence: as path changed for the checkout prefix/i),
+    ).toBeInTheDocument()
+
+    // The viz panel carries its own Demo data badge: header + 4 metrics + viz + 2 tables.
+    expect(screen.getAllByText('Demo data')).toHaveLength(8)
+    expect(requestedPaths(fetcher)).not.toContain('/v1/incidents')
+  })
+
+  test('mounts the real path graph on sample props, still without live queries', async () => {
+    const fetcher = defaultFetch() as ReturnType<typeof vi.fn>
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/path?demo=1')
+
+    expect(await screen.findByRole('heading', { name: /path analysis/i })).toBeInTheDocument()
+    const graph = await screen.findByRole('group', { name: /network path to checkout\.example/i })
+
+    await userEvent.click(within(graph).getByRole('button', { name: /192\.0\.2\.9/i }))
+    expect(screen.getByText(/selected hop: ttl 6 · 192\.0\.2\.9/i)).toBeInTheDocument()
+
+    expect(requestedPaths(fetcher)).not.toContain('/v1/tests')
+    expect(requestedPaths(fetcher)).not.toContain('/v1/tests/t1/path')
+    expect(requestedPaths(fetcher)).not.toContain('/v1/tests/t1/path/history')
+  })
+
   test('renders a populated and accessible dashboard without live dashboard queries', async () => {
     const fetcher = defaultFetch() as ReturnType<typeof vi.fn>
     vi.stubGlobal('fetch', fetcher)
@@ -79,8 +113,16 @@ describe('transport-isolated demo mode', () => {
     expect(
       screen.getByRole('table', { name: /current operator queue demo data/i }),
     ).toHaveTextContent('Network SRE')
+
+    // The sample latency chart mounts (or honestly falls back to its table
+    // twin) before the accessibility assertion runs.
+    expect(
+      await screen.findByRole('table', { name: /checkout vs payments p95 latency/i }),
+    ).toBeInTheDocument()
+
     expect(requestedPaths(fetcher)).not.toContain('/v1/dashboards')
     expect(requestedPaths(fetcher)).not.toContain('/v1/incidents')
+    expect(requestedPaths(fetcher)).not.toContain('/v1/results/history')
     expect(await axe(container)).toHaveNoViolations()
   })
 

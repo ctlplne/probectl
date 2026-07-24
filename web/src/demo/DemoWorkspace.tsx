@@ -4,10 +4,16 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { lazy, Suspense } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Badge, Card, CardBody, CardHeader, DemoDataBadge, Table } from '../components'
 import { demoPageForPath, type DemoTableModel, type DemoTableRow } from './demoPages'
 import styles from './DemoWorkspace.module.css'
+
+// The sample hero visualizations reuse the live presentational components on
+// static props; they load as their own chunk so the tour costs the entry
+// bundle nothing.
+const DemoViz = lazy(() => import('./DemoViz'))
 
 /**
  * Static, route-aware product tour. No tenant data hook or mutation is mounted
@@ -48,6 +54,12 @@ export function DemoWorkspace() {
           </Card>
         ))}
       </div>
+
+      {page.viz ? (
+        <Suspense fallback={<p className={styles.vizFallback}>Loading sample visualization…</p>}>
+          <DemoViz spec={page.viz} />
+        </Suspense>
+      ) : null}
 
       <div className={styles.grid}>
         <DemoTablePanel model={page.primary} />
