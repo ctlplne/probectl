@@ -49,9 +49,14 @@ export interface EditionsInfo {
   fips?: FIPSStatus
 }
 
-export function useEditions() {
+export function useEditions(options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['editions'],
     queryFn: () => apiFetch<EditionsInfo>('/editions'),
+    enabled: options?.enabled ?? true,
+    // The shell banner reads this on every load: never retry (a 403/404 is an
+    // authoritative "no banner"), and one fetch per 5 minutes is plenty.
+    retry: false,
+    staleTime: 5 * 60_000,
   })
 }

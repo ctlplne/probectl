@@ -1,0 +1,20 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+
+.banner {
+  grid-area: banner;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text);
+  background: var(--color-warning-soft);
+  border-block-end: var(--border-width-thin) solid var(--color-warning);
+  font-size: var(--font-size-sm);
+}
+
+.readOnly {
+  background: var(--color-danger-soft);
+  border-block-end-color: var(--color-danger);
+}

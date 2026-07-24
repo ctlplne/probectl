@@ -15,6 +15,7 @@ import { MobileNavDrawer } from './MobileNavDrawer'
 import { DemoModeBanner } from '../demo/DemoModeBanner'
 import { DemoWorkspace } from '../demo/DemoWorkspace'
 import { useDemoMode } from '../demo/useDemoMode'
+import { EditionBanner } from './EditionBanner'
 
 export function AppShell() {
   const { active: demoMode } = useDemoMode()
@@ -71,6 +72,7 @@ export function AppShell() {
         navigationOpen={mobileNavOpen}
       />
       <DemoModeBanner />
+      <EditionBanner />
       <main id="main-content" ref={mainRef} className={styles.main} tabIndex={0}>
         <div className={styles.content}>{demoMode ? <DemoWorkspace /> : <Outlet />}</div>
       </main>

@@ -88,9 +88,13 @@ describe('native API docs route', () => {
     })
 
     expect(requests).toContain('/openapi.json')
-    expect(requests.every((path) => ['/branding', '/v1/me', '/openapi.json'].includes(path))).toBe(
-      true,
-    )
+    // Same-origin shell reads only: identity, theming, the license-state
+    // banner (edition lifecycle), and the spec itself.
+    expect(
+      requests.every((path) =>
+        ['/branding', '/v1/me', '/v1/editions', '/openapi.json'].includes(path),
+      ),
+    ).toBe(true)
   })
 
   test('/docs/api executes a GET with the same-origin session only', async () => {
