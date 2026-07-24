@@ -20,7 +20,23 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(scriptDir);
 const webRoot = join(repoRoot, "web");
 const browserWorkerRoot = join(repoRoot, "browser-worker");
-const themes = ["dark", "aurora"];
+// Theme matrix. Default stays the CI pair; PROBECTL_A11Y_THEMES widens or
+// narrows a run without a code change (e.g. =dark,aurora,ember locally, or in
+// a scheduled workflow) — only themes the token contract defines are accepted.
+const KNOWN_THEMES = ["dark", "aurora", "ember"];
+const themes = (process.env.PROBECTL_A11Y_THEMES ?? "dark,aurora")
+  .split(",")
+  .map((t) => t.trim())
+  .filter(Boolean);
+{
+  const unknown = themes.filter((t) => !KNOWN_THEMES.includes(t));
+  if (themes.length === 0 || unknown.length > 0) {
+    console.error(
+      `PROBECTL_A11Y_THEMES invalid: [${unknown.join(", ")}] — known: ${KNOWN_THEMES.join(", ")}`,
+    );
+    process.exit(1);
+  }
+}
 const viewports = [
   { name: "desktop", width: 1366, height: 900 },
   { name: "mobile", width: 390, height: 844 },

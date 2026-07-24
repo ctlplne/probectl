@@ -170,7 +170,9 @@ uses a local Chrome/Chromium binary or the Playwright browser cache. On a fresh
 machine, use `make web-rendered-a11y` from the repo root instead; it runs the
 same digest-pinned Playwright container as CI's `web-rendered-a11y` job and does
 not require a local browser install. `PROBECTL_PLAYWRIGHT_IMAGE` overrides the
-image for mirrored or air-gapped environments.
+image for mirrored or air-gapped environments. `PROBECTL_A11Y_THEMES` overrides
+the theme matrix (default `dark,aurora`; e.g. `dark,aurora,ember` to sweep the
+third theme locally or in a scheduled job) — unknown theme names fail closed.
 
 > **Trivy is vulnerability-only here, by design.** Secret scanning is the separate
 > `secret-scan` job (gitleaks), which owns the `.gitleaks.toml` allow-list for the
