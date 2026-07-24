@@ -5,10 +5,12 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useState } from 'react'
-import { Card, CardBody, CardHeader, DemoDataBadge } from '../components'
+import { Button, Card, CardBody, CardHeader, DemoDataBadge } from '../components'
 import { TimeSeries } from '../components/TimeSeries'
 import { IncidentClock, type IncidentClockItem, type IncidentClockLane } from '../viz/IncidentClock'
 import { PathGraph } from '../viz/PathGraph'
+import { PathProfile } from '../viz/PathProfile'
+import PathGeoView from '../viz/PathGeoView'
 import type { Path } from '../api/paths'
 import type { DemoVizSpec } from './demoPages'
 import styles from './DemoWorkspace.module.css'
@@ -104,8 +106,24 @@ const DEMO_PATH: Path = {
         },
       ],
     },
-    { ttl: 6, nodes: [pathNode('192.0.2.9', 67, 0.038)] },
-    { ttl: 9, nodes: [pathNode('203.0.113.20', 91)] },
+    {
+      ttl: 6,
+      nodes: [
+        {
+          ...pathNode('192.0.2.9', 67, 0.038),
+          geo: { lat: 38.95, lon: -77.45, city: 'Ashburn', country: 'US', source: 'sample' },
+        },
+      ],
+    },
+    {
+      ttl: 9,
+      nodes: [
+        {
+          ...pathNode('203.0.113.20', 91),
+          geo: { lat: 37.34, lon: -121.89, city: 'San Jose', country: 'US', source: 'sample' },
+        },
+      ],
+    },
   ],
   links: [
     { ttl: 1, from: '10.0.0.1', to: '10.0.2.1' },
@@ -177,13 +195,39 @@ function DemoClock() {
 
 function DemoPath() {
   const [selectedHop, setSelectedHop] = useState<{ id: string; ttl: number; ip: string }>()
+  // Mirrors the live path page: topology default, profile and geography as
+  // secondary reads of the same sample hops (selection shared).
+  const [view, setView] = useState<'topology' | 'profile' | 'geo'>('topology')
+  const select = (node: { id: string; ttl: number; ip: string }) =>
+    setSelectedHop({ id: node.id, ttl: node.ttl, ip: node.ip })
   return (
     <div className={styles.vizStack}>
-      <PathGraph
-        path={DEMO_PATH}
-        selectedId={selectedHop?.id}
-        onSelect={(node) => setSelectedHop({ id: node.id, ttl: node.ttl, ip: node.ip })}
-      />
+      <div className={styles.vizSwitch} role="group" aria-label="Sample path view">
+        {(
+          [
+            ['topology', 'Topology'],
+            ['profile', 'Latency profile'],
+            ['geo', 'Geography'],
+          ] as const
+        ).map(([kind, label]) => (
+          <Button
+            key={kind}
+            size="sm"
+            variant={view === kind ? 'primary' : 'secondary'}
+            aria-pressed={view === kind}
+            onClick={() => setView(kind)}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {view === 'topology' ? (
+        <PathGraph path={DEMO_PATH} selectedId={selectedHop?.id} onSelect={select} />
+      ) : view === 'profile' ? (
+        <PathProfile path={DEMO_PATH} selectedId={selectedHop?.id} onSelect={select} />
+      ) : (
+        <PathGeoView path={DEMO_PATH} selectedId={selectedHop?.id} onSelect={select} />
+      )}
       <p className={styles.vizCaption} aria-live="polite">
         {selectedHop
           ? `Selected hop: TTL ${selectedHop.ttl} · ${selectedHop.ip}`

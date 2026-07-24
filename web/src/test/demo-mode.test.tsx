@@ -95,6 +95,16 @@ describe('transport-isolated demo mode', () => {
     await userEvent.click(within(graph).getByRole('button', { name: /192\.0\.2\.9/i }))
     expect(screen.getByText(/selected hop: ttl 6 · 192\.0\.2\.9/i)).toBeInTheDocument()
 
+    // The tour mirrors the live page's secondary views on the same sample hops.
+    await userEvent.click(screen.getByRole('button', { name: /latency profile/i }))
+    expect(
+      await screen.findByRole('group', { name: /latency by hop to checkout\.example/i }),
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^geography$/i }))
+    const geo = await screen.findByRole('group', { name: /geographic path to checkout\.example/i })
+    expect(within(geo).getByRole('button', { name: /ashburn/i })).toBeInTheDocument()
+    expect(screen.getByText(/responders without location/i)).toBeInTheDocument()
+
     expect(requestedPaths(fetcher)).not.toContain('/v1/tests')
     expect(requestedPaths(fetcher)).not.toContain('/v1/tests/t1/path')
     expect(requestedPaths(fetcher)).not.toContain('/v1/tests/t1/path/history')
