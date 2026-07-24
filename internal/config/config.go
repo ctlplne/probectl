@@ -43,6 +43,7 @@ type Config struct {
 	// Database.
 	DatabaseURL         string
 	DatabaseReadURL     string // optional read-replica endpoint (S-EE2); empty = reads use the writer
+	HopGeoFile          string // optional operator-supplied CIDR→location table for path hop geo; empty = no enrichment
 	DatabaseMaxConns    int32
 	DatabaseMinConns    int32
 	DatabaseConnTimeout time.Duration
@@ -681,6 +682,7 @@ func loadCoreRuntimeConfig(l *loader, cfg *Config) {
 	cfg.ShutdownTimeout = l.dur("PROBECTL_SHUTDOWN_TIMEOUT", 15*time.Second)
 	cfg.DatabaseURL = l.str("PROBECTL_DATABASE_URL", "postgres://probectl:probectl@localhost:5432/probectl?sslmode=require")
 	cfg.DatabaseReadURL = l.str("PROBECTL_DATABASE_READ_URL", "")
+	cfg.HopGeoFile = l.str("PROBECTL_HOP_GEO_FILE", "")
 	// SCALE-009: warmer pool defaults for high fan-in API + consumers.
 	// One session is reserved for the cluster singleton advisory lock; at least
 	// one more must remain for the singleton tasks and request path.

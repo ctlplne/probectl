@@ -1,0 +1,88 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+
+/* Chart island: geography reads left-to-right in every locale. */
+.geo {
+  direction: ltr;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.svg {
+  display: block;
+  inline-size: 100%;
+  background: var(--color-bg);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.land {
+  fill: var(--color-surface-raised);
+  stroke: var(--color-border);
+  stroke-width: var(--border-width-thin);
+}
+
+.graticule {
+  stroke: var(--color-border);
+  stroke-width: var(--border-width-thin);
+  opacity: 0.4;
+}
+
+.arc {
+  fill: none;
+  stroke: var(--color-chart-1);
+  stroke-width: var(--border-width-thick);
+  opacity: 0.8;
+}
+
+.marker circle {
+  cursor: pointer;
+  stroke: var(--color-bg);
+  stroke-width: var(--border-width-thin);
+}
+
+.marker.ok circle {
+  fill: var(--color-ok);
+}
+
+.marker.warning circle {
+  fill: var(--color-warning);
+}
+
+.marker.danger circle {
+  fill: var(--color-danger);
+}
+
+.marker.selected circle {
+  stroke: var(--color-accent);
+  stroke-width: var(--border-width-thick);
+}
+
+.marker:focus-visible {
+  outline: none;
+}
+
+.marker:focus-visible circle {
+  stroke: var(--color-focus);
+  stroke-width: var(--border-width-thick);
+}
+
+.markerLabel {
+  fill: var(--color-text);
+  font-size: var(--font-size-xs);
+  paint-order: stroke;
+  stroke: var(--color-bg);
+  stroke-width: var(--border-width-thick);
+}
+
+.caption,
+.blocked p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.blocked {
+  padding: var(--space-4);
+  border: var(--border-width-thin) dashed var(--color-border);
+  border-radius: var(--radius-md);
+}

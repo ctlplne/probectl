@@ -1,0 +1,63 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+
+/* Chart island: axes read left-to-right in every locale. */
+.profile {
+  direction: ltr;
+  overflow-x: auto;
+}
+
+.svg {
+  display: block;
+  min-inline-size: 100%;
+}
+
+.grid {
+  stroke: var(--color-border);
+  stroke-width: var(--border-width-thin);
+}
+
+.gridLabel,
+.axisLabel {
+  fill: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.meanLine {
+  fill: none;
+  stroke: var(--color-chart-1);
+  stroke-width: var(--border-width-thick);
+  opacity: 0.7;
+}
+
+.dot circle {
+  cursor: pointer;
+  stroke: var(--color-bg);
+  stroke-width: var(--border-width-thin);
+}
+
+.dot.ok circle {
+  fill: var(--color-ok);
+}
+
+.dot.warning circle {
+  fill: var(--color-warning);
+}
+
+.dot.danger circle {
+  fill: var(--color-danger);
+}
+
+.dot.selected circle {
+  stroke: var(--color-accent);
+  stroke-width: var(--border-width-thick);
+}
+
+.dot:focus-visible {
+  outline: none;
+}
+
+.dot:focus-visible circle {
+  stroke: var(--color-focus);
+  stroke-width: var(--border-width-thick);
+}

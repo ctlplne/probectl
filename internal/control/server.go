@@ -73,6 +73,7 @@ type Server struct {
 	pool      *pgxpool.Pool
 	pathStore pathstore.Store
 	discover  Discoverer
+	hopGeo    *path.GeoTable // nil = no operator geo table; hops stay unlocated
 	http      *http.Server
 
 	// Identity & access (S18). sessions + authn are nil when pool is nil (unit

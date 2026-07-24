@@ -80,6 +80,7 @@ docs/third-party-licenses.md.
 - npm:web react-router-dom 6.30.4 (runtime) - MIT
 - npm:web scheduler 0.23.2 (runtime) - MIT
 - npm:web uplot 1.6.32 (runtime) - MIT
+- data:web world-atlas land-110m 2.0.2 (runtime, vendored web/src/viz/geo/land-110m.json) - ISC package; Natural Earth data (public domain)
 - npm:web @adobe/css-tools 4.5.0 (dev/build-only) - MIT
 - npm:web @asamuzakjp/css-color 3.2.0 (dev/build-only) - MIT
 - npm:web @babel/code-frame 7.29.7 (dev/build-only) - MIT

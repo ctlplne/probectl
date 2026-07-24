@@ -787,8 +787,18 @@ type Hop struct {
 	Ttl   int       `json:"ttl"`
 }
 
+// Approximate responder location, sourced exclusively from operator-supplied data (PROBECTL_HOP_GEO_FILE); no external geolocation service is ever contacted.
+type HopGeo struct {
+	City    string  `json:"city,omitempty"`
+	Country string  `json:"country,omitempty"`
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+	Source  string  `json:"source,omitempty"`
+}
+
 // One responder at a TTL; multiple nodes at a TTL are ECMP branches.
 type HopNode struct {
+	Geo       HopGeo      `json:"geo,omitempty"`
 	Ip        string      `json:"ip"`
 	LossRatio float64     `json:"loss_ratio,omitempty"`
 	Mpls      []MPLSLabel `json:"mpls,omitempty"`

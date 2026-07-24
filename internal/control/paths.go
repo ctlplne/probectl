@@ -24,6 +24,16 @@ import (
 
 var pathRoundIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
+// WithHopGeo attaches the operator-supplied hop location table (see
+// internal/path/geo.go). nil is a no-op: hops simply stay unlocated and the
+// UI's geography view says so honestly. Returns the server for chaining.
+func (s *Server) WithHopGeo(table *path.GeoTable) *Server {
+	if table != nil {
+		s.hopGeo = table
+	}
+	return s
+}
+
 // handleGetPath returns the latest discovered path for a test — the path-viz data
 // API. It 404s when no discovery has run for the test's target yet.
 func (s *Server) handleGetPath(w http.ResponseWriter, r *http.Request) error {
@@ -42,6 +52,7 @@ func (s *Server) handleGetPath(w http.ResponseWriter, r *http.Request) error {
 	if !found {
 		return apierror.NotFound("no path has been discovered for this test yet")
 	}
+	s.hopGeo.Enrich(p)
 	writeJSON(w, http.StatusOK, p)
 	return nil
 }
@@ -66,6 +77,9 @@ func (s *Server) handleGetPathHistory(w http.ResponseWriter, r *http.Request) er
 	rounds, err := s.pathStore.History(r.Context(), tid, target, query)
 	if err != nil {
 		return apierror.Internal("path history lookup failed").Wrap(err)
+	}
+	for i := range rounds {
+		s.hopGeo.Enrich(&rounds[i].Path)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": rounds})
 	return nil

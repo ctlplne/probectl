@@ -8381,6 +8381,31 @@
           }
         }
       },
+      "HopGeo": {
+        "type": "object",
+        "description": "Approximate responder location, sourced exclusively from operator-supplied data (PROBECTL_HOP_GEO_FILE); no external geolocation service is ever contacted.",
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lon": {
+            "type": "number"
+          },
+          "city": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "lat",
+          "lon"
+        ]
+      },
       "HopNode": {
         "type": "object",
         "description": "One responder at a TTL; multiple nodes at a TTL are ECMP branches.",
@@ -8411,6 +8436,9 @@
             "items": {
               "$ref": "#/components/schemas/MPLSLabel"
             }
+          },
+          "geo": {
+            "$ref": "#/components/schemas/HopGeo"
           }
         },
         "required": [

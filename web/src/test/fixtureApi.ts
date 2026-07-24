@@ -130,8 +130,30 @@ function samplePath(withSecondBranch: boolean) {
         ...(withSecondBranch ? [pathNode('172.16.3.2', 11, 0.12)] : []),
       ],
     },
-    { ttl: 4, nodes: [pathNode('192.0.2.9', 14)] },
-    { ttl: 5, nodes: [pathNode('1.1.1.1', 18)] },
+    {
+      ttl: 4,
+      nodes: [
+        {
+          ...pathNode('192.0.2.9', 14),
+          geo: { lat: 38.95, lon: -77.45, city: 'Ashburn', country: 'US', source: 'fixture' },
+        },
+      ],
+    },
+    {
+      ttl: 5,
+      nodes: [
+        {
+          ...pathNode('1.1.1.1', 18),
+          geo: {
+            lat: 37.77,
+            lon: -122.41,
+            city: 'San Francisco',
+            country: 'US',
+            source: 'fixture',
+          },
+        },
+      ],
+    },
   ]
   const links = [
     { ttl: 1, from: '10.0.0.1', to: '10.0.2.1' },

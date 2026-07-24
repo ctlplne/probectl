@@ -23,6 +23,9 @@ export interface HopNode {
   rtt_avg_ms: number
   rtt_max_ms: number
   mpls?: MPLSLabel[]
+  /** Present only when the server enriched the hop from an operator-supplied
+   * GeoIP source; private/unresolved responders carry no location. */
+  geo?: { lat: number; lon: number; city?: string; country?: string; source?: string }
 }
 
 export interface Hop {

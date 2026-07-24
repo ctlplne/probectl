@@ -31,6 +31,19 @@ type HopNode struct {
 	RTTAvgMs  float64     `json:"rtt_avg_ms"`
 	RTTMaxMs  float64     `json:"rtt_max_ms"`
 	MPLS      []MPLSLabel `json:"mpls,omitempty"`
+	// Geo is present only when the deployment enriched the responder from an
+	// operator-supplied location table (see geo.go). Never fetched externally.
+	Geo *HopGeo `json:"geo,omitempty"`
+}
+
+// HopGeo is an approximate location for a responder, sourced exclusively from
+// operator-supplied data — the product never phones a geolocation service.
+type HopGeo struct {
+	Lat     float64 `json:"lat"`
+	Lon     float64 `json:"lon"`
+	City    string  `json:"city,omitempty"`
+	Country string  `json:"country,omitempty"`
+	Source  string  `json:"source,omitempty"`
 }
 
 // Hop is everything observed at one TTL distance from the source.

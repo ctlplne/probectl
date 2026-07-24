@@ -39,6 +39,7 @@ import (
 	"github.com/imfeelingtheagi/probectl/internal/objectstore"
 	"github.com/imfeelingtheagi/probectl/internal/opendata"
 	"github.com/imfeelingtheagi/probectl/internal/outage"
+	"github.com/imfeelingtheagi/probectl/internal/path"
 	"github.com/imfeelingtheagi/probectl/internal/pipeline"
 	"github.com/imfeelingtheagi/probectl/internal/rum"
 	"github.com/imfeelingtheagi/probectl/internal/secrets"
@@ -108,6 +109,7 @@ type serveRuntime struct {
 	tlsPostures   *threat.PostureStore
 	endpointViews *endpoint.Repository
 	latestResults *control.LatestResults
+	hopGeo        *path.GeoTable
 	enrollSvc     *enroll.Service
 
 	srv             *control.Server
@@ -239,6 +241,17 @@ func (rt *serveRuntime) buildServeEngines() error {
 	rt.tlsPostures = threat.NewPostureStore(0)
 	rt.endpointViews = endpoint.NewRepository(rt.endpointStore, endpoint.NewSnapshotStore(0))
 	rt.latestResults = control.NewLatestResults(0)
+	// Hop geolocation is exclusively operator-supplied (never fetched): a
+	// malformed table fails closed to "no enrichment" with a loud log.
+	if rt.cfg.HopGeoFile != "" {
+		table, geoErr := path.LoadGeoTable(rt.cfg.HopGeoFile)
+		if geoErr != nil {
+			rt.log.Warn("hop geo table disabled", "file", rt.cfg.HopGeoFile, "error", geoErr)
+		} else {
+			rt.hopGeo = table
+			rt.log.Info("hop geo table loaded", "file", rt.cfg.HopGeoFile)
+		}
+	}
 	rt.alertingActive = false
 	_ = costOn
 	_ = carbonOn
@@ -272,6 +285,7 @@ func (rt *serveRuntime) buildAPIServer() error {
 		WithOpenDataStatus(rt.ipEnricher, rt.iocStore, rt.iocRefresher).
 		WithEndpointViews(rt.endpointViews).
 		WithLatestResults(rt.latestResults).
+		WithHopGeo(rt.hopGeo).
 		WithSecrets(rt.secretsResolver).
 		WithTopology(rt.topoStore).
 		WithEBPFStore(rt.ebpfStore).

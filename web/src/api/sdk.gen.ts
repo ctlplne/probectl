@@ -707,7 +707,16 @@ export interface Hop {
   ttl: number
 }
 
+export interface HopGeo {
+  city?: string
+  country?: string
+  lat: number
+  lon: number
+  source?: string
+}
+
 export interface HopNode {
+  geo?: HopGeo
   ip: string
   loss_ratio?: number
   mpls?: MPLSLabel[]

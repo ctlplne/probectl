@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import styles from './path.module.css'
 import { Page } from './RoutePage'
@@ -28,7 +28,12 @@ import { useTests } from '../api/tests'
 import { usePath, useDiscoverPath, usePathHistory, type PathSnapshot } from '../api/paths'
 import { severityTone, useChanges, useIncidents } from '../api/incidents'
 import { PathGraph } from '../viz/PathGraph'
+import { PathProfile } from '../viz/PathProfile'
 import { LossByHop } from '../viz/LossByHop'
+
+// The geographic view carries the vendored world geometry — its own lazy
+// chunk so the path route pays nothing until the tab is opened.
+const PathGeoView = lazy(() => import('../viz/PathGeoView'))
 import { NodeDetailModal } from '../viz/NodeDetailModal'
 import { PathHopTable } from '../viz/PathHopTable'
 import { PathHistoryPanel } from '../viz/PathHistoryPanel'
@@ -91,6 +96,8 @@ export function PathPage() {
   )
   const { push } = useToast()
   const [copiedLink, setCopiedLink] = useState(false)
+  // Secondary reads of the same merged path; topology remains the default.
+  const [pathView, setPathView] = useState<'topology' | 'profile' | 'geo'>('topology')
   const autoCopyHandled = useRef(false)
 
   const testId = chosen || tests.data?.[0]?.id
@@ -490,12 +497,59 @@ export function PathPage() {
                   />
                 ) : (
                   <>
-                    <PathGraph
-                      path={displayedPath}
-                      selectedId={selected?.id}
-                      onSelect={selectNode}
-                    />
-                    <Legend />
+                    {/* The TTL topology stays primary; the profile is the
+                        "where does it get slow" secondary read of the SAME
+                        nodes (shared layout ids, shared selection). */}
+                    <div className={styles.viewSwitch} role="group" aria-label="Path view">
+                      <Button
+                        size="sm"
+                        variant={pathView === 'topology' ? 'primary' : 'secondary'}
+                        aria-pressed={pathView === 'topology'}
+                        onClick={() => setPathView('topology')}
+                      >
+                        Topology
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={pathView === 'profile' ? 'primary' : 'secondary'}
+                        aria-pressed={pathView === 'profile'}
+                        onClick={() => setPathView('profile')}
+                      >
+                        Latency profile
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={pathView === 'geo' ? 'primary' : 'secondary'}
+                        aria-pressed={pathView === 'geo'}
+                        onClick={() => setPathView('geo')}
+                      >
+                        Geography
+                      </Button>
+                    </div>
+                    {pathView === 'topology' ? (
+                      <>
+                        <PathGraph
+                          path={displayedPath}
+                          selectedId={selected?.id}
+                          onSelect={selectNode}
+                        />
+                        <Legend />
+                      </>
+                    ) : pathView === 'profile' ? (
+                      <PathProfile
+                        path={displayedPath}
+                        selectedId={selected?.id}
+                        onSelect={selectNode}
+                      />
+                    ) : (
+                      <Suspense fallback={<LoadingState label="Loading the geographic view…" />}>
+                        <PathGeoView
+                          path={displayedPath}
+                          selectedId={selected?.id}
+                          onSelect={selectNode}
+                        />
+                      </Suspense>
+                    )}
                   </>
                 )}
               </CardBody>
