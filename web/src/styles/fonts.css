@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+
+/* Vendored variable typefaces (decision of record 2026-07-25, superseding the
+ * earlier system-stack-only choice): Inter Variable + JetBrains Mono Variable,
+ * OFL-1.1, latin wght subsets from the @fontsource-variable packages (see
+ * NOTICE + docs/third-party-licenses.md). Shipped inside the bundle like every
+ * other asset — nothing is ever fetched from a font service, air-gap
+ * identical (§7.11). The system stacks remain as fallbacks in tokens.css;
+ * font-display: swap means the one-time first paint uses them, then the
+ * immutable-cached files take over permanently. */
+
+@font-face {
+  font-family: 'InterVariable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('./fonts/inter-latin-wght.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrainsMonoVariable';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-wght.woff2') format('woff2');
+}

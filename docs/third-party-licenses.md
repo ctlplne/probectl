@@ -89,6 +89,8 @@ duty in `docs/opendata-aup.md`).
 | npm:web | `scheduler` | 0.23.2 | runtime | MIT | web/package-lock.json:node_modules/scheduler |
 | npm:web | `uplot` | 1.6.32 | runtime | MIT | web/package-lock.json:node_modules/uplot |
 | data:web | `world-atlas` land-110m | 2.0.2 | runtime (vendored) | ISC; Natural Earth public domain | web/src/viz/geo/land-110m.json |
+| font:web | `Inter Variable` | 5.2.8 | runtime (vendored) | OFL-1.1 | web/src/styles/fonts/inter-latin-wght.woff2 |
+| font:web | `JetBrains Mono Variable` | 5.2.8 | runtime (vendored) | OFL-1.1 | web/src/styles/fonts/jetbrains-mono-latin-wght.woff2 |
 | npm:web | `@adobe/css-tools` | 4.5.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@adobe/css-tools |
 | npm:web | `@asamuzakjp/css-color` | 3.2.0 | dev/build-only | MIT | web/package-lock.json:node_modules/@asamuzakjp/css-color |
 | npm:web | `@babel/code-frame` | 7.29.7 | dev/build-only | MIT | web/package-lock.json:node_modules/@babel/code-frame |

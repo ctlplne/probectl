@@ -33,6 +33,7 @@
 .spec dt {
   font-size: var(--font-size-xs);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
   color: var(--color-text-muted);
 }
 

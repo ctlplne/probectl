@@ -34,6 +34,7 @@
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
 }
 
 .scopeDetails {
@@ -96,6 +97,7 @@
   color: var(--color-text-subtle);
   letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
 }
 
 .metric {

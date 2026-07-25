@@ -8,6 +8,31 @@ body {
   line-height: var(--line-height-normal);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* Inter cv05: lowercase l with a tail — l/I/1 disambiguation everywhere
+     (this product is 40% identifiers). Ignored by the fallback stacks. */
+  font-feature-settings: 'cv05';
+}
+
+/* Typesetting courtesies (progressive; older engines ignore them). */
+h1,
+h2,
+h3,
+h4 {
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+/* Every timestamp and duration aligns: same-width digits product-wide. */
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
 }
 
 /* A single, consistent keyboard-focus treatment across the app (WCAG 2.4.7). */

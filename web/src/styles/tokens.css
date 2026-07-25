@@ -193,14 +193,17 @@
 
 /* Non-color tokens are theme-independent by default. */
 :root {
-  /* Type — system stack only (no web-font fetch). A refined product look does
-     not require a downloaded typeface: hierarchy comes from scale + weight +
-     tracking, all tuned below. */
+  /* Type — vendored variable fonts (decision of record 2026-07-25; see
+     fonts.css). Inter + JetBrains Mono render identically on every OS —
+     tracking/scale tuning below finally holds everywhere — and carry the
+     identifier-disambiguation features (l/I/1, slashed 0) a network product
+     lives on. System stacks stay as the fallback tier: no fetch, ever. */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif,
-    'Apple Color Emoji', 'Segoe UI Emoji';
+    'InterVariable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   --font-mono:
-    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+    'JetBrainsMonoVariable', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
 
   /* Scale. 3xs/2xs replace previously-hardcoded tiny sizes; 3xl/4xl give hero
      surfaces a real display tier (the scale used to stop at 2xl/26px). */
