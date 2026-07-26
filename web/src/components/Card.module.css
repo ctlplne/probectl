@@ -22,6 +22,7 @@
 
 .heading {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: var(--space-1);
 }
@@ -38,10 +39,24 @@
 
 .actions {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-2);
   flex-shrink: 0;
 }
 
 .body {
   padding: var(--density-panel-padding);
+}
+
+@media (max-width: 40rem) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
 }

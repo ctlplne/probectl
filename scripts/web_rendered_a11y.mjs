@@ -930,6 +930,58 @@ async function horizontalOverflowCheck(page) {
   });
 }
 
+// Card actions are allowed to wrap, but never to steal the heading's readable
+// measure or disappear behind Card's intentional overflow clipping. The data
+// markers are a stable component contract; CSS-module class hashes are not.
+async function mobileCardHeaderCheck(page) {
+  return page.evaluate(() => {
+    if (window.innerWidth > 640) return [];
+    const problems = [];
+    const px = (value) => Number.parseFloat(value || "0") || 0;
+    for (const header of document.querySelectorAll("[data-card-header]")) {
+      const heading = header.querySelector("[data-card-heading]");
+      const actions = header.querySelector("[data-card-actions]");
+      if (!heading || !actions) continue;
+
+      const title =
+        heading.querySelector("h2")?.textContent?.trim() || "untitled card";
+      const headerRect = header.getBoundingClientRect();
+      const headingRect = heading.getBoundingClientRect();
+      const actionsRect = actions.getBoundingClientRect();
+      const style = getComputedStyle(header);
+      const innerLeft = headerRect.left + px(style.paddingLeft);
+      const innerRight = headerRect.right - px(style.paddingRight);
+      const innerWidth = innerRight - innerLeft;
+
+      if (actionsRect.top < headingRect.bottom - 1) {
+        problems.push(`${title}: mobile actions do not stack below heading`);
+      }
+      if (headingRect.width < innerWidth - 1) {
+        problems.push(
+          `${title}: mobile heading width ${Math.round(headingRect.width)}px is narrower than ${Math.round(innerWidth)}px card content`,
+        );
+      }
+      if (
+        header.scrollWidth - header.clientWidth > 1 ||
+        actions.scrollWidth - actions.clientWidth > 1
+      ) {
+        problems.push(`${title}: card header content is overflow-clipped`);
+      }
+      for (const control of actions.querySelectorAll(
+        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled])",
+      )) {
+        const rect = control.getBoundingClientRect();
+        if (rect.left < innerLeft - 1 || rect.right > innerRight + 1) {
+          problems.push(
+            `${title}: action "${control.textContent?.trim().slice(0, 48) || control.tagName.toLowerCase()}" is clipped by card`,
+          );
+        }
+      }
+    }
+    return problems;
+  });
+}
+
 async function targetAndTabChecks(page) {
   return page.evaluate(() => {
     const selector = [
@@ -1121,9 +1173,48 @@ async function selfCheck(browser, axeSource) {
     <div class="shell"><header class="topbar">Planted shell-width regression</header></div>
   `);
   const overflow = await horizontalOverflowCheck(page);
-  if (!overflow.some((problem) => problem.includes("document scrolls horizontally"))) {
+  if (
+    !overflow.some((problem) =>
+      problem.includes("document scrolls horizontally"),
+    )
+  ) {
     throw new Error(
       "self-check failed: horizontal-overflow check did not catch a deliberate shell-width regression",
+    );
+  }
+  await page.setViewportSize(viewports[1]);
+  await page.setContent(`
+    <style>
+      .bad-card { width: 350px; overflow: hidden; }
+      .bad-header { display: flex; align-items: flex-start; gap: 16px; padding: 16px; }
+      .bad-heading { min-width: 0; }
+      .bad-actions { display: flex; flex-shrink: 0; gap: 8px; }
+      .bad-actions button { white-space: nowrap; }
+    </style>
+    <section class="bad-card">
+      <header class="bad-header" data-card-header>
+        <div class="bad-heading" data-card-heading>
+          <h2>Planted card regression</h2>
+          <p>Copy squeezed beside actions.</p>
+        </div>
+        <div class="bad-actions" data-card-actions>
+          <button>Register collector</button>
+          <button>Enroll agent</button>
+        </div>
+      </header>
+    </section>
+  `);
+  const cardHeader = await mobileCardHeaderCheck(page);
+  if (
+    !cardHeader.some(
+      (problem) =>
+        problem.includes("do not stack") ||
+        problem.includes("narrower") ||
+        problem.includes("clipped"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: mobile CardHeader check did not catch a deliberate non-wrapping regression",
     );
   }
   await page.close();
@@ -1180,6 +1271,7 @@ async function main() {
             axe: [],
             custom: [],
             overflow: [],
+            cardHeader: [],
             dashboard: [],
             runtime: [],
           };
@@ -1236,6 +1328,12 @@ async function main() {
                 `${viewport.name} ${theme} ${route}: horizontal overflow\n  ${record.overflow.join("\n  ")}`,
               );
             }
+            record.cardHeader = await mobileCardHeaderCheck(page);
+            if (record.cardHeader.length > 0) {
+              failures.push(
+                `${viewport.name} ${theme} ${route}: CardHeader layout violations\n  ${record.cardHeader.join("\n  ")}`,
+              );
+            }
             if (route === "/dashboards") {
               record.dashboard = await dashboardChecks(page);
               if (record.dashboard.length > 0) {
@@ -1260,6 +1358,7 @@ async function main() {
             record.axe.length === 0 &&
             record.custom.length === 0 &&
             record.overflow.length === 0 &&
+            record.cardHeader.length === 0 &&
             record.dashboard.length === 0 &&
             record.runtime.length === 0
               ? "pass"

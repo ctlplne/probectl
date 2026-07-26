@@ -25,12 +25,16 @@ export function CardHeader({
   actions?: ReactNode
 }) {
   return (
-    <header className={styles.header}>
-      <div className={styles.heading}>
+    <header className={styles.header} data-card-header>
+      <div className={styles.heading} data-card-heading>
         <h2 className={styles.title}>{title}</h2>
         {description ? <p className={styles.description}>{description}</p> : null}
       </div>
-      {actions ? <div className={styles.actions}>{actions}</div> : null}
+      {actions ? (
+        <div className={styles.actions} data-card-actions>
+          {actions}
+        </div>
+      ) : null}
     </header>
   )
 }
