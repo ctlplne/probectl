@@ -280,9 +280,10 @@ stating `measured: false` with the coefficient source and grid figure used.
 - **Carbon endpoint:** `GET /v1/carbon` (needs the metrics-read permission).
   Config: `PROBECTL_CARBON_ENABLED`, `PROBECTL_CARBON_GRID_GCO2E` (accepted range
   1–5000).
-- **Deep dashboarding** for cost is federated to Grafana over the same flow
-  series probectl already exposes — there is no separate dashboard surface to
-  maintain. See the ecosystem-integrations material.
+- **Deep dashboarding** for cost is native: `/dashboards` joins the cost trend
+  to the other network planes and `/explore` supports ad-hoc questions over the
+  tenant-scoped data. The Prometheus-compatible API remains an optional
+  interoperability surface, not a required dashboard runtime.
 - **Related capabilities (separate pages):** Alerting and incidents (where these
   signals land); Topology & change (the what-if simulation that reports impacted
   SLOs); Flow analytics (the byte stream cost and carbon both read).

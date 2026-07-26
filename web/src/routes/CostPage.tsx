@@ -26,11 +26,11 @@ import { useCarbon, type CarbonAgg } from '../api/carbon'
 import { useI18n } from '../i18n/useI18n'
 import { formatDecimal, formatUnit } from '../i18n/number'
 
-/** CostPage (S44): the light native FinOps summary — spend by team/service
- * (showback), chatty cross-AZ conversations, budget status. Deep dashboarding
- * is federated to Grafana via the S40 datasource (the Surface declaration).
- * S48 folds the carbon/ESG estimate in below — same traffic, same owners,
- * grams instead of dollars. */
+/** CostPage (S44): the native FinOps surface — spend by team/service
+ * (showback), chatty cross-AZ conversations, budget status, and an hourly
+ * trend. The first-party Dashboards and Explorer routes provide cross-plane
+ * drilldown without an external dashboard runtime. S48 folds the carbon/ESG
+ * estimate in below — same traffic, same owners, grams instead of dollars. */
 export function CostPage() {
   const { locale } = useI18n()
   const { data, isPending, isError } = useCostSummary()
@@ -104,7 +104,7 @@ export function CostPage() {
       <Card>
         <CardHeader
           title="Egress spend"
-          description="Attribution and showback; deep dashboards live in Grafana via the probectl datasource."
+          description="Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown."
         />
         <CardBody>
           {isPending ? (

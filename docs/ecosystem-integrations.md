@@ -5,8 +5,10 @@
 probectl is built to **slot into the observability stack you already run**, not
 to demand you rip it out and start over. Three integrations make that real:
 
-- **Grafana** (the open-source dashboarding tool) queries probectl directly, as
-  if probectl were a Prometheus.
+- **Optional Grafana compatibility** lets an operator who already runs Grafana
+  query probectl as if it were a Prometheus. probectl does not bundle, require,
+  or pin a Grafana runtime; native Dashboards and Explorer remain the complete
+  product surfaces.
 - **Prometheus** (the de-facto open-source metrics database, which collects by
   *scraping* — periodically fetching metrics over HTTP) either scrapes metrics
   out of probectl (**federation** — one metrics system serving selected series
@@ -68,7 +70,9 @@ rule in the [Non-negotiables](../CONTRIBUTING.md#non-negotiables)):
 ## Grafana datasource
 
 probectl exposes a Prometheus-compatible API subset at `/v1/grafana`, so you add
-it to Grafana **as a Prometheus datasource** — no plugin to install:
+it to an existing, operator-owned Grafana **as a Prometheus datasource** — no
+plugin to install. This is optional interoperability. It is not part of the
+probectl deployment, release artifact, or commercial license:
 
 1. Connections → Data sources → Add → Prometheus.
 2. URL: `https://<probectl>/v1/grafana`. Set the HTTP method to POST.

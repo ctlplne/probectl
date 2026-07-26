@@ -100,18 +100,15 @@ The control plane emits `probectl_self_*` metrics every 30 seconds —
 standard Prometheus build-info trick: the *labels* carry the info, the value is
 just a constant). Together with the multi-region `probectl_cluster_*` series and
 the per-tenant fairness `probectl_fairness_*` series, these feed a ready-made
-dashboard. Agent scrape targets add tenant-agnostic `probectl_agent_*` RED/USE
+native view on `/dashboards`. Agent scrape targets add tenant-agnostic
+`probectl_agent_*` RED/USE
 series: collection and publish rates, errors, bounded-buffer depth, and latest
-publish latency:
+publish latency.
 
-```text
-deploy/grafana/dashboards/probectl-self.json
-```
-
-Import it into Grafana (or drop it into a provisioned dashboards folder). It
-shows build/uptime/goroutines/memory, the cluster writer role and per-region
-replica lag, per-tenant fairness shedding plus query rejections, and the agent
-fleet's collection/publish/error rates, buffer depth, and publish latency.
+The product does not bundle or require an external dashboard runtime. Operators
+who already run a compatible client may optionally import
+`deploy/grafana/dashboards/probectl-self.json`; that example is interoperability
+material, not the authoritative probectl surface or a deployment dependency.
 
 ## Configuration
 

@@ -208,6 +208,8 @@ third-party: ## SUPPLY-009: regenerate the third-party license inventory (NOTICE
 
 third-party-gate: third-party ## SUPPLY-009 gate: regenerate the inventory and fail on drift (mirrors the proto drift gate).
 	./scripts/check_vendored_asset_inventory.sh
+	SELFTEST=1 ./scripts/check_dependency_license_policy.sh
+	./scripts/check_dependency_license_policy.sh
 	git diff --exit-code -- NOTICE docs/third-party-licenses.md || { echo "third-party license inventory is stale — commit NOTICE + docs/third-party-licenses.md"; exit 1; }
 
 .PHONY: strength-gate

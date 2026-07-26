@@ -1823,8 +1823,10 @@ posture holds and the numbers are explicitly estimates with stated provenance.
 | `PROBECTL_COST_PRICES_FILE` | (none) | JSON price-table override; embedded public list rates otherwise (provenance + as-of surfaced) |
 | `PROBECTL_COST_PRICED`      | `true` | `false` = volume-only mode (bytes attributed, dollars never invented) |
 
-Summary at `GET /v1/cost/summary` and the Cost page; deep dashboards are federated
-to Grafana (see *Ecosystem integrations* above). See `docs/finops.md`.
+Summary at `GET /v1/cost/summary` and the Cost page; deeper cross-plane and
+ad-hoc views are native at `/dashboards` and `/explore`. The
+Prometheus-compatible API is optional interoperability, not a dashboard
+dependency. See `docs/finops.md`.
 
 ### SLO engine
 
@@ -2158,8 +2160,9 @@ Deep health + a secret-stripped support bundle for triage (CORE; the support
 org/SLA is contract). No new config keys; `diagnostics.read` (migration 0034,
 admin-seeded) gates `GET /v1/diagnostics` and `GET /v1/diagnostics/bundle`. An
 offline bundle: `probectl-control support-bundle [-o file]`. Self-monitoring
-series `probectl_self_*` + `probectl_build_info` feed
-`deploy/grafana/dashboards/probectl-self.json`. The bundle NEVER contains
+series `probectl_self_*` + `probectl_build_info` feed the native Dashboards
+surface. `deploy/grafana/dashboards/probectl-self.json` is an optional
+operator-supplied-client example, not a bundled runtime. The bundle NEVER contains
 secrets/credentials/PII (allowlist config + anonymized topology + a final
 scrub). Full model: `docs/supportability.md`.
 

@@ -12,9 +12,10 @@
  *  - "native":      a first-class screen on the S8a shell. The gate renders
  *                   the route and fails if it is the placeholder (or breaks
  *                   the a11y bar).
- *  - "federated":   served through an external surface by design (Grafana /
- *                   Prometheus / OTLP / API). The gate verifies the declared
- *                   EVIDENCE exists ("file:<repo-relative path>",
+ *  - "federated":   served through an interoperability surface by design
+ *                   (Prometheus / OTLP / API / CLI). External clients are
+ *                   optional and never substitute for a native product screen.
+ *                   The gate verifies the declared EVIDENCE exists ("file:<repo-relative path>",
  *                   "openapi:<path>" in the control plane's OpenAPI spec, or
  *                   "cli:<probectl command>" in the terminal surface).
  *  - "none-by-design": deliberately no current surface. The gate requires a
@@ -407,22 +408,11 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {
-    capability: 'Cost dashboards (Grafana via the probectl datasource)',
-    featureIds: ['F41'],
-    sprint: 'S44',
-    kind: 'federated',
-    evidence: ['openapi:/v1/cost/summary', 'openapi:/v1/grafana/api/v1/query'],
-    liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
-  },
-  {
-    capability: 'Metrics exploration + dashboards (Grafana datasource)',
-    featureIds: ['F9', 'F30'],
+    capability: 'Prometheus-compatible metrics query API for optional operator clients',
+    featureIds: ['F30'],
     sprint: 'S40',
     kind: 'federated',
-    evidence: [
-      'file:deploy/grafana/provisioning/datasources/probectl.yml',
-      'openapi:/v1/grafana/api/v1/query',
-    ],
+    evidence: ['openapi:/v1/grafana/api/v1/query'],
     liveReceipt: FEDERATED_NON_LIVE_RECEIPT,
   },
   {

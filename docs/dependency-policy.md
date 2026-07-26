@@ -16,6 +16,31 @@ the eBPF agent, runs code in the kernel. A compromised or surprise-broken
 dependency is a security and availability risk, not just a build annoyance. Pin
 exactly, verify, upgrade on purpose.
 
+## Product self-sufficiency and license posture
+
+probectl's sellable product must remain complete without a separately licensed
+application. Native screens, APIs, storage paths, and operational workflows are
+the authoritative surfaces. Open-protocol compatibility is welcome, but the
+client stays operator-supplied and optional; an integration must not quietly
+become a required runtime.
+
+For third-party code, prefer MIT and equivalently permissive licenses (BSD, ISC,
+Apache-2.0, 0BSD, and similar). A non-permissive runtime dependency is an
+architecture and commercial-distribution decision, so it requires explicit
+product-owner approval plus license review before it enters build, CI,
+packaging, Compose, Helm, or the air-gap bundle. In particular, do not bundle or
+pin an AGPL/GPL/SSPL/BSL dashboard product merely to complete or test a probectl
+surface. Build that surface natively; keep compatible APIs vendor-neutral.
+
+Grafana is the concrete boundary example: `/v1/grafana` is probectl's own
+tenant-safe Prometheus-compatible wire API, not a Grafana code dependency.
+Files under `deploy/grafana/` are optional configuration examples for operators
+who already chose that client. No Grafana image, plugin, runtime, or license is
+part of the probectl distribution or required for its UI/test definition of
+done. `scripts/check_dependency_license_policy.sh`, run by
+`make third-party-gate`, rejects a Grafana runtime reference and rejects
+strong-copyleft or unknown runtime licenses in the generated inventory.
+
 ## How everything is pinned
 
 | Surface | Mechanism | Enforced by |

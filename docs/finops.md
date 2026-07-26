@@ -107,12 +107,13 @@ data is worse than none. (To run with no pricing at all, set
   per month** (alert-fatigue control) and re-arms on month rollover. Signals
   only: probectl never throttles traffic or touches your bill — a detection is
   a signal, never an enforcement point.
-- **Cost page** (`/cost`) — the light native summary: totals with pricing
+- **Cost page** (`/cost`) — the native operating surface: totals with pricing
   provenance, team showback, chatty cross-AZ conversations, budget status, and
-  explicit volume-only / zones-unmapped notices. Deep dashboarding is federated
-  to **Grafana** (see [`docs/ecosystem-integrations.md`](ecosystem-integrations.md));
-  cost series ride the same flow analytics the Grafana datasource already
-  exposes, so there is no separate dashboard surface to maintain.
+  explicit volume-only / zones-unmapped notices. The first-party
+  **Dashboards** (`/dashboards`) and **Explorer** (`/explore`) routes provide the
+  deeper cross-plane and ad-hoc views. The Prometheus-compatible query API
+  remains available to optional operator-owned clients; probectl does not
+  require or bundle a separate dashboard runtime.
 
 ## Mechanics
 
@@ -126,7 +127,7 @@ flowchart LR
   P[price table<br/>public list / override] -.price.-> E
   E -->|summary| API[GET /v1/cost/summary]
   E -->|"cost.budget_exceeded signal"| INC[incident pipeline]
-  API --> UI[Cost page + Grafana]
+  API --> UI[Cost + Dashboards + Explorer]
 ```
 
 All state is tenant-partitioned — tenant isolation is the platform's outermost
@@ -135,7 +136,8 @@ Attribution maps are bounded: once a per-tenant map hits 1024 keys, further
 entries collapse into `(other)` so memory can't grow without limit. A flow
 record arriving without a tenant is dropped at the boundary. The in-memory
 engine is rebuilt from the stream on restart — the durable, queryable series
-live in the TSDB (time-series database) / Grafana path, not in this process.
+live in the TSDB (time-series database) and are read by probectl's native
+surfaces through tenant-scoped APIs, not from this process.
 
 ## Configuration
 
