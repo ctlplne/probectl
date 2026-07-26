@@ -504,7 +504,7 @@ helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=acme \
   --set 'bus.brokers={kafka.probectl.svc:9093}' \
   --set bus.tls.existingSecret=probectl-bus-tls \
-  --set-string image.tag='0.4.0@sha256:<digest>'
+  --set-string image.tag='0.6.0@sha256:<digest>'
 ```
 
 (In Kubernetes the container runs as uid 0 with everything dropped except the

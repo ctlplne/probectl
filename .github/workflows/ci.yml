@@ -158,6 +158,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          # The rollback gate compares VERSION with every stable tag reachable
+          # from HEAD; a depth-1 checkout would hide historical releases.
+          fetch-depth: 0
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ env.GO_VERSION }}
@@ -167,7 +171,7 @@ jobs:
           sudo apt-get update -y && sudo apt-get install -y gettext-base
       - name: deb + rpm build smoke
         run: PATH="$PATH:$(go env GOPATH)/bin" bash scripts/packaging-smoke.sh
-      - name: version consistency (compose == chart appVersion == VERSION) (OPS-008)
+      - name: version consistency (artifacts == VERSION >= latest tag) (OPS-008)
         run: bash scripts/check_version_consistency.sh
       - name: compose image access contract (OPS-002)
         run: make compose-image-gate

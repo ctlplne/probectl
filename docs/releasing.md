@@ -38,6 +38,12 @@ REST API major is carried by the URL namespace (`/v1/...`), so a client can read
 path prefix to reason about API-major compatibility. `make openapi-gate` rejects
 release/spec drift before code generation or publishing.
 
+`scripts/check_version_consistency.sh` also compares `VERSION` numerically with
+the greatest stable `vMAJOR.MINOR.PATCH` tag reachable from `HEAD`. It rejects a
+source version older than an existing release, even when all files agree on the
+same stale value. The CI checkout for this gate fetches full tag history so a
+shallow clone cannot hide that release floor.
+
 ## What a release publishes
 
 Pushing a `v*` tag runs `release.yml`, which publishes:

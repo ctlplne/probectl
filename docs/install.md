@@ -25,7 +25,7 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
 - A released image. Production Compose has no mutable image default. Set
   `PROBECTL_IMAGE` in `deploy/compose/.env` to a
   digest-pinned control-plane image such as
-  `ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>` for
+  `ghcr.io/imfeelingtheagi/probectl-control:v0.6.0@sha256:<release-digest>` for
   both `certgen` and `control`. If GHCR returns `401 Unauthorized`, log in first
   with a token that has `read:packages`, or point `PROBECTL_IMAGE` at an
   internally mirrored digest. A tag-only local/mirror ref is allowed only with
@@ -36,7 +36,7 @@ operation (audit, roles, SSO), see [`admin.md`](admin.md).
   ```sh
   echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_USER" --password-stdin
   # or:
-  PROBECTL_IMAGE=registry.internal/probectl-control:v0.4.0@sha256:<release-digest>
+  PROBECTL_IMAGE=registry.internal/probectl-control:v0.6.0@sha256:<release-digest>
   # or build from this checkout:
   docker build -f deploy/docker/Dockerfile --build-arg COMPONENT=probectl-control -t probectl-control:local .
   PROBECTL_IMAGE=probectl-control:local

@@ -41,7 +41,7 @@ for an immediate quickstart — production replaces it with a CA-issued cert.
 ```sh
 cp deploy/compose/.env.example deploy/compose/.env     # set POSTGRES_PASSWORD + envelope/session-HMAC keys
 # Set PROBECTL_IMAGE in .env to a digest-pinned release image, for example:
-# ghcr.io/imfeelingtheagi/probectl-control:v0.4.0@sha256:<release-digest>
+# ghcr.io/imfeelingtheagi/probectl-control:v0.6.0@sha256:<release-digest>
 # If GHCR returns 401, run `docker login ghcr.io` with a token that has
 # read:packages, or point PROBECTL_IMAGE at an internal mirror. Tag-only local
 # or mirror refs require PROBECTL_ALLOW_TAG_IMAGE=i-understand-this-is-mutable.

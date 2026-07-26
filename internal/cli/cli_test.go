@@ -13,6 +13,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/imfeelingtheagi/probectl/internal/version"
 )
 
 type cliString string
@@ -1122,11 +1124,21 @@ func TestCLIErrorStatusExitsNonZero(t *testing.T) {
 	}
 }
 
-func TestCLIVersionHelpAndUnknown(t *testing.T) {
-	srv := fakeAPI(t)
-	if out, _, code := run(t, srv, "version"); code != 0 || !strings.Contains(out, "probectl") {
-		t.Errorf("version: code=%d out=%s", code, out)
+func TestCLIVersionUsesSharedBuildStamp(t *testing.T) {
+	original := version.Version
+	t.Cleanup(func() { version.Version = original })
+	version.Version = "9.8.7-planted-stamp"
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"version"}, func(string) string { return "" }, &stdout, &stderr); code != 0 ||
+		strings.TrimSpace(stdout.String()) != "probectl "+version.Version {
+		t.Errorf("version: code=%d out=%q stderr=%q, want shared build stamp %q",
+			code, stdout.String(), stderr.String(), version.Version)
 	}
+}
+
+func TestCLIHelpAndUnknown(t *testing.T) {
+	srv := fakeAPI(t)
 	if out, _, code := run(t, srv, "help"); code != 0 || !strings.Contains(out, "Usage") {
 		t.Errorf("help: code=%d out=%s", code, out)
 	}

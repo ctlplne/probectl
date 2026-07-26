@@ -416,7 +416,7 @@ with your tooling.
     --set tenantID=<tenant> \
     --set 'bus.brokers={kafka.probectl.svc:9093}' \
     --set bus.tls.existingSecret=probectl-bus-tls \
-    --set-string image.tag='0.4.0@sha256:<digest>'
+    --set-string image.tag='0.6.0@sha256:<digest>'
   ```
 
   > **Naming heads-up:** the chart is named `probectl-agent` but it deploys the

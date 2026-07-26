@@ -27,6 +27,16 @@ func TestGetPopulatesRuntimeFields(t *testing.T) {
 	}
 }
 
+func TestGetUsesSharedBuildStamp(t *testing.T) {
+	original := Version
+	t.Cleanup(func() { Version = original })
+
+	Version = "9.8.7-planted-stamp"
+	if got := Get().Version; got != Version {
+		t.Fatalf("Get().Version = %q, want linker-stamped shared version %q", got, Version)
+	}
+}
+
 func TestInfoStringContainsVersion(t *testing.T) {
 	info := Info{
 		Version: "v1.2.3",

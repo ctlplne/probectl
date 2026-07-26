@@ -188,7 +188,7 @@ invisible.
 helm install probectl-agent deploy/helm/probectl-agent \
   --set tenantID=<tenant> \
   --set 'bus.brokers={kafka.internal.example:9093}' \
-  --set-string image.tag='0.4.0@sha256:<digest>'
+  --set-string image.tag='0.6.0@sha256:<digest>'
 ```
 
 Because this is a privileged node agent, the chart also renders the Kyverno
