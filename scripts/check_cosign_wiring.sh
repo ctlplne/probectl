@@ -74,6 +74,15 @@ grep -q 'sigstore/cosign-installer@' <<<"$packages_release_section" || { echo "r
 grep -q 'cosign sign-blob --yes' <<<"$packages_release_section" || { echo "release: package sign-blob step is missing"; fail=1; }
 grep -q 'all packages verify' <<<"$packages_release_section" || { echo "release: package signature self-verify gate is missing"; fail=1; }
 
+airgap_release_section="$(awk '/^  airgap-bundle:/{in_airgap=1} in_airgap{print}' "$RELEASE")"
+grep -Fq 'needs: [images, binaries, publish-chart, packages]' <<<"$airgap_release_section" || { echo "release: air-gap job does not wait for every signed constituent"; fail=1; }
+grep -q 'gh release download' <<<"$airgap_release_section" || { echo "release: air-gap job does not acquire signed release inputs"; fail=1; }
+grep -q 'bash scripts/airgap-bundle.sh' <<<"$airgap_release_section" || { echo "release: air-gap builder is not executed"; fail=1; }
+grep -q 'PROBECTL_COSIGN_IDENTITY_REGEXP=.*GITHUB_REPOSITORY' <<<"$airgap_release_section" || { echo "release: air-gap constituent verification is not pinned to this repository"; fail=1; }
+grep -q 'cosign sign-blob --yes' <<<"$airgap_release_section" || { echo "release: outer air-gap archive is not signed"; fail=1; }
+grep -q 'cosign verify-blob' <<<"$airgap_release_section" || { echo "release: outer air-gap archive signature is not self-verified"; fail=1; }
+grep -Fq 'probectl-airgap-*.tar.gz' <<<"$airgap_release_section" || { echo "release: air-gap archive is not attached to the GitHub release"; fail=1; }
+
 grep -q 'verifyImages:' "$ADMISSION" || { echo "admission: Kyverno verifyImages policy missing"; fail=1; }
 grep -q 'verifyDigest: true' "$ADMISSION" || { echo "admission: digest verification is not enforced"; fail=1; }
 grep -q 'required: true' "$ADMISSION" || { echo "admission: signature verification is not required"; fail=1; }
@@ -158,9 +167,13 @@ elif ! grep -q 'missing signature .*probectl-0.0.0.tgz.sig' "$airgap_log"; then
   echo "airgap bundle failed for the wrong reason; expected missing chart signature"; fail=1
 fi
 
+# (f) The full success path runs without Docker, Sigstore, a registry, or any
+# network. Its strict stubs validate the complete release matrix and manifest.
+bash scripts/check_airgap_bundle.sh
+
 if [[ $fail -ne 0 ]]; then
   echo
   echo "cosign-wiring gate FAILED (SUPPLY-001/002): cosign verification is not wired in / not fail-closed."
   exit 1
 fi
-echo "cosign-wiring gate: OK (install.sh, airgap bundle, Ansible package_url/airgap, image signing, and admission policy are fail-closed)"
+echo "cosign-wiring gate: OK (install.sh, complete airgap release, Ansible package_url/airgap, image signing, and admission policy are fail-closed)"

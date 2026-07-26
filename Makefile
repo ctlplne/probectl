@@ -380,8 +380,12 @@ proto-tools: ## Install protobuf codegen tools (buf + Go plugins) into GOPATH/bi
 
 # ---- packaging / air-gap ------------------------------------------------
 .PHONY: airgap-bundle
-airgap-bundle: ## OPS-003: build the offline install bundle (images+chart+binaries+docs): make airgap-bundle VERSION=0.2.0
+airgap-bundle: ## OPS-003: build the offline install bundle from signed dist/ inputs: make airgap-bundle VERSION=0.6.0
 	VERSION=$(VERSION) ./scripts/airgap-bundle.sh
+
+.PHONY: airgap-gate
+airgap-gate: ## OPS-003: network-free complete-bundle fixture + fail-closed signature/release wiring.
+	bash scripts/check_cosign_wiring.sh
 
 .PHONY: compose-prod-preflight
 compose-prod-preflight: ## OPS-001: fail fast with login/mirror/local-build guidance before production compose pulls.

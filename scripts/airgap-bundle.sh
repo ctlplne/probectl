@@ -8,16 +8,19 @@
 # docs.
 # Makes the CLAUDE.md §4 "air-gapped bundle" claim true.
 #
-#   VERSION=0.2.0 ./scripts/airgap-bundle.sh
+#   VERSION=0.6.0 DIST=dist ./scripts/airgap-bundle.sh
 set -euo pipefail
 
-VERSION="${VERSION:?set VERSION (e.g. 0.2.0)}"
+VERSION="${VERSION:?set VERSION (e.g. 0.6.0)}"
 VERSION_NO_V="${VERSION#v}"
 TAG="${TAG:-v${VERSION#v}}"
 IMAGE_PREFIX="${IMAGE_PREFIX:-ghcr.io/imfeelingtheagi}"
 OUT="${OUT:-probectl-airgap-${VERSION}}"
 DIST="${DIST:-dist}"
 COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics probectl-bgp-analyzer probectl-browser-agent terraform-provider-probectl probectl"
+BINARY_COMPONENTS="probectl-control probectl-agent probectl-ebpf-agent probectl-endpoint probectl-flow-agent probectl-device-agent probectl-cloud-metrics terraform-provider-probectl probectl"
+RELEASE_ARCHES="amd64 arm64"
+EXPECTED_PACKAGE_COUNT=20 # 5 packaged agents × 2 architectures × deb+rpm.
 VERIFY_COSIGN="${PROBECTL_AIRGAP_VERIFY_COSIGN:-1}"
 UNVERIFIED_ACK_VALUE="allow-unverified-airgap-artifacts"
 COSIGN_ISSUER="${PROBECTL_COSIGN_ISSUER:-https://token.actions.githubusercontent.com}"
@@ -115,24 +118,27 @@ copy_signed "$chart_pkg" "$OUT/charts"
 chart_digest="${DIST}/probectl-${VERSION_NO_V}.chart-digest.txt"
 [ -f "$chart_digest" ] && cp "$chart_digest" "$OUT/charts/"
 
-# 4. Binaries and packages.
-copied_binary=0
-for f in "${DIST}"/probectl_"${TAG}"_linux_* "${DIST}"/probectl-*_"${TAG}"_linux_*; do
-  [ -e "$f" ] || continue
-  case "$f" in *.sig|*.pem) continue;; esac
-  copy_signed "$f" "$OUT/bin"
-  copied_binary=1
+# 4. Binaries and packages. Check the complete release matrix, not merely "at
+# least one": a partial air-gap kit is worse than a loud release failure because
+# the missing architecture is discovered only after crossing the air gap.
+for arch in $RELEASE_ARCHES; do
+  for component in $BINARY_COMPONENTS; do
+    binary="${DIST}/${component}_${TAG}_linux_${arch}"
+    copy_signed "$binary" "$OUT/bin"
+  done
 done
-[ "$copied_binary" -eq 1 ] || { echo "airgap: no signed release binaries found for ${TAG}" >&2; exit 1; }
 
-copied_package=0
+copied_package_count=0
 for f in "${DIST}"/*.deb "${DIST}"/*.rpm; do
   [ -e "$f" ] || continue
   case "$f" in *.sig|*.pem) continue;; esac
   copy_signed "$f" "$OUT/packages"
-  copied_package=1
+  copied_package_count=$((copied_package_count + 1))
 done
-[ "$copied_package" -eq 1 ] || { echo "airgap: no signed deb/rpm packages found in dist/" >&2; exit 1; }
+[ "$copied_package_count" -eq "$EXPECTED_PACKAGE_COUNT" ] || {
+  echo "airgap: expected ${EXPECTED_PACKAGE_COUNT} signed deb/rpm packages, found ${copied_package_count}" >&2
+  exit 1
+}
 
 if [ -f "${DIST}/checksums.txt" ]; then
   copy_signed "${DIST}/checksums.txt" "$OUT"
@@ -156,12 +162,14 @@ cp docs/ops/air-gap.md "$OUT/INSTALL.md"
   echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "images:"
   sed 's/^/  /' "$OUT/IMAGE-VERIFICATION.txt"
+  echo "image archives:"
+  (cd "$OUT/images" && sha256sum *.tar 2>/dev/null || true) | sed 's/^/  /'
   echo "charts:"
   (cd "$OUT/charts" && sha256sum * 2>/dev/null || true) | sed 's/^/  /'
   echo "binaries:"
-  (cd "$OUT/bin" && sha256sum probectl-* 2>/dev/null || true) | sed 's/^/  /'
+  (cd "$OUT/bin" && sha256sum * 2>/dev/null || true) | sed 's/^/  /'
   echo "packages:"
-  (cd "$OUT/packages" && sha256sum *.deb *.rpm 2>/dev/null || true) | sed 's/^/  /'
+  (cd "$OUT/packages" && sha256sum * 2>/dev/null || true) | sed 's/^/  /'
   echo "evidence:"
   (cd "$OUT/evidence" && sha256sum NOTICE third-party-licenses.md 2>/dev/null || true) | sed 's/^/  /'
 } > "$OUT/MANIFEST.txt"

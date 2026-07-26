@@ -2,22 +2,45 @@
 
 probectl is built to run in networks with no internet egress (the sovereignty
 posture — telemetry never leaves the operator's network, and there is no
-phone-home). `make airgap-bundle` produces one tarball you carry across the air
+phone-home). Each release publishes one signed tarball you carry across the air
 gap; everything installs from it offline.
 
-## Building the bundle (connected side)
+## Acquiring the bundle (connected side)
 
-```
-make airgap-bundle VERSION=0.2.0
-# → probectl-airgap-0.2.0.tar.gz
+```sh
+version=0.6.0
+gh release download "v${version}" --repo ctlplne/probectl \
+  --pattern "probectl-airgap-${version}.tar.gz*"
+cosign verify-blob \
+  --certificate "probectl-airgap-${version}.tar.gz.pem" \
+  --signature "probectl-airgap-${version}.tar.gz.sig" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --certificate-identity-regexp '^https://github.com/ctlplne/probectl/\.github/workflows/release\.yml@refs/tags/' \
+  "probectl-airgap-${version}.tar.gz"
 ```
 
-The builder verifies before it bundles. By default it requires `cosign` and
+The release workflow waits for every signed image, chart, Linux binary, deb, and
+rpm job, downloads those release assets, and runs the builder. The builder
+verifies before it bundles. By default it requires `cosign` and
 refuses to package the Helm chart, release binaries, packages, or images unless
 their signatures chain to the probectl release workflow. A break-glass bundle is
 possible only with `PROBECTL_AIRGAP_VERIFY_COSIGN=0` plus
 `PROBECTL_AIRGAP_UNVERIFIED_ACK=allow-unverified-airgap-artifacts`; record that
 as an operator exception because those bytes can install privileged agents.
+
+Maintainers can reproduce the assembly from the tagged checkout. An empty
+checkout is not enough: first acquire the release inputs into `dist/`, then run
+the builder, which also pulls the tagged images from GHCR:
+
+```sh
+version=0.6.0
+git checkout "v${version}"
+mkdir -p dist
+gh release download "v${version}" --repo ctlplne/probectl --dir dist
+docker login ghcr.io
+DIST=dist make airgap-bundle VERSION="${version}"
+# → probectl-airgap-0.6.0.tar.gz
+```
 
 The bundle contains:
 
@@ -53,7 +76,7 @@ The bundle contains:
 3. **Install the control plane** from the bundled chart, pointing image
    repositories at your internal registry:
    ```
-   helm install probectl charts/probectl-0.2.0.tgz \
+   helm install probectl charts/probectl-0.6.0.tgz \
      -f your-values.yaml --set image.repository=registry.internal/probectl
    ```
 4. **Install agents** from `packaging/` (deb/rpm via the Ansible role, or the
