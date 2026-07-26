@@ -29,6 +29,7 @@ import {
   useResolveIncident,
   type ChangeCandidate,
   type Incident,
+  type IncidentShareArtifact,
   type Signal,
 } from '../api/incidents'
 import { useCreateRemediationProposal, useRemediations } from '../api/remediation'
@@ -46,6 +47,8 @@ import { pivotHref, replacePivotContext, type PivotContext } from './pivotContex
 import { ExplainView } from './ExplainView'
 import type { Answer, Evidence } from '../api/ai'
 import { isApiStatus } from '../api/client'
+import { useAuth } from '../auth/useAuth'
+import { InvestigationJournal } from './InvestigationJournal'
 
 interface PlaneGroup {
   id: string
@@ -137,6 +140,7 @@ export function IncidentRoom({
   sharedExpiresAt?: string
 }) {
   const { t } = useI18n()
+  const { permissions } = useAuth()
   const [params, setParams] = useSearchParams()
   const incident = useIncident(incidentSnapshot ? undefined : incidentId)
   const changes = useIncidentChanges(incidentSnapshot ? undefined : incidentId)
@@ -147,6 +151,7 @@ export function IncidentRoom({
   const { push } = useToast()
   const [explanation, setExplanation] = useState<Answer | undefined>(sharedAnswer)
   const [shareLink, setShareLink] = useState<string>()
+  const [lastShare, setLastShare] = useState<IncidentShareArtifact>()
   const autoShareHandled = useRef(false)
 
   useEffect(() => setExplanation(sharedAnswer), [sharedAnswer])
@@ -212,6 +217,7 @@ export function IncidentRoom({
             url.searchParams.set('share', artifact.id)
             const stableLink = url.toString()
             setShareLink(stableLink)
+            setLastShare(artifact)
             void navigator.clipboard?.writeText(stableLink).catch(() => undefined)
             push({
               tone: 'success',
@@ -279,6 +285,18 @@ export function IncidentRoom({
           { preview: 'blast' },
         )
       : undefined
+  const checkpointEvidence =
+    lastShare?.answer.evidence.find((evidence) => evidence.fields?.id === selectedSourceID) ??
+    lastShare?.answer.evidence[0]
+  const checkpointSource =
+    lastShare && checkpointEvidence
+      ? {
+          share_id: lastShare.id,
+          evidence_id: checkpointEvidence.id,
+          title: checkpointEvidence.title || checkpointEvidence.id,
+        }
+      : undefined
+  const canWriteJournal = permissions.includes('incident.write')
 
   function selectEvidence(id: string) {
     setParams(
@@ -459,6 +477,14 @@ export function IncidentRoom({
             </div>
           </CardBody>
         </Card>
+      ) : null}
+
+      {!sharedArtifactID ? (
+        <InvestigationJournal
+          incidentID={roomIncident.id}
+          checkpointSource={checkpointSource}
+          canWrite={canWriteJournal}
+        />
       ) : null}
 
       <Card>

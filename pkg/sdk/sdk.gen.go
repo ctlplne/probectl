@@ -926,6 +926,47 @@ type Incident struct {
 	Title            string   `json:"title,omitempty"`
 }
 
+type IncidentJournalAppendRequest struct {
+	Body     string                          `json:"body"`
+	Citation *IncidentJournalCitationRequest `json:"citation,omitempty"`
+	Kind     string                          `json:"kind"`
+}
+
+type IncidentJournalCitation struct {
+	Domain     string `json:"domain,omitempty"`
+	EvidenceId string `json:"evidence_id"`
+	OccurredAt string `json:"occurred_at,omitempty"`
+	Plane      string `json:"plane,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+	ShareId    string `json:"share_id"`
+	State      string `json:"state"`
+	Summary    string `json:"summary,omitempty"`
+	Title      string `json:"title,omitempty"`
+}
+
+type IncidentJournalCitationRequest struct {
+	EvidenceId string `json:"evidence_id"`
+	ShareId    string `json:"share_id"`
+}
+
+type IncidentJournalEntry struct {
+	Body       string                   `json:"body"`
+	Citation   *IncidentJournalCitation `json:"citation,omitempty"`
+	CreatedAt  string                   `json:"created_at"`
+	CreatedBy  string                   `json:"created_by"`
+	ExpiresAt  string                   `json:"expires_at"`
+	Format     string                   `json:"format"`
+	Id         string                   `json:"id"`
+	IncidentId string                   `json:"incident_id"`
+	Kind       string                   `json:"kind"`
+}
+
+type IncidentJournalList struct {
+	Items     []IncidentJournalEntry `json:"items"`
+	Limit     int                    `json:"limit"`
+	Truncated bool                   `json:"truncated"`
+}
+
 type IncidentList struct {
 	Items []Incident `json:"items,omitempty"`
 }
@@ -3012,6 +3053,45 @@ func (c *Client) IncidentCIs(ctx context.Context, req IncidentCIsRequest) (map[s
 		return nil, err
 	}
 	return out, nil
+}
+
+// List one incident's tenant-local investigation journal
+type ListIncidentJournalRequest struct {
+	Id string `json:"-"`
+}
+
+func (c *Client) ListIncidentJournal(ctx context.Context, req ListIncidentJournalRequest) (*IncidentJournalList, error) {
+	path := "/v1/incidents/{id}/journal"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentJournalList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Append an inert note or cited checkpoint
+type AppendIncidentJournalRequest struct {
+	Id   string                        `json:"-"`
+	Body *IncidentJournalAppendRequest `json:"-"`
+}
+
+func (c *Client) AppendIncidentJournal(ctx context.Context, req AppendIncidentJournalRequest) (*IncidentJournalEntry, error) {
+	path := "/v1/incidents/{id}/journal"
+	if req.Id == "" {
+		return nil, fmt.Errorf("id is required")
+	}
+	path = strings.ReplaceAll(path, "{id}", url.PathEscape(req.Id))
+	query := url.Values{}
+	var out IncidentJournalEntry
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Create an expiring redacted cited-incident snapshot

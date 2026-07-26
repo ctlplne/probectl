@@ -166,7 +166,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"changes": {
 			Method: http.MethodGet, Path: "/v1/incidents/{id}/changes", ArgName: "id",
 		},
-		"cis": {Method: http.MethodGet, Path: "/v1/incidents/{id}/cis", ArgName: "id"},
+		"journal":        {Method: http.MethodGet, Path: "/v1/incidents/{id}/journal", ArgName: "id", Description: "list the tenant-local inert investigation journal"},
+		"journal-append": {Method: http.MethodPost, Path: "/v1/incidents/{id}/journal", ArgName: "id", Description: "append a plain-text note or re-authorized cited checkpoint"},
+		"cis":            {Method: http.MethodGet, Path: "/v1/incidents/{id}/cis", ArgName: "id"},
 		"share": {
 			Method: http.MethodPost, Path: "/v1/incidents/{id}/shares", ArgName: "id",
 			Description: "create an expiring redacted cited-evidence snapshot",

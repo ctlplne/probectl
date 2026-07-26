@@ -1132,7 +1132,7 @@ Journey-critical parity is currently served by the CLI:
 
 | Operator journey | CLI command family | Primary API path |
 | ---------------- | ------------------ | ---------------- |
-| Incident triage, cited share creation, and replay | `probectl incident list|get|changes|cis|share|shared` | `/v1/incidents*`, `/v1/incident-shares/*` |
+| Incident triage, cited sharing, and tenant-local journal | `probectl incident list|get|changes|journal|journal-append|cis|share|shared` | `/v1/incidents*`, `/v1/incident-shares/*` |
 | Alert review and response | `probectl alert active|ack|silence` | `/v1/alerts*` |
 | Topology and path investigation | `probectl topology show|whatif` plus `probectl test path <id>` | `/v1/topology*`, `/v1/tests/{id}/path` |
 | Ask/RCA handoff | `probectl ai ask --body JSON` | `/v1/ai/ask` |
@@ -1147,6 +1147,8 @@ probectl test create --name edge-dns --type icmp --target 1.1.1.1 --interval 30
 probectl test delete <id>
 probectl agent list
 probectl incident list --query status=open
+probectl --json incident journal <id>
+probectl incident journal-append <id> --body '{"kind":"note","body":"Operator hypothesis"}'
 probectl topology show
 probectl alert active
 probectl ai ask --body '{"question":"Why is WAN loss high?","subject":{"incident_id":"inc_123"}}'

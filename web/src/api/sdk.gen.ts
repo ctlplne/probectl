@@ -843,6 +843,47 @@ export interface Incident {
   title?: string
 }
 
+export interface IncidentJournalAppendRequest {
+  body: string
+  citation?: IncidentJournalCitationRequest | null
+  kind: "note" | "checkpoint"
+}
+
+export interface IncidentJournalCitation {
+  domain?: string
+  evidence_id: string
+  occurred_at?: string
+  plane?: string
+  ref?: string
+  share_id: string
+  state: "available" | "unavailable"
+  summary?: string
+  title?: string
+}
+
+export interface IncidentJournalCitationRequest {
+  evidence_id: string
+  share_id: string
+}
+
+export interface IncidentJournalEntry {
+  body: string
+  citation?: IncidentJournalCitation | null
+  created_at: string
+  created_by: string
+  expires_at: string
+  format: string
+  id: string
+  incident_id: string
+  kind: "note" | "checkpoint"
+}
+
+export interface IncidentJournalList {
+  items: IncidentJournalEntry[]
+  limit: number
+  truncated: boolean
+}
+
 export interface IncidentList {
   items?: Incident[]
 }
@@ -1836,6 +1877,19 @@ export interface IncidentCIsRequest {
 }
 
 export type IncidentCIsResponse = JsonObject
+
+export interface ListIncidentJournalRequest {
+  id: string
+}
+
+export type ListIncidentJournalResponse = IncidentJournalList
+
+export interface AppendIncidentJournalRequest {
+  id: string
+  body: IncidentJournalAppendRequest
+}
+
+export type AppendIncidentJournalResponse = IncidentJournalEntry
 
 export interface CreateIncidentShareRequest {
   id: string
@@ -2881,6 +2935,20 @@ export class ProbectlSDKClient {
     path = path.replace("{id}", encodeURIComponent(String(request.id)))
     const query = new URLSearchParams()
     return this.requestJSON<IncidentCIsResponse>("GET", path, query, undefined)
+  }
+
+  async listIncidentJournal(request: ListIncidentJournalRequest): Promise<ListIncidentJournalResponse> {
+    let path = "/v1/incidents/{id}/journal"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<ListIncidentJournalResponse>("GET", path, query, undefined)
+  }
+
+  async appendIncidentJournal(request: AppendIncidentJournalRequest): Promise<AppendIncidentJournalResponse> {
+    let path = "/v1/incidents/{id}/journal"
+    path = path.replace("{id}", encodeURIComponent(String(request.id)))
+    const query = new URLSearchParams()
+    return this.requestJSON<AppendIncidentJournalResponse>("POST", path, query, request.body)
   }
 
   async createIncidentShare(request: CreateIncidentShareRequest): Promise<CreateIncidentShareResponse> {

@@ -87,6 +87,48 @@ export interface CreateIncidentShareRequest {
   context: IncidentShareContext
 }
 
+export type IncidentJournalKind = 'note' | 'checkpoint'
+export type IncidentJournalCitationState = 'available' | 'unavailable'
+
+export interface IncidentJournalCitationRequest {
+  share_id: string
+  evidence_id: string
+}
+
+export interface IncidentJournalCitation extends IncidentJournalCitationRequest {
+  state: IncidentJournalCitationState
+  domain?: string
+  plane?: string
+  title?: string
+  summary?: string
+  occurred_at?: string
+  ref?: string
+}
+
+export interface IncidentJournalEntry {
+  id: string
+  incident_id: string
+  kind: IncidentJournalKind
+  format: 'plain_text'
+  body: string
+  citation?: IncidentJournalCitation
+  created_by: string
+  created_at: string
+  expires_at: string
+}
+
+export interface IncidentJournalList {
+  items: IncidentJournalEntry[]
+  truncated: boolean
+  limit: number
+}
+
+export interface AppendIncidentJournalRequest {
+  kind: IncidentJournalKind
+  body: string
+  citation?: IncidentJournalCitationRequest
+}
+
 /** useIncidents lists the tenant's incidents, most-recently-active first. */
 export function useIncidents(enabled = true) {
   return useQuery({
@@ -151,6 +193,34 @@ export function useIncidentShare(id: string | undefined) {
     enabled: !!id,
     queryFn: () => apiFetch<IncidentShareArtifact>(`/incident-shares/${id}`),
     retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
+  })
+}
+
+/** Lists one live incident journal. Cited evidence is returned only after the
+ * server re-authorizes its source share in this tenant on this exact read. */
+export function useIncidentJournal(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['incident-journal', id],
+    enabled: enabled && !!id,
+    queryFn: () => apiFetch<IncidentJournalList>(`/incidents/${id}/journal`),
+    retry: (failureCount, error) => !isApiStatus(error, 404) && failureCount < 1,
+  })
+}
+
+/** Appends inert plain text; checkpoint citations are independently
+ * re-authorized by the server before the row is written. */
+export function useAppendIncidentJournal(id: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (request: AppendIncidentJournalRequest) =>
+      apiFetch<IncidentJournalEntry>(`/incidents/${id}/journal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['incident-journal', id] })
+    },
   })
 }
 

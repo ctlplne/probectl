@@ -592,6 +592,15 @@ DELETE FROM ai_answers
 			}
 			out = append(out, SubjectPlaneResult{Plane: "ai_answers", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
 		}
+		if tableExists(ctx, sc, "incident_journal_entries") {
+			tag, err := sc.Q.Exec(ctx, `
+DELETE FROM incident_journal_entries
+ WHERE created_by ILIKE $1 OR body ILIKE $1`, like)
+			if err != nil {
+				return err
+			}
+			out = append(out, SubjectPlaneResult{Plane: "incident_journal", Status: SubjectStatusDeleted, Deleted: tag.RowsAffected()})
+		}
 		return nil
 	})
 	return out, err

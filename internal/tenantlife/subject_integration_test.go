@@ -47,6 +47,20 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 				tenantID, "ans-"+tenantID, "RCA mentions "+subject, `{"subject":"`+subject+`"}`); err != nil {
 				return err
 			}
+			var incidentID string
+			if err := sc.Q.QueryRow(ctx,
+				`INSERT INTO incidents (tenant_id, title)
+				 VALUES ($1, 'subject lifecycle incident') RETURNING id::text`,
+				tenantID).Scan(&incidentID); err != nil {
+				return err
+			}
+			if _, err := sc.Q.Exec(ctx,
+				`INSERT INTO incident_journal_entries
+				       (tenant_id, id, incident_id, entry_kind, body, created_by, expires_at)
+				 VALUES ($1, $2, $3, 'note', $4, $4, clock_timestamp() + interval '30 days')`,
+				tenantID, "journal-"+tenantID, incidentID, subject); err != nil {
+				return err
+			}
 			_, err := audit.TenantAppend(ctx, sc, subject, "directory.provision", subject, map[string]any{"email": subject})
 			return err
 		})
@@ -75,6 +89,9 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	if !strings.Contains(files["postgres/users.jsonl"], subject) {
 		t.Fatalf("subject export missing user row: files=%v", files)
 	}
+	if !strings.Contains(files["postgres/incident_journal_entries.jsonl"], subject) {
+		t.Fatalf("subject export missing incident journal row: files=%v", files)
+	}
 
 	providerHead, err := audit.ProviderHeadSeq(ctx, pool)
 	if err != nil {
@@ -97,11 +114,17 @@ func TestSubjectLifecycleErasesIdentityAIAndProjectsAuditPG(t *testing.T) {
 	if got := countRows(t, pool, `SELECT count(*) FROM ai_answers WHERE tenant_id = $1 AND payload::text ILIKE $2`, victim, "%"+subject+"%"); got != 0 {
 		t.Fatalf("victim AI answer survived subject erase: %d", got)
 	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND body ILIKE $2`, victim, "%"+subject+"%"); got != 0 {
+		t.Fatalf("victim incident journal entry survived subject erase: %d", got)
+	}
 	if got := countRows(t, pool, `SELECT count(*) FROM users WHERE tenant_id = $1 AND email = $2`, bystander, subject); got != 1 {
 		t.Fatalf("bystander user must be untouched: %d", got)
 	}
 	if got := countRows(t, pool, `SELECT count(*) FROM ai_answers WHERE tenant_id = $1 AND payload::text ILIKE $2`, bystander, "%"+subject+"%"); got != 1 {
 		t.Fatalf("bystander AI answer must be untouched: %d", got)
+	}
+	if got := countRows(t, pool, `SELECT count(*) FROM incident_journal_entries WHERE tenant_id = $1 AND body ILIKE $2`, bystander, "%"+subject+"%"); got != 1 {
+		t.Fatalf("bystander incident journal entry must be untouched: %d", got)
 	}
 
 	tctx := tenancy.WithTenant(ctx, tenancy.ID(victim))

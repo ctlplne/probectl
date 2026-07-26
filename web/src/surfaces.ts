@@ -230,6 +230,11 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'S17',
     kind: 'native',
     route: '/incidents',
+    evidence: [
+      'openapi:/v1/incidents/{id}/journal',
+      'cli:probectl incident journal',
+      'cli:probectl incident journal-append',
+    ],
     liveReceipt: CROSS_PLANE_INCIDENT_RECEIPT,
   },
   {

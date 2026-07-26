@@ -743,6 +743,24 @@ func TestCLIExplorerComparisonSurfaceIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestCLIIncidentJournalSurfaces(t *testing.T) {
+	list, ok := surfaceCommands["incident"].Ops["journal"]
+	if !ok {
+		t.Fatal("missing probectl incident journal surface")
+	}
+	if list.Method != http.MethodGet || list.Path != "/v1/incidents/{id}/journal" || list.ArgName != "id" {
+		t.Fatalf("incident journal op = %+v, want tenant-scoped GET journal", list)
+	}
+	appendOp, ok := surfaceCommands["incident"].Ops["journal-append"]
+	if !ok {
+		t.Fatal("missing probectl incident journal-append surface")
+	}
+	if appendOp.Method != http.MethodPost || appendOp.Path != "/v1/incidents/{id}/journal" ||
+		appendOp.ArgName != "id" {
+		t.Fatalf("incident journal-append op = %+v, want POST journal", appendOp)
+	}
+}
+
 func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["list"]; got.Method != http.MethodGet || got.Path != "/v1/devices" {
 		t.Fatalf("device list op = %+v, want GET /v1/devices", got)

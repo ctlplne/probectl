@@ -562,7 +562,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         email: 'operator@probectl.test',
         display_name: 'Test Operator',
         mfa_satisfied: true,
-        permissions: [],
+        permissions: ['incident.read', 'incident.write', 'ai.query'],
       })
     if (path === '/v1/tests') return jsonResponse({ items: sampleTests })
     if (path === '/v1/coverage/vantages')
@@ -727,6 +727,8 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
     if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
     if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001')
       return jsonResponse(sampleIncident)
+    if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001/journal')
+      return jsonResponse({ items: [], truncated: false, limit: 200 })
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
     if (path === '/v1/alerts/maintenance')
       return jsonResponse({ items: [], evaluator_running: true })

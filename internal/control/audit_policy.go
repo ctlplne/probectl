@@ -225,6 +225,8 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/incidents":                           auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}":                      auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/incidents/{id}/changes":              auditWrapped(auditFacetSensitiveRead),
+	"GET /v1/incidents/{id}/journal":              auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/incidents/{id}/journal":             auditExplicit(auditFacetMutation, "incident.journal_append"),
 	"POST /v1/incidents/{id}/shares":              auditExplicit(auditFacetExport, "incident.share_create"),
 	"GET /v1/incident-shares/{id}":                auditExplicit(auditFacetSensitiveRead, "incident.share_read"),
 	"PATCH /v1/incidents/{id}":                    auditExplicit(auditFacetMutation, "incident.resolve"),

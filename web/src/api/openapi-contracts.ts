@@ -474,6 +474,20 @@ export const API_CALL_CONTRACTS = [
   },
   {
     file: 'api/incidents.ts',
+    method: 'GET',
+    path: '`/incidents/${id}/journal`',
+    response: 'IncidentJournalList',
+    generated: 'ListIncidentJournalResponse',
+  },
+  {
+    file: 'api/incidents.ts',
+    method: 'POST',
+    path: '`/incidents/${id}/journal`',
+    response: 'IncidentJournalEntry',
+    generated: 'AppendIncidentJournalResponse',
+  },
+  {
+    file: 'api/incidents.ts',
     method: 'PATCH',
     path: '`/incidents/${id}`',
     response: 'Incident',

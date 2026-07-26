@@ -120,6 +120,32 @@ the tamper-evident audit log; successful replay records
 tenant's `object_retention_days` policy is tighter. Live resolve/remediation
 actions are disabled when viewing the fixed snapshot.
 
+The live room also contains a native **investigation journal**. Think of it as
+a tenant-owned lab notebook attached to one incident:
+
+- a **human note** is bounded plain text for a hypothesis, observation, or
+  conclusion;
+- a **cited checkpoint** is the same inert text plus one exact evidence ID from
+  a live redacted share artifact.
+
+`GET /v1/incidents/<id>/journal` lists at most 200 live entries oldest-first.
+`POST /v1/incidents/<id>/journal` appends one entry and needs
+`incident.write`. The server first resolves the incident from the authenticated
+tenant. For a checkpoint it then re-authorizes the share in that same forced-RLS
+scope, verifies that the share belongs to this incident, and resolves the exact
+evidence ID. Missing, expired, revoked, wrong-incident, and other-tenant
+references all produce the same not-found result. The read path repeats that
+authorization: if a formerly valid source later expires or is revoked, the
+human note remains but the evidence details become explicitly `unavailable`.
+
+Journal text has `format: plain_text`. It is never passed to a model, parsed as
+markup, exposed as a tool call, executed as a runbook, or connected to the
+remediation service. Appends record `incident.journal_append` in the immutable
+tenant audit chain. Entries expire after 90 days by default or sooner when the
+tenant's `object_retention_days` policy is tighter; expired entries are
+unreadable and opportunistically pruned. Tenant erasure cascades the table, and
+subject export/erasure includes matching note/author content.
+
 The room is deliberately honest about coverage. All five plane groups remain
 visible even when a producer returned no evidence, and an empty group says
 **coverage gap**, never “zero” or “healthy.” An incident detail read returns at
@@ -199,6 +225,17 @@ curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
 # Read candidate changes ranked by topology proximity and recency.
 curl --cacert ./ca.crt -H "Authorization: Bearer $TOKEN" \
   https://probectl.example.com/v1/incidents/<id>/changes
+
+# Keep a human hypothesis in the local incident journal.
+probectl incident journal-append <id> \
+  --body '{"kind":"note","body":"Route policy change is the leading hypothesis."}'
+
+# After creating a cited share, pin one exact evidence item as a checkpoint.
+probectl incident journal-append <id> \
+  --body '{"kind":"checkpoint","body":"Origin change preceded impact.","citation":{"share_id":"share_...","evidence_id":"E..."}}'
+
+# Read the bounded oldest-first notebook, including citation availability.
+probectl --json incident journal <id>
 ```
 
 In the web interface, the **Alerts** page shows the active-alert table over
@@ -237,6 +274,13 @@ cited RCA inline.
 - **Incident evidence reads are bounded.** The detail endpoint returns at most
   500 signals. Check `signals_truncated` and `signal_count`; use a refined or
   exported investigation before drawing a conclusion from a truncated set.
+- **A checkpoint is not permanent authority.** Its human text remains through
+  journal retention, but source evidence is shown only while the cited share is
+  live and still authorized. `citation.state: unavailable` is an explicit
+  fail-closed state, not a healthy zero.
+- **Journal text is inert.** It can describe a runbook, but it cannot execute
+  one. Network changes still require the separate human-gated remediation
+  proposal and approval path.
 
 ## Reference
 
@@ -251,6 +295,8 @@ cited RCA inline.
 | List correlated incidents | `GET /v1/incidents` | `incident.read` |
 | One incident's bounded cross-plane evidence | `GET /v1/incidents/<id>` | `incident.read` |
 | Ranked candidate changes | `GET /v1/incidents/<id>/changes` | `incident.read` |
+| List the bounded investigation journal | `GET /v1/incidents/<id>/journal` | `incident.read` |
+| Append an inert note or cited checkpoint | `POST /v1/incidents/<id>/journal` | `incident.write` |
 | Create a redacted cited snapshot | `POST /v1/incidents/<id>/shares` | `incident.read` + `ai.query` |
 | Replay an authenticated snapshot | `GET /v1/incident-shares/<share-id>` | `incident.read` |
 

@@ -292,7 +292,7 @@ function apiPayload(path, method, pagePath = "") {
       email: "operator@probectl.test",
       display_name: "Test Operator",
       mfa_satisfied: true,
-      permissions: [],
+      permissions: ["incident.read", "incident.write", "ai.query"],
     });
   if (path === "/v1/tests") return json({ items: sampleTests });
   if (path === "/v1/agents")
@@ -355,6 +355,23 @@ function apiPayload(path, method, pagePath = "") {
         },
       ],
     });
+  if (path === "/v1/incidents/inc-dashboard")
+    return json({
+      id: "inc-dashboard",
+      tenant_id: "00000000-0000-0000-0000-000000000001",
+      status: "open",
+      severity: "warning",
+      title: "checkout latency burn",
+      target: "https://checkout.probectl.test",
+      started_at: "2026-06-04T11:45:00Z",
+      last_seen_at: "2026-06-04T12:00:00Z",
+      signal_count: 3,
+      signals: [],
+    });
+  if (path === "/v1/incidents/inc-dashboard/changes")
+    return json({ items: [] });
+  if (path === "/v1/incidents/inc-dashboard/journal")
+    return json({ items: [], truncated: false, limit: 200 });
   if (path === "/v1/alerts") return json({ items: [] });
   if (path === "/v1/explorer/schema")
     return json({

@@ -1041,6 +1041,102 @@
         }
       }
     },
+    "/v1/incidents/{id}/journal": {
+      "get": {
+        "operationId": "listIncidentJournal",
+        "summary": "List one incident's tenant-local investigation journal",
+        "description": "Returns live plain-text notes and cited checkpoints oldest-first. Every checkpoint share/evidence reference is re-authorized inside the caller tenant on each read. Expired, revoked, missing, foreign-tenant, and wrong-incident references expose only an explicit unavailable state and no evidence details.",
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Incident id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The bounded investigation journal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentJournalList"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 200,
+          "reason": "The incident journal is ordered oldest-first and reads one extra row only to report explicit truncation."
+        }
+      },
+      "post": {
+        "operationId": "appendIncidentJournal",
+        "summary": "Append an inert note or cited checkpoint",
+        "description": "Appends bounded plain text. A checkpoint must cite a live redacted incident-share evidence item; the server re-authorizes the incident, share, and evidence in the authenticated tenant before writing. Journal content cannot invoke models, tools, runbooks, or remediation.",
+        "tags": [
+          "incidents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Incident id.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentJournalAppendRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The appended journal entry.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentJournalEntry"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        }
+      }
+    },
     "/v1/incidents/{id}/shares": {
       "post": {
         "operationId": "createIncidentShare",
@@ -9321,6 +9417,178 @@
         "properties": {
           "context": {
             "$ref": "#/components/schemas/IncidentShareContext"
+          }
+        }
+      },
+      "IncidentJournalCitationRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "share_id",
+          "evidence_id"
+        ],
+        "properties": {
+          "share_id": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Opaque authenticated incident-share artifact ID."
+          },
+          "evidence_id": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Exact cited evidence ID inside that share artifact."
+          }
+        }
+      },
+      "IncidentJournalCitation": {
+        "type": "object",
+        "required": [
+          "share_id",
+          "evidence_id",
+          "state"
+        ],
+        "properties": {
+          "share_id": {
+            "type": "string"
+          },
+          "evidence_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "available",
+              "unavailable"
+            ],
+            "description": "Unavailable is fail-closed: no source details are returned after the cited share/evidence stops authorizing."
+          },
+          "domain": {
+            "type": "string"
+          },
+          "plane": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ref": {
+            "type": "string"
+          }
+        }
+      },
+      "IncidentJournalAppendRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "body"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "note",
+              "checkpoint"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Human-authored inert plain text; it is never interpreted as a prompt, tool call, runbook, or markup."
+          },
+          "citation": {
+            "$ref": "#/components/schemas/IncidentJournalCitationRequest",
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      },
+      "IncidentJournalEntry": {
+        "type": "object",
+        "required": [
+          "id",
+          "incident_id",
+          "kind",
+          "format",
+          "body",
+          "created_by",
+          "created_at",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^journal_[a-f0-9]{32}$"
+          },
+          "incident_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "note",
+              "checkpoint"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "const": "plain_text"
+          },
+          "body": {
+            "type": "string"
+          },
+          "citation": {
+            "$ref": "#/components/schemas/IncidentJournalCitation",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "created_by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "IncidentJournalList": {
+        "type": "object",
+        "required": [
+          "items",
+          "truncated",
+          "limit"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+              "$ref": "#/components/schemas/IncidentJournalEntry"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "const": 200
           }
         }
       },

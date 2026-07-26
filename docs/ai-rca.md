@@ -321,6 +321,13 @@ claim is omitted and replaced by an insufficient-evidence explanation. This is
 defense in depth: the server is the authority, while the browser remains safe
 if it receives a stale cached response or malformed intermediary payload.
 
+The incident room can preserve a human-authored checkpoint from this flow in
+its tenant-local investigation journal. The checkpoint cites an exact evidence
+ID inside an authenticated redacted share artifact. The journal does not turn
+the answer into an agent session: its body is inert plain text, and each source
+share/evidence reference is re-authorized on append and read. Expired, revoked,
+missing, wrong-incident, or other-tenant sources expose no evidence content.
+
 ## API
 
 Two routes carry the whole feature, and both require the same permission:
@@ -363,6 +370,9 @@ blocks or alters the answer.
   deterministic investigation plan sequences only read-only, typed queries
   through the tenant/RBAC query layer. Remediation is a separate, human-gated,
   proposal-only path (`docs/remediation.md`).
+- **The investigation journal is not model memory.** A human chooses and writes
+  each note/checkpoint. Journal reads and writes never invoke a model, tool,
+  runbook, or remediation action.
 - **It does not trust the model for isolation or truth.** Tenant + RBAC are
   enforced before the model sees anything; citation integrity is checked after.
   Swapping models cannot weaken either guarantee.

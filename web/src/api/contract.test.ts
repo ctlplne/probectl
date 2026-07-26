@@ -97,6 +97,10 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
     method: 'GET',
     path: '/v1/incidents/30000000-0000-4000-8000-000000000001',
   },
+  {
+    method: 'GET',
+    path: '/v1/incidents/30000000-0000-4000-8000-000000000001/journal',
+  },
   { method: 'GET', path: '/v1/inventory/views' },
   { method: 'GET', path: '/v1/lifecycle/retention' },
   { method: 'GET', path: '/v1/me' },
