@@ -13,6 +13,7 @@ export GOWORK=off
 
 NOTICE_FILE="NOTICE"
 INV_FILE="docs/third-party-licenses.md"
+VENDORED_MANIFEST="${PROBECTL_VENDORED_ASSET_MANIFEST:-third_party/vendored-assets.json}"
 mainmod="$(go list -m)"
 rows="$(mktemp)"
 trap 'rm -f "$rows"' EXIT
@@ -48,17 +49,19 @@ while IFS='|' read -r path ver dir; do
   n=$((n + 1))
 done <<<"$mods"
 
-python3 - "$rows" "$NOTICE_FILE" "$INV_FILE" "$n" <<'PY'
+python3 - "$rows" "$NOTICE_FILE" "$INV_FILE" "$n" "$VENDORED_MANIFEST" <<'PY'
+import hashlib
 import json
 import re
 import sys
 import tomllib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 rows_path = Path(sys.argv[1])
 notice_path = Path(sys.argv[2])
 inventory_path = Path(sys.argv[3])
 go_count = int(sys.argv[4])
+vendored_manifest_path = Path(sys.argv[5])
 
 REPO = Path(".")
 
@@ -180,6 +183,99 @@ def append_python(rows: list[dict]) -> int:
     return count
 
 
+def append_vendored_assets(rows: list[dict]) -> int:
+    if not vendored_manifest_path.is_file():
+        raise SystemExit(
+            f"vendored asset manifest missing: {vendored_manifest_path}"
+        )
+    try:
+        manifest = json.loads(vendored_manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(
+            f"invalid vendored asset manifest {vendored_manifest_path}: {exc}"
+        ) from exc
+    if manifest.get("schema_version") != 1:
+        raise SystemExit(
+            f"vendored asset manifest {vendored_manifest_path}: schema_version must be 1"
+        )
+    assets = manifest.get("assets")
+    if not isinstance(assets, list) or not assets:
+        raise SystemExit(
+            f"vendored asset manifest {vendored_manifest_path}: assets must be a non-empty list"
+        )
+
+    required = (
+        "ecosystem",
+        "name",
+        "version",
+        "scope",
+        "license",
+        "path",
+        "source",
+        "sha256",
+    )
+    seen_paths: set[str] = set()
+    for index, asset in enumerate(assets):
+        if not isinstance(asset, dict):
+            raise SystemExit(
+                f"vendored asset manifest {vendored_manifest_path}: asset {index} must be an object"
+            )
+        for field in required:
+            if not isinstance(asset.get(field), str) or not asset[field].strip():
+                raise SystemExit(
+                    f"vendored asset manifest {vendored_manifest_path}: "
+                    f"asset {index} has empty or missing {field}"
+                )
+
+        path_text = asset["path"]
+        pure_path = PurePosixPath(path_text)
+        if pure_path.is_absolute() or ".." in pure_path.parts:
+            raise SystemExit(
+                f"vendored asset path must stay repo-relative: {path_text}"
+            )
+        if path_text in seen_paths:
+            raise SystemExit(f"duplicate vendored asset path: {path_text}")
+        seen_paths.add(path_text)
+
+        asset_path = REPO / path_text
+        if asset_path.is_symlink():
+            raise SystemExit(f"vendored asset must not be a symlink: {path_text}")
+        if not asset_path.is_file():
+            raise SystemExit(f"vendored asset file missing: {path_text}")
+        if asset_path.stat().st_size == 0:
+            raise SystemExit(f"vendored asset file is empty: {path_text}")
+
+        expected_sha = asset["sha256"].lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_sha):
+            raise SystemExit(
+                f"vendored asset sha256 is invalid for {path_text}: {asset['sha256']}"
+            )
+        actual_sha = hashlib.sha256(asset_path.read_bytes()).hexdigest()
+        if actual_sha != expected_sha:
+            raise SystemExit(
+                f"vendored asset sha256 mismatch for {path_text}: "
+                f"manifest={expected_sha} actual={actual_sha}"
+            )
+
+        rows.append(
+            {
+                "ecosystem": asset["ecosystem"],
+                "name": asset["name"],
+                "version": asset["version"],
+                "scope": asset["scope"],
+                "notice_scope": (
+                    f"runtime, vendored {path_text} from {asset['source']}"
+                ),
+                "license": asset["license"],
+                "evidence": (
+                    f"{vendored_manifest_path}; {path_text}; source {asset['source']}; "
+                    f"sha256 {expected_sha}"
+                ),
+            }
+        )
+    return len(assets)
+
+
 def read_go_rows() -> list[dict]:
     rows: list[dict] = []
     for line in rows_path.read_text().splitlines():
@@ -204,6 +300,7 @@ rows = read_go_rows()
 npm_count = append_npm(rows, "web")
 npm_count += append_npm(rows, "browser-worker")
 python_count = append_python(rows)
+vendored_count = append_vendored_assets(rows)
 
 deduped = {}
 for row in rows:
@@ -214,10 +311,11 @@ for row in rows:
         row["scope"],
         row["license"],
         row["evidence"],
+        row.get("notice_scope", ""),
     )
     deduped[key] = row
 
-scope_rank = {"runtime": 0, "dev/build-only": 1}
+scope_rank = {"runtime": 0, "runtime (vendored)": 1, "dev/build-only": 2}
 rows = sorted(
     deduped.values(),
     key=lambda row: (
@@ -236,7 +334,8 @@ notice_lines = [
     "",
     "probectl is built, tested, packaged, and shipped with the third-party",
     "dependencies listed below, each under its own license. GENERATED by",
-    "scripts/gen_third_party.sh from Go, npm, and Python dependency metadata -",
+    "scripts/gen_third_party.sh from Go, npm, Python, and the validated vendored",
+    "asset manifest -",
     "do not hand-edit. The per-dependency inventory with detected licenses is",
     "docs/third-party-licenses.md.",
     "",
@@ -244,7 +343,7 @@ notice_lines = [
 for row in rows:
     notice_lines.append(
         f"- {row['ecosystem']} {row['name']} {row['version']} "
-        f"({row['scope']}) - {row['license']}"
+        f"({row.get('notice_scope', row['scope'])}) - {row['license']}"
     )
 notice_lines.append("")
 notice_path.write_text("\n".join(notice_lines))
@@ -258,6 +357,7 @@ inventory_lines = [
     "- `web/package-lock.json` for the browser UI;",
     "- `browser-worker/package-lock.json` for the Playwright worker;",
     "- `analyzer/pyproject.toml` and `analyzer/requirements-dev.lock` for the BGP analyzer.",
+    "- `third_party/vendored-assets.json` for shipped data/font assets, including source and SHA-256 provenance.",
     "",
     "The License column is a keyword heuristic over checked-in or cached",
     "dependency metadata. npm license values come from the lockfile. Go values",
@@ -287,6 +387,7 @@ inventory_path.write_text("\n".join(inventory_lines))
 print(
     "gen_third_party: wrote "
     f"{notice_path} + {inventory_path} "
-    f"({go_count} Go modules, {npm_count} npm packages, {python_count} Python packages)."
+    f"({go_count} Go modules, {npm_count} npm packages, {python_count} Python packages, "
+    f"{vendored_count} vendored assets)."
 )
 PY

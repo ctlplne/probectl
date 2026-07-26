@@ -202,11 +202,12 @@ browser-worker-check: ## Syntax-check the Playwright browser-worker (S36). Needs
 web-rendered-a11y: ## Run rendered a11y, J1-J6 LCP/INP, and bundle budgets in CI's Playwright container.
 	bash scripts/web_rendered_a11y_container.sh
 
-.PHONY: editions-gate
+.PHONY: editions-gate third-party third-party-gate
 third-party: ## SUPPLY-009: regenerate the third-party license inventory (NOTICE + docs/third-party-licenses.md) from the module graph.
 	./scripts/gen_third_party.sh
 
 third-party-gate: third-party ## SUPPLY-009 gate: regenerate the inventory and fail on drift (mirrors the proto drift gate).
+	./scripts/check_vendored_asset_inventory.sh
 	git diff --exit-code -- NOTICE docs/third-party-licenses.md || { echo "third-party license inventory is stale — commit NOTICE + docs/third-party-licenses.md"; exit 1; }
 
 .PHONY: strength-gate
