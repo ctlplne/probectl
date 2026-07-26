@@ -11,7 +11,7 @@
 
 > **One-sentence vision (unchanged, now built):** probectl is a self-hosted, open-core, **multi-tenant** network observability platform that unifies active/synthetic testing, BGP/routing intelligence, flow analytics, device telemetry, and eBPF host visibility into a single OpenTelemetry-aligned control plane — with an AI assistant that performs cited cross-plane root-cause analysis, a native security/threat layer, change-aware topology, and cost/SLO intelligence, enriched by public internet + threat-intel data — deployable as a sovereign single-tenant install *or* operated by an MSP that resells hard-isolated tenants under the probectl banner, with telemetry never leaving the operator's network.
 
-> **How to read this document.** v0.5 was a promise written before the build; v1.0 is an inventory written after it. Every "delivered" claim carries an evidence pointer — a repo path, a CI gate, or a diligence-register ID (`U-xxx`, from `probectl-audit/outputs/00-UNIFIED-REGISTER.html`). After the July 1, 2026 audit harness run, read those pointers as **code-backed evidence targets**, not as a blanket current-green claim: coverage, integration, isolation, and e2e proof are current only when the named gates have rerun green on the exact commit. Items whose code exists but whose *evidence* is still provisional (e.g. load numbers on real iron, or a red/unknown gate receipt) are listed as remaining or evidence debt, not buyer-facing GA proof. §2–§4 are the diligence read; §5 is the steering read.
+> **How to read this document.** v0.5 was a promise written before the build; v1.0 is an inventory written after it. Every "delivered" claim carries an evidence pointer — a repo path, a CI gate, or a diligence finding label (`U-xxx`) mapped by the committed [diligence evidence crosswalk](docs/diligence-register.md). After the July 1, 2026 audit harness run, read those pointers as **code-backed evidence targets**, not as a blanket current-green claim: coverage, integration, isolation, and e2e proof are current only when the named gates have rerun green on the exact commit. Items whose code exists but whose *evidence* is still provisional (e.g. load numbers on real iron, or a red/unknown gate receipt) are listed as remaining or evidence debt, not buyer-facing GA proof. §2–§4 are the diligence read; §5 is the steering read.
 
 **Status legend:** ✅ delivered (code + CI evidence) · 🔶 partial (built; evidence, validation, or a named slice pending) · ⏳ remaining · ⛔ not started (deliberate).
 
@@ -118,7 +118,7 @@ The repo's claims are enforced by **55 workflow jobs** across `.github/workflows
 | *coverage floors* | per-package Go floors; analyzer 85% floor; web a11y + surface-coverage |
 | *action-pins, proto (buf breaking + codegen diff), openapi-gate, migration-gate* | supply-chain pins; additive-only wire contract; spec-code parity; idempotent migrations |
 
-A 94-finding third-party-style diligence register (`probectl-audit/`) was worked to closure across seven remediation waves (A–G); the open remainder is exactly §5.
+A historical external diligence workspace was described by the previous contract as a 94-finding, seven-wave review. That workspace was not committed and is not accepted as current evidence. The 49 finding labels still cited by this inventory are relinked to real repository targets in the committed [diligence evidence crosswalk](docs/diligence-register.md); the open remainder is §5.
 
 ---
 
@@ -309,6 +309,6 @@ By design, probectl is **not**: a vendor-operated first-party public SaaS (the m
 
 - Engineering contract: `probectl/CLAUDE.md` (guardrails §7 are the operative non-functionals).
 - Delivery ground truth: the repo + CI (`.github/workflows/`), `docs/` (architecture, runbooks, compliance pack), `CHANGELOG.md`.
-- Diligence: `probectl-audit/outputs/00-UNIFIED-REGISTER.html` (94 findings; remediation waves A–G), `docs/audit/`.
+- Diligence: [`docs/diligence-register.md`](docs/diligence-register.md) (the committed crosswalk for every finding label cited here), [`docs/audit.md`](docs/audit.md) (audit architecture and verification).
 - Forward plan: `docs/roadmap.md` (quarterly; §5 is its product-level rollup).
 - Historical contract: `probectl-PRD-v0.5.md` (frozen May 31, 2026).
