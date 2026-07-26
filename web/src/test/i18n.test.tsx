@@ -118,6 +118,7 @@ describe('i18n catalog', () => {
       resolve(process.cwd(), 'src/routes/OutagesPage.tsx'),
       resolve(process.cwd(), 'src/routes/AlertsPage.tsx'),
       resolve(process.cwd(), 'src/routes/SLOsPage.tsx'),
+      resolve(process.cwd(), 'src/routes/CostPage.tsx'),
       resolve(process.cwd(), 'src/routes/admin/AdminCards.tsx'),
     ]
     const existingLocalizedBanned = [
@@ -141,6 +142,7 @@ describe('i18n catalog', () => {
       'AI remediation proposals',
       'Approvals are disabled',
       'Approved (not executed)',
+      'Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown.',
     ]
     const planesBanned = [
       'First-class workspaces for routing, flow, device, and host/L7 telemetry.',
@@ -239,6 +241,33 @@ describe('i18n catalog', () => {
 
     expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
     expect(document.documentElement.dir).toBe(dir)
+  })
+
+  test.each([
+    [
+      'es',
+      'Atribucion nativa, reparto de costos, presupuestos y tendencias por hora; usa Paneles o Explorador para profundizar entre planos.',
+    ],
+    [
+      'ar-EG',
+      'إسناد محلي للتكلفة، وعرض داخلي للاستهلاك، وميزانيات واتجاهات بالساعة؛ استخدم لوحات المعلومات أو المستكشف للتحليل عبر المستويات.',
+    ],
+  ])('Cost drilldown description uses the %s catalog', async (locale, description) => {
+    vi.stubGlobal('fetch', defaultFetch())
+
+    renderApp('/cost', { locale })
+
+    expect(await screen.findByText(description)).toBeInTheDocument()
+  })
+
+  test('Cost drilldown description is transformed by the pseudo-locale', async () => {
+    vi.stubGlobal('fetch', defaultFetch())
+
+    renderApp('/cost', { locale: 'en-XA' })
+
+    expect(
+      await screen.findByText((text) => text.startsWith('[!! Nå') && text.endsWith('!!]')),
+    ).toBeInTheDocument()
   })
 
   test.each(['/ask', '/onboarding', '/incidents', '/admin', '/provider', '/planes/bgp'])(

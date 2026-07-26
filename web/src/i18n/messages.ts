@@ -34,6 +34,8 @@ const en = {
   'nav.onboarding': 'Get started',
   'nav.admin': 'Admin & Settings',
   'nav.apiDocs': 'API docs',
+  'cost.egress.description':
+    'Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown.',
   'nav.current': ' (current)',
   'command.palette': 'Command palette',
   'command.search': 'Search commands',
@@ -980,6 +982,8 @@ const es: Record<MessageKey, string> = {
   'nav.onboarding': 'Comenzar',
   'nav.admin': 'Admin y ajustes',
   'nav.apiDocs': 'Docs API',
+  'cost.egress.description':
+    'Atribucion nativa, reparto de costos, presupuestos y tendencias por hora; usa Paneles o Explorador para profundizar entre planos.',
   'nav.current': ' (actual)',
   'command.palette': 'Paleta de comandos',
   'command.search': 'Buscar comandos',
@@ -1945,6 +1949,8 @@ const ar: Record<MessageKey, string> = {
   'nav.onboarding': 'البدء',
   'nav.admin': 'الإدارة والإعدادات',
   'nav.apiDocs': 'وثائق API',
+  'cost.egress.description':
+    'إسناد محلي للتكلفة، وعرض داخلي للاستهلاك، وميزانيات واتجاهات بالساعة؛ استخدم لوحات المعلومات أو المستكشف للتحليل عبر المستويات.',
   'nav.current': ' (الحالي)',
   'command.palette': 'لوحة الأوامر',
   'command.search': 'البحث في الأوامر',

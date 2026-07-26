@@ -32,7 +32,7 @@ import { formatDecimal, formatUnit } from '../i18n/number'
  * drilldown without an external dashboard runtime. S48 folds the carbon/ESG
  * estimate in below — same traffic, same owners, grams instead of dollars. */
 export function CostPage() {
-  const { locale } = useI18n()
+  const { locale, t } = useI18n()
   const { data, isPending, isError } = useCostSummary()
   const s = data?.summary
   const fmtGiB = (bytes: number) => gib(bytes, locale)
@@ -104,7 +104,7 @@ export function CostPage() {
       <Card>
         <CardHeader
           title="Egress spend"
-          description="Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown."
+          description={t('cost.egress.description')}
         />
         <CardBody>
           {isPending ? (
