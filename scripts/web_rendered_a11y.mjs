@@ -321,7 +321,11 @@ function apiPayload(path, method, pagePath = "") {
       ],
       collector_running: true,
     });
-  if (path === "/v1/topology" && pagePath !== "/dashboards")
+  if (
+    path === "/v1/topology" &&
+    pagePath !== "/dashboards" &&
+    pagePath !== "/topology"
+  )
     return json({
       topology_running: true,
       at: "2026-06-04T12:00:00Z",
@@ -1012,6 +1016,48 @@ async function targetsHierarchyCheck(page, viewportName) {
   }, viewportName);
 }
 
+// The graph is Topology's hero artifact. The complete history/filter stack is
+// kept in a native disclosure so it stays keyboard-reachable without consuming
+// the first viewport in the default live state.
+async function topologyHierarchyCheck(page) {
+  return page.evaluate(() => {
+    const problems = [];
+    const controls = document.querySelector("[data-topology-controls]");
+    const graphCard = document.querySelector("[data-topology-graph]");
+    const graph = graphCard?.querySelector('[aria-label="Topology graph"]');
+    const instruction = graphCard?.querySelector("[data-card-heading] p");
+    if (!controls) problems.push("missing history/filter disclosure marker");
+    if (!graphCard) problems.push("missing dependency graph marker");
+    if (!graph) problems.push("missing rendered dependency graph");
+    if (!instruction)
+      problems.push("missing primary node-selection instruction");
+    if (!controls || !graphCard || !graph || !instruction) return problems;
+
+    if (controls.open) {
+      problems.push(
+        "history/filter stack is expanded in the default live state",
+      );
+    }
+    if (
+      controls.getBoundingClientRect().top >=
+      graphCard.getBoundingClientRect().top
+    ) {
+      problems.push(
+        "dependency graph does not follow the compact scope control",
+      );
+    }
+    if (graph.getBoundingClientRect().top >= window.innerHeight) {
+      problems.push("dependency graph content begins below the viewport");
+    }
+    if (instruction.getBoundingClientRect().bottom >= window.innerHeight) {
+      problems.push(
+        "primary node-selection instruction falls below the viewport",
+      );
+    }
+    return problems;
+  });
+}
+
 async function targetAndTabChecks(page) {
   return page.evaluate(() => {
     const selector = [
@@ -1023,6 +1069,11 @@ async function targetAndTabChecks(page) {
       '[tabindex]:not([tabindex="-1"])',
     ].join(",");
     const isVisible = (el) => {
+      const closedDetails = el.closest("details:not([open])");
+      if (closedDetails) {
+        const summary = closedDetails.querySelector(":scope > summary");
+        if (!summary?.contains(el)) return false;
+      }
       const r = el.getBoundingClientRect();
       const style = getComputedStyle(el);
       return (
@@ -1267,6 +1318,30 @@ async function selfCheck(browser, axeSource) {
       "self-check failed: Targets hierarchy check did not catch the planted authoring-first regression",
     );
   }
+  await page.setViewportSize(viewports[1]);
+  await page.setContent(`
+    <details data-topology-controls open>
+      <summary>History &amp; filters</summary>
+      <div style="height:1000px">Planted expanded controls</div>
+    </details>
+    <section data-topology-graph>
+      <header data-card-heading><p>Click a node to inspect it.</p></header>
+      <svg aria-label="Topology graph"></svg>
+    </section>
+  `);
+  const topologyHierarchy = await topologyHierarchyCheck(page);
+  if (
+    !topologyHierarchy.some((problem) =>
+      problem.includes("expanded in the default live state"),
+    ) ||
+    !topologyHierarchy.some((problem) =>
+      problem.includes("graph content begins below"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: Topology hierarchy check did not catch the planted expanded-controls regression",
+    );
+  }
   await page.close();
 }
 
@@ -1324,6 +1399,7 @@ async function main() {
             cardHeader: [],
             dashboard: [],
             targets: [],
+            topology: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -1401,6 +1477,14 @@ async function main() {
                 );
               }
             }
+            if (route === "/topology") {
+              record.topology = await topologyHierarchyCheck(page);
+              if (record.topology.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: Topology hierarchy violations\n  ${record.topology.join("\n  ")}`,
+                );
+              }
+            }
           } catch (err) {
             record.runtime.push(
               `route check failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1420,6 +1504,7 @@ async function main() {
             record.cardHeader.length === 0 &&
             record.dashboard.length === 0 &&
             record.targets.length === 0 &&
+            record.topology.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";

@@ -7,6 +7,53 @@
   flex-wrap: wrap;
 }
 
+.controls {
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-xs);
+}
+
+.controlsSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--density-touch-target);
+  padding: var(--space-3) var(--space-4);
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.controlsSummary:focus-visible {
+  outline: var(--border-width-thin) solid var(--color-focus);
+  outline-offset: var(--space-1);
+}
+
+.controlsStatus {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.controlsSummary strong {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+}
+
+.controls[open] .controlsSummary {
+  border-block-end: var(--border-width-thin) solid var(--color-border);
+}
+
+.controlsBody {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+}
+
 .clock {
   display: grid;
   gap: var(--space-3);
@@ -81,9 +128,20 @@
   }
 }
 
+@media (max-width: 40rem) {
+  .controlsSummary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .graphWrap {
   overflow: auto;
   max-height: 70vh;
+}
+
+.graphWrap > svg {
+  max-width: none;
 }
 
 .coverage {
@@ -166,11 +224,7 @@
   fill: var(--topo-kind, var(--color-chart-neutral));
 }
 
-.node:focus {
-  outline: none;
-}
-
-.node:focus .nodeBox,
+.node:focus-visible .nodeBox,
 .node:hover .nodeBox {
   stroke: var(--color-accent);
   stroke-width: 2.5;

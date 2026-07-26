@@ -114,6 +114,7 @@ export function TopologyPage() {
       replace: true,
     })
   const savedFilters = activeFiltersForSave(currentFilters, TOPOLOGY_FILTER_DEFAULTS)
+  const activeFilterCount = Object.keys(savedFilters).length
 
   useEffect(() => {
     const invalidContract = parsedPivot.hasContract && !parsedPivot.referencesValid
@@ -215,36 +216,54 @@ export function TopologyPage() {
       title="Topology"
       subtitle="The dependency graph across planes — and what breaks if an element fails."
     >
-      <TopologyToolbar
-        at={at}
-        timeInput={timeInput}
-        comparisonAt={comparisonAt}
-        onTimeChange={updateTime}
-        onLive={() => updateTime('')}
-      />
-      <TopologyFilters
-        query={query}
-        kind={kind}
-        site={site}
-        tag={tag}
-        kindOptions={kindOptions}
-        siteOptions={siteOptions}
-        tagOptions={tagOptions}
-        filters={savedFilters}
-        onQueryChange={setQuery}
-        onChange={setFilter}
-        onApply={(filters) =>
-          setParams(
-            topologySearchParams(params, pivotContext, {
-              topo_q: filters.topo_q ?? '',
-              topo_kind: filters.topo_kind ?? 'all',
-              topo_site: filters.topo_site ?? 'all',
-              topo_tag: filters.topo_tag ?? 'all',
-            }),
-            { replace: true },
-          )
-        }
-      />
+      <details className={styles.controls} data-topology-controls>
+        <summary className={styles.controlsSummary}>
+          <span className={styles.controlsStatus}>
+            <Badge tone={at ? 'info' : 'success'}>
+              {at ? 'Historical topology' : 'Live topology'}
+            </Badge>
+            <span>
+              {filteredNodes.length} of {nodes.length} nodes ·{' '}
+              {activeFilterCount === 0
+                ? 'No active filters'
+                : `${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}`}
+            </span>
+          </span>
+          <strong>History &amp; filters</strong>
+        </summary>
+        <div className={styles.controlsBody}>
+          <TopologyToolbar
+            at={at}
+            timeInput={timeInput}
+            comparisonAt={comparisonAt}
+            onTimeChange={updateTime}
+            onLive={() => updateTime('')}
+          />
+          <TopologyFilters
+            query={query}
+            kind={kind}
+            site={site}
+            tag={tag}
+            kindOptions={kindOptions}
+            siteOptions={siteOptions}
+            tagOptions={tagOptions}
+            filters={savedFilters}
+            onQueryChange={setQuery}
+            onChange={setFilter}
+            onApply={(filters) =>
+              setParams(
+                topologySearchParams(params, pivotContext, {
+                  topo_q: filters.topo_q ?? '',
+                  topo_kind: filters.topo_kind ?? 'all',
+                  topo_site: filters.topo_site ?? 'all',
+                  topo_tag: filters.topo_tag ?? 'all',
+                }),
+                { replace: true },
+              )
+            }
+          />
+        </div>
+      </details>
 
       {at && comparison.isError ? (
         <ErrorState
@@ -262,14 +281,6 @@ export function TopologyPage() {
       ) : (
         <div className={styles.grid}>
           <div className={styles.mainColumn}>
-            {versionDiff && (
-              <TopologyVersionDiffCard
-                diff={versionDiff}
-                from={comparison.data?.at ?? comparisonAt ?? 'live'}
-                to={data.at ?? at}
-                selectedID={selected?.id}
-              />
-            )}
             <TopologyGraphCard
               layout={layout}
               coverageNotes={data.coverage?.notes ?? []}
@@ -278,6 +289,14 @@ export function TopologyPage() {
               impacted={impacted}
               onSelect={selectNode}
             />
+            {versionDiff && (
+              <TopologyVersionDiffCard
+                diff={versionDiff}
+                from={comparison.data?.at ?? comparisonAt ?? 'live'}
+                to={data.at ?? at}
+                selectedID={selected?.id}
+              />
+            )}
             <TopologyListCard
               nodes={filteredNodes}
               renderedCount={layout.nodes.length}
@@ -578,7 +597,7 @@ function TopologyFallbackCard({
   topologyRunning?: boolean
 }) {
   return (
-    <Card>
+    <Card data-topology-graph>
       <CardHeader
         title="Dependency graph"
         description="Click a node to inspect it, then simulate its failure."
@@ -624,7 +643,7 @@ function TopologyGraphCard({
   onSelect: (node: TopoNode) => void
 }) {
   return (
-    <Card className={styles.graphCard}>
+    <Card className={styles.graphCard} data-topology-graph>
       <CardHeader
         title="Dependency graph"
         description="Click a node to inspect it, then simulate its failure."
