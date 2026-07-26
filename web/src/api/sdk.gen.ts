@@ -370,6 +370,12 @@ export interface DashboardView {
   updated_at: string
 }
 
+export interface DeepHealth {
+  checked_at: string
+  checks: HealthCheck[]
+  status: HealthStatus
+}
+
 export interface DeviceConfigArchiveRequest {
   content: string
   device: string
@@ -660,6 +666,14 @@ export interface Health {
   audit_retention?: JsonObject
   status: string
 }
+
+export interface HealthCheck {
+  detail?: string
+  name: string
+  status: HealthStatus
+}
+
+export type HealthStatus = "ok" | "degraded" | "down"
 
 export interface Hierarchy {
   items: HierarchyOrganization[]
@@ -1071,6 +1085,19 @@ export interface TenantIdPSettingsInput {
   issuer: string
   redirect_url: string
   scopes?: string[]
+}
+
+export interface TenantKeyInfo {
+  created_at: string
+  destroyed_at?: string
+  mode: "managed" | "byok"
+  retired_at?: string
+  state: "active" | "retired" | "destroyed"
+  version: number
+}
+
+export interface TenantKeyList {
+  items: TenantKeyInfo[]
 }
 
 export interface Test {
@@ -1503,7 +1530,7 @@ export type ListDevicesResponse = DeviceInventoryList
 export interface GetV1DiagnosticsRequest {
 }
 
-export type GetV1DiagnosticsResponse = void
+export type GetV1DiagnosticsResponse = DeepHealth
 
 export interface GetV1DiagnosticsBundleRequest {
 }
@@ -1961,7 +1988,7 @@ export type GetSecretsHealthResponse = JsonObject
 export interface GetV1SecurityKeysRequest {
 }
 
-export type GetV1SecurityKeysResponse = void
+export type GetV1SecurityKeysResponse = TenantKeyList
 
 export interface PostV1SecurityKeysRotateRequest {
 }
@@ -2506,7 +2533,7 @@ export class ProbectlSDKClient {
   async getV1Diagnostics(): Promise<GetV1DiagnosticsResponse> {
     let path = "/v1/diagnostics"
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    return this.requestJSON<GetV1DiagnosticsResponse>("GET", path, query, undefined)
   }
 
   async getV1DiagnosticsBundle(): Promise<GetV1DiagnosticsBundleResponse> {
@@ -3023,7 +3050,7 @@ export class ProbectlSDKClient {
   async getV1SecurityKeys(): Promise<GetV1SecurityKeysResponse> {
     let path = "/v1/security/keys"
     const query = new URLSearchParams()
-    await this.request("GET", path, query, undefined)
+    return this.requestJSON<GetV1SecurityKeysResponse>("GET", path, query, undefined)
   }
 
   async postV1SecurityKeysRotate(): Promise<PostV1SecurityKeysRotateResponse> {

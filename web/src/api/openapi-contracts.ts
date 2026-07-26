@@ -312,7 +312,6 @@ export const API_CALL_CONTRACTS = [
     path: '/diagnostics',
     response: 'DeepHealth',
     generated: 'GetV1DiagnosticsResponse',
-    reason: 'OpenAPI currently emits void for diagnostics; DeepHealth is the explicit view model.',
   },
   {
     file: 'api/editions.ts',
@@ -483,9 +482,8 @@ export const API_CALL_CONTRACTS = [
     file: 'api/keys.ts',
     method: 'GET',
     path: '/security/keys',
-    response: '{ items: KeyInfo[] }',
+    response: 'TenantKeyList',
     generated: 'GetV1SecurityKeysResponse',
-    reason: 'OpenAPI currently emits void for key inventory; KeyInfo is the explicit view model.',
   },
   {
     file: 'api/keys.ts',

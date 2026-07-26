@@ -9,6 +9,8 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
+import { fixtureFetch, jsonResponse, type FixtureProfile } from '../test/fixtureApi'
+import { fixtureContractErrors, type FixtureContractRequest } from '../test/openapiFixtureContract'
 import { API_BASE } from './client'
 import { API_CALL_CONTRACTS, type APICallContract } from './openapi-contracts'
 
@@ -21,6 +23,84 @@ interface APIFetchCall {
 
 const apiDir = dirname(fileURLToPath(import.meta.url))
 const srcDir = join(apiDir, '..')
+const fixturePath = join(srcDir, 'test', 'fixtureApi.ts')
+const openAPI = JSON.parse(
+  readFileSync(join(apiDir, '..', '..', '..', 'internal', 'control', 'openapi.json'), 'utf8'),
+) as unknown
+
+const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
+  { method: 'GET', path: '/branding' },
+  { method: 'GET', path: '/v1/abac/policies' },
+  { method: 'GET', path: '/v1/agents' },
+  { method: 'POST', path: '/v1/ai/ask', body: { question: 'Why is checkout slow?' } },
+  { method: 'POST', path: '/v1/ai/discover', body: {} },
+  { method: 'GET', path: '/v1/alerts' },
+  { method: 'GET', path: '/v1/alerts/active' },
+  { method: 'GET', path: '/v1/alerts/maintenance' },
+  { method: 'GET', path: '/v1/carbon' },
+  { method: 'GET', path: '/v1/compliance' },
+  { method: 'GET', path: '/v1/cost/summary' },
+  { method: 'GET', path: '/v1/dashboard-report-artifacts' },
+  { method: 'GET', path: '/v1/dashboard-report-schedules' },
+  { method: 'GET', path: '/v1/dashboards' },
+  { method: 'GET', path: '/v1/device/configs' },
+  { method: 'GET', path: '/v1/device/syslog' },
+  { method: 'GET', path: '/v1/diagnostics' },
+  { method: 'GET', path: '/v1/directory/scim-tokens' },
+  { method: 'GET', path: '/v1/editions' },
+  { method: 'GET', path: '/v1/endpoints' },
+  {
+    method: 'POST',
+    path: '/v1/explorer/query',
+    body: {
+      question: 'Show service dependencies',
+      source: 'topology',
+      from: '2026-06-04T11:00:00Z',
+      to: '2026-06-04T12:00:00Z',
+      dimensions: ['from', 'to', 'kind'],
+      filters: {},
+      groupings: ['kind'],
+      measures: ['edges'],
+      visualization: 'topology',
+      limit: 50,
+      template: 'service-dependencies',
+    },
+  },
+  { method: 'GET', path: '/v1/explorer/schema' },
+  { method: 'GET', path: '/v1/flows/anomalies' },
+  { method: 'GET', path: '/v1/flows/capacity' },
+  { method: 'GET', path: '/v1/flows/top' },
+  { method: 'GET', path: '/v1/incidents' },
+  {
+    method: 'GET',
+    path: '/v1/incidents/30000000-0000-4000-8000-000000000001',
+  },
+  { method: 'GET', path: '/v1/inventory/views' },
+  { method: 'GET', path: '/v1/lifecycle/retention' },
+  { method: 'GET', path: '/v1/me' },
+  { method: 'GET', path: '/v1/outages' },
+  { method: 'GET', path: '/v1/results/history' },
+  { method: 'GET', path: '/v1/results/latest' },
+  { method: 'GET', path: '/v1/rollouts' },
+  { method: 'GET', path: '/v1/rum' },
+  { method: 'GET', path: '/v1/secrets/health' },
+  { method: 'GET', path: '/v1/security/keys' },
+  { method: 'GET', path: '/v1/slos' },
+  { method: 'GET', path: '/v1/tests' },
+  {
+    method: 'GET',
+    path: '/v1/tests/10000000-0000-4000-8000-000000000001/path',
+  },
+  {
+    method: 'GET',
+    path: '/v1/tests/10000000-0000-4000-8000-000000000001/path/history',
+  },
+  { method: 'GET', path: '/v1/threat/detections' },
+  { method: 'GET', path: '/v1/threat/intel/status' },
+  { method: 'GET', path: '/v1/tls/posture' },
+  { method: 'GET', path: '/v1/topology' },
+  { method: 'POST', path: '/v1/topology/whatif', body: { target: 'service:checkout' } },
+]
 
 function callKey(c: APIFetchCall): string {
   return `${c.file}|${c.method}|${c.path}|${c.response}`
@@ -115,6 +195,25 @@ function generatedInterfaceMembers(name: string): Set<string> {
   return members
 }
 
+function literalFixturePaths(): string[] {
+  const source = readFileSync(fixturePath, 'utf8')
+  const paths = new Set<string>()
+  const routePattern = /(?:path\s*===|case)\s*['"]([^'"]+)['"]/g
+  for (let match = routePattern.exec(source); match; match = routePattern.exec(source)) {
+    if (match[1]) paths.add(match[1])
+  }
+  return [...paths].sort()
+}
+
+function fixtureRequestInit(request: FixtureContractRequest): RequestInit {
+  const init: RequestInit = { method: request.method }
+  if (request.body !== undefined) {
+    init.headers = { 'Content-Type': 'application/json' }
+    init.body = JSON.stringify(request.body)
+  }
+  return init
+}
+
 describe('API wire and OpenAPI shape contracts', () => {
   const calls = sourceFiles().flatMap(apiFetchCalls)
   const contracts: readonly APICallContract[] = API_CALL_CONTRACTS
@@ -172,5 +271,50 @@ describe('API wire and OpenAPI shape contracts', () => {
         'reasoning',
       ]),
     )
+  })
+})
+
+describe('design-loop fixture to OpenAPI response contracts', () => {
+  it('catalogs every literal fixture route exactly once', () => {
+    expect(FIXTURE_REQUESTS.map((request) => request.path).sort()).toEqual(literalFixturePaths())
+  })
+
+  for (const profile of ['populated', 'cold'] satisfies FixtureProfile[]) {
+    it(`${profile} responses use documented operations, statuses, parameters, and schemas`, async () => {
+      const failures: string[] = []
+      const fetchFixture = fixtureFetch(profile)
+      for (const request of FIXTURE_REQUESTS) {
+        const response = await fetchFixture(
+          `https://fixture.probectl.test${request.path}`,
+          fixtureRequestInit(request),
+        )
+        failures.push(...(await fixtureContractErrors(openAPI, request, response)))
+      }
+      expect(failures).toEqual([])
+    })
+  }
+
+  it('fails closed on planted path, status, and response-shape drift', async () => {
+    const unknownPath = await fixtureContractErrors(
+      openAPI,
+      { method: 'GET', path: '/v1/planted-phantom' },
+      jsonResponse({}),
+    )
+    expect(unknownPath.join('\n')).toMatch(/no matching OpenAPI operation/)
+
+    const undocumentedStatus = await fixtureContractErrors(
+      openAPI,
+      { method: 'GET', path: '/v1/tests' },
+      jsonResponse({ error: { code: 'teapot', message: 'planted status drift' } }, 418),
+    )
+    expect(undocumentedStatus.join('\n')).toMatch(/status 418 is not documented/)
+
+    const invalidShape = await fixtureContractErrors(
+      openAPI,
+      { method: 'GET', path: '/v1/tests' },
+      jsonResponse({ items: [{ id: 'not-a-uuid', name: 'drifted', type: 'dns' }] }),
+    )
+    expect(invalidShape.join('\n')).toMatch(/format uuid/)
+    expect(invalidShape.join('\n')).toMatch(/missing required property tenant_id/)
   })
 })

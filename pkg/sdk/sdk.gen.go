@@ -443,6 +443,12 @@ type DashboardView struct {
 	UpdatedAt  string              `json:"updated_at"`
 }
 
+type DeepHealth struct {
+	CheckedAt string        `json:"checked_at"`
+	Checks    []HealthCheck `json:"checks"`
+	Status    HealthStatus  `json:"status"`
+}
+
 type DeviceConfigArchiveRequest struct {
 	Content    string `json:"content"`
 	Device     string `json:"device"`
@@ -740,6 +746,14 @@ type Health struct {
 	AuditRetention map[string]any `json:"audit_retention,omitempty"`
 	Status         string         `json:"status"`
 }
+
+type HealthCheck struct {
+	Detail string       `json:"detail,omitempty"`
+	Name   string       `json:"name"`
+	Status HealthStatus `json:"status"`
+}
+
+type HealthStatus string
 
 type Hierarchy struct {
 	Items []HierarchyOrganization `json:"items"`
@@ -1163,6 +1177,19 @@ type TenantIdPSettingsInput struct {
 	Issuer       string          `json:"issuer"`
 	RedirectUrl  string          `json:"redirect_url"`
 	Scopes       []string        `json:"scopes,omitempty"`
+}
+
+type TenantKeyInfo struct {
+	CreatedAt   string `json:"created_at"`
+	DestroyedAt string `json:"destroyed_at,omitempty"`
+	Mode        string `json:"mode"`
+	RetiredAt   string `json:"retired_at,omitempty"`
+	State       string `json:"state"`
+	Version     int    `json:"version"`
+}
+
+type TenantKeyList struct {
+	Items []TenantKeyInfo `json:"items"`
 }
 
 type Test struct {
@@ -2214,10 +2241,14 @@ func (c *Client) ListDevices(ctx context.Context, req ListDevicesRequest) (*Devi
 type GetV1DiagnosticsRequest struct {
 }
 
-func (c *Client) GetV1Diagnostics(ctx context.Context, req GetV1DiagnosticsRequest) error {
+func (c *Client) GetV1Diagnostics(ctx context.Context, req GetV1DiagnosticsRequest) (*DeepHealth, error) {
 	path := "/v1/diagnostics"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
+	var out DeepHealth
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Secret-stripped support bundle (S-EE4): tar.gz of versions, redacted config, deep health, self-metrics, anonymized topology, runtime — NO secrets/PII (guardrail 6); admin diagnostics.read
@@ -3490,10 +3521,14 @@ func (c *Client) GetSecretsHealth(ctx context.Context, req GetSecretsHealthReque
 type GetV1SecurityKeysRequest struct {
 }
 
-func (c *Client) GetV1SecurityKeys(ctx context.Context, req GetV1SecurityKeysRequest) error {
+func (c *Client) GetV1SecurityKeys(ctx context.Context, req GetV1SecurityKeysRequest) (*TenantKeyList, error) {
 	path := "/v1/security/keys"
 	query := url.Values{}
-	return c.doJSON(ctx, http.MethodGet, path, query, nil, nil)
+	var out TenantKeyList
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Rotate the tenant's key: managed re-key or BYOK via an S41 secret reference (validated-resolvable BEFORE activation — the lockout guard); retired versions stay decrypt-only (no downtime)

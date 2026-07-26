@@ -11,9 +11,16 @@ export function jsonResponse(body: unknown, status = 200): Response {
   })
 }
 
+const TENANT_ID = '00000000-0000-4000-8000-000000000001'
+const EDGE_DNS_TEST_ID = '10000000-0000-4000-8000-000000000001'
+const API_GATEWAY_TEST_ID = '10000000-0000-4000-8000-000000000002'
+const AGENT_ID = '20000000-0000-4000-8000-000000000001'
+const INCIDENT_ID = '30000000-0000-4000-8000-000000000001'
+
 const sampleTests = [
   {
-    id: 't1',
+    id: EDGE_DNS_TEST_ID,
+    tenant_id: TENANT_ID,
     name: 'edge-dns',
     type: 'dns',
     target: '1.1.1.1',
@@ -25,7 +32,8 @@ const sampleTests = [
     updated_at: '2026-01-01T00:00:00Z',
   },
   {
-    id: 't2',
+    id: API_GATEWAY_TEST_ID,
+    tenant_id: TENANT_ID,
     name: 'api-gw',
     type: 'tcp',
     target: 'api.example.com:443',
@@ -40,12 +48,17 @@ const sampleTests = [
 
 const sampleAgents = [
   {
-    id: 'a1',
+    id: AGENT_ID,
+    tenant_id: TENANT_ID,
     name: 'agent-1',
     hostname: 'host-a',
     agent_version: '0.1.0',
     status: 'online',
     capabilities: ['icmp', 'tcp', 'flow', 'device', 'ebpf', 'endpoint'],
+    spiffe_id: `spiffe://probectl/tenant/${TENANT_ID}/agent/${AGENT_ID}`,
+    registered_at: '2026-01-01T00:00:00Z',
+    last_seen_at: '2026-06-04T12:00:00Z',
+    created_at: '2026-01-01T00:00:00Z',
     heartbeat_age_seconds: 30,
     heartbeat_state: 'ready',
     heartbeat_reason: 'Authenticated heartbeat is inside the five-minute health gate.',
@@ -65,8 +78,8 @@ const sampleAgents = [
 ]
 
 const sampleIncident = {
-  id: 'inc-dashboard',
-  tenant_id: '00000000-0000-0000-0000-000000000001',
+  id: INCIDENT_ID,
+  tenant_id: TENANT_ID,
   status: 'open',
   severity: 'warning',
   title: 'checkout latency burn',
@@ -94,7 +107,7 @@ const sampleIncident = {
   ],
 }
 
-/** Discovered path for t1 (edge-dns → 1.1.1.1): an ECMP fan at TTL 2–4 with
+/** Discovered path for edge-dns (→ 1.1.1.1): an ECMP fan at TTL 2–4 with
  * an MPLS label on one branch, a loss hotspot on the other, reconverging
  * before the destination — enough story for the J4 hero to demonstrate
  * branches, labels, loss encoding, and round comparison. */
@@ -184,7 +197,7 @@ const samplePathRounds = [
 
 const sampleAnswer = {
   id: 'ans-fixture',
-  tenant: '00000000-0000-0000-0000-000000000001',
+  tenant: TENANT_ID,
   question: '',
   root_cause: 'Most likely root cause: "edge-r1 throughput spike" saturating the checkout path.',
   root_cause_citations: [{ evidence_id: 'E1' }],
@@ -236,7 +249,7 @@ const sampleAnswer = {
       severity: 'warning',
       title: 'edge-r1 throughput spike',
       summary: 'capacity.anomaly at 85 Mbps against a 35 Mbps baseline',
-      ref: 'incident:inc-dashboard',
+      ref: `incident:${INCIDENT_ID}`,
       occurred_at: '2026-06-04T11:58:00Z',
     },
     {
@@ -246,7 +259,7 @@ const sampleAnswer = {
       severity: 'warning',
       title: 'HTTP latency above SLO',
       summary: 'checkout p95 above objective',
-      ref: 'incident:inc-dashboard',
+      ref: `incident:${INCIDENT_ID}`,
       occurred_at: '2026-06-04T11:55:00Z',
     },
   ],
@@ -297,7 +310,7 @@ const sampleIntelStatus = {
 
 const sampleLatestResults = [
   {
-    agent_id: 'a1',
+    agent_id: AGENT_ID,
     type: 'dns',
     target: '1.1.1.1',
     success: true,
@@ -306,7 +319,7 @@ const sampleLatestResults = [
     observed_at: '2026-06-04T12:00:00Z',
   },
   {
-    agent_id: 'a1',
+    agent_id: AGENT_ID,
     type: 'http',
     target: 'https://checkout.probectl.test',
     success: true,
@@ -315,7 +328,7 @@ const sampleLatestResults = [
     observed_at: '2026-06-04T12:00:00Z',
   },
   {
-    agent_id: 'a1',
+    agent_id: AGENT_ID,
     type: 'dns',
     target: 'checkout.probectl.test',
     success: true,
@@ -533,7 +546,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
     // Exclude the provider console's /provider/v1/me (different shape).
     if (path === '/v1/me')
       return jsonResponse({
-        tenant_id: '00000000-0000-0000-0000-000000000001',
+        tenant_id: TENANT_ID,
         tenant_name: 'Acme Industries',
         tenant_slug: 'acme-industries',
         user_id: 'u_test',
@@ -619,7 +632,8 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       })
     }
     if (path === '/v1/incidents') return jsonResponse({ items: [sampleIncident] })
-    if (path === '/v1/incidents/inc-dashboard') return jsonResponse(sampleIncident)
+    if (path === '/v1/incidents/30000000-0000-4000-8000-000000000001')
+      return jsonResponse(sampleIncident)
     if (path === '/v1/alerts') return jsonResponse({ items: [] })
     if (path === '/v1/alerts/maintenance')
       return jsonResponse({ items: [], evaluator_running: true })
@@ -651,7 +665,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
             kind: 'ioc_match',
             plane: 'threat',
             severity: 'warning',
-            confidence: 0.82,
+            confidence: 82,
             source: 'test-intel',
             category: 'scanner',
             indicator: '10.0.0.20',
@@ -733,18 +747,29 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         collector_running: true,
         window: '1h0m0s',
         items: [18, 21, 24, 20, 31, 26].map((duration, index) => ({
-          agent_id: 'a1',
+          agent_id: AGENT_ID,
           type: 'http',
           target: 'https://checkout.probectl.test',
           success: true,
           duration_ms: duration,
           metrics: { 'http.total.ms': duration },
-          observed_at: `2026-06-04T11:${String(10 + index * 10).padStart(2, '0')}:00Z`,
+          observed_at: [
+            '2026-06-04T11:10:00Z',
+            '2026-06-04T11:20:00Z',
+            '2026-06-04T11:30:00Z',
+            '2026-06-04T11:40:00Z',
+            '2026-06-04T11:50:00Z',
+            '2026-06-04T12:00:00Z',
+          ][index],
         })),
       })
-    if (path === '/v1/tests/t1/path' && (init?.method ?? 'GET') === 'GET')
+    if (
+      path === '/v1/tests/10000000-0000-4000-8000-000000000001/path' &&
+      (init?.method ?? 'GET') === 'GET'
+    )
       return jsonResponse(samplePath(true))
-    if (path === '/v1/tests/t1/path/history') return jsonResponse({ items: samplePathRounds })
+    if (path === '/v1/tests/10000000-0000-4000-8000-000000000001/path/history')
+      return jsonResponse({ items: samplePathRounds })
     if (path === '/v1/ai/ask' && init?.method === 'POST') {
       const request =
         typeof init.body === 'string' ? (JSON.parse(init.body) as { question?: string }) : {}
@@ -767,7 +792,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
           },
         ],
         rerouted_paths: [],
-        impacted_tests: [{ agent_id: 'a1', target: 'api.example.com:443', status: 'broken' }],
+        impacted_tests: [{ agent_id: AGENT_ID, target: 'api.example.com:443', status: 'broken' }],
         impacted_services: ['payments'],
         impacted_prefixes: [],
         disconnected: ['service:payments'],
@@ -775,7 +800,7 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         coverage: { path_edges: 0, flow_edges: 1, routing_edges: 1, device_edges: 1 },
         confidence: {
           level: 'medium',
-          score: 0.62,
+          score: 62,
           basis: 'Flow edges observed in the last hour; no path-plane coverage.',
         },
       })
@@ -993,7 +1018,8 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         ],
       })
     if (path === '/branding') return jsonResponse({ product_name: 'probectl' })
-    if (path === '/v1/security/keys') return jsonResponse({ error: { message: 'not found' } }, 404)
+    if (path === '/v1/security/keys')
+      return jsonResponse({ error: { code: 'not_found', message: 'not found' } }, 404)
     if (path === '/v1/lifecycle/retention')
       return jsonResponse({ flow_retention_days: null, isolation_model: 'pooled' })
     if (path === '/v1/editions')

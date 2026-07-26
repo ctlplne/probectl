@@ -106,8 +106,12 @@ describe('transport-isolated demo mode', () => {
     expect(screen.getByText(/responders without location/i)).toBeInTheDocument()
 
     expect(requestedPaths(fetcher)).not.toContain('/v1/tests')
-    expect(requestedPaths(fetcher)).not.toContain('/v1/tests/t1/path')
-    expect(requestedPaths(fetcher)).not.toContain('/v1/tests/t1/path/history')
+    expect(requestedPaths(fetcher)).not.toContain(
+      '/v1/tests/10000000-0000-4000-8000-000000000001/path',
+    )
+    expect(requestedPaths(fetcher)).not.toContain(
+      '/v1/tests/10000000-0000-4000-8000-000000000001/path/history',
+    )
   })
 
   test('renders a populated and accessible dashboard without live dashboard queries', async () => {

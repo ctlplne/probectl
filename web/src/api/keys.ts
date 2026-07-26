@@ -6,24 +6,18 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from './client'
+import type { TenantKeyInfo, TenantKeyList } from './sdk.gen'
 
 /** Per-tenant key isolation / BYOK (S-T6, ee-backed). The API serves key
  *  chain STATE only — material never crosses. A 404 means the byok feature
  *  is not licensed (hidden-unlicensed): the card simply does not render. */
 
-export interface KeyInfo {
-  version: number
-  mode: string // managed | byok
-  state: string // active | retired | destroyed
-  created_at: string
-  retired_at?: string
-  destroyed_at?: string
-}
+export type KeyInfo = TenantKeyInfo
 
 export function useKeys() {
   return useQuery({
     queryKey: ['security-keys'],
-    queryFn: () => apiFetch<{ items: KeyInfo[] }>('/security/keys').then((r) => r.items),
+    queryFn: () => apiFetch<TenantKeyList>('/security/keys').then((r) => r.items),
     retry: (count, err) => !(err instanceof ApiError && err.status === 404) && count < 2,
   })
 }
