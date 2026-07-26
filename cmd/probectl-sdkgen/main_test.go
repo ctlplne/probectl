@@ -19,3 +19,18 @@ func TestNullableScalarTypes(t *testing.T) {
 		t.Fatalf("tsType(nullable integer) = %q, want number | null", got)
 	}
 }
+
+func TestTSEnumArrayParenthesizesItemUnion(t *testing.T) {
+	g := generator{}
+	s := &schema{
+		Type: "array",
+		Items: &schema{
+			Type: "string",
+			Enum: []any{"flow", "changes"},
+		},
+	}
+
+	if got := g.tsType(s); got != `("flow" | "changes")[]` {
+		t.Fatalf("tsType(enum array) = %q, want parenthesized item union", got)
+	}
+}

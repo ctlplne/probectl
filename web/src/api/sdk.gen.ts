@@ -555,6 +555,39 @@ export interface ExplorerColumn {
   numeric?: boolean
 }
 
+export interface ExplorerComparisonRequest {
+  previous_from: string
+  previous_to: string
+  query: ExplorerQuery
+}
+
+export interface ExplorerComparisonResult {
+  contract_version: string
+  current: ExplorerQuery
+  current_preview: string
+  current_truncated: boolean
+  evidence_path: string
+  groupings: string[]
+  previous: ExplorerQuery
+  previous_preview: string
+  previous_truncated: boolean
+  rows: ExplorerComparisonRow[]
+  rows_truncated: boolean
+  state: "comparable" | "current_only" | "previous_only" | "empty"
+  suggestions: { [key: string]: string[] }
+}
+
+export interface ExplorerComparisonRow {
+  aggregation: "sum" | "mean"
+  current_value: number | null
+  delta: number | null
+  delta_state: "comparable" | "zero_baseline" | "missing_current" | "missing_previous"
+  group: { [key: string]: string }
+  measure: string
+  percent_change: number | null
+  previous_value: number | null
+}
+
 export interface ExplorerQuery {
   dimensions?: string[]
   filters?: { [key: string]: string }
@@ -580,6 +613,7 @@ export interface ExplorerResult {
 }
 
 export interface ExplorerSchemaResponse {
+  comparison_sources: ("flow" | "changes" | "topology" | "endpoints" | "tls")[]
   max_rows: number
   templates: ExplorerTemplate[]
   visualizations: string[]
@@ -1003,7 +1037,7 @@ export interface OncallStatus {
   providers: JsonObject[]
   secrets_redacted: boolean
   summary: string
-  supported_providers: "pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira"[]
+  supported_providers: ("pagerduty" | "opsgenie" | "slack" | "teams" | "servicenow" | "jira")[]
   tls_required: boolean
 }
 
@@ -1079,7 +1113,7 @@ export interface SIEMStatus {
   reason?: "disabled" | "missing_endpoint" | "insecure_endpoint" | "invalid_format" | "configured"
   redact_key_count: number
   siem_running: boolean
-  streams: "audit" | "threat"[]
+  streams: ("audit" | "threat")[]
   summary: string
   tls_required: boolean
   token_configured: boolean
@@ -1610,6 +1644,12 @@ export interface ListEndpointsRequest {
 }
 
 export type ListEndpointsResponse = JsonObject
+
+export interface CompareExplorerPeriodsRequest {
+  body: ExplorerComparisonRequest
+}
+
+export type CompareExplorerPeriodsResponse = ExplorerComparisonResult
 
 export interface QueryExplorerRequest {
   body: ExplorerQuery
@@ -2626,6 +2666,12 @@ export class ProbectlSDKClient {
     let path = "/v1/endpoints"
     const query = new URLSearchParams()
     return this.requestJSON<ListEndpointsResponse>("GET", path, query, undefined)
+  }
+
+  async compareExplorerPeriods(request: CompareExplorerPeriodsRequest): Promise<CompareExplorerPeriodsResponse> {
+    let path = "/v1/explorer/compare"
+    const query = new URLSearchParams()
+    return this.requestJSON<CompareExplorerPeriodsResponse>("POST", path, query, request.body)
   }
 
   async queryExplorer(request: QueryExplorerRequest): Promise<QueryExplorerResponse> {

@@ -46,6 +46,7 @@ export interface ExplorerTemplate {
 export interface ExplorerSchema {
   templates: ExplorerTemplate[]
   visualizations: ExplorerVisualization[]
+  comparison_sources?: ExplorerSource[]
   max_rows: number
 }
 
@@ -64,6 +65,45 @@ export interface ExplorerResult {
   truncated: boolean
 }
 
+export interface ExplorerComparisonRequest {
+  query: ExplorerQuery
+  previous_from: string
+  previous_to: string
+}
+
+export type ExplorerDeltaState =
+  | 'comparable'
+  | 'zero_baseline'
+  | 'missing_current'
+  | 'missing_previous'
+
+export interface ExplorerComparisonRow {
+  group: Record<string, string>
+  measure: string
+  aggregation: 'sum' | 'mean'
+  current_value: number | null
+  previous_value: number | null
+  delta: number | null
+  percent_change: number | null
+  delta_state: ExplorerDeltaState
+}
+
+export interface ExplorerComparisonResult {
+  contract_version: 'explorer-comparison/v1'
+  current: ExplorerQuery
+  previous: ExplorerQuery
+  current_preview: string
+  previous_preview: string
+  groupings: string[]
+  rows: ExplorerComparisonRow[]
+  suggestions: Record<string, string[]>
+  evidence_path: string
+  state: 'comparable' | 'current_only' | 'previous_only' | 'empty'
+  current_truncated: boolean
+  previous_truncated: boolean
+  rows_truncated: boolean
+}
+
 export function useExplorerSchema() {
   return useQuery({
     queryKey: ['explorer', 'schema'],
@@ -78,6 +118,17 @@ export function useExplorerQuery() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(query),
+      }),
+  })
+}
+
+export function useExplorerComparison() {
+  return useMutation({
+    mutationFn: (request: ExplorerComparisonRequest) =>
+      apiFetch<ExplorerComparisonResult>('/explorer/compare', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
       }),
   })
 }

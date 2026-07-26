@@ -751,7 +751,11 @@ func (g generator) tsType(s *schema) string {
 	case "boolean":
 		base = "boolean"
 	case "array":
-		base = g.tsType(s.Items) + "[]"
+		itemType := g.tsType(s.Items)
+		if strings.Contains(itemType, " | ") || strings.Contains(itemType, " & ") {
+			itemType = "(" + itemType + ")"
+		}
+		base = itemType + "[]"
 	case "object":
 		if ap := additionalSchema(s); ap != nil {
 			base = "{ [key: string]: " + g.tsType(ap) + " }"

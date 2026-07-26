@@ -377,6 +377,13 @@ export const API_CALL_CONTRACTS = [
   {
     file: 'api/explorer.ts',
     method: 'POST',
+    path: '/explorer/compare',
+    response: 'ExplorerComparisonResult',
+    generated: 'CompareExplorerPeriodsResponse',
+  },
+  {
+    file: 'api/explorer.ts',
+    method: 'POST',
     path: '/explorer/query',
     response: 'ExplorerResult',
     generated: 'QueryExplorerResponse',

@@ -733,6 +733,16 @@ func TestCLICoverageSurfaceIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestCLIExplorerComparisonSurfaceIsReadOnly(t *testing.T) {
+	op, ok := surfaceCommands["explorer"].Ops["compare"]
+	if !ok {
+		t.Fatal("missing probectl explorer compare surface")
+	}
+	if op.Method != http.MethodPost || op.Path != "/v1/explorer/compare" {
+		t.Fatalf("explorer compare op = %+v, want POST /v1/explorer/compare", op)
+	}
+}
+
 func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["list"]; got.Method != http.MethodGet || got.Path != "/v1/devices" {
 		t.Fatalf("device list op = %+v, want GET /v1/devices", got)

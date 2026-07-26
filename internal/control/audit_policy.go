@@ -164,6 +164,7 @@ var auditSensitiveReadRoutes = map[string]bool{
 	"POST /v1/alerts/maintenance/preview": true,
 	"POST /v1/ai/ask":                     true,
 	"POST /v1/explorer/query":             true,
+	"POST /v1/explorer/compare":           true,
 	"POST /v1/ai/author":                  true,
 }
 
@@ -273,6 +274,7 @@ var auditPolicyMatrix = map[string]auditRoutePolicy{
 	"GET /v1/inventory/views/{id}":                auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/explorer/schema":                     auditWrapped(auditFacetSensitiveRead),
 	"POST /v1/explorer/query":                     auditWrapped(auditFacetSensitiveRead),
+	"POST /v1/explorer/compare":                   auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/tls/posture":                         auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/siem/status":                         auditWrapped(auditFacetSensitiveRead),
 	"GET /v1/threat/detections":                   auditWrapped(auditFacetSensitiveRead),

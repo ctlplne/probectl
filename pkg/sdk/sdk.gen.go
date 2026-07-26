@@ -633,6 +633,40 @@ type ExplorerColumn struct {
 	Numeric bool   `json:"numeric,omitempty"`
 }
 
+// The query carries the current absolute window. The previous window is explicit and independently validated. Tenant scope is never accepted in the body.
+type ExplorerComparisonRequest struct {
+	PreviousFrom string        `json:"previous_from"`
+	PreviousTo   string        `json:"previous_to"`
+	Query        ExplorerQuery `json:"query"`
+}
+
+type ExplorerComparisonResult struct {
+	ContractVersion   string                  `json:"contract_version"`
+	Current           ExplorerQuery           `json:"current"`
+	CurrentPreview    string                  `json:"current_preview"`
+	CurrentTruncated  bool                    `json:"current_truncated"`
+	EvidencePath      string                  `json:"evidence_path"`
+	Groupings         []string                `json:"groupings"`
+	Previous          ExplorerQuery           `json:"previous"`
+	PreviousPreview   string                  `json:"previous_preview"`
+	PreviousTruncated bool                    `json:"previous_truncated"`
+	Rows              []ExplorerComparisonRow `json:"rows"`
+	RowsTruncated     bool                    `json:"rows_truncated"`
+	State             string                  `json:"state"`
+	Suggestions       map[string][]string     `json:"suggestions"`
+}
+
+type ExplorerComparisonRow struct {
+	Aggregation   string            `json:"aggregation"`
+	CurrentValue  *float64          `json:"current_value"`
+	Delta         *float64          `json:"delta"`
+	DeltaState    string            `json:"delta_state"`
+	Group         map[string]string `json:"group"`
+	Measure       string            `json:"measure"`
+	PercentChange *float64          `json:"percent_change"`
+	PreviousValue *float64          `json:"previous_value"`
+}
+
 type ExplorerQuery struct {
 	Dimensions    []string          `json:"dimensions,omitempty"`
 	Filters       map[string]string `json:"filters,omitempty"`
@@ -658,9 +692,10 @@ type ExplorerResult struct {
 }
 
 type ExplorerSchemaResponse struct {
-	MaxRows        int                `json:"max_rows"`
-	Templates      []ExplorerTemplate `json:"templates"`
-	Visualizations []string           `json:"visualizations"`
+	ComparisonSources []string           `json:"comparison_sources"`
+	MaxRows           int                `json:"max_rows"`
+	Templates         []ExplorerTemplate `json:"templates"`
+	Visualizations    []string           `json:"visualizations"`
 }
 
 type ExplorerTemplate struct {
@@ -2407,6 +2442,21 @@ func (c *Client) ListEndpoints(ctx context.Context, req ListEndpointsRequest) (m
 		return nil, err
 	}
 	return out, nil
+}
+
+// Compare two explicit Explorer windows inside one tenant
+type CompareExplorerPeriodsRequest struct {
+	Body *ExplorerComparisonRequest `json:"-"`
+}
+
+func (c *Client) CompareExplorerPeriods(ctx context.Context, req CompareExplorerPeriodsRequest) (*ExplorerComparisonResult, error) {
+	path := "/v1/explorer/compare"
+	query := url.Values{}
+	var out ExplorerComparisonResult
+	if err := c.doJSON(ctx, http.MethodPost, path, query, req.Body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // Run one structured Explorer query against tenant-scoped telemetry

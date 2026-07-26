@@ -1733,6 +1733,54 @@
         }
       }
     },
+    "/v1/explorer/compare": {
+      "post": {
+        "operationId": "compareExplorerPeriods",
+        "summary": "Compare two explicit Explorer windows inside one tenant",
+        "tags": [
+          "ai"
+        ],
+        "description": "Resolves tenant scope from authentication before source RBAC, then runs the same bounded source dispatch for the current and previous windows. Numeric measures are aligned by the requested groupings with explicit missing-current, missing-previous, and zero-baseline states. Only sources with exact historical-window reads are accepted; current-state-only sources fail closed.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExplorerComparisonRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Aligned exact measure values and honest delta states for both authorized windows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerComparisonResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "$ref": "#/components/responses/ErrorResponse"
+          },
+          "503": {
+            "$ref": "#/components/responses/ErrorResponse"
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 500,
+          "reason": "Each Explorer window and the aligned comparison output are capped at the validated query limit, never above 500 rows."
+        }
+      }
+    },
     "/v1/explorer/query": {
       "post": {
         "operationId": "queryExplorer",
@@ -10080,6 +10128,7 @@
         "required": [
           "templates",
           "visualizations",
+          "comparison_sources",
           "max_rows"
         ],
         "properties": {
@@ -10090,6 +10139,20 @@
           "visualizations": {
             "type": "array",
             "items": { "type": "string" }
+          },
+          "comparison_sources": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "flow",
+                "changes",
+                "topology",
+                "endpoints",
+                "tls"
+              ]
+            },
+            "description": "Sources whose tenant-scoped dispatch honors both explicit historical windows. Current-state-only sources are omitted."
           },
           "max_rows": { "type": "integer" }
         }
@@ -10140,6 +10203,171 @@
           },
           "evidence_path": { "type": "string" },
           "truncated": { "type": "boolean" }
+        }
+      },
+      "ExplorerComparisonRequest": {
+        "type": "object",
+        "required": [
+          "query",
+          "previous_from",
+          "previous_to"
+        ],
+        "properties": {
+          "query": {
+            "$ref": "#/components/schemas/ExplorerQuery"
+          },
+          "previous_from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "previous_to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "description": "The query carries the current absolute window. The previous window is explicit and independently validated. Tenant scope is never accepted in the body."
+      },
+      "ExplorerComparisonRow": {
+        "type": "object",
+        "required": [
+          "group",
+          "measure",
+          "aggregation",
+          "current_value",
+          "previous_value",
+          "delta",
+          "percent_change",
+          "delta_state"
+        ],
+        "properties": {
+          "group": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "measure": {
+            "type": "string"
+          },
+          "aggregation": {
+            "type": "string",
+            "enum": [
+              "sum",
+              "mean"
+            ]
+          },
+          "current_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "previous_value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "percent_change": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta_state": {
+            "type": "string",
+            "enum": [
+              "comparable",
+              "zero_baseline",
+              "missing_current",
+              "missing_previous"
+            ]
+          }
+        }
+      },
+      "ExplorerComparisonResult": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "current",
+          "previous",
+          "current_preview",
+          "previous_preview",
+          "groupings",
+          "rows",
+          "suggestions",
+          "evidence_path",
+          "state",
+          "current_truncated",
+          "previous_truncated",
+          "rows_truncated"
+        ],
+        "properties": {
+          "contract_version": {
+            "type": "string",
+            "const": "explorer-comparison/v1"
+          },
+          "current": {
+            "$ref": "#/components/schemas/ExplorerQuery"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/ExplorerQuery"
+          },
+          "current_preview": {
+            "type": "string"
+          },
+          "previous_preview": {
+            "type": "string"
+          },
+          "groupings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "rows": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/ExplorerComparisonRow"
+            }
+          },
+          "suggestions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "evidence_path": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "comparable",
+              "current_only",
+              "previous_only",
+              "empty"
+            ]
+          },
+          "current_truncated": {
+            "type": "boolean"
+          },
+          "previous_truncated": {
+            "type": "boolean"
+          },
+          "rows_truncated": {
+            "type": "boolean"
+          }
         }
       },
       "AIQueryRange": {

@@ -8,6 +8,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sort"
@@ -40,6 +41,39 @@ type explorerResult struct {
 	Truncated    bool                `json:"truncated"`
 }
 
+type explorerComparisonRequest struct {
+	Query        ai.ExplorerQuery `json:"query"`
+	PreviousFrom time.Time        `json:"previous_from"`
+	PreviousTo   time.Time        `json:"previous_to"`
+}
+
+type explorerComparisonRow struct {
+	Group         map[string]string `json:"group"`
+	Measure       string            `json:"measure"`
+	Aggregation   string            `json:"aggregation"`
+	CurrentValue  *float64          `json:"current_value"`
+	PreviousValue *float64          `json:"previous_value"`
+	Delta         *float64          `json:"delta"`
+	PercentChange *float64          `json:"percent_change"`
+	DeltaState    string            `json:"delta_state"`
+}
+
+type explorerComparisonResult struct {
+	ContractVersion   string                  `json:"contract_version"`
+	Current           ai.ExplorerQuery        `json:"current"`
+	Previous          ai.ExplorerQuery        `json:"previous"`
+	CurrentPreview    string                  `json:"current_preview"`
+	PreviousPreview   string                  `json:"previous_preview"`
+	Groupings         []string                `json:"groupings"`
+	Rows              []explorerComparisonRow `json:"rows"`
+	Suggestions       map[string][]string     `json:"suggestions"`
+	EvidencePath      string                  `json:"evidence_path"`
+	State             string                  `json:"state"`
+	CurrentTruncated  bool                    `json:"current_truncated"`
+	PreviousTruncated bool                    `json:"previous_truncated"`
+	RowsTruncated     bool                    `json:"rows_truncated"`
+}
+
 // handleExplorerSchema returns the fixed grammar and discoverable J3 recipes.
 // It contains no tenant telemetry; identity and ai.query are still required so
 // this operator surface is never exposed as an unauthenticated capability map.
@@ -48,9 +82,10 @@ func (s *Server) handleExplorerSchema(w http.ResponseWriter, r *http.Request) er
 		return err
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"templates":      ai.ExplorerTemplates(),
-		"visualizations": []string{"table", "bar", "line", "timeline", "topology"},
-		"max_rows":       500,
+		"templates":          ai.ExplorerTemplates(),
+		"visualizations":     []string{"table", "bar", "line", "timeline", "topology"},
+		"comparison_sources": []ai.ExplorerSource{ai.ExplorerFlow, ai.ExplorerChanges, ai.ExplorerTopology, ai.ExplorerEndpoints, ai.ExplorerTLS},
+		"max_rows":           500,
 	})
 	return nil
 }
@@ -81,10 +116,98 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 		return apierror.Forbidden("this role cannot read the selected Explorer source")
 	}
 
-	rows, err := s.executeExplorer(r.Context(), p.TenantID, query)
+	filtered, truncated, err := s.executeExplorerBounded(r.Context(), p.TenantID, query)
 	if err != nil {
 		s.log.Warn("explorer query failed", "tenant_id", p.TenantID, "source", query.Source, "error", err)
 		return apierror.Unavailable("the selected Explorer source is temporarily unavailable")
+	}
+	result := explorerResult{
+		Query: query, Preview: ai.ExplorerPreview(query), Columns: explorerColumns(query),
+		Rows: filtered, Suggestions: explorerSuggestions(filtered, query.Dimensions),
+		EvidencePath: explorerEvidencePath(query), Truncated: truncated,
+	}
+	writeJSON(w, http.StatusOK, result)
+	return nil
+}
+
+// handleExplorerComparison runs the same bounded, tenant-first dispatch for two
+// explicit windows. Current-state-only sources are rejected instead of
+// pretending their latest snapshot is historical evidence.
+func (s *Server) handleExplorerComparison(w http.ResponseWriter, r *http.Request) error {
+	release, err := s.beginQuery(w, r)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	p := auth.PrincipalFrom(r.Context())
+	if p == nil || strings.TrimSpace(p.TenantID) == "" {
+		return apierror.Unauthorized("authentication required")
+	}
+	var raw explorerComparisonRequest
+	if err := decodeJSONLimit(r, 1<<16, &raw); err != nil {
+		return err
+	}
+	current, err := ai.NormalizeExplorerQuery(raw.Query, time.Now())
+	if err != nil {
+		return apierror.Validation(err.Error())
+	}
+	if !explorerComparisonSource(current.Source) {
+		return apierror.Validation("the selected Explorer source does not retain two exact historical windows")
+	}
+	if len(current.Measures) == 0 {
+		return apierror.Validation("Explorer comparison requires at least one numeric measure")
+	}
+	if raw.PreviousFrom.IsZero() || raw.PreviousTo.IsZero() {
+		return apierror.Validation("previous_from and previous_to are required")
+	}
+	previous := current
+	previous.From = raw.PreviousFrom
+	previous.To = raw.PreviousTo
+	previous, err = ai.NormalizeExplorerQuery(previous, time.Now())
+	if err != nil {
+		return apierror.Validation("previous window: " + err.Error())
+	}
+	if current.From.Equal(current.To) || previous.From.Equal(previous.To) {
+		return apierror.Validation("Explorer comparison windows must have positive duration")
+	}
+	permission := explorerPermission(current.Source)
+	if permission == "" || !p.Has(permission) {
+		return apierror.Forbidden("this role cannot read the selected Explorer source")
+	}
+
+	currentRows, currentTruncated, err := s.executeExplorerBounded(r.Context(), p.TenantID, current)
+	if err != nil {
+		s.log.Warn("explorer comparison current window failed", "tenant_id", p.TenantID, "source", current.Source, "error", err)
+		return apierror.Unavailable("the current Explorer window is temporarily unavailable")
+	}
+	previousRows, previousTruncated, err := s.executeExplorerBounded(r.Context(), p.TenantID, previous)
+	if err != nil {
+		s.log.Warn("explorer comparison previous window failed", "tenant_id", p.TenantID, "source", current.Source, "error", err)
+		return apierror.Unavailable("the previous Explorer window is temporarily unavailable")
+	}
+	rows, rowsTruncated := alignExplorerComparison(currentRows, previousRows, current.Groupings, current.Measures, current.Limit)
+	suggestionRows := append(append([]ai.Row{}, currentRows...), previousRows...)
+	writeJSON(w, http.StatusOK, explorerComparisonResult{
+		ContractVersion: "explorer-comparison/v1",
+		Current:         current, Previous: previous,
+		CurrentPreview: ai.ExplorerPreview(current), PreviousPreview: ai.ExplorerPreview(previous),
+		Groupings: current.Groupings, Rows: rows,
+		Suggestions:  explorerSuggestions(suggestionRows, current.Dimensions),
+		EvidencePath: explorerEvidencePath(current),
+		State: explorerComparisonState(
+			explorerRowsHaveMeasures(currentRows, current.Measures),
+			explorerRowsHaveMeasures(previousRows, current.Measures),
+		),
+		CurrentTruncated: currentTruncated, PreviousTruncated: previousTruncated, RowsTruncated: rowsTruncated,
+	})
+	return nil
+}
+
+func (s *Server) executeExplorerBounded(ctx context.Context, tenant string, query ai.ExplorerQuery) ([]ai.Row, bool, error) {
+	rows, err := s.executeExplorer(ctx, tenant, query)
+	if err != nil {
+		return nil, false, err
 	}
 	filtered := filterExplorerRows(rows, query.Filters)
 	truncated := len(filtered) > query.Limit
@@ -94,13 +217,195 @@ func (s *Server) handleExplorerQuery(w http.ResponseWriter, r *http.Request) err
 	if filtered == nil {
 		filtered = []ai.Row{}
 	}
-	result := explorerResult{
-		Query: query, Preview: ai.ExplorerPreview(query), Columns: explorerColumns(query),
-		Rows: filtered, Suggestions: explorerSuggestions(filtered, query.Dimensions),
-		EvidencePath: explorerEvidencePath(query), Truncated: truncated,
+	return filtered, truncated, nil
+}
+
+func explorerComparisonSource(source ai.ExplorerSource) bool {
+	switch source {
+	case ai.ExplorerFlow, ai.ExplorerChanges, ai.ExplorerTopology, ai.ExplorerEndpoints, ai.ExplorerTLS:
+		return true
+	default:
+		return false
 	}
-	writeJSON(w, http.StatusOK, result)
-	return nil
+}
+
+func explorerComparisonState(current, previous bool) string {
+	switch {
+	case !current && !previous:
+		return "empty"
+	case !current:
+		return "previous_only"
+	case !previous:
+		return "current_only"
+	default:
+		return "comparable"
+	}
+}
+
+func explorerRowsHaveMeasures(rows []ai.Row, measures []string) bool {
+	for _, row := range rows {
+		for _, measure := range measures {
+			if _, ok := explorerNumeric(row[measure]); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type explorerAggregate struct {
+	group  map[string]string
+	values map[string]float64
+	counts map[string]int
+}
+
+func alignExplorerComparison(current, previous []ai.Row, groupings, measures []string, limit int) ([]explorerComparisonRow, bool) {
+	currentValues := aggregateExplorerRows(current, groupings, measures)
+	previousValues := aggregateExplorerRows(previous, groupings, measures)
+	keys := make([]string, 0, len(currentValues)+len(previousValues))
+	seen := map[string]bool{}
+	for key := range currentValues {
+		seen[key] = true
+		keys = append(keys, key)
+	}
+	for key := range previousValues {
+		if !seen[key] {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	rows := make([]explorerComparisonRow, 0, len(keys)*len(measures))
+	for _, key := range keys {
+		currentGroup, hasCurrent := currentValues[key]
+		previousGroup, hasPrevious := previousValues[key]
+		group := currentGroup.group
+		if !hasCurrent {
+			group = previousGroup.group
+		}
+		for _, measure := range measures {
+			currentValue, currentOK := aggregateExplorerMeasure(currentGroup, measure, hasCurrent)
+			previousValue, previousOK := aggregateExplorerMeasure(previousGroup, measure, hasPrevious)
+			if !currentOK && !previousOK {
+				continue
+			}
+			row := explorerComparisonRow{
+				Group: group, Measure: measure, Aggregation: explorerMeasureAggregation(measure),
+				CurrentValue: floatPointer(currentValue, currentOK), PreviousValue: floatPointer(previousValue, previousOK),
+				DeltaState: "comparable",
+			}
+			switch {
+			case !currentOK:
+				row.DeltaState = "missing_current"
+			case !previousOK:
+				row.DeltaState = "missing_previous"
+			default:
+				delta := currentValue - previousValue
+				row.Delta = &delta
+				if previousValue == 0 {
+					row.DeltaState = "zero_baseline"
+				} else {
+					percent := delta / previousValue * 100
+					row.PercentChange = &percent
+				}
+			}
+			rows = append(rows, row)
+		}
+	}
+	truncated := len(rows) > limit
+	if truncated {
+		rows = rows[:limit]
+	}
+	if rows == nil {
+		rows = []explorerComparisonRow{}
+	}
+	return rows, truncated
+}
+
+func aggregateExplorerRows(rows []ai.Row, groupings, measures []string) map[string]explorerAggregate {
+	out := map[string]explorerAggregate{}
+	for _, row := range rows {
+		group := make(map[string]string, len(groupings))
+		var key strings.Builder
+		for _, grouping := range groupings {
+			value := strings.TrimSpace(fmt.Sprint(row[grouping]))
+			group[grouping] = value
+			_, _ = fmt.Fprintf(&key, "%d:%s|", len(value), value)
+		}
+		encoded := key.String()
+		aggregate, ok := out[encoded]
+		if !ok {
+			aggregate = explorerAggregate{group: group, values: map[string]float64{}, counts: map[string]int{}}
+		}
+		for _, measure := range measures {
+			if value, ok := explorerNumeric(row[measure]); ok {
+				aggregate.values[measure] += value
+				aggregate.counts[measure]++
+			}
+		}
+		out[encoded] = aggregate
+	}
+	return out
+}
+
+func aggregateExplorerMeasure(aggregate explorerAggregate, measure string, present bool) (float64, bool) {
+	if !present || aggregate.counts[measure] == 0 {
+		return 0, false
+	}
+	value := aggregate.values[measure]
+	if explorerMeasureAggregation(measure) == "mean" {
+		value /= float64(aggregate.counts[measure])
+	}
+	return value, true
+}
+
+func explorerMeasureAggregation(measure string) string {
+	switch measure {
+	case "events", "edges", "affected_endpoints", "bytes", "usd":
+		return "sum"
+	default:
+		return "mean"
+	}
+}
+
+func explorerNumeric(value any) (float64, bool) {
+	switch value := value.(type) {
+	case float64:
+		return value, true
+	case float32:
+		return float64(value), true
+	case int:
+		return float64(value), true
+	case int8:
+		return float64(value), true
+	case int16:
+		return float64(value), true
+	case int32:
+		return float64(value), true
+	case int64:
+		return float64(value), true
+	case uint:
+		return float64(value), true
+	case uint8:
+		return float64(value), true
+	case uint16:
+		return float64(value), true
+	case uint32:
+		return float64(value), true
+	case uint64:
+		return float64(value), true
+	case json.Number:
+		number, err := value.Float64()
+		return number, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func floatPointer(value float64, ok bool) *float64 {
+	if !ok {
+		return nil
+	}
+	return &value
 }
 
 func explorerPermission(source ai.ExplorerSource) string {

@@ -26,6 +26,31 @@ Supported sources are `flow`, `changes`, `path`, `topology`, `endpoints`, `tls`,
 availability follows the documented [deployment limitations](limitations.md); Explorer returns
 an honest empty result and never silently substitutes another source.
 
+### Period comparison
+
+`POST /v1/explorer/compare` accepts the normal query as the current absolute window plus
+explicit `previous_from` and `previous_to` bounds. The server normalizes both windows, applies
+the same authenticated tenant and source permission to both reads, and aligns numeric measures
+by the selected groupings. The response contract is identified as
+`explorer-comparison/v1`.
+
+ELI5: this is two copies of the same local worksheet with different clocks. The server reads
+both from the same tenant drawer, lines up matching labels, and shows current, previous,
+absolute delta, and percent change. A previous value of zero is `zero_baseline`; a missing
+side is `missing_current` or `missing_previous`. These states remain undefined instead of
+quietly turning missing evidence into zero.
+
+Additive measures (`events`, `edges`, `affected_endpoints`, `bytes`, and `usd`) use a declared
+`sum`; rate and gauge measures use a declared `mean`. Each row reports its aggregation. Flow,
+changes, topology, endpoints, and TLS support exact historical-window comparison. Path, cost,
+and SLO currently expose latest/current state through Explorer, so the schema omits them from
+`comparison_sources` and the comparison endpoint rejects them rather than pretending a current
+snapshot is historical data.
+
+Both input windows and the aligned output stay under the query's bounded row limit (at most
+500). `current_truncated`, `previous_truncated`, and `rows_truncated` make a partial result
+explicit. Narrow both windows or add a filter before interpreting a partial delta.
+
 ## Tenant and authorization boundary
 
 There is no `tenant_id` field in `ExplorerQuery`. The server resolves the tenant from the
@@ -35,8 +60,8 @@ variants such as `tenant`, `tenant_id`, `tenant-id`, and `tenant.name` are rejec
 
 Value suggestions are calculated from the already-authorized result rows. There is no global
 suggestion index to leak another tenant's site, endpoint, service, or certificate names.
-Cross-tenant tests insert distinguishable flow rows and prove that both the exact table and
-suggestion list stay inside the caller's store partition.
+Cross-tenant tests insert distinguishable flow rows in both comparison windows and prove that
+the exact table, aligned values, and suggestion list stay inside the caller's store partition.
 
 Saved Explorer views reuse `/v1/inventory/views`. That store's outer key is `tenant_id` and its
 next key is the authenticated owner. A saved view contains grammar/filter choices only;
@@ -45,11 +70,12 @@ indistinguishable from a missing ID (`404 saved view not found`).
 
 ## Context and evidence
 
-The stable view link contains the recipe, absolute UTC time range, and exact filters. It never
-contains tenant identity or credentials. “Open evidence” uses the common short-lived pivot
-contract to carry the same time/filter context to the source screen, and “Explain this view”
-uses the tenant/RBAC-scoped AI evidence engine. The exact result table remains available beside
-both paths so a chart or explanation never hides the source values.
+The stable view link contains the recipe, absolute UTC time range, exact filters, and—when
+enabled—the explicit previous UTC window. It never contains tenant identity or credentials.
+“Open evidence” uses the common short-lived pivot contract to carry the same time/filter
+context to the source screen, and “Explain this view” uses the tenant/RBAC-scoped AI evidence
+engine. The exact result table remains available beside both paths so a chart or explanation
+never hides the source values.
 
 ## Operator and CLI examples
 
@@ -63,6 +89,21 @@ probectl explorer query --body '{
   "measures":["edges"],
   "visualization":"topology",
   "limit":100
+}'
+probectl explorer compare --body '{
+  "query":{
+    "question":"Show service dependencies",
+    "source":"topology",
+    "from":"2026-07-14T11:00:00Z",
+    "to":"2026-07-14T12:00:00Z",
+    "dimensions":["from","to","kind"],
+    "groupings":["kind"],
+    "measures":["edges"],
+    "visualization":"topology",
+    "limit":100
+  },
+  "previous_from":"2026-07-14T10:00:00Z",
+  "previous_to":"2026-07-14T11:00:00Z"
 }'
 ```
 

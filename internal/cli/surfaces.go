@@ -130,8 +130,9 @@ var surfaceCommands = map[string]surfaceCommand{
 		"status": {Method: http.MethodGet, Path: "/v1/editions"},
 	}},
 	"explorer": {Name: "explorer", Summary: "structured and natural-language telemetry explorer", Ops: map[string]apiOp{
-		"schema": {Method: http.MethodGet, Path: "/v1/explorer/schema"},
-		"query":  {Method: http.MethodPost, Path: "/v1/explorer/query"},
+		"schema":  {Method: http.MethodGet, Path: "/v1/explorer/schema"},
+		"query":   {Method: http.MethodPost, Path: "/v1/explorer/query"},
+		"compare": {Method: http.MethodPost, Path: "/v1/explorer/compare"},
 	}},
 	"endpoint": {Name: "endpoint", Summary: "endpoint/DEM fleet", Ops: map[string]apiOp{
 		"list": {Method: http.MethodGet, Path: "/v1/endpoints"},

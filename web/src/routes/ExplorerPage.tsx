@@ -22,8 +22,10 @@ import {
   type Column,
 } from '../components'
 import {
+  useExplorerComparison,
   useExplorerQuery,
   useExplorerSchema,
+  type ExplorerComparisonRow,
   type ExplorerQuery,
   type ExplorerSource,
   type ExplorerTemplate,
@@ -53,6 +55,21 @@ function rangeNow() {
   const to = new Date()
   const from = new Date(to.getTime() - 60 * 60 * 1000)
   return { from: from.toISOString(), to: to.toISOString() }
+}
+
+interface ComparisonWindow {
+  from: string
+  to: string
+}
+
+function precedingWindow(query: ExplorerQuery): ComparisonWindow {
+  const from = new Date(query.from).getTime()
+  const to = new Date(query.to).getTime()
+  const duration = Math.max(1, to - from)
+  return {
+    from: new Date(from - duration).toISOString(),
+    to: new Date(from).toISOString(),
+  }
 }
 
 function fromTemplate(template: ExplorerTemplate, range = rangeNow()): ExplorerQuery {
@@ -115,17 +132,22 @@ function preview(query: ExplorerQuery) {
     .join(' | ')
 }
 
-function stableHref(query: ExplorerQuery) {
+function stableHref(query: ExplorerQuery, comparison: ComparisonWindow | null) {
   const params = new URLSearchParams()
   if (query.template) params.set('template', query.template)
   params.set('from', query.from)
   params.set('to', query.to)
   for (const [key, value] of Object.entries(query.filters))
     params.append('filter', `${key}:${value}`)
+  if (comparison) {
+    params.set('compare', '1')
+    params.set('previous_from', comparison.from)
+    params.set('previous_to', comparison.to)
+  }
   return `/explore?${params.toString()}`
 }
 
-function savedState(query: ExplorerQuery) {
+function savedState(query: ExplorerQuery, comparison: ComparisonWindow | null) {
   const firstFilter = Object.entries(query.filters)[0]
   return {
     template: query.template ?? '',
@@ -138,6 +160,9 @@ function savedState(query: ExplorerQuery) {
     visualization: query.visualization,
     filter_key: firstFilter?.[0] ?? '',
     filter_value: firstFilter?.[1] ?? '',
+    compare: comparison ? '1' : '',
+    previous_from: comparison?.from ?? '',
+    previous_to: comparison?.to ?? '',
   }
 }
 
@@ -157,6 +182,79 @@ function chartValues(rows: Record<string, unknown>[], measures: string[]) {
     .map((row) => row[key])
     .filter((value): value is number => typeof value === 'number')
   return values.length ? values : [0]
+}
+
+function comparisonValue(value: number | null) {
+  if (value == null) return '—'
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value)
+}
+
+function comparisonStateLabel(state: ExplorerComparisonRow['delta_state']) {
+  switch (state) {
+    case 'zero_baseline':
+      return 'Zero baseline'
+    case 'missing_current':
+      return 'Missing current'
+    case 'missing_previous':
+      return 'Missing previous'
+    default:
+      return 'Comparable'
+  }
+}
+
+function ComparisonBars({ rows }: { rows: ExplorerComparisonRow[] }) {
+  const plotted = rows
+    .filter((row) => row.current_value !== null || row.previous_value !== null)
+    .slice(0, 12)
+  const maximum = Math.max(
+    1,
+    ...plotted.flatMap((row) => [
+      Math.abs(row.current_value ?? 0),
+      Math.abs(row.previous_value ?? 0),
+    ]),
+  )
+  return (
+    <div
+      className={styles.comparisonBars}
+      role="img"
+      aria-label={`Current and previous values for ${plotted.length} aligned Explorer measure${plotted.length === 1 ? '' : 's'}`}
+    >
+      <div className={styles.comparisonLegend} aria-hidden="true">
+        <span className={styles.currentSwatch} />
+        <span>Current</span>
+        <span className={styles.previousSwatch} />
+        <span>Previous</span>
+      </div>
+      <ol>
+        {plotted.map((row) => {
+          const label = [...Object.values(row.group), row.measure].filter(Boolean).join(' · ')
+          return (
+            <li key={`${JSON.stringify(row.group)}:${row.measure}`}>
+              <span className={styles.barLabel}>{label}</span>
+              <span className={`${styles.barValue} ${styles.currentValue}`}>
+                {comparisonValue(row.current_value)}
+              </span>
+              <span className={`${styles.barTrack} ${styles.currentTrack}`} aria-hidden="true">
+                <span
+                  className={styles.currentBar}
+                  style={{ width: `${(Math.abs(row.current_value ?? 0) / maximum) * 100}%` }}
+                />
+              </span>
+              <span className={`${styles.barValue} ${styles.previousValue}`}>
+                {comparisonValue(row.previous_value)}
+              </span>
+              <span className={`${styles.barTrack} ${styles.previousTrack}`} aria-hidden="true">
+                <span
+                  className={styles.previousBar}
+                  style={{ width: `${(Math.abs(row.previous_value ?? 0) / maximum) * 100}%` }}
+                />
+              </span>
+            </li>
+          )
+        })}
+      </ol>
+    </div>
+  )
 }
 
 const TIME_COLUMN = /(^|_)(occurred_at|observed_at|timestamp|time|ts|hour|bucket|date)($|_)/i
@@ -194,7 +292,9 @@ export function ExplorerPage() {
   const [params] = useSearchParams()
   const schema = useExplorerSchema()
   const run = useExplorerQuery()
+  const comparisonRun = useExplorerComparison()
   const [query, setQuery] = useState<ExplorerQuery | null>(null)
+  const [comparison, setComparison] = useState<ComparisonWindow | null>(null)
   const [filterKey, setFilterKey] = useState('')
 
   useEffect(() => {
@@ -212,6 +312,15 @@ export function ExplorerPage() {
       if (split > 0 && !key.toLowerCase().startsWith('tenant'))
         next.filters[key] = encoded.slice(split + 1)
     }
+    if (params.get('compare') === '1') {
+      const previousFrom = params.get('previous_from')
+      const previousTo = params.get('previous_to')
+      setComparison(
+        previousFrom && previousTo
+          ? { from: absoluteTime(previousFrom), to: absoluteTime(previousTo) }
+          : precedingWindow(next),
+      )
+    }
     setFilterKey(Object.keys(next.filters)[0] ?? next.dimensions[0] ?? '')
     setQuery(next)
   }, [params, query, schema.data])
@@ -225,6 +334,48 @@ export function ExplorerPage() {
         render: (row) => displayValue(row[column.key]),
       })),
     [run.data?.columns],
+  )
+  const comparisonColumns = useMemo<Column<ExplorerComparisonRow>[]>(
+    () => [
+      ...(comparisonRun.data?.groupings ?? []).map((grouping) => ({
+        key: grouping,
+        header: grouping.replace(/_/g, ' '),
+        render: (row: ExplorerComparisonRow) => row.group[grouping] || 'All rows',
+      })),
+      { key: 'measure', header: 'Measure', render: (row) => row.measure },
+      {
+        key: 'current',
+        header: 'Current',
+        numeric: true,
+        render: (row) => comparisonValue(row.current_value),
+      },
+      {
+        key: 'previous',
+        header: 'Previous',
+        numeric: true,
+        render: (row) => comparisonValue(row.previous_value),
+      },
+      {
+        key: 'delta',
+        header: 'Absolute delta',
+        numeric: true,
+        render: (row) => comparisonValue(row.delta),
+      },
+      {
+        key: 'percent',
+        header: 'Percent change',
+        numeric: true,
+        render: (row) =>
+          row.percent_change == null ? '—' : `${comparisonValue(row.percent_change)}%`,
+      },
+      {
+        key: 'state',
+        header: 'Delta state',
+        render: (row) => comparisonStateLabel(row.delta_state),
+      },
+      { key: 'aggregation', header: 'Aggregation', render: (row) => row.aggregation },
+    ],
+    [comparisonRun.data?.groupings],
   )
 
   if (schema.isPending || !query) return <LoadingState label="Loading Explorer grammar…" />
@@ -256,23 +407,38 @@ export function ExplorerPage() {
     const base = template ? fromTemplate(template) : query
     const key = filters.filter_key ?? ''
     setFilterKey(key)
-    setQuery({
+    const next = {
       ...base,
       from: filters.from ? absoluteTime(filters.from) : base.from,
       to: filters.to ? absoluteTime(filters.to) : base.to,
       filters: key && filters.filter_value ? { [key]: filters.filter_value } : {},
-    })
+    }
+    setQuery(next)
+    setComparison(
+      filters.compare === '1'
+        ? {
+            from: filters.previous_from
+              ? absoluteTime(filters.previous_from)
+              : precedingWindow(next).from,
+            to: filters.previous_to ? absoluteTime(filters.previous_to) : precedingWindow(next).to,
+          }
+        : null,
+    )
   }
-  const link = stableHref(query)
-  const evidenceLink = run.data
-    ? pivotHref(run.data.evidence_path, {
+  const comparisonSources = schema.data.comparison_sources ?? []
+  const comparisonSupported = comparisonSources.includes(query.source)
+  const link = stableHref(query, comparison)
+  const activeEvidencePath = comparisonRun.data?.evidence_path ?? run.data?.evidence_path
+  const evidenceLink = activeEvidencePath
+    ? pivotHref(activeEvidencePath, {
         from: query.from,
         to: query.to,
         filters: query.filters,
         returnTo: link,
       })
     : undefined
-  const suggestionValues = run.data?.suggestions[filterKey] ?? []
+  const suggestionValues =
+    comparisonRun.data?.suggestions[filterKey] ?? run.data?.suggestions[filterKey] ?? []
 
   return (
     <Page
@@ -313,7 +479,17 @@ export function ExplorerPage() {
             data-explorer-builder
             onSubmit={(event) => {
               event.preventDefault()
-              run.mutate(query)
+              if (comparison) {
+                run.reset()
+                comparisonRun.mutate({
+                  query,
+                  previous_from: comparison.from,
+                  previous_to: comparison.to,
+                })
+              } else {
+                comparisonRun.reset()
+                run.mutate(query)
+              }
             }}
           >
             <Field
@@ -346,9 +522,11 @@ export function ExplorerPage() {
               label="Source / plane"
               value={query.source}
               options={SOURCE_OPTIONS}
-              onChange={(event) =>
-                updateStructure({ source: event.target.value as ExplorerSource })
-              }
+              onChange={(event) => {
+                const source = event.target.value as ExplorerSource
+                updateStructure({ source })
+                if (!comparisonSources.includes(source)) setComparison(null)
+              }}
             />
             <Field
               label="Dimensions"
@@ -397,13 +575,75 @@ export function ExplorerPage() {
                 <option key={value} value={value} />
               ))}
             </datalist>
+            <label
+              className={styles.compareToggle}
+              aria-disabled={comparisonSupported ? undefined : true}
+            >
+              <input
+                type="checkbox"
+                checked={comparison !== null}
+                disabled={!comparisonSupported}
+                onChange={(event) =>
+                  setComparison(event.target.checked ? precedingWindow(query) : null)
+                }
+              />
+              <span>Compare with another period</span>
+            </label>
+            {!comparisonSupported ? (
+              <p className={styles.comparisonHint}>
+                This source exposes only a current snapshot. Choose Flow, Changes, Topology,
+                Endpoints, or TLS for exact two-window comparison.
+              </p>
+            ) : null}
+            {comparison ? (
+              <>
+                <Field
+                  label="Previous from"
+                  type="datetime-local"
+                  value={localTime(comparison.from)}
+                  onChange={(event) =>
+                    setComparison({
+                      ...comparison,
+                      from: absoluteTime(event.target.value),
+                    })
+                  }
+                />
+                <Field
+                  label="Previous to"
+                  type="datetime-local"
+                  value={localTime(comparison.to)}
+                  onChange={(event) =>
+                    setComparison({
+                      ...comparison,
+                      to: absoluteTime(event.target.value),
+                    })
+                  }
+                />
+              </>
+            ) : null}
             <div className={styles.preview} aria-label="Readable query preview">
-              <span>Query preview</span>
+              <span>{comparison ? 'Current query preview' : 'Query preview'}</span>
               <code>{preview(query)}</code>
+              {comparison ? (
+                <>
+                  <span>Previous query preview</span>
+                  <code>{preview({ ...query, from: comparison.from, to: comparison.to })}</code>
+                </>
+              ) : null}
             </div>
             <div className={styles.actions}>
-              <Button type="submit" variant="primary" disabled={run.isPending}>
-                {run.isPending ? 'Running…' : 'Run query'}
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={run.isPending || comparisonRun.isPending}
+              >
+                {comparisonRun.isPending
+                  ? 'Comparing…'
+                  : run.isPending
+                    ? 'Running…'
+                    : comparison
+                      ? 'Compare periods'
+                      : 'Run query'}
               </Button>
               <Link to={link}>Stable view link</Link>
             </div>
@@ -411,7 +651,7 @@ export function ExplorerPage() {
           <div className={styles.saved}>
             <SavedViews
               surface="explorer"
-              filters={savedState(query)}
+              filters={savedState(query, comparison)}
               onApply={applySaved}
               placeholder="Explorer view"
             />
@@ -419,8 +659,79 @@ export function ExplorerPage() {
         </CardBody>
       </Card>
 
-      {run.isError ? (
-        <ErrorState description="The query failed inside the authorized tenant scope." />
+      {run.isError || comparisonRun.isError ? (
+        <ErrorState
+          description={
+            comparison
+              ? 'The comparison failed inside the authorized tenant scope. Check both absolute windows and source availability.'
+              : 'The query failed inside the authorized tenant scope.'
+          }
+        />
+      ) : null}
+      {comparisonRun.data ? (
+        <Card>
+          <CardHeader
+            title="Period comparison"
+            actions={
+              <div className={styles.actions}>
+                <Badge tone="neutral">{comparisonRun.data.state.replace('_', ' ')}</Badge>
+                <Badge tone="neutral">{comparisonRun.data.contract_version}</Badge>
+                {evidenceLink ? <Link to={evidenceLink}>Open evidence</Link> : null}
+              </div>
+            }
+          />
+          <CardBody>
+            <div className={styles.comparisonReceipts}>
+              <p className={styles.receipt}>
+                <strong>Current</strong> <code>{comparisonRun.data.current_preview}</code>
+              </p>
+              <p className={styles.receipt}>
+                <strong>Previous</strong> <code>{comparisonRun.data.previous_preview}</code>
+              </p>
+            </div>
+            {comparisonRun.data.rows.length ? (
+              <ChartShell
+                title="Current versus previous"
+                legend={<span>Exact aligned values; aggregation is declared per row</span>}
+              >
+                <ComparisonBars rows={comparisonRun.data.rows} />
+              </ChartShell>
+            ) : null}
+            <Table
+              caption="Explorer period comparison results"
+              columns={comparisonColumns}
+              rows={comparisonRun.data.rows}
+              rowKey={(row) => `${JSON.stringify(row.group)}:${row.measure}`}
+              empty="Neither authorized window contains comparable numeric evidence."
+            />
+            {comparisonRun.data.state === 'current_only' ? (
+              <p className={styles.note}>
+                The previous window has no authorized rows. Previous values and deltas remain
+                undefined.
+              </p>
+            ) : null}
+            {comparisonRun.data.state === 'previous_only' ? (
+              <p className={styles.note}>
+                The current window has no authorized rows. Current values and deltas remain
+                undefined.
+              </p>
+            ) : null}
+            {comparisonRun.data.state === 'empty' ? (
+              <p className={styles.note}>
+                Neither window has authorized rows. Explorer will not turn missing evidence into a
+                zero.
+              </p>
+            ) : null}
+            {comparisonRun.data.current_truncated ||
+            comparisonRun.data.previous_truncated ||
+            comparisonRun.data.rows_truncated ? (
+              <p className={styles.note}>
+                This comparison is partial because a bounded row limit was reached. Narrow both
+                windows or add a filter before interpreting the delta.
+              </p>
+            ) : null}
+          </CardBody>
+        </Card>
       ) : null}
       {run.data ? (
         <Card>

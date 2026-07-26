@@ -57,8 +57,33 @@
 
 .wide,
 .preview,
-.actions {
+.actions,
+.compareToggle,
+.comparisonHint {
   grid-column: 1 / -1;
+}
+
+.compareToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--density-control-block);
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.compareToggle[aria-disabled='true'] {
+  color: var(--color-text-muted);
+  cursor: not-allowed;
+}
+
+.comparisonHint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
 }
 
 .preview {
@@ -92,6 +117,111 @@
 
 .receipt + figure {
   margin-bottom: var(--space-4);
+}
+
+.comparisonReceipts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-8) * 6)), 1fr));
+  gap: var(--space-4);
+}
+
+.comparisonBars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  overflow: auto;
+}
+
+.comparisonLegend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.currentSwatch,
+.previousSwatch {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-full);
+}
+
+.currentSwatch,
+.currentBar {
+  background: var(--color-accent);
+}
+
+.previousSwatch,
+.previousBar {
+  background: var(--color-info);
+}
+
+.comparisonBars ol {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.comparisonBars li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 2fr);
+  gap: var(--space-1) var(--space-3);
+  align-items: center;
+}
+
+.barLabel {
+  grid-row: 1 / span 2;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barValue {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.currentValue,
+.currentTrack {
+  grid-row: 1;
+}
+
+.previousValue,
+.previousTrack {
+  grid-row: 2;
+}
+
+.currentValue,
+.previousValue {
+  grid-column: 2;
+}
+
+.currentTrack,
+.previousTrack {
+  grid-column: 3;
+}
+
+.barTrack {
+  display: block;
+  height: var(--space-2);
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+}
+
+.currentBar,
+.previousBar {
+  display: block;
+  height: 100%;
+  min-width: var(--border-width-thin);
+  border-radius: inherit;
 }
 
 @media (max-width: 40rem) {

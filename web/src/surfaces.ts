@@ -278,7 +278,12 @@ export const SURFACES: SurfaceDecl[] = [
     sprint: 'X7',
     kind: 'native',
     route: '/explore',
-    evidence: ['openapi:/v1/explorer/query', 'cli:probectl explorer query'],
+    evidence: [
+      'openapi:/v1/explorer/query',
+      'openapi:/v1/explorer/compare',
+      'cli:probectl explorer query',
+      'cli:probectl explorer compare',
+    ],
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {

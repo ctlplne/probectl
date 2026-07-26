@@ -360,6 +360,7 @@ function apiPayload(path, method, pagePath = "") {
     return json({
       templates: explorerTemplates,
       visualizations: ["table", "bar", "line", "timeline", "topology"],
+      comparison_sources: ["flow", "changes", "topology", "endpoints", "tls"],
       max_rows: 500,
     });
   if (path === "/v1/alerts/active")

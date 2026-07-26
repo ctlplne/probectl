@@ -624,8 +624,63 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
       return jsonResponse({
         templates: sampleExplorerTemplates,
         visualizations: ['table', 'bar', 'line', 'timeline', 'topology'],
+        comparison_sources: ['flow', 'changes', 'topology', 'endpoints', 'tls'],
         max_rows: 500,
       })
+    if (path === '/v1/explorer/compare') {
+      const request = JSON.parse(String(init?.body)) as {
+        query: {
+          template?: string
+          question: string
+          source: string
+          from: string
+          to: string
+          dimensions: string[]
+          filters: Record<string, string>
+          groupings: string[]
+          measures: string[]
+          visualization: string
+          limit: number
+        }
+        previous_from: string
+        previous_to: string
+      }
+      const template = sampleExplorerTemplates.find((item) => item.id === request.query.template)
+      return jsonResponse({
+        contract_version: 'explorer-comparison/v1',
+        current: request.query,
+        previous: {
+          ...request.query,
+          from: request.previous_from,
+          to: request.previous_to,
+        },
+        current_preview: `FROM ${request.query.source} | TIME ${request.query.from} .. ${request.query.to}`,
+        previous_preview: `FROM ${request.query.source} | TIME ${request.previous_from} .. ${request.previous_to}`,
+        groupings: request.query.groupings,
+        rows: request.query.measures.map((measure) => ({
+          group: Object.fromEntries(
+            request.query.groupings.map((grouping) => [grouping, `${grouping}-value`]),
+          ),
+          measure,
+          aggregation: ['events', 'edges', 'affected_endpoints', 'bytes', 'usd'].includes(measure)
+            ? 'sum'
+            : 'mean',
+          current_value: 14,
+          previous_value: 7,
+          delta: 7,
+          percent_change: 100,
+          delta_state: 'comparable',
+        })),
+        suggestions: Object.fromEntries(
+          request.query.dimensions.map((key) => [key, [`${key}-value`]]),
+        ),
+        evidence_path: template?.evidence_path ?? '/explore',
+        state: 'comparable',
+        current_truncated: false,
+        previous_truncated: false,
+        rows_truncated: false,
+      })
+    }
     if (path === '/v1/explorer/query') {
       const query = JSON.parse(String(init?.body)) as {
         template?: string

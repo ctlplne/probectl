@@ -52,6 +52,27 @@ const FIXTURE_REQUESTS: readonly FixtureContractRequest[] = [
   { method: 'GET', path: '/v1/endpoints' },
   {
     method: 'POST',
+    path: '/v1/explorer/compare',
+    body: {
+      query: {
+        question: 'Show service dependencies',
+        source: 'topology',
+        from: '2026-06-04T11:00:00Z',
+        to: '2026-06-04T12:00:00Z',
+        dimensions: ['from', 'to', 'kind'],
+        filters: {},
+        groupings: ['kind'],
+        measures: ['edges'],
+        visualization: 'topology',
+        limit: 50,
+        template: 'service-dependencies',
+      },
+      previous_from: '2026-06-04T10:00:00Z',
+      previous_to: '2026-06-04T11:00:00Z',
+    },
+  },
+  {
+    method: 'POST',
     path: '/v1/explorer/query',
     body: {
       question: 'Show service dependencies',

@@ -100,4 +100,141 @@ describe('structured and natural-language Explorer', () => {
       'Show edges by kind from topology',
     )
   })
+
+  test('compares two explicit windows with stable links and honest delta states', async () => {
+    const user = userEvent.setup()
+    const base = defaultFetch()
+    const requests: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/explorer/compare' && init?.method === 'POST')
+          requests.push(JSON.parse(String(init.body)))
+        return base(input, init)
+      }),
+    )
+
+    renderApp(
+      '/explore?template=service-dependencies&from=2026-07-14T11%3A00%3A00Z&to=2026-07-14T12%3A00%3A00Z',
+    )
+    expect(await screen.findByRole('heading', { name: 'Explorer' })).toBeInTheDocument()
+    const compare = screen.getByRole('checkbox', { name: 'Compare with another period' })
+    expect(compare).toBeEnabled()
+    await user.click(compare)
+    expect(screen.getByLabelText('Previous from')).toBeInTheDocument()
+    expect(screen.getByLabelText('Previous to')).toBeInTheDocument()
+    expect(screen.getByLabelText('Readable query preview')).toHaveTextContent(
+      /Current query preview.*Previous query preview/,
+    )
+
+    const stable = screen.getByRole('link', { name: 'Stable view link' })
+    expect(stable.getAttribute('href')).toMatch(/compare=1&previous_from=.*&previous_to=/)
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+    const table = await screen.findByRole('table', {
+      name: 'Explorer period comparison results',
+    })
+    expect(within(table).getByText('kind-value')).toBeInTheDocument()
+    expect(within(table).getByText('edges')).toBeInTheDocument()
+    expect(within(table).getByText('100%')).toBeInTheDocument()
+    expect(screen.getByText('explorer-comparison/v1')).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', {
+        name: /Current and previous values for 1 aligned Explorer measure/,
+      }),
+    ).toBeInTheDocument()
+
+    expect(requests).toHaveLength(1)
+    const request = requests[0] as {
+      query: { tenant_id?: string; from: string; to: string }
+      previous_from: string
+      previous_to: string
+      tenant_id?: string
+    }
+    expect(request.tenant_id).toBeUndefined()
+    expect(request.query.tenant_id).toBeUndefined()
+    expect(request.query.from).toBe('2026-07-14T11:00:00.000Z')
+    expect(request.query.to).toBe('2026-07-14T12:00:00.000Z')
+    expect(request.previous_from).toBe('2026-07-14T10:00:00.000Z')
+    expect(request.previous_to).toBe('2026-07-14T11:00:00.000Z')
+
+    await user.selectOptions(screen.getByLabelText('Source / plane'), 'path')
+    expect(compare).not.toBeChecked()
+    expect(compare).toBeDisabled()
+    expect(screen.getByText(/current snapshot/i)).toBeInTheDocument()
+  })
+
+  test('keeps empty, partial, and failed comparisons explicit', async () => {
+    const user = userEvent.setup()
+    const base = defaultFetch()
+    let attempts = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) !== '/v1/explorer/compare') return base(input, init)
+        attempts++
+        if (attempts > 1)
+          return jsonResponse(
+            { error: { code: 'unavailable', message: 'previous window unavailable' } },
+            503,
+          )
+        const request = JSON.parse(String(init?.body)) as {
+          query: Record<string, unknown>
+          previous_from: string
+          previous_to: string
+        }
+        return jsonResponse({
+          contract_version: 'explorer-comparison/v1',
+          current: request.query,
+          previous: {
+            ...request.query,
+            from: request.previous_from,
+            to: request.previous_to,
+          },
+          current_preview: 'current empty window',
+          previous_preview: 'previous empty window',
+          groupings: ['kind'],
+          rows: [],
+          suggestions: {},
+          evidence_path: '/topology',
+          state: 'empty',
+          current_truncated: true,
+          previous_truncated: false,
+          rows_truncated: false,
+        })
+      }),
+    )
+
+    renderApp('/explore?template=service-dependencies')
+    expect(await screen.findByRole('heading', { name: 'Explorer' })).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'Compare with another period' }))
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+    expect(await screen.findByText(/Neither window has authorized rows/i)).toBeInTheDocument()
+    expect(screen.getByText(/comparison is partial/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+    expect(
+      await screen.findByText(/comparison failed inside the authorized tenant scope/i),
+    ).toBeInTheDocument()
+  })
+
+  test('fails closed on an older schema that does not advertise comparison', async () => {
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/explorer/schema')
+          return jsonResponse({
+            templates: sampleExplorerTemplates,
+            visualizations: ['table', 'bar', 'line', 'timeline', 'topology'],
+            max_rows: 500,
+          })
+        return base(input, init)
+      }),
+    )
+
+    renderApp('/explore?template=service-dependencies')
+    expect(await screen.findByRole('heading', { name: 'Explorer' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Compare with another period' })).toBeDisabled()
+    expect(screen.getByText(/current snapshot/i)).toBeInTheDocument()
+  })
 })
