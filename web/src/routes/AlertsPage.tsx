@@ -215,6 +215,8 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
   const { push } = useToast()
   const silence = useSilenceAlert()
   const ack = useAckAlert()
+  // api-error-covered: silence, ack — act() converts rejected mutateAsync
+  // promises into an accessible danger toast shared by all alert actions.
   const incidents = useIncidents()
   const oncall = useOncallStatus()
   const [minutes, setMinutes] = useState('60')
@@ -378,6 +380,13 @@ function ActiveAlertDetail({ alert, onClose }: { alert: ActiveAlert; onClose: ()
           {alert.acked_by ? 'Acknowledged' : 'Acknowledge'}
         </Button>
       </div>
+
+      {incidents.isError ? (
+        <ErrorState description="Could not load incident correlation for this alert." />
+      ) : null}
+      {oncall.isError ? (
+        <ErrorState description="Could not load on-call connector readiness." />
+      ) : null}
 
       <section className={styles.workflow} aria-label="Alert operator workflow">
         <h3>Alert → postmortem workflow</h3>

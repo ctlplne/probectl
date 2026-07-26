@@ -394,6 +394,12 @@ export function PathPage() {
             <LoadingState label="Loading tests…" />
           </CardBody>
         </Card>
+      ) : tests.isError ? (
+        <Card>
+          <CardBody>
+            <ErrorState description="Could not load tenant tests for path discovery." />
+          </CardBody>
+        </Card>
       ) : !tests.data || tests.data.length === 0 ? (
         <Card>
           <CardBody>
@@ -632,6 +638,8 @@ export function PathPage() {
               <CardBody className={styles.evidenceGrid}>
                 {incidents.isPending || changes.isPending ? (
                   <LoadingState label="Loading correlated evidence…" />
+                ) : incidents.isError || changes.isError ? (
+                  <ErrorState description="Could not load incident and change overlays for this path." />
                 ) : (
                   <>
                     <section aria-labelledby="path-incidents-heading">

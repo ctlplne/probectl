@@ -168,6 +168,32 @@ describe('Admin identity surface', () => {
     expect(capture.deleted).toBe('pol-1')
   })
 
+  test('failed ABAC-policy deletion stays visible as an accessible error', async () => {
+    const base = identityFetch({})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        if (pathOf(input) === '/v1/abac/policies/pol-1' && (init?.method ?? 'GET') === 'DELETE') {
+          return Promise.resolve(
+            jsonResponse(
+              { error: { code: 'unavailable', message: 'policy store unavailable' } },
+              500,
+            ),
+          )
+        }
+        return base(input, init)
+      }),
+    )
+    renderApp('/admin')
+
+    const originalPolicyRow = (await screen.findByText('contractor write guard')).closest('tr')
+    expect(originalPolicyRow).not.toBeNull()
+    await userEvent.click(within(originalPolicyRow!).getByRole('button', { name: /delete/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/policy store unavailable/i)
+    expect(screen.getByText('contractor write guard')).toBeInTheDocument()
+  })
+
   test('a11y: identity administration card has no axe violations', async () => {
     vi.stubGlobal('fetch', identityFetch({}))
     const { container } = renderApp('/admin')

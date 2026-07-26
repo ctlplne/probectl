@@ -246,6 +246,13 @@ export function TopologyPage() {
         }
       />
 
+      {at && comparison.isError ? (
+        <ErrorState
+          title="Topology comparison unavailable"
+          description="The selected topology loaded, but the comparison snapshot could not be read."
+        />
+      ) : null}
+
       {isPending || isError || !data?.topology_running || nodes.length === 0 ? (
         <TopologyFallbackCard
           isPending={isPending}

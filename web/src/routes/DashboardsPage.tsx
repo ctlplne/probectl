@@ -38,6 +38,7 @@ import {
 } from '../api/planes'
 import { useIncidents, severityTone, type Incident } from '../api/incidents'
 import { useLatestResults, useResultsHistory, type LatestResult } from '../api/results'
+import { isApiStatus } from '../api/client'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
 import { useDetections, type Detection } from '../api/threat'
 import { useTests, type Test } from '../api/tests'
@@ -151,6 +152,7 @@ export function DashboardsPage() {
   // Real latency series from /v1/results/history (oldest first); an older
   // control plane 404s and the latest snapshot keeps the tile honest.
   const resultsHistory = useResultsHistory('1h')
+  const resultsHistoryFailed = resultsHistory.isError && !isApiStatus(resultsHistory.error, 404)
   const historyPoints = (resultsHistory.data?.items ?? []).flatMap((result) => {
     const value = result.duration_ms ?? result.metrics?.['rtt.avg.ms']
     return value === undefined ? [] : [{ ts: result.observed_at, value }]
@@ -285,6 +287,7 @@ export function DashboardsPage() {
     incidents.isLoading ||
     alerts.isLoading ||
     results.isLoading ||
+    resultsHistory.isLoading ||
     flowTop.isLoading ||
     flowCapacity.isLoading ||
     flowAnomalies.isLoading ||
@@ -299,6 +302,7 @@ export function DashboardsPage() {
     incidents.isError ||
     alerts.isError ||
     results.isError ||
+    resultsHistoryFailed ||
     flowTop.isError ||
     flowCapacity.isError ||
     flowAnomalies.isError ||

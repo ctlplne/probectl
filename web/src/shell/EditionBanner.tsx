@@ -27,6 +27,9 @@ export function EditionBanner() {
   const navigate = useNavigate()
   const [dismissed, setDismissed] = useState(false)
   const editions = useEditions({ enabled: !demoMode })
+  // api-error-covered: editions — this shell-only query is deliberately
+  // fail-closed and invisible for role-restricted or unlicensed callers; the
+  // Admin → Editions surface owns visible license diagnostics.
 
   const info = editions.data
   if (demoMode || dismissed || !info) return null

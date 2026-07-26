@@ -360,6 +360,12 @@ export function EndpointsPage() {
           }
         />
         <CardBody>
+          {savedViews.isError ? (
+            <ErrorState
+              title="Saved views unavailable"
+              description="Could not load tenant endpoint views. The live fleet remains available below."
+            />
+          ) : null}
           {endpoints.isLoading ? (
             <LoadingState label="Loading endpoints…" />
           ) : endpoints.isError ? (

@@ -12,6 +12,7 @@ import {
   Card,
   CardBody,
   CardHeader,
+  ErrorState,
   Field,
   Icon,
   Select,
@@ -324,6 +325,13 @@ export function OnboardingPage() {
           ))}
         </ul>
       </section>
+
+      {onboardingProgress.isError ? (
+        <ErrorState
+          title="Onboarding progress unavailable"
+          description="Could not load tenant producer readiness. Setup actions remain available below."
+        />
+      ) : null}
 
       {persistedProgress?.first_finding ? (
         <Card className={styles.findingReceipt}>

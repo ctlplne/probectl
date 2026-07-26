@@ -84,6 +84,40 @@ describe('unified incident room', () => {
     expect(await screen.findByText(/no incidents/i)).toBeInTheDocument()
   })
 
+  test('failed resolve keeps the incident open and shows a danger toast', async () => {
+    const base = defaultFetch()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = pathOf(input)
+        const method = init?.method ?? 'GET'
+        if (path === '/v1/incidents') return jsonResponse({ items: [incident] })
+        if (path === '/v1/incidents/inc-1' && method === 'GET') return jsonResponse(incident)
+        if (path === '/v1/incidents/inc-1' && method === 'PATCH') {
+          return jsonResponse(
+            { error: { code: 'unavailable', message: 'incident store unavailable' } },
+            500,
+          )
+        }
+        if (path === '/v1/remediation/proposals') {
+          return jsonResponse(
+            { error: { code: 'not_found', message: 'feature not licensed' } },
+            404,
+          )
+        }
+        return base(input, init)
+      }),
+    )
+    renderApp('/incidents')
+
+    await screen.findByRole('list', { name: /incident evidence on one time axis/i })
+    await userEvent.click(screen.getByRole('button', { name: /^resolve$/i }))
+
+    expect(await screen.findByText(/resolve failed/i)).toBeInTheDocument()
+    expect(screen.getByText(/incident store unavailable/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^resolve$/i })).toBeInTheDocument()
+  })
+
   test('the incidents page has no axe violations', async () => {
     stubIncidents()
     const { container } = renderApp('/incidents')

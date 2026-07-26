@@ -45,6 +45,7 @@ import type { MessageKey } from '../i18n/messages'
 import { pivotHref, replacePivotContext, type PivotContext } from './pivotContext'
 import { ExplainView } from './ExplainView'
 import type { Answer, Evidence } from '../api/ai'
+import { isApiStatus } from '../api/client'
 
 interface PlaneGroup {
   id: string
@@ -251,6 +252,7 @@ export function IncidentRoom({
   const roomIncident = inc
 
   const canPropose = Boolean(remediations.data)
+  const remediationError = remediations.isError && !isApiStatus(remediations.error, 404)
   const entities = entityValues(inc)
   const knownPlanes = new Set(PLANE_GROUPS.flatMap((group) => Array.from(group.aliases)))
   const otherSignals = signalRows.filter(
@@ -315,6 +317,20 @@ export function IncidentRoom({
           title: t('incidents.toast.proposalFailed'),
           message:
             error instanceof Error ? error.message : t('incidents.toast.proposalFailedMessage'),
+        }),
+    })
+  }
+
+  function resolveIncident() {
+    resolve.mutate(undefined, {
+      onError: (error) =>
+        push({
+          tone: 'danger',
+          title: 'Resolve failed',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'The incident remains open because the update failed.',
         }),
     })
   }
@@ -544,6 +560,12 @@ export function IncidentRoom({
               <CardBody>
                 <p className={styles.nextStep}>{t('incidents.room.next.description')}</p>
                 <p className={styles.safety}>{t('incidents.room.next.safety')}</p>
+                {remediationError ? (
+                  <ErrorState
+                    title="Remediation availability unknown"
+                    description="Could not determine whether guarded, human-approved proposals are available."
+                  />
+                ) : null}
                 <div className={styles.actions}>
                   {canPropose ? (
                     <Button
@@ -559,7 +581,7 @@ export function IncidentRoom({
                   {inc.status === 'open' ? (
                     <Button
                       variant="secondary"
-                      onClick={() => resolve.mutate()}
+                      onClick={resolveIncident}
                       disabled={resolve.isPending}
                     >
                       {t('incidents.action.resolve')}

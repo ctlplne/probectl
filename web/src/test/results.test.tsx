@@ -389,4 +389,33 @@ describe('synthetic result views (S-FE5)', () => {
     const dialog = await openResults('app http')
     expect(within(dialog).getByText(/result-view consumer is not wired/)).toBeDefined()
   })
+
+  test('latest-result failure is visible instead of becoming “No results yet”', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      assertNoDoublePrefix(input)
+      const path = pathOf(input)
+      if (path === '/v1/results/latest') {
+        return jsonResponse(
+          { error: { code: 'unavailable', message: 'result store unavailable' } },
+          500,
+        )
+      }
+      if (path === '/v1/tests') return jsonResponse({ items: testsList })
+      if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
+      return jsonResponse({ items: [] })
+    }) as unknown as typeof fetch
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/targets')
+
+    const dialog = await openResults('app http')
+
+    expect(
+      await within(dialog).findByText(
+        /could not load the latest results for this test/i,
+        undefined,
+        { timeout: 3_000 },
+      ),
+    ).toBeInTheDocument()
+    expect(within(dialog).queryByText(/^no results yet$/i)).not.toBeInTheDocument()
+  })
 })

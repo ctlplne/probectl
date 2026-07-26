@@ -223,15 +223,20 @@ export function PlanesPage() {
         />
       ) : null}
       {active === 'flow' ? (
-        <FlowPanel
-          flowBy={flowBy}
-          onFlowBy={setFlowBy}
-          filters={flowFilters}
-          onFilters={setFlowFilters}
-          topTalkers={topTalkers}
-          anomalies={anomalies}
-          latestCapacity={latestCapacity}
-        />
+        <>
+          {capacity.isError ? (
+            <ErrorState description="Could not load flow capacity samples." />
+          ) : null}
+          <FlowPanel
+            flowBy={flowBy}
+            onFlowBy={setFlowBy}
+            filters={flowFilters}
+            onFilters={setFlowFilters}
+            topTalkers={topTalkers}
+            anomalies={anomalies}
+            latestCapacity={latestCapacity}
+          />
+        </>
       ) : null}
       {active === 'device' ? (
         <DevicePanel

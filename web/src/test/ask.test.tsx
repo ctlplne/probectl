@@ -90,7 +90,7 @@ const answer = {
   ],
 }
 
-function stubAI(response = answer) {
+function stubAI(response = answer, feedbackStatus = 204) {
   const calls: Array<{ url: string; body: unknown }> = []
   vi.stubGlobal(
     'fetch',
@@ -99,7 +99,14 @@ function stubAI(response = answer) {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined
       calls.push({ url, body })
       if (url.endsWith('/v1/ai/ask')) return jsonResponse(response)
-      if (url.endsWith('/v1/ai/feedback')) return new Response(null, { status: 204 })
+      if (url.endsWith('/v1/ai/feedback')) {
+        return feedbackStatus === 204
+          ? new Response(null, { status: 204 })
+          : jsonResponse(
+              { error: { code: 'unavailable', message: 'feedback store unavailable' } },
+              feedbackStatus,
+            )
+      }
       return jsonResponse({ error: { code: 'not_found', message: 'no route' } }, 404)
     }),
   )
@@ -174,6 +181,23 @@ describe('AI assistant surface', () => {
       rating: 'down',
       comment: 'the real cause was the upstream peer',
     })
+  })
+
+  test('failed feedback shows an accessible danger toast', async () => {
+    stubAI(answer, 500)
+    renderApp('/ask')
+    await screen.findByRole('heading', { name: /ask \(ai\)/i })
+    fireEvent.change(screen.getByLabelText(/your question/i), {
+      target: { value: 'why is 192.0.2.0/24 unreachable?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^ask$/i }))
+    await screen.findByText(/most likely root cause:/i)
+
+    fireEvent.click(screen.getByRole('button', { name: /yes, helpful/i }))
+
+    expect(await screen.findByText(/feedback not saved/i)).toBeInTheDocument()
+    expect(screen.getByText(/feedback store unavailable/i)).toBeInTheDocument()
+    expect(screen.queryByText(/^thanks/i)).not.toBeInTheDocument()
   })
 
   test('renders degraded and ungrounded RCA trust state', async () => {

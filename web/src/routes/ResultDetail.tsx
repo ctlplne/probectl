@@ -5,7 +5,15 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import styles from './results.module.css'
-import { Badge, EmptyState, Modal, Table, type Column } from '../components'
+import {
+  Badge,
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  Modal,
+  Table,
+  type Column,
+} from '../components'
 import { a, latencyFamily, m, useLatestResults, type LatestResult } from '../api/results'
 import type { Test } from '../api/tests'
 import { DateTime } from '../time/DateTime'
@@ -329,7 +337,11 @@ export function ResultDetail({ test, onClose }: { test: Test; onClose: () => voi
 
   return (
     <Modal open onClose={onClose} title={`${test.name} — latest results`}>
-      {matches.length === 0 ? (
+      {latest.isPending ? (
+        <LoadingState label="Loading latest results…" />
+      ) : latest.isError ? (
+        <ErrorState description="Could not load the latest results for this test." />
+      ) : matches.length === 0 ? (
         <EmptyState
           title="No results yet"
           description={

@@ -41,6 +41,7 @@ import {
 } from '../api/remediation'
 import { DateTime } from '../time/DateTime'
 import { pivotHref } from './pivotContext'
+import { isApiStatus } from '../api/client'
 
 function detectionIncidentHref(detection: Detection): string {
   return pivotHref('/incidents', {
@@ -428,6 +429,7 @@ function DetectionsCard() {
 
   const detail = items.find((d) => d.id === detailID) ?? null
   const canPropose = Boolean(remediations.data)
+  const remediationError = remediations.isError && !isApiStatus(remediations.error, 404)
 
   const proposeResponse = (d: Detection) => {
     createProposal.mutate(proposalFromDetection(d), {
@@ -524,6 +526,12 @@ function DetectionsCard() {
         }
       />
       <CardBody>
+        {remediationError ? (
+          <ErrorState
+            title="Remediation availability unknown"
+            description="Could not determine whether guarded, human-approved proposals are available."
+          />
+        ) : null}
         {detections.isLoading ? (
           <LoadingState label="Loading detections…" />
         ) : detections.isError ? (

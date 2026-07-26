@@ -35,6 +35,7 @@ import { formatCount } from '../i18n/number'
 import type { MessageKey } from '../i18n/messages'
 import { parsePivotContext, replacePivotContext, type PivotContext } from './pivotContext'
 import { useIncident } from '../api/incidents'
+import { isApiStatus } from '../api/client'
 import { ReasoningBadge } from './ExplainView'
 import { resolveClaims } from './explanationGrounding'
 
@@ -237,6 +238,7 @@ export function AnswerView({
   const createProposal = useCreateRemediationProposal()
   const { push } = useToast()
   const [comment, setComment] = useState('')
+  const remediationError = remediations.isError && !isApiStatus(remediations.error, 404)
   const selectedEvidence =
     pivotContext.selection?.kind === 'evidence'
       ? answer.evidence.find((evidence) =>
@@ -324,8 +326,33 @@ export function AnswerView({
     })
   }
 
+  function submitFeedback(rating: 'up' | 'down') {
+    feedback.mutate(
+      {
+        answer_id: answer.id,
+        rating,
+        comment: comment || undefined,
+        question: answer.question,
+      },
+      {
+        onError: (error) =>
+          push({
+            tone: 'danger',
+            title: 'Feedback not saved',
+            message: error instanceof Error ? error.message : 'Could not save answer feedback.',
+          }),
+      },
+    )
+  }
+
   return (
     <div className={styles.answer}>
+      {remediationError ? (
+        <ErrorState
+          title="Remediation availability unknown"
+          description="Could not determine whether guarded, human-approved proposals are available."
+        />
+      ) : null}
       <Card>
         <CardHeader
           title={t('ask.root.title')}
@@ -572,28 +599,14 @@ export function AnswerView({
               <div className={styles.fbButtons} role="group" aria-label={t('ask.feedback.aria')}>
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    feedback.mutate({
-                      answer_id: answer.id,
-                      rating: 'up',
-                      comment: comment || undefined,
-                      question: answer.question,
-                    })
-                  }
+                  onClick={() => submitFeedback('up')}
                   disabled={feedback.isPending}
                 >
                   {t('ask.feedback.yes')}
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    feedback.mutate({
-                      answer_id: answer.id,
-                      rating: 'down',
-                      comment: comment || undefined,
-                      question: answer.question,
-                    })
-                  }
+                  onClick={() => submitFeedback('down')}
                   disabled={feedback.isPending}
                 >
                   {t('ask.feedback.no')}

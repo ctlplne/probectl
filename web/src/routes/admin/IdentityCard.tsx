@@ -452,9 +452,9 @@ export function IdentityCard() {
             Create ABAC policy
           </Button>
         </form>
-        {policyError ? (
+        {policyError || deletePolicy.isError ? (
           <p role="alert" className={styles.editionsLede}>
-            {policyError}
+            {policyError || deletePolicy.error?.message}
           </p>
         ) : null}
 
