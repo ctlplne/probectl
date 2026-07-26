@@ -36,6 +36,7 @@ const en = {
   'nav.apiDocs': 'API docs',
   'cost.egress.description':
     'Native attribution, showback, budgets, and hourly trends; use Dashboards or Explorer for cross-plane drilldown.',
+  'cost.unwired.action': 'Open flow readiness',
   'nav.current': ' (current)',
   'command.palette': 'Command palette',
   'command.search': 'Search commands',
@@ -376,6 +377,7 @@ const en = {
   'slo.error': 'Could not load SLO statuses.',
   'slo.unwired.title': 'SLO engine not wired',
   'slo.unwired.description': 'The control plane started without the SLO engine.',
+  'slo.setup.action': 'Open OpenSLO API',
   'slo.table.caption': 'SLO statuses',
   'slo.empty.title': 'No SLOs defined',
   'slo.empty.description': 'Drop OpenSLO YAML definitions into PROBECTL_SLO_DIR to start tracking.',
@@ -984,6 +986,7 @@ const es: Record<MessageKey, string> = {
   'nav.apiDocs': 'Docs API',
   'cost.egress.description':
     'Atribucion nativa, reparto de costos, presupuestos y tendencias por hora; usa Paneles o Explorador para profundizar entre planos.',
+  'cost.unwired.action': 'Abrir estado de flujos',
   'nav.current': ' (actual)',
   'command.palette': 'Paleta de comandos',
   'command.search': 'Buscar comandos',
@@ -1333,6 +1336,7 @@ const es: Record<MessageKey, string> = {
   'slo.error': 'No se pudieron cargar los estados SLO.',
   'slo.unwired.title': 'Motor SLO no conectado',
   'slo.unwired.description': 'El plano de control inicio sin el motor SLO.',
+  'slo.setup.action': 'Abrir API de OpenSLO',
   'slo.table.caption': 'Estados SLO',
   'slo.empty.title': 'No hay SLO definidos',
   'slo.empty.description': 'Coloca definiciones YAML de OpenSLO en PROBECTL_SLO_DIR para empezar.',
@@ -1951,6 +1955,7 @@ const ar: Record<MessageKey, string> = {
   'nav.apiDocs': 'وثائق API',
   'cost.egress.description':
     'إسناد محلي للتكلفة، وعرض داخلي للاستهلاك، وميزانيات واتجاهات بالساعة؛ استخدم لوحات المعلومات أو المستكشف للتحليل عبر المستويات.',
+  'cost.unwired.action': 'فتح جاهزية التدفق',
   'nav.current': ' (الحالي)',
   'command.palette': 'لوحة الأوامر',
   'command.search': 'البحث في الأوامر',
@@ -2268,6 +2273,7 @@ const ar: Record<MessageKey, string> = {
   'slo.error': 'تعذر تحميل حالات SLO.',
   'slo.unwired.title': 'محرك SLO غير موصول',
   'slo.unwired.description': 'بدأ مستوى التحكم دون محرك SLO.',
+  'slo.setup.action': 'فتح API لـ OpenSLO',
   'slo.table.caption': 'حالات SLO',
   'slo.empty.title': 'لا توجد SLO معرفة',
   'slo.empty.description': 'ضع تعريفات OpenSLO بصيغة YAML في PROBECTL_SLO_DIR للبدء.',

@@ -4,6 +4,8 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import type { Connect, Plugin, ViteDevServer } from 'vite'
 
 /**
@@ -35,6 +37,7 @@ export function fixtureApiPlugin(): Plugin {
       // PROBECTL_WEB_FIXTURES_PROFILE=cold serves the install-day catalog
       // (fresh deployment, nothing enrolled) — `npm run dev:fixtures:cold`.
       const profile = process.env.PROBECTL_WEB_FIXTURES_PROFILE === 'cold' ? 'cold' : 'populated'
+      const openapiPath = resolve(server.config.root, '../internal/control/openapi.json')
       let handler: Promise<typeof fetch> | undefined
       const loadHandler = () =>
         (handler ??= server.ssrLoadModule(FIXTURE_MODULE).then((moduleExports) => {
@@ -56,9 +59,26 @@ export function fixtureApiPlugin(): Plugin {
 
       const middleware: Connect.NextHandleFunction = (request, response, next) => {
         const url = request.url ?? ''
-        const isApiPath = url === '/v1' || url.startsWith('/v1/') || url.startsWith('/branding')
+        const isApiPath =
+          url === '/v1' ||
+          url.startsWith('/v1/') ||
+          url.startsWith('/branding') ||
+          url === '/openapi.json'
         if (!isApiPath) {
           next()
+          return
+        }
+        // API docs are not synthetic fixture data: they render the exact
+        // checked-in contract that the control plane embeds and serves.
+        if (url === '/openapi.json') {
+          void readFile(openapiPath)
+            .then((body) => {
+              response.statusCode = 200
+              response.setHeader('content-type', 'application/json')
+              response.setHeader('x-probectl-fixture', '1')
+              response.end(body)
+            })
+            .catch(next)
           return
         }
         void (async () => {

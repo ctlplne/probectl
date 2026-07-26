@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
 import { coldFetch } from './fetchStub'
@@ -66,5 +66,39 @@ describe('cold start — the first thirty minutes', () => {
     const heading = await screen.findByRole('heading', { name: /first-run setup/i })
     expect(heading).toBeInTheDocument()
     expect(screen.queryByText(/all set|setup complete/i)).toBeNull()
+  })
+
+  test('cost: blocked engine points to native flow readiness', async () => {
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/cost')
+
+    const action = await screen.findByRole('button', { name: 'Open flow readiness' })
+    await userEvent.click(action)
+
+    expect(await screen.findByRole('heading', { name: /^planes$/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /flow/i })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  test('SLOs: empty state opens the filtered local OpenAPI catalog', async () => {
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/slos')
+
+    const action = await screen.findByRole('button', { name: 'Open OpenSLO API' })
+    await userEvent.click(action)
+
+    expect(await screen.findByRole('heading', { name: /^api docs$/i })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Filter operations')).toHaveValue('slos')
+    const operations = await screen.findByRole('table', { name: 'API operations' })
+    expect(within(operations).getByText('/v1/slos')).toBeInTheDocument()
+  })
+
+  test('API docs: cold fixture serves the shipping operation catalog', async () => {
+    vi.stubGlobal('fetch', coldFetch())
+    renderApp('/docs/api')
+
+    const operations = await screen.findByRole('table', { name: 'API operations' })
+    expect(within(operations).getByText('/v1/cost/summary')).toBeInTheDocument()
+    expect(within(operations).getByText('/v1/slos')).toBeInTheDocument()
+    expect(screen.queryByText('Could not load /openapi.json.')).toBeNull()
   })
 })

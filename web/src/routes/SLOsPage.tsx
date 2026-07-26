@@ -5,6 +5,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import styles from './slos.module.css'
 import { Page } from './RoutePage'
 import {
@@ -31,6 +32,7 @@ import { sloAsCode } from './codeExport'
  * are OpenSLO YAML (import/export via the API). */
 export function SLOsPage() {
   const { locale, t } = useI18n()
+  const navigate = useNavigate()
   const { data, isPending, isError } = useSLOs()
   const [codeExport, setCodeExport] = useState<{ title: string; code: string } | null>(null)
 
@@ -133,6 +135,11 @@ export function SLOsPage() {
               icon="slo"
               title={t('slo.unwired.title')}
               description={t('slo.unwired.description')}
+              action={
+                <Button variant="secondary" onClick={() => void navigate('/docs/api?filter=slos')}>
+                  {t('slo.setup.action')}
+                </Button>
+              }
             />
           ) : (
             <Table
@@ -145,6 +152,14 @@ export function SLOsPage() {
                   icon="slo"
                   title={t('slo.empty.title')}
                   description={t('slo.empty.description')}
+                  action={
+                    <Button
+                      variant="secondary"
+                      onClick={() => void navigate('/docs/api?filter=slos')}
+                    >
+                      {t('slo.setup.action')}
+                    </Button>
+                  }
                 />
               }
             />

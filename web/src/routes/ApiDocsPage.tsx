@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import styles from './apiDocs.module.css'
 import { Page } from './RoutePage'
 import {
@@ -465,8 +466,9 @@ function OperationDetail({ row, doc }: { row: OperationRow | null; doc?: OpenAPI
 }
 
 export function ApiDocsPage() {
+  const [searchParams] = useSearchParams()
   const spec = useQuery({ queryKey: ['openapi'], queryFn: fetchOpenAPI })
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => searchParams.get('filter') ?? '')
   const [selected, setSelected] = useState<string | null>(null)
   const operations = useMemo(() => operationsOf(spec.data), [spec.data])
   const filtered = useMemo(() => {

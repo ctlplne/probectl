@@ -4,10 +4,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import { useNavigate } from 'react-router-dom'
 import styles from './cost.module.css'
 import { Page } from './RoutePage'
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -33,6 +35,7 @@ import { formatDecimal, formatUnit } from '../i18n/number'
  * estimate in below — same traffic, same owners, grams instead of dollars. */
 export function CostPage() {
   const { locale, t } = useI18n()
+  const navigate = useNavigate()
   const { data, isPending, isError } = useCostSummary()
   const s = data?.summary
   const fmtGiB = (bytes: number) => gib(bytes, locale)
@@ -102,10 +105,7 @@ export function CostPage() {
       subtitle="Network egress dollars — volume × public pricing, attributed to services and teams."
     >
       <Card>
-        <CardHeader
-          title="Egress spend"
-          description={t('cost.egress.description')}
-        />
+        <CardHeader title="Egress spend" description={t('cost.egress.description')} />
         <CardBody>
           {isPending ? (
             <LoadingState label="Loading cost summary…" />
@@ -116,6 +116,11 @@ export function CostPage() {
               icon="cost"
               title="Cost engine not wired"
               description="The control plane started without the cost engine."
+              action={
+                <Button variant="secondary" onClick={() => void navigate('/planes/flow')}>
+                  {t('cost.unwired.action')}
+                </Button>
+              }
             />
           ) : (
             <>
