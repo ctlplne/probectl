@@ -124,8 +124,13 @@ bad tail.
 | XL | 64 tenants x 300 agents x 10 edges/agent | 5 s | 500 ms | 30 s |
 | XXL | 100 tenants x 1000 agents x 10 edges/agent | 10 s | 1 s | 2 min |
 
-Receipt: `go test ./internal/perf -run '^TestTopologyRebuildTargets$' -count=1 -v`
-logs the S/M/L rows. For the heavier fixtures, run
+CI receipt: `go test ./internal/perf -run '^TestTopologyRebuildTargets$' -count=1 -v`
+logs all three raw S/M/L samples and gates timing on their median, so one host
+scheduler pause cannot impersonate a sustained regression. Correctness is not
+aggregated: every sample must rebuild every tenant exactly and keep the ghost
+tenant empty. This fast CI receipt is a regression guard, not buyer-facing
+performance evidence. For the strict reference-hardware receipt and heavier
+fixtures, run
 `PROBECTL_SCALE_TIER=XL go test ./internal/perf -bench '^BenchmarkTopologyRebuild$' -run '^$' -benchmem`
 or `PROBECTL_SCALE_TIER=XXL ...` on reference hardware.
 

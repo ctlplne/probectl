@@ -16,6 +16,9 @@ import (
 
 const (
 	topologyRebuildEdgesPerAgent = 10
+	topologyRebuildCISamples     = 3
+
+	topologyRebuildCIAggregationRule = "median of 3 timing samples; correctness required in all samples"
 
 	topologyRebuildTierLReplayP95 = 2 * time.Second
 	topologyRebuildTierLTotal     = 10 * time.Second
@@ -73,7 +76,11 @@ type TopologyRebuildReport struct {
 	Elapsed         time.Duration
 	ReplayLatency   LatencyStat
 	SnapshotLatency LatencyStat
-	Violations      []string
+	// CorrectnessViolations stay separate so the CI timing aggregator can
+	// tolerate one scheduler-stalled sample without ever tolerating a missing,
+	// mixed, or ghost tenant graph.
+	CorrectnessViolations []string
+	Violations            []string
 }
 
 // String renders the receipt row logged by tests and benchmarks.
@@ -104,7 +111,7 @@ func DriveTopologyRebuild(target TopologyRebuildTarget) TopologyRebuildReport {
 		tenant := topologyRebuildTenant(target.Tier, tenantIdx)
 		graph, err := store.ForTenant(tenant)
 		if err != nil {
-			rep.Violations = append(rep.Violations, err.Error())
+			rep.CorrectnessViolations = append(rep.CorrectnessViolations, err.Error())
 			continue
 		}
 		start := time.Now()
@@ -119,7 +126,7 @@ func DriveTopologyRebuild(target TopologyRebuildTarget) TopologyRebuildReport {
 
 		expectedEdges := target.AgentsPerTenant * target.EdgesPerAgent
 		if len(snap.Edges) != expectedEdges {
-			rep.Violations = append(rep.Violations, fmt.Sprintf(
+			rep.CorrectnessViolations = append(rep.CorrectnessViolations, fmt.Sprintf(
 				"%s tenant %s rebuilt %d edges, want %d", target.Tier, tenant, len(snap.Edges), expectedEdges))
 		}
 	}
@@ -128,21 +135,100 @@ func DriveTopologyRebuild(target TopologyRebuildTarget) TopologyRebuildReport {
 	rep.SnapshotLatency = snapshotLat.Summary()
 
 	if ghost := store.Latest("never-seen"); len(ghost.Nodes) != 0 || len(ghost.Edges) != 0 {
-		rep.Violations = append(rep.Violations, "cold-start ghost tenant was not empty")
+		rep.CorrectnessViolations = append(rep.CorrectnessViolations, "cold-start ghost tenant was not empty")
 	}
-	if rep.ReplayLatency.P95 > target.MaxReplayP95 {
-		rep.Violations = append(rep.Violations, fmt.Sprintf(
-			"%s replay p95 %s above %s", target.Tier, rep.ReplayLatency.P95, target.MaxReplayP95))
+	rep.Violations = append(rep.Violations, rep.CorrectnessViolations...)
+	rep.Violations = append(rep.Violations, topologyRebuildTimingViolations(
+		target, rep.ReplayLatency.P95, rep.SnapshotLatency.P95, rep.Elapsed)...)
+	return rep
+}
+
+type topologyRebuildGateReport struct {
+	Target            TopologyRebuildTarget
+	Samples           []TopologyRebuildReport
+	MedianReplayP95   time.Duration
+	MedianSnapshotP95 time.Duration
+	MedianTotal       time.Duration
+	Violations        []string
+}
+
+func (r topologyRebuildGateReport) String() string {
+	verdict := "PASS"
+	if len(r.Violations) > 0 {
+		verdict = "FAIL"
 	}
-	if rep.SnapshotLatency.P95 > target.MaxSnapshotP95 {
-		rep.Violations = append(rep.Violations, fmt.Sprintf(
-			"%s snapshot p95 %s above %s", target.Tier, rep.SnapshotLatency.P95, target.MaxSnapshotP95))
+	raw := make([]string, 0, len(r.Samples))
+	for idx, sample := range r.Samples {
+		raw = append(raw, fmt.Sprintf(
+			"#%d{replay_p95=%s snapshot_p95=%s total=%s correctness_violations=%d}",
+			idx+1, sample.ReplayLatency.P95, sample.SnapshotLatency.P95, sample.Elapsed,
+			len(sample.CorrectnessViolations)))
 	}
-	if rep.Elapsed > target.MaxTotal {
+	return fmt.Sprintf(
+		"topology-rebuild-gate %s: rule=%q samples=[%s] median={replay_p95=%s snapshot_p95=%s total=%s} %s",
+		r.Target.Tier, topologyRebuildCIAggregationRule, strings.Join(raw, " "),
+		r.MedianReplayP95, r.MedianSnapshotP95, r.MedianTotal, verdict)
+}
+
+// driveTopologyRebuildCIGate repeats the deterministic fixture and uses the
+// median timing sample for CI. One host scheduling pause can poison at most one
+// of three samples, while a sustained regression poisons the median. Correctness
+// remains fail-closed: every sample must rebuild every tenant exactly.
+func driveTopologyRebuildCIGate(target TopologyRebuildTarget) topologyRebuildGateReport {
+	samples := make([]TopologyRebuildReport, 0, topologyRebuildCISamples)
+	for range topologyRebuildCISamples {
+		samples = append(samples, DriveTopologyRebuild(target))
+	}
+	return evaluateTopologyRebuildGate(target, samples)
+}
+
+func evaluateTopologyRebuildGate(target TopologyRebuildTarget, samples []TopologyRebuildReport) topologyRebuildGateReport {
+	rep := topologyRebuildGateReport{Target: target, Samples: samples}
+	if len(samples) != topologyRebuildCISamples {
 		rep.Violations = append(rep.Violations, fmt.Sprintf(
-			"%s total rebuild %s above %s", target.Tier, rep.Elapsed, target.MaxTotal))
+			"%s topology rebuild gate has %d samples, want %d",
+			target.Tier, len(samples), topologyRebuildCISamples))
+		return rep
+	}
+
+	var replay, snapshot, total Latencies
+	for idx, sample := range samples {
+		replay.Record(sample.ReplayLatency.P95)
+		snapshot.Record(sample.SnapshotLatency.P95)
+		total.Record(sample.Elapsed)
+		for _, violation := range sample.CorrectnessViolations {
+			rep.Violations = append(rep.Violations, fmt.Sprintf(
+				"%s sample %d correctness: %s", target.Tier, idx+1, violation))
+		}
+	}
+	rep.MedianReplayP95 = replay.Summary().P50
+	rep.MedianSnapshotP95 = snapshot.Summary().P50
+	rep.MedianTotal = total.Summary().P50
+	for _, violation := range topologyRebuildTimingViolations(
+		target, rep.MedianReplayP95, rep.MedianSnapshotP95, rep.MedianTotal) {
+		rep.Violations = append(rep.Violations, "median-of-3 "+violation)
 	}
 	return rep
+}
+
+func topologyRebuildTimingViolations(
+	target TopologyRebuildTarget,
+	replayP95, snapshotP95, total time.Duration,
+) []string {
+	var violations []string
+	if replayP95 > target.MaxReplayP95 {
+		violations = append(violations, fmt.Sprintf(
+			"%s replay p95 %s above %s", target.Tier, replayP95, target.MaxReplayP95))
+	}
+	if snapshotP95 > target.MaxSnapshotP95 {
+		violations = append(violations, fmt.Sprintf(
+			"%s snapshot p95 %s above %s", target.Tier, snapshotP95, target.MaxSnapshotP95))
+	}
+	if total > target.MaxTotal {
+		violations = append(violations, fmt.Sprintf(
+			"%s total rebuild %s above %s", target.Tier, total, target.MaxTotal))
+	}
+	return violations
 }
 
 func replayTenantTopology(graph topology.TenantStore, tenantIdx int, target TopologyRebuildTarget, at time.Time) {

@@ -369,7 +369,7 @@ func topologyRebuildHotPath() HotPathSLO {
 			{
 				Kind:    MeasurementBenchmark,
 				Command: "go test ./internal/perf -run '^TestTopologyRebuildTargets$' -count=1 -v",
-				Receipt: "S/M/L topology replay fixture logs per-tenant replay p95, snapshot p95, and completeness",
+				Receipt: "S/M/L topology replay fixture logs all three timing samples, their median verdict, and every-sample completeness",
 				Source:  "internal/perf/topology_rebuild_test.go:TestTopologyRebuildTargets",
 			},
 			{
@@ -379,7 +379,7 @@ func topologyRebuildHotPath() HotPathSLO {
 				Source:  "internal/perf/topology_rebuild_test.go:BenchmarkTopologyRebuild",
 			},
 		},
-		Notes: "Defines numeric rebuild ceilings by tier in TopologyRebuildTargets; read-path targets stay in hp-topology-read and hp-topology-whatif.",
+		Notes: "CI uses median-of-three timing with every-sample correctness; strict single-run benchmarks on reference hardware remain the performance authority. Read-path targets stay in hp-topology-read and hp-topology-whatif.",
 	}
 }
 
