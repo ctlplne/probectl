@@ -12,6 +12,7 @@ import {
   formatRatioPercent,
   formatUnit,
 } from '../i18n/number'
+import { formatThreatConfidence } from '../api/threat'
 
 describe('locale-aware numeric formatting', () => {
   test('formats currency, ratios, binary volume, and engineering units by locale', () => {
@@ -25,5 +26,13 @@ describe('locale-aware numeric formatting', () => {
   test('uses plural rules instead of parenthetical English plurals', () => {
     expect(formatCount(1, 'answer', 'answers', 'en')).toBe('1 answer')
     expect(formatCount(2, 'answer', 'answers', 'en')).toBe('2 answers')
+  })
+
+  test('formats threat confidence as 0..100 percentage points, not a ratio', () => {
+    expect(formatThreatConfidence(0, 'en')).toBe('0%')
+    expect(formatThreatConfidence(82, 'en')).toBe('82%')
+    expect(formatThreatConfidence(100, 'en')).toBe('100%')
+    expect(formatThreatConfidence(undefined, 'en')).toBe('n/a')
+    expect(formatThreatConfidence(82, 'es')).toMatch(/^82\s*%$/)
   })
 })

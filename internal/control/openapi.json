@@ -5572,7 +5572,10 @@
                             "type": "string"
                           },
                           "confidence": {
-                            "type": "integer"
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100,
+                            "description": "Threat confidence in percentage points; omitted when unavailable."
                           },
                           "source": {
                             "type": "string"

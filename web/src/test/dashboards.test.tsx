@@ -51,6 +51,10 @@ describe('curated dashboards', () => {
       expect(within(table).queryByText(/No data/i)).not.toBeInTheDocument()
     }
 
+    const threatSignals = screen.getByRole('table', { name: /threat signal dashboard/i })
+    expect(within(threatSignals).getByText('82%')).toBeInTheDocument()
+    expect(within(threatSignals).queryByText('8,200%')).not.toBeInTheDocument()
+
     const incidents = screen.getByRole('table', { name: /open incident dashboard/i })
     expect(within(incidents).getByText(/checkout latency/i)).toBeInTheDocument()
 

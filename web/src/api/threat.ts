@@ -7,6 +7,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from './client'
 import type { Severity } from './incidents'
+import { formatPercentValue } from '../i18n/number'
 
 /**
  * The threat-detection triage API (surface: S-FE3, fed by S28 IOC matches and
@@ -20,6 +21,7 @@ export interface Detection {
   kind: string
   plane: string
   severity: Severity
+  /** Threat confidence in percentage points from 0 through 100. */
   confidence?: number
   source?: string
   category?: string
@@ -31,6 +33,15 @@ export interface Detection {
   summary?: string
   incident_id?: string
   observed_at: string
+}
+
+/** Render the threat contract's percentage-point value without accidentally
+ * treating it as a 0..1 ratio. Older servers may omit confidence, so keep that
+ * state explicit instead of turning it into zero. */
+export function formatThreatConfidence(confidence: number | undefined, locale: string): string {
+  return confidence === undefined
+    ? 'n/a'
+    : formatPercentValue(confidence, locale, { maximumFractionDigits: 0 })
 }
 
 interface DetectionsResponse {

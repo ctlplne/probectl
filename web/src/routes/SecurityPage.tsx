@@ -28,6 +28,7 @@ import {
 import { severityTone } from '../api/incidents'
 import { daysUntil, findingLabel, useTLSPosture, type TLSPosture } from '../api/tls'
 import {
+  formatThreatConfidence,
   useDetections,
   useThreatIntelStatus,
   type Detection,
@@ -42,6 +43,7 @@ import {
 import { DateTime } from '../time/DateTime'
 import { pivotHref } from './pivotContext'
 import { isApiStatus } from '../api/client'
+import { useI18n } from '../i18n/useI18n'
 
 function detectionIncidentHref(detection: Detection): string {
   return pivotHref('/incidents', {
@@ -84,6 +86,7 @@ function flagBadges(p: TLSPosture) {
  *  client-side — the 'watch out for'). */
 function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () => void }) {
   const { push } = useToast()
+  const { locale } = useI18n()
   const leaf = posture.leaf
   const handoffJSON = posture.handoff ? JSON.stringify(posture.handoff, null, 2) : ''
 
@@ -146,7 +149,12 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
                 <Badge tone={severityTone(f.severity)}>{findingLabel(f.kind)}</Badge>
                 <span>
                   {f.message}
-                  {f.source ? ` (source: ${f.source}, confidence ${f.confidence})` : ''}
+                  {f.source
+                    ? ` (source: ${f.source}, confidence ${formatThreatConfidence(
+                        f.confidence,
+                        locale,
+                      )})`
+                    : ''}
                 </span>
               </li>
             ))}
@@ -180,8 +188,7 @@ function PostureDetail({ posture, onClose }: { posture: TLSPosture; onClose: () 
  *  confidence-scored signal with the attributing feed, never a block, and
  *  feeds can list benign infrastructure (the 'watch out for'). */
 function proposalFromDetection(d: Detection): CreateProposalInput {
-  const confidence =
-    typeof d.confidence === 'number' && d.confidence > 0 ? ` confidence ${d.confidence}` : ''
+  const confidence = ` confidence ${formatThreatConfidence(d.confidence, 'en')}`
   const indicator = d.indicator ? ` indicator ${d.indicator}` : ' no matched indicator recorded'
   const incident = d.incident_id ? ` Correlated incident ${d.incident_id}.` : ''
   return {
@@ -214,15 +221,16 @@ function DetectionDetail({
   onPropose: (detection: Detection) => void
   onClose: () => void
 }) {
+  const { locale } = useI18n()
   return (
     <Modal open onClose={onClose} title={detection.entity}>
       <dl className={styles.kv}>
         <dt>Severity</dt>
         <dd>
           <Badge tone={severityTone(detection.severity)}>{detection.severity}</Badge>{' '}
-          {typeof detection.confidence === 'number' && detection.confidence > 0 ? (
-            <Badge tone="neutral">confidence {detection.confidence}</Badge>
-          ) : null}
+          <Badge tone="neutral">
+            confidence {formatThreatConfidence(detection.confidence, locale)}
+          </Badge>
         </dd>
         <dt>Detection</dt>
         <dd>{detection.kind}</dd>
@@ -406,6 +414,7 @@ function DetectionsCard() {
   const remediations = useRemediations()
   const createProposal = useCreateRemediationProposal()
   const { push } = useToast()
+  const { locale } = useI18n()
   const [sevFilter, setSevFilter] = useState<DetSeverityFilter>('all')
   const [sourceFilter, setSourceFilter] = useState('all')
   const [needle, setNeedle] = useState('')
@@ -454,8 +463,7 @@ function DetectionsCard() {
       key: 'confidence',
       header: 'Confidence',
       numeric: true,
-      render: (d) =>
-        typeof d.confidence === 'number' && d.confidence > 0 ? String(d.confidence) : '—',
+      render: (d) => formatThreatConfidence(d.confidence, locale),
     },
     { key: 'entity', header: 'Entity', render: (d) => d.entity },
     { key: 'indicator', header: 'Indicator', render: (d) => d.indicator ?? '—' },

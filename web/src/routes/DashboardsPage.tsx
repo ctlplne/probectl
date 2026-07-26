@@ -40,7 +40,7 @@ import { useIncidents, severityTone, type Incident } from '../api/incidents'
 import { useLatestResults, useResultsHistory, type LatestResult } from '../api/results'
 import { isApiStatus } from '../api/client'
 import { pct, useSLOs, type SLOStatus } from '../api/slos'
-import { useDetections, type Detection } from '../api/threat'
+import { formatThreatConfidence, useDetections, type Detection } from '../api/threat'
 import { useTests, type Test } from '../api/tests'
 import { useTopology, type TopoEdge, type TopoNode } from '../api/topology'
 import type { DashboardDefinition, DashboardPreset } from '../api/dashboardReporting'
@@ -912,10 +912,7 @@ function ThreatTable({ rows, locale }: { rows: Detection[]; locale: string }) {
       key: 'confidence',
       header: 'Confidence',
       numeric: true,
-      render: (d) =>
-        d.confidence === undefined
-          ? 'n/a'
-          : formatRatioPercent(d.confidence, locale, { maximumFractionDigits: 0 }),
+      render: (d) => formatThreatConfidence(d.confidence, locale),
     },
     { key: 'source', header: 'Source', render: (d) => d.source || d.plane },
   ]

@@ -173,13 +173,52 @@ describe('threat/IOC triage surface (S-FE3)', () => {
     // Attribution + confidence visible in the list (the S28 contract).
     expect(within(rows[1]).getAllByText('203.0.113.66').length).toBeGreaterThan(0)
     expect(within(rows[1]).getByText('feodo')).toBeDefined()
-    expect(within(rows[1]).getByText('90')).toBeDefined()
+    expect(within(rows[1]).getByText('90%')).toBeDefined()
     expect(within(rows[1]).getByText('critical')).toBeDefined()
     // The incident pivot link targets the correlated incident.
     const pivot = within(rows[1]).getByRole('link', { name: 'timeline' })
     expectIncidentPivot(pivot.getAttribute('href'))
     // The uncorrelated detection shows no pivot.
     expect(within(rows[2]).queryByRole('link')).toBeNull()
+  })
+
+  test('renders zero, full, and unavailable confidence without ambiguity', async () => {
+    const base = detectionFixtures()[0]
+    const detections: Detection[] = [
+      {
+        ...base,
+        id: 'det-zero',
+        confidence: 0,
+        entity: 'zero.example',
+        indicator: undefined,
+        incident_id: undefined,
+      },
+      {
+        ...base,
+        id: 'det-full',
+        confidence: 100,
+        entity: 'full.example',
+        indicator: undefined,
+        incident_id: undefined,
+      },
+      {
+        ...base,
+        id: 'det-unavailable',
+        confidence: undefined,
+        entity: 'unavailable.example',
+        indicator: undefined,
+        incident_id: undefined,
+      },
+    ]
+    const { fetcher } = threatBackend(detections)
+    vi.stubGlobal('fetch', fetcher)
+    renderApp('/security')
+
+    const table = within(await screen.findByRole('table', { name: 'Threat detections' }))
+    const rowFor = (entity: string) => table.getByText(entity).closest('tr')!
+    expect(within(rowFor('zero.example')).getByText('0%')).toBeInTheDocument()
+    expect(within(rowFor('full.example')).getByText('100%')).toBeInTheDocument()
+    expect(within(rowFor('unavailable.example')).getByText('n/a')).toBeInTheDocument()
   })
 
   test('detail shows provenance honestly (license, benign-may-be-listed note)', async () => {
@@ -193,7 +232,7 @@ describe('threat/IOC triage surface (S-FE3)', () => {
     )
     const dialog = await screen.findByRole('dialog')
 
-    expect(within(dialog).getByText('confidence 90')).toBeDefined()
+    expect(within(dialog).getByText('confidence 90%')).toBeDefined()
     expect(within(dialog).getByText(/feodo · botnet · license: non-commercial/)).toBeDefined()
     expect(within(dialog).getByText(/feeds can list benign infrastructure/)).toBeDefined()
     expect(within(dialog).getByText(/never blocks/)).toBeDefined()
@@ -235,7 +274,7 @@ describe('threat/IOC triage surface (S-FE3)', () => {
       incident_id: 'inc-42',
     })
     expect(String(state.proposalBody?.rationale)).toContain('Detection det-2')
-    expect(String(state.proposalBody?.rationale)).toContain('confidence 90')
+    expect(String(state.proposalBody?.rationale)).toContain('confidence 90%')
     expect(String(state.proposalBody?.rationale)).toContain('Source feodo / botnet')
     expect(String(state.proposalBody?.rationale)).toContain('human review only')
     expect(String(state.proposalBody?.rationale)).toContain('must not block traffic or execute')
