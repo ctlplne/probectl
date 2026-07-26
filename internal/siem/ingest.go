@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log/slog"
 	"net"
 	"sort"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
+	"github.com/imfeelingtheagi/probectl/internal/ingesthealth"
 )
 
 const (
@@ -36,6 +38,7 @@ var (
 	ErrSyslogUnauthenticated = errors.New("siem syslog ingest: unauthenticated source")
 	ErrSyslogRateLimited     = errors.New("siem syslog ingest: rate limited")
 	ErrSyslogParse           = errors.New("siem syslog ingest: parse")
+	ErrSyslogPersistence     = errors.New("siem syslog ingest: persistence")
 )
 
 // SyslogSource is one authenticated sender allowed to emit syslog records for a
@@ -56,6 +59,7 @@ type SyslogReceiverConfig struct {
 	Sources      []SyslogSource
 	MaxLineBytes int
 	Now          func() time.Time
+	Log          *slog.Logger
 }
 
 // SyslogEnvelope is one untrusted syslog delivery. Tests and non-network
@@ -105,6 +109,7 @@ type SyslogReceiver struct {
 	cfg     SyslogReceiverConfig
 	store   SyslogStore
 	sources []SyslogSource
+	health  *ingesthealth.Monitor
 
 	mu   sync.Mutex
 	hits map[string][]time.Time
@@ -136,7 +141,13 @@ func NewSyslogReceiver(cfg SyslogReceiverConfig, store SyslogStore) (*SyslogRece
 			return nil, fmt.Errorf("siem syslog ingest: source %q requires hmac_secret or tls_client_subject", sources[i].Name)
 		}
 	}
-	return &SyslogReceiver{cfg: cfg, store: store, sources: sources, hits: map[string][]time.Time{}}, nil
+	return &SyslogReceiver{
+		cfg:     cfg,
+		store:   store,
+		sources: sources,
+		health:  ingesthealth.New(cfg.TenantID, SourceSyslog, cfg.Log, cfg.Now),
+		hits:    map[string][]time.Time{},
+	}, nil
 }
 
 // SyslogSignature returns the canonical HMAC-SHA256 signature header value for
@@ -202,7 +213,16 @@ func (r *SyslogReceiver) Record(ctx context.Context, env SyslogEnvelope) (Syslog
 		event.AuthPrincipal = env.TLSClientSubject
 	}
 	event.Fingerprint = syslogFingerprint(event)
-	return r.store.RecordSyslog(ctx, event)
+	stored, err := r.store.RecordSyslog(ctx, event)
+	if err != nil {
+		return SyslogEvent{}, fmt.Errorf("%w: %w", ErrSyslogPersistence, err)
+	}
+	return stored, nil
+}
+
+// HealthSnapshot exposes monotonic live-listener counters without record data.
+func (r *SyslogReceiver) HealthSnapshot() ingesthealth.Snapshot {
+	return r.health.Snapshot()
 }
 
 // ListenTLS serves newline-delimited syslog over a TLS listener until ctx is
@@ -251,17 +271,40 @@ func (r *SyslogReceiver) serve(ctx context.Context, ln net.Listener) error {
 
 func (r *SyslogReceiver) handleConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
-	subject := tlsClientSubject(conn)
+	r.consumeConn(ctx, conn, tlsClientSubject(conn))
+}
+
+func (r *SyslogReceiver) consumeConn(ctx context.Context, conn net.Conn, subject string) {
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, defaultSyslogReadBufferInitial), r.cfg.MaxLineBytes)
 	for scanner.Scan() {
-		_, _ = r.Record(ctx, SyslogEnvelope{
+		r.handleLiveEnvelope(ctx, SyslogEnvelope{
 			Line:             append([]byte(nil), scanner.Bytes()...),
 			SourceAddress:    conn.RemoteAddr().String(),
 			TLSClientSubject: subject,
 			ReceivedAt:       r.cfg.Now().UTC(),
 		})
 	}
+	if scanner.Err() != nil {
+		r.health.ObserveFailure(ingesthealth.ClassParseFailed)
+	}
+}
+
+func (r *SyslogReceiver) handleLiveEnvelope(ctx context.Context, env SyslogEnvelope) {
+	if _, err := r.Record(ctx, env); err != nil {
+		class := ingesthealth.ClassPersistenceFailed
+		switch {
+		case errors.Is(err, ErrSyslogUnauthenticated):
+			class = ingesthealth.ClassRejected
+		case errors.Is(err, ErrSyslogParse):
+			class = ingesthealth.ClassParseFailed
+		case errors.Is(err, ErrSyslogRateLimited):
+			class = ingesthealth.ClassRateLimited
+		}
+		r.health.ObserveFailure(class)
+		return
+	}
+	r.health.ObserveAccepted()
 }
 
 func tlsClientSubject(conn net.Conn) string {

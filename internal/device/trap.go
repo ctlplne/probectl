@@ -11,8 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
-	"io"
-	"log"
+	"log/slog"
 	"net"
 	"sort"
 	"strconv"
@@ -21,6 +20,8 @@ import (
 	"time"
 
 	"github.com/gosnmp/gosnmp"
+
+	"github.com/imfeelingtheagi/probectl/internal/ingesthealth"
 )
 
 const (
@@ -34,6 +35,12 @@ const (
 	oidSNMPAuthFailure       = ".1.3.6.1.6.3.1.1.5.5"
 	oidIfIndex               = ".1.3.6.1.2.1.2.2.1.1"
 	defaultMaxTrapRowsTenant = 1000
+)
+
+var (
+	ErrTrapRejected    = errors.New("device trap: rejected")
+	ErrTrapParse       = errors.New("device trap: parse")
+	ErrTrapPersistence = errors.New("device trap: persistence")
 )
 
 // TrapSource is one authenticated sender allowed to emit traps for the runtime's
@@ -52,6 +59,7 @@ type TrapReceiverConfig struct {
 	AgentID  string
 	Sources  []TrapSource
 	Now      func() time.Time
+	Log      *slog.Logger
 }
 
 // TrapVarBind is one normalized SNMP varbind.
@@ -107,6 +115,7 @@ type TrapReceiver struct {
 	store   TrapStore
 	sources []TrapSource
 	params  *gosnmp.GoSNMP
+	health  *ingesthealth.Monitor
 }
 
 // NewTrapReceiver validates cfg and builds a tenant-bound trap receiver.
@@ -124,11 +133,12 @@ func NewTrapReceiver(cfg TrapReceiverConfig, store TrapStore) (*TrapReceiver, er
 	if len(sources) == 0 {
 		return nil, errors.New("device trap: at least one authenticated source is required")
 	}
-	params, err := trapSNMPParams(sources)
+	health := ingesthealth.New(cfg.TenantID, SourceSNMPTrap, cfg.Log, cfg.Now)
+	params, err := trapSNMPParams(sources, health)
 	if err != nil {
 		return nil, err
 	}
-	return &TrapReceiver{cfg: cfg, store: store, sources: sources, params: params}, nil
+	return &TrapReceiver{cfg: cfg, store: store, sources: sources, params: params, health: health}, nil
 }
 
 // Listen runs a gosnmp-backed UDP trap listener until ctx is canceled.
@@ -139,7 +149,7 @@ func (r *TrapReceiver) Listen(ctx context.Context, addr string) error {
 	tl := gosnmp.NewTrapListener()
 	tl.Params = r.params
 	tl.OnNewTrap = func(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr) {
-		_, _, _, _ = r.RecordPacket(ctx, pkt, remote)
+		r.handleLivePacket(ctx, pkt, remote)
 	}
 	go func() {
 		<-ctx.Done()
@@ -153,12 +163,12 @@ func (r *TrapReceiver) Listen(ctx context.Context, addr string) error {
 // duplicate replay.
 func (r *TrapReceiver) DecodeAndRecord(ctx context.Context, data []byte, remote *net.UDPAddr) (TrapEvent, TrapAlert, bool, error) {
 	if len(data) == 0 {
-		return TrapEvent{}, TrapAlert{}, false, errors.New("device trap: empty datagram")
+		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: empty datagram", ErrTrapParse)
 	}
 	cp := append([]byte(nil), data...)
 	pkt, err := r.params.UnmarshalTrap(cp, true)
 	if err != nil {
-		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("device trap: decode/authenticate: %w", err)
+		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: decode/authenticate: %w", ErrTrapParse, err)
 	}
 	return r.RecordPacket(ctx, pkt, remote)
 }
@@ -166,15 +176,36 @@ func (r *TrapReceiver) DecodeAndRecord(ctx context.Context, data []byte, remote 
 // RecordPacket records a packet already decoded by gosnmp's listener.
 func (r *TrapReceiver) RecordPacket(ctx context.Context, pkt *gosnmp.SnmpPacket, remote *net.UDPAddr) (TrapEvent, TrapAlert, bool, error) {
 	if pkt == nil {
-		return TrapEvent{}, TrapAlert{}, false, errors.New("device trap: nil packet")
+		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: nil packet", ErrTrapRejected)
 	}
 	source, principal, err := r.authenticate(pkt, remote)
 	if err != nil {
-		return TrapEvent{}, TrapAlert{}, false, err
+		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: %w", ErrTrapRejected, err)
 	}
 	event := normalizeTrap(r.cfg, pkt, remote, source, principal)
 	alert := alertFromTrap(event)
-	return r.store.RecordTrap(ctx, event, alert)
+	storedEvent, storedAlert, inserted, err := r.store.RecordTrap(ctx, event, alert)
+	if err != nil {
+		return TrapEvent{}, TrapAlert{}, false, fmt.Errorf("%w: %w", ErrTrapPersistence, err)
+	}
+	return storedEvent, storedAlert, inserted, nil
+}
+
+// HealthSnapshot exposes monotonic live-listener counters without record data.
+func (r *TrapReceiver) HealthSnapshot() ingesthealth.Snapshot {
+	return r.health.Snapshot()
+}
+
+func (r *TrapReceiver) handleLivePacket(ctx context.Context, pkt *gosnmp.SnmpPacket, remote *net.UDPAddr) {
+	if _, _, _, err := r.RecordPacket(ctx, pkt, remote); err != nil {
+		class := ingesthealth.ClassPersistenceFailed
+		if errors.Is(err, ErrTrapRejected) {
+			class = ingesthealth.ClassRejected
+		}
+		r.health.ObserveFailure(class)
+		return
+	}
+	r.health.ObserveAccepted()
 }
 
 func (r *TrapReceiver) authenticate(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr) (TrapSource, string, error) {
@@ -219,8 +250,8 @@ func (r *TrapReceiver) authenticate(pkt *gosnmp.SnmpPacket, remote *net.UDPAddr)
 	}
 }
 
-func trapSNMPParams(sources []TrapSource) (*gosnmp.GoSNMP, error) {
-	logger := gosnmp.NewLogger(log.New(io.Discard, "", 0))
+func trapSNMPParams(sources []TrapSource, health *ingesthealth.Monitor) (*gosnmp.GoSNMP, error) {
+	logger := gosnmp.NewLogger(trapListenerLogger{health: health})
 	table := gosnmp.NewSnmpV3SecurityParametersTable(logger)
 	var v3Params []*gosnmp.UsmSecurityParameters
 	for i := range sources {
@@ -257,6 +288,21 @@ func trapSNMPParams(sources []TrapSource) (*gosnmp.GoSNMP, error) {
 		params.TrapSecurityParametersTable = table
 	}
 	return params, nil
+}
+
+// trapListenerLogger deliberately ignores every library log argument. The
+// fixed outer UnmarshalTrap format is the only signal retained, preventing
+// gosnmp debug output from exposing packet fields or authentication material.
+type trapListenerLogger struct {
+	health *ingesthealth.Monitor
+}
+
+func (l trapListenerLogger) Print(...any) {}
+
+func (l trapListenerLogger) Printf(format string, _ ...any) {
+	if strings.HasPrefix(format, "TrapListener: error in UnmarshalTrap ") {
+		l.health.ObserveFailure(ingesthealth.ClassParseFailed)
+	}
 }
 
 func trapUSM(cred Credential) (*gosnmp.UsmSecurityParameters, error) {

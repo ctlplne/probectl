@@ -193,6 +193,7 @@ func (r *Runtime) trapReceiver() (*TrapReceiver, error) {
 		TenantID: r.cfg.TenantID,
 		AgentID:  r.cfg.AgentID,
 		Sources:  sources,
+		Log:      r.log,
 	}, r.traps)
 }
 

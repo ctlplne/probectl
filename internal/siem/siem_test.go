@@ -7,11 +7,14 @@
 package siem
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -433,6 +436,110 @@ func TestSyslogIngestRejectsMalformedAndPlainListener(t *testing.T) {
 	}, NewMemorySyslogStore(1)); err == nil {
 		t.Fatal("source without signature or TLS client subject should fail closed")
 	}
+}
+
+func TestSyslogLiveConnectionSurfacesSafeBoundedHealth(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	var storeCalls int
+	store := syslogStoreFunc(func(_ context.Context, event SyslogEvent) (SyslogEvent, error) {
+		storeCalls++
+		if strings.Contains(event.Message, "persist-private-body") {
+			return SyslogEvent{}, errors.New("db-password=store-secret signature=private")
+		}
+		return event, nil
+	})
+	receiver, err := NewSyslogReceiver(SyslogReceiverConfig{
+		TenantID: "tenant-a",
+		Now:      func() time.Time { return now },
+		Log:      slog.New(slog.NewJSONHandler(&logs, nil)),
+		Sources: []SyslogSource{{
+			Name:             "edge-fw",
+			TLSClientSubject: "CN=edge-fw",
+			RateLimit:        3,
+			RateLimitWindow:  time.Hour,
+		}},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	valid := `<34>1 2026-07-26T12:00:00Z edge firewall - live - accepted-private-body`
+	consumeSyslogTestConnection(t, receiver, "CN=wrong-private-subject", valid, valid)
+	consumeSyslogTestConnection(
+		t,
+		receiver,
+		"CN=edge-fw",
+		`<999>1 2026-07-26T12:00:00Z edge firewall - live - malformed-private-body`,
+		valid,
+		`<34>1 2026-07-26T12:00:00Z edge firewall - live - persist-private-body`,
+		`<34>1 2026-07-26T12:00:00Z edge firewall - live - limited-private-body`,
+	)
+
+	got := receiver.HealthSnapshot()
+	if got.Accepted != 1 || got.Rejected != 2 || got.ParseFailed != 1 ||
+		got.RateLimited != 1 || got.PersistenceFailed != 1 {
+		t.Fatalf("live syslog health = %+v", got)
+	}
+	if storeCalls != 2 {
+		t.Fatalf("store calls = %d, want 2 (accepted + persistence failure only)", storeCalls)
+	}
+
+	text := logs.String()
+	for _, want := range []string{
+		`"tenant_id":"tenant-a"`,
+		`"listener":"syslog"`,
+		`"error_class":"rejected"`,
+		`"error_class":"parse_failed"`,
+		`"error_class":"rate_limited"`,
+		`"error_class":"persistence_failed"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("safe syslog log missing %q:\n%s", want, text)
+		}
+	}
+	if got := strings.Count(text, `"error_class":"rejected"`); got != 1 {
+		t.Fatalf("rejected warning count = %d, want 1 bounded warning:\n%s", got, text)
+	}
+	for _, forbidden := range []string{
+		"wrong-private-subject",
+		"accepted-private-body",
+		"malformed-private-body",
+		"persist-private-body",
+		"limited-private-body",
+		"store-secret",
+		"signature=private",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("syslog log leaked %q:\n%s", forbidden, text)
+		}
+	}
+}
+
+func consumeSyslogTestConnection(t *testing.T, receiver *SyslogReceiver, subject string, lines ...string) {
+	t.Helper()
+	server, client := net.Pipe()
+	done := make(chan struct{})
+	go func() {
+		receiver.consumeConn(context.Background(), server, subject)
+		_ = server.Close()
+		close(done)
+	}()
+	for _, line := range lines {
+		if _, err := io.WriteString(client, line+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+}
+
+type syslogStoreFunc func(context.Context, SyslogEvent) (SyslogEvent, error)
+
+func (f syslogStoreFunc) RecordSyslog(ctx context.Context, event SyslogEvent) (SyslogEvent, error) {
+	return f(ctx, event)
 }
 
 func TestSyslogParserEdgeCasesAndMemoryStoreBounds(t *testing.T) {

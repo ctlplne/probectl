@@ -7,9 +7,13 @@
 package device
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log/slog"
 	"net"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +129,96 @@ func TestSNMPTrapReceiverRejectsUnauthenticatedFixtures(t *testing.T) {
 	}
 }
 
+func TestSNMPTrapLiveCallbackSurfacesSafeBoundedHealth(t *testing.T) {
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	var storeCalls int
+	store := trapStoreFunc(func(_ context.Context, event TrapEvent, alert TrapAlert) (TrapEvent, TrapAlert, bool, error) {
+		storeCalls++
+		if event.RequestID == 2 {
+			return TrapEvent{}, TrapAlert{}, false, errors.New("db-password=store-secret raw-varbind=private")
+		}
+		return event, alert, true, nil
+	})
+	receiver, err := NewTrapReceiver(TrapReceiverConfig{
+		TenantID: "tenant-a",
+		AgentID:  "device-agent-1",
+		Now:      func() time.Time { return now },
+		Log:      slog.New(slog.NewJSONHandler(&logs, nil)),
+		Sources: []TrapSource{{
+			Name:       "core-v2c",
+			Transport:  TransportSNMPv2c,
+			Credential: Credential{Community: "community-secret"},
+		}},
+	}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	remote := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 2162}
+	good := &gosnmp.SnmpPacket{
+		Version:   gosnmp.Version2c,
+		Community: "community-secret",
+		RequestID: 1,
+		Variables: snmpTrapVarBinds(oidSNMPLinkUp, 7),
+	}
+	receiver.handleLivePacket(context.Background(), good, remote)
+
+	rejected := *good
+	rejected.Community = "wrong-community-secret"
+	receiver.handleLivePacket(context.Background(), &rejected, remote)
+	receiver.handleLivePacket(context.Background(), &rejected, remote)
+
+	persistFailed := *good
+	persistFailed.RequestID = 2
+	receiver.handleLivePacket(context.Background(), &persistFailed, remote)
+
+	// This is the exact fixed-format callback used by gosnmp's UDP listener
+	// when UnmarshalTrap rejects a datagram. The logger must ignore its error
+	// argument rather than risk formatting packet-derived data.
+	receiver.params.Logger.Printf(
+		"TrapListener: error in UnmarshalTrap %s\n",
+		errors.New("raw-packet=private auth-password=secret"),
+	)
+
+	got := receiver.HealthSnapshot()
+	if got.Accepted != 1 || got.Rejected != 2 || got.ParseFailed != 1 ||
+		got.RateLimited != 0 || got.PersistenceFailed != 1 {
+		t.Fatalf("live trap health = %+v", got)
+	}
+	if storeCalls != 2 {
+		t.Fatalf("store calls = %d, want 2 (accepted + persistence failure only)", storeCalls)
+	}
+
+	text := logs.String()
+	for _, want := range []string{
+		`"tenant_id":"tenant-a"`,
+		`"listener":"snmp_trap"`,
+		`"error_class":"rejected"`,
+		`"error_class":"parse_failed"`,
+		`"error_class":"persistence_failed"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("safe trap log missing %q:\n%s", want, text)
+		}
+	}
+	if got := strings.Count(text, `"error_class":"rejected"`); got != 1 {
+		t.Fatalf("rejected warning count = %d, want 1 bounded warning:\n%s", got, text)
+	}
+	for _, forbidden := range []string{
+		"community-secret",
+		"wrong-community-secret",
+		"store-secret",
+		"raw-varbind",
+		"raw-packet",
+		"auth-password",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("trap log leaked %q:\n%s", forbidden, text)
+		}
+	}
+}
+
 func TestSNMPTrapReceiverRequiresAuthenticatedSources(t *testing.T) {
 	if _, err := NewTrapReceiver(TrapReceiverConfig{
 		TenantID: "tenant-a",
@@ -138,6 +232,12 @@ func TestSNMPTrapReceiverRequiresAuthenticatedSources(t *testing.T) {
 	}, NewMemoryTrapStore(1)); err == nil {
 		t.Fatal("snmpv2c trap source without community must fail")
 	}
+}
+
+type trapStoreFunc func(context.Context, TrapEvent, TrapAlert) (TrapEvent, TrapAlert, bool, error)
+
+func (f trapStoreFunc) RecordTrap(ctx context.Context, event TrapEvent, alert TrapAlert) (TrapEvent, TrapAlert, bool, error) {
+	return f(ctx, event, alert)
 }
 
 func snmpTrapFixtureV2C(t *testing.T, community, trapOID string, ifIndex uint32) []byte {
