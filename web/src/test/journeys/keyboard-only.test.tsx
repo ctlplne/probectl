@@ -301,13 +301,16 @@ describe('J1-J6 keyboard-only completion', () => {
         const path = pathOf(input)
         const method = init?.method ?? 'GET'
         if (path === '/v1/ai/ask' && method === 'POST') return jsonResponse(answer)
-        if (path === '/v1/incidents/inc-dashboard/shares' && method === 'POST') {
+        if (
+          path === '/v1/incidents/30000000-0000-4000-8000-000000000001/shares' &&
+          method === 'POST'
+        ) {
           const request = JSON.parse(String(init?.body)) as { context: Record<string, unknown> }
           return jsonResponse(
             {
               id: 'share_keyboard_01234567',
               incident: {
-                id: 'inc-dashboard',
+                id: '30000000-0000-4000-8000-000000000001',
                 status: 'open',
                 severity: 'warning',
                 title: 'checkout latency burn',
