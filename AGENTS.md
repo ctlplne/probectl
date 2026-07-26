@@ -2,8 +2,11 @@
 
 Instructions for coding agents (Codex, Claude Code, Cowork, or any other) working in this repo.
 
-1. **Read `CLAUDE.md` first.** It is the engineering contract. The §7 guardrails are
-   non-negotiable under any level of autonomy; §6 conventions bind every commit.
+1. **Read `CLAUDE.md` first.** It is the engineering contract.
+   `probectl-PRD-v1.1.md` is the current steering contract;
+   `probectl-PRD-v1.0.md` remains the detailed feature/evidence inventory. The §7
+   guardrails are non-negotiable under any level of autonomy; §6 conventions bind
+   every commit.
 
 2. **If your task is the remediation program** (anything like "continue the harness",
    "work the backlog", "bring the platform to GA/F500"): read **`../harness/HARNESS.md`** —

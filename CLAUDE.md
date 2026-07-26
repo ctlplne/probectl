@@ -1,6 +1,6 @@
 # CLAUDE.md — probectl
 
-*Engineering reference for the probectl codebase and contract. The PRD (`probectl-PRD-v1.0.md`) is the product contract — if they conflict, flag it, don't guess. All responses: deeply technical, ELI5 format.*
+*Engineering reference for the probectl codebase and contract. `probectl-PRD-v1.1.md` is the current steering contract; `probectl-PRD-v1.0.md` remains the detailed feature/evidence inventory. If they conflict, flag it, don't guess. All responses: deeply technical, ELI5 format.*
 
 ## 0. Non-negotiables (full text §7)
 
@@ -99,4 +99,4 @@ Not a vendor-operated public SaaS (multi-tenancy exists for MSP/partner self-hos
 
 ## 12. References
 
-PRD: `probectl-PRD-v1.0.md` (v0.5 frozen) · editions: `docs/editions.md` · config: `docs/configuration.md` · runbooks/architecture/compliance: `docs/` · audit report: `../probectl-design-feature-audit-2026-07-14.html` · sibling: `trustctl`.
+Current steering contract: `probectl-PRD-v1.1.md` · detailed feature/evidence inventory: `probectl-PRD-v1.0.md` · historical contract: `probectl-PRD-v0.5.md` (frozen) · editions: `docs/editions.md` · config: `docs/configuration.md` · runbooks/architecture/compliance: `docs/` · audit report: `../probectl-design-feature-audit-2026-07-14.html` · sibling: `trustctl`.
