@@ -279,28 +279,38 @@ export function ExplorerPage() {
       title="Explorer"
       subtitle="Ask a question, see the exact query grammar, and keep every result tenant-scoped."
     >
-      <Card>
-        <CardHeader title="Canonical questions" />
+      <Card data-explorer-workspace>
+        <CardHeader
+          title="Query builder"
+          description="Start with a proven question, then inspect or refine its exact tenant-scoped grammar."
+        />
         <CardBody>
-          <div className={styles.recipes} aria-label="Canonical Explorer questions">
-            {schema.data.templates.map((template) => (
-              <Button
-                key={template.id}
-                variant={query.template === template.id ? 'primary' : 'secondary'}
-                onClick={() => applyTemplate(template)}
-              >
-                {template.question}
-              </Button>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader title="Query builder" />
-        <CardBody>
+          <section className={styles.recipeSection} aria-labelledby="explorer-recipes-title">
+            <div className={styles.recipeHeading}>
+              <h3 id="explorer-recipes-title">Canonical questions</h3>
+              <p>Choose a recipe to populate the working query.</p>
+            </div>
+            <div
+              className={styles.recipes}
+              aria-label="Canonical Explorer questions"
+              data-explorer-recipes
+              role="group"
+            >
+              {schema.data.templates.map((template) => (
+                <Button
+                  key={template.id}
+                  className={styles.recipe}
+                  variant={query.template === template.id ? 'primary' : 'secondary'}
+                  onClick={() => applyTemplate(template)}
+                >
+                  {template.question}
+                </Button>
+              ))}
+            </div>
+          </section>
           <form
             className={styles.builder}
+            data-explorer-builder
             onSubmit={(event) => {
               event.preventDefault()
               run.mutate(query)

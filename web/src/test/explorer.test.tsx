@@ -8,7 +8,7 @@ import { describe, expect, test, vi } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderApp } from './renderApp'
-import { defaultFetch, jsonResponse, pathOf } from './fetchStub'
+import { defaultFetch, jsonResponse, pathOf, sampleExplorerTemplates } from './fetchStub'
 
 describe('structured and natural-language Explorer', () => {
   test('synchronizes the grammar and returns exact rows, suggestions, saved views, and safe pivots', async () => {
@@ -42,6 +42,18 @@ describe('structured and natural-language Explorer', () => {
 
     renderApp('/explore?template=service-dependencies')
     expect(await screen.findByRole('heading', { name: 'Explorer' })).toBeInTheDocument()
+    const workspace = screen.getByRole('heading', { name: 'Query builder' }).closest('section')
+    const recipes = screen.getByRole('group', { name: 'Canonical Explorer questions' })
+    const builder = document.querySelector<HTMLElement>('[data-explorer-builder]')
+    if (!workspace || !builder) throw new Error('missing Explorer workspace markers')
+    expect(workspace).toContainElement(recipes)
+    expect(workspace).toContainElement(builder)
+    expect(recipes.compareDocumentPosition(builder) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
+    for (const template of sampleExplorerTemplates) {
+      expect(
+        within(recipes).getByRole('button', { name: String(template.question) }),
+      ).toBeInTheDocument()
+    }
     expect(screen.getByLabelText('Ask in natural language')).toHaveValue(
       'Show service dependencies',
     )

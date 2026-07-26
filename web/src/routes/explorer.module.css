@@ -1,10 +1,51 @@
-.recipes,
 .actions,
 .saved {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+}
+
+.recipeSection {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-4);
+  border-bottom: var(--border-width-thin) solid var(--color-border);
+}
+
+.recipeHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.recipeHeading h3 {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.recipeHeading p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.recipes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.recipe {
+  height: auto;
+  min-height: var(--density-control-block);
+  max-width: 100%;
+  padding-block: var(--space-2);
+  line-height: var(--line-height-tight);
+  text-align: start;
+  white-space: normal;
 }
 
 .builder {
@@ -51,4 +92,25 @@
 
 .receipt + figure {
   margin-bottom: var(--space-4);
+}
+
+@media (max-width: 40rem) {
+  .recipeHeading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .recipes {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding-bottom: var(--space-2);
+    scroll-snap-type: inline proximity;
+  }
+
+  .recipe {
+    flex: 0 0 calc(100% - var(--space-5));
+    scroll-snap-align: start;
+  }
 }

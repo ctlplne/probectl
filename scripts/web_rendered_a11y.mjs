@@ -64,6 +64,108 @@ const dashboardCaptions = [
   "Threat signal dashboard",
   "Tenant health dashboard",
 ];
+const explorerTemplates = [
+  {
+    id: "top-talkers-site",
+    question: "Show top talkers by site",
+    source: "flow",
+    dimensions: ["site", "interface"],
+    groupings: ["site"],
+    measures: ["bps", "pps"],
+    visualization: "bar",
+    evidence_path: "/planes/flow",
+  },
+  {
+    id: "asn-before-incident",
+    question: "Which ASN change preceded this incident?",
+    source: "changes",
+    dimensions: ["source", "prefix", "target"],
+    groupings: ["source"],
+    measures: ["events"],
+    visualization: "timeline",
+    evidence_path: "/incidents",
+  },
+  {
+    id: "loss-by-hop",
+    question: "Show loss by hop for this test",
+    source: "path",
+    dimensions: ["target", "hop", "node"],
+    groupings: ["hop"],
+    measures: ["loss_ratio", "rtt_avg_ms"],
+    visualization: "line",
+    evidence_path: "/path",
+  },
+  {
+    id: "service-dependencies",
+    question: "Show service dependencies",
+    source: "topology",
+    dimensions: ["from", "to", "kind"],
+    groupings: ["kind"],
+    measures: ["edges"],
+    visualization: "topology",
+    evidence_path: "/topology",
+  },
+  {
+    id: "saturated-interface",
+    question: "Which device interface is saturated?",
+    source: "flow",
+    dimensions: ["site", "interface"],
+    groupings: ["site", "interface"],
+    measures: ["bps", "pps"],
+    visualization: "line",
+    evidence_path: "/planes/device",
+  },
+  {
+    id: "outage-endpoints",
+    question: "Which endpoints are affected by this outage?",
+    source: "endpoints",
+    dimensions: ["endpoint", "cause", "summary"],
+    groupings: ["cause"],
+    measures: ["affected_endpoints"],
+    visualization: "table",
+    evidence_path: "/endpoints",
+  },
+  {
+    id: "certificates-expiring",
+    question: "Which certificates expire in the next 30 days?",
+    source: "tls",
+    dimensions: ["target", "subject", "issuer"],
+    groupings: ["issuer"],
+    measures: ["days_remaining"],
+    visualization: "table",
+    evidence_path: "/security",
+  },
+  {
+    id: "cross-az-cost",
+    question: "Show cross-AZ network cost",
+    source: "cost",
+    dimensions: ["from_zone", "to_zone", "service"],
+    groupings: ["from_zone", "to_zone"],
+    measures: ["bytes", "usd"],
+    visualization: "bar",
+    evidence_path: "/cost",
+  },
+  {
+    id: "slo-budget-burn",
+    question: "Which SLO error budgets are burning?",
+    source: "slo",
+    dimensions: ["slo", "service", "team"],
+    groupings: ["service"],
+    measures: ["burn_rate", "budget_remaining"],
+    visualization: "bar",
+    evidence_path: "/slos",
+  },
+  {
+    id: "deployments-before-incident",
+    question: "Which deployments immediately preceded this incident?",
+    source: "changes",
+    dimensions: ["source", "actor", "target"],
+    groupings: ["source"],
+    measures: ["events"],
+    visualization: "timeline",
+    evidence_path: "/incidents",
+  },
+];
 
 function appURL(baseURL, route) {
   if (!route.startsWith("/")) {
@@ -254,6 +356,12 @@ function apiPayload(path, method, pagePath = "") {
       ],
     });
   if (path === "/v1/alerts") return json({ items: [] });
+  if (path === "/v1/explorer/schema")
+    return json({
+      templates: explorerTemplates,
+      visualizations: ["table", "bar", "line", "timeline", "topology"],
+      max_rows: 500,
+    });
   if (path === "/v1/alerts/active")
     return json({
       items: [
@@ -682,6 +790,7 @@ function fetchStubSource(theme) {
     const theme = ${JSON.stringify(theme)};
     const appBasePath = ${JSON.stringify(appBasePath)};
     const appRoute = ${appRoute.toString()};
+    const explorerTemplates = ${JSON.stringify(explorerTemplates)};
     localStorage.setItem('probectl.theme', theme);
     const json = (body, status = 200) => ({ status, body });
     const payloads = ${apiPayload.toString()};
@@ -1058,6 +1167,69 @@ async function topologyHierarchyCheck(page) {
   });
 }
 
+// Explorer's working query must lead its teaching chrome. On mobile, canonical
+// recipes are one horizontally scrollable row whose labels wrap inside each
+// button; they must not form a full-screen wall or clip their question text.
+async function explorerHierarchyCheck(page, viewportName) {
+  return page.evaluate((currentViewport) => {
+    const problems = [];
+    const workspace = document.querySelector("[data-explorer-workspace]");
+    const recipes = document.querySelector("[data-explorer-recipes]");
+    const builder = document.querySelector("[data-explorer-builder]");
+    const heading = workspace?.querySelector("[data-card-heading] h2");
+    if (!workspace) problems.push("missing Explorer workspace marker");
+    if (!recipes) problems.push("missing canonical recipe-strip marker");
+    if (!builder) problems.push("missing query-builder marker");
+    if (!heading || heading.textContent?.trim() !== "Query builder") {
+      problems.push("Query builder does not title the working surface");
+    }
+    if (!workspace || !recipes || !builder) return problems;
+
+    if (!workspace.contains(recipes) || !workspace.contains(builder)) {
+      problems.push("recipes and builder do not share the working surface");
+    }
+    if (
+      !(
+        recipes.compareDocumentPosition(builder) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ) {
+      problems.push("query fields do not follow the compact recipe strip");
+    }
+
+    const recipeButtons = [...recipes.querySelectorAll("button")];
+    if (recipeButtons.length === 0) {
+      problems.push("canonical recipe strip has no buttons");
+    }
+    for (const button of recipeButtons) {
+      if (
+        button.scrollWidth > button.clientWidth + 1 ||
+        button.scrollHeight > button.clientHeight + 1
+      ) {
+        problems.push(
+          `recipe label is clipped: ${button.textContent?.trim().slice(0, 64) || "unnamed recipe"}`,
+        );
+      }
+    }
+
+    if (builder.getBoundingClientRect().top >= window.innerHeight) {
+      problems.push("query builder begins below the viewport");
+    }
+    if (currentViewport === "mobile") {
+      const recipeStyle = getComputedStyle(recipes);
+      if (recipeStyle.flexWrap !== "nowrap") {
+        problems.push("mobile recipes wrap into a vertical wall");
+      }
+      if (recipes.getBoundingClientRect().height > window.innerHeight / 3) {
+        problems.push(
+          "mobile recipe strip consumes more than one-third viewport",
+        );
+      }
+    }
+    return problems;
+  }, viewportName);
+}
+
 async function targetAndTabChecks(page) {
   return page.evaluate(() => {
     const selector = [
@@ -1342,6 +1514,36 @@ async function selfCheck(browser, axeSource) {
       "self-check failed: Topology hierarchy check did not catch the planted expanded-controls regression",
     );
   }
+  await page.setContent(`
+    <section data-explorer-workspace>
+      <header data-card-heading><h2>Query builder</h2></header>
+      <div data-explorer-recipes style="display:flex;flex-wrap:wrap;width:350px">
+        <button style="width:120px;height:32px;white-space:nowrap;overflow:hidden">Which certificates expire in the next 30 days?</button>
+        <button style="width:350px;height:400px">Recipe two</button>
+        <button style="width:350px;height:400px">Recipe three</button>
+      </div>
+      <form data-explorer-builder><input aria-label="Ask in natural language"></form>
+    </section>
+  `);
+  const explorerHierarchy = await explorerHierarchyCheck(
+    page,
+    viewports[1].name,
+  );
+  if (
+    !explorerHierarchy.some((problem) =>
+      problem.includes("recipe label is clipped"),
+    ) ||
+    !explorerHierarchy.some((problem) =>
+      problem.includes("wrap into a vertical wall"),
+    ) ||
+    !explorerHierarchy.some((problem) =>
+      problem.includes("query builder begins below"),
+    )
+  ) {
+    throw new Error(
+      "self-check failed: Explorer hierarchy check did not catch the planted clipped recipe wall",
+    );
+  }
   await page.close();
 }
 
@@ -1400,6 +1602,7 @@ async function main() {
             dashboard: [],
             targets: [],
             topology: [],
+            explorer: [],
             runtime: [],
           };
           a11yReceipt.checks.push(record);
@@ -1427,6 +1630,11 @@ async function main() {
               waitUntil: "networkidle",
             });
             await page.waitForSelector("main", { timeout: 10_000 });
+            if (route === "/explore") {
+              await page.waitForSelector("[data-explorer-workspace]", {
+                timeout: 10_000,
+              });
+            }
             await page.addStyleTag({
               content: `*, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }`,
             });
@@ -1485,6 +1693,17 @@ async function main() {
                 );
               }
             }
+            if (route === "/explore") {
+              record.explorer = await explorerHierarchyCheck(
+                page,
+                viewport.name,
+              );
+              if (record.explorer.length > 0) {
+                failures.push(
+                  `${viewport.name} ${theme} ${route}: Explorer hierarchy violations\n  ${record.explorer.join("\n  ")}`,
+                );
+              }
+            }
           } catch (err) {
             record.runtime.push(
               `route check failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1505,6 +1724,7 @@ async function main() {
             record.dashboard.length === 0 &&
             record.targets.length === 0 &&
             record.topology.length === 0 &&
+            record.explorer.length === 0 &&
             record.runtime.length === 0
               ? "pass"
               : "fail";
