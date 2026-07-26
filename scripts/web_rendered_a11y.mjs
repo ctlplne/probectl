@@ -72,6 +72,14 @@ function appURL(baseURL, route) {
   return new URL(`${appBasePath}${route}`, `${baseURL}/`).href;
 }
 
+function appRoute(pathname, basePath) {
+  if (pathname === basePath) return "/";
+  if (pathname.startsWith(`${basePath}/`)) {
+    return pathname.slice(basePath.length);
+  }
+  return pathname;
+}
+
 const bwRequire = createRequire(join(browserWorkerRoot, "package.json"));
 const webRequire = createRequire(join(webRoot, "package.json"));
 
@@ -668,6 +676,8 @@ function apiPayload(path, method, pagePath = "") {
 function fetchStubSource(theme) {
   return `(() => {
     const theme = ${JSON.stringify(theme)};
+    const appBasePath = ${JSON.stringify(appBasePath)};
+    const appRoute = ${appRoute.toString()};
     localStorage.setItem('probectl.theme', theme);
     const json = (body, status = 200) => ({ status, body });
     const payloads = ${apiPayload.toString()};
@@ -682,7 +692,7 @@ function fetchStubSource(theme) {
       if (url.searchParams.has('tenant_id')) throw new Error('browser sent tenant_id query param: ' + url.pathname);
       window.__probectlFetches = window.__probectlFetches || [];
       window.__probectlFetches.push(url.pathname + url.search);
-      return respond(payloads(url.pathname, method, location.pathname));
+      return respond(payloads(url.pathname, method, appRoute(location.pathname, appBasePath)));
     };
   })();`;
 }
@@ -1297,16 +1307,81 @@ async function main() {
   console.log(`web performance receipt: ${performanceReceiptPath}`);
 }
 
+function assertSchemaValue(value, schema, path) {
+  if (!schema || typeof schema !== "object") {
+    throw new Error(`self-check failed: OpenAPI schema missing at ${path}`);
+  }
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+  const matches = types.some((type) => {
+    if (type === "object")
+      return (
+        value !== null && typeof value === "object" && !Array.isArray(value)
+      );
+    if (type === "array") return Array.isArray(value);
+    if (type === "integer") return Number.isInteger(value);
+    if (type === "number")
+      return typeof value === "number" && Number.isFinite(value);
+    if (type === "null") return value === null;
+    return typeof value === type;
+  });
+  if (!matches) {
+    throw new Error(
+      `self-check failed: ${path} does not match OpenAPI type ${types.join("|")}`,
+    );
+  }
+  if (schema.enum && !schema.enum.includes(value)) {
+    throw new Error(`self-check failed: ${path} is outside its OpenAPI enum`);
+  }
+  if (
+    schema.type === "string" &&
+    schema.format === "date-time" &&
+    Number.isNaN(Date.parse(value))
+  ) {
+    throw new Error(
+      `self-check failed: ${path} is not an OpenAPI date-time string`,
+    );
+  }
+  if (schema.type === "array") {
+    value.forEach((item, index) =>
+      assertSchemaValue(item, schema.items, `${path}[${index}]`),
+    );
+  }
+  if (schema.type === "object") {
+    for (const required of schema.required ?? []) {
+      if (!(required in value)) {
+        throw new Error(
+          `self-check failed: ${path} lacks required property ${required}`,
+        );
+      }
+    }
+    for (const [key, propertySchema] of Object.entries(
+      schema.properties ?? {},
+    )) {
+      if (key in value) {
+        assertSchemaValue(value[key], propertySchema, `${path}.${key}`);
+      }
+    }
+  }
+}
+
 async function selfTest() {
   const example = appURL("http://127.0.0.1:4173", "/onboarding");
   if (example !== "http://127.0.0.1:4173/ui/onboarding") {
     throw new Error(`self-check failed: shipping route resolved to ${example}`);
   }
-  const [viteConfig, appSource, scriptSource] = await Promise.all([
-    readFile(join(webRoot, "vite.config.ts"), "utf8"),
-    readFile(join(webRoot, "src/App.tsx"), "utf8"),
-    readFile(fileURLToPath(import.meta.url), "utf8"),
-  ]);
+  const dashboardRoute = appRoute("/ui/dashboards", appBasePath);
+  if (dashboardRoute !== "/dashboards") {
+    throw new Error(
+      `self-check failed: dashboard route resolved to ${dashboardRoute}`,
+    );
+  }
+  const [viteConfig, appSource, scriptSource, openapiSource] =
+    await Promise.all([
+      readFile(join(webRoot, "vite.config.ts"), "utf8"),
+      readFile(join(webRoot, "src/App.tsx"), "utf8"),
+      readFile(fileURLToPath(import.meta.url), "utf8"),
+      readFile(join(repoRoot, "internal/control/openapi.json"), "utf8"),
+    ]);
   if (!viteConfig.includes(`base: '${appBasePath}/'`)) {
     throw new Error(
       `self-check failed: vite.config.ts does not use base ${appBasePath}/`,
@@ -1325,8 +1400,31 @@ async function selfTest() {
       "self-check failed: every route matrix must navigate through appURL",
     );
   }
+  const topologyFixture = apiPayload(
+    "/v1/topology",
+    "GET",
+    dashboardRoute,
+  ).body;
+  const openapi = JSON.parse(openapiSource);
+  const topologySchema =
+    openapi.paths?.["/v1/topology"]?.get?.responses?.["200"]?.content?.[
+      "application/json"
+    ]?.schema;
+  assertSchemaValue(topologyFixture, topologySchema, "topology fixture");
+  const nodeKinds = new Set(topologyFixture.nodes.map((node) => node.kind));
+  const edgeKinds = new Set(topologyFixture.edges.map((edge) => edge.kind));
+  for (const kind of ["as", "prefix", "device"]) {
+    if (!nodeKinds.has(kind)) {
+      throw new Error(`self-check failed: topology fixture lacks ${kind} node`);
+    }
+  }
+  for (const kind of ["routing", "device"]) {
+    if (!edgeKinds.has(kind)) {
+      throw new Error(`self-check failed: topology fixture lacks ${kind} edge`);
+    }
+  }
   console.log(
-    `rendered browser route contract OK (${example}; shipping Vite config + BrowserRouter agree)`,
+    `rendered browser route contract OK (${example}; shipping Vite config + BrowserRouter agree; dashboard fixture matches OpenAPI and covers BGP/device)`,
   );
 }
 
