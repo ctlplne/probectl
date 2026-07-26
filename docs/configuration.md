@@ -601,6 +601,17 @@ resolved-address private-target policy as the HTTP driver. The browser image is
 shipped in releases and air-gap bundles, with an opt-in Compose profile and an
 opt-in Helm DaemonSet described in [`browser-synthetic.md`](browser-synthetic.md).
 
+The spawned worker receives two **internal protocol variables**. Operators do
+not set these on the agent process: the Go driver derives and overwrites them
+for each child from the validated YAML/test definition above. They are listed
+because this page inventories every startup variable, including private
+agent-to-worker contracts:
+
+| Variable | Internal default | Source of truth |
+|---|---|---|
+| `PROBECTL_BROWSER_STEP_TIMEOUT_MS` | `15000` | `browser.worker.step_timeout`, converted to milliseconds by the Go driver |
+| `PROBECTL_BROWSER_ALLOW_PRIVATE_TARGETS` | `false` | the current test's audited `allow_private_targets` parameter |
+
 Example CLI creation:
 
 ```sh
@@ -2224,11 +2235,11 @@ probectl renews before it runs out:
 |---|---|---|
 | `PROBECTL_SECRETS_VAULT_ADDR`      | (none) | Vault base URL; enables `vault:` references; remote URLs must be `https://` |
 | `PROBECTL_SECRETS_VAULT_TOKEN`     | (none) | static Vault token (alternative to AppRole) |
-| `PROBECTL_SECRETS_VAULT_ROLE_ID` / `_SECRET_ID` | (none) | AppRole login; the lease-aware client token is renewed at ⅔ TTL |
+| `PROBECTL_SECRETS_VAULT_ROLE_ID` / `PROBECTL_SECRETS_VAULT_SECRET_ID` | (none) | AppRole login; the lease-aware client token is renewed at ⅔ TTL |
 | `PROBECTL_SECRETS_VAULT_NAMESPACE` | (none) | `X-Vault-Namespace` (Vault Enterprise) |
 | `PROBECTL_SECRETS_CYBERARK_URL`    | (none) | CyberArk CCP base URL; enables `cyberark:`; remote URLs must be `https://` |
 | `PROBECTL_SECRETS_CYBERARK_APP_ID` | (none) | CCP AppID |
-| `PROBECTL_SECRETS_CYBERARK_CERT_FILE` / `_KEY_FILE` / `_CA_FILE` | (none) | optional CCP client-certificate auth |
+| `PROBECTL_SECRETS_CYBERARK_CERT_FILE` / `PROBECTL_SECRETS_CYBERARK_KEY_FILE` / `PROBECTL_SECRETS_CYBERARK_CA_FILE` | (none) | optional CCP client-certificate auth |
 | `AWS_REGION` (or `AWS_DEFAULT_REGION`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | (none) | enables `aws:` (Secrets Manager, SigV4) |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET` | (none) | enables `azure:` (Key Vault) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | (none) | service-account key file; enables `gcp:` (Secret Manager) |
