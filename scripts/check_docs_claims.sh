@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S17, SEC-004).
+# check_docs_claims.sh — docs/claims drift gate (DOCS-S01..S18, SEC-004).
 #
 # The audit confirmed a set of HONEST-CLAIM strengths: the default AI is the
 # air-gapped builtin, there is no vendor-telemetry egress in the source, no
@@ -221,6 +221,19 @@ run_checks() { # run_checks <root>
     echo "DOCS-S17: eval viewer must gate success on readiness plus non-empty sample topology data" >&2; f=1
   fi
 
+  # DOCS-S18: evidence consolidation is implemented; incident-duration
+  # improvement is not yet measured. MTTI/MTTR language must preserve that
+  # boundary until a customer or reproducible proof-of-value receipt exists.
+  if grep -niEi 'shorter[^.]{0,40}MTTI|lower[^.]{0,40}MTTR|faster[ -]time[- ]to[- ](identify|resolve)' \
+       "$r/README.md" "$r/docs/alerting.md" "$r/docs/ai-rca.md" 2>/dev/null | grep -q .; then
+    echo "DOCS-S18: unmeasured MTTI/MTTR improvement stated as an outcome" >&2; f=1
+  fi
+  if ! grep -q 'design intent, not a measured outcome' "$r/README.md" 2>/dev/null \
+     || ! grep -q 'design intent, not a measured outcome' "$r/docs/alerting.md" 2>/dev/null \
+     || ! grep -q 'design intent, not a measured' "$r/docs/ai-rca.md" 2>/dev/null; then
+    echo "DOCS-S18: MTTI/MTTR language must distinguish design intent from measured outcomes" >&2; f=1
+  fi
+
   # SEC-004: SECURITY.md scopes provider-operator break-glass abuse as in-scope.
   if [ -f "$r/SECURITY.md" ] \
      && ! grep -qi 'break-glass-gate bypass' "$r/SECURITY.md"; then
@@ -360,12 +373,19 @@ EOF
 The viewer waits for control-plane readiness and sample topology data.
 docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
 EOF
+  cat > "$d/docs/alerting.md" <<'EOF'
+Reducing MTTI or MTTR is a design intent, not a measured outcome.
+EOF
+  cat > "$d/docs/ai-rca.md" <<'EOF'
+Reducing MTTI or MTTR is a design intent, not a measured outcome.
+EOF
   cat > "$d/deploy/compose/README.md" <<'EOF'
 The viewer waits for control-plane readiness and sample topology data.
 EOF
   cat >> "$d/README.md" <<'EOF'
 The viewer waits for control-plane readiness and sample topology data.
 docker compose -f deploy/compose/eval.yml --profile tools run --rm --no-deps viewer
+Reducing MTTI or MTTR is a design intent, not a measured outcome.
 EOF
   cat > "$d/deploy/compose/eval.yml" <<'EOF'
 services:
@@ -488,6 +508,11 @@ EOF
 First data arrives in ~60 seconds.
 EOF
       ;;
+    DOCS-S18)
+      cat >> "$d/README.md" <<'EOF'
+The product delivers shorter MTTI and faster time-to-resolve.
+EOF
+      ;;
     SEC-004)
       echo '# scope' > "$d/SECURITY.md"
       ;;
@@ -521,7 +546,7 @@ expect_label_failure() { # expect_label_failure <label>
 }
 
 if [ "${1:-}" = "SELFTEST" ]; then
-  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 DOCS-S17 SEC-004}"
+  labels="${2:-DOCS-S01 DOCS-S02 DOCS-S03 DOCS-S04 DOCS-S05 DOCS-S06 DOCS-S07 DOCS-S08 DOCS-S09 DOCS-S10 DOCS-S11 DOCS-S12 DOCS-S13 DOCS-S14 DOCS-S15 DOCS-S16 DOCS-S17 DOCS-S18 SEC-004}"
   for label in $labels; do
     expect_label_failure "$label"
   done
@@ -531,4 +556,4 @@ fi
 
 run_checks "." || fail=1
 if [ "$fail" -ne 0 ]; then exit 1; fi
-echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S17, SEC-004)"
+echo "check_docs_claims: all honest-claim properties hold (DOCS-S01..S18, SEC-004)"
