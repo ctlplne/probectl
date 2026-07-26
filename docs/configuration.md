@@ -309,6 +309,22 @@ Crucially, the agent does **not** configure its own tenant or id: those come fro
 its mTLS client certificate (above), so you can't accidentally point an agent at
 the wrong tenant by editing a file.
 
+`agent.labels` is a bounded map of operator-declared local placement metadata.
+Set at least `region` and `site` when you want the native Targets coverage
+cockpit to group the vantage. Labels travel only on the authenticated mTLS
+registration RPC and are stored inside the agent's forced-RLS tenant row; they
+never select a tenant. Keys are normalized to lower case (maximum 32 labels,
+63-byte keys, 128-byte values). probectl never infers these values from an IP
+address and never calls a geolocation service.
+
+```yaml
+agent:
+  capabilities: ["icmp", "tcp", "dns", "http"]
+  labels:
+    region: eu-west
+    site: dub-1
+```
+
 A handful of env vars override individual YAML fields — useful in containers where
 mounting a full file is awkward:
 

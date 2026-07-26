@@ -29,6 +29,9 @@ identity:
 
 agent:
   capabilities: ["http"]
+  labels:
+    region: eval
+    site: local-compose
   heartbeat_interval: 30s
 
 canaries:

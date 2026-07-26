@@ -723,6 +723,16 @@ func TestCLIBGPSetupSurfaceRegistersBGPSource(t *testing.T) {
 	}
 }
 
+func TestCLICoverageSurfaceIsReadOnly(t *testing.T) {
+	op, ok := surfaceCommands["coverage"].Ops["vantages"]
+	if !ok {
+		t.Fatal("missing probectl coverage vantages surface")
+	}
+	if op.Method != http.MethodGet || op.Path != "/v1/coverage/vantages" {
+		t.Fatalf("coverage vantages op = %+v, want GET /v1/coverage/vantages", op)
+	}
+}
+
 func TestCLIDeviceSurfaceListAndMetrics(t *testing.T) {
 	if got := surfaceCommands["device"].Ops["list"]; got.Method != http.MethodGet || got.Path != "/v1/devices" {
 		t.Fatalf("device list op = %+v, want GET /v1/devices", got)

@@ -158,7 +158,8 @@ func jittered(d time.Duration) time.Duration {
 func (a *Agent) session(ctx context.Context, client *Client) error {
 	rctx, cancel := context.WithTimeout(ctx, registerTimeout)
 	resp, err := client.Register(rctx, &agentv1.RegisterRequest{
-		Hostname: a.cfg.Agent.Hostname, AgentVersion: version.Get().Version, Capabilities: a.cfg.Agent.Capabilities,
+		Hostname: a.cfg.Agent.Hostname, AgentVersion: version.Get().Version,
+		Capabilities: a.cfg.Agent.Capabilities, Labels: a.cfg.Agent.Labels,
 	})
 	cancel()
 	if err != nil {

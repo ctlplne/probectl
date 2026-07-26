@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/imfeelingtheagi/probectl/internal/a2a"
+	"github.com/imfeelingtheagi/probectl/internal/agentlabel"
 	"github.com/imfeelingtheagi/probectl/internal/bus"
 	"github.com/imfeelingtheagi/probectl/internal/crypto"
 	agentv1 "github.com/imfeelingtheagi/probectl/internal/gen/probectl/agent/v1"
@@ -109,6 +110,10 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 	if name == "" {
 		name = id.AgentID
 	}
+	labels, err := agentlabel.Normalize(req.GetLabels())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 	var agent *store.Agent
 	var quotaErr error
 	err = tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(id.TenantID)), svc.pool,
@@ -122,8 +127,8 @@ func (svc *service) Register(ctx context.Context, req *agentv1.RegisterRequest) 
 					return qerr
 				}
 			}
-			a, e := svc.agents.Register(ctx, s, id.AgentID, name, req.GetHostname(),
-				req.GetAgentVersion(), id.String(), req.GetCapabilities())
+			a, e := svc.agents.RegisterWithLabels(ctx, s, id.AgentID, name, req.GetHostname(),
+				req.GetAgentVersion(), id.String(), req.GetCapabilities(), labels)
 			agent = a
 			return e
 		})

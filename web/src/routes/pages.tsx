@@ -28,6 +28,7 @@ import {
 import { classifySurfaceTruth } from '../components'
 import { useCreateTest, useDeleteTest, useTests, type Test } from '../api/tests'
 import { AuthoringPanel } from './AuthoringPanel'
+import { CoveragePanel } from './CoveragePanel'
 import { ResultDetail } from './ResultDetail'
 import { FilterBar, SavedViews } from './listControls'
 import { filterValue, filtersForSave, setURLFilters } from './urlFilters'
@@ -401,6 +402,8 @@ export function TargetsPage() {
           )}
         </CardBody>
       </Card>
+
+      <CoveragePanel />
 
       <AuthoringPanel />
 

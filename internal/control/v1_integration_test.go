@@ -93,6 +93,75 @@ func TestFleetHealthTenantIsolation(t *testing.T) {
 	}
 }
 
+func TestCoverageAPITenantIsolation(t *testing.T) {
+	latest := NewLatestResults(20)
+	h, db := setupAPIWithLatest(t, latest)
+	ctx := context.Background()
+
+	type fixture struct {
+		tenantID string
+		agentID  string
+		target   string
+		region   string
+		site     string
+	}
+	seed := func(prefix string, observedAt time.Time) fixture {
+		t.Helper()
+		tenant, err := store.NewTenants(db.Pool()).Create(
+			ctx, fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano()), prefix,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := fixture{
+			tenantID: tenant.ID, agentID: uuid(t), target: prefix + ".example:443",
+			region: prefix + "-region", site: prefix + "-site",
+		}
+		if err := tenancy.InTenant(tenancy.WithTenant(ctx, tenancy.ID(tenant.ID)), db.Pool(),
+			func(ctx context.Context, scope tenancy.Scope) error {
+				if _, err := (store.Tests{}).Create(ctx, scope, store.TestInput{
+					Name: prefix + "-test", Type: "tcp", Target: f.target,
+					IntervalSeconds: 60, TimeoutSeconds: 5, Enabled: true,
+				}); err != nil {
+					return err
+				}
+				_, err := (store.Agents{}).RegisterWithLabels(
+					ctx, scope, f.agentID, prefix+"-agent", prefix+"-host", "0.6.0",
+					"spiffe://probectl/tenant/"+tenant.ID+"/agent/"+f.agentID,
+					[]string{"tcp"}, map[string]string{"region": f.region, "site": f.site},
+				)
+				return err
+			}); err != nil {
+			t.Fatal(err)
+		}
+		latest.Record(tenant.ID, ResultView{
+			AgentID: f.agentID, Type: "tcp", Target: f.target, ObservedAt: observedAt,
+		})
+		return f
+	}
+
+	aTime := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	bTime := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	a := seed("coverage-api-a", aTime)
+	b := seed("coverage-api-b", bTime)
+
+	rec := apiReq(t, h, http.MethodGet, "/v1/coverage/vantages", a.tenantID, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("coverage = %d: %s", rec.Code, rec.Body)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{a.target, a.region, a.site, aTime.Format(time.RFC3339)} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("coverage response missing tenant A evidence %q: %s", want, body)
+		}
+	}
+	for _, denied := range []string{b.target, b.region, b.site, bTime.Format(time.RFC3339)} {
+		if strings.Contains(body, denied) {
+			t.Fatalf("coverage response leaked tenant B evidence %q: %s", denied, body)
+		}
+	}
+}
+
 func setupAPIWithLatest(t *testing.T, latest *LatestResults) (http.Handler, *store.DB) {
 	t.Helper()
 	ctx := context.Background()

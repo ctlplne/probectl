@@ -14,6 +14,7 @@ export interface Agent {
   agent_version: string
   status: 'registered' | 'online' | 'offline'
   capabilities: string[]
+  labels?: Record<string, string>
   last_seen_at?: string
   heartbeat_age_seconds?: number
   heartbeat_state?: 'ready' | 'stale' | 'never_seen'

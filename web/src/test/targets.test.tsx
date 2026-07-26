@@ -11,6 +11,96 @@ import { renderApp } from './renderApp'
 import { jsonResponse, pathOf } from './fetchStub'
 
 describe('Targets & Tests (live /v1/tests CRUD)', () => {
+  test('renders and filters honest owned-vantage states without mutating', async () => {
+    const user = userEvent.setup()
+    const tests = [
+      {
+        id: 't1',
+        name: 'edge-dns',
+        type: 'dns',
+        target: '1.1.1.1',
+        interval_seconds: 60,
+        timeout_seconds: 3,
+        params: {},
+        enabled: true,
+        created_at: '',
+        updated_at: '',
+      },
+    ]
+    const coverage = [
+      {
+        test_id: 't1',
+        test_name: 'edge-dns',
+        region: 'eu-west',
+        site: 'dub-1',
+        agent_readiness: 'ready',
+        agent_count: 1,
+        ready_agent_count: 1,
+        probe_family: 'dns',
+        target: '1.1.1.1',
+        last_evidence_at: '2026-07-26T11:59:00Z',
+        independent_vantage_count: 1,
+        stale_after_seconds: 300,
+        status: 'non_redundant',
+        next_action: {
+          kind: 'author_test',
+          label: 'Author another test',
+          href: '/targets?create=test',
+        },
+      },
+      {
+        test_id: 't2',
+        test_name: 'apac-api',
+        region: 'ap-south',
+        site: 'unlabeled',
+        agent_readiness: 'unavailable',
+        agent_count: 0,
+        ready_agent_count: 0,
+        probe_family: 'http',
+        target: 'https://api.example',
+        independent_vantage_count: 0,
+        stale_after_seconds: 300,
+        status: 'uncovered',
+        next_action: {
+          kind: 'enroll_vantage',
+          label: 'Enroll or restore a vantage',
+          href: '/admin',
+        },
+      },
+    ]
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = pathOf(input)
+        if (path === '/v1/tests') return jsonResponse({ items: tests })
+        if (path === '/v1/coverage/vantages')
+          return jsonResponse({
+            items: coverage,
+            as_of: '2026-07-26T12:00:00Z',
+            evidence_running: true,
+            candidate_limit: 5000,
+            truncated: false,
+          })
+        if (path === '/v1/ai/discover') return jsonResponse({ proposals: [] })
+        return jsonResponse({ error: { code: 'x', message: 'no route' } }, 404)
+      }),
+    )
+
+    renderApp('/targets')
+    const matrix = await screen.findByRole('table', { name: /owned-vantage coverage matrix/i })
+    expect(within(matrix).getByText('Non-redundant')).toBeInTheDocument()
+    expect(within(matrix).getByText('Uncovered')).toBeInTheDocument()
+    expect(within(matrix).getByText('Never')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Coverage state'), 'uncovered')
+    expect(within(matrix).getByText('apac-api')).toBeInTheDocument()
+    expect(within(matrix).queryByText('edge-dns')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('Coverage state'), 'all')
+    await user.click(screen.getByRole('button', { name: 'Author another test' }))
+    expect(await screen.findByRole('dialog', { name: /create test/i })).toBeInTheDocument()
+  })
+
   test('lists, creates, and deletes tests through the UI', async () => {
     const user = userEvent.setup()
     let tests = [

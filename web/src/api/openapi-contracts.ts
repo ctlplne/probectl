@@ -8,6 +8,7 @@ import type * as Agents from './agents'
 import type * as AI from './ai'
 import type * as Alerts from './alerts'
 import type * as Authoring from './authoring'
+import type * as Coverage from './coverage'
 import type * as DashboardReporting from './dashboardReporting'
 import type * as Identity from './identity'
 import type * as Incidents from './incidents'
@@ -27,6 +28,13 @@ export interface APICallContract {
 }
 
 export const API_CALL_CONTRACTS = [
+  {
+    file: 'api/coverage.ts',
+    method: 'GET',
+    path: '/coverage/vantages',
+    response: 'CoverageMatrixResponse',
+    generated: 'ListVantageCoverageResponse',
+  },
   {
     file: 'api/agents.ts',
     method: 'GET',
@@ -744,6 +752,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
   agent: true,
   collectorRegisterRequest: true,
   collectorRegistration: true,
+  coverageMatrixItem: true,
   onboardingProgress: true,
   aiAnswer: true,
   alertRule: true,
@@ -790,6 +799,7 @@ export const OPENAPI_TYPE_CONTRACTS = {
     SDK.CollectorRegistration,
     Agents.CollectorRegistration
   >
+  coverageMatrixItem: GeneratedHasViewKeys<SDK.CoverageMatrixItem, Coverage.CoverageMatrixItem>
   onboardingProgress: GeneratedHasViewKeys<SDK.OnboardingProgress, Agents.OnboardingProgress>
   aiAnswer: GeneratedHasViewKeys<SDK.AIAnswer, AI.Answer>
   alertRule: GeneratedHasViewKeys<SDK.AlertRule, Alerts.AlertRule>

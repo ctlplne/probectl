@@ -13,6 +13,7 @@ tls:
 agent:
   hostname: ""                             # defaults to the OS hostname
   capabilities: []
+  labels: {}                               # local region/site declarations; no geo lookup
   heartbeat_interval: 30s
 artifact_store:
   dir: ""                                  # optional: browser artifacts under tenant/<id>/browser/

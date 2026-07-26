@@ -3953,6 +3953,61 @@
         }
       }
     },
+    "/v1/coverage/vantages": {
+      "get": {
+        "operationId": "listVantageCoverage",
+        "summary": "List the tenant's owned-vantage coverage matrix",
+        "description": "Returns a read-only matrix derived only from authenticated agent placement labels, enabled test definitions, and the caller tenant's bounded latest-result partition. Region and site are operator declarations; the server performs no IP geolocation or network lookup. No evidence is uncovered, old evidence is stale, and one independent vantage is non_redundant. The endpoint never enrolls an agent or creates a test.",
+        "tags": [
+          "tests",
+          "agents"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TenantHeader"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Maximum agent-test candidate rows considered before aggregation.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5000,
+              "default": 5000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A bounded tenant-scoped coverage snapshot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageMatrixResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The principal lacks test.read or agent.read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "x-probectl-pagination": {
+          "mode": "bounded",
+          "max_items": 5000,
+          "reason": "The storage query caps the tenant-constrained agent-test candidate product and reports truncation explicitly."
+        }
+      }
+    },
     "/v1/cost/summary": {
       "get": {
         "operationId": "getCostSummary",
@@ -8208,6 +8263,16 @@
               "type": "string"
             }
           },
+          "labels": {
+            "type": "object",
+            "description": "Bounded operator-supplied local metadata reported on the authenticated agent channel. region and site drive the owned-vantage coverage matrix; no geolocation lookup is performed.",
+            "maxProperties": 32,
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
           "spiffe_id": {
             "type": "string"
           },
@@ -8229,7 +8294,8 @@
           "tenant_id",
           "name",
           "status",
-          "capabilities"
+          "capabilities",
+          "labels"
         ]
       },
       "AgentPatch": {
@@ -11647,6 +11713,144 @@
           "clickhouse_residency_plane_configured"
         ],
         "additionalProperties": false
+      },
+      "CoverageNextAction": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "enroll_vantage",
+              "author_test"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "href"
+        ]
+      },
+      "CoverageMatrixItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "test_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "test_name": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          },
+          "agent_readiness": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "degraded",
+              "unavailable"
+            ]
+          },
+          "agent_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ready_agent_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "probe_family": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "last_evidence_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "independent_vantage_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "stale_after_seconds": {
+            "type": "integer",
+            "minimum": 300
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "uncovered",
+              "stale",
+              "non_redundant",
+              "covered"
+            ]
+          },
+          "next_action": {
+            "$ref": "#/components/schemas/CoverageNextAction"
+          }
+        },
+        "required": [
+          "test_id",
+          "test_name",
+          "region",
+          "site",
+          "agent_readiness",
+          "agent_count",
+          "ready_agent_count",
+          "probe_family",
+          "target",
+          "independent_vantage_count",
+          "stale_after_seconds",
+          "status"
+        ]
+      },
+      "CoverageMatrixResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 5000,
+            "items": {
+              "$ref": "#/components/schemas/CoverageMatrixItem"
+            }
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evidence_running": {
+            "type": "boolean"
+          },
+          "candidate_limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5000
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "as_of",
+          "evidence_running",
+          "candidate_limit",
+          "truncated"
+        ]
       },
       "CollectorRegisterRequest": {
         "type": "object",

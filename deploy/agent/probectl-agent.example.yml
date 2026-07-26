@@ -23,6 +23,11 @@ tls:
 agent:
   # hostname defaults to the OS hostname.
   capabilities: ["noop", "icmp", "tcp", "udp", "dns", "http", "browser", "a2a"]
+  # Operator-declared placement metadata for the local coverage cockpit. These
+  # values are never inferred from IP addresses or sent to a geo service.
+  labels:
+    region: us-east
+    site: iad-branch-07
   heartbeat_interval: 30s
 
 buffer:

@@ -63,6 +63,10 @@ coverage-map review, probe-pack templates, and MSP resale guidance — use
 vendor-owned global probe fleets: the probes are yours, the custody boundary is
 yours, and the coverage map says where you do and do not have eyes.
 
+The map is native: Targets → **Owned-vantage coverage**, backed by
+`GET /v1/coverage/vantages` and `probectl coverage vantages`. It needs no
+Grafana/Perses runtime, IP-geolocation feed, or vendor probe fleet.
+
 ## How it works
 
 The control plane never goes out and measures the network itself; it

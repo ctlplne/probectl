@@ -18,17 +18,18 @@ import (
 // Agent is a registered agent. It is tenant-bound (F50): its id and tenant come
 // from its mTLS certificate's SPIFFE identity.
 type Agent struct {
-	ID           string     `json:"id"`
-	TenantID     string     `json:"tenant_id"`
-	Name         string     `json:"name"`
-	Hostname     string     `json:"hostname"`
-	AgentVersion string     `json:"agent_version"`
-	Status       string     `json:"status"`
-	Capabilities []string   `json:"capabilities"`
-	SPIFFEID     string     `json:"spiffe_id"`
-	RegisteredAt time.Time  `json:"registered_at"`
-	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	ID           string            `json:"id"`
+	TenantID     string            `json:"tenant_id"`
+	Name         string            `json:"name"`
+	Hostname     string            `json:"hostname"`
+	AgentVersion string            `json:"agent_version"`
+	Status       string            `json:"status"`
+	Capabilities []string          `json:"capabilities"`
+	Labels       map[string]string `json:"labels"`
+	SPIFFEID     string            `json:"spiffe_id"`
+	RegisteredAt time.Time         `json:"registered_at"`
+	LastSeenAt   *time.Time        `json:"last_seen_at,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
 }
 
 // Agents is the tenant-scoped agent registry.
@@ -46,17 +47,23 @@ type ProducerReadiness struct {
 }
 
 const agentCols = `id::text, tenant_id::text, name, hostname, agent_version, status,
-	capabilities, spiffe_id, registered_at, last_seen_at, created_at`
+	capabilities, labels, spiffe_id, registered_at, last_seen_at, created_at`
 
 func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
-	var caps []byte
+	var caps, labels []byte
 	if err := row.Scan(&a.ID, &a.TenantID, &a.Name, &a.Hostname, &a.AgentVersion, &a.Status,
-		&caps, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt); err != nil {
+		&caps, &labels, &a.SPIFFEID, &a.RegisteredAt, &a.LastSeenAt, &a.CreatedAt); err != nil {
 		return err
 	}
 	a.Capabilities = []string{}
+	a.Labels = map[string]string{}
 	if len(caps) > 0 {
 		if err := json.Unmarshal(caps, &a.Capabilities); err != nil {
+			return err
+		}
+	}
+	if len(labels) > 0 {
+		if err := json.Unmarshal(labels, &a.Labels); err != nil {
 			return err
 		}
 	}
@@ -68,6 +75,13 @@ func scanAgent(row interface{ Scan(...any) error }, a *Agent) error {
 // tenant are authoritative (from the verified certificate), so this can never
 // write into another tenant: RLS confines the row to s.Tenant.
 func (Agents) Register(ctx context.Context, s tenancy.Scope, id, name, hostname, version, spiffeID string, capabilities []string) (*Agent, error) {
+	return (Agents{}).RegisterWithLabels(ctx, s, id, name, hostname, version, spiffeID, capabilities, nil)
+}
+
+// RegisterWithLabels is Register plus bounded, operator-supplied placement
+// metadata. The authenticated mTLS identity remains authoritative for tenant
+// and agent id; labels can describe a vantage but can never select a tenant.
+func (Agents) RegisterWithLabels(ctx context.Context, s tenancy.Scope, id, name, hostname, version, spiffeID string, capabilities []string, labels map[string]string) (*Agent, error) {
 	if capabilities == nil {
 		capabilities = []string{}
 	}
@@ -75,16 +89,24 @@ func (Agents) Register(ctx context.Context, s tenancy.Scope, id, name, hostname,
 	if err != nil {
 		return nil, err
 	}
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	labelJSON, err := json.Marshal(labels)
+	if err != nil {
+		return nil, err
+	}
 	var a Agent
 	err = scanAgent(s.Q.QueryRow(ctx,
-		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, spiffe_id, last_seen_at)
-		 VALUES ($1, $2, $3, $4, $5, 'online', $6::jsonb, $7, now())
+		`INSERT INTO agents (id, tenant_id, name, hostname, agent_version, status, capabilities, labels, spiffe_id, last_seen_at)
+		 VALUES ($1, $2, $3, $4, $5, 'online', $6::jsonb, $7::jsonb, $8, now())
 		 ON CONFLICT (id) DO UPDATE SET
 		   name = EXCLUDED.name, hostname = EXCLUDED.hostname, agent_version = EXCLUDED.agent_version,
-		   status = 'online', capabilities = EXCLUDED.capabilities, spiffe_id = EXCLUDED.spiffe_id,
+		   status = 'online', capabilities = EXCLUDED.capabilities, labels = EXCLUDED.labels,
+		   spiffe_id = EXCLUDED.spiffe_id,
 		   last_seen_at = now()
 		 RETURNING `+agentCols,
-		id, s.Tenant.String(), name, hostname, version, string(caps), spiffeID), &a)
+		id, s.Tenant.String(), name, hostname, version, string(caps), string(labelJSON), spiffeID), &a)
 	if err != nil {
 		return nil, err
 	}

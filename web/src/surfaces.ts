@@ -155,6 +155,21 @@ export const SURFACES: SurfaceDecl[] = [
     liveReceipt: STATIC_NATIVE_RECEIPT,
   },
   {
+    capability: 'Owned-vantage coverage gaps from local agent labels and result recency',
+    featureIds: ['PLANE_ACTIVE_SYNTHETIC', 'F1'],
+    sprint: 'I-02506421',
+    kind: 'native',
+    route: '/targets',
+    offNav: true,
+    evidence: [
+      'openapi:/v1/coverage/vantages',
+      'cli:probectl coverage vantages',
+      'file:web/src/routes/CoveragePanel.tsx',
+      'file:docs/outside-in.md',
+    ],
+    liveReceipt: STATIC_NATIVE_RECEIPT,
+  },
+  {
     capability: 'First-run tenant onboarding: enroll agent, create test, invite teammates',
     featureIds: ['F1', 'F2', 'F25'],
     sprint: 'JOURNEY-001',

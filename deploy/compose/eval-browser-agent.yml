@@ -15,6 +15,9 @@ identity:
 
 agent:
   capabilities: ["browser-rendered"]
+  labels:
+    region: eval
+    site: local-browser
   heartbeat_interval: 30s
 
 buffer:

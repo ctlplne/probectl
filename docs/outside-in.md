@@ -59,16 +59,27 @@ POST /v1/a2a/mesh
 The tenant is still the authenticated caller's tenant, never a body field. Site
 labels shape the matrix; they do not create a security boundary.
 
-## Coverage map
+## Native coverage cockpit
 
-The coverage map is the part that keeps the story honest. It answers three
+Targets → **Owned-vantage coverage** is the live, read-only coverage map. It is
+served by `GET /v1/coverage/vantages` (or
+`probectl coverage vantages --json`) and derives each row locally from the
+authenticated agent registry, enabled test definitions, and bounded latest
+result evidence. It answers three
 questions:
 
 1. Which regions and sites have at least one enrolled canary agent?
 2. Which probe packs run from each site?
 3. Which important targets have at least two independent vantages?
 
-Use this minimum table in runbooks and buyer reviews:
+The API and native table report `uncovered` when there is no evidence, `stale`
+after the larger of three test intervals or five minutes, `non_redundant` for
+one fresh independent agent, and `covered` for two or more. Agent readiness is a
+separate field, so an online agent cannot make missing result evidence look
+green. Filters are keyboard-accessible and every next action only opens the
+existing enrollment or test-authoring flow; it never mutates the fleet.
+
+Use this exported shape in runbooks and buyer reviews:
 
 | Region | Site | Agent id | Probe packs | Targets covered | Gap |
 |---|---|---|---|---|---|
@@ -77,6 +88,8 @@ Use this minimum table in runbooks and buyer reviews:
 | `ap-south` | `_none_` | `_none_` | `_none_` | `_none_` | uncovered; do not claim APAC outside-in coverage |
 
 The rule is blunt: a row with `_none_` is a known blind spot, not a green cell.
+`truncated: true` means the candidate join reached its 5,000-row safety bound and
+the snapshot must not be treated as complete.
 The `/v1/outages` response follows the same honesty rule with coverage notes:
 coverage is your vantage points plus public open data, not a vendor-owned global
 fleet.

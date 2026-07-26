@@ -55,6 +55,7 @@ const sampleAgents = [
     agent_version: '0.1.0',
     status: 'online',
     capabilities: ['icmp', 'tcp', 'flow', 'device', 'ebpf', 'endpoint'],
+    labels: { region: 'us-east', site: 'iad-1' },
     spiffe_id: `spiffe://probectl/tenant/${TENANT_ID}/agent/${AGENT_ID}`,
     registered_at: '2026-01-01T00:00:00Z',
     last_seen_at: '2026-06-04T12:00:00Z',
@@ -495,6 +496,14 @@ function coldFixture(path: string): Response | null {
       return jsonResponse({ items: [], control_version: '0.1.0', rollouts_available: true })
     case '/v1/results/latest':
       return jsonResponse({ items: [], collector_running: true })
+    case '/v1/coverage/vantages':
+      return jsonResponse({
+        items: [],
+        as_of: '2026-06-04T12:00:00Z',
+        evidence_running: true,
+        candidate_limit: 5000,
+        truncated: false,
+      })
     case '/v1/results/history':
       return jsonResponse({ items: [], collector_running: true, window: '1h0m0s' })
     case '/v1/alerts/active':
@@ -556,6 +565,35 @@ export function fixtureFetch(profile: FixtureProfile = 'populated'): typeof fetc
         permissions: [],
       })
     if (path === '/v1/tests') return jsonResponse({ items: sampleTests })
+    if (path === '/v1/coverage/vantages')
+      return jsonResponse({
+        items: [
+          {
+            test_id: EDGE_DNS_TEST_ID,
+            test_name: 'edge-dns',
+            region: 'us-east',
+            site: 'iad-1',
+            agent_readiness: 'ready',
+            agent_count: 1,
+            ready_agent_count: 1,
+            probe_family: 'dns',
+            target: '1.1.1.1',
+            last_evidence_at: '2026-06-04T12:00:00Z',
+            independent_vantage_count: 1,
+            stale_after_seconds: 300,
+            status: 'non_redundant',
+            next_action: {
+              kind: 'author_test',
+              label: 'Author another test',
+              href: '/targets?create=test',
+            },
+          },
+        ],
+        as_of: '2026-06-04T12:00:00Z',
+        evidence_running: true,
+        candidate_limit: 5000,
+        truncated: false,
+      })
     // UX-004: useAgents pages with ?after=&limit=; the query is dropped by
     // pathOf, so the exact path matches regardless. Return one (final) page.
     if (path === '/v1/agents')

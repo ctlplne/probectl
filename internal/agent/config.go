@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/imfeelingtheagi/probectl/internal/agentlabel"
 	"github.com/imfeelingtheagi/probectl/internal/configschema"
 )
 
@@ -139,9 +140,10 @@ type TLSConfig struct {
 
 // Meta is agent-level metadata.
 type Meta struct {
-	Hostname          string   `yaml:"hostname"`
-	Capabilities      []string `yaml:"capabilities"`
-	HeartbeatInterval Duration `yaml:"heartbeat_interval"`
+	Hostname          string            `yaml:"hostname"`
+	Capabilities      []string          `yaml:"capabilities"`
+	Labels            map[string]string `yaml:"labels,omitempty"`
+	HeartbeatInterval Duration          `yaml:"heartbeat_interval"`
 }
 
 // BufferConfig is the store-and-forward buffer.
@@ -323,6 +325,11 @@ func (c *Config) validate() error {
 	if c.Buffer.DrainPace < 0 {
 		return fmt.Errorf("config: buffer.drain_pace must be >= 0")
 	}
+	labels, err := agentlabel.Normalize(c.Agent.Labels)
+	if err != nil {
+		return fmt.Errorf("config: agent.labels: %w", err)
+	}
+	c.Agent.Labels = labels
 	if c.Identity.Server != "" {
 		if _, err := enrollmentEndpoint(c.Identity.Server, "/enroll/agent/rotate", false); err != nil {
 			return fmt.Errorf("config: identity.server: %w", err)

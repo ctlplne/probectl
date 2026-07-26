@@ -86,6 +86,28 @@ tls:
 	}
 }
 
+func TestConfigLoadsAndNormalizesLocalPlacementLabels(t *testing.T) {
+	path := writeAgentConfig(t, `
+control_plane:
+  grpc_addr: control:9443
+tls:
+  cert_file: cert.pem
+  key_file: key.pem
+  ca_file: ca.pem
+agent:
+  labels:
+    Region: " eu-west "
+    site: dub-1
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.Labels["region"] != "eu-west" || cfg.Agent.Labels["site"] != "dub-1" {
+		t.Fatalf("labels = %#v", cfg.Agent.Labels)
+	}
+}
+
 func TestShippedAgentConfigsLoadStrictly(t *testing.T) {
 	for _, path := range []string{
 		filepath.Join("..", "..", "deploy", "agent", "probectl-agent.example.yml"),

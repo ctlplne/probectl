@@ -170,17 +170,18 @@ type AIReasoningProvenance struct {
 }
 
 type Agent struct {
-	AgentVersion string   `json:"agent_version,omitempty"`
-	Capabilities []string `json:"capabilities"`
-	CreatedAt    string   `json:"created_at,omitempty"`
-	Hostname     string   `json:"hostname,omitempty"`
-	Id           string   `json:"id"`
-	LastSeenAt   string   `json:"last_seen_at,omitempty"`
-	Name         string   `json:"name"`
-	RegisteredAt string   `json:"registered_at,omitempty"`
-	SpiffeId     string   `json:"spiffe_id,omitempty"`
-	Status       string   `json:"status"`
-	TenantId     string   `json:"tenant_id"`
+	AgentVersion string            `json:"agent_version,omitempty"`
+	Capabilities []string          `json:"capabilities"`
+	CreatedAt    string            `json:"created_at,omitempty"`
+	Hostname     string            `json:"hostname,omitempty"`
+	Id           string            `json:"id"`
+	Labels       map[string]string `json:"labels"`
+	LastSeenAt   string            `json:"last_seen_at,omitempty"`
+	Name         string            `json:"name"`
+	RegisteredAt string            `json:"registered_at,omitempty"`
+	SpiffeId     string            `json:"spiffe_id,omitempty"`
+	Status       string            `json:"status"`
+	TenantId     string            `json:"tenant_id"`
 }
 
 type AgentList struct {
@@ -365,6 +366,37 @@ type CollectorRegistration struct {
 	Hostname     string              `json:"hostname,omitempty"`
 	Plane        string              `json:"plane"`
 	TenantId     string              `json:"tenant_id"`
+}
+
+type CoverageMatrixItem struct {
+	AgentCount              int                `json:"agent_count"`
+	AgentReadiness          string             `json:"agent_readiness"`
+	IndependentVantageCount int                `json:"independent_vantage_count"`
+	LastEvidenceAt          string             `json:"last_evidence_at,omitempty"`
+	NextAction              CoverageNextAction `json:"next_action,omitempty"`
+	ProbeFamily             string             `json:"probe_family"`
+	ReadyAgentCount         int                `json:"ready_agent_count"`
+	Region                  string             `json:"region"`
+	Site                    string             `json:"site"`
+	StaleAfterSeconds       int                `json:"stale_after_seconds"`
+	Status                  string             `json:"status"`
+	Target                  string             `json:"target"`
+	TestId                  string             `json:"test_id"`
+	TestName                string             `json:"test_name"`
+}
+
+type CoverageMatrixResponse struct {
+	AsOf            string               `json:"as_of"`
+	CandidateLimit  int                  `json:"candidate_limit"`
+	EvidenceRunning bool                 `json:"evidence_running"`
+	Items           []CoverageMatrixItem `json:"items"`
+	Truncated       bool                 `json:"truncated"`
+}
+
+type CoverageNextAction struct {
+	Href  string `json:"href"`
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
 }
 
 type DashboardCreateRequest struct {
@@ -643,32 +675,33 @@ type ExplorerTemplate struct {
 }
 
 type FleetAgent struct {
-	AgentVersion        string          `json:"agent_version,omitempty"`
-	Capabilities        []string        `json:"capabilities"`
-	CreatedAt           string          `json:"created_at,omitempty"`
-	HeartbeatAgeSeconds int             `json:"heartbeat_age_seconds,omitempty"`
-	HeartbeatReason     string          `json:"heartbeat_reason"`
-	HeartbeatState      string          `json:"heartbeat_state"`
-	Hostname            string          `json:"hostname,omitempty"`
-	Id                  string          `json:"id"`
-	LastFailure         string          `json:"last_failure"`
-	LastSeenAt          string          `json:"last_seen_at,omitempty"`
-	Name                string          `json:"name"`
-	NextSafeAction      FleetSafeAction `json:"next_safe_action"`
-	ReadinessReason     string          `json:"readiness_reason"`
-	ReadinessState      string          `json:"readiness_state"`
-	RegisteredAt        string          `json:"registered_at,omitempty"`
-	RolloutCohort       string          `json:"rollout_cohort,omitempty"`
-	RolloutHaltReason   string          `json:"rollout_halt_reason,omitempty"`
-	RolloutHalted       bool            `json:"rollout_halted"`
-	RolloutId           string          `json:"rollout_id,omitempty"`
-	RolloutState        string          `json:"rollout_state,omitempty"`
-	RolloutTarget       string          `json:"rollout_target,omitempty"`
-	SpiffeId            string          `json:"spiffe_id,omitempty"`
-	Status              string          `json:"status"`
-	TenantId            string          `json:"tenant_id"`
-	VersionReason       string          `json:"version_reason"`
-	VersionState        string          `json:"version_state"`
+	AgentVersion        string            `json:"agent_version,omitempty"`
+	Capabilities        []string          `json:"capabilities"`
+	CreatedAt           string            `json:"created_at,omitempty"`
+	HeartbeatAgeSeconds int               `json:"heartbeat_age_seconds,omitempty"`
+	HeartbeatReason     string            `json:"heartbeat_reason"`
+	HeartbeatState      string            `json:"heartbeat_state"`
+	Hostname            string            `json:"hostname,omitempty"`
+	Id                  string            `json:"id"`
+	Labels              map[string]string `json:"labels"`
+	LastFailure         string            `json:"last_failure"`
+	LastSeenAt          string            `json:"last_seen_at,omitempty"`
+	Name                string            `json:"name"`
+	NextSafeAction      FleetSafeAction   `json:"next_safe_action"`
+	ReadinessReason     string            `json:"readiness_reason"`
+	ReadinessState      string            `json:"readiness_state"`
+	RegisteredAt        string            `json:"registered_at,omitempty"`
+	RolloutCohort       string            `json:"rollout_cohort,omitempty"`
+	RolloutHaltReason   string            `json:"rollout_halt_reason,omitempty"`
+	RolloutHalted       bool              `json:"rollout_halted"`
+	RolloutId           string            `json:"rollout_id,omitempty"`
+	RolloutState        string            `json:"rollout_state,omitempty"`
+	RolloutTarget       string            `json:"rollout_target,omitempty"`
+	SpiffeId            string            `json:"spiffe_id,omitempty"`
+	Status              string            `json:"status"`
+	TenantId            string            `json:"tenant_id"`
+	VersionReason       string            `json:"version_reason"`
+	VersionState        string            `json:"version_state"`
 }
 
 // Exactly one read-only, authorized next step. The action opens tenant-scoped evidence or the human-gated rollout runbook; it never updates an agent.
@@ -1996,6 +2029,24 @@ func (c *Client) GetCostSummary(ctx context.Context, req GetCostSummaryRequest) 
 		return nil, err
 	}
 	return out, nil
+}
+
+// List the tenant's owned-vantage coverage matrix
+type ListVantageCoverageRequest struct {
+	Limit *int `json:"-"`
+}
+
+func (c *Client) ListVantageCoverage(ctx context.Context, req ListVantageCoverageRequest) (*CoverageMatrixResponse, error) {
+	path := "/v1/coverage/vantages"
+	query := url.Values{}
+	if req.Limit != nil {
+		query.Set("limit", formatQueryValue(*req.Limit))
+	}
+	var out CoverageMatrixResponse
+	if err := c.doJSON(ctx, http.MethodGet, path, query, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 // List generated artifacts in the caller tenant's report inbox

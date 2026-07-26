@@ -106,6 +106,7 @@ export interface Agent {
   created_at?: string
   hostname?: string
   id: string
+  labels: { [key: string]: string }
   last_seen_at?: string
   name: string
   registered_at?: string
@@ -292,6 +293,37 @@ export interface CollectorRegistration {
   hostname?: string
   plane: "bgp" | "flow" | "device" | "ebpf" | "endpoint"
   tenant_id: string
+}
+
+export interface CoverageMatrixItem {
+  agent_count: number
+  agent_readiness: "ready" | "degraded" | "unavailable"
+  independent_vantage_count: number
+  last_evidence_at?: string
+  next_action?: CoverageNextAction
+  probe_family: string
+  ready_agent_count: number
+  region: string
+  site: string
+  stale_after_seconds: number
+  status: "uncovered" | "stale" | "non_redundant" | "covered"
+  target: string
+  test_id: string
+  test_name: string
+}
+
+export interface CoverageMatrixResponse {
+  as_of: string
+  candidate_limit: number
+  evidence_running: boolean
+  items: CoverageMatrixItem[]
+  truncated: boolean
+}
+
+export interface CoverageNextAction {
+  href: string
+  kind: "enroll_vantage" | "author_test"
+  label: string
 }
 
 export interface DashboardCreateRequest {
@@ -573,6 +605,7 @@ export interface FleetAgent {
   heartbeat_state: "ready" | "stale" | "never_seen"
   hostname?: string
   id: string
+  labels: { [key: string]: string }
   last_failure: string
   last_seen_at?: string
   name: string
@@ -1441,6 +1474,12 @@ export interface GetCostSummaryRequest {
 }
 
 export type GetCostSummaryResponse = JsonObject
+
+export interface ListVantageCoverageRequest {
+  limit?: number
+}
+
+export type ListVantageCoverageResponse = CoverageMatrixResponse
 
 export interface ListDashboardReportArtifactsRequest {
 }
@@ -2434,6 +2473,13 @@ export class ProbectlSDKClient {
     let path = "/v1/cost/summary"
     const query = new URLSearchParams()
     return this.requestJSON<GetCostSummaryResponse>("GET", path, query, undefined)
+  }
+
+  async listVantageCoverage(request: ListVantageCoverageRequest = {}): Promise<ListVantageCoverageResponse> {
+    let path = "/v1/coverage/vantages"
+    const query = new URLSearchParams()
+    if (request.limit !== undefined) query.set("limit", String(request.limit))
+    return this.requestJSON<ListVantageCoverageResponse>("GET", path, query, undefined)
   }
 
   async listDashboardReportArtifacts(): Promise<ListDashboardReportArtifactsResponse> {
